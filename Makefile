@@ -35,8 +35,8 @@ release:
 
 tarball: release
 	cd build && \
-	tar -cvf kfs.tar -C ./release ./bin ./lib ./include && \
-	tar -rvf kfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
+	tar -cvf qfs.tar -C ./release ./bin ./lib ./include && \
+	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
 	gzip qfs.tar
 
 debug:
