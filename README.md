@@ -9,10 +9,7 @@ Quick Links:
 
 * [Getting Started](http://github.com/quantcast/qfs/wiki)
 * [Repository Organization](https://github.com/quantcast/qfs/wiki/Repository-Organization)
-* [Required Packages]()
-* [Compiling QFS]()
-* [Installation]()
-
+* [Developer Documentation](https://github.com/quantcast/qfs/wiki/Developer-Documentation)
 
 Contributing to QFS
 ===================
