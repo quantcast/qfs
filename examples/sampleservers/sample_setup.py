@@ -230,6 +230,29 @@ Actions:
   stop      - stop meta and chunk servers
   uninstall - remove meta and chunk server directories after stopping them"""
 
+    sampleSession = """
+Hello World example of a client session:
+  # Install sample server setup, only needed once.
+  ./examples/sampleservers/sample_setup.py -a install
+  # Start QFS servers locally (1 metaserver, 2 chunkservers).
+  ./examples/sampleservers/sample_setup.py -a start
+  PATH=${PATH}:${PWD}/build/release/bin/tools
+  # Make temp directory.
+  kfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
+  # Create file containing Hello World, Reed-Solomon encoded, replication 1.
+  echo 'Hello World' \
+    | cptokfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
+  # Cat file content.
+  kfscat -s localhost -p 20000 /qfs/tmp/helloworld
+  # Stat file to see encoding (RS or not), replication level, mtime.
+  kfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
+  # Copy file locally to current directory.
+  cpfromkfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
+  # Remove file from QFS.
+  kfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
+  ./examples/sampleservers/sample_setup.py -a stop
+"""
+
     # an install sets up all config files and (re)starts the servers.
     # an uninstall stops the servers and removes the config files.
     # a stop stops the servers.
@@ -238,6 +261,7 @@ Actions:
     if opts.help:
         parser.print_help()
         print actions
+        print sampleSession
         print
         posix._exit(0)
 
@@ -259,6 +283,7 @@ Actions:
     if len(e) > 0:
         parser.print_help()
         print actions
+        print sampleSession
         print
         for error in e:
             print "*** %s" % error
