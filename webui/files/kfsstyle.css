@@ -1,0 +1,192 @@
+/*
+ * $Id$
+ *
+ * Copyright 2008-2011 Quantcast Corp.
+ *
+ * Author: Sriram Rao (Quantcast Corp.)
+ *
+ * This file is part of Kosmos File System (KFS).
+ *
+ * Licensed under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+ * implied. See the License for the specific language governing
+ * permissions and limitations under the License.
+ *
+ */
+
+body {
+	background:#FFFFFF;
+	margin: 0; 
+	padding: 0;
+	text-align: center; /* this centers the container in IE 5* browsers. The text is then set to the left aligned default in the #container selector */
+	color: #000000;
+}
+
+.theInputClr {
+        background:#E0F0FF;
+}
+.theBlueClr {
+        color:#001888;
+}
+.theRedClr {
+        color:#0000FF;
+        font-weight:bold;
+}    
+.oneColLiqCtr #container {
+	background:#F2F2F2;
+	margin: 0 auto; /* the auto margins (in conjunction with a width) center the page */
+	/* border: 1px solid #000000; */
+	border-top:dotted 1px;
+	border-bottom:hidden 1px;
+	text-align: left; /* this overrides the text-align: center on the body element. */
+}
+.oneColLiqCtr #mainContent {
+	padding: 0 20px; /* remember that padding is the space inside the div box and margin is the space outside the div box */
+}
+
+h1 {
+font-family: Verdana, Arial, Helvetica, sans-serif;
+font-size:12px;
+}
+.network-status-table {
+	font-family:Verdana, Arial, Helvetica, sans-serif;
+	border-collapse:collapse;
+	width: auto;
+	font-size:9px;
+        float: left;
+        margin-right:15px;
+}
+
+.status-table {
+	font-family:Verdana, Arial, Helvetica, sans-serif;
+	border-collapse:collapse;
+	width: auto;
+	font-size:9px;
+        float: left;
+        margin-right:15px;
+}
+
+.status-table th, .status-table td, .network-status-table th, .network-status-table td
+{
+padding: 0.1em 1em;
+}
+
+.status-table th, .network-status-table th {
+text-align:left
+}
+
+.network-status-table tbody tr td {
+background-color:#FFFFFF
+}
+
+.status-table tbody tr.even td, .network-status-table tbody tr.even td {
+background-color:#FFFFFF
+}
+
+.status-table tbody tr.odd td, .network-status-table tbody tr.odd td {
+background-color:#CFCFCF
+}
+
+.status-table tbody tr.totalCls td {
+background:#F0F080;
+color:#000090;
+font-weight:bold;
+}
+
+.status-table tbody tr.dead td, .network-status-table tbody tr.dead td {
+background-color:#FF3300
+}
+
+.status-table tbody tr.retiring td, .network-status-table tbody tr.retiring td {
+background-color:#FF00FF
+}
+
+.status-table tbody tr.evacuating td, .network-status-table tbody tr.evacuating td {
+background-color:#FFFF00
+}
+
+.status-table tbody tr.overloaded td, .network-status-table tbody tr.overloaded td {
+background-color:#FF6666
+}
+
+.status-table tbody tr.notgood td, .network-status-table tbody tr.notgood td {
+background-color:#FF6699
+}
+
+.status-table tbody tr.notstarted td, .network-status-table tbody tr.notstarted td {
+background-color:#FFFF66
+}
+
+.status-table tbody tr.norack td, .network-status-table tbody tr.norack td {
+background-color:#FF9933 
+}
+
+.status-table caption {
+font-size:9px;
+font-weight:bold;
+}
+
+div.floatleft {
+float:left
+}
+
+.status-table tbody tr td {
+background-color:#FFFFFF
+}
+
+.info-table table {
+	font-family:Verdana, Arial, Helvetica, sans-serif;
+	font-size:12px;
+        width: auto;
+        border-width: 7px;
+        border-style: outset;
+        padding-top: 8px;
+        padding-bottom: 8px;        
+}
+
+.info-table td {
+padding: 0.2em 2em;
+}
+
+.info-table1 table {
+	font-family:Verdana, Arial, Helvetica, sans-serif;
+	font-size:12px;
+        width: auto;
+        padding-bottom: 0.5px;        
+}
+
+.info-table1 td {
+padding: 0.2em 0.6em;
+}
+
+#linkspandetail a {
+    text-decoration:  none;
+    /* color:            #434d68;
+    background-color: #F0F1F1; */
+    border:           thin solid #88a;
+}
+#linkspandetail a span {
+    display:none;
+} 
+#linkspandetail a:hover {
+    color:            #000000;
+    background-color: #F0F080;
+    border:           thin solid #88a;
+    cursor:           default;
+}
+#linkspandetail a:hover span {
+    display:          block;
+    position:         absolute;
+    color:            #000000;
+    background-color: #F0F080;
+    padding:          5px;
+    border:           thin solid #88a;
+    white-space:      pre-wrap;
+}

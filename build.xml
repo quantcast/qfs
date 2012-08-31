@@ -1,0 +1,85 @@
+<!-- KFS -->
+<project name="kfs" default="compile" basedir="."> 
+
+  <property name="Name" value="KFS"/>
+  <property name="name" value="kfs"/>
+  <exec executable="sh" outputproperty="version">
+    <arg value="src/cc/common/buildversgit.sh"/>
+    <arg value="-v"/>
+  </exec>
+  <property name="final.name" value="${name}-${version}"/>
+  <property name="year" value="2012"/>
+
+  <property name="src.dir" value="${basedir}/src/java"/>
+
+  <property name="build.dir" value="${basedir}/build"/>
+
+  <property name="build.classes" value="${build.dir}/classes"/>
+  <property name="build.src" value="${build.dir}/src"/>
+
+  <!-- javadoc -->
+  <property name="doc.dir" location="doc" />
+
+  <!-- test directory -->
+  <property name="test.dir" location="test" />
+
+  <path id="project.classpath">
+	<pathelement location="${build.classes}" />
+  </path>
+
+  <!-- Default target: usage.  Prints out instructions. -->
+  <target name="usage" description="Prints out instructions">
+    <echo message="Welcome to the KFS project!" />
+    <echo message="And for developers:"/>
+    <echo message="Use 'ant clean' to clean compiled files." />
+    <echo message="Use 'ant compile' to compile the source code." />
+    <echo message="Use 'ant tar' to build a release tarball." />
+    <echo message="Use 'ant test' to run unit tests." />
+  </target>
+
+
+  <target name="prepare">
+	<mkdir dir="${build.classes}"/>
+  </target>
+
+  <target name="compile" depends="prepare" description="Standard compile">
+	<javac srcdir="${src.dir}" destdir="${build.classes}" debug="true">
+	  <classpath refid="project.classpath"/>
+	</javac>
+  </target>
+
+  <!-- ================================================================== -->
+  <!-- Make kfs.jar                                                       -->
+  <!-- ================================================================== -->
+  <!--                                                                    -->
+  <!-- ================================================================== -->
+  <target name="jar" depends="compile">
+    <jar jarfile="${build.dir}/${name}-${version}.jar"
+         basedir="${build.classes}">
+      <manifest>
+        <section name="org/kosmos">
+          <attribute name="Implementation-Title" value="KFS"/>
+          <attribute name="Implementation-Version" value="${version}"/>
+          <attribute name="Implementation-Vendor" value="Kosmix"/>
+        </section>
+      </manifest>
+    </jar>
+  </target>
+
+
+  <target name="clean">
+	<delete file="${build.dir}/${name}-${version}.jar"/>
+	<delete dir="${build.classes}"/>
+  </target>
+
+  <target name="test" depends="compile" description="Execute tests">
+     <junit showoutput="true" haltonfailure="true">
+      <classpath refid="project.classpath" />
+      <formatter type="brief" usefile="false" />
+      <batchtest fork="true">
+	<fileset dir="${build.classes}" includes="**/*Test.class" />
+      </batchtest>
+    </junit>
+  </target>
+
+</project>

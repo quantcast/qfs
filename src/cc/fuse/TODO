@@ -1,0 +1,3 @@
+* Reads & writes are 4k.  There's supposed to be a way to enable large
+  reads and writes in fuse.
+* Permissions come out --------- when you cp from kfs to local.

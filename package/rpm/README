@@ -1,0 +1,35 @@
+#
+# $Id$
+#
+# Copyright 2012 Quantcast Corp.
+#
+# This file is part of Kosmos File System (KFS).
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+
+The specs directory contains the .spec files needed to build the RPMs for the different KFS components.
+
+Prerequisite: 
+Ensure that the $JAVA_HOME variable is set correctly, and the java headers are at $JAVA_HOME/include.
+If the java include path is different, then modify the spec file by adding the following flag to cmake command.
+ "cmake -D JAVA_INCLUDE_PATH=/java/path/include -D CMAKE_BUILD_TYPE=RelWithDebInfo ."
+
+To build the metaserver RPM:
+rpmbuild -v -ba specs/kfs-metaserver.spec
+
+To build the chunkserver RPM:
+rpmbuild -v -ba specs/kfs-chunkserver.spec
+
+To build the clients RPM:
+rpmbuild -v -ba specs/kfs-clients.spec

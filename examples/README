@@ -1,0 +1,64 @@
+#
+# $Id$
+#
+# Author: Thilee Subramaniam
+#
+# Copyright 2012 Quantcast Corp.
+#
+# This file is part of Kosmos File System (KFS).
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+
+
+
+This directory contains the following contents:
+
+1. cc/kfssample_main.cc
+   cc/CMakeLists.txt
+  The C++ client to access KFS. The binary gets compiled as part of kfs build
+  (described in 'doc' directory at top of source dir), and the sample gets
+  copied to the <build>/bin/examples directory where <build> is the selected
+  build directory.
+
+2. java/KfsSample.java
+  The Java client to access KFS.
+  To compile:
+  javac -classpath ../../build/kfs-*.jar KfsSample.java
+  To run, assuming that make install was performed in ../../build/release,
+  or top level make was invoked with no or default target:
+  libdir="`cd ../../build/release/lib && pwd`"
+  LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}"
+  export LD_LIBRARY_PATH
+  kfsjar=`echo ../../build/kfs-*.jar`
+  java -Djava.library.path="$libdir" -classpath ".:$kfsjar" KfsSample 127.0.0.1 20000
+
+3. python/kfssample.py
+   python/kfssample.cfg
+  Python support is at experimental stage now. Nevertheless, one can run this
+  example to access KFS via python. The DeveloperDoc in the top-level 'doc'
+  directory explains how to build and install the python KFS extension module.
+  To run the kfssample.py, please set your PYTHONPATH and LD_LIBRARY_PATH
+  accordingly and point it to a KFS metaserver via the kfssample.cfg.
+
+4. sampleservers
+  Directory with a python script to bring up a simple KFS server locally.
+
+  Once you build the C++ binaries (see 'doc' directory at top of source dir)
+  point the sampleservers/sample_setup.py script to a config file and the
+  build paths to start the servers.
+
+  A sample config file (sampleservers/sample_setup.cfg file) is provided that
+  starts up a metaserver, two chunk servers, and a webserver to monitor the
+  servers. Please refer to the comments/Usage of sampleservers/sample_setup.py.
+
