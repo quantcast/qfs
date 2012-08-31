@@ -21,7 +21,10 @@
 #
 # Do not assume gnumake -- keep it as simple as possible
 
-release:
+prep:
+	mkdir -p build
+
+release: prep
 	cd build && \
 	{ test -d release || mkdir release; } && \
 	cd release && \
@@ -39,7 +42,7 @@ tarball: release
 	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
 	gzip qfs.tar
 
-debug:
+debug: prep
 	cd build && \
 	{ test -d debug || mkdir debug; } && \
 	cd debug && \
@@ -52,4 +55,4 @@ debug:
 	cd build/debug && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/release build/debug build/classes build/kfs-*.jar build/*.tar.gz
+	rm -rf build
