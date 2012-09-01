@@ -113,14 +113,6 @@ def display_io_buf_list
     walk_list $arg0 display_io_buf_entry
 end
 
-def display_timeout_entry
-    x /a (('std::_List_node<KFS::ITimeout*>' *)$arg0)->_M_data
-end
-
-def display_timeout_list
-    walk_list $arg0 display_timeout_entry
-end
-
 def walk_connection_list
     set $walk_connection_list_slot = 0
     set $walk_connection_list_end = \
@@ -136,7 +128,6 @@ def walk_connection_list
         printf "connections about to be removed:\n"
         walk_list $arg1->mRemove $arg0
     end
-    walk_list $walk_connection_list_wheel[$walk_connection_list_slot] $arg0
 end
 
 def set_connection_entry
@@ -334,18 +325,17 @@ def display_io_buffers
         $total_write_blk_count)
 end
 
-def display_open_chunk_file_entry
-    if $arg0->second->dataFH.px
-        print *($arg0->second)
-        set $open_chunk_files_count = $open_chunk_files_count + 1
-    end
+def display_timeout_entry
+    output $arg0->mNextPtr[0]->mPrevPtr[0]
+    printf "\n"
 end
 
-def display_open_chunk_files
-    printf "Now: %ld\n", gLibKfsGlobals.netManager.mNow
-    set $open_chunk_files_count = 0
-    walk_unordered_map 'KFS::gChunkManager'.mChunkTable display_open_chunk_file_entry
-    printf "Total open chunk files: %ld \n", $open_chunk_files_count
+def display_timeout_list
+    walk_qcdllist $arg0 0 display_timeout_entry
+end
+
+def display_net_manager_timeout_list
+    display_timeout_list 'KFS::libkfsio::Globals_t::sForGdbToFindInstance'.mForGdbToFindNetManager.mTimeoutHandlers
 end
 
 def display_kfanout_pending_input
