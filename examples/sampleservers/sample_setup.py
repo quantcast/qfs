@@ -132,19 +132,30 @@ def check_binaries(releaseDir, sourceDir):
     print 'Binaries presence checking - OK.'
 
 def kill_running_program(binaryPath):
-    #print 'Trying to kill instances of [ %s ] ..' % binaryPath
-
-    if binaryPath.find('kfsstatus') >= 0:
-        cmd = 'ps -ef | grep %s | grep -v grep | awk \'{print $2}\'' % binaryPath
+    if sys.platform in ('darwin', 'Darwin'):
+        checkPath = os.path.split(binaryPath)[1]
+        if not checkPath:
+            return
+        cmd = 'ps -ef | grep %s | grep -v grep | awk \'{print $2}\'' % checkPath
         res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
-        pid = res[0].strip()
-        if pid != '':
-            os.kill(int(pid), signal.SIGTERM)
-        return
+        pids = res[0].split('\n')
+        for pid in pids:
+            if pid.strip() != '':
+                os.kill(int(pid.strip()), signal.SIGTERM)
+    else:
+        if binaryPath.find('kfsstatus') >= 0:
+            cmd = 'ps -ef | grep %s | grep -v grep | awk \'{print $2}\'' % binaryPath
+            res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+            pids = res[0].split('\n')
+            for pid in pids:
+                if pid.strip() != '':
+                    os.kill(int(pid.strip()), signal.SIGTERM)
+            return
 
-    pids = subprocess.Popen(['pidof', binaryPath], stdout=subprocess.PIPE).communicate()
-    for pid in pids[0].strip().split():
-        os.kill(int(pid), signal.SIGTERM)
+        pids = subprocess.Popen(['pidof', binaryPath], stdout=subprocess.PIPE).communicate()
+        for pid in pids[0].strip().split():
+            os.kill(int(pid), signal.SIGTERM)
+
 
 def run_command(cmd):
     return subprocess.check_call(cmd, shell=True)
