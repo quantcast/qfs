@@ -3,7 +3,7 @@
 #
 # Copyright 2008-2012 Quantcast Corp.
 #
-# Author: Sriram Rao (Quantcast Corp.)
+# Author: Mike Ovsiannikov
 #
 # This file is part of Kosmos File System (KFS).
 #
@@ -19,12 +19,81 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# Configuration for chunk server:
-# meta server location
+# The chunk server configuration.
+
+# The following parameters set must be specified at startup time. Other
+# parameters can be changed at runtime, and it usually more convenient to
+# specify these in meta server configuration. The meta server broadcasts the
+# corresponding chunk server parameters to all connected chunk chunk servers.
+
+# The meta server location.
 chunkServer.metaServer.hostname = localhost
-chunkServer.metaServer.port = 30000
-# port to open for client connections
+chunkServer.metaServer.port     = 30000
+
+# Port to open for client connections
 chunkServer.clientPort = 22000
-# Directory for storing the chunks
+
+# Space separated list of directories to store chunks (blocks).
+# Usually one directory per physical disk. More than one directory can
+# be used in the cases where the host file system has problems / limitations
+# large directories.
+# The directories that are "not available" (don't exists, io errors,
+# "evacuate.done" file exists, etc.) at a given moment directories are
+# periodically scanned.
+# If the directory becomes available while chunk server is running, chunk server
+# deletes all chunk files in this directory (if any), and starts using this
+# directory.
+# All available directories are periodically scanned, if the directory becomes
+# "unavailable" all chunks in this directory are declared lost, and the
+# gets added to "not available" directories which are periodically scanned as
+# described the above.
 chunkServer.chunkDir = chunks
 
+# Number of io threads (max. number of disk io requests in flight) per host file
+# system.
+# The typical setup is to have one host file system per physical disk.
+# Even if raid controller is available jbod configuration would be used, and
+# failure handling left to the distributed file system.
+# The default is 2.
+# With large requests (~1MB) two requests in flight should be sufficient.
+# chunkServer.diskQueue.threadCount = 2
+
+# Set the cluster / fs key, to protect against data loss and "data corruption"
+# due to connecting to a meta server hosting different file system.
+chunkServer.clusterKey = my-fs-unique-identifier
+
+# Set reasonable log level, to handle the case when meta server not available,
+# or doesn't accept this chunk server for any reason. The chunk servers log
+# level can be changed in the meta server configuration file.
+chunkServer.loglevel = INFO
+
+# Redirect stderror and out into /dev/null to handle the case where one or both
+# are written into a file and the host file system / disk where the file resides
+# exhibiting noticeable io stalls, or completely unavailable..
+# Normally all the log message output performed by the message writer (thread)
+# that deals with log io stall by dropping log messages. This redirection is an
+# extra safety in the case if some system functions is attempting to write into
+# stdout / stderror.
+chunkServer.stdout = /dev/null
+chunkServer.stderr = /dev/null
+
+# This setting is to control memory used by chunkserver
+# The value set here, 128K means 128K * 4K buffer = 512M of buffers
+# The default values are 64K (128MB) for 32 bit build, and 192K (768MB) for 64
+# bit build.
+# The amount of memory depends on the number of disks in the system, and the
+# io (read, write) concurrency (the number of concurrent "clients". The memory
+# should be increased if large number of concurrent write appenders are
+# expected. Ideally the disk io request should be around 1MB, thus for each
+# each chunk opened for append at least 1MB of io buffers is recommended.
+chunkServer.ioBufferPool.partitionBufferCount = 131072
+
+# Set the following to 0 for backward compatibility with the previous kfs
+# releases. 0 is the default.
+# When set to 0 the 0 header checksum (all 8 bytes must be 0) is treated as
+# no checksum and therefore no chunk file header checksum verification
+# performed.
+# The downside of the compatibility mode is that it might not detect the cases
+# where the host os zero fills the data during the host file system recovery,
+# thus the data loss / corruption problem is not detected.
+chunkServer.requireChunkHeaderChecksum = 1
