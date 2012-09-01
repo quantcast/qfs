@@ -58,4 +58,4 @@ test-release:
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/*
+	rm -rf build/release build/debug build/qfs.tar build/qfs.tar.gz build/kfs*.jar
