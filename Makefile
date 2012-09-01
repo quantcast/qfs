@@ -24,7 +24,7 @@
 all: release
 
 prep:
-	mkdir -p build
+	test -d build || mkdir build
 
 release: prep
 	cd build && \
@@ -58,4 +58,4 @@ test-release:
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build
+	rm -rf build/*
