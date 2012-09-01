@@ -6,9 +6,6 @@ Welcome to QFS!
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed file system developed to support applications with sequential access pattern over large files.
 
 
-Getting Started
-===============
-
 Compiling And Running
 ---------------------
 
@@ -24,7 +21,7 @@ The QFS Wiki has details on compiling QFS and running it. For a quick start, one
 Quick Links
 -----------
 
-* [QFS Wiki](http://github.com/quantcast/qfs/wiki)
+* [Getting Started](http://github.com/quantcast/qfs/wiki)
 * [Repository Organization](https://github.com/quantcast/qfs/wiki/Repository-Organization)
 * [Developer Documentation](https://github.com/quantcast/qfs/wiki/Developer-Documentation)
 
