@@ -12,6 +12,7 @@ Compiling And Running
 The QFS Wiki has details on compiling QFS and running it. For a quick start, one could run the following commands from the top-level directory:
 
 * Build Code:
+  Ensure boost and cmake are installed / available.
   `make`
 * Try Out:
   `make` and `examples/sampleservers/sample_setup.py --help`
