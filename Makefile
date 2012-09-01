@@ -21,6 +21,8 @@
 #
 # Do not assume gnumake -- keep it as simple as possible
 
+all: release
+
 prep:
 	mkdir -p build
 
@@ -33,15 +35,6 @@ release: prep
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
             cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
-	# cd build/release && make test
-	cd build/release && ../../src/test-scripts/kfstest.sh
-
-tarball: release
-	cd build && \
-	tar -cvf qfs.tar -C ./release ./bin ./lib ./include && \
-	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
-	gzip qfs.tar
-
 debug: prep
 	cd build && \
 	{ test -d debug || mkdir debug; } && \
@@ -51,8 +44,18 @@ debug: prep
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
             cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
-	# cd build/debug && make test
+
+tarball: release
+	cd build && \
+	tar -cvf qfs.tar -C ./release ./bin ./lib ./include && \
+	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
+	gzip qfs.tar
+
+test-debug:
 	cd build/debug && ../../src/test-scripts/kfstest.sh
+
+test-release:
+	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
 	rm -rf build
