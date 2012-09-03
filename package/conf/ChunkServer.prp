@@ -65,7 +65,7 @@ chunkServer.clusterKey = my-fs-unique-identifier
 # Set reasonable log level, to handle the case when meta server not available,
 # or doesn't accept this chunk server for any reason. The chunk servers log
 # level can be changed in the meta server configuration file.
-chunkServer.loglevel = INFO
+chunkServer.msgLogWriter.logLevel = INFO
 
 # Redirect stderror and out into /dev/null to handle the case where one or both
 # are written into a file and the host file system / disk where the file resides
@@ -88,12 +88,13 @@ chunkServer.stderr = /dev/null
 # each chunk opened for append at least 1MB of io buffers is recommended.
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 
-# Set the following to 0 for backward compatibility with the previous kfs
-# releases. 0 is the default.
+# Set the following to 1 if no backward compatibility with the previous kfs
+# releases required. 0 is the default.
 # When set to 0 the 0 header checksum (all 8 bytes must be 0) is treated as
 # no checksum and therefore no chunk file header checksum verification
 # performed.
-# The downside of the compatibility mode is that it might not detect the cases
-# where the host os zero fills the data during the host file system recovery,
+# The downside of the compatibility mode is that chunk server might not detect
+# the cases where the host os zero fills the data during the host file system
+# recovery / journal / transaction log replay,
 # thus the data loss / corruption problem is not detected.
-chunkServer.requireChunkHeaderChecksum = 1
+# chunkServer.requireChunkHeaderChecksum = 1
