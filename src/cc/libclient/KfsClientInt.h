@@ -31,6 +31,7 @@
 #include "common/hsieh_hash.h"
 #include "common/kfstypes.h"
 #include "common/PoolAllocator.h"
+#include "common/RequestParser.h"
 #include "kfsio/TcpSocket.h"
 #include "kfsio/checksum.h"
 #include "qcdio/QCDLList.h"
@@ -58,6 +59,7 @@ using std::map;
 using std::equal_to;
 using std::less;
 using std::ostream;
+using std::streambuf;
 
 /// If an op fails because the server crashed, retry the op.  This
 /// constant defines the # of retries before declaring failure.
@@ -658,39 +660,6 @@ private:
     typedef vector<int>                        FreeFileTableEntires;
     typedef vector<pair<kfsFileId_t, size_t> > TmpPath;
 
-    FileTable                      mFileTable;
-    FidNameToFAttrMap              mFidNameToFAttrMap;
-    NameToFAttrMap                 mPathCache;
-    NameToFAttrMap::iterator const mPathCacheNone;
-    FAttrPool                      mFAttrPool;
-    FAttr*                         mFAttrLru[1];
-    FreeFileTableEntires           mFreeFileTableEntires;
-    unsigned int                   mFattrCacheSkipValidateCnt;
-    int                            mFileAttributeRevalidateTime;
-    unsigned int                   mFAttrCacheGeneration;
-    TmpPath                        mTmpPath;
-    string                         mTmpAbsPathStr;
-    Path                           mTmpAbsPath;
-    string                         mTmpCurPath;
-    string                         mTmpDirName;
-    const string                   mSlash;
-
-    size_t mDefaultIoBufferSize;
-    size_t mDefaultReadAheadSize;
-    bool   mFailShortReadsFlag;
-
-    unsigned int mFileInstance;
-    KfsProtocolWorker* mProtocolWorker;
-    int mMaxNumRetriesPerOp;
-    int mRetryDelaySec;
-    int mDefaultOpTimeout;
-    ReadRequestCondVar* mFreeCondVarsHead;
-    kfsUid_t         mEUser;
-    kfsGid_t         mEGroup;
-    kfsMode_t        mUMask;
-    vector<kfsGid_t> mGroups;
-    kfsSeq_t         mCreateId;
-
     typedef map<kfsUid_t, pair<string, time_t>,
         less<kfsUid_t>,
         StdFastAllocator<pair<const kfsUid_t, pair<string, time_t> > >
@@ -708,21 +677,75 @@ private:
         StdFastAllocator<pair<const string, pair<kfsGid_t, time_t> > >
     > GroupIds;
 
-    UserNames  mUserNames;
-    GroupNames mGroupNames;
-    UserIds    mUserIds;
-    GroupIds   mGroupIds;
+    class BufferOutpuStream :
+        private streambuf,
+        public  ostream
+    {
+    public:
+        BufferOutpuStream(char* ptr = 0, size_t len = 0)
+            : streambuf(),
+              ostream(this)
+            { streambuf::setp(ptr, ptr + len); }
+        ostream& Set(char* ptr = 0, size_t len = 0)
+        {
+            ostream::clear();
+            ostream::flags(ostream::dec | ostream::skipws);
+            ostream::precision(6);
+            ostream::width(0);
+            ostream::fill(' ');
+            streambuf::setp(ptr, ptr + len);
+            return *this;
+        }
+        size_t GetLength() const { return (pptr() - pbase()); }
+    };
 
-    KfsClientImpl* mPrevPtr[1];
-    KfsClientImpl* mNextPtr[1];
+    FileTable                      mFileTable;
+    FidNameToFAttrMap              mFidNameToFAttrMap;
+    NameToFAttrMap                 mPathCache;
+    NameToFAttrMap::iterator const mPathCacheNone;
+    FAttrPool                      mFAttrPool;
+    FAttr*                         mFAttrLru[1];
+    FreeFileTableEntires           mFreeFileTableEntires;
+    unsigned int                   mFattrCacheSkipValidateCnt;
+    int                            mFileAttributeRevalidateTime;
+    unsigned int                   mFAttrCacheGeneration;
+    TmpPath                        mTmpPath;
+    string                         mTmpAbsPathStr;
+    Path                           mTmpAbsPath;
+    string                         mTmpCurPath;
+    string                         mTmpDirName;
+    const string                   mSlash;
+    size_t                         mDefaultIoBufferSize;
+    size_t                         mDefaultReadAheadSize;
+    bool                           mFailShortReadsFlag;
+    unsigned int                   mFileInstance;
+    KfsProtocolWorker*             mProtocolWorker;
+    int                            mMaxNumRetriesPerOp;
+    int                            mRetryDelaySec;
+    int                            mDefaultOpTimeout;
+    ReadRequestCondVar*            mFreeCondVarsHead;
+    kfsUid_t                       mEUser;
+    kfsGid_t                       mEGroup;
+    kfsMode_t                      mUMask;
+    vector<kfsGid_t>               mGroups;
+    kfsSeq_t                       mCreateId;
+    UserNames                      mUserNames;
+    GroupNames                     mGroupNames;
+    UserIds                        mUserIds;
+    GroupIds                       mGroupIds;
+    BufferInputStream              mTmpInputStream;
+    BufferOutpuStream              mTmpOutputStream;
+    KfsClientImpl*                 mPrevPtr[1];
+    KfsClientImpl*                 mNextPtr[1];
+
     friend class QCDLListOp<KfsClientImpl, 0>;
     class ClientsList;
     friend class ClientsList;
 
     // Kfs client presently always allocated with new / malloc. Allocating large
     // buffer as part of the object should present no problem.
-    enum { kResponseBufferSize = MAX_RPC_HEADER_LEN };
-    char mResponseBuffer[kResponseBufferSize + 1];
+    enum { kTmpBufferSize = MAX_RPC_HEADER_LEN + 1 };
+    char mTmpBuffer[kTmpBufferSize + 1];
 
     // Next sequence number for operations.
     // This is called in a thread safe manner.

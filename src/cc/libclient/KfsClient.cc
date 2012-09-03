@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
-#include "common/RequestParser.h"
 #include "common/hsieh_hash.h"
 #include "common/kfsatomic.h"
 #include "common/MdStream.h"
@@ -71,8 +70,8 @@
 namespace KFS
 {
 using std::string;
-using std::ostringstream;
-using std::istringstream;
+using std::ostream;
+using std::istream;
 using std::min;
 using std::max;
 using std::map;
@@ -1082,7 +1081,9 @@ KfsClientImpl::KfsClientImpl()
       mUserNames(),
       mGroupNames(),
       mUserIds(),
-      mGroupIds()
+      mGroupIds(),
+      mTmpInputStream(),
+      mTmpOutputStream()
 {
     ClientsList::Insert(*this);
 
@@ -1090,7 +1091,7 @@ KfsClientImpl::KfsClientImpl()
 
     FAttrLru::Init(mFAttrLru);
     mTmpPath.reserve(32);
-    mResponseBuffer[kResponseBufferSize] = 0;
+    mTmpBuffer[kTmpBufferSize] = 0;
 }
 
 KfsClientImpl::~KfsClientImpl()
@@ -1576,7 +1577,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             break;
         }
         assert(op.contentBuf && op.contentBufLen >= op.contentLength);
-        BufferInputStream ist(op.contentBuf, op.contentLength);
+        istream& ist = mTmpInputStream.Set(op.contentBuf, op.contentLength);
         result.reserve(result.size() + op.numEntries);
         for (int i = 0; i < op.numEntries; i++) {
             string line;
@@ -1632,9 +1633,11 @@ KfsClientImpl::ReaddirPlus(const char* pathname, vector<KfsFileAttr>& result,
 class ReaddirPlusParser
 {
 public:
-    ReaddirPlusParser()
+    ReaddirPlusParser(
+        BufferInputStream& tmpInputStream)
         : mEntry(),
-          mHexParserFlag(false)
+          mHexParserFlag(false),
+          mTmpInputStream(tmpInputStream)
         {}
     void SetUseHexParser() { mHexParserFlag = true; }
     bool Parse(
@@ -1659,7 +1662,7 @@ public:
         if (numReplicas <= 0 || mEntry.lastChunkReplicas.empty()) {
             return;
         }
-        BufferInputStream is(
+        istream& is = mTmpInputStream.Set(
             mEntry.lastChunkReplicas.GetPtr(),
             mEntry.lastChunkReplicas.GetSize()
         );
@@ -1835,8 +1838,9 @@ private:
     typedef ObjectParser<Entry, VParserDec> Parser;
     typedef ObjectParser<Entry, VParserHex> HexParser;
 
-    Entry mEntry;
-    bool  mHexParserFlag;
+    Entry              mEntry;
+    bool               mHexParserFlag;
+    BufferInputStream& mTmpInputStream;
 
     static const Parser&    sParser;
     static const HexParser& sHexParser;
@@ -1941,7 +1945,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     assert(mMutex.IsOwned());
 
     vector<ChunkAttr>                fileChunkInfo;
-    ReaddirPlusParser                parser;
+    ReaddirPlusParser                parser(mTmpInputStream);
     const PropertiesTokenizer::Token beginEntry("Begin-entry");
     const PropertiesTokenizer::Token shortBeginEntry("B");
     const bool                       kGetLastChunkInfoIfSizeUnknown = true;
@@ -3525,10 +3529,20 @@ KfsClientImpl::DoOpSend(KfsOp *op, TcpSocket *sock)
         op->status = -EHOSTUNREACH;
         return -1;
     }
-    ostringstream os;
+    ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
     op->Request(os);
-    const string str = os.str();
-    const int ret = SendRequest(str.data(), str.size(),
+    const size_t len = mTmpOutputStream.GetLength();
+    mTmpOutputStream.Set();
+    if (len > (size_t)MAX_RPC_HEADER_LEN) {
+        KFS_LOG_STREAM_WARN <<
+            "request haeder exceeds max. allowed size: " <<
+            MAX_RPC_HEADER_LEN <<
+            " op: " << op->Show() <<
+        KFS_LOG_EOM;
+        op->status = -EINVAL;
+        return op->status;
+    }
+    const int ret = SendRequest(mTmpBuffer, len,
         op->contentBuf, op->contentLength, sock);
     if (ret <= 0) {
         op->status = -EHOSTUNREACH;
@@ -3546,12 +3560,10 @@ KfsClientImpl::GetResponse(char *buf, int bufSize, int *delims, TcpSocket *sock)
 /// From a response, extract out seq # and content-length.
 ///
 static void
-GetSeqContentLen(const char *resp, int respLen,
-                 kfsSeq_t *seq, int *contentLength, Properties& prop)
+GetSeqContentLen(istream& ist,
+    kfsSeq_t *seq, int *contentLength, Properties& prop)
 {
-    BufferInputStream ist(resp, respLen);
     const char separator = ':';
-
     prop.clear();
     prop.loadProperties(ist, separator, false);
     *seq = prop.getValue("Cseq", (kfsSeq_t) -1);
@@ -3582,8 +3594,7 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
     int        len;
     for (; ;) {
         len = 0;
-        numIO = GetResponse(
-            mResponseBuffer, kResponseBufferSize, &len, sock);
+        numIO = GetResponse(mTmpBuffer, kTmpBufferSize, &len, sock);
         if (numIO <= 0) {
             KFS_LOG_STREAM_DEBUG <<
                 sock->GetPeerName() << ": read failed: " << numIO <<
@@ -3604,7 +3615,8 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
 
         kfsSeq_t resSeq     = -1;
         int      contentLen = 0;
-        GetSeqContentLen(mResponseBuffer, len, &resSeq, &contentLen, prop);
+        GetSeqContentLen(mTmpInputStream.Set(mTmpBuffer, len),
+            &resSeq, &contentLen, prop);
         if (resSeq == op->seq) {
             if (printMatchingResponse) {
                 KFS_LOG_STREAM_DEBUG <<
@@ -3655,7 +3667,7 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
     const ssize_t navail = numIO - len;
     if (navail > 0) {
         assert(navail <= (ssize_t)op->contentLength);
-        memcpy(op->contentBuf, mResponseBuffer + len, navail);
+        memcpy(op->contentBuf, mTmpBuffer + len, navail);
     }
     ssize_t nleft = op->contentLength - navail;
 
@@ -4426,7 +4438,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
     }
     if (op.status == -EBADCKSUM) {
         KFS_LOG_STREAM_INFO <<
-            "Server " << loc.ToString() <<
+            "Server " << loc <<
             " reports checksum mismatch for scrub read on"
             " chunk: " << chunkId <<
         KFS_LOG_EOM;
@@ -4502,8 +4514,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
         if ((ret = GetDataChecksums(
                 i->chunkServers[0], i->chunkId, chunkChecksums1.get())) < 0) {
             KFS_LOG_STREAM_ERROR << "failed to get checksums from server " <<
-                i->chunkServers[0].ToString() <<
-                " " << ErrorCodeToStr(ret) <<
+                i->chunkServers[0] << " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
             return ret;
         }
@@ -4512,8 +4523,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
                     i->chunkServers[k], i->chunkId,
                     chunkChecksums2.get())) < 0) {
                 KFS_LOG_STREAM_ERROR << "didn't get checksums from server: " <<
-                    i->chunkServers[k].ToString() <<
-                    " " << ErrorCodeToStr(ret) <<
+                    i->chunkServers[k] << " " << ErrorCodeToStr(ret) <<
                 KFS_LOG_EOM;
                 return ret;
             }
@@ -4522,8 +4532,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
                 if (chunkChecksums1[v] != chunkChecksums2[v]) {
                     KFS_LOG_STREAM_ERROR <<
                         "checksum mismatch between servers: " <<
-                        i->chunkServers[0].ToString() <<
-                        " " << i->chunkServers[k].ToString() <<
+                        i->chunkServers[0] << " " << i->chunkServers[k] <<
                     KFS_LOG_EOM;
                     mismatch = true;
                 }
@@ -4934,7 +4943,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         const int nbytes = GetChunkFromReplica(
             i->chunkServers[0], i->chunkId, i->chunkVersion, mds);
         if (nbytes < 0) {
-            KFS_LOG_STREAM_ERROR << i->chunkServers[0].ToString() <<
+            KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                  ": " << ErrorCodeToStr(nbytes) <<
             KFS_LOG_EOM;
             match = false;
@@ -4944,7 +4953,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         mds.Reset();
         KFS_LOG_STREAM_DEBUG <<
             "chunk: "    << i->chunkId <<
-            " replica: " << i->chunkServers[0].ToString() <<
+            " replica: " << i->chunkServers[0] <<
             " size: "    << nbytes <<
             " md5sum: "  << md5sumFirst <<
         KFS_LOG_EOM;
@@ -4953,7 +4962,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
             const int n = GetChunkFromReplica(
                 i->chunkServers[k], i->chunkId, i->chunkVersion, mds);
             if (n < 0) {
-                KFS_LOG_STREAM_ERROR << i->chunkServers[0].ToString() <<
+                KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                      ": " << ErrorCodeToStr(n) <<
                 KFS_LOG_EOM;
                 match = false;
@@ -4962,7 +4971,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
             const string md5sumCur = mds.GetMd();
             KFS_LOG_STREAM_DEBUG <<
                 "chunk: "    << i->chunkId <<
-                " replica: " << i->chunkServers[k].ToString() <<
+                " replica: " << i->chunkServers[k] <<
                 " size: "    << nbytes <<
                 " md5sum: "  << md5sumCur <<
             KFS_LOG_EOM;
@@ -4973,10 +4982,10 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                 KFS_LOG_STREAM_ERROR <<
                     "chunk: " << i->chunkId <<
                     (nbytes != n ? "size" : "data") <<
-                    " mismatch: " << i->chunkServers[0].ToString() <<
+                    " mismatch: " << i->chunkServers[0] <<
                     " size: "     << nbytes <<
                     " md5sum: "   << md5sumFirst <<
-                    " vs "        << i->chunkServers[k].ToString() <<
+                    " vs "        << i->chunkServers[k] <<
                     " size: "     << n <<
                     " md5sum: "   << md5sumCur <<
                 KFS_LOG_EOM;
@@ -5068,9 +5077,10 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
             &pwebuf, nameBuf, sizeof(nameBuf), &pwe);
         string name;
         if (err || ! pwe) {
-            ostringstream os;
+            ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
             os << uid;
-            name = os.str();
+            name.assign(mTmpBuffer, mTmpOutputStream.GetLength());
+            mTmpOutputStream.Set();
         } else {
             name = pwe->pw_name;
         }
@@ -5102,9 +5112,10 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
             &gbuf, nameBuf, sizeof(nameBuf), &pge);
         string name;
         if (err || ! pge) {
-            ostringstream os;
+            ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
             os << gid;
-            name = os.str();
+            name.assign(mTmpBuffer, mTmpOutputStream.GetLength());
+            mTmpOutputStream.Set();
         } else {
             name = pge->gr_name;
         }

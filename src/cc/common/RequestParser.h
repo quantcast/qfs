@@ -69,7 +69,9 @@ public:
         const char* inPtr,
         size_t      inLen)
     {
-        clear();
+        istream::clear();
+        istream::flags(istream::dec | istream::skipws);
+        istream::precision(6);
         char* const thePtr = const_cast<char*>(inPtr);
         streambuf::setg(thePtr, thePtr, thePtr + inLen);
         return *this;
