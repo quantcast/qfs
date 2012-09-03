@@ -46,9 +46,9 @@ endif (NOT CYGWIN)
 set(Boost_USE_MULTITHREADED ON)
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  find_package(Boost COMPONENTS regex system REQUIRED)
+    find_package(Boost COMPONENTS regex system REQUIRED)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  find_package(Boost COMPONENTS regex REQUIRED)
+    find_package(Boost COMPONENTS regex REQUIRED)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 
 message(STATUS "Boost-includes = ${Boost_INCLUDE_DIRS}")
@@ -61,7 +61,7 @@ ENABLE_TESTING()
 
 # Change this to where the install directory is located
 if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "." CACHE PATH "installation directory prefix" FORCE)
+    set(CMAKE_INSTALL_PREFIX "." CACHE PATH "installation directory prefix" FORCE)
 endif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
 # Build with statically linked libraries; the value for this variable has to be defined here
@@ -70,40 +70,40 @@ endif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 # link with dynamically linked libs
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-   IF (BUILD_CPU_MODE STREQUAL "32")
-      message (STATUS "Building 32-bit mode on Solaris")
-      # If we are asked to build 32 bit mode
-      add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES)
-   ELSE (BUILD_CPU_MODE STREQUAL "32")
-      # On solaris, use 64-bit mode
-      set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
-      set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
-      set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
-   ENDIF (BUILD_CPU_MODE STREQUAL "32")
-   # Statically linked binaries don't work on solaris
-   set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL "Build binaries with statically linked libraries" FORCE)
-   # Cmake does whacky relink on solaris and messes things up; avoid this
-   set (CMAKE_SKIP_RPATH ON)
+    IF (BUILD_CPU_MODE STREQUAL "32")
+        message (STATUS "Building 32-bit mode on Solaris")
+        # If we are asked to build 32 bit mode
+        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES)
+    ELSE (BUILD_CPU_MODE STREQUAL "32")
+        # On solaris, use 64-bit mode
+        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
+        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
+        set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
+    ENDIF (BUILD_CPU_MODE STREQUAL "32")
+    # Statically linked binaries don't work on solaris
+    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL "Build binaries with statically linked libraries" FORCE)
+    # Cmake does whacky relink on solaris and messes things up; avoid this
+    set (CMAKE_SKIP_RPATH ON)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-   set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL "Build binaries with statically linked libraries" FORCE)
+    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL "Build binaries with statically linked libraries" FORCE)
     IF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
-       message (STATUS "Enabling largefile source flags")
-       add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_LARGE_FILES)
+        message (STATUS "Enabling largefile source flags")
+        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_LARGE_FILES)
     ENDIF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 IF (ENABLE_PROFILING)
-   message (STATUS "Enabling profiling with gprof")
-   set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")
-   set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -pg")
-   set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -pg")
-   set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
+    message (STATUS "Enabling profiling with gprof")
+    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")
+    set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -pg")
+    set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -pg")
+    set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
 ENDIF (ENABLE_PROFILING)
 
 # Darwin compilers need to be told about ports
 IF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I/opt/local/include")
-   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/opt/local/lib")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I/opt/local/include")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/opt/local/lib")
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 
 
@@ -112,13 +112,13 @@ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 #
 
 IF (NOT CMAKE_BUILD_TYPE)
-   message (STATUS "Setting build type to Debug")
-   set (CMAKE_BUILD_TYPE "Debug")
+    message (STATUS "Setting build type to Debug")
+    set (CMAKE_BUILD_TYPE "Debug")
 ENDIF (NOT CMAKE_BUILD_TYPE)
 
 IF (CMAKE_BUILD_TYPE STREQUAL "Release")
-   message(STATUS "Enabling -D NDEBUG flag")
-   set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
+    message(STATUS "Enabling -D NDEBUG flag")
+    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
 ENDIF(CMAKE_BUILD_TYPE STREQUAL "Release")
 
 set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
@@ -167,13 +167,13 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 
 IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "")
-   message(STATUS "JNI found: building kfs_access")
-   include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
-   add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
+    message(STATUS "JNI found: building kfs_access")
+    include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
+    add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
 ENDIF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "")
 
 IF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
-   message(STATUS "Found fuse")
-   include_directories ( ${Fuse_INCLUDE_DIR} )
-   add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
+    message(STATUS "Found fuse")
+    include_directories ( ${Fuse_INCLUDE_DIR} )
+    add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
 ENDIF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
