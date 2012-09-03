@@ -35,6 +35,7 @@ release: prep
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
             cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+
 debug: prep
 	cd build && \
 	{ test -d debug || mkdir debug; } && \
@@ -51,10 +52,10 @@ tarball: release
 	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
 	gzip qfs.tar
 
-test-debug:
+test-debug: debug
 	cd build/debug && ../../src/test-scripts/kfstest.sh
 
-test-release:
+test-release: release
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
