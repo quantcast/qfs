@@ -318,6 +318,7 @@ chunkServer.rackId = $rack
 chunkServer.chunkDir = kfschunk kfschunk1 kfschunk2 kfschunk3
 chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
+chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.recAppender.closeEmptyWidStateSec = 5
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.msgLogWriter.logLevel = DEBUG

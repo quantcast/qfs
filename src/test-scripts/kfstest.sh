@@ -228,9 +228,10 @@ chunkServer.chunkDir = kfschunk
 chunkServer.logDir = kfslog
 chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
-chunkServer.loglevel = DEBUG
+chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
 chunkServer.ioBufferPool.partitionBufferCount = 81920
+chunkServer.requireChunkHeaderChecksum = 1
 EOF
     cd "$dir" || exit
     echo "Starting chunk server $i"
