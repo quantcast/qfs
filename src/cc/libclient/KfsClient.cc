@@ -895,7 +895,17 @@ private:
             getpwuid_r(uid, &pwebuf, namebuf, sizeof(namebuf), &pwe);
             if (pwe && pwe->pw_name) {
                 string hdr("User: ");
-                hdr += pwe->pw_name;
+                for (const char* p = pwe->pw_name; *p != 0; p++) {
+                    const int c = *p & 0xFF;
+                    if (c > ' ' && c != '%') {
+                        hdr.push_back((char)c);
+                    } else {
+                        const char* const kHexDigits = "0123456789ABCDEF";
+                        hdr.push_back((char)'%');
+                        hdr.push_back(kHexDigits[(c >> 4) & 0xF]);
+                        hdr.push_back(kHexDigits[c & 0xF]);
+                    }
+                }
                 hdr += "\r\n";
                 KfsOp::AddExtraRequestHeaders(hdr);
             }
