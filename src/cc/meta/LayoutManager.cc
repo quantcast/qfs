@@ -3975,21 +3975,7 @@ GetRackWeight(
     return (it == racks.end() ?
         maxWeight : min(maxWeight, it->getWeight()));
 }
-///
-/// The algorithm for picking a set of servers to hold a chunk is: (1) pick
-/// the server with the most amount of free space, and (2) to break
-/// ties, pick the one with the least amount of used space.  This
-/// policy has the effect of doing round-robin allocations.  The
-/// allocated space is something that we track.  Note: We rely on the
-/// chunk servers to tell us how much space is used up on the server.
-/// Since servers can respond at different rates, doing allocations
-/// based on allocated space ensures equitable distribution;
-/// otherwise, if we were to do allocations based on the amount of
-/// used space, then a slow responding server will get pummelled with
-/// lots of chunks (i.e., used space will be updated on the meta
-/// server at a slow rate, causing the meta server to think that the
-/// chunk server has lot of space available).
-///
+
 int
 LayoutManager::AllocateChunk(
     MetaAllocate* r, const vector<MetaChunkInfo*>& chunkBlock)
@@ -4162,9 +4148,8 @@ LayoutManager::AllocateChunk(
                         continue;
                     }
                     if (mAllocateDebugVerifyFlag &&
-                            find(r->servers.begin(),
-                            r->servers.end(), cs) !=
-                            r->servers.end()) {
+                            find(r->servers.begin(), r->servers.end(), cs) !=
+                                r->servers.end()) {
                         panic("allocate: duplicate slave");
                         continue;
                     }
@@ -4172,9 +4157,8 @@ LayoutManager::AllocateChunk(
                 }
             } else {
                 if (mAllocateDebugVerifyFlag &&
-                        find(r->servers.begin(),
-                            r->servers.end(), cs) !=
-                        r->servers.end()) {
+                        find(r->servers.begin(), r->servers.end(), cs) !=
+                            r->servers.end()) {
                     panic("allocate: duplicate server");
                     continue;
                 }
