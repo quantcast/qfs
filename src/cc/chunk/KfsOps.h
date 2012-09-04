@@ -1815,32 +1815,7 @@ struct RestartChunkServerOp : public KfsOp {
     }
 };
 
-struct KillRemoteSyncOp : public KfsOp {
-
-    // pass in the remote sync SM that needs to be nuked
-    KillRemoteSyncOp(kfsSeq_t s, KfsCallbackObj *owner) :
-        KfsOp(CMD_KILL_REMOTE_SYNC, s, owner)
-    {
-
-    }
-    void Request(ostream &os) { }
-    void Execute();
-    string Show() const { return "kill remote sync"; }
-};
-
-// Helper functor that matches ops based on seq #
-
-class OpMatcher {
-    kfsSeq_t seqNum;
-public:
-    OpMatcher(kfsSeq_t s) : seqNum(s) { };
-    bool operator() (KfsOp *op) {
-        return op->seq == seqNum;
-    }
-};
-
 extern int ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
-
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
 

@@ -2841,15 +2841,6 @@ RestartChunkServerOp::Execute()
 }
 
 void
-KillRemoteSyncOp::Execute()
-{
-    RemoteSyncSM* remoteSyncSM = static_cast<RemoteSyncSM*>(clnt);
-    assert(remoteSyncSM);
-
-    remoteSyncSM->Finish();
-}
-
-void
 HelloMetaOp::Execute()
 {
     int     chunkDirs            = 0;
