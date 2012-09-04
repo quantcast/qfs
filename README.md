@@ -17,7 +17,7 @@ The QFS Wiki has details on compiling QFS and running it. For a quick start, one
 * Try Out:
   `make` and `examples/sampleservers/sample_setup.py --help`
 * Benchmark:
-  `make`, `cd benchmarks/mstress` and `./mstress_sample_run.sh --help`
+  `make`, `cd benchmarks/mstress` and `./mstress_sample_run.sh`
 
 Quick Links
 -----------
@@ -25,6 +25,7 @@ Quick Links
 * [Getting Started](http://github.com/quantcast/qfs/wiki)
 * [Repository Organization](https://github.com/quantcast/qfs/wiki/Repository-Organization)
 * [Developer Documentation](https://github.com/quantcast/qfs/wiki/Developer-Documentation)
+* [Benchmarking](https://github.com/quantcast/qfs/wiki/Benchmarking)
 
 Contributing to QFS
 ===================
