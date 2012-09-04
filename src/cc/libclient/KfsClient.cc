@@ -1091,6 +1091,7 @@ KfsClientImpl::KfsClientImpl()
 
     FAttrLru::Init(mFAttrLru);
     mTmpPath.reserve(32);
+    mTmpAbsPathStr.reserve(MAX_PATH_NAME_LENGTH);
     mTmpBuffer[kTmpBufferSize] = 0;
 }
 
@@ -2126,6 +2127,7 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
         mTmpAbsPathStr = pathname;
     } else {
         mTmpAbsPathStr.assign(mCwd.data(), mCwd.length());
+        mTmpAbsPathStr.append("/", 1);
         mTmpAbsPathStr.append(pathname);
     }
     FAttr* fa = LookupFAttr(mTmpAbsPathStr, path);
