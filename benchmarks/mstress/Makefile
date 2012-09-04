@@ -37,7 +37,7 @@ javaC = javac
 javaR = java
 javaCP = -cp
 
-default: ccclient javaclient
+all: ccclient javaclient
 
 ccclient: mstress_client.cc
 	$(CC) $(CCFLAGS) mstress_client.cc $(LDFLAGS) -o mstress_client

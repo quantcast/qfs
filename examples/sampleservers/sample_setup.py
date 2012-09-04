@@ -71,17 +71,17 @@ meta-run-dir/checkpoints/
                         /metaserver.out
 
 chunk-run-dir/chunkserver1/chunks/
-                                                    /conf/ChunkServer.prp
-                                                    /chunkserver.log
-                                                    /chunkserver.out
-                          /chunkserver2/chunks/
-                                                    /conf/ChunkServer.prp
-                                                    /chunkserver.log
-                                                    /chunkserver.out
+                          /conf/ChunkServer.prp
+                          /chunkserver.log
+                          /chunkserver.out
+             /chunkserver2/chunks/
+                          /conf/ChunkServer.prp
+                          /chunkserver.log
+                          /chunkserver.out
 
 webui-run-dir/docroot/
-                          /conf/WebUI.cfg
-                          /webui.log
+             /conf/WebUI.cfg
+             /webui.log
 """
 
 import sys, os, os.path, shutil, errno, signal, posix, re
@@ -214,6 +214,7 @@ def parse_command_line():
 
     if not os.path.exists(defaultRelDir):
         defaultRelDir = os.path.join(argv0Dir, '../..')
+        defaultRelDir = os.path.abspath(defaultRelDir)
 
     formatter = IndentedHelpFormatter(max_help_position=50, width=120)
     usage = "usage: ./%prog [options] -a <ACTION>"
@@ -225,7 +226,7 @@ def parse_command_line():
     parser.add_option('-a', '--action', action='store', default=None,
         metavar='ACTION', help='One of install, uninstall, or stop.')
 
-    parser.add_option('-b', '--release-dir', action='store',
+    parser.add_option('-r', '--release-dir', action='store',
         default=defaultRelDir, metavar='DIR', help='QFS release directory.')
 
     parser.add_option('-s', '--source-dir', action='store',

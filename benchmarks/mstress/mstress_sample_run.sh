@@ -31,7 +31,11 @@ SERVER_ARGS=""
 function usage() {
   echo "Usage: $0 [-k host:port] [-h host:port]
       -k: KFS metaserver host and port.
-      -h: HDFS namenode host and port." >&2
+      -h: HDFS namenode host and port.
+  
+  This benchmark, run on CentOS systems, tests the QFS metaserver against
+  HDFS namenode. Please refer to the README file in this directory if you run
+  into any setup, build, or run issue while using the mstress benchmark." >&2
 }
 
 while getopts 'k:h:' OPTION
@@ -64,12 +68,14 @@ fi
 
 [ -z "$JAVA_HOME" ] && echo "Need JAVA_HOME to be set." && exit 1
 
+make_args="ccclient"
 if grep -q hdfs <<<"$SERVER_ARGS"; then
+  make_args="all"
   ./mstress_initialize.sh
   [ $? -ne 0 ] && echo "Failed to prepare hdfs client jars. Please verify hadoop hdfs namenode is installed." && exit 1
 fi
 
-make
+make "$make_args"
 [ $? -ne 0 ] && echo "Failed to compile mstress clients." && exit 1
 
 ./mstress_prepare_master_clients.sh localhost
