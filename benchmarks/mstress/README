@@ -164,14 +164,16 @@ on the same box, "localhost".
      ./mstress_initialize.sh /usr/lib/hadoop/client/
 
 
-(5) On the build host, compile and install KFS using the steps described in the
-    DeveloperDoc in top-level 'doc' directory. Then change directory to
-    bench/mstress, and just issuing 'make' should build the Java/C++ clients.
+(5) On the build host, compile and install KFS using the steps described in
+    https://github.com/quantcast/qfs/wiki/Developer-Documentation. Then change
+    directory to benchmarks/mstress, and just issuing 'make' should build the
+    Java/C++ clients.
 
     To manually build C++ client:
       - Assuming the kfs code is in ~/code/kfs, compile and install KFS using
-        the steps described in the DeveloperDoc in top-level 'doc' directory.
-      - cd ~/code/kfs/bench/mstress
+        the steps described in 
+        https://github.com/quantcast/qfs/wiki/Developer-Documentation
+      - cd ~/code/kfs/benchmarks/mstress
       - KFS_BUILD_INCLUDE=~/code/kfs/build/include    \
         KFS_BUILD_STATLIB=~/code/kfs/build/lib/static \
         BOOST_LIBRARY_DIR=/opt/local/lib              \
@@ -235,8 +237,8 @@ on the same box, "localhost".
 [4.1] KFS Metaserver Setup
 -------------------------
 
-You can setup the KFS metaserver using the steps described in AdminDoc in the
-top-level 'doc' directory.
+You can setup the KFS metaserver using the steps described in
+https://github.com/quantcast/qfs/wiki
 
 If you want to set up a simple metaserver for local testing, please use the
 script ~/code/kfs/examples/sampleservers/sample_setup.py.

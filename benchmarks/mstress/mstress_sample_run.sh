@@ -64,8 +64,10 @@ fi
 
 [ -z "$JAVA_HOME" ] && echo "Need JAVA_HOME to be set." && exit 1
 
-./mstress_initialize.sh
-[ $? -ne 0 ] && echo "Failed to prepare hdfs client jars. Please verify hadoop hdfs namenode is installed." && exit 1
+if grep -q hdfs <<<"$SERVER_ARGS"; then
+  ./mstress_initialize.sh
+  [ $? -ne 0 ] && echo "Failed to prepare hdfs client jars. Please verify hadoop hdfs namenode is installed." && exit 1
+fi
 
 make
 [ $? -ne 0 ] && echo "Failed to compile mstress clients." && exit 1

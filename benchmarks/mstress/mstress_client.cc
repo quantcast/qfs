@@ -315,7 +315,7 @@ void ParsePlanFile(Client* client)
     }
   }
   ifs.close();
-  if (client->prefix_.empty() || client->levels_ <= 0 && client->inodesPerLevel_ <= 0) {
+  if (client->levels_ <= 0 || client->inodesPerLevel_ <= 0 || client->type_.empty()) {
     fprintf(logFile, "Error parsing plan file\n");
     exit(-1);
   }
@@ -364,6 +364,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
     }
     client->path_.Pop(name);
   }
+  return 0;
 }
 
 int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs)
@@ -391,6 +392,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs)
   struct timeval tvZigma;
   gettimeofday(&tvZigma, NULL);
   fprintf(logFile, "Client: %d paths created in %ld msec\n", createdCount, TimeDiffMilliSec(&tvAlpha, &tvZigma));
+  return 0;
 }
 
 int StatDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
@@ -498,7 +500,7 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
   long double countLeaf = pow(client->inodesPerLevel_, client->levels_);
   vector<size_t> leafIdxRangeForDel;
   unique_random(leafIdxRangeForDel, countLeaf);
-  fprintf(logFile, "To delete %d paths\n", leafIdxRangeForDel.size());
+  fprintf(logFile, "To delete %zu paths\n", leafIdxRangeForDel.size());
 
   struct timeval tvAlpha;
   gettimeofday(&tvAlpha, NULL);

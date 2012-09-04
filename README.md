@@ -17,7 +17,7 @@ The QFS Wiki has details on compiling QFS and running it. For a quick start, one
 * Try Out:
   `make` and `examples/sampleservers/sample_setup.py --help`
 * Benchmark:
-  `make` and `benchmarks/mstress/mstress_sample_run.sh --help`
+  `make`, `cd benchmarks/mstress` and `./mstress_sample_run.sh --help`
 
 Quick Links
 -----------
