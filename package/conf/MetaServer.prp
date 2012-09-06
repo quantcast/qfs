@@ -3,7 +3,7 @@
 #
 # Copyright 2008-2012 Quantcast Corp.
 #
-# Author: Sriram Rao (Quantcast Corp.)
+# Author: Mike Ovsiannikov
 #
 # This file is part of Kosmos File System (KFS).
 #
@@ -18,11 +18,172 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-#
-# Port at which clients can connect to us
+
+# Client listener port.
 metaServer.clientPort = 20000
-# Port at which chunkservers can connect to us
+
+# Chunk server listener port.
 metaServer.chunkServerPort = 30000
+
+# Meta serve transactions log directory.
 metaServer.logDir = meta/transaction_logs
+
+# Meta server checkpoint directory.
 metaServer.cpDir = meta/checkpoint
+
+# Allow to automatically create an empty file system. The default is 0, as under
+# normal circumstances where the file system content is of value, completely
+# loosing checkpoint, transaction log, and automatically creating an empty
+# fs will have the same effect as conventional "mkfs". All chunks (blocks)
+# will get deleted, and restoring the checkpoint, and logs later won't be
+# sufficient to recover the data.
 metaServer.createEmptyFs = 1
+
+# Root directory permissions -- used first time when the file system created.
+# metaServer.rootDirUser  = 0
+# metaServer.rootDirGroup = 0
+# metaServer.rootDirMode  = 0755
+
+# ==============================================================================
+# The parameters below this line can be changed at runtime by editing the
+# configuration file and sending meta server process HUP signal.
+
+# Message log level FATAL, ALERT, CRIT, ERROR, WARN, NOTICE, INFO, DEBUG
+metaServer.msgLogWriter.logLevel = INFO
+
+# Mininum number of connected / functional chunk servers before the file system
+# can be used.
+metaServer.minChunkservers = 1
+
+# Wait 30 sec for chunk servers to connect back after restarting, before file
+# system considered fully functional.
+metaServer.recoveryInterval = 30 
+
+# For write append use the low order byte of the IP address for the chunk servers
+# master/slave assignment.
+# metaServer.assignMasterByIp = 0
+
+# Various timeout settings.
+
+# Extend lease expiration time by 30 sec. in the case of the write master
+# disconnect, to give it a chance to re-connect.
+# Default is 30 sec.
+# metaServer.leaseOwnerDownExpireDelay = 30
+
+# Re-replication or recovery delay in seconds on chunk server down, to give
+# chunk server a chance to attempt to re-connect.
+# metaServer.serverDownReplicationDelay = 120
+
+# Chunk server heartbeat interval.
+# Default is 30 sec.
+# metaServer.chunkServer.heartbeatInterval = 30
+
+# Chunk server operations timeouts.
+# Heartbeat timeout results in declaring chunk server non operational, and
+# closing connection.
+# All other operations timeout are interpreted as the operation failure.
+# metaServer.chunkServer.heartbeatTimeout    = 60
+# metaServer.chunkServer.chunkReallocTimeout = 75
+# metaServer.chunkServer.chunkAllocTimeout   = 40
+# metaServer.chunkServer.chunkReallocTimeout = 75
+# metaServer.chunkServer.makeStableTimeout   = 330
+# metaServer.chunkServer.replicationTimeout  = 330
+
+# Other chunk server operations timeout.
+# metaServer.chunkServer.requestTimeout      = 600
+
+# Chunk server space utilization placement threshold.
+# Chunk servers with space utilization over this threshold are not considered
+# as candidates for the chunk placement.
+# Default is 0.95 or 95%.
+# metaServer.maxSpaceUtilizationThreshold = 0.95
+
+# Unix style permissions
+# Space separated list of ip addresses of hosts where root user is allowed.
+# Empty list means that root user allowed on any host.
+# Default is empty.
+# metaServer.rootHosts =
+
+# Force effective user to root. Effectively turn off all permissions control.
+# Default is off.
+# metaServer.forceEUserToRoot = 0
+
+# Client backward compatibility.
+# Defaults are no user and no group -- disable backward compatibility.
+# metaServer.defaultUser     = 0xFFFFFFFF
+# metaServer.defaultGroup    = 0xFFFFFFFF
+# metaServer.defaultFileMode = 0644
+# metaServer.defaultDirMode  = 0755
+
+# Default for checkpoint / transaction log conversion. 
+# metaServer.defaultLoadUser     = 0
+# metaServer.defaultLoadGroup    = 0
+# metaServer.defaultLoadFileMode = 0644
+# metaServer.defaultLoadDirMode  = 0755
+
+# ===================== Chunk servers configuration parameters. ================
+
+# Chunk server log level.
+chunkServer.msgLogWriter.logLevel = NOTICE
+
+# Disk io request timeout.
+# Default is 270 sec. Production value is 40 sec.
+# chunkServer.diskIo.maxIoTimeSec = 270
+
+# Synchronous replication timeouts.
+# Record append synchrounous replicaiton timeout.
+# Default is 180 sec. Production value is 20 sec.
+# chunkServer.recAppender.replicationTimeoutSec = 180
+# Write replication timeout.   
+# Default is 300 sec. Production value is 20 sec.
+# chunkServer.remoteSync.responseTimeoutSec     = 300
+
+# Controls buffered io -- use os file system cache, instead of direct io on the
+# os / file systems that support direct io (most file systems on linux).
+# Default is off.
+# It is conceivable that enabling buffered io might help with short reads for
+# the "broadcast" / "web server" type of loads. For the "typical" large io (1MB)
+# requests sequential type loads enabling caching will likely lower cluster
+# performance due to higher system (os) cpu overhead, and memory contention.
+# Default is off.
+# chunkServer.bufferedIo = 0
+
+# If sparse files, and in particular chunks aren't used (sequential write only
+# for example) the following parameter can be set to 0.
+# chunkServer.allowSparseChunks = 1
+
+# The minimal amount of space in bytes that must be available in order for the
+# chunk directory to be used for chunk placement (considered as "writable").
+# Default is chunk size -- 64MB plus chunk header size 16KB.
+# chunkServer.minFsAvailableSpace = 67125248
+
+# The minimal amount of space that must be available in order for the chunk
+# directory to be used for chunk placement (considered as "writable"), expressed
+# as part total host file system space.
+# Default is 0.05 or 5%, or in other words stop using chunk directory when the
+# host file system where the chunk directory resides reaches 95% space
+# utilization.
+# chunkServer.maxSpaceUtilizationThreshold = 0.05
+
+# The "weight" or pending disk io in choosing chunk directory placement.
+# If set to 0 or less the pending io (number of io bytes in the disk queue) has
+# no no effect on the placement (choosing chunk directory where to create chunk).
+# If weight set to greater than 0, then the average pending io per chunk
+# directory (host file system / disk) is calculated, as
+# (total_pending_read_bytes * total_pending_read_weight +
+# total_pending_write_bytes * total_pending_write_weight) / chunk_directory_count
+# Chunk directories with pending_read + pending_write are taken out of the
+# consideration for placement.
+# Default is 0. Typical production value is 1.3
+# chunkServer.chunkPlacementPendingReadWeight   = 0
+# chunkServer.chunkPlacementPendingWriteWeight  = 0
+
+# Averaging interval for the time incoming io requests spend in io buffer wait
+# queue. The "average wait time" value used by the meta server for chunk
+# placement. The average exponentially decays (IIR filter).
+# Default is 20 sec. Typical production value is 8.
+# chunkServer.bufferManager.waitingAvgInterval  = 20
+
+# "Not available" directories rescan interval in seconds. Default is 180 sec.
+# (see comment in chunk server configuration file).
+# chunkServer.dirRecheckInterval = 180
