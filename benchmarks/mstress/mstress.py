@@ -117,11 +117,19 @@ def ParseCommandline():
 
 
 def PrintMemoryUsage(opts):
-  proc = subprocess.Popen(['ssh', opts.server,
-                           'ps -C %s -o rss,pid,cmd |grep %s'%(Globals.SERVER_CMD,Globals.SERVER_KEYWORD)],
+  if sys.platform in ('Darwin', 'darwin'):
+    psCmd = "ps -o rss,pid,command | grep %s | grep %s | grep -v grep | awk '{print $1}'" % (Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
+  else:
+    psCmd = "ps -C %s -o rss,pid,cmd | grep %s | awk '{print $1}'" % (Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
+
+  proc = subprocess.Popen(['ssh', opts.server, psCmd],
                            stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE)
-  print "Memory usage %dKB" % int(re.search(r'^(\d+)\s+', proc.communicate()[0]).group(1))
+  result = proc.communicate()
+  if result and len(result[0].strip()) > 0:
+    print "Memory usage %sKB" % result[0].strip()
+  else:
+    print "Memory usage <unknown> KB"
 
 
 def RunMStressMaster(opts, hostsList):
