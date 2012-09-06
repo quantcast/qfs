@@ -166,9 +166,6 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sRequestTimeout = prop.getValue(
         "metaServer.chunkServer.requestTimeout",
         sRequestTimeout);
-    sRequestTimeout = prop.getValue(
-        "metaServer.chunkServer.requestTimeout",
-        sRequestTimeout);
     sSrvLoadSamplerSampleCount = prop.getValue(
         "metaServer.chunkServer.srvLoadSampler.sampleCount",
         sSrvLoadSamplerSampleCount);
