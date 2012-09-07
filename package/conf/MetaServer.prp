@@ -44,6 +44,38 @@ metaServer.createEmptyFs = 1
 # metaServer.rootDirGroup = 0
 # metaServer.rootDirMode  = 0755
 
+# Defaults for checkpoint and transaction log without permissions conversion on
+# startup.
+# metaServer.defaultLoadUser     = 0
+# metaServer.defaultLoadGroup    = 0
+# metaServer.defaultLoadFileMode = 0644
+# metaServer.defaultLoadDirMode  = 0755
+
+# The size of the "client" thread pool.
+# When set to greater than 0, dedicated threads to do client network io, request
+# parsing, and response assembly are created. The thread pool size should
+# usually be (at least one) less than the number of cpus. "Client" threads help
+# with processing large amount of ["short"] requests where more cpu used for
+# context switch, network io and, request parsing and response assembly, than
+# the cpu for the request processing itself. For example i-node attribute
+# lookup, or write append chunk allocations that can be satisfied from the write
+# append allocation cache.
+# Default is 0 -- no dedicated "client" threads.
+# metaServer.clientThreadCount = 0
+
+# Meta server threads affinity.
+# Presently only supported on linux.
+# The first cpu index to set thread affinity to.
+# The main thread will be assigned to the cpu at the specified index, then the
+# next "client" thread will be assigned to the cpu index plus one and so on.
+# For example with 2 client threads and start cpu index 0 the threads affinity
+# would be 0 1 2 respectively.
+# Useful on machines with more than one multi-core processor with shared dram
+# cache. Assigning the threads to the same processor might help minimize dram
+# cache misses.
+# Default is off (start index less than 0) no thread affinity set.
+# metaServer.clientThreadStartCpuAffinity = -1
+
 # ==============================================================================
 # The parameters below this line can be changed at runtime by editing the
 # configuration file and sending meta server process HUP signal.
@@ -62,6 +94,47 @@ metaServer.recoveryInterval = 30
 # For write append use the low order byte of the IP address for the chunk servers
 # master/slave assignment.
 # metaServer.assignMasterByIp = 0
+
+# Chunk server executables md5sums white list.
+# The chunk server sends its executable md5sum when it connects to the meta
+# servrer. If the following space separated list is not empty and does not
+# does not contain the chunk server executable checksum then the chunk server
+# is instructed to exit or restart itself.
+# This might be useful for upgrade or versions control.
+# While the chunk server is connected to the meta server no md5 sum verification
+# performed.
+# Default is empty list.
+# metaServer.chunkServerMd5sums =
+
+# Unique file system id -- some name that uniquely identifies distributed file
+# system instance.
+# This is used to protect data loss / and or corruption in the case where chunk
+# server(s) connect to the "wrong" meta server.
+# The meta server will not accept connections from the chunk servers with a
+# different "cluster key".
+# Default is empty string.
+metaServer.clusterKey = my-fs-unique-identifier
+
+# Assign rack id by ip prefix -- ip address treated as string.
+# The prefix can be positioned with trailing ??
+# For example: 10.6.34.2?
+# The rack id assigned on chunk server connect, and will not change until the
+# chunk server re-connect. Therefore the configuration file changes will not
+# have any effect until the chunk servers re-connect.
+# Default is empty -- use rack id assigned in the chunk server config.
+# metaServer.rackPrefixes =
+# Example:
+# 10.6.1.* -- rack 1, 10.6.2.* -- rack 2, 10.6.4.1? -- rack 4 etc.
+# metaServer.rackPrefixes = 10.6.1. 1  10.6.2. 2  10.6.4.1? 4  10.6.4.1 5
+
+# "Static" placement weights of the racks. The more weight and more chunk
+# servers are in the rack the more likely the rack will be chosen by chunk
+# allocation.
+# Default is empty -- all weight are default to 1.
+# metaServer.rackWeights =
+# Example: Racks 1 and 2 have weight 1, rack 3 -- 0.9, rack 4 weight 1.2,
+# rack 5 weight 1.5. All other rack weights are 1.
+# metaServer.rackWeights = 1 1  2 1  3 0.9  4 1.2  5 1.5
 
 # Various timeout settings.
 
@@ -115,11 +188,9 @@ metaServer.recoveryInterval = 30
 # metaServer.defaultFileMode = 0644
 # metaServer.defaultDirMode  = 0755
 
-# Default for checkpoint / transaction log conversion. 
-# metaServer.defaultLoadUser     = 0
-# metaServer.defaultLoadGroup    = 0
-# metaServer.defaultLoadFileMode = 0644
-# metaServer.defaultLoadDirMode  = 0755
+# The chunk server disconnects history size. Useful for monitoring.
+# Default is 4096 slots.
+# metaServer.maxDownServersHistorySize = 4096
 
 # ===================== Chunk servers configuration parameters. ================
 
@@ -165,15 +236,15 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # utilization.
 # chunkServer.maxSpaceUtilizationThreshold = 0.05
 
-# The "weight" or pending disk io in choosing chunk directory placement.
+# The "weight" or pending disk io in chunk placement.
 # If set to 0 or less the pending io (number of io bytes in the disk queue) has
 # no no effect on the placement (choosing chunk directory where to create chunk).
 # If weight set to greater than 0, then the average pending io per chunk
 # directory (host file system / disk) is calculated, as
 # (total_pending_read_bytes * total_pending_read_weight +
 # total_pending_write_bytes * total_pending_write_weight) / chunk_directory_count
-# Chunk directories with pending_read + pending_write are taken out of the
-# consideration for placement.
+# Chunk directories with pending_read + pending_write that exceed the value the
+# above are taken out of the consideration for placement.
 # Default is 0. Typical production value is 1.3
 # chunkServer.chunkPlacementPendingReadWeight   = 0
 # chunkServer.chunkPlacementPendingWriteWeight  = 0
