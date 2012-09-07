@@ -1175,7 +1175,7 @@ LayoutManager::LayoutManager() :
     mAllocAppendReuseInFlightTimeoutSec(25),
     mMinAppendersPerChunk(96),
     mMaxAppendersPerChunk(4 << 10),
-    mReservationOvercommitFactor(.95),
+    mReservationOvercommitFactor(1.0),
     mServerDownReplicationDelay(2 * 60),
     mMaxDownServersHistorySize(4 << 10),
     mChunkServersProps(),
