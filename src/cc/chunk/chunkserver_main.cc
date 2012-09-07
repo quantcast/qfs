@@ -333,7 +333,7 @@ private:
 void
 ChunkServerMain::ComputeMD5(const char* pathname)
 {
-    const size_t kBufSize = size_t(1) << 10;
+    const size_t kBufSize = size_t(1) << 20;
     char* const  buf      = new char[kBufSize];
     fstream      is(pathname, fstream::in | fstream::binary);
     MdStream     mds(0, false, string(), 0);
