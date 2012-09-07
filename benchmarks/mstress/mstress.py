@@ -141,14 +141,14 @@ def RunMStressMaster(opts, hostsList):
     hostsList: list of hosts obtained from plan file.
 
   Returns:
-    None
+    True on success. False on failure.
   """
 
   # print 'Master: called with %r, %r' % (opts, hostsList)
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'create') == False:
-    return
+    return False
   deltaTime = datetime.datetime.now() - startTime
   print '\nMaster: Create test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
   PrintMemoryUsage(opts)
@@ -156,28 +156,29 @@ def RunMStressMaster(opts, hostsList):
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'stat') == False:
-    return
+    return False
   deltaTime = datetime.datetime.now() - startTime
   print '\nMaster: Stat test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
   print '=========================================='
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'readdir') == False:
-    return
+    return False
   deltaTime = datetime.datetime.now() - startTime
   print '\nMaster: Readdir test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
   print '=========================================='
 
   if opts.leave_files:
     print "\nNot deleting files because of -l option"
-    return
+    return False
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'delete') == False:
-    return
+    return False
   deltaTime = datetime.datetime.now() - startTime
   print '\nMaster: Delete test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
   print '=========================================='
+  return True
 
 
 def RunMStressMasterTest(opts, hostsList, test):
@@ -214,6 +215,7 @@ def RunMStressMasterTest(opts, hostsList, test):
                          stderr=subprocess.PIPE)
     running_procs[p] = client
 
+  success = True
   isLine1 = True
   while running_procs:
     tobedelkeys = []
@@ -227,6 +229,9 @@ def RunMStressMasterTest(opts, hostsList, test):
         if serr:
           print '\nMaster: err of slave (%s):%s' % (client, serr)
         tobedelkeys.append(proc)
+        if retcode != 0:
+          print "\nMaster: '%s' test failed. Please make sure test directory is empty and has write permission, or check slave logs." % test
+          success = False
       else:
         if Globals.SIGNALLED:
           proc.terminate()
@@ -242,7 +247,7 @@ def RunMStressMasterTest(opts, hostsList, test):
         sys.stdout.write('.')
       sys.stdout.flush()
       time.sleep(0.5)
-  return True
+  return success
 
 def MapHostnameForTest(clients, test):
   """ Determines the '-c' argument to use for slave invocation. This argument
@@ -278,7 +283,7 @@ def RunMStressSlave(opts, clientsPerHost):
     clientsPerHost: integer, number of processes to run on each host.
 
   Returns:
-    None
+    True if client returns success. False otherwise.
   """
 
   print 'Slave: called with %r, %d' % (opts, clientsPerHost)
@@ -303,6 +308,7 @@ def RunMStressSlave(opts, clientsPerHost):
                          stderr=subprocess.PIPE)
     running_procs.append(p)
 
+  success = True
   isLine1 = True
   while running_procs:
     for proc in running_procs:
@@ -314,6 +320,9 @@ def RunMStressSlave(opts, clientsPerHost):
         if serr:
           print '\nSlave: err of (ClientHost %s, ClientNo %r):%s' % (opts.client_hostname, proc, serr)
         running_procs.remove(proc)
+        if ret != 0:
+          print '\nSlave: mstress client failed. Please check client logs.'
+          success = False
       else:
         if Globals.SIGNALLED:
           proc.terminate()
@@ -326,7 +335,7 @@ def RunMStressSlave(opts, clientsPerHost):
         sys.stdout.write('.')
       sys.stdout.flush()
       time.sleep(0.5)
-
+  return success
 
 def ReadPlanFile(opts):
   """ Reads the given plan file to extract the list of client-hosts and
@@ -442,12 +451,16 @@ def main():
     (hostsList,clientsPerHost) = ReadPlanFile(opts)
 
     if opts.mode == 'master':
-      RunMStressMaster(opts, hostsList)
+      return RunMStressMaster(opts, hostsList)
     else:
-      RunMStressSlave(opts, clientsPerHost)
+      return RunMStressSlave(opts, clientsPerHost)
   finally:
     RemoveLock(opts)
 
 if __name__ == '__main__':
-  main()
+  success = main()
+  if success:
+    sys.exit(0)
+  else:
+    sys.exit(1)
 

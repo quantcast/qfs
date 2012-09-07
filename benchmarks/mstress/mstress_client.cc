@@ -347,16 +347,28 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
     if (isDir) {
       //fprintf(logFile, "Creating DIR [%s]\n", client->path_.actualPath_);
       rc = kfsClient->Mkdir(client->path_.actualPath_);
+      if (rc < 0) {
+        fprintf(logFile, "Mkdir(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+        return rc;
+      }
       (*createdCount)++;
       if (*createdCount > 0 && (*createdCount) % COUNT_INCR == 0) {
         fprintf(logFile, "Created paths so far: %d\n", *createdCount);
       }
       if (!isLeaf) {
-        CreateDFSPaths(client, kfs, level+1, createdCount);
+        rc = CreateDFSPaths(client, kfs, level+1, createdCount);
+        if (rc < 0) {
+          fprintf(logFile, "CreateDFSPaths(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+          return rc;
+        }
       }
     } else {
       //fprintf(logFile, "Creating file [%s]\n", client->path_.actualPath_);
       rc = kfsClient->Create(client->path_.actualPath_);
+      if (rc < 0) {
+        fprintf(logFile, "Create(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+        return rc;
+      }
       (*createdCount)++;
       if (*createdCount > 0 && (*createdCount) % COUNT_INCR == 0) {
         fprintf(logFile, "Created paths so far: %d\n", *createdCount);
@@ -374,19 +386,21 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs)
   os << TEST_BASE_DIR << "/" << client->hostName_ + "_" << client->processName_;
   int err = kfsClient->Mkdirs(os.str().c_str());
   //fprintf(logFile, "first mkdir err = %d\n", err);
-  if (err && err != EEXIST) {
+  if (err && err != -EEXIST) {
     fprintf(logFile, "Error: mkdir test base dir failed\n");
     exit(-1);
   }
 
+  int rc = 0;
   int createdCount = 0;
   struct timeval tvAlpha;
   gettimeofday(&tvAlpha, NULL);
 
   client->path_.Reset();
   client->path_.Push(os.str().c_str());
-  if (CreateDFSPaths(client, kfs, 0, &createdCount) < 0) {
+  if ((rc = CreateDFSPaths(client, kfs, 0, &createdCount)) < 0) {
     fprintf(logFile, "Error: failed to create DFS paths\n");
+    return rc;
   }
 
   struct timeval tvZigma;
@@ -423,6 +437,7 @@ int StatDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
     int err = kfsClient->Stat(os.str().c_str(), attr);
     if (err) {
       fprintf(logFile, "error doing stat on %s\n", os.str().c_str());
+      return err;
     }
 
     if (count > 0 && count % COUNT_INCR == 0) {
@@ -458,7 +473,7 @@ int ListDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
     int err = kfsClient->ReaddirPlus(parent.c_str(), children);
     if (err) {
       fprintf(logFile, "Error [err=%d] reading directory %s\n", err, parent.c_str());
-      continue;
+      return err;
     }
     while (!children.empty()) {
       string child = children.back().filename;
@@ -502,6 +517,7 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
   unique_random(leafIdxRangeForDel, countLeaf);
   fprintf(logFile, "To delete %zu paths\n", leafIdxRangeForDel.size());
 
+  int err = 0;
   struct timeval tvAlpha;
   gettimeofday(&tvAlpha, NULL);
   bool isLeafDir = client->type_=="dir";
@@ -535,15 +551,27 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
     }
 
     pathToDel = os.str() + "/" + pathSoFar;
-    fprintf(logFile, "Client: Deleting %s ...\n", pathToDel.c_str());
+    //fprintf(logFile, "Client: Deleting %s ...\n", pathToDel.c_str());
     if (isLeafDir) {
-      kfsClient->Rmdir(pathToDel.c_str());
+      err = kfsClient->Rmdir(pathToDel.c_str());
+      if (err) {
+        fprintf(logFile, "Error [err=%d] deleting directory %s\n", err, pathToDel.c_str());
+        return err;
+      }
     } else {
-      kfsClient->Remove(pathToDel.c_str());
+      err = kfsClient->Remove(pathToDel.c_str());
+      if (err) {
+        fprintf(logFile, "Error [err=%d] deleting file %s\n", err, pathToDel.c_str());
+        return err;
+      }
     }
   }
 
-  kfsClient->RmdirsFast(os.str().c_str());
+  err = kfsClient->RmdirsFast(os.str().c_str());
+  if (err) {
+    fprintf(logFile, "Error [err=%d] RmdirsFast(%s)\n", err, os.str().c_str());
+    return err;
+  }
 
   struct timeval tvZigma;
   gettimeofday(&tvZigma, NULL);
@@ -567,18 +595,19 @@ int main(int argc, char* argv[])
 
   ParsePlanFile(&client);
 
+  int result = 0;
   if (client.testName_ == "create") {
-    CreateDFSPaths(&client, &kfs);
+    result = CreateDFSPaths(&client, &kfs);
   } else if (client.testName_ == "stat") {
-    StatDFSPaths(&client, &kfs);
+    result = StatDFSPaths(&client, &kfs);
   } else if (client.testName_ == "readdir") {
-    ListDFSPaths(&client, &kfs);
+    result = ListDFSPaths(&client, &kfs);
   } else if (client.testName_ == "delete") {
-    RemoveDFSPaths(&client, &kfs);
+    result = RemoveDFSPaths(&client, &kfs);
   } else {
     fprintf(logFile, "Error: unrecognized test '%s'", client.testName_.c_str());
     return -1;
   }
-  return 0;
+  return result;
 }
 

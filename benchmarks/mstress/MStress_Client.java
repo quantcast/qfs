@@ -107,6 +107,7 @@ public class MStress_Client
 
   public static void main(String args[]) {
     parseOptions(args);
+    int result = 0;
 
     try {
       Configuration conf = new Configuration(true);
@@ -117,23 +118,30 @@ public class MStress_Client
       dfsClient_ = new DFSClient(inet, conf);
 
       if (parsePlanFile() < 0) {
-        return;
+        System.exit(-1);
       }
 
       if (testName_.equals("create")) {
-          createDFSPaths();
+        result = createDFSPaths();
       } else if (testName_.equals("stat")) {
-          statDFSPaths();
+        result = statDFSPaths();
       } else if (testName_.equals("readdir")) {
-          listDFSPaths();
+        result = listDFSPaths();
       } else if (testName_.equals("delete")) {
-          removeDFSPaths();
+        result = removeDFSPaths();
       } else {
-          System.out.printf("Error: unrecognized test \'%s\'\n", testName_);
+        System.out.printf("Error: unrecognized test \'%s\'\n", testName_);
+        System.exit(-1);
       }
     } catch( IOException e) {
       e.printStackTrace();
+      System.exit(-1);
     }
+
+    if (result != 0) {
+      System.exit(-1);
+    }
+
     return;
   }
 
@@ -250,7 +258,7 @@ public class MStress_Client
     return zigma.getTime() - alpha.getTime();
   }
 
-  private static void CreateDFSPaths(int level, String parentPath) {
+  private static int CreateDFSPaths(int level, String parentPath) {
     Boolean isLeaf = false;
     Boolean isDir = false;
     if (level + 1 >= levels_) {
@@ -266,23 +274,30 @@ public class MStress_Client
       isDir = true;
     }
 
+    int err = 0;
     for (int i = 0; i < inodesPerLevel_; i++) {
       String path = parentPath + "/" + prefix_ + Integer.toString(i);
       //System.out.printf("Creating (isdir=%b) [%s]\n", isDir, path.toString());
 
       if (isDir) {
         try {
-          dfsClient_.mkdirs(path);
+          if (dfsClient_.mkdirs(path) == false) {
+            System.out.printf("Error in mkdirs(%s)\n", path);
+            return -1;
+          }
           totalCreateCount ++;
           if (totalCreateCount % COUNT_INCR == 0) {
             System.out.printf("Created paths so far: %d\n", totalCreateCount);
           }
           if (!isLeaf) {
-            CreateDFSPaths(level+1, path);
+            if (CreateDFSPaths(level+1, path) < 0) {
+              System.out.printf("Error in CreateDFSPaths(%s)\n", path);
+              return -1;
+            }
           }
-        } catch( IOException e) {
+        } catch(IOException e) {
           e.printStackTrace();
-          throw new RuntimeException();
+          return -1;
         }
       } else {
         try {
@@ -293,10 +308,11 @@ public class MStress_Client
           }
         } catch( IOException e) {
           e.printStackTrace();
-          throw new RuntimeException();
+          return -1;
         }
       }
     }
+    return 0;
   }
 
   private static int createDFSPaths()
@@ -315,7 +331,9 @@ public class MStress_Client
 
     Date alpha = new Date();
 
-    CreateDFSPaths(0, basePath);
+    if (CreateDFSPaths(0, basePath) < 0) {
+      return -1;
+    }
 
     Date zigma = new Date();
     System.out.printf("Client: %d paths created in %d msec\n", totalCreateCount, timeDiffMilliSec(alpha, zigma));
@@ -343,7 +361,7 @@ public class MStress_Client
         stat = dfsClient_.getFileInfo(path);
       } catch(IOException e) {
         e.printStackTrace();
-        throw new RuntimeException();
+        return -1;
       }
       if (count % COUNT_INCR == 0) {
         System.out.printf("Stat paths so far: %d\n", count);
@@ -397,7 +415,7 @@ public class MStress_Client
         } while (thisListing != null);
       } catch (IOException e) {
         e.printStackTrace();
-        throw new RuntimeException();
+        return -1;
       }
     }
 
@@ -436,7 +454,7 @@ public class MStress_Client
       dfsClient_.delete(rmPath, true);
     } catch(IOException e) {
       e.printStackTrace();
-      throw new RuntimeException();
+      return -1;
     }
     Date zigma = new Date();
     System.out.printf("Client: Deleted %s. Delete took %d msec\n", rmPath, timeDiffMilliSec(alpha, zigma));
