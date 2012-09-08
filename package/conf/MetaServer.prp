@@ -79,6 +79,9 @@ metaServer.createEmptyFs = 1
 # ==============================================================================
 # The parameters below this line can be changed at runtime by editing the
 # configuration file and sending meta server process HUP signal.
+# Note that to restore parameter to default at run time the default value must
+# be explicitly specified in the configuration file, i.e. commenting out the
+# parameter will not have any effect until restart.
 
 # Message log level FATAL, ALERT, CRIT, ERROR, WARN, NOTICE, INFO, DEBUG
 metaServer.msgLogWriter.logLevel = INFO
@@ -91,8 +94,13 @@ metaServer.minChunkservers = 1
 # system considered fully functional.
 metaServer.recoveryInterval = 30 
 
-# For write append use the low order byte of the IP address for the chunk servers
-# master/slave assignment.
+# For write append use the low order bit of the IP address for the chunk servers
+# master/slave assignment. This scheme is works well if least significant bit of
+# ip address uniformly distributes masters and slaves withing the rack,
+# especially with in rack placement for append.
+# Default is 0. Assign master / slave to keep number of masters and slaves
+# equal. The obvious downside of this is that the assignment depends on the
+# server connection order.
 # metaServer.assignMasterByIp = 0
 
 # Chunk server executables md5sums white list.
@@ -190,16 +198,6 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 1 sec.
 # metaServer.MTimeUpdateResolution = 1
 
-# "In rack" placement for append and non append chunk allocations.
-# Place chunk replicas on the same rack to save cross rack bandwidth at the cost
-# of reduced reliability. Useful for temporary / scratch file systems.
-# Default is 0.
-# metaServer.inRackPlacementForAppend = 0
-# "In rack" placement for non append files.
-# Default is 0 - place replicas and chunks from the same RS blocks on different
-# racks.
-# metaServer.inRackPlacement = 0
-
 # Force effective user to root. Effectively turn off all permissions control.
 # Default is off.
 # metaServer.forceEUserToRoot = 0
@@ -215,9 +213,79 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 4096 slots.
 # metaServer.maxDownServersHistorySize = 4096
 
-# Order chunk replicas locations by the chunk "load average" metric.
-# Default is off -- the replicas locations are shuffled randomly.
+# ------------------ Chunk placement parameters --------------------------------
+
+# The metaServer.sortCandidatesByLoadAvg and
+# metaServer.sortCandidatesBySpaceUtilization are mutially exclusive.
+# metaServer.sortCandidatesBySpaceUtilization takes precedence over
+# metaServer.sortCandidatesByLoadAvg if both set to 1
+
+# When allocating (placing) a chunk prefer chunk servers with lower "load"
+# metric over the chunk servers with the higher "load" metric.
+# For the write intesive file systems turning this mode on is
+# recommended.
+# Default is 0. Do not take chunk server "load" metric into the account.
 # metaServer.sortCandidatesByLoadAvg = 0
+
+# When allocating (placing) a chunk prefer chunk servers with lower disk space
+# utilizaiton.
+# Default is 0. Do not take space utilization into the account.
+# metaServer.sortCandidatesBySpaceUtilization = 0
+
+# When allocating (placing) a chunk do not consider chunk server with the "load"
+# exceeding average load multiplied by metaServer.maxGoodCandidateLoadRatio.
+# Default is 4.
+# metaServer.maxGoodCandidateLoadRatio = 4
+
+# When allocating (placing) a chunk do not consider chunk server with the "load"
+# exceeding average "master" chunk server load multiplied by
+# metaServer.maxGoodMasterLoadRatio if the chunk server is used as master (head
+# or synchronous replication chain).
+# Default is 4.
+# metaServer.maxGoodMasterLoadRatio = 4
+
+# When allocating (placing) a chunk do not consider chunk server with the "load"
+# exceeding average "slave" load multiplied by metaServer.maxGoodSlaveLoadRatio
+# if the chunk server is used as slave.
+# Default is 4.
+# metaServer.maxGoodSlaveLoadRatio = 4
+
+# When allocating (placing) a chunk do not consider chunk server with the
+# average number of chunks opened for write per drive (disk) exceeding average
+# number of chunks opened for write across all disks / chunks servers multiplied
+# by metaServer.maxWritesPerDriveRatio.
+# Default is 1.5.
+# metaServer.maxWritesPerDriveRatio = 1.5
+
+# When allocating (placing) a chunk do not consider chunk server running on the
+# same host as writer if the average number of chunks opened for write per drive
+# (disk) exceeding average number of chunks opened for write across all disks /
+# chunks servers multiplied by metaServer.maxLocalPlacementWeight.
+# Default is 1.0.
+# metaServer.maxLocalPlacementWeight = 1.0
+
+# "In rack" placement for append and non append chunk allocations.
+# Place chunk replicas on the same rack to save cross rack bandwidth at the cost
+# of reduced reliability. Useful for temporary / scratch file systems.
+# Default is 0.
+# metaServer.inRackPlacementForAppend = 0
+
+#-------------------------------------------------------------------------------
+
+# "In rack" placement for non append files.
+# Default is 0 - place replicas and chunks from the same RS blocks on different
+# racks.
+# metaServer.inRackPlacement = 0
+
+# Order chunk replicas locations by the chunk "load average" metric.
+# Default is 0. The replicas locations are shuffled randomly.
+# metaServer.getAllocOrderServersByLoad = 0
+
+# metaServer.clientSM.auditLogging = 0
+# metaServer.auditLogWriter.logFilePrefixes = /home/qfsm0/auditlog/audit.log
+# metaServer.auditLogWriter.maxLogFileSize = 1e9
+# metaServer.auditLogWriter.maxLogFiles = 10
+# metaServer.auditLogWriter.waitMicroSec = 36000e6
 
 # ===================== Chunk servers configuration parameters. ================
 
