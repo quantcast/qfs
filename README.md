@@ -9,8 +9,11 @@ Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed f
 Compiling And Running
 ---------------------
 
-The QFS Wiki has details on compiling QFS and running it. For a quick start, one could run the following commands from the top-level directory:
+The [QFS Wiki](https://github.com/quantcast/qfs/wiki) has details on compiling QFS and running it.
 
+The pre-requisite packages for the build system are discussed **[here](https://github.com/quantcast/qfs/wiki/Developer-Documentation)**.
+
+ For a quick start, one could run the following commands from the top-level directory:
 * Build Code:
   Ensure boost and cmake are installed / available.
   `make`
