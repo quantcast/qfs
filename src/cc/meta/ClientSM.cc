@@ -95,7 +95,7 @@ ClientSM::SetParameters(const Properties& prop)
         sMaxPendingOps = maxPendingOps;
     } else if (! gNetDispatch.IsRunning() &&
             prop.getValue("metaServer.clientThreadCount", -1) > 0) {
-        sMaxPendingOps = 4;
+        sMaxPendingOps = 16;
     }
     sMaxPendingBytes = max(1, prop.getValue(
         "metaServer.clientSM.maxPendingBytes",
