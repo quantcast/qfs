@@ -31,15 +31,16 @@ metaServer.logDir = meta/transaction_logs
 # Meta server checkpoint directory.
 metaServer.cpDir = meta/checkpoint
 
-# Allow to automatically create an empty file system. The default is 0, as under
-# the normal circumstances where the file system content is of value, completely
-# loosing checkpoint, transaction log, and automatically creating an empty
-# fs will have the same effect as conventional "mkfs". All chunks (blocks)
-# will get deleted, and restoring the checkpoint, and logs later won't be
-# sufficient to recover the data.
+# Allow to automatically create an empty file system if checkpoint file does not
+# exists.
+# The default is 0, as under the normal circumstances where the file system
+# content is of value, completely loosing checkpoint, transaction log, and
+# automatically creating an empty fs will have the same effect as conventional
+# "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint,
+# and logs later won't be sufficient to recover the data.
 metaServer.createEmptyFs = 1
 
-# Root directory permissions -- used first time when the file system created.
+# Root directory permissions -- used only when the new file system created.
 # metaServer.rootDirUser  = 0
 # metaServer.rootDirGroup = 0
 # metaServer.rootDirMode  = 0755
@@ -56,7 +57,7 @@ metaServer.createEmptyFs = 1
 # parsing, and response assembly are created. The thread pool size should
 # usually be (at least one) less than the number of cpus. "Client" threads help
 # with processing large amount of ["short"] requests where more cpu used for
-# context switch, network io and, request parsing and response assembly, than
+# context switch, network io, request parsing, and response assembly, than
 # the cpu for the request processing itself. For example i-node attribute
 # lookup, or write append chunk allocations that can be satisfied from the write
 # append allocation cache.
@@ -75,6 +76,22 @@ metaServer.createEmptyFs = 1
 # cache misses.
 # Default is off (start index less than 0) no thread affinity set.
 # metaServer.clientThreadStartCpuAffinity = -1
+
+# Meta server process max. locked memory.
+# If set to a value greater than 0 then locked memory limit will be set to the
+# specified value, and mlock(MCL_CURRENT|MCL_FUTURE) invoked.
+# Under linux running under non root user require properly setting locked memory
+# hard limit.
+# Default is 0 -- no memory locking.
+# metaServer.maxLockedMemory = 0
+
+# Size of [network] io buffer pool.
+# The default buffer size is 4K, therefore the amount of memory is
+# 4K * metaServer.bufferPool.partionBuffers.
+# All io buffers are allocated at startup.
+# If memory locking enabled io buffers are locked in memory at startup.
+# Default is 256K or 1GB on 64 bit system, and 32K or 128MB on 32 bit system.
+# metaServer.bufferPool.partionBuffers = 262144
 
 # ==============================================================================
 # The parameters below this line can be changed at runtime by editing the
@@ -153,6 +170,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 
 # Re-replication or recovery delay in seconds on chunk server down, to give
 # chunk server a chance to attempt to re-connect.
+# Default is 120 sec.
 # metaServer.serverDownReplicationDelay = 120
 
 # Chunk server heartbeat interval.
@@ -163,6 +181,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Heartbeat timeout results in declaring chunk server non operational, and
 # closing connection.
 # All other operations timeout are interpreted as the operation failure.
+# The values are in seconds.
 # metaServer.chunkServer.heartbeatTimeout    = 60
 # metaServer.chunkServer.chunkReallocTimeout = 75
 # metaServer.chunkServer.chunkAllocTimeout   = 40
@@ -185,20 +204,13 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is empty.
 # metaServer.rootHosts =
 
-# Meta server process max. locked memory.
-# If set to a value greater than 0 then locked memory limit will be set to the
-# specified value, and mlock(MCL_CURRENT|MCL_FUTURE) invoked.
-# Under linux running under non root user require properly setting locked memory
-# hard limit.
-# Default is 0 -- no memory locking.
-# metaServer.maxLockedMemory = 0
-
 # File modification time update resolution. Increasing the value will reduce the
 # transaction log writes with large files.
 # Default is 1 sec.
 # metaServer.MTimeUpdateResolution = 1
 
-# Force effective user to root. Effectively turn off all permissions control.
+# Force effective user to root. This effectively turns off all permissions
+# control.
 # Default is off.
 # metaServer.forceEUserToRoot = 0
 
@@ -210,8 +222,45 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.defaultDirMode  = 0755
 
 # The chunk server disconnects history size. Useful for monitoring.
-# Default is 4096 slots.
+# Default is 4096 slots / disconnect events.
 # metaServer.maxDownServersHistorySize = 4096
+
+# Space and placement re-balancing.
+# Space re-balancing controlled by the next two parameters (thresholds) below.
+# Re-balancing constantly scans all chunks in the system and checks chunk
+# placement withing the replication or RS groups, and moves chunks from chunk
+# servers that are above metaServer.maxRebalanceSpaceUtilThreshold to the chunk
+# servers that are below metaServer.minRebalanceSpaceUtilThreshold.
+# Default is 1 -- on.
+# metaServer.rebalancingEnabled = 1
+
+# Space re-balancing thresholds.
+# Move chunk from the servers that exceed the
+# metaServer.maxRebalanceSpaceUtilThreshold
+# Default is 0.82
+# metaServer.maxRebalanceSpaceUtilThreshold = 0.82
+
+# Move chunks to server below metaServer.minRebalanceSpaceUtilThreshold.
+# Default is 0.72.
+# metaServer.minRebalanceSpaceUtilThreshold = 0.72
+
+# Time interval in seconds between replication queues scans.
+# The more often the scan is scheduled the more cpu can potentially use.
+# Default is 5 sec.
+# metaServer.replicationCheckInterval = 5
+
+# Re-balance scan depth.
+# Max number of chunks to scan in one partial scan. The more chunks are scanned
+# the more cpu re-balance will use, and the "faster" it will scan the chunks.
+# metaServer.maxRebalanceScan = 1024
+
+# Single re-balance partial scan time limit.
+# Default is 0.03 sec.
+# metaServer.maxRebalanceRunTime = 0.03
+
+# Minimum time between two consecutive re-balance partial scans.
+# Default is 0.512 sec.
+# metaServer.rebalanceRunInterval = 0.512
 
 # ------------------ Chunk placement parameters --------------------------------
 
@@ -270,12 +319,12 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 0.
 # metaServer.inRackPlacementForAppend = 0
 
-#-------------------------------------------------------------------------------
-
 # "In rack" placement for non append files.
 # Default is 0 - place replicas and chunks from the same RS blocks on different
 # racks.
 # metaServer.inRackPlacement = 0
+
+#-------------------------------------------------------------------------------
 
 # Order chunk replicas locations by the chunk "load average" metric.
 # Default is 0. The replicas locations are shuffled randomly.

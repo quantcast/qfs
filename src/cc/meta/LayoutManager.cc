@@ -1154,9 +1154,9 @@ LayoutManager::ChunkPlacement::ChunkPlacement()
 
 LayoutManager::LayoutManager() :
     mNumOngoingReplications(0),
-    mIsRebalancingEnabled(false),
-    mMaxRebalanceSpaceUtilThreshold(0.8),
-    mMinRebalanceSpaceUtilThreshold(0.65),
+    mIsRebalancingEnabled(true),
+    mMaxRebalanceSpaceUtilThreshold(0.85),
+    mMinRebalanceSpaceUtilThreshold(0.75),
     mIsExecutingRebalancePlan(false),
     mRecoveryStartTime(0),
     mStartTime(time(0)),
