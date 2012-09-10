@@ -262,6 +262,15 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 0.512 sec.
 # metaServer.rebalanceRunInterval = 0.512
 
+# Max. number of a single client connection requests in flight.
+# The higher value might reduce cpu and alleviate "head of the line blocking"
+# when single client connection shared between multiple concurrent file readers
+# and writers, potentially at the cost of reducing "fairness" between the client
+# connections. Increasing the value could also reduce number of context
+# switches, and os scheduling overhead with the "client" threads enabled.
+# Default is 16 if the "client" threads are enabled, and 1 otherwise.
+# metaServer.clientSM.maxPendingOps = 16
+
 # ------------------ Chunk placement parameters --------------------------------
 
 # The metaServer.sortCandidatesByLoadAvg and
