@@ -24,7 +24,7 @@
  * \brief Java wrappers to get to the KFS client.
  */
 
-package com.quantcast.kfs.access;
+package com.quantcast.qfs.access;
 
 import java.io.IOException;
 import java.io.FileNotFoundException;

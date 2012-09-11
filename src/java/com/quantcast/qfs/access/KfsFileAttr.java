@@ -24,7 +24,7 @@
  * \brief A struct that defines the kfs file attributes that get returned back.
  */
 
-package com.quantcast.kfs.access;
+package com.quantcast.qfs.access;
 
 public class KfsFileAttr
 {

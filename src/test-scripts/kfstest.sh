@@ -301,7 +301,7 @@ if [ x"$accessdir" != x ]; then
         -classpath "$kfsjar" \
         -Dkfs.euid="`id -u`" \
         -Dkfs.egid="`id -g`" \
-        com.quantcast.kfs.access.KfsTest "$metahost" "$metasrvport" \
+        com.quantcast.qfs.access.KfsTest "$metahost" "$metasrvport" \
         > kfsaccess_test.out 2>&1 &
     kfsaccesspid=$!
     echo "$kfsaccesspid" > "$kfsaccesspidf"

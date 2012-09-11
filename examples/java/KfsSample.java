@@ -37,7 +37,7 @@ import java.io.*;
 import java.net.*;
 import java.util.Random;
 import java.nio.ByteBuffer;
-import com.quantcast.kfs.access.*;
+import com.quantcast.qfs.access.*;
 
 public class KfsSample
 {

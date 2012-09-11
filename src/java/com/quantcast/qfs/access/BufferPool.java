@@ -23,7 +23,7 @@
  * \brief Java buffer pool for KFS client.
  */
 
-package com.quantcast.kfs.access;
+package com.quantcast.qfs.access;
 
 import java.nio.ByteBuffer;
 import java.util.AbstractQueue;

@@ -24,7 +24,7 @@
  * \brief Interface for positioning a file pointer.
  */
 
-package com.quantcast.kfs.access;
+package com.quantcast.qfs.access;
 
 import java.io.IOException;
 

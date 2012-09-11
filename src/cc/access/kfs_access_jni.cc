@@ -45,190 +45,190 @@ using std::ostringstream;
 using namespace KFS;
 
 extern "C" {
-    jlong Java_com_quantcast_kfs_access_KfsAccess_initF(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_initF(
         JNIEnv *jenv, jclass jcls, jstring jpath);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_initS(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_initS(
         JNIEnv *jenv, jclass jcls, jstring jmetaServerHost, jint metaServerPort);
 
-    void Java_com_quantcast_kfs_access_KfsAccess_destroy(
+    void Java_com_quantcast_qfs_access_KfsAccess_destroy(
         JNIEnv *jenv, jclass jcls, jlong jptr);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_cd(
+    jint Java_com_quantcast_qfs_access_KfsAccess_cd(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_mkdirs(
+    jint Java_com_quantcast_qfs_access_KfsAccess_mkdirs(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_rmdir(
+    jint Java_com_quantcast_qfs_access_KfsAccess_rmdir(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_compareChunkReplicas(
+    jint Java_com_quantcast_qfs_access_KfsAccess_compareChunkReplicas(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject stringbuffermd5);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_rmdirs(
+    jint Java_com_quantcast_qfs_access_KfsAccess_rmdirs(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jobjectArray Java_com_quantcast_kfs_access_KfsAccess_readdirplus(
+    jobjectArray Java_com_quantcast_qfs_access_KfsAccess_readdirplus(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jobjectArray Java_com_quantcast_kfs_access_KfsAccess_readdir(
+    jobjectArray Java_com_quantcast_qfs_access_KfsAccess_readdir(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jpreloadattr);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_remove(
+    jint Java_com_quantcast_qfs_access_KfsAccess_remove(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_rename(
+    jint Java_com_quantcast_qfs_access_KfsAccess_rename(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring joldpath, jstring jnewpath,
         jboolean joverwrite);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_exists(
+    jint Java_com_quantcast_qfs_access_KfsAccess_exists(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_isFile(
+    jint Java_com_quantcast_qfs_access_KfsAccess_isFile(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_isDirectory(
+    jint Java_com_quantcast_qfs_access_KfsAccess_isDirectory(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_filesize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_filesize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jobjectArray Java_com_quantcast_kfs_access_KfsAccess_getDataLocation(
+    jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen);
 
-    jshort Java_com_quantcast_kfs_access_KfsAccess_getReplication(
+    jshort Java_com_quantcast_qfs_access_KfsAccess_getReplication(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jshort Java_com_quantcast_kfs_access_KfsAccess_setReplication(
+    jshort Java_com_quantcast_qfs_access_KfsAccess_setReplication(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_getModificationTime(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_setModificationTime(
+    jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmsec);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_open(
+    jint Java_com_quantcast_qfs_access_KfsAccess_open(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring jmode, jint jnumReplicas,
         jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType, jint jcreateMode);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_create(
+    jint Java_com_quantcast_qfs_access_KfsAccess_create(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
         jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
         jboolean foreceType, jint mode);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultIoBufferSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultIoBufferSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getDefaultIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultReadAheadSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultReadAheadSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultReadAheadSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getDefaultReadAheadSize(
         JNIEnv *jenv, jclass jcls, jlong jptr);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_setIoBufferSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_setIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong jsize);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_getIoBufferSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_setReadAheadSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_setReadAheadSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong jsize);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_getReadAheadSize(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getReadAheadSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_getStripedType(
+    jint Java_com_quantcast_qfs_access_KfsAccess_getStripedType(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    void Java_com_quantcast_kfs_access_KfsAccess_setFileAttributeRevalidateTime(
+    void Java_com_quantcast_qfs_access_KfsAccess_setFileAttributeRevalidateTime(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint secs);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chmod(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chmod(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jint mode);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chmodr(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chmodr(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jint mode);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_fchmod(
+    jint Java_com_quantcast_qfs_access_KfsAccess_fchmod(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jint mode);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chowns(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chowns(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jstring user, jstring group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chownsr(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jstring user, jstring group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chown(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chown(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jlong user, jlong group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_chownr(
+    jint Java_com_quantcast_qfs_access_KfsAccess_chownr(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring path, jlong user, jlong group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_fchowns(
+    jint Java_com_quantcast_qfs_access_KfsAccess_fchowns(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jstring user, jstring group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_fchown(
+    jint Java_com_quantcast_qfs_access_KfsAccess_fchown(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong user, jlong group);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_setEUserAndEGroup(
+    jint Java_com_quantcast_qfs_access_KfsAccess_setEUserAndEGroup(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong user, jlong group, jlongArray);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_stat(
+    jint Java_com_quantcast_qfs_access_KfsAccess_stat(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr);
 
-    jstring Java_com_quantcast_kfs_access_KfsAccess_strerror(
+    jstring Java_com_quantcast_qfs_access_KfsAccess_strerror(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jerr);
 
-    jboolean Java_com_quantcast_kfs_access_KfsAccess_isnotfound(
+    jboolean Java_com_quantcast_qfs_access_KfsAccess_isnotfound(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jerr);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_close(
+    jint Java_com_quantcast_qfs_access_KfsAccess_close(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jlong Java_com_quantcast_kfs_access_KfsAccess_seek(
+    jlong Java_com_quantcast_qfs_access_KfsAccess_seek(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_getUMask(
+    jint Java_com_quantcast_qfs_access_KfsAccess_getUMask(
         JNIEnv *jenv, jclass jcls, jlong jptr);
 
-    jint Java_com_quantcast_kfs_access_KfsAccess_setUMask(
+    jint Java_com_quantcast_qfs_access_KfsAccess_setUMask(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint umask);
 
    /* Input channel methods */
-    jint Java_com_quantcast_kfs_access_KfsInputChannel_read(
+    jint Java_com_quantcast_qfs_access_KfsInputChannel_read(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
 
-    jint Java_com_quantcast_kfs_access_KfsInputChannel_seek(
+    jint Java_com_quantcast_qfs_access_KfsInputChannel_seek(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
 
-    jint Java_com_quantcast_kfs_access_KfsInputChannel_tell(
+    jint Java_com_quantcast_qfs_access_KfsInputChannel_tell(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jint Java_com_quantcast_kfs_access_KfsInputChannel_close(
+    jint Java_com_quantcast_qfs_access_KfsInputChannel_close(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
     /* Output channel methods */
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_write(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_write(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
 
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_atomicRecordAppend(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_atomicRecordAppend(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
 
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_sync(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_sync(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_seek(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_seek(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
 
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_tell(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_tell(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
-    jint Java_com_quantcast_kfs_access_KfsOutputChannel_close(
+    jint Java_com_quantcast_qfs_access_KfsOutputChannel_close(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 }
 
@@ -242,7 +242,7 @@ namespace
     }
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_initF(
+jlong Java_com_quantcast_qfs_access_KfsAccess_initF(
     JNIEnv *jenv, jclass jcls, jstring jpath)
 {
     string path;
@@ -251,7 +251,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_initF(
     return (jlong) clnt;
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_compareChunkReplicas(
+jint Java_com_quantcast_qfs_access_KfsAccess_compareChunkReplicas(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject stringbuffermd5)
 {
     if (! jptr) {
@@ -279,7 +279,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_compareChunkReplicas(
     return res;
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_initS(
+jlong Java_com_quantcast_qfs_access_KfsAccess_initS(
     JNIEnv *jenv, jclass jcls, jstring jmetaServerHost, jint metaServerPort)
 {
     string path;
@@ -288,14 +288,14 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_initS(
     return (jlong) clnt;
 }
 
-void Java_com_quantcast_kfs_access_KfsAccess_destroy(
+void Java_com_quantcast_qfs_access_KfsAccess_destroy(
     JNIEnv *jenv, jclass jcls, jlong jptr)
 {
     KfsClient* const clnt = (KfsClient*)jptr;
     delete clnt;
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_cd(
+jint Java_com_quantcast_qfs_access_KfsAccess_cd(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -308,7 +308,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_cd(
     return clnt->Cd(path.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_mkdirs(
+jint Java_com_quantcast_qfs_access_KfsAccess_mkdirs(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode)
 {
     if (! jptr) {
@@ -321,7 +321,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_mkdirs(
     return clnt->Mkdirs(path.c_str(), (kfsMode_t)mode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_rmdir(
+jint Java_com_quantcast_qfs_access_KfsAccess_rmdir(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -334,7 +334,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_rmdir(
     return clnt->Rmdir(path.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_rmdirs(
+jint Java_com_quantcast_qfs_access_KfsAccess_rmdirs(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -347,7 +347,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_rmdirs(
     return clnt->Rmdirs(path.c_str());
 }
 
-jobjectArray Java_com_quantcast_kfs_access_KfsAccess_readdir(
+jobjectArray Java_com_quantcast_qfs_access_KfsAccess_readdir(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jpreloadattr)
 {
     if (! jptr) {
@@ -389,7 +389,7 @@ jobjectArray Java_com_quantcast_kfs_access_KfsAccess_readdir(
     return jentries;
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_open(
+jint Java_com_quantcast_qfs_access_KfsAccess_open(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring jmode,
     jint jnumReplicas, jint jnumStripes, jint jnumRecoveryStripes,
     jint jstripeSize, jint jstripedType, jint jcreateMode)
@@ -421,7 +421,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_open(
         jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, jcreateMode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsInputChannel_close(
+jint Java_com_quantcast_qfs_access_KfsInputChannel_close(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -432,7 +432,7 @@ jint Java_com_quantcast_kfs_access_KfsInputChannel_close(
     return clnt->Close(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_close(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_close(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -443,7 +443,7 @@ jint Java_com_quantcast_kfs_access_KfsOutputChannel_close(
     return clnt->Close(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_create(
+jint Java_com_quantcast_qfs_access_KfsAccess_create(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
     jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
     jboolean foreceType, jint mode)
@@ -459,7 +459,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_create(
         jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, foreceType, (kfsMode_t)mode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_remove(
+jint Java_com_quantcast_qfs_access_KfsAccess_remove(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -472,7 +472,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_remove(
     return clnt->Remove(path.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_rename(
+jint Java_com_quantcast_qfs_access_KfsAccess_rename(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring joldpath,
     jstring jnewpath, jboolean joverwrite)
 {
@@ -488,7 +488,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_rename(
     return clnt->Rename(opath.c_str(), npath.c_str(), joverwrite);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultIoBufferSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize)
 {
     if (! jptr) {
@@ -499,7 +499,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultIoBufferSize(
     return (jlong)clnt->SetDefaultIoBufferSize(jsize);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultIoBufferSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_getDefaultIoBufferSize(
     JNIEnv *jenv, jclass jcls, jlong jptr)
 {
     if (! jptr) {
@@ -510,7 +510,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultIoBufferSize(
     return (jlong)clnt->GetDefaultIoBufferSize();
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultReadAheadSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultReadAheadSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize)
 {
     if (! jptr) {
@@ -521,7 +521,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_setDefaultReadAheadSize(
     return (jlong)clnt->SetDefaultReadAheadSize(jsize);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultReadAheadSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_getDefaultReadAheadSize(
     JNIEnv *jenv, jclass jcls, jlong jptr)
 {
     if (! jptr) {
@@ -532,7 +532,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_getDefaultReadAheadSize(
     return (jlong)clnt->GetDefaultReadAheadSize();
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_setIoBufferSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_setIoBufferSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong jsize)
 {
     if (! jptr) {
@@ -543,7 +543,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_setIoBufferSize(
     return (jlong)clnt->SetIoBufferSize(jfd, jsize);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_getIoBufferSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_getIoBufferSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -554,7 +554,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_getIoBufferSize(
     return (jlong)clnt->GetIoBufferSize(jfd);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_setReadAheadSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_setReadAheadSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong jsize)
 {
     if (! jptr) {
@@ -565,7 +565,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_setReadAheadSize(
     return (jlong)clnt->SetReadAheadSize(jfd, jsize);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_getReadAheadSize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_getReadAheadSize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -576,7 +576,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_getReadAheadSize(
     return (jlong)clnt->GetReadAheadSize(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_getStripedType(
+jint Java_com_quantcast_qfs_access_KfsAccess_getStripedType(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -592,7 +592,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_getStripedType(
         KFS_STRIPED_FILE_TYPE_UNKNOWN : attr.striperType);
 }
 
-void Java_com_quantcast_kfs_access_KfsAccess_setFileAttributeRevalidateTime(
+void Java_com_quantcast_qfs_access_KfsAccess_setFileAttributeRevalidateTime(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint secs)
 {
     if (! jptr) {
@@ -602,7 +602,7 @@ void Java_com_quantcast_kfs_access_KfsAccess_setFileAttributeRevalidateTime(
     clnt->SetFileAttributeRevalidateTime(secs);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chmod(
+jint Java_com_quantcast_qfs_access_KfsAccess_chmod(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode)
 {
     if (! jptr) {
@@ -614,7 +614,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chmod(
     return clnt->Chmod(path.c_str(), (kfsMode_t)mode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chmodr(
+jint Java_com_quantcast_qfs_access_KfsAccess_chmodr(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode)
 {
     if (! jptr) {
@@ -626,7 +626,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chmodr(
     return clnt->ChmodR(path.c_str(), (kfsMode_t)mode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_fchmod(
+jint Java_com_quantcast_qfs_access_KfsAccess_fchmod(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jint mode)
 {
     if (! jptr) {
@@ -636,7 +636,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_fchmod(
     return clnt->Chmod(jfd, (kfsMode_t)mode);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chowns(
+jint Java_com_quantcast_qfs_access_KfsAccess_chowns(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring juser, jstring jgroup)
 {
     if (! jptr) {
@@ -656,7 +656,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chowns(
     return clnt->Chown(path.c_str(), group.c_str(), user.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chownsr(
+jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring juser, jstring jgroup)
 {
     if (! jptr) {
@@ -676,7 +676,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chownsr(
     return clnt->ChownR(path.c_str(), group.c_str(), user.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chown(
+jint Java_com_quantcast_qfs_access_KfsAccess_chown(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong user, jlong group)
 {
     if (! jptr) {
@@ -688,7 +688,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chown(
     return clnt->Chown(path.c_str(), (kfsUid_t)user, (kfsGid_t)group);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chownr(
+jint Java_com_quantcast_qfs_access_KfsAccess_chownr(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong user, jlong group)
 {
     if (! jptr) {
@@ -700,7 +700,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chownr(
     return clnt->ChownR(path.c_str(), (kfsUid_t)user, (kfsGid_t)group);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_chownR(
+jint Java_com_quantcast_qfs_access_KfsAccess_chownR(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong user, jlong group)
 {
     if (! jptr) {
@@ -712,7 +712,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_chownR(
     return clnt->ChownR(path.c_str(), (kfsUid_t)user, (kfsGid_t)group);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_fchowns(
+jint Java_com_quantcast_qfs_access_KfsAccess_fchowns(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jstring juser, jstring jgroup)
 {
     if (! jptr) {
@@ -730,7 +730,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_fchowns(
     return clnt->Chown(jfd, group.c_str(), user.c_str());
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_fchown(
+jint Java_com_quantcast_qfs_access_KfsAccess_fchown(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong user, jlong group)
 {
     if (! jptr) {
@@ -740,7 +740,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_fchown(
     return clnt->Chown(jfd, (kfsUid_t)user, (kfsGid_t)group);
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_sync(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_sync(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -750,7 +750,7 @@ jint Java_com_quantcast_kfs_access_KfsOutputChannel_sync(
     return clnt->Sync(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_setEUserAndEGroup(
+jint Java_com_quantcast_qfs_access_KfsAccess_setEUserAndEGroup(
     JNIEnv *jenv, jclass jcls, jlong jptr, jlong user, jlong group, jlongArray jgroups)
 {
     if (! jptr) {
@@ -774,7 +774,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_setEUserAndEGroup(
     return ret;
 }
 
-jint Java_com_quantcast_kfs_access_KfsInputChannel_seek(
+jint Java_com_quantcast_qfs_access_KfsInputChannel_seek(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset)
 {
     if (! jptr) {
@@ -784,7 +784,7 @@ jint Java_com_quantcast_kfs_access_KfsInputChannel_seek(
     return clnt->Seek(jfd, joffset);
 }
 
-jint Java_com_quantcast_kfs_access_KfsInputChannel_tell(
+jint Java_com_quantcast_qfs_access_KfsInputChannel_tell(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -794,7 +794,7 @@ jint Java_com_quantcast_kfs_access_KfsInputChannel_tell(
     return clnt->Tell(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_seek(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_seek(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset)
 {
     if (! jptr) {
@@ -804,7 +804,7 @@ jint Java_com_quantcast_kfs_access_KfsOutputChannel_seek(
     return clnt->Seek(jfd, joffset);
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_tell(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_tell(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -814,7 +814,7 @@ jint Java_com_quantcast_kfs_access_KfsOutputChannel_tell(
     return clnt->Tell(jfd);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_exists(
+jint Java_com_quantcast_qfs_access_KfsAccess_exists(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -827,7 +827,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_exists(
     return (clnt->Exists(path.c_str()) ? 1 : 0);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_isFile(
+jint Java_com_quantcast_qfs_access_KfsAccess_isFile(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -841,7 +841,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_isFile(
     return (clnt->IsFile(path.c_str()) ? 1 : 0);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_isDirectory(
+jint Java_com_quantcast_qfs_access_KfsAccess_isDirectory(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -855,7 +855,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_isDirectory(
     return (clnt->IsDirectory(path.c_str()) ? 1 : 0);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_filesize(
+jlong Java_com_quantcast_qfs_access_KfsAccess_filesize(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -873,7 +873,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_filesize(
     return attr.fileSize;
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_getModificationTime(
+jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -892,7 +892,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_getModificationTime(
     return ((jlong) attr.mtime.tv_sec) * 1000 + (jlong) (attr.mtime.tv_usec / 1000);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_setModificationTime(
+jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmsec)
 {
     if (! jptr) {
@@ -914,7 +914,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_setModificationTime(
     return 0;
 }
 
-jobjectArray Java_com_quantcast_kfs_access_KfsAccess_getDataLocation(
+jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen)
 {
     if (! jptr) {
@@ -975,7 +975,7 @@ jobjectArray Java_com_quantcast_kfs_access_KfsAccess_getDataLocation(
     return jentries;
 }
 
-jshort Java_com_quantcast_kfs_access_KfsAccess_getReplication(
+jshort Java_com_quantcast_qfs_access_KfsAccess_getReplication(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
     if (! jptr) {
@@ -988,7 +988,7 @@ jshort Java_com_quantcast_kfs_access_KfsAccess_getReplication(
     return clnt->GetReplicationFactor(path.c_str());
 }
 
-jshort Java_com_quantcast_kfs_access_KfsAccess_setReplication(
+jshort Java_com_quantcast_qfs_access_KfsAccess_setReplication(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas)
 {
     if (! jptr) {
@@ -1001,7 +1001,7 @@ jshort Java_com_quantcast_kfs_access_KfsAccess_setReplication(
     return clnt->SetReplicationFactor(path.c_str(), jnumReplicas);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_stat(
+jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr)
 {
     if (! jptr) {
@@ -1135,20 +1135,20 @@ jint Java_com_quantcast_kfs_access_KfsAccess_stat(
     return 0;
 }
 
-jstring Java_com_quantcast_kfs_access_KfsAccess_strerror(
+jstring Java_com_quantcast_qfs_access_KfsAccess_strerror(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jerr)
 {
     const string str = KFS::ErrorCodeToStr((int)jerr);
     return jenv->NewStringUTF(str.c_str());
 }
 
-jboolean Java_com_quantcast_kfs_access_KfsAccess_isnotfound(
+jboolean Java_com_quantcast_qfs_access_KfsAccess_isnotfound(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jerr)
 {
     return (jboolean)(jerr == -ENOENT);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_close(
+jint Java_com_quantcast_qfs_access_KfsAccess_close(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
 {
     if (! jptr) {
@@ -1158,7 +1158,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_close(
     return clnt->Close(jfd);
 }
 
-jlong Java_com_quantcast_kfs_access_KfsAccess_seek(
+jlong Java_com_quantcast_qfs_access_KfsAccess_seek(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset)
 {
     if (! jptr) {
@@ -1168,7 +1168,7 @@ jlong Java_com_quantcast_kfs_access_KfsAccess_seek(
     return (jlong)clnt->Seek(jfd, joffset);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_getUMask(
+jint Java_com_quantcast_qfs_access_KfsAccess_getUMask(
     JNIEnv *jenv, jclass jcls, jlong jptr)
 {
     if (! jptr) {
@@ -1178,7 +1178,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_getUMask(
     return (jint)(clnt->GetUMask() & 0777);
 }
 
-jint Java_com_quantcast_kfs_access_KfsAccess_setUMask(
+jint Java_com_quantcast_qfs_access_KfsAccess_setUMask(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint umask)
 {
     if (! jptr) {
@@ -1189,7 +1189,7 @@ jint Java_com_quantcast_kfs_access_KfsAccess_setUMask(
     return 0;
 }
 
-jint Java_com_quantcast_kfs_access_KfsInputChannel_read(
+jint Java_com_quantcast_qfs_access_KfsInputChannel_read(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end)
 {
     if (! jptr) {
@@ -1215,7 +1215,7 @@ jint Java_com_quantcast_kfs_access_KfsInputChannel_read(
     return (jint)sz;
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_write(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_write(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end)
 {
     if (! jptr) {
@@ -1241,7 +1241,7 @@ jint Java_com_quantcast_kfs_access_KfsOutputChannel_write(
     return (jint)sz;
 }
 
-jint Java_com_quantcast_kfs_access_KfsOutputChannel_atomicRecordAppend(
+jint Java_com_quantcast_qfs_access_KfsOutputChannel_atomicRecordAppend(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end)
 {
     if (! jptr) {
