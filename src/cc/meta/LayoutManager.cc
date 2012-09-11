@@ -1210,7 +1210,7 @@ LayoutManager::LayoutManager() :
     mCompleteReplicationCheckInterval(30 * kSecs2MicroSecs),
     mCompleteReplicationCheckTime(
         microseconds() - mCompleteReplicationCheckInterval),
-    mPastEofRecoveryDelay(int64_t(60) * 60 * kSecs2MicroSecs),
+    mPastEofRecoveryDelay(int64_t(60) * 6 * 60 * kSecs2MicroSecs),
     mMaxServerCleanupScan(2 << 10),
     mMaxRebalanceScan(1024),
     mRebalanceReplicationsThreshold(0.5),
