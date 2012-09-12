@@ -52,10 +52,10 @@ chunkServer.chunkDir = chunks
 # Number of io threads (max. number of disk io requests in flight) per host file
 # system.
 # The typical setup is to have one host file system per physical disk.
-# Even if raid controller is available jbod configuration would be used, and
-# failure handling left to the distributed file system.
+# Even if raid controller is available jbod configuration is recommended,
+# leaving the failure handling and striping the distributed file system.
 # The default is 2.
-# With large requests (~1MB) two requests in flight should be sufficient.
+# With large requests (~1MB) two io requests in flight should be sufficient.
 # chunkServer.diskQueue.threadCount = 2
 
 # Set the cluster / fs key, to protect against data loss and "data corruption"
@@ -66,26 +66,27 @@ chunkServer.clusterKey = my-fs-unique-identifier
 # are written into a file and the host file system / disk where the file resides
 # exhibiting noticeable io stalls, or completely unavailable..
 # Normally all the log message output performed by the message writer (thread)
-# that deals with log io stall by dropping log messages. This redirection is an
-# extra safety in the case if some system functions is attempting to write into
-# stdout / stderror.
+# that deals with log io stall by dropping log messages. This redirection is for
+# extra safety to handle the case if some library function attempting to write
+# into stdout / stderror.
 chunkServer.stdout = /dev/null
 chunkServer.stderr = /dev/null
 
-# This setting is to control memory used by chunkserver
+# The following parameter defines max size of io buffer memory used by the chunk
+# server.
 # The value set here, 128K means 128K * 4K buffer = 512M of buffers
 # The default values are 64K (128MB) for 32 bit build, and 192K (768MB) for 64
 # bit build.
-# The amount of memory depends on the number of disks in the system, and the
-# io (read, write) concurrency (the number of concurrent "clients". The memory
-# should be increased if large number of concurrent write appenders are
-# expected. Ideally the disk io request should be around 1MB, thus for each
-# each chunk opened for append at least 1MB of io buffers is recommended.
+# The optimal amount of memory depends on the number of disks in the system, and
+# the io (read, write) concurrency -- the number of concurrent "clients". The
+# memory should be increased if large number of concurrent write appenders is
+# expected. Ideally the disk io request should be around 1MB, thus for each each
+# chunk opened for append at least 1MB of io buffers is recommended.
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 
 # Buffer manager portion of all io buffers.
-# This value defines max amount of buffers that can be used for servicing
-# "client" requests, chunk re-replication and recovery
+# This value defines max amount of io buffers that can be used for servicing
+# "client" requests, chunk re-replication, and recovery.
 # The remaining (1 - chunkServer.bufferManager.maxRatio) used for write append
 # buffering and other "internal" purposes.
 # Default is 0.4 or 40%
@@ -99,7 +100,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 131072
 # The downside of the compatibility mode is that chunk server might not detect
 # the cases where the host os zero fills the data during the host file system
 # recovery / journal / transaction log replay,
-# thus the data loss / corruption problem is not detected.
+# thus the data loss / corruption problem might not be detected.
 # chunkServer.requireChunkHeaderChecksum = 1
 
 # If set to a value greater than 0 then locked memory limit will be set to the
@@ -138,8 +139,8 @@ chunkServer.msgLogWriter.logLevel = INFO
 
 # Max. time to wait for the log buffer to become available.
 # When wait is enabled the request processing thread will wait for the log
-# buffer disk io to complete. If the disk subsystem cannot keep up with the
-# logging it will slow down the meta server request processing.
+# buffer disk io to complete. If the disk subsystem cannot handle the
+# amount of logging it will slow down the request processing.
 # For chunk servers keeping the default is strongly recommended to minimize
 # dependency on the host's disk subsystem reliability and performance.
 # Default is -1. Do not wait, drop log record instead.

@@ -98,8 +98,8 @@ metaServer.createEmptyFs = 1
 # The parameters below this line can be changed at runtime by editing the
 # configuration file and sending meta server process HUP signal.
 # Note that to restore parameter to default at run time the default value must
-# be explicitly specified in the configuration file, i.e. commenting out the
-# parameter will not have any effect until restart.
+# be explicitly specified in the configuration file. In other words commenting
+# out the parameter will not have any effect until restart.
 
 # Mininum number of connected / functional chunk servers before the file system
 # can be used.
@@ -112,16 +112,16 @@ metaServer.recoveryInterval = 30
 # For write append use the low order bit of the IP address for the chunk servers
 # master/slave assignment. This scheme is works well if least significant bit of
 # ip address uniformly distributes masters and slaves withing the rack,
-# especially with in rack placement for append.
+# especially with "in rack" placement for append.
 # Default is 0. Assign master / slave to keep number of masters and slaves
 # equal. The obvious downside of this is that the assignment depends on the
-# server connection order.
+# chunk servers connection order.
 # metaServer.assignMasterByIp = 0
 
-# Chunk server executables md5sums white list.
+# Chunk server executables md5 sums white list.
 # The chunk server sends its executable md5sum when it connects to the meta
 # servrer. If the following space separated list is not empty and does not
-# does not contain the chunk server executable checksum then the chunk server
+# does not contain the chunk server executable md5 sum then the chunk server
 # is instructed to exit or restart itself.
 # This might be useful for upgrade or versions control.
 # While the chunk server is connected to the meta server no md5 sum verification
@@ -151,7 +151,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.rackPrefixes = 10.6.1. 1  10.6.2. 2  10.6.4.1? 4  10.6.4.1 5
 
 # "Static" placement weights of the racks. The more weight and more chunk
-# servers are in the rack the more likely the rack will be chosen by chunk
+# servers are in the rack the more likely the rack will be chosen for chunk
 # allocation.
 # Default is empty -- all weight are default to 1.
 # metaServer.rackWeights =
@@ -161,13 +161,13 @@ metaServer.clusterKey = my-fs-unique-identifier
 
 # Various timeout settings.
 
-# Extend lease expiration time by 30 sec. in the case of the write master
+# Extend write lease expiration time by 30 sec. in the case of the write master
 # disconnect, to give it a chance to re-connect.
-# Default is 30 sec.
+# Default is 30 sec. Production value is 60 sec.
 # metaServer.leaseOwnerDownExpireDelay = 30
 
 # Re-replication or recovery delay in seconds on chunk server down, to give
-# chunk server a chance to attempt to re-connect.
+# chunk server a chance to re-connect.
 # Default is 120 sec.
 # metaServer.serverDownReplicationDelay = 120
 
@@ -180,12 +180,20 @@ metaServer.clusterKey = my-fs-unique-identifier
 # closing connection.
 # All other operations timeout are interpreted as the operation failure.
 # The values are in seconds.
+# The defaults:
 # metaServer.chunkServer.heartbeatTimeout    = 60
 # metaServer.chunkServer.chunkReallocTimeout = 75
 # metaServer.chunkServer.chunkAllocTimeout   = 40
 # metaServer.chunkServer.chunkReallocTimeout = 75
 # metaServer.chunkServer.makeStableTimeout   = 330
 # metaServer.chunkServer.replicationTimeout  = 330
+
+# The current production values.
+# metaServer.chunkServer.heartbeatInterval   = 18
+# metaServer.chunkServer.heartbeatTimeout    = 30
+# metaServer.chunkServer.chunkReallocTimeout = 18
+# metaServer.chunkServer.chunkAllocTimeout   = 18
+# metaServer.chunkServer.makeStableTimeout   = 60
 
 # Other chunk server operations timeout.
 # metaServer.chunkServer.requestTimeout      = 600
@@ -213,7 +221,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.forceEUserToRoot = 0
 
 # Client backward compatibility.
-# Defaults are no user and no group -- disable backward compatibility.
+# Defaults are no user and no group -- no backward compatibility.
 # metaServer.defaultUser     = 0xFFFFFFFF
 # metaServer.defaultGroup    = 0xFFFFFFFF
 # metaServer.defaultFileMode = 0644
@@ -334,27 +342,27 @@ metaServer.clusterKey = my-fs-unique-identifier
 #-------------------------------------------------------------------------------
 
 # Order chunk replicas locations by the chunk "load average" metric in "get
-# alloc" responses.
+# alloc" responses. The read client logic attempts to use replicas in this
+# order.
 # Default is 0. The replicas locations are shuffled randomly.
 # metaServer.getAllocOrderServersByLoad = 0
 
 # Delay recovery for the chunks that are past the logical end of file in files
 # with Reed-Solomon redundant encoding.
-# The delay is required to avoid starting recovery while the file is being written
-# into, and the chunk sizes aren't known / final. The writer can stop writing into a
-# file, and the corresponding chunks write leases might timed out, and will be
-# automatically revoked. The existing writer logic sets logical EOF when it closes
-# the file, before that the logical file size remains 0 during write. (Unless it is
-# re-write which is currently not supported with RS files for any practical
-# purposes).
-# The timeout below should be set to at least to max. theoretical file "write"
-# time.
+# The delay is required to avoid starting recovery while the file is being
+# written into, and the chunk sizes aren't known / final. The writer can stop
+# writing into a file, and the corresponding chunks write leases might timed
+# out, and will be automatically revoked. The existing writer logic sets logical
+# EOF when it closes the file, before that the logical file size remains 0
+# during write. (Unless it is re-write which is currently for all practical
+# purposes is not supported with RS files). The timeout below should be set to
+# at least to max. practical file "write" time.
 # Setting the timeout to a very large value will prevent processing the chunks
 # sitting in the replication delayed queue from the "abandoned" files, i.e.
-# files that the writer wrote something and the n exited without closing the
+# files that the writer wrote something and then exited without closing the
 # file.
 # The parameter and the corresponding "delay" logic will likely to be removed in
-# the future releases, and replaced with write leases renew logic.
+# the future releases, and replaced with the write leases renew logic.
 # Default is 6 hours or 21600 seconds.
 # metaServer.pastEofRecoveryDelay = 21600
 
@@ -384,24 +392,24 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Use synchronous mode to write checkpoint, i.e. tell host os to flush all data
 # to disk prior to write system call return.
 # The main purpose is to reduce the number of "dirty" / unwritten pages in the
-# host os vm subsystem / file system buffer cache, therefore reduce memory
-# contention and reduce the chances of paging out meta server and other
+# host os vm subsystem / file system buffer cache, therefore reducing memory
+# contention and lowering the chances of paging out meta server and other
 # processes with no memory locking.
 # Default is on.
 # metaServer.chekpoint.writeSync = 1
 
 # Checkpoint write buffer size.
 # The buffer size should be adequate with synchrounous write mode enabled,
-# especially if journaling hosts file system with journal on the same spinning
-# media device used, in order to minimize the number of seeks.
+# especially if journal and data of host's file system are on the same spinning
+# media device, in order to minimize the number of seeks.
 # Default is 16MB.
 # metaServer.chekpoint.writeBufferSize = 16777216
 
 # ---------------------------------- Audit log. --------------------------------
 
 # All request headers and response status are logged.
-# The audit log records are null separated.
-# The log could be useful for debugging and audit.
+# The audit log records are null ('\0') separated.
+# The log could be useful for debugging and audit purposes.
 # The logging require some cpu, but the main resource consumption is disk io.
 # Default is off.
 # metaServer.clientSM.auditLogging = 0
@@ -481,7 +489,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Max. time to wait for the log buffer to become available.
 # When wait is enabled the request processing thread will wait for the log
 # buffer disk io to complete. If the disk subsystem cannot keep up with the
-# logging it will slow down the meta server request processing.
+# logging it will slow down the request processing.
 # For chunk servers keeping the default is strongly recommended to minimize
 # dependency on the host's disk subsystem reliability and performance.
 # Default is -1. Do not wait, drop log record instead.
@@ -513,6 +521,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 
 # If sparse files, and in particular chunks aren't used (sequential write only
 # for example) the following parameter can be set to 0.
+# Default is 1 -- enabled.
 # chunkServer.allowSparseChunks = 1
 
 # The minimal amount of space in bytes that must be available in order for the
@@ -541,9 +550,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # chunkServer.chunkPlacementPendingReadWeight  = 0
 # chunkServer.chunkPlacementPendingWriteWeight = 0
 
-# Averaging interval for the time incoming io requests spend in io buffer wait
-# queue. The "average wait time" value used by the meta server for chunk
-# placement. The average exponentially decays (IIR filter).
+# Averaging interval for calculating the average time the incoming "client's"
+# requests spend in io buffer wait queue. The "average wait time" value used by
+# the meta server for chunk placement. The average exponentially decays (IIR
+# filter).
 # Default is 20 sec. Typical production value is 8.
 # chunkServer.bufferManager.waitingAvgInterval  = 20
 
