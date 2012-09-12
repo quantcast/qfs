@@ -31,7 +31,7 @@ tarname :=
 
 ifeq ($(UNAME), Linux)
  FLAVOR := $(shell head -n 1 /etc/issue | cut -d" " -f1)
- ifeq ($(flavor), Ubuntu)
+ ifeq ($(FLAVOR), Ubuntu)
    VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f2)
  else
    VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f3)
@@ -42,7 +42,7 @@ ifneq (,$(findstring CYGWIN,$(UNAME)))
  FLAVOR := 'Cygwin'
 endif
 
-tarname := qfs-$(FLAVOR)-$(VERSION)-$(QFSVERSION)-$(ARCH).tgz
+tarname := qfs-$(FLAVOR)-$(VERSION)-$(QFSVERSION)-$(ARCH)
 tarname := $(shell echo $(tarname) | tr A-Z a-z)
 
 all: release
@@ -72,10 +72,10 @@ debug: prep
 
 tarball: release
 	cd build && \
-	{ test -d tmpreldir/qfs || mkdir -p tmpreldir/qfs; } && \
-	rm -rf tmpreldir/qfs/* && \
-	cp -r release/bin release/lib release/include ../scripts ../webui ../examples ../benchmarks tmpreldir/qfs && \
-	tar cvfz $(tarname) -C ./tmpreldir qfs && \
+	{ test -d tmpreldir/$(tarname) || mkdir -p tmpreldir/$(tarname); } && \
+	rm -rf tmpreldir/$(tarname)/* && \
+	cp -r release/bin release/lib release/include ../scripts ../webui ../examples ../benchmarks tmpreldir/$(tarname) && \
+	tar cvfz $(tarname).tgz -C ./tmpreldir $(tarname) && \
 	rm -rf tmpreldir
 
 test-debug: debug
@@ -85,4 +85,4 @@ test-release: release
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/release build/debug build/qfs.tar build/qfs.tar.gz build/kfs*.jar build/classes
+	rm -rf build/release build/debug build/$(tarname).tgz build/kfs*.jar build/classes
