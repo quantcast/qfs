@@ -62,11 +62,6 @@ chunkServer.chunkDir = chunks
 # due to connecting to a meta server hosting different file system.
 chunkServer.clusterKey = my-fs-unique-identifier
 
-# Set reasonable log level, to handle the case when meta server not available,
-# or doesn't accept this chunk server for any reason. The chunk servers log
-# level can be changed in the meta server configuration file.
-chunkServer.msgLogWriter.logLevel = INFO
-
 # Redirect stderror and out into /dev/null to handle the case where one or both
 # are written into a file and the host file system / disk where the file resides
 # exhibiting noticeable io stalls, or completely unavailable..
@@ -88,6 +83,14 @@ chunkServer.stderr = /dev/null
 # each chunk opened for append at least 1MB of io buffers is recommended.
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 
+# Buffer manager portion of all io buffers.
+# This value defines max amount of buffers that can be used for servicing
+# "client" requests, chunk re-replication and recovery
+# The remaining (1 - chunkServer.bufferManager.maxRatio) used for write append
+# buffering and other "internal" purposes.
+# Default is 0.4 or 40%
+# chunkServer.bufferManager.maxRatio = 0.4
+
 # Set the following to 1 if no backward compatibility with the previous kfs
 # releases required. 0 is the default.
 # When set to 0 the 0 header checksum (all 8 bytes must be 0) is treated as
@@ -98,3 +101,48 @@ chunkServer.ioBufferPool.partitionBufferCount = 131072
 # recovery / journal / transaction log replay,
 # thus the data loss / corruption problem is not detected.
 # chunkServer.requireChunkHeaderChecksum = 1
+
+# If set to a value greater than 0 then locked memory limit will be set to the
+# specified value, and mlock(MCL_CURRENT|MCL_FUTURE) invoked.
+# On linux running under non root user setting locked memory "hard" limit
+# greater or equal to the specified value required. ulimit -l can be used for
+# example.
+# Default is 0 -- no memory locking.
+# chunkServer.maxLockedMemory = 0
+
+# Mlock io buffers memory at startup, if set to non 0.
+# Default is 0 -- no io buffer memory locking.
+# chunkServer.ioBufferPool.lockMemory = 0
+
+# ---------------------------------- Message log. ------------------------------
+
+# Set reasonable log level, and other message log parameter to handle the case
+# when meta server not available, or doesn't accept this chunk server for any
+# reason.
+# The chunk servers message log configuration parameters including log level
+# level can be changed in the meta server configuration file.
+chunkServer.msgLogWriter.logLevel = INFO
+
+# Colon (:) separated file name prefixes to store log segments.
+# Default is empty list. The default is to use file name from the command line
+# or if none specified write into file descriptor 2 -- stderror.
+# chunkServer.msgLogWriter.logFilePrefixes =
+
+# Maximum log segment size.
+# Default is -1 -- unlimited.
+# chunkServer.msgLogWriter.maxLogFileSize = -1
+
+# Maximum number of log segments.
+# Default is -1 -- unlimited.
+# chunkServer.msgLogWriter.maxLogFiles = -1
+
+# Max. time to wait for the log buffer to become available.
+# When wait is enabled the request processing thread will wait for the log
+# buffer disk io to complete. If the disk subsystem cannot keep up with the
+# logging it will slow down the meta server request processing.
+# For chunk servers keeping the default is strongly recommended to minimize
+# dependency on the host's disk subsystem reliability and performance.
+# Default is -1. Do not wait, drop log record instead.
+# chunkServer.msgLogWriter.waitMicroSec = -1
+
+#-------------------------------------------------------------------------------
