@@ -80,8 +80,9 @@ metaServer.createEmptyFs = 1
 # Meta server process max. locked memory.
 # If set to a value greater than 0 then locked memory limit will be set to the
 # specified value, and mlock(MCL_CURRENT|MCL_FUTURE) invoked.
-# Under linux running under non root user require properly setting locked memory
-# hard limit.
+# On linux running under non root user setting locked memory "hard" limit
+# greater or equal to the specified value required. ulimit -l can be used for
+# example.
 # Default is 0 -- no memory locking.
 # metaServer.maxLockedMemory = 0
 
@@ -353,9 +354,48 @@ metaServer.clusterKey = my-fs-unique-identifier
 # files that the writer wrote something and the n exited without closing the
 # file.
 # The parameter and the corresponding "delay" logic will likely to be removed in
-# the future releases, and replaced with proper write leases renew logic.
+# the future releases, and replaced with write leases renew logic.
 # Default is 6 hours or 21600 seconds.
 # metaServer.pastEofRecoveryDelay = 21600
+
+# Periodic checkpointing.
+# If set to -1 checkpoint is disabled. In such case "logcompactor" can be used
+# periodically create new checkpoint from the transaction logs.
+# Default is 3600 sec.
+# metaServer.checkpoint.interval = 3600
+
+# Checkpoint lock file name. Can be used to serialize checkpoint write and load
+# with external programs, for example logcompactor.
+# Default is empty -- no lock file used.
+# metaServer.checkpoint.lockFileName =
+
+# Max consecutive checkpoint write failures.
+# Meta server will exit if checkpoint write fails
+# metaServer.checkpoint.maxFailedCount times in the row for any reason (not
+# enough disk space for example).
+# Default is 2.
+# metaServer.checkpoint.maxFailedCount = 2
+
+# Checkpoint write timeout. Max time the checkpoint write can take before
+# declaring write failure.
+# Default is 3600 sec.
+# metaServer.chekpoint.writeTimeoutSec = 3600
+
+# Use synchronous mode to write checkpoint, i.e. tell host os to flush all data
+# to disk prior to write system call return.
+# The main purpose is to reduce the number of "dirty" / unwritten pages in the
+# host os vm subsystem / file system buffer cache, therefore reduce memory
+# contention and reduce the chances of paging out meta server and other
+# processes with no memory locking.
+# Default is on.
+# metaServer.chekpoint.writeSync = 1
+
+# Checkpoint write buffer size.
+# The buffer size should be adequate with synchrounous write mode enabled,
+# especially if journaling hosts file system with journal on the same spinning
+# media device used, in order to minimize the number of seeks.
+# Default is 16MB.
+# metaServer.chekpoint.writeBufferSize = 16777216
 
 # ---------------------------------- Audit log. --------------------------------
 
