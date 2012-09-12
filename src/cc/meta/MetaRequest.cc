@@ -2830,14 +2830,14 @@ MetaCheckpoint::SetParameters(const Properties& props)
         "metaServer.checkpoint.lockFileName",   lockFileName);
     maxFailedCount = max(0, props.getValue(
         "metaServer.checkpoint.maxFailedCount", maxFailedCount));
-    chekpointWriteTimeoutSec = max(0, props.getValue(
-        "metaServer.chekpointWriteTimeoutSec",
-        chekpointWriteTimeoutSec));
-    chekpointWriteSyncFlag = max(0, props.getValue(
-        "metaServer.chekpointWriteSync",
-        chekpointWriteSyncFlag));
+    chekpointWriteTimeoutSec = max(0, (int)props.getValue(
+        "metaServer.chekpoint.writeTimeoutSec",
+        (double)chekpointWriteTimeoutSec));
+    chekpointWriteSyncFlag = props.getValue(
+        "metaServer.chekpoint.writeSync",
+        chekpointWriteSyncFlag ? 0 : 1) != 0;
     chekpointWriteBufferSize = props.getValue(
-        "metaServer.chekpointWriteBufferSize",
+        "metaServer.chekpoint.writeBufferSize",
         chekpointWriteBufferSize);
 }
 
