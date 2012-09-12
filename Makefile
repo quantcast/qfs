@@ -21,6 +21,30 @@
 #
 # Do not assume gnumake -- keep it as simple as possible
 
+UNAME := $(shell uname -s)
+ARCH := $(shell uname -m)
+FLAVOR := $(shell uname -s)
+VERSION := $(shell uname -r)
+
+QFSVERSION := 1.0
+tarname :=
+
+ifeq ($(UNAME), Linux)
+ FLAVOR := $(shell head -n 1 /etc/issue | cut -d" " -f1)
+ ifeq ($(flavor), Ubuntu)
+   VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f2)
+ else
+   VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f3)
+ endif
+endif
+
+ifneq (,$(findstring CYGWIN,$(UNAME)))
+ FLAVOR := 'Cygwin'
+endif
+
+tarname := qfs-$(FLAVOR)-$(VERSION)-$(QFSVERSION)-$(ARCH).tgz
+tarname := $(shell echo $(tarname) | tr A-Z a-z)
+
 all: release
 
 prep:
@@ -48,9 +72,11 @@ debug: prep
 
 tarball: release
 	cd build && \
-	tar -cvf qfs.tar -C ./release ./bin ./lib ./include && \
-	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
-	gzip qfs.tar
+	{ test -d tmpreldir/qfs || mkdir -p tmpreldir/qfs; } && \
+	rm -rf tmpreldir/qfs/* && \
+	cp -r release/bin release/lib release/include ../scripts ../webui ../examples ../benchmarks tmpreldir/qfs && \
+	tar cvfz $(tarname) -C ./tmpreldir qfs && \
+	rm -rf tmpreldir
 
 test-debug: debug
 	cd build/debug && ../../src/test-scripts/kfstest.sh
