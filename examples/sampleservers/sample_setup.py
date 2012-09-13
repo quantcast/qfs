@@ -22,47 +22,18 @@
 # permissions and limitations under the License.
 #
 """
+This script helps to set up a simple, local deployment of QFS.
+You can write your own config file (start from ./sample_setup.cfg)
+and run this script to install, uninstall or upgrade.
 
-This scrips helps to setup a simple, local deployment of the KFS servers. One
-can define the servers' configuration through a setup file (eg:sample_setup.cfg
-below) and run this setup to install, uninstall or upgrade the sample KFS
-deployment.
-
-eg:
-./sample_setup.py -c sample_setup.cfg -a install -b ~/code/kfs/build -s ~/code/kfs
+./sample_setup.py -c sample_setup.cfg -a install
     -c: config file
-    -a: action (one of install, stop, uninstall)
-    -b: dist dir
-    -s: source dir
+    -a: action (one of install, start, stop, uninstall)
+    -b: distribution directory
+    -s: source directory
 
-Contents of sample_setup.cfg, that sets up a metaserver and two chunk servers.
----------------------------------
-[metaserver]
-hostname    = localhost
-rundir      = ~/kfsbase/meta
-clientport  = 20000
-chunkport   = 20100
-clusterkey  = myTestCluster
-
-[chunkserver1]
-hostname    = localhost
-rundir      = ~/kfsbase/chunk1
-chunkport   = 21001
-space       = 700m
-
-[chunkserver2]
-hostname    = localhost
-rundir      = ~/kfsbase/chunk2
-chunkport   = 21002
-space       = 500m
-
-[webui]
-hostname    = localhost
-rundir      = ~/kfsbase/web
-webport     = 22000
----------------------------------
-
-The script sets up the servers' config files as follows:
+The script sets up the servers' config files as follows.
+(By default it installs all this in ~/qfsbase, set in the config file.)
 
 meta-run-dir/checkpoints/
                         /logs/
@@ -136,23 +107,28 @@ def kill_running_program(binaryPath):
         checkPath = os.path.split(binaryPath)[1]
         if not checkPath:
             return
-        cmd = 'ps -ef | grep %s | grep -v grep | awk \'{print $2}\'' % checkPath
-        res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+        cmd = ('ps -ef | grep %s | grep -v grep | awk \'{print $2}\''
+               % checkPath)
+        res = subprocess.Popen(cmd, shell=True,
+                               stdout=subprocess.PIPE).communicate()
         pids = res[0].split('\n')
         for pid in pids:
             if pid.strip() != '':
                 os.kill(int(pid.strip()), signal.SIGTERM)
     else:
         if binaryPath.find('kfsstatus') >= 0:
-            cmd = 'ps -ef | grep %s | grep -v grep | awk \'{print $2}\'' % binaryPath
-            res = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+            cmd = ('ps -ef | grep %s | grep -v grep | awk \'{print $2}\''
+                   % binaryPath)
+            res = subprocess.Popen(cmd, shell=True,
+                                   stdout=subprocess.PIPE).communicate()
             pids = res[0].split('\n')
             for pid in pids:
                 if pid.strip() != '':
                     os.kill(int(pid.strip()), signal.SIGTERM)
             return
 
-        pids = subprocess.Popen(['pidof', binaryPath], stdout=subprocess.PIPE).communicate()
+        pids = subprocess.Popen(['pidof', binaryPath],
+                                stdout=subprocess.PIPE).communicate()
         for pid in pids[0].strip().split():
             os.kill(int(pid), signal.SIGTERM)
 
@@ -160,10 +136,12 @@ def kill_running_program(binaryPath):
 def run_command(cmd):
     return subprocess.check_call(cmd, shell=True)
 
-# copy files & directories from src directory to dst directory. if dst does
-# not exist, create it. if dst's children with same src children names exist
-# then overwrite them.
 def duplicate_tree(src, dst):
+    """Copy files & directories from SRC directory to DST directory.
+
+    If DST does not exist, create it. If DST's children with same SRC
+    children names exist then overwrite them.
+    """
     if os.path.exists(dst) and not os.path.isdir(dst):
         sys.exit('Cannot duplicate directory to a non-directory')
 
@@ -267,9 +245,9 @@ Hello World example of a client session:
   ./examples/sampleservers/sample_setup.py -a uninstall
 """
 
-    # an install sets up all config files and (re)starts the servers.
-    # an uninstall stops the servers and removes the config files.
-    # a stop stops the servers.
+    # An install sets up all config files and (re)starts the servers.
+    # An uninstall stops the servers and removes the config files.
+    # A stop stops the servers.
     opts, args = parser.parse_args()
 
     if opts.help:
@@ -281,7 +259,8 @@ Hello World example of a client session:
 
     e = []
     if not os.path.isfile(opts.config_file):
-        e.append("specified 'config-file' does not exist: %s" % opts.config_file)
+        e.append("specified 'config-file' does not exist: %s"
+                 % opts.config_file)
 
     if not opts.action:
         e.append("'action' must be specified")
@@ -289,7 +268,8 @@ Hello World example of a client session:
         e.append("invalid 'action' specified: %s" % opts.action)
 
     if not os.path.isdir(opts.release_dir):
-        e.append("specified 'release-dir' does not exist: %s" % opts.release_dir)
+        e.append("specified 'release-dir' does not exist: %s"
+                 % opts.release_dir)
 
     if not os.path.isdir(opts.source_dir):
         e.append("specified 'source-dir' does not exist: %s" % opts.source_dir)
@@ -372,26 +352,26 @@ def setup_config_files(config):
     metaserverChunkPort = config.getint('metaserver', 'chunkport')
     clusterKey = config.get('metaserver', 'clusterkey')
 
-    #metaserver
+    # Metaserver.
     metaFile = open(metaDir + '/conf/MetaServer.prp', 'w')
-    print >> metaFile, "metaServer.clientPort = %d" % metaserverClientPort
-    print >> metaFile, "metaServer.chunkServerPort = %d" % metaserverChunkPort
-    print >> metaFile, "metaServer.clusterKey = %s" % clusterKey
-    print >> metaFile, "metaServer.cpDir = %s/checkpoints" % metaDir
-    print >> metaFile, "metaServer.logDir = %s/logs" % metaDir
-    print >> metaFile, "metaServer.createEmptyFs = 1"
-    print >> metaFile, "metaServer.recoveryInterval = 1"
-    print >> metaFile, "metaServer.msgLogWriter.logLevel = DEBUG"
-    print >> metaFile, "metaServer.msgLogWriter.maxLogFileSize = 1e6"
-    print >> metaFile, "metaServer.msgLogWriter.maxLogFiles = 10"
-    print >> metaFile, "metaServer.minChunkservers = 1"
-    print >> metaFile, "metaServer.clientThreadCount = 4"
-    print >> metaFile, "metaServer.rootDirUser = %d" % os.getuid()
-    print >> metaFile, "metaServer.rootDirGroup = %d" % os.getgid()
-    print >> metaFile, "metaServer.rootDirMode = 0777"
+    print >> metaFile, 'metaServer.clientPort = %d' % metaserverClientPort
+    print >> metaFile, 'metaServer.chunkServerPort = %d' % metaserverChunkPort
+    print >> metaFile, 'metaServer.clusterKey = %s' % clusterKey
+    print >> metaFile, 'metaServer.cpDir = %s/checkpoints' % metaDir
+    print >> metaFile, 'metaServer.logDir = %s/logs' % metaDir
+    print >> metaFile, 'metaServer.createEmptyFs = 1'
+    print >> metaFile, 'metaServer.recoveryInterval = 1'
+    print >> metaFile, 'metaServer.msgLogWriter.logLevel = DEBUG'
+    print >> metaFile, 'metaServer.msgLogWriter.maxLogFileSize = 1e6'
+    print >> metaFile, 'metaServer.msgLogWriter.maxLogFiles = 10'
+    print >> metaFile, 'metaServer.minChunkservers = 1'
+    print >> metaFile, 'metaServer.clientThreadCount = 4'
+    print >> metaFile, 'metaServer.rootDirUser = %d' % os.getuid()
+    print >> metaFile, 'metaServer.rootDirGroup = %d' % os.getgid()
+    print >> metaFile, 'metaServer.rootDirMode = 0777'
     metaFile.close()
 
-    # chunkservers
+    # Chunkservers.
     for section in config.sections():
         if section.startswith('chunkserver'):
             chunkClientPort = config.getint(section, 'chunkport')
@@ -399,50 +379,50 @@ def setup_config_files(config):
             chunkDir = config.get(section, 'rundir')
             if chunkDir:
                 chunkFile = open(chunkDir + '/conf/ChunkServer.prp', 'w')
-                print >> chunkFile, "chunkServer.metaServer.hostname = %s" % metaserverHostname
-                print >> chunkFile, "chunkServer.metaServer.port = %d" % metaserverChunkPort
-                print >> chunkFile, "chunkServer.clientPort = %d" % chunkClientPort
-                print >> chunkFile, "chunkServer.clusterKey = %s" % clusterKey
-                print >> chunkFile, "chunkServer.rackId = 0"
-                print >> chunkFile, "chunkServer.chunkDir = %s/chunkdir_1 %s/chunkdir_2" % (chunkDir, chunkDir)
-                print >> chunkFile, "chunkServer.diskIo.crashOnError = 1"
-                print >> chunkFile, "chunkServer.abortOnChecksumMismatchFlag = 1"
-                print >> chunkFile, "chunkServer.msgLogWriter.logLevel = DEBUG"
-                print >> chunkFile, "chunkServer.msgLogWriter.maxLogFileSize = 1e6"
-                print >> chunkFile, "chunkServer.msgLogWriter.maxLogFiles = 2"
+                print >> chunkFile, 'chunkServer.metaServer.hostname = %s' % metaserverHostname
+                print >> chunkFile, 'chunkServer.metaServer.port = %d' % metaserverChunkPort
+                print >> chunkFile, 'chunkServer.clientPort = %d' % chunkClientPort
+                print >> chunkFile, 'chunkServer.clusterKey = %s' % clusterKey
+                print >> chunkFile, 'chunkServer.rackId = 0'
+                print >> chunkFile, 'chunkServer.chunkDir = %s/chunkdir_1 %s/chunkdir_2' % (chunkDir, chunkDir)
+                print >> chunkFile, 'chunkServer.diskIo.crashOnError = 1'
+                print >> chunkFile, 'chunkServer.abortOnChecksumMismatchFlag = 1'
+                print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
+                print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
+                print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
                 chunkFile.close()
 
-    # webserver
+    # Webserver.
     if 'webui' not in config.sections():
         return
     webDir = config.get('webui', 'rundir')
     if not webDir:
         return
     webFile = open(webDir + '/conf/WebUI.cfg', 'w')
-    print >> webFile, "[webserver]"
-    print >> webFile, "webServer.metaserverHost = %s" % metaserverHostname
-    print >> webFile, "webServer.metaserverPort = %d" % metaserverClientPort
-    print >> webFile, "webServer.port = %d" % config.getint('webui', 'webport')
-    print >> webFile, "webServer.docRoot = %s/docroot" % webDir
-    print >> webFile, "webServer.allmachinesfn = /dev/null"
-    print >> webFile, "webServer.displayPorts = True"
-    print >> webFile, "[chunk]"
-    print >> webFile, "refreshInterval = 5"
-    print >> webFile, "currentSize = 30"
-    print >> webFile, "currentSpan = 10"
-    print >> webFile, "hourlySize = 30"
-    print >> webFile, "hourlySpan =120"
-    print >> webFile, "daylySize = 24"
-    print >> webFile, "daylySpan = 3600"
-    print >> webFile, "monthlySize = 30"
-    print >> webFile, "monthlySpan = 86400"
-    print >> webFile, "displayPorts = True"
-    print >> webFile, "predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors"
+    print >> webFile, '[webserver]'
+    print >> webFile, 'webServer.metaserverHost = %s' % metaserverHostname
+    print >> webFile, 'webServer.metaserverPort = %d' % metaserverClientPort
+    print >> webFile, 'webServer.port = %d' % config.getint('webui', 'webport')
+    print >> webFile, 'webServer.docRoot = %s/docroot' % webDir
+    print >> webFile, 'webServer.allmachinesfn = /dev/null'
+    print >> webFile, 'webServer.displayPorts = True'
+    print >> webFile, '[chunk]'
+    print >> webFile, 'refreshInterval = 5'
+    print >> webFile, 'currentSize = 30'
+    print >> webFile, 'currentSpan = 10'
+    print >> webFile, 'hourlySize = 30'
+    print >> webFile, 'hourlySpan =120'
+    print >> webFile, 'daylySize = 24'
+    print >> webFile, 'daylySpan = 3600'
+    print >> webFile, 'monthlySize = 30'
+    print >> webFile, 'monthlySpan = 86400'
+    print >> webFile, 'displayPorts = True'
+    print >> webFile, 'predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors'
     webFile.close()
     print 'Setup config files - OK.'
 
 def copy_files(config, sourceDir):
-    # currently, only the web CSS stuff need be copied.
+    # Currently, only the web CSS stuff need be copied.
     if 'webui' in config.sections():
         webDir = config.get('webui', 'rundir')
         if webDir:
@@ -471,7 +451,7 @@ def start_servers(config, whichServers = 'all'):
                                     metaLog,
                                     metaOut)
             if run_command(command) > 0:
-                print "*** metaserver failed to start"
+                print '*** metaserver failed to start'
                 error = 1
 
     if startChunk:
@@ -489,7 +469,7 @@ def start_servers(config, whichServers = 'all'):
                                             chunkLog,
                                             chunkOut)
                     if run_command(command) > 0:
-                        print "*** chunkserver failed to start"
+                        print '*** chunkserver failed to start'
                         error = 1
 
     if startWeb:
@@ -500,7 +480,7 @@ def start_servers(config, whichServers = 'all'):
             webLog  = webDir + '/webui.log'
             command = '%s %s > %s 2>&1 &' % (Globals.WEBSERVER, webConf, webLog)
             if run_command(command) > 0:
-                print "*** chunkserver failed to start"
+                print '*** chunkserver failed to start'
                 error = 1
 
     if errors > 0:
