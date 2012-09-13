@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>QFS</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>QFS</h1>
+        <h4>Quantcast File System</h4>
+
+        <p class="view"><a href="https://github.com/quantcast/qfs">View the Project on GitHub </a></p>
+        <p class="view"><a href="https://github.com/quantcast/qfs/wiki">View the Project Wiki </a></p>
+
+        <ul>
+          <li><a href="https://github.com/quantcast/qfs/tarball/master">Download <strong>Source TAR</strong></a></li>
+          <li><a href="https://github.com/quantcast/qfs/downloads">Download <strong>Binary TAR</strong></a></li>
+        </ul>
+      </header>
+
+      <section>
+
+<h2>Welcome to QFS!</h2>
+
+<p>Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed file system developed to support MapReduce processing, or other applications reading and writing large files sequentially.</p>
+
+<h2>Obtaining QFS</h2>
+
+<h4>Pre-built Binaries</h4>
+<p>Several binary distributions have been provided to make it easy to try out QFS. Obtain the appropriate binary tarball from the <a href="https://github.com/quantcast/qfs/wiki/Binary-Distributions">downloads page</a> and extract it as <code><pre>$ tar xvfz $TARBALL</pre></code>to use the binaries.</p>
+
+<h4>Build Binaries From Source</h4>
+<p>One could also obtain the QFS source (either via git clone or downloading source tarball) and build the binaries. Build dependencies are: <br><code>cmake, make, git, g++, boost-devel, xfsprogs-devel, libuuid-devel, openssl-devel, jdk, java-devel, ant</code><br>The <a href="https://github.com/quantcast/qfs/wiki/Developer-Documentation">Developer Documentation</a> has detailed information on build dependencies for various platorms. With the dependencies present, one could do</p>
+
+<code><pre>
+$ git clone https://github.com/quantcast/qfs.git
+$ cd qfs
+$ make
+</pre></code>
+
+<h2>Using QFS</h2>
+<p>The <a href="https://github.com/quantcast/qfs/wiki">QFS Wiki</a> has a quick start guide for deploying QFS on a single-node.</p>
+
+<p>For cluster-wide deployments (simple cluster or multi-rack cluster) and administration of QFS, please refer to the QFS Wiki links <a href="https://github.com/quantcast/qfs/wiki/Deployment-Guide">Deployment Guide</a> and <a href="https://github.com/quantcast/qfs/wiki/Administrator's-Guide">Administrator's Guide</a>.<p>
+
+<p>The Wiki also has details on the <a href="https://github.com/quantcast/qfs/wiki/Benchmarking">benchmarking</a> work that we did comparing QFS with other distributed file systems.</p>
+
+<h2>License</h2>
+
+<p>QFS is released under the Apache 2.0 license. A copy of the license is included in the file <a href="https://github.com/quantcast/qfs/blob/master/LICENSE.txt">LICENSE.txt</a>.</p>
+
+<h2>Contributing To QFS</h2>
+
+<p>QFS is an open source, community-driven project. We would appreciate your contribution. Please read the <a href="https://github.com/quantcast/qfs/wiki/Code-Contribution-Policy">Code Contribution Policy</a>.</p>
+
+
+      </section>
+
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/quantcast">Quantcast</a>.</p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+  </body>
+</html>
