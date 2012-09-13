@@ -103,7 +103,8 @@ metaServer.createEmptyFs = 1
 
 # Mininum number of connected / functional chunk servers before the file system
 # can be used.
-metaServer.minChunkservers = 1
+# Default is 1.
+# metaServer.minChunkservers = 1
 
 # Wait 30 sec for chunk servers to connect back after restarting, before file
 # system considered fully functional.
@@ -537,7 +538,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # utilization.
 # chunkServer.maxSpaceUtilizationThreshold = 0.05
 
-# The "weight" or pending disk io in chunk placement.
+# The "weight" of pending disk io in chunk placement.
 # If set to 0 or less the pending io (number of io bytes in the disk queue) has
 # no no effect on the placement (choosing chunk directory where to create chunk).
 # If weight set to greater than 0, then the average pending io per chunk

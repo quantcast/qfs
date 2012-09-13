@@ -101,7 +101,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 131072
 # the cases where the host os zero fills the data during the host file system
 # recovery / journal / transaction log replay,
 # thus the data loss / corruption problem might not be detected.
-# chunkServer.requireChunkHeaderChecksum = 1
+# chunkServer.requireChunkHeaderChecksum = 0
 
 # If set to a value greater than 0 then locked memory limit will be set to the
 # specified value, and mlock(MCL_CURRENT|MCL_FUTURE) invoked.
