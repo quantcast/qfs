@@ -21,30 +21,6 @@
 #
 # Do not assume gnumake -- keep it as simple as possible
 
-UNAME := $(shell uname -s)
-ARCH := $(shell uname -m)
-FLAVOR := $(shell uname -s)
-VERSION := $(shell uname -r)
-
-QFSVERSION := 1.0
-tarname :=
-
-ifeq ($(UNAME), Linux)
- FLAVOR := $(shell head -n 1 /etc/issue | cut -d" " -f1)
- ifeq ($(FLAVOR), Ubuntu)
-   VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f2)
- else
-   VERSION := $(shell head -n 1 /etc/issue | cut -d" " -f3)
- endif
-endif
-
-ifneq (,$(findstring CYGWIN,$(UNAME)))
- FLAVOR := 'Cygwin'
-endif
-
-tarname := qfs-$(FLAVOR)-$(VERSION)-$(QFSVERSION)-$(ARCH)
-tarname := $(shell echo $(tarname) | tr A-Z a-z)
-
 all: release
 
 prep:
@@ -58,7 +34,7 @@ release: prep
 	make install
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
-            cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+	    cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
 
 debug: prep
 	cd build && \
@@ -68,14 +44,35 @@ debug: prep
 	make install
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
-            cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
+	    cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
 
 tarball: release
 	cd build && \
-	{ test -d tmpreldir/$(tarname) || mkdir -p tmpreldir/$(tarname); } && \
-	rm -rf tmpreldir/$(tarname)/* && \
-	cp -r release/bin release/lib release/include ../scripts ../webui ../examples ../benchmarks tmpreldir/$(tarname) && \
-	tar cvfz $(tarname).tgz -C ./tmpreldir $(tarname) && \
+	myuname=`uname -s`; \
+	if [ x"$$myuname" = x'Linux' -a -f etc/issue ]; then \
+	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
+	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2`" ; \
+	    elif [ x"$$myflavor" = x ]; then \
+		myflavor=$$myuname ; \
+	    else \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3`" ; \
+	    fi ; \
+	else \
+	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
+		myflavor=cygwin ; \
+	    else \
+		myflavor=$$myuname ; \
+	    fi ; \
+	fi ; \
+	tarname="qfs-$$myflavor-1.0-`uname -m`" ; \
+	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
+	{ test -d tmpreldir || mkdir tmpreldir; } && \
+	rm -rf "tmpreldir/$$tarname" && \
+	mkdir -p "tmpreldir/$$tarname" && \
+	cp -r release/bin release/lib release/include ../scripts ../webui \
+	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
+	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
 test-debug: debug
@@ -85,4 +82,4 @@ test-release: release
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/release build/debug build/$(tarname).tgz build/kfs*.jar build/classes
+	rm -rf build/release build/debug build/qfs-*.tgz build/kfs*.jar build/classes

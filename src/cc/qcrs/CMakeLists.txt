@@ -46,18 +46,18 @@ else (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64)
     # On 32 bit platform enable ssse3 if /proc/cpuinfo does not exists or cpu
     # has ssse3 flag.
     execute_process(
-        COMMAND sh -c 'test -f /proc/cpuinfo || exit 0; grep -w flags /proc/cpuinfo | grep -w ssse3'
+        COMMAND sh -c "test -f /proc/cpuinfo || exit 0; grep -w flags /proc/cpuinfo | grep -w ssse3"
         OUTPUT_QUIET
         ERROR_QUIET
         RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
     )
-    if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+    if (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
         message(STATUS "qcrs: enabling ssse3")
         add_definitions(-mssse3)
-    else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+    else (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
         message(STATUS "qcrs: disabling ssse3")
         add_definitions(-msse2 -DLIBRS_USE_SSE2)
-    endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+    endif (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
 endif (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64)
 
 if (CYGWIN)

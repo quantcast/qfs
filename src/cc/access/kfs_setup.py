@@ -48,7 +48,7 @@ kfsext = Extension(
         os.path.abspath(os.path.join(kfs_access_dir, ".."))
     ],
     libraries = [
-        'boost_regex',
+        # 'boost_regex',
         'kfs_client',
         'kfs_common',
         'kfs_io',
