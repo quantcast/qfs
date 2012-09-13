@@ -248,7 +248,7 @@ Hello World example of a client session:
   ./examples/sampleservers/sample_setup.py -a install
   # Start QFS servers locally (1 metaserver, 2 chunkservers).
   ./examples/sampleservers/sample_setup.py -a start
-  PATH=${PATH}:${PWD}/build/release/bin/tools
+  PATH=${PWD}/build/release/bin/tools:${PATH}
   # Make temp directory.
   kfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
   # Create file containing Hello World, Reed-Solomon encoded, replication 1.
@@ -262,7 +262,9 @@ Hello World example of a client session:
   cpfromkfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
   # Remove file from QFS.
   kfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
+  # Stop the server and remove the custom install.
   ./examples/sampleservers/sample_setup.py -a stop
+  ./examples/sampleservers/sample_setup.py -a uninstall
 """
 
     # an install sets up all config files and (re)starts the servers.
