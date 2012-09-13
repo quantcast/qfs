@@ -69,7 +69,7 @@ tarball: release
 	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
-	mkdir -p "tmpreldir/$$tarname" && \
+	mkdir "tmpreldir/$$tarname" && \
 	cp -r release/bin release/lib release/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \

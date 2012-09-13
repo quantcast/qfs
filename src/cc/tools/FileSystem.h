@@ -27,6 +27,8 @@
 #ifndef TOOLS_FILE_SYSTEM_H
 #define TOOLS_FILE_SYSTEM_H
 
+#include <unistd.h>
+
 #include <string>
 
 namespace KFS {
@@ -37,16 +39,41 @@ using std::string;
 class FileSystem
 {
 public:
+    class StatBuf : public struct stat
+    {
+    public:
+        StatBuf()
+            : stat()
+            {}
+    };
     static FileSystem* Create(
         const string& inUri,
         string*       outPathPtr = 0);
-    int Chdir(
+    virtual int Chdir(
         const string& inDir);
-    int GetCwd(
+    virtual int GetCwd(
         string& outDir);
-    int Open(
-        const string& inFileName)
-    
+    virtual int Open(
+        const string& inFileName,
+        int           inFlags,
+        int           inMode,
+        const string* inParamsPtr = 0);
+    virtual int Close(
+        int inFd);
+    virtual ssize_t Read(
+        int    inFd,
+        void*  inBufPtr,
+        size_t inBufSize);
+    virtual ssize_t Write( 
+        int          inFd,
+        const void*  inBufPtr,
+        size_t       inBufSize);
+    virtual int Flush(
+        int inFd);
+    virtual int Stat(
+        const string& inFileName,
+        StatBuf&      outStat);
+    virtual int 
 private:
     FileSystem(
         const FileSystem& inFileSystem);
