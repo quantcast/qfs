@@ -1,9 +1,7 @@
-QFS
-===
+Welcome to QFS
+==============
 
-Welcome to QFS!
-
-Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed file system developed to support applications with sequential access pattern over large files.
+The Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed file system developed to support applications with sequential access pattern over large files.
 
 Quick Start
 -----------
