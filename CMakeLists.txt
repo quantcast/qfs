@@ -166,6 +166,10 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 
+IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
+    set(JNI_FOUND TRUE)
+ENDIF  (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
+
 IF (JNI_FOUND)
     message(STATUS "JNI found: building kfs_access")
     include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
