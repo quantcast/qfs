@@ -34,9 +34,9 @@ metaServer.cpDir = meta/checkpoint
 # Allow to automatically create an empty file system if checkpoint file does not
 # exists.
 # The default is 0, as under the normal circumstances where the file system
-# content is of value, completely loosing checkpoint, transaction log, and
+# content is of value, completely losing checkpoint, transaction log, and
 # automatically creating an empty fs will have the same effect as conventional
-# "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint,
+# "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint
 # and logs later won't be sufficient to recover the data.
 metaServer.createEmptyFs = 1
 
@@ -120,7 +120,7 @@ metaServer.recoveryInterval = 30
 
 # Chunk server executables md5 sums white list.
 # The chunk server sends its executable md5sum when it connects to the meta
-# servrer. If the following space separated list is not empty and does not
+# server. If the following space separated list is not empty and does not
 # does not contain the chunk server executable md5 sum then the chunk server
 # is instructed to exit or restart itself.
 # This might be useful for upgrade or versions control.
@@ -206,7 +206,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 
 # Unix style permissions
 # Space separated list of ip addresses of hosts where root user is allowed.
-# Empty list means that root user allowed on any host.
+# Empty list means that root user is allowed on any host.
 # Default is empty.
 # metaServer.rootHosts =
 
@@ -232,9 +232,9 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.maxDownServersHistorySize = 4096
 
 # Space and placement re-balancing.
-# Space re-balancing controlled by the next two parameters (thresholds) below.
+# Space re-balancing is controlled by the next two parameters (thresholds) below.
 # Re-balancing constantly scans all chunks in the system and checks chunk
-# placement withing the replication or RS groups, and moves chunks from chunk
+# placement within the replication or RS groups, and moves chunks from chunk
 # servers that are above metaServer.maxRebalanceSpaceUtilThreshold to the chunk
 # servers that are below metaServer.minRebalanceSpaceUtilThreshold.
 # Default is 1 -- on.
@@ -286,7 +286,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 
 # When allocating (placing) a chunk prefer chunk servers with lower "load"
 # metric over the chunk servers with the higher "load" metric.
-# For the write intesive file systems turning this mode on is
+# For the write intensive file systems turning this mode on is
 # recommended.
 # Default is 0. Do not take chunk server "load" metric into the account.
 # metaServer.sortCandidatesByLoadAvg = 0
@@ -355,14 +355,14 @@ metaServer.clusterKey = my-fs-unique-identifier
 # out, and will be automatically revoked. The existing writer logic sets logical
 # EOF when it closes the file, before that the logical file size remains 0
 # during write. (Unless it is re-write which is currently for all practical
-# purposes is not supported with RS files). The timeout below should be set to
-# at least to max. practical file "write" time.
+# purposes not supported with RS files). The timeout below should be set to
+# at least the max. practical file "write" time.
 # Setting the timeout to a very large value will prevent processing the chunks
 # sitting in the replication delayed queue from the "abandoned" files, i.e.
 # files that the writer wrote something and then exited without closing the
 # file.
-# The parameter and the corresponding "delay" logic will likely to be removed in
-# the future releases, and replaced with the write leases renew logic.
+# The parameter and the corresponding "delay" logic will likely be removed in
+# future releases, and replaced with the write lease renew logic.
 # Default is 6 hours or 21600 seconds.
 # metaServer.pastEofRecoveryDelay = 21600
 
@@ -466,7 +466,7 @@ metaServer.msgLogWriter.logLevel = INFO
 
 # ===================== Chunk servers configuration parameters. ================
 # Configuration parameters in the meta server configuration file take precedence
-# over the chunk server configration files.
+# over the chunk server configuration files.
 
 # ---------------------------------- Message log. ------------------------------
 
@@ -507,7 +507,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # chunkServer.recAppender.replicationTimeoutSec = 180
 # Write replication timeout.   
 # Default is 300 sec. Production value is 20 sec.
-# chunkServer.remoteSync.responseTimeoutSec     = 300
+# chunkServer.remoteSync.responseTimeoutSec = 300
 
 # Controls buffered io -- use os file system cache, instead of direct io on the
 # os / file systems that support direct io (most file systems on linux).

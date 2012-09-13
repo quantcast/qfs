@@ -53,7 +53,7 @@ chunkServer.chunkDir = chunks
 # system.
 # The typical setup is to have one host file system per physical disk.
 # Even if raid controller is available jbod configuration is recommended,
-# leaving the failure handling and striping the distributed file system.
+# leaving the failure handling and striping to the distributed file system.
 # The default is 2.
 # With large requests (~1MB) two io requests in flight should be sufficient.
 # chunkServer.diskQueue.threadCount = 2
@@ -80,7 +80,7 @@ chunkServer.stderr = /dev/null
 # The optimal amount of memory depends on the number of disks in the system, and
 # the io (read, write) concurrency -- the number of concurrent "clients". The
 # memory should be increased if large number of concurrent write appenders is
-# expected. Ideally the disk io request should be around 1MB, thus for each each
+# expected. Ideally the disk io request should be around 1MB, thus for each
 # chunk opened for append at least 1MB of io buffers is recommended.
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 

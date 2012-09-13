@@ -18,12 +18,15 @@
 # permissions and limitations under the License.
 #
 
-The specs directory contains the .spec files needed to build the RPMs for the different KFS components.
+The specs directory contains the .spec files needed to build the RPMs for the
+different KFS components.
 
-Prerequisite: 
-Ensure that the $JAVA_HOME variable is set correctly, and the java headers are at $JAVA_HOME/include.
-If the java include path is different, then modify the spec file by adding the following flag to cmake command.
- "cmake -D JAVA_INCLUDE_PATH=/java/path/include -D CMAKE_BUILD_TYPE=RelWithDebInfo ."
+Prerequisites: 
+1. Ensure that the $JAVA_HOME variable is set correctly, and the java headers
+   are at $JAVA_HOME/include.
+2. If the java include path is different, then modify the spec file by adding
+   the following flags to the cmake command:
+   -D JAVA_INCLUDE_PATH=/java/path/include -D CMAKE_BUILD_TYPE=RelWithDebInfo .
 
 To build the metaserver RPM:
 rpmbuild -v -ba specs/kfs-metaserver.spec
@@ -31,5 +34,5 @@ rpmbuild -v -ba specs/kfs-metaserver.spec
 To build the chunkserver RPM:
 rpmbuild -v -ba specs/kfs-chunkserver.spec
 
-To build the clients RPM:
+To build the client RPM:
 rpmbuild -v -ba specs/kfs-clients.spec
