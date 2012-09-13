@@ -136,6 +136,13 @@ def kill_running_program(binaryPath):
 def run_command(cmd):
     return subprocess.check_call(cmd, shell=True)
 
+def rm_tree(path):
+    if '/qfsbase/' in path:
+        shutil.rmtree(path)
+    else:
+        print >> sys.stderr, 'refusing to remove path %r' % path,
+        print >> sys.stderr, 'because it does not contain /qfsbase/'
+
 def duplicate_tree(src, dst):
     """Copy files & directories from SRC directory to DST directory.
 
@@ -153,7 +160,7 @@ def duplicate_tree(src, dst):
         dstPath = os.path.join(dst, li)
 
         if os.path.isdir(dstPath):
-            shutil.rmtree(dstPath)
+            rm_tree(dstPath)
         else:
             if os.path.exists(dstPath):
                 os.unlink(dstPath)
@@ -215,10 +222,10 @@ def parse_command_line():
 
     actions = """
 Actions:
-  install   - setup meta and chunk server directories, restarting/starting them
-  start     - start meta and chunk servers
-  stop      - stop meta and chunk servers
-  uninstall - remove meta and chunk server directories after stopping them"""
+  install   = setup meta and chunk server directories, restarting/starting them
+  start     = start meta and chunk servers
+  stop      = stop meta and chunk servers
+  uninstall = remove meta and chunk server directories after stopping them"""
 
     sampleSession = """
 Hello World example of a client session:
@@ -292,7 +299,7 @@ def do_cleanup(config, doUninstall):
         if metaDir:
             kill_running_program(Globals.METASERVER)
             if doUninstall and os.path.isdir(metaDir):
-                shutil.rmtree(metaDir)
+                rm_tree(metaDir)
 
     for section in config.sections():
         if section.startswith('chunkserver'):
@@ -300,14 +307,15 @@ def do_cleanup(config, doUninstall):
             if chunkDir:
                 kill_running_program(Globals.CHUNKSERVER)
                 if doUninstall and os.path.isdir(chunkDir):
-                    shutil.rmtree(chunkDir)
+                    rm_tree(chunkDir)
 
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
         if webDir:
             kill_running_program(Globals.WEBSERVER)
             if doUninstall and os.path.isdir(webDir):
-                shutil.rmtree(webDir)
+                rm_tree(webDir)
+    os.rmdir(os.path.expanduser('~/qfsbase'))
     if doUninstall:
         print 'Uninstall - OK.'
     else:
