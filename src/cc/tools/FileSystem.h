@@ -28,13 +28,16 @@
 #define TOOLS_FILE_SYSTEM_H
 
 #include <unistd.h>
+#include <glob.h>
 
 #include <string>
+#include <vector>
 
 namespace KFS {
 namespace tools {
 
 using std::string;
+using std::vector;
 
 class FileSystem
 {
@@ -46,8 +49,17 @@ public:
             : stat()
             {}
     };
-    static FileSystem* Create(
+    class DirIterator
+    {
+    protected:
+        DirIterator()
+            {}
+        virtual ~DirIterator()
+            {}
+    };
+    static int Get(
         const string& inUri,
+        FileSystem*&  outFsPtr,
         string*       outPathPtr = 0);
     virtual int Chdir(
         const string& inDir);
@@ -73,7 +85,22 @@ public:
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat);
-    virtual int 
+    virtual int OpenDir(
+        const string& inDirName,
+        bool          inFetchAttributesFlag,
+        DirIterator*& outDirIteratorPtr);
+    virtual int CloseDir(
+        DirIterator* inDirIteratorPtr);
+    virtual int Next(
+        DirIterator*    inDirIteratorPtr,
+        bool&           outHasNextFlag,
+        string&         outName,
+        const StatBuf*& outStatPtr);
+    virtual int Glob(
+        const string& inPattern,
+        int           inFlags,
+        int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
+        glob_t*        inGlobPtr);
 private:
     FileSystem(
         const FileSystem& inFileSystem);
