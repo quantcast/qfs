@@ -34,7 +34,7 @@ release: prep
 	make install
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
-            cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+	    cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
 
 debug: prep
 	cd build && \
@@ -44,13 +44,36 @@ debug: prep
 	make install
 	if test -x "`which ant 2>/dev/null`"; then ant jar; fi
 	if test -x "`which python 2>/dev/null`"; then \
-            cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
+	    cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
 
 tarball: release
 	cd build && \
-	tar -cvf qfs.tar -C ./release ./bin ./lib ./include && \
-	tar -rvf qfs.tar -C ../ ./scripts ./webui ./examples ./benchmarks && \
-	gzip qfs.tar
+	myuname=`uname -s`; \
+	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
+	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
+	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2`" ; \
+	    elif [ x"$$myflavor" = x ]; then \
+		myflavor=$$myuname ; \
+	    else \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3`" ; \
+	    fi ; \
+	else \
+	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
+		myflavor=cygwin ; \
+	    else \
+		myflavor=$$myuname ; \
+	    fi ; \
+	fi ; \
+	tarname="qfs-$$myflavor-1.0-`uname -m`" ; \
+	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
+	{ test -d tmpreldir || mkdir tmpreldir; } && \
+	rm -rf "tmpreldir/$$tarname" && \
+	mkdir "tmpreldir/$$tarname" && \
+	cp -r release/bin release/lib release/include ../scripts ../webui \
+	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
+	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
+	rm -rf tmpreldir
 
 test-debug: debug
 	cd build/debug && ../../src/test-scripts/kfstest.sh
@@ -59,4 +82,4 @@ test-release: release
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/release build/debug build/qfs.tar build/qfs.tar.gz build/kfs*.jar build/classes
+	rm -rf build/release build/debug build/qfs-*.tgz build/kfs*.jar build/classes

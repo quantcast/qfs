@@ -412,7 +412,8 @@ kfs_write(PyObject *pself, PyObject *args)
     }
     if (nw != wsize) {
         PyObject *msg = PyString_FromFormat(
-    "requested write of %d bytes but %ld were written", wsize, nw);
+            "requested write of %d bytes but %ld were written",
+            wsize, (long)nw);
         return msg;
     }
     Py_RETURN_NONE;
