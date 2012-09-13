@@ -51,13 +51,13 @@ else (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64)
         ERROR_QUIET
         RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
     )
-    if (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
+    if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
         message(STATUS "qcrs: enabling ssse3")
         add_definitions(-mssse3)
-    else (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
+    else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
         message(STATUS "qcrs: disabling ssse3")
         add_definitions(-msse2 -DLIBRS_USE_SSE2)
-    endif (${MY_SSSE3_SUPPORTED_RET} EQUAL 0)
+    endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
 endif (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64)
 
 if (CYGWIN)

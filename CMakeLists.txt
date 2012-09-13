@@ -166,13 +166,13 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 
-IF (${JNI_FOUND})
+IF (JNI_FOUND)
     message(STATUS "JNI found: building kfs_access")
     include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
-ELSE (${JNI_FOUND})
+ELSE (JNI_FOUND)
     message(STATUS "JNI NOT found: NOT building kfs_access")
-ENDIF (${JNI_FOUND})
+ENDIF (JNI_FOUND)
 
 IF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
     message(STATUS "Found fuse")
