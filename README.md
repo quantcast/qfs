@@ -29,7 +29,7 @@ Contributing
 
 QFS is an open source, community-driven project.
 We would appreciate your contribution.
-Read the [Code Contribution Policy]().
+Please read the [Code Contribution Policy]().
 
 License
 -------
