@@ -55,7 +55,7 @@ webui-run-dir/docroot/
              /webui.log
 """
 
-import sys, os, os.path, shutil, errno, signal, posix, re
+import sys, os, os.path, shutil, errno, signal, posix, re, socket
 import ConfigParser
 import subprocess
 
@@ -102,6 +102,14 @@ def check_binaries(releaseDir, sourceDir):
         sys.exit('Webserver missing in build and source directories')
     print 'Binaries presence checking - OK.'
 
+def check_port(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(('localhost', port))
+        del s
+    except socket.error, err:
+        sys.exit('aborting, port %d already in use (%s)' % (port, str(err)))
+
 def kill_running_program(binaryPath):
     if sys.platform in ('darwin', 'Darwin'):
         checkPath = os.path.split(binaryPath)[1]
@@ -117,7 +125,7 @@ def kill_running_program(binaryPath):
                 os.kill(int(pid.strip()), signal.SIGTERM)
     else:
         if binaryPath.find('kfsstatus') >= 0:
-            cmd = ('ps -ef | grep %s | grep -v grep | awk \'{print $2}\''
+            cmd = ('ps -ef | grep /qfsbase/ | grep %s | grep -v grep | awk \'{print $2}\''
                    % binaryPath)
             res = subprocess.Popen(cmd, shell=True,
                                    stdout=subprocess.PIPE).communicate()
@@ -315,8 +323,8 @@ def do_cleanup(config, doUninstall):
             kill_running_program(Globals.WEBSERVER)
             if doUninstall and os.path.isdir(webDir):
                 rm_tree(webDir)
-    os.rmdir(os.path.expanduser('~/qfsbase'))
     if doUninstall:
+        os.rmdir(os.path.expanduser('~/qfsbase'))
         print 'Uninstall - OK.'
     else:
         print 'Stop servers - OK.'
@@ -514,6 +522,10 @@ if __name__ == '__main__':
         do_cleanup(config, opts.action == 'uninstall')
         posix._exit(0)
 
+    check_port(20000)
+    check_port(21001)
+    check_port(21002)
+    check_port(22000)
     setup_directories(config)
     setup_config_files(config)
     copy_files(config, opts.source_dir)
