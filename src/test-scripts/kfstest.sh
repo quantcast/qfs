@@ -123,7 +123,7 @@ if [ -e "$accessdir/libkfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
     kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v`
     kfsjar="`cd "$kfsjar/../../build" >/dev/null && pwd`"
-    kfsjar="${kfsjar}/kfs-${kfsjarvers}.jar"
+    kfsjar="${kfsjar}/qfs-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then
         accessdir="`cd "${accessdir}" >/dev/null 2>&1 && pwd`"
     else

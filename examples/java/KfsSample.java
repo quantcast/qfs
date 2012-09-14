@@ -23,13 +23,13 @@
  *
  * \brief A Sample Java program to access KFSAccess APIs. To run this program,
  *        you need:
- *        - kfs.jar in your CLASSPATH
+ *        - qfs.jar in your CLASSPATH
  *        - libkfs_access.so in your LD_LIBRARY_PATH
- *        - a KFS deployment
+ *        - a QFS deployment
  * Eg:
- *    javac -cp ~/code/kfs/build/<kfs>.jar KfsSample.java
- *    DYLD_LIBRARY_PATH=~/code/kfs/build/lib \
- *        java -cp .:~/code/kfs/build/<kfs>.jar KfsSample 172.16.59.127 20000
+ *    javac -cp ~/code/kfs/build/<qfs>.jar KfsSample.java
+ *    LD_LIBRARY_PATH=~/code/kfs/build/lib \
+ *        java -cp .:~/code/kfs/build/<qfs>.jar KfsSample localhost 20000
  */
 
 

@@ -1,8 +1,8 @@
-<!-- KFS -->
-<project name="kfs" default="compile" basedir="."> 
+<!-- QFS -->
+<project name="qfs" default="compile" basedir="."> 
 
-  <property name="Name" value="KFS"/>
-  <property name="name" value="kfs"/>
+  <property name="Name" value="QFS"/>
+  <property name="name" value="qfs"/>
   <exec executable="sh" outputproperty="version">
     <arg value="src/cc/common/buildversgit.sh"/>
     <arg value="-v"/>
@@ -26,7 +26,7 @@
 
   <!-- Default target: usage.  Prints out instructions. -->
   <target name="usage" description="Prints out instructions">
-    <echo message="Welcome to the KFS project!" />
+    <echo message="Welcome to the QFS project!" />
     <echo message="And for developers:"/>
     <echo message="Use 'ant clean' to clean compiled files." />
     <echo message="Use 'ant compile' to compile the source code." />
@@ -45,7 +45,7 @@
   </target>
 
   <!-- ================================================================== -->
-  <!-- Make kfs.jar                                                       -->
+  <!-- Make qfs.jar                                                       -->
   <!-- ================================================================== -->
   <!--                                                                    -->
   <!-- ================================================================== -->
@@ -53,10 +53,10 @@
     <jar jarfile="${build.dir}/${name}-${version}.jar"
          basedir="${build.classes}">
       <manifest>
-        <section name="org/kosmos">
-          <attribute name="Implementation-Title" value="KFS"/>
+        <section name="com/quantcast">
+          <attribute name="Implementation-Title" value="QFS"/>
           <attribute name="Implementation-Version" value="${version}"/>
-          <attribute name="Implementation-Vendor" value="Kosmix"/>
+          <attribute name="Implementation-Vendor" value="Quantcast"/>
         </section>
       </manifest>
     </jar>

@@ -82,4 +82,4 @@ test-release: release
 	cd build/release && ../../src/test-scripts/kfstest.sh
 
 clean:
-	rm -rf build/release build/debug build/qfs-*.tgz build/kfs*.jar build/classes
+	rm -rf build/release build/debug build/qfs-*.tgz build/qfs*.jar build/classes

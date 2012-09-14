@@ -26,35 +26,36 @@ This directory contains the following contents:
 
 1. cc/kfssample_main.cc
    cc/CMakeLists.txt
-  The C++ client to access KFS. The binary gets compiled as part of kfs build
-  (described in 'doc' directory at top of source dir), and the sample gets
+  The C++ client to access QFS. The binary gets compiled as part of QFS build
+  (please refer to QFS Wiki Developer-Documentation), and the sample gets
   copied to the <build>/bin/examples directory where <build> is the selected
   build directory.
 
 2. java/KfsSample.java
-  The Java client to access KFS.
+  The Java client to access QFS.
   To compile:
-  javac -classpath ../../build/kfs-*.jar KfsSample.java
+   $ cd examples/java/
+   $ javac -classpath ../../build/qfs-*.jar KfsSample.java
   To run, assuming that make install was performed in ../../build/release,
   or top level make was invoked with no or default target:
-  libdir="`cd ../../build/release/lib && pwd`"
-  LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}"
-  export LD_LIBRARY_PATH
-  kfsjar=`echo ../../build/kfs-*.jar`
-  java -Djava.library.path="$libdir" -classpath ".:$kfsjar" KfsSample 127.0.0.1 20000
+   $ libdir="`cd ../../build/release/lib && pwd`"
+   $ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}"
+   $ qfsjar=`echo ../../build/qfs-*.jar`
+   $ java -Djava.library.path="$libdir" -classpath ".:$qfsjar" KfsSample 127.0.0.1 20000
+  (Note: on OS X, use DYLD_LIBRARY_PATH instead of LD_LIBRARY_PATH)
 
 3. python/kfssample.py
    python/kfssample.cfg
   Python support is at experimental stage now. Nevertheless, one can run this
-  example to access KFS via python. The DeveloperDoc in the top-level 'doc'
-  directory explains how to build and install the python KFS extension module.
+  example to access QFS via python. The QFS Wiki Developer-Documentation
+  explains how to build and install the python QFS extension module.
   To run the kfssample.py, please set your PYTHONPATH and LD_LIBRARY_PATH
-  accordingly and point it to a KFS metaserver via the kfssample.cfg.
+  accordingly and point it to a QFS metaserver via the kfssample.cfg.
 
 4. sampleservers
-  Directory with a python script to bring up a simple KFS server locally.
+  Directory with a python script to bring up a simple QFS server locally.
 
-  Once you build the C++ binaries (see 'doc' directory at top of source dir)
+  Once you build the C++ binaries (refer to QFS Wiki Developer-Documentation)
   point the sampleservers/sample_setup.py script to a config file and the
   build paths to start the servers.
 
