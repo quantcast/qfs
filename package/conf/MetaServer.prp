@@ -101,6 +101,18 @@ metaServer.createEmptyFs = 1
 # be explicitly specified in the configuration file. In other words commenting
 # out the parameter will not have any effect until restart.
 
+# WORM mode.
+# Write once, read many mode.
+# In this mode only modification of files ".tmp" (without quotes) suffix is
+# allowed.
+# Typically the application would create and write the file with ".tmp" suffix,
+# and then rename it so the destination file name will not have ".tmp " suffix.
+# To delete a file without ".tmp" suffix the mode can be temporary turned off
+# by the administrator. "kfstoggleworm" utility, or temporary configuration
+# modification can be used to do that.
+# Default is 0.
+# metaServer.wormMode = 0
+
 # Mininum number of connected / functional chunk servers before the file system
 # can be used.
 # Default is 1.
