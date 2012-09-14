@@ -42,6 +42,7 @@ set (lib_srcs
     kfspwd.cc
     monutils.cc
     utils.cc
+    FileSystem.cc
 )
 
 add_library (tools STATIC ${lib_srcs})

@@ -27,22 +27,22 @@
 #ifndef TOOLS_FILE_SYSTEM_H
 #define TOOLS_FILE_SYSTEM_H
 
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <glob.h>
 
 #include <string>
-#include <vector>
 
 namespace KFS {
 namespace tools {
 
 using std::string;
-using std::vector;
 
 class FileSystem
 {
 public:
-    class StatBuf : public struct stat
+    class StatBuf : public stat
     {
     public:
         StatBuf()
@@ -62,50 +62,53 @@ public:
         FileSystem*&  outFsPtr,
         string*       outPathPtr = 0);
     virtual int Chdir(
-        const string& inDir);
+        const string& inDir) = 0;
     virtual int GetCwd(
-        string& outDir);
+        string& outDir) = 0;
     virtual int Open(
         const string& inFileName,
         int           inFlags,
         int           inMode,
-        const string* inParamsPtr = 0);
+        const string* inParamsPtr) = 0;
+    int Open(
+        const string& inFileName,
+        int           inFlags,
+        int           inMode)
+        { return Open(inFileName, inFlags, inMode, 0); }
     virtual int Close(
-        int inFd);
+        int inFd) = 0;
     virtual ssize_t Read(
         int    inFd,
         void*  inBufPtr,
-        size_t inBufSize);
+        size_t inBufSize) = 0;
     virtual ssize_t Write( 
         int          inFd,
         const void*  inBufPtr,
-        size_t       inBufSize);
+        size_t       inBufSize) = 0;
     virtual int Flush(
-        int inFd);
+        int inFd) = 0;
     virtual int Stat(
         const string& inFileName,
-        StatBuf&      outStat);
-    virtual int OpenDir(
+        StatBuf&      outStat) = 0;
+    virtual int Open(
         const string& inDirName,
         bool          inFetchAttributesFlag,
-        DirIterator*& outDirIteratorPtr);
-    virtual int CloseDir(
-        DirIterator* inDirIteratorPtr);
+        DirIterator*& outDirIteratorPtr) = 0;
+    virtual int Close(
+        DirIterator* inDirIteratorPtr) = 0;
     virtual int Next(
         DirIterator*    inDirIteratorPtr,
         bool&           outHasNextFlag,
         string&         outName,
-        const StatBuf*& outStatPtr);
+        const StatBuf*& outStatPtr) = 0;
     virtual int Glob(
         const string& inPattern,
         int           inFlags,
         int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
-        glob_t*        inGlobPtr);
-private:
-    FileSystem(
-        const FileSystem& inFileSystem);
-    FileSystem operator=(
-        const FileSystem& inFileSystem);
+        glob_t*        inGlobPtr) = 0;
+protected:
+    virtual ~FileSystem()
+        {}
 };
 
 }
