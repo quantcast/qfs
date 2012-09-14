@@ -1,9 +1,6 @@
-@import url(https://fonts.googleapis.com/css?family=Lato:300italic,700italic,300,700);
-
 body {
   padding:50px;
   font:12px/1.5 Verdana, Helvetica, Arial, sans-serif;
-  color:rgb(30,30,90);
   font-weight:400;
   color: #333
 }
