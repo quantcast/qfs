@@ -184,7 +184,7 @@ class Status:
             print >> buffer, '''&nbsp;hibernated:&nbsp;''' + splitThousands(systemInfo.hibernatedServerCount)
         print >> buffer, '''</td></tr>'''
         if systemInfo.replications >= 0:
-            print >> buffer, '''<tr> <td> Replications: </td><td>:</td><td>in&nbsp;flight:&nbsp;''' + \
+            print >> buffer, '''<tr> <td> Replications </td><td>:</td><td>in&nbsp;flight:&nbsp;''' + \
                 str(systemInfo.replications) + \
                 '''&nbsp;check:&nbsp;''' + splitThousands(systemInfo.replicationsCheck) + \
                 '''&nbsp;pending:&nbsp;''' + splitThousands(systemInfo.pendingReplication) + \
@@ -272,8 +272,8 @@ class Status:
                     bytesToReadable(systemInfo.totalSpace * mult / 100.)
 
         print >> buffer, '''
-        <tr><td>Version: </td><td>:</td><td> ''', systemInfo.buildVersion, '''</td></tr>
-        <tr><td>Source: </td><td>:</td><td> ''',  systemInfo.sourceVersion, '''</td></tr>
+        <tr><td>Version </td><td>:</td><td> ''', systemInfo.buildVersion, '''</td></tr>
+        <tr><td>Source </td><td>:</td><td> ''',  systemInfo.sourceVersion, '''</td></tr>
         </tbody>
         </table>
         </div>
