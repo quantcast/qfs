@@ -14,6 +14,10 @@ tarball) and it is at ~/code/qfs
 Compiling QFS
 =============
 
+* QFS can be compiled on Linux variants, Mac OS X, and Cygwin. The QFS servers
+  have been tested on 64-bit CentOS 6 extensively and run on Linux variants.
+  The QFS client tools work on OS X and Cygwin as well.
+
 * Pre-requisites: cmake, make(preferably, version 2.4.7 or higher), git, g++,
                   boost-devel(preferably, version 1.3.4 or higher),
                   xfsprogs-devel, libuuid-devel, openssl-devel, jdk,
