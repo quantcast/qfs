@@ -21,15 +21,15 @@
  * implied. See the License for the specific language governing
  * permissions and limitations under the License.
  *
- * \brief A Sample Java program to access KFSAccess APIs. To run this program,
+ * \brief A Sample Java program to access QFSAccess APIs. To run this program,
  *        you need:
  *        - qfs.jar in your CLASSPATH
- *        - libkfs_access.so in your LD_LIBRARY_PATH
+ *        - libqfs_access.so in your LD_LIBRARY_PATH
  *        - a QFS deployment
  * Eg:
- *    javac -cp ~/code/kfs/build/<qfs>.jar KfsSample.java
- *    LD_LIBRARY_PATH=~/code/kfs/build/lib \
- *        java -cp .:~/code/kfs/build/<qfs>.jar KfsSample localhost 20000
+ *    javac -cp ~/code/qfs/build/<qfs>.jar QfsSample.java
+ *    LD_LIBRARY_PATH=~/code/qfs/build/lib \
+ *        java -cp .:~/code/qfs/build/<qfs>.jar QfsSample localhost 20000
  */
 
 
@@ -39,11 +39,11 @@ import java.util.Random;
 import java.nio.ByteBuffer;
 import com.quantcast.qfs.access.*;
 
-public class KfsSample
+public class QfsSample
 {
     public static void main(String args[]) {
         if (args.length < 1) {
-            System.out.println("Usage: KfsTest <meta server> <port>");
+            System.out.println("Usage: QfsSample <meta server> <port>");
             System.exit(1);
         }
         try {

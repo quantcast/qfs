@@ -43,17 +43,17 @@ import os.path
 kfs_access_dir=os.path.dirname(sys.argv[0])
 
 kfsext = Extension(
-    'kfs',
+    'qfs',
     include_dirs = [
         os.path.abspath(os.path.join(kfs_access_dir, ".."))
     ],
     libraries = [
         # 'boost_regex',
-        'kfs_client',
-        'kfs_common',
-        'kfs_io',
-        'kfs_qcdio',
-        'kfs_qcrs'
+        'qfs_client',
+        'qfs_common',
+        'qfs_io',
+        'qfs_qcdio',
+        'qfs_qcrs'
     ],
     library_dirs = [
         'src/cc/libclient',
@@ -73,8 +73,8 @@ if sys.platform in ('darwin', 'Darwin'):
   kfsext.library_dirs.append('/opt/local/lib')
 
 setup(
-    name = "kfs", version = "0.3",
-    description="KFS client module",
+    name = "qfs", version = "1.0",
+    description="QFS client module",
     author="Blake Lewis and Sriram Rao",
     ext_modules = [kfsext]
 )

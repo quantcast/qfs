@@ -29,8 +29,8 @@
 SERVER_ARGS=""
 
 function usage() {
-  echo "Usage: $0 [-k host:port] [-h host:port]
-      -k: KFS metaserver host and port.
+  echo "Usage: $0 [-q host:port] [-h host:port]
+      -q: QFS metaserver host and port.
       -h: HDFS namenode host and port.
   
   This benchmark, run on CentOS systems, tests the QFS metaserver against
@@ -38,13 +38,13 @@ function usage() {
   into any setup, build, or run issue while using the mstress benchmark." >&2
 }
 
-while getopts 'k:h:' OPTION
+while getopts 'q:h:' OPTION
   do
     case $OPTION in
-    k)
-      KFS_HOST=$(echo "$OPTARG" | cut -d ":" -f 1)
-      KFS_PORT=$(echo "$OPTARG" | cut -d ":" -f 2)
-      SERVER_ARGS=$SERVER_ARGS" kfs,"$KFS_HOST","$KFS_PORT""
+    q)
+      QFS_HOST=$(echo "$OPTARG" | cut -d ":" -f 1)
+      QFS_PORT=$(echo "$OPTARG" | cut -d ":" -f 2)
+      SERVER_ARGS=$SERVER_ARGS" qfs,"$QFS_HOST","$QFS_PORT""
       ;;
     h)
       HDFS_HOST=$(echo "$OPTARG" | cut -d ":" -f 1)

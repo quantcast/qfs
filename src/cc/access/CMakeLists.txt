@@ -24,21 +24,21 @@
 #
 
 # Take all the .cc files and build a library out of them
-add_library (kfs_access SHARED kfs_access_jni.cc)
-add_dependencies (kfs_access kfsClient-shared)
-target_link_libraries (kfs_access kfsClient-shared)
+add_library (qfs_access SHARED kfs_access_jni.cc)
+add_dependencies (qfs_access kfsClient-shared)
+target_link_libraries (qfs_access kfsClient-shared)
 if (NOT APPLE)
-  target_link_libraries(kfs_access rt)
+  target_link_libraries(qfs_access rt)
 endif (NOT APPLE)
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS") 
    # On Solaris, cmake uses gcc to link rather than g++.  This
    #  prevents linking with libstdc++ which prevents Java from loading
-   #  kfs_access.  To fix, set the compiler to be C++
+   #  qfs_access.  To fix, set the compiler to be C++
    set (CMAKE_C_COMPILER "${CMAKE_CXX_COMPILER}")
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 #
-install (TARGETS kfs_access
+install (TARGETS qfs_access
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib-static)

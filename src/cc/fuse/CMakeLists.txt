@@ -26,18 +26,18 @@
 #
 # Build the fuse binary; build it only on demand
 #
-add_executable (kfs_fuse kfs_fuse_main.cc)
+add_executable (qfs_fuse kfs_fuse_main.cc)
 link_directories(${Fuse_LIBRARY_DIR})
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P STREQUAL "8" AND EXISTS "/usr/local/lib/libfuse_ino64.dylib")
     message(STATUS "Using fuse_ino64 dylib")
-    target_link_libraries (kfs_fuse kfsClient qcdio fuse_ino64 pthread)
+    target_link_libraries (qfs_fuse kfsClient qcdio fuse_ino64 pthread)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P STREQUAL "8" AND EXISTS "/usr/local/lib/libfuse_ino64.dylib")
-    target_link_libraries (kfs_fuse kfsClient qcdio fuse pthread)
+    target_link_libraries (qfs_fuse kfsClient qcdio fuse pthread)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P STREQUAL "8" AND EXISTS "/usr/local/lib/libfuse_ino64.dylib")
 
 #
-install (TARGETS kfs_fuse
+install (TARGETS qfs_fuse
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib-static)

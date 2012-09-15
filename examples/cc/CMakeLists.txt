@@ -22,19 +22,19 @@
 # Build the C++ example binary
 #
 
-add_executable (kfssample kfssample_main.cc)
+add_executable (qfssample qfssample_main.cc)
 
 if (USE_STATIC_LIB_LINKAGE)
-    target_link_libraries (kfssample kfsClient qcdio pthread)
-    add_dependencies (kfssample kfsClient qcdio)
+    target_link_libraries (qfssample kfsClient qcdio pthread)
+    add_dependencies (qfssample kfsClient qcdio)
 else (USE_STATIC_LIB_LINKAGE)
-    target_link_libraries (kfssample kfsClient-shared qcdio-shared pthread)
-    add_dependencies (kfssample kfsClient-shared qcdio-shared)
+    target_link_libraries (qfssample kfsClient-shared qcdio-shared pthread)
+    add_dependencies (qfssample kfsClient-shared qcdio-shared)
 endif (USE_STATIC_LIB_LINKAGE)
 
 if (NOT APPLE)
-    target_link_libraries(kfssample rt)
+    target_link_libraries(qfssample rt)
 endif (NOT APPLE)
 
-install (TARGETS kfssample
+install (TARGETS qfssample
         RUNTIME DESTINATION bin/examples)

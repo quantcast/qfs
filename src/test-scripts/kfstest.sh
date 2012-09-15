@@ -49,7 +49,7 @@ chunksrvlog='chunkserver.log'
 chunksrvpid="chunkserver${pidsuf}"
 chunksrvout='chunkserver.out'
 metahost='127.0.0.1'
-clustername='kfs-test-cluster'
+clustername='qfs-test-cluster'
 
 # cptest.sh parameters
 sizes=${sizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6'}
@@ -119,7 +119,7 @@ else
 fi
 
 accessdir='src/cc/access'
-if [ -e "$accessdir/libkfs_access."* -a -x "`which java 2>/dev/null`" ]; then
+if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
     kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v`
     kfsjar="`cd "$kfsjar/../../build" >/dev/null && pwd`"
@@ -255,13 +255,13 @@ echo "Starting copy test. Test file sizes: $sizes"
 # For RS disable read ahead and set odd buffer size.
 cppidf="cptest${pidsuf}"
 { \
-    cpfromkfsopts='-r 1e6 -w 65537' && \
-    export cpfromkfsopts && \
+    cpfromqfsopts='-r 1e6 -w 65537' && \
+    export cpfromqfsopts && \
     cptest.sh && \
-    cptokfsopts='-S' && \
-    export cptokfsopts && \
-    cpfromkfsopts='-r 0 -w 65537' && \
-    export cpfromkfsopts && \
+    cptoqfsopts='-S' && \
+    export cptoqfsopts && \
+    cpfromqfsopts='-r 0 -w 65537' && \
+    export cpfromqfsopts && \
     cptest.sh; \
 } > cptest.out 2>&1 &
 cppid=$!

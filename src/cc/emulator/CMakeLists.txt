@@ -34,8 +34,8 @@ emulator_setup.cc
 
 add_library (kfsEmulator STATIC ${lib_srcs})
 add_library (kfsEmulator-shared SHARED ${lib_srcs})
-set_target_properties (kfsEmulator PROPERTIES OUTPUT_NAME "kfs_emulator")
-set_target_properties (kfsEmulator-shared PROPERTIES OUTPUT_NAME "kfs_emulator")
+set_target_properties (kfsEmulator PROPERTIES OUTPUT_NAME "qfs_emulator")
+set_target_properties (kfsEmulator-shared PROPERTIES OUTPUT_NAME "qfs_emulator")
 set_target_properties (kfsEmulator PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsEmulator-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 

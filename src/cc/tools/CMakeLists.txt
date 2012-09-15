@@ -47,8 +47,8 @@ set (lib_srcs
 
 add_library (tools STATIC ${lib_srcs})
 add_library (tools-shared SHARED ${lib_srcs})
-set_target_properties (tools PROPERTIES OUTPUT_NAME "kfs_tools")
-set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "kfs_tools")
+set_target_properties (tools PROPERTIES OUTPUT_NAME "qfs_tools")
+set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "qfs_tools")
 set_target_properties (tools PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (tools-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
@@ -56,18 +56,18 @@ add_dependencies (tools kfsClient)
 add_dependencies (tools-shared kfsClient-shared)
 
 set (exe_files
-cptokfs
-cpfromkfs
-kfsshell
-kfstoggleworm
-kfsput
-kfsstats
-kfsfileenum
-kfsdataverify
-kfsretire
-kfscat
-kfsping
-kfstool
+cptoqfs
+cpfromqfs
+qfsshell
+qfstoggleworm
+qfsput
+qfsstats
+qfsfileenum
+qfsdataverify
+qfsretire
+qfscat
+qfsping
+qfstool
 )
 
 if (APPLE OR CYGWIN)

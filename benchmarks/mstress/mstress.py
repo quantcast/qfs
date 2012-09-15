@@ -57,7 +57,7 @@ def ParseCommandline():
                     action='store',
                     default=None,
                     type='string',
-                    help='Filesystem whose metaserver to test. kfs or hdfs.')
+                    help='Filesystem whose metaserver to test. qfs or hdfs.')
   parser.add_option('-s', '--server',
                     action='store',
                     default=None,
@@ -401,7 +401,7 @@ def SetGlobalPaths(opts):
   mydir = os.path.dirname(os.path.realpath(__file__))
   Globals.MASTER_PATH = os.path.join(mydir, 'mstress.py')
 
-  if opts.filesystem == 'kfs':
+  if opts.filesystem == 'qfs':
     Globals.CLIENT_PATH = os.path.join(mydir, 'mstress_client')
     Globals.SERVER_CMD = Globals.KFS_SERVER_CMD
     Globals.SERVER_KEYWORD = Globals.KFS_SERVER_KEYWORD

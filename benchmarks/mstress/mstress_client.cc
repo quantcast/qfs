@@ -17,8 +17,8 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- * This C++ client performs filesystem meta opetarions on the KFS metaserver
- * using kfsClient.
+ * This C++ client performs filesystem meta opetarions on the QFS metaserver
+ * using qfs_client.
  *
  */
 
@@ -47,7 +47,7 @@ FILE* logFile = stdout;
 
 /*
   This program is invoked with the following arguments:
-    - kfs server/port
+    - qfs server/port
     - test name ('create', 'stat', or 'readdir')
     - a planfile
     - keys to read the planfile (hostname and process name)

@@ -30,7 +30,7 @@ BOOST_LIBRARY_DIR?=/opt/local/lib
 endif
 INCLUDES = -I. -I$(KFS_BUILD_INCLUDE)/kfs
 CCFLAGS = -g -O2 $(INCLUDES)
-LIBS = -lkfs_tools -lkfs_client -lkfs_qcdio -lpthread -lkfs_io -lkfs_common -lkfs_qcdio -lpthread -lz -lcrypto -lkfs_qcrs -lboost_regex
+LIBS = -lqfs_tools -lqfs_client -lqfs_qcdio -lpthread -lqfs_io -lqfs_common -lqfs_qcdio -lpthread -lz -lcrypto -lqfs_qcrs -lboost_regex
 ifneq ($(UNAME), Darwin)
 LIBS += -lrt
 endif

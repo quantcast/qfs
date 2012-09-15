@@ -20,7 +20,7 @@
 # permissions and limitations under the License.
 
 #
-# NOTE: The python support for KFS is EXPERIMENTAL at this stage. The
+# NOTE: The python support for QFS is EXPERIMENTAL at this stage. The
 #       python extension module has not been tested on large scale
 #       deploymentsi yet. Please excercise caution while using the
 #       python module.
@@ -31,13 +31,13 @@ data at specific offsets in the created files. Then it tries to ensure that
 the created paths are valid, and that the file contents are as expected.
 
 To run this script,
-  - Prepare kfs.so as described in the file 'doc/ClientDeveloperDoc'
-  - Ensure that the KFS metaserver and chunkserver are running.
+  - Prepare qfs.so as described in the file 'doc/ClientDeveloperDoc'
+  - Ensure that the QFS metaserver and chunkserver are running.
   - Ensure that the metaserver host/port matches the contents of argv[1].
   - Ensure that the PYTHONPATH and LD_LIBRARY_PATH are set accordingly.
-  eg: PYTHONPATH=${PYTHONPATH}:~/code/kfs/build/lib/lib64/python \
-      LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/code/kfs/build/lib    \
-      python ./kfssample.py kfssample.cfg
+  eg: PYTHONPATH=${PYTHONPATH}:~/code/qfs/build/lib/lib64/python \
+      LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/code/qfs/build/lib    \
+      python ./qfssample.py qfssample.cfg
 """
 
 import os
@@ -45,7 +45,7 @@ import sys
 import time
 import errno
 
-import kfs
+import qfs
 
 def main():
   if len(sys.argv) < 2:
@@ -53,13 +53,13 @@ def main():
 
   client = None
   try:
-    client = kfs.client(sys.argv[1])
+    client = qfs.client(sys.argv[1])
   except:
-    print "Unable to start the KFS client."
+    print "Unable to start the QFS client."
     print "Make sure that the meta- and chunkservers are running."
     sys.exit(1)
 
-  testBaseDir = "kfssample_base"
+  testBaseDir = "qfssample_base"
   testDirs  = ("dir1", "dir2")
   testFile1 = "dir1/file1"
   testFile2 = "file2"

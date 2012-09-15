@@ -203,10 +203,10 @@ final public class KfsAccess
 
     static {
         try {
-            System.loadLibrary("kfs_access");
+            System.loadLibrary("qfs_access");
         } catch (UnsatisfiedLinkError e) {
             e.printStackTrace();
-            System.err.println("Unable to load kfs_access native library");
+            System.err.println("Unable to load qfs_access native library");
             System.exit(1);
         }
     }

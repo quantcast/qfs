@@ -155,7 +155,7 @@ class Status:
     <body class="oneColLiqCtr">
     <div id="container">
       <div id="mainContent">
-        <h1> KFS Status ''', displayName, '''</h1>
+        <h1> QFS Status ''', displayName, '''</h1>
         <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="/meta-it">Meta Server</A></P>
         <div class="info-table">
         <table cellspacing="0" cellpadding="0.1em">
@@ -391,7 +391,7 @@ def printStyle(buffer):
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<link rel="stylesheet" type="text/css" href="files/kfsstyle.css">
+<link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
 <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
 <title>Chunk Servers Status ''',  displayName, '''</title>
 </head>
@@ -1021,9 +1021,9 @@ def printStyle(buffer):
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<link rel="stylesheet" type="text/css" href="files/kfsstyle.css"/>
+<link rel="stylesheet" type="text/css" href="files/qfsstyle.css"/>
 <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
-<title>KFS Status ''',  displayName, '''</title>
+<title>QFS Status ''',  displayName, '''</title>
 </head>
 '''
 
@@ -1483,7 +1483,7 @@ if __name__ == '__main__':
     PORT=20001
     allMachinesFile = ""
     if len(sys.argv) != 2:
-        print "Usage : ./kfsstatus.py <server.conf>"
+        print "Usage : ./qfsstatus.py <server.conf>"
         sys.exit()
 
     if not os.path.exists(sys.argv[1]):

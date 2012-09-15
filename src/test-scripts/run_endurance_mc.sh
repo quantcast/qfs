@@ -290,7 +290,7 @@ predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-s
 EOF
     rm -f *.log*
     trap '' HUP INT
-    ./kfsstatus.py "$wuiconf" > "$wuilog" 2>&1 &
+    ./qfsstatus.py "$wuiconf" > "$wuilog" 2>&1 &
     echo $! > "$wuipid"
 fi
 

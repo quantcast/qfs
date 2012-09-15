@@ -21,17 +21,17 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// \brief A sample C++ program that demonstrates KFS APIs.  To run
+// \brief A sample C++ program that demonstrates QFS APIs.  To run
 // this program, you need:
-//   - kfs client libraries to link with
-//   - a KFS deployment
+//   - qfs client libraries to link with
+//   - a QFS deployment
 //
 // The cmake build system takes care of compiling this. Follow the DeveloperDoc
 // in the top-level 'doc' directory for compile instructions.
 //
-// To see compile commandline (assuming KFS code is at ~/code/kfs, and it has
+// To see compile commandline (assuming QFS code is at ~/code/qfs, and it has
 // already been compiled using instructions),
-//   cd ~/code/kfs/build/examples/cc && make VERBOSE=1
+//   cd ~/code/qfs/build/examples/cc && make VERBOSE=1
 //
 //----------------------------------------------------------------------------
 

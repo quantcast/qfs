@@ -608,7 +608,7 @@ class HtmlPrintData:
     <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <link rel="stylesheet" type="text/css" href="files/kfsstyle.css">
+        <link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
         <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
         <title>Chunk Servers Status</title>
     </head>
@@ -886,7 +886,7 @@ class HtmlPrintMetaData(HtmlPrintData):
     <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <link rel="stylesheet" type="text/css" href="files/kfsstyle.css">
+        <link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
         <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
         <title>Meta Server Status</title>
     </head>

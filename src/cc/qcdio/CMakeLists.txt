@@ -40,8 +40,8 @@ add_definitions (-D_GNU_SOURCE -D${QC_OS_NAME} -DQC_USE_BOOST)
 #
 add_library (qcdio STATIC ${sources})
 add_library (qcdio-shared SHARED ${sources})
-set_target_properties (qcdio-shared PROPERTIES OUTPUT_NAME "kfs_qcdio")
-set_target_properties (qcdio PROPERTIES OUTPUT_NAME "kfs_qcdio")
+set_target_properties (qcdio-shared PROPERTIES OUTPUT_NAME "qfs_qcdio")
+set_target_properties (qcdio PROPERTIES OUTPUT_NAME "qfs_qcdio")
 
 #
 # Since the objects have to be built twice, set this up so they don't

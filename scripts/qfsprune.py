@@ -19,8 +19,8 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# \file kfsprune.py
-# \brief KFS log and checkpoint housekeeping
+# \file qfsprune.py
+# \brief QFS log and checkpoint housekeeping
 #
 # Housekeeping script to clean up the KFS checkpoint and log files,
 # which would otherwise accumulate without limit.  Looks for all
@@ -37,7 +37,7 @@
 #
 # Note that the decision to measure the relative age of the files
 # by their sequence numbers rather than mtime is deliberate, since
-# KFS controls the numbers whereas time is controlled externally
+# QFS controls the numbers whereas time is controlled externally
 # and can go backwards.
 #
 # Old files can either be deleted or compressed via gzip.

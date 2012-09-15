@@ -46,12 +46,12 @@ util.cc
 
 add_library (kfsMeta STATIC ${lib_srcs})
 add_library (kfsMeta-shared SHARED ${lib_srcs} layoutmanager_instance.cc)
-set_target_properties (kfsMeta PROPERTIES OUTPUT_NAME "kfs_meta")
-set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "kfs_meta")
+set_target_properties (kfsMeta PROPERTIES OUTPUT_NAME "qfs_meta")
+set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "qfs_meta")
 set_target_properties (kfsMeta PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsMeta-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-set (exe_files metaserver logcompactor filelister kfsfsck)
+set (exe_files metaserver logcompactor filelister qfsfsck)
 foreach (exe_file ${exe_files})
         add_executable (${exe_file} ${exe_file}_main.cc layoutmanager_instance.cc)
         if (USE_STATIC_LIB_LINKAGE)

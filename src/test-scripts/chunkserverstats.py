@@ -39,7 +39,7 @@ def pingChunkserversRpc(config, bindir):
             continue
         node = config.get(s, 'node')
         port = config.getint(s, 'baseport')
-        cmd = "%skfsstats -c -n 0 -s %s -p %s -t" % (bindir, node, port)
+        cmd = "%sqfsstats -c -n 0 -s %s -p %s -t" % (bindir, node, port)
         numservers += 1
         for line in os.popen(cmd).readlines():
             if (line[0] == '-'):
@@ -76,7 +76,7 @@ def pingChunkservers(config, bindir):
             continue
         node = config.get(s, 'node')
         port = config.getint(s, 'baseport')
-        cmd = "%skfsstats -c -n 0 -s %s -p %s" % (bindir, node, port)
+        cmd = "%sqfsstats -c -n 0 -s %s -p %s" % (bindir, node, port)
         for line in os.popen(cmd).readlines():
             if (line.find("Net Fds") == -1):
                 # this is not the header we output

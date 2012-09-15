@@ -94,10 +94,10 @@ def check_binaries(releaseDir, sourceDir):
         sys.exit('Chunkserver missing in build directory')
     Globals.CHUNKSERVER = releaseDir + '/bin/chunkserver'
 
-    if os.path.exists(releaseDir + '/webui/kfsstatus.py'):
-        Globals.WEBSERVER = releaseDir + '/webui/kfsstatus.py'
-    elif os.path.exists(sourceDir + '/webui/kfsstatus.py'):
-        Globals.WEBSERVER = sourceDir + '/webui/kfsstatus.py'
+    if os.path.exists(releaseDir + '/webui/qfsstatus.py'):
+        Globals.WEBSERVER = releaseDir + '/webui/qfsstatus.py'
+    elif os.path.exists(sourceDir + '/webui/qfsstatus.py'):
+        Globals.WEBSERVER = sourceDir + '/webui/qfsstatus.py'
     else:
         sys.exit('Webserver missing in build and source directories')
     print 'Binaries presence checking - OK.'
@@ -124,7 +124,7 @@ def kill_running_program(binaryPath):
             if pid.strip() != '':
                 os.kill(int(pid.strip()), signal.SIGTERM)
     else:
-        if binaryPath.find('kfsstatus') >= 0:
+        if binaryPath.find('qfsstatus') >= 0:
             cmd = ('ps -ef | grep /qfsbase/ | grep %s | grep -v grep | awk \'{print $2}\''
                    % binaryPath)
             res = subprocess.Popen(cmd, shell=True,
@@ -243,18 +243,18 @@ Hello World example of a client session:
   ./examples/sampleservers/sample_setup.py -a start
   PATH=${PWD}/build/release/bin/tools:${PATH}
   # Make temp directory.
-  kfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
+  qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
   # Create file containing Hello World, Reed-Solomon encoded, replication 1.
   echo 'Hello World' \
-    | cptokfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
+    | cptoqfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
   # Cat file content.
-  kfscat -s localhost -p 20000 /qfs/tmp/helloworld
+  qfscat -s localhost -p 20000 /qfs/tmp/helloworld
   # Stat file to see encoding (RS or not), replication level, mtime.
-  kfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
+  qfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
   # Copy file locally to current directory.
-  cpfromkfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
+  cpfromqfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
   # Remove file from QFS.
-  kfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
+  qfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
   # Stop the server and remove the custom install.
   ./examples/sampleservers/sample_setup.py -a stop
   ./examples/sampleservers/sample_setup.py -a uninstall

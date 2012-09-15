@@ -19,7 +19,7 @@
 #
 
 The specs directory contains the .spec files needed to build the RPMs for the
-different KFS components.
+different QFS components.
 
 Prerequisites: 
 1. Ensure that the $JAVA_HOME variable is set correctly, and the java headers
@@ -29,10 +29,10 @@ Prerequisites:
    -D JAVA_INCLUDE_PATH=/java/path/include -D CMAKE_BUILD_TYPE=RelWithDebInfo .
 
 To build the metaserver RPM:
-rpmbuild -v -ba specs/kfs-metaserver.spec
+rpmbuild -v -ba specs/qfs-metaserver.spec
 
 To build the chunkserver RPM:
-rpmbuild -v -ba specs/kfs-chunkserver.spec
+rpmbuild -v -ba specs/qfs-chunkserver.spec
 
 To build the client RPM:
-rpmbuild -v -ba specs/kfs-clients.spec
+rpmbuild -v -ba specs/qfs-clients.spec

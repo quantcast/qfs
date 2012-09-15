@@ -39,8 +39,8 @@ set (sources
 
 add_library (kfsIO STATIC ${sources})
 add_library (kfsIO-shared SHARED ${sources})
-set_target_properties (kfsIO PROPERTIES OUTPUT_NAME "kfs_io")
-set_target_properties (kfsIO-shared PROPERTIES OUTPUT_NAME "kfs_io")
+set_target_properties (kfsIO PROPERTIES OUTPUT_NAME "qfs_io")
+set_target_properties (kfsIO-shared PROPERTIES OUTPUT_NAME "qfs_io")
 
 set_target_properties (kfsIO PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsIO-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)

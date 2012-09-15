@@ -48,8 +48,8 @@ set (sources
 #
 add_library (kfsClient STATIC ${sources})
 add_library (kfsClient-shared SHARED ${sources})
-set_target_properties (kfsClient PROPERTIES OUTPUT_NAME "kfs_client")
-set_target_properties (kfsClient-shared PROPERTIES OUTPUT_NAME "kfs_client")
+set_target_properties (kfsClient PROPERTIES OUTPUT_NAME "qfs_client")
+set_target_properties (kfsClient-shared PROPERTIES OUTPUT_NAME "qfs_client")
 
 #
 # Since the objects have to be built twice, set this up so they don't

@@ -23,7 +23,7 @@
 # \file flogger.py
 # \brief perform random sequence of KFS operations for testing
 #
-import kfs
+import qfs
 import sys
 import random
 import ConfigParser
@@ -84,7 +84,7 @@ def start_client(props):
 	The KFS meta and chunkservers must already be running.
 	"""
 	try:
-		return kfs.client(props)
+		return qfs.client(props)
 	except:
 		print "Unable to start the KFS client."
 		print "Make sure that the meta- and chunkservers are running."

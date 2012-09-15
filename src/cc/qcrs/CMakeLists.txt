@@ -30,8 +30,8 @@ rs_table.c
 
 add_library (kfsrs STATIC ${sources})
 add_library (kfsrs-shared SHARED ${sources})
-set_target_properties (kfsrs PROPERTIES OUTPUT_NAME "kfs_qcrs")
-set_target_properties (kfsrs-shared PROPERTIES OUTPUT_NAME "kfs_qcrs")
+set_target_properties (kfsrs PROPERTIES OUTPUT_NAME "qfs_qcrs")
+set_target_properties (kfsrs-shared PROPERTIES OUTPUT_NAME "qfs_qcrs")
 
 #
 # Since the objects have to be built twice, set this up so they don't

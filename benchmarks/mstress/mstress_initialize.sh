@@ -19,7 +19,7 @@
 # under the License.
 #
 #
-# The mstress runs stress tests on KFS metaserver and HDFS namenode. To be able
+# The mstress runs stress tests on QFS metaserver and HDFS namenode. To be able
 # to work with the namenode, the java HDFS client needs to be compiled and run
 # with hadoop hdfs jars.
 #

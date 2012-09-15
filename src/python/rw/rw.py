@@ -37,7 +37,7 @@
 # choose a previously written interval and compare it with the source
 # file.
 #
-import kfs
+import qfs
 import sys
 import os
 import mmap
@@ -97,7 +97,7 @@ def start_client(props):
 	The KFS meta and chunkservers must already be running.
 	"""
 	try:
-		return kfs.client(props)
+		return qfs.client(props)
 	except:
 		print "Unable to start the KFS client."
 		print "Make sure that the meta- and chunkservers are running."

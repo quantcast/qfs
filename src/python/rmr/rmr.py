@@ -21,7 +21,7 @@
 #
 # do a recursive remove on a KFS directory
 #
-import kfs
+import qfs
 from readdirplus import *
 from stat import *
 
