@@ -28,6 +28,7 @@
 #include "FileSystem.h"
 
 #include "libclient/KfsClient.h"
+#include "common/StBuffer.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
@@ -68,36 +69,66 @@ public:
     {
     public:
         LocalDirIterator(
-            DIR* inDirPtr,
-            bool inFetchAttributesFlag)
-            : mDirPtr(inDirPtr),
-              mFetchAttributesFlag(inFetchAttributesFlag)
+            const string& inDirName,
+            DIR*          inDirPtr,
+            bool          inFetchAttributesFlag)
+            : mDirName(inDirName),
+              mFileName(),
+              mDirPtr(inDirPtr),
+              mFetchAttributesFlag(inFetchAttributesFlag),
+              mError(0),
+              mStatBuf()
             {}
         int Delete()
         {
-            const int theRet = mDirPtr ? closedir(mDirPtr) : EINVAL;
+            if (! mDirPtr) {
+                return EINVAL;
+            }
+            const int theRet = closedir(mDirPtr) ? errno : 0;
             delete this;
             return theRet;
         }
         const struct dirent* Next(
             const StatBuf*& outStatPtr)
         {
-            if (mDirPtr) {
+            outStatPtr = 0;
+            if (! mDirPtr) {
+                mError = EINVAL;
                 return 0;
             }
+            mError = 0;
             const struct dirent* theRetPtr = readdir(mDirPtr);
             if (! theRetPtr) {
                 return 0;
             }
             if (mFetchAttributesFlag && outStatPtr) {
-                // stat(mStatBuf);
+                if (mFileName.empty()) {
+                    mFileName.assign(mDirName.data(), mDirName.length());
+                    if (! mFileName.empty() && *(mFileName.rbegin()) != '/') {
+                        mFileName += "/";
+                    }
+                }
+                const size_t theLen = mFileName.length();
+                mFileName += theRetPtr->d_name;
+                if (stat(mFileName.c_str(), &mStatBuf)) {
+                    mError    = errno;
+                    theRetPtr = 0;
+                } else {
+                    outStatPtr = &mStatBuf;
+                }
+                mFileName.erase(theLen);
             }
             return theRetPtr;
         }
+        int GetError() const
+            { return mError; }
     private:
-        DIR* const  mDirPtr;
-        bool const  mFetchAttributesFlag;
-        struct stat mStatBuf;
+        const string mDirName;
+        string       mFileName;
+        DIR* const   mDirPtr;
+        bool const   mFetchAttributesFlag;
+        int          mError;
+        StatBuf      mStatBuf;
 
         virtual ~LocalDirIterator()
             {}
@@ -114,12 +145,14 @@ public:
     virtual int GetCwd(
         string& outDir)
     {
-        const char* const theCwdPtr = getcwd(mPathBuf, PATH_MAX);
+        StBufferT<char, 1> theBuf;
+        char* const thePathBufPtr = theBuf.Resize(PATH_MAX);
+        const char* const theCwdPtr = getcwd(thePathBufPtr, PATH_MAX);
         if (theCwdPtr) {
             outDir = theCwdPtr;
             return 0;
         }
-        return Errno(-1);
+        return RetErrno(errno);
     }
     virtual int Open(
         const string& inFileName,
@@ -175,16 +208,16 @@ public:
         outDirIteratorPtr = 0;
         DIR* const theDirPtr = opendir(inDirName.c_str());
         if (! theDirPtr) {
-            return Errno(-1);
+            return Errno(errno);
         }
         outDirIteratorPtr =
-            new LocalDirIterator(theDirPtr, inFetchAttributesFlag);
+            new LocalDirIterator(inDirName, theDirPtr, inFetchAttributesFlag);
         return 0;
     }
     virtual int Close(
         DirIterator* inDirIteratorPtr)
     {
-        return Errno(inDirIteratorPtr ?
+        return RetErrno(inDirIteratorPtr ?
             static_cast<LocalDirIterator*>(inDirIteratorPtr)->Delete() :
             EINVAL
         );
@@ -198,17 +231,18 @@ public:
         if (! inDirIteratorPtr) {
             outHasNextFlag = false;
             outStatPtr     = 0;
-            return Errno(EINVAL);
+            return RetErrno(EINVAL);
         }
-        const struct dirent* const theDirEntPtr =
-            static_cast<LocalDirIterator*>(inDirIteratorPtr)->Next(outStatPtr);
+        LocalDirIterator& theDirIt =
+            *(static_cast<LocalDirIterator*>(inDirIteratorPtr));
+        const struct dirent* const theDirEntPtr = theDirIt.Next(outStatPtr);
         outHasNextFlag = theDirEntPtr != 0;
         if (outHasNextFlag) {
             outName = theDirEntPtr->d_name;
         } else {
             outName.clear();
         }
-        return 0;
+        return RetErrno(theDirIt.GetError());
     }
     virtual int Glob(
         const string& inPattern,
@@ -216,18 +250,22 @@ public:
         int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
         glob_t*        inGlobPtr)
     {
-        return 0;
+        return glob(inPattern.c_str(), inFlags, inErrFuncPtr, inGlobPtr);
     }
 private:
-    char mPathBuf[PATH_MAX];
 
-    int Errno(int inVal)
+    int Errno(
+        int inVal)
     {
         if (inVal >= 0) {
             return inVal;
         }
-        const int theRet = errno;
-        return (theRet == 0 ? -1 : (theRet < 0 ? theRet : -theRet));
+        return RetErrno(errno);
+    }
+    int RetErrno(
+        int inErrno)
+    {
+        return (inErrno == 0 ? -1 : (inErrno < 0 ? inErrno : -inErrno));
     }
     LocalFileSystem(
         const LocalFileSystem& inFileSystem);
@@ -390,7 +428,12 @@ FileSystem::Get(
         return -EINVAL;
     }
 
-    const string theScheme   (theParts[2]);
+    string theScheme(theParts[2]);
+    if (theScheme == "kfs") {
+        theScheme = "qfs";
+    } else if (theScheme.empty() || theScheme == "local") {
+        theScheme == "file";
+    }
     const string theAuthority(theParts[4]);
     const string theFragment (theParts[9]);
     if (outPathPtr) {
@@ -404,16 +447,14 @@ FileSystem::Get(
     }
     FileSystemImpl* theImplPtr = 0;
     int             theRet     = 0;
-    if (theScheme == "qfs" || theScheme == "kfs") {
+    if (theScheme == "qfs") {
         KfsFileSystem* const theFsPtr = new KfsFileSystem();
         if ((theRet = theFsPtr->Init(theAuthority)) == 0) {
             theImplPtr = theFsPtr;
         } else {
             delete theFsPtr;
         }
-    } else if (theScheme.empty() ||
-            theScheme == "local" ||
-            theScheme == "file") {
+    } else if (theScheme == "file") {
         theImplPtr = new LocalFileSystem();
     }
     if (theRet == 0 && ! theImplPtr) {
