@@ -442,14 +442,14 @@ FileSystem::Get(
     if (theScheme == "kfs") {
         theScheme = "qfs";
     } else if (theScheme.empty() || theScheme == "local") {
-        theScheme == "file";
+        theScheme = "file";
     }
     const string theAuthority(theParts[4]);
     const string theFragment (theParts[9]);
     if (outPathPtr) {
         *outPathPtr = theParts[5];
     }
-    const string          theFsId(theScheme + theAuthority);
+    const string          theFsId(theScheme + ":" + theAuthority);
     FSMap::iterator const theIt = sFSMap.find(theFsId);
     if (theIt != sFSMap.end()) {
         outFsPtr = theIt->second;
