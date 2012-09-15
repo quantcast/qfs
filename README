@@ -57,9 +57,11 @@ The python script creates config files for the QFS servers that can be found
 under ~/qfsbase/ directory.
 
 In this example setup, the metaserver listens on the filesystem port 20000 and
-the webserver for monitoring filesystem listens on port 22000.
+the webserver for monitoring filesystem listens on port 22000. Note that in
+practice one chunkserver is deployed per filesystem per host, and therefore
+the total and used spaces reported in the web UI is counted twice.
 
-For a realistic setup of QFS, please refer to the QFS Wiki documents at
+For a more practical setup of QFS, please refer to the QFS Wiki documents at
 https://github.com/quantcast/qfs/wiki/Deployment-Guide
 
 Using QFS
