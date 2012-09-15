@@ -106,6 +106,8 @@ public:
         int           inFlags,
         int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
         glob_t*        inGlobPtr) = 0;
+    virtual string StrError(
+        int inError) = 0;
 protected:
     virtual ~FileSystem()
         {}

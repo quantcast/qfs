@@ -252,6 +252,11 @@ public:
     {
         return glob(inPattern.c_str(), inFlags, inErrFuncPtr, inGlobPtr);
     }
+    virtual string StrError(
+        int inError)
+    {
+        return QCUtils::SysError(inError < 0 ? -inError : inError);
+    }
 private:
 
     int Errno(
@@ -376,6 +381,11 @@ public:
         glob_t*        inGlobPtr)
     {
         return 0;
+    }
+    virtual string StrError(
+        int inError)
+    {
+        return ErrorCodeToStr(inError);
     }
 private:
     KfsFileSystem(
