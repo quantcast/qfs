@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <glob.h>
+#include <inttypes.h>
 
 #include <string>
 
@@ -85,8 +86,12 @@ public:
         int          inFd,
         const void*  inBufPtr,
         size_t       inBufSize) = 0;
-    virtual int Flush(
+    virtual int Sync(
         int inFd) = 0;
+    virtual int64_t Seek(
+        int     inFd,
+        int64_t inOffset,
+        int     inWhence) = 0;
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat) = 0;
@@ -98,7 +103,6 @@ public:
         DirIterator* inDirIteratorPtr) = 0;
     virtual int Next(
         DirIterator*    inDirIteratorPtr,
-        bool&           outHasNextFlag,
         string&         outName,
         const StatBuf*& outStatPtr) = 0;
     virtual int Glob(

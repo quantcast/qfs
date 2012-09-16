@@ -28,6 +28,7 @@
 #include "FileSystem.h"
 
 #include "libclient/KfsClient.h"
+#include "libclient/kfsglob.h"
 #include "common/StBuffer.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
@@ -189,10 +190,18 @@ public:
         }
         return Errno((int)theRet);
     }
-    virtual int Flush(
+    virtual int Sync(
         int inFd)
     {
         return Errno(fsync(inFd));
+    }
+    virtual int64_t Seek(
+        int     inFd,
+        int64_t inOffset,
+        int     inWhence)
+    {
+        const int64_t thePos = lseek(inFd, inOffset, inWhence);
+        return (thePos < 0 ? RetErrno(errno) : thePos);
     }
     virtual int Stat(
         const string& inFileName,
@@ -224,20 +233,18 @@ public:
     }
     virtual int Next(
         DirIterator*    inDirIteratorPtr,
-        bool&           outHasNextFlag,
         string&         outName,
         const StatBuf*& outStatPtr)
     {
         if (! inDirIteratorPtr) {
-            outHasNextFlag = false;
-            outStatPtr     = 0;
+            outStatPtr = 0;
+            outName.clear();
             return RetErrno(EINVAL);
         }
         LocalDirIterator& theDirIt =
             *(static_cast<LocalDirIterator*>(inDirIteratorPtr));
         const struct dirent* const theDirEntPtr = theDirIt.Next(outStatPtr);
-        outHasNextFlag = theDirEntPtr != 0;
-        if (outHasNextFlag) {
+        if (theDirEntPtr) {
             outName = theDirEntPtr->d_name;
         } else {
             outName.clear();
@@ -282,14 +289,59 @@ class KfsFileSystem : public FileSystemImpl,
     private KfsClient
 {
 public:
-    class LocalDirIterator : public DirIterator
+    static void ToStat(
+        const KfsFileAttr& inAttr,
+        StatBuf&           outStatBuf)
     {
-    protected:
-        LocalDirIterator()
+        inAttr.ToStat(outStatBuf);
+    }
+    class KfsDirIterator : public DirIterator
+    {
+    public:
+        KfsDirIterator(
+            vector<KfsFileAttr>* inAttrsPtr,
+            vector<string>*      inNamesPtr)
+            : mFetchAttributesFlag(inAttrsPtr != 0),
+              mAttrs(),
+              mNames(),
+              mCur(0),
+              mStatBuf()
+        {
+            if (mFetchAttributesFlag) {
+                inAttrsPtr->swap(mAttrs);
+            } else if (inNamesPtr) {
+                inNamesPtr->swap(mNames);
+            }
+        }
+        virtual ~KfsDirIterator()
             {}
-        virtual ~LocalDirIterator()
-            {}
-        friend class LocalFileSystem;
+        void Next(
+            string&         outName,
+            const StatBuf*& outStatBufPtr)
+        {
+            if (mFetchAttributesFlag) {
+                if (mCur >= mAttrs.size()) {
+                    outStatBufPtr = 0;
+                    outName.clear();
+                    return;
+                }
+                ToStat(mAttrs[mCur++], mStatBuf);
+                outStatBufPtr = &mStatBuf;
+                return;
+            }
+            outStatBufPtr = 0;
+            if (mCur >= mNames.size()) {
+                outName.clear();
+                return;
+            }
+            outName = mNames[mCur++];
+        }
+    private:
+        const bool          mFetchAttributesFlag;
+        vector<KfsFileAttr> mAttrs;
+        vector<string>      mNames;
+        size_t              mCur;
+        StatBuf             mStatBuf;
     };
     KfsFileSystem()
         : KfsClient()
@@ -309,11 +361,12 @@ public:
     virtual int Chdir(
         const string& inDir)
     {
-        return 0;
+        return Cd(inDir.c_str());
     }
     virtual int GetCwd(
         string& outDir)
     {
+        outDir = KfsClient::GetCwd();
         return 0;
     }
     virtual int Open(
@@ -322,56 +375,107 @@ public:
         int           inMode,
         const string* inParamsPtr)
     {
-        return -1;
+        if (! inParamsPtr || inParamsPtr->empty()) {
+            const int kReplicaCount        = 1;
+            const int kStripeCount         = 6;
+            const int kRecoveryStripeCount = 3;
+            const int kStripeSize          = 64 << 10;
+            const int kStriperType         = KFS_STRIPED_FILE_TYPE_RS;
+            return KfsClient::Open(
+                inFileName.c_str(),
+                inFlags,
+                kReplicaCount,
+                kStripeCount,
+                kRecoveryStripeCount,
+                kStripeSize,
+                kStriperType,
+                inMode
+            );
+        }
+        return KfsClient::Open(
+            inFileName.c_str(), inFlags, inParamsPtr->c_str(), inMode);
+            
     }
     virtual int Close(
         int inFd)
     {
-        return 0;
+        return KfsClient::Close(inFd);
     }
     virtual ssize_t Read(
         int    inFd,
         void*  inBufPtr,
         size_t inBufSize)
     {
-        return 0;
+        return KfsClient::Read(inFd, (char*)inBufPtr, inBufSize);
     }
     virtual ssize_t Write( 
         int          inFd,
         const void*  inBufPtr,
         size_t       inBufSize)
     {
-        return 0;
+        return KfsClient::Write(inFd, (const char*)inBufPtr, inBufSize);
     }
-    virtual int Flush(
+    virtual int Sync(
         int inFd)
     {
-        return 0;
+        return KfsClient::Sync(inFd);
+    }
+    virtual int64_t Seek(
+        int     inFd,
+        int64_t inOffset,
+        int     inWhence)
+    {
+        return KfsClient::Seek(inFd, inOffset, inWhence);
     }
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat)
     {
-        return 0;
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::Stat(inFileName.c_str(), theAttr);
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        }
+        return theRet;
     }
     virtual int Open(
         const string& inDirName,
         bool          inFetchAttributesFlag,
         DirIterator*& outDirIteratorPtr)
     {
-        return 0;
+        if (inFetchAttributesFlag) {
+            vector<KfsFileAttr> theAttrs;
+            const int theRet = ReaddirPlus(inDirName.c_str(), theAttrs);
+            outDirIteratorPtr =
+                theRet == 0 ? new KfsDirIterator(&theAttrs, 0) : 0;
+            return theRet;
+        }
+        vector<string> theNames;
+        const int theRet  = Readdir(inDirName.c_str(), theNames);
+        outDirIteratorPtr = theRet == 0 ? new KfsDirIterator(0, &theNames) : 0;
+        return theRet;
     }
     virtual int Close(
         DirIterator* inDirIteratorPtr)
     {
+        if (! inDirIteratorPtr) {
+            return -EINVAL;
+        }
+        delete static_cast<KfsDirIterator*>(inDirIteratorPtr);
         return 0;
     }
     virtual int Next(
         DirIterator*    inDirIteratorPtr,
-        bool&           outHasNextFlag,
         string&         outName,
         const StatBuf*& outStatPtr)
     {
+        if (! inDirIteratorPtr) {
+            outName.clear();
+            outStatPtr = 0;
+            return -EINVAL;
+        }
+        KfsDirIterator& theIt = *static_cast<KfsDirIterator*>(inDirIteratorPtr);
+        theIt.Next(outName, outStatPtr);
         return 0;
     }
     virtual int Glob(
@@ -380,7 +484,8 @@ public:
         int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
         glob_t*        inGlobPtr)
     {
-        return 0;
+        return KfsGlob(*this, inPattern.c_str(), inFlags,
+            inErrFuncPtr, inGlobPtr);
     }
     virtual string StrError(
         int inError)
