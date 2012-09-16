@@ -27,6 +27,8 @@
 #ifndef TOOLS_FILE_SYSTEM_H
 #define TOOLS_FILE_SYSTEM_H
 
+#include "common/kfstypes.h"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -110,6 +112,18 @@ public:
         int           inFlags,
         int (*inErrFuncPtr) (const char* inErrPathPtr, int inErrno),
         glob_t*        inGlobPtr) = 0;
+    virtual int Chmod(
+        const string& inPathName,
+        kfsMode_t     inMode) = 0;
+    virtual int Chown(
+        const string& inPathName,
+        kfsUid_t      inOwner,
+        kfsUid_t      inGroup) = 0;
+    virtual int GetUserAndGroupNames(
+        kfsUid_t inUser,
+        kfsGid_t inGroup,
+        string&  outUserName,
+        string&  outGroupName) = 0;
     virtual string StrError(
         int inError) = 0;
 protected:

@@ -259,6 +259,27 @@ public:
     {
         return glob(inPattern.c_str(), inFlags, inErrFuncPtr, inGlobPtr);
     }
+    virtual int Chmod(
+        const string& inPathName,
+        kfsMode_t     inMode)
+    {
+        return Errno(chmod(inPathName.c_str(), (mode_t)inMode));
+    }
+    virtual int Chown(
+        const string& inPathName,
+        kfsUid_t      inOwner,
+        kfsUid_t      inGroup)
+    {
+        return Errno(chown(inPathName.c_str(), (uid_t)inOwner, (gid_t)inGroup));
+    }
+    virtual int GetUserAndGroupNames(
+        kfsUid_t inUser,
+        kfsGid_t inGroup,
+        string&  outUserName,
+        string&  outGroupName)
+    {
+        return 0;
+    }
     virtual string StrError(
         int inError)
     {
@@ -477,6 +498,28 @@ public:
         KfsDirIterator& theIt = *static_cast<KfsDirIterator*>(inDirIteratorPtr);
         theIt.Next(outName, outStatPtr);
         return 0;
+    }
+    virtual int Chmod(
+        const string& inPathName,
+        kfsMode_t     inMode)
+    {
+        return KfsClient::Chmod(inPathName.c_str(), inMode);
+    }
+    virtual int Chown(
+        const string& inPathName,
+        kfsUid_t      inOwner,
+        kfsUid_t      inGroup)
+    {
+        return KfsClient::Chown(inPathName.c_str(), inOwner, inGroup);
+    }
+    virtual int GetUserAndGroupNames(
+        kfsUid_t inUser,
+        kfsGid_t inGroup,
+        string&  outUserName,
+        string&  outGroupName)
+    {
+        return KfsClient::GetUserAndGroupNames(
+            inUser, inGroup, outUserName, outGroupName);
     }
     virtual int Glob(
         const string& inPattern,
