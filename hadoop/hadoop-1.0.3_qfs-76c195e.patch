@@ -912,9 +912,9 @@ index 0000000..d293a01
 +</pre>
 +          </li>
 +
-+          <li>Copy QFS's <i> kfs-&lt;version&gt;.jar </i> to Hadoop's lib directory.  This step
++          <li>Copy QFS's <i> qfs-&lt;version&gt;.jar </i> to Hadoop's lib directory.  This step
 +          enables Hadoop's to load the QFS specific modules.  Note
-+          that, kfs-&lt;version&gt;.jar was built when you compiled QFS source
++          that, qfs-&lt;version&gt;.jar was built when you compiled QFS source
 +          code.  This jar file contains code that calls QFS's client
 +          library code via JNI; the native code is in QFS's <i>
 +          libkfs_client.so </i> library.
