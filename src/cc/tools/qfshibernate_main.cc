@@ -94,11 +94,14 @@ main(int argc, char **argv)
         }
     }
 
-    help = help || !metaserver || !chunkserver;
+    //FIXME: make 'sleeptime' a mandatory parameter until retire is fixed.
+    help = help || !metaserver || !chunkserver || sleepTime <= 0;
 
     if (help) {
-        cout << "Usage: " << argv[0] << " [-m <metaserver> -p <port>] [-c <chunkserver> -d <port>] "
-             << " [-s <sleeptime in seconds>] [-v]" << "\n";
+        cout << "Usage: " << argv[0]
+             << " -m <metaserver> -p <port> -c <chunkserver> -d <port> "
+             << " -s <sleeptime in seconds> [-v]\n"
+             << "Hibernates the chunkserver for 'sleeptime' seconds.\n";
         return -1;
     }
 

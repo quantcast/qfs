@@ -156,7 +156,7 @@ class Status:
     <div id="container">
       <div id="mainContent">
         <h1> QFS Status ''', displayName, '''</h1>
-        <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="/meta-it">Meta Server</A></P>
+        <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="/meta-it">Meta Server Status</A></P>
         <div class="info-table">
         <table cellspacing="0" cellpadding="0.1em">
         <tbody>'''

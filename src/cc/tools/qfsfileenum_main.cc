@@ -74,9 +74,9 @@ main(int argc, char **argv)
     }
 
     if (help || (server == NULL) || (port < 0) || (filename == NULL)) {
-        cout << "Usage: " << argv[0] 
+        cout << "Usage: " << argv[0]
              << "\t-s <server name> -p <port> -f <path> [-v]\n"
-             << "\tEnumerate the blocks and sizes of the given file.\n";
+             << "\tEnumerate the chunks and sizes of the given file.\n";
         return -1;
     }
 
@@ -85,7 +85,7 @@ main(int argc, char **argv)
 
     KfsClient * const kfsClient = Connect(server, port);
     if (! kfsClient) {
-        cout << "kfs client failed to initialize\n";
+        cout << "qfs client failed to initialize\n";
         return 1;
     }
 

@@ -115,6 +115,7 @@ main(int argc, char **argv)
     if (help || (server == NULL) || (port < 0)) {
         cout << "Usage: " << argv[0] << " [-m|-c] -s <server name> -p <port>"
              << " [-n <secs>] [-t] [-v]" << endl
+             << "Gets the stats from meta/chunk servers at given intervals.\n"
              << "        Use -m for metaserver, -c for chunk server." << endl
              << "        Use -t for RPC stats." << endl
              << "        Use -n <seconds> to specify interval (default 10s)."

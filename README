@@ -73,16 +73,16 @@ means.
 * Use client tools that are built during the compile process. For instance,
     $ cd ~/code/qfs
     $ PATH=${PWD}/build/release/bin/tools:${PATH}
-    $ kfsshell -s localhost -p 20000 -q -- mkdir /tmp
-    $ echo 'Hello World' | cptokfs -s localhost -p 20000 -k /tmp/HW.dat -d -
-    $ kfscat -s localhost -p 20000 /tmp/HW.dat
-    $ kfsshell -s localhost -p 20000 -q "rm /tmp/HW.dat"
+    $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
+    $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -k /tmp/HW.dat -d -
+    $ qfscat -s localhost -p 20000 /tmp/HW.dat
+    $ qfsshell -s localhost -p 20000 -q "rm /tmp/HW.dat"
 
 * If you built the QFS FUSE client, then you can mount the QFS at a local mount
   point by,
     $ mkdir /mnt/qfs
     $ cd ~/code/qfs/build/release/bin/
-    $ ./kfs_fuse localhost:20000 /mnt/kfs -o allow_other,ro
+    $ ./qfs_fuse localhost:20000 /mnt/qfs -o allow_other,ro
   Further information about compiling and using QFS FUSE is at
   https://github.com/quantcast/qfs/wiki/Developer-Documentation
 

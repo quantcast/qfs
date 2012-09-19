@@ -97,7 +97,8 @@ kfsshell_main(int argc, char **argv)
     if (help || serverHost.empty() || port <= 0) {
         cout << "Usage: " << argv[0] <<
             " -s <meta server name> -p <port> [-q [cmd]]\n"
-            " -q: executes in quiet mode.\n"
+            "Starts an interactive client shell to QFS.\n"
+            "  -q: switches to execution in quiet mode.\n"
             " cmd: command to execute, only in quiet mode.\n";
         return 1;
     }
@@ -105,7 +106,7 @@ kfsshell_main(int argc, char **argv)
     MsgLogger::Init(0, logLevel);
     KfsClient * const kfsClient = Connect(serverHost, port);
     if (!kfsClient) {
-        cout << "kfs client failed to initialize...exiting" << endl;
+        cout << "qfs client failed to initialize...exiting" << endl;
         return (-1);
     }
     auto_ptr<KfsClient> cleanup(kfsClient);
@@ -130,6 +131,12 @@ int handleHelp(KfsClient *client, const vector<string> &args)
     return 0;
 }
 
+int handleExit(KfsClient *client, const vector<string> &args)
+{
+    exit(0);
+    return 0;
+}
+
 void setupHandlers()
 {
     handlers["cd"] = handleCd;
@@ -149,6 +156,8 @@ void setupHandlers()
     handlers["chmod"] = handleChmod;
     handlers["chown"] = handleChown;
     handlers["chgrp"] = handleChgrp;
+    handlers["quit"] = handleExit;
+    handlers["exit"] = handleExit;
 }
 
 int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLine)
@@ -172,7 +181,7 @@ int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLi
             }
             nargs = 0;
         } else {
-            cout << "KfsShell> " << flush;
+            cout << "QfsShell> " << flush;
             if (! getline(cin, s)) {
                 break;
             }

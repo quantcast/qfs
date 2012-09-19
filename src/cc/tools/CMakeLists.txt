@@ -64,7 +64,7 @@ qfsput
 qfsstats
 qfsfileenum
 qfsdataverify
-qfsretire
+qfshibernate
 qfscat
 qfsping
 qfstool

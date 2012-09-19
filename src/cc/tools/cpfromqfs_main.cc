@@ -184,7 +184,7 @@ CpFromKfs::Run(int argc, char **argv)
         cerr << "Usage: " << argv[0] << "\n"
             " -s -- meta server name\n"
             " -p -- meta server port\n"
-            " -k -- kfs source path\n"
+            " -k -- qfs source path\n"
             " -d -- local path; \"-\" means stdout\n"
             " [-v]       -- versbose logging\n"
             " [-S]       -- skip holes\n"
@@ -192,12 +192,13 @@ CpFromKfs::Run(int argc, char **argv)
             " [-a]       -- copy start file offset, default 0\n"
             " [-b]       -- copy finish files offset, default -1 -- eof\n"
             " [-r]       -- read ahead size, default 0 -- no read ahead\n"
-            " [-R]       -- op retry count, default -1 -- kfs client default\n"
-            " [-D]       -- op retry delay, default -1 -- kfs client default\n"
-            " [-T]       -- op timeout, default -1 -- kfs client default\n"
+            " [-R]       -- op retry count, default -1 -- qfs client default\n"
+            " [-D]       -- op retry delay, default -1 -- qfs client default\n"
+            " [-T]       -- op timeout, in seconds, default -1 -- qfs "
+                            "client default\n"
             " [-F {0|1}] -- fail short reads (partial sparse file support),"
                             "default 1\n"
-            " [-X]       -- debugging: call exit(1) after n read calls\n"
+            " [-X n]     -- debugging: call exit(1) after n read calls\n"
         ;
         return (1);
     }
@@ -205,7 +206,7 @@ CpFromKfs::Run(int argc, char **argv)
     MsgLogger::Init(0, logLevel);
     mKfsClient = Connect(serverHost, port);
     if (! mKfsClient) {
-        cerr << "kfs client failed to initialize" << "\n";
+        cerr << "qfs client failed to initialize" << "\n";
         return 1;
     }
     mKfsClient->SetDefaultFullSparseFileSupport(! mFailShortReadsFlag);
@@ -225,7 +226,7 @@ CpFromKfs::Run(int argc, char **argv)
     int         ret;
     KfsFileAttr attr;
     if ((ret = mKfsClient->Stat(kfsPath.c_str(), attr)) < 0) {
-        cerr << "KFS: " << kfsPath << ": " << ErrorCodeToStr(ret) << "\n";
+        cerr << "QFS: " << kfsPath << ": " << ErrorCodeToStr(ret) << "\n";
         return ret;
     }
 

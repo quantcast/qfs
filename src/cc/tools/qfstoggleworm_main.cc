@@ -1,5 +1,4 @@
 //---------------------------------------------------------- -*- Mode: C++ -*-
-// $Id: //depot/main/platform/kosmosfs/src/cc/tools/kfstoggleworm_main.cc#0 $
 //
 // Created 2008/10/06
 // Author: Lohit VijayaRenu
@@ -85,6 +84,7 @@ int main(int argc, char **argv)
         cout <<
             "Usage: " << argv[0] <<
             " -s <server name> -p <port> -t [1|0] [-v]\n"
+            "Toggles the WORM mode of the filesystem.\n"
             " -s : meta server\n"
             " -p : meta server port\n"
             " -t : toggle value (0 or 1)\n"

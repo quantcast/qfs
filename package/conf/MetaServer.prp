@@ -31,8 +31,8 @@ metaServer.logDir = meta/transaction_logs
 # Meta server checkpoint directory.
 metaServer.cpDir = meta/checkpoint
 
-# Allow to automatically create an empty file system if checkpoint file does not
-# exists.
+# Allow to automatically create an empty file system if checkpoint file does
+# not exist.
 # The default is 0, as under the normal circumstances where the file system
 # content is of value, completely losing checkpoint, transaction log, and
 # automatically creating an empty fs will have the same effect as conventional
@@ -108,7 +108,7 @@ metaServer.createEmptyFs = 1
 # Typically the application would create and write the file with ".tmp" suffix,
 # and then rename it so the destination file name will not have ".tmp " suffix.
 # To delete a file without ".tmp" suffix the mode can be temporary turned off
-# by the administrator. "kfstoggleworm" utility, or temporary configuration
+# by the administrator. "qfstoggleworm" utility, or temporary configuration
 # modification can be used to do that.
 # Default is 0.
 # metaServer.wormMode = 0
@@ -120,7 +120,7 @@ metaServer.createEmptyFs = 1
 
 # Wait 30 sec for chunk servers to connect back after restarting, before file
 # system considered fully functional.
-metaServer.recoveryInterval = 30 
+metaServer.recoveryInterval = 30
 
 # For write append use the low order bit of the IP address for the chunk servers
 # master/slave assignment. This scheme is works well if least significant bit of
@@ -518,7 +518,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Record append synchrounous replicaiton timeout.
 # Default is 180 sec. Production value is 20 sec.
 # chunkServer.recAppender.replicationTimeoutSec = 180
-# Write replication timeout.   
+# Write replication timeout.
 # Default is 300 sec. Production value is 20 sec.
 # chunkServer.remoteSync.responseTimeoutSec = 300
 

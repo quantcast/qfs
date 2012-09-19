@@ -123,8 +123,11 @@ int main(int argc, char** argv)
 
     help = help || (! meta && ! chunk);
     if (help || ! server || port < 0) {
-        cout << "Usage: " << argv[0] <<
-            " [-m|-c] -s <server name> -p <port> [-v]\n";
+        cout << "Usage: " << argv[0]
+             << " [-m|-c] -s <server name> -p <port> [-v]\n"
+             << "   -c : ping chunkserver.\n"
+             << "   -m : ping metaserver.\n";
+
         return 1;
     }
 

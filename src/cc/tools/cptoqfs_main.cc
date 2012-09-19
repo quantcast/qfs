@@ -228,14 +228,14 @@ CpToKfs::Run(int argc, char **argv)
             " -s   -- meta server name or ip\n"
             " -p   -- meta server port\n"
             " -d   -- source path; \"-\" means stdin\n"
-            " -k   -- destination (kfs) path\n"
+            " -k   -- destination (qfs) path\n"
             " [-v] -- verbose debug trace\n"
             " [-r] -- replication factor; default 3\n"
             " [-W] -- testing -- number test rewrites\n"
             " [-n] -- dry run\n"
             " [-a] -- append\n"
             " [-b] -- input buffer size in bytes; default is 8MB\n"
-            " [-w] -- kfs write buffer size in bytes; default is 4MB,"
+            " [-w] -- qfs write buffer size in bytes; default is 4MB,"
                 " or 1MB per stripe\n"
             " [-t] -- truncate destination files if exist\n"
             " [-x] -- delete destination files if exist\n"
@@ -243,9 +243,9 @@ CpToKfs::Run(int argc, char **argv)
             " [-y] -- data stripes count\n"
             " [-z] -- recovery stripes count (0 or 3)\n"
             " [-S] -- 6+3 RS 64KB stripes 1 replica\n"
-            " [-R] -- op retry count, default -1 -- kfs client default\n"
-            " [-D] -- op retry delay, default -1 -- kfs client default\n"
-            " [-T] -- op timeout, default -1 -- kfs client default\n"
+            " [-R] -- op retry count, default -1 -- qfs client default\n"
+            " [-D] -- op retry delay, default -1 -- qfs client default\n"
+            " [-T] -- op timeout, default -1 -- qfs client default\n"
             " [-X] -- create exclusive\n"
         ;
         return(-1);
@@ -258,7 +258,7 @@ CpToKfs::Run(int argc, char **argv)
     MsgLogger::Init(0, logLevel);
     mKfsClient = Connect(serverHost, port);
     if (!mKfsClient) {
-	cout << "kfs client failed to initialize" << endl;
+	cout << "qfs client failed to initialize" << endl;
         return(-1);
     }
     if (maxRetry > 0) {

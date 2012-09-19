@@ -76,7 +76,8 @@ main(int argc, char **argv)
 
     if (help || (serverHost == "") || (port < 0)) {
         cerr << "Usage: " << argv[0] << " -s <meta server name> -p <port>"
-             << " [filename1...n]" << "\n";
+             << " [filename1 filename2 ...]" << "\nThis tool outputs the "
+             << "files in the order of appearance to stdout.\n";
         return 1;
     }
 
@@ -85,7 +86,7 @@ main(int argc, char **argv)
 
     KfsClient * const kfsClient = Connect(serverHost, port);
     if (!kfsClient) {
-        cerr << "kfs client failed to initialize...exiting" << "\n";
+        cerr << "qfs client failed to initialize...exiting" << "\n";
         return 1;
     }
 

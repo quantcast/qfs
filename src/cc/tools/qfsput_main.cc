@@ -82,16 +82,16 @@ main(int argc, char **argv)
     }
 
     if (help || (kfspathname == "") || (serverHost == "") || (port < 0)) {
-        cout << "Usage: " << argv[0] 
-             << " -s <meta server name> -p <port> -f <Kfsfile> [-v]" << endl
-             << "\tReads from stdin and writes to given kfs file."
+        cout << "Usage: " << argv[0]
+             << " -s <meta server name> -p <port> -f <Qfsfile> [-v]" << endl
+             << "\tReads from stdin and writes to given qfs file."
              << endl;
         exit(0);
     }
 
     gKfsClient = Connect(serverHost, port);
     if (!gKfsClient) {
-        cout << "kfs client failed to initialize...exiting" << endl;
+        cout << "qfs client failed to initialize...exiting" << endl;
         exit(-1);
     }
 

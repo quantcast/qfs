@@ -92,7 +92,7 @@ public:
         MsgLogger::Init(0, theLogLevel);
         KfsClient* const theClientPtr = Connect(theMetaHost, theMetaPort);
         if (! theClientPtr) {
-            cout << "kfs client intialization failure\n";
+            cout << "qfs client intialization failure\n";
             return 1;
         }
         auto_ptr<KfsClient> theCleanup(theClientPtr);

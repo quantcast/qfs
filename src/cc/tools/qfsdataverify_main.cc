@@ -84,7 +84,7 @@ main(int argc, char **argv)
 
     if (help) {
         cout << "Usage: " << argv[0]
-             << " -s <metaserver> -p <port> -k <KFSfile> [-c|-d] [-v]\n"
+             << " -s <metaserver> -p <port> -k <QFSfile> [-c|-d] [-v]\n"
              << "        -c: compare checksums on the replicas.\n"
              << "        -d: compare the chunks and return md5 of the file.\n";
         return -1;
@@ -95,7 +95,7 @@ main(int argc, char **argv)
 
     KfsClient* const kfsClient = Connect(metaserver, port);
     if (! kfsClient) {
-        cout << "kfs client failed to initialize\n";
+        cout << "qfs client failed to initialize\n";
         return 1;
     }
 
