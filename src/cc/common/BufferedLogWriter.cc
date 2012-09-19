@@ -169,6 +169,9 @@ public:
         mLastLogTm       = mTimeTm;
         GetLogTimeStampPrefixPtr(theSec);
         mNextFlushTime = Seconds(theSec) + theMicroSec + mFlushInterval;
+        if (mFd >= 0) {
+            ::fcntl(mFd, O_NONBLOCK, 1);
+        }
     }
     static const char* GetLogLevelNamePtr(
         LogLevel inLogLevel)
@@ -444,7 +447,7 @@ public:
         mRunFlag = false;
         if (mFd >= 0) {
             close(mFd);
-            mFd = 0;
+            mFd = -1;
         }
     }
     void Append(
@@ -689,10 +692,14 @@ public:
                 OpenLogFile();
             }
             if (mFd >= 0 && mWritePtr < mWriteEndPtr) {
-                bool              theRetryWriteFlag = false;
-                const int         theFd             = mFd;
-                const char*       thePtr            = mWritePtr;
-                const char* const theEndPtr         = mWriteEndPtr;
+                bool              theRetryWriteFlag   = false;
+                const int         theFd               = mFd;
+                const char*       thePtr              = mWritePtr;
+                const char* const theEndPtr           = mWriteEndPtr;
+                bool              theShutdownFlag     = ! mRunFlag;
+                const Time        kMaxShutdownTimeSec = 180;
+                Time              theShutdownEndTime  = mRunFlag ? 0 :
+                    Now() + min(Seconds(kMaxShutdownTimeSec), mMaxLogWaitTime);
                 QCStMutexUnlocker theUnlocker(mMutex);
                 int theError = 0;
                 while (thePtr < theEndPtr) {
@@ -700,6 +707,15 @@ public:
                         theFd, thePtr, theEndPtr - thePtr);
                     if (theNWr < 0) {
                         theError = errno;
+                        if (theShutdownFlag) {
+                            if (theShutdownEndTime <= Now()) {
+                                break;
+                            }
+                        } else if (! mRunFlag) {
+                            theShutdownFlag = true;
+                            theShutdownEndTime = Now() + min(
+                                Seconds(kMaxShutdownTimeSec), mMaxLogWaitTime);
+                        }
                         if (theError == EINTR) {
                             continue;
                         }

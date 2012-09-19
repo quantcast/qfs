@@ -2,7 +2,7 @@
 // $Id$
 //
 // Created 2010/05/14
-// Author: Mike Ovsiannikov
+// Author: Kate Labeeva, Mike Ovsiannikov
 //
 // Copyright 2010-2012 Quantcast Corp.
 //
