@@ -86,6 +86,13 @@ Acceptor::Listen()
         delete sock;
         return;
     }
+    if (mPort == 0) {
+        const string sockName = sock->GetSockName();
+        const size_t pos = sockName.rfind(":");
+        if (pos != string::npos) {
+            mPort = atoi(sockName.c_str() + pos + 1);
+        }
+    }
     mConn.reset(new NetConnection(sock, this, true));
     mConn->EnableReadIfOverloaded();
     mNetManager.AddConnection(mConn);

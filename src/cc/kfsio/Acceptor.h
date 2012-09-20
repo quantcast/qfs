@@ -97,13 +97,14 @@ public:
     /// @result Returns 0.
     ///
     int RecvConnection(int code, void *data);
-
+    int GetPort() const
+        { return mPort; }
 private:
     ///
     /// The encapsulated connection object that corresponds to the TCP
     /// port on which the Acceptor is listening for connections.
     ///
-    const int             mPort;
+    int                   mPort;
     IAcceptorOwner* const mAcceptorOwner;
     NetConnectionPtr      mConn;
     NetManager&           mNetManager;

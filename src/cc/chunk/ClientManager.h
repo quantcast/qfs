@@ -184,6 +184,8 @@ public:
     void GetCounters(Counters& counters) {
         counters = mCounters;
     }
+    int GetPort() const
+        { return (mAcceptor ? mAcceptor->GetPort() : -1); }
 private:
     Acceptor* mAcceptor;
     int       mIoTimeoutSec;

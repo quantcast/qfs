@@ -43,19 +43,14 @@ using libkfsio::globalNetManager;
 ChunkServer gChunkServer;
 
 void
-ChunkServer::Init()
-{
-}
-
-void
 ChunkServer::SendTelemetryReport(KfsOp_t /* op */, double /* timeSpent */)
 {
 }
 
 bool
-ChunkServer::MainLoop(int clientAcceptPort, const string& serverIp)
+ChunkServer::Init(int clientAcceptPort, const string& serverIp)
 {
-    if (clientAcceptPort <= 0) {
+    if (clientAcceptPort < 0) {
         KFS_LOG_STREAM_FATAL <<
             "invalid client port: " << clientAcceptPort <<
         KFS_LOG_EOM;
@@ -86,13 +81,20 @@ ChunkServer::MainLoop(int clientAcceptPort, const string& serverIp)
             return false;
         }
     }
-    mLocation.Reset(serverIp.c_str(), clientAcceptPort);
-    if (! gClientManager.StartAcceptor(clientAcceptPort)) {
+    if (! gClientManager.StartAcceptor(clientAcceptPort) ||
+            gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
             "Unable to start acceptor on port: " << clientAcceptPort <<
         KFS_LOG_EOM;
         return false;
     }
+    mLocation.Reset(serverIp.c_str(), gClientManager.GetPort());
+    return true;
+}
+
+bool
+ChunkServer::MainLoop()
+{
     if (gChunkManager.Restart() != 0) {
         return false;
     }

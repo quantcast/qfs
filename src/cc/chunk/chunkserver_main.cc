@@ -515,18 +515,16 @@ ChunkServerMain::Run(int argc, char **argv)
         "md5sum to send to metaserver: " << mMD5Sum <<
     KFS_LOG_EOM;
 
-    gChunkServer.Init();
+    signal(SIGPIPE, SIG_IGN);
+    signal(SIGQUIT, &SigQuitHandler);
+    signal(SIGHUP,  &SigHupHandler);
     int ret = 1;
-    if (gChunkManager.Init(mChunkDirs, mProp)) {
+    if (gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname) &&
+            gChunkManager.Init(mChunkDirs, mProp)) {
         gLogger.Init(mLogDir);
         gMetaServerSM.SetMetaInfo(
             mMetaServerLoc, mClusterKey, mChunkServerRackId, mMD5Sum, mProp);
-        signal(SIGPIPE, SIG_IGN);
-        signal(SIGQUIT, &SigQuitHandler);
-        signal(SIGHUP,  &SigHupHandler);
-
-        ret = gChunkServer.MainLoop(
-            mChunkServerClientPort, mChunkServerHostname) ? 0 : 1;
+        ret = gChunkServer.MainLoop() ? 0 : 1;
         gChunkManager.Shutdown();
     }
     NetErrorSimulatorConfigure(globalNetManager());
