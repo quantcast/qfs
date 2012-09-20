@@ -303,19 +303,19 @@ Hello World example of a client session:
 
 def do_cleanup(config, doUninstall):
     if config.has_section('metaserver'):
-        metaDir = config.get('metaserver', 'rundir')
-        if metaDir:
+        metaRunDir = config.get('metaserver', 'rundir')
+        if metaRunDir:
             kill_running_program(Globals.METASERVER)
-            if doUninstall and os.path.isdir(metaDir):
-                rm_tree(metaDir)
+            if doUninstall and os.path.isdir(metaRunDir):
+                rm_tree(metaRunDir)
 
     for section in config.sections():
         if section.startswith('chunkserver'):
-            chunkDir = config.get(section, 'rundir')
-            if chunkDir:
+            chunkRunDir = config.get(section, 'rundir')
+            if chunkRunDir:
                 kill_running_program(Globals.CHUNKSERVER)
-                if doUninstall and os.path.isdir(chunkDir):
-                    rm_tree(chunkDir)
+                if doUninstall and os.path.isdir(chunkRunDir):
+                    rm_tree(chunkRunDir)
 
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
@@ -331,22 +331,26 @@ def do_cleanup(config, doUninstall):
 
 def setup_directories(config):
     if config.has_section('metaserver'):
-        metaDir = config.get('metaserver', 'rundir')
-        if metaDir:
-            mkdir_p(metaDir);
-            mkdir_p(metaDir + '/conf')
-            mkdir_p(metaDir + '/checkpoints')
-            mkdir_p(metaDir + '/logs')
+        metaRunDir = config.get('metaserver', 'rundir')
+        if metaRunDir:
+            mkdir_p(metaRunDir);
+            mkdir_p(metaRunDir + '/conf')
+            mkdir_p(metaRunDir + '/checkpoints')
+            mkdir_p(metaRunDir + '/logs')
 
     for section in config.sections():
         if section.startswith('chunkserver'):
-            chunkDir = config.get(section, 'rundir')
-            if chunkDir:
-                mkdir_p(chunkDir);
-                mkdir_p(chunkDir + '/conf')
-                mkdir_p(chunkDir + '/chunkdir_1')
-                mkdir_p(chunkDir + '/chunkdir_2')
-                mkdir_p(chunkDir + '/logs')
+            chunkRunDir = config.get(section, 'rundir')
+            chunkDirs = config.get(section, 'chunkdirs')
+            chunkDirsList = chunkDirs.split(' ')  
+            if chunkRunDir:
+                mkdir_p(chunkRunDir);
+                mkdir_p(chunkRunDir + '/conf')
+                if len(chunkDirsList) > 0:
+                    for cd in chunkDirsList:
+                        mkdir_p(cd)
+                else:
+                    mkdir_p(chunkRunDir + '/chunkdir')
 
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
@@ -359,8 +363,8 @@ def setup_directories(config):
 def setup_config_files(config):
     if 'metaserver' not in config.sections():
         sys.exit('Required metaserver section not found in config')
-    metaDir = config.get('metaserver', 'rundir')
-    if not metaDir:
+    metaRunDir = config.get('metaserver', 'rundir')
+    if not metaRunDir:
         sys.exit('Required metaserver rundir not found in config')
 
     metaserverHostname = config.get('metaserver', 'hostname')
@@ -369,12 +373,12 @@ def setup_config_files(config):
     clusterKey = config.get('metaserver', 'clusterkey')
 
     # Metaserver.
-    metaFile = open(metaDir + '/conf/MetaServer.prp', 'w')
+    metaFile = open(metaRunDir + '/conf/MetaServer.prp', 'w')
     print >> metaFile, 'metaServer.clientPort = %d' % metaserverClientPort
     print >> metaFile, 'metaServer.chunkServerPort = %d' % metaserverChunkPort
     print >> metaFile, 'metaServer.clusterKey = %s' % clusterKey
-    print >> metaFile, 'metaServer.cpDir = %s/checkpoints' % metaDir
-    print >> metaFile, 'metaServer.logDir = %s/logs' % metaDir
+    print >> metaFile, 'metaServer.cpDir = %s/checkpoints' % metaRunDir
+    print >> metaFile, 'metaServer.logDir = %s/logs' % metaRunDir
     print >> metaFile, 'metaServer.createEmptyFs = 1'
     print >> metaFile, 'metaServer.recoveryInterval = 1'
     print >> metaFile, 'metaServer.msgLogWriter.logLevel = DEBUG'
@@ -391,16 +395,16 @@ def setup_config_files(config):
     for section in config.sections():
         if section.startswith('chunkserver'):
             chunkClientPort = config.getint(section, 'chunkport')
-            spaceStr = config.get(section, 'space')
-            chunkDir = config.get(section, 'rundir')
-            if chunkDir:
-                chunkFile = open(chunkDir + '/conf/ChunkServer.prp', 'w')
+            chunkDirs = config.get(section, 'chunkdirs')
+            chunkRunDir = config.get(section, 'rundir')
+            if chunkRunDir:
+                chunkFile = open(chunkRunDir + '/conf/ChunkServer.prp', 'w')
                 print >> chunkFile, 'chunkServer.metaServer.hostname = %s' % metaserverHostname
                 print >> chunkFile, 'chunkServer.metaServer.port = %d' % metaserverChunkPort
                 print >> chunkFile, 'chunkServer.clientPort = %d' % chunkClientPort
                 print >> chunkFile, 'chunkServer.clusterKey = %s' % clusterKey
                 print >> chunkFile, 'chunkServer.rackId = 0'
-                print >> chunkFile, 'chunkServer.chunkDir = %s/chunkdir_1 %s/chunkdir_2' % (chunkDir, chunkDir)
+                print >> chunkFile, 'chunkServer.chunkDir = %s' % chunkDirs
                 print >> chunkFile, 'chunkServer.diskIo.crashOnError = 1'
                 print >> chunkFile, 'chunkServer.abortOnChecksumMismatchFlag = 1'
                 print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
@@ -456,11 +460,11 @@ def start_servers(config, whichServers = 'all'):
     if startMeta:
         startWeb = True
         kill_running_program(Globals.METASERVER)
-        metaDir = config.get('metaserver', 'rundir')
-        if metaDir:
-            metaConf = metaDir + '/conf/MetaServer.prp'
-            metaLog  = metaDir + '/MetaServer.log'
-            metaOut  = metaDir + '/MetaServer.out'
+        metaRunDir = config.get('metaserver', 'rundir')
+        if metaRunDir:
+            metaConf = metaRunDir + '/conf/MetaServer.prp'
+            metaLog  = metaRunDir + '/MetaServer.log'
+            metaOut  = metaRunDir + '/MetaServer.out'
             command = '%s -c %s %s > %s 2>&1 &' % (
                                     Globals.METASERVER,
                                     metaConf,
@@ -474,11 +478,11 @@ def start_servers(config, whichServers = 'all'):
         kill_running_program(Globals.CHUNKSERVER)
         for section in config.sections():
             if section.startswith('chunkserver'):
-                chunkDir = config.get(section, 'rundir')
-                if chunkDir:
-                    chunkConf = chunkDir + '/conf/ChunkServer.prp'
-                    chunkLog  = chunkDir + '/ChunkServer.log'
-                    chunkOut  = chunkDir + '/ChunkServer.out'
+                chunkRunDir = config.get(section, 'rundir')
+                if chunkRunDir:
+                    chunkConf = chunkRunDir + '/conf/ChunkServer.prp'
+                    chunkLog  = chunkRunDir + '/ChunkServer.log'
+                    chunkOut  = chunkRunDir + '/ChunkServer.out'
                     command = '%s %s %s > %s 2>&1 &' % (
                                             Globals.CHUNKSERVER,
                                             chunkConf,
@@ -504,12 +508,21 @@ def start_servers(config, whichServers = 'all'):
     else:
         print 'Started servers - OK.'
 
+# Need to massage the ~ in the config file paths. Otherwise a directory
+# with name "~" would get created at $CWD.
 def parse_config(configFile):
     config = ConfigParser.ConfigParser()
     config.read(configFile);
     for section in config.sections():
         dir = config.get(section, 'rundir')
         config.set(section, 'rundir', os.path.expanduser(dir))
+        if section.startswith('chunkserver'):
+            dir = config.get(section, 'chunkdirs')
+            dirstowrite = []
+            dirs = dir.split(' ')
+            for d in dirs:
+                dirstowrite.append(os.path.expanduser(d))
+            config.set(section, 'chunkdirs', ' '.join(dirstowrite))
     return config
 
 if __name__ == '__main__':
