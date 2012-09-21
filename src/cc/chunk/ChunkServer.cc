@@ -81,10 +81,10 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp)
             return false;
         }
     }
-    if (! gClientManager.StartAcceptor(clientAcceptPort) ||
+    if (! gClientManager.BindAcceptor(clientAcceptPort) ||
             gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
-            "Unable to start acceptor on port: " << clientAcceptPort <<
+            "failed to bind acceptor to port: " << clientAcceptPort <<
         KFS_LOG_EOM;
         return false;
     }
@@ -100,6 +100,12 @@ ChunkServer::MainLoop()
     }
     gLogger.Start();
     gChunkManager.Start();
+    if (! gClientManager.StartListening()) {
+        KFS_LOG_STREAM_FATAL <<
+            "failed to start acceptor on port: " << gClientManager.GetPort() <<
+        KFS_LOG_EOM;
+        return false;
+    }
     gMetaServerSM.Init();
 
     globalNetManager().MainLoop();

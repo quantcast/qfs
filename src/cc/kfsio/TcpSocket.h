@@ -55,6 +55,12 @@ public:
         {}
     ~TcpSocket();
 
+    /// Setup and bind TCP socket to the port specified.
+    int Bind(int port);
+
+    /// Start listening;
+    int StartListening(bool nonBlockingAccept = false);
+
     /// Setup a TCP socket that listens for connections
     /// @param port Port on which to listen for incoming connections
     int Listen(int port, bool nonBlockingAccept = false);

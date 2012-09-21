@@ -81,9 +81,11 @@ public:
     /// connections.
     /// @param owner The IAcceptorOwner object that "owns" this Acceptor.
     ///
-    Acceptor(int port, IAcceptorOwner *owner);
-    Acceptor(NetManager& netManager, int port, IAcceptorOwner *owner);
+    Acceptor(int port, IAcceptorOwner* owner, bool bindOnlyFlag = false);
+    Acceptor(NetManager& netManager, int port, IAcceptorOwner* owner,
+        bool bindOnlyFlag = false);
     ~Acceptor();
+    void StartListening();
 
     /// Return true if we were able to bind to the acceptor port
     bool IsAcceptorStarted() const {
@@ -109,7 +111,7 @@ private:
     NetConnectionPtr      mConn;
     NetManager&           mNetManager;
 
-    void Listen();
+    void Bind();
 };
 
 }

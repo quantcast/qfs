@@ -32,9 +32,20 @@ namespace KFS
 ClientManager gClientManager;
 
 bool 
-ClientManager::StartAcceptor(int port)
+ClientManager::BindAcceptor(int port)
 {
-    mAcceptor = new Acceptor(port, this);
+    const bool kBindOnlyFlag = true;
+    mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
+    return mAcceptor->IsAcceptorStarted();
+}
+
+bool 
+ClientManager::StartListening()
+{
+    if (! mAcceptor) {
+        return false;
+    }
+    mAcceptor->StartListening();
     return mAcceptor->IsAcceptorStarted();
 }
 

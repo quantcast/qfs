@@ -100,7 +100,8 @@ public:
         assert(mCounters.mClientCount == 0);
         delete mAcceptor;
     };
-    bool StartAcceptor(int port);
+    bool BindAcceptor(int port);
+    bool StartListening();
     KfsCallbackObj *CreateKfsCallbackObj(NetConnectionPtr &conn) {
         ClientSM *clnt = new ClientSM(conn);
         assert(mCounters.mClientCount >= 0);

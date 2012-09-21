@@ -37,24 +37,32 @@ using namespace KFS::libkfsio;
 ///
 /// Create a TCP socket, bind it to the port, and listen for incoming connections.
 ///
-Acceptor::Acceptor(NetManager& netManager, int port, IAcceptorOwner *owner)
+Acceptor::Acceptor(NetManager& netManager, int port, IAcceptorOwner* owner,
+    bool bindOnlyFlag /* = false */)
     : mPort(port),
       mAcceptorOwner(owner),
       mConn(),
       mNetManager(netManager)
 {
     SET_HANDLER(this, &Acceptor::RecvConnection);
-    Acceptor::Listen();
+    Acceptor::Bind();
+    if (! bindOnlyFlag) {
+        Acceptor::StartListening();
+    }
 }
 
-Acceptor::Acceptor(int port, IAcceptorOwner *owner)
+Acceptor::Acceptor(int port, IAcceptorOwner *owner,
+    bool bindOnlyFlag /* = false */)
     : mPort(port),
       mAcceptorOwner(owner),
       mConn(),
       mNetManager(globalNetManager())
 {
     SET_HANDLER(this, &Acceptor::RecvConnection);
-    Acceptor::Listen();
+    Acceptor::Bind();
+    if (! bindOnlyFlag) {
+        Acceptor::StartListening();
+    }
 }
 
 Acceptor::~Acceptor()
@@ -66,7 +74,7 @@ Acceptor::~Acceptor()
 }
 
 void
-Acceptor::Listen()
+Acceptor::Bind()
 {
     if (! mNetManager.IsRunning()) {
         return;
@@ -76,8 +84,7 @@ Acceptor::Listen()
         mConn.reset();
     }
     TcpSocket* const sock = new TcpSocket();
-    const bool kNonBlockingAcceptFlag = true;
-    const int res = sock->Listen(mPort, kNonBlockingAcceptFlag);
+    const int res = sock->Bind(mPort);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
             "Unable to bind to port: " << mPort <<
@@ -93,8 +100,23 @@ Acceptor::Listen()
             mPort = atoi(sockName.c_str() + pos + 1);
         }
     }
-    mConn.reset(new NetConnection(sock, this, true));
+    const bool kListenOnlyFlag = true;
+    mConn.reset(new NetConnection(sock, this, kListenOnlyFlag));
+}
+
+void
+Acceptor::StartListening()
+{
+    if (! mConn || ! mNetManager.IsRunning() || ! mConn->IsGood()) {
+        return;
+    }
     mConn->EnableReadIfOverloaded();
+    const bool kNonBlockingAcceptFlag = true;
+    mConn->StartListening(kNonBlockingAcceptFlag);
+    if (! mConn->IsGood()) {
+        mConn.reset();
+        return;
+    }
     mNetManager.AddConnection(mConn);
 }
 
@@ -122,7 +144,8 @@ Acceptor::RecvConnection(int code, void* data)
                 mConn.reset();
             }
             if (mNetManager.IsRunning()) {
-                Listen();
+                Bind();
+                StartListening();
                 if (! IsAcceptorStarted()) {
                     abort();
                 }

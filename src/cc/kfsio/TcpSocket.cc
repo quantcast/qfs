@@ -74,6 +74,32 @@ TcpSocket::~TcpSocket()
 int
 TcpSocket::Listen(int port, bool nonBlockingAccept /* = false */)
 {
+    const int err = Bind(port);
+    if (err != 0) {
+        return err;
+    }
+    return StartListening(nonBlockingAccept);
+}
+
+int
+TcpSocket::StartListening(bool nonBlockingAccept /* = false */)
+{
+    if (mSockFd < 0) {
+        return Perror("Listen", EBADF);
+    }
+    if (listen(mSockFd, 8192) ||
+            (nonBlockingAccept && fcntl(mSockFd, F_SETFL, O_NONBLOCK))) {
+        const int err = Perror("listen");
+        Close();
+        return err;
+    }
+    return 0;
+}
+
+int
+TcpSocket::Bind(int port)
+{
+    Close();
     mSockFd = socket(PF_INET, SOCK_STREAM, 0);
     if (mSockFd == -1) {
         return Perror("socket");
@@ -94,19 +120,14 @@ TcpSocket::Listen(int port, bool nonBlockingAccept /* = false */)
         Perror("setsockopt");
     }
 
-    if (bind(mSockFd, (struct sockaddr *) &ourAddr, sizeof(ourAddr)) ||
-            listen(mSockFd, 8192) ||
-            (nonBlockingAccept && fcntl(mSockFd, F_SETFL, O_NONBLOCK))) {
+    if (bind(mSockFd, (struct sockaddr *) &ourAddr, sizeof(ourAddr))) {
         const int ret = Perror(ourAddr);
         close(mSockFd);
         mSockFd = -1;
         return ret;
     }
-
     UpdateSocketCount(1);
-
     return 0;
-
 }
 
 TcpSocket*

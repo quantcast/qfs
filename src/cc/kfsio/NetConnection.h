@@ -258,6 +258,15 @@ public:
         }
     }
 
+    void StartListening(bool nonBlockingAccept = false) {
+        if (! mSock) {
+            return;
+        }
+        if (! mListenOnly || mSock->StartListening(nonBlockingAccept) != 0) {
+            Close();
+        }
+    }
+
     int GetNumBytesToRead() const {
         return mInBuffer.BytesConsumable();
     }
