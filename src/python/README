@@ -1,4 +1,0 @@
-The python support for KFS is EXPERIMENTAL at this stage. The
-python extension module has not been tested on large scale
-deploymentsi yet. Please excercise caution while using the
-python module.
