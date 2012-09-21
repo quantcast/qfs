@@ -86,7 +86,7 @@ public:
         int    inFd,
         void*  inBufPtr,
         size_t inBufSize) = 0;
-    virtual ssize_t Write( 
+    virtual ssize_t Write(
         int          inFd,
         const void*  inBufPtr,
         size_t       inBufSize) = 0;

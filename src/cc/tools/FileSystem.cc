@@ -188,7 +188,7 @@ public:
         }
         return Errno((int)theRet);
     }
-    virtual ssize_t Write( 
+    virtual ssize_t Write(
         int          inFd,
         const void*  inBufPtr,
         size_t       inBufSize)
@@ -423,7 +423,7 @@ public:
         }
         return KfsClient::Open(
             inFileName.c_str(), inFlags, inParamsPtr->c_str(), inMode);
-            
+
     }
     virtual int Close(
         int inFd)
@@ -437,7 +437,7 @@ public:
     {
         return KfsClient::Read(inFd, (char*)inBufPtr, inBufSize);
     }
-    virtual ssize_t Write( 
+    virtual ssize_t Write(
         int          inFd,
         const void*  inBufPtr,
         size_t       inBufSize)
@@ -586,7 +586,7 @@ public:
     }
 };
 
-    static string&
+static string&
 GetDefaultFsUri()
 {
     static string sDefaultFsUri;
@@ -610,7 +610,7 @@ FileSystem::SetDefault(
     return theRet;
 }
 
-    /* static */ int
+/* static */ int
 FileSystem::Get(
     const string& inUri,
     FileSystem*&  outFsPtr,
@@ -679,5 +679,5 @@ FileSystem::Get(
     return theRet;
 }
 
-}
-}
+} //namespace tools
+} //namespace KFS
