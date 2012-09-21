@@ -24,8 +24,7 @@
 //
 //----------------------------------------------------------------------------
 
-#include "libclient/KfsClient.h"
-#include "libclient/kfsglob.h"
+#include "FileSystem.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
 
@@ -33,7 +32,7 @@
 #include <stdlib.h>
 
 #include <string>
-#include <memory>
+#include <iostream>
 
 namespace KFS
 {
@@ -42,7 +41,8 @@ namespace tools
 
 using std::string;
 using std::cout;
-using std::auto_ptr;
+using std::cerr;
+using std::ostringstream;
 
 class KfsTool
 {
@@ -54,7 +54,7 @@ public:
         char** inArgsPtr)
     {
         string              theMetaHost;
-        int                 theMetaPort = -1;
+        string              theMetaPort;
         bool                theHelpFlag = false;
         MsgLogger::LogLevel theLogLevel = MsgLogger::kLogLevelINFO;
 
@@ -65,7 +65,7 @@ public:
                     theMetaHost = optarg;
                     break;
                 case 'p':
-                    theMetaPort = atoi(optarg);
+                    theMetaPort = optarg;
                     break;
                 case 'h':
                     theHelpFlag = true;
@@ -80,29 +80,42 @@ public:
             }
         }
 
-        if (theHelpFlag || theMetaHost.empty() || theMetaPort <= 0) {
+        if (theHelpFlag || (theMetaHost.empty() && ! theMetaPort.empty())) {
             cout <<
                 "Usage: " << (inArgCount > 0 ? inArgsPtr[0] : "") << "\n"
-                " -s <meta server name>\n"
-                " -p <port>\n"
+                " [-s <meta server host>]\n"
+                " [-p <meta server port>]\n"
             ;
             return 1;
         }
-
         MsgLogger::Init(0, theLogLevel);
-        KfsClient* const theClientPtr = Connect(theMetaHost, theMetaPort);
-        if (! theClientPtr) {
-            cout << "qfs client intialization failure\n";
-            return 1;
-        }
-        auto_ptr<KfsClient> theCleanup(theClientPtr);
 
+        if (! theMetaHost.empty()) {
+            string theUri = "qfs://" + theMetaHost;
+            if (theMetaPort.empty()) {
+                theUri += ":";
+                theUri += theMetaPort;
+            }
+            const int theErr = FileSystem::SetDefault(theUri);
+            if (theErr != 0) {
+                cerr << theUri << ": " << QCUtils::SysError(theErr) << "\n";
+                return 1;
+            }
+        }
+        int theErr = 0;
         for (int i = optind; i < inArgCount; i++) {
-            glob_t theGlobRes = {0};
+            const string theArg   = inArgsPtr[i];
+            FileSystem*  theFsPtr = 0;
+            string       thePath;
+            theErr = FileSystem::Get(theArg, theFsPtr, &thePath);
+            if (theErr) {
+                cerr << theArg << ": " << QCUtils::SysError(theErr) << "\n";
+                break;
+            }
+            glob_t    theGlobRes = {0};
             const int kGlobFlags = 0;
-            const int theRet     = KfsGlob(
-                *theClientPtr,
-                inArgsPtr[i],
+            const int theRet     = theFsPtr->Glob(
+                thePath,
                 kGlobFlags,
                 0, // the err func.
                 &theGlobRes
@@ -119,7 +132,7 @@ public:
             }
             globfree(&theGlobRes);
         }
-        return 0;
+        return (theErr == 0 ? 0 : 1);
     }
 private:
     static const char* GlobError(

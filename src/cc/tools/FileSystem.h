@@ -60,6 +60,8 @@ public:
         virtual ~DirIterator()
             {}
     };
+    static int SetDefault(
+        const string& inUri);
     static int Get(
         const string& inUri,
         FileSystem*&  outFsPtr,
@@ -126,6 +128,7 @@ public:
         string&  outGroupName) = 0;
     virtual string StrError(
         int inError) = 0;
+    virtual string GetUri() const = 0;
 protected:
     virtual ~FileSystem()
         {}

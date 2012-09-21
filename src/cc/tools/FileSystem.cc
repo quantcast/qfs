@@ -59,8 +59,15 @@ using boost::regbase;
 class FileSystemImpl : public FileSystem
 {
 public:
+    FileSystemImpl(
+        const string& inUri)
+        : mUri(inUri)
+        {}
     virtual ~FileSystemImpl()
         {}
+    virtual string GetUri() const
+        { return mUri; }
+    const string mUri;
 };
 
 class LocalFileSystem : public FileSystemImpl
@@ -134,7 +141,9 @@ public:
         virtual ~LocalDirIterator()
             {}
     };
-    LocalFileSystem()
+    LocalFileSystem(
+        const string& inUri)
+        : FileSystemImpl(inUri)
         {}
     virtual ~LocalFileSystem()
         {}
@@ -361,8 +370,10 @@ public:
         size_t              mCur;
         StatBuf             mStatBuf;
     };
-    KfsFileSystem()
-        : KfsClient()
+    KfsFileSystem(
+        const string& inUri)
+        : FileSystemImpl(inUri),
+          KfsClient()
         {}
     virtual ~KfsFileSystem()
         {}
@@ -575,6 +586,30 @@ public:
     }
 };
 
+    static string&
+GetDefaultFsUri()
+{
+    static string sDefaultFsUri;
+    return sDefaultFsUri;
+}
+
+    /* static */ int
+FileSystem::SetDefault(
+    const string& inUri)
+{
+    QCStMutexLocker theLock(GetFsMutex());
+    FileSystem* theFsPtr = 0;
+    string      thePath;
+    const int theRet = Get(inUri, theFsPtr, &thePath);
+    if (theRet == 0) {
+        if (! thePath.empty()) {
+            theFsPtr->Chdir(thePath);
+        }
+        GetDefaultFsUri() = theFsPtr->GetUri();
+    }
+    return theRet;
+}
+
     /* static */ int
 FileSystem::Get(
     const string& inUri,
@@ -593,23 +628,30 @@ FileSystem::Get(
 
     outFsPtr = 0;
     smatch theParts;
-    if(! regex_match(inUri, theParts, kFsUriRegex)) {
+    if(! regex_match(inUri, theParts, kFsUriRegex) ||
+            theParts.size() < 10) {
         return -EINVAL;
     }
-
+    if (outPathPtr) {
+        *outPathPtr = theParts[5];
+    }
     string theScheme(theParts[2]);
-    if (theScheme == "kfs") {
+    if (theScheme.empty()) {
+        const string& theDefaultUri = GetDefaultFsUri();
+        if (theDefaultUri.empty()) {
+            theScheme = "file";
+        }  else {
+            return Get(theDefaultUri, outFsPtr, 0);
+        }
+    } else if (theScheme == "kfs") {
         theScheme = "qfs";
-    } else if (theScheme.empty() || theScheme == "local") {
+    } else if (theScheme == "local") {
         theScheme = "file";
     }
     const string theAuthority(theParts[4]);
     const string theFragment (theParts[9]);
-    if (outPathPtr) {
-        *outPathPtr = theParts[5];
-    }
-    const string          theFsId(theScheme + ":" + theAuthority);
-    FSMap::iterator const theIt = sFSMap.find(theFsId);
+    const string          theFsUri(theScheme + "://" + theAuthority);
+    FSMap::iterator const theIt = sFSMap.find(theFsUri);
     if (theIt != sFSMap.end()) {
         outFsPtr = theIt->second;
         return 0;
@@ -617,20 +659,20 @@ FileSystem::Get(
     FileSystemImpl* theImplPtr = 0;
     int             theRet     = 0;
     if (theScheme == "qfs") {
-        KfsFileSystem* const theFsPtr = new KfsFileSystem();
+        KfsFileSystem* const theFsPtr = new KfsFileSystem(theFsUri);
         if ((theRet = theFsPtr->Init(theAuthority)) == 0) {
             theImplPtr = theFsPtr;
         } else {
             delete theFsPtr;
         }
     } else if (theScheme == "file") {
-        theImplPtr = new LocalFileSystem();
+        theImplPtr = new LocalFileSystem(theFsUri);
     }
     if (theRet == 0 && ! theImplPtr) {
         theRet = -EINVAL;
     }
     if (theRet == 0 &&
-            ! sFSMap.insert(make_pair(theFsId, theImplPtr)).second) {
+            ! sFSMap.insert(make_pair(theFsUri, theImplPtr)).second) {
         QCRTASSERT(! "fs map insertion: duplicate entry");
     }
     outFsPtr = theImplPtr;
