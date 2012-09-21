@@ -276,10 +276,7 @@ public:
         kfsUid_t inUser,
         kfsGid_t inGroup,
         string&  outUserName,
-        string&  outGroupName)
-    {
-        return 0;
-    }
+        string&  outGroupName);
     virtual string StrError(
         int inError)
     {
@@ -551,6 +548,20 @@ GetFsMutex()
 
 // Force initialization before entering main.
 static QCMutex& sMutex = GetFsMutex();
+
+    /* virtual */ int
+LocalFileSystem::GetUserAndGroupNames(
+    kfsUid_t inUser,
+    kfsGid_t inGroup,
+    string&  outUserName,
+    string&  outGroupName)
+{
+    QCStMutexLocker theLock(GetFsMutex());
+    // For now use dummy un-connected kfs client.
+    static KfsClient sClient;
+    return sClient.GetUserAndGroupNames(
+        inUser, inGroup, outUserName, outGroupName);
+}
 
 class FSMap : public map<string, FileSystemImpl*>
 {
