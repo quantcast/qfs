@@ -75,11 +75,18 @@ NetDispatch::~NetDispatch()
     delete mMutex;
 }
 
+bool
+NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
+{
+    return (mClientManager.Bind(clientAcceptPort) &&
+        mChunkServerFactory.Bind(chunkServerAcceptPort));
+}
+
 //
 // Open up the server for connections.
 //
 bool
-NetDispatch::Start(int clientAcceptPort, int chunkServerAcceptPort)
+NetDispatch::Start()
 {
     mMutex = mClientThreadCount > 0 ? new QCMutex() : 0;
     mClientManagerMutex = mClientThreadCount > 0 ?
@@ -97,14 +104,12 @@ NetDispatch::Start(int clientAcceptPort, int chunkServerAcceptPort)
             " error: " << QCUtils::SysError(err) <<
         KFS_LOG_EOM;
     } else if (mClientManager.StartAcceptor(
-                clientAcceptPort,
                 mClientThreadCount,
                 mClientThreadsStartCpuAffinity >= 0 ?
                     mClientThreadsStartCpuAffinity + 1 :
                     mClientThreadsStartCpuAffinity
             ) &&
-            mChunkServerFactory.StartAcceptor(
-                chunkServerAcceptPort)) {
+            mChunkServerFactory.StartAcceptor()) {
         // Start event processing.
         globalNetManager().MainLoop(GetMutex());
     } else {
@@ -597,7 +602,8 @@ public:
           mPrepareToForkCnt(0)
         {};
     virtual ~Impl();
-    bool StartAcceptor(int port, int threadCount, int startCpuAffinity);
+    bool Bind(int port);
+    bool StartAcceptor(int threadCount, int startCpuAffinity);
     virtual KfsCallbackObj* CreateKfsCallbackObj(NetConnectionPtr &conn);
     void Shutdown();
     void ChildAtFork();
@@ -892,12 +898,22 @@ ClientManager::Impl::~Impl()
 }
 
 bool
-ClientManager::Impl::StartAcceptor(int port, int threadCount,
-    int startCpuAffinity)
+ClientManager::Impl::Bind(int port)
 {
     delete mAcceptor;
     mAcceptor = 0;
-    mAcceptor = new Acceptor(port, this);
+    const bool kBindOnlyFlag = true;
+    mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
+    return mAcceptor->IsAcceptorStarted();
+}
+
+bool
+ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
+{
+    if (! mAcceptor) {
+        return false;
+    }
+    mAcceptor->StartListening();
     if (! mAcceptor->IsAcceptorStarted()) {
         return false;
     }
@@ -1002,9 +1018,16 @@ ClientManager::~ClientManager()
 };
 
 bool
-ClientManager::StartAcceptor(int port, int threadCount, int startCpuAffinity)
+ClientManager::Bind(int port)
 {
-    return mImpl.StartAcceptor(port, threadCount, startCpuAffinity);
+    return mImpl.Bind(port);
+}
+
+
+bool
+ClientManager::StartAcceptor(int threadCount, int startCpuAffinity)
+{
+    return mImpl.StartAcceptor(threadCount, startCpuAffinity);
 }
 
 void

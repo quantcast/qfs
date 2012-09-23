@@ -21,7 +21,6 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// \file Main.cc
 // \brief Driver code that starts up the meta server
 //
 //----------------------------------------------------------------------------
@@ -132,7 +131,11 @@ public:
         } else {
             MsgLogger::Init(0);
         }
-        return (sInstance.Startup(argv[0], createEmptyFsFlag) ? 0 : 1);
+        const bool okFlag = sInstance.Startup(argv[0], createEmptyFsFlag);
+        AuditLog::Stop();
+        MsgLogger::Stop();
+        MdStream::Cleanup();
+        return (okFlag ? 0 : 1);
     }
     virtual void Timeout()
     {
@@ -224,10 +227,10 @@ private:
             return false;
         }
         mFileName = GetFullPath(fileName);
-        if (mStartupProperties.loadProperties(
-                mFileName.c_str(), '=', true)) {
-            cerr << "invalid properties file: " << mFileName <<
-                "\n";
+        if (mFileName.empty() ||
+                mStartupProperties.loadProperties(
+                    mFileName.c_str(), '=', true)) {
+            cerr << "invalid properties file: " << mFileName <<  "\n";
             return false;
         }
         return Startup(mStartupProperties, createEmptyFsFlag);
@@ -246,10 +249,10 @@ private:
         { sInstance.mRestartChunkServersFlag = true; }
     static string GetFullPath(string fileName)
     {
-        if (fileName[0] == '/') {
+        if (! fileName.empty() && fileName[0] == '/') {
             return fileName;
         }
-        char buf[4 << 10];
+        char buf[PATH_MAX];
         const char* const cwd = getcwd(buf, sizeof(buf));
         if (! cwd) {
             const int err = errno;
@@ -269,7 +272,6 @@ private:
     bool       mSetParametersFlag;
     bool       mRestartChunkServersFlag;
     int        mSetParametersCount;
-
     // Port at which KFS clients connect and send RPCs
     int        mClientPort;
     // Port at which Chunk servers connect
@@ -335,11 +337,10 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
 {
     MsgLogger::GetLogger()->SetLogLevel(
         props.getValue("metaServer.loglevel",
-        MsgLogger::GetLogLevelNamePtr(
-            MsgLogger::GetLogger()->GetLogLevel())));
+        MsgLogger::GetLogLevelNamePtr(MsgLogger::GetLogger()->GetLogLevel()))
+    );
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
-    MsgLogger::GetLogger()->SetParameters(
-        props, "metaServer.msgLogWriter.");
+    MsgLogger::GetLogger()->SetParameters(props, "metaServer.msgLogWriter.");
 
     struct rlimit rlim = { 0 };
     if (getrlimit(RLIMIT_NOFILE, &rlim)) {
@@ -439,21 +440,22 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     gLayoutManager.SetBufferPool(&GetIoBufAllocator().GetBufferPool());
     gLayoutManager.SetParameters(props, mClientPort);
     globalNetManager().RegisterTimeoutHandler(this);
-
-    KFS_LOG_STREAM_INFO << "starting metaserver" << KFS_LOG_EOM;
-
-    if (! Startup(createEmptyFsFlag ||
-            props.getValue("metaServer.createEmptyFs", 0) != 0)) {
-        return false;
+    bool okFlag = gNetDispatch.Bind(mClientPort, mChunkServerPort);
+    if (okFlag) {
+        KFS_LOG_STREAM_INFO << "starting metaserver" << KFS_LOG_EOM;
+        if ((okFlag = Startup(createEmptyFsFlag ||
+                props.getValue("metaServer.createEmptyFs", 0) != 0))) {
+            KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
+            // The following only returns after receiving SIGQUIT.
+            okFlag = gNetDispatch.Start();
+        }
+    } else {
+        KFS_LOG_STREAM_FATAL <<
+            "failed to bind to port " <<
+            mClientPort << " or " << mChunkServerPort <<
+        KFS_LOG_EOM;
     }
-
-    KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
-    // The following only returns after receiving SIGQUIT.
-    const bool okFlag = gNetDispatch.Start(mClientPort, mChunkServerPort);
     gLayoutManager.Shutdown();
-        AuditLog::Stop();
-    MdStream::Cleanup();
-
     return okFlag;
 }
 
@@ -523,7 +525,7 @@ MetaServer::Startup(bool createEmptyFsFlag)
 }
 
 int
-main(int argc, char **argv)
+main(int argc, char** argv)
 {
     return KFS::MetaServer::Run(argc, argv);
 }

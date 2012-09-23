@@ -52,11 +52,20 @@ public:
         {}
     virtual ~ChunkServerFactory()
         { delete mAcceptor; }
-    /// Start an acceptor to listen on the specified port.
-    bool StartAcceptor(int port)
+    bool Bind(int port)
     {
         delete mAcceptor;
-        mAcceptor = new Acceptor(port, this);
+        const bool kBindOnlyFlag = true;
+        mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
+        return mAcceptor->IsAcceptorStarted();
+    }
+    /// Start an acceptor to listen on the specified port.
+    bool StartAcceptor()
+    {
+        if (! mAcceptor) {
+            return false;
+        }
+        mAcceptor->StartListening();
         return mAcceptor->IsAcceptorStarted();
     }
     /// Callback that gets invoked whenever a chunkserver

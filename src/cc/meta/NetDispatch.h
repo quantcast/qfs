@@ -47,7 +47,8 @@ class NetDispatch
 public:
     NetDispatch();
     ~NetDispatch();
-    bool Start(int clientAcceptPort, int chunkServerAcceptPort);
+    bool Bind(int clientAcceptPort, int chunkServerAcceptPort);
+    bool Start();
     //!< Dispatch completed request.
     void Dispatch(MetaRequest* r);
     void SetParameters(const Properties& props);

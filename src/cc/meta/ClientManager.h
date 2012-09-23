@@ -47,7 +47,8 @@ public:
 
     ClientManager();
     virtual ~ClientManager();
-    bool StartAcceptor(int port, int threadCount, int startCpuAffinity);
+    bool Bind(int port);
+    bool StartAcceptor(int threadCount, int startCpuAffinity);
     void Shutdown();
     void ChildAtFork();
     QCMutex& GetMutex();

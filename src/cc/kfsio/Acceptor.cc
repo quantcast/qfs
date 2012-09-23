@@ -87,7 +87,7 @@ Acceptor::Bind()
     const int res = sock->Bind(mPort);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "Unable to bind to port: " << mPort <<
+            "failed to bind to port: " << mPort <<
             " error: " << QCUtils::SysError(-res) <<
         KFS_LOG_EOM;
         delete sock;
@@ -108,6 +108,7 @@ void
 Acceptor::StartListening()
 {
     if (! mConn || ! mNetManager.IsRunning() || ! mConn->IsGood()) {
+        mConn.reset();
         return;
     }
     mConn->EnableReadIfOverloaded();
@@ -133,6 +134,8 @@ Acceptor::RecvConnection(int code, void* data)
         case EVENT_NEW_CONNECTION:
         break;
         case EVENT_NET_ERROR:
+            // Under normal circumstances it would here only with network error
+            // simulator enabled.
             KFS_LOG_STREAM_INFO <<
                 "acceptor on port: " << mPort <<
                 " error: " <<
@@ -147,6 +150,10 @@ Acceptor::RecvConnection(int code, void* data)
                 Bind();
                 StartListening();
                 if (! IsAcceptorStarted()) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "failed to restart acceptor on port: " << mPort <<
+                    KFS_LOG_EOM;
+                    MsgLogger::Stop();
                     abort();
                 }
             }
@@ -158,15 +165,17 @@ Acceptor::RecvConnection(int code, void* data)
         return 0;
         default:
             KFS_LOG_STREAM_FATAL <<
-                "Unexpected event code: " << code <<
+                "invalid event code: " << code <<
             KFS_LOG_EOM;
+            MsgLogger::Stop();
             abort();
-        break;
+        return 0;
     }
     if (! data) {
         KFS_LOG_STREAM_FATAL <<
-            "Unexpected null argument, event code: " << code <<
+            "invalid null argument, event code: " << code <<
         KFS_LOG_EOM;
+        MsgLogger::Stop();
         abort();
     }
     NetConnectionPtr& conn = *reinterpret_cast<NetConnectionPtr*>(data);
