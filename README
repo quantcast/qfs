@@ -76,7 +76,7 @@ means.
     $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
     $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -k /tmp/HW.dat -d -
     $ qfscat -s localhost -p 20000 /tmp/HW.dat
-    $ qfsshell -s localhost -p 20000 -q "rm /tmp/HW.dat"
+    $ qfsshell -s localhost -p 20000 -q -- rm /tmp/HW.dat
 
 * If you built the QFS FUSE client, then you can mount the QFS at a local mount
   point by,
