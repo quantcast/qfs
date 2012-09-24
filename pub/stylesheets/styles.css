@@ -96,6 +96,9 @@ th {
 
 img {
   max-width:100%;
+  border:1px solid #46B4FF;
+  border-radius: 5px;
+  box-shadow: 5px 5px 2px #AAAAAA;
 }
 
 header {
