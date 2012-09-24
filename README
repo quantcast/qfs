@@ -94,9 +94,10 @@ means.
 Benchmarking QFS
 ================
 
-We have done some performance benchmarking of QFS. The QFS metaserver benchmark
-and a corresponding Hadoop HDFS namenode benchmark is present in directory
-~/code/qfs/benchmarks/mstress.
+A performance comparison between QFS and HDFS 1.0.2 shows QFS is faster both at
+reading and writing 20 TB of uncompressed data on our test system,
+a heterogeneous cluster with 6,500 disk drives.
+See more at https://github.com/quantcast/qfs/wiki/Benchmarking.
 
 
 License
