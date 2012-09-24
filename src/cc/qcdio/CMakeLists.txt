@@ -50,6 +50,8 @@ set_target_properties (qcdio PROPERTIES OUTPUT_NAME "qfs_qcdio")
 set_target_properties (qcdio PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qcdio-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
+target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
+
 install (TARGETS qcdio qcdio-shared
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)
