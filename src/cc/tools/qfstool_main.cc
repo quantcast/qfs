@@ -152,6 +152,7 @@ private:
         GlobResult&  outResult)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
+        int theRet = 0;
         for (int i = 0; i < inArgCount; i++) {
             const string theArg   = inArgsPtr[i];
             FileSystem*  theFsPtr = 0;
@@ -160,17 +161,18 @@ private:
             if (theErr) {
                 cerr << theArg <<
                     ": " << FileSystem::GetStrError(theErr) << "\n";
-                return theErr;
+                theRet = theErr;
+                continue;
             }
             glob_t    theGlobRes = {0};
             const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
-            const int theRet     = theFsPtr->Glob(
+            theErr = theFsPtr->Glob(
                 thePath,
                 kGlobFlags,
                 0, // the err func.
                 &theGlobRes
             );
-            if (theRet == 0) {
+            if (theErr == 0) {
                 outResult.resize(outResult.size() + 1);
                 outResult.back().first = theFsPtr;
                 string thePrefix;
@@ -179,7 +181,9 @@ private:
                     if ((theErr = theFsPtr->GetCwd(theCwd))) {
                         cerr << theArg <<
                             ": " << theFsPtr->StrError(theErr) << "\n";
-                        return theErr;
+                        globfree(&theGlobRes);
+                        theRet = theErr;
+                        continue;
                     }
                     thePrefix += theCwd;
                     if (! thePrefix.empty() && *thePrefix.rbegin() != '/' &&
@@ -195,37 +199,35 @@ private:
                     theResult.push_back(thePrefix + theGlobRes.gl_pathv[i]);
                 }
             } else {
-                cerr << inArgsPtr[i] << ": " << GlobError(theRet) <<
-                    " " << theRet << "\n";
+                cerr << inArgsPtr[i] << ": " << GlobError(theErr) <<
+                    " " << theErr << "\n";
             }
             globfree(&theGlobRes);
-            if (theRet != 0) {
-                return theRet;
+            if (theErr != 0) {
+                theRet = theErr;
             }
         }
-        return 0;
+        return theRet;
     }
     int Cat(
         char** inArgsPtr,
         int    inArgCount)
     {
         GlobResult theResult;
-        const int theErr = Glob(inArgsPtr, inArgCount, theResult);
-        if (theErr) {
-            return theErr;
-        }
+        int theErr = Glob(inArgsPtr, inArgCount, theResult);
         for (GlobResult::const_iterator theFsIt = theResult.begin();
                 theFsIt != theResult.end();
                 ++theFsIt) {
             FileSystem& theFs = *(theFsIt->first);
             for (vector<string>::const_iterator theIt = theFsIt->second.begin();
-                    theIt != theFsIt->second.end();
+                    theIt != theFsIt->second.end() && cout;
                     ++theIt) {
                 const int theFd = theFs.Open(*theIt, O_RDONLY, 0);
                 if (theFd < 0) {
                     cerr << theFs.GetUri() << *theIt <<
                         ": " << theFs.StrError(theFd) << "\n";
-                    return theFd;
+                    theErr = theFd;
+                    continue;
                 }
                 int theErr = 0;
                 for (; ;) {
@@ -248,12 +250,9 @@ private:
                     }
                 }
                 theFs.Close(theFd);
-                if (theErr != 0) {
-                    return theErr;
-                }
             }
         }
-        return 0;
+        return theErr;
     }
 private:
     size_t mIoBufferSize;
