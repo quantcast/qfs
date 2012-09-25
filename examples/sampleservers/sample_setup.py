@@ -104,11 +104,24 @@ def check_binaries(releaseDir, sourceDir):
 
 def check_port(port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         s.bind(('localhost', port))
         del s
     except socket.error, err:
         sys.exit('aborting, port %d already in use (%s)' % (port, str(err)))
+
+def check_ports(config):
+    portsToCheck = []
+    portsToCheck.append(config.getint('metaserver', 'clientport'))
+    portsToCheck.append(config.getint('metaserver', 'chunkport'))
+    portsToCheck.append(config.getint('webui', 'webport'))
+    for section in config.sections():
+        if section.startswith('chunkserver'):
+            portsToCheck.append(config.getint(section, 'chunkport'))
+    for p in portsToCheck:
+        check_port(p)
+
 
 def kill_running_program(binaryPath):
     if sys.platform in ('darwin', 'Darwin'):
@@ -473,6 +486,10 @@ def start_servers(config, whichServers = 'all'):
             if run_command(command) > 0:
                 print '*** metaserver failed to start'
                 error = 1
+            else:
+                print 'Meta server started, listening on %s:%d' %(
+                    config.get('metaserver', 'hostname'),
+                    config.getint('metaserver', 'clientport'))
 
     if startChunk:
         kill_running_program(Globals.CHUNKSERVER)
@@ -535,11 +552,9 @@ if __name__ == '__main__':
         do_cleanup(config, opts.action == 'uninstall')
         posix._exit(0)
 
-    check_port(20000)
-    check_port(21001)
-    check_port(21002)
-    check_port(22000)
-    setup_directories(config)
-    setup_config_files(config)
-    copy_files(config, opts.source_dir)
+    check_ports(config)
+    if opts.action == 'install':
+        setup_directories(config)
+        setup_config_files(config)
+        copy_files(config, opts.source_dir)
     start_servers(config)
