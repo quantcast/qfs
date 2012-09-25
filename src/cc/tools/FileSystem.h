@@ -66,6 +66,9 @@ public:
         const string& inUri,
         FileSystem*&  outFsPtr,
         string*       outPathPtr = 0);
+    static string GetStrError(
+        int               inErr,
+        const FileSystem* inFsPtr = 0);
     virtual int Chdir(
         const string& inDir) = 0;
     virtual int GetCwd(
@@ -127,7 +130,7 @@ public:
         string&  outUserName,
         string&  outGroupName) = 0;
     virtual string StrError(
-        int inError) = 0;
+        int inError) const = 0;
     virtual string GetUri() const = 0;
 protected:
     virtual ~FileSystem()

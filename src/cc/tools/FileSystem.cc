@@ -287,7 +287,7 @@ public:
         string&  outUserName,
         string&  outGroupName);
     virtual string StrError(
-        int inError)
+        int inError) const
     {
         return QCUtils::SysError(inError < 0 ? -inError : inError);
     }
@@ -383,7 +383,12 @@ public:
         int          thePort = 20000;
         const size_t thePos  = theHostPort.find(':');
         if (thePos != string::npos) {
-            thePort = atoi(theHostPort.c_str() + thePos + 1);
+            char* theEndPtr = 0;
+            thePort = (int)strtol(
+                theHostPort.c_str() + thePos + 1, &theEndPtr, 10);
+            if (! theEndPtr || *theEndPtr != 0) {
+                return -EINVAL;
+            }
         }
         return KfsClient::Init(theHostPort.substr(0, thePos), thePort);
     }
@@ -539,7 +544,7 @@ public:
             inErrFuncPtr, inGlobPtr);
     }
     virtual string StrError(
-        int inError)
+        int inError) const
     {
         return ErrorCodeToStr(inError);
     }
@@ -550,7 +555,7 @@ private:
         const KfsFileSystem& inFileSystem);
 };
 
-static QCMutex&
+    static QCMutex&
 GetFsMutex()
 {
     static QCMutex sMutex;
@@ -586,7 +591,7 @@ public:
     }
 };
 
-static string&
+    static string&
 GetDefaultFsUri()
 {
     static string sDefaultFsUri;
@@ -610,7 +615,7 @@ FileSystem::SetDefault(
     return theRet;
 }
 
-/* static */ int
+    /* static */ int
 FileSystem::Get(
     const string& inUri,
     FileSystem*&  outFsPtr,
@@ -677,6 +682,14 @@ FileSystem::Get(
     }
     outFsPtr = theImplPtr;
     return theRet;
+}
+
+    /* static */ string
+FileSystem::GetStrError(
+    int               inError,
+    const FileSystem* inFsPtr /* = 0 */)
+{
+    return (inFsPtr ? inFsPtr->StrError(inError) : QCUtils::SysError(-inError));
 }
 
 } //namespace tools

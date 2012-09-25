@@ -30,9 +30,14 @@
 
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <string>
+#include <vector>
 #include <iostream>
+#include <algorithm>
 
 namespace KFS
 {
@@ -42,13 +47,21 @@ namespace tools
 using std::string;
 using std::cout;
 using std::cerr;
-using std::ostringstream;
+using std::vector;
+using std::pair;
+using std::max;
 
 class KfsTool
 {
 public:
     KfsTool()
+        : mIoBufferSize(6 << 20),
+          mIoBufferPtr(new char[mIoBufferSize])
         {}
+    ~KfsTool()
+    {
+        delete [] mIoBufferPtr;
+    }
     int Run(
         int    inArgCount,
         char** inArgsPtr)
@@ -98,39 +111,20 @@ public:
             }
             const int theErr = FileSystem::SetDefault(theUri);
             if (theErr != 0) {
-                cerr << theUri << ": " << QCUtils::SysError(theErr) << "\n";
+                cerr << theUri << ": " <<
+                    FileSystem::GetStrError(-theErr) << "\n";
                 return 1;
             }
         }
         int theErr = 0;
-        for (int i = optind; i < inArgCount; i++) {
-            const string theArg   = inArgsPtr[i];
-            FileSystem*  theFsPtr = 0;
-            string       thePath;
-            theErr = FileSystem::Get(theArg, theFsPtr, &thePath);
-            if (theErr) {
-                cerr << theArg << ": " << QCUtils::SysError(theErr) << "\n";
-                break;
-            }
-            glob_t    theGlobRes = {0};
-            const int kGlobFlags = 0;
-            const int theRet     = theFsPtr->Glob(
-                thePath,
-                kGlobFlags,
-                0, // the err func.
-                &theGlobRes
-            );
-            if (theRet == 0) {
-                cout << inArgsPtr[i] << ": found: " <<
-                    theGlobRes.gl_pathc << " matches\n";
-                for (size_t i = 0; i < theGlobRes.gl_pathc; i++) {
-                    cout << theGlobRes.gl_pathv[i] << "\n";
-                }
+        if (optind < inArgCount) {
+            const char* const theCmdPtr = inArgsPtr[optind];
+            if (strcmp(theCmdPtr, "-cat") == 0) {
+                theErr = Cat(inArgsPtr + optind + 1, inArgCount - optind - 1);
             } else {
-                cout << inArgsPtr[i] << ": " << GlobError(theRet) <<
-                    " " << theRet << "\n";
+                cerr << "unsupported option: " << theCmdPtr << "\n";
+                theErr = EINVAL;
             }
-            globfree(&theGlobRes);
         }
         return (theErr == 0 ? 0 : 1);
     }
@@ -151,6 +145,119 @@ private:
                 return "unspecified error";
         }
     }
+    typedef vector<pair<FileSystem*, vector<string> > > GlobResult;
+    static int Glob(
+        char**       inArgsPtr,
+        int          inArgCount,
+        GlobResult&  outResult)
+    {
+        outResult.reserve(outResult.size() + max(0, inArgCount));
+        for (int i = 0; i < inArgCount; i++) {
+            const string theArg   = inArgsPtr[i];
+            FileSystem*  theFsPtr = 0;
+            string       thePath;
+            int          theErr   = FileSystem::Get(theArg, theFsPtr, &thePath);
+            if (theErr) {
+                cerr << theArg <<
+                    ": " << FileSystem::GetStrError(theErr) << "\n";
+                return theErr;
+            }
+            glob_t    theGlobRes = {0};
+            const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
+            const int theRet     = theFsPtr->Glob(
+                thePath,
+                kGlobFlags,
+                0, // the err func.
+                &theGlobRes
+            );
+            if (theRet == 0) {
+                outResult.resize(outResult.size() + 1);
+                outResult.back().first = theFsPtr;
+                string thePrefix;
+                if (thePath.empty() || thePath[0] != '/') {
+                    string theCwd;
+                    if ((theErr = theFsPtr->GetCwd(theCwd))) {
+                        cerr << theArg <<
+                            ": " << theFsPtr->StrError(theErr) << "\n";
+                        return theErr;
+                    }
+                    thePrefix += theCwd;
+                    if (! thePrefix.empty() && *thePrefix.rbegin() != '/' &&
+                            (theGlobRes.gl_pathc > 1 ||
+                            (theGlobRes.gl_pathc == 1 && 
+                            theGlobRes.gl_pathv[0][0] != 0))) {
+                        thePrefix += "/";
+                    }
+                }
+                vector<string>& theResult = outResult.back().second;
+                theResult.reserve(theGlobRes.gl_pathc);
+                for (size_t i = 0; i < theGlobRes.gl_pathc; i++) {
+                    theResult.push_back(thePrefix + theGlobRes.gl_pathv[i]);
+                }
+            } else {
+                cerr << inArgsPtr[i] << ": " << GlobError(theRet) <<
+                    " " << theRet << "\n";
+            }
+            globfree(&theGlobRes);
+            if (theRet != 0) {
+                return theRet;
+            }
+        }
+        return 0;
+    }
+    int Cat(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        GlobResult theResult;
+        const int theErr = Glob(inArgsPtr, inArgCount, theResult);
+        if (theErr) {
+            return theErr;
+        }
+        for (GlobResult::const_iterator theFsIt = theResult.begin();
+                theFsIt != theResult.end();
+                ++theFsIt) {
+            FileSystem& theFs = *(theFsIt->first);
+            for (vector<string>::const_iterator theIt = theFsIt->second.begin();
+                    theIt != theFsIt->second.end();
+                    ++theIt) {
+                const int theFd = theFs.Open(*theIt, O_RDONLY, 0);
+                if (theFd < 0) {
+                    cerr << theFs.GetUri() << *theIt <<
+                        ": " << theFs.StrError(theFd) << "\n";
+                    return theFd;
+                }
+                int theErr = 0;
+                for (; ;) {
+                    const ssize_t theNRead =
+                        theFs.Read(theFd, mIoBufferPtr, mIoBufferSize);
+                    if (theNRead == 0) {
+                        break;
+                    }
+                    if (theNRead < 0) {
+                        theErr = (int)theNRead;
+                        cerr << theFs.GetUri() << *theIt <<
+                            ": " << theFs.StrError(theErr) << "\n";
+                        break;
+                    }
+                    if (! cout.write(mIoBufferPtr, theNRead)) {
+                        theErr = errno;
+                        cerr << theFs.GetUri() << *theIt <<
+                            ": stdout: " << QCUtils::SysError(theFd) << "\n";
+                        break;
+                    }
+                }
+                theFs.Close(theFd);
+                if (theErr != 0) {
+                    return theErr;
+                }
+            }
+        }
+        return 0;
+    }
+private:
+    size_t mIoBufferSize;
+    char*  mIoBufferPtr;
 private:
     KfsTool(const KfsTool& inTool);
     KfsTool& operator=(const KfsTool& inTool);
@@ -165,4 +272,3 @@ main(int argc, char** argv)
     KFS::tools::KfsTool theTool;
     return theTool.Run(argc, argv);
 }
-
