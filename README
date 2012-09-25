@@ -48,8 +48,9 @@ port, chunk placement groups for replication, the location of transaction
 logs and checkpoints and so on. The chunk server is configured with the port
 of the metaserver, path to copy the chunks and so on.
 
-An easy set up of QFS has been provided in the example, where a metaserver and
-two chunk servers are launched, all on a single node. To do this setup,
+An easy set up of QFS has been provided in the examples/ directory, where a
+metaserver and two chunk servers are launched, all on the same node. To do this
+setup,
     $ cd ~/code/qfs
     $ make
     $ examples/sampleservers/sample_setup.py -a install
@@ -58,8 +59,10 @@ under ~/qfsbase/ directory.
 
 In this example setup, the metaserver listens on the filesystem port 20000 and
 the webserver for monitoring filesystem listens on port 22000. Note that in
-practice one chunkserver is deployed per filesystem per host, and therefore
-the total and used spaces reported in the web UI is counted twice.
+practice one chunkserver is deployed per QFS instance per host, but for the
+purpose of illustration, this example setup uses two chunkservers per host.
+Hence the capacity statistics are counted twice and reported as such via the
+web UI at http://localhost:22000
 
 For a more practical setup of QFS, please refer to the QFS Wiki documents at
 https://github.com/quantcast/qfs/wiki/Deployment-Guide
@@ -76,7 +79,7 @@ means.
     $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
     $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -k /tmp/HW.dat -d -
     $ qfscat -s localhost -p 20000 /tmp/HW.dat
-    $ qfsshell -s localhost -p 20000 -q "rm /tmp/HW.dat"
+    $ qfsshell -s localhost -p 20000 -q -- rm /tmp/HW.dat
 
 * If you built the QFS FUSE client, then you can mount the QFS at a local mount
   point by,
@@ -94,9 +97,10 @@ means.
 Benchmarking QFS
 ================
 
-We have done some performance benchmarking of QFS. The QFS metaserver benchmark
-and a corresponding Hadoop HDFS namenode benchmark is present in directory
-~/code/qfs/benchmarks/mstress.
+A performance comparison between QFS and HDFS 1.0.2 shows QFS is faster both at
+reading and writing 20 TB of uncompressed data on our test system,
+a heterogeneous cluster with 6,500 disk drives.
+See more at https://github.com/quantcast/qfs/wiki/Benchmarking.
 
 
 License
