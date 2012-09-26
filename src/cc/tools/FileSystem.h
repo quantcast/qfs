@@ -49,8 +49,24 @@ public:
     {
     public:
         StatBuf()
-            : stat()
+            : stat(),
+              mSubCount1(-1),
+              mSubCount2(-1),
+              mNumReplicas(-1),
+              mNumStripes(-1),
+              mNumRecoveryStripes(-1),
+              mStriperType(-1),
+              mStripeSize(-1)
             {}
+        void Reset()
+            { *this = StatBuf(); }
+        int64_t mSubCount1; /// chunk in the file or files in directory count
+        int64_t mSubCount2; /// directories count
+        int16_t mNumReplicas;
+        int16_t mNumStripes;
+        int16_t mNumRecoveryStripes;
+        int32_t mStriperType;
+        int32_t mStripeSize;
     };
     class DirIterator
     {

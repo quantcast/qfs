@@ -36,6 +36,7 @@
 
 #include <string>
 #include <vector>
+#include <ostream>
 #include <iostream>
 #include <algorithm>
 
@@ -50,6 +51,7 @@ using std::cerr;
 using std::vector;
 using std::pair;
 using std::max;
+using std::ostream;
 
 class KfsTool
 {
@@ -121,6 +123,14 @@ public:
             const char* const theCmdPtr = inArgsPtr[optind];
             if (strcmp(theCmdPtr, "-cat") == 0) {
                 theErr = Cat(inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-ls") == 0) {
+                const bool kRecursiveFlag = false;
+                theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                    kRecursiveFlag);
+            } else if (strcmp(theCmdPtr, "-ls") == 0) {
+                const bool kRecursiveFlag = true;
+                theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                    kRecursiveFlag);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -209,50 +219,156 @@ private:
         }
         return theRet;
     }
-    int Cat(
+    template <typename FuncT> int Apply(
         char** inArgsPtr,
-        int    inArgCount)
+        int    inArgCount,
+        FuncT& inFunctor)
     {
         GlobResult theResult;
-        int theErr = Glob(inArgsPtr, inArgCount, theResult);
+        const int theErr = Glob(inArgsPtr, inArgCount, theResult);
         for (GlobResult::const_iterator theFsIt = theResult.begin();
                 theFsIt != theResult.end();
                 ++theFsIt) {
             FileSystem& theFs = *(theFsIt->first);
             for (vector<string>::const_iterator theIt = theFsIt->second.begin();
-                    theIt != theFsIt->second.end() && cout;
+                    theIt != theFsIt->second.end();
                     ++theIt) {
-                const int theFd = theFs.Open(*theIt, O_RDONLY, 0);
-                if (theFd < 0) {
-                    cerr << theFs.GetUri() << *theIt <<
-                        ": " << theFs.StrError(theFd) << "\n";
-                    theErr = theFd;
-                    continue;
+                if (! inFunctor.Apply(theFs, *theIt)) {
+                    return inFunctor.GetStatus();
                 }
-                int theErr = 0;
-                for (; ;) {
-                    const ssize_t theNRead =
-                        theFs.Read(theFd, mIoBufferPtr, mIoBufferSize);
-                    if (theNRead == 0) {
-                        break;
-                    }
-                    if (theNRead < 0) {
-                        theErr = (int)theNRead;
-                        cerr << theFs.GetUri() << *theIt <<
-                            ": " << theFs.StrError(theErr) << "\n";
-                        break;
-                    }
-                    if (! cout.write(mIoBufferPtr, theNRead)) {
-                        theErr = errno;
-                        cerr << theFs.GetUri() << *theIt <<
-                            ": stdout: " << QCUtils::SysError(theFd) << "\n";
-                        break;
-                    }
-                }
-                theFs.Close(theFd);
             }
         }
-        return theErr;
+        const int theStatus = inFunctor.GetStatus();
+        return (theStatus != 0 ? theStatus : theErr);
+    }
+    class CatFunctor
+    {
+    public:
+        CatFunctor(
+            ostream&    inOutStream,
+            const char* inOutStreamNamePtr,
+            ostream&    inErrorStream,
+            size_t      inIoBufferSize,
+            char*       inIoBufferPtr)
+            : mOutStream(inOutStream),
+              mOutStreamNamePtr(inOutStreamNamePtr ? mOutStreamNamePtr : ""),
+              mErrorStream(inErrorStream),
+              mIoBufferSize(inIoBufferSize),
+              mIoBufferPtr(inIoBufferPtr),
+              mStatus(0)
+            {}
+        bool Apply(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            if (! mOutStream) {
+                return false;
+            }
+            const int theFd = inFs.Open(inPath, O_RDONLY, 0);
+            if (theFd < 0) {
+                mErrorStream << inFs.GetUri() << inPath <<
+                    ": " << inFs.StrError(theFd) << "\n";
+                mStatus = theFd;
+                return true;
+            }
+            for (; ;) {
+                const ssize_t theNRead =
+                    inFs.Read(theFd, mIoBufferPtr, mIoBufferSize);
+                if (theNRead == 0) {
+                    break;
+                }
+                if (theNRead < 0) {
+                    mStatus = (int)theNRead;
+                    mErrorStream << inFs.GetUri() << inPath <<
+                        ": " << inFs.StrError(mStatus) << "\n";
+                    break;
+                }
+                if (! mOutStream.write(mIoBufferPtr, theNRead)) {
+                    mStatus = errno;
+                    mErrorStream << inFs.GetUri() << inPath <<
+                        ": " << mOutStreamNamePtr <<
+                        QCUtils::SysError(mStatus) << "\n";
+                    break;
+                }
+            }
+            inFs.Close(theFd);
+            return true;
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        ostream&          mOutStream;
+        const char* const mOutStreamNamePtr;
+        ostream&          mErrorStream;
+        const size_t      mIoBufferSize;
+        char* const       mIoBufferPtr;
+        int               mStatus;
+    private:
+        CatFunctor(
+            const CatFunctor& inFunctor);
+        CatFunctor& operator=(
+            const CatFunctor& inFunctor);
+    };
+    int Cat(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        CatFunctor theFunc(cout, "stdout", cerr, mIoBufferSize, mIoBufferPtr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class ListFunctor
+    {
+    public:
+        ListFunctor(
+            ostream&    inOutStream,
+            const char* inOutStreamNamePtr,
+            ostream&    inErrorStream,
+            bool        inRecursiveFlag)
+            : mOutStream(inOutStream),
+              mOutStreamNamePtr(inOutStreamNamePtr ? mOutStreamNamePtr : ""),
+              mErrorStream(inErrorStream),
+              mRecursiveFlag(inRecursiveFlag),
+              mStat(),
+              mStatus(0)
+            {}
+        bool Apply(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            if (! mOutStream) {
+                return false;
+            }
+            const int theErr = inFs.Stat(inPath, mStat);
+            if (theErr != 0) {
+                cerr << inFs.GetUri() << inPath <<
+                    ": " << inFs.StrError(theErr) << "\n";
+                mStatus = theErr;
+                return true;
+            }
+            return true;
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        ostream&            mOutStream;
+        const char* const   mOutStreamNamePtr;
+        ostream&            mErrorStream;
+        const bool          mRecursiveFlag;
+        FileSystem::StatBuf mStat;
+        int                 mStatus;
+    private:
+        ListFunctor(
+            const ListFunctor& inFunctor);
+        ListFunctor& operator=(
+            const ListFunctor& inFunctor);
+    };
+    int List(
+        char** inArgsPtr,
+        int    inArgCount,
+        bool   inRecursiveFlag)
+    {
+        ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
+        return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
     size_t mIoBufferSize;

@@ -214,9 +214,10 @@ public:
     }
     virtual int Stat(
         const string& inFileName,
-        StatBuf&      outStat)
+        StatBuf&      outStatBuf)
     {
-        return Errno(stat(inFileName.c_str(), &outStat));
+        outStatBuf.Reset();
+        return Errno(stat(inFileName.c_str(), &outStatBuf));
     }
     virtual int Open(
         const string& inDirName,
@@ -321,6 +322,13 @@ public:
         StatBuf&           outStatBuf)
     {
         inAttr.ToStat(outStatBuf);
+        outStatBuf.mSubCount1          = inAttr.subCount1;
+        outStatBuf.mSubCount2          = inAttr.subCount2;
+        outStatBuf.mNumReplicas        = inAttr.numReplicas;
+        outStatBuf.mNumStripes         = inAttr.numStripes;
+        outStatBuf.mNumRecoveryStripes = inAttr.numRecoveryStripes;
+        outStatBuf.mStriperType        = inAttr.striperType;
+        outStatBuf.mStripeSize         = inAttr.stripeSize;
     }
     class KfsDirIterator : public DirIterator
     {
