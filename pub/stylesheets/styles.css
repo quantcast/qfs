@@ -95,7 +95,7 @@ th {
 }
 
 img {
-  max-width:100%;
+  width:300px;
   border:1px solid #f0f0f0;
   border-radius: 5px;
   box-shadow: 5px 5px 2px #AAAAAA;
