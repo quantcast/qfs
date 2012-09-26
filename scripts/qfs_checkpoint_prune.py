@@ -19,8 +19,8 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# \file qfsprune.py
-# \brief QFS log and checkpoint housekeeping
+# \file qfs_checkpoint_prune.py
+# \brief QFS checkpoint housekeeping
 #
 # Housekeeping script to clean up the KFS checkpoint and log files,
 # which would otherwise accumulate without limit.  Looks for all

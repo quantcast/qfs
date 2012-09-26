@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 #
-# $Id: metalogprune.py 117 2008-08-05 20:51:44Z sriramsrao $
-#
 # Copyright 2008 Quantcast Corp.
 #
 # This file is part of Kosmos File System (KFS).
@@ -18,8 +16,8 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# \file metalogprune.py
-# \brief KFS log and checkpoint housekeeping
+# \file qfs_log_prune.py
+# \brief KFS transaction log housekeeping
 #
 # We gzip and keep all the old log files around.  This is a bit of an
 # overkill---we can prune away files that are no longer referenced by
