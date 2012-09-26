@@ -42,9 +42,8 @@ add_executable (chunkserver
     DirChecker.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
-add_executable (chunktrimmer chunktrimmer_main.cc)
 
-set (exe_files chunkserver chunkscrubber chunktrimmer)
+set (exe_files chunkserver chunkscrubber)
 
 foreach (exe_file ${exe_files})
         if (USE_STATIC_LIB_LINKAGE)
