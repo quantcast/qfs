@@ -72,6 +72,7 @@ tarball: release
 	mkdir "tmpreldir/$$tarname" && \
 	cp -r release/bin release/lib release/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
+	cp ./qfs-*.jar "tmpreldir/$$tarname/lib/" && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
