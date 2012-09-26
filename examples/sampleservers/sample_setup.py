@@ -373,6 +373,21 @@ def setup_directories(config):
             mkdir_p(webDir + '/docroot')
     print 'Setup directories - OK.'
 
+
+def check_directories(config):
+    metaRunDir = None
+    webDir = None
+    if config.has_section('metaserver'):
+        metaRunDir = config.get('metaserver', 'rundir')
+    if config.has_section('webui'):
+        webDir = config.get('webui', 'rundir')
+    if not metaRunDir or not webDir:
+        sys.exit('Malformed config file.')
+    if not os.path.exists(metaRunDir) or not os.path.exists(webDir): 
+        sys.exit('Cannot start without install. Please run with "-a install" first.')
+    print 'Check directories - OK.'
+
+
 def setup_config_files(config):
     if 'metaserver' not in config.sections():
         sys.exit('Required metaserver section not found in config')
@@ -557,4 +572,6 @@ if __name__ == '__main__':
         setup_directories(config)
         setup_config_files(config)
         copy_files(config, opts.source_dir)
+    elif opts.action == 'start':
+        check_directories(config)
     start_servers(config)
