@@ -18,8 +18,9 @@ Compiling QFS
   have been tested on 64-bit CentOS 6 extensively and run on Linux variants.
   The QFS client tools work on OS X and Cygwin as well.
 
-* Pre-requisites: cmake, make(preferably, version 2.4.7 or higher), git, g++,
+* Pre-requisites: g++, make, cmake(preferably, version 2.4.7 or higher),
                   boost-devel(preferably, version 1.3.4 or higher),
+                  git(preferably, version 1.7.10 or higher),
                   xfsprogs-devel, libuuid-devel, openssl-devel, jdk,
                   java-devel, ant.
 
@@ -38,7 +39,7 @@ Compiling QFS
     $ cd ~/code/qfs
     $ make test-release
   Note that this test takes a few minutes to complete.
-  
+
 
 Setting Up QFS
 ==============
