@@ -54,7 +54,7 @@ mkdir -p %{buildroot}%{_install_prefix}/sbin
 mkdir -p %{buildroot}%{_install_prefix}/conf
 install -m 755 %{_sourcedir}/qfs/build/release/bin/metaserver %{buildroot}%{_install_prefix}/bin
 install -m 755 %{_sourcedir}/qfs/build/release/bin/filelister %{buildroot}%{_install_prefix}/bin
-install -m 755 %{_sourcedir}/qfs/build/release/bin/kfsfsck %{buildroot}%{_install_prefix}/bin
+install -m 755 %{_sourcedir}/qfs/build/release/bin/qfsfsck %{buildroot}%{_install_prefix}/bin
 install -m 755 %{_sourcedir}/qfs/build/release/bin/logcompactor %{buildroot}%{_install_prefix}/bin
 cp -a %{_sourcedir}/qfs/webui %{buildroot}%{_install_prefix}/
 install -m 644 %{_sourcedir}/qfs/package/conf/MetaServer.prp %{buildroot}%{_install_prefix}/conf
