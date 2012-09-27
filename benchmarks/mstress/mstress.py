@@ -304,6 +304,7 @@ def RunMStressSlave(opts, clientsPerHost):
     print 'Slave: args = %r' % args
     p = subprocess.Popen(args,
                          shell=True,
+                         executable='/bin/bash',
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
     running_procs.append(p)
