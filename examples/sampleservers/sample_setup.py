@@ -252,9 +252,7 @@ Actions:
 Hello World example of a client session:
   # Install sample server setup, only needed once.
   ./examples/sampleservers/sample_setup.py -a install
-  # Start QFS servers locally (1 metaserver, 2 chunkservers).
-  ./examples/sampleservers/sample_setup.py -a start
-  PATH=${PWD}/build/release/bin/tools:${PATH}
+  PATH=<bin-tools-path>:${PATH}
   # Make temp directory.
   qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
   # Create file containing Hello World, Reed-Solomon encoded, replication 1.
