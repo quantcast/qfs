@@ -68,14 +68,26 @@ fi
 
 [ -z "$JAVA_HOME" ] && echo "Need JAVA_HOME to be set." && exit 1
 
-make_args="ccclient"
+mstress_dir="$(cd `dirname "$0"` && pwd)"
+cd "$mstress_dir"
+baseDir="$mstress_dir/../.."
+
+make_flags=""
+if [ -d "$baseDir/include" ]; then
+  echo "Running from tarball."
+  makeFlags="KFS_BUILD_INCLUDE=$baseDir/include KFS_BUILD_STATLIB=$baseDir/lib/static"
+else
+  echo "Running from source tree."
+fi
+
+make_args="${makeFlags} ccclient"
 if grep -q hdfs <<<"$SERVER_ARGS"; then
-  make_args="all"
+  make_args="${makeFlags} all"
   ./mstress_initialize.sh
   [ $? -ne 0 ] && echo "Failed to prepare hdfs client jars. Please verify hadoop hdfs namenode is installed." && exit 1
 fi
 
-make "$make_args"
+make $make_args
 [ $? -ne 0 ] && echo "Failed to compile mstress clients." && exit 1
 
 ./mstress_prepare_master_clients.sh localhost
