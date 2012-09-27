@@ -129,9 +129,7 @@ http://groups.google.com/group/qfs-devel
 Post comments, questions, patches, or bug-reports to
 qfs-devel@googlegroups.com
 
-
 License
 =======
 
 QFS is released under the Apache 2.0 license.
-
