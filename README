@@ -34,6 +34,11 @@ Compiling QFS
   over the build process, please refer to the Wiki pages at
   https://github.com/quantcast/qfs/wiki/Developer-Documentation
 
+* To test the QFS binaries,
+    $ cd ~/code/qfs
+    $ make test-release
+  Note that this test takes a few minutes to complete.
+  
 
 Setting Up QFS
 ==============
