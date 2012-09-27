@@ -1,7 +1,6 @@
-diff --git a/ivy.xml b/ivy.xml
-index ca87608..6b34081 100644
---- a/ivy.xml
-+++ b/ivy.xml
+diff -urN h102.orig/ivy.xml hadoop-1.0.2/ivy.xml
+--- h102.orig/ivy.xml	2012-03-24 17:01:40.000000000 -0700
++++ hadoop-1.0.2/ivy.xml	2012-09-26 20:13:47.190331016 -0700
 @@ -30,7 +30,7 @@
      <conf name="default" extends="master,runtime"/>
      <conf name="master" description="contains the artifact but no dependencies"/>
@@ -28,11 +27,10 @@ index ca87608..6b34081 100644
        description="the classpath needed to run tests"/>
      <conf name="releaseaudit" visibility="private"
  	description="Artifacts required for releaseaudit target"/>
-diff --git a/src/core/core-default.xml b/src/core/core-default.xml
-index 2800ca8..028b7ab 100644
---- a/src/core/core-default.xml
-+++ b/src/core/core-default.xml
-@@ -177,6 +177,12 @@
+diff -urN h102.orig/src/core/core-default.xml hadoop-1.0.2/src/core/core-default.xml
+--- h102.orig/src/core/core-default.xml	2012-03-24 17:01:42.000000000 -0700
++++ hadoop-1.0.2/src/core/core-default.xml	2012-09-26 20:15:06.355435366 -0700
+@@ -171,6 +171,12 @@
  </property>
  
  <property>
@@ -42,14 +40,12 @@ index 2800ca8..028b7ab 100644
 +</property>
 +
 +<property>
-   <name>fs.hftp.impl</name>
-   <value>org.apache.hadoop.hdfs.HftpFileSystem</value>
- </property>
-diff --git a/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java b/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java
-new file mode 100644
-index 0000000..fa0b611
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java
+   <name>fs.kfs.impl</name>
+   <value>org.apache.hadoop.fs.kfs.KosmosFileSystem</value>
+   <description>The FileSystem for kfs: uris.</description>
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/IFSImpl.java	2012-09-26 20:15:42.961376394 -0700
 @@ -0,0 +1,63 @@
 +/**
 + *
@@ -114,11 +110,111 @@ index 0000000..fa0b611
 +    public void setPermission(String path, int mode) throws IOException;
 +    public void setOwner(String path, String username, String groupname) throws IOException;
 +};
-diff --git a/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java b/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java
-new file mode 100644
-index 0000000..050e554
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/package.html hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/package.html
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/package.html	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/package.html	2012-09-26 20:15:42.962407639 -0700
+@@ -0,0 +1,98 @@
++<html>
++
++<!--
++   Licensed to the Apache Software Foundation (ASF) under one or more
++   contributor license agreements.  See the NOTICE file distributed with
++   this work for additional information regarding copyright ownership.
++   The ASF licenses this file to You under the Apache License, Version 2.0
++   (the "License"); you may not use this file except in compliance with
++   the License.  You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
++-->
++
++<head></head>
++<body>
++<h1>A client for the Quantcast filesystem (QFS)</h1>
++
++<h3>Introduction</h3>
++
++This pages describes how to use Quantcast Filesystem
++(<a href="https://github.com/quantcast/qfs"> QFS </a>) as a backing
++store with Hadoop. QFS is derived from the Kosmos File System (KFS).
++This page assumes that you have downloaded the QFS software and
++installed necessary binaries as outlined in the QFS documentation.
++
++<h3>Steps</h3>
++
++        <ul>
++          <li>In the Hadoop conf directory edit core-site.xml,
++          add the following:
++            <pre>
++&lt;property&gt;
++  &lt;name&gt;fs.qfs.impl&lt;/name&gt;
++  &lt;value&gt;org.apache.hadoop.fs.qfs.QuantcastFileSystem&lt;/value&gt;
++  &lt;description&gt;The FileSystem for qfs: uris.&lt;/description&gt;
++&lt;/property&gt;
++            </pre>
++
++          <li>In the Hadoop conf directory edit core-site.xml,
++          adding the following (with appropriate values for
++          &lt;server&gt; and &lt;port&gt;):
++            <pre>
++&lt;property&gt;
++  &lt;name&gt;fs.default.name&lt;/name&gt;
++  &lt;value&gt;qfs://&lt;server:port&gt;&lt;/value&gt;
++&lt;/property&gt;
++
++&lt;property&gt;
++  &lt;name&gt;fs.qfs.metaServerHost&lt;/name&gt;
++  &lt;value&gt;&lt;server&gt;&lt;/value&gt;
++  &lt;description&gt;The location of the QFS meta server.&lt;/description&gt;
++&lt;/property&gt;
++
++&lt;property&gt;
++  &lt;name&gt;fs.qfs.metaServerPort&lt;/name&gt;
++  &lt;value&gt;&lt;port&gt;&lt;/value&gt;
++  &lt;description&gt;The location of the meta server's port.&lt;/description&gt;
++&lt;/property&gt;
++
++</pre>
++          </li>
++
++          <li>Copy QFS's <i> qfs-&lt;version&gt;.jar </i> to Hadoop's lib directory.  This step
++          enables Hadoop's to load the QFS specific modules.  Note
++          that, qfs-&lt;version&gt;.jar was built when you compiled QFS source
++          code.  This jar file contains code that calls QFS's client
++          library code via JNI; the native code is in QFS's <i>
++          libkfs_client.so </i> library.
++          </li>
++
++          <li> When the Hadoop map/reduce trackers start up, those
++processes (on local as well as remote nodes) will now need to load
++QFS's <i> libkfs_client.so </i> library.  To simplify this process, it is advisable to
++store libkfs_client.so in an NFS accessible directory (similar to where
++Hadoop binaries/scripts are stored); then, modify Hadoop's
++conf/hadoop-env.sh adding the following line and providing suitable
++value for &lt;path&gt;:
++<pre>
++export LD_LIBRARY_PATH=&lt;path&gt;
++</pre>
++
++
++          <li>Start only the map/reduce trackers
++          <br />
++          example: execute Hadoop's bin/start-mapred.sh</li>
++        </ul>
++<br/>
++
++If the map/reduce job trackers start up, all file-I/O is done to QFS.
++
++</body>
++</html>
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSImpl.java	2012-09-26 20:15:42.962407639 -0700
 @@ -0,0 +1,202 @@
 +/**
 + *
@@ -322,11 +418,9 @@ index 0000000..050e554
 +        kfsAccess.kfs_retToIOException(kfsAccess.kfs_chown(path, username, groupname), path);
 +    }
 +}
-diff --git a/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java b/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java
-new file mode 100644
-index 0000000..4da47e2
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSInputStream.java	2012-09-26 20:15:42.963400036 -0700
 @@ -0,0 +1,106 @@
 +/**
 + *
@@ -434,11 +528,9 @@ index 0000000..4da47e2
 +        throw new IOException("Mark not supported");
 +    }
 +}
-diff --git a/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java b/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java
-new file mode 100644
-index 0000000..62dc7f0
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QFSOutputStream.java	2012-09-26 20:15:42.963400036 -0700
 @@ -0,0 +1,78 @@
 +/**
 + *
@@ -518,11 +610,9 @@ index 0000000..62dc7f0
 +        kfsChannel.close();
 +    }
 +}
-diff --git a/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java b/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java
-new file mode 100644
-index 0000000..182e673
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java
+diff -urN h102.orig/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java
+--- h102.orig/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/core/org/apache/hadoop/fs/qfs/QuantcastFileSystem.java	2012-09-26 20:15:42.963400036 -0700
 @@ -0,0 +1,314 @@
 +/**
 + *
@@ -838,107 +928,366 @@ index 0000000..182e673
 +        return new ContentSummary(stat.filesize, 1, 0);
 +    }
 +}
-diff --git a/src/core/org/apache/hadoop/fs/qfs/package.html b/src/core/org/apache/hadoop/fs/qfs/package.html
-new file mode 100644
-index 0000000..d293a01
---- /dev/null
-+++ b/src/core/org/apache/hadoop/fs/qfs/package.html
-@@ -0,0 +1,98 @@
-+<html>
+diff -urN h102.orig/src/test/commit-tests hadoop-1.0.2/src/test/commit-tests
+--- h102.orig/src/test/commit-tests	2012-03-24 17:01:41.000000000 -0700
++++ hadoop-1.0.2/src/test/commit-tests	2012-09-26 20:13:29.953375070 -0700
+@@ -37,6 +37,7 @@
+ **/TestIPC.java
+ **/TestIPCServerResponder.java
+ **/TestKosmosFileSystem.java
++**/TestQuantcastFileSystem.java
+ **/TestLocalDirAllocator.java
+ **/TestLocalFileSystem.java
+ **/TestLocalFileSystemPermission.java
+diff -urN h102.orig/src/test/org/apache/hadoop/fs/qfs/QFSEmulationImpl.java hadoop-1.0.2/src/test/org/apache/hadoop/fs/qfs/QFSEmulationImpl.java
+--- h102.orig/src/test/org/apache/hadoop/fs/qfs/QFSEmulationImpl.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/test/org/apache/hadoop/fs/qfs/QFSEmulationImpl.java	2012-09-26 20:14:30.219286754 -0700
+@@ -0,0 +1,165 @@
++/**
++ *
++ * Licensed under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++ * implied. See the License for the specific language governing
++ * permissions and limitations under the License.
++ *
++ * @author: Sriram Rao (Kosmix Corp.)
++ *
++ * We need to provide the ability to the code in fs/kfs without really
++ * having a KFS deployment.  For this purpose, use the LocalFileSystem
++ * as a way to "emulate" KFS.
++ */
 +
-+<!--
-+   Licensed to the Apache Software Foundation (ASF) under one or more
-+   contributor license agreements.  See the NOTICE file distributed with
-+   this work for additional information regarding copyright ownership.
-+   The ASF licenses this file to You under the Apache License, Version 2.0
-+   (the "License"); you may not use this file except in compliance with
-+   the License.  You may obtain a copy of the License at
++package org.apache.hadoop.fs.qfs;
 +
-+       http://www.apache.org/licenses/LICENSE-2.0
++import java.io.*;
 +
-+   Unless required by applicable law or agreed to in writing, software
-+   distributed under the License is distributed on an "AS IS" BASIS,
-+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+   See the License for the specific language governing permissions and
-+   limitations under the License.
-+-->
++import org.apache.hadoop.conf.Configuration;
 +
-+<head></head>
-+<body>
-+<h1>A client for the Quantcast filesystem (QFS)</h1>
-+
-+<h3>Introduction</h3>
-+
-+This pages describes how to use Quantcast Filesystem
-+(<a href="https://github.com/quantcast/qfs"> QFS </a>) as a backing
-+store with Hadoop. QFS is derived from the Kosmos File System (KFS).
-+This page assumes that you have downloaded the QFS software and
-+installed necessary binaries as outlined in the QFS documentation.
-+
-+<h3>Steps</h3>
-+
-+        <ul>
-+          <li>In the Hadoop conf directory edit core-site.xml,
-+          add the following:
-+            <pre>
-+&lt;property&gt;
-+  &lt;name&gt;fs.qfs.impl&lt;/name&gt;
-+  &lt;value&gt;org.apache.hadoop.fs.qfs.QuantcastFileSystem&lt;/value&gt;
-+  &lt;description&gt;The FileSystem for qfs: uris.&lt;/description&gt;
-+&lt;/property&gt;
-+            </pre>
-+
-+          <li>In the Hadoop conf directory edit core-site.xml,
-+          adding the following (with appropriate values for
-+          &lt;server&gt; and &lt;port&gt;):
-+            <pre>
-+&lt;property&gt;
-+  &lt;name&gt;fs.default.name&lt;/name&gt;
-+  &lt;value&gt;qfs://&lt;server:port&gt;&lt;/value&gt;
-+&lt;/property&gt;
-+
-+&lt;property&gt;
-+  &lt;name&gt;fs.qfs.metaServerHost&lt;/name&gt;
-+  &lt;value&gt;&lt;server&gt;&lt;/value&gt;
-+  &lt;description&gt;The location of the QFS meta server.&lt;/description&gt;
-+&lt;/property&gt;
-+
-+&lt;property&gt;
-+  &lt;name&gt;fs.qfs.metaServerPort&lt;/name&gt;
-+  &lt;value&gt;&lt;port&gt;&lt;/value&gt;
-+  &lt;description&gt;The location of the meta server's port.&lt;/description&gt;
-+&lt;/property&gt;
-+
-+</pre>
-+          </li>
-+
-+          <li>Copy QFS's <i> qfs-&lt;version&gt;.jar </i> to Hadoop's lib directory.  This step
-+          enables Hadoop's to load the QFS specific modules.  Note
-+          that, qfs-&lt;version&gt;.jar was built when you compiled QFS source
-+          code.  This jar file contains code that calls QFS's client
-+          library code via JNI; the native code is in QFS's <i>
-+          libkfs_client.so </i> library.
-+          </li>
-+
-+          <li> When the Hadoop map/reduce trackers start up, those
-+processes (on local as well as remote nodes) will now need to load
-+QFS's <i> libkfs_client.so </i> library.  To simplify this process, it is advisable to
-+store libkfs_client.so in an NFS accessible directory (similar to where
-+Hadoop binaries/scripts are stored); then, modify Hadoop's
-+conf/hadoop-env.sh adding the following line and providing suitable
-+value for &lt;path&gt;:
-+<pre>
-+export LD_LIBRARY_PATH=&lt;path&gt;
-+</pre>
++import org.apache.hadoop.fs.FSDataInputStream;
++import org.apache.hadoop.fs.FSDataOutputStream;
++import org.apache.hadoop.fs.FileSystem;
++import org.apache.hadoop.fs.FileStatus;
++import org.apache.hadoop.fs.FileUtil;
++import org.apache.hadoop.fs.Path;
++import org.apache.hadoop.fs.BlockLocation;
++import com.quantcast.qfs.access.KfsFileAttr;
 +
 +
-+          <li>Start only the map/reduce trackers
-+          <br />
-+          example: execute Hadoop's bin/start-mapred.sh</li>
-+        </ul>
-+<br/>
++public class QFSEmulationImpl implements IFSImpl {
++    FileSystem localFS;
 +
-+If the map/reduce job trackers start up, all file-I/O is done to QFS.
++    public QFSEmulationImpl(Configuration conf) throws IOException {
++        localFS = FileSystem.getLocal(conf);
++    }
 +
-+</body>
-+</html>
++    public boolean exists(String path) throws IOException {
++        return localFS.exists(new Path(path));
++    }
++    public boolean isDirectory(String path) throws IOException {
++        return localFS.isDirectory(new Path(path));
++    }
++    public boolean isFile(String path) throws IOException {
++        return localFS.isFile(new Path(path));
++    }
++
++    public String[] readdir(String path) throws IOException {
++        FileStatus[] p = localFS.listStatus(new Path(path));
++        String[] entries = null;
++
++        if (p == null) {
++            return null;
++        }
++
++        entries = new String[p.length];
++        for (int i = 0; i < p.length; i++)
++            entries[i] = p[i].getPath().toString();
++        return entries;
++    }
++
++    public FileStatus[] readdirplus(Path path) throws IOException {
++        return localFS.listStatus(path);
++    }
++
++    public FileStatus stat(Path path) throws IOException {
++        //TODO
++        return null;
++    }
++
++    public KfsFileAttr fullStat(Path path) throws IOException {
++        //TODO
++        return null;
++    }
++
++    public int mkdirs(String path, int mode) throws IOException {
++        if (localFS.mkdirs(new Path(path)))
++            return 0;
++
++        return -1;
++    }
++
++    public int rename(String source, String dest) throws IOException {
++        if (localFS.rename(new Path(source), new Path(dest)))
++            return 0;
++        return -1;
++    }
++
++    public int rmdir(String path) throws IOException {
++        if (isDirectory(path)) {
++            // the directory better be empty
++            String[] dirEntries = readdir(path);
++            if ((dirEntries.length <= 2) && (localFS.delete(new Path(path), true)))
++                return 0;
++        }
++        return -1;
++    }
++
++    public int remove(String path) throws IOException {
++        if (isFile(path) && (localFS.delete(new Path(path), true)))
++            return 0;
++        return -1;
++    }
++
++    public long filesize(String path) throws IOException {
++        return localFS.getLength(new Path(path));
++    }
++    public short getReplication(String path) throws IOException {
++        return 1;
++    }
++    public short setReplication(String path, short replication) throws IOException {
++        return 1;
++    }
++    public String[][] getDataLocation(String path, long start, long len) throws IOException {
++        BlockLocation[] blkLocations =
++          localFS.getFileBlockLocations(localFS.getFileStatus(new Path(path)),
++              start, len);
++          if ((blkLocations == null) || (blkLocations.length == 0)) {
++            return new String[0][];
++          }
++          int blkCount = blkLocations.length;
++          String[][]hints = new String[blkCount][];
++          for (int i=0; i < blkCount ; i++) {
++            String[] hosts = blkLocations[i].getHosts();
++            hints[i] = new String[hosts.length];
++            hints[i] = hosts;
++          }
++          return hints;
++    }
++
++    public long getModificationTime(String path) throws IOException {
++        FileStatus s = localFS.getFileStatus(new Path(path));
++        if (s == null)
++            return 0;
++
++        return s.getModificationTime();
++    }
++
++    public FSDataOutputStream create(String path, short replication, int bufferSize, boolean overwrite, int mode) throws IOException {
++        // besides path/overwrite, the other args don't matter for
++        // testing purposes.
++        return localFS.create(new Path(path));
++    }
++
++    public FSDataInputStream open(String path, int bufferSize) throws IOException {
++        return localFS.open(new Path(path));
++    }
++    public FSDataOutputStream append(String path, short replication, int bufferSize) throws IOException {
++        //TODO
++        return null;
++    }
++    public void setPermission(String path, int mode) throws IOException {
++        //TODO
++    }
++    public void setOwner(String path, String username, String groupname) throws IOException {
++        //TODO
++    }
++};
+diff -urN h102.orig/src/test/org/apache/hadoop/fs/qfs/TestQuantcastFileSystem.java hadoop-1.0.2/src/test/org/apache/hadoop/fs/qfs/TestQuantcastFileSystem.java
+--- h102.orig/src/test/org/apache/hadoop/fs/qfs/TestQuantcastFileSystem.java	1969-12-31 16:00:00.000000000 -0800
++++ hadoop-1.0.2/src/test/org/apache/hadoop/fs/qfs/TestQuantcastFileSystem.java	2012-09-26 20:14:30.219286754 -0700
+@@ -0,0 +1,179 @@
++/**
++ *
++ * Licensed under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++ * implied. See the License for the specific language governing
++ * permissions and limitations under the License.
++ *
++ * @author: Sriram Rao (Kosmix Corp.)
++ *
++ * Unit tests for testing the KosmosFileSystem API implementation.
++ */
++
++package org.apache.hadoop.fs.qfs;
++
++import java.io.*;
++import java.net.*;
++
++import junit.framework.TestCase;
++
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.FSDataInputStream;
++import org.apache.hadoop.fs.FSDataOutputStream;
++import org.apache.hadoop.fs.FileSystem;
++import org.apache.hadoop.fs.FileStatus;
++import org.apache.hadoop.fs.FileUtil;
++import org.apache.hadoop.fs.Path;
++
++import org.apache.hadoop.fs.qfs.QuantcastFileSystem;
++
++public class TestQuantcastFileSystem extends TestCase {
++
++    QuantcastFileSystem quantcastFileSystem;
++    QFSEmulationImpl qfsEmul;
++    Path baseDir;
++
++    @Override
++    protected void setUp() throws IOException {
++        Configuration conf = new Configuration();
++
++        qfsEmul = new QFSEmulationImpl(conf);
++        quantcastFileSystem = new QuantcastFileSystem(qfsEmul);
++        // a dummy URI; we are not connecting to any setup here
++        quantcastFileSystem.initialize(URI.create("qfs:///"), conf);
++        baseDir = new Path(System.getProperty("test.build.data", "/tmp" ) +
++                                              "/qfs-test");
++    }
++
++    @Override
++    protected void tearDown() throws Exception {
++
++    }
++
++    // @Test
++    // Check all the directory API's in QFS
++    public void testDirs() throws Exception {
++        Path subDir1 = new Path("dir.1");
++
++        // make the dir
++        quantcastFileSystem.mkdirs(baseDir);
++        assertTrue(quantcastFileSystem.isDirectory(baseDir));
++        quantcastFileSystem.setWorkingDirectory(baseDir);
++
++        quantcastFileSystem.mkdirs(subDir1);
++        assertTrue(quantcastFileSystem.isDirectory(subDir1));
++
++        assertFalse(quantcastFileSystem.exists(new Path("test1")));
++        assertFalse(quantcastFileSystem.isDirectory(new Path("test/dir.2")));
++
++        FileStatus[] p = quantcastFileSystem.listStatus(baseDir);
++        assertEquals(p.length, 1);
++
++        quantcastFileSystem.delete(baseDir, true);
++        assertFalse(quantcastFileSystem.exists(baseDir));
++    }
++
++    // @Test
++    // Check the file API's
++    public void testFiles() throws Exception {
++        Path subDir1 = new Path("dir.1");
++        Path file1 = new Path("dir.1/foo.1");
++        Path file2 = new Path("dir.1/foo.2");
++
++        quantcastFileSystem.mkdirs(baseDir);
++        assertTrue(quantcastFileSystem.isDirectory(baseDir));
++        quantcastFileSystem.setWorkingDirectory(baseDir);
++
++        quantcastFileSystem.mkdirs(subDir1);
++
++        FSDataOutputStream s1 = quantcastFileSystem.create(file1, true, 4096, (short) 1, (long) 4096, null);
++        FSDataOutputStream s2 = quantcastFileSystem.create(file2, true, 4096, (short) 1, (long) 4096, null);
++
++        s1.close();
++        s2.close();
++
++        FileStatus[] p = quantcastFileSystem.listStatus(subDir1);
++        assertEquals(p.length, 2);
++
++        quantcastFileSystem.delete(file1, true);
++        p = quantcastFileSystem.listStatus(subDir1);
++        assertEquals(p.length, 1);
++
++        quantcastFileSystem.delete(file2, true);
++        p = quantcastFileSystem.listStatus(subDir1);
++        assertEquals(p.length, 0);
++
++        quantcastFileSystem.delete(baseDir, true);
++        assertFalse(quantcastFileSystem.exists(baseDir));
++    }
++
++    // @Test
++    // Check file/read write
++    public void testFileIO() throws Exception {
++        Path subDir1 = new Path("dir.1");
++        Path file1 = new Path("dir.1/foo.1");
++
++        quantcastFileSystem.mkdirs(baseDir);
++        assertTrue(quantcastFileSystem.isDirectory(baseDir));
++        quantcastFileSystem.setWorkingDirectory(baseDir);
++
++        quantcastFileSystem.mkdirs(subDir1);
++
++        FSDataOutputStream s1 = quantcastFileSystem.create(file1, true, 4096, (short) 1, (long) 4096, null);
++
++        int bufsz = 4096;
++        byte[] data = new byte[bufsz];
++
++        for (int i = 0; i < data.length; i++)
++            data[i] = (byte) (i % 16);
++
++        // write 4 bytes and read them back; read API should return a byte per call
++        s1.write(32);
++        s1.write(32);
++        s1.write(32);
++        s1.write(32);
++        // write some data
++        s1.write(data, 0, data.length);
++        // flush out the changes
++        s1.close();
++
++        // Read the stuff back and verify it is correct
++        FSDataInputStream s2 = quantcastFileSystem.open(file1, 4096);
++        int v;
++
++        v = s2.read();
++        assertEquals(v, 32);
++        v = s2.read();
++        assertEquals(v, 32);
++        v = s2.read();
++        assertEquals(v, 32);
++        v = s2.read();
++        assertEquals(v, 32);
++
++        assertEquals(s2.available(), data.length);
++
++        byte[] buf = new byte[bufsz];
++        s2.read(buf, 0, buf.length);
++        for (int i = 0; i < data.length; i++)
++            assertEquals(data[i], buf[i]);
++
++        assertEquals(s2.available(), 0);
++
++        s2.close();
++
++        quantcastFileSystem.delete(file1, true);
++        assertFalse(quantcastFileSystem.exists(file1));
++        quantcastFileSystem.delete(subDir1, true);
++        assertFalse(quantcastFileSystem.exists(subDir1));
++        quantcastFileSystem.delete(baseDir, true);
++        assertFalse(quantcastFileSystem.exists(baseDir));
++    }
++
++}

@@ -1,2 +1,2 @@
-This directory contains patches to hadoop to be applied when we make public announcement.
-Once this patch is submitted and it becomes part of hadoop, we can remove this directory.
+Remove this directory once the QFS merged with Apache Hadoop.
+
