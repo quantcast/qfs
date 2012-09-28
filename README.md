@@ -9,7 +9,7 @@ The implementation details and features of QFS are discussed in the project
 Wiki at https://github.com/quantcast/qfs/wiki/Introduction-To-QFS
 
 This document assumes that you have obtained the QFS source code (via git or
-tarball) and it is at ~/code/qfs
+tarball) and it is at `~/code/qfs`
 
 Compiling QFS
 =============
@@ -25,8 +25,12 @@ Compiling QFS
                   java-devel, ant.
 
 * Once you have the pre-requisite packages installed,
+
+
     $ cd ~/code/qfs
     $ make
+
+
   This will build the QFS servers executables, libraries and client
   tools executables, and install them under build/release, ready for use.
 
@@ -36,8 +40,10 @@ Compiling QFS
   https://github.com/quantcast/qfs/wiki/Developer-Documentation
 
 * To test the QFS binaries,
+
     $ cd ~/code/qfs
     $ make test-release
+
   Note that this test takes a few minutes to complete.
 
 
@@ -57,18 +63,20 @@ of the metaserver, path to copy the chunks and so on.
 An easy set up of QFS has been provided in the examples/ directory, where a
 metaserver and two chunk servers are launched, all on the same node. To do this
 setup,
+
     $ cd ~/code/qfs
     $ make
     $ examples/sampleservers/sample_setup.py -a install
+
 The python script creates config files for the QFS servers that can be found
-under ~/qfsbase/ directory.
+under `~/qfsbase/` directory.
 
 In this example setup, the metaserver listens on the filesystem port 20000 and
 the webserver for monitoring filesystem listens on port 22000. Note that in
 practice one chunkserver is deployed per QFS instance per host, but for the
 purpose of illustration, this example setup uses two chunkservers per host.
 Hence the capacity statistics are counted twice and reported as such via the
-web UI at http://localhost:22000
+web UI at `http://localhost:22000`
 
 For a more practical setup of QFS, please refer to the QFS Wiki documents at
 https://github.com/quantcast/qfs/wiki/Deployment-Guide
@@ -80,6 +88,7 @@ Once the QFS servers are up and running, one can use the QFS by different
 means.
 
 * Use client tools that are built during the compile process. For instance,
+
     $ cd ~/code/qfs
     $ PATH=${PWD}/build/release/bin/tools:${PATH}
     $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
@@ -89,15 +98,17 @@ means.
 
 * If you built the QFS FUSE client, then you can mount the QFS at a local mount
   point by,
+
     $ mkdir /mnt/qfs
     $ cd ~/code/qfs/build/release/bin/
     $ ./qfs_fuse localhost:20000 /mnt/qfs -o allow_other,ro
+
   Further information about compiling and using QFS FUSE is at
   https://github.com/quantcast/qfs/wiki/Developer-Documentation
 
 * Build your own QFS client in C++, Java, or Python (experimental) using the
   QFS client libraries that are generated during the compile process. See
-  examples in directory ~/code/qfs/examples/ for reference.
+  examples in directory `~/code/qfs/examples/` for reference.
 
 
 Benchmarking QFS
@@ -118,9 +129,7 @@ http://groups.google.com/group/qfs-devel
 Post comments, questions, patches, or bug-reports to
 qfs-devel@googlegroups.com
 
-
 License
 =======
 
 QFS is released under the Apache 2.0 license.
-
