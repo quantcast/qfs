@@ -33,6 +33,8 @@ CCFLAGS = -g -O2 $(INCLUDES)
 LIBS = -lqfs_tools -lqfs_client -lqfs_qcdio -lpthread -lqfs_io -lqfs_common -lqfs_qcdio -lpthread -lz -lcrypto -lqfs_qcrs -lboost_regex
 ifneq ($(UNAME), Darwin)
 LIBS += -lrt
+else
+LIBS += -lboost_system
 endif
 LDFLAGS = -L$(KFS_BUILD_STATLIB) -L$(BOOST_LIBRARY_DIR) $(LIBS)
 
