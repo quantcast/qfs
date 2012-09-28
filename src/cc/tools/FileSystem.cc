@@ -329,6 +329,9 @@ public:
         outStatBuf.mNumRecoveryStripes = inAttr.numRecoveryStripes;
         outStatBuf.mStriperType        = inAttr.striperType;
         outStatBuf.mStripeSize         = inAttr.stripeSize;
+        if (inAttr.fileSize > 0) {
+            outStatBuf.st_size = inAttr.fileSize;
+        }
     }
     class KfsDirIterator : public DirIterator
     {

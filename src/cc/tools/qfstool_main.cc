@@ -33,6 +33,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include <string>
 #include <vector>
@@ -198,7 +199,7 @@ private:
                     thePrefix += theCwd;
                     if (! thePrefix.empty() && *thePrefix.rbegin() != '/' &&
                             (theGlobRes.gl_pathc > 1 ||
-                            (theGlobRes.gl_pathc == 1 && 
+                            (theGlobRes.gl_pathc == 1 &&
                             theGlobRes.gl_pathv[0][0] != 0))) {
                         thePrefix += "/";
                     }
@@ -225,7 +226,10 @@ private:
         FuncT& inFunctor)
     {
         GlobResult theResult;
-        const int theErr = Glob(inArgsPtr, inArgCount, theResult);
+        int theErr = Glob(inArgsPtr, inArgCount, theResult);
+        if (! inFunctor.Init(theErr, theResult)) {
+            return theErr;
+        }
         for (GlobResult::const_iterator theFsIt = theResult.begin();
                 theFsIt != theResult.end();
                 ++theFsIt) {
@@ -257,6 +261,10 @@ private:
               mIoBufferPtr(inIoBufferPtr),
               mStatus(0)
             {}
+        bool Init(
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */)
+            { return true; }
         bool Apply(
             FileSystem&   inFs,
             const string& inPath)
@@ -328,9 +336,22 @@ private:
               mOutStreamNamePtr(inOutStreamNamePtr ? mOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
               mRecursiveFlag(inRecursiveFlag),
+              mShowFsUriFlag(false),
               mStat(),
-              mStatus(0)
-            {}
+              mStatus(0),
+              mOwnerId(kKfsUserNone),
+              mGroupId(kKfsGroupNone),
+              mOwner("-"),
+              mGroup("-"),
+              mTime(0)
+            { mTmBuf[0] = 0; }
+        bool Init(
+            int&           /* ioGlobError */,
+            const GlobResult& inGlobResult)
+        {
+            mShowFsUriFlag = inGlobResult.size() > 1;
+            return true;
+        }
         bool Apply(
             FileSystem&   inFs,
             const string& inPath)
@@ -338,24 +359,158 @@ private:
             if (! mOutStream) {
                 return false;
             }
-            const int theErr = inFs.Stat(inPath, mStat);
+            int theErr = inFs.Stat(inPath, mStat);
             if (theErr != 0) {
-                cerr << inFs.GetUri() << inPath <<
+                mErrorStream << inFs.GetUri() << inPath <<
                     ": " << inFs.StrError(theErr) << "\n";
                 mStatus = theErr;
                 return true;
+            }
+            Show(inFs, inPath, string(), mStat);
+            mStat.Reset();
+            if ((mStat.st_mode & S_IFDIR) != 0) {
+                FileSystem::DirIterator* theItPtr = 0;
+                const bool kFetchAttributesFlag = true;
+                if ((theErr = inFs.Open(
+                        inPath, kFetchAttributesFlag, theItPtr))) {
+                    mErrorStream << inFs.GetUri() << inPath <<
+                        ": " << inFs.StrError(theErr) << "\n";
+                    mStatus = theErr;
+                } else {
+                    string theName;
+                    while (mOutStream) {
+                        const FileSystem::StatBuf* theStatPtr = 0;
+                        if ((theErr = inFs.Next(
+                                theItPtr, theName, theStatPtr))) {
+                            mErrorStream << inFs.GetUri() << inPath <<
+                                ": " << inFs.StrError(theErr) << "\n";
+                            mStatus = theErr;
+                        }
+                        if (theName.empty()) {
+                            break;
+                        }
+                        Show(inFs, inPath, theName,
+                            theStatPtr ? *theStatPtr : mStat);
+                        if (mRecursiveFlag) {
+                            Apply(inFs, inPath + "/" + theName);
+                        }
+                    }
+                    inFs.Close(theItPtr);
+                }
             }
             return true;
         }
         int GetStatus() const
             { return mStatus; }
     private:
+        enum { kTmBufLen = 128 };
         ostream&            mOutStream;
         const char* const   mOutStreamNamePtr;
         ostream&            mErrorStream;
         const bool          mRecursiveFlag;
+        bool                mShowFsUriFlag;
         FileSystem::StatBuf mStat;
         int                 mStatus;
+        kfsUid_t            mOwnerId;
+        kfsGid_t            mGroupId;
+        string              mOwner;
+        string              mGroup;
+        time_t              mTime;
+        char                mTmBuf[kTmBufLen];
+
+        void Show(
+            FileSystem&                inFs,
+            const string&              inPath,
+            const string&              inName,
+            const FileSystem::StatBuf& inStat)
+        {
+            for (int i = 8; i > 0; ) {
+                const char* kPerms[2] = {"---", "rwx"};
+                for (int k = 0; k < 3; k++) {
+                    mOutStream << kPerms[(inStat.st_mode >> i--) & 1][k];
+                }
+            }
+#ifdef S_ISVTX
+            const mode_t kSticky = S_IFDIR | S_ISVTX;
+            if ((inStat.st_mode & kSticky) == kSticky) {
+                mOutStream << "t";
+            } else {
+                mOutStream << " ";
+            }
+#endif
+            mOutStream << " ";
+            if ((inStat.st_mode & S_IFDIR) != 0) {
+                mOutStream << "<dir>";
+            } else {
+                if (inStat.mStripeSize > 0) {
+                    if (inStat.mNumRecoveryStripes > 0) {
+                        mOutStream << "<rs ";
+                    } else {
+                        mOutStream << "<s ";
+                    }
+                    mOutStream << inStat.mNumReplicas <<
+                         "," << inStat.mNumStripes;
+                    if (inStat.mNumRecoveryStripes > 0) {
+                        mOutStream << "+" << inStat.mNumRecoveryStripes;
+                    }
+                } else {
+                    mOutStream << "<r " << inStat.mNumReplicas;
+                }
+                mOutStream << ">";
+            }
+            if (mOwnerId != inStat.st_uid || mOwner.empty() ||
+                    mGroupId != inStat.st_gid || mGroup.empty()) {
+                UpdateUserAndGroup(inFs, inStat.st_uid, inStat.st_gid);
+            }
+            mOutStream << " " << mOwner << " " << mGroup;
+            mOutStream << " " << max(int64_t(0), (int64_t)inStat.st_size);
+#ifndef KFS_OS_NAME_DARWIN
+            const time_t theTime = inStat.st_mtime;
+#else
+            const time_t theTime = inStat.st_mtimespec.tv_sec;
+#endif
+            if (mTmBuf[0] == 0 || mTime != theTime) {
+                struct tm theLocalTime = {0};
+                localtime_r(&theTime, &theLocalTime);
+                strftime(mTmBuf, kTmBufLen, "%b %e %H:%M", &theLocalTime);
+                mTime = theTime;
+            }
+            mOutStream << " " << mTmBuf << " ";
+            if (mShowFsUriFlag) {
+                mOutStream << inFs.GetUri();
+            }
+            mOutStream << inPath;
+            if (! inName.empty()) {
+                mOutStream << "/" << inName;
+            }
+            mOutStream << "\n";
+        }
+        void UpdateUserAndGroup(
+            FileSystem& inFs,
+            kfsUid_t    inUid,
+            kfsGid_t    inGid)
+        {
+            int theErr;
+            if ((inUid != kKfsUserNone || inGid != kKfsGroupNone) &&
+                    (theErr = inFs.GetUserAndGroupNames(
+                        inUid, inGid, mOwner, mGroup))) {
+                mErrorStream << inFs.GetUri() << " userId: " << inUid <<
+                    " groupId: " << inGid << " : " << inFs.StrError(theErr) <<
+                "\n";
+                mOwner = "?";
+                mGroup = "?";
+                if (mStatus == 0) {
+                    mStatus = theErr;
+                }
+                return;
+            }
+            if (inUid == kKfsUserNone) {
+                mOwner = "-";
+            }
+            if (inGid == kKfsGroupNone) {
+                mGroup = "-";
+            }
+        }
     private:
         ListFunctor(
             const ListFunctor& inFunctor);
