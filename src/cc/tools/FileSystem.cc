@@ -109,7 +109,7 @@ public:
             if (! theRetPtr) {
                 return 0;
             }
-            if (mFetchAttributesFlag && outStatPtr) {
+            if (mFetchAttributesFlag) {
                 if (mFileName.empty()) {
                     mFileName.assign(mDirName.data(), mDirName.length());
                     if (! mFileName.empty() && *(mFileName.rbegin()) != '/') {
@@ -236,7 +236,7 @@ public:
     virtual int Close(
         DirIterator* inDirIteratorPtr)
     {
-        return RetErrno(inDirIteratorPtr ?
+        return Errno(inDirIteratorPtr ?
             static_cast<LocalDirIterator*>(inDirIteratorPtr)->Delete() :
             EINVAL
         );
@@ -259,7 +259,7 @@ public:
         } else {
             outName.clear();
         }
-        return RetErrno(theDirIt.GetError());
+        return Errno(theDirIt.GetError());
     }
     virtual int Glob(
         const string& inPattern,

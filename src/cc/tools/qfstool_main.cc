@@ -128,7 +128,7 @@ public:
                 const bool kRecursiveFlag = false;
                 theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kRecursiveFlag);
-            } else if (strcmp(theCmdPtr, "-ls") == 0) {
+            } else if (strcmp(theCmdPtr, "-lsr") == 0) {
                 const bool kRecursiveFlag = true;
                 theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kRecursiveFlag);
@@ -367,7 +367,6 @@ private:
                 return true;
             }
             Show(inFs, inPath, string(), mStat);
-            mStat.Reset();
             if ((mStat.st_mode & S_IFDIR) != 0) {
                 FileSystem::DirIterator* theItPtr = 0;
                 const bool kFetchAttributesFlag = true;
@@ -378,16 +377,21 @@ private:
                     mStatus = theErr;
                 } else {
                     string theName;
+                    mStat.Reset();
                     while (mOutStream) {
                         const FileSystem::StatBuf* theStatPtr = 0;
                         if ((theErr = inFs.Next(
                                 theItPtr, theName, theStatPtr))) {
                             mErrorStream << inFs.GetUri() << inPath <<
-                                ": " << inFs.StrError(theErr) << "\n";
+                                "/" << theName << ": " <<
+                                inFs.StrError(theErr) << "\n";
                             mStatus = theErr;
                         }
                         if (theName.empty()) {
                             break;
+                        }
+                        if (theName == "." || theName == "..") {
+                            continue;
                         }
                         Show(inFs, inPath, theName,
                             theStatPtr ? *theStatPtr : mStat);
