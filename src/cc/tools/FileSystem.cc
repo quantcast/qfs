@@ -277,7 +277,7 @@ public:
         const size_t thePrevSize = inPath.size();
         DIR* const theDirPtr     = opendir(inPath.c_str());
         if (! theDirPtr) {
-            return RetErrno(errno);
+            return inFunctor(inPath, true, RetErrno(errno));
         }
         inPath += "/";
         int                  theRet = 0;
@@ -296,19 +296,19 @@ public:
             theDirFlag = thePtr->d_type == DT_DIR;
 #endif
             if (theDirFlag) {
-                const int theCurRet = RecursivelyApply(inPath, inFunctor);
-                if (theCurRet != 0) {
-                    theRet = theCurRet;
+                theRet = RecursivelyApply(inPath, inFunctor);
+                if (theRet != 0) {
+                    break;
                 }
             }
-            const int theCurRet = inFunctor(inPath, theDirFlag);
-            if (theCurRet != 0) {
-                theRet = theCurRet;
+            theRet = inFunctor(inPath, theDirFlag, 0);
+            if (theRet != 0) {
+                break;
             }
         }
+        closedir(theDirPtr);
         inPath.erase(thePrevSize);
-        inFunctor(inPath, true);
-        return theRet;
+        return (theRet == 0 ? inFunctor(inPath, true, theRet) : theRet);
     }
     template<typename T>
     int RecursivelyApply(
@@ -323,6 +323,7 @@ public:
             string thePath;
             thePath.reserve(MAX_PATH_NAME_LENGTH);
             thePath.assign(inPath.data(), inPath.length());
+            RecursivelyApplySelf(thePath, inFunctor);
         }
         return inFunctor(inPath, false);
     }
@@ -331,16 +332,28 @@ public:
     public:
         ChmodFunctor(
             kfsMode_t inMode)
-            : mMode((mode_t)inMode)
+            : mMode((mode_t)inMode),
+              mStatus(0)
             {}
         int operator()(
             const string& inPath,
-            bool          inDirectoryFlag)
+            bool          inDirectoryFlag,
+            int           inErrno = 0)
         {
-            return Errno(chmod(inPath.c_str(), mMode));
+            if (inErrno != 0) {
+                mStatus = inErrno;
+            }
+             const int theRet = Errno(chmod(inPath.c_str(), mMode));
+            if (theRet != 0) {
+                mStatus = theRet;
+            }
+            return 0;
         }
+        int GetStatus() const
+            { return mStatus; }
     private:
         const mode_t mMode;
+        int          mStatus;
     };
     virtual int Chmod(
         const string& inPathName,
@@ -349,7 +362,8 @@ public:
     {
         if (inRecursiveFlag) {
             ChmodFunctor theFunc(inMode);
-            return RecursivelyApply(inPathName, theFunc); 
+            const int theStatus = RecursivelyApply(inPathName, theFunc);
+            return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
         return Errno(chmod(inPathName.c_str(), (mode_t)inMode));
     }
@@ -360,17 +374,29 @@ public:
             kfsUid_t inUid,
             kfsGid_t inGid)
             : mUid((uid_t)inUid),
-              mGid((gid_t)inGid)
+              mGid((gid_t)inGid),
+              mStatus(0)
             {}
         int operator()(
             const string& inPath,
-            bool          inDirectoryFlag)
+            bool          inDirectoryFlag,
+            int           inErrno = 0)
         {
-            return Errno(chown(inPath.c_str(), mUid, mGid));
+            if (inErrno != 0) {
+                mStatus = inErrno;
+            }
+            const int theRet = Errno(chown(inPath.c_str(), mUid, mGid));
+            if (theRet != 0) {
+                mStatus = theRet;
+            }
+            return 0;
         }
+        int GetStatus() const
+            { return mStatus; }
     private:
         const uid_t mUid;
         const gid_t mGid;
+        int         mStatus;
     };
     virtual int Chown(
         const string& inPathName,
@@ -380,7 +406,8 @@ public:
     {
         if (inRecursiveFlag) {
             ChownFunctor theFunc(inOwner, inGroup);
-            return RecursivelyApply(inPathName, theFunc); 
+            const int theStatus = RecursivelyApply(inPathName, theFunc);
+            return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
         return Errno(chown(inPathName.c_str(), (uid_t)inOwner, (gid_t)inGroup));
     }
@@ -411,7 +438,7 @@ private:
 private:
     LocalFileSystem(
         const LocalFileSystem& inFileSystem);
-    LocalFileSystem operator=(
+    LocalFileSystem& operator=(
         const LocalFileSystem& inFileSystem);
 };
 
