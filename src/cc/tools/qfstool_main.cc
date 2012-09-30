@@ -337,6 +337,7 @@ private:
               mErrorStream(inErrorStream),
               mRecursiveFlag(inRecursiveFlag),
               mShowFsUriFlag(false),
+              mEmptyStr(),
               mStat(),
               mStatus(0),
               mOwnerId(kKfsUserNone),
@@ -367,6 +368,7 @@ private:
                 return true;
             }
             Show(inFs, inPath, string(), mStat);
+            const string  kEmpty;
             if ((mStat.st_mode & S_IFDIR) != 0) {
                 FileSystem::DirIterator* theItPtr = 0;
                 const bool kFetchAttributesFlag = true;
@@ -378,11 +380,12 @@ private:
                 } else {
                     string theName;
                     mStat.Reset();
+                    const string& thePath = inPath == "/" ? mEmptyStr: inPath;
                     while (mOutStream) {
                         const FileSystem::StatBuf* theStatPtr = 0;
                         if ((theErr = inFs.Next(
                                 theItPtr, theName, theStatPtr))) {
-                            mErrorStream << inFs.GetUri() << inPath <<
+                            mErrorStream << inFs.GetUri() << thePath <<
                                 "/" << theName << ": " <<
                                 inFs.StrError(theErr) << "\n";
                             mStatus = theErr;
@@ -393,10 +396,10 @@ private:
                         if (theName == "." || theName == "..") {
                             continue;
                         }
-                        Show(inFs, inPath, theName,
+                        Show(inFs, thePath, theName,
                             theStatPtr ? *theStatPtr : mStat);
                         if (mRecursiveFlag) {
-                            Apply(inFs, inPath + "/" + theName);
+                            Apply(inFs, thePath + "/" + theName);
                         }
                     }
                     inFs.Close(theItPtr);
@@ -413,6 +416,7 @@ private:
         ostream&            mErrorStream;
         const bool          mRecursiveFlag;
         bool                mShowFsUriFlag;
+        const string        mEmptyStr;
         FileSystem::StatBuf mStat;
         int                 mStatus;
         kfsUid_t            mOwnerId;

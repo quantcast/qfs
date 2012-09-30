@@ -465,7 +465,9 @@ public:
                     outName.clear();
                     return;
                 }
-                ToStat(mAttrs[mCur++], mStatBuf);
+                const KfsFileAttr& theAttr = mAttrs[mCur++];
+                outName = theAttr.filename;
+                ToStat(theAttr, mStatBuf);
                 outStatBufPtr = &mStatBuf;
                 return;
             }
