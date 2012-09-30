@@ -21,7 +21,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// \brief Glue code for Python apps to access KFS.
+// \brief Glue code for Python apps to access QFS.
 //
 //  Note: The Python Extension Module is in experimental stage. Please use it
 //        with caution.
@@ -47,7 +47,7 @@ using KFS::chunkOff_t;
 using KFS::KfsFileAttr;
 using KFS::ErrorCodeToStr;
 
-struct kfs_Client {
+struct qfs_Client {
     PyObject_HEAD
     PyObject *propfile;       // Properties file
     PyObject *cwd;            // Current directory
@@ -60,24 +60,24 @@ static int Client_print(PyObject *pself, FILE *fp, int flags);
 static void Client_dealloc(PyObject *pself);
 
 static PyObject *Client_repr(PyObject *pself);
-static PyObject *kfs_isdir(PyObject *pself, PyObject *args);
-static PyObject *kfs_isfile(PyObject *pself, PyObject *args);
-static PyObject *kfs_mkdir(PyObject *pself, PyObject *args);
-static PyObject *kfs_mkdirs(PyObject *pself, PyObject *args);
-static PyObject *kfs_rmdir(PyObject *pself, PyObject *args);
-static PyObject *kfs_rmdirs(PyObject *pself, PyObject *args);
-static PyObject *kfs_readdir(PyObject *pself, PyObject *args);
-static PyObject *kfs_readdirplus(PyObject *pself, PyObject *args);
-static PyObject *kfs_create(PyObject *pself, PyObject *args);
-static PyObject *kfs_stat(PyObject *pself, PyObject *args);
-static PyObject *kfs_getNumChunks(PyObject *pself, PyObject *args);
-static PyObject *kfs_getChunkSize(PyObject *pself, PyObject *args);
-static PyObject *kfs_remove(PyObject *pself, PyObject *args);
-static PyObject *kfs_rename(PyObject *pself, PyObject *args);
-static PyObject *kfs_coalesceblocks(PyObject *pself, PyObject *args);
-static PyObject *kfs_open(PyObject *pself, PyObject *args);
-static PyObject *kfs_cd(PyObject *pself, PyObject *args);
-static PyObject *kfs_log_level(PyObject *pself, PyObject *args);
+static PyObject *qfs_isdir(PyObject *pself, PyObject *args);
+static PyObject *qfs_isfile(PyObject *pself, PyObject *args);
+static PyObject *qfs_mkdir(PyObject *pself, PyObject *args);
+static PyObject *qfs_mkdirs(PyObject *pself, PyObject *args);
+static PyObject *qfs_rmdir(PyObject *pself, PyObject *args);
+static PyObject *qfs_rmdirs(PyObject *pself, PyObject *args);
+static PyObject *qfs_readdir(PyObject *pself, PyObject *args);
+static PyObject *qfs_readdirplus(PyObject *pself, PyObject *args);
+static PyObject *qfs_create(PyObject *pself, PyObject *args);
+static PyObject *qfs_stat(PyObject *pself, PyObject *args);
+static PyObject *qfs_getNumChunks(PyObject *pself, PyObject *args);
+static PyObject *qfs_getChunkSize(PyObject *pself, PyObject *args);
+static PyObject *qfs_remove(PyObject *pself, PyObject *args);
+static PyObject *qfs_rename(PyObject *pself, PyObject *args);
+static PyObject *qfs_coalesceblocks(PyObject *pself, PyObject *args);
+static PyObject *qfs_open(PyObject *pself, PyObject *args);
+static PyObject *qfs_cd(PyObject *pself, PyObject *args);
+static PyObject *qfs_log_level(PyObject *pself, PyObject *args);
 
 inline static void SetPyIoError(int64_t err)
 {
@@ -86,41 +86,41 @@ inline static void SetPyIoError(int64_t err)
 }
 
 static PyMemberDef Client_members[] = {
-    { (char*)"properties", T_OBJECT, offsetof(kfs_Client, propfile), RO, (char*)"properties file" },
-    { (char*)"cwd",        T_OBJECT, offsetof(kfs_Client, cwd),      RO, (char*)"current directory" },
+    { (char*)"properties", T_OBJECT, offsetof(qfs_Client, propfile), RO, (char*)"properties file" },
+    { (char*)"cwd",        T_OBJECT, offsetof(qfs_Client, cwd),      RO, (char*)"current directory" },
     { NULL }
 };
 
 static PyMethodDef Client_methods[] = {
-    { "mkdir", kfs_mkdir, METH_VARARGS, "Create directory."},
-    { "mkdirs", kfs_mkdirs, METH_VARARGS, "Create directory tree."},
-    { "isdir", kfs_isdir, METH_VARARGS, "Check if a path is a directory."},
-    { "rmdir", kfs_rmdir, METH_VARARGS, "Remove directory."},
-    { "rmdirs", kfs_rmdirs, METH_VARARGS, "Remove directory tree."},
-    { "readdir", kfs_readdir, METH_VARARGS, "Read directory." },
-    { "readdirplus", kfs_readdirplus, METH_VARARGS, "Read directory with attributes." },
-    { "stat", kfs_stat, METH_VARARGS, "Stat file." },
-    { "getNumChunks", kfs_getNumChunks, METH_VARARGS, "Get # of chunks in a file." },
-    { "getChunkSize", kfs_getChunkSize, METH_VARARGS, "Get default chunksize for a file." },
-    { "create", kfs_create, METH_VARARGS, "Create file." },
-    { "remove", kfs_remove, METH_VARARGS, "Remove file." },
-    { "rename", kfs_rename, METH_VARARGS, "Rename file or directory." },
-    { "coalesce_blocks", kfs_coalesceblocks, METH_VARARGS, "Coalesce blocks from src->dest." },
-    { "open", kfs_open, METH_VARARGS, "Open file." },
-    { "isfile", kfs_isfile, METH_VARARGS, "Check if a path is a file."},
-    { "cd", kfs_cd, METH_VARARGS, "Change directory." },
-    { "log_level", kfs_log_level, METH_VARARGS, "Set log4cpp log level." },
-    { NULL }
+    { "mkdir",            qfs_mkdir,          METH_VARARGS, "Create directory."},
+    { "mkdirs",           qfs_mkdirs,         METH_VARARGS, "Create directory tree."},
+    { "isdir",            qfs_isdir,          METH_VARARGS, "Check if a path is a directory."},
+    { "rmdir",            qfs_rmdir,          METH_VARARGS, "Remove directory."},
+    { "rmdirs",           qfs_rmdirs,         METH_VARARGS, "Remove directory tree."},
+    { "readdir",          qfs_readdir,        METH_VARARGS, "Read directory." },
+    { "readdirplus",      qfs_readdirplus,    METH_VARARGS, "Read directory with attributes." },
+    { "stat",             qfs_stat,           METH_VARARGS, "Stat file." },
+    { "getNumChunks",     qfs_getNumChunks,   METH_VARARGS, "Get # of chunks in a file." },
+    { "getChunkSize",     qfs_getChunkSize,   METH_VARARGS, "Get default chunksize for a file." },
+    { "create",           qfs_create,         METH_VARARGS, "Create file." },
+    { "remove",           qfs_remove,         METH_VARARGS, "Remove file." },
+    { "rename",           qfs_rename,         METH_VARARGS, "Rename file or directory." },
+    { "coalesce_blocks",  qfs_coalesceblocks, METH_VARARGS, "Coalesce blocks from src->dest." },
+    { "open",             qfs_open,           METH_VARARGS, "Open file." },
+    { "isfile",           qfs_isfile,         METH_VARARGS, "Check if a path is a file."},
+    { "cd",               qfs_cd,             METH_VARARGS, "Change directory." },
+    { "log_level",        qfs_log_level,      METH_VARARGS, "Set log4cpp log level." },
+    { NULL, NULL}
 };
 
 PyDoc_STRVAR(Client_doc,
-"A kfs.client object is an instance of the KFS client library\n"
-"that sends RPC's to the KFS metadata and chunk servers in order\n"
+"A qfs.client object is an instance of the QFS client library\n"
+"that sends RPC's to the QFS metadata and chunk servers in order\n"
 "to perform file system operations.  In addition, its 'open' method\n"
-"creates kfs.file objects that represent files in KFS.\n\n"
+"creates qfs.file objects that represent files in QFS.\n\n"
 "To create a client, you must supply a 'properties file' which\n"
 "defines the hostname and port number for the metaserver, e.g.\n\n"
-"\tmy_client = kfs.client('KfsTester.properties')\n\n"
+"\tmy_client = qfs.client('QfsTester.properties')\n\n"
 "Methods:\n"
 "\tmkdir(path) -- create a directory\n"
 "\tmkdirs(path) -- create a directory tree\n"
@@ -133,7 +133,7 @@ PyDoc_STRVAR(Client_doc,
 "\tstat(path)   --  file attributes, compatible with os.stat\n"
 "\tgetNumChunks(path)   --  return the # of chunks in a file\n"
 "\tgetChunkSize(path)   --  return the default size of chunks in a file\n"
-"\tcreate(path, numReplicas=3) -- create a file and return a kfs.file object for it\n"
+"\tcreate(path, numReplicas=3) -- create a file and return a qfs.file object for it\n"
 "\tremove(path) -- remove a file\n"
 "\tcoalesceblocks(src, dst) -- append blocks from src->dest\n"
 "\topen(path[, mode]) -- open a file and return an object for it\n"
@@ -143,11 +143,11 @@ PyDoc_STRVAR(Client_doc,
 "\tproperties   -- the name of the properties file\n"
 "\tcwd          -- the current directory (for relative paths)\n");
 
-static PyTypeObject kfs_ClientType = {
+static PyTypeObject qfs_ClientType = {
     PyObject_HEAD_INIT(NULL)
     0,                    // ob_size
-    "kfs.client",         // tp_name
-    sizeof (kfs_Client),  // tp_basicsize
+    "qfs.client",         // tp_name
+    sizeof (qfs_Client),  // tp_basicsize
     0,                    // tp_itemsize
     Client_dealloc,       // tp_dealloc
     Client_print,         // tp_print
@@ -186,11 +186,11 @@ static PyTypeObject kfs_ClientType = {
 };
 
 
-struct kfs_File {
+struct qfs_File {
     PyObject_HEAD
     PyObject *name;       // File name
     PyObject *mode;       // Access mode
-    PyObject *pclient;    // Python object for KFS client
+    PyObject *pclient;    // Python object for QFS client
     int fd;               // File descriptor
 };
 
@@ -203,7 +203,7 @@ File_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         if (noname == NULL)
             return NULL;
     }
-    kfs_File *self = (kfs_File *)type->tp_alloc(type, 0);
+    qfs_File *self = (qfs_File *)type->tp_alloc(type, 0);
     if (self != NULL) {
         Py_INCREF(noname);
         self->name = noname;
@@ -219,8 +219,8 @@ File_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static void
 File_dealloc(PyObject *pself)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     if (self->fd != -1)
         cl->client->Close(self->fd);
     Py_DECREF(self->name);
@@ -249,8 +249,8 @@ modeflag(const char *modestr)
 
 static int
 set_file_members(
-        kfs_File *self, const char *path,
-        const char *modestr, kfs_Client *client, int fd)
+        qfs_File *self, const char *path,
+        const char *modestr, qfs_Client *client, int fd)
 {
     int mode;
 
@@ -268,7 +268,7 @@ set_file_members(
         return -1;
     }
 
-    // set all of the fields in the kfs_File structure
+    // set all of the fields in the qfs_File structure
     Py_DECREF(self->name);
     self->name = PyString_FromString(path);
     Py_DECREF(self->mode);
@@ -285,7 +285,7 @@ set_file_members(
 static int
 File_init(PyObject *pself, PyObject *args, PyObject *kwds)
 {
-    kfs_File *self = (kfs_File *)pself;
+    qfs_File *self = (qfs_File *)pself;
     const char *nm, *md = "r";
     PyObject *cl = NULL;
 
@@ -294,19 +294,19 @@ File_init(PyObject *pself, PyObject *args, PyObject *kwds)
     };
 
     int ok = !PyArg_ParseTupleAndKeywords(
-            args, kwds, "O!s|s", kwlist, &kfs_ClientType,
+            args, kwds, "O!s|s", kwlist, &qfs_ClientType,
             &cl, &nm, &md);
     if (!ok)
         return -1;
 
-    return set_file_members(self, nm, md, (kfs_Client *)cl, -1);
+    return set_file_members(self, nm, md, (qfs_Client *)cl, -1);
 }
 
 static PyObject *
 File_repr(PyObject *pself)
 {
-    kfs_File *self = (kfs_File *)pself;
-    return PyString_FromFormat("kfs.file<%s, %s, %d>",
+    qfs_File *self = (qfs_File *)pself;
+    return PyString_FromFormat("qfs.file<%s, %s, %d>",
             PyString_AsString(self->name),
             PyString_AsString(self->mode),
             self->fd);
@@ -315,8 +315,8 @@ File_repr(PyObject *pself)
 static int
 File_print(PyObject *pself, FILE *fp, int flags)
 {
-    kfs_File *self = (kfs_File *)pself;
-    fprintf(fp, "kfs.file<%s, %s, %d>\n",
+    qfs_File *self = (qfs_File *)pself;
+    fprintf(fp, "qfs.file<%s, %s, %d>\n",
             PyString_AsString(self->name),
             PyString_AsString(self->mode),
             self->fd);
@@ -324,10 +324,10 @@ File_print(PyObject *pself, FILE *fp, int flags)
 }
 
 static PyObject *
-kfs_reopen(PyObject *pself, PyObject *args)
+qfs_reopen(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     char *modestr = PyString_AsString(self->mode);
 
     if (!PyArg_ParseTuple(args, "|s", &modestr))
@@ -347,10 +347,10 @@ kfs_reopen(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_close(PyObject *pself, PyObject *args)
+qfs_close(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     if (self->fd != -1) {
         cl->client->Close(self->fd);
         self->fd = -1;
@@ -359,10 +359,10 @@ kfs_close(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_read(PyObject *pself, PyObject *args)
+qfs_read(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     ssize_t rsize = -1l;
 
     if (!PyArg_ParseTuple(args, "l", &rsize))
@@ -390,10 +390,10 @@ kfs_read(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_write(PyObject *pself, PyObject *args)
+qfs_write(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     int wsize = -1;
     char *buf = NULL;
 
@@ -420,10 +420,10 @@ kfs_write(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_chunkLocations(PyObject *pself, PyObject *args)
+qfs_chunkLocations(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     int off, len;
 
     if (!PyArg_ParseTuple(args, "i|i", &off, &len))
@@ -456,10 +456,10 @@ kfs_chunkLocations(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_dataVerify(PyObject *pself, PyObject *args)
+qfs_dataVerify(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     int wsize = -1;
     char *buf = NULL;
 
@@ -476,10 +476,10 @@ kfs_dataVerify(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_truncate(PyObject *pself, PyObject *args)
+qfs_truncate(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     off_t off;
 
     if (!PyArg_ParseTuple(args, "L|i", &off))
@@ -500,10 +500,10 @@ kfs_truncate(PyObject *pself, PyObject *args)
 
 
 static PyObject *
-kfs_sync(PyObject *pself, PyObject *args)
+qfs_sync(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     int s = cl->client->Sync(self->fd);
     if (s < 0) {
         SetPyIoError(s);
@@ -513,10 +513,10 @@ kfs_sync(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_seek(PyObject *pself, PyObject *args)
+qfs_seek(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
     off_t off;
     int whence = SEEK_SET;
 
@@ -537,10 +537,10 @@ kfs_seek(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_tell(PyObject *pself, PyObject *args)
+qfs_tell(PyObject *pself, PyObject *args)
 {
-    kfs_File *self = (kfs_File *)pself;
-    kfs_Client *cl = (kfs_Client *)self->pclient;
+    qfs_File *self = (qfs_File *)pself;
+    qfs_Client *cl = (qfs_Client *)self->pclient;
 
     if (self->fd == -1) {
         SetPyIoError(-EBADF);
@@ -556,31 +556,31 @@ kfs_tell(PyObject *pself, PyObject *args)
 }
 
 static PyMethodDef File_methods[] = {
-    { "open", kfs_reopen, METH_VARARGS, "Open a closed file." },
-    { "close", kfs_close, METH_NOARGS, "Close file." },
-    { "read", kfs_read, METH_VARARGS, "Read from file." },
-    { "write", kfs_write, METH_VARARGS, "Write to file." },
-    { "truncate", kfs_truncate, METH_VARARGS, "Truncate a file." },
-    { "chunk_locations", kfs_chunkLocations, METH_VARARGS, "Get location(s) of a chunk." },
-    { "seek", kfs_seek, METH_VARARGS, "Seek to file offset." },
-    { "tell", kfs_tell, METH_NOARGS, "Return current offset." },
-    { "sync", kfs_sync, METH_NOARGS, "Flush file data." },
-        { "data_verify", kfs_dataVerify, METH_VARARGS, "Verify data matches what is in KFS."},
-    { NULL }
+    { "open",             qfs_reopen,         METH_VARARGS, "Open a closed file." },
+    { "close",            qfs_close,          METH_NOARGS,  "Close file." },
+    { "read",             qfs_read,           METH_VARARGS, "Read from file." },
+    { "write",            qfs_write,          METH_VARARGS, "Write to file." },
+    { "truncate",         qfs_truncate,       METH_VARARGS, "Truncate a file." },
+    { "chunk_locations",  qfs_chunkLocations, METH_VARARGS, "Get location(s) of a chunk." },
+    { "seek",             qfs_seek,           METH_VARARGS, "Seek to file offset." },
+    { "tell",             qfs_tell,           METH_NOARGS,  "Return current offset." },
+    { "sync",             qfs_sync,           METH_NOARGS,  "Flush file data." },
+    { "data_verify",      qfs_dataVerify,     METH_VARARGS, "Verify data matches what is in QFS."},
+    { NULL, NULL }
 };
 
 static PyMemberDef File_members[] = {
-    { (char*)"name", T_OBJECT, offsetof(kfs_File, name), RO, (char*)"file name" },
-    { (char*)"mode", T_OBJECT, offsetof(kfs_File, mode), RO, (char*)"access mode" },
-    { (char*)"fd",   T_INT,    offsetof(kfs_File, fd),   RO, (char*)"file descriptor" },
+    { (char*)"name", T_OBJECT, offsetof(qfs_File, name), RO, (char*)"file name" },
+    { (char*)"mode", T_OBJECT, offsetof(qfs_File, mode), RO, (char*)"access mode" },
+    { (char*)"fd",   T_INT,    offsetof(qfs_File, fd),   RO, (char*)"file descriptor" },
     { NULL }
 };
 
 PyDoc_STRVAR(File_doc,
-"These objects represent KFS files.  They include a file descriptor (fd)\n"
-"that identifies the file to the KFS client library for reads, writes,\n"
+"These objects represent QFS files.  They include a file descriptor (fd)\n"
+"that identifies the file to the QFS client library for reads, writes,\n"
 "and syncs.  When a file is closed, its fd becomes -1 and no further\n"
-"operations can be done on it unless it is reopened with the kfs.file\n"
+"operations can be done on it unless it is reopened with the qfs.file\n"
 "open method.\n\n"
 "Methods:\n"
 "\topen([mode]) -- reopen closed file\n"
@@ -592,17 +592,17 @@ PyDoc_STRVAR(File_doc,
 "\ttell()      -- return current offest\n"
 "\tsync()      -- flush file data to server\n"
 "\tchunk_locations(path, offset) -- location(s) of the chunk corresponding to offset\n"
-"\tdata_verify(str) -- verify that the data in KFS matches what is passed in\n"
+"\tdata_verify(str) -- verify that the data in QFS matches what is passed in\n"
 "\nData:\n\n"
 "\tname        -- the name of the file\n"
 "\tmode        -- access mode ('r', 'w', 'r+', or 'w+')\n"
 "\tfd          -- file descriptor (-1 if closed)\n");
 
-static PyTypeObject kfs_FileType = {
+static PyTypeObject qfs_FileType = {
     PyObject_HEAD_INIT(NULL)
     0,                  // ob_size
-    "kfs.file",         // tp_name
-    sizeof (kfs_File),  // tp_basicsize
+    "qfs.file",         // tp_name
+    sizeof (qfs_File),  // tp_basicsize
     0,                  // tp_itemsize
     File_dealloc,       // tp_dealloc
     File_print,         // tp_print
@@ -643,7 +643,7 @@ static PyTypeObject kfs_FileType = {
 static void
 Client_dealloc(PyObject *pself)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     Py_XDECREF(self->propfile);
     Py_XDECREF(self->cwd);
     delete self->client;
@@ -653,7 +653,7 @@ Client_dealloc(PyObject *pself)
 static PyObject *
 Client_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    kfs_Client *self = (kfs_Client *)type->tp_alloc(type, 0);
+    qfs_Client *self = (qfs_Client *)type->tp_alloc(type, 0);
 
     if (self == NULL)
         return NULL;
@@ -674,7 +674,7 @@ Client_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static int
 Client_init(PyObject *pself, PyObject *args, PyObject *kwds)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *pf = NULL;
 
     if (!PyArg_ParseTuple(args, "s", &pf))
@@ -696,8 +696,8 @@ Client_init(PyObject *pself, PyObject *args, PyObject *kwds)
 static PyObject *
 Client_repr(PyObject *pself)
 {
-    kfs_Client *self = (kfs_Client *)pself;
-    return PyString_FromFormat("kfs.client<%s, %s>",
+    qfs_Client *self = (qfs_Client *)pself;
+    return PyString_FromFormat("qfs.client<%s, %s>",
             PyString_AsString(self->propfile),
             PyString_AsString(self->cwd));
 }
@@ -705,8 +705,8 @@ Client_repr(PyObject *pself)
 static int
 Client_print(PyObject *pself, FILE *fp, int flags)
 {
-    kfs_Client *self = (kfs_Client *)pself;
-    fprintf(fp, "kfs.client<%s, %s>\n",
+    qfs_Client *self = (qfs_Client *)pself;
+    fprintf(fp, "qfs.client<%s, %s>\n",
             PyString_AsString(self->propfile),
             PyString_AsString(self->cwd));
     return 0;
@@ -742,7 +742,7 @@ strip_dots(string path)
 }
 
 /*
- * Take a path name that was supplied as an argument for a KFS operation.
+ * Take a path name that was supplied as an argument for a QFS operation.
  * If it is not absolute, add the current directory to the front of it and
  * in either case, call strip_dots to strip out any "." and ".." components.
  */
@@ -762,9 +762,9 @@ build_path(PyObject *cwd, const char *input)
 }
 
 static PyObject *
-kfs_cd(PyObject *pself, PyObject *args)
+qfs_cd(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -790,9 +790,9 @@ kfs_cd(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_log_level(PyObject *pself, PyObject *args)
+qfs_log_level(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *logLevel;
 
     if (!PyArg_ParseTuple(args, "s", &logLevel))
@@ -803,9 +803,9 @@ kfs_log_level(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_isdir(PyObject *pself, PyObject *args)
+qfs_isdir(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -817,9 +817,9 @@ kfs_isdir(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_isfile(PyObject *pself, PyObject *args)
+qfs_isfile(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -831,9 +831,9 @@ kfs_isfile(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_mkdir(PyObject *pself, PyObject *args)
+qfs_mkdir(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -849,9 +849,9 @@ kfs_mkdir(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_mkdirs(PyObject *pself, PyObject *args)
+qfs_mkdirs(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -867,9 +867,9 @@ kfs_mkdirs(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_rmdir(PyObject *pself, PyObject *args)
+qfs_rmdir(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -885,9 +885,9 @@ kfs_rmdir(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_rmdirs(PyObject *pself, PyObject *args)
+qfs_rmdirs(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -907,12 +907,12 @@ kfs_rmdirs(PyObject *pself, PyObject *args)
  *
  * Return directory contents as a tuple of names
  * XXX It should return a tuple of (name, fid) pairs, but
- * the KFS client readdir code currently only gives names
+ * the QFS client readdir code currently only gives names
  */
 static PyObject *
-kfs_readdir(PyObject *pself, PyObject *args)
+qfs_readdir(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -961,9 +961,9 @@ package_fattr(KfsFileAttr &fa)
  * (name, fid, mtime, ctime, crtime, type, size)
  */
 static PyObject *
-kfs_readdirplus(PyObject *pself, PyObject *args)
+qfs_readdirplus(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -987,9 +987,9 @@ kfs_readdirplus(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_stat(PyObject *pself, PyObject *args)
+qfs_stat(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -1023,9 +1023,9 @@ kfs_stat(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_getNumChunks(PyObject *pself, PyObject *args)
+qfs_getNumChunks(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -1041,9 +1041,9 @@ kfs_getNumChunks(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_getChunkSize(PyObject *pself, PyObject *args)
+qfs_getChunkSize(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -1054,9 +1054,9 @@ kfs_getChunkSize(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_create(PyObject *pself, PyObject *args)
+qfs_create(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
         int numReplicas = 3;
 
@@ -1070,7 +1070,7 @@ kfs_create(PyObject *pself, PyObject *args)
         return NULL;
     }
 
-    kfs_File *f = (kfs_File *)kfs_FileType.tp_new(&kfs_FileType, NULL, NULL);
+    qfs_File *f = (qfs_File *)qfs_FileType.tp_new(&qfs_FileType, NULL, NULL);
     if (f == NULL || set_file_members(f, path.c_str(), "w", self, fd) < 0)
         return NULL;
 
@@ -1078,9 +1078,9 @@ kfs_create(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_remove(PyObject *pself, PyObject *args)
+qfs_remove(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *patharg;
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
@@ -1096,9 +1096,9 @@ kfs_remove(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_rename(PyObject *pself, PyObject *args)
+qfs_rename(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *srcpath, *dstpath;
     bool overwrite = true;
 
@@ -1116,9 +1116,9 @@ kfs_rename(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_coalesceblocks(PyObject *pself, PyObject *args)
+qfs_coalesceblocks(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     char *srcpath, *dstpath;
 
     if (!PyArg_ParseTuple(args, "ss", &srcpath, &dstpath))
@@ -1137,9 +1137,9 @@ kfs_coalesceblocks(PyObject *pself, PyObject *args)
 }
 
 static PyObject *
-kfs_open(PyObject *pself, PyObject *args)
+qfs_open(PyObject *pself, PyObject *args)
 {
-    kfs_Client *self = (kfs_Client *)pself;
+    qfs_Client *self = (qfs_Client *)pself;
     const char *patharg, *modestr = "r";
 
     if (!PyArg_ParseTuple(args, "s|s", &patharg, &modestr))
@@ -1147,7 +1147,7 @@ kfs_open(PyObject *pself, PyObject *args)
 
     string path = build_path(self->cwd, patharg);
 
-    kfs_File *f = (kfs_File *)kfs_FileType.tp_new(&kfs_FileType, NULL, NULL);
+    qfs_File *f = (qfs_File *)qfs_FileType.tp_new(&qfs_FileType, NULL, NULL);
     if (f == NULL ||
         set_file_members(f, path.c_str(), modestr, self, -1) < 0) {
         return NULL;
@@ -1156,27 +1156,27 @@ kfs_open(PyObject *pself, PyObject *args)
 }
 
 PyDoc_STRVAR(module_doc,
-"This module links to the KFS client library to provide simple KFS\n"
+"This module links to the QFS client library to provide simple QFS\n"
 "file services akin to those for built-in Python file objects.  To use\n"
-"it, you must first create a kfs.client object.  This provides the\n"
-"connection to KFS; the appropriate KFS servers (i.e., the metaserver\n"
+"it, you must first create a qfs.client object.  This provides the\n"
+"connection to QFS; the appropriate QFS servers (i.e., the metaserver\n"
 " and chunkservers) must already be active.\n\n"
-"Once you have a kfs.client, you can perform file system operations\n"
-"corresponding to the KFS client library interfaces and create kfs.file\n"
-"objects that represent files in KFS.\n");
+"Once you have a qfs.client, you can perform file system operations\n"
+"corresponding to the QFS client library interfaces and create qfs.file\n"
+"objects that represent files in QFS.\n");
 
 
 PyMODINIT_FUNC
-initkfs()
+initqfs()
 {
-    if (PyType_Ready(&kfs_ClientType) < 0 ||
-        PyType_Ready(&kfs_FileType) < 0)
+    if (PyType_Ready(&qfs_ClientType) < 0 ||
+        PyType_Ready(&qfs_FileType) < 0)
         return;
 
-    PyObject *m = Py_InitModule3("kfs", NULL, module_doc);
+    PyObject *m = Py_InitModule3("qfs", NULL, module_doc);
 
-    Py_INCREF(&kfs_ClientType);
-    PyModule_AddObject(m, "client", (PyObject *)&kfs_ClientType);
-    Py_INCREF(&kfs_FileType);
-    PyModule_AddObject(m, "file", (PyObject *)&kfs_FileType);
+    Py_INCREF(&qfs_ClientType);
+    PyModule_AddObject(m, "client", (PyObject *)&qfs_ClientType);
+    Py_INCREF(&qfs_FileType);
+    PyModule_AddObject(m, "file", (PyObject *)&qfs_FileType);
 }
