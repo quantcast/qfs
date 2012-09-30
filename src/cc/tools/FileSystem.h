@@ -135,11 +135,13 @@ public:
         glob_t*        inGlobPtr) = 0;
     virtual int Chmod(
         const string& inPathName,
-        kfsMode_t     inMode) = 0;
+        kfsMode_t     inMode,
+        bool          inRecursiveFlag) = 0;
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup) = 0;
+        kfsUid_t      inGroup,
+        bool          inRecursiveFlag) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,

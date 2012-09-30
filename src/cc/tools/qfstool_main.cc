@@ -128,7 +128,7 @@ public:
                 const bool kRecursiveFlag = false;
                 theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kRecursiveFlag);
-            } else if (strcmp(theCmdPtr, "-ls") == 0) {
+            } else if (strcmp(theCmdPtr, "-lsr") == 0) {
                 const bool kRecursiveFlag = true;
                 theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kRecursiveFlag);
@@ -255,7 +255,7 @@ private:
             size_t      inIoBufferSize,
             char*       inIoBufferPtr)
             : mOutStream(inOutStream),
-              mOutStreamNamePtr(inOutStreamNamePtr ? mOutStreamNamePtr : ""),
+              mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
               mIoBufferSize(inIoBufferSize),
               mIoBufferPtr(inIoBufferPtr),
@@ -333,7 +333,7 @@ private:
             ostream&    inErrorStream,
             bool        inRecursiveFlag)
             : mOutStream(inOutStream),
-              mOutStreamNamePtr(inOutStreamNamePtr ? mOutStreamNamePtr : ""),
+              mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
               mRecursiveFlag(inRecursiveFlag),
               mShowFsUriFlag(false),
@@ -367,7 +367,6 @@ private:
                 return true;
             }
             Show(inFs, inPath, string(), mStat);
-            mStat.Reset();
             if ((mStat.st_mode & S_IFDIR) != 0) {
                 FileSystem::DirIterator* theItPtr = 0;
                 const bool kFetchAttributesFlag = true;
@@ -378,16 +377,21 @@ private:
                     mStatus = theErr;
                 } else {
                     string theName;
+                    mStat.Reset();
                     while (mOutStream) {
                         const FileSystem::StatBuf* theStatPtr = 0;
                         if ((theErr = inFs.Next(
                                 theItPtr, theName, theStatPtr))) {
                             mErrorStream << inFs.GetUri() << inPath <<
-                                ": " << inFs.StrError(theErr) << "\n";
+                                "/" << theName << ": " <<
+                                inFs.StrError(theErr) << "\n";
                             mStatus = theErr;
                         }
                         if (theName.empty()) {
                             break;
+                        }
+                        if (theName == "." || theName == "..") {
+                            continue;
                         }
                         Show(inFs, inPath, theName,
                             theStatPtr ? *theStatPtr : mStat);
@@ -454,7 +458,7 @@ private:
                         mOutStream << "+" << inStat.mNumRecoveryStripes;
                     }
                 } else {
-                    mOutStream << "<r " << inStat.mNumReplicas;
+                    mOutStream << "<r " << max(1, (int)inStat.mNumReplicas);
                 }
                 mOutStream << ">";
             }
@@ -523,6 +527,62 @@ private:
         bool   inRecursiveFlag)
     {
         ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class ChownFunctor
+    {
+    public:
+        ChownFunctor(
+            ostream& inErrorStream,
+            kfsUid_t inUid,
+            kfsGid_t inGid,
+            bool     inRecursiveFlag)
+            : mErrorStream(inErrorStream),
+              mUid(inUid),
+              mGid(inGid),
+              mRecursiveFlag(inRecursiveFlag),
+              mStatus(0)
+            {}
+        bool Init(
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */)
+        {
+            return true;
+        }
+        bool Apply(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            const int theErr = inFs.Chown(inPath, mUid, mGid, mRecursiveFlag);
+            if (theErr != 0) {
+                mErrorStream << inFs.GetUri() << inPath <<
+                    ": " << inFs.StrError(theErr) << "\n";
+                mStatus = theErr;
+            }
+            return true;
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        ostream& mErrorStream;
+        const kfsUid_t mUid;
+        const kfsGid_t mGid;
+        const bool     mRecursiveFlag;
+        int            mStatus;
+    private:
+        ChownFunctor(
+            const ChownFunctor& inFunctor);
+        ChownFunctor& operator=(
+            const ChownFunctor& inFunctor);
+    };
+    int Chown(
+        char**   inArgsPtr,
+        int      inArgCount,
+        kfsUid_t inUid,
+        kfsGid_t inGid,
+        bool     inRecursiveFlag)
+    {
+        ChownFunctor theFunc(cerr, inUid, inGid, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:

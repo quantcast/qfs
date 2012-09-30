@@ -109,7 +109,7 @@ public:
             if (! theRetPtr) {
                 return 0;
             }
-            if (mFetchAttributesFlag && outStatPtr) {
+            if (mFetchAttributesFlag) {
                 if (mFileName.empty()) {
                     mFileName.assign(mDirName.data(), mDirName.length());
                     if (! mFileName.empty() && *(mFileName.rbegin()) != '/') {
@@ -236,7 +236,7 @@ public:
     virtual int Close(
         DirIterator* inDirIteratorPtr)
     {
-        return RetErrno(inDirIteratorPtr ?
+        return Errno(inDirIteratorPtr ?
             static_cast<LocalDirIterator*>(inDirIteratorPtr)->Delete() :
             EINVAL
         );
@@ -259,7 +259,7 @@ public:
         } else {
             outName.clear();
         }
-        return RetErrno(theDirIt.GetError());
+        return Errno(theDirIt.GetError());
     }
     virtual int Glob(
         const string& inPattern,
@@ -269,17 +269,119 @@ public:
     {
         return glob(inPattern.c_str(), inFlags, inErrFuncPtr, inGlobPtr);
     }
+    template<typename T>
+    int RecursivelyApplySelf(
+        string& inPath,
+        T&      inFunctor)
+    {
+        const size_t thePrevSize = inPath.size();
+        DIR* const theDirPtr     = opendir(inPath.c_str());
+        if (! theDirPtr) {
+            return RetErrno(errno);
+        }
+        inPath += "/";
+        int                  theRet = 0;
+        const struct dirent* thePtr;
+        while ((thePtr = readdir(theDirPtr))) {
+            inPath.erase(thePrevSize + 1);
+            inPath += thePtr->d_name;
+            bool theDirFlag;
+#ifdef QC_OS_NAME_CYGWIN
+            // Cygwin has no d_type, all other supported platforms have the file
+            // type
+            struct stat theStat;
+            theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
+                (theStat.st_mode & S_IFDIR) != 0;
+#else
+            theDirFlag = thePtr->d_type == DT_DIR;
+#endif
+            if (theDirFlag) {
+                const int theCurRet = RecursivelyApply(inPath, inFunctor);
+                if (theCurRet != 0) {
+                    theRet = theCurRet;
+                }
+            }
+            const int theCurRet = inFunctor(inPath, theDirFlag);
+            if (theCurRet != 0) {
+                theRet = theCurRet;
+            }
+        }
+        inPath.erase(thePrevSize);
+        inFunctor(inPath, true);
+        return theRet;
+    }
+    template<typename T>
+    int RecursivelyApply(
+        const string& inPath,
+        T&            inFunctor)
+    {
+        struct stat theStat = {0};
+        if (stat(inPath.c_str(), &theStat)) {
+            return RetErrno(errno);
+        }
+        if ((theStat.st_mode & S_IFDIR) != 0) {
+            string thePath;
+            thePath.reserve(MAX_PATH_NAME_LENGTH);
+            thePath.assign(inPath.data(), inPath.length());
+        }
+        return inFunctor(inPath, false);
+    }
+    class ChmodFunctor
+    {
+    public:
+        ChmodFunctor(
+            kfsMode_t inMode)
+            : mMode((mode_t)inMode)
+            {}
+        int operator()(
+            const string& inPath,
+            bool          inDirectoryFlag)
+        {
+            return Errno(chmod(inPath.c_str(), mMode));
+        }
+    private:
+        const mode_t mMode;
+    };
     virtual int Chmod(
         const string& inPathName,
-        kfsMode_t     inMode)
+        kfsMode_t     inMode,
+        bool          inRecursiveFlag)
     {
+        if (inRecursiveFlag) {
+            ChmodFunctor theFunc(inMode);
+            return RecursivelyApply(inPathName, theFunc); 
+        }
         return Errno(chmod(inPathName.c_str(), (mode_t)inMode));
     }
+    class ChownFunctor
+    {
+    public:
+        ChownFunctor(
+            kfsUid_t inUid,
+            kfsGid_t inGid)
+            : mUid((uid_t)inUid),
+              mGid((gid_t)inGid)
+            {}
+        int operator()(
+            const string& inPath,
+            bool          inDirectoryFlag)
+        {
+            return Errno(chown(inPath.c_str(), mUid, mGid));
+        }
+    private:
+        const uid_t mUid;
+        const gid_t mGid;
+    };
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup)
+        kfsUid_t      inGroup,
+        bool          inRecursiveFlag)
     {
+        if (inRecursiveFlag) {
+            ChownFunctor theFunc(inOwner, inGroup);
+            return RecursivelyApply(inPathName, theFunc); 
+        }
         return Errno(chown(inPathName.c_str(), (uid_t)inOwner, (gid_t)inGroup));
     }
     virtual int GetUserAndGroupNames(
@@ -292,9 +394,7 @@ public:
     {
         return QCUtils::SysError(inError < 0 ? -inError : inError);
     }
-private:
-
-    int Errno(
+    static int Errno(
         int inVal)
     {
         if (inVal >= 0) {
@@ -302,11 +402,13 @@ private:
         }
         return RetErrno(errno);
     }
-    int RetErrno(
+private:
+    static int RetErrno(
         int inErrno)
     {
         return (inErrno == 0 ? -1 : (inErrno < 0 ? inErrno : -inErrno));
     }
+private:
     LocalFileSystem(
         const LocalFileSystem& inFileSystem);
     LocalFileSystem operator=(
@@ -525,16 +627,24 @@ public:
     }
     virtual int Chmod(
         const string& inPathName,
-        kfsMode_t     inMode)
+        kfsMode_t     inMode,
+        bool          inRecursiveFlag)
     {
-        return KfsClient::Chmod(inPathName.c_str(), inMode);
+        return (inRecursiveFlag ?
+            KfsClient::ChmodR(inPathName.c_str(), inMode) :
+            KfsClient::Chmod(inPathName.c_str(), inMode)
+        );
     }
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup)
+        kfsUid_t      inGroup,
+        bool          inRecursiveFlag)
     {
-        return KfsClient::Chown(inPathName.c_str(), inOwner, inGroup);
+        return (inRecursiveFlag ?
+            KfsClient::ChownR(inPathName.c_str(), inOwner, inGroup) :
+            KfsClient::Chown(inPathName.c_str(), inOwner, inGroup)
+        );
     }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
@@ -562,7 +672,7 @@ public:
 private:
     KfsFileSystem(
         const KfsFileSystem& inFileSystem);
-    KfsFileSystem operator=(
+    KfsFileSystem& operator=(
         const KfsFileSystem& inFileSystem);
 };
 
