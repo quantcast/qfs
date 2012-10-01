@@ -818,6 +818,7 @@ class DefaultErrHandler : public KfsClient::ErrorHandler
 {
 public:
     DefaultErrHandler()
+        : mStatus(0)
         {}
     virtual int operator()(const string& path, int status)
     {
@@ -825,10 +826,14 @@ public:
         KFS_LOG_STREAM_ERROR <<
             path << ": " << ErrorCodeToStr(status) <<
         KFS_LOG_EOM;
+        mStatus = status;
         return 0;
     }
+    int GetStatus() const
+        { return mStatus; }
+private:
+    int mStatus;
 };
-static DefaultErrHandler sErrHandler;
 
 class KfsClientImpl::ClientsList
 {
@@ -1475,16 +1480,17 @@ KfsClientImpl::RmdirsFast(const char *pathname,
         assert(! "internal error: invalid path name");
         return -EFAULT;
     }
+    DefaultErrHandler errorHandler;
     ret = RmdirsSelf(
         path.substr(0, pos),
         (pos == 0 && dirname == "/") ? string() : dirname,
         parentFid,
         fa->fileId,
-        errHandler ? *errHandler : sErrHandler
+        errHandler ? *errHandler : errorHandler
     );
     // Invalidate cached attributes.
     InvalidateAllCachedAttrs();
-    return ret;
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }
 
 void
@@ -4780,8 +4786,10 @@ KfsClientImpl::ChmodR(const char* pathname, kfsMode_t mode,
 {
     QCStMutexLocker l(mMutex);
 
-    ChmodFunc funct(*this, mode, errHandler ? *errHandler : sErrHandler);
-    return RecursivelyApply(pathname, funct);
+    DefaultErrHandler errorHandler;
+    ChmodFunc funct(*this, mode, errHandler ? *errHandler : errorHandler);
+    const int ret = RecursivelyApply(pathname, funct);
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }
 
 int
@@ -4948,8 +4956,10 @@ KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
                 mGroups.end()) {
         return -EPERM;
     }
-    ChownFunc funct(*this, user, group, errHandler ? *errHandler : sErrHandler);
-    return RecursivelyApply(pathname, funct);
+    DefaultErrHandler errorHandler;
+    ChownFunc funct(*this, user, group, errHandler ? *errHandler : errorHandler);
+    const int ret = RecursivelyApply(pathname, funct);
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }
 
 void
