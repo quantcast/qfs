@@ -235,15 +235,17 @@ KfsClient::Rmdir(const char *pathname)
 }
 
 int
-KfsClient::Rmdirs(const char *pathname)
+KfsClient::Rmdirs(const char *pathname,
+    KfsClient::ErrorHandler* errHandler)
 {
-    return mImpl->Rmdirs(pathname);
+    return mImpl->Rmdirs(pathname, errHandler);
 }
 
 int
-KfsClient::RmdirsFast(const char *pathname)
+KfsClient::RmdirsFast(const char *pathname,
+    KfsClient::ErrorHandler* errHandler)
 {
-    return mImpl->RmdirsFast(pathname);
+    return mImpl->RmdirsFast(pathname, errHandler);
 }
 
 int
@@ -811,6 +813,22 @@ public:
         return other == loc;
     }
 };
+
+class DefaultErrHandler : public KfsClient::ErrorHandler
+{
+public:
+    DefaultErrHandler()
+        {}
+    virtual int operator()(const string& path, int status)
+    {
+        // Report error and continue.
+        KFS_LOG_STREAM_ERROR <<
+            path << ": " << ErrorCodeToStr(status) <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+};
+static DefaultErrHandler sErrHandler;
 
 class KfsClientImpl::ClientsList
 {
@@ -1418,9 +1436,10 @@ KfsClientImpl::Rmdir(const char *pathname)
 /// @param[in] pathname         The full pathname such as /.../dir
 /// @retval 0 if rmdir is successful; -errno otherwise
 int
-KfsClientImpl::Rmdirs(const char *pathname)
+KfsClientImpl::Rmdirs(const char *pathname,
+    KfsClientImpl::ErrorHandler* errHandler)
 {
-    return RmdirsFast(pathname);
+    return RmdirsFast(pathname, errHandler);
 }
 
 ///
@@ -1428,7 +1447,8 @@ KfsClientImpl::Rmdirs(const char *pathname)
 /// @param[in] pathname         The full pathname such as /.../dir
 /// @retval 0 if rmdir is successful; -errno otherwise
 int
-KfsClientImpl::RmdirsFast(const char *pathname)
+KfsClientImpl::RmdirsFast(const char *pathname,
+    KfsClientImpl::ErrorHandler* errHandler)
 {
     QCStMutexLocker l(mMutex);
 
@@ -1459,7 +1479,8 @@ KfsClientImpl::RmdirsFast(const char *pathname)
         path.substr(0, pos),
         (pos == 0 && dirname == "/") ? string() : dirname,
         parentFid,
-        fa->fileId
+        fa->fileId,
+        errHandler ? *errHandler : sErrHandler
     );
     // Invalidate cached attributes.
     InvalidateAllCachedAttrs();
@@ -1475,14 +1496,18 @@ KfsClientImpl::InvalidateAllCachedAttrs()
 
 int
 KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
-    kfsFileId_t parentFid, kfsFileId_t dirFid)
+    kfsFileId_t parentFid, kfsFileId_t dirFid,
+    KfsClientImpl::ErrorHandler& errHandler)
 {
+    const string p = path + (path == "/" ? "" : "/") + dirname;
+    // Don't compute file sizes and don't update i-node attribute cache.
     vector<KfsFileAttr> entries;
-    // don't compute any filesize; don't update client cache
-    const string p = path + "/" + dirname;
     int res = ReaddirPlus(p, dirFid, entries, false, false);
     if (res < 0) {
-        return res;
+        if ((res = errHandler(p, res)) != 0) {
+            return res;
+        }
+        entries.clear();
     }
     for (vector<KfsFileAttr>::const_iterator it = entries.begin();
             it != entries.end();
@@ -1494,24 +1519,31 @@ KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
             if (it->fileId == ROOTFID) {
                 continue;
             }
-            res = RmdirsSelf(p, it->filename, dirFid, it->fileId);
+            res = RmdirsSelf(p, it->filename, dirFid, it->fileId, errHandler);
+            if (res != 0) {
+                break;
+            }
         } else {
             res = Remove(p, dirFid, it->filename);
+            if (res < 0 && (res = errHandler(p, res)) != 0) {
+                break;
+            }
         }
-        if (res < 0) {
-            return res;
-        }
+    }
+    if (res != 0) {
+        return res;
     }
     if (dirname.empty() || (parentFid == ROOTFID && dirname == "/")) {
         return 0;
     }
     RmdirOp op(nextSeq(), parentFid, dirname.c_str(), p.c_str());
     DoMetaOpWithRetry(&op);
-    return op.status;
+    return (op.status < 0 ? errHandler(p, op.status) : 0);
 }
 
 int
-KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid, const string& filename)
+KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid,
+    const string& filename)
 {
     string pathname = dirname + "/" + filename;
     RemoveOp op(nextSeq(), dirFid, filename.c_str(), pathname.c_str());
@@ -4741,22 +4773,6 @@ private:
     const kfsMode_t mMode;
     ErrorHandler&   mErrHandler;
 };
-
-class DefaultErrHandler : public KfsClient::ErrorHandler
-{
-public:
-    DefaultErrHandler()
-        {}
-    virtual int operator()(const string& path, int status)
-    {
-        // Report error and continue.
-        KFS_LOG_STREAM_ERROR <<
-            path << ": " << ErrorCodeToStr(status) <<
-        KFS_LOG_EOM;
-        return 0;
-    }
-};
-static DefaultErrHandler sErrHandler;
 
 int
 KfsClientImpl::ChmodR(const char* pathname, kfsMode_t mode,

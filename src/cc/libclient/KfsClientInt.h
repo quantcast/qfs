@@ -296,9 +296,9 @@ public:
     /// Remove a directory hierarchy in KFS.
     /// @param[in] pathname		The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
-    int Rmdirs(const char *pathname);
+    int Rmdirs(const char *pathname, ErrorHandler* errHandler);
 
-    int RmdirsFast(const char *pathname);
+    int RmdirsFast(const char *pathname, ErrorHandler* errHandler);
 
     ///
     /// Read a directory's contents
@@ -907,7 +907,8 @@ private:
     int DoOpResponse(KfsOp *op, TcpSocket *sock);
     int DoOpCommon(KfsOp *op, TcpSocket *sock);
     int DoOpSend(KfsOp *op, TcpSocket *sock);
-    int RmdirsSelf(const string& path, const string& dirname, kfsFileId_t parentFid, kfsFileId_t dirFid);
+    int RmdirsSelf(const string& path, const string& dirname,
+        kfsFileId_t parentFid, kfsFileId_t dirFid, ErrorHandler& errHandler);
     void StartProtocolWorker();
     void InvalidateAllCachedAttrs();
     int GetUserAndGroup(const char* user, const char* group, kfsUid_t& uid, kfsGid_t& gid);

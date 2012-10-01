@@ -123,9 +123,9 @@ public:
     /// Remove a directory hierarchy in KFS.
     /// @param[in] pathname		The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
-    int Rmdirs(const char *pathname);
+    int Rmdirs(const char *pathname, ErrorHandler* errHandler = 0);
 
-    int RmdirsFast(const char *pathname);
+    int RmdirsFast(const char *pathname, ErrorHandler* errHandler = 0);
 
     ///
     /// Read a directory's contents
