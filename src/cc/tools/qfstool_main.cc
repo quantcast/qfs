@@ -567,18 +567,14 @@ private:
         ErrorReporter& operator=(
             const ErrorReporter& inReporter);
     };
-    class ChownFunctor
+    template<typename T> class FunctorT
     {
     public:
-        ChownFunctor(
-            ostream& inErrorStream,
-            kfsUid_t inUid,
-            kfsGid_t inGid,
-            bool     inRecursiveFlag)
-            : mErrorStream(inErrorStream),
-              mUid(inUid),
-              mGid(inGid),
-              mRecursiveFlag(inRecursiveFlag),
+        FunctorT(
+            T&       inFunctor,
+            ostream& inErrorStream)
+            : mFunctor(inFunctor),
+              mErrorStream(inErrorStream),
               mStatus(0)
             {}
         bool Init(
@@ -592,25 +588,48 @@ private:
             const string& inPath)
         {
             ErrorReporter theErrorReporter(inFs, mErrorStream);
-            const int theErr = inFs.Chown(inPath, mUid, mGid,
-                mRecursiveFlag, &theErrorReporter);
-            if (theErr != 0) {
-                mErrorStream << inFs.GetUri() << inPath <<
-                    ": " << inFs.StrError(theErr) << "\n";
-                mStatus = theErr;
-            } else {
-                mStatus = theErrorReporter.GetStatus();
+            const int     theError = mFunctor(inFs, inPath, theErrorReporter);
+            if (theError != 0) {
+                theErrorReporter(inPath, theError);
             }
+            mStatus = theErrorReporter.GetStatus();
             return true;
         }
         int GetStatus() const
             { return mStatus; }
     private:
-        ostream&       mErrorStream;
+        T&       mFunctor;
+        ostream& mErrorStream;
+        int      mStatus;
+    private:
+        FunctorT(
+            const FunctorT& inFunctor);
+        FunctorT& operator=(
+            const FunctorT& inFunctor);
+    };
+    class ChownFunctor
+    {
+    public:
+        ChownFunctor(
+            kfsUid_t inUid,
+            kfsGid_t inGid,
+            bool     inRecursiveFlag)
+            : mUid(inUid),
+              mGid(inGid),
+              mRecursiveFlag(inRecursiveFlag)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            return inFs.Chown(inPath, mUid, mGid,
+                mRecursiveFlag, &inErrorReporter);
+        }
+    private:
         const kfsUid_t mUid;
         const kfsGid_t mGid;
         const bool     mRecursiveFlag;
-        int            mStatus;
     private:
         ChownFunctor(
             const ChownFunctor& inFunctor);
@@ -624,50 +643,29 @@ private:
         kfsGid_t inGid,
         bool     inRecursiveFlag)
     {
-        ChownFunctor theFunc(cerr, inUid, inGid, inRecursiveFlag);
+        ChownFunctor           theChownFunc(inUid, inGid, inRecursiveFlag);
+        FunctorT<ChownFunctor> theFunc(theChownFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     class ChmodFunctor
     {
     public:
         ChmodFunctor(
-            ostream&  inErrorStream,
             kfsMode_t inMode,
             bool      inRecursiveFlag)
-            : mErrorStream(inErrorStream),
-              mMode(inMode),
-              mRecursiveFlag(inRecursiveFlag),
-              mStatus(0)
+            : mMode(inMode),
+              mRecursiveFlag(inRecursiveFlag)
             {}
-        bool Init(
-            int&              /* ioGlobError */,
-            const GlobResult& /* inGlobResult */)
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
         {
-            return true;
+            return inFs.Chmod(inPath, mMode, mRecursiveFlag, &inErrorReporter);
         }
-        bool Apply(
-            FileSystem&   inFs,
-            const string& inPath)
-        {
-            ErrorReporter theErrorReporter(inFs, mErrorStream);
-            const int theErr = inFs.Chmod(inPath, mMode,
-                mRecursiveFlag, &theErrorReporter);
-            if (theErr != 0) {
-                mErrorStream << inFs.GetUri() << inPath <<
-                    ": " << inFs.StrError(theErr) << "\n";
-                mStatus = theErr;
-            } else {
-                mStatus = theErrorReporter.GetStatus();
-            }
-            return true;
-        }
-        int GetStatus() const
-            { return mStatus; }
     private:
-        ostream&        mErrorStream;
         const kfsMode_t mMode;
         const bool      mRecursiveFlag;
-        int             mStatus;
     private:
         ChmodFunctor(
             const ChmodFunctor& inFunctor);
@@ -680,7 +678,8 @@ private:
         kfsMode_t inMode,
         bool      inRecursiveFlag)
     {
-        ChmodFunctor theFunc(cerr, inMode, inRecursiveFlag);
+        ChmodFunctor           theChmodFunc(inMode, inRecursiveFlag);
+        FunctorT<ChmodFunctor> theFunc(theChmodFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
