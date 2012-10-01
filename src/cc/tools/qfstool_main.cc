@@ -160,6 +160,7 @@ private:
     static int Glob(
         char**       inArgsPtr,
         int          inArgCount,
+        ostream&     inErrorStream,
         GlobResult&  outResult)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
@@ -170,7 +171,7 @@ private:
             string       thePath;
             int          theErr   = FileSystem::Get(theArg, theFsPtr, &thePath);
             if (theErr) {
-                cerr << theArg <<
+                inErrorStream << theArg <<
                     ": " << FileSystem::GetStrError(theErr) << "\n";
                 theRet = theErr;
                 continue;
@@ -190,7 +191,7 @@ private:
                 if (thePath.empty() || thePath[0] != '/') {
                     string theCwd;
                     if ((theErr = theFsPtr->GetCwd(theCwd))) {
-                        cerr << theArg <<
+                        inErrorStream << theArg <<
                             ": " << theFsPtr->StrError(theErr) << "\n";
                         globfree(&theGlobRes);
                         theRet = theErr;
@@ -210,7 +211,7 @@ private:
                     theResult.push_back(thePrefix + theGlobRes.gl_pathv[i]);
                 }
             } else {
-                cerr << inArgsPtr[i] << ": " << GlobError(theErr) <<
+                inErrorStream << inArgsPtr[i] << ": " << GlobError(theErr) <<
                     " " << theErr << "\n";
             }
             globfree(&theGlobRes);
@@ -226,7 +227,7 @@ private:
         FuncT& inFunctor)
     {
         GlobResult theResult;
-        int theErr = Glob(inArgsPtr, inArgCount, theResult);
+        int theErr = Glob(inArgsPtr, inArgCount, cerr, theResult);
         if (! inFunctor.Init(theErr, theResult)) {
             return theErr;
         }
@@ -533,6 +534,39 @@ private:
         ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    class ErrorReporter : public FileSystem::ErrorHandler
+    {
+    public:
+        ErrorReporter(
+            FileSystem& inFs,
+            ostream&    inErrorStream,
+            bool        inStopOnErrorFlag = false)
+            : mFs(inFs),
+              mErrorStream(inErrorStream),
+              mStopOnErrorFlag(inStopOnErrorFlag)
+            {}
+        int operator()(
+            const string& inPath,
+            int           inStatus)
+        {
+            mErrorStream << mFs.GetUri() << "/" << inPath << ": " <<
+                mFs.StrError(inStatus) << "\n";
+            mStatus = inStatus;
+            return (mStopOnErrorFlag ? inStatus : 0);
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        FileSystem& mFs;
+        ostream&    mErrorStream;
+        const bool  mStopOnErrorFlag;
+        int         mStatus;
+    private:
+        ErrorReporter(
+            const ErrorReporter& inReporter);
+        ErrorReporter& operator=(
+            const ErrorReporter& inReporter);
+    };
     class ChownFunctor
     {
     public:
@@ -557,18 +591,22 @@ private:
             FileSystem&   inFs,
             const string& inPath)
         {
-            const int theErr = inFs.Chown(inPath, mUid, mGid, mRecursiveFlag, 0);
+            ErrorReporter theErrorReporter(inFs, mErrorStream);
+            const int theErr = inFs.Chown(inPath, mUid, mGid,
+                mRecursiveFlag, &theErrorReporter);
             if (theErr != 0) {
                 mErrorStream << inFs.GetUri() << inPath <<
                     ": " << inFs.StrError(theErr) << "\n";
                 mStatus = theErr;
+            } else {
+                mStatus = theErrorReporter.GetStatus();
             }
             return true;
         }
         int GetStatus() const
             { return mStatus; }
     private:
-        ostream& mErrorStream;
+        ostream&       mErrorStream;
         const kfsUid_t mUid;
         const kfsGid_t mGid;
         const bool     mRecursiveFlag;
@@ -587,6 +625,62 @@ private:
         bool     inRecursiveFlag)
     {
         ChownFunctor theFunc(cerr, inUid, inGid, inRecursiveFlag);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class ChmodFunctor
+    {
+    public:
+        ChmodFunctor(
+            ostream&  inErrorStream,
+            kfsMode_t inMode,
+            bool      inRecursiveFlag)
+            : mErrorStream(inErrorStream),
+              mMode(inMode),
+              mRecursiveFlag(inRecursiveFlag),
+              mStatus(0)
+            {}
+        bool Init(
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */)
+        {
+            return true;
+        }
+        bool Apply(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            ErrorReporter theErrorReporter(inFs, mErrorStream);
+            const int theErr = inFs.Chmod(inPath, mMode,
+                mRecursiveFlag, &theErrorReporter);
+            if (theErr != 0) {
+                mErrorStream << inFs.GetUri() << inPath <<
+                    ": " << inFs.StrError(theErr) << "\n";
+                mStatus = theErr;
+            } else {
+                mStatus = theErrorReporter.GetStatus();
+            }
+            return true;
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        ostream&        mErrorStream;
+        const kfsMode_t mMode;
+        const bool      mRecursiveFlag;
+        int             mStatus;
+    private:
+        ChmodFunctor(
+            const ChmodFunctor& inFunctor);
+        ChmodFunctor& operator=(
+            const ChmodFunctor& inFunctor);
+    };
+    int Chmod(
+        char**    inArgsPtr,
+        int       inArgCount,
+        kfsMode_t inMode,
+        bool      inRecursiveFlag)
+    {
+        ChmodFunctor theFunc(cerr, inMode, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
