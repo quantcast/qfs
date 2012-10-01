@@ -57,9 +57,21 @@ const size_t MAX_FILENAME_LEN = 256;
 ///
 
 
-class KfsClient {
+class KfsClient
+{
 public:
     typedef client::KfsClientImpl KfsClientImpl;
+
+    class ErrorHandler
+    {
+    public:
+        virtual int operator()(const string& path, int error) = 0;
+    protected:
+        ErrorHandler()  {}
+        virtual ~ErrorHandler() {}
+        ErrorHandler(const ErrorHandler&) {}
+        ErrorHandler& operator=(const ErrorHandler&) { return *this; }
+    };
 
     KfsClient();
     ~KfsClient();
@@ -605,9 +617,12 @@ public:
     int Chown(int fd, kfsUid_t user, kfsGid_t group);
     int Chown(const char* pathname, const char* user, const char* group);
     int Chown(int fd, const char* user, const char* group);
-    int ChmodR(const char* pathname, kfsMode_t mode);
-    int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group);
-    int ChownR(const char* pathname, const char* user, const char* group);
+    int ChmodR(const char* pathname, kfsMode_t mode,
+            ErrorHandler* errHandler = 0);
+    int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+            ErrorHandler* errHandler = 0);
+    int ChownR(const char* pathname, const char* user, const char* group,
+            ErrorHandler* errHandler = 0);
     void SetUMask(kfsMode_t mask);
     kfsMode_t GetUMask() const;
     // Must be invoked before invoking any other method.

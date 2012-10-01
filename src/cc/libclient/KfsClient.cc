@@ -739,21 +739,24 @@ KfsClient::Chown(int fd, const char* user, const char* group)
 }
 
 int
-KfsClient::ChmodR(const char* pathname, kfsMode_t mode)
+KfsClient::ChmodR(const char* pathname, kfsMode_t mode,
+    KfsClient::ErrorHandler* errHandler)
 {
-    return mImpl->ChmodR(pathname, mode);
+    return mImpl->ChmodR(pathname, mode, errHandler);
 }
 
 int
-KfsClient::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group)
+KfsClient::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+    KfsClient::ErrorHandler* errHandler)
 {
-    return mImpl->ChownR(pathname, user, group);
+    return mImpl->ChownR(pathname, user, group, errHandler);
 }
 
 int
-KfsClient::ChownR(const char* pathname, const char* user, const char* group)
+KfsClient::ChownR(const char* pathname, const char* user, const char* group,
+    KfsClient::ErrorHandler* errHandler)
 {
-    return mImpl->ChownR(pathname, user, group);
+    return mImpl->ChownR(pathname, user, group, errHandler);
 }
 
 void
@@ -4623,16 +4626,20 @@ template<typename T>
 int
 KfsClientImpl::RecursivelyApply(string& path, const KfsFileAttr& attr, T& functor)
 {
-    if (attr.isDirectory) {
-        // don't compute any filesize; don't update client cache
-        const size_t prevSize = path.size();
+    int          status   = 0;
+    const size_t prevSize = path.size();
+    if (! attr.filename.empty() && path != "/") {
         path += "/";
         path += attr.filename;
+    }
+    if (attr.isDirectory) {
+        // don't compute any filesize; don't update client cache
         vector<KfsFileAttr> entries;
-        int res = ReaddirPlus(path, attr.fileId, entries, false, false);
-        if (res < 0) {
-            return res;
+        if ((status = ReaddirPlus(
+                path, attr.fileId, entries, false, false)) < 0) {
+            entries.clear();
         }
+        int res = 0;
         for (vector<KfsFileAttr>::const_iterator it = entries.begin();
                 it != entries.end();
                 ++it) {
@@ -4640,15 +4647,14 @@ KfsClientImpl::RecursivelyApply(string& path, const KfsFileAttr& attr, T& functo
                 continue;
             }
             if ((res = RecursivelyApply(path, *it, functor)) != 0) {
-                break;
+                path.resize(prevSize);
+                return res;
             }
         }
-        path.resize(prevSize);
-        if (res != 0) {
-            return res;
-        }
     }
-    return functor(path, attr);
+    status = functor(path, attr, status);
+    path.resize(prevSize);
+    return status;
 }
 
 template<typename T>
@@ -4663,6 +4669,7 @@ KfsClientImpl::RecursivelyApply(const char* pathname, T& functor)
     if (res != 0) {
         return res;
     }
+    attr.filename.clear();
     res = RecursivelyApply(path, attr, functor);
     InvalidateAllCachedAttrs();
     return res;
@@ -4699,30 +4706,65 @@ KfsClientImpl::Chmod(int fd, kfsMode_t mode)
 
 class ChmodFunc
 {
-private:
-    KfsClientImpl&  mCli;
-    const kfsMode_t mMode;
 public:
-    ChmodFunc(KfsClientImpl& cli, kfsMode_t mode)
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
+    ChmodFunc(KfsClientImpl& cli, kfsMode_t mode,
+        ErrorHandler& errHandler)
         : mCli(cli),
-          mMode(mode)
+          mMode(mode),
+          mErrHandler(errHandler)
         {}
-    int operator()(const string& /* path */, const KfsFileAttr& attr) const
+    int operator()(const string& path, const KfsFileAttr& attr,
+            int status) const
     {
+        if (status != 0) {
+            const int ret = mErrHandler(path, status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
         ChmodOp op(mCli.nextSeq(), attr.fileId, (attr.isDirectory ?
             kfsMode_t(Permissions::kDirModeMask) :
             kfsMode_t(Permissions::kFileModeMask)));
         mCli.DoMetaOpWithRetry(&op);
-        return op.status;
+        if (op.status != 0) {
+            const int ret = mErrHandler(path, op.status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return 0;
     }
+private:
+    KfsClientImpl&  mCli;
+    const kfsMode_t mMode;
+    ErrorHandler&   mErrHandler;
 };
 
+class DefaultErrHandler : public KfsClient::ErrorHandler
+{
+public:
+    DefaultErrHandler()
+        {}
+    virtual int operator()(const string& path, int status)
+    {
+        // Report error and continue.
+        KFS_LOG_STREAM_ERROR <<
+            path << ": " << ErrorCodeToStr(status) <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+};
+static DefaultErrHandler sErrHandler;
+
 int
-KfsClientImpl::ChmodR(const char* pathname, kfsMode_t mode)
+KfsClientImpl::ChmodR(const char* pathname, kfsMode_t mode,
+    KfsClientImpl::ErrorHandler* errHandler)
 {
     QCStMutexLocker l(mMutex);
 
-    ChmodFunc funct(*this, mode);
+    ChmodFunc funct(*this, mode, errHandler ? *errHandler : sErrHandler);
     return RecursivelyApply(pathname, funct);
 }
 
@@ -4829,7 +4871,8 @@ KfsClientImpl::Chown(const char* pathname, kfsUid_t user, kfsGid_t group)
 }
 
 int
-KfsClientImpl::ChownR(const char* pathname, const char* user, const char* group)
+KfsClientImpl::ChownR(const char* pathname, const char* user, const char* group,
+    KfsClientImpl::ErrorHandler* errHandler)
 {
     kfsUid_t uid = kKfsUserNone;
     kfsGid_t gid = kKfsGroupNone;
@@ -4837,31 +4880,50 @@ KfsClientImpl::ChownR(const char* pathname, const char* user, const char* group)
     if (ret != 0) {
         return ret;
     }
-    return ChownR(pathname, uid, gid);
+    return ChownR(pathname, uid, gid, errHandler);
 }
 
 class ChownFunc
 {
+public:
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
+    ChownFunc(KfsClientImpl& cli, kfsUid_t user, kfsGid_t group,
+        ErrorHandler& errHandler)
+        : mCli(cli),
+          mUser(user),
+          mGroup(group),
+          mErrHandler(errHandler)
+        {}
+    int operator()(const string& path, const KfsFileAttr& attr,
+        int status) const
+    {
+        if (status != 0) {
+            const int ret = mErrHandler(path, status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        ChownOp op(mCli.nextSeq(), attr.fileId, mUser, mGroup);
+        mCli.DoMetaOpWithRetry(&op);
+        if (op.status != 0) {
+            const int ret = mErrHandler(path, op.status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return 0;
+    }
 private:
     KfsClientImpl& mCli;
     const kfsUid_t mUser;
     const kfsGid_t mGroup;
-public:
-    ChownFunc(KfsClientImpl& cli, kfsUid_t user, kfsGid_t group)
-        : mCli(cli),
-          mUser(user),
-          mGroup(group)
-        {}
-    int operator()(const string& /* path */, const KfsFileAttr& attr) const
-    {
-        ChownOp op(mCli.nextSeq(), attr.fileId, mUser, mGroup);
-        mCli.DoMetaOpWithRetry(&op);
-        return op.status;
-    }
+    ErrorHandler&  mErrHandler;
 };
 
 int
-KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group)
+KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+    KfsClientImpl::ErrorHandler* errHandler)
 {
     QCStMutexLocker l(mMutex);
 
@@ -4870,7 +4932,7 @@ KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group)
                 mGroups.end()) {
         return -EPERM;
     }
-    ChownFunc funct(*this, user, group);
+    ChownFunc funct(*this, user, group, errHandler ? *errHandler : sErrHandler);
     return RecursivelyApply(pathname, funct);
 }
 

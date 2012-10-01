@@ -557,7 +557,7 @@ private:
             FileSystem&   inFs,
             const string& inPath)
         {
-            const int theErr = inFs.Chown(inPath, mUid, mGid, mRecursiveFlag);
+            const int theErr = inFs.Chown(inPath, mUid, mGid, mRecursiveFlag, 0);
             if (theErr != 0) {
                 mErrorStream << inFs.GetUri() << inPath <<
                     ": " << inFs.StrError(theErr) << "\n";

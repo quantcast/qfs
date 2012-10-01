@@ -331,8 +331,10 @@ public:
     {
     public:
         ChmodFunctor(
-            kfsMode_t inMode)
+            kfsMode_t     inMode,
+            ErrorHandler* inErrorHandlerPtr)
             : mMode((mode_t)inMode),
+              mErrorHandlerPtr(inErrorHandlerPtr),
               mStatus(0)
             {}
         int operator()(
@@ -342,26 +344,44 @@ public:
         {
             if (inErrno != 0) {
                 mStatus = inErrno;
+                const int theRet = HandleError(inPath, inErrno);
+                if (theRet != 0) {
+                    return theRet;
+                }
             }
-             const int theRet = Errno(chmod(inPath.c_str(), mMode));
+            int theRet = Errno(chmod(inPath.c_str(), mMode));
             if (theRet != 0) {
                 mStatus = theRet;
+                theRet = HandleError(inPath, theRet);
+                if (theRet != 0) {
+                    return theRet;
+                }
             }
             return 0;
         }
         int GetStatus() const
             { return mStatus; }
     private:
-        const mode_t mMode;
-        int          mStatus;
+        const mode_t        mMode;
+        ErrorHandler* const mErrorHandlerPtr;
+        int                 mStatus;
+
+        int HandleError(
+            const string& inPath,
+            int           inStatus)
+        {
+            return (mErrorHandlerPtr ?
+                (*mErrorHandlerPtr)(inPath, inStatus) : 0);
+        }
     };
     virtual int Chmod(
         const string& inPathName,
         kfsMode_t     inMode,
-        bool          inRecursiveFlag)
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
     {
         if (inRecursiveFlag) {
-            ChmodFunctor theFunc(inMode);
+            ChmodFunctor theFunc(inMode, inErrorHandlerPtr);
             const int theStatus = RecursivelyApply(inPathName, theFunc);
             return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
@@ -371,10 +391,12 @@ public:
     {
     public:
         ChownFunctor(
-            kfsUid_t inUid,
-            kfsGid_t inGid)
+            kfsUid_t                 inUid,
+            kfsGid_t                 inGid,
+            KfsClient::ErrorHandler* inErrHandlerPtr)
             : mUid((uid_t)inUid),
               mGid((gid_t)inGid),
+              mErrorHandlerPtr(inErrHandlerPtr),
               mStatus(0)
             {}
         int operator()(
@@ -394,18 +416,20 @@ public:
         int GetStatus() const
             { return mStatus; }
     private:
-        const uid_t mUid;
-        const gid_t mGid;
-        int         mStatus;
+        const uid_t              mUid;
+        const gid_t              mGid;
+        KfsClient::ErrorHandler* mErrorHandlerPtr;
+        int                      mStatus;
     };
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
         kfsUid_t      inGroup,
-        bool          inRecursiveFlag)
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
     {
         if (inRecursiveFlag) {
-            ChownFunctor theFunc(inOwner, inGroup);
+            ChownFunctor theFunc(inOwner, inGroup, inErrorHandlerPtr);
             const int theStatus = RecursivelyApply(inPathName, theFunc);
             return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
@@ -446,6 +470,8 @@ class KfsFileSystem : public FileSystemImpl,
     private KfsClient
 {
 public:
+    typedef FileSystem::ErrorHandler ErrorHandler;
+
     static void ToStat(
         const KfsFileAttr& inAttr,
         StatBuf&           outStatBuf)
@@ -657,10 +683,11 @@ public:
     virtual int Chmod(
         const string& inPathName,
         kfsMode_t     inMode,
-        bool          inRecursiveFlag)
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
     {
         return (inRecursiveFlag ?
-            KfsClient::ChmodR(inPathName.c_str(), inMode) :
+            KfsClient::ChmodR(inPathName.c_str(), inMode, inErrorHandlerPtr) :
             KfsClient::Chmod(inPathName.c_str(), inMode)
         );
     }
@@ -668,10 +695,12 @@ public:
         const string& inPathName,
         kfsUid_t      inOwner,
         kfsUid_t      inGroup,
-        bool          inRecursiveFlag)
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
     {
         return (inRecursiveFlag ?
-            KfsClient::ChownR(inPathName.c_str(), inOwner, inGroup) :
+            KfsClient::ChownR(inPathName.c_str(), inOwner, inGroup,
+                inErrorHandlerPtr) :
             KfsClient::Chown(inPathName.c_str(), inOwner, inGroup)
         );
     }

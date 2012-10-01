@@ -240,10 +240,10 @@ class KfsProtocolWorker;
 ///
 /// The kfs client implementation object.
 ///
-class KfsClientImpl {
-
+class KfsClientImpl
+{
 public:
-    enum { kMaxReadRequest = 1 << 20 };
+    typedef KfsClient::ErrorHandler ErrorHandler;
 
     KfsClientImpl();
     ~KfsClientImpl();
@@ -577,9 +577,12 @@ public:
     int Chown(int fd, kfsUid_t user, kfsGid_t group);
     int Chown(const char* pathname, const char* user, const char* group);
     int Chown(int fd, const char* user, const char* group);
-    int ChmodR(const char* pathname, kfsMode_t mode);
-    int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group);
-    int ChownR(const char* pathname, const char* user, const char* group);
+    int ChmodR(const char* pathname, kfsMode_t mode,
+        ErrorHandler* errHandler);
+    int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+        ErrorHandler* errHandler);
+    int ChownR(const char* pathname, const char* user, const char* group,
+        ErrorHandler* errHandler);
     void SetUMask(kfsMode_t mask);
     kfsMode_t GetUMask();
     int SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,

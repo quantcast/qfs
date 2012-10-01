@@ -28,6 +28,7 @@
 #define TOOLS_FILE_SYSTEM_H
 
 #include "common/kfstypes.h"
+#include "libclient/KfsClient.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -45,6 +46,8 @@ using std::string;
 class FileSystem
 {
 public:
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
     class StatBuf : public stat
     {
     public:
@@ -136,12 +139,14 @@ public:
     virtual int Chmod(
         const string& inPathName,
         kfsMode_t     inMode,
-        bool          inRecursiveFlag) = 0;
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
         kfsUid_t      inGroup,
-        bool          inRecursiveFlag) = 0;
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
