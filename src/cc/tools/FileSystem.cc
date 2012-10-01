@@ -327,13 +327,13 @@ public:
         }
         return inFunctor(inPath, false);
     }
-    class ChmodFunctor
+    template<typename T> class FunctorT
     {
     public:
-        ChmodFunctor(
-            kfsMode_t     inMode,
+        FunctorT(
+            T&            inFunctor,
             ErrorHandler* inErrorHandlerPtr)
-            : mMode((mode_t)inMode),
+            : mFunctor(inFunctor),
               mErrorHandlerPtr(inErrorHandlerPtr),
               mStatus(0)
             {}
@@ -349,7 +349,7 @@ public:
                     return theRet;
                 }
             }
-            int theRet = Errno(chmod(inPath.c_str(), mMode));
+            int theRet = Errno(mFunctor(inPath, inDirectoryFlag));
             if (theRet != 0) {
                 mStatus = theRet;
                 theRet = HandleError(inPath, theRet);
@@ -362,7 +362,7 @@ public:
         int GetStatus() const
             { return mStatus; }
     private:
-        const mode_t        mMode;
+        T&                  mFunctor;
         ErrorHandler* const mErrorHandlerPtr;
         int                 mStatus;
 
@@ -374,6 +374,22 @@ public:
                 (*mErrorHandlerPtr)(inPath, inStatus) : 0);
         }
     };
+    class ChmodFunctor
+    {
+    public:
+        ChmodFunctor(
+            kfsMode_t inMode)
+            : mMode((mode_t)inMode)
+            {}
+        int operator()(
+            const string& inPath,
+            bool          /* inDirectoryFlag */)
+        {
+            return chmod(inPath.c_str(), mMode);
+        }
+    private:
+        const mode_t mMode;
+    };
     virtual int Chmod(
         const string& inPathName,
         kfsMode_t     inMode,
@@ -381,7 +397,8 @@ public:
         ErrorHandler* inErrorHandlerPtr)
     {
         if (inRecursiveFlag) {
-            ChmodFunctor theFunc(inMode, inErrorHandlerPtr);
+            ChmodFunctor           theChmodFunc(inMode);
+            FunctorT<ChmodFunctor> theFunc(theChmodFunc, inErrorHandlerPtr);
             const int theStatus = RecursivelyApply(inPathName, theFunc);
             return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
@@ -391,35 +408,20 @@ public:
     {
     public:
         ChownFunctor(
-            kfsUid_t                 inUid,
-            kfsGid_t                 inGid,
-            KfsClient::ErrorHandler* inErrHandlerPtr)
+            kfsUid_t inUid,
+            kfsGid_t inGid)
             : mUid((uid_t)inUid),
-              mGid((gid_t)inGid),
-              mErrorHandlerPtr(inErrHandlerPtr),
-              mStatus(0)
+              mGid((gid_t)inGid)
             {}
         int operator()(
             const string& inPath,
-            bool          inDirectoryFlag,
-            int           inErrno = 0)
+            bool          /* inDirectoryFlag */)
         {
-            if (inErrno != 0) {
-                mStatus = inErrno;
-            }
-            const int theRet = Errno(chown(inPath.c_str(), mUid, mGid));
-            if (theRet != 0) {
-                mStatus = theRet;
-            }
-            return 0;
+            return chown(inPath.c_str(), mUid, mGid);
         }
-        int GetStatus() const
-            { return mStatus; }
-    private:
-        const uid_t              mUid;
-        const gid_t              mGid;
-        KfsClient::ErrorHandler* mErrorHandlerPtr;
-        int                      mStatus;
+     private:
+        const uid_t mUid;
+        const gid_t mGid;
     };
     virtual int Chown(
         const string& inPathName,
@@ -429,7 +431,8 @@ public:
         ErrorHandler* inErrorHandlerPtr)
     {
         if (inRecursiveFlag) {
-            ChownFunctor theFunc(inOwner, inGroup, inErrorHandlerPtr);
+            ChownFunctor           theChownFunc(inOwner, inGroup);
+            FunctorT<ChownFunctor> theFunc(theChownFunc, inErrorHandlerPtr);
             const int theStatus = RecursivelyApply(inPathName, theFunc);
             return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
