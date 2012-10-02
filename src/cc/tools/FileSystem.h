@@ -147,6 +147,12 @@ public:
         kfsUid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
+    virtual int Rmdir(
+        const string& inPathName) = 0;
+    virtual int Remove(
+        const string& inPathName,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,

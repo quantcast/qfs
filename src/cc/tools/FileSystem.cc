@@ -438,6 +438,37 @@ public:
         }
         return Errno(chown(inPathName.c_str(), (uid_t)inOwner, (gid_t)inGroup));
     }
+    virtual int Rmdir(
+        const string& inPathName)
+    {
+        return Errno(rmdir(inPathName.c_str()));
+    }
+    class RemoveFunctor
+    {
+    public:
+        RemoveFunctor()
+            {}
+        int operator()(
+            const string& inPath,
+            bool          inDirectoryFlag)
+        {
+            return (inDirectoryFlag ?
+                rmdir(inPath.c_str()) : unlink(inPath.c_str()));
+        }
+    };
+    virtual int Remove(
+        const string& inPathName,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
+    {
+        if (inRecursiveFlag) {
+            RemoveFunctor           theRemoveFunc;
+            FunctorT<RemoveFunctor> theFunc(theRemoveFunc, inErrorHandlerPtr);
+            const int theStatus = RecursivelyApply(inPathName, theFunc);
+            return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
+        }
+        return Errno(remove(inPathName.c_str()));
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
@@ -706,6 +737,31 @@ public:
                 inErrorHandlerPtr) :
             KfsClient::Chown(inPathName.c_str(), inOwner, inGroup)
         );
+    }
+    virtual int Rmdir(
+        const string& inPathName)
+    {
+        return KfsClient::Rmdir(inPathName.c_str());
+    }
+    virtual int Remove(
+        const string& inPathName,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
+    {
+        const bool  kComputeFileSizeFlag = false;
+        KfsFileAttr theAttr;
+        int         theRes = KfsClient::Stat(
+            inPathName.c_str(), theAttr, kComputeFileSizeFlag);
+        if (theRes != 0) {
+            return theRes;
+        }
+        if (theAttr.isDirectory) {
+            if (inRecursiveFlag) {
+                return KfsClient::Rmdirs(inPathName.c_str(), inErrorHandlerPtr);
+            }
+            return KfsClient::Rmdir(inPathName.c_str());
+        }
+        return KfsClient::Remove(inPathName.c_str());
     }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,

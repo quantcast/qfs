@@ -2438,7 +2438,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
 }
 
 int
-KfsClientImpl::Remove(const char *pathname)
+KfsClientImpl::Remove(const char* pathname)
 {
     if (! pathname || ! *pathname) {
         return -EINVAL;
