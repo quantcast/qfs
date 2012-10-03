@@ -108,7 +108,7 @@ Benchmarking QFS
 A performance comparison between QFS and HDFS 1.0.2 shows QFS is faster both at
 reading and writing 20 TB of uncompressed data on our test system,
 a heterogeneous cluster with 6,500 disk drives.
-See more at https://github.com/quantcast/qfs/wiki/Benchmarking.
+See more at https://github.com/quantcast/qfs/wiki/Performance-Comparison-to-HDFS
 
 
 Have Questions?
