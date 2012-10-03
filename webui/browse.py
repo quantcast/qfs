@@ -147,6 +147,5 @@ class QFSBrowser:
                 continue
             pathEntry = os.path.join(dirPath, info[0])
             fullStat = client.fullstat(pathEntry)
-            print fullStat
             self.contentHTML(pathEntry, info, fullStat, buffer)
         self.endHTML(buffer)
