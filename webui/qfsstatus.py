@@ -34,6 +34,7 @@ import urllib
 import platform
 from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaData, ChunkArrayData
 from chart import ChartData, ChartServerData, ChartHTML
+from browse import QFSBrowser
 import threading
 
 metaserverPort = 20000
@@ -44,13 +45,11 @@ displayName = ''
 autoRefresh = 60
 displayPorts = False
 
-
 kServerName="XMeta-server-location" #todo - put it to config file
 kChunks=1
 kMeta=2
 kChart=3
-
-# gChunkHandler = None
+kBrowse=4
 
 class ServerLocation:
     def __init__(self, **kwds):
@@ -150,16 +149,21 @@ class Status:
             goodNoRackAssignedCount,
             systemInfo
         ) :
+        global gQfsBrowser
         rows = ''
+        browseLink = '<A href="/browse-it">Browse Filesystem</A>' if gQfsBrowser.browsable else ''
         print >> buffer, '''
     <body class="oneColLiqCtr">
     <div id="container">
       <div id="mainContent">
         <h1> QFS Status ''', displayName, '''</h1>
-        <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="/meta-it">Meta Server Status</A></P>
+        <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;%s
+        </P>
         <div class="info-table">
         <table cellspacing="0" cellpadding="0.1em">
-        <tbody>'''
+        <tbody>''' % browseLink
+
         if self.systemInfo.isInRecovery:
             print >> buffer, '''<tr><td>Recovery status: </td><td>:</td><td>IN RECOVERY</td></tr>'''
         fsFree = systemInfo.freeFsSpace
@@ -342,7 +346,7 @@ class Status:
         print >> buffer, '''
         </tbody>
         </table></div>'''
- 
+
         if len(retiringServers) > 0:
             print >> buffer, '''
             <div class="floatleft">
@@ -1371,6 +1375,11 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
             elif self.path.startswith('/meta-it') :
                 self.path = '/'
                 reqType = kMeta
+            elif self.path.startswith('/browse-it') :
+                self.path = self.path[len('/browse-it'):]
+                if self.path == '':
+                    self.path = '/'
+                reqType = kBrowse
 
             if reqType == kChunks:
                 if gChunkHandler.chunksToHTML(txtStream) == 0:
@@ -1378,6 +1387,13 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     return
             elif reqType == kMeta:
                 if gChunkHandler.countersToHTML(txtStream) == 0:
+                    self.send_error(404, 'Not found')
+                    return
+            elif reqType == kBrowse and gQfsBrowser.browsable:
+                if gQfsBrowser.printToHTML(self.path,
+                                           mestaserverHost,
+                                           metaserverPort,
+                                           txtStream) == 0:
                     self.send_error(404, 'Not found')
                     return
             else:
@@ -1480,6 +1496,7 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 if __name__ == '__main__':
     global gChunkHandler
+    global gQfsBrowser
     PORT=20001
     allMachinesFile = ""
     if len(sys.argv) != 2:
@@ -1491,6 +1508,7 @@ if __name__ == '__main__':
         sys.exit()
 
     gChunkHandler = ChunkHandler()
+    gQfsBrowser = QFSBrowser()
 
     config = ConfigParser()
     config.readfp(open(sys.argv[1], 'r'))
