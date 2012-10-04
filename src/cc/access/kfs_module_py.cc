@@ -49,9 +49,10 @@ using KFS::ErrorCodeToStr;
 
 struct qfs_Client {
     PyObject_HEAD
-    PyObject *propfile;       // Properties file
+    PyObject *qfshost;        // QFS metaserver host
+    int qfsport;              // QSF metaserver port
     PyObject *cwd;            // Current directory
-    KfsClient * client;       // The client itself
+    KfsClient *client;        // The client itself
 };
 
 static PyObject *Client_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
@@ -70,6 +71,7 @@ static PyObject *qfs_readdir(PyObject *pself, PyObject *args);
 static PyObject *qfs_readdirplus(PyObject *pself, PyObject *args);
 static PyObject *qfs_create(PyObject *pself, PyObject *args);
 static PyObject *qfs_stat(PyObject *pself, PyObject *args);
+static PyObject *qfs_fullstat(PyObject *pself, PyObject *args);
 static PyObject *qfs_getNumChunks(PyObject *pself, PyObject *args);
 static PyObject *qfs_getChunkSize(PyObject *pself, PyObject *args);
 static PyObject *qfs_remove(PyObject *pself, PyObject *args);
@@ -86,8 +88,9 @@ inline static void SetPyIoError(int64_t err)
 }
 
 static PyMemberDef Client_members[] = {
-    { (char*)"properties", T_OBJECT, offsetof(qfs_Client, propfile), RO, (char*)"properties file" },
-    { (char*)"cwd",        T_OBJECT, offsetof(qfs_Client, cwd),      RO, (char*)"current directory" },
+    { (char*)"qfshost",    T_OBJECT, offsetof(qfs_Client, qfshost),  RO, (char*)"QFS metaserver hostname" },
+    { (char*)"qfsport",    T_INT,    offsetof(qfs_Client, qfsport),  RO, (char*)"QFS metaserver port"     },
+    { (char*)"cwd",        T_OBJECT, offsetof(qfs_Client, cwd),      RO, (char*)"current directory"       },
     { NULL }
 };
 
@@ -100,6 +103,7 @@ static PyMethodDef Client_methods[] = {
     { "readdir",          qfs_readdir,        METH_VARARGS, "Read directory." },
     { "readdirplus",      qfs_readdirplus,    METH_VARARGS, "Read directory with attributes." },
     { "stat",             qfs_stat,           METH_VARARGS, "Stat file." },
+    { "fullstat",         qfs_fullstat,       METH_VARARGS, "Stat file for QFS attributes." },
     { "getNumChunks",     qfs_getNumChunks,   METH_VARARGS, "Get # of chunks in a file." },
     { "getChunkSize",     qfs_getChunkSize,   METH_VARARGS, "Get default chunksize for a file." },
     { "create",           qfs_create,         METH_VARARGS, "Create file." },
@@ -131,6 +135,7 @@ PyDoc_STRVAR(Client_doc,
 "\tisdir(path) -- return TRUE if path is a directory\n"
 "\tisfile(path) -- return TRUE if path is a file\n"
 "\tstat(path)   --  file attributes, compatible with os.stat\n"
+"\tfullstat(path)   --  file attributes, including QFS attributes\n"
 "\tgetNumChunks(path)   --  return the # of chunks in a file\n"
 "\tgetChunkSize(path)   --  return the default size of chunks in a file\n"
 "\tcreate(path, numReplicas=3) -- create a file and return a qfs.file object for it\n"
@@ -471,8 +476,8 @@ qfs_dataVerify(PyObject *pself, PyObject *args)
         return NULL;
     }
 
-        bool res = cl->client->VerifyDataChecksums(self->fd);
-        return Py_BuildValue("b", res);
+    bool res = cl->client->VerifyDataChecksums(self->fd);
+    return Py_BuildValue("b", res);
 }
 
 static PyObject *
@@ -644,7 +649,7 @@ static void
 Client_dealloc(PyObject *pself)
 {
     qfs_Client *self = (qfs_Client *)pself;
-    Py_XDECREF(self->propfile);
+    Py_XDECREF(self->qfshost);
     Py_XDECREF(self->cwd);
     delete self->client;
     self->ob_type->tp_free(pself);
@@ -658,15 +663,16 @@ Client_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (self == NULL)
         return NULL;
 
-    PyObject *p = PyString_FromString("");
-    PyObject *c = PyString_FromString("/");
-    if (p == NULL || c == NULL) {
+    PyObject *host = PyString_FromString("");
+    PyObject *cwd  = PyString_FromString("/");
+    if (host == NULL || cwd == NULL) {
         Py_DECREF(self);
         return NULL;
     }
 
-    self->propfile = p;
-    self->cwd = c;
+    self->qfshost = host;
+    self->qfsport = -1;
+    self->cwd = cwd;
 
     return (PyObject *)self;
 }
@@ -675,20 +681,23 @@ static int
 Client_init(PyObject *pself, PyObject *args, PyObject *kwds)
 {
     qfs_Client *self = (qfs_Client *)pself;
-    char *pf = NULL;
+    char *qfsHost = NULL;
+    int qfsPort = -1;
 
-    if (!PyArg_ParseTuple(args, "s", &pf))
+    if (!PyArg_ParseTuple(args, "(si)", &qfsHost, &qfsPort)) {
         return -1;
+    }
 
-    KfsClient * client = KFS::Connect(pf);
+    KfsClient* client = KFS::Connect(qfsHost, qfsPort);
     if (!client) {
         PyErr_SetString(PyExc_IOError, "Unable to start client.");
         return -1;
     }
     self->client = client;
-    PyObject *tmp = self->propfile;
-    self->propfile = PyString_FromString(pf);
+    PyObject *tmp = self->qfshost;
+    self->qfshost = PyString_FromString(qfsHost);
     Py_XDECREF(tmp);
+    self->qfsport = qfsPort;
 
     return 0;
 }
@@ -697,17 +706,20 @@ static PyObject *
 Client_repr(PyObject *pself)
 {
     qfs_Client *self = (qfs_Client *)pself;
-    return PyString_FromFormat("qfs.client<%s, %s>",
-            PyString_AsString(self->propfile),
-            PyString_AsString(self->cwd));
+    return PyString_FromFormat("qfs.client((\'%s\', %d)), cwd=\'%s\'",
+                               PyString_AsString(self->qfshost),
+                               self->qfsport,
+                               PyString_AsString(self->cwd));
+
 }
 
 static int
 Client_print(PyObject *pself, FILE *fp, int flags)
 {
     qfs_Client *self = (qfs_Client *)pself;
-    fprintf(fp, "qfs.client<%s, %s>\n",
-            PyString_AsString(self->propfile),
+    fprintf(fp, "qfs.client((\'%s\', %d)), cwd=\'%s\'\n",
+            PyString_AsString(self->qfshost),
+            self->qfsport,
             PyString_AsString(self->cwd));
     return 0;
 }
@@ -771,7 +783,7 @@ qfs_cd(PyObject *pself, PyObject *args)
         return NULL;
 
     string path = build_path(self->cwd, patharg);
-        KfsFileAttr attr;
+    KfsFileAttr attr;
     int status = self->client->Stat(path.c_str(), attr);
     if (status < 0) {
         SetPyIoError(status);
@@ -813,7 +825,7 @@ qfs_isdir(PyObject *pself, PyObject *args)
 
     string path = build_path(self->cwd, patharg);
     bool res = self->client->IsDirectory(path.c_str());
-        return Py_BuildValue("b", res);
+    return Py_BuildValue("b", res);
 }
 
 static PyObject *
@@ -827,7 +839,7 @@ qfs_isfile(PyObject *pself, PyObject *args)
 
     string path = build_path(self->cwd, patharg);
     bool res = self->client->IsFile(path.c_str());
-        return Py_BuildValue("b", res);
+    return Py_BuildValue("b", res);
 }
 
 static PyObject *
@@ -996,7 +1008,7 @@ qfs_stat(PyObject *pself, PyObject *args)
         return NULL;
 
     string path = build_path(self->cwd, patharg);
-        KfsFileAttr attr;
+    KfsFileAttr attr;
     int status = self->client->Stat(path.c_str(), attr, true);
     if (status < 0) {
         SetPyIoError(status);
@@ -1011,14 +1023,55 @@ qfs_stat(PyObject *pself, PyObject *args)
     PyTuple_SetItem(pstat, 0, PyInt_FromLong(
             attr.mode | (attr.isDirectory ? S_IFDIR : 0)));
     PyTuple_SetItem(pstat, 1, PyLong_FromLongLong(attr.fileId));
-    PyTuple_SetItem(pstat, 2, PyLong_FromLong(0));
-    PyTuple_SetItem(pstat, 3, PyInt_FromLong(1));
+    PyTuple_SetItem(pstat, 2, PyLong_FromLong(0));  // dev
+    PyTuple_SetItem(pstat, 3, PyInt_FromLong(1));   // num links
     PyTuple_SetItem(pstat, 4, PyInt_FromLong(attr.user));
     PyTuple_SetItem(pstat, 5, PyInt_FromLong(attr.group));
     PyTuple_SetItem(pstat, 6, PyLong_FromLongLong(attr.fileSize));
     PyTuple_SetItem(pstat, 7, PyInt_FromLong(attr.ctime.tv_sec));
     PyTuple_SetItem(pstat, 8, PyInt_FromLong(attr.mtime.tv_sec));
     PyTuple_SetItem(pstat, 9, PyInt_FromLong(attr.crtime.tv_sec));
+    return pstat;
+}
+
+static PyObject *
+qfs_fullstat(PyObject *pself, PyObject *args)
+{
+    qfs_Client *self = (qfs_Client *)pself;
+    char *patharg;
+
+    if (!PyArg_ParseTuple(args, "s", &patharg))
+        return NULL;
+
+    string path = build_path(self->cwd, patharg);
+    KfsFileAttr attr;
+    int status = self->client->Stat(path.c_str(), attr, true);
+    if (status < 0) {
+        SetPyIoError(status);
+        return NULL;
+    }
+    PyObject *pstat = PyTuple_New(13);
+    PyTuple_SetItem(pstat, 0, PyString_FromString(
+            attr.isDirectory ? "dir" : "file"));
+    PyTuple_SetItem(pstat, 1, PyString_FromString(ctime(&attr.ctime.tv_sec)));
+    PyTuple_SetItem(pstat, 2, PyString_FromString(ctime(&attr.mtime.tv_sec)));
+    PyTuple_SetItem(pstat, 3, PyLong_FromLongLong(attr.fileSize));
+    PyTuple_SetItem(pstat, 4, PyLong_FromLongLong(attr.fileId));
+    PyTuple_SetItem(pstat, 5, PyLong_FromLongLong(attr.numReplicas));
+    PyTuple_SetItem(pstat, 6, PyInt_FromLong(attr.user));
+    PyTuple_SetItem(pstat, 7, PyInt_FromLong(attr.group));
+    PyTuple_SetItem(pstat, 8, PyInt_FromLong(attr.mode));
+    PyTuple_SetItem(pstat, 9, PyInt_FromLong(
+            attr.striperType == KFS::KFS_STRIPED_FILE_TYPE_NONE ? 0 : 1));
+    if (attr.striperType != KFS::KFS_STRIPED_FILE_TYPE_NONE) {
+        PyTuple_SetItem(pstat, 10, PyLong_FromLong(attr.stripeSize));
+        PyTuple_SetItem(pstat, 11, PyInt_FromLong(attr.numStripes));
+        PyTuple_SetItem(pstat, 12, PyInt_FromLong(attr.numRecoveryStripes));
+    } else {
+        PyTuple_SetItem(pstat, 10, PyLong_FromLong(0));
+        PyTuple_SetItem(pstat, 11, PyInt_FromLong(0));
+        PyTuple_SetItem(pstat, 12, PyInt_FromLong(0));
+    }
     return pstat;
 }
 
@@ -1037,7 +1090,7 @@ qfs_getNumChunks(PyObject *pself, PyObject *args)
         SetPyIoError(chunkCount);
         return NULL;
     }
-        return Py_BuildValue("i", chunkCount);
+    return Py_BuildValue("i", chunkCount);
 }
 
 static PyObject *
@@ -1050,7 +1103,7 @@ qfs_getChunkSize(PyObject *pself, PyObject *args)
         return NULL;
     string path = build_path(self->cwd, patharg);
     int chunksz = self->client->GetChunkSize(path.c_str());
-        return Py_BuildValue("i", chunksz);
+    return Py_BuildValue("i", chunksz);
 }
 
 static PyObject *

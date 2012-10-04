@@ -1,2 +1,2 @@
-Remove this directory once the QFS merged with Apache Hadoop.
+Remove this directory once the 'qfs' shim is added to Apache Hadoop.
 
