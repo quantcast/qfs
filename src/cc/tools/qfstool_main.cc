@@ -572,21 +572,41 @@ private:
         ErrorReporter& operator=(
             const ErrorReporter& inReporter);
     };
-    template<typename T> class FunctorT
+    class DefaultInitFunctor
+    {
+    public:
+        DefaultInitFunctor()
+            {}
+        bool operator()(
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */)
+            { return true; }
+    private:
+        DefaultInitFunctor(
+            const DefaultInitFunctor& inFunct);
+        DefaultInitFunctor& operator=(
+            const DefaultInitFunctor& inFunct);
+    };
+    template<
+        typename T,
+        typename TInit            = DefaultInitFunctor,
+        bool     TStopIfErrorFlag = false
+    > class FunctorT
     {
     public:
         FunctorT(
             T&       inFunctor,
             ostream& inErrorStream)
             : mFunctor(inFunctor),
+              mInitFunctor(),
               mErrorStream(inErrorStream),
               mStatus(0)
             {}
         bool Init(
-            int&              /* ioGlobError */,
-            const GlobResult& /* inGlobResult */)
+            int&        ioGlobError,
+            GlobResult& inGlobResult)
         {
-            return true;
+            return mInitFunctor(ioGlobError, inGlobResult);
         }
         bool Apply(
             FileSystem&   inFs,
@@ -598,12 +618,15 @@ private:
                 theErrorReporter(inPath, theError);
             }
             mStatus = theErrorReporter.GetStatus();
-            return true;
+            return (! TStopIfErrorFlag || mStatus == 0);
         }
         int GetStatus() const
             { return mStatus; }
+        TInit& GetInit()
+            { return mInitFunctor; }
     private:
         T&       mFunctor;
+        TInit    mInitFunctor;
         ostream& mErrorStream;
         int      mStatus;
     private:
@@ -720,6 +743,71 @@ private:
     {
         MkdirFunctor           theMkdirFunc(inMode, inCreateAllFlag);
         FunctorT<MkdirFunctor> theFunc(theMkdirFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class GetGlobLastEntry
+    {
+    public:
+        GetGlobLastEntry()
+            : mFsPtr(0),
+              mPathName()
+            {}
+        bool operator()(
+            int&        ioGlobError,
+            GlobResult& inGlobResult)
+        {
+            if (inGlobResult.size() <= 1 &&
+                    inGlobResult.back().second.size() <= 1) {
+                ioGlobError = -EINVAL;
+                return false;
+            }
+            mFsPtr    = inGlobResult.back().first;
+            mPathName = inGlobResult.back().second.back();
+            inGlobResult.back().second.pop_back();
+            return true;
+        }
+        FileSystem* GetFsPtr() const
+            { return mFsPtr; }
+        const string& GetPathName() const
+            { return mPathName; }
+    private:
+        FileSystem* mFsPtr;
+        string      mPathName;
+    private:
+        GetGlobLastEntry(
+            const GetGlobLastEntry& inFunctor);
+        GetGlobLastEntry& operator=(
+            const GetGlobLastEntry& inFunctor);
+    };
+    class CopyFunctor
+    {
+    public:
+        CopyFunctor()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            // Implement copy.
+            return 1;
+        }
+    private:
+        CopyFunctor(
+            const CopyFunctor& inFunctor);
+        CopyFunctor& operator=(
+            const CopyFunctor& inFunctor);
+    };
+    int Copy(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        CopyFunctor theCopyFunc;
+        FunctorT
+        <
+            CopyFunctor,
+            GetGlobLastEntry,
+            true>   theFunc(theCopyFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
