@@ -469,6 +469,61 @@ public:
         }
         return Errno(remove(inPathName.c_str()));
     }
+    virtual int Mkdir(
+        const string& inPathName,
+        kfsMode_t     inMode,
+        bool          inCreateAllFlag)
+    {
+        if (inCreateAllFlag) {
+            string theDirName;
+            theDirName.reserve(inPathName.size());
+            const char* thePtr   = inPathName.c_str();
+            struct stat theStat  = {0};
+            const int   kNoEntry = RetErrno(ENOENT);
+            while (*thePtr) {
+                if (*thePtr == '/') {
+                    while (thePtr[1] == '/') {
+                        ++thePtr;
+                    }
+                }
+                const char* const theCurPtr = thePtr;
+                if (*thePtr == '/') {
+                    ++thePtr;
+                }
+                while (*thePtr && *thePtr != '/') {
+                    ++thePtr;
+                }
+                if (theCurPtr == thePtr) {
+                    break;
+                }
+                const size_t theSize = thePtr - theCurPtr;
+                if (theSize == 1 && *theCurPtr == '.') {
+                    continue;
+                }
+                theDirName.append(theCurPtr, theSize);
+                if (theSize == 2 &&
+                        theCurPtr[0] == '.' && theCurPtr[1] == '.') {
+                    continue;
+                }
+                int theErr = Errno(stat(theDirName.c_str(), &theStat));
+                if (theErr == 0) {
+                    if ((theStat.st_mode & S_IFDIR) == 0) {
+                        return RetErrno(ENOTDIR);
+                    }
+                } else {
+                    if (theErr != kNoEntry) {
+                        return theErr;
+                    }
+                    if ((theErr = Errno(
+                            mkdir(theDirName.c_str(), inMode))) != 0) {
+                        return theErr;
+                    }
+                }
+            }
+            return 0;
+        }
+        return Errno(mkdir(inPathName.c_str(), (mode_t)inMode));
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
@@ -762,6 +817,16 @@ public:
             return KfsClient::Rmdir(inPathName.c_str());
         }
         return KfsClient::Remove(inPathName.c_str());
+    }
+    virtual int Mkdir(
+        const string& inPathName,
+        kfsMode_t     inMode,
+        bool          inCreateAllFlag)
+    {
+        if (inCreateAllFlag) {
+            return KfsClient::Mkdirs(inPathName.c_str(), inMode);
+        }
+        return KfsClient::Mkdir(inPathName.c_str(), inMode);
     }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,

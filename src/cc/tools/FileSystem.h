@@ -153,6 +153,10 @@ public:
         const string& inPathName,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
+    virtual int Mkdir(
+        const string& inPathName,
+        kfsMode_t     inMode,
+        bool          inCreateAllFlag) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,

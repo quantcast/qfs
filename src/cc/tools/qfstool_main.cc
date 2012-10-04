@@ -132,6 +132,11 @@ public:
                 const bool kRecursiveFlag = true;
                 theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kRecursiveFlag);
+            } else if (strcmp(theCmdPtr, "-mkdir") == 0) {
+                const kfsMode_t kCreateMode    = 0777;
+                const bool      kCreateAllFlag = true;
+                theErr = Mkdir(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                    kCreateMode, kCreateAllFlag);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -549,7 +554,7 @@ private:
             const string& inPath,
             int           inStatus)
         {
-            mErrorStream << mFs.GetUri() << "/" << inPath << ": " <<
+            mErrorStream << mFs.GetUri() << inPath << ": " <<
                 mFs.StrError(inStatus) << "\n";
             mStatus = inStatus;
             return (mStopOnErrorFlag ? inStatus : 0);
@@ -680,6 +685,41 @@ private:
     {
         ChmodFunctor           theChmodFunc(inMode, inRecursiveFlag);
         FunctorT<ChmodFunctor> theFunc(theChmodFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class MkdirFunctor
+    {
+    public:
+        MkdirFunctor(
+            kfsMode_t inMode,
+            bool      inCreateAllFlag)
+            : mMode(inMode),
+              mCreateAllFlag(inCreateAllFlag)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            return inFs.Mkdir(inPath, mMode, mCreateAllFlag);
+        }
+    private:
+        const kfsMode_t mMode;
+        const bool      mCreateAllFlag;
+    private:
+        MkdirFunctor(
+            const MkdirFunctor& inFunctor);
+        MkdirFunctor& operator=(
+            const MkdirFunctor& inFunctor);
+    };
+    int Mkdir(
+        char**    inArgsPtr,
+        int       inArgCount,
+        kfsMode_t inMode,
+        bool      inCreateAllFlag)
+    {
+        MkdirFunctor           theMkdirFunc(inMode, inCreateAllFlag);
+        FunctorT<MkdirFunctor> theFunc(theMkdirFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
