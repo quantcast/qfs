@@ -5031,6 +5031,9 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
             if (p != e) {
                 r->status    = -EINVAL;
                 r->statusMsg = "chunk id list parse error";
+                KFS_LOG_STREAM_ERROR <<  r->Show() << " : " <<
+                    r->statusMsg <<
+                KFS_LOG_EOM;
             }
             break;
         }
@@ -5075,6 +5078,102 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
     if (! evacuatedChunks.IsEmpty() && ! r->server->IsDown()) {
         const bool kEvacuatedFlag = true;
         r->server->NotifyStaleChunks(evacuatedChunks, kEvacuatedFlag);
+    }
+}
+
+void
+LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
+{
+    if (r->server->IsDown()) {
+        return;
+    }
+    ChunkIdQueue staleChunks;
+    const char*  p = r->chunkIdAndVers.GetPtr();
+    const char*  e = p + r->chunkIdAndVers.GetSize();
+    while (p < e) {
+        chunkId_t chunkId;
+        seq_t     chunkVersion;
+        if (! ValueParser::ParseInt(p, e - p, chunkId) ||
+             ! ValueParser::ParseInt(p, e - p, chunkVersion)) {
+            while (p < e && *p <= ' ') {
+                p++;
+            }
+            if (p != e) {
+                r->status    = -EINVAL;
+                r->statusMsg = "chunk id list parse error";
+                KFS_LOG_STREAM_ERROR << r->Show() << " : " <<
+                    r->statusMsg <<
+                KFS_LOG_EOM;
+            }
+            break;
+        }
+        CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
+        if (! cmi) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: " << chunkId <<
+                " version: "        << chunkVersion <<
+                " does not exist" <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
+        if (cmi->HasServer(mChunkToServerMap, r->server)) {
+            KFS_LOG_STREAM_ERROR <<
+                "available chunk: " << chunkId <<
+                " version: "        << chunkVersion <<
+                " hosted version: " << ci.chunkVersion <<
+                " replica is already hosted" <<
+            KFS_LOG_EOM;
+            // For now just let it be.
+            continue;
+        }
+        if (ci.chunkVersion != chunkVersion) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: "    << chunkId <<
+                " version: "           << chunkVersion <<
+                " mismatch expected: " << ci.chunkVersion <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        const ChunkLeases::WriteLease* const lease =
+            mChunkLeases.GetWriteLease(chunkId);
+        if (lease) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: " << chunkId <<
+                " version: "        << chunkVersion <<
+                " write lease exists" <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        if (! IsChunkStable(chunkId)) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: " << chunkId <<
+                " version: "        << chunkVersion <<
+                " not stable" <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        const MetaFattr& fa     = *(cmi->GetFattr());
+        const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
+        if (srvCnt >= 2 || fa.numReplicas <= srvCnt) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: "      << chunkId <<
+                " version: "             << chunkVersion <<
+                " sufficinet replicas: " << srvCnt <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        if (! AddHosted(*cmi, r->server)) {
+            panic("available chunk: failed to add replica");
+        }
+    }
+    if (! staleChunks.IsEmpty()) {
+        r->server->NotifyStaleChunks(staleChunks);
     }
 }
 

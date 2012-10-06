@@ -416,9 +416,13 @@ public:
  */
 class MetaChunkInfo: public Meta {
 protected:
-    MetaChunkInfo(MetaFattr* fa, chunkOff_t off, chunkId_t id, seq_t v):
-        Meta(KFS_CHUNKINFO),
-        fattr(fa), offset(off), chunkId(id), chunkVersion(v) {}
+    MetaChunkInfo(MetaFattr* fa, chunkOff_t off, chunkId_t id, seq_t v)
+        : Meta(KFS_CHUNKINFO),
+          fattr(fa),
+          offset(off),
+          chunkId(id),
+          chunkVersion(v)
+        {}
     virtual ~MetaChunkInfo() {}
     MetaFattr* fattr;
 public:

@@ -2209,6 +2209,19 @@ MetaChunkEvacuate::handle()
 }
 
 /* virtual */ void
+MetaChunkAvailable::handle()
+{
+    if (server) {
+        gLayoutManager.ChunkAvailable(this);
+    } else {
+        // This is likely coming from the ClientSM.
+        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
+        KFS_LOG_EOM;
+        status = -EINVAL;
+    }
+}
+
+/* virtual */ void
 MetaChunkReplicationCheck::handle()
 {
     gLayoutManager.ChunkReplicationChecker();
@@ -3448,6 +3461,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaHello                >("HELLO")
     .MakeParser<MetaChunkCorrupt         >("CORRUPT_CHUNK")
     .MakeParser<MetaChunkEvacuate        >("EVACUATE_CHUNK")
+    .MakeParser<MetaChunkAvailable       >("AVAILABLE_CHUNK")
 
     // Lease related ops
     .MakeParser<MetaLeaseAcquire         >("LEASE_ACQUIRE")
@@ -3795,6 +3809,12 @@ MetaChunkCorrupt::response(ostream &os)
 
 void
 MetaChunkEvacuate::response(ostream &os)
+{
+    PutHeader(this, os) << "\r\n";
+}
+
+void
+MetaChunkAvailable::response(ostream &os)
 {
     PutHeader(this, os) << "\r\n";
 }

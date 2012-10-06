@@ -770,6 +770,7 @@ public:
     void ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         bool notifyStale = true);
     void ChunkEvacuate(MetaChunkEvacuate* r);
+    void ChunkAvailable(MetaChunkAvailable* r);
     /// Handlers to acquire and renew leases.  Unexpired leases
     /// will typically be renewed.
     int GetChunkReadLeases(MetaLeaseAcquire& req);

@@ -131,7 +131,8 @@ using std::oct;
     f(GETPATHNAME) \
     f(CHUNK_EVACUATE) \
     f(CHMOD) \
-    f(CHOWN)
+    f(CHOWN) \
+    f(CHUNK_AVAILABLE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -2370,7 +2371,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     int64_t             totalFsSpace;
     int64_t             usedSpace;
     int                 numDrives;
-        int                 numWritableDrives;
+    int                 numWritableDrives;
     int                 numEvacuateInFlight;
     StringBufT<21 * 32> chunkIds; //!< input
     ChunkServerPtr      server;
@@ -2380,7 +2381,7 @@ struct MetaChunkEvacuate: public MetaRequest {
           totalFsSpace(-1),
           usedSpace(-1),
           numDrives(-1),
-                  numWritableDrives(-1),
+          numWritableDrives(-1),
           numEvacuateInFlight(-1),
           chunkIds(),
           server()
@@ -2410,6 +2411,37 @@ struct MetaChunkEvacuate: public MetaRequest {
         .Def("Num-drives",     &MetaChunkEvacuate::numDrives,           int(-1))
         .Def("Num-wr-drives",  &MetaChunkEvacuate::numWritableDrives,   int(-1))
         .Def("Num-evacuate",   &MetaChunkEvacuate::numEvacuateInFlight, int(-1))
+        ;
+    }
+};
+
+struct MetaChunkAvailable: public MetaRequest {
+    StringBufT<21 * 32 * 2> chunkIdAndVers; //!< input
+    ChunkServerPtr          server;
+    MetaChunkAvailable(seq_t s = -1)
+        : MetaRequest(META_CHUNK_AVAILABLE, false, s),
+          chunkIdAndVers(),
+          server()
+        {}
+    virtual void handle();
+    virtual int log(ostream &file) const
+    {
+        return 0;
+    }
+    virtual void response(ostream &os);
+    virtual string Show() const
+    {
+        return ("chunk available: " + chunkIdAndVers.GetStr());
+    }
+    virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
+    bool Validate()
+    {
+        return true;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def("Chunk-ids-vers", &MetaChunkAvailable::chunkIdAndVers)
         ;
     }
 };
