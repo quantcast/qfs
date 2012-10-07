@@ -69,6 +69,7 @@ using std::make_pair;
 using std::ostream_iterator;
 using std::copy;
 using std::hex;
+using std::dec;
 using std::max;
 using namespace KFS::libkfsio;
 
@@ -2739,6 +2740,23 @@ EvacuateChunksOp::Request(ostream &os)
     for (int i = 0; i < numChunks; i++) {
         os << " " << chunkIds[i];
     }
+    os << "\r\n\r\n";
+}
+
+void
+AvailableChunksOp::Request(ostream& os)
+{
+    os <<
+    "AVAILABLE_CHUNK\r\n"
+    "Version: " << KFS_VERSION_STR << "\r\n"
+    "Cseq: "    << seq             << "\r\n"
+    ;
+    os << "Chunk-ids-vers::";
+    os << hex;
+    for (int i = 0; i < numChunks; i++) {
+        os << " " << chunkIds[i] << " " << chunkVersions[i];
+    }
+    os << dec;
     os << "\r\n\r\n";
 }
 

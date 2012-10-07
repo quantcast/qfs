@@ -2416,7 +2416,7 @@ struct MetaChunkEvacuate: public MetaRequest {
 };
 
 struct MetaChunkAvailable: public MetaRequest {
-    StringBufT<21 * 32 * 2> chunkIdAndVers; //!< input
+    StringBufT<16 * 64 * 2> chunkIdAndVers; //!< input
     ChunkServerPtr          server;
     MetaChunkAvailable(seq_t s = -1)
         : MetaRequest(META_CHUNK_AVAILABLE, false, s),

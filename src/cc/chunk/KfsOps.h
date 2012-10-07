@@ -124,6 +124,7 @@ enum KfsOp_t {
     CMD_SET_PROPERTIES,
     CMD_RESTART_CHUNK_SERVER,
     CMD_EVACUATE_CHUNKS,
+    CMD_AVAILABLE_CHUNKS,
     CMD_NCMDS
 };
 
@@ -1770,6 +1771,38 @@ struct EvacuateChunksOp : public KfsOp {
         os << "evacuate chunks:";
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunkIds[i];
+        }
+        return os.str();
+    }
+};
+
+struct AvailableChunksOp : public KfsOp {
+    enum { kMaxChunkIds = 64 };
+    kfsChunkId_t chunkIds[kMaxChunkIds];      // input
+    kfsChunkId_t chunkVersions[kMaxChunkIds]; // input
+    int          numChunks;
+
+    AvailableChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
+        : KfsOp(CMD_AVAILABLE_CHUNKS, s, c),
+          numChunks(0)
+    {
+        SET_HANDLER(this, &AvailableChunksOp::HandleDone);
+    }
+    void Request(ostream &os);
+    // To be called whenever we get a reply from the server
+    int HandleDone(int code, void *data) {
+        if (clnt) {
+            return KfsOp::HandleDone(code, data);
+        }
+        delete this;
+        return 0;
+    }
+    void Execute() {};
+    string Show() const {
+        ostringstream os;
+        os << "available chunks:";
+        for (int i = 0; i < numChunks; i++) {
+            os << " " << chunkIds[i] << " " << chunkVersions[i];
         }
         return os.str();
     }
