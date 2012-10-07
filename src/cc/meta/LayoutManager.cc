@@ -2891,10 +2891,12 @@ LayoutManager::DumpChunkReplicationCandidates(MetaDumpChunkReplicationCandidates
 }
 
 bool
-LayoutManager::CanBeRecovered(const CSMap::Entry& entry,
-    bool& incompleteChunkBlockFlag,
-    bool* incompleteChunkBlockWriteHasLeaseFlag,
-    vector<MetaChunkInfo*>& cblk) const
+LayoutManager::CanBeRecovered(
+    const CSMap::Entry&     entry,
+    bool&                   incompleteChunkBlockFlag,
+    bool*                   incompleteChunkBlockWriteHasLeaseFlag,
+    vector<MetaChunkInfo*>& cblk,
+    int*                    outGoodCnt /* = 0 */) const
 {
     cblk.clear();
     incompleteChunkBlockFlag = false;
@@ -2927,8 +2929,10 @@ LayoutManager::CanBeRecovered(const CSMap::Entry& entry,
     }
     vector<MetaChunkInfo*>::const_iterator it = cblk.begin();
     int              stripeIdx = 0;
-    int              goodCnt   = 0;
+    int              localCnt;
+    int&             goodCnt   = outGoodCnt ? *outGoodCnt : localCnt;
     chunkOff_t const end       = start + fa->ChunkBlkSize();
+    goodCnt = 0;
     for (chunkOff_t pos = start;
             pos < end;
             pos += (chunkOff_t)CHUNKSIZE, stripeIdx++) {
@@ -5081,24 +5085,34 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
     }
 }
 
+// Chunk replicas became available again: the disk / directory came back.
+// Use these replicas only if absolutely must -- no other replicas exists,
+// and / or the chunk replica cannot be recovered, or there is only one replica
+// left, etc.
+// If disk / chunk directory goes off line it is better not not use it as it is
+// unreliable, except for the case where there is some kind of "DoS attack"
+// affecting multiple nodes at the same time.
 void
 LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
 {
     if (r->server->IsDown()) {
         return;
     }
-    ChunkIdQueue staleChunks;
-    const char*  p = r->chunkIdAndVers.GetPtr();
-    const char*  e = p + r->chunkIdAndVers.GetSize();
+    vector<MetaChunkInfo*> cblk;
+    ChunkIdQueue           staleChunks;
+    const char*            p = r->chunkIdAndVers.GetPtr();
+    const char*            e = p + r->chunkIdAndVers.GetSize();
     while (p < e) {
         chunkId_t chunkId;
         seq_t     chunkVersion;
-        if (! ValueParser::ParseInt(p, e - p, chunkId) ||
-             ! ValueParser::ParseInt(p, e - p, chunkVersion)) {
+        bool      gotVersionFlag = true;
+        if (! HexIntParser::Parse(p, e - p, chunkId) ||
+                ! (gotVersionFlag =
+                    HexIntParser::Parse(p, e - p, chunkVersion))) {
             while (p < e && *p <= ' ') {
                 p++;
             }
-            if (p != e) {
+            if (! gotVersionFlag || p != e) {
                 r->status    = -EINVAL;
                 r->statusMsg = "chunk id list parse error";
                 KFS_LOG_STREAM_ERROR << r->Show() << " : " <<
@@ -5159,11 +5173,41 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         }
         const MetaFattr& fa     = *(cmi->GetFattr());
         const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
-        if (srvCnt >= 2 || fa.numReplicas <= srvCnt) {
+        if (srvCnt > 1 || fa.numReplicas <= srvCnt) {
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "      << chunkId <<
                 " version: "             << chunkVersion <<
                 " sufficinet replicas: " << srvCnt <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        bool incompleteChunkBlockFlag              = false;
+        bool incompleteChunkBlockWriteHasLeaseFlag = false;
+        int  goodCnt                               = 0;
+        if (srvCnt <= 0 && fa.numRecoveryStripes > 0 &&
+                CanBeRecovered(
+                    *cmi, 
+                    incompleteChunkBlockFlag,
+                    &incompleteChunkBlockWriteHasLeaseFlag,
+                    cblk,
+                    &goodCnt) &&
+                goodCnt > fa.numStripes) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: "   << chunkId <<
+                " version: "          << chunkVersion <<
+                " can be recovered: "
+                " good: "             << goodCnt <<
+                " data stripes: "     << fa.numStripes <<
+            KFS_LOG_EOM;
+            staleChunks.PushBack(chunkId);
+            continue;
+        }
+        if (incompleteChunkBlockWriteHasLeaseFlag) {
+            KFS_LOG_STREAM_DEBUG <<
+                "available chunk: "   << chunkId <<
+                " version: "          << chunkVersion <<
+                " partial chunk block has write lease" <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
             continue;

@@ -1891,10 +1891,12 @@ protected:
     bool CanBeCandidateServer(const ChunkServer& c) const;
     inline static CSMap::Entry& GetCsEntry(MetaChunkInfo& chunkInfo);
     inline static CSMap::Entry* GetCsEntry(MetaChunkInfo* chunkInfo);
-    bool CanBeRecovered(const CSMap::Entry& entry,
-        bool& incompleteChunkBlockFlag,
-        bool* incompleteChunkBlockWriteHasLeaseFlag,
-        vector<MetaChunkInfo*>& cblk) const;
+    bool CanBeRecovered(
+        const CSMap::Entry&     entry,
+        bool&                   incompleteChunkBlockFlag,
+        bool*                   incompleteChunkBlockWriteHasLeaseFlag,
+        vector<MetaChunkInfo*>& cblk,
+        int*                    outGoodCnt = 0) const;
     HibernatingServerInfo_t* FindHibernatingServer(
         const ServerLocation& loc);
     void CSMapUnitTest(const Properties& props);
