@@ -5144,9 +5144,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         }
         if (ci.chunkVersion != chunkVersion) {
             KFS_LOG_STREAM_DEBUG <<
-                "available chunk: "    << chunkId <<
-                " version: "           << chunkVersion <<
-                " mismatch expected: " << ci.chunkVersion <<
+                "available chunk: "     << chunkId <<
+                " version: "            << chunkVersion <<
+                " mismatch, expected: " << ci.chunkVersion <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
             continue;
@@ -5214,6 +5214,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         }
         if (! AddHosted(*cmi, r->server)) {
             panic("available chunk: failed to add replica");
+        }
+        if (srvCnt + 1 != fa.numReplicas) {
+            CheckReplication(*cmi);
         }
     }
     if (! staleChunks.IsEmpty()) {
