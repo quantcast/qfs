@@ -48,7 +48,6 @@ kfsext = Extension(
         os.path.abspath(os.path.join(kfs_access_dir, ".."))
     ],
     libraries = [
-        'boost_regex',
         'qfs_client',
         'qfs_common',
         'qfs_io',
@@ -71,6 +70,9 @@ kfsext = Extension(
 # OSX boost ports typically end up at /opt/local/lib
 if sys.platform in ('darwin', 'Darwin'):
     kfsext.library_dirs.append('/opt/local/lib')
+    kfsext.libraries.append('boost_regex-mt')
+else:
+    kfsext.libraries.append('boost_regex')
 
 setup(
     name = "qfs", version = "1.0",
