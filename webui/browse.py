@@ -30,8 +30,8 @@ import platform
 gBrowsable = True
 try:
     import qfs
-except ImportError as exc:
-    sys.stderr.write("Error: failed to import settings module ({}).\nProceeding without file browser.\n".format(exc))
+except ImportError:
+    sys.stderr.write("Error: failed to import module: %s.\nProceeding without file browser.\n" % str(sys.exc_info()[1]))
     gBrowsable = False
 
 class QFSBrowser:
@@ -56,16 +56,28 @@ class QFSBrowser:
         oPerm = self.PERMISSIONS[mode & 7]
         gPerm = self.PERMISSIONS[(mode >> 3) & 7]
         uPerm = self.PERMISSIONS[(mode >> 6) & 7]
-        dirChar = 'd' if isDir else '-'
+        if isDir:
+            dirChar = 'd'
+        else:
+            dirChar = '-'
         permission = dirChar + uPerm + gPerm + oPerm
         if mode & stat.S_ISUID:
-            p3 = 's' if (mode & stat.S_IXUSR) else 'S'
+            if (mode & stat.S_IXUSR):
+                p3 = 's'
+            else:
+                p3 = 'S'
             permission = permission[:3] + p3 + permission[4:]
         if mode & stat.S_ISGID:
-            p6 = 's' if (mode & stat.S_IXGRP) else 'l'
+            if (mode & stat.S_IXGRP):
+                p6 = 's'
+            else:
+                p6 = 'l'
             permission = permission[:6] + p6 + permission[7:]
         if mode & stat.S_ISVTX:
-            p9 = 't' if (mode & stat.S_IXOTH) else 'T'
+            if (mode & stat.S_IXOTH):
+                p9 = 't'
+            else:
+                p9 = 'T'
             permission = permission[:9] + p9 + permission[10:]
         return permission
 
