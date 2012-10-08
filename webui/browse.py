@@ -3,7 +3,7 @@
 #
 # Copyright 2012 Quantcast Corp.
 #
-# Author: Thilee Subramaniam (Quantcast Corp.)A
+# Author: Thilee Subramaniam (Quantcast Corp.)
 #
 # This file is part of Kosmos File System (KFS).
 #
