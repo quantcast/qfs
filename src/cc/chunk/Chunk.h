@@ -33,7 +33,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
-#include "kfsio/Checksum.h"
+#include "kfsio/checksum.h"
 #include "utils.h"
 
 namespace KFS
