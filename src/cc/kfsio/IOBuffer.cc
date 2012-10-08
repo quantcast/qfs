@@ -1575,7 +1575,7 @@ IOBuffer::StreamBuffer::overflow(int c)
 }
 
 std::streamsize
-IOBuffer::StreamBuffer::xsputn(const char *s, std::streamsize n)
+IOBuffer::StreamBuffer::xsputn(const char* s, std::streamsize n)
 {
     if (! mIoBuf || mWriteRem < (int)n) {
         return 0;

@@ -172,9 +172,9 @@ struct KfsOp : public KfsCallbackObj {
     }
     // to allow dynamic-type-casting, make the destructor virtual
     virtual ~KfsOp();
-    virtual void Request(ostream& /* os */) {
-        // fill this method if the op requires a message to be sent to a server.
-    };
+    virtual void Request(ostream& os, IOBuffer& /* buf */) {
+        Request(os);
+    }
     // After an op finishes execution, this method generates the
     // response that should be sent back to the client.  The response
     // string that is generated is based on the KFS protocol.
@@ -218,6 +218,10 @@ struct KfsOp : public KfsCallbackObj {
         .Def("Cseq", &KfsOp::seq, kfsSeq_t(-1))
         ;
     }
+protected:
+    virtual void Request(ostream& /* os */) {
+        // fill this method if the op requires a message to be sent to a server.
+    };
 private:
     static int64_t sOpsCount;
 };
@@ -1636,18 +1640,26 @@ struct LeaseRelinquishOp : public KfsOp {
 // This is just a helper op for building a hello request to the metaserver.
 struct HelloMetaOp : public KfsOp {
     typedef vector<string> LostChunkDirs;
+    struct ChunkList
+    {
+        int64_t  count;
+        IOBuffer ioBuf;
+        ChunkList()
+            : count(0),
+              ioBuf()
+            {}
+    };
+    enum { kChunkListCount = 3 };
 
-    ServerLocation      myLocation;
-    string              clusterKey;
-    string              md5sum;
-    int                 rackId;
-    int64_t             totalSpace;
-    int64_t             totalFsSpace;
-    int64_t             usedSpace;
-    vector<ChunkInfo_t> chunks;
-    vector<ChunkInfo_t> notStableChunks;
-    vector<ChunkInfo_t> notStableAppendChunks;
-    LostChunkDirs       lostChunkDirs;
+    ServerLocation myLocation;
+    string         clusterKey;
+    string         md5sum;
+    int            rackId;
+    int64_t        totalSpace;
+    int64_t        totalFsSpace;
+    int64_t        usedSpace;
+    LostChunkDirs  lostChunkDirs;
+    ChunkList      chunkLists[kChunkListCount];
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
         : KfsOp(CMD_META_HELLO, s),
@@ -1658,13 +1670,11 @@ struct HelloMetaOp : public KfsOp {
           totalSpace(0),
           totalFsSpace(0),
           usedSpace(0),
-          chunks(),
-          notStableChunks(),
-          notStableAppendChunks(),
-          lostChunkDirs()
+          lostChunkDirs(),
+          chunkLists()
         {}
     void Execute();
-    void Request(ostream &os);
+    void Request(ostream& os, IOBuffer& buf);
     string Show() const {
         ostringstream os;
 
@@ -1676,9 +1686,9 @@ struct HelloMetaOp : public KfsOp {
             " rackId: "      << rackId <<
             " space: "       << totalSpace <<
             " used: "        << usedSpace <<
-            " chunks: "      << chunks.size() <<
-            " not-stable: "  << notStableChunks.size() <<
-            " append: "      << notStableAppendChunks.size()
+            " chunks: "      << chunkLists[0].count <<
+            " not-stable: "  << chunkLists[1].count <<
+            " append: "      << chunkLists[2].count
         ;
         return os.str();
     }

@@ -40,6 +40,7 @@ add_executable (chunkserver
     Replicator.cc
     utils.cc
     DirChecker.cc
+    Chunk.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
 

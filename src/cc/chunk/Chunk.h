@@ -30,15 +30,10 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
-#include <boost/shared_ptr.hpp>
-
-#include <vector>
-#include <iomanip>
 
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
-#include "kfsio/FileHandle.h"
-#include "kfsio/checksum.h"
+#include "kfsio/Checksum.h"
 #include "utils.h"
 
 namespace KFS
@@ -58,6 +53,9 @@ namespace KFS
 /// block of the file.  For each chunk, this structure is read in at
 /// startup time.
 ///
+
+/// We allow a chunk header upto 16K in size
+const size_t KFS_CHUNK_HEADER_SIZE = 16 << 10;
 
 /// The max # of checksum blocks we have for a given chunk
 const uint32_t MAX_CHUNK_CHECKSUM_BLOCKS = CHUNKSIZE /  CHECKSUM_BLOCKSIZE;
@@ -145,27 +143,15 @@ struct DiskChunkInfo_t {
 // This structure is in-core
 struct ChunkInfo_t {
 
-    ChunkInfo_t() : fileId(0), chunkId(0), chunkVersion(0), chunkSize(0), 
-                    chunkBlockChecksum(NULL)
-    {
-        // memset(chunkBlockChecksum, 0, sizeof(chunkBlockChecksum));
-    }
+    ChunkInfo_t()
+        : fileId(0),
+          chunkId(0),
+          chunkVersion(0),
+          chunkSize(0), 
+          chunkBlockChecksum(0)
+        {}
     ~ChunkInfo_t() {
         delete [] chunkBlockChecksum;
-    }
-    ChunkInfo_t(const ChunkInfo_t &other) :
-        fileId(other.fileId), chunkId(other.chunkId), chunkVersion(other.chunkVersion),
-        chunkSize(other.chunkSize), chunkBlockChecksum(NULL) {
-    }
-    ChunkInfo_t& operator= (const ChunkInfo_t &other) 
-    {
-        fileId = other.fileId;
-        chunkId = other.chunkId;
-        chunkVersion = other.chunkVersion;
-        chunkSize = other.chunkSize;
-        SetChecksums(other.chunkBlockChecksum);
-
-        return *this;
     }
 
     void Init(kfsFileId_t f, kfsChunkId_t c, int64_t v) {
@@ -194,15 +180,14 @@ struct ChunkInfo_t {
             chunkBlockChecksum = NULL;
             return;
         }
-
         chunkBlockChecksum = new uint32_t[MAX_CHUNK_CHECKSUM_BLOCKS];
         memcpy(chunkBlockChecksum, checksums, MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
     }
 
     void VerifyChecksumsLoaded() const {
-        assert(chunkBlockChecksum != NULL);
-        if (chunkBlockChecksum == NULL)
+        if (! chunkBlockChecksum) {
             die("Checksums are not loaded!");
+        }
     }
 
     // save the chunk meta-data to the buffer; 
@@ -248,15 +233,44 @@ struct ChunkInfo_t {
         return 0;
     }
 
-    kfsFileId_t fileId;
+    kfsFileId_t  fileId;
     kfsChunkId_t chunkId;
-    kfsSeq_t chunkVersion;
-    int64_t  chunkSize; 
-    // uint32_t chunkBlockChecksum[MAX_CHUNK_CHECKSUM_BLOCKS];
-    // this is unpinned; whenever we open the chunk, this has to be
-    // paged in...damn..would've been nice if this was at the end
-    uint32_t *chunkBlockChecksum;
+    kfsSeq_t     chunkVersion;
+    int64_t      chunkSize; 
+    uint32_t*    chunkBlockChecksum;
+private:
+    ChunkInfo_t(const ChunkInfo_t& other);
+    ChunkInfo_t& operator= (const ChunkInfo_t& other);
 };
+
+class ChunkHeaderBuffer
+{
+public:
+    ChunkHeaderBuffer()
+        {}
+    char* GetPtr()
+        { return reinterpret_cast<char*>(mBuf); }
+    int GetSize() const
+        { return kChunkHeaderBufferSize; }
+private:
+    enum
+    {
+        kChunkHeaderBufferSize =
+            (int)(sizeof(DiskChunkInfo_t) + sizeof(uint64_t))
+    };
+    size_t mBuf[(kChunkHeaderBufferSize + sizeof(size_t) - 1) /
+        sizeof(size_t)];
+};
+
+bool IsValidChunkFile(
+    const string&      dirname,
+    const char*        filename,
+    int64_t            infilesz,
+    bool               requireChunkHeaderChecksumFlag,
+    ChunkHeaderBuffer& chunkHeaderBuffer,
+    kfsFileId_t&       outFileId,
+    chunkId_t&         outChunkId,
+    kfsSeq_t&          outChunkVers);
 
 }
 

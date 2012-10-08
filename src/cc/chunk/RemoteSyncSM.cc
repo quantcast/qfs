@@ -176,7 +176,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
     KFS_LOG_EOM;
     IOBuffer& buf   = mNetConnection->GetOutBuffer();
     const int start = buf.BytesConsumable();
-    op->Request(mWOStream.Set(buf));
+    op->Request(mWOStream.Set(buf), buf);
     mWOStream.Reset();
     if (sTraceRequestResponse) {
         IOBuffer::IStream is(buf, buf.BytesConsumable());

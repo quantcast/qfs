@@ -56,9 +56,6 @@ using std::pair;
 using std::make_pair;
 using std::less;
 
-/// We allow a chunk header upto 16K in size
-const size_t KFS_CHUNK_HEADER_SIZE = 16 << 10;
-
 class ChunkInfoHandle;
 
 class Properties;
@@ -239,10 +236,11 @@ public:
     /// Retrieve the chunks hosted on this chunk server.
     /// @param[out] result  A vector containing info of all chunks
     /// hosted on this server.
+    typedef pair<int64_t*, ostream*> HostedChunkList;
     void GetHostedChunks(
-        vector<ChunkInfo_t> &stable,
-        vector<ChunkInfo_t> &notStable,
-        vector<ChunkInfo_t> &notStableAppend);
+        const HostedChunkList& stable,
+        const HostedChunkList& notStable,
+        const HostedChunkList& notStableAppend);
 
     /// Return the total space that is exported by this server.  If
     /// chunks are stored in a single directory, we use statvfs to
@@ -715,16 +713,7 @@ private:
     int64_t    mMetaEvacuateCount;
     int        mMaxEvacuateIoErrors;
 
-    enum
-    {
-        kChunkHeaderBufferSize =
-            (int)(sizeof(DiskChunkInfo_t) + sizeof(uint64_t))
-    };
-    struct
-    {
-        char buf[kChunkHeaderBufferSize];
-    } mChunkHeaderBufferAlloc;
-    char* const mChunkHeaderBuffer;
+    ChunkHeaderBuffer mChunkHeaderBuffer;
 
     inline void Delete(ChunkInfoHandle& cih);
     inline void Release(ChunkInfoHandle& cih);

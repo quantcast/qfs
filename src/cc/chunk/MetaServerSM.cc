@@ -315,7 +315,8 @@ MetaServerSM::DispatchHello()
         return;
     }
     mSentHello = true;
-    mHelloOp->Request(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+    mHelloOp->Request(mWOStream.Set(ioBuf), ioBuf);
     mWOStream.Reset();
     KFS_LOG_STREAM_INFO <<
         "Sending hello to meta server: " << mHelloOp->Show() <<
@@ -604,7 +605,8 @@ MetaServerSM::EnqueueOp(KfsOp* op)
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
-        op->Request(mWOStream.Set(mNetConnection->GetOutBuffer()));
+        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+        op->Request(mWOStream.Set(ioBuf), ioBuf);
         mWOStream.Reset();
         op->status = 0;
         if (op->noReply) {
@@ -679,7 +681,8 @@ MetaServerSM::DispatchOps()
             " seq: " << op->seq <<
             " "      << op->Show() <<
         KFS_LOG_EOM;
-        op->Request(mWOStream.Set(mNetConnection->GetOutBuffer()));
+        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+        op->Request(mWOStream.Set(ioBuf), ioBuf);
         mWOStream.Reset();
     }
 }
@@ -691,11 +694,12 @@ MetaServerSM::ResubmitOps()
     if (mDispatchedOps.empty()) {
         return;
     }
-    ostream& os = mWOStream.Set(mNetConnection->GetOutBuffer());
+    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+    ostream&  os    = mWOStream.Set(ioBuf);
     for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
             it != mDispatchedOps.end();
             ++it) {
-        it->second->Request(os);
+        it->second->Request(os, ioBuf);
     }
     mWOStream.Reset();
 }

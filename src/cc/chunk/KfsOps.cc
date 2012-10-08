@@ -2760,19 +2760,8 @@ AvailableChunksOp::Request(ostream& os)
     os << "\r\n\r\n";
 }
 
-class PrintChunkInfo {
-    ostringstream &os;
-public:
-    PrintChunkInfo(ostringstream &o) : os(o) { }
-    void operator() (ChunkInfo_t &c) {
-        os << c.fileId << ' ';
-        os << c.chunkId << ' ';
-        os << c.chunkVersion << ' ';
-    }
-};
-
 void
-HelloMetaOp::Request(ostream &os)
+HelloMetaOp::Request(ostream& os, IOBuffer& buf)
 {
     os <<
         "HELLO \r\n"
@@ -2787,24 +2776,24 @@ HelloMetaOp::Request(ostream &os)
         "Total-fs-space: " << totalFsSpace << "\r\n"
         "Used-space: " << usedSpace << "\r\n"
         "Uptime: " << globalNetManager().UpTime() << "\r\n"
-        "Num-chunks: " << chunks.size() << "\r\n"
-        "Num-not-stable-append-chunks: " << notStableAppendChunks.size() << "\r\n"
-        "Num-not-stable-chunks: " << notStableChunks.size() << "\r\n"
+        "Num-chunks: " << chunkLists[0].count << "\r\n"
+        "Num-not-stable-append-chunks: " << chunkLists[1].count << "\r\n"
+        "Num-not-stable-chunks: " << chunkLists[2].count << "\r\n"
         "Num-appends-with-wids: " <<
             gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n"
         "Num-re-replications: " << Replicator::GetNumReplications() << "\r\n"
         "Stale-chunks-hex-format: 1\r\n"
         "Content-int-base: 16\r\n"
     ;
-    ostringstream chunkInfo;
-    chunkInfo << hex;
-    // figure out the content-length first...
-    for_each(chunks.begin(), chunks.end(), PrintChunkInfo(chunkInfo));
-    for_each(notStableAppendChunks.begin(), notStableAppendChunks.end(), PrintChunkInfo(chunkInfo));
-    for_each(notStableChunks.begin(), notStableChunks.end(), PrintChunkInfo(chunkInfo));
-
-    os << "Content-length: " << chunkInfo.str().length() << "\r\n\r\n";
-    os << chunkInfo.str();
+    int64_t contentLength = 0;
+    for (int i = 0; i < kChunkListCount; i++) {
+        contentLength += chunkLists[i].ioBuf.BytesConsumable();
+    }
+    os << "Content-length: " << contentLength << "\r\n\r\n";
+    os.flush();
+    for (int i = 0; i < kChunkListCount; i++) {
+        buf.Move(&chunkLists[i].ioBuf);
+    }
 }
 
 void
@@ -2871,8 +2860,17 @@ HelloMetaOp::Execute()
         totalFsSpace, chunkDirs, numEvacuateInFlight, numWritableChunkDirs,
         evacuateChunks, evacuateByteCount, 0, 0, &lostChunkDirs);
     usedSpace = gChunkManager.GetUsedSpace();
-    gChunkManager.GetHostedChunks(
-        chunks, notStableChunks, notStableAppendChunks);
+    IOBuffer::WOStream            streams[3];
+    ChunkManager::HostedChunkList lists[3];
+    for (int i = 0; i < kChunkListCount; i++) {
+        lists[i].first  = &(chunkLists[i].count);
+        lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
+    }
+    gChunkManager.GetHostedChunks(lists[0], lists[1], lists[2]);
+    for (int i = 0; i < kChunkListCount; i++) {
+        lists[i].second->flush();
+        streams[i].Reset();
+    }
     status = 0;
     gLogger.Submit(this);
 }

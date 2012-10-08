@@ -1061,7 +1061,7 @@ ChunkManager::ChunkManager()
       mMetaHeartbeatTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
       mMetaEvacuateCount(-1),
       mMaxEvacuateIoErrors(2),
-      mChunkHeaderBuffer(reinterpret_cast<char*>(&mChunkHeaderBufferAlloc))
+      mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180);
     srand48((long)globalNetManager().Now());
@@ -1751,8 +1751,9 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
     int res;
     if (! dataBuf ||
             dataBuf->BytesConsumable() < (int)KFS_CHUNK_HEADER_SIZE ||
-            dataBuf->CopyOut(mChunkHeaderBuffer, kChunkHeaderBufferSize) !=
-                kChunkHeaderBufferSize) {
+            dataBuf->CopyOut(mChunkHeaderBuffer.GetPtr(),
+                    mChunkHeaderBuffer.GetSize()) !=
+                mChunkHeaderBuffer.GetSize()) {
         if (op->status != -ETIMEDOUT) {
             op->status    = -EIO;
             op->statusMsg = "short chunk meta data read";
@@ -1766,13 +1767,14 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
         KFS_LOG_EOM;
     } else {
         const DiskChunkInfo_t&  dci     =
-            *reinterpret_cast<const DiskChunkInfo_t*>(mChunkHeaderBuffer);
+            *reinterpret_cast<const DiskChunkInfo_t*>(
+                mChunkHeaderBuffer.GetPtr());
         const uint64_t&        checksum =
             *reinterpret_cast<const uint64_t*>(&dci + 1);
         uint32_t               headerChecksum = 0;
         if ((checksum != 0 || mRequireChunkHeaderChecksumFlag) &&
                 (headerChecksum = ComputeBlockChecksum(
-                    mChunkHeaderBuffer, sizeof(dci))) != checksum) {
+                    mChunkHeaderBuffer.GetPtr(), sizeof(dci))) != checksum) {
             op->status    = -EBADCKSUM;
             op->statusMsg = "chunk header checksum mismatch";
             ostringstream os;
@@ -2255,120 +2257,15 @@ ChunkManager::MakeStaleChunkPathname(ChunkInfoHandle *cih)
 
 void
 ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir, const char* filename,
-    int64_t infilesz)
+    int64_t filesz)
 {
-    const int   kNumComponents = 3;
-    long long   components[kNumComponents];
-    const char* ptr    = filename;
-    char*       end    = 0;
-    int64_t     filesz = infilesz;
-    int         i;
-
-    for (i = 0; i < kNumComponents; i++) {
-        components[i] = strtoll(ptr, &end, 10);
-        if (components[i] < 0) {
-            break;
-        }
-        if ((*end & 0xFF) != '.') {
-            if (*end == 0) {
-                i++;
-            }
-            break;
-        }
-        ptr = end + 1;
-    }
-    if (i != kNumComponents || *end) {
-        KFS_LOG_STREAM_INFO <<
-            "ignoring malformed chunk file name: " <<
-                dir.dirname << filename <<
-        KFS_LOG_EOM;
+    kfsFileId_t fileId    = -1;
+    chunkId_t   chunkId   = -1;
+    kfsSeq_t    chunkVers = -1;
+    if (! IsValidChunkFile(dir.dirname, filename, filesz,
+            mRequireChunkHeaderChecksumFlag, mChunkHeaderBuffer,
+            fileId, chunkId, chunkVers)) {
         return;
-    }
-    // Allow files bigger than chunk size. If file wasn't properly closed,
-    // but was in the stable directory, its header needs to be read,
-    // validated and proper size must be set.
-    // The file might be bigger by one io buffer size, and io buffer size is
-    // guaranteed to be less or equal to the KFS_CHUNK_HEADER_SIZE.
-    const int64_t kMaxChunkFileSize = (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
-    if (filesz < (int64_t)KFS_CHUNK_HEADER_SIZE ||
-            filesz > (int64_t)(kMaxChunkFileSize + KFS_CHUNK_HEADER_SIZE)) {
-        KFS_LOG_STREAM_INFO <<
-            "ignoring invalid chunk file: " << dir.dirname << filename <<
-            " size: " << filesz <<
-        KFS_LOG_EOM;
-        return;
-    }
-    const chunkId_t chunkId   = components[1];
-    const kfsSeq_t  chunkVers = components[2];
-    if (filesz > kMaxChunkFileSize) {
-        // Load and validate chunk header, and set proper file size.
-        const string cf(dir.dirname + filename);
-        const int    fd = open(cf.c_str(), O_RDONLY);
-        if (fd < 0) {
-            const int err = errno;
-            KFS_LOG_STREAM_INFO <<
-                "ignoring invalid chunk file: " << cf <<
-                    " size: " << filesz <<
-                    " :" << QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-            return;
-        }
-        const ssize_t rd = read(fd, mChunkHeaderBuffer, kChunkHeaderBufferSize);
-        close(fd);
-        if (rd != kChunkHeaderBufferSize) {
-            const int err = rd < 0 ? errno : EINVAL;
-            KFS_LOG_STREAM_INFO <<
-                "ignoring invalid chunk file: " << cf <<
-                    " size: "                   << filesz <<
-                    " read: "                   << rd <<
-                    " :"                        << QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-            return;
-        }
-        const DiskChunkInfo_t& dci      =
-            *reinterpret_cast<const DiskChunkInfo_t*>(mChunkHeaderBuffer);
-        const uint64_t         checksum =
-            *reinterpret_cast<const uint64_t*>(&dci + 1);
-        const int res = dci.Validate(chunkId, chunkVers);
-        if (res < 0) {
-            KFS_LOG_STREAM_INFO <<
-                "ignoring invalid chunk file: " << cf <<
-                    " size: "                   << filesz <<
-                    " invalid chunk header"
-                    " status: "                 << res <<
-            KFS_LOG_EOM;
-            return;
-        }
-        uint32_t hdrChecksum = 0;
-        if ((checksum != 0 || mRequireChunkHeaderChecksumFlag) &&
-                ((hdrChecksum = ComputeBlockChecksum(
-                    mChunkHeaderBuffer, sizeof(dci))) != checksum)) {
-            KFS_LOG_STREAM_INFO <<
-                "ignoring invalid chunk file: "  << cf <<
-                    " invalid header:"
-                    " size: "                    << filesz <<
-                    " chunk size: "              << dci.chunkSize <<
-                    " checksum: "                << checksum <<
-                    " expect: "                  << hdrChecksum <<
-            KFS_LOG_EOM;
-            return;
-        }
-        filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;
-        if (truncate(cf.c_str(), filesz)) {
-            const int err = errno;
-            KFS_LOG_STREAM_ERROR <<
-                "failed truncate chunk file: " << cf <<
-                    " size: "                  << infilesz <<
-                    " to: "                    << filesz <<
-                    " :"                       << QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-        } else {
-            KFS_LOG_STREAM_INFO <<
-                "truncated chunk file: " << cf <<
-                    " size: "            << infilesz <<
-                    " to: "              << filesz <<
-            KFS_LOG_EOM;
-        }
     }
     ChunkInfoHandle* cih = 0;
     if (GetChunkInfoHandle(chunkId, &cih) == 0) {
@@ -2401,7 +2298,7 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir, const char* filename,
         return;
     }
     cih = new ChunkInfoHandle(dir);
-    cih->chunkInfo.fileId       = components[0];
+    cih->chunkInfo.fileId       = fileId;
     cih->chunkInfo.chunkId      = chunkId;
     cih->chunkInfo.chunkVersion = chunkVers;
     cih->chunkInfo.chunkSize    = filesz - KFS_CHUNK_HEADER_SIZE;
@@ -3360,11 +3257,25 @@ ChunkManager::AddMapping(ChunkInfoHandle *cih)
     UpdateDirSpace(cih, cih->chunkInfo.chunkSize);
 }
 
+static inline void
+AppendToHostedList(
+    const ChunkManager::HostedChunkList& list,
+    const ChunkInfo_t&                   chunkInfo,
+    kfsSeq_t                             chunkVersion)
+{
+    (*list.first)++;
+    (*list.second) <<
+        chunkInfo.fileId  << ' ' <<
+        chunkInfo.chunkId << ' ' <<
+        chunkVersion      << ' '
+    ;
+}
+
 void
 ChunkManager::GetHostedChunks(
-    vector<ChunkInfo_t> &stable,
-    vector<ChunkInfo_t> &notStable,
-    vector<ChunkInfo_t> &notStableAppend)
+    const ChunkManager::HostedChunkList& stable,
+    const ChunkManager::HostedChunkList& notStable,
+    const ChunkManager::HostedChunkList& notStableAppend)
 {
     // walk thru the table and pick up the chunk-ids
     mChunkTable.First();
@@ -3387,15 +3298,23 @@ ChunkManager::GetHostedChunks(
             // not be "readable" and the client will be asked to come back later.
             bool stableFlag = false;
             const kfsSeq_t vers = cih->GetTargetStateAndVersion(stableFlag);
-            vector<ChunkInfo_t>& dest = stableFlag ? stable :
-                (cih->IsWriteAppenderOwns() ? notStableAppend : notStable);
-            dest.push_back(cih->chunkInfo);
-            dest.back().chunkVersion = vers;
+            AppendToHostedList(
+                stableFlag ? stable :
+                    (cih->IsWriteAppenderOwns() ?
+                        notStableAppend : notStable),
+                    cih->chunkInfo,
+                    vers
+            );
         } else {
-            (IsChunkStable(cih) ? stable :
-            (cih->IsWriteAppenderOwns() ?
-                notStableAppend : notStable
-            )).push_back(cih->chunkInfo);
+            AppendToHostedList(
+                IsChunkStable(cih) ?
+                    stable :
+                    (cih->IsWriteAppenderOwns() ?
+                        notStableAppend :
+                        notStable),
+                cih->chunkInfo,
+                cih->chunkInfo.chunkVersion
+            );
         }
     }
 }
