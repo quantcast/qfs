@@ -463,7 +463,7 @@ def setup_config_files(config):
     print >> webFile, 'monthlySize = 30'
     print >> webFile, 'monthlySpan = 86400'
     print >> webFile, 'displayPorts = True'
-    print >> webFile, 'predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors'
+    print >> webFile, 'predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&XMeta-location'
     webFile.close()
     print 'Setup config files - OK.'
 
