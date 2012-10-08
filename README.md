@@ -20,18 +20,19 @@ Compiling QFS
   have been tested on 64-bit CentOS 6 extensively and run on Linux variants.
   The QFS client tools work on OS X and Cygwin as well.
 
-* Pre-requisites: g++, make, cmake(preferably, version 2.4.7 or higher),
-                  boost-devel(preferably, version 1.3.4 or higher),
-                  git(preferably, version 1.7.10 or higher),
-                  xfsprogs-devel, libuuid-devel, openssl-devel, jdk,
-                  java-devel, ant.
+* Pre-requisites:
+```
+g++, make, jdk, java headers for JNI, ant,
+libraries and headers for xfsprogs, libuuid, and openssl,
+cmake (preferably, version 2.4.7 or higher),
+boost-devel (preferably, version 1.3.4 or higher),
+git (preferably, version 1.7.10 or higher)
+```
 
 * Once you have the pre-requisite packages installed,
 
-
-    $ cd ~/code/qfs
-    $ make
-
+        $ cd ~/code/qfs
+        $ make
 
   This will build the QFS servers executables, libraries and client
   tools executables, and install them under build/release, ready for use.
@@ -43,8 +44,8 @@ Compiling QFS
 
 * To test the QFS binaries,
 
-    $ cd ~/code/qfs
-    $ make test-release
+        $ cd ~/code/qfs
+        $ make test-release
 
   Note that this test takes a few minutes to complete.
 
@@ -66,9 +67,9 @@ An easy set up of QFS has been provided in the examples/ directory, where a
 metaserver and two chunk servers are launched, all on the same node. To do this
 setup,
 
-    $ cd ~/code/qfs
-    $ make
-    $ examples/sampleservers/sample_setup.py -a install
+        $ cd ~/code/qfs
+        $ make
+        $ examples/sampleservers/sample_setup.py -a install
 
 The python script creates config files for the QFS servers that can be found
 under `~/qfsbase/` directory.
@@ -91,19 +92,19 @@ means.
 
 * Use client tools that are built during the compile process. For instance,
 
-    $ cd ~/code/qfs
-    $ PATH=${PWD}/build/release/bin/tools:${PATH}
-    $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
-    $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -k /tmp/HW.dat -d -
-    $ qfscat -s localhost -p 20000 /tmp/HW.dat
-    $ qfsshell -s localhost -p 20000 -q -- rm /tmp/HW.dat
+        $ cd ~/code/qfs
+        $ PATH=${PWD}/build/release/bin/tools:${PATH}
+        $ qfsshell -s localhost -p 20000 -q -- mkdir /tmp
+        $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -k /tmp/HW.dat -d -
+        $ qfscat -s localhost -p 20000 /tmp/HW.dat
+        $ qfsshell -s localhost -p 20000 -q -- rm /tmp/HW.dat
 
 * If you built the QFS FUSE client, then you can mount the QFS at a local mount
   point by,
 
-    $ mkdir /mnt/qfs
-    $ cd ~/code/qfs/build/release/bin/
-    $ ./qfs_fuse localhost:20000 /mnt/qfs -o allow_other,ro
+        $ mkdir /mnt/qfs
+        $ cd ~/code/qfs/build/release/bin/
+        $ ./qfs_fuse localhost:20000 /mnt/qfs -o allow_other,ro
 
   Further information about compiling and using QFS FUSE is at
   https://github.com/quantcast/qfs/wiki/Developer-Documentation
