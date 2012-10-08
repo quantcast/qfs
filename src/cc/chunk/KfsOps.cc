@@ -2860,8 +2860,8 @@ HelloMetaOp::Execute()
         totalFsSpace, chunkDirs, numEvacuateInFlight, numWritableChunkDirs,
         evacuateChunks, evacuateByteCount, 0, 0, &lostChunkDirs);
     usedSpace = gChunkManager.GetUsedSpace();
-    IOBuffer::WOStream            streams[3];
-    ChunkManager::HostedChunkList lists[3];
+    IOBuffer::WOStream            streams[kChunkListCount];
+    ChunkManager::HostedChunkList lists[kChunkListCount];
     for (int i = 0; i < kChunkListCount; i++) {
         lists[i].first  = &(chunkLists[i].count);
         lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);

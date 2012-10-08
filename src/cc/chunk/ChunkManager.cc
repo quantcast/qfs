@@ -2262,9 +2262,10 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir, const char* filename,
     kfsFileId_t fileId    = -1;
     chunkId_t   chunkId   = -1;
     kfsSeq_t    chunkVers = -1;
+    int64_t     chunkSize = -1;
     if (! IsValidChunkFile(dir.dirname, filename, filesz,
             mRequireChunkHeaderChecksumFlag, mChunkHeaderBuffer,
-            fileId, chunkId, chunkVers)) {
+            fileId, chunkId, chunkVers, chunkSize)) {
         return;
     }
     ChunkInfoHandle* cih = 0;
@@ -2301,7 +2302,7 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir, const char* filename,
     cih->chunkInfo.fileId       = fileId;
     cih->chunkInfo.chunkId      = chunkId;
     cih->chunkInfo.chunkVersion = chunkVers;
-    cih->chunkInfo.chunkSize    = filesz - KFS_CHUNK_HEADER_SIZE;
+    cih->chunkInfo.chunkSize    = chunkSize;
     AddMapping(cih);
 }
 
@@ -3654,8 +3655,8 @@ ChunkManager::StartDiskIo()
         }
         // UpdateCountFsSpaceAvailableFlags() below will set the following flag.
         it->countFsSpaceAvailableFlag = false;
-        it->deviceId                  = dit->second.first;
-        it->dirLock                   = dit->second.second;
+        it->deviceId                  = dit->second.mDeviceId;
+        it->dirLock                   = dit->second.mLockFdPtr;
         it->availableSpace            = 0;
         it->totalSpace                = it->usedSpace;
         string errMsg;
@@ -4170,7 +4171,7 @@ ChunkManager::CheckChunkDirs()
             string errMsg;
             if (DiskIo::StartIoQueue(
                     it->dirname.c_str(),
-                    dit->second.first,
+                    dit->second.mDeviceId,
                     mMaxOpenChunkFiles,
                     &errMsg)) {
                 if (! (it->diskQueue = DiskIo::FindDiskQueue(
@@ -4178,8 +4179,8 @@ ChunkManager::CheckChunkDirs()
                     die(it->dirname + ": failed to find disk queue");
                 }
                 it->availableSpace             = 0;
-                it->deviceId                   = dit->second.first;
-                it->dirLock                    = dit->second.second;
+                it->deviceId                   = dit->second.mDeviceId;
+                it->dirLock                    = dit->second.mLockFdPtr;
                 it->corruptedChunksCount       = 0;
                 it->evacuateCheckIoErrorsCount = 0;
                 ChunkDirs::const_iterator cit;

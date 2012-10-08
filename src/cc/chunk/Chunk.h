@@ -270,7 +270,8 @@ bool IsValidChunkFile(
     ChunkHeaderBuffer& chunkHeaderBuffer,
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
-    kfsSeq_t&          outChunkVers);
+    kfsSeq_t&          outChunkVers,
+    int64_t&           outChunkSize);
 
 }
 

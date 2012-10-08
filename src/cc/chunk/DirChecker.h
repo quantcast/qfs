@@ -28,6 +28,9 @@
 #ifndef DIR_CHECKER_H
 #define DIR_CHECKER_H
 
+#include "common/DynamicArray.h"
+#include "common/kfstypes.h"
+
 #include <set>
 #include <string>
 #include <map>
@@ -73,10 +76,40 @@ public:
             const LockFd& inLockFd);
     };
     typedef shared_ptr<LockFd> LockFdPtr;
-    typedef int64_t     DeviceId;
-    typedef set<string> FileNames;
-    typedef FileNames   DirNames;
-    typedef map<string, pair<DeviceId, LockFdPtr> > DirsAvailable;
+    typedef int64_t            DeviceId;
+    typedef set<string>        FileNames;
+    typedef FileNames          DirNames;
+    struct ChunkInfo
+    {
+        ChunkInfo(
+            kfsFileId_t  inFileId       = -1,
+            kfsChunkId_t inChunkId      = -1,
+            kfsSeq_t     inChunkVersion = -1,
+            int64_t      inChunkSize     = -1)
+            : mFileId(inFileId),
+              mChunkId(inChunkId),
+              mChunkVersion(inChunkVersion),
+              mChunkSize(inChunkSize)
+            {}
+        kfsFileId_t  mFileId;
+        kfsChunkId_t mChunkId;
+        kfsSeq_t     mChunkVersion;
+        int64_t      mChunkSize;
+    };
+    typedef DynamicArray<ChunkInfo> ChunkInfos;
+    struct DirInfo
+    {
+        DirInfo(
+            DeviceId         inDeviceId  = -1,
+            const LockFdPtr& inLockFdPtr = LockFdPtr())
+            : mDeviceId(inDeviceId),
+              mLockFdPtr(inLockFdPtr)
+            {}
+        DeviceId   mDeviceId;
+        LockFdPtr  mLockFdPtr;
+        ChunkInfos mChunkInfos;
+    };
+    typedef map<string, DirInfo> DirsAvailable;
 
     DirChecker();
     ~DirChecker();

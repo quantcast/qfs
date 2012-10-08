@@ -46,7 +46,8 @@ bool IsValidChunkFile(
     ChunkHeaderBuffer& chunkHeaderBuffer,
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
-    kfsSeq_t&          outChunkVers)
+    kfsSeq_t&          outChunkVers,
+    int64_t&           outChunkSize)
 {
     const int   kNumComponents = 3;
     long long   components[kNumComponents];
@@ -166,6 +167,7 @@ bool IsValidChunkFile(
     outFileId    = components[0];
     outChunkId   = chunkId;
     outChunkVers = chunkVers;
+    outChunkSize = filesz - KFS_CHUNK_HEADER_SIZE;
     return true;
 }
 

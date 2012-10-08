@@ -35,6 +35,7 @@
 #include "qcdio/qcstutils.h"
 #include "qcdio/qcdebug.h"
 #include "utils.h"
+#include "Chunk.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -472,7 +473,7 @@ private:
                 ioNextDevId++;
             }
             outDirsAvailable.insert(
-                make_pair(*theIt, make_pair(
+                make_pair(*theIt, DirInfo(
                     theRes.first->second, theLockFdPtr)));
         }
     }
