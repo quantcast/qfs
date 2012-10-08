@@ -3275,8 +3275,8 @@ AppendToHostedList(
 void
 ChunkManager::GetHostedChunks(
     const ChunkManager::HostedChunkList& stable,
-    const ChunkManager::HostedChunkList& notStable,
-    const ChunkManager::HostedChunkList& notStableAppend)
+    const ChunkManager::HostedChunkList& notStableAppend,
+    const ChunkManager::HostedChunkList& notStable)
 {
     // walk thru the table and pick up the chunk-ids
     mChunkTable.First();

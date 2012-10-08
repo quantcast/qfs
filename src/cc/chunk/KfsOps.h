@@ -1649,7 +1649,13 @@ struct HelloMetaOp : public KfsOp {
               ioBuf()
             {}
     };
-    enum { kChunkListCount = 3 };
+    enum
+    {
+        kStableChunkList          = 0,
+        kNotStableAppendChunkList = 1,
+        kNotStableChunkList       = 2,
+        kChunkListCount           = 3
+    };
 
     ServerLocation myLocation;
     string         clusterKey;
@@ -1686,9 +1692,9 @@ struct HelloMetaOp : public KfsOp {
             " rackId: "      << rackId <<
             " space: "       << totalSpace <<
             " used: "        << usedSpace <<
-            " chunks: "      << chunkLists[0].count <<
-            " not-stable: "  << chunkLists[1].count <<
-            " append: "      << chunkLists[2].count
+            " chunks: "      << chunkLists[kStableChunkList].count <<
+            " not-stable: "  << chunkLists[kNotStableChunkList].count <<
+            " append: "      << chunkLists[kNotStableAppendChunkList].count
         ;
         return os.str();
     }

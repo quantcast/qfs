@@ -234,13 +234,11 @@ public:
     int Restart();
 
     /// Retrieve the chunks hosted on this chunk server.
-    /// @param[out] result  A vector containing info of all chunks
-    /// hosted on this server.
     typedef pair<int64_t*, ostream*> HostedChunkList;
     void GetHostedChunks(
         const HostedChunkList& stable,
-        const HostedChunkList& notStable,
-        const HostedChunkList& notStableAppend);
+        const HostedChunkList& notStableAppend,
+        const HostedChunkList& notStable);
 
     /// Return the total space that is exported by this server.  If
     /// chunks are stored in a single directory, we use statvfs to

@@ -2776,9 +2776,12 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
         "Total-fs-space: " << totalFsSpace << "\r\n"
         "Used-space: " << usedSpace << "\r\n"
         "Uptime: " << globalNetManager().UpTime() << "\r\n"
-        "Num-chunks: " << chunkLists[0].count << "\r\n"
-        "Num-not-stable-append-chunks: " << chunkLists[1].count << "\r\n"
-        "Num-not-stable-chunks: " << chunkLists[2].count << "\r\n"
+        "Num-chunks: " <<
+            chunkLists[kStableChunkList].count << "\r\n"
+        "Num-not-stable-append-chunks: " <<
+            chunkLists[kNotStableAppendChunkList].count << "\r\n"
+        "Num-not-stable-chunks: " <<
+            chunkLists[kNotStableChunkList].count << "\r\n"
         "Num-appends-with-wids: " <<
             gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n"
         "Num-re-replications: " << Replicator::GetNumReplications() << "\r\n"
@@ -2791,8 +2794,14 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
     }
     os << "Content-length: " << contentLength << "\r\n\r\n";
     os.flush();
+    // Order matters. The meta server expects the lists to be in this order.
+    const int kChunkListsOrder[kChunkListCount] = {
+        kStableChunkList,
+        kNotStableAppendChunkList,
+        kNotStableChunkList
+    };
     for (int i = 0; i < kChunkListCount; i++) {
-        buf.Move(&chunkLists[i].ioBuf);
+        buf.Move(&chunkLists[kChunkListsOrder[i]].ioBuf);
     }
 }
 
@@ -2866,7 +2875,11 @@ HelloMetaOp::Execute()
         lists[i].first  = &(chunkLists[i].count);
         lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
     }
-    gChunkManager.GetHostedChunks(lists[0], lists[1], lists[2]);
+    gChunkManager.GetHostedChunks(
+        lists[kStableChunkList],
+        lists[kNotStableAppendChunkList],
+        lists[kNotStableChunkList]
+    );
     for (int i = 0; i < kChunkListCount; i++) {
         lists[i].second->flush();
         streams[i].Reset();
