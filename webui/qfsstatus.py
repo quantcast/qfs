@@ -151,7 +151,10 @@ class Status:
         ) :
         global gQfsBrowser
         rows = ''
-        browseLink = '<A href="/browse-it">Browse Filesystem</A>' if gQfsBrowser.browsable else ''
+        if gQfsBrowser.browsable:
+            browseLink = '<A href="/browse-it">Browse Filesystem</A>'
+        else:
+            browseLink = ''
         print >> buffer, '''
     <body class="oneColLiqCtr">
     <div id="container">
