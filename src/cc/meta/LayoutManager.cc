@@ -5172,7 +5172,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
             continue;
         }
         const MetaFattr& fa     = *(cmi->GetFattr());
-        const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
+        const int        srvCnt = (int)mChunkToServerMap.ServerCount(*cmi);
         if (srvCnt > 1 || fa.numReplicas <= srvCnt) {
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "      << chunkId <<
