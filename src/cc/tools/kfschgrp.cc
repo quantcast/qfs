@@ -45,7 +45,7 @@ handleChgrp(KfsClient* kfsClient, const vector<string>& args)
     bool recursFlag = false;
     if (args.size() < 2 || args[0] == "--help" ||
             ((recursFlag = args[0] == "-R") && args.size() < 3)) {
-        cout << "Usage: chgrp [-R] <path> <mode>" << "\n";
+        cout << "Usage: chgrp [-R] <group> <path>" << "\n";
         return 0;
     }
 
