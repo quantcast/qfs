@@ -73,6 +73,7 @@ public:
           mDirNames(),
           mSubDirNames(),
           mDontUseIfExistFileNames(),
+          mIgnoreFileNames(),
           mAvailableDirs(),
           mThread(),
           mMutex(),
@@ -85,7 +86,10 @@ public:
           mRunFlag(false),
           mDoneFlag(false),
           mSleepFlag(true),
-          mUpdateDirNamesFlag(false)
+          mUpdateDirNamesFlag(false),
+          mRequireChunkHeaderChecksumFlag(false),
+          mIgnoreErrorsFlag(false),
+          mChunkHeaderBuffer()
         {}
     virtual ~Impl()
         { Impl::Stop(); }
@@ -97,6 +101,7 @@ public:
         DirNames        theDirNames                = mDirNames;
         DirNames        theSubDirNames             = mSubDirNames;
         FileNames       theDontUseIfExistFileNames = mDontUseIfExistFileNames;
+        FileNames       theIgnoreFileNames         = mIgnoreFileNames;
         string          theLockFileName;
         DirLocks        theDirLocks;
         mUpdateDirNamesFlag = false;
@@ -112,6 +117,7 @@ public:
                 theDirNames                = mDirNames;
                 theSubDirNames             = mSubDirNames;
                 theDontUseIfExistFileNames = mDontUseIfExistFileNames;
+                theIgnoreFileNames         = mIgnoreFileNames;
                 mUpdateDirNamesFlag = false;
             }
             const bool theRemoveFilesFlag = mRemoveFilesFlag;
@@ -119,6 +125,9 @@ public:
             DirsAvailable theAvailableDirs;
             theDirLocks.swap(mDirLocks);
             QCASSERT(mDirLocks.empty());
+            const bool theIgnoreErrorsFlag = mIgnoreErrorsFlag;
+            const bool theRequireChunkHeaderChecksumFlag =
+                mRequireChunkHeaderChecksumFlag;
             {
                 QCStMutexUnlocker theUnlocker(mMutex);
                 theDirLocks.clear();
@@ -126,12 +135,16 @@ public:
                     theDirNames,
                     theSubDirNames,
                     theDontUseIfExistFileNames,
+                    theIgnoreFileNames,
                     mDeviceIds,
                     mNextDevId,
                     theAvailableDirs,
                     theRemoveFilesFlag,
+                    theIgnoreErrorsFlag,
                     theLockFileName,
-                    theLockToken
+                    theLockToken,
+                    theRequireChunkHeaderChecksumFlag,
+                    mChunkHeaderBuffer
                 );
             }
             bool theUpdateDirNamesFlag = false;
@@ -172,8 +185,9 @@ public:
         if (theInterval == mCheckIntervalNanoSec) {
             return;
         }
+        const Time theWaitThreshold = mCheckIntervalNanoSec / 4;
         mCheckIntervalNanoSec = theInterval;
-        if (theInterval > mCheckIntervalNanoSec / 4) {
+        if (theInterval > theWaitThreshold) {
             return;
         }
         mCond.Notify();
@@ -339,6 +353,13 @@ public:
         }
         mUpdateDirNamesFlag = true;
     }
+    void SetIgnoreFileNames(
+        const FileNames& inFileNames)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mIgnoreFileNames = inFileNames;
+        mUpdateDirNamesFlag = true;
+    }
     void SetRemoveFilesFlag(
         bool inFlag)
     {
@@ -351,40 +372,60 @@ public:
         QCStMutexLocker theLocker(mMutex);
         mLockFileName = inName;
     }
+    void SetRequireChunkHeaderChecksumFlag(
+        bool inFlag)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mRequireChunkHeaderChecksumFlag = inFlag;
+    }
+    void SetIgnoreErrorsFlag(
+        bool inFlag)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mIgnoreErrorsFlag = inFlag;
+    }
 
 private:
     typedef std::map<dev_t, DeviceId> DeviceIds;
     typedef std::deque<LockFdPtr>     DirLocks;
 
-    DeviceIds     mDeviceIds;
-    DeviceId      mNextDevId;
-    DirNames      mDirNames;
-    DirNames      mSubDirNames;
-    FileNames     mDontUseIfExistFileNames;
-    DirsAvailable mAvailableDirs;
-    QCThread      mThread;
-    QCMutex       mMutex;
-    QCCondVar     mCond;
-    QCCondVar     mDoneCond;
-    Time          mCheckIntervalNanoSec;
-    string        mLockFileName;
-    DirLocks      mDirLocks;
-    bool          mRemoveFilesFlag;
-    bool          mRunFlag;
-    bool          mDoneFlag;
-    bool          mSleepFlag;
-    bool          mUpdateDirNamesFlag;
+    DeviceIds         mDeviceIds;
+    DeviceId          mNextDevId;
+    DirNames          mDirNames;
+    DirNames          mSubDirNames;
+    FileNames         mDontUseIfExistFileNames;
+    FileNames         mIgnoreFileNames;
+    DirsAvailable     mAvailableDirs;
+    QCThread          mThread;
+    QCMutex           mMutex;
+    QCCondVar         mCond;
+    QCCondVar         mDoneCond;
+    Time              mCheckIntervalNanoSec;
+    string            mLockFileName;
+    DirLocks          mDirLocks;
+    bool              mRemoveFilesFlag;
+    bool              mRunFlag;
+    bool              mDoneFlag;
+    bool              mSleepFlag;
+    bool              mUpdateDirNamesFlag;
+    bool              mRequireChunkHeaderChecksumFlag;
+    bool              mIgnoreErrorsFlag;
+    ChunkHeaderBuffer mChunkHeaderBuffer;
 
     static void CheckDirs(
-        const DirNames&  inDirNames,
-        const DirNames&  inSubDirNames,
-        const FileNames& inDontUseIfExistFileNames,
-        DeviceIds&       inDeviceIds,
-        DeviceId&        ioNextDevId,
-        DirsAvailable&   outDirsAvailable,
-        bool             inRemoveFilesFlag,
-        const string&    inLockName,
-        const string&    inLockToken)
+        const DirNames&    inDirNames,
+        const DirNames&    inSubDirNames,
+        const FileNames&   inDontUseIfExistFileNames,
+        const FileNames&   inIgnoreFileNames,
+        DeviceIds&         inDeviceIds,
+        DeviceId&          ioNextDevId,
+        DirsAvailable&     outDirsAvailable,
+        bool               inRemoveFilesFlag,
+        bool               inIgnoreErrorsFlag,
+        const string&      inLockName,
+        const string&      inLockToken,
+        bool               inRequireChunkHeaderChecksumFlag,
+        ChunkHeaderBuffer& inChunkHeaderBuffer)
     {
         for (DirNames::const_iterator theIt = inDirNames.begin();
                 theIt != inDirNames.end();
@@ -463,24 +504,116 @@ private:
             if (theSit != inSubDirNames.end()) {
                 continue;
             }
-            if (inRemoveFilesFlag &&
-                    Remove(*theIt, false, inLockName.c_str()) != 0) {
+            ChunkInfos theChunkInfos;
+            if (GetChunkFiles(
+                    *theIt,
+                    inLockName,
+                    inIgnoreFileNames,
+                    inRequireChunkHeaderChecksumFlag,
+                    inRemoveFilesFlag,
+                    inIgnoreErrorsFlag,
+                    inChunkHeaderBuffer,
+                    theChunkInfos) != 0) {
                 continue;
             }
-            pair<DeviceIds::iterator, bool> const theRes =
+            pair<DeviceIds::iterator, bool> const theDevRes =
                 inDeviceIds.insert(make_pair(theStat.st_dev, ioNextDevId));
-            if (theRes.second) {
+            if (theDevRes.second) {
                 ioNextDevId++;
             }
-            outDirsAvailable.insert(
-                make_pair(*theIt, DirInfo(
-                    theRes.first->second, theLockFdPtr)));
+            pair<DirsAvailable::iterator, bool> const theDirRes =
+                outDirsAvailable.insert(make_pair(*theIt, DirInfo(
+                        theDevRes.first->second, theLockFdPtr)));
+            if (! theChunkInfos.IsEmpty() && theDirRes.second) {
+                theChunkInfos.Swap(theDirRes.first->second.mChunkInfos);
+            }
         }
     }
+    static int GetChunkFiles(
+        const string&      inDirName,
+        const string&      inLockName,
+        const FileNames&   inIgnoreFileNames,
+        bool               inRequireChunkHeaderChecksumFlag,
+        bool               inRemoveFilesFlag,
+        bool               inIgnoreErrorsFlag,
+        ChunkHeaderBuffer& inChunkHeaderBuffer,
+        ChunkInfos&        outChunkInfos)
+    {
+        QCASSERT(! inDirName.empty() && *(inDirName.rbegin()) == '/');
+        int theErr = 0;
+        DIR* const theDirStream = opendir(inDirName.c_str());
+        if (! theDirStream) {
+            theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "unable to open " << inDirName <<
+                " error: " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+            return (inIgnoreErrorsFlag ? 0 : theErr);
+        }
+        struct dirent const* theEntryPtr;
+        ChunkInfo            theChunkInfo;
+        string               theName;
+        theName.reserve(1024);
+        while ((theEntryPtr = readdir(theDirStream))) {
+            if (strcmp(theEntryPtr->d_name, ".") == 0 ||
+                    strcmp(theEntryPtr->d_name, "..") == 0 ||
+                    inLockName == theEntryPtr->d_name) {
+                continue;
+            }
+            theName = theEntryPtr->d_name;
+            if (inIgnoreFileNames.find(theName) != inIgnoreFileNames.end()) {
+                continue;
+            }
+            theName = inDirName;
+            theName += theEntryPtr->d_name;
+            struct stat  theBuf  = { 0 };
+            if (stat(theName.c_str(), &theBuf) != 0) {
+                theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    theName << ": " <<  QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                if (inIgnoreErrorsFlag) {
+                    theErr = 0;
+                    continue;
+                }
+                break;
+            }
+            if (S_ISDIR(theBuf.st_mode) || ! S_ISREG(theBuf.st_mode)) {
+                continue;
+            }
+            if (! IsValidChunkFile(
+                    inDirName,
+                    theEntryPtr->d_name,
+                    theBuf.st_size,
+                    inRequireChunkHeaderChecksumFlag,
+                    inChunkHeaderBuffer,
+                    theChunkInfo.mFileId,
+                    theChunkInfo.mChunkId,
+                    theChunkInfo.mChunkVersion,
+                    theChunkInfo.mChunkSize)) {
+                if (inRemoveFilesFlag && unlink(theName.c_str())) {
+                    theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        theName << ": " <<  QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    if (! inIgnoreErrorsFlag) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            KFS_LOG_STREAM_DEBUG <<
+                "adding: " << theName <<
+            KFS_LOG_EOM;
+            outChunkInfos.PushBack(theChunkInfo);
+        }
+        closedir(theDirStream);
+        return theErr;
+    }
     static int Remove(
-            const string& inDirName,
-            bool          inRecursiveFlag,
-            const char*   inExcludeNamePtr = "")
+        const string& inDirName,
+        bool          inRecursiveFlag,
+        const char*   inExcludeNamePtr = "")
     {
         QCASSERT(! inDirName.empty() && *(inDirName.rbegin()) == '/');
         if (inDirName == "/") {
@@ -507,7 +640,7 @@ private:
                 continue;
             }
             const string theName = inDirName + theEntryPtr->d_name;
-            struct stat theBuf = { 0 };
+            struct stat  theBuf  = { 0 };
             if (stat(theName.c_str(), &theBuf) == 0 &&
                     S_ISDIR(theBuf.st_mode)) {
                 if (! inRecursiveFlag) {
@@ -518,7 +651,9 @@ private:
             KFS_LOG_STREAM_DEBUG <<
                 "removing: " << theName <<
             KFS_LOG_EOM;
-            if (unlink(theName.c_str()) && errno != ENOENT) {
+            if ((S_ISDIR(theBuf.st_mode) ?
+                    rmdir(theName.c_str()) :
+                    unlink(theName.c_str())) && errno != ENOENT) {
                 theErr = errno;
                 KFS_LOG_STREAM_ERROR <<
                     "unable to remove " << theName <<
@@ -728,6 +863,13 @@ DirChecker::SetDontUseIfExist(
 }
 
     void
+DirChecker::SetIgnoreFileNames(
+    const DirChecker::FileNames& inFileNames)
+{
+    mImpl.SetIgnoreFileNames(inFileNames);
+}
+
+    void
 DirChecker::SetLockFileName(
     const string& inName)
 {
@@ -739,6 +881,20 @@ DirChecker::SetRemoveFilesFlag(
     bool inFlag)
 {
     mImpl.SetRemoveFilesFlag(inFlag);
+}
+
+    void
+DirChecker::SetRequireChunkHeaderChecksumFlag(
+    bool inFlag)
+{
+    mImpl.SetRequireChunkHeaderChecksumFlag(inFlag);
+}
+
+    void
+DirChecker::SetIgnoreErrorsFlag(
+    bool inFlag)
+{
+    mImpl.SetIgnoreErrorsFlag(inFlag);
 }
 
 }

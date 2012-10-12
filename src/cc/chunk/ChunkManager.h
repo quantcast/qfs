@@ -361,11 +361,23 @@ public:
     typedef ChunkInfoHandle* ChunkLists[kChunkInfoHandleListCount];
     struct ChunkDirInfo;
 
-    const string& GetEvacuateFileName() const     { return mEvacuateFileName; }
-    const string& GetEvacuateDoneFileName() const { return mEvacuateDoneFileName; }
+    const string& GetEvacuateFileName() const
+        { return mEvacuateFileName; }
+    const string& GetEvacuateDoneFileName() const
+        { return mEvacuateDoneFileName; }
     int UpdateCountFsSpaceAvailableFlags();
     void MetaHeartbeat(HeartbeatOp& op);
-    int GetMaxEvacuateIoErrors() const            { return mMaxEvacuateIoErrors; }
+    int GetMaxEvacuateIoErrors() const
+        { return mMaxEvacuateIoErrors; }
+    int GetAvailableChunksRetryInterval() const
+        { return mAvailableChunksRetryInterval; }
+    // The following are "internal/private" -- to be used only withing
+    // ChunkManager.cpp
+    inline ChunkInfoHandle* AddMapping(ChunkInfoHandle* cih);
+    inline void MakeStale(ChunkInfoHandle& cih,
+        bool forceDeleteFlag, bool evacuatedFlag);
+    inline void DeleteSelf(ChunkInfoHandle& cih);
+    inline bool Remove(ChunkInfoHandle& cih);
 
 private:
     class PendingWrites
@@ -710,6 +722,7 @@ private:
     time_t     mMetaHeartbeatTime;
     int64_t    mMetaEvacuateCount;
     int        mMaxEvacuateIoErrors;
+    int        mAvailableChunksRetryInterval;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -718,8 +731,8 @@ private:
 
     /// When a checkpoint file is read, update the mChunkTable[] to
     /// include a mapping for cih->chunkInfo.chunkId.
-    void AddMapping(ChunkDirInfo& dir, const char* filename, int64_t filesz);
-    void AddMapping(ChunkInfoHandle *cih);
+    void AddMapping(ChunkDirInfo& dir, kfsFileId_t fileId, chunkId_t chunkId,
+        kfsSeq_t chunkVers, int64_t chunkSize);
 
     /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.  
     /// This method does a "directory allocation".

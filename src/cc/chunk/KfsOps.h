@@ -1818,7 +1818,7 @@ struct AvailableChunksOp : public KfsOp {
         ostringstream os;
         os << "available chunks:";
         for (int i = 0; i < numChunks; i++) {
-            os << " " << chunkIds[i] << " " << chunkVersions[i];
+            os << " " << chunkIds[i] << "." << chunkVersions[i];
         }
         return os.str();
     }

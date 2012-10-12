@@ -81,29 +81,23 @@ public:
     typedef FileNames          DirNames;
     struct ChunkInfo
     {
-        ChunkInfo(
-            kfsFileId_t  inFileId       = -1,
-            kfsChunkId_t inChunkId      = -1,
-            kfsSeq_t     inChunkVersion = -1,
-            int64_t      inChunkSize     = -1)
-            : mFileId(inFileId),
-              mChunkId(inChunkId),
-              mChunkVersion(inChunkVersion),
-              mChunkSize(inChunkSize)
-            {}
+        // Keep as pod -- no default constructor to avoid unnecessary
+        // initialization with dynamic array.
         kfsFileId_t  mFileId;
         kfsChunkId_t mChunkId;
         kfsSeq_t     mChunkVersion;
         int64_t      mChunkSize;
     };
     typedef DynamicArray<ChunkInfo> ChunkInfos;
-    struct DirInfo
+    class DirInfo
     {
+    public:
         DirInfo(
             DeviceId         inDeviceId  = -1,
             const LockFdPtr& inLockFdPtr = LockFdPtr())
             : mDeviceId(inDeviceId),
-              mLockFdPtr(inLockFdPtr)
+              mLockFdPtr(inLockFdPtr),
+              mChunkInfos()
             {}
         DeviceId   mDeviceId;
         LockFdPtr  mLockFdPtr;
@@ -138,9 +132,15 @@ public:
         const string& inDirName);
     void SetDontUseIfExist(
         const FileNames& inFileNames);
+    void SetIgnoreFileNames(
+        const FileNames& inFileNames);
     void SetLockFileName(
         const string& inName);
     void SetRemoveFilesFlag(
+        bool inFlag);
+    void SetRequireChunkHeaderChecksumFlag(
+        bool inFlag);
+    void SetIgnoreErrorsFlag(
         bool inFlag);
 private:
     class Impl;

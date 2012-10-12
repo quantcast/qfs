@@ -61,9 +61,17 @@ MetaServerSM::MetaServerSM()
     : KfsCallbackObj(),
       ITimeout(),
       mCmdSeq(GetRandomSeq()),
+      mLocation(),
       mRackId(-1),
+      mClusterKey(),
+      mMD5Sum(),
+      mChunkServerPort(-1),
+      mChunkServerHostname(),
       mSentHello(false),
       mHelloOp(0),
+      mPendingOps(),
+      mDispatchedNoReplyOps(),
+      mDispatchedOps(),
       mNetConnection(),
       mInactivityTimeout(65),
       mMaxReadAhead(4 << 10),
@@ -662,6 +670,7 @@ MetaServerSM::SendResponse(KfsOp* op)
 void
 MetaServerSM::DispatchOps()
 {
+    OpsQueue doneOps;
     while (! mPendingOps.empty() && IsHandshakeDone()) {
         if (! IsConnected()) {
             KFS_LOG_STREAM_INFO <<
@@ -672,8 +681,9 @@ MetaServerSM::DispatchOps()
         KfsOp* const op = mPendingOps.front();
         mPendingOps.pop_front();
         assert(op->op != CMD_META_HELLO);
-        if (! op->noReply &&
-                ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
+        if (op->noReply) {
+            mDispatchedNoReplyOps.push_back(op);
+        } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
         KFS_LOG_STREAM_DEBUG <<
@@ -684,6 +694,11 @@ MetaServerSM::DispatchOps()
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         op->Request(mWOStream.Set(ioBuf), ioBuf);
         mWOStream.Reset();
+    }
+    while (! mDispatchedNoReplyOps.empty()) {
+        KfsOp* const op = mDispatchedNoReplyOps.front();
+        mDispatchedNoReplyOps.pop_front();
+        SubmitOpResponse(op);
     }
 }
 

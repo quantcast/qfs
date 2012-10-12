@@ -187,6 +187,7 @@ private:
     /// dispatcher.  When the network dispatcher runs, it pulls ops
     /// from this queue and stashes them away in the dispatched list.
     OpsQueue mPendingOps;
+    OpsQueue mDispatchedNoReplyOps;
 
     /// ops that we have sent to metaserver and are waiting for reply.
     DispatchedOps mDispatchedOps;
