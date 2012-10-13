@@ -1810,36 +1810,77 @@ MetaAllocate::logOrLeaseRelinquishDone(int code, void* data)
     return 0;
 }
 
-/* virtual */ void
-MetaChunkAllocate::handle()
+int
+MetaAllocate::CheckStatus(bool forceFlag) const
 {
-    assert(req && req->op == META_ALLOCATE);
+    if (status < 0) {
+        return status;
+    }
+    const size_t sz = servers.size();
+    if (numServerReplies == sz && ! forceFlag) {
+        return status;
+    }
+    for (size_t i = 0; i < sz; i++) {
+        if (servers[i]->IsDown()) {
+            const_cast<MetaAllocate*>(this)->status    = -EALLOCFAILED;
+            const_cast<MetaAllocate*>(this)->statusMsg = "server " +
+                servers[i]->GetServerLocation().ToString() + " went down";
+            break;
+        }
+    }
+    return status;
+}
 
+bool
+MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
+{
     // if there is a non-zero status, don't throw it away
-    MetaAllocate& alloc = *req;
-    if (alloc.status == 0 && status < 0) {
-        alloc.status = status;
+    if (chunkAlloc.status < 0 && status == 0 && firstFailedServerIdx < 0) {
+        status = status;
         // In the case of version change failure take the first failed
         // server out, otherwise allocation might never succeed.
-        if (alloc.initialChunkVersion >= 0 &&
-                alloc.servers.size() > 1) {
-            for (size_t i = 0; i < alloc.servers.size(); i++) {
-                if (alloc.servers[i].get() == server.get() &&
-                        ! alloc.servers[i]->IsDown()) {
-                    gLayoutManager.ChunkCorrupt(
-                        alloc.chunkId, alloc.servers[i]);
+        if (initialChunkVersion >= 0 && servers.size() > 1) {
+            const ChunkServer* const cs = chunkAlloc.server.get();
+            for (size_t i = 0; i < servers.size(); i++) {
+                if (servers[i].get() == cs && ! servers[i]->IsDown()) {
+                    firstFailedServerIdx = (int)i;
                     break;
                 }
             }
         }
     }
 
-    alloc.numServerReplies++;
+    numServerReplies++;
     // wait until we get replies from all servers
-    if (alloc.numServerReplies == alloc.servers.size()) {
-        // The ops are no longer suspended
-        alloc.LayoutDone(processTime);
-        processTime = microseconds(); // The time was charged to alloc.
+    if (numServerReplies != servers.size()) {
+        return false;
+    }
+    // The op are no longer suspended.
+    const bool kForceFlag = true;
+    if (firstFailedServerIdx >= 0 && status != 0) {
+        // Check if all servers are up before discarding chunk.
+        const int prevStatus = status;
+        status = 0;
+        if (CheckStatus(kForceFlag) == 0) {
+            status = prevStatus;
+            gLayoutManager.ChunkCorrupt(
+                chunkId, servers[firstFailedServerIdx]);
+        }
+    } else {
+        // Check if any server went down.
+        CheckStatus(kForceFlag);
+    }
+    LayoutDone(chunkAlloc.processTime);
+    return true;
+}
+
+/* virtual */ void
+MetaChunkAllocate::handle()
+{
+    assert(req && req->op == META_ALLOCATE);
+    if (req->ChunkAllocDone(*this)) {
+        // The time was charged to alloc.
+        processTime = microseconds();
     }
 }
 

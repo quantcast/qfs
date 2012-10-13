@@ -840,6 +840,8 @@ private:
     StringBufT<32> leaseTypeStr;
 };
 
+struct MetaChunkAllocate;
+
 /*!
  * \brief allocate a chunk for a file
  */
@@ -867,6 +869,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     //!< for completing the write.
     ChunkServerPtr       master;
     uint32_t             numServerReplies;
+    int                  firstFailedServerIdx;
     bool                 logFlag;
     bool                 invalidateAllFlag;
     MetaAllocate*        next;
@@ -896,6 +899,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           servers(),
           master(),
           numServerReplies(0),
+          firstFailedServerIdx(-1),
           logFlag(true),
           invalidateAllFlag(false),
           next(0),
@@ -918,6 +922,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     void responseSelf(ostream &os);
     void LayoutDone(int64_t chunkAllocProcessTime);
     int logOrLeaseRelinquishDone(int code, void *data);
+    int CheckStatus(bool forceFlag = false) const;
+    bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
     bool Validate()
     {
         return (fid >= 0 && (offset >= 0 || appendChunk));
@@ -1454,7 +1460,7 @@ protected:
 /*!
  * \brief Allocate RPC from meta server to chunk server
  */
-struct MetaChunkAllocate: public MetaChunkRequest {
+struct MetaChunkAllocate : public MetaChunkRequest {
     const int64_t       leaseId;
     MetaAllocate* const req;
     MetaChunkAllocate(seq_t n, MetaAllocate *r,
@@ -1467,7 +1473,7 @@ struct MetaChunkAllocate: public MetaChunkRequest {
     virtual void request(ostream &os);
     virtual string Show() const
     {
-        return  "meta->chunk allocate: ";
+        return ("meta->chunk allocate:" + (req ? req->Show() : string()));
     }
 };
 

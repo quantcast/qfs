@@ -411,8 +411,7 @@ public:
         return mLocation;
     }
 
-    string ServerID() const
-    {
+    string ServerID() const {
         return mLocation.ToString();
     }
 

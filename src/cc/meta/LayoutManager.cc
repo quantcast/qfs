@@ -2623,7 +2623,7 @@ LayoutManager::AddNotStableChunk(
         if (appendFlag) {
             mARAChunkCache.Invalidate(fileId, chunkId);
         } else if (wl->allocInFlight) {
-            if (wl->allocInFlight->status == 0) {
+            if (wl->allocInFlight->CheckStatus() == 0) {
                 return "re-allocation in flight";
             }
             if (wl->allocInFlight->chunkVersion != chunkVersion) {

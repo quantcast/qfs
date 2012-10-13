@@ -623,9 +623,21 @@ struct AllocateOp : public KfsOp {
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     string Show() const {
         ostringstream os;
-
-        os << "allocate: fid: " << fid << " offset: " << fileOffset <<
-            (invalidateAllFlag ? " invalidate" : "") ;
+        os << "allocate:"
+            " fid: "    << fid <<
+            " offset: " << fileOffset <<
+            (invalidateAllFlag ? " invalidate" : "");
+        const size_t sz = chunkServers.size();
+        if (sz > 0) {
+            os <<
+                " chunkId: " << chunkId <<
+                " version: " << chunkVersion <<
+                " servers: "
+            ;
+            for (size_t i = 0; i < sz; i++) {
+                os << " " << chunkServers[i];
+            } 
+        }
         return os.str();
     }
 };
