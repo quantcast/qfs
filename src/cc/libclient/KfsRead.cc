@@ -630,6 +630,9 @@ KfsClientImpl::Read(
     if (theSize != theLen) {
         return -EOVERFLOW;
     }
+    if (theSize <= 0) {
+        return 0;
+    }
     // Do not return if nothing more to read -- start the read ahead.
     StartProtocolWorker();
     theEntry.readUsedProtocolWorkerFlag = true;
