@@ -35,6 +35,35 @@ typedef uint8_t v16 __attribute__ ((vector_size (16)));
 
 #define VEC16(x) ((v16){x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x})
 
+#ifdef LIBRS_USE_NONSSSE
+
+static inline v16
+mask(v16 v)
+{
+    v16 vv;
+	short i = 0;
+    while(i < 16){
+        vv[i] = (v[i] > 128) ? 255 : 0;
+        i++;
+    }
+	return vv;
+}
+
+static inline v16
+mul2(v16 v)
+{
+    v16 vv;
+    short i = 0;
+    while(i < 16){
+        vv[i] = v[i] << 1;
+        i++;
+    }
+    vv ^= mask(v) & VEC16(0x1d);
+    return vv;
+}
+
+#else
+
 static inline v16
 mask(v16 v)
 {
@@ -50,5 +79,7 @@ mul2(v16 v)
     vv ^= mask(v) & VEC16(0x1d);
     return vv;
 }
+
+#endif /* LIBRS_USE_NONSSSE */
 
 #endif
