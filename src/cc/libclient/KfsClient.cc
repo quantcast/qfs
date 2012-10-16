@@ -2433,6 +2433,13 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     // Set optimal io size, like open does.
     SetOptimalReadAheadSize(entry, mDefaultReadAheadSize);
     SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
+    KFS_LOG_STREAM_DEBUG <<
+        "created:"
+        " fd: "       << fte <<
+        " fileId: "   << entry.fattr.fileId <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+    KFS_LOG_EOM;
 
     return fte;
 }
@@ -2951,6 +2958,13 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             Delete(fa); // Invalidate attribute cache entry if isn't read only.
         }
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "opened:"
+        " fd: "       << fte <<
+        " fileId: "   << entry.fattr.fileId <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+    KFS_LOG_EOM;
     return fte;
 }
 
@@ -4183,13 +4197,20 @@ KfsClientImpl::AllocFileTableEntry(kfsFileId_t parentFid, const string& name,
         return fte;
     }
     mFileInstance += 2;
-    FileTableEntry* const entry =
-        new FileTableEntry(parentFid, name, mFileInstance);
-    mFileTable[fte] = entry;
-    InitPendingRead(*entry);
-    entry->pathname = pathname;
-    entry->ioBufferSize = mDefaultIoBufferSize;
-    entry->failShortReadsFlag = mFailShortReadsFlag;
+    FileTableEntry& entry =
+        *(new FileTableEntry(parentFid, name, mFileInstance));
+    mFileTable[fte] = &entry;
+    InitPendingRead(entry);
+    entry.pathname = pathname;
+    entry.ioBufferSize = mDefaultIoBufferSize;
+    entry.failShortReadsFlag = mFailShortReadsFlag;
+    KFS_LOG_STREAM_DEBUG <<
+        "allocated:"
+        " fd: "       << fte <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+        " path: "     << entry.pathname <<
+    KFS_LOG_EOM;
     return fte;
 }
 
@@ -4201,9 +4222,12 @@ KfsClientImpl::ReleaseFileTableEntry(int fte)
     mFileTable[fte] = 0;
     mFreeFileTableEntires.push_back(fte);
     KFS_LOG_STREAM_DEBUG <<
-        "closing filetable entry: " << fte <<
-        " mode: " << entry.openMode <<
-        " path: " << entry.pathname <<
+        "releasing:"
+        " fd: "       << fte <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+        " path: "     << entry.pathname <<
+        " fileId: "   << entry.fattr.fileId <<
     KFS_LOG_EOM;
     CancelPendingRead(entry);
     delete &entry;
