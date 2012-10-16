@@ -121,9 +121,9 @@ fi
 accessdir='src/cc/access'
 if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
-    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v`
-    kfsjar="`cd "$kfsjar/../../build" >/dev/null && pwd`"
-    kfsjar="${kfsjar}/qfs-${kfsjarvers}.jar"
+    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v | head -1`
+    kfsjar="`cd "$kfsjar/../../build/java" >/dev/null && pwd`"
+    kfsjar="${kfsjar}/qfs-access-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then
         accessdir="`cd "${accessdir}" >/dev/null 2>&1 && pwd`"
     else

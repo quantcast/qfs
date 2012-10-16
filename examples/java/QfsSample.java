@@ -23,13 +23,14 @@
  *
  * \brief A Sample Java program to access QFSAccess APIs. To run this program,
  *        you need:
- *        - qfs.jar in your CLASSPATH
+ *        - qfs-access jar in your CLASSPATH
  *        - libqfs_access.so in your LD_LIBRARY_PATH
  *        - a QFS deployment
  * Eg:
- *    javac -cp ~/code/qfs/build/<qfs>.jar QfsSample.java
+ *    javac -cp ~/code/qfs/build/java/qfs-access-<ver>.jar QfsSample.java
  *    LD_LIBRARY_PATH=~/code/qfs/build/lib \
- *        java -cp .:~/code/qfs/build/<qfs>.jar QfsSample localhost 20000
+ *        java -cp .:~/code/qfs/build/java/qfs-access-<ver>.jar QfsSample \
+ *        localhost 20000
  */
 
 

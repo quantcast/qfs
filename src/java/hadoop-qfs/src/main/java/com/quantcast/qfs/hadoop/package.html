@@ -1,0 +1,98 @@
+<html>
+
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+
+<head></head>
+<body>
+<h1>A client for the Quantcast filesystem (QFS)</h1>
+
+<h3>Introduction</h3>
+
+This pages describes how to use Quantcast Filesystem
+(<a href="https://github.com/quantcast/qfs"> QFS </a>) as a backing
+store with Hadoop. QFS is derived from the Kosmos File System (KFS).
+This page assumes that you have downloaded the QFS software and
+installed necessary binaries as outlined in the QFS documentation.
+
+<h3>Steps</h3>
+
+        <ul>
+          <li>In the Hadoop conf directory edit core-site.xml,
+          add the following:
+            <pre>
+&lt;property&gt;
+  &lt;name&gt;fs.qfs.impl&lt;/name&gt;
+  &lt;value&gt;org.apache.hadoop.fs.qfs.QuantcastFileSystem&lt;/value&gt;
+  &lt;description&gt;The FileSystem for qfs: uris.&lt;/description&gt;
+&lt;/property&gt;
+            </pre>
+
+          <li>In the Hadoop conf directory edit core-site.xml,
+          adding the following (with appropriate values for
+          &lt;server&gt; and &lt;port&gt;):
+            <pre>
+&lt;property&gt;
+  &lt;name&gt;fs.default.name&lt;/name&gt;
+  &lt;value&gt;qfs://&lt;server:port&gt;&lt;/value&gt;
+&lt;/property&gt;
+
+&lt;property&gt;
+  &lt;name&gt;fs.qfs.metaServerHost&lt;/name&gt;
+  &lt;value&gt;&lt;server&gt;&lt;/value&gt;
+  &lt;description&gt;The location of the QFS meta server.&lt;/description&gt;
+&lt;/property&gt;
+
+&lt;property&gt;
+  &lt;name&gt;fs.qfs.metaServerPort&lt;/name&gt;
+  &lt;value&gt;&lt;port&gt;&lt;/value&gt;
+  &lt;description&gt;The location of the meta server's port.&lt;/description&gt;
+&lt;/property&gt;
+
+</pre>
+          </li>
+
+          <li>Copy QFS's <i> qfs-&lt;version&gt;.jar </i> to Hadoop's lib directory.  This step
+          enables Hadoop's to load the QFS specific modules.  Note
+          that, qfs-&lt;version&gt;.jar was built when you compiled QFS source
+          code.  This jar file contains code that calls QFS's client
+          library code via JNI; the native code is in QFS's <i>
+          libqfs_client.so </i> library.
+          </li>
+
+          <li> When the Hadoop map/reduce trackers start up, those
+processes (on local as well as remote nodes) will now need to load
+QFS's <i> libqfs_client.so </i> library.  To simplify this process, it is advisable to
+store libqfs_client.so in an NFS accessible directory (similar to where
+Hadoop binaries/scripts are stored); then, modify Hadoop's
+conf/hadoop-env.sh adding the following line and providing suitable
+value for &lt;path&gt;:
+<pre>
+export LD_LIBRARY_PATH=&lt;path&gt;
+</pre>
+
+
+          <li>Start only the map/reduce trackers
+          <br />
+          example: execute Hadoop's bin/start-mapred.sh</li>
+        </ul>
+<br/>
+
+If the map/reduce job trackers start up, all file-I/O is done to QFS.
+
+</body>
+</html>

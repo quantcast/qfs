@@ -1,0 +1,104 @@
+<!--
+Author: Thilee Subramaniam
+
+Copyright 2012 Quantcast Corp.
+
+This file is part of Quantcast File System (QFS).
+
+Licensed under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied. See the License for the specific language governing
+permissions and limitations under the License.
+-->
+
+
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>com.quantcast.qfs</groupId>
+    <artifactId>qfs</artifactId>
+    <version>1.0.0</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.quantcast.qfs</groupId>
+  <artifactId>hadoop-qfs</artifactId>
+  <packaging>jar</packaging>
+  <version>1.0.0</version>
+  <name>hadoop-qfs</name>
+  <url>http://quantcast.github.com/qfs</url>
+
+  <build>
+    <directory>${buildDirectory}/hadoop-qfs</directory>
+    <resources>
+      <resource>
+        <directory>${buildDirectory}/qfs-access/classes/</directory>
+      </resource>
+    </resources>
+    <finalName>hadoop-${hadoop.release.version}-qfs-${qfs.release.version}</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>2.2</version>
+        <configuration>
+          <archive>
+            <index>true</index>
+            <manifestEntries>
+              <Implementation-Title>Apache Hadoop QFS</Implementation-Title>
+              <Implementation-Version>${qfs.release.version}-${qfs.source.revision}</Implementation-Version>
+              <Implementation-Vendor>Quantcast Corp.</Implementation-Vendor>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>hadoop_trunk_profile</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+          <version>${hadoop.release.version}</version>
+          <scope>compile</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.quantcast.qfs</groupId>
+          <artifactId>qfs-access</artifactId>
+          <version>1.0.0</version>
+          <scope>compile</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>hadoop_branch1_profile</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-core</artifactId>
+          <version>${hadoop.release.version}</version>
+          <scope>compile</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.quantcast.qfs</groupId>
+          <artifactId>qfs-access</artifactId>
+          <version>1.0.0</version>
+          <scope>compile</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+</project>
