@@ -65,7 +65,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         this.kfsAccess = kfsAccess;
     }
 
-    public boolean isOpen()
+    public synchronized boolean isOpen()
     {
         return kfsFd >= 0;
 
@@ -75,7 +75,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
     // -- fill some data into a direct mapped byte buffer
     // -- send/receive to the other side (Jave->C++ or vice-versa)
     //
-    public int write(ByteBuffer src) throws IOException
+    public synchronized int write(ByteBuffer src) throws IOException
     {
         if (kfsFd < 0) {
             throw new IOException("File closed");
@@ -150,7 +150,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         return write(src);
     }
 
-    public int sync() throws IOException
+    public synchronized int sync() throws IOException
     {
         if (kfsFd < 0) {
             throw new IOException("File closed");
@@ -161,7 +161,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         return 0;
     }
 
-    private void syncSelf() throws IOException
+    private synchronized void syncSelf() throws IOException
     {
         // flush everything
         writeBuffer.flip();
@@ -178,7 +178,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
 
     // is modeled after the seek of Java's RandomAccessFile; offset is
     // the offset from the beginning of the file.
-    public long seek(long offset) throws IOException
+    public synchronized long seek(long offset) throws IOException
     {
         if (kfsFd < 0) {
             throw new IOException("File closed");
@@ -190,7 +190,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         return kfsAccess.kfs_seek(kfsFd, offset);
     }
 
-    public long tell() throws IOException
+    public synchronized long tell() throws IOException
     {
         if (kfsFd < 0) {
             throw new IOException("File closed");
@@ -205,16 +205,30 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         return ret + writeBuffer.remaining();
     }
 
-    public void close() throws IOException
+    public synchronized void close() throws IOException
     {
         if (kfsFd < 0) {
             throw new IOException("File closed");
         }
-        syncSelf();
-        kfsAccess.kfs_close(kfsFd);
-        kfsFd = -1;
-        releaseBuffer();
-        kfsAccess = null;
+        IOException origEx = null;
+        try {
+            syncSelf();
+        } catch (IOException ex) {
+            origEx = ex;
+        } finally {
+            final int fd = kfsFd;
+            kfsFd = -1;
+            kfsAccess ka = kfsAccess;
+            kfsAccess = null;
+            try {
+                ka.kfs_close(fd);
+            } finally {
+                releaseBuffer();
+                if (origEx != null) {
+                    throw origEx;
+                }
+            }
+        }
     }
 
     private void releaseBuffer()
@@ -228,12 +242,16 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
 
     protected void finalize() throws Throwable
     {
-        if (kfsFd < 0) {
-            return;
-        }
         try {
-            close();
-        } catch (IOException ignored) {
+            if (kfsFd >= 0 && kfsAccess != null) {
+                final int fd = kfsFd;
+                kfsFd = -1;
+                kfsAccess ka = kfsAccess;
+                kfsAccess = null;
+                ka.kfs_close(fd);
+            }
+        } finally {
+            super.finalize();
         }
     }
     

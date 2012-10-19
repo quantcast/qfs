@@ -833,16 +833,13 @@ final public class KfsAccess
     protected void finalize() throws Throwable
     {
         try {
-            release();
+            if (cPtr != 0) {
+                final long ptr = cPtr;
+                cPtr = 0;
+                destroy(ptr);
+            }
         } finally {
             super.finalize();
-        }
-    }
-
-    public void release()
-    {
-        if (cPtr != 0) {
-            destroy(cPtr);
         }
     }
 
