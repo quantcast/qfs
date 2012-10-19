@@ -139,12 +139,12 @@ static std::string MakeVersionHash()
 }
 
 const std::string KFS_BUILD_VERSION_STRING(
-    std::string("'"${qfs_release_version}${lastchangeid}-${buildtype}"'-") +
+    std::string("'"${qfs_release_version}-${lastchangeid}-${buildtype}"'-") +
     MakeVersionHash()
 );
 
 const std::string KFS_SOURCE_REVISION_STRING(
-    "'"${qfs_release_version}${remote}/${branch}@$lastchangeid"'"
+    "'"${qfs_release_version}-${remote}/${branch}@$lastchangeid"'"
 );
 
 }
