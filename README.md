@@ -22,7 +22,7 @@ Compiling QFS
 
 * Pre-requisites:
 ```
-g++, make, jdk, java headers for JNI, ant,
+g++, make, jdk, java headers for JNI, Apache Maven,
 libraries and headers for xfsprogs, libuuid, and openssl,
 cmake (preferably, version 2.4.7 or higher),
 boost-devel (preferably, version 1.3.4 or higher),
