@@ -51,7 +51,7 @@ MsgLogger::MsgLogger(
     if (props) {
         BufferedLogWriter::SetParameters(*props, propPrefix);
     }
-    BufferedLogWriter::Append(kLogLevelINFO, "version: %s %s",
+    BufferedLogWriter::Append(kLogLevelDEBUG, "version: %s %s",
         KFS_BUILD_VERSION_STRING.c_str(), KFS_SOURCE_REVISION_STRING.c_str());
 }
 
