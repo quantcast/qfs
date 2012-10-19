@@ -175,7 +175,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
         }
         final int fd = kfsFd;
         kfsFd = -1;
-        final kfsAccess ka = kfsAccess;
+        final KfsAccess ka = kfsAccess;
         kfsAccess = null;
         try {
             ka.kfs_close(fd);
@@ -191,7 +191,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
-                final kfsAccess ka = kfsAccess;
+                final KfsAccess ka = kfsAccess;
                 kfsAccess = null;
                 ka.kfs_close(fd);
             }

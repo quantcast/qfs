@@ -218,7 +218,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         } finally {
             final int fd = kfsFd;
             kfsFd = -1;
-            kfsAccess ka = kfsAccess;
+            KfsAccess ka = kfsAccess;
             kfsAccess = null;
             try {
                 ka.kfs_close(fd);
@@ -246,7 +246,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
-                kfsAccess ka = kfsAccess;
+                KfsAccess ka = kfsAccess;
                 kfsAccess = null;
                 ka.kfs_close(fd);
             }
