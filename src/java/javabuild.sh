@@ -34,10 +34,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if which mvn > /dev/null; then
+if which mvn > /dev/null 2>&1; then
     echo "Using Apache Maven to build QFS jars.."
 else
-    echo "Skipping Java build of QFS. Install Apache Maven and try again."
+    echo "Skipping Java build of QFS. Please install Apache Maven and try again."
     exit 0
 fi
 
@@ -57,8 +57,8 @@ if [ $# -eq 1 ]; then
     fi
 fi
 
-qfs_release_version=$(sh ../cc/common/buildversgit.sh -v | head -1)
-qfs_source_revision=$(sh ../cc/common/buildversgit.sh -v | tail -1)
+qfs_release_version=`sh ../cc/common/buildversgit.sh -v | head -1`
+qfs_source_revision=`sh ../cc/common/buildversgit.sh -v | tail -1`
 if [ -z "$qfs_source_revision" ]; then
     qfs_source_revision="00000000"
 fi
@@ -68,9 +68,14 @@ echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 
 if [ x"$hadoop_qfs_profile" = x'none' ]; then
-    echo "Running: mvn -Dqfs.release.version=$qfs_release_version -Dqfs.source.revision=$qfs_source_revision --projects qfs-access package"
-    mvn -Dqfs.release.version=$qfs_release_version -Dqfs.source.revision=$qfs_source_revision --projects qfs-access package
+    set -x
+    exec mvn -Dqfs.release.version="$qfs_release_version" \
+        -Dqfs.source.revision="$qfs_source_revision" \
+        --projects qfs-access package
 else
-    echo "Running: mvn -P $hadoop_qfs_profile -Dqfs.release.version=$qfs_release_version -Dqfs.source.revision=$qfs_source_revision -Dhadoop.release.version=$1 package"
-    mvn -P $hadoop_qfs_profile -Dqfs.release.version=$qfs_release_version -Dqfs.source.revision=$qfs_source_revision -Dhadoop.release.version=$1 package
+    set -x
+    exec mvn -P "$hadoop_qfs_profile" \
+        -Dqfs.release.version="$qfs_release_version" \
+        -Dqfs.source.revision="$qfs_source_revision" \
+        -Dhadoop.release.version="$1" package
 fi

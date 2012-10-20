@@ -38,9 +38,10 @@ qfs_release_version="1.0.1"
 qfs_source_revision=""
 
 # If git is present override the release version with git tag.
-if which git > /dev/null; then
-    qfs_release_version="$(cd "`dirname "$0"`" 2> /dev/null && git describe --abbrev=0 --tags 2> /dev/null)"
-    qfs_source_revision="$(cd "`dirname "$0"`" 2> /dev/null && git log -n 1 --pretty=format:%H 2> /dev/null)"
+if which git > /dev/null 2>&1; then
+    script_dir=`dirname "$0"`
+    qfs_release_version=`cd "$script_dir" >/dev/null 2>&1 && git describe --abbrev=0 --tags 2>/dev/null`
+    qfs_source_revision=`cd "$script_dir" >/dev/null 2>&1 && git log -n 1 --pretty=format:%H 2>/dev/null`
 fi
 
 if [ $# -eq 1 -a x"$1" = x'-v' ]; then
