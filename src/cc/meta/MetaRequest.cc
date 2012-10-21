@@ -1836,7 +1836,8 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 {
     // if there is a non-zero status, don't throw it away
     if (chunkAlloc.status < 0 && status == 0 && firstFailedServerIdx < 0) {
-        status = status;
+        status    = chunkAlloc.status;
+        statusMsg = chunkAlloc.statusMsg;
         // In the case of version change failure take the first failed
         // server out, otherwise allocation might never succeed.
         if (initialChunkVersion >= 0 && servers.size() > 1) {
