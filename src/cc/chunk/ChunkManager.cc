@@ -4154,6 +4154,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
             ci.mFileId       = cih->chunkInfo.fileId;
             ci.mChunkId      = cih->chunkInfo.chunkId;
             ci.mChunkVersion = cih->chunkInfo.chunkVersion;
+            ci.mChunkSize    = cih->chunkInfo.chunkSize;
             if (gChunkManager.Remove(*cih)) {
                 availableChunks.PushBack(ci);
             }
