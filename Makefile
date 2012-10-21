@@ -32,9 +32,11 @@ release: prep
 	cd release && \
 	cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ../.. && \
 	make install
-	./src/java/javabuild.sh clean && ./src/java/javabuild.sh
+	./src/java/javabuild.sh clean
+	if test -x "`which mvn 2>/dev/null`"; then \
+		./src/java/javabuild.sh ; fi
 	if test -x "`which python 2>/dev/null`"; then \
-	    cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+		cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
 
 debug: prep
 	cd build && \
@@ -42,19 +44,22 @@ debug: prep
 	cd debug && \
 	cmake ../.. && \
 	make install
-	./src/java/javabuild.sh clean && ./src/java/javabuild.sh
+	./src/java/javabuild.sh clean
+	if test -x "`which mvn 2>/dev/null`"; then \
+		./src/java/javabuild.sh ; fi
 	if test -x "`which python 2>/dev/null`"; then \
-	    cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
+		cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
 
 hadoop-jars: release
+	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
-	    ./src/java/javabuild.sh clean &&      \
-	    ./src/java/javabuild.sh 0.23.4 &&     \
-	    ./src/java/javabuild.sh 1.0.2  &&     \
-	    ./src/java/javabuild.sh 1.0.4  &&     \
-	    ./src/java/javabuild.sh 1.1.0  &&     \
-	    ./src/java/javabuild.sh 2.0.2-alpha   \
-	    ; fi
+		./src/java/javabuild.sh clean &&      \
+		./src/java/javabuild.sh 0.23.4 &&     \
+		./src/java/javabuild.sh 1.0.2  &&     \
+		./src/java/javabuild.sh 1.0.4  &&     \
+		./src/java/javabuild.sh 1.1.0  &&     \
+		./src/java/javabuild.sh 2.0.2-alpha   \
+	; fi
 
 tarball: hadoop-jars
 	cd build && \
