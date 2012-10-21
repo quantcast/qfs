@@ -46,6 +46,7 @@ namespace client
 {
 using std::istringstream;
 using std::ostream;
+using std::istream;
 using std::string;
 using std::min;
 using std::max;
@@ -664,7 +665,7 @@ GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
 /// parsing.
 ///
 void
-KfsOp::ParseResponseHeader(std::istream& is)
+KfsOp::ParseResponseHeader(istream& is)
 {
     const char separator = ':';
     Properties prop;
@@ -673,7 +674,7 @@ KfsOp::ParseResponseHeader(std::istream& is)
 }
 
 void
-KfsOp::ParseResponseHeader(const Properties &prop)
+KfsOp::ParseResponseHeader(const Properties& prop)
 {
     // kfsSeq_t resSeq = prop.getValue("Cseq", (kfsSeq_t) -1);
     status = prop.getValue("Status", -1);
@@ -720,7 +721,8 @@ void
 CreateOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
-    metaStriperType   = prop.getValue("Striper-type", KFS_STRIPED_FILE_TYPE_NONE);
+    metaStriperType   = prop.getValue("Striper-type",
+        int(KFS_STRIPED_FILE_TYPE_NONE));
     permissions.user  = prop.getValue("User",  permissions.user);
     permissions.group = prop.getValue("Group", permissions.group);
     permissions.mode  = prop.getValue("Mode",  permissions.mode);
@@ -939,7 +941,6 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
     nentries = prop.getValue("Checksum-entries", 0);
     checksumStr = prop.getValue("Checksums", "");
     diskIOTime = prop.getValue("DiskIOtime", 0.0);
-    drivename = prop.getValue("Drivename", "");
     istringstream ist(checksumStr);
     checksums.clear();
     for (uint32_t i = 0; i < nentries; i++) {

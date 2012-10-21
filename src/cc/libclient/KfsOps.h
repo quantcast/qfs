@@ -765,7 +765,6 @@ struct ReadOp : public KfsOp {
     vector<uint32_t> checksums; /* checksum for each 64KB block */
     float   diskIOTime; /* as reported by the server */
     float   elapsedTime; /* as measured by the client */
-    string drivename; /* drive from which data was read */
 
     ReadOp(kfsSeq_t s, kfsChunkId_t c, int64_t v) :
         KfsOp(CMD_READ, s), chunkId(c), chunkVersion(v),

@@ -977,6 +977,7 @@ public:
     void SetChunkServersProperties(const Properties& props);
 
     void GetChunkServerCounters(IOBuffer& buf);
+    void GetChunkServerDirCounters(IOBuffer& buf);
 
     void AllocateChunkForAppendDone(MetaAllocate& req) {
         mARAChunkCache.RequestDone(req);
@@ -1407,15 +1408,6 @@ protected:
         Counter mTotalPlanNoServer;
     };
 
-    // Chunk servers counters -- aggregated from chunk server heartbeat
-    // responses.
-    typedef map <string, vector<string>,
-        less<string>,
-        StdFastAllocator<
-            pair<const string, vector<string> >
-        >
-    > CSCounters;
-
     // Striped (Reed-Solomon) files allocations in flight used for chunk
     // placment.
     typedef set<
@@ -1599,8 +1591,10 @@ protected:
 
     int                mCSCountersUpdateInterval;
     time_t             mCSCountersUpdateTime;
-    CSCounters         mCSCounters;
     IOBuffer           mCSCountersResponse;
+    int                mCSDirCountersUpdateInterval;
+    time_t             mCSDirCountersUpdateTime;
+    IOBuffer           mCSDirCountersResponse;
     int                mPingUpdateInterval;
     time_t             mPingUpdateTime;
     IOBuffer           mPingResponse;
@@ -1870,16 +1864,12 @@ protected:
     inline seq_t GetChunkVersionRollBack(chunkId_t chunkId);
     inline seq_t IncrementChunkVersionRollBack(chunkId_t chunkId);
     inline ostream& ClearStringStream();
-    inline static const string& BoolToString(bool flag);
-    inline CSCounters::mapped_type& CSCountersMakeRow(
-        const string& name, size_t width, CSCounters::iterator& it);
     inline void UpdatePendingRecovery(CSMap::Entry& entry);
     inline void CheckReplication(CSMap::Entry& entry);
     bool GetPlacementExcludes(const CSMap::Entry& entry, ChunkPlacement& placement,
         bool includeThisChunkFlag = true,
         bool stopIfHasAnyReplicationsInFlight = false,
         vector<MetaChunkInfo*>* chunkBlock = 0);
-    void UpdateChunkServerCounters();
     void ProcessInvalidStripes(MetaChunkReplicate& req);
     RackId GetRackId(const ServerLocation& loc);
     RackId GetRackId(const string& loc);

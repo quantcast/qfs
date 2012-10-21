@@ -463,7 +463,8 @@ def setup_config_files(config):
     print >> webFile, 'monthlySize = 30'
     print >> webFile, 'monthlySpan = 86400'
     print >> webFile, 'displayPorts = True'
-    print >> webFile, 'predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&XMeta-location'
+    print >> webFile, 'predefinedHeaders = Buffer-usec-wait-avg&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&XMeta-location'
+    print >> webFile, 'predefinedChunkDirHeaders = Chunks&Dev-id&Read-bytes&D-Read-bytes&Read-err&D-Read-err&Read-io&D-Read-io&D-Read-time-microsec&Read-timeout&Space-avail&Space-util-pct&Started-ago&Stopped-ago&Write-bytes&D-Write-bytes&Write-err&D-Write-err&Write-io&D-Write-io&D-Write-time-microsec&Write-timeout&Chunk-server&Chunk-dir'
     webFile.close()
     print 'Setup config files - OK.'
 

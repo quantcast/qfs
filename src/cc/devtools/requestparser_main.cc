@@ -54,6 +54,10 @@ public:
 		bool        /* hasChecksum */,
 		uint32_t    /* checksum */)
 	{ return true; }
+    bool HandleUnknownField(
+        const char* /* key */, size_t /* keyLen */,
+        const char* /* val */, size_t /* valLen */)
+        { return true; }
     template<typename T> static T& ParserDef(
         T& inParser)
     {

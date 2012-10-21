@@ -429,6 +429,7 @@ class ObjectParser
 {
 public:
     typedef PropertiesTokenizer Tokenizer;
+    typedef Tokenizer::Token    Token;
 
     // inNamePtr arguments are assumed to be static strings.
     // The strings must remain constant and valid during the lifetime of
@@ -473,9 +474,16 @@ public:
         OBJ*       inObjPtr) const
     {
         while (inTokenizer.Next()) {
-            typename Fields::const_iterator const
-                theIt = mFields.find(inTokenizer.GetKey());
-            if (theIt != mFields.end()) {
+            const Token& theKey = inTokenizer.GetKey();
+            typename Fields::const_iterator const theIt = mFields.find(theKey);
+            if (theIt == mFields.end()) {
+                const Token& theValue = inTokenizer.GetValue();
+                if (! inObjPtr->HandleUnknownField(
+                        theKey.mPtr,    theKey.mLen,
+                        theValue.mPtr, theValue.mLen)) {
+                    break;
+                }
+            } else {
                 theIt->second->Set(inObjPtr, inTokenizer.GetValue());
             }
         }
@@ -513,16 +521,13 @@ private:
             OBJ*         inObjPtr,
             const Value& inValue) const
         {
-            // The implicit cast below from OBJ to OT is crucial.
+            // The correct pointer to member scope "OT::" below is crucial.
             // This is the primary reason why this code *is not* in the
             // AbstractRequestParser, and why the parser definition can not be
             // done with the AbstractRequestParser.
             // In other words this is the reason why the definition has to be
-            // in one class, and can not be "inherited" from the super classes
+            // in this class, and can not be "inherited" from the super classes
             // of the OBJ with abstract parser.
-            // The implicit cast correctly handles multiple inheritance where
-            // the result of the cast depends on the type of the "casted from"
-            // object.
             VALUE_PARSER::SetValue(
                 inValue.mPtr,
                 inValue.mLen,

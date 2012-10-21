@@ -80,6 +80,7 @@ MetaServerSM::MetaServerSM()
       mConnectedTime(0),
       mReconnectFlag(false),
       mCounters(),
+      mIStream(),
       mWOStream()
 {
     // Force net manager construction here, to insure that net manager
@@ -470,11 +471,9 @@ bool
 MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
 {
     Properties prop;
-    {
-        IOBuffer::IStream is(*iobuf, msgLen);
-        const char separator = ':';
-        prop.loadProperties(is, separator, false);
-    }
+    const char separator = ':';
+    prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
+    mIStream.Reset();
     iobuf->Consume(msgLen);
 
     const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);

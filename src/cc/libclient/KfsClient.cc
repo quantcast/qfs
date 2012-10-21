@@ -1769,6 +1769,10 @@ private:
             }
             return (! filename.empty());
         }
+        bool HandleUnknownField(
+            const char* /* key */, size_t /* keyLen */,
+            const char* /* val */, size_t /* valLen */)
+            { return true; }
     };
     template<typename INT_PARSER>
     class VParser
@@ -3617,12 +3621,12 @@ KfsClientImpl::GetResponse(char *buf, int bufSize, int *delims, TcpSocket *sock)
 /// From a response, extract out seq # and content-length.
 ///
 static void
-GetSeqContentLen(istream& ist,
+GetSeqContentLen(const char* buf, size_t len,
     kfsSeq_t *seq, int *contentLength, Properties& prop)
 {
     const char separator = ':';
     prop.clear();
-    prop.loadProperties(ist, separator, false);
+    prop.loadProperties(buf, len, separator);
     *seq = prop.getValue("Cseq", (kfsSeq_t) -1);
     *contentLength = prop.getValue("Content-length", 0);
 }
@@ -3669,11 +3673,9 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
             op->status = -EINVAL;
             return -1;
         }
-
         kfsSeq_t resSeq     = -1;
         int      contentLen = 0;
-        GetSeqContentLen(mTmpInputStream.Set(mTmpBuffer, len),
-            &resSeq, &contentLen, prop);
+        GetSeqContentLen(mTmpBuffer, len, &resSeq, &contentLen, prop);
         if (resSeq == op->seq) {
             if (printMatchingResponse) {
                 KFS_LOG_STREAM_DEBUG <<

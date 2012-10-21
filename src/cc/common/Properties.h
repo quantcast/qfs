@@ -32,6 +32,7 @@
 #include <map>
 
 #include "StdAllocator.h"
+#include "StBuffer.h"
 
 namespace KFS
 {
@@ -44,15 +45,30 @@ using std::istream;
 // Can be used to parse rfc822 style request headers, or configuration files.
 class Properties
 {
-private :
+public:
+    enum { kStringBufSize = 32 };
+    // with 32 bytes the size of RB tree node: (32+8+8)*2+3*8 < 128 bytes, gnu
+    // pool allocator (StdFastAllocator) threshold.
+    typedef StringBufT<kStringBufSize> String;
+private:
     int intbase;
     //Map that holds the (key,value) pairs
-    typedef map<string, string,
-        std::less<string>,
-        StdFastAllocator<std::pair<const string, string> >
+    typedef map<String, String,
+        std::less<String>,
+        StdFastAllocator<std::pair<const String, String> >
     > PropMap;
     PropMap propmap;
-    inline PropMap::const_iterator find(const string& key) const;
+    inline PropMap::const_iterator find(const String& key) const;
+    string getValueSelf(const String& key, const string& def) const;
+    const char* getValueSelf(const String& key, const char* def) const;
+    int getValueSelf(const String& key, int def) const;
+    unsigned int getValueSelf(const String& key, unsigned int def) const;
+    long getValueSelf(const String& key, long def) const;
+    unsigned long getValueSelf(const String& key, unsigned long def) const;
+    long long getValueSelf(const String& key, long long def) const;
+    unsigned long long getValueSelf(const String& key, unsigned long long def)
+        const;
+    double getValueSelf(const String& key, double def) const;
 
 public:
     static string AsciiToLower(const string& str);
@@ -64,20 +80,35 @@ public:
     int loadProperties(const char* fileName, char delimiter,
         bool verbose, bool multiline = false, bool keysAsciiToLower = false);
     // load the properties from an in-core buffer
-    int loadProperties(istream &ist, char delimiter,
+    int loadProperties(istream& ist, char delimiter,
         bool verbose, bool multiline = false, bool keysAsciiToLower = false);
-    string getValue(const string& key, const string& def) const;
-    const char* getValue(const string& key, const char* def) const;
-    int getValue(const string& key, int def) const;
-    unsigned int getValue(const string& key, unsigned int def) const;
-    long getValue(const string& key, long def) const;
-    unsigned long getValue(const string& key, unsigned long def) const;
-    long long getValue(const string& key, long long def) const;
-    unsigned long long getValue(const string& key, unsigned long long def) const;
-    double getValue(const string& key, double def) const;
+    int loadProperties(const char* buf, size_t len, char delimiter,
+        ostream* verbose = 0, bool multiline = false,
+        bool keysAsciiToLower = false);
+    template<typename TValue>
+    TValue getValue(const String& key, const TValue& def) const
+        { return getValueSelf(key, def); }
+    template<typename TKey, typename TValue>
+    TValue getValue(const TKey& key, const TValue& def) const
+        { return getValueSelf(String(key), def); }
+    template<typename TKey>
+    const char* getValue(const TKey& key, const char* def) const
+        { return getValueSelf(String(key), def); }
     void setValue(const string& key, const string& value);
+    void setValue(const String& key, const string& value);
+    template<typename TKey>
+    void setValue(const TKey& key, const string& value)
+        { setValue(String(key), value); }
+    void setValue(const String& key, const String& value)
+        { propmap[key] = value; }
     void getList(string &outBuf, const string& linePrefix,
         const string& lineSuffix = string("\n")) const;
+    bool remove(const String& key);
+    template<typename T>
+    bool remove(const T& key)
+        { return remove(String(key)); }
+    bool remove(const char* key)
+        { return remove(String(key)); }
     void clear() { propmap.clear(); }
     bool empty() const { return propmap.empty(); }
     size_t size() const { return propmap.size(); }

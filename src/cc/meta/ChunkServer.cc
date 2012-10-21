@@ -135,6 +135,7 @@ int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
+size_t ChunkServer::sChunkDirsCount = 0;
 
 const int kMaxReadAhead             = 4 << 10;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
@@ -227,6 +228,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mChunksToMove(),
       mChunksToEvacuate(),
       mLocation(),
+      mHostPortStr(),
       mRackId(-1),
       mNumCorruptChunks(0),
       mTotalSpace(0),
@@ -274,6 +276,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mEvacuateCntRate(0.),
       mEvacuateByteRate(0.),
       mLostChunkDirs(),
+      mChunkDirInfos(),
       mPeerName(peerName)
 {
     assert(mNetConnection);
@@ -578,6 +581,9 @@ ChunkServer::ForceDown()
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
     mSelfPtr.reset(); // Unref / delete self
+    assert(sChunkDirsCount >= mChunkDirInfos.size());
+    sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
+    mChunkDirInfos.clear();
 }
 
 void
@@ -631,6 +637,9 @@ ChunkServer::Error(const char* errorMsg)
     gLayoutManager.UpdateSrvLoadAvg(*this, delta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
+    assert(sChunkDirsCount >= mChunkDirInfos.size());
+    sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
+    mChunkDirInfos.clear();
     if (mHelloDone) {
         // force the server down thru the main loop to avoid races
         MetaBye* const mb = new MetaBye(0, shared_from_this());
@@ -1142,7 +1151,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
             max(0, prop.getValue("Num-writable-chunks", 0)),
                    prop.getValue("Num-wr-drives",       mNumDrives)
         );
-                if (mEvacuateInFlight == 0) {
+        if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();
         }
         const time_t now = TimeNow();
@@ -1720,16 +1729,15 @@ ChunkServer::ScheduleRestart(
 }
 
 /* static */ string
-ChunkServer::Escape(const string& str)
+ChunkServer::Escape(const char* buf, size_t len)
 {
     const char* const kHexChars = "0123456789ABCDEF";
     string            ret;
-    const char*       p = str.c_str();
-    for (; ;) {
+    const char*       p = buf;
+    const char* const e = p + len;
+    ret.reserve(len);
+    while (p < e) {
         const int c = *p++ & 0xFF;
-        if (c == 0) {
-            break;
-        }
         // For now do not escape '/' to make file names more readable.
         if (c <= ' ' || c >= 0xFF || strchr("!*'();:@&=+$,?#[]", c)) {
             ret.push_back('%');

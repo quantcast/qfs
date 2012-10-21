@@ -879,7 +879,7 @@ LayoutEmulator::RunFsck(
         const size_t sz  = 1 << 20;
         char* const  ptr = buf.Resize(sz);
         for (i = 0; err == 0 && i < cnt; i++) {
-            ssize_t nrd;
+            ssize_t nrd = 0;
             while (err == 0 && (nrd = read(fd[i], ptr, sz)) > 0) {
                 const char*       p = ptr;
                 const char* const e = p + nrd;

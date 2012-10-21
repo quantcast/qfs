@@ -172,9 +172,6 @@ private:
     }
 }* OpCounters::sInstance(OpCounters::MakeInstance());
 
-
-const char* const KFS_VERSION_STR = "KFS/1.0";
-
 static bool
 needToForwardToPeer(string &serverInfo, uint32_t numServers, int &myPos,
                     ServerLocation &peerLoc,
@@ -544,7 +541,7 @@ WriteOp::HandleWriteDone(int code, void *data)
     gChunkManager.WriteDone(this);
     if (isFromReReplication) {
         if (code == EVENT_DISK_WROTE) {
-            status = std::min(*(int *) data, int(numBytes));
+            status = min(*(int *) data, int(numBytes));
             numBytesIO = status;
         }
         else {
@@ -556,7 +553,7 @@ WriteOp::HandleWriteDone(int code, void *data)
 
     if (code == EVENT_DISK_ERROR) {
         // eat up everything that was sent
-        dataBuf->Consume(std::max(int(numBytesIO), int(numBytes)));
+        dataBuf->Consume(max(int(numBytesIO), int(numBytes)));
         status = -1;
         if (data) {
             status = *(int *) data;
@@ -622,12 +619,10 @@ WriteOp::HandleSyncDone(int code, void *data)
     if (code != EVENT_SYNC_DONE) {
         status = -1;
     }
-
     if (status >= 0) {
         SET_HANDLER(this, &WriteOp::HandleLoggingDone);
         gLogger.Submit(this);
-    }
-    else {
+    } else {
         wpop->HandleEvent(EVENT_CMD_DONE, this);
     }
 
@@ -1311,8 +1306,6 @@ ReadOp::Execute()
         return;
     }
 
-    gChunkManager.GetDriveName(this);
-
     SET_HANDLER(this, &ReadOp::HandleChunkMetaReadDone);
     const int res = gChunkManager.ReadChunkMetadata(chunkId, this);
     if (res < 0) {
@@ -1988,7 +1981,7 @@ ChunkSpaceReleaseOp::Execute()
         ClientSM* const client = GetClientSM();
         assert((client != 0) == (clnt != 0));
         rsvd = client ?
-            std::min(client->GetReservedSpace(chunkId, writeId), nbytes) : nbytes;
+            min(client->GetReservedSpace(chunkId, writeId), nbytes) : nbytes;
         status = gAtomicRecordAppendManager.ChunkSpaceRelease(
             chunkId, writeId, rsvd, &statusMsg);
         if (status == 0 && client) {
@@ -2058,7 +2051,7 @@ GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void *data)
     readOp.chunkId = chunkId;
     readOp.chunkVersion = chunkVersion;
     readOp.offset = 0;
-    readOp.numBytes = std::min((int64_t) 1 << 20, chunkSize);
+    readOp.numBytes = min((int64_t) 1 << 20, chunkSize);
 
     readOp.SetScrubOp(this);
     SET_HANDLER(this, &GetChunkMetadataOp::HandleScrubReadDone);
@@ -2109,7 +2102,7 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
             // checksum verified; setup the next read
             numBytesScrubbed += readOp.dataBuf->BytesConsumable();
             readOp.offset += readOp.dataBuf->BytesConsumable();
-            readOp.numBytes = std::min((int64_t)kChunkReadSize, chunkSize - numBytesScrubbed);
+            readOp.numBytes = min((int64_t)kChunkReadSize, chunkSize - numBytesScrubbed);
             // throw away the data
             readOp.dataBuf->Consume(readOp.dataBuf->BytesConsumable());
             if (numBytesScrubbed >= chunkSize) {
@@ -2236,7 +2229,6 @@ void
 ReadOp::Response(ostream &os)
 {
     PutHeader(this, os);
-    os << "Drivename: " << driveName << "\r\n";
     if (status < 0) {
         os << "\r\n";
         return;
@@ -2308,7 +2300,7 @@ RecordAppendOp::Request(ostream &os)
 }
 
 void
-GetRecordAppendOpStatus::Request(std::ostream &os)
+GetRecordAppendOpStatus::Request(ostream &os)
 {
     os <<
         "GET_RECORD_APPEND_OP_STATUS \r\n"
@@ -2319,7 +2311,7 @@ GetRecordAppendOpStatus::Request(std::ostream &os)
 }
 
 void
-GetRecordAppendOpStatus::Response(std::ostream &os)
+GetRecordAppendOpStatus::Response(ostream &os)
 {
     PutHeader(this, os);
     os <<
@@ -2500,7 +2492,7 @@ PingOp::Response(ostream &os)
 }
 
 void
-BeginMakeChunkStableOp::Response(std::ostream& os)
+BeginMakeChunkStableOp::Response(ostream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2676,7 +2668,9 @@ LeaseRelinquishOp::Request(ostream &os)
 int
 LeaseRelinquishOp::HandleDone(int code, void *data)
 {
-    assert(code == EVENT_CMD_DONE && data == this);
+    if (code != EVENT_CMD_DONE || data != this) {
+        die("LeaseRelinquishOp: invalid completion");
+    }
     delete this;
     return 0;
 }
@@ -2705,8 +2699,11 @@ CorruptChunkOp::Request(ostream &os)
 }
 
 int
-CorruptChunkOp::HandleDone(int code, void *data)
+CorruptChunkOp::HandleDone(int code, void* data)
 {
+    if (code != EVENT_CMD_DONE || data != this) {
+        die("CorruptChunkOp: invalid completion");
+    }
     UnRef();
     return 0;
 }
@@ -2809,7 +2806,7 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
 }
 
 void
-SetProperties::Request(std::ostream &os)
+SetProperties::Request(ostream &os)
 {
     string content;
     properties.getList(content, "");

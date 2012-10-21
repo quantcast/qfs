@@ -37,6 +37,7 @@
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
+#include "kfsio/IOBufferWriter.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
 #include "qcdio/QCUtils.h"
@@ -694,60 +695,6 @@ GetReadDirTmpVec()
     sReaddirRes.reserve(1024);
     return sReaddirRes;
 }
-
-class IOBufferWriter
-{
-public:
-    IOBufferWriter(IOBuffer& b)
-        : ioBuf(b),
-          buf(),
-          cur(buf.Producer()),
-          end(cur + buf.SpaceAvailable())
-        {}
-    void Write(const char* data, size_t len)
-    {
-        for (; ;) {
-            if (cur + len <= end) {
-                memcpy(cur, data, len);
-                cur += len;
-                return;
-            }
-            const size_t ncp = end - cur;
-            memcpy(cur, data, ncp);
-            data += ncp;
-            len  -= ncp;
-            buf.Fill((int)(cur - buf.Producer() + ncp));
-            ioBuf.Append(buf);
-            buf = IOBufferData();
-            cur = buf.Producer();
-            end = cur + buf.SpaceAvailable();
-        }
-    }
-    void Write(const string& str)
-    {
-        Write(str.data(), str.length());
-    }
-    void Close()
-    {
-        const int len = (int)(cur - buf.Producer());
-        if (len > 0) {
-            buf.Fill(len);
-            ioBuf.Append(buf);
-        }
-    }
-    int GetSize() const
-    {
-        return ioBuf.BytesConsumable();
-    }
-private:
-    IOBuffer&    ioBuf;
-    IOBufferData buf;
-    char*        cur;
-    char*        end;
-private:
-    IOBufferWriter(const IOBufferWriter&);
-    IOBufferWriter& operator=(const IOBufferWriter&);
-};
 
 inline const MetaFattr*
 GetDirAttr(fid_t dir, const vector<MetaDentry*>& v)
@@ -1836,7 +1783,8 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 {
     // if there is a non-zero status, don't throw it away
     if (chunkAlloc.status < 0 && status == 0 && firstFailedServerIdx < 0) {
-        status = status;
+        status    = chunkAlloc.status;
+        statusMsg = chunkAlloc.statusMsg;
         // In the case of version change failure take the first failed
         // server out, otherwise allocation might never succeed.
         if (initialChunkVersion >= 0 && servers.size() > 1) {
@@ -2254,6 +2202,19 @@ MetaChunkAvailable::handle()
 {
     if (server) {
         gLayoutManager.ChunkAvailable(this);
+    } else {
+        // This is likely coming from the ClientSM.
+        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
+        KFS_LOG_EOM;
+        status = -EINVAL;
+    }
+}
+
+/* virtual */ void
+MetaChunkDirInfo::handle()
+{
+    if (server) {
+        server->SetChunkDirInfo(dirName, props);
     } else {
         // This is likely coming from the ClientSM.
         KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
@@ -2746,6 +2707,16 @@ MetaGetChunkServersCounters::handle()
     }
     status = 0;
     gLayoutManager.GetChunkServerCounters(resp);
+}
+
+/* virtual */ void
+MetaGetChunkServerDirsCounters::handle()
+{
+    if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    status = 0;
+    gLayoutManager.GetChunkServerDirCounters(resp);
 }
 
 /* virtual */ void
@@ -3294,6 +3265,12 @@ MetaGetChunkServersCounters::log(ostream & /* file */) const
     return 0;
 }
 
+int
+MetaGetChunkServerDirsCounters::log(ostream & /* file */) const
+{
+    return 0;
+}
+
 /*!
  * \brief for an open files request, there is nothing to log
  */
@@ -3394,32 +3371,6 @@ MetaChown::log(ostream& file) const
     return file.fail() ? -EIO : 0;
 }
 
-bool
-MetaSetChunkServersProperties::ValidateRequestHeader(
-    const char* name,
-    size_t      nameLen,
-    const char* header,
-    size_t      headerLen,
-    bool        hasChecksum,
-    uint32_t    checksum)
-{
-    if (! MetaRequest::ValidateRequestHeader(
-            name,
-            nameLen,
-            header,
-            headerLen,
-            hasChecksum,
-            checksum)) {
-        return false;
-    }
-    BufferInputStream is(header, headerLen);
-    const char        separator = ':';
-    Properties        prop;
-    prop.loadProperties(is, separator, false);
-    prop.copyWithPrefix("chunkServer.", properties);
-    return true;
-}
-
 /*!
  * \brief Various parse handlers.  All of them follow the same model:
  * If parse is successful, returns a dynamically
@@ -3503,6 +3454,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaChunkCorrupt         >("CORRUPT_CHUNK")
     .MakeParser<MetaChunkEvacuate        >("EVACUATE_CHUNK")
     .MakeParser<MetaChunkAvailable       >("AVAILABLE_CHUNK")
+    .MakeParser<MetaChunkDirInfo         >("CHUNKDIR_INFO")
 
     // Lease related ops
     .MakeParser<MetaLeaseAcquire         >("LEASE_ACQUIRE")
@@ -3522,6 +3474,8 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaOpenFiles            >("OPEN_FILES")
     .MakeParser<
       MetaGetChunkServersCounters        >("GET_CHUNK_SERVERS_COUNTERS")
+    .MakeParser<
+      MetaGetChunkServerDirsCounters     >("GET_CHUNK_SERVER_DIRS_COUNTERS")
     .MakeParser<
       MetaSetChunkServersProperties      >("SET_CHUNK_SERVERS_PROPERTIES")
     .MakeParser<MetaGetRequestCounters   >("GET_REQUEST_COUNTERS")
@@ -3849,14 +3803,23 @@ MetaChunkCorrupt::response(ostream &os)
 }
 
 void
-MetaChunkEvacuate::response(ostream &os)
+MetaChunkEvacuate::response(ostream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaChunkAvailable::response(ostream &os)
+MetaChunkAvailable::response(ostream& os)
 {
+    PutHeader(this, os) << "\r\n";
+}
+
+void
+MetaChunkDirInfo::response(ostream& os)
+{
+    if (noReplyFlag) {
+        return;
+    }
     PutHeader(this, os) << "\r\n";
 }
 
@@ -3979,6 +3942,17 @@ MetaSetChunkServersProperties::response(ostream &os)
 
 void
 MetaGetChunkServersCounters::response(ostream &os, IOBuffer& buf)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    os << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os.flush();
+    buf.Move(&resp);
+}
+
+void
+MetaGetChunkServerDirsCounters::response(ostream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;

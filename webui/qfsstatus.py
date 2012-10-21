@@ -46,10 +46,12 @@ autoRefresh = 60
 displayPorts = False
 
 kServerName="XMeta-server-location" #todo - put it to config file
+kChunkDirName="Chunk-server-dir"
 kChunks=1
 kMeta=2
 kChart=3
 kBrowse=4
+kChunkDirs=5
 
 class ServerLocation:
     def __init__(self, **kwds):
@@ -161,7 +163,9 @@ class Status:
       <div id="mainContent">
         <h1> QFS Status ''', displayName, '''</h1>
         <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;%s
+            <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/chunkdir-it">Chunk Directories Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            %s
         </P>
         <div class="info-table">
         <table cellspacing="0" cellpadding="0.1em">
@@ -1087,6 +1091,7 @@ class ChunkHandler:
     def __init__(self):
         self.chunkDataManager = None
         self.countersDataManager = None
+        self.chunkDirDataManager = None
         self.thread = None
 
         self.interval = 5
@@ -1097,8 +1102,10 @@ class ChunkHandler:
             theType =  kMeta
         elif inputBody.find("GETCHART") != -1:
             theType =  kChart
+        elif inputBody.find("GETDIRCOUNTERS") != -1:
+            theType = kChunkDirs
         else:
-            theType =  kChunks
+            theType = kChunks
 
 #        refresh=60&delta=60&&dividedelta=dividedelta
         self.setDeltaValues(inputBody, theType)
@@ -1113,28 +1120,36 @@ class ChunkHandler:
         # data MUMU=header1&MUMU=header22&MUMU=header3
 
         if theType != kMeta:
-            self.setChunkSelectedHeaders(newHeaders)
+            if theType == kChunkDirs:
+                self.setChunkDirsSelectedHeaders(newHeaders)
+            else:
+                self.setChunkSelectedHeaders(newHeaders)
         else:
             self.setCountersSelectedHeaders(newHeaders)
         return theType
 
 
-    def setIntervalData(self, refreshInterval,predefinedHeaders, monthly, dayly, hourly, current):
+    def setIntervalData(self, refreshInterval, predefinedHeaders, predefinedChunkDirHeaders, monthly, dayly, hourly, current):
         self.interval = refreshInterval
         headers = []
         if predefinedHeaders != "":
             headers = predefinedHeaders.split('&')
+        dirHeaders = []
+        if predefinedChunkDirHeaders != "":
+            dirHeaders = predefinedChunkDirHeaders.split('&')
         self.chunkDataManager = ChunkDataManager(kServerName, headers, monthly, dayly, hourly, current)
         self.countersDataManager = ChunkDataManager(None, None, monthly, dayly, hourly, current)
+        self.chunkDirDataManager = ChunkDataManager(kChunkDirName, dirHeaders, monthly, dayly, hourly, current)
 
     def startThread(self, serverHost, serverPort):
-        if self.chunkDataManager == None or self.countersDataManager == None:
+        if self.chunkDataManager == None or self.countersDataManager == None or self.chunkDirDataManager == None:
             print "ERROR - need to set the chunk intervals data first"
             return;
         if self.thread != None:
             return;
 
-        self.thread = ChunkThread(serverHost, serverPort, self.interval, self.chunkDataManager, self.countersDataManager)
+        self.thread = ChunkThread(serverHost, serverPort, self.interval,
+            self.chunkDataManager, self.countersDataManager, self.chunkDirDataManager)
         self.thread.start()
 
     def chunksToHTML(self, buffer):
@@ -1147,9 +1162,38 @@ class ChunkHandler:
 
         iRet = 0
         if(deltaList != None):
-            HtmlPrintData(kServerName,deltaList,self.chunkDataManager).printToHTML(buffer)
+            HtmlPrintData(
+                kServerName,
+                deltaList,
+                self.chunkDataManager,
+                "no",
+                "Chunk Servers Status",
+                "servers"
+            ).printToHTML(buffer)
             iRet = 1
         self.chunkDataManager.lock.release()
+        return iRet
+
+    def chunkDirsToHTML(self, buffer):
+
+        if self.chunkDirDataManager == None:
+            return 0
+        self.chunkDirDataManager.lock.acquire()
+#        print "deltaInterval", self.deltaInterval
+        deltaList = self.chunkDirDataManager.getDelta()
+
+        iRet = 0
+        if(deltaList != None):
+            HtmlPrintData(
+                kChunkDirName,
+                deltaList,
+                self.chunkDirDataManager,
+                "GETDIRCOUNTERS",
+                "Chunk Directories Status",
+                "directories"
+            ).printToHTML(buffer)
+            iRet = 1
+        self.chunkDirDataManager.lock.release()
         return iRet
 
     def countersToHTML(self, buffer):
@@ -1220,7 +1264,10 @@ class ChunkHandler:
         if theType ==  kMeta:
             dataManager = self.countersDataManager
         else:
-            dataManager = self.chunkDataManager
+            if theType == kChunkDirs:
+                dataManager = self.chunkDirDataManager
+            else:
+                dataManager = self.chunkDataManager
         if(dataManager == None):
             return
 
@@ -1272,6 +1319,10 @@ class ChunkHandler:
         self.countersDataManager.setSelectedHeaders(headers)
         self.countersDataManager.lock.release()
 
+    def  setChunkDirsSelectedHeaders(self, headers):
+        self.chunkDirDataManager.lock.acquire()
+        self.chunkDirDataManager.setSelectedHeaders(headers)
+        self.chunkDirDataManager.lock.release()
 
 class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
@@ -1321,6 +1372,11 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                 return
         elif  theType == kChunks:
             if gChunkHandler.chunksToHTML(txtStream) == 0:
+                print "NOT working!"
+                self.send_error(404, 'Not data')
+                return
+        elif  theType == kChunkDirs:
+            if gChunkHandler.chunkDirsToHTML(txtStream) == 0:
                 print "NOT working!"
                 self.send_error(404, 'Not data')
                 return
@@ -1383,6 +1439,9 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                 if self.path == '':
                     self.path = '/'
                 reqType = kBrowse
+            elif self.path.startswith('/chunkdir-it') :
+                self.path = '/'
+                reqType = kChunkDirs
 
             if reqType == kChunks:
                 if gChunkHandler.chunksToHTML(txtStream) == 0:
@@ -1390,6 +1449,10 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     return
             elif reqType == kMeta:
                 if gChunkHandler.countersToHTML(txtStream) == 0:
+                    self.send_error(404, 'Not found')
+                    return
+            elif reqType == kChunkDirs:
+                if gChunkHandler.chunkDirsToHTML(txtStream) == 0:
                     self.send_error(404, 'Not found')
                     return
             elif reqType == kBrowse and gQfsBrowser.browsable:
@@ -1432,12 +1495,17 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 def parseChunkConfig(config):
     refreshInterval = 10
     predefinedHeaders = ""
+    predefinedChunkDirHeaders = ""
     try:
         refreshInterval = config.get('chunk', 'refreshInterval')
     except:
         pass
     try:
         predefinedHeaders = config.get('chunk', 'predefinedHeaders')
+    except:
+        pass
+    try:
+        predefinedChunkDirHeaders = config.get('chunk', 'predefinedChunkDirHeaders')
     except:
         pass
 
@@ -1492,7 +1560,8 @@ def parseChunkConfig(config):
     monthly = ChunkArrayData(timespan,theSize)
 
 
-    gChunkHandler.setIntervalData(int(refreshInterval),predefinedHeaders, monthly, dayly, hourly, current)
+    gChunkHandler.setIntervalData(int(refreshInterval),
+        predefinedHeaders, predefinedChunkDirHeaders, monthly, dayly, hourly, current)
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     pass

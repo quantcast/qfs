@@ -45,6 +45,8 @@
 #include "common/DynamicArray.h"
 #include "qcdio/QCDLList.h"
 
+#include <string.h>
+
 #include <sstream>
 #include <vector>
 #include <map>
@@ -132,7 +134,9 @@ using std::oct;
     f(CHUNK_EVACUATE) \
     f(CHMOD) \
     f(CHOWN) \
-    f(CHUNK_AVAILABLE)
+    f(CHUNK_AVAILABLE) \
+    f(CHUNKDIR_INFO) \
+    f(GET_CHUNK_SERVER_DIRS_COUNTERS)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -218,6 +222,10 @@ struct MetaRequest {
             (! sRequireHeaderChecksumFlag || ! mutation)
         );
     }
+    bool HandleUnknownField(
+        const char* /* key */, size_t /* keyLen */,
+        const char* /* val */, size_t /* valLen */)
+        { return true; }
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
@@ -2181,15 +2189,20 @@ struct MetaSetChunkServersProperties : public MetaRequest {
         properties.getList(ret, "", ";");
         return ret;
     }
-    // RequestParser::Parse creates object of this type, overload is
-    // sufficient, i.e. ValidateRequestHeader does not have to be "virtual".
-    bool ValidateRequestHeader(
-        const char* name,
-        size_t      nameLen,
-        const char* header,
-        size_t      headerLen,
-        bool        hasChecksum,
-        uint32_t    checksum);
+    bool HandleUnknownField(
+        const char* key, size_t keyLen,
+        const char* val, size_t valLen)
+    {
+        const size_t      kPrefLen = 12;
+        const char* const kPref    = "chunkServer.";
+        if (keyLen >= kPrefLen || memcmp(kPref, key, kPrefLen) == 0) {
+            properties.setValue(
+                Properties::String(key, keyLen),
+                Properties::String(val, valLen)
+            );
+        }
+        return true;
+    }
     bool Validate()
     {
         return true;
@@ -2204,6 +2217,34 @@ struct MetaSetChunkServersProperties : public MetaRequest {
 struct MetaGetChunkServersCounters : public MetaRequest {
     MetaGetChunkServersCounters()
         : MetaRequest(META_GET_CHUNK_SERVERS_COUNTERS, false),
+          resp()
+    {
+        // Suppress warning with requests with no version filed.
+        clientProtoVers = KFS_CLIENT_PROTO_VERS;
+    }
+    virtual void handle();
+    virtual int log(ostream &file) const;
+    virtual void response(ostream &os, IOBuffer& buf);
+    virtual string Show() const
+    {
+        return string("get chunk servers counters ");
+    }
+    bool Validate()
+    {
+        return true;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        ;
+    }
+private:
+    IOBuffer resp;
+};
+
+struct MetaGetChunkServerDirsCounters : public MetaRequest {
+    MetaGetChunkServerDirsCounters()
+        : MetaRequest(META_GET_CHUNK_SERVER_DIRS_COUNTERS, false),
           resp()
     {
         // Suppress warning with requests with no version filed.
@@ -2421,7 +2462,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     }
 };
 
-struct MetaChunkAvailable: public MetaRequest {
+struct MetaChunkAvailable : public MetaRequest {
     StringBufT<16 * 64 * 2> chunkIdAndVers; //!< input
     ChunkServerPtr          server;
     MetaChunkAvailable(seq_t s = -1)
@@ -2434,7 +2475,7 @@ struct MetaChunkAvailable: public MetaRequest {
     {
         return 0;
     }
-    virtual void response(ostream &os);
+    virtual void response(ostream& os);
     virtual string Show() const
     {
         return ("chunk available: " + chunkIdAndVers.GetStr());
@@ -2448,6 +2489,63 @@ struct MetaChunkAvailable: public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def("Chunk-ids-vers", &MetaChunkAvailable::chunkIdAndVers)
+        ;
+    }
+};
+
+struct MetaChunkDirInfo : public MetaRequest {
+    typedef StringBufT<256> DirName;
+
+    ChunkServerPtr server;
+    bool           noReplyFlag;
+    DirName        dirName;
+    StringBufT<32> kfsVersion;
+    Properties     props;
+
+    MetaChunkDirInfo(seq_t s = -1)
+        : MetaRequest(META_CHUNKDIR_INFO, false, s),
+          server(),
+          noReplyFlag(false),
+          dirName(),
+          kfsVersion(),
+          props()
+        {}
+    virtual void handle();
+    virtual int log(ostream &file) const
+    {
+        return 0;
+    }
+    virtual void response(ostream& os);
+    virtual string Show() const
+    {
+        return ("chunk dir info");
+    }
+    virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
+    bool Validate()
+    {
+        return true;
+    }
+    // RequestParser::Parse creates object of this type, overload / hiding the
+    // parent's method is sufficient, i.e. HandleUnknownField does not have to
+    // be "virtual".
+    bool HandleUnknownField(
+        const char* key, size_t keyLen,
+        const char* val, size_t valLen)
+    {
+        props.setValue(
+            Properties::String(key, keyLen),
+            Properties::String(val, valLen)
+        );
+        return true;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        // Make sure that all "unwanted" fields that aren't counters are added
+        // to the parser.
+        return MetaRequest::ParserDef(parser)
+        .Def("No-reply", &MetaChunkDirInfo::noReplyFlag)
+        .Def("Dir-name", &MetaChunkDirInfo::dirName)
+        .Def("Version",  &MetaChunkDirInfo::kfsVersion)
         ;
     }
 };

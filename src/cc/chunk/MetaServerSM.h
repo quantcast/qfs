@@ -206,6 +206,7 @@ private:
     time_t             mConnectedTime;
     bool               mReconnectFlag;
     Counters           mCounters;
+    IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
 
     /// Connect to the meta server

@@ -181,14 +181,14 @@ public:
     /// @param[in] chunkId  the chunk id for which we want info
     /// @param[out] cih  the resulting pointer from mChunkTable[chunkId]
     /// @retval  0 on success; -EBADF if we can't find mChunkTable[chunkId]
-    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih);
+    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih) const;
 
     /// Given a byte range, return the checksums for that range.
     vector<uint32_t> GetChecksums(kfsChunkId_t chunkId, int64_t offset, size_t numBytes);
 
     /// For telemetry purposes, provide the driveName where the chunk
     /// is stored and pass that back to the client. 
-    void GetDriveName(ReadOp *op);
+    string GetDirName(chunkId_t chunkId) const;
 
     /// Schedule a read on a chunk.
     /// @param[in] op  The read operation being scheduled.
@@ -687,6 +687,8 @@ private:
     int    mChunkDirsCheckIntervalSecs;
     time_t mNextGetFsSpaceAvailableTime;
     int    mGetFsSpaceAvailableIntervalSecs;
+    time_t mNextSendChunDirInfoTime;
+    int    mSendChunDirInfoIntervalSecs;
 
     // Cleanup fds on which no I/O has been done for the past N secs
     int    mInactiveFdsCleanupIntervalSecs;
@@ -795,6 +797,7 @@ private:
     bool IsChunkStable(const ChunkInfoHandle* cih) const;
     void RunStaleChunksQueue(bool completionFlag = false);
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
+    void SendChunkDirInfo();
 private:
     // No copy.
     ChunkManager(const ChunkManager&);

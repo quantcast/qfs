@@ -269,7 +269,7 @@ public:
         {}
     char* GetPtr()
         { return reinterpret_cast<char*>(mBuf); }
-    int GetSize() const
+    static int GetSize()
         { return kChunkHeaderBufferSize; }
 private:
     enum

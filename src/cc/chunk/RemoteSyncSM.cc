@@ -84,6 +84,7 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mReplyNumBytes(0),
       mRecursionCount(0),
       mLastRecvTime(0),
+      mIStream(),
       mWOStream()
 {
 }
@@ -310,11 +311,9 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
             }
         }
         Properties prop;
-        {
-            const char separator(':');
-            IOBuffer::IStream is(*iobuf, msgLen);
-            prop.loadProperties(is, separator, false);
-        }
+        const char separator(':');
+        prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
+        mIStream.Reset();
         iobuf->Consume(msgLen);
         mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t) -1);
         if (mReplySeqNum < 0) {

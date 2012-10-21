@@ -34,6 +34,7 @@
 
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/IOBufferWriter.h"
 #include "qcdio/QCIoBufferPool.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
@@ -1225,8 +1226,10 @@ LayoutManager::LayoutManager() :
     mCleanupScheduledFlag(false),
     mCSCountersUpdateInterval(2),
     mCSCountersUpdateTime(0),
-    mCSCounters(),
     mCSCountersResponse(),
+    mCSDirCountersUpdateInterval(10),
+    mCSDirCountersUpdateTime(0),
+    mCSDirCountersResponse(),
     mPingUpdateInterval(2),
     mPingUpdateTime(0),
     mPingResponse(),
@@ -1507,6 +1510,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
 
     mCSCountersUpdateInterval = props.getValue(
         "metaServer.CSCountersUpdateInterval",
+        mCSCountersUpdateInterval);
+    mCSDirCountersUpdateInterval = props.getValue(
+        "metaServer.CSDirCountersUpdateInterval",
         mCSCountersUpdateInterval);
     mPingUpdateInterval = props.getValue(
         "metaServer.pingUpdateInterval",
@@ -1928,6 +1934,7 @@ LayoutManager::Shutdown()
 {
     // Return io buffers back into the pool.
     mCSCountersResponse.Clear();
+    mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
 }
 
@@ -1939,169 +1946,333 @@ LayoutManager::ClearStringStream()
     return mStringStream;
 }
 
-inline const string&
-LayoutManager::BoolToString(bool flag)
-{
-    static const string falseStr("0");
-    static const string trueStr ("1");
-    return (flag ? trueStr : falseStr);
-}
-
-inline LayoutManager::CSCounters::mapped_type&
-LayoutManager::CSCountersMakeRow(
-    const string& name, size_t width, CSCounters::iterator& it)
-{
-    if (it == mCSCounters.end() ||
-            ++it == mCSCounters.end() ||
-            it->first != name) {
-        it = mCSCounters.insert(
-            make_pair(name, CSCounters::mapped_type())).first;
-    }
-    it->second.resize(width);
-    return it->second;
-}
-
+template<
+    typename Writer,
+    typename Iterator,
+    typename GetCounters,
+    typename WriteHeader,
+    typename WriteExtra
+>
 void
-LayoutManager::UpdateChunkServerCounters()
+WriteCounters(
+    Writer&        writer,
+    Iterator       first,
+    Iterator       last,
+    GetCounters&   getCounters,
+    WriteHeader&   writeHeader,
+    WriteExtra&    writeExtra)
 {
-    static const string locationStr        ("XMeta-location");
-    static const string retiringStr        ("XMeta-retiring");
-    static const string restartingStr      ("XMeta-restarting");
-    static const string responsiveStr      ("XMeta-responsive");
-    static const string spaceAvailStr      ("XMeta-space-avail");
-    static const string heartbeatTimeStr   ("XMeta-heartbeat-time");
-    static const string replicationReadStr ("XMeta-replication-read");
-    static const string replicationWriteStr("XMeta-replication-write");
-    static const string rackIdStr          ("XMeta-rack");
-    static const string rackWeightStr      ("XMeta-rack-placement-weight");
-    static const string loadAvgStr         ("XMeta-load-avg");
-    static const string toEvacuateCntStr   ("XMeta-to-evacuate-cnt");
+    static const Properties::String kColumnDelim(",");
+    static const Properties::String kRowDelim("\n");
+    static const Properties::String kCseq("Cseq");
 
-    const size_t srvCount = mChunkServers.size();
-    CSCounters::iterator csi = mCSCounters.end();
-    CSCounters::mapped_type& location         =
-        CSCountersMakeRow(locationStr,         srvCount, csi);
-    CSCounters::mapped_type& retiring         =
-        CSCountersMakeRow(retiringStr,         srvCount, csi);
-    CSCounters::mapped_type& restarting       =
-        CSCountersMakeRow(restartingStr,       srvCount, csi);
-    CSCounters::mapped_type& responsive       =
-        CSCountersMakeRow(responsiveStr,       srvCount, csi);
-    CSCounters::mapped_type& spaceAvail       =
-        CSCountersMakeRow(spaceAvailStr,       srvCount, csi);
-    CSCounters::mapped_type& heartbeatTime    =
-        CSCountersMakeRow(heartbeatTimeStr,    srvCount, csi);
-    CSCounters::mapped_type& replicationRead  =
-        CSCountersMakeRow(replicationReadStr,  srvCount, csi);
-    CSCounters::mapped_type& replicationWrite =
-        CSCountersMakeRow(replicationWriteStr, srvCount, csi);
-    CSCounters::mapped_type& rackId           =
-        CSCountersMakeRow(rackIdStr,           srvCount, csi);
-    CSCounters::mapped_type& rackWeight       =
-        CSCountersMakeRow(rackWeightStr,       srvCount, csi);
-    CSCounters::mapped_type& loadAvg          =
-        CSCountersMakeRow(loadAvgStr,          srvCount, csi);
-    CSCounters::mapped_type& toEvacuateCnt    =
-        CSCountersMakeRow(toEvacuateCntStr,    srvCount, csi);
-    const time_t now = TimeNow();
-    int i = 0;
-    for (Servers::const_iterator it = mChunkServers.begin();
-            it != mChunkServers.end();
-            ++it) {
-        const Properties& props = (*it)->HeartBeatProperties();
-        csi = mCSCounters.end();
-        for (Properties::iterator pi = props.begin();
-                pi != props.end();
-                ++pi) {
-            if (pi->first == "Cseq") {
-                continue;
-            }
-            CSCountersMakeRow(pi->first, srvCount, csi)[i] = pi->second;
+    if (first == last) {
+        return;
+    }
+    Properties columns;
+    bool firstFlag = true;
+    for (int pass = 0; pass < 2; ++pass) {
+        if (! firstFlag) {
+            writeHeader(writer, columns, kColumnDelim);
+            writer.Write(kRowDelim);
         }
-        ClearStringStream() <<
-            (*it)->GetServerLocation().hostname << ":" <<
-            (*it)->GetServerLocation().port;
-        location[i] = mStringStream.str();
-        retiring[i] = BoolToString((*it)->IsRetiring());
-        restarting[i] = BoolToString((*it)->IsRestartScheduled());
-        responsive[i] = BoolToString((*it)->IsResponsiveServer());
-        ClearStringStream() << (*it)->GetAvailSpace();
-        spaceAvail[i] = mStringStream.str();
-        ClearStringStream() << (now - (*it)->TimeSinceLastHeartbeat());
-        heartbeatTime[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetReplicationReadLoad();
-        replicationRead[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetNumChunkReplications();
-        replicationWrite[i] = mStringStream.str();
-        const RackId rid = (*it)->GetRack();
-        ClearStringStream() << rid;
-        rackId[i] = mStringStream.str();
-        RackInfos::iterator const rackIter = rid >= 0 ? find_if(
+        bool writeFlag = true;
+        for (Iterator it = first; it != last; ++it) {
+            typename GetCounters::iterator ctrFirst;
+            typename GetCounters::iterator ctrLast;
+            getCounters(*it, ctrFirst, ctrLast);
+            if (firstFlag && ctrFirst != ctrLast) {
+                firstFlag = false;
+                columns = getCounters(ctrFirst);
+                columns.remove(kCseq);
+                writeHeader(writer, columns, kColumnDelim);
+                writer.Write(kRowDelim);
+            }
+            for ( ; ctrFirst != ctrLast; ++ctrFirst) {
+                const Properties&    props = getCounters(ctrFirst);
+                Properties::iterator ci    = columns.begin();
+                for (Properties::iterator pi = props.begin();
+                        pi != props.end();
+                        ++pi) {
+                    if (pi->first == kCseq) {
+                        continue;
+                    }
+                    while (ci != columns.end() && ci->first < pi->first) {
+                        if (writeFlag) {
+                            writer.Write(kColumnDelim);
+                        }
+                        ++ci;
+                    }
+                    if (ci == columns.end() || ci->first != pi->first) {
+                        assert(pass < 1);
+                        columns.setValue(pi->first, Properties::String());
+                        writeFlag = false;
+                        continue;
+                    }
+                    if (writeFlag) {
+                        writer.Write(pi->second);
+                        writer.Write(kColumnDelim);
+                    }
+                    ++ci;
+                }
+                if (writeFlag) {
+                    writeExtra(writer, *it, ctrFirst, kColumnDelim);
+                    writer.Write(kRowDelim);
+                }
+            }
+        }
+        if (writeFlag) {
+            break;
+        }
+        writer.Clear();
+    }
+}
+
+struct CtrWriteExtra
+{
+protected:
+    CtrWriteExtra()
+        : mBufEnd(mBuf + kBufSize)
+        {}
+    const Properties::String& BoolToString(bool flag) const
+    {
+        return (flag ? kTrueStr : kFalseStr);
+    }
+    void Write(IOBufferWriter& writer, int64_t val)
+    {
+        const char* const b = toString(val, mBufEnd);
+        writer.Write(b, mBufEnd - b - 1);
+    }
+
+    enum { kBufSize = 32 };
+
+    char        mBuf[kBufSize];
+    char* const mBufEnd;
+
+    static const Properties::String kFalseStr;
+    static const Properties::String kTrueStr;
+};
+
+const Properties::String CtrWriteExtra::kFalseStr("0");
+const Properties::String CtrWriteExtra::kTrueStr ("1");
+
+struct GetHeartbeatCounters
+{
+    typedef const Properties* iterator;
+
+    void operator()(
+        const ChunkServerPtr& srv,
+        iterator&             first,
+        iterator&             last) const
+    {
+        first = &(srv->HeartBeatProperties());
+        last  = first + 1;
+    }
+    const Properties& operator()(const iterator& it)
+        { return *it; }
+};
+
+const Properties::String kCSExtraHeaders[] = {
+    "XMeta-location",
+    "XMeta-retiring",
+    "XMeta-restarting",
+    "XMeta-responsive",
+    "XMeta-space-avail",
+    "XMeta-heartbeat-time",
+    "XMeta-replication-read",
+    "XMeta-replication-write",
+    "XMeta-rack",
+    "XMeta-rack-placement-weight",
+    "XMeta-load-avg",
+    "XMeta-to-evacuate-cnt"
+};
+
+struct CSWriteExtra : public CtrWriteExtra
+{
+    typedef LayoutManager::RackInfos RackInfos;
+
+    CSWriteExtra(const RackInfos& ri)
+        : CtrWriteExtra(),
+          mRacks(ri),
+          mNow(TimeNow())
+        {}
+    void operator()(
+        IOBufferWriter&                       writer,
+        const ChunkServerPtr&                 cs,
+        const GetHeartbeatCounters::iterator& /* it */,
+        const Properties::String&             columnDelim)
+    {
+        const ChunkServer& srv = *cs;
+        writer.Write(srv.GetHostPortStr());
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsRetiring()));
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsRestartScheduled()));
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsResponsiveServer()));
+        writer.Write(columnDelim);
+        Write(writer, srv.GetAvailSpace());
+        writer.Write(columnDelim);
+        Write(writer, mNow - srv.TimeSinceLastHeartbeat());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetReplicationReadLoad());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetNumChunkReplications());
+        writer.Write(columnDelim);
+        const RackInfo::RackId rid = srv.GetRack();
+        Write(writer, rid);
+        writer.Write(columnDelim);
+        RackInfos::const_iterator const rackIter = rid >= 0 ? find_if(
             mRacks.begin(), mRacks.end(),
             bind(&RackInfo::id, _1) == rid
         ) : mRacks.end();
-        ClearStringStream() << (rackIter != mRacks.end() ?
-            rackIter->getWeightedPossibleCandidatesCount() : -1);
-        rackWeight[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetLoadAvg();
-        loadAvg[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetChunksToEvacuateCount();
-        toEvacuateCnt[i] = mStringStream.str();
-        i++;
+        Write(writer, rackIter != mRacks.end() ?
+            rackIter->getWeightedPossibleCandidatesCount() : int64_t(-1));
+        writer.Write(columnDelim);
+        Write(writer, srv.GetLoadAvg());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetChunksToEvacuateCount());
     }
-    ClearStringStream();
-}
+private:
+    const RackInfos& mRacks;
+    const time_t     mNow;
+};
+
+struct GetChunkDirCounters
+{
+    typedef ChunkServer::ChunkDirInfos::const_iterator iterator;
+
+    void operator()(
+        const ChunkServerPtr& srv,
+        iterator&             first,
+        iterator&             last) const
+    {
+        const ChunkServer::ChunkDirInfos& infos = srv->GetChunkDirInfos();
+        first = infos.begin();
+        last  = infos.end();
+    }
+    const Properties& operator()(const iterator& it) const
+        { return it->second.first; }
+};
+
+const Properties::String kCSDirExtraHeaders[] = {
+    "Chunk-server",
+    "Chunk-dir",
+    "Chunk-server-dir" // row id for the web ui samples collector
+};
+
+struct CSDirWriteExtra : public CtrWriteExtra
+{
+    void operator()(
+        IOBufferWriter&                      writer,
+        const ChunkServerPtr&                cs,
+        const GetChunkDirCounters::iterator& it,
+        const Properties::String&            columnDelim)
+    {
+        const ChunkServer& srv = *cs;
+        writer.Write(srv.GetHostPortStr());
+        writer.Write(columnDelim);
+        writer.Write(it->second.second);
+        writer.Write(columnDelim);
+        writer.Write(srv.GetHostPortStr());
+        writer.Write("/", 1);
+        writer.Write(it->second.second);
+    }
+};
+
+struct CSWriteHeader
+{
+    CSWriteHeader(
+        const Properties::String* first,
+        const Properties::String* last)
+        : mExtraFirst(first),
+          mExtraLast(last)
+        {}
+    void operator()(
+        IOBufferWriter&           writer,
+        const Properties&         columns,
+        const Properties::String& columnDelim)
+    {
+        bool nextFlag = false;
+        for (Properties::iterator it = columns.begin();
+                it != columns.end();
+                ++it) {
+            if (nextFlag) {
+                writer.Write(columnDelim);
+            }
+            writer.Write(it->first);
+            nextFlag = true;
+        }
+        for (const Properties::String* it = mExtraFirst;
+                it != mExtraLast;
+                ++it) {
+            if (nextFlag) {
+                writer.Write(columnDelim);
+            }
+            writer.Write(*it);
+            nextFlag = true;
+        }
+    }
+private:
+    const Properties::String* const mExtraFirst; 
+    const Properties::String* const mExtraLast; 
+};
 
 void
 LayoutManager::GetChunkServerCounters(IOBuffer& buf)
 {
     if (! mCSCountersResponse.IsEmpty() &&
-            TimeNow() < mCSCountersUpdateTime +
-                mCSCountersUpdateInterval) {
+            TimeNow() < mCSCountersUpdateTime + mCSCountersUpdateInterval) {
         buf.Copy(&mCSCountersResponse,
             mCSCountersResponse.BytesConsumable());
         return;
     }
     mCSCountersResponse.Clear();
-    UpdateChunkServerCounters();
-    if (mCSCounters.empty() || mCSCounters.begin()->second.empty()) {
-        return;
-    }
-    static const string columnDelim(",");
-    static const string rowDelim("\n");
-    bool   next = false;
-    size_t size = mCSCounters.begin()->second.size();
-    for (CSCounters::const_iterator it = mCSCounters.begin();
-            it != mCSCounters.end();
-            ++it) {
-        if (next) {
-            mCSCountersResponse.CopyIn(
-                columnDelim.data(), columnDelim.size());
-        }
-        next = true;
-        mCSCountersResponse.CopyIn(it->first.data(), it->first.size());
-        size = min(size, it->second.size());
-    }
-    if (size > 0) {
-        mCSCountersResponse.CopyIn(rowDelim.data(), rowDelim.size());
-    }
-    for (size_t i = 0; i < size; i++) {
-        next = false;
-        for (CSCounters::const_iterator it = mCSCounters.begin();
-                it != mCSCounters.end();
-                ++it) {
-            if (next) {
-                mCSCountersResponse.CopyIn(
-                    columnDelim.data(), columnDelim.size());
-            }
-            next = true;
-            const string& str = it->second[i];
-            mCSCountersResponse.CopyIn(str.data(), str.length());
-        }
-        mCSCountersResponse.CopyIn(rowDelim.data(), rowDelim.size());
-    }
+    IOBufferWriter       writer(mCSCountersResponse);
+    GetHeartbeatCounters getCtrs;
+    CSWriteHeader        writeHeader(kCSExtraHeaders, kCSExtraHeaders +
+        sizeof(kCSExtraHeaders) / sizeof(kCSExtraHeaders[0]));
+    CSWriteExtra         writeExtra(mRacks);
+    WriteCounters(
+        writer,
+        mChunkServers.begin(),
+        mChunkServers.end(),
+        getCtrs,
+        writeHeader,
+        writeExtra
+    );
+    writer.Close();
     mCSCountersUpdateTime = TimeNow();
     buf.Copy(&mCSCountersResponse, mCSCountersResponse.BytesConsumable());
+}
+
+void
+LayoutManager::GetChunkServerDirCounters(IOBuffer& buf)
+{
+    if (! mCSDirCountersResponse.IsEmpty() &&
+            TimeNow() < mCSDirCountersUpdateTime +
+                mCSDirCountersUpdateInterval) {
+        buf.Copy(&mCSDirCountersResponse,
+            mCSDirCountersResponse.BytesConsumable());
+        return;
+    }
+    mCSDirCountersResponse.Clear();
+    IOBufferWriter      writer(mCSDirCountersResponse);
+    GetChunkDirCounters getCtrs;
+    CSWriteHeader       writeHeader(kCSDirExtraHeaders, kCSDirExtraHeaders +
+        sizeof(kCSDirExtraHeaders) / sizeof(kCSDirExtraHeaders[0]));
+    CSDirWriteExtra     writeExtra;
+    WriteCounters(
+        writer,
+        mChunkServers.begin(),
+        mChunkServers.end(),
+        getCtrs,
+        writeHeader,
+        writeExtra
+    );
+    writer.Close();
+    mCSDirCountersUpdateTime = TimeNow();
+    buf.Copy(&mCSDirCountersResponse, mCSDirCountersResponse.BytesConsumable());
 }
 
 //
@@ -5103,8 +5274,8 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
     const char*            p = r->chunkIdAndVers.GetPtr();
     const char*            e = p + r->chunkIdAndVers.GetSize();
     while (p < e) {
-        chunkId_t chunkId;
-        seq_t     chunkVersion;
+        chunkId_t chunkId        = -1;
+        seq_t     chunkVersion   = -1;
         bool      gotVersionFlag = true;
         if (! HexIntParser::Parse(p, e - p, chunkId) ||
                 ! (gotVersionFlag =
