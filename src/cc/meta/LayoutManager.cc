@@ -4384,13 +4384,13 @@ LayoutManager::AllocateChunk(
     }
     bool noMaster = false;
     if (r->servers.empty() || (noMaster = ! r->servers.front())) {
+        r->statusMsg = noMaster ? "no master" : "no servers";
         int dontLikeCount[2]      = { 0, 0 };
         int outOfSpaceCount[2]    = { 0, 0 };
         int notResponsiveCount[2] = { 0, 0 };
         int retiringCount[2]      = { 0, 0 };
         int restartingCount[2]    = { 0, 0 };
-        for (Servers::const_iterator it =
-                mChunkServers.begin();
+        for (Servers::const_iterator it = mChunkServers.begin();
                 it != mChunkServers.end();
                 ++it) {
             const ChunkServer& cs = **it;
@@ -4413,11 +4413,38 @@ LayoutManager::AllocateChunk(
             if (cs.IsRestartScheduled()) {
                 restartingCount[i]++;
             }
+            KFS_LOG_STREAM_DEBUG <<
+                "allocate: "          << r->statusMsg <<
+                " fid: "              << r->fid <<
+                " offset: "           << r->offset <<
+                " chunkId: "          << r->chunkId <<
+                " append: "           << r->appendChunk <<
+                " server: "           << cs.GetHostPortStr() <<
+                " master: "           << cs.CanBeChunkMaster() <<
+                " wr-drives: "        << cs.GetNumWritableDrives() <<
+                " candidate: "        << cs.GetCanBeCandidateServerFlag() <<
+                " writes: "           << cs.GetNumChunkWrites() <<
+                " max-wr-per-drive: " << mMaxWritesPerDriveThreshold <<
+                " load-avg: "         << cs.GetLoadAvg() <<
+                " max-load: "         << mCSMaxGoodMasterCandidateLoadAvg <<
+                " / "                 << mCSMaxGoodSlaveCandidateLoadAvg <<
+                " space:"
+                " avail: "            << cs.GetAvailSpace() <<
+                " util: "             <<
+                    cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
+                " max util: "         << mMaxSpaceUtilizationThreshold <<
+                " retire: "           << cs.IsRetiring() <<
+                " responsive: "       << cs.IsResponsiveServer() <<
+            KFS_LOG_EOM;
         }
         const size_t numFound = r->servers.size();
         r->servers.clear();
-        KFS_LOG_STREAM_INFO << "allocate chunk no " <<
-            (noMaster ? "master" : "servers") <<
+        KFS_LOG_STREAM_INFO << "allocate: " <<
+            r->statusMsg <<
+            " fid: "        << r->fid <<
+            " offset: "     << r->offset <<
+            " chunkId: "    << r->chunkId <<
+            " append: "     << r->appendChunk <<
             " repl: "       << r->numReplicas <<
                 "/" << replicaCnt <<
             " servers: "    << numFound <<
@@ -4442,7 +4469,6 @@ LayoutManager::AllocateChunk(
                 "/"    << mMastersToRestartCount <<
             " request: "    << r->Show() <<
         KFS_LOG_EOM;
-        r->statusMsg = noMaster ? "no master" : "no servers";
         return -ENOSPC;
     }
     assert(r->servers.size() <= (size_t)r->numReplicas);
