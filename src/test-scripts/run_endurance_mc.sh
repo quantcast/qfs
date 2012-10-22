@@ -2,6 +2,8 @@
 
 # $Id$
 #
+# Author: Mike Ovsiannikov
+#
 # Copyright 2011-2012 Quantcast Corp.
 #
 # This file is part of Kosmos File System (KFS).
@@ -18,9 +20,13 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# script that tests re-replication: we create a file with two servers;
-#startup a third one; we wait a bit and check that the data makes to
-#the third one in reasonable time.
+# Endurance test. Start meta server, web ui, and 9 chunk servers configured
+# with the failure simulation by default (see usage below).
+#
+# The logic below expects that 4 directories
+# /mnt/data{0-5}/<user-name>
+# are available and correspond to 4 physical disks.
+# 
 # 
 
 
@@ -429,6 +435,11 @@ fi
     rm -rf 'devtools'
     cp -a "$bdir/src/cc/devtools" . || exit
     cp  "$ssrcdir/src/cc/fanout/kfanout_test.sh" . || exit
+    if [ x"$csretry" != x -a $csretry -gt 0 ]; then
+        foretry="-y $csretry"
+    else
+        foretry=''
+    fi
     cdirp=`pwd`
     PATH="${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${cdirp}/tests:${PATH}"
     export PATH
@@ -443,7 +454,7 @@ fi
         -partitions 64 \
         -read-retries 1 \
         -test-runs 100000 \
-        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5" \
+        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5 $foretry" \
         > kfanout_test.log 2>&1 &
         echo $! > kfanout_test.pid
 )
@@ -487,7 +498,10 @@ fi
     export quantsort
     webuidir="${cdirp}/webui"
     export webuidir
-
+    if [ x"$csretry" != x -a $csretry -gt 0 ]; then
+        chunksrvretry="$csretry"
+        export chunksrvretry
+    fi
     echo "Starting sortmaster_test.sh"
     trap '' HUP INT
     ./endurance_test.sh > sortmaster_endurance_test.log 2>&1 &
