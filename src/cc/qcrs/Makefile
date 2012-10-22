@@ -55,4 +55,5 @@ clean:
 	rm -f *.o librs.a rs_test
 
 test: rs_test
-	@./rs_test
+	./rs_test 6 16384
+	./rs_test 64 64
