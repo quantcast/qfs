@@ -1101,10 +1101,10 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
     "\nLR:" , "\r\nReplicas:");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kFileCount(
-    "\nFC:" , "\r\nFile-count");
+    "\nFC:" , "\r\nFile-count: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kDirCount(
-    "\nDC:" , "\r\nDir-count");
+    "\nDC:" , "\r\nDir-count: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kSpace(
     " " , " ");
