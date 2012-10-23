@@ -72,7 +72,7 @@ getpids()
 
 fodir='src/cc/fanout'
 smsdir='src/cc/sortmaster'
-if [ x"$sortdir" = x -a \( -d "$smsdir" -o -d "$fodir" \) ]; then
+if [ -z "$sortdir" -a \( -d "$smsdir" -o -d "$fodir" \) ]; then
     sortdir="`dirname "$0"`/../../../sort"
 fi
 if [ -d "$sortdir" ]; then
@@ -81,7 +81,7 @@ else
     sortdir=''
 fi
 
-if [ x"$sortdir" = x ]; then
+if [ -z "$sortdir" ]; then
     smtest=''
     fodir=''
     fosdir=$fodir
@@ -147,7 +147,7 @@ for dir in  \
         "$fosdir" \
         "$fodir" \
         ; do
-    if [ x"${dir}" = x ]; then
+    if [ -z "${dir}" ]; then
         continue;
     fi
     if [ -d "${dir}" ]; then
@@ -286,7 +286,7 @@ if [ $fotest -ne 0 ]; then
     echo "$fopid" > "$fopidf"
 fi
 
-if [ x"$smtest" != x ]; then
+if [ -n "$smtest" ]; then
     smpidf="sortmaster_test${pidsuf}"
     echo "Starting sort master test"
     "$smtest" > sortmaster_test.out 2>&1 &
@@ -294,7 +294,7 @@ if [ x"$smtest" != x ]; then
     echo "$smpid" > "$smpidf"
 fi
 
-if [ x"$accessdir" != x ]; then
+if [ -n "$accessdir" ]; then
     kfsaccesspidf="kfsaccess_test${pidsuf}"
     java \
         -Djava.library.path="$accessdir" \
@@ -322,7 +322,7 @@ else
     fostatus=0
 fi
 
-if [ x"$smtest" != x ]; then
+if [ -n "$smtest" ]; then
     wait $smpid
     smstatus=$?
     rm "$smpidf"
@@ -331,7 +331,7 @@ else
     smstatus=0
 fi
 
-if [ x"$accessdir" = x ]; then
+if [ -z "$accessdir" ]; then
     kfsaccessstatus=0
 else
     wait $kfsaccesspid
@@ -362,7 +362,7 @@ while true; do
     for pid in $pids; do
         if kill -O "$pid" 2>/dev/null; then
             rpids="$pids $pid"
-        elif [ x"$kfstestnoshutdownwait" == x ]; then
+        elif [ -z "$kfstestnoshutdownwait" ]; then
             wait "$pid"
             estatus=$?
             if [ $estatus -ne 0 ]; then
@@ -371,7 +371,7 @@ while true; do
         fi
     done
     pids=$rpids
-    [ x"$pids" = x ] && break
+    [ -z "$pids" ] && break
     i=`expr $i + 1`
     if [ $i -le $nsecwait ]; then
         sleep 1
