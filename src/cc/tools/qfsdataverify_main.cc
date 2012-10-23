@@ -35,6 +35,7 @@
 
 #include <string>
 #include <iostream>
+#include <unistd.h>
 
 using std::cout;
 using std::cerr;

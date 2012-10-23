@@ -35,6 +35,7 @@
 #include <sys/types.h>
 #include <sys/syscall.h>
 #include <sched.h>
+#include <unistd.h>
 #endif
 
 class QCStartedThreadList
