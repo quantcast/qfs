@@ -34,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <iomanip>
+#include <unistd.h>
 
 namespace KFS
 {
