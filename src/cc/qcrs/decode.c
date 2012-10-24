@@ -71,7 +71,7 @@ R(v16 **data, int n, int i)
     return r;
 }
 
-#ifdef LIBRS_USE_SSE2
+#if defined(LIBRS_USE_SSE2) || defined(LIBRS_USE_NONSSSE)
 
 static v16
 mulby(uint8_t x, v16 v)

@@ -39,7 +39,9 @@ static inline v16
 mask(v16 v)
 {
 #if defined(__GNUC__) && defined(__SSE2__) && ! defined(__clang__)
-    /* older versions of gcc have no support for operator > */
+    /* older versions of gcc have no support for operator ">", 
+       and clang has no corresponding built-in.
+    */
     return __builtin_ia32_pcmpgtb128(VEC16(0), v);
 #else
     return VEC16(128) > v;
