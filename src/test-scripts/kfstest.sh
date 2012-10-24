@@ -362,7 +362,7 @@ while true; do
     for pid in $pids; do
         if kill -O "$pid" 2>/dev/null; then
             rpids="$pids $pid"
-        elif [ x"$kfstestnoshutdownwait" == x ]; then
+        elif [ x"$kfstestnoshutdownwait" = x ]; then
             wait "$pid"
             estatus=$?
             if [ $estatus -ne 0 ]; then
