@@ -38,7 +38,12 @@ typedef uint8_t v16 __attribute__ ((vector_size (16)));
 static inline v16
 mask(v16 v)
 {
+#if defined(__GNUC__) && defined(__SSE2__) && ! defined(__clang__)
+    /* older versions of gcc have no support for operator > */
     return __builtin_ia32_pcmpgtb128(VEC16(0), v);
+#else
+    return VEC16(128) > v;
+#endif
 }
 
 static inline v16
@@ -46,7 +51,7 @@ mul2(v16 v)
 {
     v16 vv;
 
-    vv = __builtin_ia32_paddb128(v, v);
+    vv = v + v; /* vv = __builtin_ia32_paddb128(v, v); */
     vv ^= mask(v) & VEC16(0x1d);
     return vv;
 }
