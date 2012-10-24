@@ -31,20 +31,38 @@
 
 #include <stdint.h>
 
+#ifdef LIBRS_USE_NEON
+
+#include <arm_neon.h>
+
+typedef uint8x16_t v16;
+
+static inline v16 VEC16(uint8_t x) { return vdupq_n_u8(x); }
+
+#else
+
 typedef uint8_t v16 __attribute__ ((vector_size (16)));
 
 #define VEC16(x) ((v16){x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x})
 
+#endif
+
 static inline v16
 mask(v16 v)
 {
-#if defined(__GNUC__) && defined(__SSE2__) && ! defined(__clang__)
-    /* older versions of gcc have no support for operator ">", 
-       and clang has no corresponding built-in.
-    */
+#ifdef LIBRS_USE_NEON
+    return (v16)vcltq_s8((int8x16_t)v, vdupq_n_s8(0));
+#elif defined(LIBRS_USE_SSE2) || defined(LIBRS_USE_SSSE3)
     return __builtin_ia32_pcmpgtb128(VEC16(0), v);
-#else
+#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7) || defined(__clang__)
     return VEC16(128) > v;
+#else
+    v16 res;
+    int i;
+
+    for (i = 0; i < 16; ++i)
+        res[i] = v[i] < 128 ? 0 : 0xff;
+    return res;
 #endif
 }
 
@@ -53,7 +71,7 @@ mul2(v16 v)
 {
     v16 vv;
 
-    vv = v + v; /* vv = __builtin_ia32_paddb128(v, v); */
+    vv = v + v;
     vv ^= mask(v) & VEC16(0x1d);
     return vv;
 }
