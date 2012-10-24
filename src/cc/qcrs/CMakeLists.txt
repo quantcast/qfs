@@ -40,12 +40,49 @@ set_target_properties (kfsrs-shared PROPERTIES OUTPUT_NAME "qfs_qcrs")
 set_target_properties (kfsrs PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsrs-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-# If vector mode is not defined, attempt to detect it using /proc/cpuinfo
-if (NOT DEFINED vectormode AND EXISTS /proc/cpuinfo)
-    if (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64 OR CMAKE_SYSTEM_PROCESSOR MATCHES i686)
-        # Check for SSSE3 flag in /proc/cpuinfo on x86-based processors
-        # (Note that SSSE3 is not the same as SSE3, and not all 64-bit processors
-        # have SSSE3, especially non-Intel ones)
+# If vector mode is not defined, attempt to detect it
+if (NOT DEFINED vectormode)
+    message(STATUS "System name: ${CMAKE_SYSTEM_NAME}")
+    message(STATUS "System processor: ${CMAKE_SYSTEM_PROCESSOR}")
+    # OS X uses sysctl instead of /proc/cpuinfo
+    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        execute_process(
+            COMMAND sh -c "sysctl machdep.cpu.features | grep -wi ssse3"
+            OUTPUT_QUIET
+            ERROR_QUIET
+            RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
+        )
+        if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+            set(vectormode ssse3)
+        else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+            execute_process(
+                COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse2"
+                OUTPUT_QUIET
+                ERROR_QUIET
+                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+            )
+            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+                set(vectormode sse2)
+            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
+        endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm)
+        if (EXISTS /proc/cpuinfo)
+            # Check for the NEON feature in /proc/cpuinfo on ARM processors
+            execute_process(
+                COMMAND sh -c "grep -w Features /proc/cpuinfo | grep -w neon"
+                OUTPUT_QUIET
+                ERROR_QUIET
+                RESULT_VARIABLE MY_NEON_SUPPORTED_RET
+            )
+            if (MY_NEON_SUPPORTED_RET EQUAL 0)
+                set(vectormode neon)
+            endif (MY_NEON_SUPPORTED_RET EQUAL 0)
+        endif (EXISTS /proc/cpuinfo)
+    elseif (EXISTS /proc/cpuinfo OR CYGWIN) # EXISTS check fails on Cygwin
+        # Check for SSE2 and SSSE3 in /proc/cpuinfo if it exists, since some
+        # environments like Cygwin report "unknown" for processor
+        # (Note that SSSE3 is not the same as SSE3, and not all 64-bit x86
+        # processors have SSSE3, especially non-Intel ones)
         execute_process(
             COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w ssse3"
             OUTPUT_QUIET
@@ -55,22 +92,23 @@ if (NOT DEFINED vectormode AND EXISTS /proc/cpuinfo)
         if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
             set(vectormode ssse3)
         else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            # Assume that SSE2 is always available on x86
-            set(vectormode sse2)
+            execute_process(
+                COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w sse2"
+                OUTPUT_QUIET
+                ERROR_QUIET
+                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+            )
+            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+                set(vectormode sse2)
+            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
         endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm)
-        # Check for the NEON feature in /proc/cpuinfo on ARM processors
-        execute_process(
-            COMMAND sh -c "grep -w Features /proc/cpuinfo | grep -w neon"
-            OUTPUT_QUIET
-            ERROR_QUIET
-            RESULT_VARIABLE MY_NEON_SUPPORTED_RET
-        )
-        if (MY_NEON_SUPPORTED_RET EQUAL 0)
-            set(vectormode neon)
-        endif (MY_NEON_SUPPORTED_RET EQUAL 0)
+    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64 OR
+        CMAKE_SYSTEM_PROCESSOR MATCHES amd64 OR
+        CMAKE_SYSTEM_PROCESSOR MATCHES i686)
+        # Assume that SSE2 is always available on x86
+        set(vectormode sse2)
     endif ()
-endif (NOT DEFINED vectormode AND EXISTS /proc/cpuinfo)
+endif (NOT DEFINED vectormode)
 
 # Vector intrinsics are only available on GCC
 if (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
