@@ -436,7 +436,7 @@ private:
         void*           inBufPtr,
         int             inSize,
         int64_t         inOffset,
-        bool            outShortReadFlag)
+        bool&           outShortReadFlag)
     {
         QCASSERT(! IsReadAheadInFlight(inEntry));
         outShortReadFlag =
