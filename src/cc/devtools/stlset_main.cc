@@ -77,7 +77,7 @@ int main(int argc, char** argv)
         t += *it;
     }
     e = clock();
-    cout << k << " " << double(clock() - s)/CLOCKS_PER_SEC << " " << t << "\n";
+    cout << k << " " << double(e - s)/CLOCKS_PER_SEC << " " << t << "\n";
     cout << "enter number to exit\n";
     cin >> k;
     return 0;

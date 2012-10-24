@@ -1273,7 +1273,7 @@ IOBuffer::Trim(int numBytes)
             iter = mBuf.erase(iter);
         } else {
             if (nb > nBytes) {
-                nBytes -= iter->Trim(nBytes);
+                iter->Trim(nBytes);
                 if (! iter->IsEmpty()) {
                     ++iter;
                 }

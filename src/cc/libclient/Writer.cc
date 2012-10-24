@@ -1076,7 +1076,7 @@ private:
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mCloseOp == inOpPtr) {
                 Done(mCloseOp, inCanceledFlag, inBufferPtr);
-            } else if (inOpPtr->op == CMD_WRITE) {
+            } else if (inOpPtr && inOpPtr->op == CMD_WRITE) {
                 Done(*static_cast<WriteOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
             } else {

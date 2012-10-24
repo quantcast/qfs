@@ -190,7 +190,7 @@ int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLi
 
         // buf contains info of the form: <cmd>{<args>}
         // where, <cmd> is one of kfs cmds
-        string::size_type curr, next;
+        string::size_type curr;
 
         // get rid of leading spaces
         curr = s.find_first_not_of(" \t");
@@ -201,7 +201,6 @@ int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLi
         } else {
             cmd = s;
         }
-        next = curr;
         // extract out the args
         vector<string> args;
         while (curr != string::npos) {
@@ -209,7 +208,7 @@ int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLi
 
             // curr points to a ' '
             curr++;
-            next = s.find(' ', curr);
+            const string::size_type next = s.find(' ', curr);
             if (next != string::npos)
                 component.assign(s, curr, next - curr);
             else

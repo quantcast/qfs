@@ -9059,7 +9059,6 @@ LayoutManager::ExecuteRebalancePlan(
     candidates.push_back(c);
 
     const ChunkRecoveryInfo recoveryInfo;
-    const chunkId_t*        it      = chunksToMove.Next();
     size_t                  curScan = chunksToMove.Size();
     while (maxScan > 0 && curScan > 0) {
         if (c->GetNumChunkReplications() >=
@@ -9075,7 +9074,8 @@ LayoutManager::ExecuteRebalancePlan(
             }
             nextTimeCheck = maxScan - 32;
         }
-        if (! (it = chunksToMove.Next())) {
+        const chunkId_t* it = chunksToMove.Next();
+        if (! it) {
             const size_t sz = chunksToMove.Size();
             if (sz <= 0) {
                 break;

@@ -113,6 +113,7 @@ dirListPlusAttr(const string &kfspathname)
 
     KFS_LOG_STREAM_INFO <<
         "Done getting replication factor for all entries on " << kfspathname <<
+        " total replicas: " << replicas <<
     KFS_LOG_EOM;
 
     KfsFileAttr attr;
