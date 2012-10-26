@@ -958,6 +958,7 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
         cih->chunkInfo.chunkId, cih, newEntryFlag);
     if (! ci) {
         die("add mapping failure");
+        return 0; // Eliminate lint warning.
     }
     if (! newEntryFlag) {
         return *ci;
