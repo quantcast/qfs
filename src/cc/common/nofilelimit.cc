@@ -44,10 +44,10 @@ SetMaxNoFileLimit()
 
     // bump the soft limit to the hard limit
     if (getrlimit(RLIMIT_NOFILE, &theRlim) == 0) {
-        const int kMaxFdLimit = 1 << 20;
-        int       theErr         = 0;
+        const rlim_t kMaxFdLimit = 1 << 20;
+        int          theErr      = 0;
         if (theRlim.rlim_cur >= kMaxFdLimit) {
-            theMaxOpenFds = kMaxFdLimit;
+            theMaxOpenFds = (int)kMaxFdLimit;
         } else {
             theMaxOpenFds = (int)theRlim.rlim_cur;
             if (theRlim.rlim_max > kMaxFdLimit) {
