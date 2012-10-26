@@ -55,12 +55,12 @@ SetMaxNoFileLimit()
             } else {
                 theRlim.rlim_cur = theRlim.rlim_max;
             }
-            while (theMaxOpenFds < theRlim.rlim_cur &&
+            while (theMaxOpenFds < (int)theRlim.rlim_cur &&
                    setrlimit(RLIMIT_NOFILE, &theRlim) != 0) {
                 theErr = errno;
                 theRlim.rlim_cur /= 2;
             }
-            if (theRlim.rlim_cur > theMaxOpenFds) {
+            if ((int)theRlim.rlim_cur > theMaxOpenFds) {
                 theMaxOpenFds = (int)theRlim.rlim_cur;
             }
             if (theErr) {
