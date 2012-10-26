@@ -35,13 +35,13 @@
 
 namespace KFS
 {
-    
+
 int
 SetMaxNoFileLimit()
 {
     struct rlimit theRlim       = {0};
     int           theMaxOpenFds = 0;
-    
+
     // bump the soft limit to the hard limit
     if (getrlimit(RLIMIT_NOFILE, &theRlim) == 0) {
         const int kMaxFdLimit = 1 << 20;

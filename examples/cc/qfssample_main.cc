@@ -215,7 +215,7 @@ main(int argc, char **argv)
     if (res != 128) {
         if (res < 0) {
             cout << "Read on : " << newFilename << " failed: " << KFS::ErrorCodeToStr(res) << endl;
-            exit(-1);            
+            exit(-1);
         }
     }
 
