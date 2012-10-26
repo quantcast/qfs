@@ -57,8 +57,8 @@ Main components of the QFS server are the 'metaserver' and the 'chunkserver'.
 Metaserver provides the namespace for the filesystem while the chunkservers do
 the storage/retrieval of file blocks in the form of 'chunks'.
 
-Each server uses a configuration file that sets the server's run time
-parameters. The metaserver is configured with the filesystem port, chunkserver
+Each server uses a configuration file that sets the run time parameters of the
+server. The metaserver is configured with the filesystem port, chunkserver
 port, chunk placement groups for replication, the location of transaction
 logs and checkpoints and so on. The chunk server is configured with the port
 of the metaserver, path to copy the chunks and so on.
