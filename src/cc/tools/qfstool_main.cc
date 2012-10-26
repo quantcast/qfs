@@ -548,7 +548,8 @@ private:
             bool        inStopOnErrorFlag = false)
             : mFs(inFs),
               mErrorStream(inErrorStream),
-              mStopOnErrorFlag(inStopOnErrorFlag)
+              mStopOnErrorFlag(inStopOnErrorFlag),
+              mStatus(0)
             {}
         int operator()(
             const string& inPath,

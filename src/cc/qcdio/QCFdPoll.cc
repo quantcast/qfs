@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef QC_OS_NAME_LINUX
 #   include <map>

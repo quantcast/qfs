@@ -51,11 +51,10 @@ compare(int nblocks, int blocksize, void **x, void **y)
 static void
 mkrand(void *buf, int size)
 {
-    char *p, *end;
+    char *p;
     int i;
 
     p = buf;
-    end = p + size;
     for (i = 0; i < size; i++)
         p[i] = rand();
 }

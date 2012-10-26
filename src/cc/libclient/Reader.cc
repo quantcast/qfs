@@ -1339,7 +1339,7 @@ private:
                 Done(mLeaseRelinquishOp, inCanceledFlag, inBufferPtr);
             } else if (&mSizeOp == inOpPtr) {
                 Done(mSizeOp, inCanceledFlag, inBufferPtr);
-            } else if (inOpPtr->op == CMD_READ) {
+            } else if (inOpPtr && inOpPtr->op == CMD_READ) {
                 Done(*static_cast<ReadOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
             } else {

@@ -206,12 +206,18 @@ main(int argc, char **argv)
 
     // Re-open the file
     if ((fd = gKfsClient->Open(newFilename.c_str(), O_RDWR)) < 0) {
-        cout << "Open on : " << newFilename << " failed!" << KFS::ErrorCodeToStr(fd) << endl;
+        cout << "Open on : " << newFilename << " failed: " << KFS::ErrorCodeToStr(fd) << endl;
         exit(-1);
     }
 
     // read some bytes
     res = gKfsClient->Read(fd, copyBuf, 128);
+    if (res != 128) {
+        if (res < 0) {
+            cout << "Read on : " << newFilename << " failed: " << KFS::ErrorCodeToStr(res) << endl;
+            exit(-1);
+        }
+    }
 
     // Verify what we read matches what we wrote
     for (int i = 0; i < 128; i++) {
