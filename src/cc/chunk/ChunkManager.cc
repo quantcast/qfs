@@ -33,6 +33,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
+#include "common/nofilelimit.h"
 
 #include "ChunkManager.h"
 #include "ChunkServer.h"
@@ -1337,26 +1338,6 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
     return 0;
 }
 
-static int
-GetMaxOpenFds()
-{
-    struct rlimit rlim;
-    int maxOpenFds = 0;
-
-    if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-        maxOpenFds = rlim.rlim_cur;
-        // bump the soft limit to the hard limit
-        rlim.rlim_cur = rlim.rlim_max;
-        if (setrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-            maxOpenFds = rlim.rlim_cur;
-        }
-    }
-    KFS_LOG_STREAM_INFO <<
-        "max # of open files: " << maxOpenFds <<
-    KFS_LOG_EOM;
-    return maxOpenFds;
-}
-
 // Chunk manager implementation.
 ChunkManager::ChunkManager()
     : mMaxPendingWriteLruSecs(300),
@@ -1759,7 +1740,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         return false;
     }
     const int kMinOpenFds = 32;
-    mMaxOpenFds = GetMaxOpenFds();
+    mMaxOpenFds = SetMaxNoFileLimit();
     if (mMaxOpenFds < kMinOpenFds) {
         KFS_LOG_STREAM_ERROR <<
             "file descriptor limit too small: " << mMaxOpenFds <<

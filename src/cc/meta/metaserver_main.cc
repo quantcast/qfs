@@ -38,6 +38,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCIoBufferPool.h"
 #include "common/MdStream.h"
+#include "common/nofilelimit.h"
 #include "Logger.h"
 #include "Checkpoint.h"
 #include "kfstree.h"
@@ -342,28 +343,9 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(props, "metaServer.msgLogWriter.");
 
-    struct rlimit rlim = { 0 };
-    if (getrlimit(RLIMIT_NOFILE, &rlim)) {
-        const int err = errno;
-        KFS_LOG_STREAM_ERROR <<
-            "getrlimit nofile: " << QCUtils::SysError(err) <<
-        KFS_LOG_EOM;
-    } else {
-        // bump up the # of open fds to as much as possible
-        rlim.rlim_cur = rlim.rlim_max;
-        if (setrlimit(RLIMIT_NOFILE, &rlim)) {
-            const int err = errno;
-            KFS_LOG_STREAM_ERROR <<
-                "setrlimit nofile: " <<
-                    QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-        } else {
-            KFS_LOG_STREAM_INFO <<
-                "max number of open file descriptors: " <<
-                rlim.rlim_cur <<
-            KFS_LOG_EOM;
-        }
-    }
+    // bump up the # of open fds to as much as possible
+    SetMaxNoFileLimit();
+
     mMaxLockedMemorySize = (int64_t)props.getValue(
         "metaServer.maxLockedMemory", (double)mMaxLockedMemorySize);
     string errMsg;
