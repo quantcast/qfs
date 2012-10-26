@@ -52,11 +52,13 @@ mask(v16 v)
 {
 #ifdef LIBRS_USE_NEON
     return (v16)vcltq_s8((int8x16_t)v, vdupq_n_s8(0));
-#elif defined(LIBRS_USE_SSE2) || defined(LIBRS_USE_SSSE3)
+#elif defined(LIBRS_USE_SSE2) || defined(LIBRS_USE_SSSE3) &&  \
+        ! defined(__clang__)
+    /* clang has no corresponding builtin, but operator > */
     return __builtin_ia32_pcmpgtb128(VEC16(0), v);
 #elif defined(__GNUC__) && \
         (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)) || \
-    defined(__clang__)
+        defined(__clang__)
     return VEC16(128) > v;
 #else
     v16 res;
