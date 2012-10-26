@@ -168,7 +168,7 @@ done
 
 if [ x"$errsym" = x'yes' ]; then
     cstimeout=20
-    csretry=70 # make wait longer than chunk replication timeout / 5 sec
+    csretry=140 # make wait longer than chunk replication timeout / 5 sec
 else
     csretry=-1 # default
     if [ x"$derrsym" = x'yes' ]; then
