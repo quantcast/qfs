@@ -114,9 +114,9 @@ public:
     ~AtomicRecordAppendManager();
     void    SetParameters(const Properties& props);
     void    AllocateChunk(AllocChunkOp *op, int replicationPos,
-        ServerLocation peerLoc, const DiskIo::FilePtr& chunkFileHandle);
+        const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     void    AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
-        ServerLocation peerLoc, const DiskIo::FilePtr& chunkFileHandle);
+        const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     int    GetCleanUpSec()               const { return mCleanUpSec;               }
     int    GetCloseEmptyWidStateSec()    const { return mCloseEmptyWidStateSec;    }
     int    GetFlushIntervalSec()         const { return mFlushIntervalSec;         }
@@ -155,7 +155,8 @@ public:
     bool   CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag);
     bool   BeginMakeChunkStable(BeginMakeChunkStableOp* op);
     bool   MakeChunkStable(MakeChunkStableOp* op);
-    void   AppendBegin(RecordAppendOp* op, int replicationPos, ServerLocation peerLoc);
+    void   AppendBegin(RecordAppendOp* op, int replicationPos,
+        const ServerLocation& peerLoc);
     void   GetOpStatus(GetRecordAppendOpStatus* op);
     bool   WantsToKeepLease(kfsChunkId_t chunkId) const;
     void   Timeout();

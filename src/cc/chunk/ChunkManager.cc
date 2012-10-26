@@ -1846,7 +1846,9 @@ ChunkManager::AllocChunk(
 
 void
 ChunkManager::AllocChunkForAppend(
-    AllocChunkOp* op, int replicationPos, ServerLocation peerLoc)
+    AllocChunkOp*         op,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     if (IsWritePending(op->chunkId)) {
         op->statusMsg = "random write in progress";
@@ -3647,7 +3649,10 @@ ChunkManager::GetChunkInfoHandle(
 }
 
 int
-ChunkManager::AllocateWriteId(WriteIdAllocOp *wi, int replicationPos, ServerLocation peerLoc)
+ChunkManager::AllocateWriteId(
+    WriteIdAllocOp*       wi,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     ChunkInfoHandle *cih = 0;
 

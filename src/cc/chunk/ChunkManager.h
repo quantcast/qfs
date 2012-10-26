@@ -118,7 +118,9 @@ public:
                            ChunkInfoHandle **cih = 0,
                            bool mustExistFlag = false);
     void AllocChunkForAppend(
-        AllocChunkOp* op, int replicationPos, ServerLocation peerLoc);
+        AllocChunkOp*         op,
+        int                   replicationPos,
+        const ServerLocation& peerLoc);
     /// Delete a previously allocated chunk file.
     /// @param[in] chunkId id of the chunk being deleted.
     /// @retval status code
@@ -257,7 +259,10 @@ public:
     /// is queued and the client pushes data for it subsequently.
     /// @param[in] wi  The op that defines the write
     /// @retval status code
-    int AllocateWriteId(WriteIdAllocOp *wi, int replicationPos, ServerLocation peerLoc);
+    int AllocateWriteId(
+        WriteIdAllocOp*       wi,
+        int                   replicationPos,
+        const ServerLocation& peerLoc);
 
     /// Check if a write is pending to a chunk.
     /// @param[in] chunkId  The chunkid for which we are checking for

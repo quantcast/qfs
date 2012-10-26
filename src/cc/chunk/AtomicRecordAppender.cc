@@ -2724,7 +2724,9 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
 
 void
 AtomicRecordAppendManager::AllocateChunk(
-    AllocChunkOp* op, int replicationPos, ServerLocation peerLoc,
+    AllocChunkOp*          op,
+    int                    replicationPos,
+    const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
@@ -2800,7 +2802,9 @@ AtomicRecordAppendManager::AllocateChunk(
 
 void
 AtomicRecordAppendManager::AllocateWriteId(
-    WriteIdAllocOp *op, int replicationPos, ServerLocation peerLoc,
+    WriteIdAllocOp*        op,
+    int                    replicationPos,
+    const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
@@ -3016,7 +3020,9 @@ AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
 
 void
 AtomicRecordAppendManager::AppendBegin(
-    RecordAppendOp* op, int replicationPos, ServerLocation peerLoc)
+    RecordAppendOp*       op,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     assert(op);
     ARAMap::iterator const it = mAppenders.find(op->chunkId);
