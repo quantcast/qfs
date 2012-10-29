@@ -1598,7 +1598,6 @@ protected:
     int                mPingUpdateInterval;
     time_t             mPingUpdateTime;
     IOBuffer           mPingResponse;
-    ostringstream      mStringStream;
     IOBuffer::WOStream mWOstream;
     QCIoBufferPool*    mBufferPool;
     bool               mMightHaveRetiringServersFlag;
@@ -1863,7 +1862,6 @@ protected:
 
     inline seq_t GetChunkVersionRollBack(chunkId_t chunkId);
     inline seq_t IncrementChunkVersionRollBack(chunkId_t chunkId);
-    inline ostream& ClearStringStream();
     inline void UpdatePendingRecovery(CSMap::Entry& entry);
     inline void CheckReplication(CSMap::Entry& entry);
     bool GetPlacementExcludes(const CSMap::Entry& entry, ChunkPlacement& placement,

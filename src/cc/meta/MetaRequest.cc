@@ -3749,7 +3749,7 @@ MetaAllocate::responseSelf(ostream &os)
 }
 
 void
-MetaLeaseAcquire::response(ostream &os)
+MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -3757,8 +3757,19 @@ MetaLeaseAcquire::response(ostream &os)
     if (leaseId >= 0) {
         os << "Lease-id: " << leaseId << "\r\n";
     }
-    if (! leaseIds.empty()) {
-        os << "Lease-ids:" << leaseIds << "\r\n";
+    if (getChunkLocationsFlag) {
+        os << "Content-length: " << responseBuf.BytesConsumable() << "\r\n"
+        "\r\n";
+        os.flush();
+        buf.Move(&responseBuf);
+        return;
+    }
+    if (! responseBuf.IsEmpty()) {
+        os << "Lease-ids:";
+        os.flush();
+        responseBuf.CopyIn("\r\n\r\n", 4);
+        buf.Move(&responseBuf);
+        return;
     }
     os << "\r\n";
 }

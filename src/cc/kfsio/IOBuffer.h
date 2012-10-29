@@ -618,6 +618,7 @@ public:
     {
         StreamBuffer::SetReadOnly(iobuf, maxReadLength);
         istream::clear();
+        istream::flags(ostream::dec | istream::skipws);
         rdbuf(this);
         return *this;
     }

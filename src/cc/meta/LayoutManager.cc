@@ -82,6 +82,7 @@ using std::numeric_limits;
 using std::iter_swap;
 using std::setw;
 using std::setfill;
+using std::hex;
 using boost::mem_fn;
 using boost::bind;
 using boost::ref;
@@ -1233,7 +1234,6 @@ LayoutManager::LayoutManager() :
     mPingUpdateInterval(2),
     mPingUpdateTime(0),
     mPingResponse(),
-    mStringStream(),
     mWOstream(),
     mBufferPool(0),
     mMightHaveRetiringServersFlag(false),
@@ -1936,14 +1936,6 @@ LayoutManager::Shutdown()
     mCSCountersResponse.Clear();
     mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
-}
-
-inline ostream&
-LayoutManager::ClearStringStream()
-{
-    mStringStream.flush();
-    mStringStream.str(string());
-    return mStringStream;
 }
 
 template<
@@ -5008,15 +5000,17 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
 int
 LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 {
+    req.responseBuf.Clear();
     if (req.chunkIds.empty()) {
-        req.leaseIds.clear();
         return 0;
     }
-    const bool  recoveryFlag = InRecovery();
-    const char* p            = req.chunkIds.GetPtr();
-    const char* e            = p + req.chunkIds.GetSize();
-    ostream&    os           = ClearStringStream();
-    int         ret          = 0;
+    StTmp<Servers>    serversTmp(mServers3Tmp);
+    Servers&          servers = serversTmp.Get();
+    const bool        recoveryFlag = InRecovery();
+    const char*       p            = req.chunkIds.GetPtr();
+    const char*       e            = p + req.chunkIds.GetSize();
+    int               ret          = 0;
+    IntIOBufferWriter writer(req.responseBuf);
     while (p < e) {
         chunkId_t chunkId;
         if (! ValueParser::ParseInt(p, e - p, chunkId)) {
@@ -5026,40 +5020,61 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             if (p != e) {
                 req.status    = -EINVAL;
                 req.statusMsg = "chunk id list parse error";
-                ClearStringStream();
                 ret = req.status;
             }
             break;
         }
         ChunkLeases::LeaseId leaseId = 0;
         const CSMap::Entry*  cs      = 0;
+        servers.clear();
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
                 ! IsChunkStable(chunkId)) {
             leaseId = -EBUSY;
         } else if ((req.leaseTimeout <= 0 ?
                 mChunkLeases.HasWriteLease(chunkId) :
                 ! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs) &&
+                mChunkToServerMap.GetServers(*cs, servers) > 0 &&
                 mChunkLeases.NewReadLease(
                     chunkId,
-                    TimeNow() + min(req.leaseTimeout,
-                        LEASE_INTERVAL_SECS),
+                    TimeNow() + min(req.leaseTimeout, LEASE_INTERVAL_SECS),
                     leaseId)))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
                 mChunkLeases.FlushWriteLease(
-                    chunkId, mARAChunkCache,
-                    mChunkToServerMap);
+                    chunkId, mARAChunkCache, mChunkToServerMap);
             }
         } else if (! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs))) {
+                mChunkToServerMap.GetServers(*cs, servers) > 0)) {
             // Cannot obtain lease if no replicas exist.
             leaseId = cs ? -EAGAIN : -EINVAL;
         }
-        os << " " << leaseId;
+        writer.Write(" ", 1);
+        if (req.getChunkLocationsFlag) {
+            writer.WriteHexInt(leaseId);
+            writer.Write(" ", 1);
+            writer.WriteHexInt(servers.size());
+            for (Servers::const_iterator it = servers.begin();
+                    it != servers.end();
+                    ++it) {
+                const ServerLocation& loc = (*it)->GetServerLocation();
+                if (loc.IsValid()) {
+                    writer.Write(" ", 1);
+                    writer.Write(loc.hostname);
+                    writer.Write(" ", 1);
+                    writer.WriteHexInt(loc.port);
+                } else {
+                    writer.Write(" ? -1", 5);
+                }
+            }
+        } else {
+            writer.WriteInt(leaseId);
+        }
     }
-    req.leaseIds = mStringStream.str();
-    ClearStringStream();
+    if (ret == 0) {
+        writer.Close();
+    } else {
+        writer.Clear();
+    }
     return ret;
 }
 

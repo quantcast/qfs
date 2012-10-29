@@ -26,11 +26,12 @@
 #define KFS_UTIL_H
 
 #include <string>
-#include <sstream>
+#include <ostream>
 #include <inttypes.h>
 
 #include "kfstypes.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/IOBufferWriter.h"
 #include "common/time.h"
 
 namespace KFS
@@ -63,7 +64,7 @@ public:
           mIsoFlag(isoFlag),
           mDisplayUsecsFlag(usecFlag)
         {}
-    explicit DisplayDateTime()
+    DisplayDateTime()
         : mTimeUsec(microseconds()),
           mIsoFlag(false),
           mDisplayUsecsFlag(false)
@@ -91,6 +92,42 @@ public:
 
 inline ostream& operator<<(ostream& os, const DisplayIsoDateTime& dt)
     { return dt.display(os); }
+    
+class IntIOBufferWriter : public IOBufferWriter
+{
+public:
+    IntIOBufferWriter(
+        IOBuffer& buf)
+        : IOBufferWriter(buf),
+          mBufEnd(mBuf + kBufSize)
+        {}
+    void WriteInt(int64_t val)
+    {
+        const char* const b = toString(val, mBufEnd);
+        Write(b, mBufEnd - b - 1);
+    }
+    void WriteHexInt(int64_t val)
+    {
+        uint64_t v = (uint64_t)(val < 0 ? -val : val);
+        char*    p = mBufEnd;
+        do {
+            *--p = "0123456789ABCDEF"[v & 0xF];
+            v >>= 4;
+        } while (v != 0);
+        if (val < 0) {
+            *--p = '-';
+        }
+        Write(p, mBufEnd - p);
+    }
+private:
+    enum { kBufSize = 32 };
+
+    char        mBuf[kBufSize];
+    char* const mBufEnd;
+private:
+    IntIOBufferWriter(const IntIOBufferWriter&);
+    IntIOBufferWriter& operator=(const IntIOBufferWriter&);
+};
 
 /// Is a message that ends with "\r\n\r\n" available in the
 /// buffer.

@@ -94,6 +94,13 @@ public:
     template<typename TKey>
     const char* getValue(const TKey& key, const char* def) const
         { return getValueSelf(String(key), def); }
+    const String* getValue(const Properties::String& key) const
+    {
+        PropMap::const_iterator const it = propmap.find(key);
+        return (it != propmap.end() ? &(it->second) : 0);
+    }
+    const String* getValue(const char* key) const
+        { return getValue(String(key)); }
     void setValue(const string& key, const string& value);
     void setValue(const String& key, const string& value);
     template<typename TKey>
