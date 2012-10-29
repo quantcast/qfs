@@ -424,7 +424,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             mChunkDir.totalReadCounters.Display(
                 "Total-read-",  "\r\n", inStream);
             mChunkDir.totalWriteCounters.Display(
-                "Total-write-", "\r\n", inStream);                
+                "Total-write-", "\r\n", inStream);
             inStream << "\r\n";
 
             mLastSent                 = now;
@@ -2913,7 +2913,7 @@ ChunkManager::WriteChunk(WriteOp* op)
             "out of disk space: " << mUsedSpace << " + " << addedBytes <<
             " = " << (mUsedSpace + addedBytes) << " >= " << mTotalSpace <<
         KFS_LOG_EOM;
-	return -ENOSPC;
+        return -ENOSPC;
     }
 
     int64_t offset     = op->offset;
@@ -3048,7 +3048,7 @@ ChunkManager::UpdateChecksums(ChunkInfoHandle *cih, WriteOp *op)
 
         UpdateDirSpace(cih, endOffset - cih->chunkInfo.chunkSize);
 
-	mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
+        mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
         cih->chunkInfo.chunkSize = endOffset;
 
     }

@@ -241,40 +241,40 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     switch (code) {
     case EVENT_NET_READ:
         mLastRecvTime = globalNetManager().Now();
-	// We read something from the network.  Run the RPC that
-	// came in if we got all the data for the RPC
-	iobuf = (IOBuffer *) data;
-	while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
-	        HandleResponse(iobuf, msgLen) >= 0)
-	    {}
+        // We read something from the network.  Run the RPC that
+        // came in if we got all the data for the RPC
+        iobuf = (IOBuffer *) data;
+        while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
+                HandleResponse(iobuf, msgLen) >= 0)
+            {}
         UpdateRecvTimeout();
-	break;
+        break;
 
     case EVENT_NET_WROTE:
-	// Something went out on the network.  For now, we don't
-	// track it. Later, we may use it for tracking throttling
-	// and such.
+        // Something went out on the network.  For now, we don't
+        // track it. Later, we may use it for tracking throttling
+        // and such.
         UpdateRecvTimeout();
-	break;
+        break;
 
 
     case EVENT_INACTIVITY_TIMEOUT:
-    	reason = "inactivity timeout";
+        reason = "inactivity timeout";
     case EVENT_NET_ERROR:
         // If there is an error or there is no activity on the socket
         // for N mins, we close the connection.
-	KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
+        KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
             mLocation.ToString() << " due to " << reason <<
         KFS_LOG_EOM;
-	if (mNetConnection) {
-	    mNetConnection->Close();
+        if (mNetConnection) {
+            mNetConnection->Close();
             mNetConnection.reset();
         }
-	break;
+        break;
 
     default:
-	assert(!"Unknown event");
-	break;
+        assert(!"Unknown event");
+        break;
     }
     assert(mRecursionCount > 0);
     if (mRecursionCount <= 1) {
@@ -427,7 +427,6 @@ public:
     }
 };
 
-
 void
 RemoteSyncSM::FailAllOps()
 {
@@ -453,7 +452,7 @@ RemoteSyncSM::Finish()
 {
     FailAllOps();
     if (mNetConnection) {
-	mNetConnection->Close();
+        mNetConnection->Close();
         mNetConnection.reset();
     }
     // if the object was owned by the chunkserver, have it release the reference

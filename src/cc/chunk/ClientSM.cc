@@ -211,17 +211,17 @@ ClientSM::HandleRequest(int code, void* data)
             mNetConnection->SetMaxReadAhead(0);
             break;
         }
-	// We read something from the network.  Run the RPC that
-	// came in.
+        // We read something from the network.  Run the RPC that
+        // came in.
         int       cmdLen = 0;
         bool      gotCmd = false;
-	IOBuffer& iobuf  = mNetConnection->GetInBuffer();
+        IOBuffer& iobuf  = mNetConnection->GetInBuffer();
         assert(&iobuf == data);
-	while ((mCurOp || IsMsgAvail(&iobuf, &cmdLen)) &&
+        while ((mCurOp || IsMsgAvail(&iobuf, &cmdLen)) &&
                 (gotCmd = HandleClientCmd(&iobuf, cmdLen))) {
             cmdLen = 0;
             gotCmd = false;
-	}
+        }
         if (! mCurOp) {
             int hdrsz;
             if (cmdLen > 0 && ! gotCmd) {
@@ -244,14 +244,14 @@ ClientSM::HandleRequest(int code, void* data)
             iobuf.Clear();
             mNetConnection->Close();
         }
-	break;
+        break;
     }
 
     case EVENT_NET_WROTE: {
         const int rem = mNetConnection->GetNumBytesToWrite();
         GetBufferManager().Put(*this, mPrevNumToWrite - rem);
         mPrevNumToWrite = rem;
-	break;
+        break;
     }
 
     case EVENT_CMD_DONE: {
@@ -323,17 +323,17 @@ ClientSM::HandleRequest(int code, void* data)
             ", pending read: " << mNetConnection->GetNumBytesToRead() <<
             " write: " << mNetConnection->GetNumBytesToWrite() <<
         KFS_LOG_EOM;
-	mNetConnection->Close();
+        mNetConnection->Close();
         if (mCurOp) {
             delete mCurOp;
             mCurOp = 0;
             CancelRequest();
         }
-	break;
+        break;
 
     default:
-	assert(!"Unknown event");
-	break;
+        assert(!"Unknown event");
+        break;
     }
 
     assert(mRecursionCnt > 0);
@@ -382,21 +382,21 @@ ClientSM::HandleTerminate(int code, void* data)
         assert(data);
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
-	// An op finished execution.  Send a response back
-	op->done = true;
-	if (op != mOps.front().first)
-	    break;
-	while (!mOps.empty()) {
-	    op = mOps.front().first;
-	    if (!op->done)
-		break;
+        // An op finished execution.  Send a response back
+        op->done = true;
+        if (op != mOps.front().first)
+            break;
+        while (!mOps.empty()) {
+            op = mOps.front().first;
+            if (!op->done)
+                break;
             GetBufferManager().Put(*this, mOps.front().second);
             OpFinished(op);
-	    // we are done with the op
-	    mOps.pop_front();
-	    delete op;
-	}
-	break;
+            // we are done with the op
+            mOps.pop_front();
+            delete op;
+        }
+        break;
     }
 
     case EVENT_INACTIVITY_TIMEOUT:
@@ -405,8 +405,8 @@ ClientSM::HandleTerminate(int code, void* data)
         break;
 
     default:
-	assert(!"Unknown event");
-	break;
+        assert(!"Unknown event");
+        break;
     }
 
     if (mOps.empty()) {

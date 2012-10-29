@@ -346,17 +346,17 @@ MetaServerSM::HandleRequest(int code, void* data)
 {
     switch (code) {
     case EVENT_NET_READ: {
-	    // We read something from the network.  Run the RPC that
-	    // came in.
-	    IOBuffer * const iobuf = (IOBuffer *) data;
+            // We read something from the network.  Run the RPC that
+            // came in.
+            IOBuffer * const iobuf = (IOBuffer *) data;
             bool hasMsg;
             int  cmdLen = 0;
-	    while ((hasMsg = IsMsgAvail(iobuf, &cmdLen))) {
+            while ((hasMsg = IsMsgAvail(iobuf, &cmdLen))) {
                 // if we don't have all the data for the command, bail
-	        if (! HandleMsg(iobuf, cmdLen)) {
+                if (! HandleMsg(iobuf, cmdLen)) {
                     break;
                 }
-	    }
+            }
             int hdrsz;
             if (! hasMsg &&
                     (hdrsz = iobuf->BytesConsumable()) > MAX_RPC_HEADER_LEN) {
@@ -371,32 +371,32 @@ MetaServerSM::HandleRequest(int code, void* data)
                 return HandleRequest(EVENT_NET_ERROR, 0);
             }
         }
-	break;
+        break;
 
     case EVENT_NET_WROTE:
         if (! mSentHello && ! mHelloOp) {
             SendHello();
         }
-	// Something went out on the network.  For now, we don't
-	// track it. Later, we may use it for tracking throttling
-	// and such.
-	break;
+        // Something went out on the network.  For now, we don't
+        // track it. Later, we may use it for tracking throttling
+        // and such.
+        break;
 
     case EVENT_CMD_DONE: {
-	    // An op finished execution.  Send a response back
-	    KfsOp* const op = reinterpret_cast<KfsOp*>(data);
+            // An op finished execution.  Send a response back
+            KfsOp* const op = reinterpret_cast<KfsOp*>(data);
             if (op->op == CMD_META_HELLO) {
                 DispatchHello();
             } else {
-	        SendResponse(op);
+                SendResponse(op);
                 delete op;
             }
         }
-	break;
+        break;
 
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
-	if (mNetConnection) {
+        if (mNetConnection) {
             KFS_LOG_STREAM_ERROR <<
                 mLocation.ToString() <<
                 " closing meta server connection due to " <<
@@ -412,11 +412,11 @@ MetaServerSM::HandleRequest(int code, void* data)
             gChunkManager.MetaServerConnectionLost();
         }
         FailOps(! globalNetManager().IsRunning());
-	break;
+        break;
 
     default:
-	assert(!"Unknown event");
-	break;
+        assert(!"Unknown event");
+        break;
     }
     return 0;
 }
@@ -483,8 +483,8 @@ MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
             KFS_LOG_STREAM_FATAL <<
                 "exiting due to cluster key mismatch; our key: " << mClusterKey <<
             KFS_LOG_EOM;
-	    globalNetManager().Shutdown();
-	    return false;
+            globalNetManager().Shutdown();
+            return false;
         }
         mCounters.mHelloCount++;
         const bool err = seq != mHelloOp->seq || status != 0;

@@ -88,17 +88,17 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
         KFS_LOG_STREAM_ERROR <<
             "write error invalid fd: " << fd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     FileTableEntry& entry = *mFileTable[fd];
     if (entry.openMode == O_RDONLY) {
-	return -EINVAL;
+        return -EINVAL;
     }
     if (entry.fattr.fileId <= 0) {
-	return -EBADF;
+        return -EBADF;
     }
     if (entry.fattr.isDirectory) {
-	return -EISDIR;
+        return -EISDIR;
     }
     if (numBytes <= 0) {
         return 0;

@@ -669,10 +669,10 @@ private:
         const string& inFileName,
         const string& inLockToken)
     {
-	const int theFd = open(inFileName.c_str(), O_CREAT|O_RDWR, 0644);
-	if (theFd < 0) {
-		return (errno > 0 ? -errno : -1);
-	}
+        const int theFd = open(inFileName.c_str(), O_CREAT|O_RDWR, 0644);
+        if (theFd < 0) {
+            return (errno > 0 ? -errno : -1);
+        }
         if (fcntl(theFd, FD_CLOEXEC, 1)) {
             const int theErr = errno;
             KFS_LOG_STREAM_ERROR <<
@@ -682,22 +682,22 @@ private:
             KFS_LOG_EOM;
         }
 #ifdef KFS_DONT_USE_FLOCK
-	struct flock theLock = { 0 };
-	theLock.l_type   = F_WRLCK;
-	theLock.l_whence = SEEK_SET;
-	if (fcntl(theFd, F_SETLK, &theLock)) {
-	    const int theErr = errno;
-	    close(theFd);
-	    return (theErr > 0 ? -theErr : -1);
-	}
+        struct flock theLock = { 0 };
+        theLock.l_type   = F_WRLCK;
+        theLock.l_whence = SEEK_SET;
+        if (fcntl(theFd, F_SETLK, &theLock)) {
+            const int theErr = errno;
+            close(theFd);
+            return (theErr > 0 ? -theErr : -1);
+        }
         const size_t        theLen = inLockToken.length();
         StBufferT<char, 64> theBuf;
         char* const         theBufPtr = theBuf.Resize(theLen + 1);
         const ssize_t       theNRd    = read(theFd, theBufPtr, theLen + 1);
         if (theNRd < 0) {
-	    const int theErr = errno;
-	    close(theFd);
-	    return (theErr > 0 ? -theErr : -1);
+            const int theErr = errno;
+            close(theFd);
+            return (theErr > 0 ? -theErr : -1);
         }
         if ((size_t)theNRd == theLen &&
                 memcmp(inLockToken.data(), theBufPtr, theLen) == 0) {
@@ -707,18 +707,18 @@ private:
         if (lseek(theFd, 0, SEEK_SET) != 0 ||
                 write(theFd, inLockToken.data(), theLen) != (ssize_t)theLen ||
                 ((size_t)theNRd > theLen && ftruncate(theFd, theLen) != 0)) {
-	    const int theErr = errno;
-	    close(theFd);
-	    return (theErr > 0 ? -theErr : -1);
+            const int theErr = errno;
+            close(theFd);
+            return (theErr > 0 ? -theErr : -1);
         }
 #else
         if (flock(theFd, LOCK_EX | LOCK_NB)) {
-	    const int theErr = errno;
-	    close(theFd);
-	    return (theErr > 0 ? -theErr : -1);
+            const int theErr = errno;
+            close(theFd);
+            return (theErr > 0 ? -theErr : -1);
         }
 #endif
-	return theFd;
+        return theFd;
     }
     static string Normalize(
         const string& inDirName)
