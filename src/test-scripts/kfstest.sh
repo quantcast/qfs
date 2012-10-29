@@ -25,7 +25,7 @@
 
 if [ $# -ge 1 -a x"$1" = x'-valgrind' ]; then
     shift
-    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --db-attach=yes --db-command="kill -KILL %p"'
+    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --db-attach=yes --db-command="kill %p"'
     GLIBCPP_FORCE_NEW=1
     export GLIBCPP_FORCE_NEW
     GLIBCXX_FORCE_NEW=1
@@ -92,7 +92,7 @@ myrunprog()
     if [ x"$myvalgrind" = x ]; then
         exec "$p" ${1+"$@"}
     else
-        exec $myvalgrind "$p" ${1+"$@"}
+        eval exec "$myvalgrind" '"$p" ${1+"$@"}'
     fi
 }
 
@@ -202,7 +202,8 @@ mkdir "$chunksrvdir" || exit
 ulimit -c unlimited
 # Cleanup handler
 if [ x"$dotusefuser" = x'yes' ]; then
-    trap 'kill -KILL 0' EXIT INT HUP
+    trap 'sleep 1; kill -KILL 0' TERM
+    trap 'kill -TERM 0' EXIT INT HUP
 else
     trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser 2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT INT HUP
 fi
