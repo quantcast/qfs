@@ -146,9 +146,11 @@ public:
     public:
         EnqueueStatus(
             RequestId inRequestId = kRequestIdNone,
-            Error     inError     = kErrorNone)
+            Error     inError     = kErrorNone,
+            int       inSysError  = 0)
             : mRequestId(inRequestId),
-              mError(inError)
+              mError(inError),
+              mSysError(0)
             {}
         bool IsError() const
             { return (mError != kErrorNone || mRequestId == kRequestIdNone); }
@@ -158,9 +160,12 @@ public:
             { return mError; }
         RequestId GetRequestId() const
             { return mRequestId; }
+        int GetSysError() const
+            { return mSysError; }
     private:
         RequestId mRequestId;
         Error     mError;
+        int       mSysError;
     };
 
     class OpenFileStatus : public Status

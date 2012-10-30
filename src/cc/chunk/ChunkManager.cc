@@ -1083,6 +1083,9 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
 {
     chunkInfo.UnloadChecksums();
     if (! IsFileOpen()) {
+        if (dataFH) {
+            dataFH.reset();
+        }
         return;
     }
     string errMsg;
@@ -2722,6 +2725,8 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
                 mUsedSpace -= size;
             }
             Delete(*cih);
+        } else {
+            cih->dataFH.reset();
         }
         KFS_LOG_STREAM_ERROR <<
             "failed to " << (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
@@ -3248,7 +3253,7 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* f
     ChunkInfoHandle* cih;
     if (GetChunkInfoHandle(chunkId, &cih) < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "corrupt chunk: " << chunkId << " not in table" <<
+            "io failure: chunk: " << chunkId << " not in table" <<
         KFS_LOG_EOM;
         return;
     }
@@ -3265,7 +3270,10 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* f
 void
 ChunkManager::ReportIOFailure(ChunkInfoHandle* cih, int err)
 {
-    if (err == -EAGAIN || err == -ENOMEM || err == -ETIMEDOUT) {
+    if (err == -EAGAIN ||
+            err == -ENOMEM ||
+            err == -ETIMEDOUT ||
+            err == -ENFILE) {
         KFS_LOG_STREAM_ERROR <<
             "assuming temporary io failure chunk: " << cih->chunkInfo.chunkId <<
             " dir: " << cih->GetDirname() <<
@@ -3897,7 +3905,6 @@ ChunkManager::CleanupInactiveFds(time_t now)
             return;
         }
     }
-
     const time_t cur = periodic ? now : globalNetManager().Now();
     // either we are periodic cleaning or we have too many FDs open
     // shorten the interval if we're out of fd.

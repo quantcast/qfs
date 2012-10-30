@@ -71,9 +71,13 @@ static void DiskIoReportError(
 { DiskIoReportError(inMsg.c_str(), inSysError); }
 
 static int DiskQueueToSysError(
-    QCDiskQueue::Error inStatus)
+    const QCDiskQueue::EnqueueStatus& inStatus)
 {
-    switch (inStatus)
+    const int theSysError = inStatus.GetSysError();
+    if (theSysError != 0) {
+        return theSysError;
+    }
+    switch (inStatus.GetError())
     {
         case QCDiskQueue::kErrorNone:                 return 0;
         case QCDiskQueue::kErrorRead:                 return EIO;
@@ -1742,7 +1746,7 @@ DiskIo::Read(
         "read queuing error: " << theErrMsg <<
     KFS_LOG_EOM;
     
-    const int theErr = DiskQueueToSysError(theStatus.GetError());
+    const int theErr = DiskQueueToSysError(theStatus);
     DiskIoReportError("DiskIo::Read: " + theErrMsg, theErr);
     return -theErr;
 }
@@ -1852,7 +1856,7 @@ DiskIo::Write(
     const string theErrMsg = QCDiskQueue::ToString(theStatus.GetError());
     KFS_LOG_STREAM_ERROR << "write queuing error: " << theErrMsg <<
     KFS_LOG_EOM;
-    const int theErr = DiskQueueToSysError(theStatus.GetError());
+    const int theErr = DiskQueueToSysError(theStatus);
     DiskIoReportError("DiskIo::Write: " + theErrMsg, theErr);
     return -theErr;
 }
@@ -1897,7 +1901,7 @@ DiskIo::Sync(
     const string theErrMsg(QCDiskQueue::ToString(theStatus.GetError()));
     KFS_LOG_STREAM_ERROR << "sync queuing error: " << theErrMsg <<
     KFS_LOG_EOM;
-    const int theErr = DiskQueueToSysError(theStatus.GetError());
+    const int theErr = DiskQueueToSysError(theStatus);
     DiskIoReportError("DiskIo::Sync: " + theErrMsg, theErr);
     return -theErr;
 }
