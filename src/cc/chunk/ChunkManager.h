@@ -778,7 +778,7 @@ private:
 
     /// If we have too many open fd's close out whatever we can.  When
     /// periodic is set, we do a scan and clean up.
-    void CleanupInactiveFds(time_t now = 0);
+    bool CleanupInactiveFds(time_t now, bool forceFlag = false);
 
     /// For some reason, dirname is not accessable (for instance, the
     /// drive may have failed); in this case, notify metaserver that

@@ -129,6 +129,7 @@ public:
     static int GetDefaultSendBufSize() { return sSendBufSize; }
     static void SetDefaultRecvBufSize(int size) { sRecvBufSize = size; }
     static void SetDefaultSendBufSize(int size) { sSendBufSize = size; }
+    static void SetOpenLimit(int limit) { sMaxOpenSockets = limit; }
 private:
     int mSockFd;
 
@@ -139,6 +140,7 @@ private:
 
     static int sRecvBufSize;
     static int sSendBufSize;
+    static int sMaxOpenSockets;
 };
 
 typedef boost::shared_ptr<TcpSocket> TcpSocketPtr;

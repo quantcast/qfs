@@ -1760,6 +1760,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     }
     mMaxOpenChunkFiles = min((mMaxOpenFds - kMinOpenFds / 2) / mFdsPerChunk,
         prop.getValue("chunkServer.maxOpenChunkFiles", mMaxOpenChunkFiles));
+    TcpSocket::SetOpenLimit(mMaxOpenFds - min((mMaxOpenFds + 3) / 4, 1 << 10));
     if (mMaxOpenChunkFiles < kMinOpenFds / 2) {
         KFS_LOG_STREAM_ERROR <<
             "open chunks limit too small: " << mMaxOpenChunkFiles <<
@@ -1818,8 +1819,6 @@ ChunkManager::AllocChunk(
     // stored in a "dirty" dir; chunks in this dir will get nuked
     // on a chunkserver restart.  This provides a very simple failure
     // handling model.
-
-    CleanupInactiveFds();
 
     const bool stableFlag = false;
     ChunkInfoHandle* const cih = new ChunkInfoHandle(*chunkdir, stableFlag);
@@ -2693,6 +2692,20 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
     if (cih->IsFileOpen()) {
         return 0;
     }
+    const bool kForceFlag = true;
+    if (! CleanupInactiveFds(globalNetManager().Now(), kForceFlag)) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to " <<
+                (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
+            " chunk file: " << MakeChunkPathname(cih) <<
+            ": out of file descriptors"
+            " chunk fds: "  <<
+                globals().ctrOpenDiskFds.GetValue() * mFdsPerChunk <<
+            " sockets: "    << globals().ctrOpenNetFds.GetValue() <<
+            " fd limit: "   << mMaxOpenFds <<
+        KFS_LOG_EOM;
+        return -ENFILE;
+    }
     if (! cih->dataFH) {
         cih->dataFH.reset(new DiskIo::File());
     }
@@ -3273,7 +3286,8 @@ ChunkManager::ReportIOFailure(ChunkInfoHandle* cih, int err)
     if (err == -EAGAIN ||
             err == -ENOMEM ||
             err == -ETIMEDOUT ||
-            err == -ENFILE) {
+            err == -ENFILE ||
+            err == -ESERVERBUSY) {
         KFS_LOG_STREAM_ERROR <<
             "assuming temporary io failure chunk: " << cih->chunkInfo.chunkId <<
             " dir: " << cih->GetDirname() <<
@@ -3472,7 +3486,6 @@ DiskIo*
 ChunkManager::SetupDiskIo(ChunkInfoHandle *cih, KfsCallbackObj *op)
 {
     if (! cih->IsFileOpen()) {
-        CleanupInactiveFds();
         if (OpenChunk(cih, O_RDWR) < 0) {
             return 0;
         }
@@ -3886,31 +3899,35 @@ ChunkManager::Sync(WriteOp *op)
     return op->diskIo->Sync(op->waitForSyncDone);
 }
 
-void
-ChunkManager::CleanupInactiveFds(time_t now)
+bool
+ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
 {
-    const bool periodic = now > 0;
     // if we haven't cleaned up in 5 mins or if we too many fd's that
     // are open, clean up.
-    if (periodic) {
+    time_t expireTime;
+    int    releaseCnt = -1;
+    if (! forceFlag) {
         if (now < mNextInactiveFdCleanupTime) {
-            return;
+            return true;
         }
+        expireTime = now - mInactiveFdsCleanupIntervalSecs;
     } else {
+        // Reserve is to deal with asynchronous close/open in the cases where
+        // open and close are executed on different io queues.
+        const uint64_t kReserve     = min((mMaxOpenChunkFiles + 3) / 4,
+            32 + mChunkDirs.size());
         const uint64_t openChunkCnt = globals().ctrOpenDiskFds.GetValue();
-        if (openChunkCnt < (uint64_t)mMaxOpenChunkFiles &&
-                    openChunkCnt * mFdsPerChunk +
-                        globals().ctrOpenNetFds.GetValue() <
+        if (openChunkCnt + kReserve > (uint64_t)mMaxOpenChunkFiles ||
+                (openChunkCnt + kReserve) * mFdsPerChunk +
+                    globals().ctrOpenNetFds.GetValue() >
                     (uint64_t)mMaxOpenFds) {
-            return;
+            expireTime = now + 100;
+            releaseCnt = kReserve;
+        } else {
+            expireTime = now + mInactiveFdsCleanupIntervalSecs;
         }
     }
-    const time_t cur = periodic ? now : globalNetManager().Now();
-    // either we are periodic cleaning or we have too many FDs open
-    // shorten the interval if we're out of fd.
-    const time_t expireTime = cur - (periodic ?
-        mInactiveFdsCleanupIntervalSecs :
-        (mInactiveFdsCleanupIntervalSecs + 2) / 3);
+
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle* cih;
     while ((cih = it.Next()) && cih->lastIOTime < expireTime) {
@@ -3944,11 +3961,18 @@ ChunkManager::CleanupInactiveFds(time_t now)
             " chunk: "   << cih->chunkInfo.chunkId <<
             " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
         KFS_LOG_EOM;
+        const bool openFlag = releaseCnt > 0 && cih->IsFileOpen();
         Release(*cih);
+        if (releaseCnt > 0 && openFlag && ! cih->IsFileOpen()) {
+            if (--releaseCnt <= 0) {
+                break;
+            }
+        }
     }
     cih = ChunkLru::Front(mChunkInfoLists[kChunkLruList]);
     mNextInactiveFdCleanupTime = mInactiveFdsCleanupIntervalSecs +
-        ((cih && cih->lastIOTime > expireTime) ? cih->lastIOTime : cur);
+        ((cih && cih->lastIOTime > expireTime) ? cih->lastIOTime : now);
+    return (releaseCnt <= 0);
 }
 
 bool
