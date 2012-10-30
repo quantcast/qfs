@@ -3915,7 +3915,7 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
         // Reserve is to deal with asynchronous close/open in the cases where
         // open and close are executed on different io queues.
         const uint64_t kReserve     = min((mMaxOpenChunkFiles + 3) / 4,
-            32 + mChunkDirs.size());
+            32 + (int)mChunkDirs.size());
         const uint64_t openChunkCnt = globals().ctrOpenDiskFds.GetValue();
         if (openChunkCnt + kReserve > (uint64_t)mMaxOpenChunkFiles ||
                 (openChunkCnt + kReserve) * mFdsPerChunk +
