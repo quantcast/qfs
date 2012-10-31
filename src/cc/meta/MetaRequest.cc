@@ -1592,7 +1592,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         for (Servers::const_iterator i = servers.begin();
                 i != servers.end(); ++i) {
             if ((*i)->IsDown()) {
-                KFS_LOG_STREAM_DEBUG << (*i)->ServerID() <<
+                KFS_LOG_STREAM_DEBUG << (*i)->GetServerLocation() <<
                     " went down during allocation, alloc failed" <<
                 KFS_LOG_EOM;
                 status = -EIO;
@@ -1844,7 +1844,7 @@ MetaAllocate::Show() const
     for (Servers::const_iterator i = servers.begin();
             i != servers.end();
             ++i) {
-        os << " " << (*i)->ServerID();
+        os << " " << (*i)->GetServerLocation();
     }
     return os.str();
 }

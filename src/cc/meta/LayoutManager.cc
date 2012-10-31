@@ -2632,7 +2632,8 @@ LayoutManager::AddNewServer(MetaHello *r)
     }
     UpdateReplicationsThreshold();
     KFS_LOG_STREAM_INFO <<
-        msg << " chunk server: " << r->peerName << "/" << srv.ServerID() <<
+        msg << " chunk server: " << r->peerName << "/" <<
+            srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " rack: "            << r->rackId << " => " << rackId <<
         " chunks: stable: "  << r->chunks.size() <<
@@ -3749,7 +3750,7 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
                 it != cs.end();
                 ++it) {
             os <<
-                " " << (*it)->ServerID() <<
+                " " << (*it)->GetServerLocation() <<
                 " " << (*it)->GetRack();
         }
         os << "\n";
@@ -5190,7 +5191,7 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt *r)
         r->server->IncCorruptChunks();
     }
     KFS_LOG_STREAM_INFO <<
-        "server " << r->server->ServerID() <<
+        "server " << r->server->GetServerLocation() <<
         " claims chunk: <" <<
         r->fid << "," << r->chunkId <<
         "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
@@ -5214,7 +5215,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         // check the replication state when the replicaiton checker gets to it
         CheckReplication(*ci);
     }
-    KFS_LOG_STREAM_INFO << "server " << server->ServerID() <<
+    KFS_LOG_STREAM_INFO << "server " << server->GetServerLocation() <<
         " declaring: <" <<
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<
@@ -5983,7 +5984,7 @@ LayoutManager::ScheduleChunkServersRestart()
                     mCSGracefulRestartAppendWithWidTimeout)) {
             KFS_LOG_STREAM_INFO <<
                 "initiated restart sequence for: " <<
-                servers.front()->ServerID() <<
+                servers.front()->GetServerLocation() <<
             KFS_LOG_EOM;
             break;
         }
@@ -6442,7 +6443,7 @@ LayoutManager::AddServerToMakeStable(
             info.logMakeChunkStableFlag ? "L" : "") <<
         "MCS:"
         " <" << placementInfo.GetFileId() << "," << chunkId << ">"
-        " adding server: " << server->ServerID() <<
+        " adding server: " << server->GetServerLocation() <<
         " name: "          << info.pathname <<
         " servers: "       << info.numAckMsg <<
         "/"                << info.numServers <<
@@ -6769,7 +6770,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         if (res) {
             KFS_LOG_STREAM_INFO << logPrefix <<
                 " <" << req->fid << "," << req->chunkId  << ">"
-                " "  << req->server->ServerID() <<
+                " "  << req->server->GetServerLocation() <<
                 " not added: " << res <<
                 (notifyStaleFlag ? " => stale" : "") <<
                 "; " << req->Show() <<
@@ -8068,7 +8069,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         " version: "    << req->chunkVersion <<
         " status: "     << req->status <<
         (req->statusMsg.empty() ? "" : " ") << req->statusMsg <<
-        " server: " << req->server->ServerID() <<
+        " server: " << req->server->GetServerLocation() <<
         " " << (req->server->IsDown() ? "down" : "OK") <<
         " replications in flight: " << mNumOngoingReplications <<
     KFS_LOG_EOM;
@@ -9058,7 +9059,7 @@ LayoutManager::ExecuteRebalancePlan(
             mMaxSpaceUtilizationThreshold) {
         KFS_LOG_STREAM_INFO <<
             "terminating re-balance plan execution for"
-            " overloaded server " << c->ServerID() <<
+            " overloaded server " << c->GetServerLocation() <<
             " chunks left: " << c->GetChunksToMove().Size() <<
         KFS_LOG_EOM;
         c->ClearChunksToMove();
