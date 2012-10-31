@@ -33,6 +33,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/IOBufferWriter.h"
 #include "common/time.h"
+#include "common/IntToString.h"
 
 namespace KFS
 {
@@ -42,7 +43,6 @@ using std::ostream;
 
 extern chunkOff_t chunkStartOffset(chunkOff_t offset);
 extern int link_latest(const string& real, const string& alias);
-extern char* toString(int64_t n, char* bufEnd);
 extern string toString(int64_t n);
 extern int64_t toNumber(const char* str);
 static inline int64_t toNumber(const string& s) { return toNumber(s.c_str()); }
@@ -101,22 +101,16 @@ public:
         : IOBufferWriter(buf),
           mBufEnd(mBuf + kBufSize)
         {}
-    void WriteInt(int64_t val)
+    template<typename T>
+    void WriteInt(T val)
     {
-        const char* const b = toString(val, mBufEnd);
-        Write(b, mBufEnd - b - 1);
+        const char* const p = IntToDecString(val, mBufEnd);
+        Write(p, mBufEnd - p);
     }
-    void WriteHexInt(int64_t val)
+    template<typename T>
+    void WriteHexInt(T val)
     {
-        uint64_t v = (uint64_t)(val < 0 ? -val : val);
-        char*    p = mBufEnd;
-        do {
-            *--p = "0123456789ABCDEF"[v & 0xF];
-            v >>= 4;
-        } while (v != 0);
-        if (val < 0) {
-            *--p = '-';
-        }
+        const char* const p = IntToHexString(val, mBufEnd);
         Write(p, mBufEnd - p);
     }
 private:

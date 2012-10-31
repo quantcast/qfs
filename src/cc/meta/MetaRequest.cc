@@ -40,6 +40,7 @@
 #include "kfsio/IOBufferWriter.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "common/time.h"
@@ -870,17 +871,10 @@ private:
     template<typename T> static
     char* ToString(T val, char* bufEnd)
     {
-        if (! ShortFormatFlag) {
-            return toString(int64_t(val), bufEnd + 1);
-        }
-        char* p = bufEnd;
-        *p = 0;
-        char* const s = p - sizeof(val) * 2;
-        do {
-            *--p = "0123456789ABCDEF"[val & 0xF];
-            val >>= 4;
-        } while (val != 0 && s < p);
-        return p;
+        return (ShortFormatFlag ?
+            IntToHexString(val, bufEnd) :
+            IntToDecString(val, bufEnd)
+        );
     }
     void Write(const Token& name)
     {
@@ -899,10 +893,10 @@ private:
             return;
         }
         const int64_t kMicroseconds = 1000 * 1000;
-        char* const       s = ToString(t % kMicroseconds, nBufEnd) - 1;
-        const char* const b = ToString(t / kMicroseconds, s);
-        *s = ' ';
-        Write(b, nBufEnd - b);
+        char* p = ToString(t % kMicroseconds, nBufEnd);
+        *--p = ' ';
+        p = ToString(t / kMicroseconds, p);
+        Write(p, nBufEnd - p);
     }
     void Write(const char* data, size_t len)
     {
@@ -4065,17 +4059,7 @@ MetaChunkHeartbeat::request(ostream &os)
 static inline char*
 ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
 {
-    if (hexFormatFlag) {
-        char*     p   = end - 1;
-        chunkId_t val = id;
-        char* const s   = p - sizeof(val) * 2;
-        do {
-            *--p = "0123456789ABCDEF"[val & 0xF];
-            val >>= 4;
-        } while (val != 0 && s < p);
-        return p;
-    }
-    return toString(id, end);
+    return (hexFormatFlag ? IntToHexString(id, end) : IntToDecString(id, end));
 }
 
 void
@@ -4096,11 +4080,11 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
-    char* const end = tmpBuf + kBufEnd + 1;
+    char* const end = tmpBuf + kBufEnd;
     if (count <= 1) {
-        char* const p   = count < 1 ? end - 1 :
+        char* const p   = count < 1 ? end :
             ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
-        size_t      len = end - p - 1;
+        size_t      len = end - p;
         os << "Content-length: " << len << "\r\n\r\n";
         os.write(p, len);
         return;
@@ -4113,10 +4097,7 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     tmpBuf[kBufEnd] = (char)' ';
     while ((id = it.Next())) {
         char* const p = ChunkIdToString(*id, hexFormatFlag, end);
-        if (! hexFormatFlag) {
-            tmpBuf[kBufEnd] = (char)' ';
-        }
-        writer.Write(p, (int)(end - p));
+        writer.Write(p, (int)(end - p + 1));
     }
     writer.Close();
     const int len = ioBuf.BytesConsumable();

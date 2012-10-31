@@ -2030,10 +2030,11 @@ protected:
     {
         return (flag ? kTrueStr : kFalseStr);
     }
-    void Write(IOBufferWriter& writer, int64_t val)
+    template<typename T>
+    void Write(IOBufferWriter& writer, T val)
     {
-        const char* const b = toString(val, mBufEnd);
-        writer.Write(b, mBufEnd - b - 1);
+        const char* const b = IntToDecString(val, mBufEnd);
+        writer.Write(b, mBufEnd - b);
     }
 
     enum { kBufSize = 32 };
