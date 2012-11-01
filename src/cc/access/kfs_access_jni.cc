@@ -653,7 +653,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_chowns(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->Chown(path.c_str(), group.c_str(), user.c_str());
+    return clnt->Chown(path.c_str(), user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
@@ -673,7 +673,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->ChownR(path.c_str(), group.c_str(), user.c_str());
+    return clnt->ChownR(path.c_str(), user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_chown(
@@ -727,7 +727,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_fchowns(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->Chown(jfd, group.c_str(), user.c_str());
+    return clnt->Chown(jfd, user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_fchown(
