@@ -1393,6 +1393,31 @@ LayoutManager::LoadIdRemap(istream& fs, T OT::* map)
     }
 }
 
+struct RackPrefixValidator
+{
+    bool operator()(const string& pref, LayoutManager::RackId& id) const
+    {
+        if (id < 0) {
+            id = -1;
+            return false;
+        }
+        if (id > ChunkPlacement<LayoutManager>::kMaxRackId) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid rack id: " <<
+                pref << " " << id <<
+            KFS_LOG_EOM;
+            id = -1;
+            return false;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "rack:"
+            " prefix: " << pref <<
+            " id: "     << id   <<
+        KFS_LOG_EOM;
+        return true;
+    }
+};
+
 void
 LayoutManager::SetParameters(const Properties& props, int clientPort)
 {
@@ -1611,31 +1636,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mRackPrefixes.clear();
     {
         istringstream is(props.getValue("metaServer.rackPrefixes", ""));
-        string        pref;
-        RackId        id = -1;
-        HostPrefix    hp;
-        pref.reserve(256);
-        while ((is >> pref >> id)) {
-            if (id < 0) {
-                id = -1;
-            } else if (id >= ChunkPlacement::kMaxRackId) {
-                KFS_LOG_STREAM_ERROR <<
-                    "invalid rack id: " <<
-                    pref << " " << id <<
-                KFS_LOG_EOM;
-                id = -1;
-            }
-            if (hp.Parse(pref) > 0) {
-                mRackPrefixes.push_back(make_pair(hp, id));
-                KFS_LOG_STREAM_INFO <<
-                    "rack:"
-                    " prefix: " << pref <<
-                    " id: "     << id   <<
-                KFS_LOG_EOM;
-            }
-            pref.clear();
-            id = -1;
-        }
+        RackPrefixValidator validator;
+        mRackPrefixes.Load(is, &validator, -1);
     }
     mRackWeights.clear();
     {
@@ -1883,27 +1885,13 @@ LayoutManager::Validate(MetaHello& r) const
 LayoutManager::RackId
 LayoutManager::GetRackId(const ServerLocation& loc)
 {
-    if (mRackPrefixUsePortFlag) {
-        ostringstream os;
-        os << loc.hostname << ":" << loc.port;
-        const string name = os.str();
-        return GetRackId(name);
-    } else {
-        return GetRackId(loc.hostname);
-    }
+    return mRackPrefixes.GetId(loc, mRackPrefixUsePortFlag, -1);
 }
 
 LayoutManager::RackId
 LayoutManager::GetRackId(const string& name)
 {
-    RackPrefixes::const_iterator it = mRackPrefixes.begin();
-    while (it != mRackPrefixes.end()) {
-        if (it->first.Match(name)) {
-            return it->second;
-        }
-        ++it;
-    }
-    return -1;
+    return mRackPrefixes.GetId(name, -1);
 }
 
 void
