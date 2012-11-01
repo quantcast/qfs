@@ -22,6 +22,8 @@
 #
 #
 
+include(CheckCCompilerFlag)
+
 set (sources
 decode.c
 encode.c
