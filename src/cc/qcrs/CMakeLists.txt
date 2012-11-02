@@ -114,10 +114,10 @@ endif (NOT DEFINED vectormode)
 
 # Vector intrinsics are only available on GCC
 if (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
+    CHECK_C_COMPILER_FLAG(-flax-vector-conversions MY_LAXVEC_CONV)
     if (vectormode STREQUAL ssse3)
         message(STATUS "qcrs: enabling ssse3")
         add_definitions(-mssse3 -DLIBRS_USE_SSSE3)
-        CHECK_C_COMPILER_FLAG(-flax-vector-conversions MY_LAXVEC_CONV)
         if (MY_LAXVEC_CONV)
             add_definitions(-flax-vector-conversions)
         endif (MY_LAXVEC_CONV)
