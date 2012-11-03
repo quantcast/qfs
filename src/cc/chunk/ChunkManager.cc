@@ -1415,6 +1415,8 @@ ChunkManager::~ChunkManager()
 void
 ChunkManager::Shutdown()
 {
+    // Force meta server connection down first.
+    gMetaServerSM.HandleEvent(EVENT_NET_ERROR, 0);
     mDirChecker.Stop();
     // Run delete queue before removing chunk table entries.
     RunStaleChunksQueue();
