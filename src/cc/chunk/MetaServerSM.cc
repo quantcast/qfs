@@ -397,7 +397,9 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
         if (mNetConnection) {
-            KFS_LOG_STREAM_ERROR <<
+            KFS_LOG_STREAM(globalNetManager().IsRunning() ?
+                    MsgLogger::kLogLevelERROR :
+                    MsgLogger::kLogLevelDEBUG) <<
                 mLocation.ToString() <<
                 " closing meta server connection due to " <<
                 (code == EVENT_INACTIVITY_TIMEOUT ?
