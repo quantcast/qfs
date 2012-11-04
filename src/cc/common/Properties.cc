@@ -354,7 +354,7 @@ Properties::copyWithPrefix(const string& prefix, Properties& props) const
     for (iter = propmap.begin(); iter != propmap.end(); iter++) {
         const String& key = iter->first;
         if (key.size() >= prefixSize &&
-                prefix.compare(0, prefixSize, key.c_str()) == 0) {
+                prefix.compare(0, prefixSize, key.c_str(), prefixSize) == 0) {
             props.propmap[key] = iter->second;
         }
     }
