@@ -119,7 +119,11 @@ public:
     void clear() { propmap.clear(); }
     bool empty() const { return propmap.empty(); }
     size_t size() const { return propmap.size(); }
-    void copyWithPrefix(const string& prefix, Properties& props) const;
+    void copyWithPrefix(const char* prefix, size_t prefixLen,
+        Properties& props) const;
+    void copyWithPrefix(const char* prefix, Properties& props) const;
+    void copyWithPrefix(const string& prefix, Properties& props) const
+        { copyWithPrefix(prefix.data(), prefix.size(), props); }
     void swap(Properties& props)
         { propmap.swap(props.propmap); }
     void setIntBase(int base)

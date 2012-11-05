@@ -27,6 +27,8 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+#include <string.h>
+
 #include "Properties.h"
 #include "RequestParser.h"
 
@@ -347,14 +349,20 @@ Properties::getList(string& outBuf,
 }
 
 void
-Properties::copyWithPrefix(const string& prefix, Properties& props) const
+Properties::copyWithPrefix(const char* prefix, Properties& props) const
 {
-    const size_t prefixSize = prefix.size();
+    copyWithPrefix(prefix, prefix ? strlen(prefix) : size_t(0), props);
+}
+
+void
+Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
+    Properties& props) const
+{
     PropMap::const_iterator iter;
     for (iter = propmap.begin(); iter != propmap.end(); iter++) {
         const String& key = iter->first;
-        if (key.size() >= prefixSize &&
-                prefix.compare(0, prefixSize, key.c_str(), prefixSize) == 0) {
+        if (key.size() >= prefixLen &&
+                (! prefix || memcmp(key.data(), prefix, prefixLen) == 0)) {
             props.propmap[key] = iter->second;
         }
     }
