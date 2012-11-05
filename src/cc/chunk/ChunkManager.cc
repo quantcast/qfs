@@ -1366,7 +1366,9 @@ ChunkManager::ChunkManager()
       mNextSendChunDirInfoTime(globalNetManager().Now() -360000),
       mSendChunDirInfoIntervalSecs(2 * 60),
       mInactiveFdsCleanupIntervalSecs(300),
-      mNextInactiveFdCleanupTime(0),
+      mNextInactiveFdCleanupTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
+      mInactiveFdFullScanIntervalSecs(2),
+      mNextInactiveFdFullScanTime(globalNetManager().Now() - 365 * 24 * 60 * 60), 
       mReadChecksumMismatchMaxRetryCount(0),
       mAbortOnChecksumMismatchFlag(false),
       mRequireChunkHeaderChecksumFlag(false),
@@ -1509,15 +1511,18 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
 void
 ChunkManager::SetParameters(const Properties& prop)
 {
-    mInactiveFdsCleanupIntervalSecs = prop.getValue(
+    mInactiveFdsCleanupIntervalSecs = max(0, (int)prop.getValue(
         "chunkServer.inactiveFdsCleanupIntervalSecs",
-        mInactiveFdsCleanupIntervalSecs);
-    mMaxPendingWriteLruSecs = max(1, prop.getValue(
+        (double)mInactiveFdsCleanupIntervalSecs));
+    mInactiveFdFullScanIntervalSecs = max(0, (int)prop.getValue(
+        "chunkServer.inactiveFdFullScanIntervalSecs",
+        (double)mInactiveFdFullScanIntervalSecs));
+    mMaxPendingWriteLruSecs = max(1, (int)prop.getValue(
         "chunkServer.maxPendingWriteLruSecs",
-        mMaxPendingWriteLruSecs));
-    mCheckpointIntervalSecs = max(1, prop.getValue(
+        (double)mMaxPendingWriteLruSecs));
+    mCheckpointIntervalSecs = max(1, (int)prop.getValue(
         "chunkServer.checkpointIntervalSecs",
-        mCheckpointIntervalSecs));
+        (double)mCheckpointIntervalSecs));
     mChunkDirsCheckIntervalSecs = max(1, (int)prop.getValue(
         "chunkServer.chunkDirsCheckIntervalSecs",
         (double)mChunkDirsCheckIntervalSecs));
@@ -1645,6 +1650,8 @@ ChunkManager::SetParameters(const Properties& prop)
         now + mChunkDirsCheckIntervalSecs);
     mNextSendChunDirInfoTime = min(mNextSendChunDirInfoTime,
         now + mSendChunDirInfoIntervalSecs);
+    mNextInactiveFdFullScanTime = min(mNextInactiveFdFullScanTime,
+        now + mInactiveFdFullScanIntervalSecs);
 }
 
 static string AddTrailingPathSeparator(const string& dir)
@@ -3923,10 +3930,14 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
                 (openChunkCnt + kReserve) * mFdsPerChunk +
                     globals().ctrOpenNetFds.GetValue() >
                     (uint64_t)mMaxOpenFds) {
-            expireTime = now + 100;
+            if (mNextInactiveFdFullScanTime < now) {
+                expireTime = now + 2 * mInactiveFdsCleanupIntervalSecs;
+            } else {
+                expireTime = now - (mInactiveFdsCleanupIntervalSecs + 3) / 4;
+            }
             releaseCnt = kReserve;
         } else {
-            expireTime = now + mInactiveFdsCleanupIntervalSecs;
+            expireTime = now - mInactiveFdsCleanupIntervalSecs;
         }
     }
 
@@ -3939,17 +3950,20 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
             ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
             continue;
         }
-        bool inUse;
-        bool hasLease = false;
-        if ((inUse = cih->IsFileInUse()) ||
-                (hasLease = gLeaseClerk.IsLeaseValid(cih->chunkInfo.chunkId)) ||
-                IsWritePending(cih->chunkInfo.chunkId)) {
+        bool inUseFlag;
+        bool hasLeaseFlag     = false;
+        bool writePendingFlag = false;
+        if ((inUseFlag = cih->IsFileInUse()) ||
+                (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
+                    cih->chunkInfo.chunkId)) ||
+                (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
-                " fileid: "   << (const void*)cih->dataFH.get() <<
+                " dataFH: "   << (const void*)cih->dataFH.get() <<
                 " chunk: "    << cih->chunkInfo.chunkId <<
-                " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
-                (inUse ?    " file in use" : "") <<
-                (hasLease ? " has lease"   : "") <<
+                " last io: "  << (now - cih->lastIOTime) << " sec. ago" <<
+                (inUseFlag ?        " file in use"     : "") <<
+                (hasLeaseFlag ?     " has lease"       : "") <<
+                (writePendingFlag ? " wrtie pending"   : "") <<
             KFS_LOG_EOM;
             continue;
         }
@@ -3959,7 +3973,7 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
         // we have a valid file-id and it has been over 5 mins since we last did
         // I/O on it.
         KFS_LOG_STREAM_DEBUG << "cleanup: closing"
-            " fileid: "  << (const void*)cih->dataFH.get() <<
+            " dataFH: "  << (const void*)cih->dataFH.get() <<
             " chunk: "   << cih->chunkInfo.chunkId <<
             " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
         KFS_LOG_EOM;
@@ -3974,7 +3988,13 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
     cih = ChunkLru::Front(mChunkInfoLists[kChunkLruList]);
     mNextInactiveFdCleanupTime = mInactiveFdsCleanupIntervalSecs +
         ((cih && cih->lastIOTime > expireTime) ? cih->lastIOTime : now);
-    return (releaseCnt <= 0);
+    const bool fdsAvailableFlag = releaseCnt <= 0;
+    if (! fdsAvailableFlag && mNextInactiveFdFullScanTime < now) {
+        // No fd available, stop scanning until the specified amount of time
+        // passes.
+        mNextInactiveFdFullScanTime = now + mInactiveFdFullScanIntervalSecs;
+    }
+    return fdsAvailableFlag;
 }
 
 bool

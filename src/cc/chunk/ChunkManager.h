@@ -698,6 +698,8 @@ private:
     // Cleanup fds on which no I/O has been done for the past N secs
     int    mInactiveFdsCleanupIntervalSecs;
     time_t mNextInactiveFdCleanupTime;
+    int    mInactiveFdFullScanIntervalSecs;
+    time_t mNextInactiveFdFullScanTime;
 
     int mReadChecksumMismatchMaxRetryCount;
     bool mAbortOnChecksumMismatchFlag; // For debugging
