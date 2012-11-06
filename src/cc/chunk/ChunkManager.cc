@@ -238,7 +238,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         startCount++;
         readCounters.Reset();
         writeCounters.Reset();
-        chunkDirInfoOp.Enqueue();
+        const bool kResetLastCountersFlag = true;
+        chunkDirInfoOp.Enqueue(kResetLastCountersFlag);
         NotifyAvailableChunksStart();
     }
     void SetEvacuateStarted()
@@ -340,6 +341,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             : KfsOp(CMD_CHUNKDIR_INFO, 0),
               mChunkDir(chunkDir),
               mInFlightFlag(false),
+              mResetCountersFlag(false),
               mLastSent(globalNetManager().Now()),
               mLastReadCounters(),
               mLastWriteCounters()
@@ -354,8 +356,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 die("ChunkDirInfoOp: attempt to delete in flight op");
             }
         }
-        void Enqueue()
+        void Enqueue(bool resetCountersFlag = false)
         {
+            mResetCountersFlag = mResetCountersFlag || resetCountersFlag;
             if (mInFlightFlag) {
                 return;
             }
@@ -365,6 +368,12 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         void Request(
             ostream& inStream)
         {
+            if (mResetCountersFlag) {
+                mLastReadCounters.Reset();
+                mLastWriteCounters.Reset();
+                mResetCountersFlag = false;
+            }
+
             const time_t now              = globalNetManager().Now();
             const double avgTimeInterval  = max(0.5, (double)(now - mLastSent));
             const double oneOverTime      = 1.0 / avgTimeInterval;
@@ -459,6 +468,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     private:
         const ChunkDirInfo& mChunkDir;
         bool                mInFlightFlag;
+        bool                mResetCountersFlag;
         time_t              mLastSent;
         Counters            mLastReadCounters;
         Counters            mLastWriteCounters;
