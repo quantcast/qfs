@@ -341,10 +341,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
               mChunkDir(chunkDir),
               mInFlightFlag(false),
               mLastSent(globalNetManager().Now()),
-              mLastReadTimeMicrosec(0),
-              mLastReadErrTimeMicrosec(0),
-              mLastWriteTimeMicrosec(0),
-              mLastWriteErrTimeMicrosec(0)
+              mLastReadCounters(),
+              mLastWriteCounters()
         {
             noReply = true;
             noRetry = true;
@@ -399,20 +397,32 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             "Evacuate-in-flight: " << mChunkDir.evacuateInFlightCount  << "\r\n"
             "Read-time-pct: " << timeUtilMicroPct * max(int64_t(0),
                 mChunkDir.readCounters.mTimeMicrosec -
-                mLastReadTimeMicrosec) << "\r\n"
+                mLastReadCounters.mTimeMicrosec) << "\r\n"
             "Read-err-time-pct: " << timeUtilMicroPct * max(int64_t(0),
                 mChunkDir.readCounters.mErrorTimeMicrosec -
-                mLastReadErrTimeMicrosec) << "\r\n"
+                mLastReadCounters.mErrorTimeMicrosec) << "\r\n"
             "Write-time-pct: " << timeUtilMicroPct * max(int64_t(0),
                 mChunkDir.writeCounters.mTimeMicrosec -
-                mLastWriteTimeMicrosec) << "\r\n"
+                mLastWriteCounters.mTimeMicrosec) << "\r\n"
             "Write-err-time-pct: " << timeUtilMicroPct * max(int64_t(0),
                 mChunkDir.writeCounters.mErrorTimeMicrosec -
-                mLastWriteErrTimeMicrosec) << "\r\n"
+                mLastWriteCounters.mErrorTimeMicrosec) << "\r\n"
             "Read-io-rate: " <<
-                mChunkDir.readCounters.mIoCount * oneOverTime << "\r\n" <<
+                (mChunkDir.readCounters.mIoCount -
+                mLastReadCounters.mIoCount) * oneOverTime << "\r\n" <<
             "Write-io-rate: " <<
-                mChunkDir.writeCounters.mIoCount * oneOverTime << "\r\n" <<
+                (mChunkDir.writeCounters.mIoCount -
+                mLastWriteCounters.mIoCount) * oneOverTime << "\r\n" <<
+            "Avg-read-io-bytes: " <<
+                (mChunkDir.readCounters.mByteCount -
+                    mLastReadCounters.mByteCount) /
+                max(Counters::Counter(1), mChunkDir.readCounters.mIoCount -
+                    mLastReadCounters.mIoCount) << "\r\n" <<
+            "Avg-write-io-bytes: " <<
+                (mChunkDir.writeCounters.mByteCount -
+                    mLastWriteCounters.mByteCount) /
+                max(Counters::Counter(1), mChunkDir.writeCounters.mIoCount -
+                    mLastWriteCounters.mIoCount) << "\r\n" <<
             "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
             "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
                 "\r\n"
@@ -427,12 +437,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 "Total-write-", "\r\n", inStream);
             inStream << "\r\n";
 
-            mLastSent                 = now;
-            mLastReadTimeMicrosec     = mChunkDir.readCounters.mTimeMicrosec;
-            mLastReadErrTimeMicrosec  = mChunkDir.readCounters.mErrorTimeMicrosec;
-            mLastWriteTimeMicrosec    = mChunkDir.writeCounters.mTimeMicrosec;
-            mLastWriteErrTimeMicrosec = mChunkDir.writeCounters.mErrorTimeMicrosec;
-
+            mLastSent         = now;
+            mLastReadCounters = mChunkDir.readCounters;
+            mLastReadCounters = mChunkDir.writeCounters;
         }
         // To be called whenever we get a reply from the server
         int HandleDone(int code, void* data)
@@ -453,10 +460,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         const ChunkDirInfo& mChunkDir;
         bool                mInFlightFlag;
         time_t              mLastSent;
-        int64_t             mLastReadTimeMicrosec;
-        int64_t             mLastReadErrTimeMicrosec;
-        int64_t             mLastWriteTimeMicrosec;
-        int64_t             mLastWriteErrTimeMicrosec;
+        Counters            mLastReadCounters;
+        Counters            mLastWriteCounters;
     };
 
     string                 dirname;
