@@ -428,8 +428,6 @@ ReadOp::HandleDone(int code, void *data)
         }
         assert(size_t((numBytesIO + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE) ==
             checksum.size());
-        // send the disk IO time back to client for telemetry reporting
-        diskIOTime = microseconds() - startTime;
     }
 
     if (wop) {

@@ -1315,8 +1315,10 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
                 }
             }
         } else {
+            const int64_t nowUsec = microseconds();
             WriteStats(status, ChunkHeaderBuffer::GetSize(), max(int64_t(0),
-                microseconds() - mWriteMetaOpsHead->diskIOTime));
+                nowUsec - mWriteMetaOpsHead->diskIOTime));
+            mWriteMetaOpsHead->diskIOTime = nowUsec; 
         }
         WriteChunkMetaOp* const cur = mWriteMetaOpsHead;
         mWriteMetaOpsHead = cur->next;
@@ -3111,6 +3113,7 @@ ChunkManager::WriteDone(WriteOp* op)
         KFS_LOG_EOM;
         return;
     }
+    op->diskIOTime = max(int64_t(1), microseconds() - op->diskIOTime);
     cih->WriteDone(op);
 }
 
