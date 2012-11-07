@@ -446,9 +446,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 "Total-write-", "\r\n", inStream);
             inStream << "\r\n";
 
-            mLastSent         = now;
-            mLastReadCounters = mChunkDir.readCounters;
-            mLastReadCounters = mChunkDir.writeCounters;
+            mLastSent          = now;
+            mLastReadCounters  = mChunkDir.readCounters;
+            mLastWriteCounters = mChunkDir.writeCounters;
         }
         // To be called whenever we get a reply from the server
         int HandleDone(int code, void* data)
