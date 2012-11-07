@@ -2227,7 +2227,7 @@ struct MetaGetChunkServersCounters : public MetaRequest {
     virtual void response(ostream &os, IOBuffer& buf);
     virtual string Show() const
     {
-        return string("get chunk servers counters ");
+        return string("get chunk servers counters");
     }
     bool Validate()
     {
@@ -2255,7 +2255,7 @@ struct MetaGetChunkServerDirsCounters : public MetaRequest {
     virtual void response(ostream &os, IOBuffer& buf);
     virtual string Show() const
     {
-        return string("get chunk servers counters ");
+        return string("get chunk servers dir counters");
     }
     bool Validate()
     {
