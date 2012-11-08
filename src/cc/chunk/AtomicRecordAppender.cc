@@ -2609,7 +2609,7 @@ AtomicRecordAppender::SendCommitAck()
 
 AtomicRecordAppendManager::AtomicRecordAppendManager()
     : mAppenders(),
-      mCleanUpSec(4 * 60),
+      mCleanUpSec(LEASE_INTERVAL_SECS + 60),
       mCloseEmptyWidStateSec(60),
       mFlushIntervalSec(60),
       mSendCommitAckTimeoutSec(2),
