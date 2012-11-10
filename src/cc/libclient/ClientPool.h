@@ -32,6 +32,7 @@
 
 #include <map>
 #include <utility>
+#include <sstream>
 
 namespace KFS
 {
@@ -41,6 +42,8 @@ using std::pair;
 using std::make_pair;
 using std::map;
 using std::less;
+using std::ostringstream;
+using std::string;
 
 // Client connection (KfsNetClient) pool. Used to reduce number of chunk
 // server connections. Presently used only with radix sort with write append
@@ -90,6 +93,12 @@ public:
     {
         Clients::iterator it = mClients.find(inLocation);
         if (it == mClients.end()) {
+            ostringstream theStream;
+            theStream <<
+                (mLogPrefixPtr ? mLogPrefixPtr : "") <<
+                (mLogPrefixPtr ? ":"           : "") <<
+                inLocation.hostname << ":" << inLocation.port;
+            const string thePrefix = theStream.str();
             it = mClients.insert(make_pair(inLocation, new KfsNetClient(
                 mNetManager,
                 inLocation.hostname,
@@ -99,7 +108,7 @@ public:
                 mOpTimeoutSec,
                 mIdleTimeoutSec,
                 mInitialSeqNum++,
-                mLogPrefixPtr,
+                thePrefix.c_str(),
                 mResetConnectionOnOpTimeoutFlag,
                 mMaxContentLength,
                 mFailAllOpsOnOpTimeoutFlag,
