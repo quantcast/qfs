@@ -970,8 +970,7 @@ private:
             if (&theEntry == mInFlightOpPtr) {
                 CancelInFlightOp();
             }
-            if (mResetConnectionOnOpTimeoutFlag &&
-                    theStIt == mQueueStack.end()) {
+            if (mResetConnectionOnOpTimeoutFlag) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
                     "op timed out: seq: "  << theEntry.mOpPtr->seq <<
                     " "                    << theEntry.mOpPtr->Show() <<
@@ -985,14 +984,14 @@ private:
                 // one.
                 Reset();
                 if (mFailAllOpsOnOpTimeoutFlag) {
-                    // Restart from the first op, and go until the end.
-                    theIt         = mPendingOpQueue.begin();
-                    theExpireTime =
-                        max(theNow, mPendingOpQueue.rbegin()->second.mTime) + 1;
-                } else {
-                    HandleSingleOpTimeout(theIt);
-                    return;
+                    // Fail all ops.
+                    assert(! mOutstandingOpPtr && ! mInFlightOpPtr);
+                    theStIt = mQueueStack.insert(mQueueStack.end(), OpQueue());
+                    theStIt->swap(mPendingOpQueue);
+                    break;
                 }
+                HandleSingleOpTimeout(theIt);
+                return;
             }
             if (theStIt == mQueueStack.end()) {
                 theStIt = mQueueStack.insert(mQueueStack.end(), OpQueue());
