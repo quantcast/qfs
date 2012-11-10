@@ -124,14 +124,25 @@ public:
         bool inFailAllOpsOnOpTimeoutFlag)
     {
         if (! mMaxOneOutstandingOpFlag) {
+            if (mFailAllOpsOnOpTimeoutFlag == inFailAllOpsOnOpTimeoutFlag) {
+                return;
+            }
+            mFailAllOpsOnOpTimeoutFlag = inFailAllOpsOnOpTimeoutFlag;
+            for (Clients::const_iterator theIt = mClients.begin();
+                    theIt != mClients.end();
+                    ++theIt) {
+                theIt->second->SetFailAllOpsOnOpTimeoutFlag(
+                    mFailAllOpsOnOpTimeoutFlag);
+            }
             return;
         }
-        mMaxOneOutstandingOpFlag = false;
+        mMaxOneOutstandingOpFlag   = false;
+        mFailAllOpsOnOpTimeoutFlag = inFailAllOpsOnOpTimeoutFlag;
         for (Clients::const_iterator theIt = mClients.begin();
                 theIt != mClients.end();
                 ++theIt) {
             theIt->second->SetFailAllOpsOnOpTimeoutFlag(
-                inFailAllOpsOnOpTimeoutFlag);
+                mFailAllOpsOnOpTimeoutFlag);
             theIt->second->ClearMaxOneOutstandingOpFlag();
         }
     }
