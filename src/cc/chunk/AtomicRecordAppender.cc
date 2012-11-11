@@ -2135,10 +2135,13 @@ AtomicRecordAppender::OpDone(ReadOp* op)
                 mChunkSize = -1;
                 SetState(kStateChunkLost);
             } else {
-                op->dataBuf->ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
-                info->chunkBlockChecksum[OffsetToChecksumBlockNum(newSize)] =
+                if (newSize > 0) {
+                    op->dataBuf->ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
+                    info->chunkBlockChecksum[
+                        OffsetToChecksumBlockNum(newSize)] =
                     ComputeBlockChecksum(op->dataBuf,
                         op->dataBuf->BytesConsumable());
+                }
                 // Truncation done, set the new size.
                 gChunkManager.SetChunkSize(*info, newSize);
                 mNextWriteOffset = newSize;
