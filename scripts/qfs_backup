@@ -121,8 +121,8 @@ def get_checkpoints(checkpoint_dir):
     checkpoints = []
     for file in os.listdir(checkpoint_dir):
         if file.startswith('chkpt'):
-            parts = file.split('.')
-            if len(parts) == 2:
+            checkpoint_number = find_checkpoint_number(file)
+            if checkpoint_number:
                 checkpoints.append(os.path.join(checkpoint_dir, file))
 
     checkpoints.sort(cmp_files, reverse=True)
