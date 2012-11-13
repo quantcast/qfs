@@ -118,7 +118,19 @@ Connect(const string& metaServerHost, int metaServerPort)
 string
 ErrorCodeToStr(int status)
 {
-    return (status == 0 ? string() : QCUtils::SysError(-status));
+    switch (-status) {
+        case EBADVERS:        return "version mismatch";
+        case ELEASEEXPIRED:   return "lease has expired";
+        case EBADCKSUM:       return "checksum mismatch";
+        case EDATAUNAVAIL:    return "data not available";
+        case ESERVERBUSY:     return "server busy";
+        case EALLOCFAILED:    return "chunk allocation failed";
+        case EBADCLUSTERKEY:  return "cluster key mismatch";
+        case EINVALCHUNKSIZE: return "invalid chunk size";
+        case 0:               return "";
+        default:              break;
+    }
+    return QCUtils::SysError(-status);
 }
 
 static inline kfsSeq_t
