@@ -37,6 +37,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
+#include "common/kfserrno.h"
 
 #include <unistd.h>
 #include <sys/socket.h>
@@ -479,7 +480,10 @@ MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
     iobuf->Consume(msgLen);
 
     const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);
-    const int      status = prop.getValue("Status",          -1);
+    int            status = prop.getValue("Status",          -1);
+    if (status < 0) {
+        status = -KfsToSysErrno(-status);
+    }
     if (mHelloOp) {
         if (status == -EBADCLUSTERKEY) {
             KFS_LOG_STREAM_FATAL <<

@@ -32,6 +32,7 @@
 #include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 
 #include <openssl/rand.h>
 
@@ -1130,6 +1131,9 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     mLastHeard = TimeNow();
     op->statusMsg = prop.getValue("Status-message", "");
     op->status    = prop.getValue("Status",         -1);
+    if (op->status < 0) {
+        op->status = -KfsToSysErrno(op->status);
+    }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
         mTotalSpace        = prop.getValue("Total-space",           int64_t(0));

@@ -38,6 +38,7 @@
 
 #include "kfsio/checksum.h"
 #include "common/RequestParser.h"
+#include "common/kfserrno.h"
 #include "utils.h"
 
 namespace KFS
@@ -639,6 +640,9 @@ GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
     chunkVersion        = prop.getValue("Chunk-version",               (int64_t)-1);
     opSeq               = prop.getValue("Op-seq",                      (int64_t)-1);
     opStatus            = prop.getValue("Op-status",                   -1);
+    if (opStatus < 0) {
+        opStatus = -KfsToSysErrno(-opStatus);
+    }
     opOffset            = prop.getValue("Op-offset",                   (int64_t)-1);
     opLength            = (size_t)prop.getValue("Op-length",           (uint64_t)0);
     widAppendCount      = (size_t)prop.getValue("Wid-append-count",    (uint64_t)0);
@@ -681,6 +685,9 @@ KfsOp::ParseResponseHeader(const Properties& prop)
 {
     // kfsSeq_t resSeq = prop.getValue("Cseq", (kfsSeq_t) -1);
     status = prop.getValue("Status", -1);
+    if (status < 0) {
+        status = -KfsToSysErrno(-status);
+    }
     contentLength = prop.getValue("Content-length", 0);
     statusMsg = prop.getValue("Status-message", string());
     ParseResponseHeaderSelf(prop);

@@ -29,9 +29,9 @@
 #include "ChunkServer.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
-
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
+#include "common/kfserrno.h"
 
 #include <cerrno>
 #include <sstream>
@@ -335,6 +335,9 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         KfsOp* const op = i != mDispatchedOps.end() ? i->second : 0;
         if (op) {
             op->status = prop.getValue("Status", -1);
+            if (op->status < 0) {
+                op->status = -KfsToSysErrno(-op->status);
+            }
             if (op->op == CMD_WRITE_ID_ALLOC) {
                 WriteIdAllocOp *wiao = static_cast<WriteIdAllocOp *>(op);
                 wiao->writeIdStr            = prop.getValue("Write-id", "");

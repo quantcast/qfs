@@ -44,6 +44,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "common/time.h"
+#include "common/kfserrno.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -138,7 +139,8 @@ OkHeader(const MetaRequest* op, ostream &os, bool checkStatus = true)
     }
     os <<
         "\r\n"
-        "Status: " << op->status << "\r\n"
+        "Status: " << (op->status >= 0 ? op->status :
+            -SysToKfsErrno(-op->status)) << "\r\n"
     ;
     if (! op->statusMsg.empty()) {
         const size_t p = op->statusMsg.find('\r');

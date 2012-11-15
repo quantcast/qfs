@@ -35,6 +35,7 @@ set (lib_src
     RequestParser.cc
     rusage.cc
     nofilelimit.cc
+    kfserrno.cc
 )
 
 # for the version file
