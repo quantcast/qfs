@@ -90,8 +90,8 @@ public:
                     theLogLevel = MsgLogger::kLogLevelDEBUG;
                     break;
                 default:
-                    cout << "Unrecognized option : " << char(theOpt) << "\n";
-                    theHelpFlag = true;
+                    // cout << "Unrecognized option : " << char(theOpt) << "\n";
+                    // theHelpFlag = true;
                     break;
             }
         }
@@ -137,6 +137,8 @@ public:
                 const bool      kCreateAllFlag = true;
                 theErr = Mkdir(inArgsPtr + optind + 1, inArgCount - optind - 1,
                     kCreateMode, kCreateAllFlag);
+            } else if (strcmp(theCmdPtr, "-cp") == 0) {
+                theErr = Copy(inArgsPtr + optind + 1, inArgCount - optind - 1);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -551,7 +553,7 @@ private:
               mStopOnErrorFlag(inStopOnErrorFlag),
               mStatus(0)
             {}
-        int operator()(
+        virtual int operator()(
             const string& inPath,
             int           inStatus)
         {
@@ -580,7 +582,8 @@ private:
             {}
         bool operator()(
             int&              /* ioGlobError */,
-            const GlobResult& /* inGlobResult */)
+            const GlobResult& /* inGlobResult */,
+            ostream&          /* inErrorStream */)
             { return true; }
     private:
         DefaultInitFunctor(
@@ -607,7 +610,7 @@ private:
             int&        ioGlobError,
             GlobResult& inGlobResult)
         {
-            return mInitFunctor(ioGlobError, inGlobResult);
+            return mInitFunctor(ioGlobError, inGlobResult, mErrorStream);
         }
         bool Apply(
             FileSystem&   inFs,
@@ -746,70 +749,151 @@ private:
         FunctorT<MkdirFunctor> theFunc(theMkdirFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    template<bool TDestDirFlag = false, bool TDestDirDestFlag = false>
     class GetGlobLastEntry
     {
     public:
         GetGlobLastEntry()
             : mFsPtr(0),
-              mPathName()
+              mPathName(),
+              mDirFlag(false)
             {}
         bool operator()(
             int&        ioGlobError,
-            GlobResult& inGlobResult)
+            GlobResult& inGlobResult,
+            ostream&    inErrorStream)
         {
             if (inGlobResult.size() <= 1 &&
                     inGlobResult.back().second.size() <= 1) {
+                inErrorStream << "two or more arguments required\n";
                 ioGlobError = -EINVAL;
                 return false;
             }
-            mFsPtr    = inGlobResult.back().first;
+            mFsPtr = inGlobResult.back().first;
+            if (! mFsPtr) {
+                inErrorStream << "internal error: null fs\n";
+                ioGlobError = -EINVAL;
+                return false;
+            }
             mPathName = inGlobResult.back().second.back();
             inGlobResult.back().second.pop_back();
+            if (inGlobResult.back().second.empty()) {
+                inGlobResult.pop_back();
+            }
+            if (! TDestDirFlag) {
+                return true;
+            }
+            ErrorReporter theErrReporter(*mFsPtr, inErrorStream);
+            FileSystem::StatBuf theStat;
+            const int theErr = mFsPtr->Stat(mPathName, theStat);
+            if (theErr != 0 && theErr != -ENOENT) {
+                theErrReporter(mPathName, theErr);
+                ioGlobError = theErr;
+                return false;
+            }
+            mDirFlag = theErr == 0 && (theStat.st_mode & S_IFDIR) != 0;
+            if (TDestDirDestFlag && ! mDirFlag &&
+                    (inGlobResult.size() > 1 ||
+                    inGlobResult.back().second.size() > 1)) {
+                ioGlobError = -ENOTDIR;
+                theErrReporter(mPathName, ioGlobError);
+                return false;
+            }
             return true;
         }
         FileSystem* GetFsPtr() const
             { return mFsPtr; }
         const string& GetPathName() const
             { return mPathName; }
+        bool IsDirectory() const
+            { return mDirFlag; }
     private:
         FileSystem* mFsPtr;
         string      mPathName;
+        bool        mDirFlag;
     private:
         GetGlobLastEntry(
             const GetGlobLastEntry& inFunctor);
         GetGlobLastEntry& operator=(
             const GetGlobLastEntry& inFunctor);
     };
+    template<typename TGetGlobLastEntry>
     class CopyFunctor
     {
     public:
         CopyFunctor()
+            : mDestPtr(0),
+              mDestName()
             {}
         int operator()(
             FileSystem&    inFs,
             const string&  inPath,
-            ErrorReporter& /* inErrorReporter */)
+            ErrorReporter& inErrorReporter)
         {
-            // Implement copy.
-            return 1;
+            if (! mDestPtr || inPath.empty()) {
+                return -EINVAL;
+            }
+            if (mDestName.empty()) {
+                mDestName = mDestPtr->GetPathName();
+                if (mDestPtr->IsDirectory()) {
+                    if (! mDestName.empty() && *(mDestName.rbegin()) != '/') {
+                        mDestName += "/";
+                    }
+                }
+            }
+            const size_t theLen = mDestName.length();
+            if (mDestPtr->IsDirectory()) {
+                const char* const theSPtr = inPath.c_str();
+                const char*       thePtr  = theSPtr + inPath.length();
+                while (theSPtr < thePtr && *--thePtr == '/')
+                    {}
+                const char* theEndPtr = thePtr;
+                while (theSPtr < thePtr && thePtr[-1] != '/') {
+                    --thePtr;
+                }
+                if (thePtr < theEndPtr || *thePtr != '/') {
+                    mDestName.append(thePtr, theEndPtr - thePtr + 1);
+                }
+            }
+            const int theStatus = CopySelf(
+                inFs, inPath, *(mDestPtr->GetFsPtr()), mDestName, inErrorReporter);
+            if (theLen < mDestName.length()) {
+                mDestName.resize(theLen);
+            }
+            return theStatus;
         }
+        void SetDest(
+            TGetGlobLastEntry& inDest)
+            { mDestPtr = &inDest; }
+    private:
+        TGetGlobLastEntry* mDestPtr;
+        string             mDestName;
     private:
         CopyFunctor(
             const CopyFunctor& inFunctor);
         CopyFunctor& operator=(
             const CopyFunctor& inFunctor);
     };
+    typedef GetGlobLastEntry<true, true> CopyGetlastEntry;
+    typedef CopyFunctor<CopyGetlastEntry> CpFunctor;
     int Copy(
         char** inArgsPtr,
         int    inArgCount)
     {
-        CopyFunctor theCopyFunc;
-        FunctorT
-        <
-            CopyFunctor,
-            GetGlobLastEntry,
-            true>   theFunc(theCopyFunc, cerr);
+        CpFunctor theCopyFunc;
+        FunctorT<CpFunctor, CopyGetlastEntry, true> theFunc(theCopyFunc, cerr);
+        theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    static int CopySelf(
+        FileSystem&    inSrcFs,
+        const string&  inSrcPath,
+        FileSystem&    inDstFs,
+        const string&  inDstPath,
+        ErrorReporter& inErrorReporter)
+    {
+        cout << inSrcPath << " " << inDstPath << "\n";
+        return 0;
     }
 private:
     size_t mIoBufferSize;
