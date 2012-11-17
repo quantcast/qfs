@@ -606,7 +606,8 @@ private:
     template<
         typename T,
         typename TInit            = DefaultInitFunctor,
-        bool     TStopIfErrorFlag = false
+        bool     TStopIfErrorFlag = false,
+        bool     TReportErrorFlag = true
     > class FunctorT
     {
     public:
@@ -630,7 +631,7 @@ private:
         {
             ErrorReporter theErrorReporter(inFs, mErrorStream);
             const int     theError = mFunctor(inFs, inPath, theErrorReporter);
-            if (theError != 0) {
+            if (TReportErrorFlag && theError != 0) {
                 theErrorReporter(inPath, theError);
             }
             mStatus = theErrorReporter.GetStatus();
@@ -768,7 +769,8 @@ private:
         GetGlobLastEntry()
             : mFsPtr(0),
               mPathName(),
-              mDirFlag(false)
+              mDirFlag(false),
+              mExistsFlag(false)
             {}
         bool operator()(
             int&        ioGlobError,
@@ -803,7 +805,8 @@ private:
                 ioGlobError = theErr;
                 return false;
             }
-            mDirFlag = theErr == 0 && (theStat.st_mode & S_IFDIR) != 0;
+            mExistsFlag = theErr == 0;
+            mDirFlag    = theErr == 0 && (theStat.st_mode & S_IFDIR) != 0;
             if (TDestDirDestFlag && ! mDirFlag &&
                     (inGlobResult.size() > 1 ||
                     inGlobResult.back().second.size() > 1)) {
@@ -819,10 +822,14 @@ private:
             { return mPathName; }
         bool IsDirectory() const
             { return mDirFlag; }
+        bool Exists() const
+            { return mExistsFlag; }
     private:
         FileSystem* mFsPtr;
         string      mPathName;
         bool        mDirFlag;
+        bool        mExistsFlag;
+        
     private:
         GetGlobLastEntry(
             const GetGlobLastEntry& inFunctor);
@@ -885,6 +892,14 @@ private:
                 inErrorReporter(inPath, "same as destination");
                 return 0;
             }
+            if ((theStat.st_mode & S_IFDIR) != 0 &&
+                    (theStatus = MakeDirIfNeeded(
+                        theDstFs,
+                        mDestName,
+                        theStat.st_mode & (0777 | S_ISVTX)))) {
+                theDstErrorReporter(mDestName, theStatus);
+                return theStatus;
+            }
             theStatus = ((theStat.st_mode & S_IFDIR) == 0) ?
                 CopyFile(inFs, inPath, theDstFs, mDestName,
                     theStat, inErrorReporter, theDstErrorReporter,
@@ -918,7 +933,8 @@ private:
         int    inArgCount)
     {
         CpFunctor theCopyFunc;
-        FunctorT<CpFunctor, CopyGetlastEntry, true> theFunc(theCopyFunc, cerr);
+        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+            theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
@@ -948,6 +964,9 @@ private:
         size_t                     theDstNameLen = 0;
         while ((theStatus = inSrcFs.Next(theDirIt, theName, theStatPtr)) == 0 &&
                 ! theName.empty()) {
+            if (theName == "." || theName == "..") {
+                continue;
+            }
             if (! theStatPtr) {
                 theStatus = -EINVAL;
                 inSrcErrorReporter(inSrcPath, theStatus);
@@ -958,23 +977,12 @@ private:
             theStatPtr = 0;
             SetDirPath(inDstPath, theDstName, theDstNameLen).append(theName);
             if ((theStat.st_mode & S_IFDIR) != 0) {
-                const bool kCreateAllFlag = false;
-                if ((theStatus = inDstFs.Mkdir(
+                if ((theStatus = MakeDirIfNeeded(
+                        inDstFs,
                         theDstName,
-                        (theStat.st_mode & (0777 | S_ISVTX)),
-                        kCreateAllFlag)) != 0) {
-                    FileSystem::StatBuf theStat;
-                    if (theStatus == -EEXIST &&
-                            (theStatus = inDstFs.Stat(
-                                theDstName, theStat)) == 0) {
-                        if ((theStat.st_mode & S_IFDIR) != 0) {
-                            theStatus = -ENOTDIR;
-                        }
-                    }
-                    if (theStatus != 0) {
-                        inDstErrorReporter(theDstName, theStatus);
-                        break;
-                    }
+                        theStat.st_mode & (0777 | S_ISVTX))) != 0) {
+                    inDstErrorReporter(theDstName, theStatus);
+                    break;
                 }
                 if ((theStatus = CopyDir(
                         inSrcFs,
@@ -1020,6 +1028,24 @@ private:
             ioPathName.resize(ioPathNameLen);
         }
         return ioPathName;
+    }
+    static int MakeDirIfNeeded(
+        FileSystem&   inFs,
+        const string& inPath,
+        kfsMode_t     inMode)
+    {
+        const bool kCreateAllFlag = false;
+        int theStatus;
+        if ((theStatus = inFs.Mkdir(inPath, inMode, kCreateAllFlag)) != 0) {
+            FileSystem::StatBuf theStat;
+            if (theStatus == -EEXIST &&
+                    (theStatus = inFs.Stat(inPath, theStat)) == 0) {
+                if ((theStat.st_mode & S_IFDIR) == 0) {
+                    theStatus = -ENOTDIR;
+                }
+            }
+        }
+        return theStatus;
     }
     static int CopyFile(
         FileSystem&                inSrcFs,
@@ -1074,7 +1100,8 @@ private:
             inBufferPtr : new char[theBufSize];
         int theStatus = 0;
         for (ssize_t theTotal = 0; ;) {
-            const ssize_t theNRd = inSrcFs.Read(theSrcFd, theBufPtr, theBufSize);
+            const ssize_t theNRd = inSrcFs.Read(
+                theSrcFd, theBufPtr, theBufSize);
             if (theNRd == 0) {
                 break;
             }
