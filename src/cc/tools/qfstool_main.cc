@@ -40,6 +40,7 @@
 #include <ostream>
 #include <iostream>
 #include <algorithm>
+#include <sstream>
 
 namespace KFS
 {
@@ -53,6 +54,7 @@ using std::vector;
 using std::pair;
 using std::max;
 using std::ostream;
+using std::ostringstream;
 
 class KfsTool
 {
@@ -562,6 +564,14 @@ private:
             mStatus = inStatus;
             return (mStopOnErrorFlag ? inStatus : 0);
         }
+        int operator()(
+            const string& inPath,
+            const char*   inMsgPtr)
+        {
+            mErrorStream << mFs.GetUri() << inPath << ": " <<
+                (inMsgPtr ? inMsgPtr : "") << "\n";
+            return 0;
+        }
         int GetStatus() const
             { return mStatus; }
         ostream& GetErrorStream()
@@ -871,6 +881,10 @@ private:
                 theDstFs,
                 inErrorReporter.GetErrorStream()
             );
+            if (IsSameInode(inFs, inPath, theDstFs, mDestName, &theStat)) {
+                inErrorReporter(inPath, "same as destination");
+                return 0;
+            }
             theStatus = ((theStat.st_mode & S_IFDIR) == 0) ?
                 CopyFile(inFs, inPath, theDstFs, mDestName,
                     theStat, inErrorReporter, theDstErrorReporter,
@@ -890,7 +904,7 @@ private:
     private:
         TGetGlobLastEntry* mDestPtr;
         string             mDestName;
-        const char* const  mBufferPtr;
+        char* const        mBufferPtr;
     private:
         CopyFunctor(
             const CopyFunctor& inFunctor);
@@ -915,7 +929,7 @@ private:
         const string&  inDstPath,
         ErrorReporter& inSrcErrorReporter,
         ErrorReporter& inDstErrorReporter,
-        const char*    inBufferPtr,
+        char*          inBufferPtr,
         size_t         inBufferSize)
     {
         FileSystem::DirIterator* theDirIt             = 0;
@@ -1015,19 +1029,96 @@ private:
         const FileSystem::StatBuf& inSrcStat,
         ErrorReporter&             inSrcErrorReporter,
         ErrorReporter&             inDstErrorReporter,
-        const char*                inBufferPtr,
+        char*                      inBufferPtr,
         size_t                     inBufferSize)
     {
+        if (IsSameInode(inSrcFs, inSrcPath, inDstFs, inDstPath, &inSrcStat)) {
+            inSrcErrorReporter(inSrcPath, "same as destination");
+            return 0;
+        }
+        const int theSrcFd = inSrcFs.Open(inSrcPath, O_RDONLY, 0, 0);
+        if (theSrcFd < 0) {
+            inSrcErrorReporter(inSrcPath, theSrcFd);
+            return theSrcFd;
+        }
+        string theCreateParams;
+        if (inSrcStat.mNumReplicas > 0) {
+            ostringstream theStream;
+            theStream << inSrcStat.mNumReplicas;
+            if (inSrcStat.mNumStripes > 0) {
+                theStream <<
+                    "," << inSrcStat.mNumStripes <<
+                    "," << inSrcStat.mNumRecoveryStripes <<
+                    "," << inSrcStat.mStripeSize <<
+                    "," << inSrcStat.mStriperType;
+                
+            }
+            theCreateParams = theStream.str();
+        } else {
+            theCreateParams = "S";
+        }
+        const int theDstFd = inDstFs.Open(
+            inDstPath,
+            O_WRONLY | O_TRUNC | O_CREAT,
+            inSrcStat.st_mode & (0777 | S_ISVTX),
+            &theCreateParams
+        );
+        if (theDstFd < 0) {
+            inDstErrorReporter(inDstPath, theDstFd);
+            inSrcFs.Close(theSrcFd);
+            return theDstFd;
+        }
         const size_t theBufSize = (inBufferSize <= 0) ?
             (6 << 20) : inBufferSize;
-        const char*  theBufPtr  = (inBufferPtr && inBufferSize > 0) ?
+        char* const  theBufPtr  = (inBufferPtr && inBufferSize > 0) ?
             inBufferPtr : new char[theBufSize];
-        
+        int theStatus = 0;
+        for (ssize_t theTotal = 0; ;) {
+            const ssize_t theNRd = inSrcFs.Read(theSrcFd, theBufPtr, theBufSize);
+            if (theNRd == 0) {
+                break;
+            }
+            if (theNRd < 0) {
+                theStatus = (int)theNRd;
+                inSrcErrorReporter(inSrcPath, theStatus);
+                break;
+            }
+            const ssize_t theNWr = inDstFs.Write(theDstFd, theBufPtr, theNRd);
+            if (theNWr != theNRd) {
+                theStatus = theNWr < 0 ? (int)theNWr : -EINVAL;
+                inDstErrorReporter(inDstPath, theStatus);
+                break;
+            }
+            theTotal += theNRd;
+            if (theNWr < theBufSize && theTotal >= inSrcStat.st_size) {
+                break;
+            }
+        }
+        const int theCloseStatus = inDstFs.Close(theDstFd);
+        if (theCloseStatus < 0 && theStatus == 0) {
+            theStatus = theCloseStatus;
+            inDstErrorReporter(inDstPath, theStatus);
+        }
+        const int theCloseSrcStatus = inSrcFs.Close(theSrcFd);
+        if (theCloseSrcStatus < 0 && theStatus == 0) {
+            theStatus = theCloseSrcStatus;
+            inSrcErrorReporter(inDstPath, theStatus);
+        }
         if (theBufPtr != inBufferPtr) {
             delete [] theBufPtr;
         }
-        cout << inSrcPath << " " << inDstPath << "\n";
-        return -1;
+        return theStatus;
+    }
+    static bool IsSameInode(
+        FileSystem&                inSrcFs,
+        const string&              inSrcPath,
+        FileSystem&                inDstFs,
+        const string&              inDstPath,
+        const FileSystem::StatBuf* inSrcStatPtr)
+    {
+        // FIXME
+        return (&inSrcFs == &inDstFs &&
+            inSrcPath == inDstPath);
     }
 private:
     size_t mIoBufferSize;
