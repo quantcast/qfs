@@ -564,6 +564,8 @@ private:
         }
         int GetStatus() const
             { return mStatus; }
+        ostream& GetErrorStream()
+            { return mErrorStream; }
     private:
         FileSystem& mFs;
         ostream&    mErrorStream;
@@ -821,10 +823,14 @@ private:
     class CopyFunctor
     {
     public:
+        enum { kBufferSize = 6 << 20 };
         CopyFunctor()
             : mDestPtr(0),
-              mDestName()
+              mDestName(),
+              mBufferPtr(new char[kBufferSize])
             {}
+        ~CopyFunctor()
+            { delete [] mBufferPtr; }
         int operator()(
             FileSystem&    inFs,
             const string&  inPath,
@@ -855,8 +861,24 @@ private:
                     mDestName.append(thePtr, theEndPtr - thePtr + 1);
                 }
             }
-            const int theStatus = CopySelf(
-                inFs, inPath, *(mDestPtr->GetFsPtr()), mDestName, inErrorReporter);
+            FileSystem::StatBuf theStat;
+            int theStatus = inFs.Stat(inPath, theStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
+            ErrorReporter theDstErrorReporter(
+                theDstFs,
+                inErrorReporter.GetErrorStream()
+            );
+            theStatus = ((theStat.st_mode & S_IFDIR) == 0) ?
+                CopyFile(inFs, inPath, theDstFs, mDestName,
+                    theStat, inErrorReporter, theDstErrorReporter,
+                    mBufferPtr, kBufferSize)
+                :
+                CopyDir(inFs, inPath, theDstFs, mDestName,
+                    inErrorReporter, theDstErrorReporter,
+                    mBufferPtr, kBufferSize);
             if (theLen < mDestName.length()) {
                 mDestName.resize(theLen);
             }
@@ -868,6 +890,7 @@ private:
     private:
         TGetGlobLastEntry* mDestPtr;
         string             mDestName;
+        const char* const  mBufferPtr;
     private:
         CopyFunctor(
             const CopyFunctor& inFunctor);
@@ -885,15 +908,126 @@ private:
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
-    static int CopySelf(
+    static int CopyDir(
         FileSystem&    inSrcFs,
         const string&  inSrcPath,
         FileSystem&    inDstFs,
         const string&  inDstPath,
-        ErrorReporter& inErrorReporter)
+        ErrorReporter& inSrcErrorReporter,
+        ErrorReporter& inDstErrorReporter,
+        const char*    inBufferPtr,
+        size_t         inBufferSize)
     {
+        FileSystem::DirIterator* theDirIt             = 0;
+        const bool               kFetchAttributesFlag = true;
+        int                      theStatus            =
+            inSrcFs.Open(inSrcPath, kFetchAttributesFlag, theDirIt);
+        if (theStatus != 0) {
+            inSrcErrorReporter(inSrcPath, theStatus);
+            return theStatus;
+        }
+        string                     theName;
+        string                     theSrcName;
+        string                     theDstName;
+        const FileSystem::StatBuf* theStatPtr = 0;
+        size_t                     theSrcNameLen = 0;
+        size_t                     theDstNameLen = 0;
+        while ((theStatus = inSrcFs.Next(theDirIt, theName, theStatPtr)) == 0 &&
+                ! theName.empty()) {
+            if (! theStatPtr) {
+                theStatus = -EINVAL;
+                inSrcErrorReporter(inSrcPath, theStatus);
+                break;
+            }
+            SetDirPath(inSrcPath, theSrcName, theSrcNameLen).append(theName);
+            const FileSystem::StatBuf& theStat = *theStatPtr;
+            theStatPtr = 0;
+            SetDirPath(inDstPath, theDstName, theDstNameLen).append(theName);
+            if ((theStat.st_mode & S_IFDIR) != 0) {
+                const bool kCreateAllFlag = false;
+                if ((theStatus = inDstFs.Mkdir(
+                        theDstName,
+                        (theStat.st_mode & (0777 | S_ISVTX)),
+                        kCreateAllFlag)) != 0) {
+                    FileSystem::StatBuf theStat;
+                    if (theStatus == -EEXIST &&
+                            (theStatus = inDstFs.Stat(
+                                theDstName, theStat)) == 0) {
+                        if ((theStat.st_mode & S_IFDIR) != 0) {
+                            theStatus = -ENOTDIR;
+                        }
+                    }
+                    if (theStatus != 0) {
+                        inDstErrorReporter(theDstName, theStatus);
+                        break;
+                    }
+                }
+                if ((theStatus = CopyDir(
+                        inSrcFs,
+                        theSrcName,
+                        inDstFs,
+                        theDstName,
+                        inSrcErrorReporter,
+                        inSrcErrorReporter,
+                        inBufferPtr,
+                        inBufferSize)) != 0) {
+                    break;
+                }
+            } else {
+                if ((theStatus = CopyFile(
+                        inSrcFs,
+                        theSrcName,
+                        inDstFs,
+                        theDstName,
+                        theStat,
+                        inSrcErrorReporter,
+                        inSrcErrorReporter,
+                        inBufferPtr,
+                        inBufferSize)) != 0) {
+                    break;
+                }
+            }
+        }
+        inSrcFs.Close(theDirIt);
+        return theStatus;
+    }
+    static string& SetDirPath(
+        const string& inPath,
+        string&       ioPathName,
+        size_t&       ioPathNameLen)
+    {   
+        if (ioPathNameLen <= 0) {
+            ioPathName.assign(inPath.data(), inPath.size());
+            if (! ioPathName.empty() && *ioPathName.rbegin() != '/') {
+                ioPathName.push_back((char)'/');
+            }
+            ioPathNameLen = ioPathName.length();
+        } else {
+            ioPathName.resize(ioPathNameLen);
+        }
+        return ioPathName;
+    }
+    static int CopyFile(
+        FileSystem&                inSrcFs,
+        const string&              inSrcPath,
+        FileSystem&                inDstFs,
+        const string&              inDstPath,
+        const FileSystem::StatBuf& inSrcStat,
+        ErrorReporter&             inSrcErrorReporter,
+        ErrorReporter&             inDstErrorReporter,
+        const char*                inBufferPtr,
+        size_t                     inBufferSize)
+    {
+        const size_t theBufSize = (inBufferSize <= 0) ?
+            (6 << 20) : inBufferSize;
+        const char*  theBufPtr  = (inBufferPtr && inBufferSize > 0) ?
+            inBufferPtr : new char[theBufSize];
+        
+        if (theBufPtr != inBufferPtr) {
+            delete [] theBufPtr;
+        }
         cout << inSrcPath << " " << inDstPath << "\n";
-        return 0;
+        return -1;
     }
 private:
     size_t mIoBufferSize;
