@@ -798,15 +798,14 @@ private:
                 return true;
             }
             ErrorReporter theErrReporter(*mFsPtr, inErrorStream);
-            FileSystem::StatBuf theStat;
-            const int theErr = mFsPtr->Stat(mPathName, theStat);
+            const int theErr = mFsPtr->Stat(mPathName, mStat);
             if (theErr != 0 && theErr != -ENOENT) {
                 theErrReporter(mPathName, theErr);
                 ioGlobError = theErr;
                 return false;
             }
             mExistsFlag = theErr == 0;
-            mDirFlag    = theErr == 0 && (theStat.st_mode & S_IFDIR) != 0;
+            mDirFlag    = theErr == 0 && (mStat.st_mode & S_IFDIR) != 0;
             if (TDestDirDestFlag && ! mDirFlag &&
                     (inGlobResult.size() > 1 ||
                     inGlobResult.back().second.size() > 1)) {
@@ -824,11 +823,14 @@ private:
             { return mDirFlag; }
         bool Exists() const
             { return mExistsFlag; }
+        const FileSystem::StatBuf& GetStat() const
+            { return mStat; }
     private:
-        FileSystem* mFsPtr;
-        string      mPathName;
-        bool        mDirFlag;
-        bool        mExistsFlag;
+        FileSystem*         mFsPtr;
+        string              mPathName;
+        FileSystem::StatBuf mStat;
+        bool                mDirFlag;
+        bool                mExistsFlag;
         
     private:
         GetGlobLastEntry(
@@ -856,6 +858,17 @@ private:
             if (! mDestPtr || inPath.empty()) {
                 return -EINVAL;
             }
+            FileSystem::StatBuf theStat;
+            int theStatus = inFs.Stat(inPath, theStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
+            if (IsSameInode(inFs, inPath, theDstFs, mDestPtr->GetPathName(), &theStat,
+                    mDestPtr->Exists() ? &(mDestPtr->GetStat()) : 0)) {
+                inErrorReporter(inPath, "is identical to destination not copied");
+                return 0;
+            }
             if (mDestName.empty()) {
                 mDestName = mDestPtr->GetPathName();
                 if (mDestPtr->IsDirectory()) {
@@ -878,20 +891,10 @@ private:
                     mDestName.append(thePtr, theEndPtr - thePtr + 1);
                 }
             }
-            FileSystem::StatBuf theStat;
-            int theStatus = inFs.Stat(inPath, theStat);
-            if (theStatus != 0) {
-                return theStatus;
-            }
-            FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
             ErrorReporter theDstErrorReporter(
                 theDstFs,
                 inErrorReporter.GetErrorStream()
             );
-            if (IsSameInode(inFs, inPath, theDstFs, mDestName, &theStat)) {
-                inErrorReporter(inPath, "same as destination");
-                return 0;
-            }
             if ((theStat.st_mode & S_IFDIR) != 0 &&
                     (theStatus = MakeDirIfNeeded(
                         theDstFs,
@@ -1110,14 +1113,28 @@ private:
                 inSrcErrorReporter(inSrcPath, theStatus);
                 break;
             }
-            const ssize_t theNWr = inDstFs.Write(theDstFd, theBufPtr, theNRd);
-            if (theNWr != theNRd) {
-                theStatus = theNWr < 0 ? (int)theNWr : -EINVAL;
-                inDstErrorReporter(inDstPath, theStatus);
+            // The following for loop is to support "non regular" files.
+            // For example pipes / sockets.
+            for (const char* thePtr = theBufPtr,
+                        * const theEndPtr = thePtr + theNRd;
+                    thePtr < theEndPtr;
+                    ) {
+                const ssize_t theNWr = inDstFs.Write(
+                    theDstFd, thePtr, theEndPtr - thePtr);
+                if (theNWr < 0) {
+                    theStatus = (int)theNWr;
+                    inDstErrorReporter(inDstPath, theStatus);
+                    break;
+                }
+                thePtr += theNWr;
+            }
+            if (theStatus != 0) {
                 break;
             }
             theTotal += theNRd;
-            if (theNWr < theBufSize && theTotal >= inSrcStat.st_size) {
+            if ((inSrcStat.st_mode & S_IFREG) != 0 &&
+                    theNRd < (ssize_t)theBufSize &&
+                    theTotal >= inSrcStat.st_size) {
                 break;
             }
         }
@@ -1141,11 +1158,33 @@ private:
         const string&              inSrcPath,
         FileSystem&                inDstFs,
         const string&              inDstPath,
-        const FileSystem::StatBuf* inSrcStatPtr)
+        const FileSystem::StatBuf* inSrcStatPtr = 0,
+        const FileSystem::StatBuf* inDstStatPtr = 0)
     {
-        // FIXME
-        return (&inSrcFs == &inDstFs &&
-            inSrcPath == inDstPath);
+        if (&inSrcFs != &inDstFs && inSrcFs.GetId() != inDstFs.GetId()) {
+            return false;
+        }
+        if (inSrcPath == inDstPath) {
+            return true;
+        }
+        FileSystem::StatBuf theSrcStatBuf;
+        if (! inSrcStatPtr &&
+                inSrcFs.Stat(inSrcPath, theSrcStatBuf) != 0) {
+            return false;
+        }
+        FileSystem::StatBuf theDstStatBuf;
+        if (! inDstStatPtr &&
+                inSrcFs.Stat(inDstPath, theDstStatBuf) != 0) {
+            return false;
+        }
+        const FileSystem::StatBuf& theSrcStat =
+            inSrcStatPtr ? *inSrcStatPtr : theSrcStatBuf;
+        const FileSystem::StatBuf& theDstStat =
+            inDstStatPtr ? *inDstStatPtr : theDstStatBuf;
+        return (
+            theSrcStat.st_dev == theDstStat.st_dev &&
+            theSrcStat.st_ino == theDstStat.st_ino
+        );
     }
 private:
     size_t mIoBufferSize;

@@ -164,7 +164,8 @@ public:
         string&  outGroupName) = 0;
     virtual string StrError(
         int inError) const = 0;
-    virtual string GetUri() const = 0;
+    virtual const string& GetUri() const = 0;
+    virtual const string& GetId() const = 0;
 protected:
     virtual ~FileSystem()
         {}

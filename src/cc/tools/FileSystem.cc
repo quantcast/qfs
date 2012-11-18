@@ -65,8 +65,10 @@ public:
         {}
     virtual ~FileSystemImpl()
         {}
-    virtual string GetUri() const
+    virtual const string& GetUri() const
         { return mUri; }
+    virtual const string& GetId() const
+        { return mUri; } // FIXME
     const string mUri;
 };
 
