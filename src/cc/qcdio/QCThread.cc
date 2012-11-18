@@ -31,6 +31,8 @@
 #include "QCDLList.h"
 #include "qcdebug.h"
 
+#include <limits.h>
+
 #ifdef QC_OS_NAME_LINUX
 #include <sys/types.h>
 #include <sys/syscall.h>
@@ -99,6 +101,13 @@ QCThread::~QCThread()
     QCThread::Join();
 }
 
+const int kMinThreadStackSize =
+#ifdef PTHREAD_STACK_MIN
+    PTHREAD_STACK_MIN;
+#else
+    (1 << 10);
+#endif
+
     int
 QCThread::TryToStart(
     QCRunnable*           inRunnablePtr /* = 0 */,
@@ -116,7 +125,8 @@ QCThread::TryToStart(
         return theErr;
     }
     if (inStackSize > 0 && (theErr = pthread_attr_setstacksize(
-            &theStackSizeAttr, inStackSize)) != 0) {
+            &theStackSizeAttr, kMinThreadStackSize < inStackSize ?
+                inStackSize : kMinThreadStackSize)) != 0) {
         pthread_attr_destroy(&theStackSizeAttr);
         return theErr;
     }
