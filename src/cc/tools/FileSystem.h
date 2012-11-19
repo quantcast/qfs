@@ -121,6 +121,9 @@ public:
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat) = 0;
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStat) = 0;
     virtual int Open(
         const string& inDirName,
         bool          inFetchAttributesFlag,
@@ -165,7 +168,11 @@ public:
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;
-    virtual const string& GetId() const = 0;
+    virtual bool operator==(
+        const FileSystem& inFs) const = 0;
+    bool operator!=(
+        const FileSystem& inFs)
+        { return ! (inFs == *this); }
 protected:
     virtual ~FileSystem()
         {}

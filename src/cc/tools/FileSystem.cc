@@ -67,8 +67,9 @@ public:
         {}
     virtual const string& GetUri() const
         { return mUri; }
-    virtual const string& GetId() const
-        { return mUri; } // FIXME
+    virtual bool operator==(
+        const FileSystem& inFs) const
+        { return (this == &inFs || mUri == inFs.GetUri()); } // FIXME
     const string mUri;
 };
 
@@ -220,6 +221,13 @@ public:
     {
         outStatBuf.Reset();
         return Errno(stat(inFileName.c_str(), &outStatBuf));
+    }
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStatBuf)
+    {
+        outStatBuf.Reset();
+        return Errno(fstat(inFd, &outStatBuf));
     }
     virtual int Open(
         const string& inDirName,
@@ -728,6 +736,21 @@ public:
         const int theRet = KfsClient::Stat(inFileName.c_str(), theAttr);
         if (theRet == 0) {
             ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
+        }
+        return theRet;
+    }
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStat)
+    {
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::Stat(inFd, theAttr);
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
         }
         return theRet;
     }
