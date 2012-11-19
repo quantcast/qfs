@@ -160,6 +160,9 @@ public:
         const string& inPathName,
         kfsMode_t     inMode,
         bool          inCreateAllFlag) = 0;
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,

@@ -534,6 +534,12 @@ public:
         }
         return Errno(mkdir(inPathName.c_str(), (mode_t)inMode));
     }
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        return Errno(rename(inSrcName.c_str(), inDstName.c_str()));
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
@@ -852,6 +858,14 @@ public:
             return KfsClient::Mkdirs(inPathName.c_str(), inMode);
         }
         return KfsClient::Mkdir(inPathName.c_str(), inMode);
+    }
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        const bool kOverwriteFlag = true;
+        return KfsClient::Rename(inSrcName.c_str(), inDstName.c_str(),
+            kOverwriteFlag);
     }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,

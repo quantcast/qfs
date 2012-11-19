@@ -141,6 +141,8 @@ public:
                     kCreateMode, kCreateAllFlag);
             } else if (strcmp(theCmdPtr, "-cp") == 0) {
                 theErr = Copy(inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-mv") == 0) {
+                theErr = Move(inArgsPtr + optind + 1, inArgCount - optind - 1);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -845,11 +847,14 @@ private:
     {
     public:
         enum { kBufferSize = 6 << 20 };
-        CopyFunctor()
+        CopyFunctor(
+            bool inMoveFlag = false)
             : mDestPtr(0),
               mDstName(),
-              mBufferPtr(new char[kBufferSize]),
-              mDstDirStat()
+              mBufferPtr(0),
+              mDstDirStat(),
+              mMoveFlag(inMoveFlag),
+              mCheckDestFlag(true)
             {}
         ~CopyFunctor()
             { delete [] mBufferPtr; }
@@ -861,14 +866,8 @@ private:
             if (! mDestPtr || inPath.empty()) {
                 return -EINVAL;
             }
-            FileSystem::StatBuf theStat;
-            int theStatus = inFs.Stat(inPath, theStat);
-            if (theStatus != 0) {
-                return theStatus;
-            }
-            FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
-            const bool theSetupDestFlag = mDstName.empty();
-            if (theSetupDestFlag) {
+            if (mDstName.empty()) {
+                mCheckDestFlag = true;
                 mDstName = mDestPtr->GetPathName();
                 if (mDestPtr->IsDirectory()) {
                     if (! mDstName.empty() && *(mDstName.rbegin()) != '/') {
@@ -890,12 +889,30 @@ private:
                     mDstName.append(thePtr, theEndPtr - thePtr + 1);
                 }
             }
+            FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
+            int theStatus;
+            if (mMoveFlag &&
+                    theDstFs == inFs &&
+                    (theStatus = inFs.Rename(inPath, mDstName)) != 0 &&
+                    theStatus != -EXDEV) {
+                theStatus = inErrorReporter(inPath, theStatus);
+                if (theLen < mDstName.length()) {
+                    mDstName.resize(theLen);
+                }
+                return theStatus;
+            }
             ErrorReporter theDstErrorReporter(
                 theDstFs,
                 inErrorReporter.GetErrorStream(),
                 inErrorReporter.GetStopOnErrorFlag()
             );
-            if (theSetupDestFlag && (theStat.st_mode & S_IFDIR) != 0) {
+            FileSystem::StatBuf theStat;
+            theStatus = inFs.Stat(inPath, theStat);
+            if (theStatus != 0) {
+                mDstName.resize(theLen);
+                return inErrorReporter(inPath, theStatus);
+            }
+            if (mCheckDestFlag && (theStat.st_mode & S_IFDIR) != 0) {
                 const bool kCreateAllFlag = false;
                 theStatus = theDstFs.Mkdir(
                     mDstName,
@@ -909,13 +926,18 @@ private:
                     theStatus = -ENOTDIR;
                 }
                 if (theStatus != 0) {
-                    mDstName.clear();
+                    mDstName.resize(theLen);
                     return theDstErrorReporter(mDstName, theStatus);
                 }
+                mCheckDestFlag = false;
+            }
+            if (! mBufferPtr) {
+                mBufferPtr = new char[kBufferSize];
             }
             Copier theCopier(inFs, theDstFs,
                 inErrorReporter, theDstErrorReporter, mBufferPtr, kBufferSize,
-                inFs == theDstFs ? &mDstDirStat : 0
+                inFs == theDstFs ? &mDstDirStat : 0,
+                mMoveFlag
             );
             theStatus = theCopier.Copy(inPath, mDstName, theStat);
             if (theLen < mDstName.length()) {
@@ -929,8 +951,10 @@ private:
     private:
         TGetGlobLastEntry*  mDestPtr;
         string              mDstName;
-        char* const         mBufferPtr;
+        char*               mBufferPtr;
         FileSystem::StatBuf mDstDirStat;
+        const bool          mMoveFlag;
+        bool                mCheckDestFlag;
     private:
         CopyFunctor(
             const CopyFunctor& inFunctor);
@@ -959,7 +983,8 @@ private:
             ErrorReporter&             inDstErrorReporter,
             char*                      inBufferPtr,
             size_t                     inBufferSize,
-            const FileSystem::StatBuf* inSkipDirStatPtr)
+            const FileSystem::StatBuf* inSkipDirStatPtr,
+            bool                       inRemoveSrcFlag)
             : mSrcFs(inSrcFs),
               mDstFs(inDstFs),
               mSrcErrorReporter(inSrcErrorReporter),
@@ -972,7 +997,8 @@ private:
               mName(),
               mSrcName(),
               mDstName(),
-              mSkipDirStatPtr(inSkipDirStatPtr)
+              mSkipDirStatPtr(inSkipDirStatPtr),
+              mRemoveSrcFlag(inRemoveSrcFlag)
             {}
         ~Copier()
         {
@@ -1052,8 +1078,21 @@ private:
                         }
                         break;
                     }
+                    const size_t theCurSrcNameLen = mSrcName.length();
                     if ((theStatus = CopyDir(mSrcName, mDstName)) != 0) {
                         break;
+                    }
+                    if (mRemoveSrcFlag) {
+                        if (mSrcName.length() > theCurSrcNameLen) {
+                            mSrcName.resize(theCurSrcNameLen);
+                        }
+                        if ((theStatus = mSrcFs.Rmdir(mSrcName)) != 0) {
+                            if ((theStatus = mSrcErrorReporter(
+                                    inSrcPath, theStatus)) == 0) {
+                                continue;
+                            }
+                            break;
+                        }
                     }
                 } else {
                     if ((theStatus = CopyFile(
@@ -1156,7 +1195,14 @@ private:
             }
             const int theCloseSrcStatus = mSrcFs.Close(theSrcFd);
             if (theCloseSrcStatus < 0 && theStatus == 0) {
-                theStatus = mDstErrorReporter(inDstPath, theCloseSrcStatus);
+                theStatus = mSrcErrorReporter(inSrcPath, theCloseSrcStatus);
+            }
+            if (mRemoveSrcFlag && theStatus == 0) {
+                const bool kRecursiveFlag = false;
+                if ((theStatus = mSrcFs.Remove(
+                        inSrcPath, kRecursiveFlag, 0)) != 0) {
+                    theStatus = mSrcErrorReporter(inSrcPath, theStatus);
+                }
             }
             return theStatus;
         }
@@ -1174,6 +1220,7 @@ private:
         string                           mSrcName;
         string                           mDstName;
         const FileSystem::StatBuf* const mSkipDirStatPtr;
+        const bool                       mRemoveSrcFlag;
     private:
         Copier(
             const Copier& inCopier);
@@ -1248,6 +1295,17 @@ private:
             theSrcStat.st_dev == theDstStat.st_dev &&
             theSrcStat.st_ino == theDstStat.st_ino
         );
+    }
+    int Move(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        const bool kMoveFlag = true;
+        CpFunctor theMoveFunctor(kMoveFlag);
+        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+            theFunc(theMoveFunctor, cerr);
+        theMoveFunctor.SetDest(theFunc.GetInit());
+        return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
     size_t mIoBufferSize;
