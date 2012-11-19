@@ -164,7 +164,8 @@ public:
     /// file is computed and the value is returned in result.st_size
     /// @retval 0 if stat was successful; -errno otherwise
     ///
-    int Stat(const char *pathname, KfsFileAttr &result, bool computeFilesize = true);
+    int Stat(const char* pathname, KfsFileAttr& result, bool computeFilesize = true);
+    int Stat(int fd, KfsFileAttr& result);
 
     ///
     /// Given a file, return the # of chunks in the file

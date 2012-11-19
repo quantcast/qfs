@@ -280,9 +280,15 @@ KfsClient::OpenDirectory(const char *pathname)
 }
 
 int
-KfsClient::Stat(const char *pathname, KfsFileAttr &result, bool computeFilesize)
+KfsClient::Stat(const char *pathname, KfsFileAttr& result, bool computeFilesize)
 {
     return mImpl->Stat(pathname, result, computeFilesize);
+}
+
+int
+KfsClient::Stat(int fd, KfsFileAttr& result)
+{
+    return mImpl->Stat(fd, result);
 }
 
 int
@@ -2159,12 +2165,26 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 }
 
 int
-KfsClientImpl::Stat(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize)
+KfsClientImpl::Stat(const char *pathname, KfsFileAttr& kfsattr, bool computeFilesize)
 {
     QCStMutexLocker l(mMutex);
     const bool kValidSubCountsRequiredFlag = true;
     return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
         kValidSubCountsRequiredFlag);
+}
+
+int
+KfsClientImpl::Stat(int fd, KfsFileAttr& kfsattr)
+{
+    QCStMutexLocker l(mMutex);
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    FileTableEntry& entry = *(mFileTable[fd]);
+    kfsattr          = entry.fattr;
+    kfsattr.filename = entry.name;
+    return 0;
 }
 
 int
