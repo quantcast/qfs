@@ -177,10 +177,12 @@ private:
         char**       inArgsPtr,
         int          inArgCount,
         ostream&     inErrorStream,
-        GlobResult&  outResult)
+        GlobResult&  outResult,
+        bool&        outMoreThanOneFsFlag)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
         int theRet = 0;
+        outMoreThanOneFsFlag = false;
         for (int i = 0; i < inArgCount; i++) {
             const string theArg   = inArgsPtr[i];
             FileSystem*  theFsPtr = 0;
@@ -192,6 +194,8 @@ private:
                 theRet = theErr;
                 continue;
             }
+            outMoreThanOneFsFlag = outMoreThanOneFsFlag ||
+                (! outResult.empty() && theFsPtr != outResult.back().first);
             glob_t    theGlobRes = {0};
             const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
             theErr = theFsPtr->Glob(
@@ -243,8 +247,10 @@ private:
         FuncT& inFunctor)
     {
         GlobResult theResult;
-        int theErr = Glob(inArgsPtr, inArgCount, cerr, theResult);
-        if (! inFunctor.Init(theErr, theResult)) {
+        bool       theMoreThanOneFsFlag = false;
+        int theErr = Glob(inArgsPtr, inArgCount, cerr,
+            theResult, theMoreThanOneFsFlag);
+        if (! inFunctor.Init(theErr, theResult, theMoreThanOneFsFlag)) {
             return theErr;
         }
         for (GlobResult::const_iterator theFsIt = theResult.begin();
@@ -280,7 +286,8 @@ private:
             {}
         bool Init(
             int&              /* ioGlobError */,
-            const GlobResult& /* inGlobResult */)
+            const GlobResult& /* inGlobResult */,
+            bool              /* inMoreThanOneFsFlag */)
             { return true; }
         bool Apply(
             FileSystem&   inFs,
@@ -367,13 +374,15 @@ private:
               mFileSizeWidth(1),
               mMaxFileSize(0),
               mDirListEntries(),
+              mNullStat(),
               mTime(0)
             { mTmBuf[0] = 0; }
         bool Init(
-            int&           /* ioGlobError */,
-            const GlobResult& inGlobResult)
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */,
+            bool              inMoreThanOneFsFlag)
         {
-            mShowFsUriFlag = inGlobResult.size() > 1;
+            mShowFsUriFlag = inMoreThanOneFsFlag;
             return true;
         }
         bool Apply(
@@ -394,7 +403,6 @@ private:
                 }
                 mDirListEntries.reserve(128);
             }
-            AddEntry(inFs, inPath, string(), mStat);
             const string  kEmpty;
             if (mRecursionCount != 0 || (mStat.st_mode & S_IFDIR) != 0) {
                 FileSystem::DirIterator* theItPtr = 0;
@@ -406,7 +414,6 @@ private:
                     mStatus = theErr;
                 } else {
                     string theName;
-                    mStat.Reset();
                     const string& thePath = inPath == "/" ? mEmptyStr: inPath;
                     while (mOutStream) {
                         const FileSystem::StatBuf* theStatPtr = 0;
@@ -423,20 +430,28 @@ private:
                         if (theName == "." || theName == "..") {
                             continue;
                         }
-                        AddEntry(inFs, inPath, theName,
-                            theStatPtr ? *theStatPtr : mStat);
                         if (mRecursiveFlag && theStatPtr &&
                                 (theStatPtr->st_mode & S_IFDIR) != 0) {
                             QCStValueIncrementor<int>
                                 theIncrement(mRecursionCount, 1);
                             Apply(inFs, thePath + "/" + theName);
                         }
+                        AddEntry(inFs, inPath, theName,
+                            theStatPtr ? *theStatPtr : mNullStat);
                     }
                     inFs.Close(theItPtr);
                 }
             }
+            if (mRecursionCount == 0) {
+                if (mRecursiveFlag) {
+                    AddEntry(inFs, inPath, string(), mStat);
+                } else {
+                    mOutStream <<
+                        "Found " << mDirListEntries.size() << " items\n";
+                }
+            }
             if (mRecursionCount == 0 ||
-                    mDirListEntries.size() > (size_t(16) << 10)) {
+                    mDirListEntries.size() > (size_t(32) << 10)) {
                 ostringstream theStream; 
                 theStream << mMaxFileSize;
                 mFileSizeWidth = theStream.str().length();
@@ -507,26 +522,27 @@ private:
         typedef vector<DirListEntry> DirListEntries;
 
         enum { kTmBufLen = 128 };
-        ostream&            mOutStream;
-        const char* const   mOutStreamNamePtr;
-        ostream&            mErrorStream;
-        const bool          mRecursiveFlag;
-        bool                mShowFsUriFlag;
-        const string        mEmptyStr;
-        FileSystem::StatBuf mStat;
-        int                 mStatus;
-        kfsUid_t            mOwnerId;
-        kfsGid_t            mGroupId;
-        string              mOwner;
-        string              mGroup;
-        int                 mRecursionCount;
-        size_t              mMaxOwnerWidth;
-        size_t              mMaxGroupWidth;
-        size_t              mFileSizeWidth;
-        int64_t             mMaxFileSize;
-        DirListEntries      mDirListEntries;
-        time_t              mTime;
-        char                mTmBuf[kTmBufLen];
+        ostream&                  mOutStream;
+        const char* const         mOutStreamNamePtr;
+        ostream&                  mErrorStream;
+        const bool                mRecursiveFlag;
+        bool                      mShowFsUriFlag;
+        const string              mEmptyStr;
+        FileSystem::StatBuf       mStat;
+        int                       mStatus;
+        kfsUid_t                  mOwnerId;
+        kfsGid_t                  mGroupId;
+        string                    mOwner;
+        string                    mGroup;
+        int                       mRecursionCount;
+        size_t                    mMaxOwnerWidth;
+        size_t                    mMaxGroupWidth;
+        size_t                    mFileSizeWidth;
+        int64_t                   mMaxFileSize;
+        DirListEntries            mDirListEntries;
+        const FileSystem::StatBuf mNullStat;
+        time_t                    mTime;
+        char                      mTmBuf[kTmBufLen];
 
         void Show(
             FileSystem&         inFs,
@@ -565,7 +581,7 @@ private:
             }
             mOutStream << " " << mTmBuf;
             if (mShowFsUriFlag) {
-                mOutStream << inFs.GetUri() << "/";
+                mOutStream << inFs.GetUri();
             }
             mOutStream << inEntry.mPath;
             if (! inEntry.mName.empty()) {
@@ -693,7 +709,8 @@ private:
             {}
         bool Init(
             int&        ioGlobError,
-            GlobResult& inGlobResult)
+            GlobResult& inGlobResult,
+            bool        /* inMoreThanOneFsFlag */)
         {
             return mInitFunctor(ioGlobError, inGlobResult, mErrorStream);
         }
