@@ -980,7 +980,8 @@ private:
                 }
             }
             const size_t theLen = mDstName.length();
-            if (mDestPtr->IsDirectory()) {
+            mCheckDestFlag = mDestPtr->IsDirectory();
+            if (mCheckDestFlag) {
                 const char* const theSPtr = inPath.c_str();
                 const char*       thePtr  = theSPtr + inPath.length();
                 while (theSPtr < thePtr && *--thePtr == '/')
@@ -1019,6 +1020,14 @@ private:
                 return inErrorReporter(inPath, theStatus);
             }
             if (mCheckDestFlag && S_ISDIR(theStat.st_mode)) {
+                // Move: attempt to remove the destination directory to ensure
+                // that the destination directory is empty.
+                if (mMoveFlag && (theStatus = theDstFs.Rmdir(mDstName)) != 0 &&
+                        theStatus != -ENOENT) {
+                    theStatus = theDstErrorReporter(mDstName, theStatus);
+                    mDstName.resize(theLen);
+                    return theStatus;
+                }
                 const bool kCreateAllFlag = false;
                 theStatus = theDstFs.Mkdir(
                     mDstName,
@@ -1032,8 +1041,9 @@ private:
                     theStatus = -ENOTDIR;
                 }
                 if (theStatus != 0) {
+                    theStatus = theDstErrorReporter(mDstName, theStatus);
                     mDstName.resize(theLen);
-                    return theDstErrorReporter(mDstName, theStatus);
+                    return theStatus;
                 }
                 mCheckDestFlag = false;
             }
@@ -1184,21 +1194,8 @@ private:
                         }
                         break;
                     }
-                    const size_t theCurSrcNameLen = mSrcName.length();
                     if ((theStatus = CopyDir(mSrcName, mDstName)) != 0) {
                         break;
-                    }
-                    if (mRemoveSrcFlag) {
-                        if (mSrcName.length() > theCurSrcNameLen) {
-                            mSrcName.resize(theCurSrcNameLen);
-                        }
-                        if ((theStatus = mSrcFs.Rmdir(mSrcName)) != 0) {
-                            if ((theStatus = mSrcErrorReporter(
-                                    inSrcPath, theStatus)) == 0) {
-                                continue;
-                            }
-                            break;
-                        }
                     }
                 } else {
                     if ((theStatus = CopyFile(
@@ -1207,9 +1204,12 @@ private:
                     }
                 }
             }
+            SetDirPath(inSrcPath, mSrcName, theSrcNameLen);
             const int theCloseStatus = mSrcFs.Close(theDirIt);
-            if (theCloseStatus !=0 && theStatus == 0) {
-                SetDirPath(inSrcPath, mSrcName, theSrcNameLen);
+            if (mRemoveSrcFlag && (theStatus = mSrcFs.Rmdir(mSrcName)) != 0) {
+                theStatus = mSrcErrorReporter(inSrcPath, theStatus);
+            }
+            if (theCloseStatus != 0 && theStatus == 0) {
                 theStatus = mSrcErrorReporter(mSrcName, theStatus);
             }
             return theStatus;
