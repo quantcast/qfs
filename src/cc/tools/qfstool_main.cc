@@ -38,6 +38,7 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 #include <ostream>
 #include <iostream>
 #include <algorithm>
@@ -53,6 +54,7 @@ using std::string;
 using std::cout;
 using std::cerr;
 using std::vector;
+using std::deque;
 using std::pair;
 using std::max;
 using std::ostream;
@@ -188,14 +190,14 @@ private:
             FileSystem*  theFsPtr = 0;
             string       thePath;
             int          theErr   = FileSystem::Get(theArg, theFsPtr, &thePath);
-            if (theErr) {
+            if (theErr || ! theFsPtr) {
                 inErrorStream << theArg <<
                     ": " << FileSystem::GetStrError(theErr) << "\n";
                 theRet = theErr;
                 continue;
             }
             outMoreThanOneFsFlag = outMoreThanOneFsFlag ||
-                (! outResult.empty() && theFsPtr != outResult.back().first);
+                (! outResult.empty() && *theFsPtr != *(outResult.back().first));
             glob_t    theGlobRes = {0};
             const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
             theErr = theFsPtr->Glob(
@@ -225,7 +227,8 @@ private:
                         thePrefix += "/";
                     }
                 }
-                vector<string>& theResult = outResult.back().second;
+                GlobResult::value_type::second_type&
+                    theResult = outResult.back().second;
                 theResult.reserve(theGlobRes.gl_pathc);
                 for (size_t i = 0; i < theGlobRes.gl_pathc; i++) {
                     theResult.push_back(thePrefix + theGlobRes.gl_pathv[i]);
@@ -257,7 +260,8 @@ private:
                 theFsIt != theResult.end();
                 ++theFsIt) {
             FileSystem& theFs = *(theFsIt->first);
-            for (vector<string>::const_iterator theIt = theFsIt->second.begin();
+            for (GlobResult::value_type::second_type::const_iterator
+                    theIt = theFsIt->second.begin();
                     theIt != theFsIt->second.end();
                     ++theIt) {
                 if (! inFunctor.Apply(theFs, *theIt)) {
@@ -372,6 +376,8 @@ private:
               mMaxOwnerWidth(1),
               mMaxGroupWidth(1),
               mFileSizeWidth(1),
+              mReplicasWidth(1),
+              mMaxReplicas(0),
               mMaxFileSize(0),
               mDirListEntries(),
               mNullStat(),
@@ -401,10 +407,10 @@ private:
                     mStatus = theErr;
                     return true;
                 }
-                mDirListEntries.reserve(128);
+                Reset();
             }
             const string  kEmpty;
-            if (mRecursionCount != 0 || (mStat.st_mode & S_IFDIR) != 0) {
+            if (mRecursionCount != 0 || S_ISDIR(mStat.st_mode)) {
                 FileSystem::DirIterator* theItPtr = 0;
                 const bool kFetchAttributesFlag = true;
                 if ((theErr = inFs.Open(
@@ -431,7 +437,7 @@ private:
                             continue;
                         }
                         if (mRecursiveFlag && theStatPtr &&
-                                (theStatPtr->st_mode & S_IFDIR) != 0) {
+                                S_ISDIR(theStatPtr->st_mode)) {
                             QCStValueIncrementor<int>
                                 theIncrement(mRecursionCount, 1);
                             Apply(inFs, thePath + "/" + theName);
@@ -445,7 +451,7 @@ private:
             if (mRecursionCount == 0) {
                 if (mRecursiveFlag) {
                     AddEntry(inFs, inPath, string(), mStat);
-                } else {
+                } else if (! mDirListEntries.empty()) {
                     mOutStream <<
                         "Found " << mDirListEntries.size() << " items\n";
                 }
@@ -455,19 +461,81 @@ private:
                 ostringstream theStream; 
                 theStream << mMaxFileSize;
                 mFileSizeWidth = theStream.str().length();
+                theStream << mMaxReplicas;
+                mReplicasWidth = theStream.str().length() - mFileSizeWidth;
                 for (DirListEntries::const_iterator
                         theIt = mDirListEntries.begin();
                         theIt != mDirListEntries.end() && mOutStream;
                         ++theIt) {
                     Show(inFs, *theIt);
                 }
-                mDirListEntries.clear();
-                mMaxOwnerWidth = 1;
-                mMaxGroupWidth = 1;
-                mFileSizeWidth = 1;
-                mMaxFileSize   = 0;
+                Reset();
             }
             return true;
+        }
+        int GetStatus() const
+            { return mStatus; }
+    private:
+        struct DirListEntry
+        {
+            mode_t  mMode;
+            int     mNumReplicas;
+            string  mOwner;
+            string  mGroup;
+            int64_t mSize;
+            time_t  mMTime;
+            string  mPath;
+            string  mName;
+            void Set(
+                const FileSystem::StatBuf& inStat)
+            {
+                mMode        = inStat.st_mode;
+                mNumReplicas = S_ISDIR(inStat.st_mode) ?
+                    0 : max(1, (int)inStat.mNumReplicas);
+                mSize        = max(int64_t(0), (int64_t)inStat.st_size);
+#ifndef KFS_OS_NAME_DARWIN
+                mMTime = inStat.st_mtime;
+#else
+                mMTime = inStat.st_mtimespec.tv_sec;
+#endif
+            }
+        };
+        typedef deque<DirListEntry> DirListEntries;
+
+        enum { kTmBufLen = 128 };
+        ostream&                  mOutStream;
+        const char* const         mOutStreamNamePtr;
+        ostream&                  mErrorStream;
+        const bool                mRecursiveFlag;
+        bool                      mShowFsUriFlag;
+        const string              mEmptyStr;
+        FileSystem::StatBuf       mStat;
+        int                       mStatus;
+        kfsUid_t                  mOwnerId;
+        kfsGid_t                  mGroupId;
+        string                    mOwner;
+        string                    mGroup;
+        int                       mRecursionCount;
+        size_t                    mMaxOwnerWidth;
+        size_t                    mMaxGroupWidth;
+        size_t                    mFileSizeWidth;
+        size_t                    mReplicasWidth;
+        int                       mMaxReplicas;
+        int64_t                   mMaxFileSize;
+        DirListEntries            mDirListEntries;
+        const FileSystem::StatBuf mNullStat;
+        time_t                    mTime;
+        char                      mTmBuf[kTmBufLen];
+
+        void Reset()
+        {
+            mDirListEntries.clear();
+            mMaxOwnerWidth = 1;
+            mMaxGroupWidth = 1;
+            mFileSizeWidth = 1;
+            mReplicasWidth = 1;
+            mMaxFileSize   = 0;
+            mMaxReplicas   = 0;
         }
         void AddEntry(
             FileSystem&                inFs,
@@ -491,83 +559,34 @@ private:
             mMaxOwnerWidth  = max(mMaxOwnerWidth, mOwner.length());
             mMaxGroupWidth  = max(mMaxGroupWidth, mGroup.length());
             mMaxFileSize    = max(mMaxFileSize,   theEntry.mSize);
+            mMaxReplicas    = max(mMaxReplicas,   theEntry.mNumReplicas);
         }
-        int GetStatus() const
-            { return mStatus; }
-    private:
-        struct DirListEntry
+        bool IsSticky(
+            mode_t inMode)
         {
-            mode_t  mMode;
-            int     mReplication;
-            string  mOwner;
-            string  mGroup;
-            int64_t mSize;
-            time_t  mMTime;
-            string  mPath;
-            string  mName;
-            void Set(
-                const FileSystem::StatBuf& inStat)
-            {
-                mMode        = inStat.st_mode;
-                mReplication = (inStat.st_mode & S_IFDIR) ?
-                    0 : max(1, (int)inStat.mNumReplicas);
-                mSize        = max(int64_t(0), (int64_t)inStat.st_size);
-#ifndef KFS_OS_NAME_DARWIN
-                mMTime = inStat.st_mtime;
-#else
-                mMTime = inStat.st_mtimespec.tv_sec;
-#endif
-            }
-        };
-        typedef vector<DirListEntry> DirListEntries;
-
-        enum { kTmBufLen = 128 };
-        ostream&                  mOutStream;
-        const char* const         mOutStreamNamePtr;
-        ostream&                  mErrorStream;
-        const bool                mRecursiveFlag;
-        bool                      mShowFsUriFlag;
-        const string              mEmptyStr;
-        FileSystem::StatBuf       mStat;
-        int                       mStatus;
-        kfsUid_t                  mOwnerId;
-        kfsGid_t                  mGroupId;
-        string                    mOwner;
-        string                    mGroup;
-        int                       mRecursionCount;
-        size_t                    mMaxOwnerWidth;
-        size_t                    mMaxGroupWidth;
-        size_t                    mFileSizeWidth;
-        int64_t                   mMaxFileSize;
-        DirListEntries            mDirListEntries;
-        const FileSystem::StatBuf mNullStat;
-        time_t                    mTime;
-        char                      mTmBuf[kTmBufLen];
-
+            return (S_ISDIR(inMode) && (inMode & S_ISVTX) != 0);
+        }
         void Show(
             FileSystem&         inFs,
             const DirListEntry& inEntry)
         {
-            mOutStream << (((inEntry.mMode & S_IFDIR) != 0) ? "d" : "-");
+            mOutStream << (S_ISDIR(inEntry.mMode) ? "d" : "-");
             for (int i = 8; i > 0; ) {
-                const char* kPerms[2] = {"---", "rwx"};
-                for (int k = 0; k < 3; k++) {
+                const char* const kPerms[2] = {"---", "rwx"};
+                const int theNBits =
+                    (i == 2 && IsSticky(inEntry.mMode)) ? 2 : 3;
+                for (int k = 0; k < theNBits; k++) {
                     mOutStream << kPerms[(inEntry.mMode >> i--) & 1][k];
                 }
+                if (theNBits < 3) {
+                    mOutStream << "t";
+                }
             }
-#ifdef S_ISVTX
-            const mode_t kSticky = S_IFDIR | S_ISVTX;
-            if ((inEntry.mMode & kSticky) == kSticky) {
-                mOutStream << "t";
+            mOutStream << " " << setw((int)mReplicasWidth) << right;
+            if (S_ISDIR(inEntry.mMode)) {
+                mOutStream << "-";
             } else {
-                mOutStream << " ";
-            }
-#endif
-            mOutStream << " ";
-            if ((inEntry.mMode & S_IFDIR) != 0) {
-                mOutStream << " -";
-            } else {
-                mOutStream << setw(2) << inEntry.mReplication;
+                mOutStream << inEntry.mNumReplicas;
             }
             mOutStream <<
                 " " << setw((int)mMaxOwnerWidth) << left << inEntry.mOwner <<
@@ -894,7 +913,7 @@ private:
                 return false;
             }
             mExistsFlag = theErr == 0;
-            mDirFlag    = theErr == 0 && (mStat.st_mode & S_IFDIR) != 0;
+            mDirFlag    = theErr == 0 && S_ISDIR(mStat.st_mode);
             if (TDestDirDestFlag && ! mDirFlag &&
                     (inGlobResult.size() > 1 ||
                     inGlobResult.back().second.size() > 1)) {
@@ -997,7 +1016,7 @@ private:
                 mDstName.resize(theLen);
                 return inErrorReporter(inPath, theStatus);
             }
-            if (mCheckDestFlag && (theStat.st_mode & S_IFDIR) != 0) {
+            if (mCheckDestFlag && S_ISDIR(theStat.st_mode)) {
                 const bool kCreateAllFlag = false;
                 theStatus = theDstFs.Mkdir(
                     mDstName,
@@ -1007,7 +1026,7 @@ private:
                 if ((theStatus == -EEXIST || theStatus == 0) &&
                         (theStatus = theDstFs.Stat(
                             mDstName, mDstDirStat)) == 0 &&
-                        (mDstDirStat.st_mode & S_IFDIR) == 0) {
+                        S_ISDIR(mDstDirStat.st_mode)) {
                     theStatus = -ENOTDIR;
                 }
                 if (theStatus != 0) {
@@ -1097,7 +1116,7 @@ private:
             const FileSystem::StatBuf& inSrcStat)
         {
             return (
-                ((inSrcStat.st_mode & S_IFDIR) == 0) ?
+                S_ISDIR(inSrcStat.st_mode) ?
                     CopyFile(inSrcPath, inDstPath, inSrcStat) :
                     CopyDir(inSrcPath, inDstPath)
             );
@@ -1144,7 +1163,7 @@ private:
                 theStatPtr = 0;
                 SetDirPath(inSrcPath, mSrcName, theSrcNameLen).append(mName);
                 SetDirPath(inDstPath, mDstName, theDstNameLen).append(mName);
-                if ((theStat.st_mode & S_IFDIR) != 0) {
+                if (S_ISDIR(theStat.st_mode)) {
                     if (mSkipDirStatPtr &&
                             mSkipDirStatPtr->st_dev == theStat.st_dev &&
                             mSkipDirStatPtr->st_ino == theStat.st_ino) {
@@ -1341,7 +1360,7 @@ private:
             FileSystem::StatBuf theStat;
             if (theStatus == -EEXIST &&
                     (theStatus = inFs.Stat(inPath, theStat)) == 0) {
-                if ((theStat.st_mode & S_IFDIR) == 0) {
+                if (S_ISDIR(theStat.st_mode)) {
                     theStatus = -ENOTDIR;
                 }
             }
