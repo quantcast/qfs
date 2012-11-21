@@ -301,7 +301,7 @@ public:
             // type
             struct stat theStat;
             theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
-                (theStat.st_mode & S_IFDIR) != 0;
+                S_ISDIR(theStat.st_mode);
 #else
             theDirFlag = thePtr->d_type == DT_DIR;
 #endif
@@ -329,7 +329,7 @@ public:
         if (stat(inPath.c_str(), &theStat)) {
             return RetErrno(errno);
         }
-        if ((theStat.st_mode & S_IFDIR) != 0) {
+        if (S_ISDIR(theStat.st_mode)) {
             string thePath;
             thePath.reserve(MAX_PATH_NAME_LENGTH);
             thePath.assign(inPath.data(), inPath.length());
@@ -517,7 +517,7 @@ public:
                 }
                 int theErr = Errno(stat(theDirName.c_str(), &theStat));
                 if (theErr == 0) {
-                    if ((theStat.st_mode & S_IFDIR) == 0) {
+                    if (! S_ISDIR(theStat.st_mode)) {
                         return RetErrno(ENOTDIR);
                     }
                 } else {
@@ -525,7 +525,7 @@ public:
                         return theErr;
                     }
                     if ((theErr = Errno(
-                            mkdir(theDirName.c_str(), inMode))) != 0) {
+                            mkdir(theDirName.c_str(), inMode & 0777))) != 0) {
                         return theErr;
                     }
                 }

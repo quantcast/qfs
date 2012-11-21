@@ -995,15 +995,17 @@ private:
             }
             FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
             int theStatus;
-            if (mMoveFlag &&
-                    theDstFs == inFs &&
-                    (theStatus = inFs.Rename(inPath, mDstName)) != 0 &&
-                    theStatus != -EXDEV) {
-                theStatus = inErrorReporter(inPath, theStatus);
-                if (theLen < mDstName.length()) {
-                    mDstName.resize(theLen);
+            if (mMoveFlag && theDstFs == inFs) {
+                if ((theStatus = inFs.Rename(inPath, mDstName)) != 0 &&
+                        theStatus != -EXDEV) {
+                    theStatus = inErrorReporter(inPath, theStatus);
+                    if (theLen < mDstName.length()) {
+                        mDstName.resize(theLen);
+                    }
                 }
-                return theStatus;
+                if (theStatus != -EXDEV) {
+                    return theStatus;
+                }
             }
             ErrorReporter theDstErrorReporter(
                 theDstFs,
@@ -1026,7 +1028,7 @@ private:
                 if ((theStatus == -EEXIST || theStatus == 0) &&
                         (theStatus = theDstFs.Stat(
                             mDstName, mDstDirStat)) == 0 &&
-                        S_ISDIR(mDstDirStat.st_mode)) {
+                        ! S_ISDIR(mDstDirStat.st_mode)) {
                     theStatus = -ENOTDIR;
                 }
                 if (theStatus != 0) {
@@ -1117,8 +1119,8 @@ private:
         {
             return (
                 S_ISDIR(inSrcStat.st_mode) ?
-                    CopyFile(inSrcPath, inDstPath, inSrcStat) :
-                    CopyDir(inSrcPath, inDstPath)
+                    CopyDir(inSrcPath, inDstPath) :
+                    CopyFile(inSrcPath, inDstPath, inSrcStat)
             );
         }
         int CopyDir(
@@ -1359,10 +1361,9 @@ private:
         if ((theStatus = inFs.Mkdir(inPath, inMode, kCreateAllFlag)) != 0) {
             FileSystem::StatBuf theStat;
             if (theStatus == -EEXIST &&
-                    (theStatus = inFs.Stat(inPath, theStat)) == 0) {
-                if (S_ISDIR(theStat.st_mode)) {
-                    theStatus = -ENOTDIR;
-                }
+                    (theStatus = inFs.Stat(inPath, theStat)) == 0 &&
+                    ! S_ISDIR(theStat.st_mode)) {
+                theStatus = -ENOTDIR;
             }
         }
         return theStatus;
