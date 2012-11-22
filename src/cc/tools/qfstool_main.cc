@@ -448,13 +448,10 @@ private:
                     inFs.Close(theItPtr);
                 }
             }
-            if (mRecursionCount == 0) {
-                if (mRecursiveFlag) {
-                    AddEntry(inFs, inPath, string(), mStat);
-                } else if (! mDirListEntries.empty()) {
-                    mOutStream <<
-                        "Found " << mDirListEntries.size() << " items\n";
-                }
+            if (mRecursionCount == 0 &&
+                    ! mRecursiveFlag && ! mDirListEntries.empty()) {
+                mOutStream <<
+                    "Found " << mDirListEntries.size() << " items\n";
             }
             if (mRecursionCount == 0 ||
                     mDirListEntries.size() > (size_t(32) << 10)) {
@@ -878,8 +875,16 @@ private:
             : mFsPtr(0),
               mPathName(),
               mDirFlag(false),
-              mExistsFlag(false)
+              mExistsFlag(false),
+              mUMask(0),
+              mCurUMask(mUMask)
             {}
+        ~GetGlobLastEntry()
+        {
+            if (mUMask != mCurUMask && mFsPtr) {
+                mFsPtr->SetUMask(mUMask);
+            }
+        }
         bool operator()(
             int&        ioGlobError,
             GlobResult& inGlobResult,
@@ -902,6 +907,10 @@ private:
             if (inGlobResult.back().second.empty()) {
                 inGlobResult.pop_back();
             }
+            if ((ioGlobError = mFsPtr->GetUMask(mUMask)) != 0) {
+                return false;
+            }
+            mCurUMask = mUMask;
             if (! TDestDirFlag) {
                 return true;
             }
@@ -933,12 +942,33 @@ private:
             { return mExistsFlag; }
         const FileSystem::StatBuf& GetStat() const
             { return mStat; }
+        const mode_t GetUMask() const
+            { return mUMask; }
+        int SetUMask(
+            mode_t inUMask)
+        {
+            if (inUMask == mUMask || mCurUMask == inUMask) {
+                return 0;
+            }
+            if (! mFsPtr) {
+                return -EINVAL;
+            }
+            const int theStatus = mFsPtr->SetUMask(inUMask & 0777);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            mCurUMask = inUMask & 0777;
+            return theStatus;
+        }
     private:
         FileSystem*         mFsPtr;
         string              mPathName;
         FileSystem::StatBuf mStat;
         bool                mDirFlag;
         bool                mExistsFlag;
+        bool                mRestoreUMaskFlag;
+        mode_t              mUMask;
+        mode_t              mCurUMask;
         
     private:
         GetGlobLastEntry(
@@ -1018,6 +1048,10 @@ private:
             if (theStatus != 0) {
                 mDstName.resize(theLen);
                 return inErrorReporter(inPath, theStatus);
+            }
+            if ((theStatus = mDestPtr->SetUMask(0)) != 0 &&
+                    (theStatus = theDstErrorReporter(mDstName, theStatus)) != 0) {
+                return theStatus;
             }
             if (mCheckDestFlag && S_ISDIR(theStat.st_mode)) {
                 // Move: attempt to remove the destination directory to ensure

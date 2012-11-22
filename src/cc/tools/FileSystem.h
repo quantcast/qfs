@@ -163,6 +163,10 @@ public:
     virtual int Rename(
         const string& inSrcName,
         const string& inDstName) = 0;
+    virtual int SetUMask(
+        mode_t inUMask) = 0;
+    virtual int GetUMask(
+        mode_t& outUMask) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,

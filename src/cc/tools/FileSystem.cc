@@ -540,6 +540,19 @@ public:
     {
         return Errno(rename(inSrcName.c_str(), inDstName.c_str()));
     }
+    virtual int SetUMask(
+        mode_t inUMask)
+    {
+        umask(inUMask & 0777);
+        return 0;
+    }
+    virtual int GetUMask(
+        mode_t& outUMask)
+    {
+        outUMask = umask(0);
+        umask(outUMask);
+        return 0;
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
@@ -866,6 +879,18 @@ public:
         const bool kOverwriteFlag = true;
         return KfsClient::Rename(inSrcName.c_str(), inDstName.c_str(),
             kOverwriteFlag);
+    }
+    virtual int SetUMask(
+        mode_t inUMask)
+    {
+        KfsClient::SetUMask(((kfsMode_t)inUMask) & 0777);
+        return 0;
+    }
+    virtual int GetUMask(
+        mode_t& outUMask)
+    {
+        outUMask = KfsClient::GetUMask();
+        return 0;
     }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
