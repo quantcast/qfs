@@ -1053,6 +1053,7 @@ private:
                     (theStatus = theDstErrorReporter(mDstName, theStatus)) != 0) {
                 return theStatus;
             }
+            bool theSetModeFlag = false;
             if (mCheckDestFlag && S_ISDIR(theStat.st_mode)) {
                 // Move: attempt to remove the destination directory to ensure
                 // that the destination directory is empty.
@@ -1068,6 +1069,7 @@ private:
                     (theStat.st_mode & (0777 | S_ISVTX)) | 0600,
                     kCreateAllFlag
                 );
+                theSetModeFlag = theStatus == 0;
                 if ((theStatus == -EEXIST || theStatus == 0) &&
                         (theStatus = theDstFs.Stat(
                             mDstName, mDstDirStat)) == 0 &&
@@ -1079,6 +1081,9 @@ private:
                     mDstName.resize(theLen);
                     return theStatus;
                 }
+                theSetModeFlag = theSetModeFlag &&
+                    (theStat.st_mode & (0777 | S_ISVTX)) !=
+                    (mDstDirStat.st_mode & (0777 | S_ISVTX));
                 mCheckDestFlag = false;
             }
             if (! mBufferPtr) {
@@ -1090,6 +1095,11 @@ private:
                 mMoveFlag
             );
             theStatus = theCopier.Copy(inPath, mDstName, theStat);
+            if (theStatus == 0 && theSetModeFlag &&
+                    (theStatus = theDstFs.Chmod(mDstName,
+                        theStat.st_mode & (0777 | S_ISVTX), false, 0)) != 0) {
+                theStatus = theDstErrorReporter(mDstName, theStatus);
+            }
             if (theLen < mDstName.length()) {
                 mDstName.resize(theLen);
             }
@@ -1219,10 +1229,13 @@ private:
                         }
                         continue;
                     }
+                    bool         theCreatedFlag = false;
+                    const size_t theCurDstLen   = mDstName.length();
                     if ((theStatus = MakeDirIfNeeded(
                             mDstFs,
                             mDstName,
-                            (theStat.st_mode & (0777 | S_ISVTX)) | 0600
+                            (theStat.st_mode & (0777 | S_ISVTX)) | 0600,
+                            &theCreatedFlag
                             )) != 0) {
                         if (mDstErrorReporter(mDstName, theStatus) == 0) {
                             continue;
@@ -1231,6 +1244,18 @@ private:
                     }
                     if ((theStatus = CopyDir(mSrcName, mDstName)) != 0) {
                         break;
+                    }
+                    if (theCreatedFlag && (theStat.st_mode & 0600) != 0600) {
+                        mDstName.resize(theCurDstLen);
+                        if ((theStatus = mDstFs.Chmod(
+                                mDstName,
+                                theStat.st_mode & (0777 | S_ISVTX),
+                                false, 0)) != 0) {
+                            if (mDstErrorReporter(mDstName, theStatus) == 0) {
+                                continue;
+                            }
+                            break;
+                        }
                     }
                 } else {
                     if ((theStatus = CopyFile(
@@ -1389,17 +1414,23 @@ private:
     static int MakeDirIfNeeded(
         FileSystem&   inFs,
         const string& inPath,
-        kfsMode_t     inMode)
+        kfsMode_t     inMode,
+        bool*         inCreatedFlagPtr = 0)
     {
         const bool kCreateAllFlag = false;
         int theStatus;
         if ((theStatus = inFs.Mkdir(inPath, inMode, kCreateAllFlag)) != 0) {
+            if (inCreatedFlagPtr) {
+                *inCreatedFlagPtr = false;
+            }
             FileSystem::StatBuf theStat;
             if (theStatus == -EEXIST &&
                     (theStatus = inFs.Stat(inPath, theStat)) == 0 &&
                     ! S_ISDIR(theStat.st_mode)) {
                 theStatus = -ENOTDIR;
             }
+        } else if (inCreatedFlagPtr) {
+            *inCreatedFlagPtr = true;
         }
         return theStatus;
     }
