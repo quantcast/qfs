@@ -887,7 +887,7 @@ private:
         {
             if (inGlobResult.size() <= 1 &&
                     inGlobResult.back().second.size() <= 1) {
-                inErrorStream << "two or more arguments required\n";
+                inErrorStream << "source and destination required\n";
                 ioGlobError = -EINVAL;
                 return false;
             }
@@ -980,8 +980,7 @@ private:
                 }
             }
             const size_t theLen = mDstName.length();
-            mCheckDestFlag = mDestPtr->IsDirectory();
-            if (mCheckDestFlag) {
+            if (mDestPtr->IsDirectory()) {
                 const char* const theSPtr = inPath.c_str();
                 const char*       thePtr  = theSPtr + inPath.length();
                 while (theSPtr < thePtr && *--thePtr == '/')
@@ -993,6 +992,7 @@ private:
                 if (thePtr < theEndPtr || *thePtr != '/') {
                     mDstName.append(thePtr, theEndPtr - thePtr + 1);
                 }
+                mCheckDestFlag = true;
             }
             FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
             int theStatus;
@@ -1031,7 +1031,7 @@ private:
                 const bool kCreateAllFlag = false;
                 theStatus = theDstFs.Mkdir(
                     mDstName,
-                    theStat.st_mode & (0777 | S_ISVTX),
+                    (theStat.st_mode & (0777 | S_ISVTX)) | 0600,
                     kCreateAllFlag
                 );
                 if ((theStatus == -EEXIST || theStatus == 0) &&
@@ -1188,7 +1188,8 @@ private:
                     if ((theStatus = MakeDirIfNeeded(
                             mDstFs,
                             mDstName,
-                            theStat.st_mode & (0777 | S_ISVTX))) != 0) {
+                            (theStat.st_mode & (0777 | S_ISVTX)) | 0600
+                            )) != 0) {
                         if (mDstErrorReporter(mDstName, theStatus) == 0) {
                             continue;
                         }
