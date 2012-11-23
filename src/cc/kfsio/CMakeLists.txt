@@ -48,11 +48,7 @@ set_target_properties (kfsIO-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 add_dependencies (kfsIO qcdio kfsCommon)
 add_dependencies (kfsIO-shared qcdio-shared kfsCommon-shared)
 target_link_libraries (kfsIO qcdio kfsCommon pthread z ${Boost_LIBRARIES})
-target_link_libraries (kfsIO-shared qcdio-shared kfsCommon-shared pthread z)
-
-if (APPLE OR CYGWIN)
-   target_link_libraries (kfsIO-shared ${Boost_LIBRARIES})
-endif (APPLE OR CYGWIN)
+target_link_libraries (kfsIO-shared qcdio-shared kfsCommon-shared pthread z ${Boost_LIBRARIES})
 
 if (NOT APPLE)
    target_link_libraries (kfsIO rt)
