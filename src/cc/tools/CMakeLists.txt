@@ -70,9 +70,9 @@ qfsping
 qfstool
 )
 
-if (APPLE OR CYGWIN)
+if (NOT Boost_USE_STATIC_LIBS)
    target_link_libraries(tools-shared kfsClient-shared kfsCommon-shared)
-endif (APPLE OR CYGWIN)
+endif (NOT Boost_USE_STATIC_LIBS)
 
 #
 # Every executable depends on its namesake source with _main.cc

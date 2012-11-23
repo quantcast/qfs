@@ -51,9 +51,9 @@ foreach (exe_file ${exe_files})
         endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
-if (APPLE OR CYGWIN)
+if (NOT Boost_USE_STATIC_LIBS)
   target_link_libraries(kfsEmulator-shared kfsMeta-shared kfsCommon-shared kfsIO-shared)
-endif (APPLE OR CYGWIN)
+endif (NOT Boost_USE_STATIC_LIBS)
 
 if (NOT APPLE)
   target_link_libraries(kfsEmulator rt)
