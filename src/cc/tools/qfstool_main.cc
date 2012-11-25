@@ -62,6 +62,7 @@ using std::ostringstream;
 using std::setw;
 using std::left;
 using std::right;
+using std::setprecision;
 
 class KfsTool
 {
@@ -150,6 +151,18 @@ public:
                 theErr = Copy(inArgsPtr + optind + 1, inArgCount - optind - 1);
             } else if (strcmp(theCmdPtr, "-mv") == 0) {
                 theErr = Move(inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-du") == 0) {
+                theErr = DiskUtilizationBytes(
+                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-duh") == 0) {
+                theErr = DiskUtilizationHumanReadable(
+                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-dus") == 0) {
+                theErr = DiskUtilizationSummary(
+                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-dush") == 0) {
+                theErr = DiskUtilizationSummaryHumanReadable(
+                    inArgsPtr + optind + 1, inArgCount - optind - 1);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -1477,6 +1490,282 @@ private:
             theFunc(theMoveFunctor, cerr);
         theMoveFunctor.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class SubCounts
+    {
+    public:
+        typedef int64_t Count;
+        SubCounts(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+            : mDirCount(0),
+              mFileCount(0),
+              mByteCount(0),
+              mStatus(0),
+              mCurPath(),
+              mFs(inFs),
+              mPath(inPath),
+              mErrorReporter(inErrorReporter)
+            {}
+        int Run()
+        {
+            mCurPath.reserve(4096);
+            mCurPath.assign(mPath.data(), mPath.size());
+            mStatus = 0;
+            RunSelf();
+            mCurPath.clear();
+            return mStatus;
+        }
+        Count GetDirCount() const
+            { return mDirCount; }
+        Count GetFileCount() const
+            { return mFileCount; }
+        Count GetByteCount() const
+            { return mByteCount; }
+    private:
+        Count          mDirCount;
+        Count          mFileCount;
+        Count          mByteCount;
+        int            mStatus;
+        string         mCurPath;
+        FileSystem&    mFs;
+        const string&  mPath;
+        ErrorReporter& mErrorReporter;
+
+        void RunSelf()
+        {
+            FileSystem::DirIterator* theItPtr             = 0;
+            const bool               kFetchAttributesFlag = true;
+            int                      theErr;
+            if ((theErr = mFs.Open(
+                    mCurPath, kFetchAttributesFlag, theItPtr)) != 0) {
+                mStatus = mErrorReporter(mCurPath, theErr);
+            } else {
+                if (! mCurPath.empty() && mCurPath != "/" &&
+                        *mCurPath.rbegin() != '/') {
+                    mCurPath += "/";
+                }
+                const size_t theCurPathLen = mCurPath.length();
+                string theName;
+                for (; ;) {
+                    const FileSystem::StatBuf* theStatPtr = 0;
+                    if ((theErr = mFs.Next(
+                            theItPtr, theName, theStatPtr))) {
+                        mStatus = mErrorReporter(mCurPath, theErr);
+                    }
+                    if (theName.empty()) {
+                        break;
+                    }
+                    if (theName == "." || theName == "..") {
+                        continue;
+                    }
+                    if (! theStatPtr) {
+                        mStatus = mErrorReporter(mCurPath, -EINVAL);
+                        continue;
+                    }
+                    if (S_ISDIR(theStatPtr->st_mode)) {
+                        mDirCount++;
+                        mCurPath += theName;
+                        RunSelf();
+                        mCurPath.resize(theCurPathLen);
+                    } else {
+                        mFileCount++;
+                        mByteCount += max(Count(0), Count(theStatPtr->st_size));
+                    }
+                }
+                mFs.Close(theItPtr);
+            }
+        }
+    };
+    enum DiskUtilizationFormat
+    {
+        kDiskUtilizationFormatNone                 = 0,
+        kDiskUtilizationFormatBytes                = 1,
+        kDiskUtilizationFormatSummaryBytes         = 2,
+        kDiskUtilizationFormatHumanReadable        = 3,
+        kDiskUtilizationFormatSummaryHumanReadable = 4
+    };
+    class DiskUtilizationFunctor
+    {
+    public:
+        DiskUtilizationFunctor(
+            DiskUtilizationFormat inFormat,
+            ostream&              inOutStream)
+            : mFormat(inFormat),
+              mOutStream(inOutStream),
+              mDiskUtilizationEntries()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            mDiskUtilizationEntries.clear();
+            FileSystem::StatBuf theStat;
+            const int theStatus = inFs.Stat(inPath, theStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            if (! IsSummary() && S_ISDIR(theStat.st_mode)) {
+                FileSystem::DirIterator* theItPtr             = 0;
+                const bool               kFetchAttributesFlag = true;
+                int                      theErr;
+                if ((theErr = inFs.Open(
+                        inPath, kFetchAttributesFlag, theItPtr)) != 0) {
+                    inErrorReporter(inPath, theErr);
+                } else {
+                    string theName;
+                    for (; ;) {
+                        const FileSystem::StatBuf* theStatPtr = 0;
+                        if ((theErr = inFs.Next(
+                                theItPtr, theName, theStatPtr))) {
+                            inErrorReporter(inPath, theErr);
+                        }
+                        if (theName.empty()) {
+                            break;
+                        }
+                        if (theName == "." || theName == "..") {
+                            continue;
+                        }
+                        AddEntry(inFs, inPath, theName, inErrorReporter,
+                            theStatPtr);
+                    }
+                    inFs.Close(theItPtr);
+                }
+            } else {
+                AddEntry(inFs, inPath, string(), inErrorReporter, &theStat);
+            }
+            if (! IsSummary() && mOutStream) {
+                mOutStream << "Found " <<
+                    mDiskUtilizationEntries.size() << " items\n";
+            }
+            for (DiskUtilizationEntries::const_iterator
+                    theIt = mDiskUtilizationEntries.begin();
+                    theIt != mDiskUtilizationEntries.end();
+                    ++theIt) {
+                Show(inFs, *theIt);
+            }
+            return theStatus;
+        }
+    private:
+        struct DiskUtilizationListEntry
+        {
+            string  mPath;
+            string  mName;
+            int64_t mSize;
+        };
+        typedef deque<DiskUtilizationListEntry> DiskUtilizationEntries;
+
+        const DiskUtilizationFormat mFormat;
+        ostream&                    mOutStream;
+        DiskUtilizationEntries      mDiskUtilizationEntries;
+
+        bool IsSummary() const
+        {
+            return (mFormat == kDiskUtilizationFormatSummaryBytes ||
+                mFormat == kDiskUtilizationFormatSummaryHumanReadable);
+        }
+        bool IsHumanReadable() const
+        {
+            return (mFormat == kDiskUtilizationFormatHumanReadable ||
+                mFormat == kDiskUtilizationFormatSummaryHumanReadable);
+        }
+        void AddEntry(
+            FileSystem&                inFs,
+            const string&              inPath,
+            const string&              inName,
+            ErrorReporter&             inErrorReporter,
+            const FileSystem::StatBuf* inStatPtr)
+        {
+            mDiskUtilizationEntries.push_back(DiskUtilizationListEntry());
+            DiskUtilizationListEntry& theEntry = mDiskUtilizationEntries.back();
+            theEntry.mPath = inPath;
+            theEntry.mName = inName;
+            if (! inStatPtr) {
+                theEntry.mSize = 0;
+                return;
+            }
+            const FileSystem::StatBuf& theStat = *inStatPtr;
+            theEntry.mSize = theStat.st_size;
+            if (theEntry.mSize < 0 && S_ISDIR(theStat.st_mode)) {
+                const string thePath((inPath == "/" || inName.empty()) ?
+                    inPath + inName : inPath + "/" + inName);
+                SubCounts theCounts(inFs, thePath, inErrorReporter);
+                theCounts.Run();
+                theEntry.mSize = theCounts.GetByteCount();
+            }
+            if (theEntry.mSize < 0) {
+                theEntry.mSize = 0;
+            }
+        }
+        void Show(
+            FileSystem&                     inFs,
+            const DiskUtilizationListEntry& inEntry)
+        {
+            if (! mOutStream) {
+                return;
+            }
+            if (IsHumanReadable()) {
+                const char* theSuffixPtr[] = { "B", "K", "M", "G", "T", "P", 0 };
+                double      theSize        = inEntry.mSize;
+                int i;
+                for (i = 0; theSize > 1024. && theSuffixPtr[i + 1]; ) {
+                    theSize /= 1024.;
+                    i++;
+                }
+                mOutStream << left <<
+                    theSize << left << theSuffixPtr[i];
+            } else {
+                mOutStream << setw(12) << left << inEntry.mSize;
+            }
+            mOutStream << " " << inFs.GetUri() << inEntry.mPath <<
+                (inEntry.mPath != "/" ? "/" : "") <<
+                inEntry.mName <<
+            "\n";
+        }
+    private:
+        DiskUtilizationFunctor(
+            const DiskUtilizationFunctor& inFunctor);
+        DiskUtilizationFunctor& operator=(
+            const DiskUtilizationFunctor& inFunctor);
+    };
+    int DiskUtilization(
+        char**                inArgsPtr,
+        int                   inArgCount,
+        DiskUtilizationFormat inFormat)
+    {
+        DiskUtilizationFunctor           theDuFunc(inFormat, cout);
+        FunctorT<DiskUtilizationFunctor> theFunc(theDuFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    int DiskUtilizationBytes(
+        char**                inArgsPtr,
+        int                   inArgCount)
+    {
+        return DiskUtilization(
+            inArgsPtr, inArgCount, kDiskUtilizationFormatBytes);
+    }
+    int DiskUtilizationSummary(
+        char**                inArgsPtr,
+        int                   inArgCount)
+    {
+        return DiskUtilization(
+            inArgsPtr, inArgCount, kDiskUtilizationFormatSummaryBytes);
+    }
+    int DiskUtilizationHumanReadable(
+        char**                inArgsPtr,
+        int                   inArgCount)
+    {
+        return DiskUtilization(
+            inArgsPtr, inArgCount, kDiskUtilizationFormatHumanReadable);
+    }
+    int DiskUtilizationSummaryHumanReadable(
+        char**                inArgsPtr,
+        int                   inArgCount)
+    {
+        return DiskUtilization(
+            inArgsPtr, inArgCount, kDiskUtilizationFormatSummaryHumanReadable);
     }
 private:
     size_t mIoBufferSize;
