@@ -126,6 +126,9 @@ public:
                     theRetPtr = 0;
                 } else {
                     outStatPtr = &mStatBuf;
+                    if (S_ISDIR(mStatBuf.st_mode) && mStatBuf.st_size >= 0) {
+                        mStatBuf.st_size = -(mStatBuf.st_size + 1);
+                    }
                 }
                 mFileName.erase(theLen);
             }
@@ -220,14 +223,28 @@ public:
         StatBuf&      outStatBuf)
     {
         outStatBuf.Reset();
-        return Errno(stat(inFileName.c_str(), &outStatBuf));
+        const int theStatus = Errno(stat(inFileName.c_str(), &outStatBuf));
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        if (S_ISDIR(outStatBuf.st_mode) && outStatBuf.st_size >= 0) {
+            outStatBuf.st_size = -(outStatBuf.st_size + 1);
+        }
+        return theStatus;
     }
     virtual int Stat(
         int      inFd,
         StatBuf& outStatBuf)
     {
         outStatBuf.Reset();
-        return Errno(fstat(inFd, &outStatBuf));
+        const int theStatus = Errno(fstat(inFd, &outStatBuf));
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        if (S_ISDIR(outStatBuf.st_mode) && outStatBuf.st_size >= 0) {
+            outStatBuf.st_size = -(outStatBuf.st_size + 1);
+        }
+        return theStatus;
     }
     virtual int Open(
         const string& inDirName,
