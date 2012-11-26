@@ -62,7 +62,6 @@ using std::ostringstream;
 using std::setw;
 using std::left;
 using std::right;
-using std::setprecision;
 
 class KfsTool
 {
@@ -1491,6 +1490,49 @@ private:
         theMoveFunctor.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    static const char* SizeToHumanReadable(
+        int64_t inSize,
+        char*   inEndPtr)
+    {
+        const char* const theSuffixPtr[] = { 
+            "KB", "MB", "GB", "TB", "PB", 0
+        };
+        int64_t theSize = max(int64_t(0), inSize);
+        int     i = 0;
+        while (theSize >= (int64_t(1) << 20) && theSuffixPtr[i + 1]) {
+            theSize >>= 10;
+            i++;
+        }
+        // Two digit fractional part.
+        int64_t theFrac =
+            ((theSize & ((int64_t(1) << 10) - 1)) * 100 + (1 << 9)) >> 10;
+        theSize >>= 10;
+        if (theFrac >= 100) {
+            theSize++;
+            theFrac -= 100;
+        }
+        char* thePtr = inEndPtr;
+        const size_t theLen = strlen(theSuffixPtr[i]) + 1;
+        thePtr -= theLen;
+        memcpy(thePtr, theSuffixPtr[i], theLen);
+        *--thePtr = ' ';
+        const char* const theStartPtr = thePtr;
+        if (theFrac > 0) {
+            for (int k = 0; k < 2; k++) {
+                const int theDigit = (int)(theFrac % 10);
+                theFrac /= 10;
+                if (thePtr != theStartPtr || theDigit > 0) {
+                    *--thePtr = (char)(theDigit + '0');
+                }
+            }
+            *--thePtr = '.';
+        }
+        do {
+            *--thePtr = ((theSize % 10) + '0');
+            theSize /= 10;
+        } while (theSize > 0);
+        return thePtr;
+    }
     class SubCounts
     {
     public:
@@ -1594,7 +1636,8 @@ private:
             ostream&              inOutStream)
             : mFormat(inFormat),
               mOutStream(inOutStream),
-              mDiskUtilizationEntries()
+              mDiskUtilizationEntries(),
+              mBufEndPtr(mBuf + sizeof(mBuf) / sizeof(mBuf[0]))
             {}
         int operator()(
             FileSystem&    inFs,
@@ -1660,6 +1703,8 @@ private:
         const DiskUtilizationFormat mFormat;
         ostream&                    mOutStream;
         DiskUtilizationEntries      mDiskUtilizationEntries;
+        char                        mBuf[32];
+        char* const                 mBufEndPtr;
 
         bool IsSummary() const
         {
@@ -1706,23 +1751,31 @@ private:
             if (! mOutStream) {
                 return;
             }
-            if (IsHumanReadable()) {
-                const char* theSuffixPtr[] = { "B", "K", "M", "G", "T", "P", 0 };
-                double      theSize        = inEntry.mSize;
-                int i;
-                for (i = 0; theSize > 1024. && theSuffixPtr[i + 1]; ) {
-                    theSize /= 1024.;
-                    i++;
-                }
-                mOutStream << left <<
-                    theSize << left << theSuffixPtr[i];
+            if (IsSummary()) {
+                ShowPath(inFs, inEntry) << "\t" << right;
             } else {
-                mOutStream << setw(12) << left << inEntry.mSize;
+                mOutStream << setw(IsHumanReadable() ? 13 : 12) << left;
             }
-            mOutStream << " " << inFs.GetUri() << inEntry.mPath <<
-                (inEntry.mPath != "/" ? "/" : "") <<
-                inEntry.mName <<
-            "\n";
+            if (IsHumanReadable()) {
+                mOutStream << SizeToHumanReadable(inEntry.mSize, mBufEndPtr);
+            } else {
+                mOutStream << inEntry.mSize;
+            }
+            if (! IsSummary()) {
+                ShowPath(inFs, inEntry);
+            }
+            mOutStream << "\n";
+        }
+        ostream& ShowPath(
+            FileSystem&                     inFs,
+            const DiskUtilizationListEntry& inEntry)
+        {
+            return (
+                mOutStream << inFs.GetUri() << inEntry.mPath <<
+                ((*inEntry.mPath.rbegin() != '/' && ! inEntry.mName.empty()) ?
+                    "/" : "") <<
+                inEntry.mName
+            );
         }
     private:
         DiskUtilizationFunctor(
