@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// \brief Test atomic record append API in KFS.
+// \brief Test atomic record append API in QFS.
 //
 //----------------------------------------------------------------------------
 
@@ -44,10 +44,12 @@ using std::string;
 using namespace KFS;
 
 int numReplicas = 3;
+
 KfsClient * gKfsClient;
 static bool doMkdirs(const char *dirname);
 static off_t doWrite(const string &kfspathname, int numMBytes,
-                     size_t writeSizeBytes, double sleepSec, char record);
+                     size_t writeSizeBytes, double sleepSec, char record,
+                     int numReplicas);
 
 int
 main(int argc, char **argv)
@@ -92,21 +94,27 @@ main(int argc, char **argv)
     }
 
     if (help || (kfsPropsFile == NULL) || (kfspathname == "")) {
-        cout << "Usage: " << argv[0] << " -p <Kfs Client properties file> "
-             << " -m <# of MB to write> -b <write size in bytes> -f <Kfs file> "
-             << " -S <sleep between writes> -c <char for the record>\n"
-             << "       The properties file has as contents the following:\n"
-             << "         metaServer.name = <hostname>\n"
-             << "         metaServer.port = <port\n";
+        cout << "Usage: " << argv[0] << "<options>\n"
+             << "  Options:\n"
+             << "    -p <properties file>\n"
+             << "    -m <Size in MB to write>\n"
+             << "    -b <write size in bytes>\n"
+             << "    -f <Qfs file>\n"
+             << "    -S <sleep between writes>\n"
+             << "    -c <char for the record>\n"
+             << "    -r <number of replicas>\n"
+             << "  The properties file to contain:\n"
+             << "     metaServer.name = <hostname>\n"
+             << "     metaServer.port = <port\n";
         exit(0);
     }
 
-    cout << "Doing writes to: " << kfspathname << " # MB = " << numMBytes;
-    cout << " # of bytes per write: " << writeSizeBytes << endl;
+    cout << "Doing writes to file: " << kfspathname << ". # MB: " << numMBytes;
+    cout << ". # of bytes per write: " << writeSizeBytes << endl;
 
     gKfsClient = Connect(kfsPropsFile);
     if (!gKfsClient) {
-        cout << "kfs client failed to initialize...exiting" << endl;
+        cout << "Qfs client failed to initialize...exiting" << endl;
         exit(-1);
     }
 
@@ -116,13 +124,14 @@ main(int argc, char **argv)
     string::size_type slash = kfspathname.rfind('/');
 
     if (slash == string::npos) {
-        cout << "Bad kfs path: " << kfsdirname << endl;
+        cout << "Bad Qfs path: " << kfspathname << endl;
         exit(-1);
     }
 
     kfsdirname.assign(kfspathname, 0, slash);
     kfsfilename.assign(kfspathname, slash + 1, kfspathname.size());
-    doMkdirs(kfsdirname.c_str());
+    if (kfsdirname.length())
+        doMkdirs(kfsdirname.c_str());
 
     struct timeval startTime, endTime;
     double timeTaken;
@@ -130,15 +139,25 @@ main(int argc, char **argv)
 
     gettimeofday(&startTime, NULL);
 
-    bytesWritten = doWrite(kfspathname, numMBytes, writeSizeBytes, sleepSec, record);
+    bytesWritten = doWrite(kfspathname, numMBytes, writeSizeBytes, sleepSec,
+                           record, numReplicas);
 
     gettimeofday(&endTime, NULL);
 
     timeTaken = (endTime.tv_sec - startTime.tv_sec) +
         (endTime.tv_usec - startTime.tv_usec) * 1e-6;
 
-    cout << "Write rate: " << (((double) bytesWritten * 8.0) / timeTaken) / (1024.0 * 1024.0) << " (Mbps)" << endl;
-    cout << "Write rate: " << ((double) bytesWritten / timeTaken) / (1024.0 * 1024.0) << " (MBps)" << endl;
+    if (bytesWritten < 0) {
+        cout << "Test failed: " << bytesWritten << endl;
+        return -1;
+    }
+
+    cout << "Write rate: "
+         << (((double) bytesWritten * 8.0) / timeTaken) / (1024.0 * 1024.0)
+         << " (Mbps)" << endl;
+    cout << "Write rate: " 
+         << ((double) bytesWritten / timeTaken) / (1024.0 * 1024.0)
+         << " (MBps)" << endl;
     return 0;
 }
 
@@ -159,7 +178,8 @@ doMkdirs(const char *dirname)
 }
 
 off_t
-doWrite(const string &filename, int numMBytes, size_t writeSizeBytes, double sleepSec, char record)
+doWrite(const string &filename, int numMBytes, size_t writeSizeBytes,
+        double sleepSec, char record, int numReplicas)
 {
     const size_t mByte = 1024 * 1024;
     char dataBuf[mByte];
@@ -177,15 +197,10 @@ doWrite(const string &filename, int numMBytes, size_t writeSizeBytes, double sle
         dataBuf[bytesWritten] = record;
     }
 
-    // fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_RDWR);
-    fd = gKfsClient->Create(filename.c_str(), numReplicas, true);
-    if (fd == -EEXIST) {
-        fd = gKfsClient->Open(filename.c_str(), O_RDWR);
-    } else {
-        sleep(2);
-    }
+    fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_APPEND|O_WRONLY,
+                          numReplicas);
     if (fd < 0) {
-        cout << "Create failed: " << endl;
+        cout << "Open failed: " << fd << endl;
         exit(-1);
     }
 
@@ -197,16 +212,22 @@ doWrite(const string &filename, int numMBytes, size_t writeSizeBytes, double sle
     }
     int recordCount = 0;
     for (nMBytes = 0; nMBytes < numMBytes; nMBytes++) {
-        for (bytesWritten = 0; bytesWritten < mByte; bytesWritten += writeSizeBytes) {
+        for (bytesWritten = 0; bytesWritten < mByte;
+             bytesWritten += writeSizeBytes) {
             snprintf(dataBuf, 4, "%d", recordCount);
             recordCount++;
             res = gKfsClient->AtomicRecordAppend(fd, dataBuf, writeSizeBytes);
-            if (res != (int) writeSizeBytes)
+            if (res < 0) {
+                cout << "AtomicRecordAppend failed, with error: "
+                     << res << endl;
+                return res;
+            }
+            if (res != (int) writeSizeBytes) {
                 return (bytesWritten + nMBytes * 1024 * 1024);
+            }
             nwrote += writeSizeBytes;
         }
         if (doSleep) {
-
             nanosleep(&sleepTm, 0);
         }
     }
