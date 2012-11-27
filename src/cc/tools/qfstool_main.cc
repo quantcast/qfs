@@ -117,7 +117,7 @@ public:
 
         if (! theMetaHost.empty()) {
             string theUri = "qfs://" + theMetaHost;
-            if (theMetaPort.empty()) {
+            if (! theMetaPort.empty()) {
                 theUri += ":";
                 theUri += theMetaPort;
             }
@@ -162,6 +162,13 @@ public:
             } else if (strcmp(theCmdPtr, "-dush") == 0) {
                 theErr = DiskUtilizationSummaryHumanReadable(
                     inArgsPtr + optind + 1, inArgCount - optind - 1);
+            } else if (strcmp(theCmdPtr, "-count") == 0) {
+                const bool theShowQuotaFlag = strcmp(inArgsPtr[optind + 1], "-q") == 0;
+                if (theShowQuotaFlag) {
+                    optind++;
+                }
+                theErr = Count(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                    theShowQuotaFlag);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
                 theErr = EINVAL;
@@ -1819,6 +1826,88 @@ private:
     {
         return DiskUtilization(
             inArgsPtr, inArgCount, kDiskUtilizationFormatSummaryHumanReadable);
+    }
+    class CountFunctor
+    {
+    public:
+        CountFunctor(
+            bool     inShowQuotaFlag,
+            ostream& inOutStream)
+            : mShowQuotaFlag(inShowQuotaFlag),
+              mOutStream(inOutStream),
+              mStat()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            mStat.Reset();
+            const int theStatus = inFs.Stat(inPath, mStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            if (S_ISDIR(mStat.st_mode) &&
+                    (mStat.st_size < 0 ||
+                    mStat.mSubCount1 < 0 ||
+                    mStat.mSubCount2 < 0)) {
+                SubCounts theCounts(inFs, inPath, inErrorReporter);
+                theCounts.Run();
+                mStat.st_size    = theCounts.GetByteCount();
+                mStat.mSubCount1 = theCounts.GetFileCount();
+                mStat.mSubCount2 = theCounts.GetDirCount();
+            }
+            if (S_ISDIR(mStat.st_mode)) {
+                mStat.mSubCount2++;
+            } else {
+                mStat.mSubCount2 = 0;
+                mStat.mSubCount1 = 1;
+            }
+            Show(inFs, inPath);
+            return theStatus;
+        }
+    private:
+        const bool          mShowQuotaFlag;
+        ostream&            mOutStream;
+        FileSystem::StatBuf mStat;
+
+        void Show(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            if (mShowQuotaFlag) {
+                // Quota currently not supported.
+                mOutStream << right <<
+                    setw(12) << "none" << " " <<
+                    setw(12) << "inf"  << " " <<
+                    setw(12) << "none" << " " <<
+                    setw(12) << "inf"  << " " <<
+                    setw(12) << mStat.mSubCount2 << " " <<
+                    setw(12) << mStat.mSubCount1 << " " <<
+                    setw(12) << mStat.st_size    << " " <<
+                    inFs.GetUri() << inPath << "\n";
+            } else {
+                mOutStream << right <<
+                    setw(12) << mStat.mSubCount2 << " " <<
+                    setw(12) << mStat.mSubCount1 << " " <<
+                    setw(12) << mStat.st_size    << " " <<
+                    inFs.GetUri() << inPath << "\n";
+            }
+        }
+    private:
+        CountFunctor(
+            const CountFunctor& inFunctor);
+        CountFunctor& operator=(
+            const CountFunctor& inFunctor);
+    };
+    int Count(
+        char** inArgsPtr,
+        int    inArgCount,
+        bool   inShowQuotaFlag)
+    {
+        CountFunctor           theCountFunc(inShowQuotaFlag, cout);
+        FunctorT<CountFunctor> theFunc(theCountFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
     }
 private:
     size_t mIoBufferSize;
