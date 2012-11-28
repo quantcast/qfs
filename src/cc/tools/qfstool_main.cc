@@ -78,96 +78,88 @@ public:
         int    inArgCount,
         char** inArgsPtr)
     {
-        string              theMetaHost;
-        string              theMetaPort;
-        bool                theHelpFlag = false;
         MsgLogger::LogLevel theLogLevel = MsgLogger::kLogLevelINFO;
 
-        int theOpt;
-        while ((theOpt = getopt(inArgCount, inArgsPtr, "hs:p:v")) != -1) {
-            switch (theOpt) {
-                case 's':
-                    theMetaHost = optarg;
-                    break;
-                case 'p':
-                    theMetaPort = optarg;
-                    break;
-                case 'h':
-                    theHelpFlag = true;
-                    break;
-                case 'v':
-                    theLogLevel = MsgLogger::kLogLevelDEBUG;
-                    break;
-                default:
-                    // cout << "Unrecognized option : " << char(theOpt) << "\n";
-                    // theHelpFlag = true;
-                    break;
-            }
+        int theArgIndex = 1;
+        if (theArgIndex < inArgCount &&
+                strcmp(inArgsPtr[theArgIndex], "-v") == 0) {
+            theLogLevel = MsgLogger::kLogLevelDEBUG;
+            theArgIndex++;
         }
-
-        if (theHelpFlag || (theMetaHost.empty() && ! theMetaPort.empty())) {
-            cout <<
-                "Usage: " << (inArgCount > 0 ? inArgsPtr[0] : "") << "\n"
-                " [-s <meta server host>]\n"
-                " [-p <meta server port>]\n"
-            ;
+        if (inArgCount <= theArgIndex) {
+            ShortHelp(cerr);
             return 1;
         }
+        if (strcmp(inArgsPtr[theArgIndex], "-help") == 0) {
+            theArgIndex++;
+            LongHelp(cout, inArgsPtr + theArgIndex, inArgCount - theArgIndex);
+            return 0;
+        }
+
         MsgLogger::Init(0, theLogLevel);
 
-        if (! theMetaHost.empty()) {
-            string theUri = "qfs://" + theMetaHost;
-            if (! theMetaPort.empty()) {
-                theUri += ":";
-                theUri += theMetaPort;
+        if (strcmp(inArgsPtr[theArgIndex], "-fs") == 0) {
+            theArgIndex++;
+            if (inArgCount <= theArgIndex) {
+                ShortHelp(cerr);
+                return 1;
             }
+            const string theUri(inArgsPtr[theArgIndex]);
             const int theErr = FileSystem::SetDefault(theUri);
             if (theErr != 0) {
                 cerr << theUri << ": " <<
                     FileSystem::GetStrError(-theErr) << "\n";
                 return 1;
             }
+            theArgIndex++;
         }
+
         int theErr = 0;
-        if (optind < inArgCount) {
-            const char* const theCmdPtr = inArgsPtr[optind];
+        if (theArgIndex < inArgCount) {
+            const char* const theCmdPtr = inArgsPtr[theArgIndex++];
             if (strcmp(theCmdPtr, "-cat") == 0) {
-                theErr = Cat(inArgsPtr + optind + 1, inArgCount - optind - 1);
+                theErr = Cat(inArgsPtr + theArgIndex, inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-ls") == 0) {
                 const bool kRecursiveFlag = false;
-                theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                theErr = List(inArgsPtr + theArgIndex,
+                    inArgCount - theArgIndex,
                     kRecursiveFlag);
             } else if (strcmp(theCmdPtr, "-lsr") == 0) {
                 const bool kRecursiveFlag = true;
-                theErr = List(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                theErr = List(inArgsPtr + theArgIndex,
+                    inArgCount - theArgIndex,
                     kRecursiveFlag);
             } else if (strcmp(theCmdPtr, "-mkdir") == 0) {
                 const kfsMode_t kCreateMode    = 0777;
                 const bool      kCreateAllFlag = true;
-                theErr = Mkdir(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                theErr = Mkdir(inArgsPtr + theArgIndex,
+                    inArgCount - theArgIndex,
                     kCreateMode, kCreateAllFlag);
             } else if (strcmp(theCmdPtr, "-cp") == 0) {
-                theErr = Copy(inArgsPtr + optind + 1, inArgCount - optind - 1);
+                theErr = Copy(inArgsPtr + theArgIndex,
+                    inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-mv") == 0) {
-                theErr = Move(inArgsPtr + optind + 1, inArgCount - optind - 1);
+                theErr = Move(inArgsPtr + theArgIndex,
+                    inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-du") == 0) {
                 theErr = DiskUtilizationBytes(
-                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-duh") == 0) {
                 theErr = DiskUtilizationHumanReadable(
-                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-dus") == 0) {
                 theErr = DiskUtilizationSummary(
-                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-dush") == 0) {
                 theErr = DiskUtilizationSummaryHumanReadable(
-                    inArgsPtr + optind + 1, inArgCount - optind - 1);
+                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
             } else if (strcmp(theCmdPtr, "-count") == 0) {
-                const bool theShowQuotaFlag = strcmp(inArgsPtr[optind + 1], "-q") == 0;
+                const bool theShowQuotaFlag =
+                    strcmp(inArgsPtr[theArgIndex], "-q") == 0;
                 if (theShowQuotaFlag) {
                     optind++;
                 }
-                theErr = Count(inArgsPtr + optind + 1, inArgCount - optind - 1,
+                theErr = Count(inArgsPtr + theArgIndex, inArgCount - theArgIndex,
                     theShowQuotaFlag);
             } else {
                 cerr << "unsupported option: " << theCmdPtr << "\n";
@@ -177,6 +169,47 @@ public:
         return (theErr == 0 ? 0 : 1);
     }
 private:
+    static const char* const sHelpStrings[];
+    void ShortHelp(
+        ostream&    inOutStream,
+        const char* inPrefixPtr = "          ")
+    {
+        for (const char* const* thePtr = sHelpStrings; *thePtr; ) {
+            inOutStream << inPrefixPtr << "[-" << *thePtr << " ";
+            ++thePtr;
+            inOutStream << *thePtr << "]\n";
+            thePtr += 2;
+        }
+    }
+    void LongHelp(
+        ostream& inOutStream,
+        char**   inArgsPtr,
+        int      inArgCount)
+    {
+        if (inArgCount <= 0) {
+            ShortHelp(inOutStream, "\t");
+        }
+        int theRemCnt = inArgCount;
+        for (const char* const* thePtr = sHelpStrings; *thePtr; ) {
+            int i = 0;
+            for (i = 0; i < inArgCount && strcmp(*thePtr, inArgsPtr[i]); i++)
+                {}
+            if (i >= inArgCount && inArgCount > 0) {
+                thePtr += 3;
+                continue;
+            }
+            theRemCnt--;
+            inOutStream << "-" << *thePtr << " ";
+            ++thePtr;
+            inOutStream << *thePtr << ":\t";
+            ++thePtr;
+            inOutStream << *thePtr << "\n";
+            ++thePtr;
+        }
+        if (theRemCnt > 0) {
+            LongHelp(inOutStream, 0, 0);
+        }
+    }
     static const char* GlobError(
         int inError)
     {
@@ -1915,6 +1948,194 @@ private:
 private:
     KfsTool(const KfsTool& inTool);
     KfsTool& operator=(const KfsTool& inTool);
+};
+
+const char* const KfsTool::sHelpStrings[] =
+{
+    "fs", "[local | <file system URI>]",
+    "Specify the file system to use.\n\t\t"
+    "'local' means use the local file system as your DFS.\n\t\t"
+    "<file system URI> specifies a particular file system to\n\t\t"
+    "contact. This argument is optional but if used must appear\n\t\t"
+    "appear first on the command line. Exactly one additional\n\t\t"
+    "argument must be specified.\n",
+
+    "ls", "<path>",
+    "List the contents that match the specified file pattern. If\n\t\t"
+    "path is not specified, the contents of /user/<currentUser>\n\t\t"
+    "will be listed. Directory entries are of the form \n\t\t"
+    "dirName (full path) <dir>\n\t\t"
+    "and file entries are of the form\n\t\t"
+    "fileName(full path) <r n> size\n\t\t"
+    "where n is the number of replicas specified for the file\n\t\t"
+    "and size is the size of the file, in bytes.\n",
+
+    "lsr", "<path>",
+    "Recursively list the contents that match the specified\n\t\t"
+    "file pattern.  Behaves very similarly to -ls,\n\t\t"
+    "except that the data is shown for all the entries in the\n\t\t"
+    "subtree.\n",
+
+    "du", "<path>",
+    "Show the amount of space, in bytes, used by the files that\n\t\t"
+    "match the specified file pattern.  Equivalent to the unix\n\t\t"
+    "command \"du -sb <path>/*\" in case of a directory,\n\t\t"
+    "and to \"du -b <path>\" in case of a file.\n\t\t"
+    "The output is in the form\n\t\t"
+    "name(full path) size (in bytes)\n",
+
+    "duh", "<path>",
+    "Show the amount of space, in human readable form, used by\n\t\t"
+    "the files that match the specified file pattern. Value is same as"
+    " -du option\n",
+
+    "dus", "<path>",
+    "Show the amount of space, in bytes, used by the files that\n\t\t"
+    "match the specified file pattern.  Equivalent to the unix\n\t\t"
+    "command \"du -sb\"  The output is in the form\n\t\t"
+    "name(full path) size (in bytes)\n",
+
+    "dush", "<path>",
+    "Show the amount of space, in human readable format, used by\n\t\t"
+    "the files that match the specified file pattern."
+    " Equivalent to unix du -sh\n",
+
+    "mv", "<src> <dst>",
+    "Move files that match the specified file pattern <src>\n\t\t"
+    "to a destination <dst>.  When moving multiple files, the \n\t\t"
+    "destination must be a directory.\n",
+
+    "cp", "<src> <dst>",
+    "Copy files that match the file pattern <src> to a\n\t\t"
+    "destination.  When copying multiple files, the destination\n\t\t"
+    "must be a directory.\n",
+
+    "rm", "[-skipTrash] <src>",
+    "Delete all files that match the specified file pattern.\n\t\t"
+    "Equivalent to the Unix command \"rm <src>\"\n\t\t"
+    "-skipTrash option bypasses trash, if enabled, and immediately\n\t\t"
+    "deletes <src>\n",
+
+    "rmr", "[-skipTrash] <src>",
+    "Remove all directories which match the specified file\n\t\t"
+    "pattern. Equivalent to the Unix command \"rm -rf <src>\"\n\t\t"
+    "-skipTrash option bypasses trash, if enabled, and immediately\n\t\t"
+    "deletes <src>\n",
+
+    "put", "<localsrc> ... <dst>",
+    "Copy files from the local file system\n\t\t"
+    "into fs.\n",
+
+    "copyFromLocal", "<localsrc> ... <dst>",
+    "Identical to the -put command.\n",
+
+    "moveFromLocal", "<localsrc> ... <dst>",
+    "Same as -put, except that the source is\n\t\t"
+    "deleted after it's copied.\n",
+
+    "get", "[-ignoreCrc] [-crc] <src> <localdst>",
+    "Copy files that match the file pattern <src>\n\t\t"
+    "to the local name.  <src> is kept.  When copying mutiple,\n\t\t"
+    "files, the destination must be a directory.\n",
+
+    "getmerge", "<src> <localdst>",
+    "Get all the files in the directories that\n\t\t"
+    "match the source file pattern and merge and sort them to only\n\t\t"
+    "one file on local fs. <src> is kept.\n",
+
+    "cat", "<src>",
+    "Fetch all files that match the file pattern <src> \n\t\t"
+    "and display their content on stdout.\n",
+
+    "copyToLocal", "[-ignoreCrc] [-crc] <src> <localdst>",
+    "Identical to the -get command.\n",
+
+    "moveToLocal", "<src> <localdst>",
+    "Not implemented yet\n",
+
+    "mkdir", "<path>",
+    "Create a directory in specified location.\n",
+
+    "setrep", "[-R] [-w] <rep> <path/file>",
+    "Set the replication level of a file.\n\t\t"
+    "The -R flag requests a recursive change of replication level\n\t\t"
+    "for an entire tree.\n",
+
+    "tail", "[-f] <file>",
+    "Show the last 1KB of the file.\n\t\t"
+    "The -f option shows apended data as the file grows.\n",
+
+    "touchz", "<path>",
+    "Write a timestamp in yyyy-MM-dd HH:mm:ss format\n\t\t"
+    "in a file at <path>. An error is returned if the file exists with non-zero"
+    " length\n",
+
+    "test", "-[ezd] <path>",
+    "If file { exists, has zero length, is a directory\n\t\t"
+    "then return 0, else return 1.\n",
+
+    "text", "<src>",
+    "Takes a source file and outputs the file in text format.\n\t\t"
+    "The allowed formats are zip.\n",
+
+    "setModTime", "<src> <time>",
+    "Set modification time <time in milliseconds>"
+    " on <src>\n",
+
+    "stat", "[format] <path>",
+    "Print statistics about the file/directory at <path>\n\t\t"
+    "in the specified format. Format accepts filesize in blocks (%b),"
+    " filename (%n),\n\t\t"
+    "block size (%o), replication (%r), modification date (%y, %Y)\n",
+
+    "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
+    "Changes permissions of a file.\n\t\t"
+    "This works similar to shell's chmod with a few exceptions.\n"
+    "\n\t"
+    "-R\tmodifies the files recursively. This is the only option\n\t\t"
+    "currently supported.\n"
+    "\n\t"
+    "MODE\tMode is same as mode used for chmod shell command.\n\t\t"
+    "Only letters recognized are 'rwxX'. E.g. a+r,g-w,+rwx,o=r\n"
+    "\n\t"
+    "OCTALMODE\tMode specifed in 3 digits. Unlike shell command,\n\t\t"
+    "this requires all three digits.\n\t\t"
+    "E.g. 754 is same as u=rwx,g=rx,o=r\n"
+    "\n\t\t"
+    "If none of 'augo' is specified, 'a' is assumed and unlike\n\t\t"
+    "shell command, no umask is applied.\n",
+
+    "chown", "[-R] [OWNER][:[GROUP]] PATH...",
+    "Changes owner and group of a file.\n\t\t"
+    "This is similar to shell's chown with a few exceptions.\n"
+    "\n\t"
+    "-R\tmodifies the files recursively. This is the only option\n\t\t"
+    "currently supported.\n"
+    "\n\t\t"
+    "If only owner or group is specified then only owner or\n\t\t"
+    "group is modified.\n"
+    "\n\t\t"
+    "WARNING: Avoid using '.' to separate user name and group though\n\t\t"
+    "Linux allows it. If user names have dots in them and you are\n\t\t"
+    "using local file system, you might see surprising results since\n\t\t"
+    "shell command 'chown' is used for local files.\n",
+
+    "chgrp", "[-R] GROUP PATH...",
+    "This is equivalent to -chown ... :GROUP ...\n",
+
+    "count", "[-q] <path>",
+    "Count the number of directories, files and bytes under the paths\n\t\t"
+    "that match the specified file pattern. The output columns are:\n\t\t"
+    "DIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME or\n\t\t"
+    "QUOTA REMAINING_QUATA SPACE_QUOTA REMAINING_SPACE_QUOTA \n\t\t"
+    "      DIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME\n",
+
+    "help", "[cmd]",
+    "Displays help for given command or all commands if none\n\t\t"
+    "is specified.\n",
+
+    0, 0, 0, // Sentinel
+    0, 0, 0
 };
 
 }
