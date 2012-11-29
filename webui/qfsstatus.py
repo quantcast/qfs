@@ -38,7 +38,7 @@ from browse import QFSBrowser
 import threading
 
 metaserverPort = 20000
-mestaserverHost='127.0.0.1'
+metaserverHost='127.0.0.1'
 spaceTotal=0
 docRoot = '.'
 displayName = ''
@@ -1396,7 +1396,7 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
 
     def do_GET(self):
-        global metaserverPort, mestaserverHost, docRoot
+        global metaserverPort, metaserverHost, docRoot
         global gChunkHandler
         try:
             if self.path.startswith('/favicon.ico'):
@@ -1419,12 +1419,12 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     self.send_error(404, 'Not found')
                 return
 
-            metaserver = ServerLocation(node=mestaserverHost,
+            metaserver = ServerLocation(node=metaserverHost,
                                         port=metaserverPort)
             txtStream = StringIO()
 
             if(gChunkHandler.thread == None):
-                gChunkHandler.startThread(mestaserverHost, metaserverPort)
+                gChunkHandler.startThread(metaserverHost, metaserverPort)
 
             status  = None
             reqType = None
@@ -1457,7 +1457,7 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     return
             elif reqType == kBrowse and gQfsBrowser.browsable:
                 if gQfsBrowser.printToHTML(self.path,
-                                           mestaserverHost,
+                                           metaserverHost,
                                            metaserverPort,
                                            txtStream) == 0:
                     self.send_error(404, 'Not found')
@@ -1586,7 +1586,7 @@ if __name__ == '__main__':
     config.readfp(open(sys.argv[1], 'r'))
     metaserverPort = config.getint('webserver', 'webServer.metaserverPort')
     try:
-        mestaserverHost = config.get('webserver', 'webServer.mestaserverHost')
+        metaserverHost = config.get('webserver', 'webServer.metaserverHost')
     except:
         pass
     try:
@@ -1605,8 +1605,8 @@ if __name__ == '__main__':
     docRoot = config.get('webserver', 'webServer.docRoot')
     PORT = config.getint('webserver', 'webServer.port')
     allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
-    if mestaserverHost != '127.0.0.1' and mestaserverHost != 'localhost':
-        displayName = mestaserverHost
+    if metaserverHost != '127.0.0.1' and metaserverHost != 'localhost':
+        displayName = metaserverHost
     else:
         displayName = platform.node()
     displayName += ':' + str(metaserverPort)
