@@ -74,8 +74,9 @@ class ChunkServerData:
         self.chunkHeaders = [elem.strip() for elem in nodes]
 
     def printDebug(self):
-        print self.chunkServers[0].nodes
-        print self.chunkHeaders
+        print "Headers:", self.chunkHeaders
+        if len(self.chunkServers) > 0:
+            print "First row:", self.chunkServers[0].nodes
 
 
 #________________________________________________________
