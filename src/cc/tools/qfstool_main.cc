@@ -90,14 +90,7 @@ public:
             ShortHelp(cerr);
             return 1;
         }
-        if (strcmp(inArgsPtr[theArgIndex], "-help") == 0) {
-            theArgIndex++;
-            LongHelp(cout, inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            return 0;
-        }
-
         MsgLogger::Init(0, theLogLevel);
-
         if (strcmp(inArgsPtr[theArgIndex], "-fs") == 0) {
             theArgIndex++;
             if (inArgCount <= theArgIndex) {
@@ -113,58 +106,100 @@ public:
             }
             theArgIndex++;
         }
-
-        int theErr = 0;
-        if (theArgIndex < inArgCount) {
-            const char* const theCmdPtr = inArgsPtr[theArgIndex++];
-            if (strcmp(theCmdPtr, "-cat") == 0) {
-                theErr = Cat(inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-ls") == 0) {
-                const bool kRecursiveFlag = false;
-                theErr = List(inArgsPtr + theArgIndex,
-                    inArgCount - theArgIndex,
-                    kRecursiveFlag);
-            } else if (strcmp(theCmdPtr, "-lsr") == 0) {
-                const bool kRecursiveFlag = true;
-                theErr = List(inArgsPtr + theArgIndex,
-                    inArgCount - theArgIndex,
-                    kRecursiveFlag);
-            } else if (strcmp(theCmdPtr, "-mkdir") == 0) {
+        const char* const theCmdPtr  = inArgsPtr[theArgIndex++] + 1;
+        if (theCmdPtr[-1] != '-') {
+            ShortHelp(cerr);
+            return 1;
+        }
+        int       theArgCnt    = inArgCount - theArgIndex;
+        char**    theArgsPtr   = inArgsPtr + theArgIndex;
+        int       theErr       = 0;
+        bool      theChgrpFlag = false;
+        if (strcmp(theCmdPtr, "cat") == 0) {
+            theErr = Cat(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "ls") == 0) {
+            const bool kRecursiveFlag = false;
+            theErr = List(theArgsPtr, theArgCnt, kRecursiveFlag);
+        } else if (strcmp(theCmdPtr, "lsr") == 0) {
+            const bool kRecursiveFlag = true;
+            theErr = List(theArgsPtr, theArgCnt, kRecursiveFlag);
+        } else if (strcmp(theCmdPtr, "mkdir") == 0) {
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
                 const kfsMode_t kCreateMode    = 0777;
                 const bool      kCreateAllFlag = true;
-                theErr = Mkdir(inArgsPtr + theArgIndex,
-                    inArgCount - theArgIndex,
+                theErr = Mkdir(
+                    theArgsPtr, theArgCnt,
                     kCreateMode, kCreateAllFlag);
-            } else if (strcmp(theCmdPtr, "-cp") == 0) {
-                theErr = Copy(inArgsPtr + theArgIndex,
-                    inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-mv") == 0) {
-                theErr = Move(inArgsPtr + theArgIndex,
-                    inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-du") == 0) {
-                theErr = DiskUtilizationBytes(
-                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-duh") == 0) {
-                theErr = DiskUtilizationHumanReadable(
-                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-dus") == 0) {
-                theErr = DiskUtilizationSummary(
-                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-dush") == 0) {
-                theErr = DiskUtilizationSummaryHumanReadable(
-                    inArgsPtr + theArgIndex, inArgCount - theArgIndex);
-            } else if (strcmp(theCmdPtr, "-count") == 0) {
-                const bool theShowQuotaFlag =
-                    strcmp(inArgsPtr[theArgIndex], "-q") == 0;
-                if (theShowQuotaFlag) {
-                    optind++;
-                }
-                theErr = Count(inArgsPtr + theArgIndex, inArgCount - theArgIndex,
-                    theShowQuotaFlag);
-            } else {
-                cerr << "unsupported option: " << theCmdPtr << "\n";
-                theErr = EINVAL;
             }
+        } else if (strcmp(theCmdPtr, "cp") == 0) {
+            theErr = Copy(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "put") == 0) {
+            theErr = Copy(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "get") == 0) {
+            theErr = Copy(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "mv") == 0) {
+            theErr = Move(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "du") == 0) {
+            theErr = DiskUtilizationBytes( theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "duh") == 0) {
+            theErr = DiskUtilizationHumanReadable(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "dus") == 0) {
+            theErr = DiskUtilizationSummary(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "dush") == 0) {
+            theErr = DiskUtilizationSummaryHumanReadable(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "count") == 0) {
+            const bool theShowQuotaFlag = strcmp(theArgsPtr[0], "-q") == 0;
+            if (theShowQuotaFlag) {
+                theArgCnt--;
+                theArgsPtr++;
+            }
+            theErr = Count(theArgsPtr, theArgCnt, theShowQuotaFlag);
+        } else if (strcmp(theCmdPtr, "chmod") == 0) {
+            const bool theRecursiveFlag = strcmp(theArgsPtr[0], "-R") == 0;
+            if (theRecursiveFlag) {
+                theArgCnt--;
+                theArgsPtr++;
+            }
+            if (theArgCnt < 2) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                const char* const theModePtr = *theArgsPtr++;
+                theArgCnt--;
+                theErr = Chmod(theArgsPtr, theArgCnt, theModePtr,
+                    theRecursiveFlag);
+            }
+        } else if (strcmp(theCmdPtr, "chown") == 0 ||
+                (theChgrpFlag = strcmp(theCmdPtr, "chgrp") == 0)) {
+            const bool theRecursiveFlag = strcmp(theArgsPtr[0], "-R") == 0;
+            if (theRecursiveFlag) {
+                theArgCnt--;
+                theArgsPtr++;
+            }
+            if (theArgCnt < 2) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                const char* const theOnwerGroupPtr = *theArgsPtr++;
+                theArgCnt--;
+                kfsUid_t theUser  = kKfsUserNone;
+                kfsGid_t theGroup = kKfsGroupNone;
+                if (theChgrpFlag) {
+                } else {
+                    
+                }
+                theErr = Chown(theArgsPtr, theArgCnt, theUser, theGroup,
+                    theRecursiveFlag);
+            }
+        } else if (strcmp(theCmdPtr, "help") == 0) {
+            LongHelp(cout, theArgsPtr, theArgCnt);
+        } else {
+            cerr << "unsupported option: " << (theCmdPtr - 1) << "\n";
+            theErr = EINVAL;
+            ShortHelp(cerr);
         }
         return (theErr == 0 ? 0 : 1);
     }
@@ -172,9 +207,14 @@ private:
     static const char* const sHelpStrings[];
     void ShortHelp(
         ostream&    inOutStream,
-        const char* inPrefixPtr = "          ")
+        const char* inPrefixPtr  = "          ",
+        const char* inCmdNamePtr = 0)
     {
         for (const char* const* thePtr = sHelpStrings; *thePtr; ) {
+            if (inCmdNamePtr && strcmp(inCmdNamePtr, *thePtr) != 0) {
+                thePtr += 3;
+                continue;
+            }
             inOutStream << inPrefixPtr << "[-" << *thePtr << " ";
             ++thePtr;
             inOutStream << *thePtr << "]\n";
@@ -301,9 +341,14 @@ private:
         int    inArgCount,
         FuncT& inFunctor)
     {
+        char  theArg[1]     = { 0 };
+        char* theArgsPtr[1] = { theArg };
         GlobResult theResult;
         bool       theMoreThanOneFsFlag = false;
-        int theErr = Glob(inArgsPtr, inArgCount, cerr,
+        int theErr = Glob(
+            inArgCount <= 0 ? theArgsPtr : inArgsPtr,
+            inArgCount <= 0 ? 1 : inArgCount,
+            cerr,
             theResult, theMoreThanOneFsFlag);
         if (! inFunctor.Init(theErr, theResult, theMoreThanOneFsFlag)) {
             return theErr;
@@ -829,9 +874,9 @@ private:
                 mRecursiveFlag, &inErrorReporter);
         }
     private:
-        const kfsUid_t mUid;
-        const kfsGid_t mGid;
-        const bool     mRecursiveFlag;
+        kfsUid_t   mUid;
+        kfsGid_t   mGid;
+        const bool mRecursiveFlag;
     private:
         ChownFunctor(
             const ChownFunctor& inFunctor);
@@ -853,21 +898,161 @@ private:
     {
     public:
         ChmodFunctor(
-            kfsMode_t inMode,
-            bool      inRecursiveFlag)
-            : mMode(inMode),
-              mRecursiveFlag(inRecursiveFlag)
-            {}
+            const char* inModePtr,
+            bool        inRecursiveFlag)
+            : mMode(inModePtr ? inModePtr : ""),
+              mModeStatus(0),
+              mSetModeFlag(false),
+              mModeToSet(0),
+              mRecursiveFlag(inRecursiveFlag),
+              mStat()
+        {
+            if (mMode.empty()) {
+                mModeStatus = -EINVAL;
+                return;
+            }
+            char* theEndPtr = 0;
+            const long theMode = strtol(mMode.c_str(), &theEndPtr, 8);
+            if ((mSetModeFlag = theEndPtr && (*theEndPtr & 0xFF) <= ' ')
+                    && theMode >= 0) {
+                mModeToSet = (kfsMode_t)theMode & (0777 | S_ISVTX);
+            } else if (GetMode(0) == kKfsModeUndef) {
+                mModeStatus = -EINVAL;
+            }
+        }
         int operator()(
             FileSystem&    inFs,
             const string&  inPath,
             ErrorReporter& inErrorReporter)
         {
-            return inFs.Chmod(inPath, mMode, mRecursiveFlag, &inErrorReporter);
+            if (mModeStatus != 0) {
+                return mModeStatus;
+            }
+            if (mSetModeFlag) {
+                return inFs.Chmod(inPath, mModeToSet, mRecursiveFlag,
+                    &inErrorReporter);
+            }
+            const int theStatus = inFs.Stat(inPath, mStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            return inFs.Chmod(inPath, GetMode(mStat.st_mode), mRecursiveFlag,
+                    &inErrorReporter);
         }
+        int GetModeStatus() const
+            { return mModeStatus; }
     private:
-        const kfsMode_t mMode;
-        const bool      mRecursiveFlag;
+        const string        mMode;
+        int                 mModeStatus;
+        bool                mSetModeFlag;
+        kfsMode_t           mModeToSet;
+        const bool          mRecursiveFlag;
+        FileSystem::StatBuf mStat;
+
+        enum
+        {
+            kUser  = 1,
+            kGroup = 2,
+            kOther = 4,
+            kAll   = 7
+        };
+
+        kfsMode_t GetMode(
+            kfsMode_t inMode)
+        {
+            kfsMode_t theMode     = inMode & (0777 | S_ISVTX);
+            int       theDest     = 0;
+            int       theOp       = 0;
+            int       thePermBits = 0;
+            for (const char* thePtr = mMode.c_str(); *thePtr; thePtr++) {
+                const int theSym = *thePtr & 0xFF;
+                if (theOp) {
+                    switch (theSym) {
+                        case 'r': thePermBits |= 4; break;
+                        case 'w': thePermBits |= 2; break;
+                        case 'X':
+                            if (! S_ISDIR(inMode) && (inMode & 0100) == 0) {
+                                break;
+                            }
+                            // Fall though.
+                        case 'x': thePermBits |= 1; break;
+                        case 't': thePermBits |= S_ISVTX; break;
+                        case '-': 
+                        case '+':
+                        case '=':
+                            SetBits(theDest, theOp, thePermBits, theMode);
+                            theOp       = theSym;
+                            thePermBits = 0;
+                            break;
+                        case ',':
+                            SetBits(theDest, theOp, thePermBits, theMode);
+                            theDest     = 0;
+                            theOp       = 0;
+                            thePermBits = 0;
+                            break;
+                        default:
+                            return kKfsModeUndef;
+                    }
+                } else {
+                    switch (theSym) {
+                        case 'u': theDest |= kUser;  break;
+                        case 'g': theDest |= kGroup; break;
+                        case 'o': theDest |= kOther; break;
+                        case 'a': theDest |= kAll;   break;
+                        case '-': 
+                        case '+':
+                        case '=':
+                            if (! theDest) {
+                                theDest = kAll;
+                            }
+                            theOp = theSym;
+                            break;
+                        default:
+                            return kKfsModeUndef;
+                    }
+                }
+            }
+            if (theDest && ! theOp) {
+                return kKfsModeUndef;
+            }
+            if (theOp) {
+                SetBits(theDest, theOp, thePermBits, theMode);
+            }
+            return theMode;
+        }
+        static void SetBits(
+            int        inDest,
+            int        inOp,
+            int        inPermBits,
+            kfsMode_t& ioMode)
+        {
+            if ((inDest & kOther) != 0) {
+                SetBitsDest(inOp, inPermBits, 0, ioMode);
+            }
+            if ((inDest & kGroup) != 0) {
+                SetBitsDest(inOp, inPermBits, 3, ioMode);
+            }
+            if ((inDest & kUser) != 0) {
+                SetBitsDest(inOp, inPermBits, 6, ioMode);
+            }
+        }
+        static void SetBitsDest(
+            int        inOp,
+            int        inPermBits,
+            int        inBitIdx,
+            kfsMode_t& ioMode)
+        {
+            const int thePerm = inPermBits << inBitIdx;
+            switch (inOp) {
+                case '-': ioMode &= ~thePerm; break;
+                case '+': ioMode |= thePerm;  break;
+                case '=':
+                    ioMode &= ~(7 << inBitIdx);
+                    ioMode |= thePerm;
+                    break;
+                default: break;
+            }
+        }
     private:
         ChmodFunctor(
             const ChmodFunctor& inFunctor);
@@ -875,12 +1060,18 @@ private:
             const ChmodFunctor& inFunctor);
     };
     int Chmod(
-        char**    inArgsPtr,
-        int       inArgCount,
-        kfsMode_t inMode,
-        bool      inRecursiveFlag)
+        char**      inArgsPtr,
+        int         inArgCount,
+        const char* inModePtr,
+        bool        inRecursiveFlag)
     {
-        ChmodFunctor           theChmodFunc(inMode, inRecursiveFlag);
+        ChmodFunctor theChmodFunc(inModePtr, inRecursiveFlag);
+        const int theStatus = theChmodFunc.GetModeStatus();
+        if (theStatus != 0) {
+            cerr << "invalid mode string: " <<
+                (inModePtr ? inModePtr : "") << "\n";
+            return theStatus;
+        }
         FunctorT<ChmodFunctor> theFunc(theChmodFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
@@ -2114,11 +2305,7 @@ const char* const KfsTool::sHelpStrings[] =
     "\n\t\t"
     "If only owner or group is specified then only owner or\n\t\t"
     "group is modified.\n"
-    "\n\t\t"
-    "WARNING: Avoid using '.' to separate user name and group though\n\t\t"
-    "Linux allows it. If user names have dots in them and you are\n\t\t"
-    "using local file system, you might see surprising results since\n\t\t"
-    "shell command 'chown' is used for local files.\n",
+    "\n",
 
     "chgrp", "[-R] GROUP PATH...",
     "This is equivalent to -chown ... :GROUP ...\n",

@@ -453,7 +453,7 @@ public:
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup,
+        kfsGid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
@@ -844,7 +844,7 @@ public:
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup,
+        kfsGid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
