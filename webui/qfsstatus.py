@@ -36,7 +36,18 @@ from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaDa
 from chart import ChartData, ChartServerData, ChartHTML
 from browse import QFSBrowser
 import threading
-import json
+
+gJsonSupported = True
+try:
+    import json
+    class SetEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, set):
+                return list(obj)
+            return json.JSONEncoder.default(self, obj)
+except ImportError:
+    sys.stderr.write("Warning: '%s'.Proceeding without query support.\n" % str(sys.exc_info()[1]))
+    gJsonSupported = False
 
 metaserverPort = 20000
 metaserverHost='127.0.0.1'
@@ -1407,15 +1418,12 @@ class QueryCache:
             return QueryCache.GetMatchingCounters(chunkserverHosts)
 
 
-class SetEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, set):
-            return list(obj)
-        return json.JSONEncoder.default(self, obj)
-
 class QFSQueryHandler:
     @staticmethod
     def HandleQuery(queryPath, metaserver, buffer):
+        if not gJsonSupported:
+            return (501, 'Server does not support query')
+
         if queryPath.startswith('/query/chunkservers'):
             status = Status()
             try:

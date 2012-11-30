@@ -31,7 +31,7 @@ gBrowsable = True
 try:
     import qfs
 except ImportError:
-    sys.stderr.write("Error: failed to import module: %s.\nProceeding without file browser.\n" % str(sys.exc_info()[1]))
+    sys.stderr.write("Warning: %s. Proceeding without file browser.\n" % str(sys.exc_info()[1]))
     gBrowsable = False
 
 class QFSBrowser:
