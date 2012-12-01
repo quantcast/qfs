@@ -817,6 +817,13 @@ KfsClient::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
     return mImpl->GetUserAndGroupNames(user, group, uname, gname);
 }
 
+int
+KfsClient::GetUserAndGroupIds(const char* user, const char* group,
+    kfsUid_t& uid, kfsGid_t& gid)
+{
+    return mImpl->GetUserAndGroupIds(user, group, uid, gid);
+}
+
 namespace client
 {
 

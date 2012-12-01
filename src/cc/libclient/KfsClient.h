@@ -631,6 +631,8 @@ public:
         kfsGid_t* groups, int groupsCnt);
     int GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
         string& uname, string& gname);
+    int GetUserAndGroupIds(const char* user, const char* group,
+        kfsUid_t& uid, kfsGid_t& gid);
 private:
     KfsClientImpl* const mImpl;
 };

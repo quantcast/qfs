@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <map>
 #include <ostream>
 #include <iostream>
 #include <algorithm>
@@ -55,6 +56,7 @@ using std::cout;
 using std::cerr;
 using std::vector;
 using std::deque;
+using std::map;
 using std::pair;
 using std::max;
 using std::ostream;
@@ -62,6 +64,7 @@ using std::ostringstream;
 using std::setw;
 using std::left;
 using std::right;
+using std::make_pair;
 
 class KfsTool
 {
@@ -183,17 +186,30 @@ public:
                 theErr = EINVAL;
                 ShortHelp(cerr, "Usage: ", theCmdPtr);
             } else {
-                const char* const theOnwerGroupPtr = *theArgsPtr++;
+                const char* const theOwnerGroupPtr = *theArgsPtr++;
                 theArgCnt--;
-                kfsUid_t theUser  = kKfsUserNone;
-                kfsGid_t theGroup = kKfsGroupNone;
+                const char* theUserNamePtr  = 0;
+                const char* theGroupNamePtr = 0;
+                string      theUserGroupName;
                 if (theChgrpFlag) {
+                    theGroupNamePtr = theOwnerGroupPtr;
                 } else {
-                    
+                    const char* thePtr = strchr(theOwnerGroupPtr, ':');
+                    if (thePtr) {
+                        theUserGroupName = theOwnerGroupPtr;
+                        const size_t theLen = thePtr - theOwnerGroupPtr;
+                        theUserGroupName[theLen] = 0;
+                        theUserNamePtr  = theUserGroupName.data();
+                        theGroupNamePtr = theUserNamePtr + theLen + 1;
+                    } else {
+                        theUserNamePtr = theOwnerGroupPtr;
+                    }
                 }
-                theErr = Chown(theArgsPtr, theArgCnt, theUser, theGroup,
-                    theRecursiveFlag);
+                theErr = Chown(theArgsPtr, theArgCnt,
+                    theUserNamePtr, theGroupNamePtr, theRecursiveFlag);
             }
+        } else if (strcmp(theCmdPtr, "touchz") == 0) {
+            Touchz(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
             LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -552,7 +568,7 @@ private:
             }
             if (mRecursionCount == 0 ||
                     mDirListEntries.size() > (size_t(32) << 10)) {
-                ostringstream theStream; 
+                ostringstream theStream;
                 theStream << mMaxFileSize;
                 mFileSizeWidth = theStream.str().length();
                 theStream << mMaxReplicas;
@@ -760,8 +776,10 @@ private:
         {
             mErrorStream << mFs.GetUri() << inPath << ": " <<
                 mFs.StrError(inStatus) << "\n";
-            mStatus = inStatus;
-            return (mStopOnErrorFlag ? inStatus : 0);
+            if (mStopOnErrorFlag) {
+                mStatus = inStatus;
+            }
+            return (mStopOnErrorFlag ? mStatus : 0);
         }
         int operator()(
             const string& inPath,
@@ -858,11 +876,12 @@ private:
     {
     public:
         ChownFunctor(
-            kfsUid_t inUid,
-            kfsGid_t inGid,
-            bool     inRecursiveFlag)
-            : mUid(inUid),
-              mGid(inGid),
+            const char* inUserNamePtr,
+            const char* inGroupNamePtr,
+            bool        inRecursiveFlag)
+            : mUserName (inUserNamePtr  ? inUserNamePtr  : ""),
+              mGroupName(inGroupNamePtr ? inGroupNamePtr : ""),
+              mFsToUGId(),
               mRecursiveFlag(inRecursiveFlag)
             {}
         int operator()(
@@ -870,13 +889,46 @@ private:
             const string&  inPath,
             ErrorReporter& inErrorReporter)
         {
-            return inFs.Chown(inPath, mUid, mGid,
-                mRecursiveFlag, &inErrorReporter);
+            FsToUGId::const_iterator theIt = mFsToUGId.find(&inFs);
+            if (theIt == mFsToUGId.end()) {
+                kfsUid_t  theUserId  = kKfsUserNone;
+                kfsGid_t  theGroupId = kKfsGroupNone;
+                const int theStatus  = inFs.GetUserAndGroupIds(
+                    mUserName, mGroupName, theUserId, theGroupId);
+                theIt = mFsToUGId.insert(make_pair(&inFs,
+                    UserAndGroup(theUserId, theGroupId, theStatus))).first;
+            }
+            const UserAndGroup& theUG = theIt->second;
+            return (
+                theUG.mStatus != 0 ?
+                    theUG.mStatus :
+                    inFs.Chown(inPath, theUG.mUserId, theUG.mGroupId,
+                        mRecursiveFlag, &inErrorReporter)
+            );
         }
     private:
-        kfsUid_t   mUid;
-        kfsGid_t   mGid;
-        const bool mRecursiveFlag;
+        class UserAndGroup
+        {
+        public:
+            UserAndGroup(
+                kfsUid_t inUserId  = kKfsUserNone,
+                kfsGid_t inGroupId = kKfsGroupNone,
+                int      inStatus  = -EINVAL)
+                : mUserId(inUserId),
+                  mGroupId(inGroupId),
+                  mStatus(inStatus)
+                {}
+            kfsUid_t mUserId;
+            kfsGid_t mGroupId;
+            int      mStatus;
+        };
+        typedef map<const FileSystem*, UserAndGroup> FsToUGId;
+
+        const string mUserName;
+        const string mGroupName;
+        FsToUGId     mFsToUGId;
+        const bool   mRecursiveFlag;
+
     private:
         ChownFunctor(
             const ChownFunctor& inFunctor);
@@ -884,13 +936,14 @@ private:
             const ChownFunctor& inFunctor);
     };
     int Chown(
-        char**   inArgsPtr,
-        int      inArgCount,
-        kfsUid_t inUid,
-        kfsGid_t inGid,
-        bool     inRecursiveFlag)
+        char**      inArgsPtr,
+        int         inArgCount,
+        const char* inUserNamePtr,
+        const char* inGroupNamePtr,
+        bool        inRecursiveFlag)
     {
-        ChownFunctor           theChownFunc(inUid, inGid, inRecursiveFlag);
+        ChownFunctor           theChownFunc(
+            inUserNamePtr, inGroupNamePtr, inRecursiveFlag);
         FunctorT<ChownFunctor> theFunc(theChownFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
@@ -977,7 +1030,7 @@ private:
                             // Fall though.
                         case 'x': thePermBits |= 1; break;
                         case 't': thePermBits |= S_ISVTX; break;
-                        case '-': 
+                        case '-':
                         case '+':
                         case '=':
                             SetBits(theDest, theOp, thePermBits, theMode);
@@ -999,7 +1052,7 @@ private:
                         case 'g': theDest |= kGroup; break;
                         case 'o': theDest |= kOther; break;
                         case 'a': theDest |= kAll;   break;
-                        case '-': 
+                        case '-':
                         case '+':
                         case '=':
                             if (! theDest) {
@@ -1212,7 +1265,7 @@ private:
         bool                mRestoreUMaskFlag;
         mode_t              mUMask;
         mode_t              mCurUMask;
-        
+
     private:
         GetGlobLastEntry(
             const GetGlobLastEntry& inFunctor);
@@ -1640,7 +1693,7 @@ private:
         const string& inPath,
         string&       ioPathName,
         size_t&       ioPathNameLen)
-    {   
+    {
         if (ioPathNameLen <= 0) {
             if (&inPath != &ioPathName) {
                 ioPathName.assign(inPath.data(), inPath.size());
@@ -1725,7 +1778,7 @@ private:
         int64_t inSize,
         char*   inEndPtr)
     {
-        const char* const theSuffixPtr[] = { 
+        const char* const theSuffixPtr[] = {
             "KB", "MB", "GB", "TB", "PB", 0
         };
         int64_t theSize = max(int64_t(0), inSize);
@@ -1825,7 +1878,7 @@ private:
                     const FileSystem::StatBuf* theStatPtr = 0;
                     if ((theErr = mFs.Next(
                             theItPtr, theName, theStatPtr))) {
-                        mStatus = mErrorReporter(mCurPath, theErr);
+                        mStatus = mErrorReporter(mCurPath + theName, theErr);
                     }
                     if (theName.empty()) {
                         break;
@@ -1834,7 +1887,9 @@ private:
                         continue;
                     }
                     if (! theStatPtr) {
-                        mStatus = mErrorReporter(mCurPath, -EINVAL);
+                        if (theErr == 0) {
+                            mStatus = mErrorReporter(mCurPath, -EINVAL);
+                        }
                         continue;
                     }
                     if (S_ISDIR(theStatPtr->st_mode)) {
@@ -1894,7 +1949,10 @@ private:
                         const FileSystem::StatBuf* theStatPtr = 0;
                         if ((theErr = inFs.Next(
                                 theItPtr, theName, theStatPtr))) {
-                            inErrorReporter(inPath, theErr);
+                            inErrorReporter(
+                                inPath + (theName.empty() ? "" : "/") + theName,
+                                theErr
+                            );
                         }
                         if (theName.empty()) {
                             break;
@@ -2133,6 +2191,62 @@ private:
         FunctorT<CountFunctor> theFunc(theCountFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    class TouchzFunctor
+    {
+    public:
+        TouchzFunctor()
+            : mTime(),
+              mStat(),
+              mStatus(0),
+              mTimeSetFlag(false)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            if (mStatus != 0) {
+                return mStatus;
+            }
+            if (! mTimeSetFlag) {
+                if (gettimeofday(&mTime, 0)) {
+                    mStatus = -errno;
+                }
+                mTimeSetFlag = true;
+                // Tail recursion.
+                return (*this)(inFs, inPath, inErrorReporter);
+            }
+            const int theStatus = inFs.Stat(inPath, mStat);
+            if (theStatus != -ENOENT && theStatus != 0) {
+                return theStatus;
+            }
+            if (S_ISDIR(mStat.st_mode)) {
+                return -EISDIR;
+            }
+            if (mStat.st_size != 0) {
+                return -EEXIST;
+            }
+            return inFs.SetMtime(inPath, mTime);
+        }
+    private:
+        struct timeval      mTime;
+        FileSystem::StatBuf mStat;
+        int                 mStatus;
+        bool                mTimeSetFlag;
+
+        TouchzFunctor(
+            const TouchzFunctor& inFunctor);
+        TouchzFunctor& operator=(
+            const TouchzFunctor& inFunctor);
+    };
+    int Touchz(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        TouchzFunctor           theTouchzFunc;
+        FunctorT<TouchzFunctor> theFunc(theTouchzFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
 private:
     size_t mIoBufferSize;
     char*  mIoBufferPtr;
@@ -2257,9 +2371,9 @@ const char* const KfsTool::sHelpStrings[] =
     "The -f option shows apended data as the file grows.\n",
 
     "touchz", "<path>",
-    "Write a timestamp in yyyy-MM-dd HH:mm:ss format\n\t\t"
+    "Set modification time to the current time\n\t\t"
     "in a file at <path>. An error is returned if the file exists with non-zero"
-    " length\n",
+    " length or is directory\n",
 
     "test", "-[ezd] <path>",
     "If file { exists, has zero length, is a directory\n\t\t"

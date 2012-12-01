@@ -36,6 +36,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <utime.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
@@ -123,7 +124,7 @@ public:
                 mFileName += theRetPtr->d_name;
                 if (stat(mFileName.c_str(), &mStatBuf)) {
                     mError    = errno;
-                    theRetPtr = 0;
+                    // theRetPtr = 0;
                 } else {
                     outStatPtr = &mStatBuf;
                     if (S_ISDIR(mStatBuf.st_mode) && mStatBuf.st_size >= 0) {
@@ -310,6 +311,10 @@ public:
         int                  theRet = 0;
         const struct dirent* thePtr;
         while ((thePtr = readdir(theDirPtr))) {
+            if (strcmp(thePtr->d_name, ".") == 0 ||
+                    strcmp(thePtr->d_name, "..") == 0) {
+                continue;
+            }
             inPath.erase(thePrevSize + 1);
             inPath += thePtr->d_name;
             bool theDirFlag;
@@ -323,7 +328,7 @@ public:
             theDirFlag = thePtr->d_type == DT_DIR;
 #endif
             if (theDirFlag) {
-                theRet = RecursivelyApply(inPath, inFunctor);
+                theRet = RecursivelyApplySelf(inPath, inFunctor);
                 if (theRet != 0) {
                     break;
                 }
@@ -378,13 +383,12 @@ public:
             }
             int theRet = Errno(mFunctor(inPath, inDirectoryFlag));
             if (theRet != 0) {
-                mStatus = theRet;
                 theRet = HandleError(inPath, theRet);
                 if (theRet != 0) {
-                    return theRet;
+                    mStatus = theRet;
                 }
             }
-            return 0;
+            return theRet;
         }
         int GetStatus() const
             { return mStatus; }
@@ -398,7 +402,7 @@ public:
             int           inStatus)
         {
             return (mErrorHandlerPtr ?
-                (*mErrorHandlerPtr)(inPath, inStatus) : 0);
+                (*mErrorHandlerPtr)(inPath, inStatus) : inStatus);
         }
     };
     class ChmodFunctor
@@ -574,7 +578,29 @@ public:
         kfsUid_t inUser,
         kfsGid_t inGroup,
         string&  outUserName,
-        string&  outGroupName);
+        string&  outGroupName)
+    {
+        return GetKfsClient().GetUserAndGroupNames(
+            inUser, inGroup, outUserName, outGroupName);
+    }
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId)
+    {
+        return GetKfsClient().GetUserAndGroupIds(
+            inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
+    }
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime)
+    {
+        struct utimbuf theTimes;
+        theTimes.actime  = inMTime.tv_sec;
+        theTimes.modtime = inMTime.tv_sec;
+        return Errno(utime(inPath.c_str(), &theTimes));
+    }
     virtual string StrError(
         int inError) const
     {
@@ -594,6 +620,7 @@ private:
     {
         return (inErrno == 0 ? -1 : (inErrno < 0 ? inErrno : -inErrno));
     }
+    static KfsClient& GetKfsClient();
 private:
     LocalFileSystem(
         const LocalFileSystem& inFileSystem);
@@ -918,6 +945,21 @@ public:
         return KfsClient::GetUserAndGroupNames(
             inUser, inGroup, outUserName, outGroupName);
     }
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId)
+    {
+        return KfsClient::GetUserAndGroupIds(
+            inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
+    }
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime)
+    {
+        return KfsClient::SetMtime(inPath.c_str(), inMTime);
+    }
     virtual int Glob(
         const string& inPattern,
         int           inFlags,
@@ -949,18 +991,14 @@ GetFsMutex()
 // Force initialization before entering main.
 static QCMutex& sMutex = GetFsMutex();
 
-    /* virtual */ int
-LocalFileSystem::GetUserAndGroupNames(
-    kfsUid_t inUser,
-    kfsGid_t inGroup,
-    string&  outUserName,
-    string&  outGroupName)
+    /* static */ KfsClient&
+LocalFileSystem::GetKfsClient()
 {
     QCStMutexLocker theLock(GetFsMutex());
-    // For now use dummy un-connected kfs client.
+    // For now use un-connected kfs client for uid / gid to name
+    // conversions.
     static KfsClient sClient;
-    return sClient.GetUserAndGroupNames(
-        inUser, inGroup, outUserName, outGroupName);
+    return sClient;
 }
 
 class FSMap : public map<string, FileSystemImpl*>

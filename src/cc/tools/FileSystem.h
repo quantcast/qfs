@@ -172,6 +172,14 @@ public:
         kfsGid_t inGroup,
         string&  outUserName,
         string&  outGroupName) = 0;
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId) = 0;
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime) = 0;
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;

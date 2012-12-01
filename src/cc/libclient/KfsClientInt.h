@@ -590,6 +590,9 @@ public:
         kfsGid_t* groups, int groupsCnt);
     int GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
         string& uname, string& gname);
+    int GetUserAndGroupIds(const char* user, const char* group,
+        kfsUid_t& uid, kfsGid_t& gid)
+        { return GetUserAndGroup(user, group, uid, gid); }
 
 private:
      /// Maximum # of files a client can have open.
