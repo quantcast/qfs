@@ -109,6 +109,10 @@ public:
             }
             theArgIndex++;
         }
+        if (inArgCount <= theArgIndex) {
+            ShortHelp(cerr);
+            return 1;
+        }
         const char* const theCmdPtr  = inArgsPtr[theArgIndex++] + 1;
         if (theCmdPtr[-1] != '-') {
             ShortHelp(cerr);
