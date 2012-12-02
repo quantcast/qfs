@@ -104,7 +104,7 @@ public:
             const int theErr = FileSystem::SetDefault(theUri);
             if (theErr != 0) {
                 cerr << theUri << ": " <<
-                    FileSystem::GetStrError(-theErr) << "\n";
+                    FileSystem::GetStrError(theErr) << "\n";
                 return 1;
             }
             theArgIndex++;
@@ -213,9 +213,11 @@ public:
                     theUserNamePtr, theGroupNamePtr, theRecursiveFlag);
             }
         } else if (strcmp(theCmdPtr, "touchz") == 0) {
-            Touchz(theArgsPtr, theArgCnt);
+            theErr = Touchz(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "test") == 0) {
+            theErr = Test(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
-            LongHelp(cout, theArgsPtr, theArgCnt);
+            theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
             cerr << "unsupported option: " << (theCmdPtr - 1) << "\n";
             theErr = EINVAL;
@@ -241,7 +243,7 @@ private:
             thePtr += 2;
         }
     }
-    void LongHelp(
+    int LongHelp(
         ostream& inOutStream,
         char**   inArgsPtr,
         int      inArgCount)
@@ -265,10 +267,15 @@ private:
             ++thePtr;
             inOutStream << *thePtr << "\n";
             ++thePtr;
+            if (inArgCount > 0 && theRemCnt == 0) {
+                break;
+            }
         }
         if (theRemCnt > 0) {
             LongHelp(inOutStream, 0, 0);
+            return -EINVAL;
         }
+        return 0;
     }
     static const char* GlobError(
         int inError)
@@ -2250,6 +2257,68 @@ private:
         TouchzFunctor           theTouchzFunc;
         FunctorT<TouchzFunctor> theFunc(theTouchzFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    int Test(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        if (inArgCount != 2 || (
+                strcmp(inArgsPtr[0], "-e") != 0 &&
+                strcmp(inArgsPtr[0], "-d") != 0 &&
+                strcmp(inArgsPtr[0], "-z") != 0)) {
+            ShortHelp(cerr, "Usage: ", "test");
+            return -EINVAL;
+        }
+        GlobResult theResult;
+        bool       theMoreThanOneFsFlag = false;
+        int theErr = Glob(
+            inArgsPtr + 1,
+            inArgCount - 1,
+            cerr,
+            theResult,
+            theMoreThanOneFsFlag);
+        if (theErr != 0) {
+            return theErr;
+        }
+        if (theResult.size() != 1 || theResult.front().second.size() != 1) {
+            FileSystem*   theExFsPtr;
+            const string* theExPathPtr;
+            if (theResult.front().second.size() > 1) {
+                theExFsPtr   = theResult.front().first;
+                theExPathPtr = &(theResult.front().second[2]);
+            } else {
+                theExFsPtr   = theResult[1].first;
+                theExPathPtr = &(theResult[1].second.front());
+            }
+            cerr << "extra argument: " <<
+                theExFsPtr->GetUri() << *theExPathPtr << "\n";
+            return -EINVAL;
+        }
+        FileSystem::StatBuf theStat;
+        FileSystem&   theFs     = *(theResult.front().first);
+        const string& thePath   = theResult.front().second.front();
+        const int     theStatus = theFs.Stat(thePath, theStat);
+        switch (inArgsPtr[0][1] & 0xFF) {
+            case 'e':
+                if (theStatus == 0 || theStatus == -ENOENT) {
+                    return theStatus;
+                }
+                break;
+            case 'd':
+                if (theStatus != 0) {
+                    break;
+                }
+                return (S_ISDIR(theStat.st_mode) ? 0 : 1);
+            case 'z':
+                if (theStatus != 0) {
+                    break;
+                }
+                return ((S_ISDIR(theStat.st_mode) || theStat.st_size > 0) ?
+                    1 : 0);
+        }
+        cerr << theFs.GetUri() << thePath << ": " <<
+            theFs.StrError(theStatus) << "\n";
+        return theStatus;
     }
 private:
     size_t mIoBufferSize;
