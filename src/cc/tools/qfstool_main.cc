@@ -2306,7 +2306,7 @@ private:
         int operator()(
             FileSystem&    inFs,
             const string&  inPath,
-            ErrorReporter& inErrorReporter)
+            ErrorReporter& /* inErrorReporter */)
         {
             return inFs.SetMtime(inPath, mTime);
         }
