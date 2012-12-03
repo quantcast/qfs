@@ -123,7 +123,12 @@ public:
         int       theErr       = 0;
         bool      theChgrpFlag = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
-            theErr = Cat(theArgsPtr, theArgCnt);
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = Cat(theArgsPtr, theArgCnt);
+            }
         } else if (strcmp(theCmdPtr, "ls") == 0) {
             const bool kRecursiveFlag = false;
             theErr = List(theArgsPtr, theArgCnt, kRecursiveFlag);
@@ -158,14 +163,16 @@ public:
         } else if (strcmp(theCmdPtr, "dush") == 0) {
             theErr = DiskUtilizationSummaryHumanReadable(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "count") == 0) {
-            const bool theShowQuotaFlag = strcmp(theArgsPtr[0], "-q") == 0;
+            const bool theShowQuotaFlag =
+                theArgCnt > 0 && strcmp(theArgsPtr[0], "-q") == 0;
             if (theShowQuotaFlag) {
                 theArgCnt--;
                 theArgsPtr++;
             }
             theErr = Count(theArgsPtr, theArgCnt, theShowQuotaFlag);
         } else if (strcmp(theCmdPtr, "chmod") == 0) {
-            const bool theRecursiveFlag = strcmp(theArgsPtr[0], "-R") == 0;
+            const bool theRecursiveFlag =
+                theArgCnt > 0 && strcmp(theArgsPtr[0], "-R") == 0;
             if (theRecursiveFlag) {
                 theArgCnt--;
                 theArgsPtr++;
@@ -181,7 +188,8 @@ public:
             }
         } else if (strcmp(theCmdPtr, "chown") == 0 ||
                 (theChgrpFlag = strcmp(theCmdPtr, "chgrp") == 0)) {
-            const bool theRecursiveFlag = strcmp(theArgsPtr[0], "-R") == 0;
+            const bool theRecursiveFlag =
+                theArgCnt > 0 && strcmp(theArgsPtr[0], "-R") == 0;
             if (theRecursiveFlag) {
                 theArgCnt--;
                 theArgsPtr++;
@@ -214,6 +222,21 @@ public:
             }
         } else if (strcmp(theCmdPtr, "touchz") == 0) {
             theErr = Touchz(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "setModTime") == 0) {
+            if (theArgCnt != 2) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                char*         theEndPtr  = 0;
+                const int64_t theMTimeMs =
+                    strtoll(theArgsPtr[1], &theEndPtr, 0);
+                if (! theEndPtr || (*theEndPtr & 0xFF) > ' ') {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else {
+                    theErr = SetModTime(theArgsPtr, 1, theMTimeMs);
+                }
+            }
         } else if (strcmp(theCmdPtr, "test") == 0) {
             theErr = Test(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
@@ -571,6 +594,8 @@ private:
                     }
                     inFs.Close(theItPtr);
                 }
+            } else {
+                AddEntry(inFs, inPath, string(), mStat);
             }
             if (mRecursionCount == 0 &&
                     ! mRecursiveFlag && ! mDirListEntries.empty()) {
@@ -2209,7 +2234,8 @@ private:
             : mTime(),
               mStat(),
               mStatus(0),
-              mTimeSetFlag(false)
+              mTimeSetFlag(false),
+              mCreateParams("S")
             {}
         int operator()(
             FileSystem&    inFs,
@@ -2228,7 +2254,15 @@ private:
                 return (*this)(inFs, inPath, inErrorReporter);
             }
             const int theStatus = inFs.Stat(inPath, mStat);
-            if (theStatus != -ENOENT && theStatus != 0) {
+            if (theStatus == -ENOENT) {
+                const int theFd = inFs.Open(
+                    inPath, O_CREAT | O_WRONLY, 0666, &mCreateParams);
+                if (theFd < 0) {
+                    return theFd;
+                }
+                return inFs.Close(theFd);
+            }
+            if (theStatus != 0) {
                 return theStatus;
             }
             if (S_ISDIR(mStat.st_mode)) {
@@ -2244,6 +2278,7 @@ private:
         FileSystem::StatBuf mStat;
         int                 mStatus;
         bool                mTimeSetFlag;
+        const string        mCreateParams;
 
         TouchzFunctor(
             const TouchzFunctor& inFunctor);
@@ -2256,6 +2291,40 @@ private:
     {
         TouchzFunctor           theTouchzFunc;
         FunctorT<TouchzFunctor> theFunc(theTouchzFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    class SetModTimeFunctor
+    {
+    public:
+        SetModTimeFunctor(
+            int64_t inModTimeMs)
+            : mTime()
+        {
+            mTime.tv_sec  = inModTimeMs / 1000;
+            mTime.tv_usec = (inModTimeMs % 1000) * 1000;
+        }
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            return inFs.SetMtime(inPath, mTime);
+        }
+    private:
+        struct timeval mTime;
+
+        SetModTimeFunctor(
+            const SetModTimeFunctor& inFunctor);
+        SetModTimeFunctor& operator=(
+            const SetModTimeFunctor& inFunctor);
+    };
+    int SetModTime(
+        char**  inArgsPtr,
+        int     inArgCount,
+        int64_t inModTimeMs)
+    {
+        SetModTimeFunctor           theSetTimeFunc(inModTimeMs);
+        FunctorT<SetModTimeFunctor> theFunc(theSetTimeFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int Test(
@@ -2415,12 +2484,12 @@ const char* const KfsTool::sHelpStrings[] =
     "Copy files that match the file pattern <src>\n\t\t"
     "to the local name.  <src> is kept.  When copying mutiple,\n\t\t"
     "files, the destination must be a directory.\n",
-
+/*
     "getmerge", "<src> <localdst>",
     "Get all the files in the directories that\n\t\t"
     "match the source file pattern and merge and sort them to only\n\t\t"
     "one file on local fs. <src> is kept.\n",
-
+*/
     "cat", "<src>",
     "Fetch all files that match the file pattern <src> \n\t\t"
     "and display their content on stdout.\n",
