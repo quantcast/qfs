@@ -52,6 +52,7 @@ namespace tools
 {
 
 using std::string;
+using std::cin;
 using std::cout;
 using std::cerr;
 using std::vector;
@@ -65,6 +66,8 @@ using std::setw;
 using std::left;
 using std::right;
 using std::make_pair;
+
+const string kDefaultCreateParams("S"); // RS 6+3 64K stripe
 
 class KfsTool
 {
@@ -122,6 +125,7 @@ public:
         char**    theArgsPtr   = inArgsPtr + theArgIndex;
         int       theErr       = 0;
         bool      theChgrpFlag = false;
+        bool      theMoveFlag  = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -148,10 +152,27 @@ public:
             }
         } else if (strcmp(theCmdPtr, "cp") == 0) {
             theErr = Copy(theArgsPtr, theArgCnt);
-        } else if (strcmp(theCmdPtr, "put") == 0) {
-            theErr = Copy(theArgsPtr, theArgCnt);
-        } else if (strcmp(theCmdPtr, "get") == 0) {
-            theErr = Copy(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "put") == 0 ||
+                strcmp(theCmdPtr, "copyFromLocal") == 0 ||
+                (theMoveFlag = strcmp(theCmdPtr, "moveFromLocal") == 0)) {
+            if (theArgCnt == 2 && strcmp(theArgsPtr[0], "-") == 0) {
+                theErr = CopyFromStream(theArgsPtr[1], cin, cerr);
+            } else {
+                if (theArgCnt < 2) {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else {
+                    theErr = CopyFromLocal(theArgsPtr, theArgCnt, theMoveFlag,
+                        cerr);
+                }
+            }
+        } else if (strcmp(theCmdPtr, "get") == 0 ||
+                strcmp(theCmdPtr, "copyToLocal") == 0) {
+            if (theArgCnt >=2 && strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
+                theErr = Cat(theArgsPtr, theArgCnt - 1);
+            } else {
+                theErr = CopyToLocal(theArgsPtr, theArgCnt, theMoveFlag, cerr);
+            }
         } else if (strcmp(theCmdPtr, "mv") == 0) {
             theErr = Move(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "du") == 0) {
@@ -400,11 +421,20 @@ private:
             inArgCount <= 0 ? 1 : inArgCount,
             cerr,
             theResult, theMoreThanOneFsFlag);
-        if (! inFunctor.Init(theErr, theResult, theMoreThanOneFsFlag)) {
-            return theErr;
+        return Apply(theResult, theMoreThanOneFsFlag, theErr, inFunctor);
+    }
+    template <typename FuncT> int Apply(
+        GlobResult& inGlobResult,
+        bool        inMoreThanOneFsFlag,
+        int         inGlobError,
+        FuncT&      inFunctor)
+    {
+        int theGlobError = inGlobError;
+        if (! inFunctor.Init(theGlobError, inGlobResult, inMoreThanOneFsFlag)) {
+            return theGlobError;
         }
-        for (GlobResult::const_iterator theFsIt = theResult.begin();
-                theFsIt != theResult.end();
+        for (GlobResult::const_iterator theFsIt = inGlobResult.begin();
+                theFsIt != inGlobResult.end();
                 ++theFsIt) {
             FileSystem& theFs = *(theFsIt->first);
             for (GlobResult::value_type::second_type::const_iterator
@@ -417,7 +447,7 @@ private:
             }
         }
         const int theStatus = inFunctor.GetStatus();
-        return (theStatus != 0 ? theStatus : theErr);
+        return (theStatus != 0 ? theStatus : theGlobError);
     }
     class CatFunctor
     {
@@ -1465,6 +1495,134 @@ private:
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    int CopyFromLocal(
+        char**   inArgsPtr,
+        int      inArgCount,
+        bool     inMoveFlag,
+        ostream& inErrorStream)
+    {
+        if (inArgCount < 2) {
+            return -EINVAL;
+        }
+        FileSystem* theFsPtr  = 0;
+        string      thePath;
+        const char* theUriPtr = "file://";
+        int         theErr    = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        if (theErr || ! theFsPtr) {
+            inErrorStream << theUriPtr <<
+                ": " << FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
+        GlobResult  theGlob;
+        theGlob.resize(1);
+        thePath.clear();
+        theGlob.front().first = theFsPtr;
+        for (int i = 0; i < inArgCount - 1; i++) {
+            const char* thePtr = inArgsPtr[i];
+            if (! thePtr || ! *thePtr) {
+                theErr = -EINVAL;
+                inErrorStream << (thePtr ? thePtr : "null") <<
+                    ": " << FileSystem::GetStrError(theErr) << "\n";
+                return theErr;
+            }
+            if (*thePtr != '/') {
+                if (thePath.empty()) {
+                    theErr = theFsPtr->GetCwd(thePath);
+                    if (theErr != 0) {
+                        inErrorStream << thePtr <<
+                            ": " << FileSystem::GetStrError(theErr) << "\n";
+                        return theErr;
+                    }
+                    if (*(thePath.rbegin()) != '/') {
+                        thePath += "/";
+                    }
+                }
+                theGlob.front().second.push_back(thePath + thePtr);
+            } else {
+                theGlob.front().second.push_back(thePtr);
+            }
+        }
+        theUriPtr = inArgsPtr[inArgCount - 1];
+        thePath.clear();
+        theFsPtr  = 0;
+        theErr    = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        if (theErr || ! theFsPtr) {
+            inErrorStream << theUriPtr <<
+                ": " << FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
+        if (theGlob.back().first != theFsPtr) {
+            theGlob.resize(theGlob.size() + 1);
+            theGlob.back().first = theFsPtr;
+        }
+        theGlob.back().second.push_back(thePath);
+
+        CpFunctor theCopyFunc(inMoveFlag);
+        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+            theFunc(theCopyFunc, cerr);
+        theCopyFunc.SetDest(theFunc.GetInit());
+        return Apply(theGlob, theErr, theGlob.front().first != theFsPtr,
+            theFunc);
+    }
+    int CopyToLocal(
+        char**   inArgsPtr,
+        int      inArgCount,
+        bool     inMoveFlag,
+        ostream& inErrorStream)
+    {
+        if (inArgCount < 2) {
+            return -EINVAL;
+        }
+        GlobResult theGlob;
+        bool       theMoreThanOneFsFlag = false;
+        int theErr = Glob(inArgsPtr, inArgCount - 1,
+            inErrorStream, theGlob, theMoreThanOneFsFlag);
+        if (theErr != 0) {
+            return theErr;
+        }
+        FileSystem* theFsPtr  = 0;
+        string      thePath;
+        const char* theUriPtr = "file://";
+        theErr = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        if (theErr || ! theFsPtr) {
+            inErrorStream << theUriPtr <<
+                ": " << FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
+        const char* const theDestPtr = inArgsPtr[inArgCount - 1];
+        if (! theDestPtr || ! *theDestPtr) {
+            theErr = -EINVAL;
+            inErrorStream << (theDestPtr ? theDestPtr : "null") <<
+                ": " << FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
+        if (*theDestPtr != '/') {
+            theErr = theFsPtr->GetCwd(thePath);
+            if (theErr != 0) {
+                inErrorStream << theDestPtr <<
+                    ": " << FileSystem::GetStrError(theErr) << "\n";
+                return theErr;
+            }
+            if (*(thePath.rbegin()) != '/') {
+                thePath += "/";
+            }
+            thePath += theDestPtr;
+        } else {
+            thePath = theDestPtr;
+        }
+        if (theGlob.back().first != theFsPtr) {
+            theGlob.resize(theGlob.size() + 1);
+            theGlob.back().first = theFsPtr;
+        }
+        theGlob.back().second.push_back(thePath);
+
+        CpFunctor theCopyFunc(inMoveFlag);
+        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+            theFunc(theCopyFunc, cerr);
+        theCopyFunc.SetDest(theFunc.GetInit());
+        return Apply(theGlob, theErr, theGlob.front().first != theFsPtr,
+            theFunc);
+    }
     class Copier
     {
     public:
@@ -1635,7 +1793,7 @@ private:
                 mCreateParams = mStream.str();
                 mStream.str(string());
             } else {
-                mCreateParams = "S";
+                mCreateParams = kDefaultCreateParams;
             }
             const int theDstFd = mDstFs.Open(
                 inDstPath,
@@ -2235,7 +2393,7 @@ private:
               mStat(),
               mStatus(0),
               mTimeSetFlag(false),
-              mCreateParams("S")
+              mCreateParams(kDefaultCreateParams)
             {}
         int operator()(
             FileSystem&    inFs,
@@ -2389,9 +2547,66 @@ private:
             theFs.StrError(theStatus) << "\n";
         return theStatus;
     }
+    int CopyFromStream(
+        const string& inUri,
+        istream&      inInStream,
+        ostream&      inErrStream,
+        int           inOpenFlags    = O_CREAT | O_WRONLY | O_EXCL,
+        const string& inCreateParams = kDefaultCreateParams)
+    {
+        FileSystem*  theFsPtr = 0;
+        string       thePath;
+        int          theErr   = FileSystem::Get(inUri, theFsPtr, &thePath);
+        if (theErr || ! theFsPtr) {
+            inErrStream << inUri << ": " <<
+                FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
+        FileSystem& theFs = *theFsPtr;
+        const int theFd = theFs.Open(
+            thePath,
+            inOpenFlags,
+            0666,
+            &inCreateParams
+        );
+        bool theReportErrorFlag = true;
+        if (theFd < 0) {
+            theErr = theFd;
+        } else {
+            while (inInStream) {
+                inInStream.read(mIoBufferPtr, mIoBufferSize);
+                for (const char* thePtr = mIoBufferPtr,
+                            * theEndPtr = thePtr + inInStream.gcount();
+                        thePtr < theEndPtr;
+                        ) {
+                    const ssize_t theNWr =
+                        theFs.Write(theFd, thePtr, theEndPtr - thePtr);
+                    if (theNWr < 0) {
+                        theErr = (int)theNWr;
+                        break;
+                    }
+                    thePtr += theNWr;
+                }
+                if (theErr != 0) {
+                    break;
+                }
+            }
+            if (theErr == 0 && ! inInStream.eof()) {
+                theErr = errno;
+                inErrStream << "stdout: " << QCUtils::SysError(theErr) << "\n";
+                theReportErrorFlag = false;
+            }
+            theFs.Close(theFd);
+        }
+        if (theErr != 0 && theReportErrorFlag) {
+            inErrStream << theFs.GetUri() << thePath << ": " <<
+                theFs.StrError(theErr) << "\n";
+        }
+        return theErr;
+    }
 private:
-    size_t mIoBufferSize;
-    char*  mIoBufferPtr;
+    size_t const mIoBufferSize;
+    char* const  mIoBufferPtr;
 private:
     KfsTool(const KfsTool& inTool);
     KfsTool& operator=(const KfsTool& inTool);
