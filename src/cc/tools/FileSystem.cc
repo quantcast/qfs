@@ -601,6 +601,19 @@ public:
         theTimes.modtime = inMTime.tv_sec;
         return Errno(utime(inPath.c_str(), &theTimes));
     }
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          /* inRecursiveFlag */,
+        ErrorHandler* /* inErrorHandlerPtr */)
+    {
+        StatBuf theStat;
+        const int theStatus = Stat(inPath, theStat);
+        if (theStatus != 0) {
+            return theStatus;
+        }
+        return (inReplication != 0 ? -EINVAL : 0);
+    }
     virtual string StrError(
         int inError) const
     {
@@ -959,6 +972,22 @@ public:
         const struct timeval& inMTime)
     {
         return KfsClient::SetMtime(inPath.c_str(), inMTime);
+    }
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
+    {
+        if (inReplication <= 0 || inReplication > 0x7FFF) {
+            return -EINVAL;
+        }
+        return (inRecursiveFlag ?
+            KfsClient::SetReplicationFactorR(
+                inPath.c_str(), (int16_t)inReplication, inErrorHandlerPtr) :
+            KfsClient::SetReplicationFactor(
+                inPath.c_str(), (int16_t)inReplication)
+        );
     }
     virtual int Glob(
         const string& inPattern,

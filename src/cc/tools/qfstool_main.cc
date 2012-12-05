@@ -260,6 +260,43 @@ public:
             }
         } else if (strcmp(theCmdPtr, "test") == 0) {
             theErr = Test(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "setrep") == 0) {
+            bool theRecursiveFlag = false;
+            bool theWaitFlag      = false;
+            size_t theIdx = 0;
+            while (theIdx < theArgCnt) {
+                if (! theRecursiveFlag &&
+                        strcmp(theArgsPtr[theIdx], "-R") == 0) {
+                    theIdx++;
+                    theRecursiveFlag = true;
+                } else if (! theWaitFlag &&
+                        strcmp(theArgsPtr[theIdx], "-w") == 0) {
+                    theIdx++;
+                    theWaitFlag = true;
+                } else {
+                    break;
+                }
+            }
+            if (theIdx + 1 >= theArgCnt) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                char* theEndPtr = 0;
+                const int theReplication =
+                    (int)strtol(theArgsPtr[theIdx++], &theEndPtr, 0);
+                if (! theEndPtr || *theEndPtr > ' ' || theReplication <= 0) {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else {
+                    theErr = SetReplication(
+                        theArgsPtr + theIdx,
+                        theArgCnt  - theIdx,
+                        theReplication,
+                        theRecursiveFlag,
+                        theWaitFlag
+                    );
+                }
+            }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -2603,6 +2640,51 @@ private:
                 theFs.StrError(theErr) << "\n";
         }
         return theErr;
+    }
+    class SetReplicationFunctor
+    {
+    public:
+        SetReplicationFunctor(
+            int  inReplication,
+            bool inRecursiveFlag)
+            : mReplication(inReplication),
+              mRecursiveFlag(inRecursiveFlag)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            return inFs.SetReplication(
+                inPath, mReplication, mRecursiveFlag, &inErrorReporter);
+        }
+    private:
+        const int  mReplication;
+        const bool mRecursiveFlag;
+
+        SetReplicationFunctor(
+            const SetReplicationFunctor& inFunctor);
+        SetReplicationFunctor& operator=(
+            const SetReplicationFunctor& inFunctor);
+    };
+    int SetReplication(
+        char** inArgsPtr,
+        int    inArgCount,
+        int    inReplication,
+        bool   inRecursiveFlag,
+        bool   inWaitFlag)
+    {
+        if (inArgCount <= 0) {
+            return -EINVAL;
+        }
+        SetReplicationFunctor theSetReplFunc(
+            inReplication, inRecursiveFlag);
+        FunctorT<SetReplicationFunctor> theFunc(theSetReplFunc, cerr);
+        int theStatus = Apply(inArgsPtr, inArgCount, theFunc);
+        if (theStatus != 0 || ! inWaitFlag) {
+            return theStatus;
+        }
+        return theStatus;
     }
 private:
     size_t const mIoBufferSize;

@@ -180,6 +180,11 @@ public:
     virtual int SetMtime(
         const string&         inPath,
         const struct timeval& inMTime) = 0;
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr) = 0;
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;

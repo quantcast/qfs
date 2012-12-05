@@ -611,6 +611,13 @@ KfsClient::SetReplicationFactor(const char *pathname, int16_t numReplicas)
     return mImpl->SetReplicationFactor(pathname, numReplicas);
 }
 
+int16_t
+KfsClient::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    ErrorHandler* errHandler)
+{
+    return mImpl->SetReplicationFactorR(pathname, numReplicas, errHandler);
+}
+
 ServerLocation
 KfsClient::GetMetaserverLocation() const
 {
@@ -5023,6 +5030,62 @@ KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
     }
     DefaultErrHandler errorHandler;
     ChownFunc funct(*this, user, group, errHandler ? *errHandler : errorHandler);
+    const int ret = RecursivelyApply(pathname, funct);
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
+}
+
+class SetReplicationFactorFunc
+{
+public:
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
+    SetReplicationFactorFunc(KfsClientImpl& cli, int16_t repl,
+        ErrorHandler& errHandler)
+        : mCli(cli),
+          mReplication(repl),
+          mErrHandler(errHandler)
+        {}
+    int operator()(const string& path, const KfsFileAttr& attr,
+        int status) const
+    {
+        if (status != 0) {
+            const int ret = mErrHandler(path, status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        if (attr.isDirectory) {
+            return 0;
+        }
+        ChangeFileReplicationOp op(mCli.nextSeq(), attr.fileId, mReplication);
+        mCli.DoMetaOpWithRetry(&op);
+        if (op.status != 0) {
+            const int ret = mErrHandler(path, op.status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return 0;
+    }
+private:
+    KfsClientImpl& mCli;
+    const int16_t  mReplication;
+    ErrorHandler&  mErrHandler;
+};
+
+int16_t
+KfsClientImpl::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    KfsClientImpl::ErrorHandler* errHandler)
+{
+    QCStMutexLocker l(mMutex);
+
+    // Even though meta server supports recursive set replication, do it one
+    // file at a time, in order to prevent "DoS".
+    // For this reason meta server might not support recursive version in the
+    // future releases. 
+    DefaultErrHandler errorHandler;
+    SetReplicationFactorFunc funct(
+        *this, numReplicas, errHandler ? *errHandler : errorHandler);
     const int ret = RecursivelyApply(pathname, funct);
     return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }

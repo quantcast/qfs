@@ -543,6 +543,9 @@ public:
     /// @retval -1 on failure; on success, the # of replicas that will be made.
     ///
     int16_t SetReplicationFactor(const char *pathname, int16_t numReplicas);
+    // Recursive version.
+    int16_t SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+        ErrorHandler* errHandler = 0);
 
     void SetDefaultIOTimeout(int nsecs);
     int  GetDefaultIOTimeout() const;
@@ -937,6 +940,7 @@ private:
     friend struct RespondingServer2;
     friend class ChmodFunc;
     friend class ChownFunc;
+    friend class SetReplicationFactorFunc;
 };
 
 }}
