@@ -328,6 +328,14 @@ KfsClient::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 }
 
 int
+KfsClient::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    return mImpl->GetReplication(pathname, attr,
+        minChunkReplication, maxChunkReplication);
+}
+
+int
 KfsClient::CompareChunkReplicas(const char *pathname, string &md5sum)
 {
     return mImpl->CompareChunkReplicas(pathname, md5sum);
@@ -4471,6 +4479,63 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
 }
 
 int
+KfsClientImpl::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    QCStMutexLocker l(mMutex);
+
+    int ret;
+    if ((ret = StatSelf(pathname, attr, false))  < 0) {
+        KFS_LOG_STREAM_DEBUG << (pathname ?  pathname : "null") << ": " <<
+            ErrorCodeToStr(ret) <<
+        KFS_LOG_EOM;
+        return -ENOENT;
+    }
+    if (attr.isDirectory) {
+        KFS_LOG_STREAM_DEBUG << pathname << ": is a directory" << KFS_LOG_EOM;
+        return -EISDIR;
+    }
+    KFS_LOG_STREAM_DEBUG << "path: " << pathname <<
+        " file id: " << attr.fileId <<
+    KFS_LOG_EOM;
+
+    GetLayoutOp lop(nextSeq(), attr.fileId);
+    DoMetaOpWithRetry(&lop);
+    if (lop.status < 0) {
+        KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
+             << ErrorCodeToStr(lop.status) <<
+        KFS_LOG_EOM;
+        return lop.status;
+    }
+    if (lop.ParseLayoutInfo()) {
+        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
+        KFS_LOG_EOM;
+        return -EFAULT;
+    }
+    maxChunkReplication = 0;
+    if (lop.chunks.empty()) {
+        minChunkReplication = 0;
+    } else {
+        minChunkReplication = numeric_limits<int>::max();
+        for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
+                i != lop.chunks.end();
+                ++i) {
+            const int numReplicas = (int)i->chunkServers.size();
+            if (numReplicas < minChunkReplication) {
+                minChunkReplication = numReplicas;
+            }
+            if (numReplicas > maxChunkReplication) {
+                maxChunkReplication = numReplicas;
+            }
+        }
+    }
+    if (attr.subCount1 < lop.chunks.size()) {
+        attr.subCount1 = (int64_t)lop.chunks.size();
+    }
+    return 0;
+}
+
+int
 KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 {
     QCStMutexLocker l(mMutex);
@@ -4503,7 +4568,7 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     if (lop.ParseLayoutInfo()) {
         KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
 
     vector<ssize_t> chunksize;

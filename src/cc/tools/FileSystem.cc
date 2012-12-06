@@ -614,6 +614,23 @@ public:
         }
         return (inReplication != 0 ? -EINVAL : 0);
     }
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication)
+    {
+        const int theRet = Stat(inPath, outStat);
+        if (theRet != 0) {
+            return theRet;
+        }
+        if (S_ISDIR(outStat.st_mode)) {
+            return -EISDIR;
+        }
+        outMinReplication = 1;
+        outMaxReplication = 1;
+        return theRet;
+    }
     virtual string StrError(
         int inError) const
     {
@@ -988,6 +1005,26 @@ public:
             KfsClient::SetReplicationFactor(
                 inPath.c_str(), (int16_t)inReplication)
         );
+    }
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication)
+    {
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::GetReplication(
+            inPath.c_str(),
+            theAttr,
+            outMinReplication,
+            outMaxReplication
+        );
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
+        }
+        return theRet;
     }
     virtual int Glob(
         const string& inPattern,

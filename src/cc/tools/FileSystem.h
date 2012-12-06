@@ -185,6 +185,11 @@ public:
         const int     inReplication,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication) = 0;
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;
