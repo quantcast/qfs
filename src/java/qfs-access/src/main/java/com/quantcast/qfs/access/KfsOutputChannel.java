@@ -52,9 +52,6 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
     private final static native
     int sync(long ptr, int fd);
 
-    private final static native
-    long tell(long ptr, int fd);
-
     KfsOutputChannel(KfsAccess kfsAccess, int fd, boolean append) 
     {
         this.writeBuffer = BufferPool.getInstance().getBuffer();
@@ -198,11 +195,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         // similar issue as read: the position at which we are writing
         // needs to be offset by where the C++ code thinks we are and
         // how much we have buffered
-        final long ret = tell(kfsAccess.getCPtr(), kfsFd);
-        if (ret < 0) {
-            kfsAccess.kfs_retToIOException((int)ret);
-        }
-        return ret + writeBuffer.remaining();
+        return kfsAccess.kfs_tell(kfsFd) + writeBuffer.remaining();
     }
 
     public synchronized void close() throws IOException

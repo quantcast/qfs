@@ -196,6 +196,9 @@ final public class KfsAccess
     long seek(long ptr, int fd, long offset);
 
     private final static native
+    long tell(long ptr, int fd);
+
+    private final static native
     int setUMask(long ptr, int umask);
 
     private final static native
@@ -806,6 +809,15 @@ final public class KfsAccess
     public long kfs_seek(int fd, long offset) throws IOException
     {
         final long ret = seek(cPtr, fd, offset);
+        if (ret < 0) {
+            kfs_retToIOException((int)ret);
+        }
+        return ret;
+    }
+
+    public long kfs_tell(int fd) throws IOException
+    {
+        final long ret = tell(cPtr, fd);
         if (ret < 0) {
             kfs_retToIOException((int)ret);
         }
