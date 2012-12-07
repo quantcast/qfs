@@ -263,7 +263,7 @@ public:
         } else if (strcmp(theCmdPtr, "setrep") == 0) {
             bool theRecursiveFlag = false;
             bool theWaitFlag      = false;
-            size_t theIdx = 0;
+            int  theIdx           = 0;
             while (theIdx < theArgCnt) {
                 if (! theRecursiveFlag &&
                         strcmp(theArgsPtr[theIdx], "-R") == 0) {
