@@ -98,10 +98,10 @@ tarball: hadoop-jars
 	rm -rf tmpreldir
 
 test-debug: debug
-	cd build/debug && ../../src/test-scripts/kfstest.sh
+	cd build/debug && ../../src/test-scripts/qfstest.sh
 
 test-release: release
-	cd build/release && ../../src/test-scripts/kfstest.sh
+	cd build/release && ../../src/test-scripts/qfstest.sh
 
 clean:
 	rm -rf build/release build/debug build/qfs-*.tgz build/java
