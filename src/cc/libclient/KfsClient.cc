@@ -4529,7 +4529,7 @@ KfsClientImpl::GetReplication(const char* pathname,
             }
         }
     }
-    if (attr.subCount1 < lop.chunks.size()) {
+    if (attr.subCount1 < (int64_t)lop.chunks.size()) {
         attr.subCount1 = (int64_t)lop.chunks.size();
     }
     return 0;
