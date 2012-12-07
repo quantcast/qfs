@@ -1,0 +1,6 @@
+Package: qfs-client
+Version: 1.0-1
+Section: base
+Priority: optional
+Architecture: amd64
+Description: This package contains the Quantcast Distributed Filesystem client tools and libraries
