@@ -118,7 +118,9 @@ public:
                            ChunkInfoHandle **cih = 0,
                            bool mustExistFlag = false);
     void AllocChunkForAppend(
-        AllocChunkOp* op, int replicationPos, ServerLocation peerLoc);
+        AllocChunkOp*         op,
+        int                   replicationPos,
+        const ServerLocation& peerLoc);
     /// Delete a previously allocated chunk file.
     /// @param[in] chunkId id of the chunk being deleted.
     /// @retval status code
@@ -181,14 +183,14 @@ public:
     /// @param[in] chunkId  the chunk id for which we want info
     /// @param[out] cih  the resulting pointer from mChunkTable[chunkId]
     /// @retval  0 on success; -EBADF if we can't find mChunkTable[chunkId]
-    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih);
+    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih) const;
 
     /// Given a byte range, return the checksums for that range.
     vector<uint32_t> GetChecksums(kfsChunkId_t chunkId, int64_t offset, size_t numBytes);
 
     /// For telemetry purposes, provide the driveName where the chunk
     /// is stored and pass that back to the client. 
-    void GetDriveName(ReadOp *op);
+    string GetDirName(chunkId_t chunkId) const;
 
     /// Schedule a read on a chunk.
     /// @param[in] op  The read operation being scheduled.
@@ -257,7 +259,10 @@ public:
     /// is queued and the client pushes data for it subsequently.
     /// @param[in] wi  The op that defines the write
     /// @retval status code
-    int AllocateWriteId(WriteIdAllocOp *wi, int replicationPos, ServerLocation peerLoc);
+    int AllocateWriteId(
+        WriteIdAllocOp*       wi,
+        int                   replicationPos,
+        const ServerLocation& peerLoc);
 
     /// Check if a write is pending to a chunk.
     /// @param[in] chunkId  The chunkid for which we are checking for
@@ -687,10 +692,14 @@ private:
     int    mChunkDirsCheckIntervalSecs;
     time_t mNextGetFsSpaceAvailableTime;
     int    mGetFsSpaceAvailableIntervalSecs;
+    time_t mNextSendChunDirInfoTime;
+    int    mSendChunDirInfoIntervalSecs;
 
     // Cleanup fds on which no I/O has been done for the past N secs
     int    mInactiveFdsCleanupIntervalSecs;
     time_t mNextInactiveFdCleanupTime;
+    int    mInactiveFdFullScanIntervalSecs;
+    time_t mNextInactiveFdFullScanTime;
 
     int mReadChecksumMismatchMaxRetryCount;
     bool mAbortOnChecksumMismatchFlag; // For debugging
@@ -771,7 +780,7 @@ private:
 
     /// If we have too many open fd's close out whatever we can.  When
     /// periodic is set, we do a scan and clean up.
-    void CleanupInactiveFds(time_t now = 0);
+    bool CleanupInactiveFds(time_t now, bool forceFlag = false);
 
     /// For some reason, dirname is not accessable (for instance, the
     /// drive may have failed); in this case, notify metaserver that
@@ -795,6 +804,7 @@ private:
     bool IsChunkStable(const ChunkInfoHandle* cih) const;
     void RunStaleChunksQueue(bool completionFlag = false);
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
+    void SendChunkDirInfo();
 private:
     // No copy.
     ChunkManager(const ChunkManager&);

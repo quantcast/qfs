@@ -33,6 +33,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
+#include "common/nofilelimit.h"
 
 #include "ChunkManager.h"
 #include "ChunkServer.h"
@@ -115,13 +116,24 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           timeoutPendingFlag(false),
           lastEvacuationActivityTime(
             globalNetManager().Now() - 365 * 24 * 60 * 60),
+          startTime(globalNetManager().Now()),
+          stopTime(startTime),
+          startCount(0),
+          evacuateCompletedCount(0),
+          readCounters(),
+          writeCounters(),
+          totalReadCounters(),
+          totalWriteCounters(),
           availableChunks(),
           fsSpaceAvailCb(),
           checkDirReadableCb(),
           checkEvacuateFileCb(),
           evacuateChunksCb(),
+          renameEvacuateFileCb(),
+          availableChunksCb(),
           evacuateChunksOp(0, &evacuateChunksCb),
-          availableChunksOp(0, &availableChunksCb)
+          availableChunksOp(0, &availableChunksCb),
+          chunkDirInfoOp(*this)
     {
         fsSpaceAvailCb.SetHandler(this,
             &ChunkDirInfo::FsSpaceAvailDone);
@@ -194,6 +206,10 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             deviceId  = -1;
             diskQueue = 0;
         }
+        if (evacuateDoneFlag) {
+            evacuateCompletedCount++;
+        }
+        const bool sendUpdateFlag      = availableSpace >= 0;
         availableSpace                 = -1;
         rescheduleEvacuateThreshold    = 0;
         evacuateFlag                   = false;
@@ -211,6 +227,20 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             timeoutPendingFlag = false;
             globalNetManager().UnRegisterTimeoutHandler(this);
         }
+        stopTime = globalNetManager().Now();
+        if (sendUpdateFlag) {
+            chunkDirInfoOp.Enqueue();
+        }
+    }
+    void Start()
+    {
+        startTime = globalNetManager().Now();
+        startCount++;
+        readCounters.Reset();
+        writeCounters.Reset();
+        const bool kResetLastCountersFlag = true;
+        chunkDirInfoOp.Enqueue(kResetLastCountersFlag);
+        NotifyAvailableChunksStart();
     }
     void SetEvacuateStarted()
     {
@@ -231,6 +261,218 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         const bool kTimeoutFlag = true;
         NotifyAvailableChunks(kTimeoutFlag);
     }
+
+    class Counters
+    {
+    public:
+        typedef int64_t Counter;
+
+        Counters()
+            : mTimeoutCount(0),
+              mChecksumErrorCount(0),
+              mErrorCount(0),
+              mErrorByteCount(0),
+              mErrorTimeMicrosec(0),
+              mTimeMicrosec(0),
+              mIoCount(0),
+              mByteCount(0)
+            {}
+        void Reset()
+            { *this = Counters(); }
+        void Update(
+            int     inStatus,
+            int64_t inByteCount,
+            int64_t inTimeMicrosec)
+        {
+            if (inStatus < 0) {
+                mErrorCount++;
+                mErrorByteCount    += max(int64_t(0), inByteCount);
+                mErrorTimeMicrosec += max(int64_t(0), inTimeMicrosec);
+               if (inStatus == -ETIMEDOUT) {
+                   mTimeoutCount++;
+               } else if (inStatus == -EBADCKSUM) {
+                   mChecksumErrorCount++;
+               }
+            } else {
+                mIoCount++;
+                mByteCount    += max(int64_t(0), inByteCount);
+                mTimeMicrosec += max(int64_t(0), inTimeMicrosec);
+            }
+        }
+        ostream& Display(
+            const char* inPrefixPtr,
+            const char* inSuffixPtr,
+            ostream&    inStream) const
+        {
+            return (inStream <<
+            inPrefixPtr << "io: "                << mIoCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "bytes: "             << mByteCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "timeout: "           << mTimeoutCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "err-checksum: "      << mChecksumErrorCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "err: "               << mErrorCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "err-bytes: "         << mErrorByteCount <<
+                inSuffixPtr <<
+            inPrefixPtr << "err-time-microsec: " << mErrorTimeMicrosec <<
+                inSuffixPtr <<
+            inPrefixPtr << "time-microsec: "     << mTimeMicrosec <<
+                inSuffixPtr
+            );
+        }
+
+        Counter mTimeoutCount;
+        Counter mChecksumErrorCount;
+        Counter mErrorCount;
+        Counter mErrorByteCount;
+        Counter mErrorTimeMicrosec;
+        Counter mTimeMicrosec;
+        Counter mIoCount;
+        Counter mByteCount;
+    };
+    class ChunkDirInfoOp : public KfsOp
+    {
+    public:
+        ChunkDirInfoOp(
+            const ChunkDirInfo& chunkDir)
+            : KfsOp(CMD_CHUNKDIR_INFO, 0),
+              mChunkDir(chunkDir),
+              mInFlightFlag(false),
+              mResetCountersFlag(false),
+              mLastSent(globalNetManager().Now()),
+              mLastReadCounters(),
+              mLastWriteCounters()
+        {
+            noReply = true;
+            noRetry = true;
+            SET_HANDLER(this, &ChunkDirInfoOp::HandleDone);
+        }
+        virtual ~ChunkDirInfoOp()
+        {
+            if (mInFlightFlag) {
+                die("ChunkDirInfoOp: attempt to delete in flight op");
+            }
+        }
+        void Enqueue(bool resetCountersFlag = false)
+        {
+            mResetCountersFlag = mResetCountersFlag || resetCountersFlag;
+            if (mInFlightFlag) {
+                return;
+            }
+            mInFlightFlag = true;
+            gMetaServerSM.EnqueueOp(this);
+        }
+        void Request(
+            ostream& inStream)
+        {
+            if (mResetCountersFlag) {
+                mLastReadCounters.Reset();
+                mLastWriteCounters.Reset();
+                mResetCountersFlag = false;
+            }
+
+            const time_t now              = globalNetManager().Now();
+            const double avgTimeInterval  = max(0.5, (double)(now - mLastSent));
+            const double oneOverTime      = 1.0 / avgTimeInterval;
+            const double timeUtilMicroPct = 1e-4 * oneOverTime;
+
+            inStream <<
+            "CHUNKDIR_INFO\r\n"
+            "Version: "            << KFS_VERSION_STR                  << "\r\n"
+            "Cseq: "               << seq                              << "\r\n"
+            "No-reply: "           << (noReply ? 1 : 0)                << "\r\n"
+            "Dir-name: "           << mChunkDir.dirname                << "\r\n"
+            "Dev-id: "             << mChunkDir.deviceId               << "\r\n"
+            "Started-ago-sec: "    <<
+                ((mChunkDir.availableSpace >= 0 ? now : mChunkDir.stopTime) -
+                    mChunkDir.startTime) << "\r\n"
+            "Stopped-ago-sec: "    <<
+                ((mChunkDir.availableSpace < 0 ? now : mChunkDir.startTime) -
+                    mChunkDir.stopTime) << "\r\n"
+            "Start-count: "        << mChunkDir.startCount             << "\r\n"
+            "Chunks: "             << mChunkDir.chunkCount             << "\r\n"
+            "Chunks-available"     << mChunkDir.availableChunks.GetSize() <<
+                "\r\n"
+            "Space-avail: "        << mChunkDir.availableSpace         << "\r\n"
+            "Space-total: "        << mChunkDir.totalSpace             << "\r\n"
+            "Space-util-pct: "     <<
+                (100. * max(int64_t(0), mChunkDir.totalSpace -
+                    mChunkDir.availableSpace) /
+                    (double)max(int64_t(1), mChunkDir.totalSpace))     << "\r\n"
+            "Evacuate: "           << (mChunkDir.evacuateFlag ? 1 : 0) << "\r\n"
+            "Evacuate-in-flight: " << mChunkDir.evacuateInFlightCount  << "\r\n"
+            "Read-time-pct: " << timeUtilMicroPct * max(int64_t(0),
+                mChunkDir.readCounters.mTimeMicrosec -
+                mLastReadCounters.mTimeMicrosec) << "\r\n"
+            "Read-err-time-pct: " << timeUtilMicroPct * max(int64_t(0),
+                mChunkDir.readCounters.mErrorTimeMicrosec -
+                mLastReadCounters.mErrorTimeMicrosec) << "\r\n"
+            "Write-time-pct: " << timeUtilMicroPct * max(int64_t(0),
+                mChunkDir.writeCounters.mTimeMicrosec -
+                mLastWriteCounters.mTimeMicrosec) << "\r\n"
+            "Write-err-time-pct: " << timeUtilMicroPct * max(int64_t(0),
+                mChunkDir.writeCounters.mErrorTimeMicrosec -
+                mLastWriteCounters.mErrorTimeMicrosec) << "\r\n"
+            "Read-io-rate: " <<
+                (mChunkDir.readCounters.mIoCount -
+                mLastReadCounters.mIoCount) * oneOverTime << "\r\n" <<
+            "Write-io-rate: " <<
+                (mChunkDir.writeCounters.mIoCount -
+                mLastWriteCounters.mIoCount) * oneOverTime << "\r\n" <<
+            "Avg-read-io-bytes: " <<
+                (mChunkDir.readCounters.mByteCount -
+                    mLastReadCounters.mByteCount) /
+                max(Counters::Counter(1), mChunkDir.readCounters.mIoCount -
+                    mLastReadCounters.mIoCount) << "\r\n" <<
+            "Avg-write-io-bytes: " <<
+                (mChunkDir.writeCounters.mByteCount -
+                    mLastWriteCounters.mByteCount) /
+                max(Counters::Counter(1), mChunkDir.writeCounters.mIoCount -
+                    mLastWriteCounters.mIoCount) << "\r\n" <<
+            "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
+            "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
+                "\r\n"
+            ;
+            mChunkDir.readCounters.Display(
+                "Read-",         "\r\n", inStream);
+            mChunkDir.writeCounters.Display(
+                "Write-",       "\r\n", inStream);
+            mChunkDir.totalReadCounters.Display(
+                "Total-read-",  "\r\n", inStream);
+            mChunkDir.totalWriteCounters.Display(
+                "Total-write-", "\r\n", inStream);
+            inStream << "\r\n";
+
+            mLastSent          = now;
+            mLastReadCounters  = mChunkDir.readCounters;
+            mLastWriteCounters = mChunkDir.writeCounters;
+        }
+        // To be called whenever we get a reply from the server
+        int HandleDone(int code, void* data)
+        {
+            if (code != EVENT_CMD_DONE || data != this || ! mInFlightFlag) {
+                die("ChunkDirInfoOp: invalid completion");
+            }
+            mInFlightFlag = false;
+            return 0;
+        }
+        void Execute()
+            {}
+        string Show() const
+        {
+            return ("chunk dir info: " + mChunkDir.dirname);
+        }
+    private:
+        const ChunkDirInfo& mChunkDir;
+        bool                mInFlightFlag;
+        bool                mResetCountersFlag;
+        time_t              mLastSent;
+        Counters            mLastReadCounters;
+        Counters            mLastWriteCounters;
+    };
 
     string                 dirname;
     int64_t                usedSpace;
@@ -263,6 +505,14 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     bool                   notifyAvailableChunksStartFlag:1;
     bool                   timeoutPendingFlag:1;
     time_t                 lastEvacuationActivityTime;
+    time_t                 startTime;
+    time_t                 stopTime;
+    int                    startCount;
+    int                    evacuateCompletedCount;
+    Counters               readCounters;
+    Counters               writeCounters;
+    Counters               totalReadCounters;
+    Counters               totalWriteCounters;
     DirChecker::ChunkInfos availableChunks;
     KfsCallbackObj         fsSpaceAvailCb;
     KfsCallbackObj         checkDirReadableCb;
@@ -272,6 +522,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     KfsCallbackObj         availableChunksCb;
     EvacuateChunksOp       evacuateChunksOp;
     AvailableChunksOp      availableChunksOp;
+    ChunkDirInfoOp         chunkDirInfoOp;
 
     enum { kChunkInfoHDirListCount = kChunkInfoHandleListCount + 1 };
     enum ChunkListType
@@ -337,6 +588,7 @@ struct WriteChunkMetaOp : public KfsOp {
     DiskIo* const      diskIo;  /* disk connection used for writing data */
     IOBuffer           dataBuf; /* buffer with the data to be written */
     WriteChunkMetaOp*  next;
+    int64_t            diskIOTime;
     const kfsSeq_t     targetVersion;
     const bool         renameFlag;
     const bool         stableFlag;
@@ -353,6 +605,7 @@ struct WriteChunkMetaOp : public KfsOp {
           diskIo(d),
           dataBuf(),
           next(0),
+          diskIOTime(0),
           targetVersion(version),
           renameFlag(rename),
           stableFlag(stable)
@@ -505,6 +758,9 @@ public:
     void WriteDone(const WriteOp* op = 0) {
         assert(mWritesInFlight > 0);
         mWritesInFlight--;
+        if (op) {
+            WriteStats(op->status, op->numBytesIO, op->diskIOTime);
+        }
         if (mWritesInFlight == 0 && mWaitForWritesInFlightFlag) {
             assert(mWriteMetaOpsHead);
             mWaitForWritesInFlightFlag = false;
@@ -627,6 +883,20 @@ public:
     void SetBeingReplicated(bool flag) {
         mBeingReplicatedFlag = flag;
     }
+    void ReadStats(int status, int64_t readSize, int64_t ioTimeMicrosec) {
+        if (mChunkDir.availableSpace >= 0) {
+            mChunkDir.readCounters.Update(status, readSize, ioTimeMicrosec);
+            mChunkDir.totalReadCounters.Update(
+                status, readSize, ioTimeMicrosec);
+        }
+    }
+    void WriteStats(int status, int64_t writeSize, int64_t ioTimeMicrosec) {
+        if (mChunkDir.availableSpace >= 0) {
+            mChunkDir.writeCounters.Update(status, writeSize, ioTimeMicrosec);
+            mChunkDir.totalWriteCounters.Update(
+                status, writeSize, ioTimeMicrosec);
+        }
+    }
 
 private:
     bool                        mBeingReplicatedFlag:1;
@@ -703,6 +973,7 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
         cih->chunkInfo.chunkId, cih, newEntryFlag);
     if (! ci) {
         die("add mapping failure");
+        return 0; // Eliminate lint warning.
     }
     if (! newEntryFlag) {
         return *ci;
@@ -827,6 +1098,9 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
 {
     chunkInfo.UnloadChecksums();
     if (! IsFileOpen()) {
+        if (dataFH) {
+            dataFH.reset();
+        }
         return;
     }
     string errMsg;
@@ -880,6 +1154,7 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
         }
     } else {
         assert(diskIo);
+        diskIOTime = microseconds();
         status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf);
     }
     return status;
@@ -1005,9 +1280,9 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
     // Do not rely on compiler to unroll tail recursion, use loop.
     for (; ;) {
         assert(mWriteMetaOpsHead);
-        int status = data ? *reinterpret_cast<const int*>(data) : -1;
+        int status = data ? *reinterpret_cast<const int*>(data) : -EIO;
         if (code == EVENT_DISK_ERROR && status >= 0) {
-            status = -1;
+            status = -EIO;
         }
         if ((! mDeleteFlag && ! IsStale()) && status < 0) {
             KFS_LOG_STREAM_ERROR << mWriteMetaOpsHead->Show() <<
@@ -1039,6 +1314,11 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
                     // LruUpdate below will add it back to the lru list.
                 }
             }
+        } else {
+            const int64_t nowUsec = microseconds();
+            WriteStats(status, ChunkHeaderBuffer::GetSize(), max(int64_t(0),
+                nowUsec - mWriteMetaOpsHead->diskIOTime));
+            mWriteMetaOpsHead->diskIOTime = nowUsec; 
         }
         WriteChunkMetaOp* const cur = mWriteMetaOpsHead;
         mWriteMetaOpsHead = cur->next;
@@ -1079,26 +1359,6 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
     return 0;
 }
 
-static int
-GetMaxOpenFds()
-{
-    struct rlimit rlim;
-    int maxOpenFds = 0;
-
-    if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-        maxOpenFds = rlim.rlim_cur;
-        // bump the soft limit to the hard limit
-        rlim.rlim_cur = rlim.rlim_max;
-        if (setrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-            maxOpenFds = rlim.rlim_cur;
-        }
-    }
-    KFS_LOG_STREAM_INFO <<
-        "max # of open files: " << maxOpenFds <<
-    KFS_LOG_EOM;
-    return maxOpenFds;
-}
-
 // Chunk manager implementation.
 ChunkManager::ChunkManager()
     : mMaxPendingWriteLruSecs(300),
@@ -1116,12 +1376,16 @@ ChunkManager::ChunkManager()
       mPendingWrites(),
       mChunkTable(),
       mMaxIORequestSize(4 << 20),
-      mNextChunkDirsCheckTime(globalNetManager().Now() - 1),
+      mNextChunkDirsCheckTime(globalNetManager().Now() - 360000),
       mChunkDirsCheckIntervalSecs(120),
-      mNextGetFsSpaceAvailableTime(globalNetManager().Now() - 1),
+      mNextGetFsSpaceAvailableTime(globalNetManager().Now() - 360000),
       mGetFsSpaceAvailableIntervalSecs(25),
+      mNextSendChunDirInfoTime(globalNetManager().Now() -360000),
+      mSendChunDirInfoIntervalSecs(2 * 60),
       mInactiveFdsCleanupIntervalSecs(300),
-      mNextInactiveFdCleanupTime(0),
+      mNextInactiveFdCleanupTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
+      mInactiveFdFullScanIntervalSecs(2),
+      mNextInactiveFdFullScanTime(globalNetManager().Now() - 365 * 24 * 60 * 60), 
       mReadChecksumMismatchMaxRetryCount(0),
       mAbortOnChecksumMismatchFlag(false),
       mRequireChunkHeaderChecksumFlag(false),
@@ -1170,6 +1434,8 @@ ChunkManager::~ChunkManager()
 void
 ChunkManager::Shutdown()
 {
+    // Force meta server connection down first.
+    gMetaServerSM.HandleEvent(EVENT_NET_ERROR, 0);
     mDirChecker.Stop();
     // Run delete queue before removing chunk table entries.
     RunStaleChunksQueue();
@@ -1262,21 +1528,27 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
 void
 ChunkManager::SetParameters(const Properties& prop)
 {
-    mInactiveFdsCleanupIntervalSecs = prop.getValue(
+    mInactiveFdsCleanupIntervalSecs = max(0, (int)prop.getValue(
         "chunkServer.inactiveFdsCleanupIntervalSecs",
-        mInactiveFdsCleanupIntervalSecs);
-    mMaxPendingWriteLruSecs = max(1, prop.getValue(
+        (double)mInactiveFdsCleanupIntervalSecs));
+    mInactiveFdFullScanIntervalSecs = max(0, (int)prop.getValue(
+        "chunkServer.inactiveFdFullScanIntervalSecs",
+        (double)mInactiveFdFullScanIntervalSecs));
+    mMaxPendingWriteLruSecs = max(1, (int)prop.getValue(
         "chunkServer.maxPendingWriteLruSecs",
-        mMaxPendingWriteLruSecs));
-    mCheckpointIntervalSecs = max(1, prop.getValue(
+        (double)mMaxPendingWriteLruSecs));
+    mCheckpointIntervalSecs = max(1, (int)prop.getValue(
         "chunkServer.checkpointIntervalSecs",
-        mCheckpointIntervalSecs));
-    mChunkDirsCheckIntervalSecs = max(1, prop.getValue(
+        (double)mCheckpointIntervalSecs));
+    mChunkDirsCheckIntervalSecs = max(1, (int)prop.getValue(
         "chunkServer.chunkDirsCheckIntervalSecs",
-        mChunkDirsCheckIntervalSecs));
-    mGetFsSpaceAvailableIntervalSecs = max(1, prop.getValue(
+        (double)mChunkDirsCheckIntervalSecs));
+    mGetFsSpaceAvailableIntervalSecs = max(1, (int)prop.getValue(
         "chunkServer.getFsSpaceAvailableIntervalSecs",
-        mGetFsSpaceAvailableIntervalSecs));
+        (double)mGetFsSpaceAvailableIntervalSecs));
+    mSendChunDirInfoIntervalSecs = max(1, (int)prop.getValue(
+        "chunkServer.sendChunDirInfoIntervalSecs",
+        (double)mSendChunDirInfoIntervalSecs));
     mAbortOnChecksumMismatchFlag = prop.getValue(
         "chunkServer.abortOnChecksumMismatchFlag",
         mAbortOnChecksumMismatchFlag ? 1 : 0) != 0;
@@ -1393,6 +1665,10 @@ ChunkManager::SetParameters(const Properties& prop)
         now + mGetFsSpaceAvailableIntervalSecs);
     mNextChunkDirsCheckTime = min(mNextChunkDirsCheckTime,
         now + mChunkDirsCheckIntervalSecs);
+    mNextSendChunDirInfoTime = min(mNextSendChunDirInfoTime,
+        now + mSendChunDirInfoIntervalSecs);
+    mNextInactiveFdFullScanTime = min(mNextInactiveFdFullScanTime,
+        now + mInactiveFdFullScanIntervalSecs);
 }
 
 static string AddTrailingPathSeparator(const string& dir)
@@ -1448,6 +1724,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
 
     // Normalize tailing /, and keep only longest prefixes:
     // only leave leaf directories.
+    const size_t kMaxDirNameLength = MAX_RPC_HEADER_LEN / 3;
     vector<string> dirs;
     dirs.reserve(chunkDirs.size());
     for (vector<string>::const_iterator it = chunkDirs.begin();
@@ -1464,7 +1741,15 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         if (++pos < dir.length()) {
             dir.erase(pos);
         }
-        dirs.push_back(AddTrailingPathSeparator(dir));
+        dir = AddTrailingPathSeparator(dir);
+        if (dir.length() > kMaxDirNameLength) {
+            KFS_LOG_STREAM_ERROR <<
+                dir << ": chunk directory name exceeds"
+                    " character length limit of " << kMaxDirNameLength <<
+            KFS_LOG_EOM;
+            return false;
+        }
+        dirs.push_back(dir);
     }
     sort(dirs.begin(), dirs.end(), greater<string>());
     size_t cnt = unique(dirs.begin(), dirs.end(), EqualPrefixStr()) -
@@ -1485,7 +1770,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         return false;
     }
     const int kMinOpenFds = 32;
-    mMaxOpenFds = GetMaxOpenFds();
+    mMaxOpenFds = SetMaxNoFileLimit();
     if (mMaxOpenFds < kMinOpenFds) {
         KFS_LOG_STREAM_ERROR <<
             "file descriptor limit too small: " << mMaxOpenFds <<
@@ -1501,6 +1786,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     }
     mMaxOpenChunkFiles = min((mMaxOpenFds - kMinOpenFds / 2) / mFdsPerChunk,
         prop.getValue("chunkServer.maxOpenChunkFiles", mMaxOpenChunkFiles));
+    TcpSocket::SetOpenLimit(mMaxOpenFds - min((mMaxOpenFds + 3) / 4, 1 << 10));
     if (mMaxOpenChunkFiles < kMinOpenFds / 2) {
         KFS_LOG_STREAM_ERROR <<
             "open chunks limit too small: " << mMaxOpenChunkFiles <<
@@ -1560,8 +1846,6 @@ ChunkManager::AllocChunk(
     // on a chunkserver restart.  This provides a very simple failure
     // handling model.
 
-    CleanupInactiveFds();
-
     const bool stableFlag = false;
     ChunkInfoHandle* const cih = new ChunkInfoHandle(*chunkdir, stableFlag);
     cih->chunkInfo.Init(fileId, chunkId, chunkVersion);
@@ -1590,7 +1874,9 @@ ChunkManager::AllocChunk(
 
 void
 ChunkManager::AllocChunkForAppend(
-    AllocChunkOp* op, int replicationPos, ServerLocation peerLoc)
+    AllocChunkOp*         op,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     if (IsWritePending(op->chunkId)) {
         op->statusMsg = "random write in progress";
@@ -1813,6 +2099,7 @@ ChunkManager::ReadChunkMetadata(kfsChunkId_t chunkId, KfsOp* cb)
 
     const int res = rcm->diskIo->Read(0, KFS_CHUNK_HEADER_SIZE);
     if (res < 0) {
+        cih->ReadStats(res, (int64_t)KFS_CHUNK_HEADER_SIZE, 0);
         ReportIOFailure(cih, res);
         delete rcm;
         return res;
@@ -1917,6 +2204,8 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
     }
     LruUpdate(*cih);
     cih->readChunkMetaOp = 0;
+    cih->ReadStats(op->status, (int64_t)KFS_CHUNK_HEADER_SIZE,
+        max(int64_t(1), microseconds() - op->startTime));
     if (op->status < 0 && op->status != -ETIMEDOUT) {
         mCounters.mBadChunkHeaderErrorCount++;
         ChunkIOFailed(cih, op->status);
@@ -2429,6 +2718,20 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
     if (cih->IsFileOpen()) {
         return 0;
     }
+    const bool kForceFlag = true;
+    if (! CleanupInactiveFds(globalNetManager().Now(), kForceFlag)) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to " <<
+                (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
+            " chunk file: " << MakeChunkPathname(cih) <<
+            ": out of file descriptors"
+            " chunk fds: "  <<
+                globals().ctrOpenDiskFds.GetValue() * mFdsPerChunk <<
+            " sockets: "    << globals().ctrOpenNetFds.GetValue() <<
+            " fd limit: "   << mMaxOpenFds <<
+        KFS_LOG_EOM;
+        return -ENFILE;
+    }
     if (! cih->dataFH) {
         cih->dataFH.reset(new DiskIo::File());
     }
@@ -2461,6 +2764,8 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
                 mUsedSpace -= size;
             }
             Delete(*cih);
+        } else {
+            cih->dataFH.reset();
         }
         KFS_LOG_STREAM_ERROR <<
             "failed to " << (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
@@ -2560,27 +2865,23 @@ ChunkManager::ChunkSize(SizeOp* op)
     op->size = cih->chunkInfo.chunkSize;
 }
 
-void
-ChunkManager::GetDriveName(ReadOp *op)
+string
+ChunkManager::GetDirName(chunkId_t chunkId) const
 {
-    ChunkInfoHandle *cih;
-
-    if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
-        return;
+    ChunkInfoHandle* cih = 0;
+    if (GetChunkInfoHandle(chunkId, &cih) < 0) {
+        return string();
     }
-    // provide the path to the client for telemetry
-    op->driveName = cih->GetDirname();
+    return cih->GetDirname();
 }
 
 int
-ChunkManager::ReadChunk(ReadOp *op)
+ChunkManager::ReadChunk(ReadOp* op)
 {
     ChunkInfoHandle* cih = 0;
     if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
         return -EBADF;
     }
-    // provide the path to the client for telemetry
-    op->driveName = cih->GetDirname();
 
     // the checksums should be loaded...
     cih->chunkInfo.VerifyChecksumsLoaded();
@@ -2619,11 +2920,13 @@ ChunkManager::ReadChunk(ReadOp *op)
 
     // Make sure we don't try to read past EOF; the checksumming will
     // do the necessary zero-padding.
-    if ((int64_t) (offset + numBytesIO) > cih->chunkInfo.chunkSize)
+    if ((int64_t) (offset + numBytesIO) > cih->chunkInfo.chunkSize) {
         numBytesIO = cih->chunkInfo.chunkSize - offset;
-
+    }
+    op->diskIOTime = microseconds();
     const int ret = op->diskIo->Read(offset + KFS_CHUNK_HEADER_SIZE, numBytesIO);
     if (ret < 0) {
+        cih->ReadStats(ret, (int64_t)numBytesIO, 0);
         ReportIOFailure(cih, ret);
         return ret;
     }
@@ -2632,7 +2935,7 @@ ChunkManager::ReadChunk(ReadOp *op)
 }
 
 int
-ChunkManager::WriteChunk(WriteOp *op)
+ChunkManager::WriteChunk(WriteOp* op)
 {
     ChunkInfoHandle* cih = 0;
     if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
@@ -2645,16 +2948,16 @@ ChunkManager::WriteChunk(WriteOp *op)
     // write doesn't overflow the size of a chunk.
     op->numBytesIO = min((size_t) (CHUNKSIZE - op->offset), op->numBytes);
 
-    if (op->numBytesIO <= 0 || op->offset < 0)
+    if (op->numBytesIO <= 0 || op->offset < 0) {
         return -EINVAL;
-
+    }
     const int64_t addedBytes(op->offset + op->numBytesIO - cih->chunkInfo.chunkSize);
     if (addedBytes > 0 && mUsedSpace + addedBytes >= mTotalSpace) {
         KFS_LOG_STREAM_ERROR <<
             "out of disk space: " << mUsedSpace << " + " << addedBytes <<
             " = " << (mUsedSpace + addedBytes) << " >= " << mTotalSpace <<
         KFS_LOG_EOM;
-	return -ENOSPC;
+        return -ENOSPC;
     }
 
     int64_t offset     = op->offset;
@@ -2690,7 +2993,7 @@ ChunkManager::WriteChunk(WriteOp *op)
         } else {
             // Need to read the data block over which the checksum is
             // computed.
-            if (op->rop == NULL) {
+            if (! op->rop) {
                 // issue a read
                 ReadOp *rop = new ReadOp(op, offset - off, blkSize);
                 KFS_LOG_STREAM_DEBUG <<
@@ -2709,10 +3012,10 @@ ChunkManager::WriteChunk(WriteOp *op)
             // If the read failed, cleanup and bail
             if (op->rop->status < 0) {
                 op->status = op->rop->status;
-                op->rop->wop = NULL;
+                op->rop->wop = 0;
                 delete op->rop;
-                op->rop = NULL;
-                return op->HandleDone(EVENT_DISK_ERROR, NULL);
+                op->rop = 0;
+                return op->HandleDone(EVENT_DISK_ERROR, 0);
             }
 
             // All is good.  So, get on with checksumming
@@ -2720,7 +3023,7 @@ ChunkManager::WriteChunk(WriteOp *op)
 
             delete op->dataBuf;
             op->dataBuf = op->rop->dataBuf;
-            op->rop->dataBuf = NULL;
+            op->rop->dataBuf = 0;
             // If the buffer doesn't have a full CHECKSUM_BLOCKSIZE worth
             // of data, zero-pad the end.  We don't need to zero-pad the
             // front because the underlying filesystem will zero-fill when
@@ -2753,6 +3056,7 @@ ChunkManager::WriteChunk(WriteOp *op)
     KFS_LOG_EOM;
     */
 
+    op->diskIOTime = microseconds();
     int res = op->diskIo->Write(
         offset + KFS_CHUNK_HEADER_SIZE, numBytesIO, op->dataBuf);
     if (res >= 0) {
@@ -2763,6 +3067,7 @@ ChunkManager::WriteChunk(WriteOp *op)
         cih->StartWrite(op);
     } else {
         op->diskIo.reset();
+        cih->WriteStats(res, numBytesIO, 0);
         ReportIOFailure(cih, res);
     }
     return res;
@@ -2787,7 +3092,7 @@ ChunkManager::UpdateChecksums(ChunkInfoHandle *cih, WriteOp *op)
 
         UpdateDirSpace(cih, endOffset - cih->chunkInfo.chunkSize);
 
-	mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
+        mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
         cih->chunkInfo.chunkSize = endOffset;
 
     }
@@ -2808,13 +3113,14 @@ ChunkManager::WriteDone(WriteOp* op)
         KFS_LOG_EOM;
         return;
     }
+    op->diskIOTime = max(int64_t(1), microseconds() - op->diskIOTime);
     cih->WriteDone(op);
 }
 
 bool
-ChunkManager::ReadChunkDone(ReadOp *op)
+ChunkManager::ReadChunkDone(ReadOp* op)
 {
-    ChunkInfoHandle *cih = NULL;
+    ChunkInfoHandle* cih = 0;
 
     bool staleRead = false;
     if ((GetChunkInfoHandle(op->chunkId, &cih) < 0) ||
@@ -2834,6 +3140,7 @@ ChunkManager::ReadChunkDone(ReadOp *op)
         return true;
     }
 
+    op->diskIOTime = max(int64_t(1), microseconds() - op->diskIOTime);
     const int readLen = op->dataBuf->BytesConsumable();
     if (readLen <= 0) {
         KFS_LOG_STREAM_ERROR << "Short read for" <<
@@ -2845,6 +3152,7 @@ ChunkManager::ReadChunkDone(ReadOp *op)
         KFS_LOG_EOM;
         if (cih->chunkInfo.chunkSize > op->offset + readLen) {
             op->status = -EIO;
+            cih->ReadStats(op->status, readLen, op->diskIOTime);
             ChunkIOFailed(cih, op->status);
         } else {
             // Size has decreased while read was in flight.
@@ -2877,6 +3185,7 @@ ChunkManager::ReadChunkDone(ReadOp *op)
             cih->chunkInfo.chunkId  <<
             " got paged out; returning EAGAIN to client" <<
         KFS_LOG_EOM;
+        cih->ReadStats(op->status, readLen, op->diskIOTime);
         op->status = -EAGAIN;
         return true;
     }
@@ -2908,11 +3217,13 @@ ChunkManager::ReadChunkDone(ReadOp *op)
     if (!mismatch) {
         // for checksums to verify, we did reads in multiples of
         // checksum block sizes.  so, get rid of the extra
+        cih->ReadStats(op->status, readLen, op->diskIOTime);
         AdjustDataRead(op);
         return true;
     }
     const bool retry = op->retryCnt++ < mReadChecksumMismatchMaxRetryCount;
     op->status = -EBADCKSUM;
+    cih->ReadStats(op->status, readLen, op->diskIOTime);
 
     ostringstream os;
     os <<
@@ -2982,7 +3293,7 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* f
     ChunkInfoHandle* cih;
     if (GetChunkInfoHandle(chunkId, &cih) < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "corrupt chunk: " << chunkId << " not in table" <<
+            "io failure: chunk: " << chunkId << " not in table" <<
         KFS_LOG_EOM;
         return;
     }
@@ -2999,7 +3310,11 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* f
 void
 ChunkManager::ReportIOFailure(ChunkInfoHandle* cih, int err)
 {
-    if (err == -EAGAIN || err == -ENOMEM || err == -ETIMEDOUT) {
+    if (err == -EAGAIN ||
+            err == -ENOMEM ||
+            err == -ETIMEDOUT ||
+            err == -ENFILE ||
+            err == -ESERVERBUSY) {
         KFS_LOG_STREAM_ERROR <<
             "assuming temporary io failure chunk: " << cih->chunkInfo.chunkId <<
             " dir: " << cih->GetDirname() <<
@@ -3198,7 +3513,6 @@ DiskIo*
 ChunkManager::SetupDiskIo(ChunkInfoHandle *cih, KfsCallbackObj *op)
 {
     if (! cih->IsFileOpen()) {
-        CleanupInactiveFds();
         if (OpenChunk(cih, O_RDWR) < 0) {
             return 0;
         }
@@ -3370,7 +3684,8 @@ ChunkManager::GetHostedChunks(
 }
 
 int
-ChunkManager::GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih)
+ChunkManager::GetChunkInfoHandle(
+    kfsChunkId_t chunkId, ChunkInfoHandle **cih) const
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     if (! ci) {
@@ -3382,7 +3697,10 @@ ChunkManager::GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih)
 }
 
 int
-ChunkManager::AllocateWriteId(WriteIdAllocOp *wi, int replicationPos, ServerLocation peerLoc)
+ChunkManager::AllocateWriteId(
+    WriteIdAllocOp*       wi,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     ChunkInfoHandle *cih = 0;
 
@@ -3416,7 +3734,7 @@ ChunkManager::AllocateWriteId(WriteIdAllocOp *wi, int replicationPos, ServerLoca
         } else {
             WriteOp* const op = new WriteOp(
                 wi->seq, wi->chunkId, wi->chunkVersion,
-                wi->offset, wi->numBytes, NULL, mWriteId
+                wi->offset, wi->numBytes, 0, mWriteId
             );
             op->enqueueTime     = globalNetManager().Now();
             op->isWriteIdHolder = true;
@@ -3460,7 +3778,7 @@ ChunkManager::CloneWriteOp(int64_t writeId)
     other->enqueueTime = globalNetManager().Now();
     // offset/size/buffer are to be filled in
     return new WriteOp(other->seq, other->chunkId, other->chunkVersion,
-                     0, 0, NULL, other->writeId);
+                     0, 0, 0, other->writeId);
 }
 
 void
@@ -3557,6 +3875,10 @@ ChunkManager::Timeout()
         GetFsSpaceAvailable();
         mNextGetFsSpaceAvailableTime = now + mGetFsSpaceAvailableIntervalSecs;
     }
+    if (mNextSendChunDirInfoTime < now && gMetaServerSM.IsConnected()) {
+        SendChunkDirInfo();
+        mNextSendChunDirInfoTime = now + mSendChunDirInfoIntervalSecs;
+    }
     gLeaseClerk.Timeout();
     gAtomicRecordAppendManager.Timeout();
 }
@@ -3604,32 +3926,39 @@ ChunkManager::Sync(WriteOp *op)
     return op->diskIo->Sync(op->waitForSyncDone);
 }
 
-void
-ChunkManager::CleanupInactiveFds(time_t now)
+bool
+ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
 {
-    const bool periodic = now > 0;
     // if we haven't cleaned up in 5 mins or if we too many fd's that
     // are open, clean up.
-    if (periodic) {
+    time_t expireTime;
+    int    releaseCnt = -1;
+    if (! forceFlag) {
         if (now < mNextInactiveFdCleanupTime) {
-            return;
+            return true;
         }
+        expireTime = now - mInactiveFdsCleanupIntervalSecs;
     } else {
+        // Reserve is to deal with asynchronous close/open in the cases where
+        // open and close are executed on different io queues.
+        const uint64_t kReserve     = min((mMaxOpenChunkFiles + 3) / 4,
+            32 + (int)mChunkDirs.size());
         const uint64_t openChunkCnt = globals().ctrOpenDiskFds.GetValue();
-        if (openChunkCnt < (uint64_t)mMaxOpenChunkFiles &&
-                    openChunkCnt * mFdsPerChunk +
-                        globals().ctrOpenNetFds.GetValue() <
+        if (openChunkCnt + kReserve > (uint64_t)mMaxOpenChunkFiles ||
+                (openChunkCnt + kReserve) * mFdsPerChunk +
+                    globals().ctrOpenNetFds.GetValue() >
                     (uint64_t)mMaxOpenFds) {
-            return;
+            if (mNextInactiveFdFullScanTime < now) {
+                expireTime = now + 2 * mInactiveFdsCleanupIntervalSecs;
+            } else {
+                expireTime = now - (mInactiveFdsCleanupIntervalSecs + 3) / 4;
+            }
+            releaseCnt = kReserve;
+        } else {
+            expireTime = now - mInactiveFdsCleanupIntervalSecs;
         }
     }
 
-    const time_t cur = periodic ? now : globalNetManager().Now();
-    // either we are periodic cleaning or we have too many FDs open
-    // shorten the interval if we're out of fd.
-    const time_t expireTime = cur - (periodic ?
-        mInactiveFdsCleanupIntervalSecs :
-        (mInactiveFdsCleanupIntervalSecs + 2) / 3);
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle* cih;
     while ((cih = it.Next()) && cih->lastIOTime < expireTime) {
@@ -3639,17 +3968,20 @@ ChunkManager::CleanupInactiveFds(time_t now)
             ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
             continue;
         }
-        bool inUse;
-        bool hasLease = false;
-        if ((inUse = cih->IsFileInUse()) ||
-                (hasLease = gLeaseClerk.IsLeaseValid(cih->chunkInfo.chunkId)) ||
-                IsWritePending(cih->chunkInfo.chunkId)) {
+        bool inUseFlag;
+        bool hasLeaseFlag     = false;
+        bool writePendingFlag = false;
+        if ((inUseFlag = cih->IsFileInUse()) ||
+                (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
+                    cih->chunkInfo.chunkId)) ||
+                (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
-                " fileid: "   << (const void*)cih->dataFH.get() <<
+                " dataFH: "   << (const void*)cih->dataFH.get() <<
                 " chunk: "    << cih->chunkInfo.chunkId <<
-                " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
-                (inUse ?    " file in use" : "") <<
-                (hasLease ? " has lease"   : "") <<
+                " last io: "  << (now - cih->lastIOTime) << " sec. ago" <<
+                (inUseFlag ?        " file in use"     : "") <<
+                (hasLeaseFlag ?     " has lease"       : "") <<
+                (writePendingFlag ? " wrtie pending"   : "") <<
             KFS_LOG_EOM;
             continue;
         }
@@ -3659,15 +3991,28 @@ ChunkManager::CleanupInactiveFds(time_t now)
         // we have a valid file-id and it has been over 5 mins since we last did
         // I/O on it.
         KFS_LOG_STREAM_DEBUG << "cleanup: closing"
-            " fileid: "  << (const void*)cih->dataFH.get() <<
+            " dataFH: "  << (const void*)cih->dataFH.get() <<
             " chunk: "   << cih->chunkInfo.chunkId <<
             " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
         KFS_LOG_EOM;
+        const bool openFlag = releaseCnt > 0 && cih->IsFileOpen();
         Release(*cih);
+        if (releaseCnt > 0 && openFlag && ! cih->IsFileOpen()) {
+            if (--releaseCnt <= 0) {
+                break;
+            }
+        }
     }
     cih = ChunkLru::Front(mChunkInfoLists[kChunkLruList]);
     mNextInactiveFdCleanupTime = mInactiveFdsCleanupIntervalSecs +
-        ((cih && cih->lastIOTime > expireTime) ? cih->lastIOTime : cur);
+        ((cih && cih->lastIOTime > expireTime) ? cih->lastIOTime : now);
+    const bool fdsAvailableFlag = releaseCnt <= 0;
+    if (! fdsAvailableFlag && mNextInactiveFdFullScanTime < now) {
+        // No fd available, stop scanning until the specified amount of time
+        // passes.
+        mNextInactiveFdFullScanTime = now + mInactiveFdFullScanIntervalSecs;
+    }
+    return fdsAvailableFlag;
 }
 
 bool
@@ -3733,6 +4078,8 @@ ChunkManager::StartDiskIo()
         if (! (it->diskQueue = DiskIo::FindDiskQueue(it->dirname.c_str()))) {
             die(it->dirname + ": failed to find disk queue");
         }
+        it->startTime = globalNetManager().Now();
+        it->startCount++;
         KFS_LOG_STREAM_INFO <<
             "chunk directory: " << it->dirname <<
             " devId: "          << it->deviceId <<
@@ -3814,6 +4161,16 @@ ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
         *evacuateDoneByteCount = evacuateDoneBytes;
     }
     return (min(totalFsAvailableSpace, mTotalSpace) + mUsedSpace);
+}
+
+void
+ChunkManager::SendChunkDirInfo()
+{
+    for (ChunkDirs::iterator it = mChunkDirs.begin();
+            it < mChunkDirs.end();
+            ++it) {
+        it->chunkDirInfoOp.Enqueue();
+    }
 }
 
 int
@@ -4154,6 +4511,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
             ci.mFileId       = cih->chunkInfo.fileId;
             ci.mChunkId      = cih->chunkInfo.chunkId;
             ci.mChunkVersion = cih->chunkInfo.chunkVersion;
+            ci.mChunkSize    = cih->chunkInfo.chunkSize;
             if (gChunkManager.Remove(*cih)) {
                 availableChunks.PushBack(ci);
             }
@@ -4331,6 +4689,7 @@ ChunkManager::MetaServerConnectionLost()
         }
         it->RestartEvacuation();
     }
+    mNextSendChunDirInfoTime = globalNetManager().Now() - 36000;
 }
 
 long
@@ -4400,7 +4759,7 @@ ChunkManager::CheckChunkDirs()
                 // Notify meta serve that directory is now in use.
                 gMetaServerSM.EnqueueOp(
                     new CorruptChunkOp(0, -1, -1, &(it->dirname), true));
-                it->NotifyAvailableChunksStart();
+                it->Start();
                 continue;
             }
             KFS_LOG_STREAM_ERROR <<

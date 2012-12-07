@@ -1,0 +1,34 @@
+Background
+==========
+
+QFS uses Java for the following needs:
+
+1. To let Java applications use QFS. This is enabled by the QFS Access library.
+   Java applications can use the APIs in qfs-access-<ver>.jar.
+
+2. To let Apache Hadoop use QFS as a backing store. This is enabled by the
+   Hadoop QFS plugin. Apache Hadoop users can simply drop in the
+   hadoop-<ver>-qfs-<ver>.jar to their Hadoop setup to use QFS.
+
+   The following Apache Hadoop versions are supported:
+   * Apache Hadoop branch1 (hadoop-1.0.X, hadoop-1.1.X)
+   * Apache Hadoop trunk   (hadoop-0.23.X, hadoop-2.X.X)
+
+
+Compiling
+=========
+
+To compile the Hadoop QFS plugin for Apache Hadoop 'branch1', one requires the
+hadoop-core-<ver>.jar. To do the same for Apache Hadoop 'trunk', one requires
+hadoop-common-<ver>.jar. The javabuild.sh script is provided to handle these
+dependencies.
+
+The script uses Apache Maven to obtain the dependent JARs and compile the
+qfs-access and hadoop-qfs sub modules. In most cases, doing one of the
+following is sufficient:
+
+  * Run './javabuild.sh' to build only the qfs-access.
+  * Run './javabuild.sh <hadoop-version>' (eg: './javabuild.sh 2.0.2-alpha') to
+    build qfs-access as well as hadoop-qfs JARs.
+
+The build classes and JARs are created under <srcdir>/build/java.

@@ -27,7 +27,10 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+#include <string.h>
+
 #include "Properties.h"
+#include "RequestParser.h"
 
 namespace KFS
 {
@@ -45,26 +48,36 @@ AsciiCharToLower(int c)
     return ((c >= 'A' && c <= 'Z') ? 'a' + (c - 'A') : c);
 }
 
-inline string
-removeLTSpaces(const string& str, string::size_type start, string::size_type end,
-    bool asciiToLower = false)
+template<typename T> inline static void
+removeLTSpaces(const string& str, string::size_type start,
+    string::size_type end, T& outStr, bool asciiToLower = false)
 {
     char const* const delims = " \t\r\n";
 
     if (start >= str.length()) {
-        return string();
+        outStr.clear();
+        return;
     }
     string::size_type const first = str.find_first_not_of(delims, start);
     if (end <= first || first == string::npos) {
-        return string();
+        outStr.clear();
+        return;
     }
     string::size_type const last = str.find_last_not_of(
         delims, end == string::npos ? string::npos : end - 1);
-    return (
-        asciiToLower ?
-            Properties::AsciiToLower(str.substr(first, last - first + 1)) :
-            str.substr(first, last - first + 1)
-    );
+    if (asciiToLower) {
+        outStr.clear();
+        for (const char* p = str.data() + first,
+                * e = str.data() +
+                    (last == string::npos ? str.size() : last + 1);
+                p < e;
+                ++p) {
+            outStr.Append(AsciiCharToLower(*p & 0xFF));
+        }
+        return;
+    }
+    outStr.Copy(str.c_str() + first,
+        (last == string::npos ? str.size() : last + 1) - first);
 }
 
 /* static */ string
@@ -72,7 +85,7 @@ Properties::AsciiToLower(const string& str)
 {
     string s(str);
     for (string::iterator i = s.begin(); i != s.end(); ++i) {
-        const int c = AsciiCharToLower(*i);
+        const int c = AsciiCharToLower(*i & 0xFF);
         if (c != *i) {
             *i = c;
         }
@@ -80,8 +93,8 @@ Properties::AsciiToLower(const string& str)
     return s;
 }
 
-inline
-Properties::iterator Properties::find(const string& key) const
+inline Properties::iterator
+Properties::find(const Properties::String& key) const
 {
     return propmap.find(key);
 }
@@ -103,13 +116,16 @@ Properties::~Properties()
 }
 
 int
-Properties::loadProperties(const char* fileName, char delimiter,
-    bool verbose /* = false */, bool multiline /* =false */,
-    bool keysAsciiToLower /* = false */)
+Properties::loadProperties(
+    const char* fileName,
+    char        delimiter,
+    bool        verbose /* = false */,
+    bool        multiline /* =false */,
+    bool        keysAsciiToLower /* = false */)
 {
     ifstream input(fileName);
     if(! input.is_open()) {
-        cerr <<  "Properties::loadProperties() Could not open the file:" <<
+        cerr <<  "Properties::loadProperties() failed to open the file:" <<
             fileName << endl;
         return(-1);
     }
@@ -119,11 +135,19 @@ Properties::loadProperties(const char* fileName, char delimiter,
 }
 
 int
-Properties::loadProperties(istream &ist, char delimiter,
-    bool verbose /* = false */, bool multiline /* = false */,
-    bool keysAsciiToLower /* = false */)
+Properties::loadProperties(
+    istream& ist,
+    char     delimiter,
+    bool     verbose,
+    bool     multiline /* = false */,
+    bool     keysAsciiToLower /* = false */)
 {
     string line;
+    String key;
+    String val;
+    if (ist) {
+        line.reserve(512);
+    }
     while (ist) {
         getline(ist, line); //read one line at a time
         if (line.empty() || line[0] == '#') {
@@ -134,11 +158,11 @@ Properties::loadProperties(istream &ist, char delimiter,
         if (pos == string::npos) {
             continue; // ignore if no delimiter is found
         }
-        const string key(removeLTSpaces(line, 0, pos, keysAsciiToLower));
-        const string val(removeLTSpaces(line, pos + 1, string::npos));
+        removeLTSpaces(line, 0, pos, key, keysAsciiToLower);
+        removeLTSpaces(line, pos + 1, string::npos, val);
         if (multiline) {
             // allow properties to span across multiple lines
-            propmap[key] += val;
+            propmap[key].Append(val);
         } else {
             propmap[key] = val;
         }
@@ -150,29 +174,107 @@ Properties::loadProperties(istream &ist, char delimiter,
     return 0;
 }
 
+int
+Properties::loadProperties(
+    const char* buf,
+    size_t      len,
+    char        delimiter,
+    ostream*    verbose /* = 0 */,
+    bool        multiline /* = false */,
+    bool        keysAsciiToLower /* = false */)
+{
+    PropertiesTokenizer tokenizer(buf, len);
+    if (keysAsciiToLower) {
+        String lkey;
+        while (tokenizer.Next(delimiter)) {
+            const PropertiesTokenizer::Token& key = tokenizer.GetKey();
+            const PropertiesTokenizer::Token& val = tokenizer.GetValue();
+            lkey.clear();
+            for (const char* p = key.mPtr, * e = p + key.mLen; p < e; ++p) {
+                lkey.Append(AsciiCharToLower(*p & 0xFF));
+            }
+            if (multiline) {
+                propmap[lkey].Append(val.mPtr, val.mLen);
+            } else {
+                propmap[lkey].Copy(val.mPtr, val.mLen);
+            }
+            if (verbose) {
+                (*verbose) << "Loading key ";
+                verbose->write(key.mPtr, key.mLen);
+                (*verbose) << " with value ";
+                verbose->write(val.mPtr, val.mLen);
+                (*verbose) << endl;
+            }
+        }
+    } else {
+        while (tokenizer.Next(delimiter)) {
+            const PropertiesTokenizer::Token& key = tokenizer.GetKey();
+            const PropertiesTokenizer::Token& val = tokenizer.GetValue();
+            if (multiline) {
+                propmap[String(key.mPtr, key.mLen)].Append(val.mPtr, val.mLen);
+            } else {
+                propmap[String(key.mPtr, key.mLen)].Copy(val.mPtr, val.mLen);
+            }
+            if (verbose) {
+                (*verbose) << "Loading key ";
+                verbose->write(key.mPtr, key.mLen);
+                (*verbose) << " with value ";
+                verbose->write(val.mPtr, val.mLen);
+                (*verbose) << endl;
+            }
+        }
+    }
+    return 0;
+}
+
 void
 Properties::setValue(const string& key, const string& value)
 {
-    propmap[key] = value;
-    return;
+    String kstr;
+    if (key.length() > size_t(kStringBufSize)) {
+        kstr = key;
+    } else {
+        kstr.Copy(key.data(), key.size());
+    }
+    if (value.length() > size_t(kStringBufSize)) {
+        propmap[kstr] = value;
+    } else {
+        propmap[kstr].Copy(value.data(), value.size());
+    }
+}
+
+void
+Properties::setValue(const Properties::String& key, const string& value)
+{
+    if (value.length() > size_t(kStringBufSize)) {
+        propmap[key] = value;
+    } else {
+        propmap[key].Copy(value.data(), value.size());
+    }
 }
 
 string
-Properties::getValue(const string& key, const string& def) const
+Properties::getValueSelf(const Properties::String& key, const string& def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : i->second);
+    if (i == propmap.end()) {
+        return def;
+    }
+    if (i->second.size() > size_t(kStringBufSize)) {
+        return i->second.GetStr();
+    }
+    return string(i->second.data(), i->second.size());
 }
 
 const char*
-Properties::getValue(const string& key, const char* def) const
+Properties::getValueSelf(const Properties::String& key, const char* def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : i->second.c_str());
 }
 
 int
-Properties::getValue(const string& key, int def) const
+Properties::getValueSelf(const Properties::String& key, int def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def :
@@ -180,7 +282,7 @@ Properties::getValue(const string& key, int def) const
 }
 
 unsigned int
-Properties::getValue(const string& key, unsigned int def) const
+Properties::getValueSelf(const Properties::String& key, unsigned int def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def :
@@ -188,64 +290,79 @@ Properties::getValue(const string& key, unsigned int def) const
 }
 
 long
-Properties::getValue(const string& key, long def) const
+Properties::getValueSelf(const Properties::String& key, long def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : strtol(i->second.c_str(), 0, intbase));
 }
 
 unsigned long
-Properties::getValue(const string& key, unsigned long def) const
+Properties::getValueSelf(const Properties::String& key, unsigned long def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : strtoul(i->second.c_str(), 0, intbase));
 }
 
 long long
-Properties::getValue(const string& key, long long def) const
+Properties::getValueSelf(const Properties::String& key, long long def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : strtoll(i->second.c_str(), 0, intbase));
 }
 
 unsigned long long
-Properties::getValue(const string& key, unsigned long long def) const
+Properties::getValueSelf(const Properties::String& key, unsigned long long def)
+    const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : strtoull(i->second.c_str(), 0, intbase));
 }
 
 double
-Properties::getValue(const string& key, double def) const
+Properties::getValueSelf(const Properties::String& key, double def) const
 {
     PropMap::const_iterator const i = find(key);
     return (i == propmap.end() ? def : atof(i->second.c_str()));
 }
 
+bool
+Properties::remove(const Properties::String& key)
+{
+    return (propmap.erase(key) > 0);
+}
+
 void
-Properties::getList(string &outBuf,
+Properties::getList(string& outBuf,
     const string& linePrefix, const string& lineSuffix) const
 {
-  PropMap::const_iterator iter;
-  for (iter = propmap.begin(); iter != propmap.end(); iter++) {
-    if (iter->first.size() > 0) {
-      outBuf += linePrefix;
-      outBuf += iter->first;
-      outBuf += '=';
-      outBuf += iter->second;
-      outBuf += lineSuffix;
-    }
+    PropMap::const_iterator iter;
+    for (iter = propmap.begin(); iter != propmap.end(); iter++) {
+        if (iter->first.size() > 0) {
+            outBuf += linePrefix;
+            outBuf.append(iter->first.data(), iter->first.size());
+            outBuf += '=';
+            outBuf.append(iter->second.data(), iter->second.size());
+            outBuf += lineSuffix;
+        }
   }
   return;
 }
 
 void
-Properties::copyWithPrefix(const string& prefix, Properties& props) const
+Properties::copyWithPrefix(const char* prefix, Properties& props) const
+{
+    copyWithPrefix(prefix, prefix ? strlen(prefix) : size_t(0), props);
+}
+
+void
+Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
+    Properties& props) const
 {
     PropMap::const_iterator iter;
     for (iter = propmap.begin(); iter != propmap.end(); iter++) {
-        const string& key = iter->first;
-        if (key.compare(0, prefix.length(), prefix) == 0) {
+        const String& key = iter->first;
+        if (key.size() >= prefixLen &&
+                (! prefix || memcmp(key.data(), prefix, prefixLen) == 0)) {
             props.propmap[key] = iter->second;
         }
     }

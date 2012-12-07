@@ -2,6 +2,8 @@
 
 # $Id$
 #
+# Author: Mike Ovsiannikov
+#
 # Copyright 2011-2012 Quantcast Corp.
 #
 # This file is part of Kosmos File System (KFS).
@@ -18,9 +20,13 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# script that tests re-replication: we create a file with two servers;
-#startup a third one; we wait a bit and check that the data makes to
-#the third one in reasonable time.
+# Endurance test. Start meta server, web ui, and 9 chunk servers configured
+# with the failure simulation by default (see usage below).
+#
+# The logic below expects that 4 directories
+# /mnt/data{0-5}/<user-name>
+# are available and correspond to 4 physical disks.
+# 
 # 
 
 
@@ -162,7 +168,7 @@ done
 
 if [ x"$errsym" = x'yes' ]; then
     cstimeout=20
-    csretry=70 # make wait longer than chunk replication timeout / 5 sec
+    csretry=200 # make wait longer than chunk replication timeout / 5 sec
 else
     csretry=-1 # default
     if [ x"$derrsym" = x'yes' ]; then
@@ -286,7 +292,8 @@ daylySpan = 3600
 monthlySize = 30
 monthlySpan = 86400
 displayPorts = True
-predefinedHeaders = Buffer-req-wait-usec&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors
+predefinedHeaders = D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&Buffer-usec-wait-avg&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&Num-wr-drives&Num-writable-chunks
+predefinedChunkDirHeaders = Chunks&Dev-id&Read-bytes&D-Read-bytes&Read-err&D-Read-err&Read-io&D-Read-io&D-Read-time-microsec&Read-timeout&Space-avail&Space-util-pct&Started-ago&Stopped-ago&Write-bytes&D-Write-bytes&Write-err&D-Write-err&Write-io&D-Write-io&D-Write-time-microsec&Write-timeout&Chunk-server&Chunk-dir
 EOF
     rm -f *.log*
     trap '' HUP INT
@@ -428,6 +435,11 @@ fi
     rm -rf 'devtools'
     cp -a "$bdir/src/cc/devtools" . || exit
     cp  "$ssrcdir/src/cc/fanout/kfanout_test.sh" . || exit
+    if [ x"$csretry" != x -a $csretry -gt 0 ]; then
+        foretry="-y $csretry"
+    else
+        foretry=''
+    fi
     cdirp=`pwd`
     PATH="${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${cdirp}/tests:${PATH}"
     export PATH
@@ -442,7 +454,7 @@ fi
         -partitions 64 \
         -read-retries 1 \
         -test-runs 100000 \
-        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5" \
+        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5 $foretry" \
         > kfanout_test.log 2>&1 &
         echo $! > kfanout_test.pid
 )
@@ -486,7 +498,10 @@ fi
     export quantsort
     webuidir="${cdirp}/webui"
     export webuidir
-
+    if [ x"$csretry" != x -a $csretry -gt 0 ]; then
+        chunksrvretry="$csretry"
+        export chunksrvretry
+    fi
     echo "Starting sortmaster_test.sh"
     trap '' HUP INT
     ./endurance_test.sh > sortmaster_endurance_test.log 2>&1 &

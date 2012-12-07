@@ -100,6 +100,7 @@ private:
     int                mReplyNumBytes;
     int                mRecursionCount;
     time_t             mLastRecvTime;
+    IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
 
     kfsSeq_t NextSeqnum();

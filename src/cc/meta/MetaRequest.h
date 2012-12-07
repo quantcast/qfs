@@ -45,6 +45,8 @@
 #include "common/DynamicArray.h"
 #include "qcdio/QCDLList.h"
 
+#include <string.h>
+
 #include <sstream>
 #include <vector>
 #include <map>
@@ -132,7 +134,9 @@ using std::oct;
     f(CHUNK_EVACUATE) \
     f(CHMOD) \
     f(CHOWN) \
-    f(CHUNK_AVAILABLE)
+    f(CHUNK_AVAILABLE) \
+    f(CHUNKDIR_INFO) \
+    f(GET_CHUNK_SERVER_DIRS_COUNTERS)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -218,6 +222,10 @@ struct MetaRequest {
             (! sRequireHeaderChecksumFlag || ! mutation)
         );
     }
+    bool HandleUnknownField(
+        const char* /* key */, size_t /* keyLen */,
+        const char* /* val */, size_t /* valLen */)
+        { return true; }
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
@@ -2181,15 +2189,20 @@ struct MetaSetChunkServersProperties : public MetaRequest {
         properties.getList(ret, "", ";");
         return ret;
     }
-    // RequestParser::Parse creates object of this type, overload is
-    // sufficient, i.e. ValidateRequestHeader does not have to be "virtual".
-    bool ValidateRequestHeader(
-        const char* name,
-        size_t      nameLen,
-        const char* header,
-        size_t      headerLen,
-        bool        hasChecksum,
-        uint32_t    checksum);
+    bool HandleUnknownField(
+        const char* key, size_t keyLen,
+        const char* val, size_t valLen)
+    {
+        const size_t      kPrefLen = 12;
+        const char* const kPref    = "chunkServer.";
+        if (keyLen >= kPrefLen || memcmp(kPref, key, kPrefLen) == 0) {
+            properties.setValue(
+                Properties::String(key, keyLen),
+                Properties::String(val, valLen)
+            );
+        }
+        return true;
+    }
     bool Validate()
     {
         return true;
@@ -2214,7 +2227,35 @@ struct MetaGetChunkServersCounters : public MetaRequest {
     virtual void response(ostream &os, IOBuffer& buf);
     virtual string Show() const
     {
-        return string("get chunk servers counters ");
+        return string("get chunk servers counters");
+    }
+    bool Validate()
+    {
+        return true;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        ;
+    }
+private:
+    IOBuffer resp;
+};
+
+struct MetaGetChunkServerDirsCounters : public MetaRequest {
+    MetaGetChunkServerDirsCounters()
+        : MetaRequest(META_GET_CHUNK_SERVER_DIRS_COUNTERS, false),
+          resp()
+    {
+        // Suppress warning with requests with no version filed.
+        clientProtoVers = KFS_CLIENT_PROTO_VERS;
+    }
+    virtual void handle();
+    virtual int log(ostream &file) const;
+    virtual void response(ostream &os, IOBuffer& buf);
+    virtual string Show() const
+    {
+        return string("get chunk servers dir counters");
     }
     bool Validate()
     {
@@ -2421,7 +2462,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     }
 };
 
-struct MetaChunkAvailable: public MetaRequest {
+struct MetaChunkAvailable : public MetaRequest {
     StringBufT<16 * 64 * 2> chunkIdAndVers; //!< input
     ChunkServerPtr          server;
     MetaChunkAvailable(seq_t s = -1)
@@ -2434,7 +2475,7 @@ struct MetaChunkAvailable: public MetaRequest {
     {
         return 0;
     }
-    virtual void response(ostream &os);
+    virtual void response(ostream& os);
     virtual string Show() const
     {
         return ("chunk available: " + chunkIdAndVers.GetStr());
@@ -2452,18 +2493,76 @@ struct MetaChunkAvailable: public MetaRequest {
     }
 };
 
+struct MetaChunkDirInfo : public MetaRequest {
+    typedef StringBufT<256> DirName;
+
+    ChunkServerPtr server;
+    bool           noReplyFlag;
+    DirName        dirName;
+    StringBufT<32> kfsVersion;
+    Properties     props;
+
+    MetaChunkDirInfo(seq_t s = -1)
+        : MetaRequest(META_CHUNKDIR_INFO, false, s),
+          server(),
+          noReplyFlag(false),
+          dirName(),
+          kfsVersion(),
+          props()
+        {}
+    virtual void handle();
+    virtual int log(ostream &file) const
+    {
+        return 0;
+    }
+    virtual void response(ostream& os);
+    virtual string Show() const
+    {
+        return ("chunk dir info");
+    }
+    virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
+    bool Validate()
+    {
+        return true;
+    }
+    // RequestParser::Parse creates object of this type, overload / hiding the
+    // parent's method is sufficient, i.e. HandleUnknownField does not have to
+    // be "virtual".
+    bool HandleUnknownField(
+        const char* key, size_t keyLen,
+        const char* val, size_t valLen)
+    {
+        props.setValue(
+            Properties::String(key, keyLen),
+            Properties::String(val, valLen)
+        );
+        return true;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        // Make sure that all "unwanted" fields that aren't counters are added
+        // to the parser.
+        return MetaRequest::ParserDef(parser)
+        .Def("No-reply", &MetaChunkDirInfo::noReplyFlag)
+        .Def("Dir-name", &MetaChunkDirInfo::dirName)
+        .Def("Version",  &MetaChunkDirInfo::kfsVersion)
+        ;
+    }
+};
+
 /*!
  * \brief Op for acquiring a lease on a chunk of a file.
  */
 struct MetaLeaseAcquire: public MetaRequest {
-    const LeaseType    leaseType;     //!< input
-    string             pathname;      //!< full pathname of the file that owns chunk
-    chunkId_t          chunkId;       //!< input
-    bool               flushFlag;     //!< input
-    int                leaseTimeout;  //!< input
-    int64_t            leaseId;       //!< result
-    StringBufT<21 * 8> chunkIds;      //!< input
-    string             leaseIds;      //!< result
+    const LeaseType    leaseType;
+    StringBufT<128>    pathname; // Optional for debugging.
+    chunkId_t          chunkId;
+    bool               flushFlag;
+    int                leaseTimeout;
+    int64_t            leaseId;
+    StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
+    bool               getChunkLocationsFlag; 
+    IOBuffer           responseBuf;
     MetaLeaseAcquire()
         : MetaRequest(META_LEASE_ACQUIRE, false),
           leaseType(READ_LEASE),
@@ -2473,11 +2572,12 @@ struct MetaLeaseAcquire: public MetaRequest {
           leaseTimeout(LEASE_INTERVAL_SECS),
           leaseId(-1),
           chunkIds(),
-          leaseIds()
+          getChunkLocationsFlag(false),
+          responseBuf()
           {}
     virtual void handle();
-    virtual int log(ostream &file) const;
-    virtual void response(ostream &os);
+    virtual int log(ostream& file) const;
+    virtual void response(ostream& os, IOBuffer& buf);
     virtual string Show() const
     {
         ostringstream os;
@@ -2503,6 +2603,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def("Flush-write-lease", &MetaLeaseAcquire::flushFlag,    false              )
         .Def("Lease-timeout",     &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
         .Def("Chunk-ids",         &MetaLeaseAcquire::chunkIds)
+        .Def("Get-locations",     &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         ;
     }
 };

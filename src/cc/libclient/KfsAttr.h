@@ -56,7 +56,7 @@ struct FileAttr : public Permissions
     struct timeval  mtime;       /// modification time
     struct timeval  ctime;       /// attribute change time
     struct timeval  crtime;      /// creation time
-    bool	    isDirectory; /// is this a directory?
+    bool            isDirectory; /// is this a directory?
     chunkOff_t      fileSize;    /// logical eof
     int64_t         subCount1;   /// number of chunks in the file or files in directory
     int64_t         subCount2;   /// directories count

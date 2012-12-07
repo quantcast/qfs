@@ -34,6 +34,7 @@
 
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/IOBufferWriter.h"
 #include "qcdio/QCIoBufferPool.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
@@ -81,6 +82,7 @@ using std::numeric_limits;
 using std::iter_swap;
 using std::setw;
 using std::setfill;
+using std::hex;
 using boost::mem_fn;
 using boost::bind;
 using boost::ref;
@@ -1225,12 +1227,13 @@ LayoutManager::LayoutManager() :
     mCleanupScheduledFlag(false),
     mCSCountersUpdateInterval(2),
     mCSCountersUpdateTime(0),
-    mCSCounters(),
     mCSCountersResponse(),
+    mCSDirCountersUpdateInterval(10),
+    mCSDirCountersUpdateTime(0),
+    mCSDirCountersResponse(),
     mPingUpdateInterval(2),
     mPingUpdateTime(0),
     mPingResponse(),
-    mStringStream(),
     mWOstream(),
     mBufferPool(0),
     mMightHaveRetiringServersFlag(false),
@@ -1390,6 +1393,31 @@ LayoutManager::LoadIdRemap(istream& fs, T OT::* map)
     }
 }
 
+struct RackPrefixValidator
+{
+    bool operator()(const string& pref, LayoutManager::RackId& id) const
+    {
+        if (id < 0) {
+            id = -1;
+            return false;
+        }
+        if (id > ChunkPlacement<LayoutManager>::kMaxRackId) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid rack id: " <<
+                pref << " " << id <<
+            KFS_LOG_EOM;
+            id = -1;
+            return false;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "rack:"
+            " prefix: " << pref <<
+            " id: "     << id   <<
+        KFS_LOG_EOM;
+        return true;
+    }
+};
+
 void
 LayoutManager::SetParameters(const Properties& props, int clientPort)
 {
@@ -1508,6 +1536,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mCSCountersUpdateInterval = props.getValue(
         "metaServer.CSCountersUpdateInterval",
         mCSCountersUpdateInterval);
+    mCSDirCountersUpdateInterval = props.getValue(
+        "metaServer.CSDirCountersUpdateInterval",
+        mCSCountersUpdateInterval);
     mPingUpdateInterval = props.getValue(
         "metaServer.pingUpdateInterval",
         mPingUpdateInterval);
@@ -1605,31 +1636,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mRackPrefixes.clear();
     {
         istringstream is(props.getValue("metaServer.rackPrefixes", ""));
-        string        pref;
-        RackId        id = -1;
-        HostPrefix    hp;
-        pref.reserve(256);
-        while ((is >> pref >> id)) {
-            if (id < 0) {
-                id = -1;
-            } else if (id >= ChunkPlacement::kMaxRackId) {
-                KFS_LOG_STREAM_ERROR <<
-                    "invalid rack id: " <<
-                    pref << " " << id <<
-                KFS_LOG_EOM;
-                id = -1;
-            }
-            if (hp.Parse(pref) > 0) {
-                mRackPrefixes.push_back(make_pair(hp, id));
-                KFS_LOG_STREAM_INFO <<
-                    "rack:"
-                    " prefix: " << pref <<
-                    " id: "     << id   <<
-                KFS_LOG_EOM;
-            }
-            pref.clear();
-            id = -1;
-        }
+        RackPrefixValidator validator;
+        mRackPrefixes.Load(is, &validator, -1);
     }
     mRackWeights.clear();
     {
@@ -1877,27 +1885,13 @@ LayoutManager::Validate(MetaHello& r) const
 LayoutManager::RackId
 LayoutManager::GetRackId(const ServerLocation& loc)
 {
-    if (mRackPrefixUsePortFlag) {
-        ostringstream os;
-        os << loc.hostname << ":" << loc.port;
-        const string name = os.str();
-        return GetRackId(name);
-    } else {
-        return GetRackId(loc.hostname);
-    }
+    return mRackPrefixes.GetId(loc, mRackPrefixUsePortFlag, -1);
 }
 
 LayoutManager::RackId
 LayoutManager::GetRackId(const string& name)
 {
-    RackPrefixes::const_iterator it = mRackPrefixes.begin();
-    while (it != mRackPrefixes.end()) {
-        if (it->first.Match(name)) {
-            return it->second;
-        }
-        ++it;
-    }
-    return -1;
+    return mRackPrefixes.GetId(name, -1);
 }
 
 void
@@ -1928,180 +1922,338 @@ LayoutManager::Shutdown()
 {
     // Return io buffers back into the pool.
     mCSCountersResponse.Clear();
+    mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
 }
 
-inline ostream&
-LayoutManager::ClearStringStream()
-{
-    mStringStream.flush();
-    mStringStream.str(string());
-    return mStringStream;
-}
-
-inline const string&
-LayoutManager::BoolToString(bool flag)
-{
-    static const string falseStr("0");
-    static const string trueStr ("1");
-    return (flag ? trueStr : falseStr);
-}
-
-inline LayoutManager::CSCounters::mapped_type&
-LayoutManager::CSCountersMakeRow(
-    const string& name, size_t width, CSCounters::iterator& it)
-{
-    if (it == mCSCounters.end() ||
-            ++it == mCSCounters.end() ||
-            it->first != name) {
-        it = mCSCounters.insert(
-            make_pair(name, CSCounters::mapped_type())).first;
-    }
-    it->second.resize(width);
-    return it->second;
-}
-
+template<
+    typename Writer,
+    typename Iterator,
+    typename GetCounters,
+    typename WriteHeader,
+    typename WriteExtra
+>
 void
-LayoutManager::UpdateChunkServerCounters()
+WriteCounters(
+    Writer&        writer,
+    Iterator       first,
+    Iterator       last,
+    GetCounters&   getCounters,
+    WriteHeader&   writeHeader,
+    WriteExtra&    writeExtra)
 {
-    static const string locationStr        ("XMeta-location");
-    static const string retiringStr        ("XMeta-retiring");
-    static const string restartingStr      ("XMeta-restarting");
-    static const string responsiveStr      ("XMeta-responsive");
-    static const string spaceAvailStr      ("XMeta-space-avail");
-    static const string heartbeatTimeStr   ("XMeta-heartbeat-time");
-    static const string replicationReadStr ("XMeta-replication-read");
-    static const string replicationWriteStr("XMeta-replication-write");
-    static const string rackIdStr          ("XMeta-rack");
-    static const string rackWeightStr      ("XMeta-rack-placement-weight");
-    static const string loadAvgStr         ("XMeta-load-avg");
-    static const string toEvacuateCntStr   ("XMeta-to-evacuate-cnt");
+    static const Properties::String kColumnDelim(",");
+    static const Properties::String kRowDelim("\n");
+    static const Properties::String kCseq("Cseq");
 
-    const size_t srvCount = mChunkServers.size();
-    CSCounters::iterator csi = mCSCounters.end();
-    CSCounters::mapped_type& location         =
-        CSCountersMakeRow(locationStr,         srvCount, csi);
-    CSCounters::mapped_type& retiring         =
-        CSCountersMakeRow(retiringStr,         srvCount, csi);
-    CSCounters::mapped_type& restarting       =
-        CSCountersMakeRow(restartingStr,       srvCount, csi);
-    CSCounters::mapped_type& responsive       =
-        CSCountersMakeRow(responsiveStr,       srvCount, csi);
-    CSCounters::mapped_type& spaceAvail       =
-        CSCountersMakeRow(spaceAvailStr,       srvCount, csi);
-    CSCounters::mapped_type& heartbeatTime    =
-        CSCountersMakeRow(heartbeatTimeStr,    srvCount, csi);
-    CSCounters::mapped_type& replicationRead  =
-        CSCountersMakeRow(replicationReadStr,  srvCount, csi);
-    CSCounters::mapped_type& replicationWrite =
-        CSCountersMakeRow(replicationWriteStr, srvCount, csi);
-    CSCounters::mapped_type& rackId           =
-        CSCountersMakeRow(rackIdStr,           srvCount, csi);
-    CSCounters::mapped_type& rackWeight       =
-        CSCountersMakeRow(rackWeightStr,       srvCount, csi);
-    CSCounters::mapped_type& loadAvg          =
-        CSCountersMakeRow(loadAvgStr,          srvCount, csi);
-    CSCounters::mapped_type& toEvacuateCnt    =
-        CSCountersMakeRow(toEvacuateCntStr,    srvCount, csi);
-    const time_t now = TimeNow();
-    int i = 0;
-    for (Servers::const_iterator it = mChunkServers.begin();
-            it != mChunkServers.end();
-            ++it) {
-        const Properties& props = (*it)->HeartBeatProperties();
-        csi = mCSCounters.end();
-        for (Properties::iterator pi = props.begin();
-                pi != props.end();
-                ++pi) {
-            if (pi->first == "Cseq") {
-                continue;
-            }
-            CSCountersMakeRow(pi->first, srvCount, csi)[i] = pi->second;
+    if (first == last) {
+        return;
+    }
+    Properties columns;
+    bool firstFlag = true;
+    for (int pass = 0; pass < 2; ++pass) {
+        if (! firstFlag) {
+            writeHeader(writer, columns, kColumnDelim);
+            writer.Write(kRowDelim);
         }
-        ClearStringStream() <<
-            (*it)->GetServerLocation().hostname << ":" <<
-            (*it)->GetServerLocation().port;
-        location[i] = mStringStream.str();
-        retiring[i] = BoolToString((*it)->IsRetiring());
-        restarting[i] = BoolToString((*it)->IsRestartScheduled());
-        responsive[i] = BoolToString((*it)->IsResponsiveServer());
-        ClearStringStream() << (*it)->GetAvailSpace();
-        spaceAvail[i] = mStringStream.str();
-        ClearStringStream() << (now - (*it)->TimeSinceLastHeartbeat());
-        heartbeatTime[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetReplicationReadLoad();
-        replicationRead[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetNumChunkReplications();
-        replicationWrite[i] = mStringStream.str();
-        const RackId rid = (*it)->GetRack();
-        ClearStringStream() << rid;
-        rackId[i] = mStringStream.str();
-        RackInfos::iterator const rackIter = rid >= 0 ? find_if(
+        bool writeFlag = true;
+        for (Iterator it = first; it != last; ++it) {
+            typename GetCounters::iterator ctrFirst;
+            typename GetCounters::iterator ctrLast;
+            getCounters(*it, ctrFirst, ctrLast);
+            if (firstFlag && ctrFirst != ctrLast) {
+                firstFlag = false;
+                columns = getCounters(ctrFirst);
+                columns.remove(kCseq);
+                writeHeader(writer, columns, kColumnDelim);
+                writer.Write(kRowDelim);
+            }
+            for ( ; ctrFirst != ctrLast; ++ctrFirst) {
+                const Properties&    props = getCounters(ctrFirst);
+                Properties::iterator ci    = columns.begin();
+                for (Properties::iterator pi = props.begin();
+                        pi != props.end();
+                        ++pi) {
+                    if (pi->first == kCseq) {
+                        continue;
+                    }
+                    while (ci != columns.end() && ci->first < pi->first) {
+                        if (writeFlag) {
+                            writer.Write(kColumnDelim);
+                        }
+                        ++ci;
+                    }
+                    if (ci == columns.end() || ci->first != pi->first) {
+                        assert(pass < 1);
+                        columns.setValue(pi->first, Properties::String());
+                        writeFlag = false;
+                        continue;
+                    }
+                    if (writeFlag) {
+                        writer.Write(pi->second);
+                        writer.Write(kColumnDelim);
+                    }
+                    ++ci;
+                }
+                if (writeFlag) {
+                    writeExtra(writer, *it, ctrFirst, kColumnDelim);
+                    writer.Write(kRowDelim);
+                }
+            }
+        }
+        if (writeFlag) {
+            break;
+        }
+        writer.Clear();
+    }
+}
+
+struct CtrWriteExtra
+{
+protected:
+    CtrWriteExtra()
+        : mBufEnd(mBuf + kBufSize)
+        {}
+    const Properties::String& BoolToString(bool flag) const
+    {
+        return (flag ? kTrueStr : kFalseStr);
+    }
+    template<typename T>
+    void Write(IOBufferWriter& writer, T val)
+    {
+        const char* const b = IntToDecString(val, mBufEnd);
+        writer.Write(b, mBufEnd - b);
+    }
+
+    enum { kBufSize = 32 };
+
+    char        mBuf[kBufSize];
+    char* const mBufEnd;
+
+    static const Properties::String kFalseStr;
+    static const Properties::String kTrueStr;
+};
+
+const Properties::String CtrWriteExtra::kFalseStr("0");
+const Properties::String CtrWriteExtra::kTrueStr ("1");
+
+struct GetHeartbeatCounters
+{
+    typedef const Properties* iterator;
+
+    void operator()(
+        const ChunkServerPtr& srv,
+        iterator&             first,
+        iterator&             last) const
+    {
+        first = &(srv->HeartBeatProperties());
+        last  = first + 1;
+    }
+    const Properties& operator()(const iterator& it)
+        { return *it; }
+};
+
+const Properties::String kCSExtraHeaders[] = {
+    "XMeta-location",
+    "XMeta-retiring",
+    "XMeta-restarting",
+    "XMeta-responsive",
+    "XMeta-space-avail",
+    "XMeta-heartbeat-time",
+    "XMeta-replication-read",
+    "XMeta-replication-write",
+    "XMeta-rack",
+    "XMeta-rack-placement-weight",
+    "XMeta-load-avg",
+    "XMeta-to-evacuate-cnt"
+};
+
+struct CSWriteExtra : public CtrWriteExtra
+{
+    typedef LayoutManager::RackInfos RackInfos;
+
+    CSWriteExtra(const RackInfos& ri)
+        : CtrWriteExtra(),
+          mRacks(ri),
+          mNow(TimeNow())
+        {}
+    void operator()(
+        IOBufferWriter&                       writer,
+        const ChunkServerPtr&                 cs,
+        const GetHeartbeatCounters::iterator& /* it */,
+        const Properties::String&             columnDelim)
+    {
+        const ChunkServer& srv = *cs;
+        writer.Write(srv.GetHostPortStr());
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsRetiring()));
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsRestartScheduled()));
+        writer.Write(columnDelim);
+        writer.Write(BoolToString(srv.IsResponsiveServer()));
+        writer.Write(columnDelim);
+        Write(writer, srv.GetAvailSpace());
+        writer.Write(columnDelim);
+        Write(writer, mNow - srv.TimeSinceLastHeartbeat());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetReplicationReadLoad());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetNumChunkReplications());
+        writer.Write(columnDelim);
+        const RackInfo::RackId rid = srv.GetRack();
+        Write(writer, rid);
+        writer.Write(columnDelim);
+        RackInfos::const_iterator const rackIter = rid >= 0 ? find_if(
             mRacks.begin(), mRacks.end(),
             bind(&RackInfo::id, _1) == rid
         ) : mRacks.end();
-        ClearStringStream() << (rackIter != mRacks.end() ?
-            rackIter->getWeightedPossibleCandidatesCount() : -1);
-        rackWeight[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetLoadAvg();
-        loadAvg[i] = mStringStream.str();
-        ClearStringStream() << (*it)->GetChunksToEvacuateCount();
-        toEvacuateCnt[i] = mStringStream.str();
-        i++;
+        Write(writer, rackIter != mRacks.end() ?
+            rackIter->getWeightedPossibleCandidatesCount() : int64_t(-1));
+        writer.Write(columnDelim);
+        Write(writer, srv.GetLoadAvg());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetChunksToEvacuateCount());
     }
-    ClearStringStream();
-}
+private:
+    const RackInfos& mRacks;
+    const time_t     mNow;
+};
+
+struct GetChunkDirCounters
+{
+    typedef ChunkServer::ChunkDirInfos::const_iterator iterator;
+
+    void operator()(
+        const ChunkServerPtr& srv,
+        iterator&             first,
+        iterator&             last) const
+    {
+        const ChunkServer::ChunkDirInfos& infos = srv->GetChunkDirInfos();
+        first = infos.begin();
+        last  = infos.end();
+    }
+    const Properties& operator()(const iterator& it) const
+        { return it->second.first; }
+};
+
+const Properties::String kCSDirExtraHeaders[] = {
+    "Chunk-server",
+    "Chunk-dir",
+    "Chunk-server-dir" // row id for the web ui samples collector
+};
+
+struct CSDirWriteExtra : public CtrWriteExtra
+{
+    void operator()(
+        IOBufferWriter&                      writer,
+        const ChunkServerPtr&                cs,
+        const GetChunkDirCounters::iterator& it,
+        const Properties::String&            columnDelim)
+    {
+        const ChunkServer& srv = *cs;
+        writer.Write(srv.GetHostPortStr());
+        writer.Write(columnDelim);
+        writer.Write(it->second.second);
+        writer.Write(columnDelim);
+        writer.Write(srv.GetHostPortStr());
+        writer.Write("/", 1);
+        writer.Write(it->second.second);
+    }
+};
+
+struct CSWriteHeader
+{
+    CSWriteHeader(
+        const Properties::String* first,
+        const Properties::String* last)
+        : mExtraFirst(first),
+          mExtraLast(last)
+        {}
+    void operator()(
+        IOBufferWriter&           writer,
+        const Properties&         columns,
+        const Properties::String& columnDelim)
+    {
+        bool nextFlag = false;
+        for (Properties::iterator it = columns.begin();
+                it != columns.end();
+                ++it) {
+            if (nextFlag) {
+                writer.Write(columnDelim);
+            }
+            writer.Write(it->first);
+            nextFlag = true;
+        }
+        for (const Properties::String* it = mExtraFirst;
+                it != mExtraLast;
+                ++it) {
+            if (nextFlag) {
+                writer.Write(columnDelim);
+            }
+            writer.Write(*it);
+            nextFlag = true;
+        }
+    }
+private:
+    const Properties::String* const mExtraFirst; 
+    const Properties::String* const mExtraLast; 
+};
 
 void
 LayoutManager::GetChunkServerCounters(IOBuffer& buf)
 {
     if (! mCSCountersResponse.IsEmpty() &&
-            TimeNow() < mCSCountersUpdateTime +
-                mCSCountersUpdateInterval) {
+            TimeNow() < mCSCountersUpdateTime + mCSCountersUpdateInterval) {
         buf.Copy(&mCSCountersResponse,
             mCSCountersResponse.BytesConsumable());
         return;
     }
     mCSCountersResponse.Clear();
-    UpdateChunkServerCounters();
-    if (mCSCounters.empty() || mCSCounters.begin()->second.empty()) {
-        return;
-    }
-    static const string columnDelim(",");
-    static const string rowDelim("\n");
-    bool   next = false;
-    size_t size = mCSCounters.begin()->second.size();
-    for (CSCounters::const_iterator it = mCSCounters.begin();
-            it != mCSCounters.end();
-            ++it) {
-        if (next) {
-            mCSCountersResponse.CopyIn(
-                columnDelim.data(), columnDelim.size());
-        }
-        next = true;
-        mCSCountersResponse.CopyIn(it->first.data(), it->first.size());
-        size = min(size, it->second.size());
-    }
-    if (size > 0) {
-        mCSCountersResponse.CopyIn(rowDelim.data(), rowDelim.size());
-    }
-    for (size_t i = 0; i < size; i++) {
-        next = false;
-        for (CSCounters::const_iterator it = mCSCounters.begin();
-                it != mCSCounters.end();
-                ++it) {
-            if (next) {
-                mCSCountersResponse.CopyIn(
-                    columnDelim.data(), columnDelim.size());
-            }
-            next = true;
-            const string& str = it->second[i];
-            mCSCountersResponse.CopyIn(str.data(), str.length());
-        }
-        mCSCountersResponse.CopyIn(rowDelim.data(), rowDelim.size());
-    }
+    IOBufferWriter       writer(mCSCountersResponse);
+    GetHeartbeatCounters getCtrs;
+    CSWriteHeader        writeHeader(kCSExtraHeaders, kCSExtraHeaders +
+        sizeof(kCSExtraHeaders) / sizeof(kCSExtraHeaders[0]));
+    CSWriteExtra         writeExtra(mRacks);
+    WriteCounters(
+        writer,
+        mChunkServers.begin(),
+        mChunkServers.end(),
+        getCtrs,
+        writeHeader,
+        writeExtra
+    );
+    writer.Close();
     mCSCountersUpdateTime = TimeNow();
     buf.Copy(&mCSCountersResponse, mCSCountersResponse.BytesConsumable());
+}
+
+void
+LayoutManager::GetChunkServerDirCounters(IOBuffer& buf)
+{
+    if (! mCSDirCountersResponse.IsEmpty() &&
+            TimeNow() < mCSDirCountersUpdateTime +
+                mCSDirCountersUpdateInterval) {
+        buf.Copy(&mCSDirCountersResponse,
+            mCSDirCountersResponse.BytesConsumable());
+        return;
+    }
+    mCSDirCountersResponse.Clear();
+    IOBufferWriter      writer(mCSDirCountersResponse);
+    GetChunkDirCounters getCtrs;
+    CSWriteHeader       writeHeader(kCSDirExtraHeaders, kCSDirExtraHeaders +
+        sizeof(kCSDirExtraHeaders) / sizeof(kCSDirExtraHeaders[0]));
+    CSDirWriteExtra     writeExtra;
+    WriteCounters(
+        writer,
+        mChunkServers.begin(),
+        mChunkServers.end(),
+        getCtrs,
+        writeHeader,
+        writeExtra
+    );
+    writer.Close();
+    mCSDirCountersUpdateTime = TimeNow();
+    buf.Copy(&mCSDirCountersResponse, mCSDirCountersResponse.BytesConsumable());
 }
 
 //
@@ -2468,7 +2620,8 @@ LayoutManager::AddNewServer(MetaHello *r)
     }
     UpdateReplicationsThreshold();
     KFS_LOG_STREAM_INFO <<
-        msg << " chunk server: " << r->peerName << "/" << srv.ServerID() <<
+        msg << " chunk server: " << r->peerName << "/" <<
+            srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " rack: "            << r->rackId << " => " << rackId <<
         " chunks: stable: "  << r->chunks.size() <<
@@ -3585,7 +3738,7 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
                 it != cs.end();
                 ++it) {
             os <<
-                " " << (*it)->ServerID() <<
+                " " << (*it)->GetServerLocation() <<
                 " " << (*it)->GetRack();
         }
         os << "\n";
@@ -4213,13 +4366,13 @@ LayoutManager::AllocateChunk(
     }
     bool noMaster = false;
     if (r->servers.empty() || (noMaster = ! r->servers.front())) {
+        r->statusMsg = noMaster ? "no master" : "no servers";
         int dontLikeCount[2]      = { 0, 0 };
         int outOfSpaceCount[2]    = { 0, 0 };
         int notResponsiveCount[2] = { 0, 0 };
         int retiringCount[2]      = { 0, 0 };
         int restartingCount[2]    = { 0, 0 };
-        for (Servers::const_iterator it =
-                mChunkServers.begin();
+        for (Servers::const_iterator it = mChunkServers.begin();
                 it != mChunkServers.end();
                 ++it) {
             const ChunkServer& cs = **it;
@@ -4242,11 +4395,38 @@ LayoutManager::AllocateChunk(
             if (cs.IsRestartScheduled()) {
                 restartingCount[i]++;
             }
+            KFS_LOG_STREAM_DEBUG <<
+                "allocate: "          << r->statusMsg <<
+                " fid: "              << r->fid <<
+                " offset: "           << r->offset <<
+                " chunkId: "          << r->chunkId <<
+                " append: "           << r->appendChunk <<
+                " server: "           << cs.GetHostPortStr() <<
+                " master: "           << cs.CanBeChunkMaster() <<
+                " wr-drives: "        << cs.GetNumWritableDrives() <<
+                " candidate: "        << cs.GetCanBeCandidateServerFlag() <<
+                " writes: "           << cs.GetNumChunkWrites() <<
+                " max-wr-per-drive: " << mMaxWritesPerDriveThreshold <<
+                " load-avg: "         << cs.GetLoadAvg() <<
+                " max-load: "         << mCSMaxGoodMasterCandidateLoadAvg <<
+                " / "                 << mCSMaxGoodSlaveCandidateLoadAvg <<
+                " space:"
+                " avail: "            << cs.GetAvailSpace() <<
+                " util: "             <<
+                    cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
+                " max util: "         << mMaxSpaceUtilizationThreshold <<
+                " retire: "           << cs.IsRetiring() <<
+                " responsive: "       << cs.IsResponsiveServer() <<
+            KFS_LOG_EOM;
         }
         const size_t numFound = r->servers.size();
         r->servers.clear();
-        KFS_LOG_STREAM_INFO << "allocate chunk no " <<
-            (noMaster ? "master" : "servers") <<
+        KFS_LOG_STREAM_INFO << "allocate: " <<
+            r->statusMsg <<
+            " fid: "        << r->fid <<
+            " offset: "     << r->offset <<
+            " chunkId: "    << r->chunkId <<
+            " append: "     << r->appendChunk <<
             " repl: "       << r->numReplicas <<
                 "/" << replicaCnt <<
             " servers: "    << numFound <<
@@ -4271,7 +4451,6 @@ LayoutManager::AllocateChunk(
                 "/"    << mMastersToRestartCount <<
             " request: "    << r->Show() <<
         KFS_LOG_EOM;
-        r->statusMsg = noMaster ? "no master" : "no servers";
         return -ENOSPC;
     }
     assert(r->servers.size() <= (size_t)r->numReplicas);
@@ -4811,15 +4990,17 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
 int
 LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 {
+    req.responseBuf.Clear();
     if (req.chunkIds.empty()) {
-        req.leaseIds.clear();
         return 0;
     }
-    const bool  recoveryFlag = InRecovery();
-    const char* p            = req.chunkIds.GetPtr();
-    const char* e            = p + req.chunkIds.GetSize();
-    ostream&    os           = ClearStringStream();
-    int         ret          = 0;
+    StTmp<Servers>    serversTmp(mServers3Tmp);
+    Servers&          servers = serversTmp.Get();
+    const bool        recoveryFlag = InRecovery();
+    const char*       p            = req.chunkIds.GetPtr();
+    const char*       e            = p + req.chunkIds.GetSize();
+    int               ret          = 0;
+    IntIOBufferWriter writer(req.responseBuf);
     while (p < e) {
         chunkId_t chunkId;
         if (! ValueParser::ParseInt(p, e - p, chunkId)) {
@@ -4829,40 +5010,61 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             if (p != e) {
                 req.status    = -EINVAL;
                 req.statusMsg = "chunk id list parse error";
-                ClearStringStream();
                 ret = req.status;
             }
             break;
         }
         ChunkLeases::LeaseId leaseId = 0;
         const CSMap::Entry*  cs      = 0;
+        servers.clear();
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
                 ! IsChunkStable(chunkId)) {
             leaseId = -EBUSY;
         } else if ((req.leaseTimeout <= 0 ?
                 mChunkLeases.HasWriteLease(chunkId) :
                 ! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs) &&
+                mChunkToServerMap.GetServers(*cs, servers) > 0 &&
                 mChunkLeases.NewReadLease(
                     chunkId,
-                    TimeNow() + min(req.leaseTimeout,
-                        LEASE_INTERVAL_SECS),
+                    TimeNow() + min(req.leaseTimeout, LEASE_INTERVAL_SECS),
                     leaseId)))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
                 mChunkLeases.FlushWriteLease(
-                    chunkId, mARAChunkCache,
-                    mChunkToServerMap);
+                    chunkId, mARAChunkCache, mChunkToServerMap);
             }
         } else if (! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs))) {
+                mChunkToServerMap.GetServers(*cs, servers) > 0)) {
             // Cannot obtain lease if no replicas exist.
             leaseId = cs ? -EAGAIN : -EINVAL;
         }
-        os << " " << leaseId;
+        writer.Write(" ", 1);
+        if (req.getChunkLocationsFlag) {
+            writer.WriteHexInt(leaseId);
+            writer.Write(" ", 1);
+            writer.WriteHexInt(servers.size());
+            for (Servers::const_iterator it = servers.begin();
+                    it != servers.end();
+                    ++it) {
+                const ServerLocation& loc = (*it)->GetServerLocation();
+                if (loc.IsValid()) {
+                    writer.Write(" ", 1);
+                    writer.Write(loc.hostname);
+                    writer.Write(" ", 1);
+                    writer.WriteHexInt(loc.port);
+                } else {
+                    writer.Write(" ? -1", 5);
+                }
+            }
+        } else {
+            writer.WriteInt(leaseId);
+        }
     }
-    req.leaseIds = mStringStream.str();
-    ClearStringStream();
+    if (ret == 0) {
+        writer.Close();
+    } else {
+        writer.Clear();
+    }
     return ret;
 }
 
@@ -4977,7 +5179,7 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt *r)
         r->server->IncCorruptChunks();
     }
     KFS_LOG_STREAM_INFO <<
-        "server " << r->server->ServerID() <<
+        "server " << r->server->GetServerLocation() <<
         " claims chunk: <" <<
         r->fid << "," << r->chunkId <<
         "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
@@ -5001,7 +5203,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         // check the replication state when the replicaiton checker gets to it
         CheckReplication(*ci);
     }
-    KFS_LOG_STREAM_INFO << "server " << server->ServerID() <<
+    KFS_LOG_STREAM_INFO << "server " << server->GetServerLocation() <<
         " declaring: <" <<
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<
@@ -5103,8 +5305,8 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
     const char*            p = r->chunkIdAndVers.GetPtr();
     const char*            e = p + r->chunkIdAndVers.GetSize();
     while (p < e) {
-        chunkId_t chunkId;
-        seq_t     chunkVersion;
+        chunkId_t chunkId        = -1;
+        seq_t     chunkVersion   = -1;
         bool      gotVersionFlag = true;
         if (! HexIntParser::Parse(p, e - p, chunkId) ||
                 ! (gotVersionFlag =
@@ -5770,7 +5972,7 @@ LayoutManager::ScheduleChunkServersRestart()
                     mCSGracefulRestartAppendWithWidTimeout)) {
             KFS_LOG_STREAM_INFO <<
                 "initiated restart sequence for: " <<
-                servers.front()->ServerID() <<
+                servers.front()->GetServerLocation() <<
             KFS_LOG_EOM;
             break;
         }
@@ -6229,7 +6431,7 @@ LayoutManager::AddServerToMakeStable(
             info.logMakeChunkStableFlag ? "L" : "") <<
         "MCS:"
         " <" << placementInfo.GetFileId() << "," << chunkId << ">"
-        " adding server: " << server->ServerID() <<
+        " adding server: " << server->GetServerLocation() <<
         " name: "          << info.pathname <<
         " servers: "       << info.numAckMsg <<
         "/"                << info.numServers <<
@@ -6556,7 +6758,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         if (res) {
             KFS_LOG_STREAM_INFO << logPrefix <<
                 " <" << req->fid << "," << req->chunkId  << ">"
-                " "  << req->server->ServerID() <<
+                " "  << req->server->GetServerLocation() <<
                 " not added: " << res <<
                 (notifyStaleFlag ? " => stale" : "") <<
                 "; " << req->Show() <<
@@ -7855,7 +8057,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         " version: "    << req->chunkVersion <<
         " status: "     << req->status <<
         (req->statusMsg.empty() ? "" : " ") << req->statusMsg <<
-        " server: " << req->server->ServerID() <<
+        " server: " << req->server->GetServerLocation() <<
         " " << (req->server->IsDown() ? "down" : "OK") <<
         " replications in flight: " << mNumOngoingReplications <<
     KFS_LOG_EOM;
@@ -8845,7 +9047,7 @@ LayoutManager::ExecuteRebalancePlan(
             mMaxSpaceUtilizationThreshold) {
         KFS_LOG_STREAM_INFO <<
             "terminating re-balance plan execution for"
-            " overloaded server " << c->ServerID() <<
+            " overloaded server " << c->GetServerLocation() <<
             " chunks left: " << c->GetChunksToMove().Size() <<
         KFS_LOG_EOM;
         c->ClearChunksToMove();
@@ -8862,7 +9064,6 @@ LayoutManager::ExecuteRebalancePlan(
     candidates.push_back(c);
 
     const ChunkRecoveryInfo recoveryInfo;
-    const chunkId_t*        it      = chunksToMove.Next();
     size_t                  curScan = chunksToMove.Size();
     while (maxScan > 0 && curScan > 0) {
         if (c->GetNumChunkReplications() >=
@@ -8878,7 +9079,8 @@ LayoutManager::ExecuteRebalancePlan(
             }
             nextTimeCheck = maxScan - 32;
         }
-        if (! (it = chunksToMove.Next())) {
+        const chunkId_t* it = chunksToMove.Next();
+        if (! it) {
             const size_t sz = chunksToMove.Size();
             if (sz <= 0) {
                 break;

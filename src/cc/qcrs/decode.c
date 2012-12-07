@@ -71,11 +71,38 @@ R(v16 **data, int n, int i)
     return r;
 }
 
-#ifdef LIBRS_USE_SSE2
-
 static v16
 mulby(uint8_t x, v16 v)
 {
+#ifdef LIBRS_USE_NEON
+
+#define uint8x16_to_8x8x2(v) ((uint8x8x2_t) { vget_low_u8(v), vget_high_u8(v) })
+
+    v16 lo, hi;
+
+    lo = v & VEC16(0x0f);
+    hi = vshrq_n_u8(v, 4);
+    lo = vcombine_u8(
+            vtbl2_u8(uint8x16_to_8x8x2(rs_nibmul[x].lo), vget_low_u8(lo)),
+            vtbl2_u8(uint8x16_to_8x8x2(rs_nibmul[x].lo), vget_high_u8(lo)));
+    hi = vcombine_u8(
+            vtbl2_u8(uint8x16_to_8x8x2(rs_nibmul[x].hi), vget_low_u8(hi)),
+            vtbl2_u8(uint8x16_to_8x8x2(rs_nibmul[x].hi), vget_high_u8(hi)));
+    return lo ^ hi;
+
+#elif defined(LIBRS_USE_SSSE3)
+
+    v16 lo, hi;
+
+    lo = v & VEC16(0x0f);
+    hi = __builtin_ia32_psrawi128(v, 4);
+    hi &= VEC16(0x0f);
+    lo = __builtin_ia32_pshufb128(rs_nibmul[x].lo, lo);
+    hi = __builtin_ia32_pshufb128(rs_nibmul[x].hi, hi);
+    return lo ^ hi;
+
+#else
+
     v16 vv = VEC16(0);
 
     while (x != 0) {
@@ -85,24 +112,9 @@ mulby(uint8_t x, v16 v)
         v = mul2(v);
     }
     return vv;
+
+#endif
 }
-
-#else
-
-static v16
-mulby(uint8_t x, v16 v)
-{
-    v16 lo, hi;
-
-    lo = v & VEC16(0x0f);
-    hi = __builtin_ia32_psrawi128(v, 4);
-    hi &= VEC16(0x0f);
-    lo = __builtin_ia32_pshufb128(rs_nibmul[x].lo, lo);
-    hi = __builtin_ia32_pshufb128(rs_nibmul[x].hi, hi);
-    return lo ^ hi;
-}
-
-#endif /* LIBRS_USE_SSE2 */
 
 /* Recover data block x using P syndrome. */
 static void

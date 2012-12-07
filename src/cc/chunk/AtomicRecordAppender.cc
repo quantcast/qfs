@@ -2135,10 +2135,13 @@ AtomicRecordAppender::OpDone(ReadOp* op)
                 mChunkSize = -1;
                 SetState(kStateChunkLost);
             } else {
-                op->dataBuf->ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
-                info->chunkBlockChecksum[OffsetToChecksumBlockNum(newSize)] =
+                if (newSize > 0) {
+                    op->dataBuf->ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
+                    info->chunkBlockChecksum[
+                        OffsetToChecksumBlockNum(newSize)] =
                     ComputeBlockChecksum(op->dataBuf,
                         op->dataBuf->BytesConsumable());
+                }
                 // Truncation done, set the new size.
                 gChunkManager.SetChunkSize(*info, newSize);
                 mNextWriteOffset = newSize;
@@ -2609,7 +2612,7 @@ AtomicRecordAppender::SendCommitAck()
 
 AtomicRecordAppendManager::AtomicRecordAppendManager()
     : mAppenders(),
-      mCleanUpSec(4 * 60),
+      mCleanUpSec(LEASE_INTERVAL_SECS + 60),
       mCloseEmptyWidStateSec(60),
       mFlushIntervalSec(60),
       mSendCommitAckTimeoutSec(2),
@@ -2724,7 +2727,9 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
 
 void
 AtomicRecordAppendManager::AllocateChunk(
-    AllocChunkOp* op, int replicationPos, ServerLocation peerLoc,
+    AllocChunkOp*          op,
+    int                    replicationPos,
+    const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
@@ -2800,7 +2805,9 @@ AtomicRecordAppendManager::AllocateChunk(
 
 void
 AtomicRecordAppendManager::AllocateWriteId(
-    WriteIdAllocOp *op, int replicationPos, ServerLocation peerLoc,
+    WriteIdAllocOp*        op,
+    int                    replicationPos,
+    const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
@@ -3016,7 +3023,9 @@ AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
 
 void
 AtomicRecordAppendManager::AppendBegin(
-    RecordAppendOp* op, int replicationPos, ServerLocation peerLoc)
+    RecordAppendOp*       op,
+    int                   replicationPos,
+    const ServerLocation& peerLoc)
 {
     assert(op);
     ARAMap::iterator const it = mAppenders.find(op->chunkId);

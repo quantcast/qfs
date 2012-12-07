@@ -32,6 +32,7 @@
 #include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 
 #include <openssl/rand.h>
 
@@ -135,6 +136,7 @@ int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
+size_t ChunkServer::sChunkDirsCount = 0;
 
 const int kMaxReadAhead             = 4 << 10;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
@@ -227,6 +229,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mChunksToMove(),
       mChunksToEvacuate(),
       mLocation(),
+      mHostPortStr(),
       mRackId(-1),
       mNumCorruptChunks(0),
       mTotalSpace(0),
@@ -274,6 +277,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mEvacuateCntRate(0.),
       mEvacuateByteRate(0.),
       mLostChunkDirs(),
+      mChunkDirInfos(),
       mPeerName(peerName)
 {
     assert(mNetConnection);
@@ -294,7 +298,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
 ChunkServer::~ChunkServer()
 {
     assert(! mSelfPtr);
-    KFS_LOG_STREAM_DEBUG << ServerID() <<
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " ~ChunkServer " << (const void*)this <<
         " total: " << sChunkServerCount <<
     KFS_LOG_EOM;
@@ -553,7 +557,7 @@ ChunkServer::ForceDown()
         return;
     }
     KFS_LOG_STREAM_WARN <<
-        "forcing chunk server " << ServerID() <<
+        "forcing chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
             string("not connected")) <<
         " down" <<
@@ -578,6 +582,9 @@ ChunkServer::ForceDown()
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
     mSelfPtr.reset(); // Unref / delete self
+    assert(sChunkDirsCount >= mChunkDirInfos.size());
+    sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
+    mChunkDirInfos.clear();
 }
 
 void
@@ -601,7 +608,7 @@ ChunkServer::Error(const char* errorMsg)
     const int socketErr = (mNetConnection && mNetConnection->IsGood()) ?
         mNetConnection->GetSocketError() : 0;
     KFS_LOG_STREAM_ERROR <<
-        "chunk server " << ServerID() <<
+        "chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
             string("not connected")) <<
         " down" <<
@@ -631,6 +638,9 @@ ChunkServer::Error(const char* errorMsg)
     gLayoutManager.UpdateSrvLoadAvg(*this, delta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
+    assert(sChunkDirsCount >= mChunkDirInfos.size());
+    sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
+    mChunkDirInfos.clear();
     if (mHelloDone) {
         // force the server down thru the main loop to avoid races
         MetaBye* const mb = new MetaBye(0, shared_from_this());
@@ -698,7 +708,7 @@ ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
         return op;
     }
     ShowLines(MsgLogger::kLogLevelERROR,
-        ServerID() + "/" + GetPeerName() + " " +
+        GetHostPortStr() + "/" + GetPeerName() + " " +
             (errMsgPrefix ? errMsgPrefix : "") + ": ",
         iobuf,
         msgLen
@@ -1112,7 +1122,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     if (! op) {
         // Most likely op was timed out, or chunk server sent response
         // after re-connect.
-        KFS_LOG_STREAM_INFO << ServerID() <<
+        KFS_LOG_STREAM_INFO << GetServerLocation() <<
             " unable to find command for response cseq: " << cseq <<
         KFS_LOG_EOM;
         return 0;
@@ -1121,6 +1131,9 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     mLastHeard = TimeNow();
     op->statusMsg = prop.getValue("Status-message", "");
     op->status    = prop.getValue("Status",         -1);
+    if (op->status < 0) {
+        op->status = -KfsToSysErrno(op->status);
+    }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
         mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
@@ -1142,7 +1155,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
             max(0, prop.getValue("Num-writable-chunks", 0)),
                    prop.getValue("Num-wr-drives",       mNumDrives)
         );
-                if (mEvacuateInFlight == 0) {
+        if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();
         }
         const time_t now = TimeNow();
@@ -1243,7 +1256,7 @@ ChunkServer::ParseResponse(istream& is, Properties &prop)
     if (token.compare("OK") != 0) {
         int maxLines = 32;
         do {
-            KFS_LOG_STREAM_ERROR << ServerID() <<
+            KFS_LOG_STREAM_ERROR << GetServerLocation() <<
                 " bad response header: " << token <<
             KFS_LOG_EOM;
         } while (--maxLines > 0 && getline(is, token));
@@ -1454,7 +1467,7 @@ ChunkServer::SetRetiring()
     mIsRetiring = true;
     mRetireStartTime = TimeNow();
     mChunksToEvacuate.Clear();
-    KFS_LOG_STREAM_INFO << ServerID() <<
+    KFS_LOG_STREAM_INFO << GetServerLocation() <<
         " initiation of retire for " << mNumChunks << " chunks" <<
     KFS_LOG_EOM;
 }
@@ -1505,7 +1518,7 @@ ChunkServer::Heartbeat()
         if (! mHeartbeatSkipped &&
                 mLastHeartbeatSent + sHeartbeatInterval < now) {
             mHeartbeatSkipped = true;
-            KFS_LOG_STREAM_INFO << ServerID() <<
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 " skipping heartbeat send,"
                 " last sent " << timeSinceSent << " sec. ago" <<
             KFS_LOG_EOM;
@@ -1514,7 +1527,7 @@ ChunkServer::Heartbeat()
             sHeartbeatTimeout : sHeartbeatTimeout - timeSinceSent);
     }
     if (timeSinceSent >= sHeartbeatInterval) {
-        KFS_LOG_STREAM_DEBUG << ServerID() <<
+        KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " sending heartbeat,"
             " last sent " << timeSinceSent << " sec. ago" <<
         KFS_LOG_EOM;
@@ -1559,7 +1572,7 @@ ChunkServer::TimeoutOps()
     for (ReqsTimeoutQueue::iterator it = timedOut.begin();
             it != timedOut.end();
             ++it) {
-        KFS_LOG_STREAM_INFO << ServerID() <<
+        KFS_LOG_STREAM_INFO << GetServerLocation() <<
             " request timed out"
             " expired: "   << (now - it->first) <<
             " in flight: " << mDispatchedReqs.size() <<
@@ -1720,16 +1733,15 @@ ChunkServer::ScheduleRestart(
 }
 
 /* static */ string
-ChunkServer::Escape(const string& str)
+ChunkServer::Escape(const char* buf, size_t len)
 {
     const char* const kHexChars = "0123456789ABCDEF";
     string            ret;
-    const char*       p = str.c_str();
-    for (; ;) {
+    const char*       p = buf;
+    const char* const e = p + len;
+    ret.reserve(len);
+    while (p < e) {
         const int c = *p++ & 0xFF;
-        if (c == 0) {
-            break;
-        }
         // For now do not escape '/' to make file names more readable.
         if (c <= ' ' || c >= 0xFF || strchr("!*'();:@&=+$,?#[]", c)) {
             ret.push_back('%');

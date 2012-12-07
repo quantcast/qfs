@@ -35,6 +35,10 @@
 
 namespace KFS
 {
+using std::string;
+using std::ostream;
+using std::min;
+using std::copy;
 
 // Stack based buffer. The intention is to use buffer mBuf allocated on the
 // stack (or as part of other object) in most cases, and do real buffer
@@ -99,9 +103,9 @@ public:
         size_t                        inLen)
     {
         mSize = 0;
-        std::copy(
+        copy(
             inBuf.GetPtr(),
-            inBuf.GetPtr() + std::min(inBuf.GetSize(), inLen),
+            inBuf.GetPtr() + min(inBuf.GetSize(), inLen),
             Resize(inBuf.GetSize())
         );
         return *this;
@@ -111,7 +115,7 @@ public:
         size_t   inLen)
     {
         mSize = 0;
-        std::copy(inPtr, inPtr + inLen, Resize(inLen));
+        copy(inPtr, inPtr + inLen, Resize(inLen));
         return *this;
     }
     StBufferT& Append(
@@ -134,7 +138,7 @@ protected:
             return mBufPtr;
         }
         T* const theBufPtr = new T[inCapacity];
-        std::copy(mBufPtr,  mBufPtr + mSize, theBufPtr);
+        copy(mBufPtr,  mBufPtr + mSize, theBufPtr);
         if (mBufPtr != mBuf) {
             delete [] mBufPtr;
         }
@@ -144,15 +148,26 @@ protected:
     }
 };
 
-// String buffer, with lazy conversion to std::string. 
+// String buffer, with lazy conversion to string. 
 template<size_t DEFAULT_CAPACITY>
 class StringBufT
 {
 public:
     StringBufT()
         : mStr(),
+          mSize(0)
+        { mBuf[mSize] = 0; }
+    StringBufT(
+        const char* inStr)
+        : mStr(),
           mSize(-1)
-        {}
+        { Copy(inStr, inStr ? strlen(inStr) : 0); }
+    StringBufT(
+        const char* inStr,
+        size_t      inLen)
+        : mStr(),
+          mSize(-1)
+        { Copy(inStr, inLen); }
     StringBufT(
         const StringBufT& inBuf)
         : mStr(),
@@ -167,7 +182,7 @@ public:
           mSize(-1)
         { Copy(inBuf); }
     StringBufT(
-        const std::string& inStr)
+        const string& inStr)
         : mStr(inStr),
           mSize(-1)
         {}
@@ -176,7 +191,7 @@ public:
         const StringBufT<CAPACITY>& inBuf)
         { return Copy(inBuf); }
     StringBufT& operator=(
-        const std::string& inStr)
+        const string& inStr)
         { return Copy(inStr); }
     const char* GetPtr() const
         { return (mSize < 0 ? mStr.c_str() : mBuf); }
@@ -186,16 +201,16 @@ public:
         const char* inPtr,
         size_t      inLen)
     {
-        if (inLen < DEFAULT_CAPACITY) {
+        if (inLen <= DEFAULT_CAPACITY) {
             // memcpy appears slightly faster, if it isn't inlined.
-            if (mBuf <= inPtr && inPtr < mBuf + DEFAULT_CAPACITY) {
+            if (mBuf <= inPtr && inPtr <= mBuf + DEFAULT_CAPACITY) {
                 memmove(mBuf, inPtr, inLen);
             } else {
                 memcpy(mBuf, inPtr, inLen);
             }
             mSize = inLen;
             mBuf[mSize] = 0;
-            mStr.clear();
+            mStr = string(); // Force de-allocation, clear() won't de-allocate.
         } else {
             mSize = -1;
             mStr.assign(inPtr, inLen);
@@ -203,7 +218,7 @@ public:
         return *this;
     }
     StringBufT& Copy(
-        const std::string& inStr)
+        const string& inStr)
     {
         mSize = -1;
         mStr  = inStr;
@@ -217,25 +232,73 @@ public:
             Copy(inBuf.mBuf, inBuf.mSize);
         } else {
             mStr  = inBuf.mStr;
-            mSize = -1;
+            mSize = inBuf.mSize;
+            mBuf[0] = 0;
         }
         return *this;
     }
-    std::string GetStr() const
+    string GetStr() const
     {
         if (mSize > 0) {
-            std::string& theStr = const_cast<std::string&>(mStr);
+            string& theStr = const_cast<string&>(mStr);
             theStr.assign(mBuf, mSize);
             const_cast<int&>(mSize) = -1;
         }
         return mStr;
     }
+    StringBufT& Append(
+        char c)
+    {
+        if (mSize >= 0) {
+            if ((size_t)mSize < DEFAULT_CAPACITY) {
+                mBuf[++mSize] = c;
+                mBuf[mSize]   = 0;
+                return *this;
+            }
+            mStr.assign(mBuf, mSize);
+            mSize = -1;
+        }
+        mStr += c;
+        return *this;
+    }
+    StringBufT& Append(
+        const char* inPtr,
+        size_t      inLen)
+    {
+        if (mSize < 0) {
+            mStr.append(inPtr, inLen);
+            return *this;
+        }
+        if (mSize + inLen <= DEFAULT_CAPACITY) {
+            // memcpy appears slightly faster, if it isn't inlined.
+            if (mBuf <= inPtr && inPtr <= mBuf + DEFAULT_CAPACITY) {
+                memmove(mBuf + mSize, inPtr, inLen);
+            } else {
+                memcpy(mBuf + mSize, inPtr, inLen);
+            }
+            mSize += inLen;
+            mBuf[mSize] = 0;
+            mStr = string();
+        } else {
+            mStr.assign(mBuf, mSize);
+            mSize = -1;
+            mStr.append(inPtr, inLen);
+        }
+        return *this;
+    }
+    template<size_t CAPACITY>
+    StringBufT& Append(
+        const StringBufT<CAPACITY>& inBuf)
+        { return Append(inBuf.GetPtr(), inBuf.GetSize()); }
+    StringBufT& Append(
+        const string& inStr)
+        { return Append(inStr.data(), inStr.size()); }
     template<size_t CAPACITY>
     bool Comapre(
         const StringBufT<CAPACITY>& inBuf) const
     {
         const int theRet = memcmp(
-            GetPtr(), inBuf.GetPtr(), std::min(GetSize(), inBuf.GetSize()));
+            GetPtr(), inBuf.GetPtr(), min(GetSize(), inBuf.GetSize()));
         return (theRet == 0 ? GetSize() - inBuf.GetSize() : theRet);
     }
     template<size_t CAPACITY>
@@ -249,14 +312,14 @@ public:
     }
     // The following two aren't necessarily the same as string.compare(),
     int Compare(
-        const std::string& inStr) const
+        const string& inStr) const
     {
         const int theRet = memcmp(
-            GetPtr(), inStr.data(), std::min(GetSize(), inStr.size()));
+            GetPtr(), inStr.data(), min(GetSize(), inStr.size()));
         return (theRet == 0 ? GetSize() - inStr.size() : theRet);
     }
     bool operator==(
-        const std::string& inStr) const
+        const string& inStr) const
     {
         return (
             GetSize() == inStr.size() &&
@@ -270,13 +333,19 @@ public:
         const char* inStrPtr) const
         {   return (Compare(inStrPtr) == 0); }
     template<size_t CAPACITY>
+    bool operator!=(
+        const StringBufT<CAPACITY>& inBuf) const
+        { return !(*this == inBuf); }
+    template<size_t CAPACITY>
     bool operator<(
         const StringBufT<CAPACITY>& inBuf) const
-        { return (Compare(inBuf) < 0); }
+        { return (Compare(inBuf.GetPtr()) < 0); }
     bool operator<(
-        const std::string& inStr) const
+        const string& inStr) const
         { return (Compare(inStr) < 0); }
     const char* c_str() const
+        { return GetPtr(); }
+    const char* data() const
         { return GetPtr(); }
     bool empty() const
         { return (GetSize() <= 0); }
@@ -286,20 +355,23 @@ public:
         { return GetSize(); }
     void clear()
     {
-        mSize = -1;
-        mStr.clear();
+        mSize = 0;
+        mBuf[mSize] = 0;
+        mStr = string();
     }
-    //operator std::string () const
+    //operator string () const
     //    { return GetStr(); }
 private:
-    std::string mStr;
-    char        mBuf[DEFAULT_CAPACITY + 1];
-    int         mSize;
+    string mStr;
+    char   mBuf[DEFAULT_CAPACITY + 1];
+    int    mSize;
+
+    template<size_t> friend class StringBufT;
 };
 
 template<size_t DEFAULT_CAPACITY>
 inline static bool operator==(
-    const std::string&                  inStr,
+    const string&                  inStr,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 {
     return (inBuf == inStr);
@@ -314,8 +386,8 @@ inline static bool operator==(
 }
 
 template<size_t DEFAULT_CAPACITY>
-inline static std::ostream& operator<<(
-    std::ostream&                       inStream,
+inline static ostream& operator<<(
+    ostream&                       inStream,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 { return inStream.write(inBuf.GetPtr(), inBuf.GetSize()); }
 

@@ -116,6 +116,11 @@ BEGIN {
     names[i++] = "disconnect";
     names[i++] = "getpathname";
     names[i++] = "evacuate_chunk";
+    names[i++] = "chmod";
+    names[i++] = "chown";
+    names[i++] = "available_chunk";
+    names[i++] = "chunk_dir_info";
+    names[i++] = "get_chunk_server_dirs_counters";
     names[i++] = "other";
     names[i++] = "alloc_reuse";
     ncnt = i;

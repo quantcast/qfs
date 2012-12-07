@@ -411,10 +411,6 @@ public:
         return mLocation;
     }
 
-    string ServerID() const {
-        return mLocation.ToString();
-    }
-
     /// Check if the hostname/port matches what is passed in
     /// @param[in] name  name to match
     /// @param[in] port  port # to match
@@ -425,7 +421,14 @@ public:
 
     /// Setter method to set the host name/port
     void SetServerLocation(const ServerLocation& loc) {
-        mLocation = loc;
+        if (loc != mLocation) {
+            mLocation = loc;
+            ostringstream os;
+            os << loc.port;
+            mHostPortStr = mLocation.hostname;
+            mHostPortStr += ':';
+            mHostPortStr += os.str();
+        }
     }
 
     /// Setter method to set space
@@ -605,6 +608,35 @@ public:
             mLostChunkDirs.insert(Escape(dir));
         }
     }
+    const string& GetHostPortStr() const
+        { return mHostPortStr; }
+    typedef MetaChunkDirInfo::DirName DirName;
+    typedef map <
+        DirName,
+        pair<Properties, string>,
+        less<DirName>,
+        StdFastAllocator<
+            pair<const DirName, pair<Properties, string> > >
+    > ChunkDirInfos;
+    void SetChunkDirInfo(const DirName& dirName, Properties& props) {
+        if (IsDown() || dirName.empty()) {
+            return;
+        }
+        // Find should succeed, except initial load. Use find to avoid
+        // key (dirName) copy in the insertion pair constructor.
+        ChunkDirInfos::iterator const it = mChunkDirInfos.find(dirName);
+        if (it != mChunkDirInfos.end()) {
+            it->second.first.swap(props);
+            return;
+        }
+        ChunkDirInfos::mapped_type& di = mChunkDirInfos[dirName];
+        di.first.swap(props);
+        di.second = Escape(dirName);
+        sChunkDirsCount++;
+    }
+    const ChunkDirInfos& GetChunkDirInfos() const {
+        return mChunkDirInfos;
+    }
     static void SetMaxHelloBufferBytes(int64_t maxBytes) {
         sMaxHelloBufferBytes = maxBytes;
     }
@@ -612,6 +644,9 @@ public:
         return sMaxHelloBufferBytes;
     }
     static bool RunHelloBufferQueue();
+    static size_t GetChunkDirsCount() {
+        return sChunkDirsCount;
+    }
 
 protected:
     /// Enqueue a request to be dispatched to this server
@@ -676,6 +711,7 @@ protected:
     /// Location of the server at which clients can
     /// connect to
     ServerLocation mLocation;
+    string         mHostPortStr;
 
     /// A unique id to denote the rack on which the server is located.
     /// -1 signifies that we don't what rack the server is on and by
@@ -794,6 +830,7 @@ protected:
     double             mEvacuateCntRate;
     double             mEvacuateByteRate;
     LostChunkDirs      mLostChunkDirs;
+    ChunkDirInfos      mChunkDirInfos;
     const string       mPeerName;
     ChunkServer*       mPrevPtr[kChunkSrvListsCount];
     ChunkServer*       mNextPtr[kChunkSrvListsCount];
@@ -807,6 +844,7 @@ protected:
     static int64_t          sHelloBytesCommitted;
     static int64_t          sHelloBytesInFlight;
     static int              sEvacuateRateUpdateInterval;
+    static size_t           sChunkDirsCount;
 
     friend class QCDLListOp<ChunkServer, 0>;
     friend class QCDLListOp<ChunkServer, 1>;
@@ -885,7 +923,10 @@ protected:
         return ((! mPeerName.empty() || ! mNetConnection) ?
             mPeerName : mNetConnection->GetPeerName());
     }
-    static string Escape(const string& str);
+    template<typename T>
+    static string Escape(const T& str)
+        { return Escape(str.data(), str.size()); }
+    static string Escape(const char* buf, size_t len);
     template <typename T> static T& Mutable(const T& v) {
         return const_cast<T&>(v);
     }

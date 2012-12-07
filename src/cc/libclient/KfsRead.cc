@@ -436,7 +436,7 @@ private:
         void*           inBufPtr,
         int             inSize,
         int64_t         inOffset,
-        bool            outShortReadFlag)
+        bool&           outShortReadFlag)
     {
         QCASSERT(! IsReadAheadInFlight(inEntry));
         outShortReadFlag =
@@ -502,16 +502,16 @@ KfsClientImpl::ReadPrefetch(
         KFS_LOG_STREAM_ERROR <<
             "read prefetch error invalid fd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     FileTableEntry& theEntry = *mFileTable[inFd];
     if (theEntry.openMode == O_WRONLY ||
             theEntry.currPos.fileOffset < 0 ||
             theEntry.cachedAttrFlag) {
-	return -EINVAL;
+        return -EINVAL;
     }
     if (theEntry.fattr.isDirectory) {
-	return -EISDIR;
+        return -EISDIR;
     }
     if (inSize <= 0) {
         return 0;
@@ -542,6 +542,16 @@ KfsClientImpl::ReadPrefetch(
     return theRet;
 }
 
+inline static int64_t
+SkipChunkTail(
+    int64_t inPos,
+    int64_t inEof)
+{
+    const int64_t kChunkSize = (int64_t)CHUNKSIZE;
+    const int64_t theTail    = inPos % kChunkSize;
+    return (theTail > 0 ? min(inPos - theTail + kChunkSize, inEof) : inPos);
+}
+
 ssize_t
 KfsClientImpl::Read(
     int         inFd,
@@ -555,14 +565,14 @@ KfsClientImpl::Read(
         KFS_LOG_STREAM_ERROR <<
             "read error invalid fd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     FileTableEntry& theEntry = *mFileTable[inFd];
     if (theEntry.openMode == O_WRONLY || theEntry.cachedAttrFlag) {
-	return -EINVAL;
+        return -EINVAL;
     }
     if (theEntry.fattr.isDirectory) {
-	return ReadDirectory(inFd, inBufPtr, inSize);
+        return ReadDirectory(inFd, inBufPtr, inSize);
     }
 
     chunkOff_t& theFilePos = inPosPtr ? *inPosPtr : theEntry.currPos.fileOffset;
@@ -581,6 +591,9 @@ KfsClientImpl::Read(
     int64_t       theLen           = min(theEof - thePos, (int64_t)inSize);
     const int     theSize          = (int)theLen;
     const bool    theSkipHolesFlag = theEntry.skipHoles;
+    if (theLen <= 0) {
+        return 0;
+    }
     // Wait for prefetch with this buffer, if any.
     ReadRequest* const theReqPtr = ReadRequest::Find(
         theEntry, inBufPtr, (int64_t)inSize, thePos);
@@ -610,7 +623,7 @@ KfsClientImpl::Read(
                         theRes < theReqSize &&
                         theReqPos + theRes <= thePos) {
                     // Move to the next chunk if read was short.
-                    thePos += kChunkSize - thePos % kChunkSize;
+                    thePos = SkipChunkTail(thePos, theEof);
                 }
             }
         }
@@ -629,6 +642,9 @@ KfsClientImpl::Read(
     // size.
     if (theSize != theLen) {
         return -EOVERFLOW;
+    }
+    if (theEof <= thePos) {
+        return theRet;
     }
     // Do not return if nothing more to read -- start the read ahead.
     StartProtocolWorker();
@@ -650,7 +666,7 @@ KfsClientImpl::Read(
     theRet += theRes;
     if (theSkipHolesFlag && theShortReadFlag) {
         // Move to the next chunk if read was short.
-        thePos += kChunkSize - thePos % kChunkSize;
+        thePos = SkipChunkTail(thePos, theEof);
     }
     // Wait in GetReadAhead() releases the mutex, ensure that
     // the file position remains the same before updating it, or using it.
@@ -691,7 +707,7 @@ KfsClientImpl::Read(
         theRet += theRes;
         if (theSkipHolesFlag && theShortReadFlag) {
             // Move to the next chunk if read was short.
-            thePos += kChunkSize - thePos % kChunkSize;
+            thePos = SkipChunkTail(thePos, theEof);
         }
         if (theFdPos == theFilePos) {
             theFilePos = thePos;
@@ -700,6 +716,12 @@ KfsClientImpl::Read(
         if (theSize <= theRet) {
             return theRet;
         }
+    }
+    if (theEof <= thePos) {
+        if (theFdPos == theFilePos) {
+            theFilePos = theEof;
+        }
+        return theRet;
     }
     KfsProtocolWorker::Request::Params theOpenParams;
     theOpenParams.mPathName            = theEntry.pathname;
@@ -719,13 +741,18 @@ KfsClientImpl::Read(
     int64_t theChunkEnd = theSkipHolesFlag ?
         min(theEof, (thePos - thePos % kChunkSize + kChunkSize)) : theEof;
     for (; ;) {
+        const int theRdSize =
+            min(int64_t(theSize) - theRet, theChunkEnd - thePos);
+        if (theRdSize <= 0) {
+            break;
+        }
         int theStatus = (int)mProtocolWorker->Execute(
             KfsProtocolWorker::kRequestTypeRead,
             theInstance,
             theFileId,
             &theOpenParams,
             inBufPtr + theRet,
-            (int)min(int64_t(theSize) - theRet, theChunkEnd - thePos),
+            theRdSize,
             0,
             thePos
         );
@@ -736,6 +763,7 @@ KfsClientImpl::Read(
             theRet = theStatus;
             break;
         }
+        QCRTASSERT(theStatus <= theRdSize);
         theRet += theStatus;
         thePos += theStatus;
         if (theSize <= theRet) {
@@ -780,7 +808,7 @@ KfsClientImpl::SetReadAheadSize(
         KFS_LOG_STREAM_ERROR <<
             "read error invalid inFd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     return SetReadAheadSize(*mFileTable[inFd], inSize);
 }
@@ -821,7 +849,7 @@ KfsClientImpl::GetReadAheadSize(
         KFS_LOG_STREAM_ERROR <<
             "read error invalid inFd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     return mFileTable[inFd]->buffer.GetBufSize();
 }

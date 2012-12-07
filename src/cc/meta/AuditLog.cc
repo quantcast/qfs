@@ -30,6 +30,7 @@
 #include "MetaRequest.h"
 #include "kfsio/IOBuffer.h"
 #include "common/BufferedLogWriter.h"
+#include "common/kfserrno.h"
 
 #include <ostream>
 
@@ -65,7 +66,8 @@ public:
         static OutStream sStream;
         sStream.Set(inBufferPtr + theNWr, theEndPtr) <<
              "Client-ip: " << mOp.clientIp << "\r\n"
-             "Status: "    << mOp.status
+             "Status: "    <<
+                (mOp.status < 0 ? -SysToKfsErrno(-mOp.status) : mOp.status)
         ;
         // Put terminal 0 -- record separator.
         char* const thePtr = min(theEndPtr - 1, sStream.GetCurPtr());

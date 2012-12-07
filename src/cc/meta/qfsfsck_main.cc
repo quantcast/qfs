@@ -38,6 +38,8 @@
 #include "kfsio/TcpSocket.h"
 #include "kfsio/requestio.h"
 #include "common/MdStream.h"
+#include "common/kfserrno.h"
+#include "qcdio/QCUtils.h"
 
 #include <sys/time.h>
 
@@ -102,14 +104,13 @@ getFsckInfo(string metahost, int metaport,
     const char kSeparator = ':';
 
     prop.loadProperties(ist, kSeparator, false);
-    const int status = prop.getValue("Status", 0);
+    int status = prop.getValue("Status", 0);
     if (status < 0) {
+        status = -KfsToSysErrno(-status);
         const string msg = prop.getValue("Status-message", string());
-        cout << "fsck failure: " << " status: " << status;
-        if (! msg.empty()) {
-            cout << " " << msg;
-        }
-        cout << "\n";
+        cout << "fsck failure: " << QCUtils::SysError(status) <<
+            (msg.empty() ? "" : " ") << msg <<
+        "\n";
         return false;
     }
 

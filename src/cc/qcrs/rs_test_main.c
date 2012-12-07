@@ -51,11 +51,10 @@ compare(int nblocks, int blocksize, void **x, void **y)
 static void
 mkrand(void *buf, int size)
 {
-    char *p, *end;
+    char *p;
     int i;
 
     p = buf;
-    end = p + size;
     for (i = 0; i < size; i++)
         p[i] = rand();
 }
@@ -102,7 +101,7 @@ int main(int argc, char **argv)
         for (i = 0; i < n; i++)
             rs_encode(N+3, BLOCKSIZE, data);
         clk = clock() - clk;
-        printf("decode %.3e clocks %.3e sec %.3e bytes/sec\n",
+        printf("encode %.3e clocks %.3e sec %.3e bytes/sec\n",
             (double)clk, (double)clk/CLOCKS_PER_SEC,
             BLOCKSIZE * N * (double)CLOCKS_PER_SEC * n /
                 ((double)clk > 0 ? (double)clk : 1e-10));

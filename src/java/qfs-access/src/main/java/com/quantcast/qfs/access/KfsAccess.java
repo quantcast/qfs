@@ -196,6 +196,9 @@ final public class KfsAccess
     long seek(long ptr, int fd, long offset);
 
     private final static native
+    long tell(long ptr, int fd);
+
+    private final static native
     int setUMask(long ptr, int umask);
 
     private final static native
@@ -812,6 +815,15 @@ final public class KfsAccess
         return ret;
     }
 
+    public long kfs_tell(int fd) throws IOException
+    {
+        final long ret = tell(cPtr, fd);
+        if (ret < 0) {
+            kfs_retToIOException((int)ret);
+        }
+        return ret;
+    }
+
     public int kfs_setUMask(int umask) throws IOException
     {
         final int ret = setUMask(cPtr, umask);
@@ -833,16 +845,13 @@ final public class KfsAccess
     protected void finalize() throws Throwable
     {
         try {
-            release();
+            if (cPtr != 0) {
+                final long ptr = cPtr;
+                cPtr = 0;
+                destroy(ptr);
+            }
         } finally {
             super.finalize();
-        }
-    }
-
-    public void release()
-    {
-        if (cPtr != 0) {
-            destroy(cPtr);
         }
     }
 

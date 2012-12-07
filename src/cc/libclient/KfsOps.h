@@ -351,17 +351,17 @@ struct SetMtimeOp : public KfsOp {
 };
 
 struct DumpChunkServerMapOp : public KfsOp {
-	DumpChunkServerMapOp(kfsSeq_t s):
-		KfsOp(CMD_DUMP_CHUNKTOSERVERMAP, s)
-	{
-	}
-	void Request(ostream &os);
+        DumpChunkServerMapOp(kfsSeq_t s):
+            KfsOp(CMD_DUMP_CHUNKTOSERVERMAP, s)
+        {
+        }
+        void Request(ostream &os);
         virtual void ParseResponseHeaderSelf(const Properties& prop);
-	string Show() const {
-		ostringstream os;
-		os << "dumpchunktoservermap";
-		return os.str();
-	}
+        string Show() const {
+            ostringstream os;
+            os << "dumpchunktoservermap";
+            return os.str();
+        }
 };
 
 struct UpServersOp : public KfsOp {
@@ -379,17 +379,17 @@ struct UpServersOp : public KfsOp {
 };
 
 struct DumpChunkMapOp : public KfsOp {
-	DumpChunkMapOp(kfsSeq_t s):
-		KfsOp(CMD_DUMP_CHUNKMAP, s)
-	{
-	}
-	void Request(ostream &os);
-	virtual void ParseResponseHeaderSelf(const Properties& prop);
-	string Show() const {
-		ostringstream os;
-		os << "dumpchunkmap";
-		return os.str();
-	}
+        DumpChunkMapOp(kfsSeq_t s):
+            KfsOp(CMD_DUMP_CHUNKMAP, s)
+        {
+        }
+        void Request(ostream &os);
+        virtual void ParseResponseHeaderSelf(const Properties& prop);
+        string Show() const {
+            ostringstream os;
+            os << "dumpchunkmap";
+            return os.str();
+        }
 };
 
 struct ReaddirPlusOp : public KfsOp {
@@ -522,7 +522,6 @@ struct GetAllocOp: public KfsOp {
     }
 };
 
-
 struct ChunkLayoutInfo {
     ChunkLayoutInfo()
         : fileOffset(-1),
@@ -534,7 +533,7 @@ struct ChunkLayoutInfo {
     kfsChunkId_t           chunkId;      // result
     int64_t                chunkVersion; // result
     vector<ServerLocation> chunkServers; // where the chunk lives
-    istream& Parse(istream& os);
+    istream& Parse(istream& is);
 };
 
 inline static istream& operator>>(istream& is, ChunkLayoutInfo& li) {
@@ -685,7 +684,7 @@ struct OpenOp : public KfsOp {
 
 struct WriteInfo {
     ServerLocation serverLoc;
-    int64_t	 writeId;
+    int64_t        writeId;
     WriteInfo() : writeId(-1) { }
     WriteInfo(ServerLocation loc, int64_t w) :
         serverLoc(loc), writeId(w) { }
@@ -760,12 +759,11 @@ struct ReadOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      chunkVersion; /* input */
     chunkOff_t   offset;   /* input */
-    size_t 	 numBytes; /* input */
+    size_t       numBytes; /* input */
     struct timeval submitTime; /* when the client sent the request to the server */
     vector<uint32_t> checksums; /* checksum for each 64KB block */
     float   diskIOTime; /* as reported by the server */
     float   elapsedTime; /* as measured by the client */
-    string drivename; /* drive from which data was read */
 
     ReadOp(kfsSeq_t s, kfsChunkId_t c, int64_t v) :
         KfsOp(CMD_READ, s), chunkId(c), chunkVersion(v),
@@ -795,10 +793,10 @@ struct WriteIdAllocOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      chunkVersion; /* input */
     chunkOff_t   offset;   /* input */
-    size_t 	 numBytes; /* input */
-    bool	 isForRecordAppend; /* set if this is for a record append that is coming */
+    size_t       numBytes; /* input */
+    bool         isForRecordAppend; /* set if this is for a record append that is coming */
     bool         writePrepReplySupportedFlag;
-    string	 writeIdStr;  /* output */
+    string       writeIdStr;  /* output */
     vector<ServerLocation> chunkServerLoc;
     WriteIdAllocOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, chunkOff_t o, size_t n)
         : KfsOp(CMD_WRITE_ID_ALLOC, s),
@@ -826,7 +824,7 @@ struct WritePrepareOp : public KfsOp {
     kfsChunkId_t      chunkId;
     int64_t           chunkVersion; /* input */
     chunkOff_t        offset;       /* input */
-    size_t 	      numBytes;     /* input */
+    size_t            numBytes;     /* input */
     bool              replyRequestedFlag;
     vector<uint32_t>  checksums;    /* checksum for each 64KB block */
     vector<WriteInfo> writeInfo;    /* input */
@@ -881,10 +879,36 @@ struct WriteSyncOp : public KfsOp {
             " version: "  << chunkVersion <<
             " offset: "   << offset <<
             " numBytes: " << numBytes;
-	for_each(writeInfo.begin(), writeInfo.end(), ShowWriteInfo(os));
+        for_each(writeInfo.begin(), writeInfo.end(), ShowWriteInfo(os));
         return os.str();
     }
 };
+
+struct ChunkLeaseInfo {
+    ChunkLeaseInfo()
+        : leaseId(-1),
+          chunkServers()
+        {}
+    int64_t                leaseId;
+    vector<ServerLocation> chunkServers;
+
+    istream& Parse(istream& is) {
+        chunkServers.clear();
+        int numServers = 0;
+        if (! (is >> leaseId >> numServers)) {
+            return is;
+        }
+        ServerLocation loc;
+        for (int i = 0; i < numServers && (is >> loc); ++i) {
+            chunkServers.push_back(loc);
+        }
+        return is;
+    }
+};
+
+inline static istream& operator>>(istream& is, ChunkLeaseInfo& li) {
+    return li.Parse(is);
+}
 
 struct LeaseAcquireOp : public KfsOp {
     enum { kMaxChunkIds = 256 };
@@ -897,17 +921,21 @@ struct LeaseAcquireOp : public KfsOp {
     int64_t       leaseId;      // output
     kfsChunkId_t* chunkIds;
     int64_t*      leaseIds;
-    LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char *p) :
-        KfsOp(CMD_LEASE_ACQUIRE, s),
-        chunkId(c), pathname(p), flushFlag(false), leaseTimeout(-1),
-        leaseId(-1),
-        chunkIds(0),
-        leaseIds(0)
-    {}
+    bool          getChunkLocationsFlag;
 
+    LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char *p)
+        : KfsOp(CMD_LEASE_ACQUIRE, s),
+          chunkId(c),
+          pathname(p),
+          flushFlag(false),
+          leaseTimeout(-1),
+          leaseId(-1),
+          chunkIds(0),
+          leaseIds(0),
+          getChunkLocationsFlag(false)
+        {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
-
     string Show() const {
         ostringstream os;
         os << "lease-acquire:"
@@ -964,7 +992,7 @@ struct LeaseRelinquishOp : public KfsOp {
 struct ChunkSpaceReserveOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      chunkVersion; /* input */
-    size_t 	 numBytes; /* input */
+    size_t       numBytes; /* input */
     vector<WriteInfo> writeInfo; /* input */
     ChunkSpaceReserveOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, vector<WriteInfo> &w, size_t n) :
         KfsOp(CMD_CHUNK_SPACE_RESERVE, s), chunkId(c), chunkVersion(v),
@@ -985,7 +1013,7 @@ struct ChunkSpaceReserveOp : public KfsOp {
 struct ChunkSpaceReleaseOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      chunkVersion; /* input */
-    size_t 	 numBytes; /* input */
+    size_t       numBytes; /* input */
     vector<WriteInfo> writeInfo; /* input */
     ChunkSpaceReleaseOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, vector<WriteInfo> &w, size_t n) :
         KfsOp(CMD_CHUNK_SPACE_RELEASE, s), chunkId(c), chunkVersion(v),

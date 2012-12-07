@@ -169,8 +169,8 @@ CopyDir(KfsClient* kfsClient, const string& srcDirname, const string& dstDirname
     }
     if ((res = kfsClient->Mkdirs(dstDirname.c_str())) != 0 &&
             res != -EEXIST) {
-	cout << dstDirname << ": " << ErrorCodeToStr(res) << "\n";
-	return res;
+        cout << dstDirname << ": " << ErrorCodeToStr(res) << "\n";
+        return res;
     }
     string src(srcDirname + "/");
     string dst(dstDirname + "/");
@@ -188,7 +188,7 @@ CopyDir(KfsClient* kfsClient, const string& srcDirname, const string& dstDirname
         src += name;
         dst += name;
         if (it->isDirectory) {
-	    res = CopyDir(kfsClient, src, dst);
+            res = CopyDir(kfsClient, src, dst);
         } else {
             res = CopyFile(kfsClient, *it, src, dst);
         }
@@ -220,7 +220,7 @@ handleCopy(KfsClient *kfsClient, const vector<string> &args)
         res = 0;
     }
     if (res != 0) {
-	cout << dst << ": " << ErrorCodeToStr(res) << "\n";
+        cout << dst << ": " << ErrorCodeToStr(res) << "\n";
         return res;
     }
     for (size_t i = 0; i < cnt - 1; i++) {
@@ -228,10 +228,10 @@ handleCopy(KfsClient *kfsClient, const vector<string> &args)
         KfsFileAttr srcAttr;
         int res = kfsClient->Stat(src.c_str(), srcAttr, false);
         if (res != 0) {
-	    cout << src << ": " << ErrorCodeToStr(res) << "\n";
+            cout << src << ": " << ErrorCodeToStr(res) << "\n";
             return res;
         }
-	if ((res = srcAttr.isDirectory ?
+        if ((res = srcAttr.isDirectory ?
                 CopyDir(kfsClient, src, dst) :
                 (dstAttr.isDirectory ?
                     CopyFileIntoDir(kfsClient, srcAttr, src, dst) :

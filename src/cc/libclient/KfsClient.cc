@@ -118,7 +118,19 @@ Connect(const string& metaServerHost, int metaServerPort)
 string
 ErrorCodeToStr(int status)
 {
-    return (status == 0 ? string() : QCUtils::SysError(-status));
+    switch (-status) {
+        case EBADVERS:        return "version mismatch";
+        case ELEASEEXPIRED:   return "lease has expired";
+        case EBADCKSUM:       return "checksum mismatch";
+        case EDATAUNAVAIL:    return "data not available";
+        case ESERVERBUSY:     return "server busy";
+        case EALLOCFAILED:    return "chunk allocation failed";
+        case EBADCLUSTERKEY:  return "cluster key mismatch";
+        case EINVALCHUNKSIZE: return "invalid chunk size";
+        case 0:               return "";
+        default:              break;
+    }
+    return QCUtils::SysError(-status);
 }
 
 static inline kfsSeq_t
@@ -268,9 +280,15 @@ KfsClient::OpenDirectory(const char *pathname)
 }
 
 int
-KfsClient::Stat(const char *pathname, KfsFileAttr &result, bool computeFilesize)
+KfsClient::Stat(const char *pathname, KfsFileAttr& result, bool computeFilesize)
 {
     return mImpl->Stat(pathname, result, computeFilesize);
+}
+
+int
+KfsClient::Stat(int fd, KfsFileAttr& result)
+{
+    return mImpl->Stat(fd, result);
 }
 
 int
@@ -307,6 +325,14 @@ int
 KfsClient::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 {
     return mImpl->EnumerateBlocks(pathname, res);
+}
+
+int
+KfsClient::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    return mImpl->GetReplication(pathname, attr,
+        minChunkReplication, maxChunkReplication);
 }
 
 int
@@ -593,6 +619,13 @@ KfsClient::SetReplicationFactor(const char *pathname, int16_t numReplicas)
     return mImpl->SetReplicationFactor(pathname, numReplicas);
 }
 
+int16_t
+KfsClient::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    ErrorHandler* errHandler)
+{
+    return mImpl->SetReplicationFactorR(pathname, numReplicas, errHandler);
+}
+
 ServerLocation
 KfsClient::GetMetaserverLocation() const
 {
@@ -797,6 +830,13 @@ KfsClient::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
     string& uname, string& gname)
 {
     return mImpl->GetUserAndGroupNames(user, group, uname, gname);
+}
+
+int
+KfsClient::GetUserAndGroupIds(const char* user, const char* group,
+    kfsUid_t& uid, kfsGid_t& gid)
+{
+    return mImpl->GetUserAndGroupIds(user, group, uid, gid);
 }
 
 namespace client
@@ -1769,6 +1809,10 @@ private:
             }
             return (! filename.empty());
         }
+        bool HandleUnknownField(
+            const char* /* key */, size_t /* keyLen */,
+            const char* /* val */, size_t /* valLen */)
+            { return true; }
     };
     template<typename INT_PARSER>
     class VParser
@@ -2143,12 +2187,26 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 }
 
 int
-KfsClientImpl::Stat(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize)
+KfsClientImpl::Stat(const char *pathname, KfsFileAttr& kfsattr, bool computeFilesize)
 {
     QCStMutexLocker l(mMutex);
     const bool kValidSubCountsRequiredFlag = true;
     return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
         kValidSubCountsRequiredFlag);
+}
+
+int
+KfsClientImpl::Stat(int fd, KfsFileAttr& kfsattr)
+{
+    QCStMutexLocker l(mMutex);
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    FileTableEntry& entry = *(mFileTable[fd]);
+    kfsattr          = entry.fattr;
+    kfsattr.filename = entry.name;
+    return 0;
 }
 
 int
@@ -2433,6 +2491,13 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     // Set optimal io size, like open does.
     SetOptimalReadAheadSize(entry, mDefaultReadAheadSize);
     SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
+    KFS_LOG_STREAM_DEBUG <<
+        "created:"
+        " fd: "       << fte <<
+        " fileId: "   << entry.fattr.fileId <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+    KFS_LOG_EOM;
 
     return fte;
 }
@@ -2951,6 +3016,13 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             Delete(fa); // Invalidate attribute cache entry if isn't read only.
         }
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "opened:"
+        " fd: "       << fte <<
+        " fileId: "   << entry.fattr.fileId <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+    KFS_LOG_EOM;
     return fte;
 }
 
@@ -3603,12 +3675,12 @@ KfsClientImpl::GetResponse(char *buf, int bufSize, int *delims, TcpSocket *sock)
 /// From a response, extract out seq # and content-length.
 ///
 static void
-GetSeqContentLen(istream& ist,
+GetSeqContentLen(const char* buf, size_t len,
     kfsSeq_t *seq, int *contentLength, Properties& prop)
 {
     const char separator = ':';
     prop.clear();
-    prop.loadProperties(ist, separator, false);
+    prop.loadProperties(buf, len, separator);
     *seq = prop.getValue("Cseq", (kfsSeq_t) -1);
     *contentLength = prop.getValue("Content-length", 0);
 }
@@ -3655,11 +3727,9 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
             op->status = -EINVAL;
             return -1;
         }
-
         kfsSeq_t resSeq     = -1;
         int      contentLen = 0;
-        GetSeqContentLen(mTmpInputStream.Set(mTmpBuffer, len),
-            &resSeq, &contentLen, prop);
+        GetSeqContentLen(mTmpBuffer, len, &resSeq, &contentLen, prop);
         if (resSeq == op->seq) {
             if (printMatchingResponse) {
                 KFS_LOG_STREAM_DEBUG <<
@@ -4183,13 +4253,20 @@ KfsClientImpl::AllocFileTableEntry(kfsFileId_t parentFid, const string& name,
         return fte;
     }
     mFileInstance += 2;
-    FileTableEntry* const entry =
-        new FileTableEntry(parentFid, name, mFileInstance);
-    mFileTable[fte] = entry;
-    InitPendingRead(*entry);
-    entry->pathname = pathname;
-    entry->ioBufferSize = mDefaultIoBufferSize;
-    entry->failShortReadsFlag = mFailShortReadsFlag;
+    FileTableEntry& entry =
+        *(new FileTableEntry(parentFid, name, mFileInstance));
+    mFileTable[fte] = &entry;
+    InitPendingRead(entry);
+    entry.pathname = pathname;
+    entry.ioBufferSize = mDefaultIoBufferSize;
+    entry.failShortReadsFlag = mFailShortReadsFlag;
+    KFS_LOG_STREAM_DEBUG <<
+        "allocated:"
+        " fd: "       << fte <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+        " path: "     << entry.pathname <<
+    KFS_LOG_EOM;
     return fte;
 }
 
@@ -4201,9 +4278,12 @@ KfsClientImpl::ReleaseFileTableEntry(int fte)
     mFileTable[fte] = 0;
     mFreeFileTableEntires.push_back(fte);
     KFS_LOG_STREAM_DEBUG <<
-        "closing filetable entry: " << fte <<
-        " mode: " << entry.openMode <<
-        " path: " << entry.pathname <<
+        "releasing:"
+        " fd: "       << fte <<
+        " instance: " << entry.instance <<
+        " mode: "     << entry.openMode <<
+        " path: "     << entry.pathname <<
+        " fileId: "   << entry.fattr.fileId <<
     KFS_LOG_EOM;
     CancelPendingRead(entry);
     delete &entry;
@@ -4399,6 +4479,63 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
 }
 
 int
+KfsClientImpl::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    QCStMutexLocker l(mMutex);
+
+    int ret;
+    if ((ret = StatSelf(pathname, attr, false))  < 0) {
+        KFS_LOG_STREAM_DEBUG << (pathname ?  pathname : "null") << ": " <<
+            ErrorCodeToStr(ret) <<
+        KFS_LOG_EOM;
+        return -ENOENT;
+    }
+    if (attr.isDirectory) {
+        KFS_LOG_STREAM_DEBUG << pathname << ": is a directory" << KFS_LOG_EOM;
+        return -EISDIR;
+    }
+    KFS_LOG_STREAM_DEBUG << "path: " << pathname <<
+        " file id: " << attr.fileId <<
+    KFS_LOG_EOM;
+
+    GetLayoutOp lop(nextSeq(), attr.fileId);
+    DoMetaOpWithRetry(&lop);
+    if (lop.status < 0) {
+        KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
+             << ErrorCodeToStr(lop.status) <<
+        KFS_LOG_EOM;
+        return lop.status;
+    }
+    if (lop.ParseLayoutInfo()) {
+        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
+        KFS_LOG_EOM;
+        return -EFAULT;
+    }
+    maxChunkReplication = 0;
+    if (lop.chunks.empty()) {
+        minChunkReplication = 0;
+    } else {
+        minChunkReplication = numeric_limits<int>::max();
+        for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
+                i != lop.chunks.end();
+                ++i) {
+            const int numReplicas = (int)i->chunkServers.size();
+            if (numReplicas < minChunkReplication) {
+                minChunkReplication = numReplicas;
+            }
+            if (numReplicas > maxChunkReplication) {
+                maxChunkReplication = numReplicas;
+            }
+        }
+    }
+    if (attr.subCount1 < (int64_t)lop.chunks.size()) {
+        attr.subCount1 = (int64_t)lop.chunks.size();
+    }
+    return 0;
+}
+
+int
 KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 {
     QCStMutexLocker l(mMutex);
@@ -4431,7 +4568,7 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     if (lop.ParseLayoutInfo()) {
         KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
 
     vector<ssize_t> chunksize;
@@ -4958,6 +5095,62 @@ KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
     }
     DefaultErrHandler errorHandler;
     ChownFunc funct(*this, user, group, errHandler ? *errHandler : errorHandler);
+    const int ret = RecursivelyApply(pathname, funct);
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
+}
+
+class SetReplicationFactorFunc
+{
+public:
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
+    SetReplicationFactorFunc(KfsClientImpl& cli, int16_t repl,
+        ErrorHandler& errHandler)
+        : mCli(cli),
+          mReplication(repl),
+          mErrHandler(errHandler)
+        {}
+    int operator()(const string& path, const KfsFileAttr& attr,
+        int status) const
+    {
+        if (status != 0) {
+            const int ret = mErrHandler(path, status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        if (attr.isDirectory) {
+            return 0;
+        }
+        ChangeFileReplicationOp op(mCli.nextSeq(), attr.fileId, mReplication);
+        mCli.DoMetaOpWithRetry(&op);
+        if (op.status != 0) {
+            const int ret = mErrHandler(path, op.status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return 0;
+    }
+private:
+    KfsClientImpl& mCli;
+    const int16_t  mReplication;
+    ErrorHandler&  mErrHandler;
+};
+
+int16_t
+KfsClientImpl::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    KfsClientImpl::ErrorHandler* errHandler)
+{
+    QCStMutexLocker l(mMutex);
+
+    // Even though meta server supports recursive set replication, do it one
+    // file at a time, in order to prevent "DoS".
+    // For this reason meta server might not support recursive version in the
+    // future releases. 
+    DefaultErrHandler errorHandler;
+    SetReplicationFactorFunc funct(
+        *this, numReplicas, errHandler ? *errHandler : errorHandler);
     const int ret = RecursivelyApply(pathname, funct);
     return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }

@@ -158,7 +158,7 @@ LayoutEmulator::Parse(
             KFS_LOG_EOM;
             continue;
         }
-	if (! AddReplica(*ci, it->second)) {
+        if (! AddReplica(*ci, it->second)) {
             KFS_LOG_STREAM_ERROR <<
                 "chunk: "        << cid <<
                 " add server: "  << loc <<
@@ -798,7 +798,7 @@ LayoutEmulator::VerifyRackAwareReplication(
             GetPlacementExcludes(*p, placement, kIncludeThisChunkFlag,
                 kStopIfHasAnyReplicationsInFlight, &cblk);
         }
-    	VerifyPlacement(*p, servers, cblk, placement,
+        VerifyPlacement(*p, servers, cblk, placement,
             os, verboseFlag, reportAllFlag, verifier);
     }
     verifier.report(os, mChunkToServerMap.Size());
@@ -879,7 +879,7 @@ LayoutEmulator::RunFsck(
         const size_t sz  = 1 << 20;
         char* const  ptr = buf.Resize(sz);
         for (i = 0; err == 0 && i < cnt; i++) {
-            ssize_t nrd;
+            ssize_t nrd = 0;
             while (err == 0 && (nrd = read(fd[i], ptr, sz)) > 0) {
                 const char*       p = ptr;
                 const char* const e = p + nrd;

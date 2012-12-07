@@ -34,6 +34,8 @@ set (lib_src
     MemLock.cc
     RequestParser.cc
     rusage.cc
+    nofilelimit.cc
+    kfserrno.cc
 )
 
 # for the version file

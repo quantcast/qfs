@@ -38,6 +38,7 @@
 
 #include "kfsio/checksum.h"
 #include "common/RequestParser.h"
+#include "common/kfserrno.h"
 #include "utils.h"
 
 namespace KFS
@@ -46,6 +47,7 @@ namespace client
 {
 using std::istringstream;
 using std::ostream;
+using std::istream;
 using std::string;
 using std::min;
 using std::max;
@@ -382,7 +384,7 @@ CloseOp::Request(ostream &os)
         ;
         for (vector<WriteInfo>::const_iterator i = writeInfo.begin();
                 i < writeInfo.end(); ++i) {
-	    os << " " << i->serverLoc.ToString() << " " << i->writeId;
+            os << " " << i->serverLoc.ToString() << " " << i->writeId;
         }
         os << "\r\n";
     } else if (chunkServerLoc.size() > 1) {
@@ -442,8 +444,8 @@ ChunkSpaceReserveOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-	os << writeInfo[i].serverLoc.ToString() <<
-	    ' ' << writeInfo[i].writeId << ' ';
+        os << writeInfo[i].serverLoc.ToString() <<
+            ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -460,8 +462,8 @@ ChunkSpaceReleaseOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-	os << writeInfo[i].serverLoc.ToString() <<
-	    ' ' << writeInfo[i].writeId << ' ';
+        os << writeInfo[i].serverLoc.ToString() <<
+            ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -494,8 +496,8 @@ WritePrepareOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-	os << writeInfo[i].serverLoc.ToString() <<
-	    ' ' << writeInfo[i].writeId << ' ';
+        os << writeInfo[i].serverLoc.ToString() <<
+            ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -523,8 +525,8 @@ WriteSyncOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-	os << writeInfo[i].serverLoc.ToString() <<
-	    ' ' << writeInfo[i].writeId << ' ';
+        os << writeInfo[i].serverLoc.ToString() <<
+            ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -555,12 +557,15 @@ LeaseAcquireOp::Request(ostream &os)
     if (leaseTimeout >= 0) {
         os << "Lease-timeout: " << leaseTimeout << "\r\n";
     }
-    if (chunkIds && leaseIds && chunkIds[0] >= 0) {
+    if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << "Chunk-ids:";
         for (int i = 0; i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
             os << " " << chunkIds[i];
         }
         os << "\r\n";
+        if (getChunkLocationsFlag) {
+            os << "Get-locations: 1\r\n";
+        }
     }
     os << "\r\n";
 }
@@ -603,8 +608,8 @@ RecordAppendOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-	os << writeInfo[i].serverLoc.ToString() <<
-	    ' ' << writeInfo[i].writeId << ' ';
+        os << writeInfo[i].serverLoc.ToString() <<
+            ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -635,6 +640,9 @@ GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
     chunkVersion        = prop.getValue("Chunk-version",               (int64_t)-1);
     opSeq               = prop.getValue("Op-seq",                      (int64_t)-1);
     opStatus            = prop.getValue("Op-status",                   -1);
+    if (opStatus < 0) {
+        opStatus = -KfsToSysErrno(-opStatus);
+    }
     opOffset            = prop.getValue("Op-offset",                   (int64_t)-1);
     opLength            = (size_t)prop.getValue("Op-length",           (uint64_t)0);
     widAppendCount      = (size_t)prop.getValue("Wid-append-count",    (uint64_t)0);
@@ -664,7 +672,7 @@ GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
 /// parsing.
 ///
 void
-KfsOp::ParseResponseHeader(std::istream& is)
+KfsOp::ParseResponseHeader(istream& is)
 {
     const char separator = ':';
     Properties prop;
@@ -673,10 +681,13 @@ KfsOp::ParseResponseHeader(std::istream& is)
 }
 
 void
-KfsOp::ParseResponseHeader(const Properties &prop)
+KfsOp::ParseResponseHeader(const Properties& prop)
 {
     // kfsSeq_t resSeq = prop.getValue("Cseq", (kfsSeq_t) -1);
     status = prop.getValue("Status", -1);
+    if (status < 0) {
+        status = -KfsToSysErrno(-status);
+    }
     contentLength = prop.getValue("Content-length", 0);
     statusMsg = prop.getValue("Status-message", string());
     ParseResponseHeaderSelf(prop);
@@ -720,7 +731,8 @@ void
 CreateOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
-    metaStriperType   = prop.getValue("Striper-type", KFS_STRIPED_FILE_TYPE_NONE);
+    metaStriperType   = prop.getValue("Striper-type",
+        int(KFS_STRIPED_FILE_TYPE_NONE));
     permissions.user  = prop.getValue("User",  permissions.user);
     permissions.group = prop.getValue("Group", permissions.group);
     permissions.mode  = prop.getValue("Mode",  permissions.mode);
@@ -826,27 +838,27 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
 
     string master = prop.getValue("Master", "");
     if (master != "") {
-	istringstream ist(master);
+        istringstream ist(master);
 
-	ist >> masterServer.hostname;
-	ist >> masterServer.port;
-	// put the master the first in the list
-	chunkServers.push_back(masterServer);
+        ist >> masterServer.hostname;
+        ist >> masterServer.port;
+        // put the master the first in the list
+        chunkServers.push_back(masterServer);
     }
 
     int numReplicas = prop.getValue("Num-replicas", 0);
     string replicas = prop.getValue("Replicas", "");
 
     if (replicas != "") {
-	istringstream ser(replicas);
-	ServerLocation loc;
+        istringstream ser(replicas);
+        ServerLocation loc;
 
-	for (int i = 0; i < numReplicas; ++i) {
-	    ser >> loc.hostname;
-	    ser >> loc.port;
-	    if (loc != masterServer)
-		chunkServers.push_back(loc);
-	}
+        for (int i = 0; i < numReplicas; ++i) {
+            ser >> loc.hostname;
+            ser >> loc.port;
+            if (loc != masterServer)
+                chunkServers.push_back(loc);
+        }
     }
 }
 
@@ -859,14 +871,14 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
     int numReplicas = prop.getValue("Num-replicas", 0);
     string replicas = prop.getValue("Replicas", "");
     if (replicas != "") {
-	istringstream ser(replicas);
-	ServerLocation loc;
+        istringstream ser(replicas);
+        ServerLocation loc;
 
-	for (int i = 0; i < numReplicas; ++i) {
-	    ser >> loc.hostname;
-	    ser >> loc.port;
-	    chunkServers.push_back(loc);
-	}
+        for (int i = 0; i < numReplicas; ++i) {
+            ser >> loc.hostname;
+            ser >> loc.port;
+            chunkServers.push_back(loc);
+        }
     }
 }
 
@@ -887,14 +899,14 @@ int
 GetLayoutOp::ParseLayoutInfo()
 {
     if (numChunks <= 0 || contentBuf == NULL) {
-	return 0;
+        return 0;
     }
     BufferInputStream is(contentBuf, contentLength);
     chunks.clear();
     chunks.reserve(numChunks);
     for (int i = 0; i < numChunks; ++i) {
         chunks.push_back(ChunkLayoutInfo());
-	if (! (is >> chunks.back())) {
+        if (! (is >> chunks.back())) {
             chunks.clear();
             return -EINVAL;
         }
@@ -917,7 +929,7 @@ ChunkLayoutInfo::Parse(istream& is)
     for (int j = 0; j < numServers; j++) {
         chunkServers.push_back(ServerLocation());
         ServerLocation& s = chunkServers.back();
-	if (! (is >> s.hostname >> s.port)) {
+        if (! (is >> s.hostname >> s.port)) {
             return is;
         }
     }
@@ -939,7 +951,6 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
     nentries = prop.getValue("Checksum-entries", 0);
     checksumStr = prop.getValue("Checksums", "");
     diskIOTime = prop.getValue("DiskIOtime", 0.0);
-    drivename = prop.getValue("Drivename", "");
     istringstream ist(checksumStr);
     checksums.clear();
     for (uint32_t i = 0; i < nentries; i++) {
@@ -957,23 +968,27 @@ WriteIdAllocOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-LeaseAcquireOp::ParseResponseHeaderSelf(const Properties &prop)
+LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    leaseId = prop.getValue("Lease-id", (long long) -1);
-    const string lids = prop.getValue("Lease-ids", string());
+    leaseId = prop.getValue("Lease-id", int64_t(-1));
     if (leaseIds) {
         leaseIds[0] = -1;
     }
-    if (! lids.empty() && chunkIds && leaseIds) {
-        istringstream is(lids);
-        for (int i = 0; i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
-            if (! (is >> leaseIds[i])) {
-                leaseIds[i] = -1;
-                while (++i < kMaxChunkIds && chunkIds[i] >= 0) {
-                    leaseIds[i] = -1;
-                }
-                break;
-            }
+    if (! chunkIds || ! leaseIds) {
+        return;
+    }
+    const Properties::String* const v = prop.getValue("Lease-ids");
+    if (! v) {
+        return;
+    }
+    const char*       p = v->GetPtr();
+    const char* const e = p + v->GetSize();
+    for (int i = 0; p < e && i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
+        if (! ValueParser::ParseInt(p, e - p, leaseIds[i])) {
+            status      = -EINVAL;
+            statusMsg   = "response parse error";
+            leaseIds[0] = -1;
+            return;
         }
     }
 }
@@ -1010,13 +1025,13 @@ GetPathNameOp::ParseResponseHeaderSelf(const Properties& prop)
     const int    numReplicas = prop.getValue("Num-replicas", 0);
     const string replicas    = prop.getValue("Replicas", string());
     if (! replicas.empty()) {
-	istringstream ser(replicas);
-	for (int i = 0; i < numReplicas; ++i) {
-	    ServerLocation loc;
-	    ser >> loc.hostname;
-	    ser >> loc.port;
+        istringstream ser(replicas);
+        for (int i = 0; i < numReplicas; ++i) {
+            ServerLocation loc;
+            ser >> loc.hostname;
+            ser >> loc.port;
             servers.push_back(loc);
-	}
+        }
     }
 }
 

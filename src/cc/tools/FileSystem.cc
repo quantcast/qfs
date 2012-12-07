@@ -36,6 +36,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <utime.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
@@ -65,8 +66,11 @@ public:
         {}
     virtual ~FileSystemImpl()
         {}
-    virtual string GetUri() const
+    virtual const string& GetUri() const
         { return mUri; }
+    virtual bool operator==(
+        const FileSystem& inFs) const
+        { return (this == &inFs || mUri == inFs.GetUri()); } // FIXME
     const string mUri;
 };
 
@@ -120,9 +124,12 @@ public:
                 mFileName += theRetPtr->d_name;
                 if (stat(mFileName.c_str(), &mStatBuf)) {
                     mError    = errno;
-                    theRetPtr = 0;
+                    // theRetPtr = 0;
                 } else {
                     outStatPtr = &mStatBuf;
+                    if (S_ISDIR(mStatBuf.st_mode) && mStatBuf.st_size >= 0) {
+                        mStatBuf.st_size = -(mStatBuf.st_size + 1);
+                    }
                 }
                 mFileName.erase(theLen);
             }
@@ -217,7 +224,28 @@ public:
         StatBuf&      outStatBuf)
     {
         outStatBuf.Reset();
-        return Errno(stat(inFileName.c_str(), &outStatBuf));
+        const int theStatus = Errno(stat(inFileName.c_str(), &outStatBuf));
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        if (S_ISDIR(outStatBuf.st_mode) && outStatBuf.st_size >= 0) {
+            outStatBuf.st_size = -(outStatBuf.st_size + 1);
+        }
+        return theStatus;
+    }
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStatBuf)
+    {
+        outStatBuf.Reset();
+        const int theStatus = Errno(fstat(inFd, &outStatBuf));
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        if (S_ISDIR(outStatBuf.st_mode) && outStatBuf.st_size >= 0) {
+            outStatBuf.st_size = -(outStatBuf.st_size + 1);
+        }
+        return theStatus;
     }
     virtual int Open(
         const string& inDirName,
@@ -283,6 +311,10 @@ public:
         int                  theRet = 0;
         const struct dirent* thePtr;
         while ((thePtr = readdir(theDirPtr))) {
+            if (strcmp(thePtr->d_name, ".") == 0 ||
+                    strcmp(thePtr->d_name, "..") == 0) {
+                continue;
+            }
             inPath.erase(thePrevSize + 1);
             inPath += thePtr->d_name;
             bool theDirFlag;
@@ -291,12 +323,12 @@ public:
             // type
             struct stat theStat;
             theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
-                (theStat.st_mode & S_IFDIR) != 0;
+                S_ISDIR(theStat.st_mode);
 #else
             theDirFlag = thePtr->d_type == DT_DIR;
 #endif
             if (theDirFlag) {
-                theRet = RecursivelyApply(inPath, inFunctor);
+                theRet = RecursivelyApplySelf(inPath, inFunctor);
                 if (theRet != 0) {
                     break;
                 }
@@ -319,7 +351,7 @@ public:
         if (stat(inPath.c_str(), &theStat)) {
             return RetErrno(errno);
         }
-        if ((theStat.st_mode & S_IFDIR) != 0) {
+        if (S_ISDIR(theStat.st_mode)) {
             string thePath;
             thePath.reserve(MAX_PATH_NAME_LENGTH);
             thePath.assign(inPath.data(), inPath.length());
@@ -351,13 +383,12 @@ public:
             }
             int theRet = Errno(mFunctor(inPath, inDirectoryFlag));
             if (theRet != 0) {
-                mStatus = theRet;
                 theRet = HandleError(inPath, theRet);
                 if (theRet != 0) {
-                    return theRet;
+                    mStatus = theRet;
                 }
             }
-            return 0;
+            return theRet;
         }
         int GetStatus() const
             { return mStatus; }
@@ -371,7 +402,7 @@ public:
             int           inStatus)
         {
             return (mErrorHandlerPtr ?
-                (*mErrorHandlerPtr)(inPath, inStatus) : 0);
+                (*mErrorHandlerPtr)(inPath, inStatus) : inStatus);
         }
     };
     class ChmodFunctor
@@ -426,7 +457,7 @@ public:
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup,
+        kfsGid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
@@ -507,7 +538,7 @@ public:
                 }
                 int theErr = Errno(stat(theDirName.c_str(), &theStat));
                 if (theErr == 0) {
-                    if ((theStat.st_mode & S_IFDIR) == 0) {
+                    if (! S_ISDIR(theStat.st_mode)) {
                         return RetErrno(ENOTDIR);
                     }
                 } else {
@@ -515,7 +546,7 @@ public:
                         return theErr;
                     }
                     if ((theErr = Errno(
-                            mkdir(theDirName.c_str(), inMode))) != 0) {
+                            mkdir(theDirName.c_str(), inMode & 0777))) != 0) {
                         return theErr;
                     }
                 }
@@ -524,11 +555,82 @@ public:
         }
         return Errno(mkdir(inPathName.c_str(), (mode_t)inMode));
     }
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        return Errno(rename(inSrcName.c_str(), inDstName.c_str()));
+    }
+    virtual int SetUMask(
+        mode_t inUMask)
+    {
+        umask(inUMask & 0777);
+        return 0;
+    }
+    virtual int GetUMask(
+        mode_t& outUMask)
+    {
+        outUMask = umask(0);
+        umask(outUMask);
+        return 0;
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
         string&  outUserName,
-        string&  outGroupName);
+        string&  outGroupName)
+    {
+        return GetKfsClient().GetUserAndGroupNames(
+            inUser, inGroup, outUserName, outGroupName);
+    }
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId)
+    {
+        return GetKfsClient().GetUserAndGroupIds(
+            inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
+    }
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime)
+    {
+        struct utimbuf theTimes;
+        theTimes.actime  = inMTime.tv_sec;
+        theTimes.modtime = inMTime.tv_sec;
+        return Errno(utime(inPath.c_str(), &theTimes));
+    }
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          /* inRecursiveFlag */,
+        ErrorHandler* /* inErrorHandlerPtr */)
+    {
+        StatBuf theStat;
+        const int theStatus = Stat(inPath, theStat);
+        if (theStatus != 0) {
+            return theStatus;
+        }
+        return (inReplication != 0 ? -EINVAL : 0);
+    }
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication)
+    {
+        const int theRet = Stat(inPath, outStat);
+        if (theRet != 0) {
+            return theRet;
+        }
+        if (S_ISDIR(outStat.st_mode)) {
+            return -EISDIR;
+        }
+        outMinReplication = 1;
+        outMaxReplication = 1;
+        return theRet;
+    }
     virtual string StrError(
         int inError) const
     {
@@ -548,6 +650,7 @@ private:
     {
         return (inErrno == 0 ? -1 : (inErrno < 0 ? inErrno : -inErrno));
     }
+    static KfsClient& GetKfsClient();
 private:
     LocalFileSystem(
         const LocalFileSystem& inFileSystem);
@@ -726,6 +829,21 @@ public:
         const int theRet = KfsClient::Stat(inFileName.c_str(), theAttr);
         if (theRet == 0) {
             ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
+        }
+        return theRet;
+    }
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStat)
+    {
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::Stat(inFd, theAttr);
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
         }
         return theRet;
     }
@@ -783,7 +901,7 @@ public:
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup,
+        kfsGid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
@@ -828,6 +946,26 @@ public:
         }
         return KfsClient::Mkdir(inPathName.c_str(), inMode);
     }
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        const bool kOverwriteFlag = true;
+        return KfsClient::Rename(inSrcName.c_str(), inDstName.c_str(),
+            kOverwriteFlag);
+    }
+    virtual int SetUMask(
+        mode_t inUMask)
+    {
+        KfsClient::SetUMask(((kfsMode_t)inUMask) & 0777);
+        return 0;
+    }
+    virtual int GetUMask(
+        mode_t& outUMask)
+    {
+        outUMask = KfsClient::GetUMask();
+        return 0;
+    }
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
@@ -836,6 +974,57 @@ public:
     {
         return KfsClient::GetUserAndGroupNames(
             inUser, inGroup, outUserName, outGroupName);
+    }
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId)
+    {
+        return KfsClient::GetUserAndGroupIds(
+            inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
+    }
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime)
+    {
+        return KfsClient::SetMtime(inPath.c_str(), inMTime);
+    }
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr)
+    {
+        if (inReplication <= 0 || inReplication > 0x7FFF) {
+            return -EINVAL;
+        }
+        return (inRecursiveFlag ?
+            KfsClient::SetReplicationFactorR(
+                inPath.c_str(), (int16_t)inReplication, inErrorHandlerPtr) :
+            KfsClient::SetReplicationFactor(
+                inPath.c_str(), (int16_t)inReplication)
+        );
+    }
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication)
+    {
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::GetReplication(
+            inPath.c_str(),
+            theAttr,
+            outMinReplication,
+            outMaxReplication
+        );
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
+        }
+        return theRet;
     }
     virtual int Glob(
         const string& inPattern,
@@ -868,18 +1057,14 @@ GetFsMutex()
 // Force initialization before entering main.
 static QCMutex& sMutex = GetFsMutex();
 
-    /* virtual */ int
-LocalFileSystem::GetUserAndGroupNames(
-    kfsUid_t inUser,
-    kfsGid_t inGroup,
-    string&  outUserName,
-    string&  outGroupName)
+    /* static */ KfsClient&
+LocalFileSystem::GetKfsClient()
 {
     QCStMutexLocker theLock(GetFsMutex());
-    // For now use dummy un-connected kfs client.
+    // For now use un-connected kfs client for uid / gid to name
+    // conversions.
     static KfsClient sClient;
-    return sClient.GetUserAndGroupNames(
-        inUser, inGroup, outUserName, outGroupName);
+    return sClient;
 }
 
 class FSMap : public map<string, FileSystemImpl*>

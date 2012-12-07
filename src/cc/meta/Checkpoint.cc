@@ -63,7 +63,6 @@ int
 Checkpoint::write_leaves(ostream& os)
 {
     LeafIter li(metatree.firstLeaf(), 0);
-    Node *p = li.parent();
     Meta *m = li.current();
     int status = 0;
     while (status == 0 && m) {
@@ -73,7 +72,7 @@ Checkpoint::write_leaves(ostream& os)
             status = m->checkpoint(os);
         }
         li.next();
-        p = li.parent();
+        Node* const p = li.parent();
         m = p ? li.current() : 0;
     }
     return status;

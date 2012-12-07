@@ -37,11 +37,14 @@
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
+#include "kfsio/IOBufferWriter.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "common/time.h"
+#include "common/kfserrno.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -136,7 +139,8 @@ OkHeader(const MetaRequest* op, ostream &os, bool checkStatus = true)
     }
     os <<
         "\r\n"
-        "Status: " << op->status << "\r\n"
+        "Status: " << (op->status >= 0 ? op->status :
+            -SysToKfsErrno(-op->status)) << "\r\n"
     ;
     if (! op->statusMsg.empty()) {
         const size_t p = op->statusMsg.find('\r');
@@ -695,60 +699,6 @@ GetReadDirTmpVec()
     return sReaddirRes;
 }
 
-class IOBufferWriter
-{
-public:
-    IOBufferWriter(IOBuffer& b)
-        : ioBuf(b),
-          buf(),
-          cur(buf.Producer()),
-          end(cur + buf.SpaceAvailable())
-        {}
-    void Write(const char* data, size_t len)
-    {
-        for (; ;) {
-            if (cur + len <= end) {
-                memcpy(cur, data, len);
-                cur += len;
-                return;
-            }
-            const size_t ncp = end - cur;
-            memcpy(cur, data, ncp);
-            data += ncp;
-            len  -= ncp;
-            buf.Fill((int)(cur - buf.Producer() + ncp));
-            ioBuf.Append(buf);
-            buf = IOBufferData();
-            cur = buf.Producer();
-            end = cur + buf.SpaceAvailable();
-        }
-    }
-    void Write(const string& str)
-    {
-        Write(str.data(), str.length());
-    }
-    void Close()
-    {
-        const int len = (int)(cur - buf.Producer());
-        if (len > 0) {
-            buf.Fill(len);
-            ioBuf.Append(buf);
-        }
-    }
-    int GetSize() const
-    {
-        return ioBuf.BytesConsumable();
-    }
-private:
-    IOBuffer&    ioBuf;
-    IOBufferData buf;
-    char*        cur;
-    char*        end;
-private:
-    IOBufferWriter(const IOBufferWriter&);
-    IOBufferWriter& operator=(const IOBufferWriter&);
-};
-
 inline const MetaFattr*
 GetDirAttr(fid_t dir, const vector<MetaDentry*>& v)
 {
@@ -923,17 +873,10 @@ private:
     template<typename T> static
     char* ToString(T val, char* bufEnd)
     {
-        if (! ShortFormatFlag) {
-            return toString(int64_t(val), bufEnd + 1);
-        }
-        char* p = bufEnd;
-        *p = 0;
-        char* const s = p - sizeof(val) * 2;
-        do {
-            *--p = "0123456789ABCDEF"[val & 0xF];
-            val >>= 4;
-        } while (val != 0 && s < p);
-        return p;
+        return (ShortFormatFlag ?
+            IntToHexString(val, bufEnd) :
+            IntToDecString(val, bufEnd)
+        );
     }
     void Write(const Token& name)
     {
@@ -952,10 +895,10 @@ private:
             return;
         }
         const int64_t kMicroseconds = 1000 * 1000;
-        char* const       s = ToString(t % kMicroseconds, nBufEnd) - 1;
-        const char* const b = ToString(t / kMicroseconds, s);
-        *s = ' ';
-        Write(b, nBufEnd - b);
+        char* p = ToString(t % kMicroseconds, nBufEnd);
+        *--p = ' ';
+        p = ToString(t / kMicroseconds, p);
+        Write(p, nBufEnd - p);
     }
     void Write(const char* data, size_t len)
     {
@@ -1154,10 +1097,10 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
     "\nLR:" , "\r\nReplicas:");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kFileCount(
-    "\nFC:" , "\r\nFile-count");
+    "\nFC:" , "\r\nFile-count: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kDirCount(
-    "\nDC:" , "\r\nDir-count");
+    "\nDC:" , "\r\nDir-count: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kSpace(
     " " , " ");
@@ -1651,7 +1594,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         for (Servers::const_iterator i = servers.begin();
                 i != servers.end(); ++i) {
             if ((*i)->IsDown()) {
-                KFS_LOG_STREAM_DEBUG << (*i)->ServerID() <<
+                KFS_LOG_STREAM_DEBUG << (*i)->GetServerLocation() <<
                     " went down during allocation, alloc failed" <<
                 KFS_LOG_EOM;
                 status = -EIO;
@@ -1836,7 +1779,8 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 {
     // if there is a non-zero status, don't throw it away
     if (chunkAlloc.status < 0 && status == 0 && firstFailedServerIdx < 0) {
-        status = status;
+        status    = chunkAlloc.status;
+        statusMsg = chunkAlloc.statusMsg;
         // In the case of version change failure take the first failed
         // server out, otherwise allocation might never succeed.
         if (initialChunkVersion >= 0 && servers.size() > 1) {
@@ -1902,7 +1846,7 @@ MetaAllocate::Show() const
     for (Servers::const_iterator i = servers.begin();
             i != servers.end();
             ++i) {
-        os << " " << (*i)->ServerID();
+        os << " " << (*i)->GetServerLocation();
     }
     return os.str();
 }
@@ -2254,6 +2198,19 @@ MetaChunkAvailable::handle()
 {
     if (server) {
         gLayoutManager.ChunkAvailable(this);
+    } else {
+        // This is likely coming from the ClientSM.
+        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
+        KFS_LOG_EOM;
+        status = -EINVAL;
+    }
+}
+
+/* virtual */ void
+MetaChunkDirInfo::handle()
+{
+    if (server) {
+        server->SetChunkDirInfo(dirName, props);
     } else {
         // This is likely coming from the ClientSM.
         KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
@@ -2746,6 +2703,16 @@ MetaGetChunkServersCounters::handle()
     }
     status = 0;
     gLayoutManager.GetChunkServerCounters(resp);
+}
+
+/* virtual */ void
+MetaGetChunkServerDirsCounters::handle()
+{
+    if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    status = 0;
+    gLayoutManager.GetChunkServerDirCounters(resp);
 }
 
 /* virtual */ void
@@ -3294,6 +3261,12 @@ MetaGetChunkServersCounters::log(ostream & /* file */) const
     return 0;
 }
 
+int
+MetaGetChunkServerDirsCounters::log(ostream & /* file */) const
+{
+    return 0;
+}
+
 /*!
  * \brief for an open files request, there is nothing to log
  */
@@ -3394,32 +3367,6 @@ MetaChown::log(ostream& file) const
     return file.fail() ? -EIO : 0;
 }
 
-bool
-MetaSetChunkServersProperties::ValidateRequestHeader(
-    const char* name,
-    size_t      nameLen,
-    const char* header,
-    size_t      headerLen,
-    bool        hasChecksum,
-    uint32_t    checksum)
-{
-    if (! MetaRequest::ValidateRequestHeader(
-            name,
-            nameLen,
-            header,
-            headerLen,
-            hasChecksum,
-            checksum)) {
-        return false;
-    }
-    BufferInputStream is(header, headerLen);
-    const char        separator = ':';
-    Properties        prop;
-    prop.loadProperties(is, separator, false);
-    prop.copyWithPrefix("chunkServer.", properties);
-    return true;
-}
-
 /*!
  * \brief Various parse handlers.  All of them follow the same model:
  * If parse is successful, returns a dynamically
@@ -3503,6 +3450,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaChunkCorrupt         >("CORRUPT_CHUNK")
     .MakeParser<MetaChunkEvacuate        >("EVACUATE_CHUNK")
     .MakeParser<MetaChunkAvailable       >("AVAILABLE_CHUNK")
+    .MakeParser<MetaChunkDirInfo         >("CHUNKDIR_INFO")
 
     // Lease related ops
     .MakeParser<MetaLeaseAcquire         >("LEASE_ACQUIRE")
@@ -3522,6 +3470,8 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaOpenFiles            >("OPEN_FILES")
     .MakeParser<
       MetaGetChunkServersCounters        >("GET_CHUNK_SERVERS_COUNTERS")
+    .MakeParser<
+      MetaGetChunkServerDirsCounters     >("GET_CHUNK_SERVER_DIRS_COUNTERS")
     .MakeParser<
       MetaSetChunkServersProperties      >("SET_CHUNK_SERVERS_PROPERTIES")
     .MakeParser<MetaGetRequestCounters   >("GET_REQUEST_COUNTERS")
@@ -3795,7 +3745,7 @@ MetaAllocate::responseSelf(ostream &os)
 }
 
 void
-MetaLeaseAcquire::response(ostream &os)
+MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -3803,8 +3753,19 @@ MetaLeaseAcquire::response(ostream &os)
     if (leaseId >= 0) {
         os << "Lease-id: " << leaseId << "\r\n";
     }
-    if (! leaseIds.empty()) {
-        os << "Lease-ids:" << leaseIds << "\r\n";
+    if (getChunkLocationsFlag) {
+        os << "Content-length: " << responseBuf.BytesConsumable() << "\r\n"
+        "\r\n";
+        os.flush();
+        buf.Move(&responseBuf);
+        return;
+    }
+    if (! responseBuf.IsEmpty()) {
+        os << "Lease-ids:";
+        os.flush();
+        responseBuf.CopyIn("\r\n\r\n", 4);
+        buf.Move(&responseBuf);
+        return;
     }
     os << "\r\n";
 }
@@ -3849,14 +3810,23 @@ MetaChunkCorrupt::response(ostream &os)
 }
 
 void
-MetaChunkEvacuate::response(ostream &os)
+MetaChunkEvacuate::response(ostream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaChunkAvailable::response(ostream &os)
+MetaChunkAvailable::response(ostream& os)
 {
+    PutHeader(this, os) << "\r\n";
+}
+
+void
+MetaChunkDirInfo::response(ostream& os)
+{
+    if (noReplyFlag) {
+        return;
+    }
     PutHeader(this, os) << "\r\n";
 }
 
@@ -3989,6 +3959,17 @@ MetaGetChunkServersCounters::response(ostream &os, IOBuffer& buf)
 }
 
 void
+MetaGetChunkServerDirsCounters::response(ostream &os, IOBuffer& buf)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    os << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os.flush();
+    buf.Move(&resp);
+}
+
+void
 MetaGetRequestCounters::response(ostream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
@@ -4080,17 +4061,7 @@ MetaChunkHeartbeat::request(ostream &os)
 static inline char*
 ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
 {
-    if (hexFormatFlag) {
-        char*     p   = end - 1;
-        chunkId_t val = id;
-        char* const s   = p - sizeof(val) * 2;
-        do {
-            *--p = "0123456789ABCDEF"[val & 0xF];
-            val >>= 4;
-        } while (val != 0 && s < p);
-        return p;
-    }
-    return toString(id, end);
+    return (hexFormatFlag ? IntToHexString(id, end) : IntToDecString(id, end));
 }
 
 void
@@ -4111,11 +4082,11 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
-    char* const end = tmpBuf + kBufEnd + 1;
+    char* const end = tmpBuf + kBufEnd;
     if (count <= 1) {
-        char* const p   = count < 1 ? end - 1 :
+        char* const p   = count < 1 ? end :
             ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
-        size_t      len = end - p - 1;
+        size_t      len = end - p;
         os << "Content-length: " << len << "\r\n\r\n";
         os.write(p, len);
         return;
@@ -4128,10 +4099,7 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     tmpBuf[kBufEnd] = (char)' ';
     while ((id = it.Next())) {
         char* const p = ChunkIdToString(*id, hexFormatFlag, end);
-        if (! hexFormatFlag) {
-            tmpBuf[kBufEnd] = (char)' ';
-        }
-        writer.Write(p, (int)(end - p));
+        writer.Write(p, (int)(end - p + 1));
     }
     writer.Close();
     const int len = ioBuf.BytesConsumable();

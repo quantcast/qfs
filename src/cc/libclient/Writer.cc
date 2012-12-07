@@ -877,7 +877,7 @@ private:
                     KFS_LOG_EOM;
                     break;
                 }
-	        mWriteIds.push_back(theWInfo);
+                mWriteIds.push_back(theWInfo);
             }
             if (theServerCount != mWriteIds.size()) {
                 HandleError(inOp);
@@ -1076,7 +1076,7 @@ private:
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mCloseOp == inOpPtr) {
                 Done(mCloseOp, inCanceledFlag, inBufferPtr);
-            } else if (inOpPtr->op == CMD_WRITE) {
+            } else if (inOpPtr && inOpPtr->op == CMD_WRITE) {
                 Done(*static_cast<WriteOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
             } else {

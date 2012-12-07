@@ -34,23 +34,26 @@ if [ x"$1" = x'-g' -o  x"$1" = x'-get' ]; then
 fi
 
 # Set official release version here.
-# kfs_release_version
+qfs_release_version="1.0.1"
+qfs_source_revision=""
+
+# If git is present override the release version with git tag.
+if which git > /dev/null 2>&1; then
+    script_dir=`dirname "$0"`
+    qfs_release_version=`cd "$script_dir" >/dev/null 2>&1 && git describe --abbrev=0 --tags 2>/dev/null`
+    qfs_source_revision=`cd "$script_dir" >/dev/null 2>&1 && git log -n 1 --pretty=format:%H 2>/dev/null`
+fi
 
 if [ $# -eq 1 -a x"$1" = x'-v' ]; then
-    if [ x"$kfs_release_version" != x ]; then
-        echo "$kfs_release_version"
-        exit
-    fi
-    (
-        cd "`dirname "$0"`" >/dev/null || exit
-        git log -n 1 --pretty=format:%H
-    ) 2>/dev/null
+    echo "$qfs_release_version"
+    echo "$qfs_source_revision"
     exit 0
 fi
 
 if [ $# -lt 3 ]; then
-    echo "Usage: $0 <build type> <source dir> <dest file>"
-    echo "or: $0 -g <kfs executable>"
+    echo "Usage:"
+    echo "$0 <build type> <source base dir> <dest file> OR"
+    echo "$0 -g <qfs executable> to get the version info of executable."
     exit 1
 fi
 
@@ -62,8 +65,8 @@ shift
 outfile=$1
 shift
 
-if [ x"$kfs_release_version" != x ]; then
-    kfs_version_prefix="${kfs_release_version}-"
+if [ x"$qfs_release_version" != x ]; then
+    kfs_version_prefix="${qfs_release_version}-"
 else
     kfs_version_prefix=''
 fi
@@ -100,8 +103,8 @@ while [ $# -gt 0 ]; do
     echo "$1"
     shift
 done
-if [ x"$kfs_release_version" != x ]; then
-    echo "release: $kfs_release_version"
+if [ x"$qfs_release_version" != x ]; then
+    echo "release: $qfs_release_version"
 else
     echo "release: none"
 fi
@@ -123,6 +126,7 @@ echo KFS_BUILD_INFO_END
 } | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$/\\n"/'
 
 echo ';
+
 static std::string MakeVersionHash()
 {
     Hsieh_hash_fcn f;
@@ -134,13 +138,16 @@ static std::string MakeVersionHash()
     }
     return ret;
 }
+
 const std::string KFS_BUILD_VERSION_STRING(
-    std::string("'"${kfs_release_version}${lastchangeid}-${buildtype}"'-") +
+    std::string("'"${qfs_release_version}-${lastchangeid}-${buildtype}"'-") +
     MakeVersionHash()
 );
+
 const std::string KFS_SOURCE_REVISION_STRING(
-    "'"${kfs_release_version}${remote}/${branch}@$lastchangeid"'"
+    "'"${qfs_release_version}-${remote}/${branch}@$lastchangeid"'"
 );
+
 }
 '
 

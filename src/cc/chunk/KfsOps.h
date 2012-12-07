@@ -125,6 +125,7 @@ enum KfsOp_t {
     CMD_RESTART_CHUNK_SERVER,
     CMD_EVACUATE_CHUNKS,
     CMD_AVAILABLE_CHUNKS,
+    CMD_CHUNKDIR_INFO,
     CMD_NCMDS
 };
 
@@ -132,6 +133,8 @@ enum OpType_t {
     OP_REQUEST,
     OP_RESPONSE
 };
+
+const char* const KFS_VERSION_STR = "KFS/1.0";
 
 class ClientSM;
 
@@ -208,10 +211,14 @@ struct KfsOp : public KfsCallbackObj {
     bool Validate() { return true; }
     ClientSM* GetClientSM();
     static uint32_t Checksum(
-	const char* name,
-	size_t      nameLen,
-	const char* header,
-	size_t      headerLen);
+        const char* name,
+        size_t      nameLen,
+        const char* header,
+        size_t      headerLen);
+    bool HandleUnknownField(
+        const char* /* key */, size_t /* keyLen */,
+        const char* /* val */, size_t /* valLen */)
+        { return true; }
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
@@ -1025,6 +1032,7 @@ struct WriteOp : public KfsOp {
     ssize_t          numBytesIO; /* output: # of bytes actually written */
     DiskIoPtr        diskIo; /* disk connection used for writing data */
     IOBuffer*        dataBuf; /* buffer with the data to be written */
+    int64_t          diskIOTime;
     vector<uint32_t> checksums; /* store the checksum for logging purposes */
     /*
      * for writes that are smaller than a checksum block, we need to
@@ -1051,24 +1059,41 @@ struct WriteOp : public KfsOp {
     // time at which the write was enqueued at the ChunkManager
     time_t       enqueueTime;
 
-    WriteOp(kfsChunkId_t c, int64_t v) :
-        KfsOp(CMD_WRITE, 0), chunkId(c), chunkVersion(v),
-        offset(0), numBytes(0), numBytesIO(0),
-        dataBuf(NULL), rop(NULL), wpop(NULL), waitForSyncDone(false),
-        isFromReReplication(false), isFromRecordAppend(false),
-        isWriteIdHolder(false)
+    WriteOp(kfsChunkId_t c, int64_t v)
+        : KfsOp(CMD_WRITE, 0),
+          chunkId(c),
+          chunkVersion(v),
+          offset(0),
+          numBytes(0),
+          numBytesIO(0),
+          dataBuf(0),
+          diskIOTime(0),
+          rop(0),
+          wpop(0),
+          waitForSyncDone(false),
+          isFromReReplication(false),
+          isFromRecordAppend(false),
+          isWriteIdHolder(false)
     {
         SET_HANDLER(this, &WriteOp::HandleWriteDone);
     }
-
     WriteOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, int64_t o, size_t n,
-            IOBuffer *b, int64_t id) :
-        KfsOp(CMD_WRITE, s), chunkId(c), chunkVersion(v),
-        offset(o), numBytes(n), numBytesIO(0),
-        dataBuf(b), rop(NULL), wpop(NULL),
-        waitForSyncDone(false), isFromReReplication(false),
-        isFromRecordAppend(false),
-        isWriteIdHolder(false), writeId(id)
+            IOBuffer* b, int64_t id)
+        : KfsOp(CMD_WRITE, s),
+          chunkId(c),
+          chunkVersion(v),
+          offset(o),
+          numBytes(n),
+          numBytesIO(0),
+          dataBuf(b),
+          diskIOTime(0),
+          rop(0),
+          wpop(0),
+          waitForSyncDone(false),
+          isFromReReplication(false),
+          isFromRecordAppend(false),
+          isWriteIdHolder(false),
+          writeId(id)
     {
         SET_HANDLER(this, &WriteOp::HandleWriteDone);
     }
@@ -1084,14 +1109,13 @@ struct WriteOp : public KfsOp {
         status = numBytesIO = 0;
         SET_HANDLER(this, &WriteOp::HandleWriteDone);
     }
-    void Response(ostream &os) { };
+    void Response(ostream &os) {}
     void Execute();
 
     // for record appends, this handler will be called back; on the
     // callback, notify the atomic record appender of
     // completion status
     int HandleRecordAppendDone(int code, void *data);
-
     int HandleWriteDone(int code, void *data);
     int HandleSyncDone(int code, void *data);
     int HandleLoggingDone(int code, void *data);
@@ -1140,8 +1164,8 @@ struct WriteSyncOp : public KfsOp {
           numBytes(n),
           writeId(-1),
           numServers(0),
-          fwdedOp(NULL),
-          writeOp(NULL),
+          fwdedOp(0),
+          writeOp(0),
           numDone(0),
           writeMaster(false),
           checksumsCnt(0),
@@ -1199,7 +1223,7 @@ struct ReadChunkMetaOp : public KfsOp {
         SET_HANDLER(this, &ReadChunkMetaOp::HandleDone);
     }
 
-    void Execute() { }
+    void Execute() {}
     string Show() const {
         ostringstream os;
 
@@ -1227,7 +1251,6 @@ struct ReadOp : public KfsOp {
     IOBuffer*        dataBuf; /* buffer with the data read */
     vector<uint32_t> checksum; /* checksum over the data that is sent back to client */
     int64_t          diskIOTime; /* how long did the AIOs take */
-    string           driveName; /* for telemetry, provide the drive info to the client */
     int              retryCnt;
     /*
      * for writes that require the associated checksum block to be
@@ -1247,7 +1270,6 @@ struct ReadOp : public KfsOp {
           dataBuf(0),
           checksum(),
           diskIOTime(0),
-          driveName(),
           retryCnt(0),
           wop(0),
           scrubOp(0)
@@ -1263,7 +1285,6 @@ struct ReadOp : public KfsOp {
           dataBuf(0),
           checksum(),
           diskIOTime(0),
-          driveName(),
           retryCnt(0),
           wop(w),
           scrubOp(0)
@@ -1272,7 +1293,7 @@ struct ReadOp : public KfsOp {
         SET_HANDLER(this, &ReadOp::HandleDone);
     }
     ~ReadOp() {
-        assert(wop == NULL);
+        assert(! wop);
         delete dataBuf;
     }
 
@@ -1586,7 +1607,7 @@ struct LeaseRenewOp : public KfsOp {
     void Request(ostream &os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
-    void Execute() { };
+    void Execute() {}
     string Show() const {
         ostringstream os;
 
@@ -1622,7 +1643,7 @@ struct LeaseRelinquishOp : public KfsOp {
     void Request(ostream &os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
-    void Execute() { };
+    void Execute() {}
     string Show() const {
         ostringstream os;
 
@@ -1732,7 +1753,7 @@ struct CorruptChunkOp : public KfsOp {
     void Request(ostream &os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
-    void Execute() { };
+    void Execute() {}
     string Show() const {
         ostringstream os;
         os << "corrupt chunk:"
@@ -1781,7 +1802,7 @@ struct EvacuateChunksOp : public KfsOp {
         delete this;
         return 0;
     }
-    void Execute() {};
+    void Execute() {}
     string Show() const {
         ostringstream os;
         os << "evacuate chunks:";
@@ -1813,7 +1834,7 @@ struct AvailableChunksOp : public KfsOp {
         delete this;
         return 0;
     }
-    void Execute() {};
+    void Execute() {}
     string Show() const {
         ostringstream os;
         os << "available chunks:";

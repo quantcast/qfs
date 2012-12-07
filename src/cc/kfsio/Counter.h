@@ -152,7 +152,7 @@ public:
             os << "\r\n";
             return;
         }
-	for_each(mCounters.begin(), mCounters.end(), ShowCounter(os));
+        for_each(mCounters.begin(), mCounters.end(), ShowCounter(os));
     }
 
 private:

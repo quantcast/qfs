@@ -246,12 +246,12 @@ main(int argc, char** argv)
     s = clock();
     k = 0;
     for (MyKey i = 1000 * 1000 + 345; k < nk; i += 33, k++) {
-    	if (! ht.Find(i)) {
+        if (! ht.Find(i)) {
             abort();
-	}
+        }
     }
     e = clock();
-    cout << k << " " << double(clock() - s)/CLOCKS_PER_SEC << "\n";
+    cout << k << " " << double(e - s)/CLOCKS_PER_SEC << "\n";
     s = clock();
     k = 0;
     ht.First();
@@ -261,7 +261,7 @@ main(int argc, char** argv)
         t += p->GetKey();
     }
     e = clock();
-    cout << k << " " << double(clock() - s)/CLOCKS_PER_SEC << " " << t << "\n";
+    cout << k << " " << double(e - s)/CLOCKS_PER_SEC << " " << t << "\n";
     cout << "press any key and then enter to continue\n";
     string str;
     cin >> str;
@@ -273,7 +273,7 @@ main(int argc, char** argv)
         }
     }
     e = clock();
-    cout << k << " " << double(clock() - s)/CLOCKS_PER_SEC << "\n";
+    cout << k << " " << double(e - s)/CLOCKS_PER_SEC << "\n";
     if (! ht.IsEmpty()) {
         abort();
     }

@@ -109,6 +109,11 @@ ChunkServer::MainLoop()
     gMetaServerSM.Init();
 
     globalNetManager().MainLoop();
+
+    list<RemoteSyncSMPtr> serversToRelease;
+    mRemoteSyncers.swap(serversToRelease);
+    ReleaseAllServers(serversToRelease);
+
     return true;
 }
 

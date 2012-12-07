@@ -22,7 +22,7 @@ Compiling QFS
 
 * Pre-requisites:
 ```
-g++, make, jdk, java headers for JNI, ant,
+g++, make, jdk, java headers for JNI, Apache Maven,
 libraries and headers for xfsprogs, libuuid, and openssl,
 cmake (preferably, version 2.4.7 or higher),
 boost-devel (preferably, version 1.3.4 or higher),
@@ -57,8 +57,8 @@ Main components of the QFS server are the 'metaserver' and the 'chunkserver'.
 Metaserver provides the namespace for the filesystem while the chunkservers do
 the storage/retrieval of file blocks in the form of 'chunks'.
 
-Each server uses a configuration file that sets the server's run time
-parameters. The metaserver is configured with the filesystem port, chunkserver
+Each server uses a configuration file that sets the run time parameters of the
+server. The metaserver is configured with the filesystem port, chunkserver
 port, chunk placement groups for replication, the location of transaction
 logs and checkpoints and so on. The chunk server is configured with the port
 of the metaserver, path to copy the chunks and so on.
@@ -123,14 +123,20 @@ a heterogeneous cluster with 6,500 disk drives.
 See more at https://github.com/quantcast/qfs/wiki/Performance-Comparison-to-HDFS
 
 
+Contributing to QFS
+===================
+
+We welcome contributions to QFS in the form of enhancement requests and patches, additional tests, bug-reports, new ideas and so on. Please submit issues at https://github.com/quantcast/qfs/issues and refer to QFS code contribution policy at https://github.com/quantcast/qfs/wiki/Code-Contribution-Policy.
+
+
 Have Questions?
 ===============
 
 Join the QFS Developer mailing list or search the archives at
 http://groups.google.com/group/qfs-devel
 
-Post comments, questions, patches, or bug-reports to
-qfs-devel@googlegroups.com
+Post comments or questions to qfs-devel@googlegroups.com
+
 
 License
 =======

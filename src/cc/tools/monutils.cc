@@ -30,6 +30,7 @@
 #include "common/RequestParser.h"
 #include "kfsio/requestio.h"
 #include "libclient/KfsClient.h"
+#include "common/kfserrno.h"
 
 #include <string.h>
 
@@ -63,6 +64,8 @@ KfsMonOp::HandleResponse(const char* resp, int len, Properties& prop)
     }
     if (status >= 0) {
         ParseResponse(prop);
+    } else {
+        status = -KfsToSysErrno(-status);
     }
 }
 
