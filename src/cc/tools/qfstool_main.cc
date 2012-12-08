@@ -63,6 +63,7 @@ using std::max;
 using std::ostream;
 using std::ostringstream;
 using std::setw;
+using std::flush;
 using std::left;
 using std::right;
 using std::make_pair;
@@ -374,6 +375,140 @@ private:
                 return "unspecified error";
         }
     }
+    class ErrorReporter : public FileSystem::ErrorHandler
+    {
+    public:
+        ErrorReporter(
+            FileSystem& inFs,
+            ostream&    inErrorStream,
+            bool        inStopOnErrorFlag = false)
+            : mFs(inFs),
+              mErrorStream(inErrorStream),
+              mStopOnErrorFlag(inStopOnErrorFlag),
+              mStatus(0)
+            {}
+        virtual int operator()(
+            const string& inPath,
+            int           inStatus)
+        {
+            mErrorStream << mFs.GetUri() << inPath << ": " <<
+                mFs.StrError(inStatus) << "\n";
+            if (mStopOnErrorFlag) {
+                mStatus = inStatus;
+            }
+            return (mStopOnErrorFlag ? mStatus : 0);
+        }
+        int operator()(
+            const string& inPath,
+            const char*   inMsgPtr)
+        {
+            mErrorStream << mFs.GetUri() << inPath << ": " <<
+                (inMsgPtr ? inMsgPtr : "") << "\n";
+            return 0;
+        }
+        int GetStatus() const
+            { return mStatus; }
+        ostream& GetErrorStream()
+            { return mErrorStream; }
+        bool GetStopOnErrorFlag() const
+            { return mStopOnErrorFlag; }
+    private:
+        FileSystem& mFs;
+        ostream&    mErrorStream;
+        const bool  mStopOnErrorFlag;
+        int         mStatus;
+    private:
+        ErrorReporter(
+            const ErrorReporter& inReporter);
+        ErrorReporter& operator=(
+            const ErrorReporter& inReporter);
+    };
+    template<typename T>
+    class RecursiveApplicator
+    {
+    public:
+        RecursiveApplicator(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter,
+            T&             inFunctor)
+            : mStatus(0),
+              mCurPath(),
+              mFs(inFs),
+              mPath(inPath),
+              mErrorReporter(inErrorReporter),
+              mFunctor(inFunctor)
+            {}
+        int Run()
+        {
+            mCurPath.reserve(4096);
+            mCurPath.assign(mPath.data(), mPath.size());
+            mStatus = 0;
+            RunSelf();
+            mCurPath.clear();
+            return mStatus;
+        }
+    private:
+        int            mStatus;
+        string         mCurPath;
+        FileSystem&    mFs;
+        const string&  mPath;
+        ErrorReporter& mErrorReporter;
+        T&             mFunctor;
+
+        void RunSelf()
+        {
+            FileSystem::DirIterator* theItPtr             = 0;
+            const bool               kFetchAttributesFlag = true;
+            int                      theErr;
+            if ((theErr = mFs.Open(
+                    mCurPath, kFetchAttributesFlag, theItPtr)) != 0) {
+                mStatus = mErrorReporter(mCurPath, theErr);
+            } else {
+                if (! mCurPath.empty() && mCurPath != "/" &&
+                        *mCurPath.rbegin() != '/') {
+                    mCurPath += "/";
+                }
+                const size_t theCurPathLen = mCurPath.length();
+                string theName;
+                for (; ;) {
+                    const FileSystem::StatBuf* theStatPtr = 0;
+                    if ((theErr = mFs.Next(
+                            theItPtr, theName, theStatPtr))) {
+                        mStatus = mErrorReporter(mCurPath + theName, theErr);
+                    }
+                    if (theName.empty()) {
+                        break;
+                    }
+                    if (theName == "." || theName == "..") {
+                        continue;
+                    }
+                    if (! theStatPtr) {
+                        if (theErr == 0) {
+                            mStatus = mErrorReporter(mCurPath, -EINVAL);
+                        }
+                        continue;
+                    }
+                    mCurPath += theName;
+                    if (! mFunctor(
+                            mFs, mCurPath, *theStatPtr, mErrorReporter)) {
+                        mCurPath.resize(theCurPathLen);
+                        break;
+                    }
+                    if (S_ISDIR(theStatPtr->st_mode)) {
+                        RunSelf();
+                    }
+                    mCurPath.resize(theCurPathLen);
+                }
+                mFs.Close(theItPtr);
+            }
+        }
+    private:
+        RecursiveApplicator(
+            const RecursiveApplicator& inApplicator);
+        RecursiveApplicator operator=(
+            const RecursiveApplicator& inApplicator);
+    };
     typedef vector<pair<FileSystem*, vector<string> > > GlobResult;
     static int Glob(
         char**       inArgsPtr,
@@ -861,54 +996,6 @@ private:
         ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
-    class ErrorReporter : public FileSystem::ErrorHandler
-    {
-    public:
-        ErrorReporter(
-            FileSystem& inFs,
-            ostream&    inErrorStream,
-            bool        inStopOnErrorFlag = false)
-            : mFs(inFs),
-              mErrorStream(inErrorStream),
-              mStopOnErrorFlag(inStopOnErrorFlag),
-              mStatus(0)
-            {}
-        virtual int operator()(
-            const string& inPath,
-            int           inStatus)
-        {
-            mErrorStream << mFs.GetUri() << inPath << ": " <<
-                mFs.StrError(inStatus) << "\n";
-            if (mStopOnErrorFlag) {
-                mStatus = inStatus;
-            }
-            return (mStopOnErrorFlag ? mStatus : 0);
-        }
-        int operator()(
-            const string& inPath,
-            const char*   inMsgPtr)
-        {
-            mErrorStream << mFs.GetUri() << inPath << ": " <<
-                (inMsgPtr ? inMsgPtr : "") << "\n";
-            return 0;
-        }
-        int GetStatus() const
-            { return mStatus; }
-        ostream& GetErrorStream()
-            { return mErrorStream; }
-        bool GetStopOnErrorFlag() const
-            { return mStopOnErrorFlag; }
-    private:
-        FileSystem& mFs;
-        ostream&    mErrorStream;
-        const bool  mStopOnErrorFlag;
-        int         mStatus;
-    private:
-        ErrorReporter(
-            const ErrorReporter& inReporter);
-        ErrorReporter& operator=(
-            const ErrorReporter& inReporter);
-    };
     class DefaultInitFunctor
     {
     public:
@@ -2059,21 +2146,10 @@ private:
             : mDirCount(0),
               mFileCount(0),
               mByteCount(0),
-              mStatus(0),
-              mCurPath(),
-              mFs(inFs),
-              mPath(inPath),
-              mErrorReporter(inErrorReporter)
+              mApplicator(inFs, inPath, inErrorReporter, *this)
             {}
         int Run()
-        {
-            mCurPath.reserve(4096);
-            mCurPath.assign(mPath.data(), mPath.size());
-            mStatus = 0;
-            RunSelf();
-            mCurPath.clear();
-            return mStatus;
-        }
+            { return mApplicator.Run(); }
         Count GetDirCount() const
             { return mDirCount; }
         Count GetFileCount() const
@@ -2081,60 +2157,27 @@ private:
         Count GetByteCount() const
             { return mByteCount; }
     private:
-        Count          mDirCount;
-        Count          mFileCount;
-        Count          mByteCount;
-        int            mStatus;
-        string         mCurPath;
-        FileSystem&    mFs;
-        const string&  mPath;
-        ErrorReporter& mErrorReporter;
+        typedef RecursiveApplicator<SubCounts> Applicator;
+        friend class RecursiveApplicator<SubCounts>;
 
-        void RunSelf()
+        Count      mDirCount;
+        Count      mFileCount;
+        Count      mByteCount;
+        Applicator mApplicator;
+
+        bool operator()(
+            FileSystem&                /* inFs */,
+            const string&              /* inPath */,
+            const FileSystem::StatBuf& inStat,
+            ErrorReporter&             /* inErrorReporter */)
         {
-            FileSystem::DirIterator* theItPtr             = 0;
-            const bool               kFetchAttributesFlag = true;
-            int                      theErr;
-            if ((theErr = mFs.Open(
-                    mCurPath, kFetchAttributesFlag, theItPtr)) != 0) {
-                mStatus = mErrorReporter(mCurPath, theErr);
+            if (S_ISDIR(inStat.st_mode)) {
+                mDirCount++;
             } else {
-                if (! mCurPath.empty() && mCurPath != "/" &&
-                        *mCurPath.rbegin() != '/') {
-                    mCurPath += "/";
-                }
-                const size_t theCurPathLen = mCurPath.length();
-                string theName;
-                for (; ;) {
-                    const FileSystem::StatBuf* theStatPtr = 0;
-                    if ((theErr = mFs.Next(
-                            theItPtr, theName, theStatPtr))) {
-                        mStatus = mErrorReporter(mCurPath + theName, theErr);
-                    }
-                    if (theName.empty()) {
-                        break;
-                    }
-                    if (theName == "." || theName == "..") {
-                        continue;
-                    }
-                    if (! theStatPtr) {
-                        if (theErr == 0) {
-                            mStatus = mErrorReporter(mCurPath, -EINVAL);
-                        }
-                        continue;
-                    }
-                    if (S_ISDIR(theStatPtr->st_mode)) {
-                        mDirCount++;
-                        mCurPath += theName;
-                        RunSelf();
-                        mCurPath.resize(theCurPathLen);
-                    } else {
-                        mFileCount++;
-                        mByteCount += max(Count(0), Count(theStatPtr->st_size));
-                    }
-                }
-                mFs.Close(theItPtr);
+                mFileCount++;
+                mByteCount += max(Count(0), Count(inStat.st_size));
             }
+            return true;
         }
     };
     enum DiskUtilizationFormat
@@ -2667,6 +2710,95 @@ private:
         SetReplicationFunctor& operator=(
             const SetReplicationFunctor& inFunctor);
     };
+    class WaitReplicationFunctor
+    {
+    public:
+        WaitReplicationFunctor(
+            int      inReplication,
+            bool     inRecursiveFlag,
+            ostream& inProgressStream)
+            : mReplication(inReplication),
+              mRecursiveFlag(inRecursiveFlag),
+              mProgressStream(inProgressStream)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            const int theStatus = Wait(inFs, inPath);
+            if (theStatus == -EISDIR && mRecursiveFlag) {
+                Applicator theApplicator(inFs, inPath, inErrorReporter, *this);
+                return theApplicator.Run();
+            }
+            return theStatus;
+        }
+    private:
+        const int  mReplication;
+        const bool mRecursiveFlag;
+        ostream&   mProgressStream;
+
+        typedef RecursiveApplicator<WaitReplicationFunctor> Applicator;
+        friend class RecursiveApplicator<WaitReplicationFunctor>;
+
+        bool operator()(
+            FileSystem&                 inFs,
+            const string&               inPath,
+            const FileSystem::StatBuf&  inStat,
+            ErrorReporter&              inErrorReporter)
+        {
+            if (S_ISDIR(inStat.st_mode)) {
+                return true;
+            }
+            const int theStatus = Wait(inFs, inPath);
+            if (theStatus != 0) {
+                inErrorReporter(inPath, theStatus);
+            }
+            return true;
+        }
+        int Wait(
+            FileSystem&   inFs,
+            const string& inPath)
+        {
+            FileSystem::StatBuf theStat;
+            int                 theMinReplication = 0;
+            int                 theMaxReplication = 0;
+            bool                theShowNameFlag   = true;
+            for (; ;) {
+                const int theStatus = inFs.GetReplication(
+                    inPath, theStat, theMinReplication, theMaxReplication);
+                if (theStatus < 0) {
+                    return theStatus;
+                }
+                if (S_ISDIR(theStat.st_mode)) {
+                    return -EISDIR;
+                }
+                if (theStat.mNumReplicas <= 0 ||
+                        (theStat.mNumReplicas == theMinReplication &&
+                        theStat.mNumReplicas == theMaxReplication)) {
+                    break;
+                }
+                if (theShowNameFlag) {
+                    mProgressStream << inFs.GetUri() << inPath <<
+                        " " << theStat.mNumReplicas <<
+                        " [" << theMinReplication << "," <<
+                        theMaxReplication << "] ";
+                    theShowNameFlag = false;
+                }
+                mProgressStream << "." << flush;
+                sleep(1);
+            }
+            if (! theShowNameFlag) {
+                mProgressStream << "\n";
+            }
+            return 0;
+        }
+    private:
+        WaitReplicationFunctor(
+            const WaitReplicationFunctor& inFunctor);
+        WaitReplicationFunctor& operator=(
+            const WaitReplicationFunctor& inFunctor);
+    };
     int SetReplication(
         char** inArgsPtr,
         int    inArgCount,
@@ -2677,14 +2809,25 @@ private:
         if (inArgCount <= 0) {
             return -EINVAL;
         }
-        SetReplicationFunctor theSetReplFunc(
-            inReplication, inRecursiveFlag);
+        GlobResult theResult;
+        bool       theMoreThanOneFsFlag = false;
+        int theErr = Glob(
+            inArgsPtr,
+            inArgCount,
+            cerr,
+            theResult,
+            theMoreThanOneFsFlag
+        );
+        SetReplicationFunctor theSetReplFunc(inReplication, inRecursiveFlag);
         FunctorT<SetReplicationFunctor> theFunc(theSetReplFunc, cerr);
-        int theStatus = Apply(inArgsPtr, inArgCount, theFunc);
+        int theStatus = Apply(theResult, theMoreThanOneFsFlag, theErr, theFunc);
         if (theStatus != 0 || ! inWaitFlag) {
             return theStatus;
         }
-        return theStatus;
+        WaitReplicationFunctor theWaitFunc(
+            inReplication, inRecursiveFlag, cout);
+        FunctorT<WaitReplicationFunctor> theWFunc(theWaitFunc, cerr);
+        return Apply(theResult, theMoreThanOneFsFlag, theErr, theWFunc);
     }
 private:
     size_t const mIoBufferSize;
