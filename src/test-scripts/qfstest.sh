@@ -145,11 +145,11 @@ else
 fi
 
 accessdir='src/cc/access'
-if [ -e "$accessdir/libkfs_access."* -a -x "`which java 2>/dev/null`" ]; then
+if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
-    # kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v | head -1`
-    kfsjar="`cd "$kfsjar/../java/kfs-access/build/" >/dev/null 2>&1 && pwd`"
-    kfsjar="${kfsjar}/kfs.jar"
+    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v | head -1`
+    kfsjar="`cd "$kfsjar/../../build/java/qfs-access" >/dev/null 2>&1 && pwd`"
+    kfsjar="${kfsjar}/qfs-access-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then
         accessdir="`cd "${accessdir}" >/dev/null 2>&1 && pwd`"
     else
@@ -347,7 +347,7 @@ if [ x"$accessdir" != x ]; then
         -classpath "$kfsjar" \
         -Dkfs.euid="`id -u`" \
         -Dkfs.egid="`id -g`" \
-        org.kosmix.kosmosfs.access.KfsTest "$metahost" "$metasrvport" \
+        com.quantcast.qfs.access.KfsTest "$metahost" "$metasrvport" \
         > kfsaccess_test.out 2>&1 &
     kfsaccesspid=$!
     echo "$kfsaccesspid" > "$kfsaccesspidf"

@@ -25,13 +25,10 @@
 
 # Take all the .cc files and build a library out of them
 add_library (qfs_access SHARED qfs_access_jni.cc)
-add_library (kfs_access SHARED kfs_access_jni.cc)
 add_dependencies (qfs_access kfsClient-shared)
 target_link_libraries (qfs_access kfsClient-shared)
-target_link_libraries (kfs_access kfsClient-shared)
 if (NOT APPLE)
   target_link_libraries(qfs_access rt)
-  target_link_libraries(kfs_access rt)
 endif (NOT APPLE)
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS") 
@@ -42,6 +39,6 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 #
-install (TARGETS qfs_access kfs_access
+install (TARGETS qfs_access
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib-static)
