@@ -298,6 +298,19 @@ public:
                     );
                 }
             }
+        } else if (strcmp(theCmdPtr, "stat") == 0) {
+            const char* theFormatPtr = 0;
+            if (theArgCnt > 1 && strchr(theArgsPtr[0], '%')) {
+                theFormatPtr = theArgsPtr[0];
+                theArgCnt--;
+                theArgsPtr++;
+            }
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = Stat(theArgsPtr, theArgCnt, theFormatPtr);
+            }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -308,6 +321,15 @@ public:
         return (theErr == 0 ? 0 : 1);
     }
 private:
+    static time_t GetMTime(
+        const FileSystem::StatBuf& inStat)
+    {
+#ifndef KFS_OS_NAME_DARWIN
+        return inStat.st_mtime;
+#else
+        return inStat.st_mtimespec.tv_sec;
+#endif
+    }
     static const char* const sHelpStrings[];
     void ShortHelp(
         ostream&    inOutStream,
@@ -841,11 +863,7 @@ private:
                 mNumReplicas = S_ISDIR(inStat.st_mode) ?
                     0 : max(1, (int)inStat.mNumReplicas);
                 mSize        = max(int64_t(0), (int64_t)inStat.st_size);
-#ifndef KFS_OS_NAME_DARWIN
-                mMTime = inStat.st_mtime;
-#else
-                mMTime = inStat.st_mtimespec.tv_sec;
-#endif
+                mMTime       = GetMTime(inStat);
             }
         };
         typedef deque<DirListEntry> DirListEntries;
@@ -2829,6 +2847,115 @@ private:
         FunctorT<WaitReplicationFunctor> theWFunc(theWaitFunc, cerr);
         return Apply(theResult, theMoreThanOneFsFlag, theErr, theWFunc);
     }
+    class StatFunctor
+    {
+    public:
+        StatFunctor(
+            const char* inFormatPtr,
+            ostream&    inStream)
+            : mFormat((inFormatPtr && *inFormatPtr) ? inFormatPtr : "%y"),
+              mOutStream(inStream),
+              mStat(),
+              mTime()
+        {
+            mTmBuf[0] = 0;
+        }
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            const int theStatus = inFs.Stat(inPath, mStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+            for (const char* thePtr = mFormat.c_str(),
+                        * const theEndPtr = thePtr + mFormat.size();
+                    thePtr < theEndPtr;
+                    ++thePtr) {
+                if ((*thePtr & 0xff) != '%') {
+                    mOutStream.put(*thePtr);
+                    continue;
+                }
+                if (++thePtr >= theEndPtr) {
+                    break;
+                }
+                const int theSym = *thePtr & 0xFF;
+                switch (theSym) {
+                    case 'b':
+                        mOutStream << max(int64_t(0), (int64_t)mStat.st_size);
+                        break;
+                    case 'F':
+                        mOutStream << (S_ISDIR(mStat.st_mode) ?
+                            "directory" : "regular file");
+                        break;
+                    case 'n': {
+                            const char* const theSPtr = inPath.c_str();
+                            const char*       theNPtr =
+                                theSPtr + inPath.size() - 1;
+                            while (theSPtr < theNPtr && *theNPtr == '/') {
+                                --theNPtr;
+                            }
+                            const char* const theEPtr = theNPtr;
+                            while (theSPtr < theNPtr && theNPtr[-1] != '/') {
+                                --theNPtr;
+                            }
+                            mOutStream.write(theNPtr, theEPtr - theNPtr + 1);
+                        }
+                        break;
+                    case 'o':
+                        mOutStream << mStat.st_blksize;
+                        break;
+                    case 'r':
+                        mOutStream << (S_ISDIR(mStat.st_mode) ?
+                            0 : max(1, (int)mStat.mNumReplicas));
+                        break;
+                    case 'y': {
+                            const time_t theMTime = GetMTime(mStat);
+                            if (mTmBuf[0] == 0 || mTime != theMTime) {
+                                struct tm theLocalTime = {0};
+                                localtime_r(&theMTime, &theLocalTime);
+                                strftime(mTmBuf, kTmBufLen,
+                                    "%Y-%m-%d %H:%M ", &theLocalTime);
+                                mTime = theMTime;
+                            }
+                            mOutStream << mTmBuf;
+                        }
+                        break;
+                    case 'Y':
+                        mOutStream << GetMTime(mStat);
+                        break;
+                    default:
+                        mOutStream.put(*thePtr);
+                        break;
+                }
+            }
+            mOutStream << "\n";
+            return 0;
+        }
+    private:
+        enum { kTmBufLen = 128 };
+
+        const string        mFormat;
+        ostream&            mOutStream;
+        FileSystem::StatBuf mStat;
+        time_t              mTime;
+        char                mTmBuf[kTmBufLen];
+
+        StatFunctor(
+            const StatFunctor& inFunctor);
+        StatFunctor& operator=(
+            const StatFunctor& inFunctor);
+    };
+    int Stat(
+        char**      inArgsPtr,
+        int         inArgCount,
+        const char* inFormatPtr)
+    {
+        StatFunctor           theStatFunc(inFormatPtr, cout);
+        FunctorT<StatFunctor> theFunc(theStatFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -2971,7 +3098,7 @@ const char* const KfsTool::sHelpStrings[] =
 
     "stat", "[format] <path>",
     "Print statistics about the file/directory at <path>\n\t\t"
-    "in the specified format. Format accepts filesize in blocks (%b),"
+    "in the specified format. Format accepts filesize in bytes (%b),"
     " filename (%n),\n\t\t"
     "block size (%o), replication (%r), modification date (%y, %Y)\n",
 
