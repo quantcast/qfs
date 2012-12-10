@@ -311,6 +311,19 @@ public:
             } else {
                 theErr = Stat(theArgsPtr, theArgCnt, theFormatPtr);
             }
+        } else if (strcmp(theCmdPtr, "tail") == 0) {
+            bool theFollowFlag = theArgCnt > 0 &&
+                strcmp(theArgsPtr[0], "-f") == 0;
+            if (theFollowFlag) {
+                theArgsPtr++;
+                theArgCnt--;
+            }
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = Tail(theArgsPtr, theArgCnt, theFollowFlag);
+            }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -2956,6 +2969,127 @@ private:
         FunctorT<StatFunctor> theFunc(theStatFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    class TailFunctor
+    {
+    public:
+        TailFunctor(
+            ostream& inOutStream,
+            bool     inShowNameFlag,
+            int64_t  inSize,
+            char*    inBufPtr  = 0,
+            size_t   inBufSize = 0)
+            : mOutStream(inOutStream),
+              mShowNameFlag(inShowNameFlag),
+              mSize(inSize),
+              mAllocBufFlag(! inBufPtr || inBufSize <= 0),
+              mBufSize(mAllocBufFlag ? (6 << 20) : inBufSize),
+              mBufPtr(mAllocBufFlag ? new char[mBufSize] : inBufPtr),
+              mNextNamePrefixPtr(""),
+              mStat()
+            {}
+        ~TailFunctor()
+        {
+            if (mAllocBufFlag) {
+                delete [] mBufPtr;
+            }
+        }
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter*/)
+        {
+            const int theFd = inFs.Open(inPath, O_RDONLY, 0, 0);
+            if (theFd < 0) {
+                return theFd;
+            }
+            const int theStatus = inFs.Stat(theFd, mStat);
+            if (theStatus != 0) {
+                inFs.Close(theFd);
+                return theStatus;
+            }
+            if (S_ISDIR(mStat.st_mode)) {
+                inFs.Close(theFd);
+                return -EISDIR;
+            }
+            int64_t theRet = inFs.Seek(
+                theFd, -min(mStat.st_size, mSize), SEEK_END);
+            if (theRet < 0) {
+                inFs.Close(theFd);
+                return (int)theRet;
+            }
+            theRet = 0;
+            if (mShowNameFlag) {
+                mOutStream << mNextNamePrefixPtr <<
+                    "==> " << inFs.GetUri() << inPath << " <==\n";
+                mNextNamePrefixPtr = "\n";
+            }
+            while (mOutStream) {
+                const ssize_t theNRd = inFs.Read(theFd, mBufPtr, mBufSize);
+                if (theNRd < 0) {
+                    theRet = theNRd;
+                    break;
+                }
+                if (theNRd == 0) {
+                    break;
+                }
+                mOutStream.write(mBufPtr, (size_t)theNRd);
+            }
+            inFs.Close(theFd);
+            return (int)theRet;
+        }
+    private:
+        ostream&            mOutStream;
+        const bool          mShowNameFlag;
+        const int64_t       mSize;
+        const bool          mAllocBufFlag;
+        const size_t        mBufSize;
+        char* const         mBufPtr;
+        const char*         mNextNamePrefixPtr;
+        FileSystem::StatBuf mStat;
+
+        TailFunctor(
+            const TailFunctor& inFunctor);
+        TailFunctor& operator=(
+            const TailFunctor& inFunctor);
+    };
+    int Tail(
+        char** inArgsPtr,
+        int    inArgCount,
+        bool   inFollowFlag)
+    {
+        if (inArgCount <= 0) {
+            return -EINVAL;
+        }
+        GlobResult theResult;
+        bool       theMoreThanOneFsFlag = false;
+        int theErr = Glob(
+            inArgsPtr,
+            inArgCount,
+            cerr,
+            theResult,
+            theMoreThanOneFsFlag
+        );
+        TailFunctor theTailFunc(
+            cout,
+            theMoreThanOneFsFlag ||
+                theResult.size() > 1 ||
+                (! theResult.empty() && theResult.front().second.size() > 1),
+            1 << 10,
+            mIoBufferPtr,
+            mIoBufferSize
+        );
+        FunctorT<TailFunctor> theFunc(theTailFunc, cerr);
+        int theStatus;
+        for (; ;) {
+            theStatus = Apply(theResult, theMoreThanOneFsFlag, theErr, theFunc);
+            if (inFollowFlag && theStatus == 0) {
+                sleep(5);
+            } else {
+                break;
+            }
+        }
+        return theStatus;
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -3100,7 +3234,8 @@ const char* const KfsTool::sHelpStrings[] =
     "Print statistics about the file/directory at <path>\n\t\t"
     "in the specified format. Format accepts filesize in bytes (%b),"
     " filename (%n),\n\t\t"
-    "block size (%o), replication (%r), modification date (%y, %Y)\n",
+    "block size (%o), replication (%r), modification date (%y, %Y)\n\t\t"
+    "file type (%F)\n",
 
     "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
     "Changes permissions of a file.\n\t\t"
