@@ -987,13 +987,13 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     if (! fid) {
         return -EFAULT;
     }
-    jenv->SetIntField(attr, fid, (jboolean)kfsAttr.isDirectory);
+    jenv->SetBooleanField(attr, fid, (jboolean)kfsAttr.isDirectory);
 
     fid = jenv->GetFieldID(acls, "filesize", "J");
     if (! fid) {
         return -EFAULT;
     }
-    jenv->SetIntField(attr, fid, (jlong)kfsAttr.fileSize);
+    jenv->SetLongField(attr, fid, (jlong)kfsAttr.fileSize);
 
     fid = jenv->GetFieldID(acls, "modificationTime", "J");
     if (! fid) {
