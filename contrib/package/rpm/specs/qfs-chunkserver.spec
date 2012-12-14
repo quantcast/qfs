@@ -18,11 +18,12 @@
 # permissions and limitations under the License.
 #
 
+
 %define debug_package %{nil}
 %define debug_packages %{nil}
 
-Summary: QFS Meta Server Package
-Name: qfs-metaserver
+Summary: QFS Chunk Server Package
+Name: qfs-chunkserver
 Version: 1.0.0
 Release: 0
 License: Apache
@@ -31,10 +32,10 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 
 BuildRequires: boost
 
-%define _install_prefix /opt/qc/qfs/metaserver
+%define _install_prefix /opt/qc/qfs/chunkserver
 
 %description
-This package contains the Quantcast Distributed Filesystem meta server.
+This package contains the Quantcast Distributed Filesystem chunk server.
 
 %prep
 cd %{_sourcedir}
@@ -52,12 +53,8 @@ rm -rf %{buildroot}
 mkdir -p %{buildroot}%{_install_prefix}/bin
 mkdir -p %{buildroot}%{_install_prefix}/sbin
 mkdir -p %{buildroot}%{_install_prefix}/conf
-install -m 755 %{_sourcedir}/qfs/build/release/bin/metaserver %{buildroot}%{_install_prefix}/bin
-install -m 755 %{_sourcedir}/qfs/build/release/bin/filelister %{buildroot}%{_install_prefix}/bin
-install -m 755 %{_sourcedir}/qfs/build/release/bin/qfsfsck %{buildroot}%{_install_prefix}/bin
-install -m 755 %{_sourcedir}/qfs/build/release/bin/logcompactor %{buildroot}%{_install_prefix}/bin
-cp -a %{_sourcedir}/qfs/webui %{buildroot}%{_install_prefix}/
-install -m 644 %{_sourcedir}/qfs/package/conf/MetaServer.prp %{buildroot}%{_install_prefix}/conf
+install -m 755 %{_sourcedir}/qfs/build/release/bin/chunk* %{buildroot}%{_install_prefix}/bin
+install -m 644 %{_sourcedir}/qfs/conf/ChunkServer.prp %{buildroot}%{_install_prefix}/conf
 
 %clean
 rm -rf %{buildroot}

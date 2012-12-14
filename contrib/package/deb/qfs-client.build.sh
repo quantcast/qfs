@@ -24,13 +24,13 @@ mkdir -p $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/lib
 mkdir -p $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/include
 
 install -m 755 $SOURCE_DIR/qfs/build/release/bin/tools/* $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/bin
-install -m 644 $SOURCE_DIR/qfs/package/conf/QfsClient.prp $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/conf
+install -m 644 $SOURCE_DIR/qfs/conf/QfsClient.prp $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/conf
 install -m 644 $SOURCE_DIR/qfs/build/release/lib/lib* $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/lib
 cp -a $SOURCE_DIR/qfs/build/release/include $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX
 
 #ADD DEBIAN/control
 mkdir -p $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN
-cp $SOURCE_DIR/qfs/package/deb/qfs-client.DEBIAN.control $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN/control
+cp $SOURCE_DIR/qfs/contrib/package/deb/qfs-client.DEBIAN.control $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN/control
 
 #MODIFY
 sudo chown -R root:root $QFS_BUILD_ROOT$NAME"_"$VERSION

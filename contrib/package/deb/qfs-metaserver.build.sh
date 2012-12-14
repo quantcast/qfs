@@ -26,11 +26,11 @@ install -m 755 $SOURCE_DIR/qfs/build/release/bin/filelister $QFS_BUILD_ROOT$NAME
 install -m 755 $SOURCE_DIR/qfs/build/release/bin/qfsfsck $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/bin
 install -m 755 $SOURCE_DIR/qfs/build/release/bin/logcompactor $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/bin
 cp -a $SOURCE_DIR/qfs/webui $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/
-install -m 644 $SOURCE_DIR/qfs/package/conf/MetaServer.prp $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/conf
+install -m 644 $SOURCE_DIR/qfs/conf/MetaServer.prp $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/conf
 
 #ADD DEBIAN/control
 mkdir -p $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN
-cp $SOURCE_DIR/qfs/package/deb/qfs-metaserver.DEBIAN.control $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN/control
+cp $SOURCE_DIR/qfs/contrib/package/deb/qfs-metaserver.DEBIAN.control $QFS_BUILD_ROOT$NAME"_"$VERSION/DEBIAN/control
 
 #MODIFY
 sudo chown -R root:root $QFS_BUILD_ROOT$NAME"_"$VERSION
