@@ -596,6 +596,7 @@ public:
     int GetUserAndGroupIds(const char* user, const char* group,
         kfsUid_t& uid, kfsGid_t& gid)
         { return GetUserAndGroup(user, group, uid, gid); }
+    kfsUid_t GetUserId();
     int GetReplication(const char* pathname,
         KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
 

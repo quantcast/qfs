@@ -43,6 +43,7 @@ set (lib_srcs
     monutils.cc
     utils.cc
     FileSystem.cc
+    Trash.cc
 )
 
 add_library (tools STATIC ${lib_srcs})

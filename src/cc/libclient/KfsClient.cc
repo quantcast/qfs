@@ -839,6 +839,12 @@ KfsClient::GetUserAndGroupIds(const char* user, const char* group,
     return mImpl->GetUserAndGroupIds(user, group, uid, gid);
 }
 
+kfsUid_t
+KfsClient::GetUserId()
+{
+    return mImpl->GetUserId();
+}
+
 namespace client
 {
 
@@ -4770,6 +4776,13 @@ KfsClientImpl::Chmod(const char* pathname, kfsMode_t mode)
         InvalidateAllCachedAttrs();
     }
     return 0;
+}
+
+kfsUid_t
+KfsClientImpl::GetUserId()
+{
+    QCStMutexLocker l(mMutex);
+    return mEUser;
 }
 
 int

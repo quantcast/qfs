@@ -636,6 +636,7 @@ public:
         string& uname, string& gname);
     int GetUserAndGroupIds(const char* user, const char* group,
         kfsUid_t& uid, kfsGid_t& gid);
+    kfsUid_t GetUserId();
     int GetReplication(const char* pathname,
         KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
 private:

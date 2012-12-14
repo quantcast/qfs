@@ -177,6 +177,8 @@ public:
         const string& inGroupName,
         kfsUid_t&     outUserId,
         kfsGid_t&     outGroupId) = 0;
+    virtual int GetUserName(
+        string& outUserName) = 0;
     virtual int SetMtime(
         const string&         inPath,
         const struct timeval& inMTime) = 0;

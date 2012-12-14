@@ -592,6 +592,14 @@ public:
         return GetKfsClient().GetUserAndGroupIds(
             inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
     }
+    virtual int GetUserName(
+        string& outUserName)
+    {
+        kfsUid_t theUid = (kfsUid_t)getuid();
+        string   theGroupName;
+        return GetKfsClient().GetUserAndGroupNames(
+            theUid, kKfsGroupNone, outUserName, theGroupName);
+    }
     virtual int SetMtime(
         const string&         inPath,
         const struct timeval& inMTime)
@@ -983,6 +991,14 @@ public:
     {
         return KfsClient::GetUserAndGroupIds(
             inUserName.c_str(), inGroupName.c_str(), outUserId, outGroupId);
+    }
+    virtual int GetUserName(
+        string& outUserName)
+    {
+        kfsUid_t theUid = KfsClient::GetUserId();
+        string   theGroupName;
+        return KfsClient::GetUserAndGroupNames(
+            theUid, kKfsGroupNone, outUserName, theGroupName);
     }
     virtual int SetMtime(
         const string&         inPath,
