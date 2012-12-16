@@ -55,7 +55,7 @@ mkdir -p %{buildroot}%{_install_prefix}/conf
 mkdir -p %{buildroot}%{_install_prefix}/lib
 mkdir -p %{buildroot}%{_install_prefix}/include
 install -m 755 %{_sourcedir}/qfs/build/release/bin/tools/* %{buildroot}%{_install_prefix}/bin
-install -m 644 %{_sourcedir}/qfs/package/conf/QfsClient.prp %{buildroot}%{_install_prefix}/conf
+install -m 644 %{_sourcedir}/qfs/conf/QfsClient.prp %{buildroot}%{_install_prefix}/conf
 install -m 644 %{_sourcedir}/qfs/build/release/lib/lib* %{buildroot}%{_install_prefix}/lib
 cp -a %{_sourcedir}/qfs/build/release/include %{buildroot}%{_install_prefix}
 

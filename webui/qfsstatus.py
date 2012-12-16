@@ -1064,7 +1064,7 @@ def printRackViewHTML(rack, servers, buffer):
 
 def rackView(buffer, status):
     splitServersByRack(status)
-    numNodes = sum([len(v) for v in serversByRack.itervalues()])
+    numNodes = sum([len(v) for v in status.serversByRack.itervalues()])
     print >> buffer, '''
 <body class="oneColLiqCtr">
 <div id="container">
@@ -1088,7 +1088,7 @@ def rackView(buffer, status):
 		  </tr>
 	  </table>
 		<hr>'''
-    for rack, servers in serversByRack.iteritems():
+    for rack, servers in status.serversByRack.iteritems():
         printRackViewHTML(rack, servers, buffer)
 
     print >> buffer, '''

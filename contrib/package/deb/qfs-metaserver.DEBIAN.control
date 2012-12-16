@@ -1,0 +1,7 @@
+Package: qfs-metaserver
+Version: 1.0-1
+Section: base
+Priority: optional
+Architecture: amd64
+Description: This package contains the Quantcast Distributed Filesystem meta server.
+
