@@ -54,7 +54,8 @@ public:
     int Expunge(
         ErrorHandler* inErrorHandlerPtr = 0);
     bool IsEnabled() const;
-    int RunEmptier();
+    int RunEmptier(
+        ErrorHandler* inErrorHandlerPtr = 0);
 private:
     class Impl;
     Impl& mImpl;

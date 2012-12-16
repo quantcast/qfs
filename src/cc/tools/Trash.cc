@@ -94,7 +94,7 @@ public:
             mStatus = 0;
         }
         mHomePrefix += "/";
-        mTrashPrefix        = mHomePrefix  + mTrash   + "/";
+        mTrashPrefix        = mHomePrefix  + mUserName + "/" + mTrash   + "/";
         mCurrentTrashPrefix = mTrashPrefix + mCurrent;
         return mStatus;
     }
@@ -176,25 +176,43 @@ public:
     int Expunge(
         ErrorHandler* inErrorHandlerPtr)
     {
+        const int theStatus = ExpungeSelf(inErrorHandlerPtr, mTrashPrefix);
+        int       theErr    = Checkpoint();
+        if (inErrorHandlerPtr) {
+            theErr = (*inErrorHandlerPtr)(mCurrentTrashPrefix, theErr);
+        }
+        return (theStatus != 0 ? theStatus : theErr);
+    }
+    int RunEmptier(
+        ErrorHandler* inErrorHandlerPtr)
+    {
         if (mStatus || ! IsEnabled()) {
             return mStatus;
         }
         FileSystem::DirIterator* theDirIt             = 0;
-        const bool               kFetchAttributesFlag = false;
+        const bool               kFetchAttributesFlag = true;
         int                      theStatus            =
-            mFs.Open(mTrashPrefix, kFetchAttributesFlag, theDirIt);
+            mFs.Open(mHomePrefix, kFetchAttributesFlag, theDirIt);
         if (theStatus != 0) {
+            if (inErrorHandlerPtr) {
+                theStatus = (*inErrorHandlerPtr)(mHomePrefix, theStatus);
+            }
             return theStatus;
         }
         const FileSystem::StatBuf* theStatPtr    = 0;
-        bool                       theSetExpFlag = true;
-        time_t                     theExpTime    = 0;
         string                     theName;
+        string                     theTrashPrefix;
         for (; ;) {
             theName.clear();
             if ((theStatus = mFs.Next(
                     theDirIt, theName, theStatPtr)) != 0) {
-                return theStatus;
+                if (inErrorHandlerPtr) {
+                    theStatus = (*inErrorHandlerPtr)(mHomePrefix, theStatus);
+                }
+                if (theStatus != 0) {
+                    break;
+                }
+                continue;
             }
             if (theName.empty()) {
                 break;
@@ -202,33 +220,8 @@ public:
             if (theName == "." || theName == "..") {
                 continue;
             }
-            if (theName.length() != 2 * 5) {
-                continue;
-            }
-            struct tm   theLocalTime = { 0 };
-            const char* thePtr       = theName.c_str();
-            if (
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_year) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mon) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mday) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_hour) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_min)) {
-                continue;
-            }
-            const time_t theTime = mktime(&theLocalTime);
-            if (theTime == time_t(-1)) {
-                continue;
-            }
-            if (theSetExpFlag) {
-                theExpTime    = time(0) - mEmptierIntervalSec;
-                theSetExpFlag = false;
-            }
-            if (theExpTime < theTime) {
-                continue;
-            }
-            const string thePath        = mTrashPrefix + theName;
-            const bool   kRecursiveFlag = true;
-            theStatus = mFs.Remove(thePath, kRecursiveFlag, inErrorHandlerPtr);
+            theTrashPrefix = mHomePrefix  + theName + "/" + mTrash   + "/";
+            theStatus = ExpungeSelf(inErrorHandlerPtr, theTrashPrefix);
             if (theStatus != 0) {
                 break;
             }
@@ -236,13 +229,7 @@ public:
         mFs.Close(theDirIt);
         return theStatus;
     }
-    int RunEmptier()
-    {
-        if (mStatus || ! IsEnabled()) {
-            return mStatus;
-        }
-        return 0;
-    }
+
 private:
     FileSystem& mFs;
     string      mCurrent;
@@ -284,13 +271,6 @@ private:
         thePath = mPath.NormPath();
         mPath.Clear();
         return thePath;
-    }
-    bool StartsWith(
-        const string& inString,
-        const string& inPrefix)
-    {
-        return (inString.length() >= inPrefix.length() &&
-            inString.compare(0, inPrefix.length(), inPrefix) == 0);
     }
     bool IsValidName(
         const string& inName)
@@ -388,6 +368,88 @@ private:
         }
         return theStatus;
     }
+    int ExpungeSelf(
+        ErrorHandler* inErrorHandlerPtr,
+        const string& inTrashPrefix)
+    {
+        if (mStatus || ! IsEnabled()) {
+            return mStatus;
+        }
+        FileSystem::DirIterator* theDirIt             = 0;
+        const bool               kFetchAttributesFlag = true;
+        int                      theStatus            =
+            mFs.Open(inTrashPrefix, kFetchAttributesFlag, theDirIt);
+        if (theStatus != 0) {
+            if (inErrorHandlerPtr) {
+                theStatus = (*inErrorHandlerPtr)(inTrashPrefix, theStatus);
+            }
+            return theStatus;
+        }
+        const FileSystem::StatBuf* theStatPtr    = 0;
+        bool                       theSetExpFlag = true;
+        time_t                     theExpTime    = 0;
+        string                     theName;
+        for (; ;) {
+            theName.clear();
+            if ((theStatus = mFs.Next(
+                    theDirIt, theName, theStatPtr)) != 0) {
+                if (inErrorHandlerPtr) {
+                    theStatus = (*inErrorHandlerPtr)(
+                        inTrashPrefix + theName, theStatus);
+                }
+                if (theStatus != 0) {
+                    break;
+                }
+                continue;
+            }
+            if (! theStatPtr || ! S_ISDIR(theStatPtr->st_mode)) {
+                continue;
+            }
+            if (theName.empty()) {
+                break;
+            }
+            if (theName == "." || theName == "..") {
+                continue;
+            }
+            if (theName.length() != 2 * 5) {
+                continue;
+            }
+            struct tm   theLocalTime = { 0 };
+            const char* thePtr       = theName.c_str();
+            if (
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_year) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mon ) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mday) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_hour) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_min)) {
+                continue;
+            }
+            const time_t theTime = mktime(&theLocalTime);
+            if (theTime == time_t(-1)) {
+                continue;
+            }
+            if (theSetExpFlag) {
+                theExpTime    = time(0) - mEmptierIntervalSec;
+                theSetExpFlag = false;
+            }
+            if (theExpTime < theTime) {
+                continue;
+            }
+            const string thePath        = inTrashPrefix + theName;
+            const bool   kRecursiveFlag = true;
+            theStatus = mFs.Remove(thePath, kRecursiveFlag, inErrorHandlerPtr);
+            if (theStatus != 0) {
+                if (inErrorHandlerPtr) {
+                    theStatus = (*inErrorHandlerPtr)(thePath, theStatus);
+                }
+                if (theStatus != 0) {
+                    break;
+                }
+            }
+        }
+        mFs.Close(theDirIt);
+        return theStatus;
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -437,9 +499,10 @@ Trash::IsEnabled() const
 }
 
     int
-Trash::RunEmptier()
+Trash::RunEmptier(
+    ErrorHandler* inErrorHandlerPtr)
 {
-    return mImpl.RunEmptier();
+    return mImpl.RunEmptier(inErrorHandlerPtr);
 }
 
 }
