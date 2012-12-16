@@ -27,6 +27,8 @@
 
 #include <string>
 
+#include "FileSystem.h"
+
 namespace KFS
 {
 class Properties;
@@ -35,11 +37,10 @@ namespace tools
 {
 using std::string;
 
-class FileSystem;
-
 class Trash
 {
 public:
+    typedef FileSystem::ErrorHandler ErrorHandler;
     Trash(
         FileSystem& inFs);
     ~Trash();
@@ -50,7 +51,8 @@ public:
         const string& inPath,
         bool&         outMovedFlag,
         string*       inErrMsgPtr = 0);
-    int Expunge();
+    int Expunge(
+        ErrorHandler* inErrorHandlerPtr = 0);
     bool IsEnabled() const;
     int RunEmptier();
 private:

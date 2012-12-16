@@ -28,6 +28,7 @@
 
 #include "FileSystem.h"
 #include "common/Properties.h"
+#include "common/RequestParser.h"
 #include "libclient/Path.h"
 
 #include <string>
@@ -55,6 +56,7 @@ public:
           mEmptierIntervalSec(60),
           mTrashPrefix(),
           mCurrentTrashPrefix(),
+          mDirMode(0700),
           mStatus(0),
           mRetryCount(2)
     {
@@ -146,6 +148,9 @@ public:
         do {
             theStatus = Mkdir(theDestDir);
             if (theStatus != 0) {
+                if (theStatus == -ENOTDIR) {
+                    continue;
+                }
                 return theStatus;
             }
             int k = 0;
@@ -168,12 +173,68 @@ public:
         } while (++theRetry <= mRetryCount);
         return theStatus;
     }
-    int Expunge()
+    int Expunge(
+        ErrorHandler* inErrorHandlerPtr)
     {
         if (mStatus || ! IsEnabled()) {
             return mStatus;
         }
-        return 0;
+        FileSystem::DirIterator* theDirIt             = 0;
+        const bool               kFetchAttributesFlag = false;
+        int                      theStatus            =
+            mFs.Open(mTrashPrefix, kFetchAttributesFlag, theDirIt);
+        if (theStatus != 0) {
+            return theStatus;
+        }
+        const FileSystem::StatBuf* theStatPtr    = 0;
+        bool                       theSetExpFlag = true;
+        time_t                     theExpTime    = 0;
+        string                     theName;
+        for (; ;) {
+            theName.clear();
+            if ((theStatus = mFs.Next(
+                    theDirIt, theName, theStatPtr)) != 0) {
+                return theStatus;
+            }
+            if (theName.empty()) {
+                break;
+            }
+            if (theName == "." || theName == "..") {
+                continue;
+            }
+            if (theName.length() != 2 * 5) {
+                continue;
+            }
+            struct tm   theLocalTime = { 0 };
+            const char* thePtr       = theName.c_str();
+            if (
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_year) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mon) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mday) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_hour) ||
+                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_min)) {
+                continue;
+            }
+            const time_t theTime = mktime(&theLocalTime);
+            if (theTime == time_t(-1)) {
+                continue;
+            }
+            if (theSetExpFlag) {
+                theExpTime    = time(0) - mEmptierIntervalSec;
+                theSetExpFlag = false;
+            }
+            if (theExpTime < theTime) {
+                continue;
+            }
+            const string thePath        = mTrashPrefix + theName;
+            const bool   kRecursiveFlag = true;
+            theStatus = mFs.Remove(thePath, kRecursiveFlag, inErrorHandlerPtr);
+            if (theStatus != 0) {
+                break;
+            }
+        }
+        mFs.Close(theDirIt);
+        return theStatus;
     }
     int RunEmptier()
     {
@@ -192,6 +253,7 @@ private:
     string      mTrashPrefix;
     string      mCurrentTrashPrefix;
     Path        mPath;
+    kfsMode_t   mDirMode;
     int         mStatus;
     int         mRetryCount;
 
@@ -241,9 +303,90 @@ private:
         );
     }
     int Mkdir(
-        const string& inPath)
+        string& ioPath)
     {
+        string theDirName;
+        theDirName.reserve(ioPath.size());
+        FileSystem::StatBuf theStat;
+        const char*         thePtr   = ioPath.c_str();
+        const size_t theMinPrefixLen = mCurrentTrashPrefix.length();
+        while (*thePtr) {
+            if (*thePtr == '/') {
+                while (thePtr[1] == '/') {
+                    ++thePtr;
+                }
+            }
+            const char* const theCurPtr = thePtr;
+            if (*thePtr == '/') {
+                ++thePtr;
+            }
+            while (*thePtr && *thePtr != '/') {
+                ++thePtr;
+            }
+            if (theCurPtr == thePtr) {
+                break;
+            }
+            const size_t theSize = thePtr - theCurPtr;
+            if (theSize == 1 && *theCurPtr == '.') {
+                continue;
+            }
+            theDirName.append(theCurPtr, theSize);
+            if (theSize == 2 &&
+                    theCurPtr[0] == '.' && theCurPtr[1] == '.') {
+                continue;
+            }
+            int theErr;
+            for (int i = 0; ;) {
+                int theErr = mFs.Stat(theDirName, theStat);
+                if (theErr != 0 || S_ISDIR(theStat.st_mode) ||
+                        theDirName.length() <= theMinPrefixLen) {
+                    break;
+                }
+                ostringstream theOs;
+                theOs << "." << ++i;
+                theDirName += theOs.str();
+            }
+            const bool kCreateAllFlag = false;
+            if ((theErr = mFs.Mkdir(
+                    theDirName, mDirMode, kCreateAllFlag)) != 0) {
+                return theErr;
+            }
+        }
+        ioPath = theDirName;
         return 0;
+    }
+    int Checkpoint()
+    {
+        char   theBuf[128];
+        const  time_t theTime      = time(0);
+        struct tm     theLocalTime = {0};
+        if (! localtime_r(&theTime, &theLocalTime) ||
+                strftime(theBuf, sizeof(theBuf) / sizeof(theBuf[0]),
+                    "%y%M%d%H%M", &theLocalTime) <= 0) {
+            const int theErr = errno;
+            return (theErr < 0 ? theErr : (theErr == 0 ? -EFAULT : theErr));
+        }
+        string theCheckpointDir = mTrashPrefix + theBuf;
+        size_t theLen           = theCheckpointDir.length();
+        int    theStatus        = 0;
+        for (int k = 0; ;) {
+            int theStatus = mFs.Rename(mCurrentTrashPrefix, theCheckpointDir);
+            if (theStatus == 0 || theStatus != -EEXIST) {
+                break;
+            }
+            theCheckpointDir.resize(theLen);
+            ostringstream theOs;
+            theOs << "." << ++k;
+            theCheckpointDir += theOs.str();
+        }
+        if (theStatus == -ENOENT) {
+            FileSystem::StatBuf theStat;
+            const int theErr = mFs.Stat(mCurrentTrashPrefix, theStat);
+            if (theErr == -ENOENT) {
+                theStatus = 0;
+            }
+        }
+        return theStatus;
     }
 private:
     Impl(
@@ -281,9 +424,10 @@ Trash::MoveTo(
 }
 
     int
-Trash::Expunge()
+Trash::Expunge(
+    Trash::ErrorHandler* inErrorHandlerPtr)
 {
-    return mImpl.Expunge();
+    return mImpl.Expunge(inErrorHandlerPtr);
 }
 
     bool
