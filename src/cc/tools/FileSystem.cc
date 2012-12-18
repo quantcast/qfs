@@ -255,7 +255,7 @@ public:
         outDirIteratorPtr = 0;
         DIR* const theDirPtr = opendir(inDirName.c_str());
         if (! theDirPtr) {
-            return Errno(errno);
+            return RetErrno(errno);
         }
         outDirIteratorPtr =
             new LocalDirIterator(inDirName, theDirPtr, inFetchAttributesFlag);
@@ -287,7 +287,8 @@ public:
         } else {
             outName.clear();
         }
-        return Errno(theDirIt.GetError());
+        const int theErr = theDirIt.GetError();
+        return (theErr != 0 ? RetErrno(theErr) : 0);
     }
     virtual int Glob(
         const string& inPattern,

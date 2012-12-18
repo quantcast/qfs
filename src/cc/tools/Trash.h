@@ -42,7 +42,9 @@ class Trash
 public:
     typedef FileSystem::ErrorHandler ErrorHandler;
     Trash(
-        FileSystem& inFs);
+        FileSystem&       inFs,
+        const Properties& inProps,
+        const string&     inPrefix);
     ~Trash();
     int SetParameters(
         const Properties& inProperties,

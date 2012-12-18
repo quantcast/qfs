@@ -25,7 +25,10 @@
 //----------------------------------------------------------------------------
 
 #include "FileSystem.h"
+#include "Trash.h"
+
 #include "common/MsgLogger.h"
+#include "common/Properties.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 
@@ -75,7 +78,8 @@ class KfsTool
 public:
     KfsTool()
         : mIoBufferSize(6 << 20),
-          mIoBufferPtr(new char[mIoBufferSize])
+          mIoBufferPtr(new char[mIoBufferSize]),
+          mConfig()
         {}
     ~KfsTool()
     {
@@ -86,36 +90,65 @@ public:
         char** inArgsPtr)
     {
         MsgLogger::LogLevel theLogLevel = MsgLogger::kLogLevelINFO;
-
-        int theArgIndex = 1;
-        if (theArgIndex < inArgCount &&
-                strcmp(inArgsPtr[theArgIndex], "-v") == 0) {
-            theLogLevel = MsgLogger::kLogLevelDEBUG;
-            theArgIndex++;
+        string              theUri;
+        int                 theArgIndex = 1;
+        mConfig.clear();
+        while (theArgIndex < inArgCount && inArgsPtr[theArgIndex][0] == '-') {
+            const char* const theOptPtr = inArgsPtr[theArgIndex];
+            if (theOptPtr[1] == 'D') {
+                const char* theCfsOptPtr = theOptPtr + 2;
+                if (*theCfsOptPtr == 0) {
+                    if (++theArgIndex >= inArgCount) {
+                        break;
+                    }
+                    theCfsOptPtr = inArgsPtr[theArgIndex++];
+                }
+                const int theErr = mConfig.loadProperties(
+                    theCfsOptPtr, strlen(theCfsOptPtr), char('='));
+                if (theErr != 0) {
+                    cerr << "-D" << theCfsOptPtr <<
+                        FileSystem::GetStrError(theErr) << "\n";
+                    return 1;
+                }
+            } else if (strcmp(theOptPtr, "-v") == 0) {
+                theLogLevel = MsgLogger::kLogLevelDEBUG;
+                theArgIndex++;
+            } else if (strcmp(theOptPtr, "-fs") == 0) {
+                theArgIndex++;
+                if (inArgCount <= theArgIndex) {
+                    ShortHelp(cerr);
+                    return 1;
+                }
+                theUri = inArgsPtr[theArgIndex];
+                theArgIndex++;
+            } else if (strcmp(theOptPtr, "-cfg") == 0) {
+                theArgIndex++;
+                if (inArgCount <= theArgIndex) {
+                    ShortHelp(cerr);
+                    return 1;
+                }
+                if (mConfig.loadProperties(
+                        inArgsPtr[theArgIndex], char('='),
+                        theLogLevel == MsgLogger::kLogLevelDEBUG)) {
+                    return 1;
+                }
+                theArgIndex++;
+            } else {
+                break;
+            }
         }
         if (inArgCount <= theArgIndex) {
             ShortHelp(cerr);
             return 1;
         }
         MsgLogger::Init(0, theLogLevel);
-        if (strcmp(inArgsPtr[theArgIndex], "-fs") == 0) {
-            theArgIndex++;
-            if (inArgCount <= theArgIndex) {
-                ShortHelp(cerr);
-                return 1;
-            }
-            const string theUri(inArgsPtr[theArgIndex]);
+        if (! theUri.empty()) {
             const int theErr = FileSystem::SetDefault(theUri);
             if (theErr != 0) {
                 cerr << theUri << ": " <<
                     FileSystem::GetStrError(theErr) << "\n";
                 return 1;
             }
-            theArgIndex++;
-        }
-        if (inArgCount <= theArgIndex) {
-            ShortHelp(cerr);
-            return 1;
         }
         const char* const theCmdPtr  = inArgsPtr[theArgIndex++] + 1;
         if (theCmdPtr[-1] != '-') {
@@ -323,6 +356,13 @@ public:
                 ShortHelp(cerr, "Usage: ", theCmdPtr);
             } else {
                 theErr = Tail(theArgsPtr, theArgCnt, theFollowFlag);
+            }
+        } else if (strcmp(theCmdPtr, "expunge") == 0) {
+            if (theArgCnt > 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr);
+            } else {
+                theErr = Expunge();
             }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
@@ -3090,9 +3130,22 @@ private:
         }
         return theStatus;
     }
+    int Expunge()
+    {
+        FileSystem* theFsPtr = 0;
+        int theStatus = FileSystem::Get(string(), theFsPtr);
+        if (theStatus || ! theFsPtr) {
+            cerr << FileSystem::GetStrError(theStatus) << "\n";
+            return theStatus;
+        }
+        ErrorReporter theErrorReporter(*theFsPtr, cerr);
+        Trash         theTrash(*theFsPtr, mConfig, "trash.");
+        return theTrash.Expunge(&theErrorReporter);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
+    Properties   mConfig;
 private:
     KfsTool(const KfsTool& inTool);
     KfsTool& operator=(const KfsTool& inTool);
@@ -3100,6 +3153,16 @@ private:
 
 const char* const KfsTool::sHelpStrings[] =
 {
+    "v", "",
+    "verbose -- set qfs log level debug",
+
+    "cfg", "<configuration file name>",
+    "Qfs configuration: key value pairs separated with = like\n\t\t"
+    "with -D option below",
+
+    "D", "key=value",
+    "Define qfs key value configuration pair",
+
     "fs", "[local | <file system URI>]",
     "Specify the file system to use.\n\t\t"
     "'local' means use the local file system as your DFS.\n\t\t"
@@ -3275,6 +3338,10 @@ const char* const KfsTool::sHelpStrings[] =
     "QUOTA REMAINING_QUATA SPACE_QUOTA REMAINING_SPACE_QUOTA \n\t\t"
     "      DIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME\n",
 
+    "expunge", "",
+    "Expunge user's trash by deleting all trash checkpoints except the\n\t\t"
+    "most recent one.\n",
+    
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"
     "is specified.\n",

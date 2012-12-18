@@ -47,7 +47,9 @@ class Trash::Impl
 {
 public:
     Impl(
-        FileSystem& inFs)
+        FileSystem&       inFs,
+        const Properties& inProps,
+        const string&     inPrefix)
         : mFs(inFs),
           mCurrent("Current"),
           mTrash(".Trash"),
@@ -58,10 +60,11 @@ public:
           mCurrentTrashPrefix(),
           mDirMode(0700),
           mStatus(0),
-          mRetryCount(2)
+          mRetryCount(2),
+          mMinPathDepth(4)
     {
         mStatus = inFs.GetUserName(mUserName);
-        SetParameters(Properties(), string());
+        SetParameters(inProps, inPrefix);
     }
     ~Impl()
         {}
@@ -72,11 +75,16 @@ public:
         mCurrent = inProperties.getValue(
             inPrefix + "current", mCurrent);
         mTrash   = inProperties.getValue(
-            inPrefix + "trash", mCurrent);
+            inPrefix + "trash", mTrash);
         mHomePrefix = inProperties.getValue(
             inPrefix + "homePrefix", mHomePrefix);
         mEmptierIntervalSec = inProperties.getValue(
             inPrefix + "emptierIntervalSec", mEmptierIntervalSec);
+        const bool theForceRemoveFlag = strcmp(inProperties.getValue(
+            "dfs.force.remove", "false"), "true") == 0;
+        if (theForceRemoveFlag) {
+            mMinPathDepth = 0;
+        }
         if (! mHomePrefix.empty() && *mHomePrefix.rbegin() != '/') {
             mHomePrefix += "/";
         }
@@ -113,6 +121,13 @@ public:
         string thePath      = NormPath(inPath, &thePathDepth);
         if (thePath.empty()) {
             return -EINVAL;
+        }
+        if ((int)thePathDepth < mMinPathDepth) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = "Path dept is too small."
+                    " Please use -D dfs.force.remove=true";
+            }
+            return -EPERM;
         }
         thePath += "/";
         if (thePath.length() <= mTrashPrefix.length()) {
@@ -178,7 +193,7 @@ public:
     {
         const int theStatus = ExpungeSelf(inErrorHandlerPtr, mTrashPrefix);
         int       theErr    = Checkpoint();
-        if (inErrorHandlerPtr) {
+        if (inErrorHandlerPtr && theErr != 0) {
             theErr = (*inErrorHandlerPtr)(mCurrentTrashPrefix, theErr);
         }
         return (theStatus != 0 ? theStatus : theErr);
@@ -243,6 +258,7 @@ private:
     kfsMode_t   mDirMode;
     int         mStatus;
     int         mRetryCount;
+    int         mMinPathDepth;
 
     string NormPath(
         const string& inPath,
@@ -379,6 +395,9 @@ private:
         const bool               kFetchAttributesFlag = true;
         int                      theStatus            =
             mFs.Open(inTrashPrefix, kFetchAttributesFlag, theDirIt);
+        if (theStatus == -ENOENT) {
+            return 0;
+        }
         if (theStatus != 0) {
             if (inErrorHandlerPtr) {
                 theStatus = (*inErrorHandlerPtr)(inTrashPrefix, theStatus);
@@ -411,7 +430,10 @@ private:
             if (theName == "." || theName == "..") {
                 continue;
             }
-            if (theName.length() != 2 * 5) {
+            const size_t kTimeStampLen = size_t(2) * 5;
+            if (theName.length() != kTimeStampLen &&
+                    (theName.length() < 2 * 5 ||
+                    theName[kTimeStampLen] != '.')) {
                 continue;
             }
             struct tm   theLocalTime = { 0 };
@@ -458,8 +480,10 @@ private:
 };
 
 Trash::Trash(
-    FileSystem& inFs)
-    : mImpl(*(new Impl(inFs)))
+    FileSystem&       inFs,
+    const Properties& inProps,
+    const string&     inPrefix)
+    : mImpl(*(new Impl(inFs, inProps, inPrefix)))
 {
 }
 
