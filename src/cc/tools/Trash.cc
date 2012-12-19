@@ -56,7 +56,6 @@ public:
           mCurrent("Current"),
           mTrash(".Trash"),
           mHomePrefix("/user"),
-          mUserName(),
           mEmptierIntervalSec(60),
           mTrashPrefix(),
           mCurrentTrashPrefix(),
@@ -65,8 +64,7 @@ public:
           mRetryCount(2),
           mMinPathDepth(4)
     {
-        mStatus = inFs.GetUserName(mUserName);
-        SetParameters(inProps, inPrefix);
+        Impl::SetParameters(inProps, inPrefix);
     }
     ~Impl()
         {}
@@ -101,7 +99,6 @@ public:
         if (mHomePrefix.empty() ||
                 ! IsValidName(mCurrent) ||
                 ! IsValidName(mTrash) ||
-                ! IsValidName(mUserName) ||
                 mTrashPrefix.empty()) {
             mStatus = -EINVAL;
         }
@@ -260,7 +257,6 @@ private:
     string      mCurrent;
     string      mTrash;
     string      mHomePrefix;
-    string      mUserName;
     time_t      mEmptierIntervalSec;
     string      mTrashPrefix;
     string      mCurrentTrashPrefix;
