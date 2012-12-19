@@ -192,6 +192,8 @@ public:
         StatBuf&      outStat,
         int&          outMinReplication,
         int&          outMaxReplication) = 0;
+    virtual int GetHomeDirectory(
+        string& outHomeDir) = 0;
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;

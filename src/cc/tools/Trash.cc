@@ -28,13 +28,13 @@
 
 #include "FileSystem.h"
 #include "common/Properties.h"
-#include "common/RequestParser.h"
 #include "libclient/Path.h"
 
 #include <string>
 
 #include <errno.h>
 #include <unistd.h>
+#include <time.h>
 
 namespace KFS
 {
@@ -42,6 +42,8 @@ namespace tools
 {
 using std::string;
 using KFS::client::Path;
+
+const char* const kTrashCheckpointFormatPtr = "%y%M%d%H%M";
 
 class Trash::Impl
 {
@@ -53,7 +55,7 @@ public:
         : mFs(inFs),
           mCurrent("Current"),
           mTrash(".Trash"),
-          mHomePrefix("/user/"),
+          mHomePrefix("/user"),
           mUserName(),
           mEmptierIntervalSec(60),
           mTrashPrefix(),
@@ -80,29 +82,32 @@ public:
             inPrefix + "homePrefix", mHomePrefix);
         mEmptierIntervalSec = inProperties.getValue(
             inPrefix + "emptierIntervalSec", mEmptierIntervalSec);
+        mMinPathDepth = inProperties.getValue(
+            inPrefix + "minPathDepth", mMinPathDepth);
         const bool theForceRemoveFlag = strcmp(inProperties.getValue(
             "dfs.force.remove", "false"), "true") == 0;
         if (theForceRemoveFlag) {
             mMinPathDepth = 0;
-        }
-        if (! mHomePrefix.empty() && *mHomePrefix.rbegin() != '/') {
-            mHomePrefix += "/";
         }
         if (mEmptierIntervalSec <= 0) {
             mStatus = 0;
             return mStatus;
         }
         mHomePrefix = NormPath(mHomePrefix);
+        mStatus = mFs.GetHomeDirectory(mTrashPrefix);
+        if (mStatus != 0) {
+            return mStatus;
+        }
         if (mHomePrefix.empty() ||
                 ! IsValidName(mCurrent) ||
                 ! IsValidName(mTrash) ||
-                ! IsValidName(mUserName)) {
+                ! IsValidName(mUserName) ||
+                mTrashPrefix.empty()) {
             mStatus = -EINVAL;
-        } else {
-            mStatus = 0;
         }
-        mHomePrefix += "/";
-        mTrashPrefix        = mHomePrefix  + mUserName + "/" + mTrash   + "/";
+        mTrashPrefix += "/";
+        mTrashPrefix += mTrash;
+        mTrashPrefix += "/";
         mCurrentTrashPrefix = mTrashPrefix + mCurrent;
         return mStatus;
     }
@@ -214,9 +219,10 @@ public:
             }
             return theStatus;
         }
-        const FileSystem::StatBuf* theStatPtr    = 0;
+        const FileSystem::StatBuf* theStatPtr     = 0;
         string                     theName;
-        string                     theTrashPrefix;
+        string                     theTrashPrefix = mHomePrefix + "/";
+        const size_t               theLen         = theTrashPrefix.length();
         for (; ;) {
             theName.clear();
             if ((theStatus = mFs.Next(
@@ -224,7 +230,7 @@ public:
                 if (inErrorHandlerPtr) {
                     theStatus = (*inErrorHandlerPtr)(mHomePrefix, theStatus);
                 }
-                if (theStatus != 0) {
+                if (theStatus != 0 || theName.empty()) {
                     break;
                 }
                 continue;
@@ -235,7 +241,11 @@ public:
             if (theName == "." || theName == "..") {
                 continue;
             }
-            theTrashPrefix = mHomePrefix  + theName + "/" + mTrash   + "/";
+            theTrashPrefix.resize(theLen);
+            theTrashPrefix += theName;
+            theTrashPrefix += "/";
+            theTrashPrefix += mTrash;
+            theTrashPrefix +=  "/";
             theStatus = ExpungeSelf(inErrorHandlerPtr, theTrashPrefix);
             if (theStatus != 0) {
                 break;
@@ -269,7 +279,7 @@ private:
         }
         string thePath;
         if (*inPath.begin() == '/') {
-            mPath.Set(inPath.c_str(), inPath.length());
+            thePath = inPath;
         } else {
             if (mFs.GetCwd(thePath) != 0 || thePath.empty()) {
                 thePath.clear();
@@ -279,12 +289,14 @@ private:
                 thePath += "/";
             }
             thePath += inPath;
-            mPath.Set(thePath.c_str(), thePath.length());
         }
+        mPath.Set(thePath.c_str(), thePath.length());
         if (inPathDepthPtr) {
             *inPathDepthPtr = mPath.size();
         }
-        thePath = mPath.NormPath();
+        if (! mPath.IsNormalized()) {
+            thePath = mPath.NormPath();
+        }
         mPath.Clear();
         return thePath;
     }
@@ -358,7 +370,7 @@ private:
         struct tm     theLocalTime = {0};
         if (! localtime_r(&theTime, &theLocalTime) ||
                 strftime(theBuf, sizeof(theBuf) / sizeof(theBuf[0]),
-                    "%y%M%d%H%M", &theLocalTime) <= 0) {
+                    kTrashCheckpointFormatPtr, &theLocalTime) <= 0) {
             const int theErr = errno;
             return (theErr < 0 ? theErr : (theErr == 0 ? -EFAULT : theErr));
         }
@@ -416,43 +428,40 @@ private:
                     theStatus = (*inErrorHandlerPtr)(
                         inTrashPrefix + theName, theStatus);
                 }
-                if (theStatus != 0) {
+                if (theStatus != 0 || theName.empty()) {
                     break;
                 }
-                continue;
-            }
-            if (! theStatPtr || ! S_ISDIR(theStatPtr->st_mode)) {
                 continue;
             }
             if (theName.empty()) {
                 break;
             }
+            if (! theStatPtr || ! S_ISDIR(theStatPtr->st_mode)) {
+                continue;
+            }
             if (theName == "." || theName == "..") {
                 continue;
             }
-            const size_t kTimeStampLen = size_t(2) * 5;
+            const char* const theNamePtr    = theName.c_str();
+            const size_t      kTimeStampLen = size_t(2) * 5;
             if (theName.length() != kTimeStampLen &&
-                    (theName.length() < 2 * 5 ||
-                    theName[kTimeStampLen] != '.')) {
+                    (theName.length() < kTimeStampLen ||
+                    theNamePtr[kTimeStampLen] != '.')) {
                 continue;
             }
-            struct tm   theLocalTime = { 0 };
-            const char* thePtr       = theName.c_str();
-            if (
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_year) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mon ) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_mday) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_hour) ||
-                    ! DecIntParser::Parse(thePtr, 2, theLocalTime.tm_min)) {
-                continue;
-            }
-            const time_t theTime = mktime(&theLocalTime);
-            if (theTime == time_t(-1)) {
+            struct tm         theLocalTime = { 0 };
+            const char* const thePtr       = strptime(
+                theNamePtr, kTrashCheckpointFormatPtr, &theLocalTime);
+            if (! thePtr || thePtr != theNamePtr + kTimeStampLen) {
                 continue;
             }
             if (theSetExpFlag) {
                 theExpTime    = time(0) - mEmptierIntervalSec;
                 theSetExpFlag = false;
+            }
+            const time_t theTime = mktime(&theLocalTime);
+            if (theTime == time_t(-1)) {
+                continue;
             }
             if (theExpTime < theTime) {
                 continue;

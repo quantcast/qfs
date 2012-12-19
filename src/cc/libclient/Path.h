@@ -79,11 +79,13 @@ public:
     size_t size()     const { return mComponents.size(); }
     bool empty()      const { return mComponents.empty(); }
     const Token& operator[](size_t i) const { return mComponents[i]; }
-    bool IsDir()      const  { return mDirFlag; }
+    bool IsDir()        const { return mDirFlag; }
+    bool IsNormalized() const { return mNormalizedFlag; }
 private:
     Components mComponents;
     Components mNormComponents;
     bool       mDirFlag;
+    bool       mNormalizedFlag;
 
     string ToString(const Path::Components& comps) const;
 

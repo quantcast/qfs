@@ -31,6 +31,7 @@
 #include "common/Properties.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
+#include "libclient/Path.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -70,6 +71,8 @@ using std::flush;
 using std::left;
 using std::right;
 using std::make_pair;
+
+using client::Path;
 
 const string kDefaultCreateParams("S"); // RS 6+3 64K stripe
 
@@ -590,10 +593,12 @@ private:
         int          inArgCount,
         ostream&     inErrorStream,
         GlobResult&  outResult,
-        bool&        outMoreThanOneFsFlag)
+        bool&        outMoreThanOneFsFlag,
+        bool         inNormalizeFlag = true)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
-        int theRet = 0;
+        int  theRet = 0;
+        Path theFsPath;
         outMoreThanOneFsFlag = false;
         for (int i = 0; i < inArgCount; i++) {
             const string theArg   = inArgsPtr[i];
@@ -641,7 +646,13 @@ private:
                     theResult = outResult.back().second;
                 theResult.reserve(theGlobRes.gl_pathc);
                 for (size_t i = 0; i < theGlobRes.gl_pathc; i++) {
-                    theResult.push_back(thePrefix + theGlobRes.gl_pathv[i]);
+                    string theName = thePrefix + theGlobRes.gl_pathv[i];
+                    if (inNormalizeFlag &&
+                            theFsPath.Set(theName.c_str(), theName.length()) &&
+                            ! theFsPath.IsNormalized()) {
+                        theName = theFsPath.NormPath();
+                    }
+                    theResult.push_back(theName);
                 }
             } else {
                 inErrorStream << inArgsPtr[i] << ": " << GlobError(theErr) <<

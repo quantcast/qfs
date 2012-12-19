@@ -189,7 +189,9 @@ public:
             group != kKfsGroupNone
         );
     }
-    bool IsSticky() const { return (mode & kStickyBit); }
+    bool IsSticky() const {
+        return (mode != kKfsModeUndef && mode & kStickyBit);
+    }
     void SetSticky(bool flag)
     {
         if (flag) {

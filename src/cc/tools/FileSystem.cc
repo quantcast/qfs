@@ -41,6 +41,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <glob.h>
+#include <pwd.h>
 
 #include <boost/regex.hpp>
 #include <map>
@@ -653,6 +654,30 @@ public:
         }
         return RetErrno(errno);
     }
+    virtual int GetHomeDirectory(
+        string& outHomeDir)
+    {
+        outHomeDir.clear();
+        const long theBufSize = sysconf(_SC_GETPW_R_SIZE_MAX);
+        if (theBufSize < 0) {
+            return RetErrno(errno);
+        }
+        StBufferT<char, 1> theBuf;
+        char* const        theBufPtr = theBuf.Resize(theBufSize);
+        struct passwd      thePwd    = {0};
+        struct passwd*     thePwdPtr = 0;
+        if (getpwuid_r(
+                    getuid(),
+                    &thePwd,
+                    theBufPtr,
+                    (size_t)theBufSize,
+                    &thePwdPtr
+                ) != 0 || ! thePwdPtr || ! thePwdPtr->pw_dir) {
+            return RetErrno(errno);
+        }
+        outHomeDir = thePwdPtr->pw_dir;
+        return 0;
+    }
 private:
     static int RetErrno(
         int inErrno)
@@ -1056,6 +1081,18 @@ public:
         int inError) const
     {
         return ErrorCodeToStr(inError);
+    }
+    virtual int GetHomeDirectory(
+        string& outHomeDir)
+    {
+        string theUserName;
+        const int theStatus = GetUserName(theUserName);
+        if (theStatus != 0) {
+            outHomeDir.clear();
+            return theStatus;
+        }
+        outHomeDir = "/user/" + theUserName;
+        return theStatus;
     }
 private:
     KfsFileSystem(
