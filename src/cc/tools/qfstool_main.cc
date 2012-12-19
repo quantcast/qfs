@@ -158,11 +158,12 @@ public:
             ShortHelp(cerr);
             return 1;
         }
-        int       theArgCnt    = inArgCount - theArgIndex;
-        char**    theArgsPtr   = inArgsPtr + theArgIndex;
-        int       theErr       = 0;
-        bool      theChgrpFlag = false;
-        bool      theMoveFlag  = false;
+        int    theArgCnt        = inArgCount - theArgIndex;
+        char** theArgsPtr       = inArgsPtr + theArgIndex;
+        int    theErr           = 0;
+        bool   theChgrpFlag     = false;
+        bool   theMoveFlag      = false;
+        bool   theRecursiveFlag = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -205,9 +206,10 @@ public:
             }
         } else if (strcmp(theCmdPtr, "get") == 0 ||
                 strcmp(theCmdPtr, "copyToLocal") == 0) {
-            if (theArgCnt >=2 && strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
+            if (theArgCnt >= 2 && strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
                 theErr = Cat(theArgsPtr, theArgCnt - 1);
             } else {
+                theMoveFlag = false;
                 theErr = CopyToLocal(theArgsPtr, theArgCnt, theMoveFlag, cerr);
             }
         } else if (strcmp(theCmdPtr, "mv") == 0) {
@@ -359,6 +361,21 @@ public:
                 ShortHelp(cerr, "Usage: ", theCmdPtr);
             } else {
                 theErr = Tail(theArgsPtr, theArgCnt, theFollowFlag);
+            }
+        } else if (strcmp(theCmdPtr, "rm") == 0 ||
+                (theRecursiveFlag = strcmp(theCmdPtr, "rmr") == 0)) {
+            bool theSkipTrashFlag = theArgCnt > 0 &&
+                strcmp(theArgsPtr[0], "-skipTrash") == 0;
+            if (theSkipTrashFlag) {
+                theArgsPtr++;
+                theArgCnt--;
+            }
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = Remove(theArgsPtr, theArgCnt,
+                    theSkipTrashFlag, theRecursiveFlag);
             }
         } else if (strcmp(theCmdPtr, "expunge") == 0) {
             if (theArgCnt > 0) {
@@ -1144,6 +1161,14 @@ private:
         FunctorT& operator=(
             const FunctorT& inFunctor);
     };
+    template <typename FuncT> int ApplyT(
+        char** inArgsPtr,
+        int    inArgCount,
+        FuncT& inFunctor)
+    {
+        FunctorT<FuncT> theFunc(inFunctor, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
     class ChownFunctor
     {
     public:
@@ -1214,10 +1239,9 @@ private:
         const char* inGroupNamePtr,
         bool        inRecursiveFlag)
     {
-        ChownFunctor           theChownFunc(
+        ChownFunctor theChownFunc(
             inUserNamePtr, inGroupNamePtr, inRecursiveFlag);
-        FunctorT<ChownFunctor> theFunc(theChownFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        return ApplyT(inArgsPtr, inArgCount, theChownFunc);
     }
     class ChmodFunctor
     {
@@ -1397,8 +1421,7 @@ private:
                 (inModePtr ? inModePtr : "") << "\n";
             return theStatus;
         }
-        FunctorT<ChmodFunctor> theFunc(theChmodFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        return ApplyT(inArgsPtr, inArgCount, theChmodFunc);
     }
     class MkdirFunctor
     {
@@ -1431,9 +1454,8 @@ private:
         kfsMode_t inMode,
         bool      inCreateAllFlag)
     {
-        MkdirFunctor           theMkdirFunc(inMode, inCreateAllFlag);
-        FunctorT<MkdirFunctor> theFunc(theMkdirFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        MkdirFunctor theMkdirFunc(inMode, inCreateAllFlag);
+        return ApplyT(inArgsPtr, inArgCount, theMkdirFunc);
     }
     template<bool TDestDirFlag = false, bool TDestDirDestFlag = false>
     class GetGlobLastEntry
@@ -2433,9 +2455,8 @@ private:
         int                   inArgCount,
         DiskUtilizationFormat inFormat)
     {
-        DiskUtilizationFunctor           theDuFunc(inFormat, cout);
-        FunctorT<DiskUtilizationFunctor> theFunc(theDuFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        DiskUtilizationFunctor theDuFunc(inFormat, cout);
+        return ApplyT(inArgsPtr, inArgCount, theDuFunc);
     }
     int DiskUtilizationBytes(
         char**                inArgsPtr,
@@ -2543,9 +2564,8 @@ private:
         int    inArgCount,
         bool   inShowQuotaFlag)
     {
-        CountFunctor           theCountFunc(inShowQuotaFlag, cout);
-        FunctorT<CountFunctor> theFunc(theCountFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        CountFunctor theCountFunc(inShowQuotaFlag, cout);
+        return ApplyT(inArgsPtr, inArgCount, theCountFunc);
     }
     class TouchzFunctor
     {
@@ -2609,9 +2629,8 @@ private:
         char** inArgsPtr,
         int    inArgCount)
     {
-        TouchzFunctor           theTouchzFunc;
-        FunctorT<TouchzFunctor> theFunc(theTouchzFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        TouchzFunctor theTouchzFunc;
+        return ApplyT(inArgsPtr, inArgCount, theTouchzFunc);
     }
     class SetModTimeFunctor
     {
@@ -2643,9 +2662,8 @@ private:
         int     inArgCount,
         int64_t inModTimeMs)
     {
-        SetModTimeFunctor           theSetTimeFunc(inModTimeMs);
-        FunctorT<SetModTimeFunctor> theFunc(theSetTimeFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        SetModTimeFunctor theSetTimeFunc(inModTimeMs);
+        return ApplyT(inArgsPtr, inArgCount, theSetTimeFunc);
     }
     int Test(
         char** inArgsPtr,
@@ -3016,9 +3034,8 @@ private:
         int         inArgCount,
         const char* inFormatPtr)
     {
-        StatFunctor           theStatFunc(inFormatPtr, cout);
-        FunctorT<StatFunctor> theFunc(theStatFunc, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        StatFunctor theStatFunc(inFormatPtr, cout);
+        return ApplyT(inArgsPtr, inArgCount, theStatFunc);
     }
     class TailFunctor
     {
@@ -3153,6 +3170,90 @@ private:
         Trash         theTrash(*theFsPtr, mConfig, "trash.");
         return theTrash.Expunge(&theErrorReporter);
     }
+    class RemoveFunctor
+    {
+    public:
+        RemoveFunctor(
+            bool              inSkipTrashFlag,
+            bool              inRecursiveFlag,
+            ostream*          inProgressStreamPtr,
+            const Properties& inConfig)
+            : mSkipTrashFlag(inSkipTrashFlag),
+              mRecursiveFlag(inRecursiveFlag),
+              mProgressStreamPtr(inProgressStreamPtr),
+              mConfig(inConfig),
+              mTrashPtr(0),
+              mFsPtr(0),
+              mStat(),
+              mMessage()
+            {}
+        ~RemoveFunctor()
+        {
+            delete mTrashPtr;
+        }
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            if (mSkipTrashFlag) {
+                return inFs.Remove(inPath, mRecursiveFlag, &inErrorReporter);
+            }
+            if (! mRecursiveFlag) {
+                const int theStatus = inFs.Stat(inPath, mStat);
+                if (theStatus != 0) {
+                    return theStatus;
+                }
+                if (S_ISDIR(mStat.st_mode)) {
+                    inErrorReporter(inPath,
+                        "is directory. Please use -rmr to remove directories.");
+                    return -EISDIR;
+                }
+            }
+            if (mFsPtr != &inFs || ! mTrashPtr) {
+                delete mTrashPtr;
+                mTrashPtr = new Trash(inFs, mConfig, "trash."); 
+            }
+            bool theMovedFlag = false;
+            mMessage.clear();
+            const int theStatus = mTrashPtr->MoveTo(
+                inPath, theMovedFlag, &mMessage);
+            if (theMovedFlag && mProgressStreamPtr) {
+                (*mProgressStreamPtr) << "Moved to trash: " <<
+                    inFs.GetUri() << inPath << "\n";
+            }
+            if (! mMessage.empty()) {
+                inErrorReporter(inPath, mMessage.c_str());
+            }
+            mMessage.clear();
+            return theStatus;
+        }
+    private:
+        const bool          mSkipTrashFlag;
+        const bool          mRecursiveFlag;
+        ostream* const      mProgressStreamPtr;
+        const Properties&   mConfig; 
+        Trash*              mTrashPtr;
+        FileSystem*         mFsPtr;
+        FileSystem::StatBuf mStat;
+        string              mMessage;
+
+    private:
+        RemoveFunctor(
+            const RemoveFunctor& inFunctor);
+        RemoveFunctor& operator=(
+            const RemoveFunctor& inFunctor);
+    };
+    int Remove(
+        char** inArgsPtr,
+        int    inArgCount,
+        bool   inSkipTrashFlag,
+        bool   inRecursiveFlag)
+    {
+        RemoveFunctor theRemoveFunc(
+            inSkipTrashFlag, inRecursiveFlag, &cout, mConfig);
+        return ApplyT(inArgsPtr, inArgCount, theRemoveFunc);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -3258,7 +3359,8 @@ const char* const KfsTool::sHelpStrings[] =
     "get", "[-ignoreCrc] [-crc] <src> <localdst>",
     "Copy files that match the file pattern <src>\n\t\t"
     "to the local name.  <src> is kept.  When copying mutiple,\n\t\t"
-    "files, the destination must be a directory.\n",
+    "files, the destination must be a directory.\n\t\t"
+    "-crc option is not implemented yet.\n",
 /*
     "getmerge", "<src> <localdst>",
     "Get all the files in the directories that\n\t\t"
@@ -3270,7 +3372,8 @@ const char* const KfsTool::sHelpStrings[] =
     "and display their content on stdout.\n",
 
     "copyToLocal", "[-ignoreCrc] [-crc] <src> <localdst>",
-    "Identical to the -get command.\n",
+    "Identical to the -get command.\n\t\t",
+    "-crc option is not implemented yet\n",
 
     "moveToLocal", "<src> <localdst>",
     "Not implemented yet\n",
@@ -3352,7 +3455,7 @@ const char* const KfsTool::sHelpStrings[] =
     "expunge", "",
     "Expunge user's trash by deleting all trash checkpoints except the\n\t\t"
     "most recent one.\n",
-    
+
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"
     "is specified.\n",
