@@ -329,13 +329,9 @@ public:
 #else
             theDirFlag = thePtr->d_type == DT_DIR;
 #endif
-            if (theDirFlag) {
-                theRet = RecursivelyApplySelf(inPath, inFunctor);
-                if (theRet != 0) {
-                    break;
-                }
-            }
-            theRet = inFunctor(inPath, theDirFlag, 0);
+            theRet = theDirFlag ?
+                RecursivelyApplySelf(inPath, inFunctor) :
+                inFunctor(inPath, theDirFlag, 0);
             if (theRet != 0) {
                 break;
             }
@@ -357,7 +353,7 @@ public:
             string thePath;
             thePath.reserve(MAX_PATH_NAME_LENGTH);
             thePath.assign(inPath.data(), inPath.length());
-            RecursivelyApplySelf(thePath, inFunctor);
+            return RecursivelyApplySelf(thePath, inFunctor);
         }
         return inFunctor(inPath, false);
     }

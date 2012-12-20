@@ -43,7 +43,7 @@ namespace tools
 using std::string;
 using KFS::client::Path;
 
-const char* const kTrashCheckpointFormatPtr = "%y%M%d%H%M";
+const char* const kTrashCheckpointFormatPtr = "%y%m%d%H%M";
 
 class Trash::Impl
 {
@@ -187,6 +187,7 @@ public:
                 break;
             }
             if ((theStatus = mFs.Rename(thePath, theDest)) == 0) {
+                outMovedFlag = true;
                 break;
             }
             theDest.resize(theDestLen);
