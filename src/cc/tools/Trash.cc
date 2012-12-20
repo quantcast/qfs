@@ -62,7 +62,8 @@ public:
           mDirMode(0700),
           mStatus(0),
           mRetryCount(2),
-          mMinPathDepth(4)
+          mMinPathDepth(4),
+          mCreateAltDirFlag(false)
     {
         Impl::SetParameters(inProps, inPrefix);
     }
@@ -82,6 +83,8 @@ public:
             inPrefix + "emptierIntervalSec", mEmptierIntervalSec);
         mMinPathDepth = inProperties.getValue(
             inPrefix + "minPathDepth", mMinPathDepth);
+        mCreateAltDirFlag = inProperties.getValue(
+            inPrefix + "createAltDir", mCreateAltDirFlag ? 1 : 0) != 0;
         const bool theForceRemoveFlag = strcmp(inProperties.getValue(
             "dfs.force.remove", "false"), "true") == 0;
         if (theForceRemoveFlag) {
@@ -265,6 +268,7 @@ private:
     int         mStatus;
     int         mRetryCount;
     int         mMinPathDepth;
+    bool        mCreateAltDirFlag;
 
     string NormPath(
         const string& inPath,
@@ -339,16 +343,22 @@ private:
                     theCurPtr[0] == '.' && theCurPtr[1] == '.') {
                 continue;
             }
-            int theErr;
+            int theErr = 0;
             for (int i = 0; ;) {
-                int theErr = mFs.Stat(theDirName, theStat);
+                theErr = mFs.Stat(theDirName, theStat);
                 if (theErr != 0 || S_ISDIR(theStat.st_mode) ||
                         theDirName.length() <= theMinPrefixLen) {
                     break;
                 }
+                if (! mCreateAltDirFlag) {
+                    return -ENOTDIR;
+                }
                 ostringstream theOs;
                 theOs << "." << ++i;
                 theDirName += theOs.str();
+            }
+            if (theErr == 0) {
+                continue;
             }
             const bool kCreateAllFlag = false;
             if ((theErr = mFs.Mkdir(
