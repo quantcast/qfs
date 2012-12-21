@@ -205,7 +205,7 @@ public:
         ErrorHandler* inErrorHandlerPtr)
     {
         const int theStatus = ExpungeSelf(inErrorHandlerPtr, mTrashPrefix);
-        int       theErr    = Checkpoint();
+        int       theErr    = Checkpoint(inErrorHandlerPtr, mTrashPrefix);
         if (inErrorHandlerPtr && theErr != 0) {
             theErr = (*inErrorHandlerPtr)(mCurrentTrashPrefix, theErr);
         }
@@ -246,7 +246,8 @@ public:
             if (theName.empty()) {
                 break;
             }
-            if (theName == "." || theName == "..") {
+            if (theName == "." || theName == ".." ||
+                    ! theStatPtr || ! S_ISDIR(theStatPtr->st_mode)) {
                 continue;
             }
             theTrashPrefix.resize(theLen);
@@ -254,8 +255,10 @@ public:
             theTrashPrefix += "/";
             theTrashPrefix += mTrash;
             theTrashPrefix +=  "/";
-            theStatus = ExpungeSelf(inErrorHandlerPtr, theTrashPrefix);
-            if (theStatus != 0) {
+            if ((theStatus = ExpungeSelf(
+                    inErrorHandlerPtr, theTrashPrefix)) != 0 ||
+                    (theStatus = Checkpoint(
+                        inErrorHandlerPtr, theTrashPrefix)) != 0) {
                 break;
             }
         }
@@ -379,7 +382,9 @@ private:
         ioPath = theDirName;
         return 0;
     }
-    int Checkpoint()
+    int Checkpoint(
+        ErrorHandler* inErrorHandlerPtr,
+        const string& inTrashPrefix)
     {
         char   theBuf[128];
         const  time_t theTime      = time(0);
@@ -387,14 +392,23 @@ private:
         if (! localtime_r(&theTime, &theLocalTime) ||
                 strftime(theBuf, sizeof(theBuf) / sizeof(theBuf[0]),
                     kTrashCheckpointFormatPtr, &theLocalTime) <= 0) {
-            const int theErr = errno;
-            return (theErr < 0 ? theErr : (theErr == 0 ? -EFAULT : theErr));
+            int theErr = errno;
+            if (theErr > 0) {
+                theErr = -theErr;
+            } else if (theErr == 0) {
+                theErr = -EFAULT;
+            }
+            if (inErrorHandlerPtr) {
+                theErr = (*inErrorHandlerPtr)(inTrashPrefix, theErr);
+            }
+            return theErr;
         }
-        string theCheckpointDir = mTrashPrefix + theBuf;
-        size_t theLen           = theCheckpointDir.length();
-        int    theStatus        = 0;
+        const string theCurrentTrashDir = inTrashPrefix + mCurrent;
+        string       theCheckpointDir   = inTrashPrefix + theBuf;
+        size_t       theLen             = theCheckpointDir.length();
+        int          theStatus          = 0;
         for (int k = 0; ;) {
-            int theStatus = mFs.Rename(mCurrentTrashPrefix, theCheckpointDir);
+            int theStatus = mFs.Rename(theCurrentTrashDir, theCheckpointDir);
             if (theStatus == 0 || theStatus != -EEXIST) {
                 break;
             }
@@ -405,10 +419,13 @@ private:
         }
         if (theStatus == -ENOENT) {
             FileSystem::StatBuf theStat;
-            const int theErr = mFs.Stat(mCurrentTrashPrefix, theStat);
+            const int theErr = mFs.Stat(theCurrentTrashDir, theStat);
             if (theErr == -ENOENT) {
                 theStatus = 0;
             }
+        }
+        if (theStatus < 0 && inErrorHandlerPtr) {
+            theStatus = (*inErrorHandlerPtr)(theCheckpointDir, theStatus);
         }
         return theStatus;
     }
