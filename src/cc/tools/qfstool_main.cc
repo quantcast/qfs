@@ -1071,8 +1071,11 @@ private:
                 mOutStream << inFs.GetUri();
             }
             mOutStream << inEntry.mPath;
+            if (inEntry.mPath != "/") {
+                mOutStream << "/";
+            }
             if (! inEntry.mName.empty()) {
-                mOutStream << "/" << inEntry.mName;
+                mOutStream << inEntry.mName;
             }
             mOutStream << "\n";
         }
