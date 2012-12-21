@@ -3412,7 +3412,7 @@ const char* const KfsTool::sHelpStrings[] =
     "and display their content on stdout.\n",
 
     "copyToLocal", "[-ignoreCrc] [-crc] <src> <localdst>",
-    "Identical to the -get command.\n\t\t",
+    "Identical to the -get command.\n\t\t"
     "-crc option is not implemented yet\n",
 
     "moveToLocal", "<src> <localdst>",
@@ -3496,7 +3496,7 @@ const char* const KfsTool::sHelpStrings[] =
     "Expunge user's trash by deleting all trash checkpoints except the\n\t\t"
     "most recent one.\n",
 
-    "runEmptier", "[interval in seconds]"
+    "runEmptier", "[interval in seconds]",
     "run trash emptier forever",
 
     "help", "[cmd]",
