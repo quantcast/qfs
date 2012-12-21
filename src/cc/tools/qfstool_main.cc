@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <sstream>
 
 namespace KFS
 {
@@ -75,6 +76,7 @@ using std::make_pair;
 using client::Path;
 
 const string kDefaultCreateParams("S"); // RS 6+3 64K stripe
+const string kTrashCfgPrefix("fs.trash.");
 
 class KfsTool
 {
@@ -383,6 +385,25 @@ public:
                 ShortHelp(cerr);
             } else {
                 theErr = Expunge();
+            }
+        } else if (strcmp(theCmdPtr, "runEmptier") == 0) {
+            if (theArgCnt > 0) {
+                char* theEndPtr = 0;
+                const long theInterval = strtol(theArgsPtr[0], &theEndPtr, 0);
+                if (theEndPtr && (*theEndPtr & 0xFF) <= ' ') {
+                    if (theInterval > 0) {
+                        mConfig.setValue(
+                            kTrashCfgPrefix + "interval", theArgsPtr[0]);
+                    }
+                    theArgCnt--;
+                    theArgsPtr++;
+                }
+            }
+            if (theArgCnt > 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr);
+            } else {
+                theErr = RunEmptier();
             }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
@@ -3167,7 +3188,7 @@ private:
             return theStatus;
         }
         ErrorReporter theErrorReporter(*theFsPtr, cerr);
-        Trash         theTrash(*theFsPtr, mConfig, "trash.");
+        Trash         theTrash(*theFsPtr, mConfig, kTrashCfgPrefix);
         return theTrash.Expunge(&theErrorReporter);
     }
     class RemoveFunctor
@@ -3206,13 +3227,13 @@ private:
                 }
                 if (S_ISDIR(mStat.st_mode)) {
                     inErrorReporter(inPath,
-                        "is directory. Please use -rmr to remove directories.");
+                        "Please use -rmr to remove directories.");
                     return -EISDIR;
                 }
             }
             if (mFsPtr != &inFs || ! mTrashPtr) {
                 delete mTrashPtr;
-                mTrashPtr = new Trash(inFs, mConfig, "trash."); 
+                mTrashPtr = new Trash(inFs, mConfig, kTrashCfgPrefix); 
             }
             bool theMovedFlag = false;
             mMessage.clear();
@@ -3253,6 +3274,25 @@ private:
         RemoveFunctor theRemoveFunc(
             inSkipTrashFlag, inRecursiveFlag, &cout, mConfig);
         return ApplyT(inArgsPtr, inArgCount, theRemoveFunc);
+    }
+    int RunEmptier()
+    {
+        FileSystem* theFsPtr = 0;
+        int theStatus = FileSystem::Get(string(), theFsPtr);
+        if (theStatus || ! theFsPtr) {
+            cerr << FileSystem::GetStrError(theStatus) << "\n";
+            return theStatus;
+        }
+        ErrorReporter theErrorReporter(*theFsPtr, cerr);
+        Trash         theTrash(*theFsPtr, mConfig, kTrashCfgPrefix);
+        while ((theStatus = theTrash.RunEmptier(&theErrorReporter) == 0)) {
+            const int theInterval = theTrash.GetEmptierIntervalSec();
+            if (theInterval <= 0) {
+                break;
+            }
+            sleep(theInterval);
+        }
+        return theStatus;
     }
 private:
     size_t const mIoBufferSize;
@@ -3455,6 +3495,9 @@ const char* const KfsTool::sHelpStrings[] =
     "expunge", "",
     "Expunge user's trash by deleting all trash checkpoints except the\n\t\t"
     "most recent one.\n",
+
+    "runEmptier", "[interval in seconds]"
+    "run trash emptier forever",
 
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"

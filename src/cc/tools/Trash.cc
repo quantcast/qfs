@@ -31,6 +31,7 @@
 #include "libclient/Path.h"
 
 #include <string>
+#include <sstream>
 
 #include <errno.h>
 #include <unistd.h>
@@ -41,6 +42,7 @@ namespace KFS
 namespace tools
 {
 using std::string;
+using std::ostringstream;
 using KFS::client::Path;
 
 const char* const kTrashCheckpointFormatPtr = "%y%m%d%H%M";
@@ -62,7 +64,7 @@ public:
           mDirMode(0700),
           mStatus(0),
           mRetryCount(2),
-          mMinPathDepth(4),
+          mMinPathDepth(5),
           mCreateAltDirFlag(false)
     {
         Impl::SetParameters(inProps, inPrefix);
@@ -78,9 +80,9 @@ public:
         mTrash   = inProperties.getValue(
             inPrefix + "trash", mTrash);
         mHomePrefix = inProperties.getValue(
-            inPrefix + "homePrefix", mHomePrefix);
+            inPrefix + "homesPrefix", mHomePrefix);
         mEmptierIntervalSec = inProperties.getValue(
-            inPrefix + "emptierIntervalSec", mEmptierIntervalSec);
+            inPrefix + "interval", mEmptierIntervalSec);
         mMinPathDepth = inProperties.getValue(
             inPrefix + "minPathDepth", mMinPathDepth);
         mCreateAltDirFlag = inProperties.getValue(
@@ -129,17 +131,22 @@ public:
         }
         if ((int)thePathDepth < mMinPathDepth) {
             if (inErrMsgPtr) {
-                *inErrMsgPtr = "Path dept is too small."
+                ostringstream theOs;
+                theOs << mMinPathDepth;
+                *inErrMsgPtr = "Path dept is below the limit of " +
+                    theOs.str() + "."
                     " Please use -D dfs.force.remove=true";
             }
             return -EPERM;
         }
-        thePath += "/";
+        if (*thePath.rbegin() != '/') {
+            thePath += "/";
+        }
         if (thePath.length() <= mTrashPrefix.length()) {
             if (mTrashPrefix.compare(0, thePath.length(), thePath) == 0) {
                 if (inErrMsgPtr) {
                     *inErrMsgPtr = "Cannot move \"" + inPath +
-                        "\" to the trash, as it contains the trash";
+                        "\" to the trash, as it contains the trash.";
                 }
                 return -EINVAL;
             }
@@ -255,6 +262,8 @@ public:
         mFs.Close(theDirIt);
         return theStatus;
     }
+    int GetEmptierIntervalSec() const
+        { return mEmptierIntervalSec; }
 
 private:
     FileSystem& mFs;
@@ -543,6 +552,12 @@ Trash::RunEmptier(
     ErrorHandler* inErrorHandlerPtr)
 {
     return mImpl.RunEmptier(inErrorHandlerPtr);
+}
+
+    int
+Trash::GetEmptierIntervalSec() const
+{
+    return mImpl.GetEmptierIntervalSec();
 }
 
 }

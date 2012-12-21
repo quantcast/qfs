@@ -58,6 +58,7 @@ public:
     bool IsEnabled() const;
     int RunEmptier(
         ErrorHandler* inErrorHandlerPtr = 0);
+    int GetEmptierIntervalSec() const;
 private:
     class Impl;
     Impl& mImpl;
