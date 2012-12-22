@@ -630,7 +630,7 @@ private:
         ostream&     inErrorStream,
         GlobResult&  outResult,
         bool&        outMoreThanOneFsFlag,
-        bool         inNormalizeFlag = true)
+        bool         inNormalizePathFlag = true)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
         int  theRet = 0;
@@ -683,7 +683,7 @@ private:
                 theResult.reserve(theGlobRes.gl_pathc);
                 for (size_t i = 0; i < theGlobRes.gl_pathc; i++) {
                     string theName = thePrefix + theGlobRes.gl_pathv[i];
-                    if (inNormalizeFlag &&
+                    if (inNormalizePathFlag &&
                             theFsPath.Set(theName.c_str(), theName.length()) &&
                             ! theFsPath.IsNormalized()) {
                         theName = theFsPath.NormPath();
@@ -704,7 +704,8 @@ private:
     template <typename FuncT> int Apply(
         char** inArgsPtr,
         int    inArgCount,
-        FuncT& inFunctor)
+        FuncT& inFunctor,
+        bool   inNormalizePathFlag = true)
     {
         char  theArg[1]     = { 0 };
         char* theArgsPtr[1] = { theArg };
@@ -714,7 +715,10 @@ private:
             inArgCount <= 0 ? theArgsPtr : inArgsPtr,
             inArgCount <= 0 ? 1 : inArgCount,
             cerr,
-            theResult, theMoreThanOneFsFlag);
+            theResult,
+            theMoreThanOneFsFlag,
+            inNormalizePathFlag
+        );
         return Apply(theResult, theMoreThanOneFsFlag, theErr, inFunctor);
     }
     template <typename FuncT> int Apply(
@@ -1198,10 +1202,11 @@ private:
     template <typename FuncT> int ApplyT(
         char** inArgsPtr,
         int    inArgCount,
-        FuncT& inFunctor)
+        FuncT& inFunctor,
+        bool   inNormalizePathFlag = true)
     {
         FunctorT<FuncT> theFunc(inFunctor, cerr);
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        return Apply(inArgsPtr, inArgCount, theFunc, inNormalizePathFlag);
     }
     class ChownFunctor
     {
@@ -1489,7 +1494,8 @@ private:
         bool      inCreateAllFlag)
     {
         MkdirFunctor theMkdirFunc(inMode, inCreateAllFlag);
-        return ApplyT(inArgsPtr, inArgCount, theMkdirFunc);
+        const bool   kNormalizePathFlag = false;
+        return ApplyT(inArgsPtr, inArgCount, theMkdirFunc, kNormalizePathFlag);
     }
     template<bool TDestDirFlag = false, bool TDestDirDestFlag = false>
     class GetGlobLastEntry
