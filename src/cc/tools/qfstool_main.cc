@@ -29,6 +29,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "libclient/Path.h"
@@ -66,7 +67,6 @@ using std::map;
 using std::pair;
 using std::max;
 using std::ostream;
-using std::ostringstream;
 using std::setw;
 using std::flush;
 using std::left;
@@ -930,11 +930,11 @@ private:
             }
             if (mRecursionCount == 0 ||
                     mDirListEntries.size() > (size_t(32) << 10)) {
-                ostringstream theStream;
-                theStream << mMaxFileSize;
-                mFileSizeWidth = theStream.str().length();
-                theStream << mMaxReplicas;
-                mReplicasWidth = theStream.str().length() - mFileSizeWidth;
+                char* const theEndPtr = mTmBuf + kTmBufLen;
+                mFileSizeWidth = theEndPtr - IntToDecString(
+                    mMaxFileSize, theEndPtr);
+                mReplicasWidth = theEndPtr - IntToDecString(
+                    mMaxReplicas, theEndPtr);
                 for (DirListEntries::const_iterator
                         theIt = mDirListEntries.begin();
                         theIt != mDirListEntries.end() && mOutStream;
@@ -1127,7 +1127,8 @@ private:
         bool operator()(
             int&              /* ioGlobError */,
             const GlobResult& /* inGlobResult */,
-            ostream&          /* inErrorStream */)
+            ostream&          /* inErrorStream */,
+            bool              /* inMoreThanOneFsFlag */)
             { return true; }
     private:
         DefaultInitFunctor(
@@ -1151,12 +1152,23 @@ private:
               mErrorStream(inErrorStream),
               mStatus(0)
             {}
+        template<typename InitFuncArgT>
+        FunctorT(
+            T&            inFunctor,
+            ostream&      inErrorStream,
+            InitFuncArgT& inInitFuncArg)
+            : mFunctor(inFunctor),
+              mInitFunctor(inInitFuncArg),
+              mErrorStream(inErrorStream),
+              mStatus(0)
+            {}
         bool Init(
             int&        ioGlobError,
             GlobResult& inGlobResult,
-            bool        /* inMoreThanOneFsFlag */)
+            bool        inMoreThanOneFsFlag)
         {
-            return mInitFunctor(ioGlobError, inGlobResult, mErrorStream);
+            return mInitFunctor(ioGlobError, inGlobResult, mErrorStream,
+                inMoreThanOneFsFlag);
         }
         bool Apply(
             FileSystem&   inFs,
@@ -1502,7 +1514,8 @@ private:
         bool operator()(
             int&        ioGlobError,
             GlobResult& inGlobResult,
-            ostream&    inErrorStream)
+            ostream&    inErrorStream,
+            bool        /* inMoreThanOneFsFlag */ )
         {
             if (inGlobResult.size() <= 1 &&
                     inGlobResult.back().second.size() <= 1) {
@@ -1895,7 +1908,6 @@ private:
               mBufferSize(mOwnsBufferFlag ? (6 << 20) : inBufferSize),
               mBufferPtr(mOwnsBufferFlag ? new char[mBufferSize] : inBufferPtr),
               mCreateParams(),
-              mStream(),
               mName(),
               mSrcName(),
               mDstName(),
@@ -2031,19 +2043,29 @@ private:
                 return mSrcErrorReporter(inSrcPath, theSrcFd);
             }
             if (inSrcStat.mNumReplicas > 0) {
-                mCreateParams.clear();
-                mStream.str(mCreateParams);
-                mStream << inSrcStat.mNumReplicas;
+                char* theEndPtr = mTmpBuf + kTmpBufSize;
+                char* thePtr    = theEndPtr;
                 if (inSrcStat.mNumStripes > 0) {
-                    mStream <<
-                        "," << inSrcStat.mNumStripes <<
-                        "," << inSrcStat.mNumRecoveryStripes <<
-                        "," << inSrcStat.mStripeSize <<
-                        "," << inSrcStat.mStriperType;
-
+                    thePtr = IntToDecString(
+                        (int)inSrcStat.mStriperType, thePtr);
+                    *--thePtr = ',';
+                    thePtr = IntToDecString(
+                        inSrcStat.mStripeSize, thePtr);
+                    *--thePtr = ',';
+                    thePtr = IntToDecString(
+                        inSrcStat.mNumRecoveryStripes, thePtr);
+                    *--thePtr = ',';
+                    thePtr = IntToDecString(
+                        inSrcStat.mNumStripes, thePtr);
+                    *--thePtr = ',';
                 }
-                mCreateParams = mStream.str();
-                mStream.str(string());
+                thePtr = IntToDecString(inSrcStat.mNumReplicas, thePtr);
+                if (thePtr < mTmpBuf) {
+                    cerr << "CopyFile() internal error";
+                    cerr.flush();
+                    abort();
+                }
+                mCreateParams.assign(thePtr, theEndPtr);
             } else {
                 mCreateParams = kDefaultCreateParams;
             }
@@ -2115,6 +2137,9 @@ private:
             return theStatus;
         }
     private:
+        // 5 comman separated 64 bit ints.
+        enum { kTmpBufSize = (64 * 3 / 10 + 3) * 5 + 1 };
+
         FileSystem&                      mSrcFs;
         FileSystem&                      mDstFs;
         ErrorReporter&                   mSrcErrorReporter;
@@ -2123,12 +2148,12 @@ private:
         const size_t                     mBufferSize;
         char* const                      mBufferPtr;
         string                           mCreateParams;
-        ostringstream                    mStream;
         string                           mName;
         string                           mSrcName;
         string                           mDstName;
         const FileSystem::StatBuf* const mSkipDirStatPtr;
         const bool                       mRemoveSrcFlag;
+        char                             mTmpBuf[kTmpBufSize];
     private:
         Copier(
             const Copier& inCopier);
@@ -2325,7 +2350,9 @@ private:
             : mFormat(inFormat),
               mOutStream(inOutStream),
               mDiskUtilizationEntries(),
-              mBufEndPtr(mBuf + sizeof(mBuf) / sizeof(mBuf[0]))
+              mBufEndPtr(mBuf + sizeof(mBuf) / sizeof(mBuf[0])),
+              mMaxEntrySize(0),
+              mShowFsUriFlag(false)
             {}
         int operator()(
             FileSystem&    inFs,
@@ -2374,14 +2401,29 @@ private:
                 mOutStream << "Found " <<
                     mDiskUtilizationEntries.size() << " items\n";
             }
+            int theWidth;
+            if (IsHumanReadable()) {
+                theWidth = 13;
+            } else {
+                if (mMaxEntrySize > 0) {
+                    theWidth = max(10, (int)(mBufEndPtr -
+                        IntToDecString(mMaxEntrySize, mBufEndPtr)));
+                } else {
+                    theWidth = 10;
+                }
+                theWidth += 2;
+            }
             for (DiskUtilizationEntries::const_iterator
                     theIt = mDiskUtilizationEntries.begin();
                     theIt != mDiskUtilizationEntries.end();
                     ++theIt) {
-                Show(inFs, *theIt);
+                Show(inFs, *theIt, theWidth);
             }
             return theStatus;
         }
+        void SetShowFsUriFlag(
+            bool inFlag)
+            { mShowFsUriFlag = inFlag; }
     private:
         struct DiskUtilizationListEntry
         {
@@ -2396,6 +2438,8 @@ private:
         DiskUtilizationEntries      mDiskUtilizationEntries;
         char                        mBuf[32];
         char* const                 mBufEndPtr;
+        int64_t                     mMaxEntrySize;
+        bool                        mShowFsUriFlag;
 
         bool IsSummary() const
         {
@@ -2434,10 +2478,12 @@ private:
             if (theEntry.mSize < 0) {
                 theEntry.mSize = 0;
             }
+            mMaxEntrySize = max(mMaxEntrySize, theEntry.mSize);
         }
         void Show(
             FileSystem&                     inFs,
-            const DiskUtilizationListEntry& inEntry)
+            const DiskUtilizationListEntry& inEntry,
+            int                             inWidth)
         {
             if (! mOutStream) {
                 return;
@@ -2445,7 +2491,7 @@ private:
             if (IsSummary()) {
                 ShowPath(inFs, inEntry) << "\t" << right;
             } else {
-                mOutStream << setw(IsHumanReadable() ? 13 : 12) << left;
+                mOutStream << setw(inWidth) << left;
             }
             if (IsHumanReadable()) {
                 mOutStream << SizeToHumanReadable(inEntry.mSize, mBufEndPtr);
@@ -2461,8 +2507,11 @@ private:
             FileSystem&                     inFs,
             const DiskUtilizationListEntry& inEntry)
         {
+            if (mShowFsUriFlag) {
+                mOutStream << inFs.GetUri();
+            }
             return (
-                mOutStream << inFs.GetUri() << inEntry.mPath <<
+                mOutStream << inEntry.mPath <<
                 ((*inEntry.mPath.rbegin() != '/' && ! inEntry.mName.empty()) ?
                     "/" : "") <<
                 inEntry.mName
@@ -2474,13 +2523,40 @@ private:
         DiskUtilizationFunctor& operator=(
             const DiskUtilizationFunctor& inFunctor);
     };
+    class DiskUtilizationInitFunctor
+    {
+    public:
+        DiskUtilizationInitFunctor(
+            DiskUtilizationFunctor& inDuFunc)
+            : mDuFunc(inDuFunc)
+            {}
+        bool operator()(
+            int&              /* ioGlobError */,
+            const GlobResult& /* inGlobResult */,
+            ostream&          /* inErrorStream */,
+            bool              inMoreThanOneFsFlag)
+        {
+            mDuFunc.SetShowFsUriFlag(inMoreThanOneFsFlag);
+            return true;
+        }
+    private:
+        DiskUtilizationFunctor& mDuFunc;
+    private:
+        DiskUtilizationInitFunctor(
+            const DiskUtilizationInitFunctor& inFunct);
+        DiskUtilizationInitFunctor& operator=(
+            const DiskUtilizationInitFunctor& inFunct);
+    };
     int DiskUtilization(
         char**                inArgsPtr,
         int                   inArgCount,
         DiskUtilizationFormat inFormat)
     {
         DiskUtilizationFunctor theDuFunc(inFormat, cout);
-        return ApplyT(inArgsPtr, inArgCount, theDuFunc);
+        FunctorT<DiskUtilizationFunctor, DiskUtilizationInitFunctor>
+            theFunc(theDuFunc, cerr, theDuFunc);
+        DiskUtilizationInitFunctor theDuInitFunc(theDuFunc);
+        return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DiskUtilizationBytes(
         char**                inArgsPtr,
