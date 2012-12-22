@@ -100,6 +100,8 @@ public:
     ///
     string GetCwd();
 
+    int SetCwd(const char* pathname);
+
     ///
     /// Make a directory hierarcy in KFS.  If the parent dirs are not
     /// present, they are also made.

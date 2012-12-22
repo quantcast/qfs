@@ -222,6 +222,12 @@ KfsClient::Cd(const char *pathname)
     return mImpl->Cd(pathname);
 }
 
+int
+KfsClient::SetCwd(const char* pathname)
+{
+    return mImpl->SetCwd(pathname);
+}
+
 string
 KfsClient::GetCwd()
 {
@@ -1276,6 +1282,42 @@ KfsClientImpl::Cd(const char *pathname)
         return -ENOTDIR;
     }
     mCwd = path;
+    return 0;
+}
+
+int
+KfsClientImpl::SetCwd(const char *pathname)
+{
+    if (! pathname) {
+        return -EFAULT;
+    }
+
+    QCStMutexLocker l(mMutex);
+
+    size_t       len = strlen(pathname);
+    const char*  ptr = GetTmpAbsPath(pathname, len);
+    if (! mTmpAbsPath.Set(ptr, len)) {
+        return -EINVAL;
+    }
+    const size_t      sz       = mTmpAbsPath.size();
+    const Path::Token kRootDir = Path::Token("/", 1);
+    if (sz < 1 || mTmpAbsPath[0] != kRootDir) {
+        return -EINVAL;
+    }
+    const Path::Token kThisDir(".",    1);
+    const Path::Token kParentDir("..", 2);
+    for (size_t i = 1; i < sz; i++) {
+        const Path::Token& cname = mTmpAbsPath[i];
+        if (cname == kThisDir || cname.mLen <= 0 || cname == kParentDir) {
+            continue;
+        }
+        mTmpDirName.assign(cname.mPtr, cname.mLen);
+        int res;
+        if ((res = ValidateName(mTmpDirName)) != 0) {
+            return res;
+        }
+    }
+    mCwd = mTmpAbsPath.NormPath();
     return 0;
 }
 

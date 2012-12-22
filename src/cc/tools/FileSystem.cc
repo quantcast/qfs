@@ -780,7 +780,17 @@ public:
                 return -EINVAL;
             }
         }
-        return KfsClient::Init(theHostPort.substr(0, thePos), thePort);
+        int theRet = KfsClient::Init(
+            theHostPort.substr(0, thePos), thePort);
+        if (theRet != 0) {
+            return theRet;
+        }
+        string theHomeDir;
+        theRet = GetHomeDirectory(theHomeDir);
+        if (theRet != 0) {
+            return theRet;
+        }
+        return KfsClient::SetCwd(theHomeDir.c_str());
     }
     virtual int Chdir(
         const string& inDir)
