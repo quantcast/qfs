@@ -106,7 +106,7 @@ public:
                     if (++theArgIndex >= inArgCount) {
                         break;
                     }
-                    theCfsOptPtr = inArgsPtr[theArgIndex++];
+                    theCfsOptPtr = inArgsPtr[theArgIndex];
                 }
                 const int theErr = mConfig.loadProperties(
                     theCfsOptPtr, strlen(theCfsOptPtr), char('='));
@@ -117,7 +117,6 @@ public:
                 }
             } else if (strcmp(theOptPtr, "-v") == 0) {
                 theLogLevel = MsgLogger::kLogLevelDEBUG;
-                theArgIndex++;
             } else if (strcmp(theOptPtr, "-fs") == 0) {
                 theArgIndex++;
                 if (inArgCount <= theArgIndex) {
@@ -125,7 +124,6 @@ public:
                     return 1;
                 }
                 theUri = inArgsPtr[theArgIndex];
-                theArgIndex++;
             } else if (strcmp(theOptPtr, "-cfg") == 0) {
                 theArgIndex++;
                 if (inArgCount <= theArgIndex) {
@@ -137,10 +135,10 @@ public:
                         theLogLevel == MsgLogger::kLogLevelDEBUG)) {
                     return 1;
                 }
-                theArgIndex++;
             } else {
                 break;
             }
+            theArgIndex++;
         }
         if (inArgCount <= theArgIndex) {
             ShortHelp(cerr);
