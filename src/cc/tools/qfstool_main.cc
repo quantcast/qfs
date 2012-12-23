@@ -30,6 +30,7 @@
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/IntToString.h"
+#include "kfsio/ZlibInflate.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "libclient/Path.h"
@@ -403,6 +404,8 @@ public:
             } else {
                 theErr = RunEmptier();
             }
+        } else if (strcmp(theCmdPtr, "text") == 0) {
+            theErr = Unzip(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -3377,6 +3380,153 @@ private:
         }
         return theStatus;
     }
+    class UnzipFunctor : private ZlibInflate::Output
+    {
+    public:
+        UnzipFunctor(
+            ostream&    inOutStream,
+            const char* inOutStreamNamePtr,
+            size_t      inIoBufferSize,
+            char*       inIoBufferPtr)
+            : ZlibInflate::Output(),
+              mOutStream(inOutStream),
+              mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
+              mIoBufferSize(inIoBufferSize),
+              mIoBufferPtr(inIoBufferPtr),
+              mOutBufferPtr(0),
+              mZlibInflate(),
+              mStatus(0)
+        {
+            if (mIoBufferSize < 2 || ! inIoBufferPtr) {
+                cerr << "UnzipFunctor: internal error\n";
+                cerr.flush();
+                abort();
+            }
+        }
+        ~UnzipFunctor()
+            { delete [] mOutBufferPtr; }
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& inErrorReporter)
+        {
+            if (! mOutStream) {
+                if (mStatus == 0) {
+                    mStatus = errno;
+                    if (mStatus > 0) {
+                        mStatus = -mStatus;
+                    } else if (mStatus == 0) {
+                        mStatus = -EIO;
+                    }
+                }
+                return mStatus;
+            }
+            mStatus = 0;
+            const int theFd = inFs.Open(inPath, O_RDONLY, 0);
+            if (theFd < 0) {
+                return theFd;
+            }
+            int       theStatus      = 0;
+            bool      theInflateFlag = true;
+            int       theFmtPos      = 0;
+            const int kFmtSize       = 2;
+            bool      theDoneFlag    = true;
+            mZlibInflate.Reset();
+            for (; ;) {
+                const size_t  thePos   = theFmtPos < kFmtSize ? theFmtPos : 0;
+                ssize_t       theNRead = inFs.Read(
+                    theFd, mIoBufferPtr + thePos, mIoBufferSize - thePos);
+                if (theNRead == 0 && thePos <= 0) {
+                    break;
+                }
+                if (theNRead < 0) {
+                    theStatus = (int)theNRead;
+                    break;
+                }
+                if (theFmtPos < kFmtSize) {
+                    if ((mIoBufferPtr[0] & 0xFF) != 0x1f ||
+                            (kFmtSize <= theNRead + thePos &&
+                            (mIoBufferPtr[1] & 0xFF) != 0x8b) ||
+                            theNRead <= 0) {
+                        theFmtPos      = kFmtSize;
+                        theInflateFlag = false;
+                    } else {
+                        theFmtPos++;
+                        continue;
+                    }
+                }
+                theNRead += thePos;
+                if (theInflateFlag) {
+                    theDoneFlag = false;
+                    theStatus = mZlibInflate.Run(mIoBufferPtr, mIoBufferSize,
+                        *this, theDoneFlag);
+                    if (theStatus != 0) {
+                        if (mStatus == 0) {
+                            inErrorReporter(
+                                inPath, mZlibInflate.StrError(theStatus));
+                            theStatus = -EINVAL;
+                            break;
+                        }
+                    }
+                } else if (! mOutStream.write(mIoBufferPtr, theNRead)) {
+                    mStatus   = errno;
+                    theStatus = mStatus;
+                    break;
+                }
+            }
+            inFs.Close(theFd);
+            if (theStatus == 0) {
+                theStatus = mStatus;
+            }
+            if (! theDoneFlag && theStatus == 0) {
+                inErrorReporter(inPath, "zlib: unexpected enf of file");
+                theStatus = -EINVAL;
+            }
+            return theStatus;
+        }
+    private:
+        ostream&          mOutStream;
+        const char* const mOutStreamNamePtr;
+        const size_t      mIoBufferSize;
+        char* const       mIoBufferPtr;
+        char*             mOutBufferPtr;
+        ZlibInflate       mZlibInflate;
+        int               mStatus;
+
+        virtual int GetBuffer(
+            char*&  outBufferPtr,
+            size_t& outBufferSize)
+        {
+            if (! mOutBufferPtr) {
+                mOutBufferPtr = new char[mIoBufferSize];
+            }
+            outBufferPtr  = mOutBufferPtr;
+            outBufferSize = mIoBufferSize;
+            return 0;
+        }
+        virtual int Write(
+            const char* inBufferPtr,
+            size_t      inBufferSize)
+        {
+            if (mStatus == 0 &&
+                    ! mOutStream.write(inBufferPtr, inBufferSize)) {
+                mStatus   = errno;
+            }
+            return mStatus;
+        }
+    private:
+        UnzipFunctor(
+            const UnzipFunctor& inFunctor);
+        UnzipFunctor& operator=(
+            const UnzipFunctor& inFunctor);
+    };
+    int Unzip(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        UnzipFunctor theFunc(cout, "stdout", mIoBufferSize, mIoBufferPtr);
+        return ApplyT(inArgsPtr, inArgCount, theFunc);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -3524,7 +3674,7 @@ const char* const KfsTool::sHelpStrings[] =
 
     "text", "<src>",
     "Takes a source file and outputs the file in text format.\n\t\t"
-    "The allowed formats are zip.\n",
+    "The only allowed format is zip.\n",
 
     "setModTime", "<src> <time>",
     "Set modification time <time in milliseconds>"

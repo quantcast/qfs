@@ -35,6 +35,7 @@ set (sources
     NetManager.cc
     TcpSocket.cc
     requestio.cc
+    ZlibInflate.cc
 )
 
 add_library (kfsIO STATIC ${sources})
