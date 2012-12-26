@@ -25,6 +25,7 @@
 //----------------------------------------------------------------------------
 
 #include "ZlibInflate.h"
+#include "qcdio/QCUtils.h"
 
 #include <zlib.h>
 #include <string.h>
@@ -71,7 +72,7 @@ public:
                 break;
             }
             mStream.avail_out = (uInt)theBufferSize;
-            mStream.next_out  = (Bytef*)theBufferSize;
+            mStream.next_out  = (Bytef*)theBufferPtr;
             theStatus = inflate(&mStream, Z_NO_FLUSH);
             if (theStatus == Z_NEED_DICT) {
                 theStatus = Z_DATA_ERROR;
@@ -82,15 +83,20 @@ public:
                     theStatus == Z_STREAM_ERROR) {
                 break;
             }
+            QCRTASSERT(mStream.avail_out <= theBufferSize);
             outDoneFlag = theStatus == Z_STREAM_END;
             if ((theStatus = inOutput.Write(
-                    inBufferPtr, inBufferSize - mStream.avail_out)) != 0) {
+                    theBufferPtr, theBufferSize - mStream.avail_out)) != 0) {
                 theStatus = Z_ERRNO;
                 break;
             }
+            if (outDoneFlag && mStream.avail_in > 0 &&
+                    (theStatus = inflateReset(&mStream)) != Z_OK) {
+                break;
+            }
             theStatus = Z_OK;
-        } while (mStream.avail_out == 0);
-        if (mAllocatedFlag && (theStatus != Z_OK || outDoneFlag)) {
+        } while (mStream.avail_out == 0 || mStream.avail_in > 0);
+        if (mAllocatedFlag && (theStatus != Z_OK || ! outDoneFlag)) {
             inflateEnd(&mStream);
             mAllocatedFlag = false;
         }
@@ -108,7 +114,6 @@ public:
                 return "zlib invalid compression level";
             case Z_DATA_ERROR:
                 return "zlib invalid or incomplete deflate data";
-                break;
             case Z_MEM_ERROR:
                 return "zlib out of memory";
             case Z_VERSION_ERROR:
@@ -140,7 +145,9 @@ private:
         mStream.zalloc = Z_NULL;
         mStream.zfree  = Z_NULL;
         mStream.opaque = Z_NULL;
-        const int theStatus = inflateInit(&mStream);
+        const int kEnableGzipAndZlibHeaders = 32;
+        const int theStatus = inflateInit2(&mStream, 
+            MAX_WBITS + kEnableGzipAndZlibHeaders);
         mAllocatedFlag = theStatus == Z_OK;
         return theStatus;
     }

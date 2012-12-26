@@ -3394,8 +3394,8 @@ private:
               mIoBufferSize(inIoBufferSize),
               mIoBufferPtr(inIoBufferPtr),
               mOutBufferPtr(0),
-              mZlibInflate(),
-              mStatus(0)
+              mStatus(0),
+              mZlibInflate()
         {
             if (mIoBufferSize < 2 || ! inIoBufferPtr) {
                 cerr << "UnzipFunctor: internal error\n";
@@ -3431,7 +3431,6 @@ private:
             int       theFmtPos      = 0;
             const int kFmtSize       = 2;
             bool      theDoneFlag    = true;
-            mZlibInflate.Reset();
             for (; ;) {
                 const size_t  thePos   = theFmtPos < kFmtSize ? theFmtPos : 0;
                 ssize_t       theNRead = inFs.Read(
@@ -3450,6 +3449,8 @@ private:
                             theNRead <= 0) {
                         theFmtPos      = kFmtSize;
                         theInflateFlag = false;
+                    } else if (kFmtSize <= theNRead + thePos) {
+                        theFmtPos = kFmtSize;
                     } else {
                         theFmtPos++;
                         continue;
@@ -3458,7 +3459,7 @@ private:
                 theNRead += thePos;
                 if (theInflateFlag) {
                     theDoneFlag = false;
-                    theStatus = mZlibInflate.Run(mIoBufferPtr, mIoBufferSize,
+                    theStatus = mZlibInflate.Run(mIoBufferPtr, theNRead,
                         *this, theDoneFlag);
                     if (theStatus != 0) {
                         if (mStatus == 0) {
@@ -3482,6 +3483,9 @@ private:
                 inErrorReporter(inPath, "zlib: unexpected enf of file");
                 theStatus = -EINVAL;
             }
+            if (theStatus != 0) {
+                mZlibInflate.Reset();
+            }
             return theStatus;
         }
     private:
@@ -3490,8 +3494,8 @@ private:
         const size_t      mIoBufferSize;
         char* const       mIoBufferPtr;
         char*             mOutBufferPtr;
-        ZlibInflate       mZlibInflate;
         int               mStatus;
+        ZlibInflate       mZlibInflate;
 
         virtual int GetBuffer(
             char*&  outBufferPtr,
@@ -3510,7 +3514,7 @@ private:
         {
             if (mStatus == 0 &&
                     ! mOutStream.write(inBufferPtr, inBufferSize)) {
-                mStatus   = errno;
+                mStatus = errno;
             }
             return mStatus;
         }
