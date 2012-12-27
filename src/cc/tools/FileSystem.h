@@ -39,6 +39,8 @@
 #include <string>
 
 namespace KFS {
+class Properties;
+
 namespace tools {
 
 using std::string;
@@ -80,11 +82,13 @@ public:
             {}
     };
     static int SetDefault(
-        const string& inUri);
+        const string&     inUri,
+        const Properties* inPropertiesPtr = 0);
     static int Get(
-        const string& inUri,
-        FileSystem*&  outFsPtr,
-        string*       outPathPtr = 0);
+        const string&     inUri,
+        FileSystem*&      outFsPtr,
+        string*           outPathPtr      = 0,
+        const Properties* inPropertiesPtr = 0);
     static string GetStrError(
         int               inErr,
         const FileSystem* inFsPtr = 0);

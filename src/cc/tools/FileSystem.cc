@@ -29,6 +29,7 @@
 
 #include "libclient/KfsClient.h"
 #include "libclient/kfsglob.h"
+#include "common/Properties.h"
 #include "common/StBuffer.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
@@ -1117,14 +1118,34 @@ GetFsMutex()
 // Force initialization before entering main.
 static QCMutex& sMutex = GetFsMutex();
 
-    /* static */ KfsClient&
-LocalFileSystem::GetKfsClient()
+    static KfsClient&
+GetKfsClient(
+    const Properties* inConfigPtr = 0)
 {
     QCStMutexLocker theLock(GetFsMutex());
     // For now use un-connected kfs client for uid / gid to name
     // conversions.
+    static bool      sCreatedFlag = false;
     static KfsClient sClient;
+    if (sCreatedFlag) {
+        return sClient;
+    }
+    sCreatedFlag = true;
+    if (inConfigPtr) {
+        kfsUid_t theEUser  = kKfsUserNone;
+        kfsGid_t theEGroup = kKfsGroupNone;
+        theEUser  = inConfigPtr->getValue("fs.euser",  theEUser);
+        theEGroup = inConfigPtr->getValue("fs.egroup", theEGroup);
+        if (theEUser != kKfsUserNone || theEGroup != kKfsGroupNone) {
+            sClient.SetEUserAndEGroup(theEUser, theEGroup, 0, 0);
+        }
+    }
     return sClient;
+}
+    /* static */ KfsClient&
+LocalFileSystem::GetKfsClient()
+{
+    return GetKfsClient();
 }
 
 class FSMap : public map<string, FileSystemImpl*>
@@ -1148,12 +1169,13 @@ GetDefaultFsUri()
 
     /* static */ int
 FileSystem::SetDefault(
-    const string& inUri)
+    const string&     inUri,
+    const Properties* inPropertiesPtr /* = 0 */)
 {
     QCStMutexLocker theLock(GetFsMutex());
     FileSystem* theFsPtr = 0;
     string      thePath;
-    const int theRet = Get(inUri, theFsPtr, &thePath);
+    const int theRet = Get(inUri, theFsPtr, &thePath, inPropertiesPtr);
     if (theRet == 0) {
         if (! thePath.empty()) {
             theFsPtr->Chdir(thePath);
@@ -1165,9 +1187,10 @@ FileSystem::SetDefault(
 
     /* static */ int
 FileSystem::Get(
-    const string& inUri,
-    FileSystem*&  outFsPtr,
-    string*       outPathPtr /* = 0 */)
+    const string&     inUri,
+    FileSystem*&      outFsPtr,
+    string*           outPathPtr /* = 0 */,
+    const Properties* inPropertiesPtr /* = 0 */)
 {
     QCStMutexLocker theLock(GetFsMutex());
 
@@ -1211,6 +1234,9 @@ FileSystem::Get(
     }
     FileSystemImpl* theImplPtr = 0;
     int             theRet     = 0;
+    // Set user and group for all kfs clients: SetEUserAndEGroup() only has
+    // effect only when only one kfs client with no open files exists.
+    GetKfsClient(inPropertiesPtr);
     if (theScheme == "qfs") {
         KfsFileSystem* const theFsPtr = new KfsFileSystem(theFsUri);
         if ((theRet = theFsPtr->Init(theAuthority)) == 0) {

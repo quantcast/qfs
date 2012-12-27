@@ -146,8 +146,11 @@ public:
             return 1;
         }
         MsgLogger::Init(0, theLogLevel);
+        if (theUri.empty()) {
+            theUri = mConfig.getValue("fs.default", theUri);
+        }
         if (! theUri.empty()) {
-            const int theErr = FileSystem::SetDefault(theUri);
+            const int theErr = FileSystem::SetDefault(theUri, &mConfig);
             if (theErr != 0) {
                 cerr << theUri << ": " <<
                     FileSystem::GetStrError(theErr) << "\n";
@@ -165,6 +168,7 @@ public:
         bool   theChgrpFlag     = false;
         bool   theMoveFlag      = false;
         bool   theRecursiveFlag = false;
+        bool   theCopyFlag      = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -192,8 +196,16 @@ public:
         } else if (strcmp(theCmdPtr, "cp") == 0) {
             theErr = Copy(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "put") == 0 ||
-                strcmp(theCmdPtr, "copyFromLocal") == 0 ||
+                (theCopyFlag = strcmp(theCmdPtr, "copyFromLocal") == 0) ||
                 (theMoveFlag = strcmp(theCmdPtr, "moveFromLocal") == 0)) {
+            if (theCopyFlag || theMoveFlag) {
+                while (theArgCnt > 0 && (strcmp(theArgsPtr[0], "-crc") == 0
+                        || strcmp(theArgsPtr[0], "-ignoreCrc") == 0)) {
+                    cerr << theArgsPtr[0] << " parameter ignored\n";
+                    theArgsPtr++;
+                    theArgCnt--;
+                }
+            }
             if (theArgCnt == 2 && strcmp(theArgsPtr[0], "-") == 0) {
                 theErr = CopyFromStream(theArgsPtr[1], cin, cerr);
             } else {
@@ -206,12 +218,29 @@ public:
                 }
             }
         } else if (strcmp(theCmdPtr, "get") == 0 ||
-                strcmp(theCmdPtr, "copyToLocal") == 0) {
-            if (theArgCnt >= 2 && strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
-                theErr = Cat(theArgsPtr, theArgCnt - 1);
+                (theCopyFlag = strcmp(theCmdPtr, "copyToLocal") == 0) ||
+                (theMoveFlag = strcmp(theCmdPtr, "moveToLocal") == 0)) {
+            if (theMoveFlag) {
+                // Do not allow for now as i
+                cerr << theCmdPtr << " is not implemented yet.\n";
+                theErr = -EINVAL;
             } else {
-                theMoveFlag = false;
-                theErr = CopyToLocal(theArgsPtr, theArgCnt, theMoveFlag, cerr);
+                if (theCopyFlag || theMoveFlag) {
+                    while (theArgCnt > 0 && (strcmp(theArgsPtr[0], "-crc") == 0
+                            || strcmp(theArgsPtr[0], "-ignoreCrc") == 0)) {
+                        cerr << theArgsPtr[0] << " parameter ignored\n";
+                        theArgsPtr++;
+                        theArgCnt--;
+                    }
+                }
+                if (theArgCnt >= 2 &&
+                        strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
+                    theErr = Cat(theArgsPtr, theArgCnt - 1);
+                } else {
+                    theMoveFlag = true;
+                    theErr = CopyToLocal(
+                        theArgsPtr, theArgCnt, theMoveFlag, cerr);
+                }
             }
         } else if (strcmp(theCmdPtr, "mv") == 0) {
             theErr = Move(theArgsPtr, theArgCnt);
@@ -627,7 +656,12 @@ private:
             const RecursiveApplicator& inApplicator);
     };
     typedef vector<pair<FileSystem*, vector<string> > > GlobResult;
-    static int Glob(
+    int GetFs(
+        const string& inUri,
+        FileSystem*&  outFsPtr,
+        string*       outPathPtr = 0)
+        { return FileSystem::Get(inUri, outFsPtr, outPathPtr, &mConfig); }
+    int Glob(
         char**       inArgsPtr,
         int          inArgCount,
         ostream&     inErrorStream,
@@ -643,7 +677,7 @@ private:
             const string theArg   = inArgsPtr[i];
             FileSystem*  theFsPtr = 0;
             string       thePath;
-            int          theErr   = FileSystem::Get(theArg, theFsPtr, &thePath);
+            int          theErr   = GetFs(theArg, theFsPtr, &thePath);
             if (theErr || ! theFsPtr) {
                 inErrorStream << theArg <<
                     ": " << FileSystem::GetStrError(theErr) << "\n";
@@ -1616,12 +1650,14 @@ private:
     public:
         enum { kBufferSize = 6 << 20 };
         CopyFunctor(
-            bool inMoveFlag = false)
+            bool inMoveFlag      = false,
+            bool inOverwriteFlag = true)
             : mDestPtr(0),
               mDstName(),
               mBufferPtr(0),
               mDstDirStat(),
               mMoveFlag(inMoveFlag),
+              mOverwriteFlag(inOverwriteFlag),
               mCheckDestFlag(true)
             {}
         ~CopyFunctor()
@@ -1726,7 +1762,8 @@ private:
             Copier theCopier(inFs, theDstFs,
                 inErrorReporter, theDstErrorReporter, mBufferPtr, kBufferSize,
                 inFs == theDstFs ? &mDstDirStat : 0,
-                mMoveFlag
+                mMoveFlag,
+                mOverwriteFlag
             );
             theStatus = theCopier.Copy(inPath, mDstName, theStat);
             if (theStatus == 0 && theSetModeFlag &&
@@ -1748,6 +1785,7 @@ private:
         char*               mBufferPtr;
         FileSystem::StatBuf mDstDirStat;
         const bool          mMoveFlag;
+        const bool          mOverwriteFlag;
         bool                mCheckDestFlag;
     private:
         CopyFunctor(
@@ -1767,6 +1805,24 @@ private:
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    static int AbsPath(
+        FileSystem& inFs,
+        string&     ioPath)
+    {
+        if (! ioPath.empty() && ioPath[0] == '/') {
+            return 0;
+        }
+        string thePath;
+        int theErr = inFs.GetCwd(thePath);
+        if (theErr != 0) {
+            return theErr;
+        }
+        if (*(thePath.rbegin()) != '/' && ! ioPath.empty()) {
+            thePath += "/";
+        }
+        ioPath = thePath + ioPath;
+        return 0;
+    }
     int CopyFromLocal(
         char**   inArgsPtr,
         int      inArgCount,
@@ -1778,10 +1834,10 @@ private:
         }
         FileSystem* theFsPtr  = 0;
         string      thePath;
-        const char* theUriPtr = "file://";
-        int         theErr    = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        string      theUri("file://");
+        int         theErr    = GetFs(theUri, theFsPtr, &thePath);
         if (theErr || ! theFsPtr) {
-            inErrorStream << theUriPtr <<
+            inErrorStream << theUri <<
                 ": " << FileSystem::GetStrError(theErr) << "\n";
             return theErr;
         }
@@ -1814,12 +1870,12 @@ private:
                 theGlob.front().second.push_back(thePtr);
             }
         }
-        theUriPtr = inArgsPtr[inArgCount - 1];
+        theUri = inArgsPtr[inArgCount - 1];
         thePath.clear();
         theFsPtr  = 0;
-        theErr    = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        theErr    = GetFs(theUri, theFsPtr, &thePath);
         if (theErr || ! theFsPtr) {
-            inErrorStream << theUriPtr <<
+            inErrorStream << theUri <<
                 ": " << FileSystem::GetStrError(theErr) << "\n";
             return theErr;
         }
@@ -1827,9 +1883,15 @@ private:
             theGlob.resize(theGlob.size() + 1);
             theGlob.back().first = theFsPtr;
         }
+        theErr = AbsPath(*theFsPtr, thePath);
+        if (theErr) {
+            inErrorStream << theUri <<
+                ": " << FileSystem::GetStrError(theErr) << "\n";
+            return theErr;
+        }
         theGlob.back().second.push_back(thePath);
-
-        CpFunctor theCopyFunc(inMoveFlag);
+        const bool kOverwriteFlag = false;
+        CpFunctor theCopyFunc(inMoveFlag, kOverwriteFlag);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
@@ -1854,10 +1916,10 @@ private:
         }
         FileSystem* theFsPtr  = 0;
         string      thePath;
-        const char* theUriPtr = "file://";
-        theErr = FileSystem::Get(theUriPtr, theFsPtr, &thePath);
+        string      theUri("file://");
+        theErr = GetFs(theUri, theFsPtr, &thePath);
         if (theErr || ! theFsPtr) {
-            inErrorStream << theUriPtr <<
+            inErrorStream << theUri <<
                 ": " << FileSystem::GetStrError(theErr) << "\n";
             return theErr;
         }
@@ -1869,16 +1931,20 @@ private:
             return theErr;
         }
         if (*theDestPtr != '/') {
-            theErr = theFsPtr->GetCwd(thePath);
-            if (theErr != 0) {
-                inErrorStream << theDestPtr <<
-                    ": " << FileSystem::GetStrError(theErr) << "\n";
-                return theErr;
+            if (thePath.empty() || thePath[0] != '/') {
+                thePath = theDestPtr;
+                theErr = AbsPath(*theFsPtr, thePath);
+                if (theErr != 0) {
+                    inErrorStream << theDestPtr <<
+                        ": " << FileSystem::GetStrError(theErr) << "\n";
+                    return theErr;
+                }
+            } else {
+                if (*(thePath.rbegin()) != '/') {
+                    thePath += "/";
+                }
+                thePath += theDestPtr;
             }
-            if (*(thePath.rbegin()) != '/') {
-                thePath += "/";
-            }
-            thePath += theDestPtr;
         } else {
             thePath = theDestPtr;
         }
@@ -1887,8 +1953,8 @@ private:
             theGlob.back().first = theFsPtr;
         }
         theGlob.back().second.push_back(thePath);
-
-        CpFunctor theCopyFunc(inMoveFlag);
+        const bool kOverwriteFlag = false;
+        CpFunctor theCopyFunc(inMoveFlag, kOverwriteFlag);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
@@ -1906,7 +1972,8 @@ private:
             char*                      inBufferPtr,
             size_t                     inBufferSize,
             const FileSystem::StatBuf* inSkipDirStatPtr,
-            bool                       inRemoveSrcFlag)
+            bool                       inRemoveSrcFlag,
+            bool                       inOverwriteFlag)
             : mSrcFs(inSrcFs),
               mDstFs(inDstFs),
               mSrcErrorReporter(inSrcErrorReporter),
@@ -1919,7 +1986,8 @@ private:
               mSrcName(),
               mDstName(),
               mSkipDirStatPtr(inSkipDirStatPtr),
-              mRemoveSrcFlag(inRemoveSrcFlag)
+              mRemoveSrcFlag(inRemoveSrcFlag),
+              mOverwriteFlag(inOverwriteFlag)
             {}
         ~Copier()
         {
@@ -2078,7 +2146,8 @@ private:
             }
             const int theDstFd = mDstFs.Open(
                 inDstPath,
-                O_WRONLY | O_TRUNC | O_CREAT,
+                O_WRONLY | O_CREAT |
+                    (mOverwriteFlag ? O_TRUNC : O_EXCL),
                 inSrcStat.st_mode & (0777 | S_ISVTX),
                 &mCreateParams
             );
@@ -2130,6 +2199,11 @@ private:
             if (theCloseDstStatus < 0 && theStatus == 0) {
                 theStatus = mDstErrorReporter(inDstPath, theCloseDstStatus);
             }
+            if (theStatus != 0) {
+                // Attempt to remove the file in case of failure.
+                const bool kRecursiveFlag = false;
+                mDstFs.Remove(inDstPath, kRecursiveFlag, 0);
+            }
             const int theCloseSrcStatus = mSrcFs.Close(theSrcFd);
             if (theCloseSrcStatus < 0 && theStatus == 0) {
                 theStatus = mSrcErrorReporter(inSrcPath, theCloseSrcStatus);
@@ -2144,7 +2218,7 @@ private:
             return theStatus;
         }
     private:
-        // 5 comman separated 64 bit ints.
+        // 5 comma separated 64 bit integers.
         enum { kTmpBufSize = (64 * 3 / 10 + 3) * 5 + 1 };
 
         FileSystem&                      mSrcFs;
@@ -2160,6 +2234,7 @@ private:
         string                           mDstName;
         const FileSystem::StatBuf* const mSkipDirStatPtr;
         const bool                       mRemoveSrcFlag;
+        const bool                       mOverwriteFlag;
         char                             mTmpBuf[kTmpBufSize];
     private:
         Copier(
@@ -2843,7 +2918,7 @@ private:
     {
         FileSystem*  theFsPtr = 0;
         string       thePath;
-        int          theErr   = FileSystem::Get(inUri, theFsPtr, &thePath);
+        int          theErr   = GetFs(inUri, theFsPtr, &thePath);
         if (theErr || ! theFsPtr) {
             inErrStream << inUri << ": " <<
                 FileSystem::GetStrError(theErr) << "\n";
@@ -3268,7 +3343,7 @@ private:
     int Expunge()
     {
         FileSystem* theFsPtr = 0;
-        int theStatus = FileSystem::Get(string(), theFsPtr);
+        int theStatus = GetFs(string(), theFsPtr);
         if (theStatus || ! theFsPtr) {
             cerr << FileSystem::GetStrError(theStatus) << "\n";
             return theStatus;
@@ -3364,7 +3439,7 @@ private:
     int RunEmptier()
     {
         FileSystem* theFsPtr = 0;
-        int theStatus = FileSystem::Get(string(), theFsPtr);
+        int theStatus = GetFs(string(), theFsPtr);
         if (theStatus || ! theFsPtr) {
             cerr << FileSystem::GetStrError(theStatus) << "\n";
             return theStatus;
@@ -3432,7 +3507,7 @@ private:
             const int kFmtSize       = 2;
             bool      theDoneFlag    = true;
             for (; ;) {
-                const size_t  thePos   = theFmtPos < kFmtSize ? theFmtPos : 0;
+                const ssize_t thePos   = theFmtPos < kFmtSize ? theFmtPos : 0;
                 ssize_t       theNRead = inFs.Read(
                     theFd, mIoBufferPtr + thePos, mIoBufferSize - thePos);
                 if (theNRead == 0 && thePos <= 0) {
@@ -3637,7 +3712,7 @@ const char* const KfsTool::sHelpStrings[] =
     "Copy files that match the file pattern <src>\n\t\t"
     "to the local name.  <src> is kept.  When copying mutiple,\n\t\t"
     "files, the destination must be a directory.\n\t\t"
-    "-crc option is not implemented yet.\n",
+    "-crc and -ignoreCrc options are ignored.\n",
 /*
     "getmerge", "<src> <localdst>",
     "Get all the files in the directories that\n\t\t"
@@ -3650,7 +3725,7 @@ const char* const KfsTool::sHelpStrings[] =
 
     "copyToLocal", "[-ignoreCrc] [-crc] <src> <localdst>",
     "Identical to the -get command.\n\t\t"
-    "-crc option is not implemented yet\n",
+    "-crc and -ignoreCrc options are ignored.\n",
 
     "moveToLocal", "<src> <localdst>",
     "Not implemented yet\n",
@@ -3726,8 +3801,8 @@ const char* const KfsTool::sHelpStrings[] =
     "Count the number of directories, files and bytes under the paths\n\t\t"
     "that match the specified file pattern. The output columns are:\n\t\t"
     "DIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME or\n\t\t"
-    "QUOTA REMAINING_QUATA SPACE_QUOTA REMAINING_SPACE_QUOTA \n\t\t"
-    "      DIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME\n",
+    "QUOTA REMAINING_QUATA SPACE_QUOTA REMAINING_SPACE_QUOTA\n\t\t"
+    "\tDIR_COUNT FILE_COUNT CONTENT_SIZE FILE_NAME\n",
 
     "expunge", "",
     "Expunge user's trash by deleting all trash checkpoints except the\n\t\t"
