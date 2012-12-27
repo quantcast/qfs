@@ -1145,7 +1145,7 @@ GetKfsClient(
     /* static */ KfsClient&
 LocalFileSystem::GetKfsClient()
 {
-    return GetKfsClient();
+    return tools::GetKfsClient();
 }
 
 class FSMap : public map<string, FileSystemImpl*>
