@@ -1224,8 +1224,14 @@ FileSystem::Get(
     } else if (theScheme == "local") {
         theScheme = "file";
     }
-    const string theAuthority(theParts[4]);
-    const string theFragment (theParts[9]);
+    string theAuthority(theParts[4]);
+    if (theScheme == "file" && ! theAuthority.empty()) {
+        if (outPathPtr) {
+            *outPathPtr = theAuthority + *outPathPtr;
+        }
+        theAuthority.clear();
+    }
+    // const string theFragment (theParts[9]);
     const string          theFsUri(theScheme + "://" + theAuthority);
     FSMap::iterator const theIt = sFSMap.find(theFsUri);
     if (theIt != sFSMap.end()) {
