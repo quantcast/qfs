@@ -133,7 +133,7 @@ public:
             if (inErrMsgPtr) {
                 ostringstream theOs;
                 theOs << mMinPathDepth;
-                *inErrMsgPtr = "Path dept is below the limit of " +
+                *inErrMsgPtr = "Path depth is below the limit of " +
                     theOs.str() + "."
                     " Please use -D dfs.force.remove=true";
             }
