@@ -76,8 +76,9 @@ using std::make_pair;
 
 using client::Path;
 
-const string kDefaultCreateParams("S"); // RS 6+3 64K stripe
-const string kTrashCfgPrefix("fs.trash.");
+const string      kDefaultCreateParams("S"); // RS 6+3 64K stripe
+const string      kTrashCfgPrefix("fs.trash.");
+const char* const kMsgLogWriterPrefix = "fs.msgLogWriter.";
 
 class KfsTool
 {
@@ -145,7 +146,14 @@ public:
             ShortHelp(cerr);
             return 1;
         }
-        MsgLogger::Init(0, theLogLevel);
+        if (theLogLevel == MsgLogger::kLogLevelDEBUG) {
+            // -v overrides configuration setting, if any.
+            mConfig.setValue(
+                Properties::String(kMsgLogWriterPrefix).Append("logLevel"),
+                Properties::String("DEBUG")
+            );
+        }
+        MsgLogger::Init(0, theLogLevel, &mConfig, kMsgLogWriterPrefix);
         if (theUri.empty()) {
             theUri = mConfig.getValue("fs.default", theUri);
         }
