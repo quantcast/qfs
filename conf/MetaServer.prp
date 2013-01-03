@@ -400,7 +400,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Checkpoint write timeout. Max time the checkpoint write can take before
 # declaring write failure.
 # Default is 3600 sec.
-# metaServer.chekpoint.writeTimeoutSec = 3600
+# metaServer.checkpoint.writeTimeoutSec = 3600
 
 # Use synchronous mode to write checkpoint, i.e. tell host os to flush all data
 # to disk prior to write system call return.
@@ -409,14 +409,14 @@ metaServer.clusterKey = my-fs-unique-identifier
 # contention and lowering the chances of paging out meta server and other
 # processes with no memory locking.
 # Default is on.
-# metaServer.chekpoint.writeSync = 1
+# metaServer.checkpoint.writeSync = 1
 
 # Checkpoint write buffer size.
 # The buffer size should be adequate with synchrounous write mode enabled,
 # especially if journal and data of host's file system are on the same spinning
 # media device, in order to minimize the number of seeks.
 # Default is 16MB.
-# metaServer.chekpoint.writeBufferSize = 16777216
+# metaServer.checkpoint.writeBufferSize = 16777216
 
 # ---------------------------------- Audit log. --------------------------------
 

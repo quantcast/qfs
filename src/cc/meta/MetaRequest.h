@@ -2311,9 +2311,9 @@ struct MetaCheckpoint : public MetaRequest {
           pid(-1),
           failedCount(0),
           maxFailedCount(2),
-          chekpointWriteTimeoutSec(60 * 60),
-          chekpointWriteSyncFlag(true),
-          chekpointWriteBufferSize(16 << 20),
+          checkpointWriteTimeoutSec(60 * 60),
+          checkpointWriteSyncFlag(true),
+          checkpointWriteBufferSize(16 << 20),
           lastCheckpointId(-1),
           runningCheckpointId(-1),
           lastRun(0)
@@ -2336,9 +2336,9 @@ private:
     int    pid;
     int    failedCount;
     int    maxFailedCount;
-    int    chekpointWriteTimeoutSec;
-    bool   chekpointWriteSyncFlag;
-    size_t chekpointWriteBufferSize;
+    int    checkpointWriteTimeoutSec;
+    bool   checkpointWriteSyncFlag;
+    size_t checkpointWriteBufferSize;
     seq_t  lastCheckpointId;
     seq_t  runningCheckpointId;
     time_t lastRun;

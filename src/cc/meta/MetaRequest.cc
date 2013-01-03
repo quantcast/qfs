@@ -2813,11 +2813,11 @@ MetaCheckpoint::handle()
         return;
     }
     runningCheckpointId = oplog.checkpointed();
-    if ((pid = DoFork(chekpointWriteTimeoutSec)) == 0) {
+    if ((pid = DoFork(checkpointWriteTimeoutSec)) == 0) {
         metatree.disableFidToPathname();
         metatree.recomputeDirSize();
-        cp.setWriteSyncFlag(chekpointWriteSyncFlag);
-        cp.setWriteBufferSize(chekpointWriteBufferSize);
+        cp.setWriteSyncFlag(checkpointWriteSyncFlag);
+        cp.setWriteBufferSize(checkpointWriteBufferSize);
         status = cp.do_CP();
         // Child does not attempt graceful exit.
         _exit(status == 0 ? 0 : 1);
@@ -2851,15 +2851,15 @@ MetaCheckpoint::SetParameters(const Properties& props)
         "metaServer.checkpoint.lockFileName",   lockFileName);
     maxFailedCount = max(0, props.getValue(
         "metaServer.checkpoint.maxFailedCount", maxFailedCount));
-    chekpointWriteTimeoutSec = max(0, (int)props.getValue(
-        "metaServer.chekpoint.writeTimeoutSec",
-        (double)chekpointWriteTimeoutSec));
-    chekpointWriteSyncFlag = props.getValue(
-        "metaServer.chekpoint.writeSync",
-        chekpointWriteSyncFlag ? 0 : 1) != 0;
-    chekpointWriteBufferSize = props.getValue(
-        "metaServer.chekpoint.writeBufferSize",
-        chekpointWriteBufferSize);
+    checkpointWriteTimeoutSec = max(0, (int)props.getValue(
+        "metaServer.checkpoint.writeTimeoutSec",
+        (double)checkpointWriteTimeoutSec));
+    checkpointWriteSyncFlag = props.getValue(
+        "metaServer.checkpoint.writeSync",
+        checkpointWriteSyncFlag ? 0 : 1) != 0;
+    checkpointWriteBufferSize = props.getValue(
+        "metaServer.checkpoint.writeBufferSize",
+        checkpointWriteBufferSize);
 }
 
 /*!
