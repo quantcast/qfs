@@ -966,11 +966,14 @@ private:
         }
         void AddUserHeader(uid_t uid)
         {
-            struct passwd  pwebuf = {0};
-            struct passwd* pwe    = 0;
-            char   namebuf[1024];
-            getpwuid_r(uid, &pwebuf, namebuf, sizeof(namebuf), &pwe);
-            if (pwe && pwe->pw_name) {
+            struct passwd      pwebuf = {0};
+            struct passwd*     pwe    = 0;
+            StBufferT<char, 1> buf;
+            buf.Resize((size_t)
+                max(long(8) << 10, sysconf(_SC_GETPW_R_SIZE_MAX)));
+            const int err = getpwuid_r(uid, &pwebuf,
+                buf.GetPtr(), buf.GetSize(), &pwe);
+            if (! err && (pwe && pwe->pw_name)) {
                 string hdr("User: ");
                 for (const char* p = pwe->pw_name; *p != 0; p++) {
                     const int c = *p & 0xFF;
@@ -1161,7 +1164,13 @@ KfsClientImpl::KfsClientImpl()
       mUserIds(),
       mGroupIds(),
       mTmpInputStream(),
-      mTmpOutputStream()
+      mTmpOutputStream(),
+      mNameBufSize((size_t)max(max(
+        sysconf(_SC_GETPW_R_SIZE_MAX),
+        sysconf(_SC_GETGR_R_SIZE_MAX)),
+        long(8) << 10)
+      ),
+      mNameBuf(new char[mNameBufSize])
 {
     ClientsList::Insert(*this);
 
@@ -1189,6 +1198,7 @@ KfsClientImpl::~KfsClientImpl()
     while (it != mFileTable.end()) {
         delete *it++;
     }
+    delete [] mNameBuf;
 }
 
 void
@@ -5410,9 +5420,8 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
     if (it == mUserNames.end() || it->second.second < now) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        char           nameBuf[1024];
         const int err = getpwuid_r((uid_t)uid,
-            &pwebuf, nameBuf, sizeof(nameBuf), &pwe);
+            &pwebuf, mNameBuf, mNameBufSize, &pwe);
         string name;
         if (err || ! pwe) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5445,9 +5454,8 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
     if (it == mGroupNames.end() || it->second.second < now) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        char          nameBuf[1024];
         const int err = getgrgid_r((gid_t)gid,
-            &gbuf, nameBuf, sizeof(nameBuf), &pge);
+            &gbuf, mNameBuf, mNameBufSize, &pge);
         string name;
         if (err || ! pge) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5477,9 +5485,8 @@ KfsClientImpl::NameToUid(const string& name, time_t now)
     if (it == mUserIds.end() || it->second.second < now) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        char           nameBuf[1024];
         const int err = getpwnam_r(name.c_str(),
-            &pwebuf, nameBuf, sizeof(nameBuf), &pwe);
+            &pwebuf, mNameBuf, mNameBufSize, &pwe);
         kfsUid_t uid;
         if (err || ! pwe) {
             char* end = 0;
@@ -5509,9 +5516,8 @@ KfsClientImpl::NameToGid(const string& name, time_t now)
     if (it == mGroupIds.end() || it->second.second < now) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        char          nameBuf[1024];
         const int err = getgrnam_r(name.c_str(),
-            &gbuf, nameBuf, sizeof(nameBuf), &pge);
+            &gbuf, mNameBuf, mNameBufSize, &pge);
         kfsGid_t gid;
         if (err || ! pge) {
             char* end = 0;

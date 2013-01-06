@@ -750,6 +750,8 @@ private:
     GroupIds                       mGroupIds;
     BufferInputStream              mTmpInputStream;
     BufferOutpuStream              mTmpOutputStream;
+    const size_t                   mNameBufSize;
+    char* const                    mNameBuf;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
 
