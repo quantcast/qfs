@@ -1110,7 +1110,12 @@ private:
             if (mTmBuf[0] == 0 || mTime != inEntry.mMTime) {
                 struct tm theLocalTime = {0};
                 localtime_r(&inEntry.mMTime, &theLocalTime);
-                strftime(mTmBuf, kTmBufLen, "%Y-%m-%d %H:%M ", &theLocalTime);
+                mTmBuf[0] = 0;
+                const size_t theLen = strftime(
+                    mTmBuf, kTmBufLen, "%Y-%m-%d %H:%M ", &theLocalTime);
+                if (theLen <= 0) {
+                    strncpy(mTmBuf, "-", kTmBufLen);
+                }
                 mTime = inEntry.mMTime;
             }
             mOutStream << " " << mTmBuf;
@@ -3187,8 +3192,11 @@ private:
                             if (mTmBuf[0] == 0 || mTime != theMTime) {
                                 struct tm theLocalTime = {0};
                                 localtime_r(&theMTime, &theLocalTime);
-                                strftime(mTmBuf, kTmBufLen,
+                                const size_t theLen = strftime(mTmBuf, kTmBufLen,
                                     "%Y-%m-%d %H:%M ", &theLocalTime);
+                                if (theLen <= 0) {
+                                    strncpy(mTmBuf, "-", kTmBufLen);
+                                }
                                 mTime = theMTime;
                             }
                             mOutStream << mTmBuf;
