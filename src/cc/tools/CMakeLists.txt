@@ -77,7 +77,7 @@ qfsdataverify
 qfshibernate
 qfscat
 qfsping
-qfstool
+qfs
 )
 
 #
