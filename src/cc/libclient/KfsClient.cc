@@ -1097,7 +1097,7 @@ private:
         }
         const Globals& globals = Globals::Get();
         client.mEUser  = globals.mEUser;
-        client.mEUser  = globals.mEUser;
+        client.mEGroup = globals.mEGroup;
         client.mGroups = globals.mGroups;
         return 0;
     }
