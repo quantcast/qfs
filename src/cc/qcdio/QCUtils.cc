@@ -82,8 +82,9 @@ DoSysErrorMsg(
         if (theMsgPtr != inMsgBufPtr) {
             StrAppend(" ", theMsgPtr, theMaxLen);
         }
-#if defined(__EXTENSIONS__) || defined(QC_OS_NAME_DARWIN) || \
-    (! defined(_GNU_SOURCE) && defined(_XOPEN_SOURCE) && _XOPEN_SOURCE == 600)
+#if defined(__EXTENSIONS__) || defined(QC_OS_NAME_DARWIN) || defined(QC_OS_NAME_FREEBSD) || \
+    (! defined(_GNU_SOURCE) && (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE < 600 || \
+                                defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE < 200112L))
         int theErr = strerror_r(inSysError, theMsgPtr, theMaxLen);
         if (theErr != 0) {
             theMsgPtr[0] = 0;
