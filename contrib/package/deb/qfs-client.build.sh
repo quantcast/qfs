@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 NAME=qfs-client
 VERSION=1.0
 QFS_BUILD_ROOT=/tmp/
