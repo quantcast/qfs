@@ -1,0 +1,10 @@
+/var/log/qfs/webui.log {
+  daily
+  dateext
+  rotate 25
+  missingok
+  notifempty
+  compress
+  copytruncate
+}
+

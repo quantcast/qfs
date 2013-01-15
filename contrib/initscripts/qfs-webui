@@ -1,0 +1,113 @@
+#!/bin/sh
+#
+# qfs-webui Starts the QFS monitoring web UI.
+#
+# chkconfig:   345 55 25
+# description: This script starts the Quantcast File System \
+#              web UI, used for monitoring metaserver and \
+#              chunkserver status.
+
+### BEGIN INIT INFO
+# Provides: qfs-webui
+# Required-Start:
+# Required-Stop:
+# Should-Start:
+# Should-Stop:
+# Default-Start: 3 4 5
+# Default-Stop: 0 1 2 6
+# Short-Description: Starts the QFS monitoring web UI.
+# Description: Starts the QFS monitoring web UI service.
+### END INIT INFO
+
+# Source function library.
+. /lib/lsb/init-functions
+
+exec="/usr/bin/python"
+script="/usr/share/qfs-webui/qfsstatus.py"
+config="/etc/qfs/qfs-webui.conf"
+prog="qfs-webui"
+logdir="/var/log/qfs/"
+pid_file="/var/run/qfs/webui.pid"
+
+stdout_log="${logdir}/webui.out"
+stderr_log="${logdir}/webui.err"
+
+[ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
+
+lockfile=/var/lock/subsys/$prog
+
+start() {
+    [ -x ${exec} ] || exit 5
+    [ -f ${config} ] || exit 6
+    echo -n $"Starting $prog: "
+    # Starts webui via daemonize for fork excellence.
+    start_daemon daemonize -o ${stdout_log} -e ${stderr_log} -p ${pid_file} ${exec} ${script} ${config}
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
+
+stop() {
+    echo -n $"Stopping $prog: "
+    killproc -p ${pid_file} ${exec}
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    restart
+}
+
+force_reload() {
+    restart
+}
+
+rh_status() {
+    status -p ${pid_file} ${prog}
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    reload)
+        rh_status_q || exit 7
+        $1
+        ;;
+    force-reload)
+        force_reload
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
+        exit 2
+esac
+exit $?
+

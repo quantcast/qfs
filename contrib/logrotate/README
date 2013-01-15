@@ -1,0 +1,17 @@
+This directory contains UNIX logrotate scripts with sensible defaults for
+QFS-related services.
+
+To install:
+
+  1. Ensure that logrotate is installed on your system:
+
+    - RHEL/Fedora:
+
+      # yum install logrotate
+
+    - Debian/Ubuntu:
+
+      # apt-get install logrotate
+
+  2. Copy these files into /etc/logrotate.d
+
