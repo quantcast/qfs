@@ -65,7 +65,7 @@ mask(v16 v)
     int i;
 
     for (i = 0; i < 16; ++i)
-        res[i] = v[i] < 128 ? 0 : 0xff;
+        ((uint8_t*)&res)[i] = ((uint8_t*)&v)[i] < 128 ? 0 : 0xff;
     return res;
 #endif
 }

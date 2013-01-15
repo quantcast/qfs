@@ -246,9 +246,9 @@ main(int argc, char** argv)
     s = clock();
     k = 0;
     for (MyKey i = 1000 * 1000 + 345; k < nk; i += 33, k++) {
-    	if (! ht.Find(i)) {
+        if (! ht.Find(i)) {
             abort();
-	}
+        }
     }
     e = clock();
     cout << k << " " << double(e - s)/CLOCKS_PER_SEC << "\n";

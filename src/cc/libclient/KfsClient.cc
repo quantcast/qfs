@@ -118,7 +118,19 @@ Connect(const string& metaServerHost, int metaServerPort)
 string
 ErrorCodeToStr(int status)
 {
-    return (status == 0 ? string() : QCUtils::SysError(-status));
+    switch (-status) {
+        case EBADVERS:        return "version mismatch";
+        case ELEASEEXPIRED:   return "lease has expired";
+        case EBADCKSUM:       return "checksum mismatch";
+        case EDATAUNAVAIL:    return "data not available";
+        case ESERVERBUSY:     return "server busy";
+        case EALLOCFAILED:    return "chunk allocation failed";
+        case EBADCLUSTERKEY:  return "cluster key mismatch";
+        case EINVALCHUNKSIZE: return "invalid chunk size";
+        case 0:               return "";
+        default:              break;
+    }
+    return QCUtils::SysError(-status);
 }
 
 static inline kfsSeq_t
@@ -210,6 +222,12 @@ KfsClient::Cd(const char *pathname)
     return mImpl->Cd(pathname);
 }
 
+int
+KfsClient::SetCwd(const char* pathname)
+{
+    return mImpl->SetCwd(pathname);
+}
+
 string
 KfsClient::GetCwd()
 {
@@ -268,9 +286,15 @@ KfsClient::OpenDirectory(const char *pathname)
 }
 
 int
-KfsClient::Stat(const char *pathname, KfsFileAttr &result, bool computeFilesize)
+KfsClient::Stat(const char *pathname, KfsFileAttr& result, bool computeFilesize)
 {
     return mImpl->Stat(pathname, result, computeFilesize);
+}
+
+int
+KfsClient::Stat(int fd, KfsFileAttr& result)
+{
+    return mImpl->Stat(fd, result);
 }
 
 int
@@ -307,6 +331,14 @@ int
 KfsClient::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 {
     return mImpl->EnumerateBlocks(pathname, res);
+}
+
+int
+KfsClient::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    return mImpl->GetReplication(pathname, attr,
+        minChunkReplication, maxChunkReplication);
 }
 
 int
@@ -593,6 +625,13 @@ KfsClient::SetReplicationFactor(const char *pathname, int16_t numReplicas)
     return mImpl->SetReplicationFactor(pathname, numReplicas);
 }
 
+int16_t
+KfsClient::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    ErrorHandler* errHandler)
+{
+    return mImpl->SetReplicationFactorR(pathname, numReplicas, errHandler);
+}
+
 ServerLocation
 KfsClient::GetMetaserverLocation() const
 {
@@ -799,6 +838,19 @@ KfsClient::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
     return mImpl->GetUserAndGroupNames(user, group, uname, gname);
 }
 
+int
+KfsClient::GetUserAndGroupIds(const char* user, const char* group,
+    kfsUid_t& uid, kfsGid_t& gid)
+{
+    return mImpl->GetUserAndGroupIds(user, group, uid, gid);
+}
+
+kfsUid_t
+KfsClient::GetUserId()
+{
+    return mImpl->GetUserId();
+}
+
 namespace client
 {
 
@@ -914,11 +966,14 @@ private:
         }
         void AddUserHeader(uid_t uid)
         {
-            struct passwd  pwebuf = {0};
-            struct passwd* pwe    = 0;
-            char   namebuf[1024];
-            getpwuid_r(uid, &pwebuf, namebuf, sizeof(namebuf), &pwe);
-            if (pwe && pwe->pw_name) {
+            struct passwd      pwebuf = {0};
+            struct passwd*     pwe    = 0;
+            StBufferT<char, 1> buf;
+            buf.Resize((size_t)
+                max(long(8) << 10, sysconf(_SC_GETPW_R_SIZE_MAX)));
+            const int err = getpwuid_r(uid, &pwebuf,
+                buf.GetPtr(), buf.GetSize(), &pwe);
+            if (! err && (pwe && pwe->pw_name)) {
                 string hdr("User: ");
                 for (const char* p = pwe->pw_name; *p != 0; p++) {
                     const int c = *p & 0xFF;
@@ -1042,7 +1097,7 @@ private:
         }
         const Globals& globals = Globals::Get();
         client.mEUser  = globals.mEUser;
-        client.mEUser  = globals.mEUser;
+        client.mEGroup = globals.mEGroup;
         client.mGroups = globals.mGroups;
         return 0;
     }
@@ -1109,7 +1164,13 @@ KfsClientImpl::KfsClientImpl()
       mUserIds(),
       mGroupIds(),
       mTmpInputStream(),
-      mTmpOutputStream()
+      mTmpOutputStream(),
+      mNameBufSize((size_t)max(max(
+        sysconf(_SC_GETPW_R_SIZE_MAX),
+        sysconf(_SC_GETGR_R_SIZE_MAX)),
+        long(8) << 10)
+      ),
+      mNameBuf(new char[mNameBufSize])
 {
     ClientsList::Insert(*this);
 
@@ -1137,6 +1198,7 @@ KfsClientImpl::~KfsClientImpl()
     while (it != mFileTable.end()) {
         delete *it++;
     }
+    delete [] mNameBuf;
 }
 
 void
@@ -1230,6 +1292,42 @@ KfsClientImpl::Cd(const char *pathname)
         return -ENOTDIR;
     }
     mCwd = path;
+    return 0;
+}
+
+int
+KfsClientImpl::SetCwd(const char *pathname)
+{
+    if (! pathname) {
+        return -EFAULT;
+    }
+
+    QCStMutexLocker l(mMutex);
+
+    size_t       len = strlen(pathname);
+    const char*  ptr = GetTmpAbsPath(pathname, len);
+    if (! mTmpAbsPath.Set(ptr, len)) {
+        return -EINVAL;
+    }
+    const size_t      sz       = mTmpAbsPath.size();
+    const Path::Token kRootDir = Path::Token("/", 1);
+    if (sz < 1 || mTmpAbsPath[0] != kRootDir) {
+        return -EINVAL;
+    }
+    const Path::Token kThisDir(".",    1);
+    const Path::Token kParentDir("..", 2);
+    for (size_t i = 1; i < sz; i++) {
+        const Path::Token& cname = mTmpAbsPath[i];
+        if (cname == kThisDir || cname.mLen <= 0 || cname == kParentDir) {
+            continue;
+        }
+        mTmpDirName.assign(cname.mPtr, cname.mLen);
+        int res;
+        if ((res = ValidateName(mTmpDirName)) != 0) {
+            return res;
+        }
+    }
+    mCwd = mTmpAbsPath.NormPath();
     return 0;
 }
 
@@ -2147,12 +2245,26 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 }
 
 int
-KfsClientImpl::Stat(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize)
+KfsClientImpl::Stat(const char *pathname, KfsFileAttr& kfsattr, bool computeFilesize)
 {
     QCStMutexLocker l(mMutex);
     const bool kValidSubCountsRequiredFlag = true;
     return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
         kValidSubCountsRequiredFlag);
+}
+
+int
+KfsClientImpl::Stat(int fd, KfsFileAttr& kfsattr)
+{
+    QCStMutexLocker l(mMutex);
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    FileTableEntry& entry = *(mFileTable[fd]);
+    kfsattr          = entry.fattr;
+    kfsattr.filename = entry.name;
+    return 0;
 }
 
 int
@@ -4425,6 +4537,63 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
 }
 
 int
+KfsClientImpl::GetReplication(const char* pathname,
+    KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
+{
+    QCStMutexLocker l(mMutex);
+
+    int ret;
+    if ((ret = StatSelf(pathname, attr, false))  < 0) {
+        KFS_LOG_STREAM_DEBUG << (pathname ?  pathname : "null") << ": " <<
+            ErrorCodeToStr(ret) <<
+        KFS_LOG_EOM;
+        return -ENOENT;
+    }
+    if (attr.isDirectory) {
+        KFS_LOG_STREAM_DEBUG << pathname << ": is a directory" << KFS_LOG_EOM;
+        return -EISDIR;
+    }
+    KFS_LOG_STREAM_DEBUG << "path: " << pathname <<
+        " file id: " << attr.fileId <<
+    KFS_LOG_EOM;
+
+    GetLayoutOp lop(nextSeq(), attr.fileId);
+    DoMetaOpWithRetry(&lop);
+    if (lop.status < 0) {
+        KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
+             << ErrorCodeToStr(lop.status) <<
+        KFS_LOG_EOM;
+        return lop.status;
+    }
+    if (lop.ParseLayoutInfo()) {
+        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
+        KFS_LOG_EOM;
+        return -EFAULT;
+    }
+    maxChunkReplication = 0;
+    if (lop.chunks.empty()) {
+        minChunkReplication = 0;
+    } else {
+        minChunkReplication = numeric_limits<int>::max();
+        for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
+                i != lop.chunks.end();
+                ++i) {
+            const int numReplicas = (int)i->chunkServers.size();
+            if (numReplicas < minChunkReplication) {
+                minChunkReplication = numReplicas;
+            }
+            if (numReplicas > maxChunkReplication) {
+                maxChunkReplication = numReplicas;
+            }
+        }
+    }
+    if (attr.subCount1 < (int64_t)lop.chunks.size()) {
+        attr.subCount1 = (int64_t)lop.chunks.size();
+    }
+    return 0;
+}
+
+int
 KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
 {
     QCStMutexLocker l(mMutex);
@@ -4457,7 +4626,7 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     if (lop.ParseLayoutInfo()) {
         KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
 
     vector<ssize_t> chunksize;
@@ -4659,6 +4828,13 @@ KfsClientImpl::Chmod(const char* pathname, kfsMode_t mode)
         InvalidateAllCachedAttrs();
     }
     return 0;
+}
+
+kfsUid_t
+KfsClientImpl::GetUserId()
+{
+    QCStMutexLocker l(mMutex);
+    return mEUser;
 }
 
 int
@@ -4988,6 +5164,62 @@ KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
     return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }
 
+class SetReplicationFactorFunc
+{
+public:
+    typedef KfsClient::ErrorHandler ErrorHandler;
+
+    SetReplicationFactorFunc(KfsClientImpl& cli, int16_t repl,
+        ErrorHandler& errHandler)
+        : mCli(cli),
+          mReplication(repl),
+          mErrHandler(errHandler)
+        {}
+    int operator()(const string& path, const KfsFileAttr& attr,
+        int status) const
+    {
+        if (status != 0) {
+            const int ret = mErrHandler(path, status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        if (attr.isDirectory) {
+            return 0;
+        }
+        ChangeFileReplicationOp op(mCli.nextSeq(), attr.fileId, mReplication);
+        mCli.DoMetaOpWithRetry(&op);
+        if (op.status != 0) {
+            const int ret = mErrHandler(path, op.status);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        return 0;
+    }
+private:
+    KfsClientImpl& mCli;
+    const int16_t  mReplication;
+    ErrorHandler&  mErrHandler;
+};
+
+int16_t
+KfsClientImpl::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    KfsClientImpl::ErrorHandler* errHandler)
+{
+    QCStMutexLocker l(mMutex);
+
+    // Even though meta server supports recursive set replication, do it one
+    // file at a time, in order to prevent "DoS".
+    // For this reason meta server might not support recursive version in the
+    // future releases. 
+    DefaultErrHandler errorHandler;
+    SetReplicationFactorFunc funct(
+        *this, numReplicas, errHandler ? *errHandler : errorHandler);
+    const int ret = RecursivelyApply(pathname, funct);
+    return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
+}
+
 void
 KfsClientImpl::SetUMask(kfsMode_t mask)
 {
@@ -5188,9 +5420,8 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
     if (it == mUserNames.end() || it->second.second < now) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        char           nameBuf[1024];
         const int err = getpwuid_r((uid_t)uid,
-            &pwebuf, nameBuf, sizeof(nameBuf), &pwe);
+            &pwebuf, mNameBuf, mNameBufSize, &pwe);
         string name;
         if (err || ! pwe) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5223,9 +5454,8 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
     if (it == mGroupNames.end() || it->second.second < now) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        char          nameBuf[1024];
         const int err = getgrgid_r((gid_t)gid,
-            &gbuf, nameBuf, sizeof(nameBuf), &pge);
+            &gbuf, mNameBuf, mNameBufSize, &pge);
         string name;
         if (err || ! pge) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5255,9 +5485,8 @@ KfsClientImpl::NameToUid(const string& name, time_t now)
     if (it == mUserIds.end() || it->second.second < now) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        char           nameBuf[1024];
         const int err = getpwnam_r(name.c_str(),
-            &pwebuf, nameBuf, sizeof(nameBuf), &pwe);
+            &pwebuf, mNameBuf, mNameBufSize, &pwe);
         kfsUid_t uid;
         if (err || ! pwe) {
             char* end = 0;
@@ -5287,9 +5516,8 @@ KfsClientImpl::NameToGid(const string& name, time_t now)
     if (it == mGroupIds.end() || it->second.second < now) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        char          nameBuf[1024];
         const int err = getgrnam_r(name.c_str(),
-            &gbuf, nameBuf, sizeof(nameBuf), &pge);
+            &gbuf, mNameBuf, mNameBufSize, &pge);
         kfsGid_t gid;
         if (err || ! pge) {
             char* end = 0;

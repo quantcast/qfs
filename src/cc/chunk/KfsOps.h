@@ -211,10 +211,10 @@ struct KfsOp : public KfsCallbackObj {
     bool Validate() { return true; }
     ClientSM* GetClientSM();
     static uint32_t Checksum(
-	const char* name,
-	size_t      nameLen,
-	const char* header,
-	size_t      headerLen);
+        const char* name,
+        size_t      nameLen,
+        const char* header,
+        size_t      headerLen);
     bool HandleUnknownField(
         const char* /* key */, size_t /* keyLen */,
         const char* /* val */, size_t /* valLen */)

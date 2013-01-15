@@ -134,8 +134,8 @@ Acceptor::RecvConnection(int code, void* data)
         case EVENT_NEW_CONNECTION:
         break;
         case EVENT_NET_ERROR:
-            // Under normal circumstances it would here only with network error
-            // simulator enabled.
+            // Under normal circumstances it would come up here only with the
+            // error simulator enabled.
             KFS_LOG_STREAM_INFO <<
                 "acceptor on port: " << mPort <<
                 " error: " <<

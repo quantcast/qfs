@@ -158,18 +158,18 @@ LeaseClerk::HandleEvent(int code, void *data)
 {
     switch(code) {
         case EVENT_CMD_DONE: {
-	    // we got a reply for a lease renewal
-	    const KfsOp* const op = reinterpret_cast<const KfsOp*>(data);
+            // we got a reply for a lease renewal
+            const KfsOp* const op = reinterpret_cast<const KfsOp*>(data);
             if (! op) {
                 break;
             }
             if (op->op == CMD_LEASE_RENEW) {
                 const LeaseRenewOp* const renewOp =
                     static_cast<const LeaseRenewOp*>(op);
-	        if (renewOp->status == 0) {
-	            LeaseRenewed(renewOp->chunkId);
-	        } else {
-	            UnRegisterLease(renewOp->chunkId);
+                if (renewOp->status == 0) {
+                    LeaseRenewed(renewOp->chunkId);
+                } else {
+                    UnRegisterLease(renewOp->chunkId);
                 }
             } else if (op->op != CMD_LEASE_RELINQUISH) {
                 // Relinquish op will get here with its default handler, but
@@ -177,9 +177,9 @@ LeaseClerk::HandleEvent(int code, void *data)
                 KFS_LOG_STREAM_DEBUG << "unexpected op: " << op->op <<
                 KFS_LOG_EOM;
             }
-	    delete op;
+            delete op;
         }
-	break;
+        break;
 
         default:
             assert(!"Unknown event");
@@ -201,7 +201,7 @@ LeaseClerk::Timeout()
         // messages could be in-flight...so wait for a full
         // lease-interval before discarding dead leases
         if (it->second.expires + LEASE_INTERVAL_SECS < now) {
-	    KFS_LOG_STREAM_INFO <<
+            KFS_LOG_STREAM_INFO <<
                 "cleanup lease: " << it->second.leaseId <<
                 " chunk: "        << it->first <<
             KFS_LOG_EOM;
@@ -221,30 +221,30 @@ LeaseClerk::Timeout()
             // move on
             continue;
         }
-	// Renew the lease if a write is pending or a write
-	// occured when we had a valid lease or if we are doing record
-	// appends to the chunk and some client has space reserved or
-	// there is some data buffered in the appender.
-	if (lease.lastWriteTime + LEASE_INTERVAL_SECS < now &&
+        // Renew the lease if a write is pending or a write
+        // occured when we had a valid lease or if we are doing record
+        // appends to the chunk and some client has space reserved or
+        // there is some data buffered in the appender.
+        if (lease.lastWriteTime + LEASE_INTERVAL_SECS < now &&
                 ! (lease.appendFlag ?
                     gAtomicRecordAppendManager.WantsToKeepLease(chunkId) :
                     gChunkManager.IsWritePending(chunkId)
                 )) {
             continue;
         }
-	// The metaserverSM will fill seq#.
-	LeaseRenewOp* const op = new LeaseRenewOp(
+        // The metaserverSM will fill seq#.
+        LeaseRenewOp* const op = new LeaseRenewOp(
             -1, chunkId, lease.leaseId, "WRITE_LEASE");
-	KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM_INFO <<
             "sending lease renew for:"
             " chunk: "      << chunkId <<
             " lease: "      << lease.leaseId <<
             " expires in: " << (lease.expires - now) << " sec" <<
         KFS_LOG_EOM;
         op->noRetry = true;
-	op->clnt    = this;
+        op->clnt    = this;
         lease.leaseRenewSent = true;
-	gMetaServerSM.EnqueueOp(op);
+        gMetaServerSM.EnqueueOp(op);
     }
 }
 

@@ -286,6 +286,9 @@ public:
         }
         return *this;
     }
+    StringBufT& Append(
+        const char* inStrPtr)
+        { return (inStrPtr ? Append(inStrPtr, strlen(inStrPtr)) : *this); }
     template<size_t CAPACITY>
     StringBufT& Append(
         const StringBufT<CAPACITY>& inBuf)

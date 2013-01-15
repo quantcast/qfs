@@ -74,8 +74,9 @@ class ChunkServerData:
         self.chunkHeaders = [elem.strip() for elem in nodes]
 
     def printDebug(self):
-        print self.chunkServers[0].nodes
-        print self.chunkHeaders
+        print "Headers:", self.chunkHeaders
+        if len(self.chunkServers) > 0:
+            print "First row:", self.chunkServers[0].nodes
 
 
 #________________________________________________________
@@ -178,7 +179,7 @@ class ChunkDataManager:
 #        self.monthlyData = SavedChunkDataList(60*60*24, 30)
 #        1 entry per hour
 #        self.daylyData = SavedChunkDataList(60*60, 24, self.monthlyData)
-#        1 entry per 1-5 minutes
+#        1 entry per 2 minutes
 #        self.hourlyData = SavedChunkDataList(60*2, 30, self.daylyData)
 #        1 entry per 10 sec
 #        self.latestData = SavedChunkDataList(10, 30, self.hourlyData, 0)

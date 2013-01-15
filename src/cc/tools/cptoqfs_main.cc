@@ -258,7 +258,7 @@ CpToKfs::Run(int argc, char **argv)
     MsgLogger::Init(0, logLevel);
     mKfsClient = Connect(serverHost, port);
     if (!mKfsClient) {
-	cout << "qfs client failed to initialize" << endl;
+        cout << "qfs client failed to initialize" << endl;
         return(-1);
     }
     if (maxRetry > 0) {
@@ -278,18 +278,18 @@ CpToKfs::Run(int argc, char **argv)
     statInfo.st_mode = S_IFREG;
     if (sourcePath != "-" && stat(sourcePath.c_str(), &statInfo)) {
         ReportError("stat", sourcePath, -errno);
-	return(-1);
+        return(-1);
     }
 
     mReadBuf = new char[mBufSize];
 
     if (!S_ISDIR(statInfo.st_mode)) {
-	return BackupFile(sourcePath, kfsPath);
+        return BackupFile(sourcePath, kfsPath);
     }
 
     DIR* const dirp = opendir(sourcePath.c_str());
     if (! dirp) {
-	ReportError("opendir", sourcePath, -errno);
+        ReportError("opendir", sourcePath, -errno);
         return(-1);
     }
 
@@ -307,9 +307,9 @@ CpToKfs::MakeKfsLeafDir(string sourcePath, string kfsPath)
 
     // met everything after the last slash
     if (slash != string::npos) {
-	leaf.assign(sourcePath, slash+1, string::npos);
+        leaf.assign(sourcePath, slash+1, string::npos);
     } else {
-	leaf = sourcePath;
+        leaf = sourcePath;
     }
     if (kfsPath.empty() || kfsPath[kfsPath.size()-1] != '/') {
         kfsPath += "/";
@@ -327,9 +327,9 @@ CpToKfs::BackupFile(string sourcePath, string kfsPath)
 
     // get everything after the last slash
     if (slash != string::npos) {
-	filename.assign(sourcePath, slash+1, string::npos);
+        filename.assign(sourcePath, slash+1, string::npos);
     } else {
-	filename = sourcePath;
+        filename = sourcePath;
     }
 
     // for the dest side: if kfsPath is a dir, we are copying to
@@ -364,7 +364,7 @@ CpToKfs::BackupDir(string dirname, string kfsdirname)
     }
     if (!Mkdirs(kfsdirname)) {
         closedir(dirp);
-	return (-1);
+        return (-1);
     }
 
     int ret = 0;
@@ -383,11 +383,11 @@ CpToKfs::BackupDir(string dirname, string kfsdirname)
             break;
         }
         if (S_ISDIR(buf.st_mode)) {
-	    subdir = dirname + "/" + fileInfo->d_name;
+            subdir = dirname + "/" + fileInfo->d_name;
             kfssubdir = kfsdirname + "/" + fileInfo->d_name;
             BackupDir(subdir, kfssubdir);
         } else if (S_ISREG(buf.st_mode)) {
-	    ret = BackupFile2(dirname + "/" + fileInfo->d_name, kfsdirname + "/" + fileInfo->d_name);
+            ret = BackupFile2(dirname + "/" + fileInfo->d_name, kfsdirname + "/" + fileInfo->d_name);
             if (ret) {
                 break;
             }

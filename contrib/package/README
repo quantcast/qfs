@@ -1,0 +1,22 @@
+# Copyright 2012 Quantcast Corp.
+#
+# This file is part of Quantcast File System (QFS).
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+
+One can build the RPMs and the Debian packages using the contents in this
+directory. While these are suitable for single-node or small deployments of
+QFS, larger and complex installations of QFS are likely to require custom
+scripts for installation, configuration, and running of the QFS servers. For
+this reason, the packaging scripts are moved under contrib directory.

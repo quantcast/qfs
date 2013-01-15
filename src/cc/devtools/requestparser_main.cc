@@ -47,13 +47,13 @@ public:
         std::ostream& inStream)
         { return inStream; }
     bool ValidateRequestHeader(
-		const char* /* name */,
-		size_t      /* nameLen */,
-		const char* /* header */,
-		size_t      /* headerLen */,
-		bool        /* hasChecksum */,
-		uint32_t    /* checksum */)
-	{ return true; }
+        const char* /* name */,
+        size_t      /* nameLen */,
+        const char* /* header */,
+        size_t      /* headerLen */,
+        bool        /* hasChecksum */,
+        uint32_t    /* checksum */)
+        { return true; }
     bool HandleUnknownField(
         const char* /* key */, size_t /* keyLen */,
         const char* /* val */, size_t /* valLen */)

@@ -196,8 +196,8 @@ private:
     /// have too much network I/O backlogged---we avoid polling fd's for
     /// read.  this causes back-pressure and forces the clients to
     /// slow down
-    bool	   mDiskOverloaded;
-    bool	   mNetworkOverloaded;
+    bool           mDiskOverloaded;
+    bool           mNetworkOverloaded;
     bool           mIsOverloaded;
     volatile bool  mRunFlag;
     bool           mShutdownFlag;
@@ -206,7 +206,7 @@ private:
     const int      mTimeoutMs;
     const time_t   mStartTime;
     time_t         mNow;
-    int64_t	   mMaxOutgoingBacklog;
+    int64_t        mMaxOutgoingBacklog;
     int64_t        mNumBytesToSend;
     int64_t        mTimerOverrunCount;
     int64_t        mTimerOverrunSec;

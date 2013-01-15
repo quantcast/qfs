@@ -23,6 +23,16 @@
 #
 #
 
+if [ $# -ge 1 -a x"$1" = x'-valgrind' ]; then
+    shift
+    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --db-attach=yes --db-command="kill %p"'
+    GLIBCPP_FORCE_NEW=1
+    export GLIBCPP_FORCE_NEW
+    GLIBCXX_FORCE_NEW=1
+    export GLIBCXX_FORCE_NEW
+fi
+export myvalgrind
+
 exec </dev/null
 cd ${1-.} || exit
 
@@ -50,9 +60,14 @@ chunksrvpid="chunkserver${pidsuf}"
 chunksrvout='chunkserver.out'
 metahost='127.0.0.1'
 clustername='qfs-test-cluster'
+if [ x"$myvalgrind" != x ]; then
+    metastartwait='yes' # wait for unit test to finish
+fi
+[ x"`uname`" = x'Darwin' ] && dotusefuser=yes
+export myvalgrind
 
 # cptest.sh parameters
-sizes=${sizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6'}
+sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6'}
 meta=${meta-"-s $metahost -p $metasrvport"}
 export sizes
 export meta
@@ -68,6 +83,17 @@ fi
 getpids()
 {
     find . -name \*"${pidsuf}" $findprint | xargs $xargsnull cat
+}
+
+myrunprog()
+{
+    p=`which "$1"`
+    shift
+    if [ x"$myvalgrind" = x ]; then
+        exec "$p" ${1+"$@"}
+    else
+        eval exec "$myvalgrind" '"$p" ${1+"$@"}'
+    fi
 }
 
 fodir='src/cc/fanout'
@@ -122,7 +148,7 @@ accessdir='src/cc/access'
 if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
     kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v | head -1`
-    kfsjar="`cd "$kfsjar/../../build/java" >/dev/null 2>&1 && pwd`"
+    kfsjar="`cd "$kfsjar/../../build/java/qfs-access" >/dev/null 2>&1 && pwd`"
     kfsjar="${kfsjar}/qfs-access-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then
         accessdir="`cd "${accessdir}" >/dev/null 2>&1 && pwd`"
@@ -164,6 +190,9 @@ done
 PATH="${PATH}:/sbin:/usr/sbin"
 export PATH
 export LD_LIBRARY_PATH
+if [ x"$dotusefuser" != x'yes' ]; then
+    [ -x "`which fuser 2>/dev/null`" ] || dotusefuser=yes
+fi
 
 rm -rf "$testdir"
 mkdir "$testdir" || exit
@@ -172,7 +201,12 @@ mkdir "$chunksrvdir" || exit
 
 ulimit -c unlimited
 # Cleanup handler
-trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser 2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT
+if [ x"$dotusefuser" = x'yes' ]; then
+    trap 'sleep 1; kill -KILL 0' TERM
+    trap 'kill -TERM 0' EXIT INT HUP
+else
+    trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser 2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT INT HUP
+fi
 
 echo "Starting meta server $metahost:$metasrvport"
 
@@ -205,12 +239,24 @@ metaServer.verifyAllOpsPermissions = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
 EOF
 
-metaserver -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
-echo $! > "$metasrvpid"
-
+myrunprog metaserver -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+metapid=$!
+echo "$metapid" > "$metasrvpid"
 
 cd "$testdir" || exit
 sleep 3
+kill -0 "$metapid" || exit
+if [ x"$metastartwait" = x'yes' ]; then
+    remretry=20
+    echo "Waiting for the meta server to start, the startup unit tests to finish."
+    echo "With valgrind meta server unit tests might take serveral minutes."
+    until qfsshell -s "$metahost" -p "$metaport" -q -- stat / 1>/dev/null; do
+        kill -0 "$metapid" || exit
+        remretry=`expr $remretry - 1`
+        [ $remretry -le 0 ] && break
+        sleep 3
+    done
+fi
 
 i=$chunksrvport
 e=`expr $i + $numchunksrv`
@@ -235,7 +281,7 @@ chunkServer.requireChunkHeaderChecksum = 1
 EOF
     cd "$dir" || exit
     echo "Starting chunk server $i"
-    chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
+    myrunprog chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
     echo $! > "$chunksrvpid"
     i=`expr $i + 1`
 done
@@ -393,4 +439,7 @@ else
     status=1
 fi
 
+if [ x"$dotusefuser" = x'yes' ]; then
+    trap '' EXIT
+fi
 exit $status

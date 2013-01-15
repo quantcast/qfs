@@ -31,6 +31,8 @@
 #include "QCDLList.h"
 #include "qcdebug.h"
 
+#include <limits.h>
+
 #ifdef QC_OS_NAME_LINUX
 #include <sys/types.h>
 #include <sys/syscall.h>
@@ -43,14 +45,6 @@ class QCStartedThreadList
 public:
     typedef QCDLListOp<QCThread, 0> ThreadList;
 
-    QCStartedThreadList()
-        : mMutex(),
-          mHead(0, "QCThread list head"),
-          mMainThread(pthread_self()),
-          mCount(0)
-        {}
-    ~QCStartedThreadList()
-        { QCASSERT(mCount == 0); }
     void Insert(
         QCThread& inThread)
     {
@@ -70,14 +64,45 @@ public:
         QCStMutexLocker theLock(mMutex);
         return mCount;
     }
-
+    static QCStartedThreadList& Instance()
+    {
+        // The following assumes that QCThread created after entering main,
+        // or from no more than one thread other than QCTread before entering
+        // main().
+        static QCStartedThreadList sThreadList;
+        return sThreadList;
+    }
 private:
     QCMutex   mMutex;
     QCThread  mHead;
     pthread_t mMainThread;
     int       mCount;
+
+    static QCStartedThreadList* sThreadListForGdbToFindPtr;
+    static int                  sConstructedCount;
+    static int                  sDestructedCount;
+
+    QCStartedThreadList()
+        : mMutex(),
+          mHead(0, "QCThread list head"),
+          mMainThread(pthread_self()),
+          mCount(0)
+    {
+        sThreadListForGdbToFindPtr = this;
+        sConstructedCount++;
+    }
+    ~QCStartedThreadList()
+    {
+        QCASSERT(mCount == 0);
+        sDestructedCount++;
+    }
 };
-static QCStartedThreadList sThreadList;
+
+// Force construction before entering main().
+QCStartedThreadList* QCStartedThreadList::sThreadListForGdbToFindPtr =
+    &QCStartedThreadList::Instance();
+int QCStartedThreadList::sConstructedCount = 0;
+int QCStartedThreadList::sDestructedCount  = 0;
 
 
 QCThread::QCThread(
@@ -99,6 +124,13 @@ QCThread::~QCThread()
     QCThread::Join();
 }
 
+const int kMinThreadStackSize =
+#ifdef PTHREAD_STACK_MIN
+    PTHREAD_STACK_MIN;
+#else
+    (1 << 10);
+#endif
+
     int
 QCThread::TryToStart(
     QCRunnable*           inRunnablePtr /* = 0 */,
@@ -116,7 +148,8 @@ QCThread::TryToStart(
         return theErr;
     }
     if (inStackSize > 0 && (theErr = pthread_attr_setstacksize(
-            &theStackSizeAttr, inStackSize)) != 0) {
+            &theStackSizeAttr, kMinThreadStackSize < inStackSize ?
+                inStackSize : kMinThreadStackSize)) != 0) {
         pthread_attr_destroy(&theStackSizeAttr);
         return theErr;
     }
@@ -137,7 +170,7 @@ QCThread::TryToStart(
         mStartedFlag = false;
         return theErr;
     }
-    sThreadList.Insert(*this);
+    QCStartedThreadList::Instance().Insert(*this);
     return theErr;
 }
 
@@ -152,7 +185,7 @@ QCThread::Join()
         FatalError("pthread_join", theErr);
     }
     mStartedFlag = false;
-    sThreadList.Remove(*this);
+    QCStartedThreadList::Instance().Remove(*this);
 }
 
     void
@@ -190,7 +223,7 @@ QCThread::GetErrorMsg(
     /* static */ int
 QCThread::GetThreadCount()
 {
-    return sThreadList.GetThreadCount();
+    return QCStartedThreadList::Instance().GetThreadCount();
 }
 
 /* static */ int

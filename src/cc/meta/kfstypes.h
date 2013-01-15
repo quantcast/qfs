@@ -26,8 +26,6 @@
 #if !defined(KFS_TYPES_H)
 #define KFS_TYPES_H
 
-#include <cerrno>
-#include <cassert>
 #include "common/kfstypes.h"
 
 namespace KFS {

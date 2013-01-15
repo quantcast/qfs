@@ -32,6 +32,7 @@
 #include "common/kfstypes.h"
 #include "common/time.h"
 #include "common/RequestParser.h"
+#include "common/kfserrno.h"
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 
@@ -428,8 +429,6 @@ ReadOp::HandleDone(int code, void *data)
         }
         assert(size_t((numBytesIO + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE) ==
             checksum.size());
-        // send the disk IO time back to client for telemetry reporting
-        diskIOTime = microseconds() - startTime;
     }
 
     if (wop) {
@@ -2173,8 +2172,9 @@ inline static bool
 OkHeader(const KfsOp* op, ostream &os, bool checkStatus = true)
 {
     os << "OK\r\n";
-    os << "Cseq: " << op->seq << "\r\n";
-    os << "Status: " << op->status << "\r\n";
+    os << "Cseq: "   << op->seq << "\r\n";
+    os << "Status: " << (op->status >= 0 ? op->status :
+        -SysToKfsErrno(-op->status)) << "\r\n";
     if (! op->statusMsg.empty()) {
         const size_t p = op->statusMsg.find('\r');
         assert(string::npos == p && op->statusMsg.find('\n') == string::npos);
@@ -2317,7 +2317,8 @@ GetRecordAppendOpStatus::Response(ostream &os)
     os <<
         "Chunk-version: "         << chunkVersion       << "\r\n"
         "Op-seq: "                << opSeq              << "\r\n"
-        "Op-status: "             << opStatus           << "\r\n"
+        "Op-status: "             <<
+            (opStatus < 0 ? -SysToKfsErrno(-opStatus) : opStatus) << "\r\n"
         "Op-offset: "             << opOffset           << "\r\n"
         "Op-length: "             << opLength           << "\r\n"
         "Wid-append-count: "      << widAppendCount     << "\r\n"

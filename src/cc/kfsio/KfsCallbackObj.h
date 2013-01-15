@@ -89,8 +89,8 @@ public:
     }
 
 private:
-    T* 		mOptr;      // pointer to the object
-    MethodPtr	mMptr;	// pointer to the method
+    T*        mOptr;    // pointer to the object
+    MethodPtr mMptr;    // pointer to the method
 };
 
 ///

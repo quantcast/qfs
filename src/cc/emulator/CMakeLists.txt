@@ -33,11 +33,20 @@ emulator_setup.cc
 )
 
 add_library (kfsEmulator STATIC ${lib_srcs})
-add_library (kfsEmulator-shared SHARED ${lib_srcs})
 set_target_properties (kfsEmulator PROPERTIES OUTPUT_NAME "qfs_emulator")
-set_target_properties (kfsEmulator-shared PROPERTIES OUTPUT_NAME "qfs_emulator")
 set_target_properties (kfsEmulator PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-set_target_properties (kfsEmulator-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+
+if (NOT USE_STATIC_LIB_LINKAGE)
+    add_library (kfsEmulator-shared SHARED ${lib_srcs})
+    set_target_properties (kfsEmulator-shared PROPERTIES OUTPUT_NAME "qfs_emulator")
+    set_target_properties (kfsEmulator-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    install (kfsEmulator-shared
+            RUNTIME DESTINATION bin/emulator
+            LIBRARY DESTINATION lib)
+    if (NOT Boost_USE_STATIC_LIBS)
+        target_link_libraries(kfsEmulator-shared kfsMeta-shared kfsCommon-shared kfsIO-shared)
+    endif (NOT Boost_USE_STATIC_LIBS)
+endif (NOT USE_STATIC_LIB_LINKAGE)
 
 set (exe_files rebalanceplanner rebalanceexecutor replicachecker)
 foreach (exe_file ${exe_files})
@@ -51,10 +60,6 @@ foreach (exe_file ${exe_files})
         endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
-if (APPLE OR CYGWIN)
-  target_link_libraries(kfsEmulator-shared kfsMeta-shared kfsCommon-shared kfsIO-shared)
-endif (APPLE OR CYGWIN)
-
 if (NOT APPLE)
   target_link_libraries(kfsEmulator rt)
 endif (NOT APPLE)
@@ -66,7 +71,7 @@ endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 #
 # Install them
 #
-install (TARGETS ${exe_files} kfsEmulator kfsEmulator-shared
+install (TARGETS ${exe_files} kfsEmulator
         RUNTIME DESTINATION bin/emulator
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)

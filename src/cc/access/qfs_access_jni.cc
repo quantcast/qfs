@@ -193,6 +193,9 @@ extern "C" {
     jlong Java_com_quantcast_qfs_access_KfsAccess_seek(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
 
+    jlong Java_com_quantcast_qfs_access_KfsAccess_tell(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
+
     jint Java_com_quantcast_qfs_access_KfsAccess_getUMask(
         JNIEnv *jenv, jclass jcls, jlong jptr);
 
@@ -202,12 +205,6 @@ extern "C" {
    /* Input channel methods */
     jint Java_com_quantcast_qfs_access_KfsInputChannel_read(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
-
-    jint Java_com_quantcast_qfs_access_KfsInputChannel_seek(
-        JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
-
-    jint Java_com_quantcast_qfs_access_KfsInputChannel_tell(
-        JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
     jint Java_com_quantcast_qfs_access_KfsInputChannel_close(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
@@ -220,12 +217,6 @@ extern "C" {
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
 
     jint Java_com_quantcast_qfs_access_KfsOutputChannel_sync(
-        JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
-
-    jint Java_com_quantcast_qfs_access_KfsOutputChannel_seek(
-        JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset);
-
-    jint Java_com_quantcast_qfs_access_KfsOutputChannel_tell(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd);
 
     jint Java_com_quantcast_qfs_access_KfsOutputChannel_close(
@@ -653,7 +644,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_chowns(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->Chown(path.c_str(), group.c_str(), user.c_str());
+    return clnt->Chown(path.c_str(), user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
@@ -673,7 +664,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_chownsr(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->ChownR(path.c_str(), group.c_str(), user.c_str());
+    return clnt->ChownR(path.c_str(), user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_chown(
@@ -727,7 +718,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_fchowns(
         setStr(group, jenv, jgroup);
     }
     KfsClient* const clnt = (KfsClient *) jptr;
-    return clnt->Chown(jfd, group.c_str(), user.c_str());
+    return clnt->Chown(jfd, user.c_str(), group.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_fchown(
@@ -772,46 +763,6 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setEUserAndEGroup(
         (kfsUid_t)user, (kfsGid_t)group, groups, (int)cnt);
     delete [] groups;
     return ret;
-}
-
-jint Java_com_quantcast_qfs_access_KfsInputChannel_seek(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset)
-{
-    if (! jptr) {
-        return -EFAULT;
-    }
-    KfsClient* const clnt = (KfsClient*)jptr;
-    return clnt->Seek(jfd, joffset);
-}
-
-jint Java_com_quantcast_qfs_access_KfsInputChannel_tell(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
-{
-    if (! jptr) {
-        return -EFAULT;
-    }
-    KfsClient* const clnt = (KfsClient*)jptr;
-    return clnt->Tell(jfd);
-}
-
-jint Java_com_quantcast_qfs_access_KfsOutputChannel_seek(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jlong joffset)
-{
-    if (! jptr) {
-        return -EFAULT;
-    }
-    KfsClient* const clnt = (KfsClient*)jptr;
-    return clnt->Seek(jfd, joffset);
-}
-
-jint Java_com_quantcast_qfs_access_KfsOutputChannel_tell(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
-{
-    if (! jptr) {
-        return -EFAULT;
-    }
-    KfsClient* const clnt = (KfsClient*)jptr;
-    return clnt->Tell(jfd);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_exists(
@@ -1036,13 +987,13 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     if (! fid) {
         return -EFAULT;
     }
-    jenv->SetIntField(attr, fid, (jboolean)kfsAttr.isDirectory);
+    jenv->SetBooleanField(attr, fid, (jboolean)kfsAttr.isDirectory);
 
     fid = jenv->GetFieldID(acls, "filesize", "J");
     if (! fid) {
         return -EFAULT;
     }
-    jenv->SetIntField(attr, fid, (jlong)kfsAttr.fileSize);
+    jenv->SetLongField(attr, fid, (jlong)kfsAttr.fileSize);
 
     fid = jenv->GetFieldID(acls, "modificationTime", "J");
     if (! fid) {
@@ -1166,6 +1117,16 @@ jlong Java_com_quantcast_qfs_access_KfsAccess_seek(
     }
     KfsClient* const clnt = (KfsClient*)jptr;
     return (jlong)clnt->Seek(jfd, joffset);
+}
+
+jlong Java_com_quantcast_qfs_access_KfsAccess_tell(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+    return (jlong)clnt->Tell(jfd);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_getUMask(

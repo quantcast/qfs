@@ -49,10 +49,11 @@ set_target_properties (qcdio PROPERTIES OUTPUT_NAME "qfs_qcdio")
 
 set_target_properties (qcdio PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qcdio-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+target_link_libraries (qcdio ${Boost_LIBRARIES})
 
-if (APPLE OR CYGWIN)
-target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
-endif (APPLE OR CYGWIN)
+if (NOT Boost_USE_STATIC_LIBS)
+    target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
+endif (NOT Boost_USE_STATIC_LIBS)
 
 install (TARGETS qcdio qcdio-shared
         LIBRARY DESTINATION lib

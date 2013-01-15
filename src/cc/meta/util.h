@@ -26,12 +26,14 @@
 #define KFS_UTIL_H
 
 #include <string>
-#include <sstream>
+#include <ostream>
 #include <inttypes.h>
 
 #include "kfstypes.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/IOBufferWriter.h"
 #include "common/time.h"
+#include "common/IntToString.h"
 
 namespace KFS
 {
@@ -41,7 +43,6 @@ using std::ostream;
 
 extern chunkOff_t chunkStartOffset(chunkOff_t offset);
 extern int link_latest(const string& real, const string& alias);
-extern char* toString(int64_t n, char* bufEnd);
 extern string toString(int64_t n);
 extern int64_t toNumber(const char* str);
 static inline int64_t toNumber(const string& s) { return toNumber(s.c_str()); }
@@ -63,7 +64,7 @@ public:
           mIsoFlag(isoFlag),
           mDisplayUsecsFlag(usecFlag)
         {}
-    explicit DisplayDateTime()
+    DisplayDateTime()
         : mTimeUsec(microseconds()),
           mIsoFlag(false),
           mDisplayUsecsFlag(false)
@@ -91,6 +92,36 @@ public:
 
 inline ostream& operator<<(ostream& os, const DisplayIsoDateTime& dt)
     { return dt.display(os); }
+    
+class IntIOBufferWriter : public IOBufferWriter
+{
+public:
+    IntIOBufferWriter(
+        IOBuffer& buf)
+        : IOBufferWriter(buf),
+          mBufEnd(mBuf + kBufSize)
+        {}
+    template<typename T>
+    void WriteInt(T val)
+    {
+        const char* const p = IntToDecString(val, mBufEnd);
+        Write(p, mBufEnd - p);
+    }
+    template<typename T>
+    void WriteHexInt(T val)
+    {
+        const char* const p = IntToHexString(val, mBufEnd);
+        Write(p, mBufEnd - p);
+    }
+private:
+    enum { kBufSize = 32 };
+
+    char        mBuf[kBufSize];
+    char* const mBufEnd;
+private:
+    IntIOBufferWriter(const IntIOBufferWriter&);
+    IntIOBufferWriter& operator=(const IntIOBufferWriter&);
+};
 
 /// Is a message that ends with "\r\n\r\n" available in the
 /// buffer.

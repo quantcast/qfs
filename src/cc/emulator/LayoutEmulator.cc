@@ -158,7 +158,7 @@ LayoutEmulator::Parse(
             KFS_LOG_EOM;
             continue;
         }
-	if (! AddReplica(*ci, it->second)) {
+        if (! AddReplica(*ci, it->second)) {
             KFS_LOG_STREAM_ERROR <<
                 "chunk: "        << cid <<
                 " add server: "  << loc <<
@@ -798,7 +798,7 @@ LayoutEmulator::VerifyRackAwareReplication(
             GetPlacementExcludes(*p, placement, kIncludeThisChunkFlag,
                 kStopIfHasAnyReplicationsInFlight, &cblk);
         }
-    	VerifyPlacement(*p, servers, cblk, placement,
+        VerifyPlacement(*p, servers, cblk, placement,
             os, verboseFlag, reportAllFlag, verifier);
     }
     verifier.report(os, mChunkToServerMap.Size());

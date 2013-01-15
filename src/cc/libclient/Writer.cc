@@ -877,7 +877,7 @@ private:
                     KFS_LOG_EOM;
                     break;
                 }
-	        mWriteIds.push_back(theWInfo);
+                mWriteIds.push_back(theWInfo);
             }
             if (theServerCount != mWriteIds.size()) {
                 HandleError(inOp);

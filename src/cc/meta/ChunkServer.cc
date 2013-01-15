@@ -32,6 +32,7 @@
 #include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 
 #include <openssl/rand.h>
 
@@ -297,7 +298,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
 ChunkServer::~ChunkServer()
 {
     assert(! mSelfPtr);
-    KFS_LOG_STREAM_DEBUG << ServerID() <<
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " ~ChunkServer " << (const void*)this <<
         " total: " << sChunkServerCount <<
     KFS_LOG_EOM;
@@ -556,7 +557,7 @@ ChunkServer::ForceDown()
         return;
     }
     KFS_LOG_STREAM_WARN <<
-        "forcing chunk server " << ServerID() <<
+        "forcing chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
             string("not connected")) <<
         " down" <<
@@ -607,7 +608,7 @@ ChunkServer::Error(const char* errorMsg)
     const int socketErr = (mNetConnection && mNetConnection->IsGood()) ?
         mNetConnection->GetSocketError() : 0;
     KFS_LOG_STREAM_ERROR <<
-        "chunk server " << ServerID() <<
+        "chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
             string("not connected")) <<
         " down" <<
@@ -707,7 +708,7 @@ ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
         return op;
     }
     ShowLines(MsgLogger::kLogLevelERROR,
-        ServerID() + "/" + GetPeerName() + " " +
+        GetHostPortStr() + "/" + GetPeerName() + " " +
             (errMsgPrefix ? errMsgPrefix : "") + ": ",
         iobuf,
         msgLen
@@ -1121,7 +1122,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     if (! op) {
         // Most likely op was timed out, or chunk server sent response
         // after re-connect.
-        KFS_LOG_STREAM_INFO << ServerID() <<
+        KFS_LOG_STREAM_INFO << GetServerLocation() <<
             " unable to find command for response cseq: " << cseq <<
         KFS_LOG_EOM;
         return 0;
@@ -1130,6 +1131,9 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     mLastHeard = TimeNow();
     op->statusMsg = prop.getValue("Status-message", "");
     op->status    = prop.getValue("Status",         -1);
+    if (op->status < 0) {
+        op->status = -KfsToSysErrno(op->status);
+    }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
         mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
@@ -1252,7 +1256,7 @@ ChunkServer::ParseResponse(istream& is, Properties &prop)
     if (token.compare("OK") != 0) {
         int maxLines = 32;
         do {
-            KFS_LOG_STREAM_ERROR << ServerID() <<
+            KFS_LOG_STREAM_ERROR << GetServerLocation() <<
                 " bad response header: " << token <<
             KFS_LOG_EOM;
         } while (--maxLines > 0 && getline(is, token));
@@ -1463,7 +1467,7 @@ ChunkServer::SetRetiring()
     mIsRetiring = true;
     mRetireStartTime = TimeNow();
     mChunksToEvacuate.Clear();
-    KFS_LOG_STREAM_INFO << ServerID() <<
+    KFS_LOG_STREAM_INFO << GetServerLocation() <<
         " initiation of retire for " << mNumChunks << " chunks" <<
     KFS_LOG_EOM;
 }
@@ -1514,7 +1518,7 @@ ChunkServer::Heartbeat()
         if (! mHeartbeatSkipped &&
                 mLastHeartbeatSent + sHeartbeatInterval < now) {
             mHeartbeatSkipped = true;
-            KFS_LOG_STREAM_INFO << ServerID() <<
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 " skipping heartbeat send,"
                 " last sent " << timeSinceSent << " sec. ago" <<
             KFS_LOG_EOM;
@@ -1523,7 +1527,7 @@ ChunkServer::Heartbeat()
             sHeartbeatTimeout : sHeartbeatTimeout - timeSinceSent);
     }
     if (timeSinceSent >= sHeartbeatInterval) {
-        KFS_LOG_STREAM_DEBUG << ServerID() <<
+        KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " sending heartbeat,"
             " last sent " << timeSinceSent << " sec. ago" <<
         KFS_LOG_EOM;
@@ -1568,7 +1572,7 @@ ChunkServer::TimeoutOps()
     for (ReqsTimeoutQueue::iterator it = timedOut.begin();
             it != timedOut.end();
             ++it) {
-        KFS_LOG_STREAM_INFO << ServerID() <<
+        KFS_LOG_STREAM_INFO << GetServerLocation() <<
             " request timed out"
             " expired: "   << (now - it->first) <<
             " in flight: " << mDispatchedReqs.size() <<

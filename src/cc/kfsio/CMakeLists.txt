@@ -35,6 +35,7 @@ set (sources
     NetManager.cc
     TcpSocket.cc
     requestio.cc
+    ZlibInflate.cc
 )
 
 add_library (kfsIO STATIC ${sources})
@@ -50,9 +51,9 @@ add_dependencies (kfsIO-shared qcdio-shared kfsCommon-shared)
 target_link_libraries (kfsIO qcdio kfsCommon pthread z ${Boost_LIBRARIES})
 target_link_libraries (kfsIO-shared qcdio-shared kfsCommon-shared pthread z)
 
-if (APPLE OR CYGWIN)
+if (NOT Boost_USE_STATIC_LIBS)
    target_link_libraries (kfsIO-shared ${Boost_LIBRARIES})
-endif (APPLE OR CYGWIN)
+endif (NOT Boost_USE_STATIC_LIBS)
 
 if (NOT APPLE)
    target_link_libraries (kfsIO rt)

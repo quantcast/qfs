@@ -29,9 +29,9 @@
 #include "ChunkServer.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
-
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
+#include "common/kfserrno.h"
 
 #include <cerrno>
 #include <sstream>
@@ -109,24 +109,31 @@ RemoteSyncSM::Connect()
     assert(! mNetConnection);
 
     KFS_LOG_STREAM_DEBUG <<
-        "Trying to connect to: " << mLocation.ToString() <<
+        "trying to connect to: " << mLocation <<
     KFS_LOG_EOM;
 
+    if (! globalNetManager().IsRunning()) {
+        KFS_LOG_STREAM_DEBUG <<
+            "net manager shutdown, failing connection attempt to: " <<
+                mLocation <<
+        KFS_LOG_EOM;
+        return false;
+    }
     TcpSocket* const sock = new TcpSocket();
     // do a non-blocking connect
     const int res = sock->Connect(mLocation, true);
     if ((res < 0) && (res != -EINPROGRESS)) {
         KFS_LOG_STREAM_INFO <<
-            "Connect to remote server (" << mLocation <<
-            ") failed: code = " << res <<
+            "connection to remote server " << mLocation <<
+            " failed: status: " << res <<
         KFS_LOG_EOM;
         delete sock;
         return false;
     }
 
     KFS_LOG_STREAM_INFO <<
-        "Connect to remote server " << mLocation.ToString() <<
-        " succeeded (res = " << res << ")" <<
+        "connection to remote server " << mLocation <<
+        " succeeded, status: " << res <<
     KFS_LOG_EOM;
 
     SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
@@ -150,7 +157,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
 {
     if (mNetConnection && ! mNetConnection->IsGood()) {
         KFS_LOG_STREAM_INFO <<
-            "Lost connection to peer " << mLocation.ToString() <<
+            "Lost connection to peer " << mLocation <<
             " failed; failing ops" <<
         KFS_LOG_EOM;
         mNetConnection->Close();
@@ -159,7 +166,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
     op->seq = NextSeqnum();
     if (! mNetConnection && ! Connect()) {
         KFS_LOG_STREAM_INFO <<
-            "Connect to peer " << mLocation.ToString() <<
+            "connection to peer " << mLocation <<
             " failed; failing ops" <<
         KFS_LOG_EOM;
         if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
@@ -172,7 +179,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         mLastRecvTime = globalNetManager().Now();
     }
     KFS_LOG_STREAM_DEBUG <<
-        "forwarding to " << mLocation.ToString() <<
+        "forwarding to " << mLocation <<
         " " << op->Show() <<
     KFS_LOG_EOM;
     IOBuffer& buf   = mNetConnection->GetOutBuffer();
@@ -182,13 +189,13 @@ RemoteSyncSM::Enqueue(KfsOp* op)
     if (sTraceRequestResponse) {
         IOBuffer::IStream is(buf, buf.BytesConsumable());
         is.ignore(start);
-        char buf[128];
+        string line;
         KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
-            " send to: " << mLocation.ToString() <<
+            " send to: " << mLocation <<
         KFS_LOG_EOM;
-        while (is.getline(buf, sizeof(buf))) {
+        while (getline(is, line)) {
             KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
-                " request: " << buf <<
+                " request: " << line <<
             KFS_LOG_EOM;
         }
     }
@@ -241,40 +248,40 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     switch (code) {
     case EVENT_NET_READ:
         mLastRecvTime = globalNetManager().Now();
-	// We read something from the network.  Run the RPC that
-	// came in if we got all the data for the RPC
-	iobuf = (IOBuffer *) data;
-	while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
-	        HandleResponse(iobuf, msgLen) >= 0)
-	    {}
+        // We read something from the network.  Run the RPC that
+        // came in if we got all the data for the RPC
+        iobuf = (IOBuffer *) data;
+        while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
+                HandleResponse(iobuf, msgLen) >= 0)
+            {}
         UpdateRecvTimeout();
-	break;
+        break;
 
     case EVENT_NET_WROTE:
-	// Something went out on the network.  For now, we don't
-	// track it. Later, we may use it for tracking throttling
-	// and such.
+        // Something went out on the network.  For now, we don't
+        // track it. Later, we may use it for tracking throttling
+        // and such.
         UpdateRecvTimeout();
-	break;
+        break;
 
 
     case EVENT_INACTIVITY_TIMEOUT:
-    	reason = "inactivity timeout";
+        reason = "inactivity timeout";
     case EVENT_NET_ERROR:
         // If there is an error or there is no activity on the socket
         // for N mins, we close the connection.
-	KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
-            mLocation.ToString() << " due to " << reason <<
+        KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
+            mLocation << " due to " << reason <<
         KFS_LOG_EOM;
-	if (mNetConnection) {
-	    mNetConnection->Close();
+        if (mNetConnection) {
+            mNetConnection->Close();
             mNetConnection.reset();
         }
-	break;
+        break;
 
     default:
-	assert(!"Unknown event");
-	break;
+        assert(!"Unknown event");
+        break;
     }
     assert(mRecursionCount > 0);
     if (mRecursionCount <= 1) {
@@ -302,11 +309,10 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         assert(msgLen >= 0 && msgLen <= nAvail);
         if (sTraceRequestResponse) {
             IOBuffer::IStream is(*iobuf, msgLen);
-            const string      loc(mLocation.ToString());
-            string line;
+            string            line;
             while (getline(is, line)) {
                 KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
-                    loc << " response: " << line <<
+                    " " << mLocation << " response: " << line <<
                 KFS_LOG_EOM;
             }
         }
@@ -323,12 +329,15 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
             KFS_LOG_EOM;
             HandleEvent(EVENT_NET_ERROR, 0);
         }
-        mReplyNumBytes = prop.getValue("Content-length", (long long) 0);
+        mReplyNumBytes = prop.getValue("Content-length", 0);
         nAvail -= msgLen;
         i = mDispatchedOps.find(mReplySeqNum);
         KfsOp* const op = i != mDispatchedOps.end() ? i->second : 0;
         if (op) {
             op->status = prop.getValue("Status", -1);
+            if (op->status < 0) {
+                op->status = -KfsToSysErrno(-op->status);
+            }
             if (op->op == CMD_WRITE_ID_ALLOC) {
                 WriteIdAllocOp *wiao = static_cast<WriteIdAllocOp *>(op);
                 wiao->writeIdStr            = prop.getValue("Write-id", "");
@@ -403,7 +412,7 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         SubmitOpResponse(op);
     } else {
         KFS_LOG_STREAM_DEBUG <<
-            "Discarding a reply for unknown seq #: " << mReplySeqNum <<
+            "discarding a reply for unknown seq #: " << mReplySeqNum <<
         KFS_LOG_EOM;
         mReplyNumBytes = 0;
     }
@@ -426,7 +435,6 @@ public:
         SubmitOpResponse(op);
     }
 };
-
 
 void
 RemoteSyncSM::FailAllOps()
@@ -453,7 +461,7 @@ RemoteSyncSM::Finish()
 {
     FailAllOps();
     if (mNetConnection) {
-	mNetConnection->Close();
+        mNetConnection->Close();
         mNetConnection.reset();
     }
     // if the object was owned by the chunkserver, have it release the reference

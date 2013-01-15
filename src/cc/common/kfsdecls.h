@@ -52,31 +52,31 @@ using std::min;
 struct ServerLocation {
     ServerLocation(): hostname(""), port(-1) { }
     ServerLocation(const ServerLocation &other):
-	hostname(other.hostname), port(other.port) { }
+        hostname(other.hostname), port(other.port) { }
     ServerLocation(const string &h, int p): hostname(h), port(p) { }
     ServerLocation & operator = (const ServerLocation &other) {
-	hostname = other.hostname;
-	port = other.port;
-	return *this;
+        hostname = other.hostname;
+        port = other.port;
+        return *this;
     }
     void Reset(const char *h, int p) {
-	hostname = h;
-	port = p;
+        hostname = h;
+        port = p;
     }
     bool operator == (const ServerLocation &other) const {
-	return hostname == other.hostname && port == other.port;
+        return hostname == other.hostname && port == other.port;
     }
     bool operator != (const ServerLocation &other) const {
-	return hostname != other.hostname || port != other.port;
+        return hostname != other.hostname || port != other.port;
     }
     bool operator < (const ServerLocation &other) const {
-	const int res = hostname.compare(other.hostname);
+        const int res = hostname.compare(other.hostname);
         return (res < 0 || (res == 0 && port < other.port));
     }
     bool IsValid() const {
-	// Hostname better be non-null and port better
-	// be a positive number
-	return (! hostname.empty() && port > 0);
+        // Hostname better be non-null and port better
+        // be a positive number
+        return (! hostname.empty() && port > 0);
     }
 
     // a proxy for distance between two hosts: take the difference
@@ -97,17 +97,17 @@ struct ServerLocation {
         return abs(hosta - hostb);
     }
     string ToString() const {
-	ostringstream os;
-	Display(os);
-	return os.str();
+        ostringstream os;
+        Display(os);
+        return os.str();
     }
     ostream& Display(ostream& os) const {
-	return (os << hostname << ' ' << port);
+        return (os << hostname << ' ' << port);
     }
     void FromString(const string &s) {
-	istringstream is(s);
-	is >> hostname;
-	is >> port;
+        istringstream is(s);
+        is >> hostname;
+        is >> port;
     }
 
     string hostname; //!< Location of the server: machine name/IP addr
@@ -189,7 +189,9 @@ public:
             group != kKfsGroupNone
         );
     }
-    bool IsSticky() const { return (mode & kStickyBit); }
+    bool IsSticky() const {
+        return (mode != kKfsModeUndef && mode & kStickyBit);
+    }
     void SetSticky(bool flag)
     {
         if (flag) {

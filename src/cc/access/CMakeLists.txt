@@ -24,7 +24,7 @@
 #
 
 # Take all the .cc files and build a library out of them
-add_library (qfs_access SHARED kfs_access_jni.cc)
+add_library (qfs_access SHARED qfs_access_jni.cc)
 add_dependencies (qfs_access kfsClient-shared)
 target_link_libraries (qfs_access kfsClient-shared)
 if (NOT APPLE)

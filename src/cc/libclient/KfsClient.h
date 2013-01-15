@@ -100,28 +100,30 @@ public:
     ///
     string GetCwd();
 
+    int SetCwd(const char* pathname);
+
     ///
     /// Make a directory hierarcy in KFS.  If the parent dirs are not
     /// present, they are also made.
-    /// @param[in] pathname		The full pathname such as /.../dir
+    /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if mkdir is successful; -errno otherwise
     int Mkdirs(const char *pathname, kfsMode_t mode = 0777);
 
     ///
     /// Make a directory in KFS.
-    /// @param[in] pathname		The full pathname such as /.../dir
+    /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if mkdir is successful; -errno otherwise
     int Mkdir(const char *pathname, kfsMode_t mode = 0777);
 
     ///
     /// Remove a directory in KFS.
-    /// @param[in] pathname		The full pathname such as /.../dir
+    /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
     int Rmdir(const char *pathname);
 
     ///
     /// Remove a directory hierarchy in KFS.
-    /// @param[in] pathname		The full pathname such as /.../dir
+    /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
     int Rmdirs(const char *pathname, ErrorHandler* errHandler = 0);
 
@@ -129,15 +131,15 @@ public:
 
     ///
     /// Read a directory's contents
-    /// @param[in] pathname	The full pathname such as /.../dir
-    /// @param[out] result	The contents of the directory
+    /// @param[in] pathname The full pathname such as /.../dir
+    /// @param[out] result  The contents of the directory
     /// @retval 0 if readdir is successful; -errno otherwise
     int Readdir(const char *pathname, vector<string> &result);
 
     ///
     /// Read a directory's contents and retrieve the attributes
-    /// @param[in] pathname	The full pathname such as /.../dir
-    /// @param[out] result	The files in the directory and their attributes.
+    /// @param[in] pathname The full pathname such as /.../dir
+    /// @param[out] result  The files in the directory and their attributes.
     /// @retval 0 if readdirplus is successful; -errno otherwise
     ///
     int ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
@@ -158,17 +160,18 @@ public:
 
     ///
     /// Stat a file and get its attributes.
-    /// @param[in] pathname	The full pathname such as /.../foo
-    /// @param[out] result	The attributes that we get back from server
+    /// @param[in] pathname The full pathname such as /.../foo
+    /// @param[out] result  The attributes that we get back from server
     /// @param[in] computeFilesize  When set, for files, the size of
     /// file is computed and the value is returned in result.st_size
     /// @retval 0 if stat was successful; -errno otherwise
     ///
-    int Stat(const char *pathname, KfsFileAttr &result, bool computeFilesize = true);
+    int Stat(const char* pathname, KfsFileAttr& result, bool computeFilesize = true);
+    int Stat(int fd, KfsFileAttr& result);
 
     ///
     /// Given a file, return the # of chunks in the file
-    /// @param[in] pathname	The full pathname such as /.../foo
+    /// @param[in] pathname The full pathname such as /.../foo
     /// @retval    On success, # of chunks in the file; otherwise -1
     ///
     int GetNumChunks(const char *pathname);
@@ -188,7 +191,7 @@ public:
     /// file, and (3) a directory.
     /// Use Stat() if more than one property needs to be tested at the same
     /// time.
-    /// @param[in] pathname	The full pathname such as /.../foo
+    /// @param[in] pathname The full pathname such as /.../foo
     /// @retval status: True if it exists; false otherwise
     ///
     bool Exists(const char *pathname);
@@ -500,10 +503,10 @@ public:
     /// of the chunkserver that is hosting the chunk. This API can be
     /// used for job scheduling.
     ///
-    /// @param[in] pathname	The full pathname of the file such as /../foo
-    /// @param[in] start	The starting byte offset
-    /// @param[in] len		The length in bytes that define the region
-    /// @param[out] locations	The location(s) of various chunks
+    /// @param[in] pathname   The full pathname of the file such as /../foo
+    /// @param[in] start      The starting byte offset
+    /// @param[in] len        The length in bytes that define the region
+    /// @param[out] locations The location(s) of various chunks
     /// @retval status: 0 on success; -errno otherwise
     ///
     int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
@@ -514,18 +517,21 @@ public:
 
     ///
     /// Get the degree of replication for the pathname.
-    /// @param[in] pathname	The full pathname of the file such as /../foo
+    /// @param[in] pathname The full pathname of the file such as /../foo
     /// @retval count
     ///
     int16_t GetReplicationFactor(const char *pathname);
 
     ///
     /// Set the degree of replication for the pathname.
-    /// @param[in] pathname	The full pathname of the file such as /../foo
+    /// @param[in] pathname     The full pathname of the file such as /../foo
     /// @param[in] numReplicas  The desired degree of replication.
     /// @retval -1 on failure; on success, the # of replicas that will be made.
     ///
     int16_t SetReplicationFactor(const char *pathname, int16_t numReplicas);
+    // Recursive version.
+    int16_t SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+        ErrorHandler* errHandler = 0);
 
     ServerLocation GetMetaserverLocation() const;
 
@@ -630,6 +636,11 @@ public:
         kfsGid_t* groups, int groupsCnt);
     int GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
         string& uname, string& gname);
+    int GetUserAndGroupIds(const char* user, const char* group,
+        kfsUid_t& uid, kfsGid_t& gid);
+    kfsUid_t GetUserId();
+    int GetReplication(const char* pathname,
+        KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
 private:
     KfsClientImpl* const mImpl;
 };

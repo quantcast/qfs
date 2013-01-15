@@ -42,6 +42,7 @@
 #include "common/StdAllocator.h"
 #include "common/kfsatomic.h"
 #include "common/StTmp.h"
+#include "common/HostPrefix.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/event.h"
@@ -1598,52 +1599,11 @@ protected:
     int                mPingUpdateInterval;
     time_t             mPingUpdateTime;
     IOBuffer           mPingResponse;
-    ostringstream      mStringStream;
     IOBuffer::WOStream mWOstream;
     QCIoBufferPool*    mBufferPool;
     bool               mMightHaveRetiringServersFlag;
 
-    class HostPrefix
-    {
-    public:
-        HostPrefix()
-            : mLen(0),
-              mMinLen(0)
-            {}
-        bool operator==(const HostPrefix& other) const
-        {
-            return (mLen == other.mLen &&
-                mMinLen == other.mMinLen &&
-                memcmp(mPrefix, other.mPrefix, mLen) == 0);
-        }
-        bool Match(const string& host) const
-        {
-            return (host.length() >= mMinLen &&
-                memcmp(host.data(), mPrefix, mLen) == 0);
-
-        }
-        size_t Parse(const string& pref)
-        {
-            // Allow to position prefix with trailing ??
-            // For example: 10.6.34.2?
-            mMinLen = min(sizeof(mPrefix), pref.length());
-            mLen    = pref.find('?');
-            if (mLen == string::npos || mMinLen < mLen) {
-                mLen = mMinLen;
-            }
-            memcpy(mPrefix, pref.data(), mLen);
-            return mMinLen;
-        }
-    private:
-        char   mPrefix[64];
-        size_t mLen;
-        size_t mMinLen;
-
-    };
-    typedef vector<pair<
-        HostPrefix,
-        RackId
-    > > RackPrefixes;
+    typedef HostPrefixMap<RackId>      RackPrefixes;
     typedef map<int, double>           RackWeights;
     typedef vector<string>             ChunkServersMd5sums;
     bool                mRackPrefixUsePortFlag;
@@ -1863,7 +1823,6 @@ protected:
 
     inline seq_t GetChunkVersionRollBack(chunkId_t chunkId);
     inline seq_t IncrementChunkVersionRollBack(chunkId_t chunkId);
-    inline ostream& ClearStringStream();
     inline void UpdatePendingRecovery(CSMap::Entry& entry);
     inline void CheckReplication(CSMap::Entry& entry);
     bool GetPlacementExcludes(const CSMap::Entry& entry, ChunkPlacement& placement,

@@ -39,7 +39,7 @@
 #include <algorithm>
 
 #ifdef KFS_OS_NAME_LINUX
-#	include <malloc.h>
+#   include <malloc.h>
 #endif
 
 namespace KFS

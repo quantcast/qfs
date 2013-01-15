@@ -74,8 +74,11 @@ public:
         istream::precision(6);
         char* const thePtr = const_cast<char*>(inPtr);
         streambuf::setg(thePtr, thePtr, thePtr + inLen);
+        rdbuf(this);
         return *this;
     }
+    void Reset()
+        { Set(0, 0); }
 };
 
 class DecIntParser
