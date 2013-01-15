@@ -249,7 +249,6 @@ if __name__ == '__main__':
     transactions = get_transactions(o.transactions)
     check_transaction_sequences(transactions)
 
-
     tar_cmd = [ o.tar, '-cf', '-' ]
     filelist = []
 
