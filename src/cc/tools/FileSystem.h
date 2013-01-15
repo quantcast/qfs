@@ -39,6 +39,8 @@
 #include <string>
 
 namespace KFS {
+class Properties;
+
 namespace tools {
 
 using std::string;
@@ -80,11 +82,13 @@ public:
             {}
     };
     static int SetDefault(
-        const string& inUri);
+        const string&     inUri,
+        const Properties* inPropertiesPtr = 0);
     static int Get(
-        const string& inUri,
-        FileSystem*&  outFsPtr,
-        string*       outPathPtr = 0);
+        const string&     inUri,
+        FileSystem*&      outFsPtr,
+        string*           outPathPtr      = 0,
+        const Properties* inPropertiesPtr = 0);
     static string GetStrError(
         int               inErr,
         const FileSystem* inFsPtr = 0);
@@ -121,6 +125,9 @@ public:
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat) = 0;
+    virtual int Stat(
+        int      inFd,
+        StatBuf& outStat) = 0;
     virtual int Open(
         const string& inDirName,
         bool          inFetchAttributesFlag,
@@ -144,7 +151,7 @@ public:
     virtual int Chown(
         const string& inPathName,
         kfsUid_t      inOwner,
-        kfsUid_t      inGroup,
+        kfsGid_t      inGroup,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int Rmdir(
@@ -157,14 +164,48 @@ public:
         const string& inPathName,
         kfsMode_t     inMode,
         bool          inCreateAllFlag) = 0;
+    virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName) = 0;
+    virtual int SetUMask(
+        mode_t inUMask) = 0;
+    virtual int GetUMask(
+        mode_t& outUMask) = 0;
     virtual int GetUserAndGroupNames(
         kfsUid_t inUser,
         kfsGid_t inGroup,
         string&  outUserName,
         string&  outGroupName) = 0;
+    virtual int GetUserAndGroupIds(
+        const string& inUserName,
+        const string& inGroupName,
+        kfsUid_t&     outUserId,
+        kfsGid_t&     outGroupId) = 0;
+    virtual int GetUserName(
+        string& outUserName) = 0;
+    virtual int SetMtime(
+        const string&         inPath,
+        const struct timeval& inMTime) = 0;
+    virtual int SetReplication(
+        const string& inPath,
+        const int     inReplication,
+        bool          inRecursiveFlag,
+        ErrorHandler* inErrorHandlerPtr) = 0;
+    virtual int GetReplication(
+        const string& inPath,
+        StatBuf&      outStat,
+        int&          outMinReplication,
+        int&          outMaxReplication) = 0;
+    virtual int GetHomeDirectory(
+        string& outHomeDir) = 0;
     virtual string StrError(
         int inError) const = 0;
-    virtual string GetUri() const = 0;
+    virtual const string& GetUri() const = 0;
+    virtual bool operator==(
+        const FileSystem& inFs) const = 0;
+    bool operator!=(
+        const FileSystem& inFs)
+        { return ! (inFs == *this); }
 protected:
     virtual ~FileSystem()
         {}

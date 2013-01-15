@@ -2227,7 +2227,7 @@ struct MetaGetChunkServersCounters : public MetaRequest {
     virtual void response(ostream &os, IOBuffer& buf);
     virtual string Show() const
     {
-        return string("get chunk servers counters ");
+        return string("get chunk servers counters");
     }
     bool Validate()
     {
@@ -2255,7 +2255,7 @@ struct MetaGetChunkServerDirsCounters : public MetaRequest {
     virtual void response(ostream &os, IOBuffer& buf);
     virtual string Show() const
     {
-        return string("get chunk servers counters ");
+        return string("get chunk servers dir counters");
     }
     bool Validate()
     {
@@ -2311,9 +2311,9 @@ struct MetaCheckpoint : public MetaRequest {
           pid(-1),
           failedCount(0),
           maxFailedCount(2),
-          chekpointWriteTimeoutSec(60 * 60),
-          chekpointWriteSyncFlag(true),
-          chekpointWriteBufferSize(16 << 20),
+          checkpointWriteTimeoutSec(60 * 60),
+          checkpointWriteSyncFlag(true),
+          checkpointWriteBufferSize(16 << 20),
           lastCheckpointId(-1),
           runningCheckpointId(-1),
           lastRun(0)
@@ -2336,9 +2336,9 @@ private:
     int    pid;
     int    failedCount;
     int    maxFailedCount;
-    int    chekpointWriteTimeoutSec;
-    bool   chekpointWriteSyncFlag;
-    size_t chekpointWriteBufferSize;
+    int    checkpointWriteTimeoutSec;
+    bool   checkpointWriteSyncFlag;
+    size_t checkpointWriteBufferSize;
     seq_t  lastCheckpointId;
     seq_t  runningCheckpointId;
     time_t lastRun;
@@ -2554,14 +2554,15 @@ struct MetaChunkDirInfo : public MetaRequest {
  * \brief Op for acquiring a lease on a chunk of a file.
  */
 struct MetaLeaseAcquire: public MetaRequest {
-    const LeaseType    leaseType;     //!< input
-    string             pathname;      //!< full pathname of the file that owns chunk
-    chunkId_t          chunkId;       //!< input
-    bool               flushFlag;     //!< input
-    int                leaseTimeout;  //!< input
-    int64_t            leaseId;       //!< result
-    StringBufT<21 * 8> chunkIds;      //!< input
-    string             leaseIds;      //!< result
+    const LeaseType    leaseType;
+    StringBufT<128>    pathname; // Optional for debugging.
+    chunkId_t          chunkId;
+    bool               flushFlag;
+    int                leaseTimeout;
+    int64_t            leaseId;
+    StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
+    bool               getChunkLocationsFlag; 
+    IOBuffer           responseBuf;
     MetaLeaseAcquire()
         : MetaRequest(META_LEASE_ACQUIRE, false),
           leaseType(READ_LEASE),
@@ -2571,11 +2572,12 @@ struct MetaLeaseAcquire: public MetaRequest {
           leaseTimeout(LEASE_INTERVAL_SECS),
           leaseId(-1),
           chunkIds(),
-          leaseIds()
+          getChunkLocationsFlag(false),
+          responseBuf()
           {}
     virtual void handle();
-    virtual int log(ostream &file) const;
-    virtual void response(ostream &os);
+    virtual int log(ostream& file) const;
+    virtual void response(ostream& os, IOBuffer& buf);
     virtual string Show() const
     {
         ostringstream os;
@@ -2601,6 +2603,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def("Flush-write-lease", &MetaLeaseAcquire::flushFlag,    false              )
         .Def("Lease-timeout",     &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
         .Def("Chunk-ids",         &MetaLeaseAcquire::chunkIds)
+        .Def("Get-locations",     &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         ;
     }
 };

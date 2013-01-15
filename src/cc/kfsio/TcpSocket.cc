@@ -63,8 +63,9 @@ UpdateSocketCount(int inc)
     globals().ctrOpenNetFds.Update(inc);
 }
 
-int TcpSocket::sRecvBufSize = 64 << 10;
-int TcpSocket::sSendBufSize = 64 << 10;
+int TcpSocket::sRecvBufSize    = 64 << 10;
+int TcpSocket::sSendBufSize    = 64 << 10;
+int TcpSocket::sMaxOpenSockets =  1 << (sizeof(int) * 8 - 2);
 
 TcpSocket::~TcpSocket()
 {
@@ -100,6 +101,9 @@ int
 TcpSocket::Bind(int port)
 {
     Close();
+    if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
+        return -ENFILE;
+    }
     mSockFd = socket(PF_INET, SOCK_STREAM, 0);
     if (mSockFd == -1) {
         return Perror("socket");
@@ -148,6 +152,13 @@ TcpSocket::Accept(int* status /* = 0 */)
         }
         return 0;
     }
+    if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
+        close(fd);
+        if (status) {
+            *status = -ENFILE;
+        }
+        return 0;
+    }
     if (fcntl(fd, FD_CLOEXEC, 1)) {
         Perror("set FD_CLOEXEC");
     }
@@ -164,7 +175,9 @@ int
 TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect)
 {
     Close();
-
+    if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
+        return -ENFILE;
+    }
     mSockFd = socket(PF_INET, SOCK_STREAM, 0);
     if (mSockFd < 0) {
         return (errno > 0 ? -errno : mSockFd);

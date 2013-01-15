@@ -43,17 +43,27 @@ set (lib_srcs
     monutils.cc
     utils.cc
     FileSystem.cc
+    Trash.cc
 )
 
 add_library (tools STATIC ${lib_srcs})
-add_library (tools-shared SHARED ${lib_srcs})
 set_target_properties (tools PROPERTIES OUTPUT_NAME "qfs_tools")
-set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "qfs_tools")
 set_target_properties (tools PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-set_target_properties (tools-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+
+if (NOT USE_STATIC_LIB_LINKAGE)
+    add_library (tools-shared SHARED ${lib_srcs})
+    set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "qfs_tools")
+    set_target_properties (tools-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    add_dependencies (tools-shared kfsClient-shared)
+    if (NOT Boost_USE_STATIC_LIBS)
+       target_link_libraries(tools-shared kfsClient-shared kfsCommon-shared)
+    endif (NOT Boost_USE_STATIC_LIBS)
+    install (tools-shared
+            RUNTIME DESTINATION bin/tools
+            LIBRARY DESTINATION lib)
+endif (NOT USE_STATIC_LIB_LINKAGE)
 
 add_dependencies (tools kfsClient)
-add_dependencies (tools-shared kfsClient-shared)
 
 set (exe_files
 cptoqfs
@@ -67,12 +77,8 @@ qfsdataverify
 qfshibernate
 qfscat
 qfsping
-qfstool
+qfs
 )
-
-if (APPLE OR CYGWIN)
-   target_link_libraries(tools-shared kfsClient-shared kfsCommon-shared)
-endif (APPLE OR CYGWIN)
 
 #
 # Every executable depends on its namesake source with _main.cc
@@ -89,7 +95,7 @@ foreach (exe_file ${exe_files})
 endforeach (exe_file)
 
 #
-install (TARGETS ${exe_files} tools tools-shared
+install (TARGETS ${exe_files} tools
         RUNTIME DESTINATION bin/tools
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)

@@ -325,12 +325,12 @@ public:
                     mDataReceivedFlag = mDataReceivedFlag || ! theBuffer.IsEmpty();
                     HandleResponse(theBuffer);
                 }
-	        break;
+                break;
 
             case EVENT_NET_WROTE:
                 assert(inDataPtr && mConnPtr);
                 mDataSentFlag = true;
-	        break;
+                break;
 
             case EVENT_INACTIVITY_TIMEOUT:
                 if (! mIdleTimeoutFlag &&
@@ -339,12 +339,12 @@ public:
                     mIdleTimeoutFlag = true;
                     break;
                 }
-    	        theReasonPtr = "inactivity timeout";
+                theReasonPtr = "inactivity timeout";
                 // Fall through.
             case EVENT_NET_ERROR:
                 if (mConnPtr) {
                     mAllDataSentFlag = ! mConnPtr->IsWriteReady();
-	            KFS_LOG_STREAM(mPendingOpQueue.empty() ?
+                    KFS_LOG_STREAM(mPendingOpQueue.empty() ?
                             MsgLogger::kLogLevelDEBUG :
                             MsgLogger::kLogLevelERROR) << mLogPrefix <<
                         "closing connection: " << mConnPtr->GetSockName() <<
@@ -374,11 +374,11 @@ public:
                 if (! mPendingOpQueue.empty()) {
                     RetryConnect(theOutstandingOpPtr);
                 }
-	        break;
+                break;
 
             default:
-	        assert(!"Unknown event");
-	        break;
+                assert(!"Unknown event");
+                break;
         }
         if (thePrefRefCount <= GetRefCount()) {
             OpsTimeout();
@@ -970,8 +970,7 @@ private:
             if (&theEntry == mInFlightOpPtr) {
                 CancelInFlightOp();
             }
-            if (mResetConnectionOnOpTimeoutFlag &&
-                    theStIt == mQueueStack.end()) {
+            if (mResetConnectionOnOpTimeoutFlag) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
                     "op timed out: seq: "  << theEntry.mOpPtr->seq <<
                     " "                    << theEntry.mOpPtr->Show() <<
@@ -985,14 +984,14 @@ private:
                 // one.
                 Reset();
                 if (mFailAllOpsOnOpTimeoutFlag) {
-                    // Restart from the first op, and go until the end.
-                    theIt         = mPendingOpQueue.begin();
-                    theExpireTime =
-                        max(theNow, mPendingOpQueue.rbegin()->second.mTime) + 1;
-                } else {
-                    HandleSingleOpTimeout(theIt);
-                    return;
+                    // Fail all ops.
+                    assert(! mOutstandingOpPtr && ! mInFlightOpPtr);
+                    theStIt = mQueueStack.insert(mQueueStack.end(), OpQueue());
+                    theStIt->swap(mPendingOpQueue);
+                    break;
                 }
+                HandleSingleOpTimeout(theIt);
+                return;
             }
             if (theStIt == mQueueStack.end()) {
                 theStIt = mQueueStack.insert(mQueueStack.end(), OpQueue());

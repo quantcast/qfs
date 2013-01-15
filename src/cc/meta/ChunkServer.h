@@ -411,10 +411,6 @@ public:
         return mLocation;
     }
 
-    string ServerID() const {
-        return mLocation.ToString();
-    }
-
     /// Check if the hostname/port matches what is passed in
     /// @param[in] name  name to match
     /// @param[in] port  port # to match

@@ -82,6 +82,7 @@ using std::numeric_limits;
 using std::iter_swap;
 using std::setw;
 using std::setfill;
+using std::hex;
 using boost::mem_fn;
 using boost::bind;
 using boost::ref;
@@ -1233,7 +1234,6 @@ LayoutManager::LayoutManager() :
     mPingUpdateInterval(2),
     mPingUpdateTime(0),
     mPingResponse(),
-    mStringStream(),
     mWOstream(),
     mBufferPool(0),
     mMightHaveRetiringServersFlag(false),
@@ -1392,6 +1392,31 @@ LayoutManager::LoadIdRemap(istream& fs, T OT::* map)
         is.str(string());
     }
 }
+
+struct RackPrefixValidator
+{
+    bool operator()(const string& pref, LayoutManager::RackId& id) const
+    {
+        if (id < 0) {
+            id = -1;
+            return false;
+        }
+        if (id > ChunkPlacement<LayoutManager>::kMaxRackId) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid rack id: " <<
+                pref << " " << id <<
+            KFS_LOG_EOM;
+            id = -1;
+            return false;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "rack:"
+            " prefix: " << pref <<
+            " id: "     << id   <<
+        KFS_LOG_EOM;
+        return true;
+    }
+};
 
 void
 LayoutManager::SetParameters(const Properties& props, int clientPort)
@@ -1611,31 +1636,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mRackPrefixes.clear();
     {
         istringstream is(props.getValue("metaServer.rackPrefixes", ""));
-        string        pref;
-        RackId        id = -1;
-        HostPrefix    hp;
-        pref.reserve(256);
-        while ((is >> pref >> id)) {
-            if (id < 0) {
-                id = -1;
-            } else if (id >= ChunkPlacement::kMaxRackId) {
-                KFS_LOG_STREAM_ERROR <<
-                    "invalid rack id: " <<
-                    pref << " " << id <<
-                KFS_LOG_EOM;
-                id = -1;
-            }
-            if (hp.Parse(pref) > 0) {
-                mRackPrefixes.push_back(make_pair(hp, id));
-                KFS_LOG_STREAM_INFO <<
-                    "rack:"
-                    " prefix: " << pref <<
-                    " id: "     << id   <<
-                KFS_LOG_EOM;
-            }
-            pref.clear();
-            id = -1;
-        }
+        RackPrefixValidator validator;
+        mRackPrefixes.Load(is, &validator, -1);
     }
     mRackWeights.clear();
     {
@@ -1883,27 +1885,13 @@ LayoutManager::Validate(MetaHello& r) const
 LayoutManager::RackId
 LayoutManager::GetRackId(const ServerLocation& loc)
 {
-    if (mRackPrefixUsePortFlag) {
-        ostringstream os;
-        os << loc.hostname << ":" << loc.port;
-        const string name = os.str();
-        return GetRackId(name);
-    } else {
-        return GetRackId(loc.hostname);
-    }
+    return mRackPrefixes.GetId(loc, mRackPrefixUsePortFlag, -1);
 }
 
 LayoutManager::RackId
 LayoutManager::GetRackId(const string& name)
 {
-    RackPrefixes::const_iterator it = mRackPrefixes.begin();
-    while (it != mRackPrefixes.end()) {
-        if (it->first.Match(name)) {
-            return it->second;
-        }
-        ++it;
-    }
-    return -1;
+    return mRackPrefixes.GetId(name, -1);
 }
 
 void
@@ -1936,14 +1924,6 @@ LayoutManager::Shutdown()
     mCSCountersResponse.Clear();
     mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
-}
-
-inline ostream&
-LayoutManager::ClearStringStream()
-{
-    mStringStream.flush();
-    mStringStream.str(string());
-    return mStringStream;
 }
 
 template<
@@ -2038,10 +2018,11 @@ protected:
     {
         return (flag ? kTrueStr : kFalseStr);
     }
-    void Write(IOBufferWriter& writer, int64_t val)
+    template<typename T>
+    void Write(IOBufferWriter& writer, T val)
     {
-        const char* const b = toString(val, mBufEnd);
-        writer.Write(b, mBufEnd - b - 1);
+        const char* const b = IntToDecString(val, mBufEnd);
+        writer.Write(b, mBufEnd - b);
     }
 
     enum { kBufSize = 32 };
@@ -2639,7 +2620,8 @@ LayoutManager::AddNewServer(MetaHello *r)
     }
     UpdateReplicationsThreshold();
     KFS_LOG_STREAM_INFO <<
-        msg << " chunk server: " << r->peerName << "/" << srv.ServerID() <<
+        msg << " chunk server: " << r->peerName << "/" <<
+            srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " rack: "            << r->rackId << " => " << rackId <<
         " chunks: stable: "  << r->chunks.size() <<
@@ -3756,7 +3738,7 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
                 it != cs.end();
                 ++it) {
             os <<
-                " " << (*it)->ServerID() <<
+                " " << (*it)->GetServerLocation() <<
                 " " << (*it)->GetRack();
         }
         os << "\n";
@@ -5008,15 +4990,17 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
 int
 LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 {
+    req.responseBuf.Clear();
     if (req.chunkIds.empty()) {
-        req.leaseIds.clear();
         return 0;
     }
-    const bool  recoveryFlag = InRecovery();
-    const char* p            = req.chunkIds.GetPtr();
-    const char* e            = p + req.chunkIds.GetSize();
-    ostream&    os           = ClearStringStream();
-    int         ret          = 0;
+    StTmp<Servers>    serversTmp(mServers3Tmp);
+    Servers&          servers = serversTmp.Get();
+    const bool        recoveryFlag = InRecovery();
+    const char*       p            = req.chunkIds.GetPtr();
+    const char*       e            = p + req.chunkIds.GetSize();
+    int               ret          = 0;
+    IntIOBufferWriter writer(req.responseBuf);
     while (p < e) {
         chunkId_t chunkId;
         if (! ValueParser::ParseInt(p, e - p, chunkId)) {
@@ -5026,40 +5010,61 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             if (p != e) {
                 req.status    = -EINVAL;
                 req.statusMsg = "chunk id list parse error";
-                ClearStringStream();
                 ret = req.status;
             }
             break;
         }
         ChunkLeases::LeaseId leaseId = 0;
         const CSMap::Entry*  cs      = 0;
+        servers.clear();
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
                 ! IsChunkStable(chunkId)) {
             leaseId = -EBUSY;
         } else if ((req.leaseTimeout <= 0 ?
                 mChunkLeases.HasWriteLease(chunkId) :
                 ! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs) &&
+                mChunkToServerMap.GetServers(*cs, servers) > 0 &&
                 mChunkLeases.NewReadLease(
                     chunkId,
-                    TimeNow() + min(req.leaseTimeout,
-                        LEASE_INTERVAL_SECS),
+                    TimeNow() + min(req.leaseTimeout, LEASE_INTERVAL_SECS),
                     leaseId)))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
                 mChunkLeases.FlushWriteLease(
-                    chunkId, mARAChunkCache,
-                    mChunkToServerMap);
+                    chunkId, mARAChunkCache, mChunkToServerMap);
             }
         } else if (! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.HasServers(*cs))) {
+                mChunkToServerMap.GetServers(*cs, servers) > 0)) {
             // Cannot obtain lease if no replicas exist.
             leaseId = cs ? -EAGAIN : -EINVAL;
         }
-        os << " " << leaseId;
+        writer.Write(" ", 1);
+        if (req.getChunkLocationsFlag) {
+            writer.WriteHexInt(leaseId);
+            writer.Write(" ", 1);
+            writer.WriteHexInt(servers.size());
+            for (Servers::const_iterator it = servers.begin();
+                    it != servers.end();
+                    ++it) {
+                const ServerLocation& loc = (*it)->GetServerLocation();
+                if (loc.IsValid()) {
+                    writer.Write(" ", 1);
+                    writer.Write(loc.hostname);
+                    writer.Write(" ", 1);
+                    writer.WriteHexInt(loc.port);
+                } else {
+                    writer.Write(" ? -1", 5);
+                }
+            }
+        } else {
+            writer.WriteInt(leaseId);
+        }
     }
-    req.leaseIds = mStringStream.str();
-    ClearStringStream();
+    if (ret == 0) {
+        writer.Close();
+    } else {
+        writer.Clear();
+    }
     return ret;
 }
 
@@ -5174,7 +5179,7 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt *r)
         r->server->IncCorruptChunks();
     }
     KFS_LOG_STREAM_INFO <<
-        "server " << r->server->ServerID() <<
+        "server " << r->server->GetServerLocation() <<
         " claims chunk: <" <<
         r->fid << "," << r->chunkId <<
         "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
@@ -5198,7 +5203,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         // check the replication state when the replicaiton checker gets to it
         CheckReplication(*ci);
     }
-    KFS_LOG_STREAM_INFO << "server " << server->ServerID() <<
+    KFS_LOG_STREAM_INFO << "server " << server->GetServerLocation() <<
         " declaring: <" <<
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<
@@ -5967,7 +5972,7 @@ LayoutManager::ScheduleChunkServersRestart()
                     mCSGracefulRestartAppendWithWidTimeout)) {
             KFS_LOG_STREAM_INFO <<
                 "initiated restart sequence for: " <<
-                servers.front()->ServerID() <<
+                servers.front()->GetServerLocation() <<
             KFS_LOG_EOM;
             break;
         }
@@ -6426,7 +6431,7 @@ LayoutManager::AddServerToMakeStable(
             info.logMakeChunkStableFlag ? "L" : "") <<
         "MCS:"
         " <" << placementInfo.GetFileId() << "," << chunkId << ">"
-        " adding server: " << server->ServerID() <<
+        " adding server: " << server->GetServerLocation() <<
         " name: "          << info.pathname <<
         " servers: "       << info.numAckMsg <<
         "/"                << info.numServers <<
@@ -6753,7 +6758,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         if (res) {
             KFS_LOG_STREAM_INFO << logPrefix <<
                 " <" << req->fid << "," << req->chunkId  << ">"
-                " "  << req->server->ServerID() <<
+                " "  << req->server->GetServerLocation() <<
                 " not added: " << res <<
                 (notifyStaleFlag ? " => stale" : "") <<
                 "; " << req->Show() <<
@@ -8052,7 +8057,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         " version: "    << req->chunkVersion <<
         " status: "     << req->status <<
         (req->statusMsg.empty() ? "" : " ") << req->statusMsg <<
-        " server: " << req->server->ServerID() <<
+        " server: " << req->server->GetServerLocation() <<
         " " << (req->server->IsDown() ? "down" : "OK") <<
         " replications in flight: " << mNumOngoingReplications <<
     KFS_LOG_EOM;
@@ -9042,7 +9047,7 @@ LayoutManager::ExecuteRebalancePlan(
             mMaxSpaceUtilizationThreshold) {
         KFS_LOG_STREAM_INFO <<
             "terminating re-balance plan execution for"
-            " overloaded server " << c->ServerID() <<
+            " overloaded server " << c->GetServerLocation() <<
             " chunks left: " << c->GetChunksToMove().Size() <<
         KFS_LOG_EOM;
         c->ClearChunksToMove();

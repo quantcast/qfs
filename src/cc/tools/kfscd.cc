@@ -46,7 +46,7 @@ handleCd(KfsClient *kfsClient, const vector<string> &args)
     }
     const int res = kfsClient->Cd(args[0].c_str());
     if (res < 0) {
-	cout << "cd failed: " << ErrorCodeToStr(res) << "\n";
+        cout << "cd failed: " << ErrorCodeToStr(res) << "\n";
     }
     return res;
 }

@@ -37,6 +37,7 @@
 #include "util.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 
 namespace KFS
@@ -85,26 +86,6 @@ link_latest(const string& realname, const string& alias)
     return status;
 }
 
-char*
-toString(int64_t n, char* bufEnd)
-{
-    // Handles : 1 << 63
-    char* p = bufEnd;
-    *--p = 0;
-    if (n == 0) {
-        *--p = '0';
-        return p;
-    }
-    for (int64_t val = n; val != 0; val /= 10) {
-        const int64_t c = val % 10;
-        *--p = (char)((c < 0 ? -c : c) + '0');
-    }
-    if (n < 0) {
-        *--p = '-';
-    }
-    return p;
-}
-
 /*!
  * \brief convert a number to a string
  * \param[in] n the number
@@ -114,8 +95,9 @@ string
 toString(int64_t n)
 {
     char buf[32];
-    char* const p = toString(n, buf + sizeof(buf));
-    return string(p, buf + sizeof(buf) - 1 - p);
+    char* const e = buf + sizeof(buf) / sizeof(buf[0]);
+    char* const p = IntToDecString(n, e);
+    return string(p, e - p);
 }
 
 /*!

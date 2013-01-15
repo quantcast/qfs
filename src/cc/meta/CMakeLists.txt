@@ -45,11 +45,18 @@ util.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})
-add_library (kfsMeta-shared SHARED ${lib_srcs} layoutmanager_instance.cc)
 set_target_properties (kfsMeta PROPERTIES OUTPUT_NAME "qfs_meta")
-set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "qfs_meta")
 set_target_properties (kfsMeta PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-set_target_properties (kfsMeta-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+
+if (NOT USE_STATIC_LIB_LINKAGE)
+    add_library (kfsMeta-shared SHARED ${lib_srcs} layoutmanager_instance.cc)
+    set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "qfs_meta")
+    set_target_properties (kfsMeta-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+    if (NOT Boost_USE_STATIC_LIBS)
+      target_link_libraries(kfsMeta-shared kfsCommon-shared kfsIO-shared crypto)
+    endif (NOT Boost_USE_STATIC_LIBS)
+    install (kfsMeta-shared RUNTIME DESTINATION bin LIBRARY DESTINATION lib)
+endif (NOT USE_STATIC_LIB_LINKAGE)
 
 set (exe_files metaserver logcompactor filelister qfsfsck)
 foreach (exe_file ${exe_files})
@@ -62,10 +69,6 @@ foreach (exe_file ${exe_files})
            add_dependencies (${exe_file} kfsCommon-shared kfsIO-shared kfsMeta-shared qcdio-shared)
         endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
-
-if (APPLE OR CYGWIN)
-  target_link_libraries(kfsMeta-shared kfsCommon-shared kfsIO-shared crypto)
-endif (APPLE OR CYGWIN)
 
 if (NOT APPLE)
   target_link_libraries(kfsMeta rt)
@@ -83,7 +86,7 @@ endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 #
 # Install them
 #
-install (TARGETS ${exe_files} kfsMeta kfsMeta-shared
+install (TARGETS ${exe_files} kfsMeta
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)

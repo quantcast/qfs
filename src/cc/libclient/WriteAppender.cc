@@ -627,7 +627,7 @@ private:
             mFileName.clear();
             mCreateOp.status = 0;
         } else if (mFileName.empty()) {
-	    mLookupOp.status = -ENOENT;
+            mLookupOp.status = -ENOENT;
             HandleError();
             return;
         } else if (mLookupOp.status == -ENOENT && mMakeDirsFlag) {
@@ -663,7 +663,7 @@ private:
             mFileName = mPathName.substr(mPathNamePos, theNext - mPathNamePos);
         }
         if (theNext - mPathNamePos > KFS::MAX_FILENAME_LEN) {
-	    mLookupOp.status = -ENAMETOOLONG;
+            mLookupOp.status = -ENAMETOOLONG;
             HandleError();
             return;
         }
@@ -982,7 +982,7 @@ private:
                 KFS_LOG_EOM;
                 break;
             }
-	    mWriteIds.push_back(theWInfo);
+            mWriteIds.push_back(theWInfo);
         }
         if (theServerCount != mWriteIds.size()) {
             HandleError();

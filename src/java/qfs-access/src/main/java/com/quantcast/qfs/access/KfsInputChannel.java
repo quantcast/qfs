@@ -45,9 +45,6 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     private final static native
     int read(long cPtr, int fd, ByteBuffer buf, int begin, int end);
 
-    private final static native
-    long tell(long cPtr, int fd);
-
     KfsInputChannel(KfsAccess ka, int fd) 
     {
         readBuffer = BufferPool.getInstance().getBuffer();
@@ -156,11 +153,8 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
         // we keep some data buffered; so, we ask the C++ side where
         // we are in the file and offset that by the amount in our
         // buffer
-        long ret = tell(kfsAccess.getCPtr(), kfsFd);
-        if (ret < 0) {
-            kfsAccess.kfs_retToIOException((int)ret);
-        }
-        final int rem = readBuffer.remaining();
+        final long ret = kfsAccess.kfs_tell(kfsFd);
+        final int  rem = readBuffer.remaining();
         if (ret < rem) {
             throw new RuntimeException("KFS internal error: pos: " + ret +
                 " less than buffered: " + rem);

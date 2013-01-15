@@ -22,6 +22,8 @@
 #
 #
 
+include(CheckCCompilerFlag)
+
 set (sources
 decode.c
 encode.c
@@ -99,6 +101,8 @@ if (NOT DEFINED vectormode)
                 RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
             )
             if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+                message(STATUS "qcrs: no ssse3 flag present in /proc/cpuinfo, assuming no ssse3 support.")
+                message(STATUS "qcrs: Ssse3 can be forced with cmake -D vecormode=ssse3 if the target cpu has ssse3 support.")
                 set(vectormode sse2)
             endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
         endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
@@ -107,21 +111,31 @@ if (NOT DEFINED vectormode)
         CMAKE_SYSTEM_PROCESSOR MATCHES i686)
         # Assume that SSE2 is always available on x86
         set(vectormode sse2)
-    endif ()
+    endif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+endif (NOT DEFINED vectormode)
+
+if (NOT DEFINED vectormode)
+    message(STATUS "qcrs: not using cpu vector extensions performance can be up 100 times lower")
 endif (NOT DEFINED vectormode)
 
 # Vector intrinsics are only available on GCC
 if (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
     if (vectormode STREQUAL ssse3)
         message(STATUS "qcrs: enabling ssse3")
-        add_definitions(-mssse3 -DLIBRS_USE_SSSE3 -flax-vector-conversions)
+        add_definitions(-mssse3 -DLIBRS_USE_SSSE3)
     elseif (vectormode STREQUAL sse2)
         message(STATUS "qcrs: enabling sse2")
-        add_definitions(-msse2 -DLIBRS_USE_SSE2 -flax-vector-conversions)
+        add_definitions(-msse2 -DLIBRS_USE_SSE2)
     elseif (vectormode STREQUAL neon)
         message(STATUS "qcrs: enabling neon")
         add_definitions(-mfpu=neon -DLIBRS_USE_NEON)
-    endif ()
+    endif (vectormode STREQUAL ssse3)
+    if (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
+        CHECK_C_COMPILER_FLAG(-flax-vector-conversions MY_LAXVEC_CONV)
+        if (MY_LAXVEC_CONV)
+            add_definitions(-flax-vector-conversions)
+        endif (MY_LAXVEC_CONV)
+    endif (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
 endif (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
 
 set(rstestbin rstest)

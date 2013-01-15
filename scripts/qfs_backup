@@ -1,0 +1,290 @@
+#!/usr/bin/env python
+#
+# Author: Christopher Zimmerman
+#
+# Copyright 2012 Quantcast Corp.
+#
+# This file is part of Quantcast File System (QFS).
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# This tool can be used to generate a tar archive stream of the latest
+# checkpoint and associated transaction logs to standard output.  It also can
+# be used to prune filesystem checkpoint files and their associated
+# transaction logs.
+
+import os, posix, subprocess, pprint, re, sys
+
+from optparse import OptionParser, OptionGroup, IndentedHelpFormatter
+
+def check_directory(e, name, dir):
+    if os.path.exists(dir):
+        if not os.path.isdir(dir):
+            e.append("'%s' is not a directory: %s" % (name, dir))
+    else:
+        e.append("'%s' directory does not exist: %s" % (name, dir))
+
+def check_file(e, name, file):
+    if os.path.exists(file):
+        if not os.path.isfile(file):
+            e.append("'%s' is not a file: %s" % (name, file))
+    else:
+        e.append("'%s' file does not exist: %s" % (name, file))
+
+def parse_options():
+    formatter = IndentedHelpFormatter(max_help_position=50, width=80)
+    usage = "usage: ./%prog -c CHECKPOINT -t TRANSACTIONS"
+    desc = """Generates a tar archive stream of the lateset
+checkpoint and associated transacton logs to standard output."""
+    parser = OptionParser(usage, formatter=formatter, add_help_option=False,
+        description=desc)
+
+    parser.add_option('-c', '--checkpoint', metavar='DIR',
+        help="Path to checkpoint directory.")
+    parser.add_option('-t', '--transactions', metavar='DIR',
+        help="Path to transaction log directory.")
+    parser.add_option('-o', '--count', default=4, metavar='INT',
+        help="Number of checkpoints to archive.")
+    parser.add_option('-n', '--number', default=8, metavar='INT',
+        help="Number of checkpoints to keep, overrides -p.")
+    parser.add_option('-a', '--tar', default='/bin/tar', metavar='BINARY',
+        help="Path to tar binary.")
+    parser.add_option('-p', '--prune', action='store_true',
+        help="Prune checkpoints and associated transaction logs.")
+    parser.add_option('-d', '--dry-run', action='store_true',
+        help="Run in dry run mode.")
+    parser.add_option('-h', '--help', action='store_true',
+        help="Print this help message and exit.")
+
+    for option in parser.option_list:
+        if option.default != ("NO", "DEFAULT") and option.default != '':
+             option.help += " (%default)"
+
+    (options, args) = parser.parse_args()
+
+    if options.help:
+        parser.print_help()
+        print
+        posix._exit(0)
+
+    e = []
+    if options.checkpoint:
+        check_directory(e, 'checkpoint', options.checkpoint)
+    else:
+        e.append("'checkpoint' directory must be specified")
+
+    if options.transactions:
+        check_directory(e, 'transactions', options.transactions)
+    else:
+        e.append("'transactions' directory must be specified")
+
+    if options.count < 1:
+        e.append("'count' must be >= 1")
+
+    if options.number < 1:
+        e.append("'number' must be >= 1")
+
+    if len(e) > 0:
+        parser.print_help()
+        print
+        for error in e:
+            print "*** %s" % error
+        print
+        posix._exit(1)
+
+    return options
+
+def cmp_files(a, b):
+    """ Compare files by numeric component."""
+
+    a_number = find_transaction_number(a)
+    if not a_number: a_number = find_checkpoint_number(a)
+
+    b_number = find_transaction_number(b)
+    if not b_number: b_number = find_checkpoint_number(b)
+
+    return cmp(a_number, b_number)
+
+def get_checkpoints(checkpoint_dir):
+    """ Return a list of checkpoint files in age ascending order."""
+
+    checkpoints = []
+    for file in os.listdir(checkpoint_dir):
+        if file.startswith('chkpt'):
+            checkpoint_number = find_checkpoint_number(file)
+            if checkpoint_number:
+                checkpoints.append(os.path.join(checkpoint_dir, file))
+
+    checkpoints.sort(cmp_files, reverse=True)
+
+    log("Found %s checkpoint files." % len(checkpoints))
+
+    return checkpoints
+
+def get_transactions(transactions_dir):
+    """ Return a list of transaction logs in age ascending order."""
+
+    transactions = []
+    for file in os.listdir(transactions_dir):
+        if file.startswith('log'):
+            transactions.append(os.path.join(transactions_dir, file))
+
+    transactions.sort(cmp_files, reverse=True)
+
+    log("Found %s transactions logs." % len(transactions))
+
+    return transactions
+
+def check_transaction_sequences(transactions):
+    log("Checking transaction log sequences.")
+    last_log = None
+    last_seq = None
+    for log_file in transactions:
+        seq = find_transaction_number(log_file)
+        if last_seq and seq and last_seq - seq > 1:
+            log("WARNING missing transaction log between %s and %s" % (
+                last_log_file, log_file))
+        last_log_file = log_file
+        last_seq = seq
+
+def find_checkpoint_log_number(checkpoint):
+    """Pull the transaction log sequence number referenced by a checkpoint
+       file."""
+
+    log_number = 0
+    file = open(checkpoint, 'r')
+    for line in file:
+        if not line.startswith('log/'): continue
+        log_number = int(os.path.splitext(line[4:])[1][1:])
+        break
+    file.close()
+
+    return log_number
+
+def find_transaction_number(transaction):
+    """ Extract transaction log sequence number from the file name."""
+
+    this_number = None
+    match = re.match("^.*?log\.(\d+).*$", transaction)
+    if match:
+        this_number = int(match.group(1))
+
+    return this_number
+
+def find_checkpoint_number(checkpoint):
+    """ Extract checkpoint sequence number from the file name."""
+
+    this_number = None
+    match = re.match("^.*?chkpt\.(\d+)$", checkpoint)
+    if match:
+        this_number = int(match.group(1))
+
+    return this_number
+
+def find_checkpoint_transactions(checkpoint, transactions):
+    """ Find the list of transaction logs needed by the specified
+        checkpoint."""
+
+    checkpoint_transactions = []
+    log_number = find_checkpoint_log_number(checkpoint)
+
+    log("Oldest log number to archive: %s" % log_number)
+
+    for logfile in transactions:
+        this_number = find_transaction_number(logfile)
+        if this_number:
+            if this_number >= log_number:
+                checkpoint_transactions.append(logfile)
+
+    return checkpoint_transactions
+
+def find_prune_files(number, checkpoints, transactions):
+    """ Prune old checkpoints and transaction logs."""
+
+    prune_files = []
+    start_checkpoint = checkpoints[number]
+    log_number = find_checkpoint_log_number(start_checkpoint)
+    for logfile in transactions:
+        this_number = find_transaction_number(logfile)
+        if this_number:
+            if this_number < log_number:
+                prune_files.append(logfile)
+
+    for checkpoint in checkpoints[number:]:
+        prune_files.append(checkpoint)
+
+    return prune_files
+
+def log(msg):
+    print >> sys.stderr, msg
+
+if __name__ == '__main__':
+    o = parse_options()
+
+    log("Scanning: %s and %s" % (o.checkpoint, o.transactions))
+    log("Archiving %s checkpoints at most." % o.count)
+    if o.prune:
+        log("Will keep %s checkpoints." % o.number)
+
+    checkpoints = get_checkpoints(o.checkpoint)
+
+    if 0 == len(checkpoints):
+        log("No checkpoints found exiting ...")
+        posix._exit(1)
+
+    transactions = get_transactions(o.transactions)
+    check_transaction_sequences(transactions)
+
+    tar_cmd = [ o.tar, '-cf', '-' ]
+
+    oldest_checkpoint = None
+    if o.count <= len(checkpoints):
+        oldest_checkpoint = checkpoints[o.count - 1]
+        tar_cmd.extend(checkpoints[:o.count])
+    else:
+        oldest_checkpoint = checkpoints[-1]
+        tar_cmd.extend(checkpoints)
+
+    log("Oldest checkpoint to archive is: %s" % oldest_checkpoint)
+
+    checkpoint_transactions = find_checkpoint_transactions(oldest_checkpoint,
+        transactions)
+
+    tar_cmd.extend(checkpoint_transactions)
+
+    log("Files to archive:")
+    for file in tar_cmd[3:]:
+        log("   %s" % file)
+
+    prune_files = []
+    if len(checkpoints) > int(o.number):
+        if o.prune:
+            prune_files = find_prune_files(int(o.number), checkpoints,
+                transactions)
+            log("Files to prune:")
+            for file in prune_files:
+                log("   %s" % file)
+    else:
+        log("Skipping pruning, there are too few checkpoint files.")
+
+    code = 0
+    if not o.dry_run:
+        log("Archiving ...")
+        code = subprocess.call(tar_cmd)
+
+        if o.prune:
+            log("Pruning ...")
+            for file in prune_files:
+                os.remove(file)
+
+    posix._exit(code)

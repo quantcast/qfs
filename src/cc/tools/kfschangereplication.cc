@@ -58,7 +58,7 @@ handleChangeReplication(KfsClient* kfsClient, const vector<string>& args)
     const int res = kfsClient->SetReplicationFactor(
         args[0].c_str(), numReplicas);
     if (res < 0) {
-	cout << "Set replication failed: " << ErrorCodeToStr(res) << "\n";
+        cout << "Set replication failed: " << ErrorCodeToStr(res) << "\n";
     }
     return res;
 }

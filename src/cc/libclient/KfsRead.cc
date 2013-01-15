@@ -808,7 +808,7 @@ KfsClientImpl::SetReadAheadSize(
         KFS_LOG_STREAM_ERROR <<
             "read error invalid inFd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     return SetReadAheadSize(*mFileTable[inFd], inSize);
 }
@@ -849,7 +849,7 @@ KfsClientImpl::GetReadAheadSize(
         KFS_LOG_STREAM_ERROR <<
             "read error invalid inFd: " << inFd <<
         KFS_LOG_EOM;
-	return -EBADF;
+        return -EBADF;
     }
     return mFileTable[inFd]->buffer.GetBufSize();
 }

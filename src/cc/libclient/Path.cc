@@ -47,7 +47,8 @@ Path::Path(
     size_t      inLength)
     : mComponents(),
       mNormComponents(),
-      mDirFlag(false)
+      mDirFlag(false),
+      mNormalizedFlag(false)
 {
     if (inLength > 0) {
         Path::Set(inPathPtr, inLength);
@@ -68,6 +69,7 @@ Path::Set(
     const Token       kThisDir(".",    1);
     const Token       kParentDir("..", 2);
     const char* const theEndPtr = inPathPtr + inLength;
+    mNormalizedFlag = true;
     for (const char* theStartPtr = inPathPtr;
             theStartPtr < theEndPtr;
             ++theStartPtr) {
@@ -77,9 +79,11 @@ Path::Set(
             const Token theRoot(theSlashPtr, 1);
             mComponents.push_back(theRoot);
             mNormComponents.push_back(theRoot);
+            mNormalizedFlag = false;
             continue;
         }
         if (theSlashPtr == theStartPtr) {
+            mNormalizedFlag = false;
             continue;
         }
         const char* const thePtr = theSlashPtr ? theSlashPtr : theEndPtr;
@@ -99,13 +103,15 @@ Path::Set(
                 }
             }
             mComponents.push_back(theName);
+            mNormalizedFlag = false;
         } else if (theName != kThisDir) {
             mComponents.push_back(theName);
             mNormComponents.push_back(theName);
         }
     }
     if (mComponents.empty()) {
-        mDirFlag = false;
+        mDirFlag        = false;
+        mNormalizedFlag = false;
         return false;
     }
     mDirFlag = inLength > 0 && theEndPtr[-1] == '/';

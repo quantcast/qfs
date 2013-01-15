@@ -337,23 +337,62 @@ private:
         Queue* mQueuePtr;
     };
 
+    enum OpenError
+    {
+        kOpenErrorNone   = 0,
+        kOpenErrorNFile  = 1,
+        kOpenErrorAccess = 2,
+        kOpenErrorIo     = 3
+    };
+    static int Open2SysError(
+        OpenError inError)
+    {
+        switch (inError) {
+            case kOpenErrorNone:
+                return 0;
+            case kOpenErrorNFile:
+                return ENFILE;
+            case kOpenErrorAccess:
+                return EACCES;
+            case kOpenErrorIo:
+            default:
+                break;
+        }
+        return EIO;
+    }
+    static OpenError Sys2OpenError(
+        int inError)
+    {
+        switch (inError) {
+            case 0:
+                return kOpenErrorNone;
+            case ENFILE:
+                return kOpenErrorNFile;
+            case EACCES:
+                return kOpenErrorAccess;
+            default:
+                break;
+        }
+        return kOpenErrorIo;
+    }
+
     struct FileInfo
     {
         FileInfo()
             : mLastBlockIdx(0),
               mSpaceAllocPendingFlag(false),
               mOpenPendingFlag(false),
-              mOpenErrorFlag(false),
+              mOpenError(kOpenErrorNone),
               mClosedFlag(false),
               mCloseFileSize(-1)
             {}
-        uint64_t mLastBlockIdx:48;
-        bool     mSpaceAllocPendingFlag:1;
-        bool     mOpenPendingFlag:1;
-        bool     mOpenErrorFlag:1;
-        bool     mClosedFlag:1;
-        bool     mBufferedIoFlag:1;
-        int64_t  mCloseFileSize;
+        uint64_t  mLastBlockIdx:48;
+        bool      mSpaceAllocPendingFlag:1;
+        bool      mOpenPendingFlag:1;
+        OpenError mOpenError:2;
+        bool      mClosedFlag:1;
+        bool      mBufferedIoFlag:1;
+        int64_t   mCloseFileSize;
     };
 
     QCMutex          mMutex;
@@ -913,7 +952,7 @@ QCDiskQueue::Queue::Start(
             mFileInfoPtr[i].mLastBlockIdx          = theBlkIdx;
             mFileInfoPtr[i].mSpaceAllocPendingFlag = false;
             mFileInfoPtr[i].mOpenPendingFlag       = false;
-            mFileInfoPtr[i].mOpenErrorFlag         = false;
+            mFileInfoPtr[i].mOpenError             = kOpenErrorNone;
             mFileInfoPtr[i].mClosedFlag            = false;
             mFileInfoPtr[i].mCloseFileSize         = -1;
             if (theFd < 0 && i < inFileCount) {
@@ -979,8 +1018,10 @@ QCDiskQueue::Queue::Enqueue(
     if (inFileIdx < 0 || inFileIdx >= mFileCount || mFdPtr[inFileIdx] < 0) {
         return EnqueueStatus(kRequestIdNone, kErrorFileIdxOutOfRange);
     }
-    if (mFileInfoPtr[inFileIdx].mOpenErrorFlag) {
-        return EnqueueStatus(kRequestIdNone, kErrorOpen);
+    const OpenError theOpenError = mFileInfoPtr[inFileIdx].mOpenError;
+    if (theOpenError != kOpenErrorNone) {
+        return EnqueueStatus(kRequestIdNone, kErrorOpen,
+            Open2SysError(theOpenError));
     }
     if (mFileInfoPtr[inFileIdx].mClosedFlag) {
         return EnqueueStatus(kRequestIdNone, kErrorFileIdxOutOfRange);
@@ -1169,9 +1210,10 @@ QCDiskQueue::Queue::Process(
             mFileInfoPtr[inReq.mFileIdx].mLastBlockIdx * mBlockSize : 0;
     QCRTASSERT((theReadFlag || inReq.mReqType == kReqTypeWrite) && theFd >= 0);
     inReq.mInFlightFlag = true;
-
-    if (mFileInfoPtr[inReq.mFileIdx].mOpenErrorFlag) {
-        RequestComplete(inReq, kErrorOpen, 0, 0, ! theBufPtr[0]);
+    const OpenError theOpenError = mFileInfoPtr[inReq.mFileIdx].mOpenError;
+    if (theOpenError != kOpenErrorNone) {
+        RequestComplete(inReq, kErrorOpen, Open2SysError(theOpenError),
+            0, ! theBufPtr[0]);
         return;
     }
     if ((inReq.mReqType == kReqTypeWrite || inReq.mReqType == kReqTypeRead) &&
@@ -1370,7 +1412,7 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     }
 
     theUnlock.Lock();
-    mFileInfoPtr[theIdx].mOpenErrorFlag   = theSysErr != 0;
+    mFileInfoPtr[theIdx].mOpenError       = Sys2OpenError(theSysErr);
     mFileInfoPtr[theIdx].mOpenPendingFlag = false;
     RequestComplete(inReq, theSysErr ? kErrorOpen : kErrorNone, theSysErr, 0);
 }
@@ -1387,7 +1429,7 @@ QCDiskQueue::Queue::ProcessClose(
         theFileSize = -1;
     }
     int theSysErr = 0;
-    if (! mFileInfoPtr[inFileIdx].mOpenErrorFlag) {
+    if (mFileInfoPtr[inFileIdx].mOpenError == kOpenErrorNone) {
         QCStMutexUnlocker theUnlock(mMutex);
 
         if (mIoStartObserverPtr) {
@@ -1584,7 +1626,7 @@ QCDiskQueue::Queue::OpenFile(
     }
 
     mFilePendingReqCountPtr[theIdx] = 0;
-    mFileInfoPtr[theIdx].mOpenErrorFlag         = false;
+    mFileInfoPtr[theIdx].mOpenError             = kOpenErrorNone;
     mFileInfoPtr[theIdx].mOpenPendingFlag       = true;
     mFileInfoPtr[theIdx].mClosedFlag            = false;
     mFileInfoPtr[theIdx].mLastBlockIdx          = theBlkIdx;
@@ -1625,11 +1667,13 @@ QCDiskQueue::Queue::CloseFile(
     }
     mFileInfoPtr[inFileIdx].mClosedFlag    = true;
     mFileInfoPtr[inFileIdx].mCloseFileSize = inFileSize;
+    OpenError theOpenError;
     if (mFilePendingReqCountPtr[inFileIdx] <= 0 &&
-            mFileInfoPtr[inFileIdx].mOpenErrorFlag) {
+            (theOpenError = mFileInfoPtr[inFileIdx].mOpenError) !=
+                kOpenErrorNone) {
         mFdPtr[inFileIdx] = mFreeFdHead;
         mFreeFdHead = -(inFileIdx + kFreeFdOffset);
-        return CloseFileStatus(kErrorOpen, 0);
+        return CloseFileStatus(kErrorOpen, Open2SysError(theOpenError));
     }
     if (mFilePendingReqCountPtr[inFileIdx] <= 0) {
         ScheduleClose(inFileIdx);
