@@ -251,24 +251,25 @@ if __name__ == '__main__':
 
 
     tar_cmd = [ o.tar, '-cf', '-' ]
+    filelist = []
+
+    filelist.append(os.path.join(o.checkpoint, 'latest'))
+    filelist.append(os.path.join(o.transactions, 'last'))
 
     oldest_checkpoint = None
     if o.count <= len(checkpoints):
         oldest_checkpoint = checkpoints[o.count - 1]
-        tar_cmd.extend(checkpoints[:o.count])
+        filelist.extend(checkpoints[:o.count])
     else:
         oldest_checkpoint = checkpoints[-1]
-        tar_cmd.extend(checkpoints)
+        filelist.extend(checkpoints)
 
     log("Oldest checkpoint to archive is: %s" % oldest_checkpoint)
 
-    checkpoint_transactions = find_checkpoint_transactions(oldest_checkpoint,
-        transactions)
+    filelist.extend(find_checkpoint_transactions(oldest_checkpoint,
+        transactions))
 
-    checkpoint_transactions.append(os.path.join(o.checkpoint, 'latest'))
-    checkpoint_transactions.append(os.path.join(o.transactions, 'last'))
-
-    tar_cmd.extend(checkpoint_transactions)
+    tar_cmd.extend(filelist)
 
     log("Files to archive:")
     for file in tar_cmd[3:]:
