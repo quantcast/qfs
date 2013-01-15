@@ -90,9 +90,13 @@ checkpoint and associated transacton logs to standard output."""
 
     if options.count < 1:
         e.append("'count' must be >= 1")
+    else:
+        options.count = int(options.count)
 
     if options.number < 1:
         e.append("'number' must be >= 1")
+    else:
+        options.number = int(options.number)
 
     if len(e) > 0:
         parser.print_help()
@@ -245,6 +249,7 @@ if __name__ == '__main__':
     transactions = get_transactions(o.transactions)
     check_transaction_sequences(transactions)
 
+
     tar_cmd = [ o.tar, '-cf', '-' ]
 
     oldest_checkpoint = None
@@ -259,6 +264,9 @@ if __name__ == '__main__':
 
     checkpoint_transactions = find_checkpoint_transactions(oldest_checkpoint,
         transactions)
+
+    checkpoint_transactions.append(os.path.join(o.checkpoint, 'latest'))
+    checkpoint_transactions.append(os.path.join(o.transactions, 'last'))
 
     tar_cmd.extend(checkpoint_transactions)
 
