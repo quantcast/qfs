@@ -202,15 +202,22 @@ def find_checkpoint_transactions(checkpoint, transactions):
     checkpoint_transactions = []
     log_number = find_checkpoint_log_number(checkpoint)
 
-    log("Oldest log number to archive: %s" % log_number)
+    log("Oldest log to archive: log.%s" % log_number)
 
     for logfile in transactions:
         this_number = find_transaction_number(logfile)
         if this_number:
             if this_number >= log_number:
                 checkpoint_transactions.append(logfile)
+                this_stat = os.stat(logfile)
 
     return checkpoint_transactions
+
+def get_latest_checkpoint(checkpoint_dir):
+    return os.path.join(checkpoint_dir, 'latest')
+
+def get_last_transaction_log(transaction_dir):
+    return os.path.join(transaction_dir, 'last')
 
 def find_prune_files(number, checkpoints, transactions):
     """ Prune old checkpoints and transaction logs."""
@@ -246,32 +253,35 @@ if __name__ == '__main__':
         log("No checkpoints found exiting ...")
         posix._exit(1)
 
-    transactions = get_transactions(o.transactions)
-    check_transaction_sequences(transactions)
-
     tar_cmd = [ o.tar, '-cf', '-' ]
+
     filelist = []
-
-    filelist.append(os.path.join(o.checkpoint, 'latest'))
-    filelist.append(os.path.join(o.transactions, 'last'))
-
+    archive_checkpoints = []
     oldest_checkpoint = None
     if o.count <= len(checkpoints):
         oldest_checkpoint = checkpoints[o.count - 1]
-        filelist.extend(checkpoints[:o.count])
+        archive_checkpoints = checkpoints[:o.count]
     else:
         oldest_checkpoint = checkpoints[-1]
-        filelist.extend(checkpoints)
+        archive_checkpoints = checkpoints
 
-    log("Oldest checkpoint to archive is: %s" % oldest_checkpoint)
+    transactions = get_transactions(o.transactions)
+    check_transaction_sequences(transactions)
+
+    filelist.append(get_last_transaction_log(o.transactions))
 
     filelist.extend(find_checkpoint_transactions(oldest_checkpoint,
         transactions))
 
+    filelist.append(get_latest_checkpoint(o.checkpoint))
+    filelist.extend(archive_checkpoints)
+
+    log("Oldest checkpoint to archive is: %s" % oldest_checkpoint)
+
     tar_cmd.extend(filelist)
 
     log("Files to archive:")
-    for file in tar_cmd[3:]:
+    for file in filelist:
         log("   %s" % file)
 
     prune_files = []
