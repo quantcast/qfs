@@ -196,6 +196,11 @@ public:
             inReqType == kReqTypeCheckDirReadable
         );
     }
+    static bool IsWriteReqType(
+        ReqType inReqType)
+    {
+        return (inReqType == kReqTypeWrite || inReqType == kReqTypeWriteSync);
+    }
 private:
     typedef unsigned int RequestIdx;
     enum
@@ -615,7 +620,7 @@ private:
         mFilePendingReqCountPtr[inReq.mFileIdx]++;
         if (inReq.mReqType == kReqTypeRead) {
             mPendingReadBlockCount += inReq.mBufferCount;
-        } else if (inReq.mReqType == kReqTypeWrite) {
+        } else if (IsWriteReqType(inReq.mReqType)) {
             mPendingWriteBlockCount += inReq.mBufferCount;
         } else if (inReq.mReqType <= kReqTypeNone ||
                 inReq.mReqType >= kReqTypeMax) {
@@ -690,7 +695,7 @@ private:
         );
         if (inReq.mReqType == kReqTypeRead) {
             mPendingReadBlockCount -= inReq.mBufferCount;
-        } else if (inReq.mReqType == kReqTypeWrite) {
+        } else if (IsWriteReqType(inReq.mReqType)) {
             mPendingWriteBlockCount -= inReq.mBufferCount;
         }
         BlockIdx theBlockIdx;
@@ -924,7 +929,7 @@ QCDiskQueue::Queue::Start(
             const bool theOpenFileFlag = inFileNamesPtr && i < inFileCount;
             int& theFd = mFdPtr[mFdCount];
             theFd = theOpenFileFlag ? open(inFileNamesPtr[i],
-                GetOpenCommonFlags(inBufferedIoFlag) | O_RDWR | O_SYNC) : -1;
+                GetOpenCommonFlags(inBufferedIoFlag) | O_RDWR) : -1;
             if (theFd < 0 && theOpenFileFlag) {
                 theError = errno;
                 break;
@@ -1004,11 +1009,11 @@ QCDiskQueue::Queue::Enqueue(
     QCDiskQueue::IoCompletion*  inIoCompletionPtr,
     QCDiskQueue::Time           inTimeWaitNanoSec)
 {
-    if ((inReqType != kReqTypeRead && inReqType != kReqTypeWrite) ||
+    if ((inReqType != kReqTypeRead && ! IsWriteReqType(inReqType)) ||
             inBufferCount <= 0 ||
             inBufferCount > (mRequestBufferCount *
                 (mTotalCount - kRequestQueueCount)) ||
-            (! inBufferIteratorPtr && inReqType == kReqTypeWrite)) {
+            (! inBufferIteratorPtr && IsWriteReqType(inReqType))) {
         return EnqueueStatus(kRequestIdNone, kErrorParameter);
     }
     QCStMutexLocker theLocker(mMutex);
@@ -1205,10 +1210,11 @@ QCDiskQueue::Queue::Process(
     char** const  theBufPtr    = GetBuffersPtr(inReq);
     const off_t   theOffset    = (off_t)inReq.mBlockIdx * mBlockSize;
     const bool    theReadFlag  = inReq.mReqType == kReqTypeRead;
-    const int64_t theAllocSize = (inReq.mReqType == kReqTypeWrite &&
+    const bool    theSyncFlag  = inReq.mReqType == kReqTypeWriteSync;
+    const int64_t theAllocSize = (IsWriteReqType(inReq.mReqType) &&
         mFileInfoPtr[inReq.mFileIdx].mSpaceAllocPendingFlag) ?
             mFileInfoPtr[inReq.mFileIdx].mLastBlockIdx * mBlockSize : 0;
-    QCRTASSERT((theReadFlag || inReq.mReqType == kReqTypeWrite) && theFd >= 0);
+    QCRTASSERT((theReadFlag || IsWriteReqType(inReq.mReqType)) && theFd >= 0);
     inReq.mInFlightFlag = true;
     const OpenError theOpenError = mFileInfoPtr[inReq.mFileIdx].mOpenError;
     if (theOpenError != kOpenErrorNone) {
@@ -1216,7 +1222,7 @@ QCDiskQueue::Queue::Process(
             0, ! theBufPtr[0]);
         return;
     }
-    if ((inReq.mReqType == kReqTypeWrite || inReq.mReqType == kReqTypeRead) &&
+    if ((IsWriteReqType(inReq.mReqType) || inReq.mReqType == kReqTypeRead) &&
             ! mFileInfoPtr[inReq.mFileIdx].mOpenPendingFlag &&
             inReq.mBlockIdx + inReq.mBufferCount >
             uint64_t(mFileInfoPtr[inReq.mFileIdx].mLastBlockIdx)) {
@@ -1326,6 +1332,10 @@ QCDiskQueue::Queue::Process(
         mBufferPoolPtr->Put(theIt, inReq.mBufferCount);
         theBufPtr[0] = 0;
     }
+    if (theSyncFlag && theError == kErrorNone && fsync(theFd)) {
+        theError    = kErrorWrite;
+        theSysError = errno;
+    }
     theUnlock.Lock();
     RequestComplete(inReq, theError, theSysError, theIoByteCnt, theGetBufFlag);
 }
@@ -1355,7 +1365,7 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
         inReq.mReqType == kReqTypeCreateRO;
     const RequestId   theReqId        = GetRequestId(inReq);
     const int         theOpenFlags    =
-        (theReadOnlyFlag ? O_RDONLY : (O_RDWR | O_SYNC)) |
+        (theReadOnlyFlag ? O_RDONLY : O_RDWR) |
         GetOpenCommonFlags(mFileInfoPtr[theIdx].mBufferedIoFlag);
 
     QCRTASSERT(theIdx >= 0 && theIdx < mFileCount && theFileNamePtr);

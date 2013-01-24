@@ -240,13 +240,8 @@ public:
     ssize_t Write(
         Offset    inOffset,
         size_t    inNumBytes,
-        IOBuffer* inBufferPtr);
-
-    /// Sync the previously written data to disk.
-    /// @param[in] inNotifyDoneFlag if set, notify upstream objects that the
-    /// sync operation has finished.
-    int Sync(
-        bool inNotifyDoneFlag);
+        IOBuffer* inBufferPtr,
+        bool      inSyncFlag = false);
 
     FilePtr GetFilePtr() const
         { return mFilePtr; }
@@ -262,6 +257,7 @@ private:
     int64_t                mBlockIdx;
     int64_t                mIoRetCode;
     time_t                 mEnqueueTime;
+    bool                   mWriteSyncFlag;
     QCDiskQueue::RequestId mCompletionRequestId;
     QCDiskQueue::Error     mCompletionCode;
     DiskIo*                mPrevPtr[1];
@@ -270,8 +266,7 @@ private:
     void RunCompletion();
     void IoCompletion(
         IOBuffer* inBufferPtr,
-        int       inRetCode,
-        bool      inSyncFlag = false);
+        int       inRetCode);
     virtual bool Done(
         QCDiskQueue::RequestId      inRequestId,
         QCDiskQueue::FileIdx        inFileIdx,

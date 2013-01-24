@@ -1044,11 +1044,6 @@ struct WriteOp : public KfsOp {
      * The owning write prepare op
      */
     WritePrepareOp *wpop;
-    /*
-     * Should we wait for aio_sync() to finish before replying to
-     * upstream clients? By default, we don't
-     */
-    bool waitForSyncDone;
     /* Set if the write was triggered due to re-replication */
     bool isFromReReplication;
     // Set if the write is from a record append
@@ -1070,7 +1065,6 @@ struct WriteOp : public KfsOp {
           diskIOTime(0),
           rop(0),
           wpop(0),
-          waitForSyncDone(false),
           isFromReReplication(false),
           isFromRecordAppend(false),
           isWriteIdHolder(false)
@@ -1089,7 +1083,6 @@ struct WriteOp : public KfsOp {
           diskIOTime(0),
           rop(0),
           wpop(0),
-          waitForSyncDone(false),
           isFromReReplication(false),
           isFromRecordAppend(false),
           isWriteIdHolder(false),
@@ -1117,7 +1110,6 @@ struct WriteOp : public KfsOp {
     // completion status
     int HandleRecordAppendDone(int code, void *data);
     int HandleWriteDone(int code, void *data);
-    int HandleSyncDone(int code, void *data);
     int HandleLoggingDone(int code, void *data);
 
     string Show() const {

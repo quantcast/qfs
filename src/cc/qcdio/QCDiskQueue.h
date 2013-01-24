@@ -53,7 +53,7 @@ public:
         kReqTypeNone             = 0,
         kReqTypeRead             = 1,
         kReqTypeWrite            = 2,
-        // The following are internal.
+        // The following are internal, except kReqTypeWriteSync.
         kReqTypeOpen             = 3,
         kReqTypeOpenRO           = 4,
         kReqTypeDelete           = 5,
@@ -63,6 +63,7 @@ public:
         kReqTypeGetFsAvailable   = 9,
         kReqTypeCheckDirReadable = 10,
         kReqTypeClose            = 11,
+        kReqTypeWriteSync        = 12,
         kReqTypeMax
     };
 
@@ -295,10 +296,11 @@ public:
         InputIterator* inBufferIteratorPtr,
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
-        Time           inTimeWaitNanoSec = -1)
+        Time           inTimeWaitNanoSec = -1,
+        bool           inSyncFlag        = false)
     {
         return Enqueue(
-            kReqTypeWrite,
+            inSyncFlag ? kReqTypeWriteSync : kReqTypeWrite,
             inFileIdx,
             inStartBlockIdx,
             inBufferIteratorPtr,
@@ -336,10 +338,11 @@ public:
         BlockIdx        inStartBlockIdx,
         InputIterator*  inBufferIteratorPtr,
         int             inBufferCount,
-        OutputIterator* inOutBufferIteratroPtr = 0)
+        OutputIterator* inOutBufferIteratroPtr = 0,
+        bool            inSyncFlag             = false)
     {
         return SyncIo(
-            kReqTypeWrite,
+            inSyncFlag ? kReqTypeWriteSync : kReqTypeWrite,
             inFileIdx,
             inStartBlockIdx,
             inBufferIteratorPtr,

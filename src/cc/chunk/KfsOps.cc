@@ -570,7 +570,6 @@ WriteOp::HandleWriteDone(int code, void *data)
     }
     else if (code == EVENT_DISK_WROTE) {
         status = *(int *) data;
-        SET_HANDLER(this, &WriteOp::HandleSyncDone);
         if (numBytesIO != status || status < (int)numBytes) {
             // write didn't do everything that was asked; we need to retry
             KFS_LOG_STREAM_INFO <<
@@ -593,38 +592,17 @@ WriteOp::HandleWriteDone(int code, void *data)
             dataBuf->Trim(int(numBytes));
         }
         numBytesIO = numBytes;
-        // queue the sync op only if we are all done with writing to
-        // this chunk:
-        waitForSyncDone = false;
-
-        if (!waitForSyncDone) {
-            // sync is queued; no need to wait for it to finish
-            return HandleSyncDone(EVENT_SYNC_DONE, 0);
+        if (dataBuf) {
+            // eat up everything that was sent
+            dataBuf->Consume(numBytes);
+        }
+        if (status >= 0) {
+            SET_HANDLER(this, &WriteOp::HandleLoggingDone);
+            gLogger.Submit(this);
+        } else {
+            wpop->HandleEvent(EVENT_CMD_DONE, this);
         }
     }
-    return 0;
-}
-
-///
-/// A write op finished.  Set the status and the # of bytes written
-/// and notify the owning write commit op.
-///
-int
-WriteOp::HandleSyncDone(int code, void *data)
-{
-    // eat up everything that was sent
-    dataBuf->Consume(numBytes);
-
-    if (code != EVENT_SYNC_DONE) {
-        status = -1;
-    }
-    if (status >= 0) {
-        SET_HANDLER(this, &WriteOp::HandleLoggingDone);
-        gLogger.Submit(this);
-    } else {
-        wpop->HandleEvent(EVENT_CMD_DONE, this);
-    }
-
     return 0;
 }
 

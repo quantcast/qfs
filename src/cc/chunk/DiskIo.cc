@@ -1662,6 +1662,7 @@ DiskIo::DiskIo(
       mBlockIdx(0),
       mIoRetCode(0),
       mEnqueueTime(),
+      mWriteSyncFlag(false),
       mCompletionRequestId(QCDiskQueue::kRequestIdNone),
       mCompletionCode(QCDiskQueue::kErrorNone)
 {
@@ -1723,6 +1724,7 @@ DiskIo::Read(
     const int theBufferCnt =
         (mReadLength + mReadBufOffset + theBlockSize - 1) / theBlockSize;
     mIoBuffers.reserve(theBufferCnt);
+    mWriteSyncFlag       = false;
     mCompletionRequestId = QCDiskQueue::kRequestIdNone;
     mCompletionCode      = QCDiskQueue::kErrorNone;
     sDiskIoQueuesPtr->SetInFlight(this);
@@ -1755,7 +1757,8 @@ DiskIo::Read(
 DiskIo::Write(
     DiskIo::Offset inOffset,
     size_t         inNumBytes,
-    IOBuffer*      inBufferPtr)
+    IOBuffer*      inBufferPtr,
+    bool           inSyncFlag /* = false */)
 {
     if (inOffset < 0 || ! inBufferPtr ||
             mRequestId != QCDiskQueue::kRequestIdNone || ! mFilePtr->IsOpen()) {
@@ -1835,6 +1838,7 @@ DiskIo::Write(
         IoBuffers::iterator const mEnd;
     };
     BufIterator theBufItr(mIoBuffers);
+    mWriteSyncFlag       = inSyncFlag;
     mCompletionRequestId = QCDiskQueue::kRequestIdNone;
     mCompletionCode      = QCDiskQueue::kErrorNone;
     sDiskIoQueuesPtr->SetInFlight(this);
@@ -1844,7 +1848,8 @@ DiskIo::Write(
         &theBufItr,
         mIoBuffers.size(),
         this,
-        sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
+        sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec(),
+        inSyncFlag
     );
     if (theStatus.IsGood()) {
         sDiskIoQueuesPtr->WritePending(inNumBytes - theNWr);
@@ -1858,51 +1863,6 @@ DiskIo::Write(
     KFS_LOG_EOM;
     const int theErr = DiskQueueToSysError(theStatus);
     DiskIoReportError("DiskIo::Write: " + theErrMsg, theErr);
-    return -theErr;
-}
-
-    int
-DiskIo::Sync(
-    bool inNotifyDoneFlag)
-{
-    if (mRequestId != QCDiskQueue::kRequestIdNone || ! mFilePtr->IsOpen()) {
-        KFS_LOG_STREAM_ERROR <<
-            "file: "          << mFilePtr->GetFileIdx() <<
-            " "               << (mFilePtr->IsOpen() ? "open" : "closed") <<
-            " sync request: " << mRequestId <<
-            " notify: "       << (inNotifyDoneFlag ? "yes" : "no") <<
-        KFS_LOG_EOM;
-        DiskIoReportError("DiskIo::Sync: bad parameters", EINVAL);
-        return -EINVAL;
-    }
-    mIoBuffers.clear();
-    DiskQueue* const theQueuePtr = mFilePtr->GetDiskQueuePtr();
-    if (! theQueuePtr) {
-        KFS_LOG_STREAM_ERROR << "sync: no queue" << KFS_LOG_EOM;
-        DiskIoReportError("DiskIo::Sync: no queue", EINVAL);
-        return -EINVAL;
-    }
-    mCompletionRequestId = QCDiskQueue::kRequestIdNone;
-    mCompletionCode      = QCDiskQueue::kErrorNone;
-    sDiskIoQueuesPtr->SetInFlight(this);
-    const DiskQueue::EnqueueStatus theStatus = theQueuePtr->Sync(
-        mFilePtr->GetFileIdx(),
-        inNotifyDoneFlag ? this : 0,
-        sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
-    );
-    if (theStatus.IsGood()) {
-        if (inNotifyDoneFlag) {
-            mRequestId = theStatus.GetRequestId();
-            QCRTASSERT(mRequestId != QCDiskQueue::kRequestIdNone);
-        }
-        return 0;
-    }
-    sDiskIoQueuesPtr->ResetInFlight(this);
-    const string theErrMsg(QCDiskQueue::ToString(theStatus.GetError()));
-    KFS_LOG_STREAM_ERROR << "sync queuing error: " << theErrMsg <<
-    KFS_LOG_EOM;
-    const int theErr = DiskQueueToSysError(theStatus);
-    DiskIoReportError("DiskIo::Sync: " + theErrMsg, theErr);
     return -theErr;
 }
 
@@ -2009,6 +1969,9 @@ DiskIo::RunCompletion()
             sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize()),
             mIoRetCode);
         theOpNamePtr = "write";
+        if (mWriteSyncFlag) {
+            sDiskIoQueuesPtr->SyncDone(mIoRetCode);
+        }
     } else {
         theOpNamePtr = "sync";
         sDiskIoQueuesPtr->SyncDone(mIoRetCode);
@@ -2044,9 +2007,8 @@ DiskIo::RunCompletion()
     }
     QCRTASSERT(theNumRead == mIoRetCode);
     if (mIoRetCode < 0 || mReadLength <= 0) {
-        const bool theSyncFlag = mReadLength == 0 && mIoBuffers.empty();
         mIoBuffers.clear();
-        IoCompletion(0, theNumRead, theSyncFlag);
+        IoCompletion(0, theNumRead);
         return;
     }
     // Read. Skip/trim first/last buffers if needed.
@@ -2089,13 +2051,10 @@ DiskIo::RunCompletion()
     void
 DiskIo::IoCompletion(
     IOBuffer* inBufferPtr,
-    int       inRetCode,
-    bool      inSyncFlag /* = false */)
+    int       inRetCode)
 {
     if (inRetCode < 0) {
         mCallbackObjPtr->HandleEvent(EVENT_DISK_ERROR, &inRetCode);
-    } else if (inSyncFlag) {
-        mCallbackObjPtr->HandleEvent(EVENT_SYNC_DONE, 0);
     } else if (inBufferPtr) {
         globals().ctrDiskBytesRead.Update(int(mIoRetCode));
         mCallbackObjPtr->HandleEvent(EVENT_DISK_READ, inBufferPtr);

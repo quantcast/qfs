@@ -1155,7 +1155,8 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
     } else {
         assert(diskIo);
         diskIOTime = microseconds();
-        status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf);
+        status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf,
+            targetVersion > 0 || stableFlag);
     }
     return status;
 }
@@ -3915,15 +3916,6 @@ ChunkManager::ScavengePendingWrites(time_t now)
         }
         delete op;
     }
-}
-
-int
-ChunkManager::Sync(WriteOp *op)
-{
-    if (!op->diskIo) {
-        return -1;
-    }
-    return op->diskIo->Sync(op->waitForSyncDone);
 }
 
 bool

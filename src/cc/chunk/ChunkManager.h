@@ -301,11 +301,7 @@ public:
 
     virtual void Timeout();
 
-    /// Push the changes from the write out to disk
-    int Sync(WriteOp *op);
-
     ChunkInfo_t* GetChunkInfo(kfsChunkId_t chunkId);
-    
 
     void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* file);
     void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo* diskIo);
