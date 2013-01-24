@@ -3012,15 +3012,6 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     if ((openMode & (O_CREAT|O_EXCL)) == (O_CREAT|O_EXCL)) {
         return -EEXIST;
     }
-    if (! cacheAttributesFlag &&
-            op.fattr.IsAnyPermissionDefined() && (((
-                    (openMode & O_WRONLY) == 0 ||
-                    (openMode & (O_RDWR | O_RDONLY)) != 0) &&
-                ! op.fattr.CanRead(mEUser, mEGroup)) || (
-                    (openMode & (O_WRONLY | O_RDWR)) != 0 &&
-                ! op.fattr.CanWrite(mEUser, mEGroup)))) {
-        return -EACCES;
-    }
     if (op.fattr.isDirectory && openMode != O_RDONLY) {
         return -ENOTDIR;
     }
