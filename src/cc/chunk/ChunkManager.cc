@@ -4706,8 +4706,7 @@ ChunkManager::ChunkDirInfo::StopEvacuation()
     while ((cih = ChunkDirList::Front(list))) {
         cih->SetEvacuate(false);
     }
-    const bool updateSpaceAvailableFlag =
-        evacuateStartedFlag == countFsSpaceAvailableFlag;
+    const bool updateSpaceAvailableFlag = evacuateStartedFlag;
     rescheduleEvacuateThreshold = 0;
     evacuateFlag                = false;
     evacuateStartedFlag         = false;
