@@ -1156,7 +1156,8 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
         assert(diskIo);
         diskIOTime = microseconds();
         status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf,
-            targetVersion > 0 || stableFlag);
+            gChunkManager.IsSyncChunkHeader() &&
+            (targetVersion > 0 || stableFlag));
     }
     return status;
 }
@@ -1402,6 +1403,7 @@ ChunkManager::ChunkManager()
       mMinPendingIoThreshold(8 << 20),
       mAllowSparseChunksFlag(true),
       mBufferedIoFlag(false),
+      mSyncChunkHeaderFlag(true),
       mNullBlockChecksum(0),
       mCounters(),
       mDirChecker(),
@@ -1600,6 +1602,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mBufferedIoFlag = prop.getValue(
         "chunkServer.bufferedIo",
         mBufferedIoFlag ? 1 : 0) != 0;
+    mSyncChunkHeaderFlag = prop.getValue(
+        "chunkServer.syncChunkHeader",
+        mSyncChunkHeaderFlag ? 1 : 0) != 0;
     mEvacuateFileName = prop.getValue(
         "chunkServer.evacuateFileName",
         mEvacuateFileName);
