@@ -108,6 +108,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           evacuateChunksOpInFlightFlag(false),
           evacuateFlag(false),
           evacuateStartedFlag(false),
+          stopEvacuationFlag(false),
           evacuateDoneFlag(false),
           evacuateFileRenameInFlightFlag(false),
           placementSkipFlag(false),
@@ -214,6 +215,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         rescheduleEvacuateThreshold    = 0;
         evacuateFlag                   = false;
         evacuateStartedFlag            = false;
+        stopEvacuationFlag             = false;
         evacuateDoneFlag               = false;
         diskTimeoutCount               = 0;
         countFsSpaceAvailableFlag      = false;
@@ -242,8 +244,10 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         chunkDirInfoOp.Enqueue(kResetLastCountersFlag);
         NotifyAvailableChunksStart();
     }
+    bool StopEvacuation();
     void SetEvacuateStarted()
     {
+        stopEvacuationFlag  = false;
         evacuateStartedFlag = true;
         evacuateStartChunkCount = max(evacuateStartChunkCount, chunkCount);
         evacuateStartByteCount  = max(evacuateStartByteCount, usedSpace);
@@ -498,6 +502,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     bool                   evacuateChunksOpInFlightFlag:1;
     bool                   evacuateFlag:1;
     bool                   evacuateStartedFlag:1;
+    bool                   stopEvacuationFlag:1;
     bool                   evacuateDoneFlag:1;
     bool                   evacuateFileRenameInFlightFlag:1;
     bool                   placementSkipFlag:1;
@@ -4287,6 +4292,16 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
                 DiskError(sysErr);
             }
         } else {
+            if (evacuateFlag && ! stopEvacuationFlag && StopEvacuation()) {
+                KFS_LOG_STREAM_INFO <<
+                    "chunk directory: " << dirname <<
+                    " stopping evacuation"
+                    " space: " << availableSpace <<
+                    " used: "  << usedSpace <<
+                    " dev: "   << deviceId <<
+                    " queue: " << (const void*)diskQueue <<
+                KFS_LOG_EOM;
+            }
             evacuateCheckIoErrorsCount = 0;
         }
     } else if (! evacuateFlag) {
@@ -4317,7 +4332,9 @@ ChunkManager::ChunkDirInfo::EvacuateChunksDone(int code, void* data)
     if (availableSpace < 0) {
         return 0; // Ignore, already marked not in use.
     }
-
+    if (stopEvacuationFlag) {
+        StopEvacuation();
+    }
     if (! evacuateFlag) {
         return 0;
     }
@@ -4653,7 +4670,7 @@ ChunkManager::ChunkDirInfo::RestartEvacuation()
     if (availableSpace < 0) {
         return; // Ignore, already marked not in use.
     }
-    if (! evacuateStartedFlag) {
+    if (! evacuateStartedFlag || stopEvacuationFlag) {
         return;
     }
     KFS_LOG_STREAM_WARN <<
@@ -4667,6 +4684,41 @@ ChunkManager::ChunkDirInfo::RestartEvacuation()
         cih->SetEvacuate(false);
     }
     ScheduleEvacuate();
+}
+
+bool
+ChunkManager::ChunkDirInfo::StopEvacuation()
+{
+    if (! evacuateFlag || availableSpace < 0 || evacuateDoneFlag ||
+            evacuateFileRenameInFlightFlag ||
+            (evacuateStartedFlag &&
+            ChunkDirList::IsEmpty(chunkLists[kChunkDirList]) &&
+            ChunkDirList::IsEmpty(chunkLists[kChunkDirEvacuateList]))) {
+        stopEvacuationFlag = false;
+        return false;
+    }
+    if (evacuateChunksOpInFlightFlag) {
+        stopEvacuationFlag = true;
+        return true;
+    }
+    ChunkDirInfo::ChunkLists& list = chunkLists[kChunkDirEvacuateList];
+    ChunkInfoHandle*          cih;
+    while ((cih = ChunkDirList::Front(list))) {
+        cih->SetEvacuate(false);
+    }
+    const bool updateSpaceAvailableFlag =
+        evacuateStartedFlag == countFsSpaceAvailableFlag;
+    rescheduleEvacuateThreshold = 0;
+    evacuateFlag                = false;
+    evacuateStartedFlag         = false;
+    stopEvacuationFlag          = false;
+    evacuateDoneFlag            = false;
+    evacuateStartChunkCount     = -1;
+    evacuateStartByteCount      = -1;
+    if (updateSpaceAvailableFlag) {
+        gChunkManager.UpdateCountFsSpaceAvailableFlags();
+    }
+    return true;
 }
 
 void
@@ -4794,7 +4846,7 @@ ChunkManager::GetFsSpaceAvailable()
             continue;
         }
         string err;
-        if (! it->evacuateFlag && ! it->checkEvacuateFileInFlightFlag) {
+        if (! it->checkEvacuateFileInFlightFlag && ! it->stopEvacuationFlag) {
             const string fn = it->dirname + mEvacuateFileName;
             it->checkEvacuateFileInFlightFlag = true;
             if (! DiskIo::GetFsSpaceAvailable(
