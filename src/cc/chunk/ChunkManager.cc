@@ -1408,7 +1408,7 @@ ChunkManager::ChunkManager()
       mMinPendingIoThreshold(8 << 20),
       mAllowSparseChunksFlag(true),
       mBufferedIoFlag(false),
-      mSyncChunkHeaderFlag(true),
+      mSyncChunkHeaderFlag(false),
       mNullBlockChecksum(0),
       mCounters(),
       mDirChecker(),
