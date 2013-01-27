@@ -191,14 +191,12 @@ restore_fattr(DETokenizer& c)
     // and the checkpoint contains the newly added chunk.
     MetaFattr* const f = MetaFattr::create(type, fid, mtime, ctime, crtime,
         0, numReplicas, kKfsUserNone, kKfsGroupNone, kKfsModeUndef);
-    if (type == KFS_DIR) {
-        UpdateNumDirs(1);
-    } else {
+    if (type != KFS_DIR) {
         f->filesize = gotfilesize ? filesize : chunkOff_t(-1);
         if (! restore_striped_file_params(c, *f)) {
             f->destroy();
             return false;
-            }
+        }
     }
     int64_t n = f->user;
     const bool gotperms = pop_num(n, "user", c, true);
@@ -231,7 +229,11 @@ restore_fattr(DETokenizer& c)
     if (metatree.insert(f) != 0) {
         return false;
     }
-    UpdateNumFiles(1);
+    if (type == KFS_DIR) {
+        UpdateNumDirs(1);
+    } else {
+        UpdateNumFiles(1);
+    }
     return true;
 }
 
