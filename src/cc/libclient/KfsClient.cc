@@ -4955,7 +4955,7 @@ public:
                 return ret;
             }
         }
-        ChmodOp op(mCli.nextSeq(), attr.fileId, (attr.isDirectory ?
+        ChmodOp op(mCli.nextSeq(), attr.fileId, mMode & (attr.isDirectory ?
             kfsMode_t(Permissions::kDirModeMask) :
             kfsMode_t(Permissions::kFileModeMask)));
         mCli.DoMetaOpWithRetry(&op);
