@@ -630,6 +630,10 @@ private:
                     if ((theErr = mFs.Next(
                             theItPtr, theName, theStatPtr))) {
                         mStatus = mErrorReporter(mCurPath + theName, theErr);
+                        if (mErrorReporter.GetStopOnErrorFlag() &&
+                                mStatus != 0) {
+                            break;
+                        }
                     }
                     if (theName.empty()) {
                         break;
@@ -640,6 +644,10 @@ private:
                     if (! theStatPtr) {
                         if (theErr == 0) {
                             mStatus = mErrorReporter(mCurPath, -EINVAL);
+                            if (mErrorReporter.GetStopOnErrorFlag() &&
+                                    mStatus != 0) {
+                                break;
+                            }
                         }
                         continue;
                     }
@@ -1370,12 +1378,34 @@ private:
                 return inFs.Chmod(inPath, mModeToSet, mRecursiveFlag,
                     &inErrorReporter);
             }
-            const int theStatus = inFs.Stat(inPath, mStat);
+            int theStatus = inFs.Stat(inPath, mStat);
             if (theStatus != 0) {
                 return theStatus;
             }
-            return inFs.Chmod(inPath, GetMode(mStat.st_mode), mRecursiveFlag,
-                    &inErrorReporter);
+            if (mRecursiveFlag && S_ISDIR(mStat.st_mode)) {
+                RecursiveApplicator<ChmodFunctor>
+                    theApplicator(inFs, inPath, inErrorReporter, *this);
+                if ((theStatus = theApplicator.Run()) != 0) {
+                    return theStatus;
+                }
+            }
+            const bool kRecursiveFlag = false;
+            return inFs.Chmod(inPath, GetMode(mStat.st_mode),
+                kRecursiveFlag, 0);
+        }
+        bool operator()(
+            FileSystem&                inFs,
+            const string&              inPath,
+            const FileSystem::StatBuf& inStat,
+            ErrorReporter&             inErrorReporter)
+        {
+            const bool kRecursiveFlag = false;
+            int theStatus = inFs.Chmod(inPath, GetMode(inStat.st_mode),
+                kRecursiveFlag, 0);
+            if (theStatus != 0) {
+                theStatus = inErrorReporter(inPath, theStatus);
+            }
+            return (theStatus == 0);
         }
         int GetModeStatus() const
             { return mModeStatus; }
