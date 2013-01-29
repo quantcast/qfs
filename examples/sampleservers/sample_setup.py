@@ -269,6 +269,18 @@ Hello World example of a client session:
   # Stop the server and remove the custom install.
   ./examples/sampleservers/sample_setup.py -a stop
   ./examples/sampleservers/sample_setup.py -a uninstall
+
+Use qfs to manipulate files the same way you would use 'hadoop fs':
+  # Set qfs command alias.
+  alias qfs='<QFS_INSTALL_PATH>/bin/tools/qfs \
+      -cfg ./examples/sampleservers/sample_qfs_tool.cfg'
+
+  qfs -h
+  qfs -stat /
+  qfs -mkdir /some-dir
+  qfs -ls /
+
+  Did you notice how fast it is? :)
 """
 
     # An install sets up all config files and (re)starts the servers.
