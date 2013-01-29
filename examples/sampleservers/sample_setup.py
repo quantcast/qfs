@@ -347,7 +347,9 @@ def do_cleanup(config, doUninstall):
             if doUninstall and os.path.isdir(webDir):
                 rm_tree(webDir)
     if doUninstall:
-        os.rmdir(os.path.expanduser('~/qfsbase'))
+        qfsbase = os.path.expanduser('~/qfsbase')
+        if os.path.isdir(qfsbase):
+            os.rmdir(qfsbase)
         print 'Uninstall - OK.'
     else:
         print 'Stop servers - OK.'
