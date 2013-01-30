@@ -96,10 +96,10 @@ tarball: hadoop-jars
 	rm -rf tmpreldir
 
 python-release: release
-	cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+	cd build/release && python ../../src/cc/access/kfs_setup.py build
 
 python-debug: debug
-	cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
+	cd build/debug && python ../../src/cc/access/kfs_setup.py build
 
 test-debug: debug
 	cd build/debug && ../../src/test-scripts/qfstest.sh
