@@ -21,6 +21,10 @@
 #
 # Do not assume gnumake -- keep it as simple as possible
 
+ifndef VERBOSE
+MAKEFLAGS += --no-print-directory
+endif
+
 all: release
 
 prep:
