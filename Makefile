@@ -35,9 +35,6 @@ release: prep
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh ; fi
-	if ls -1 /usr/include/python*/Python.h > /dev/null 2>&1 && \
-		 test -x "`which python 2>/dev/null`"; then \
-		cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
 
 debug: prep
 	cd build && \
@@ -48,9 +45,6 @@ debug: prep
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh ; fi
-	if ls -1 /usr/include/python*/Python.h > /dev/null 2>&1 && \
-		 test -x "`which python 2>/dev/null`"; then \
-		cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
 
 hadoop-jars: release
 	./src/java/javabuild.sh clean
@@ -96,6 +90,12 @@ tarball: hadoop-jars
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
+
+python-release: release
+	cd build/release && python ../../src/cc/access/kfs_setup.py build; fi
+
+python-debug: debug
+	cd build/debug && python ../../src/cc/access/kfs_setup.py build; fi
 
 test-debug: debug
 	cd build/debug && ../../src/test-scripts/qfstest.sh
