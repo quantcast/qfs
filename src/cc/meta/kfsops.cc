@@ -1817,7 +1817,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     if (fa->filesize == offset) {
         return 0;
     }
-    if (fa->IsStriped() && offset > 0) {
+    if (fa->IsStriped() && (offset > 0 || endOffset >= 0)) {
         // For now do not allow truncation of striped files, and do not
         // allow to create trailing hole.
         // Use truncate only to set the logical eof.
