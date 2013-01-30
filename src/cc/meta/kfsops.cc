@@ -1794,7 +1794,7 @@ int
 Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset)
 {
-    if (endOffset > 0 &&
+    if (endOffset >= 0 &&
             (endOffset < offset || endOffset % CHUNKSIZE != 0)) {
         return -EINVAL;
     }
