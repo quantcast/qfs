@@ -489,13 +489,13 @@ bool
 Tree::emptydir(fid_t dir)
 {
     const PartialMatch key(KFS_DENTRY, dir);
-    const Node* n = findLeaf(key);
+    int                p;
+    const Node*        n = findLeaf(key, p);
     if (! n) {
         return false;
-        }
+    }
     int kNumEmptyDirEntries = 2;
     int k = 0;
-    int p = n->findplace(key);
     while (n && key == n->getkey(p) && ++k <= kNumEmptyDirEntries) {
         if (++p == n->children()) {
             p = 0;
@@ -569,9 +569,10 @@ Tree::rmdir(fid_t dir, const string& dname, const string& pathname,
 MetaFattr *
 Tree::getFattr(fid_t fid)
 {
-    const Key fkey(KFS_FATTR, fid);
-    Node *l = findLeaf(fkey);
-    return (l == NULL) ? NULL : l->extractMeta<MetaFattr>(fkey);
+    const Key    fkey(KFS_FATTR, fid);
+    int          p;
+    Node * const l = findLeaf(fkey, p);
+    return (l ? l->extractMeta<MetaFattr>(p) : 0);
 }
 
 MetaDentry *
@@ -579,11 +580,11 @@ Tree::getDentry(fid_t dir, const string& fname)
 {
     const KeyData hash = MetaDentry::nameHash(fname);
     const Key     key(KFS_DENTRY, dir, hash);
-    const Node*   n = findLeaf(key);
+    int           p;
+    const Node*   n = findLeaf(key, p);
     if (! n) {
         return 0;
     }
-    int p = n->findplace(key);
     while (n && key == n->getkey(p)) {
         MetaDentry* const de = refine<MetaDentry>(n->leaf(p));
         if (de->getHash() == hash && de->getName() == fname) {
@@ -731,11 +732,12 @@ Tree::recomputeDirSize(MetaFattr* dirattr)
     dirattr->fileCount() = 0;
     const fid_t        dir = dirattr->id();
     const PartialMatch dkey(KFS_DENTRY, dir);
-    Node* const        l = findLeaf(dkey);
+    int                kp;
+    Node* const        l = findLeaf(dkey, kp);
     if (! l) {
         return;
     }
-    LeafIter it(l, l->findplace(dkey));
+    LeafIter it(l, kp);
     for (Node* p;
             (p = it.parent()) && p->getkey(it.index()) == dkey;
             it.next()) {
@@ -849,12 +851,12 @@ Tree::getPathname(const MetaFattr* fa)
             return string();
         }
         const PartialMatch dkey(KFS_DENTRY, parent->id());
-        const Node*        n = findLeaf(dkey);
+        int                p;
+        const Node*        n = findLeaf(dkey, p);
         if (! n) {
             // panic("unconnected node, or invalid parent");
             return string();
         }
-        int p = n->findplace(dkey);
         while (n && dkey == n->getkey(p)) {
             const MetaDentry* const de =
                 refine<MetaDentry>(n->leaf(p));
@@ -1117,12 +1119,13 @@ Tree::readdir(fid_t dir, vector<MetaDentry*>& v,
         *moreEntriesFlag = false;
     }
     const PartialMatch dkey(KFS_DENTRY, dir);
-    Node* const        l = findLeaf(dkey);
+    int                kp;
+    Node* const        l = findLeaf(dkey, kp);
     if (! l) {
         return -ENOENT;
     }
     int      maxRet = maxEntries <= 0 ? -1 : maxEntries;
-    LeafIter it(l, l->findplace(dkey));
+    LeafIter it(l, kp);
     Node*    p;
     while ((p = it.parent()) && p->getkey(it.index()) == dkey) {
         if (maxRet-- == 0) {
@@ -1149,11 +1152,12 @@ Tree::readdir(fid_t dir, const string& fnameStart,
     moreEntriesFlag = false;
     const KeyData hash = MetaDentry::nameHash(fnameStart);
     const Key     key(KFS_DENTRY, dir, hash);
-    Node* const   l = findLeaf(key);
+    int           kp;
+    Node* const   l = findLeaf(key, kp);
     if (! l) {
         return -ENOENT;
     }
-    LeafIter it(l, l->findplace(key));
+    LeafIter it(l, kp);
     bool     foundFlag = false;
     Node*    p;
     while ((p = it.parent()) && p->getkey(it.index()) == key) {
@@ -1191,9 +1195,11 @@ int
 Tree::getalloc(fid_t fid, vector<MetaChunkInfo*>& v)
 {
     const PartialMatch ckey(KFS_CHUNKINFO, fid);
-    Node *l = findLeaf(ckey);
-    if (l != NULL)
-        extractAll(l, ckey, v);
+    int   kp;
+    Node *l = findLeaf(ckey, kp);
+    if (l) {
+        extractAll(l, kp, ckey, v);
+    }
     return 0;
 }
 
@@ -1208,12 +1214,13 @@ int
 Tree::getalloc(fid_t fid, MetaFattr*& fa, vector<MetaChunkInfo*>& v, int maxChunks)
 {
     const Key   fkey(KFS_FATTR, fid);
-    Node* const l = findLeaf(fkey);
+    int         kp;
+    Node* const l = findLeaf(fkey, kp);
     if (! l) {
         fa = 0;
         return -ENOENT;
     }
-    LeafIter it(l, l->findplace(fkey));
+    LeafIter it(l, kp);
     fa = refine<MetaFattr>(it.current());
     if (fa->type != KFS_FILE) {
         fa = 0;
@@ -1239,20 +1246,22 @@ ChunkIterator
 Tree::getAlloc(fid_t fid) const
 {
     const PartialMatch key(KFS_CHUNKINFO, fid);
-    Node* const        l = findLeaf(key);
-    return ChunkIterator(l, l ? l->findplace(key) : 0, key);
+    int                kp;
+    Node* const        l = findLeaf(key, kp);
+    return ChunkIterator(l, kp, key);
 }
 
 ChunkIterator
 Tree::getAlloc(fid_t fid, MetaFattr*& fa) const
 {
     const Key   fkey(KFS_FATTR, fid);
-    Node* const l = findLeaf(fkey);
+    int         kp;
+    Node* const l = findLeaf(fkey, kp);
     if (! l) {
         fa = 0;
         return ChunkIterator();
     }
-    LeafIter it(l, l->findplace(fkey));
+    LeafIter it(l, kp);
     fa = refine<MetaFattr>(it.current());
     if (fa->type != KFS_FILE) {
         fa = 0;
@@ -1268,8 +1277,9 @@ DentryIterator
 Tree::readDir(fid_t dir) const
 {
     const PartialMatch key(KFS_DENTRY, dir);
-    Node* const        l = findLeaf(key);
-    return DentryIterator(l, l ? l->findplace(key) : 0, key);
+    int                kp;
+    Node* const        l = findLeaf(key, kp);
+    return DentryIterator(l, kp, key);
 }
 
 /*!
@@ -1292,11 +1302,12 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
         return -EINVAL;
     }
     const Key fkey(KFS_FATTR, fid);
-    Node* n = findLeaf(fkey);
+    int   kp;
+    Node* n = findLeaf(fkey, kp);
     if (! n) {
         return -ENOENT;
     }
-    LeafIter it(n, n->findplace(fkey));
+    LeafIter it(n, kp);
     fa = refine<MetaFattr>(it.current());
     if (fa->type != KFS_FILE) {
         fa = 0;
@@ -1364,11 +1375,12 @@ Tree::getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
     c  = 0;
     fa = 0;
     const Key fkey(KFS_FATTR, fid);
-    Node *l = findLeaf(fkey);
-    if (l == NULL) {
+    int   kp;
+    Node* l = findLeaf(fkey, kp);
+    if (! l) {
         return -ENOENT;
     }
-    LeafIter it(l, l->findplace(fkey));
+    LeafIter it(l, kp);
     fa = refine<MetaFattr>(it.current());
     if (fa->type != KFS_FILE) {
         fa = 0;
@@ -1404,12 +1416,13 @@ Tree::getalloc(fid_t fid, chunkOff_t offset, vector<MetaChunkInfo*>& v, int maxC
     // correspond to chunk boundaries.
     const chunkOff_t boundary = chunkStartOffset(offset);
     const Key key(KFS_CHUNKINFO, fid, boundary);
-    Node* l = findLeaf(key);
+    int   kp;
+    Node* l = findLeaf(key, kp);
     if (! l) {
         return -ENOENT;
     }
     int maxRet = max(0, maxChunks);
-    LeafIter it(l, l->findplace(key));
+    LeafIter it(l, kp);
     const PartialMatch ckey(KFS_CHUNKINFO, fid);
     Node* p;
     while ((p = it.parent()) && p->getkey(it.index()) == ckey) {
@@ -1436,10 +1449,11 @@ Tree::getalloc(fid_t fid, chunkOff_t offset, MetaChunkInfo **c)
     // correspond to chunk boundaries.
     const chunkOff_t boundary = chunkStartOffset(offset);
     const Key ckey(KFS_CHUNKINFO, fid, boundary);
-    Node *l = findLeaf(ckey);
+    int   kp;
+    Node* l = findLeaf(ckey, kp);
     if (l == NULL)
         return -ENOENT;
-    *c = l->extractMeta<MetaChunkInfo>(ckey);
+    *c = l->extractMeta<MetaChunkInfo>(kp);
     return 0;
 }
 
@@ -1526,12 +1540,13 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     }
     chunkOff_t boundary = chunkStartOffset(offset);
     // check if an id has already been assigned to this chunk
-    const Key ckey(KFS_CHUNKINFO, file, boundary);
-    Node * const l = findLeaf(ckey);
-    if (l != NULL) {
+    const Key    ckey(KFS_CHUNKINFO, file, boundary);
+    int          kp;
+    Node * const l = findLeaf(ckey, kp);
+    if (l) {
         if (! appendOffset) {
             MetaChunkInfo * const c =
-                l->extractMeta<MetaChunkInfo>(ckey);
+                l->extractMeta<MetaChunkInfo>(kp);
             if (curChunkId) {
                 *curChunkId = c->chunkId;
             }
@@ -1662,7 +1677,8 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
             const chunkOff_t boundary = chunkStartOffset(
             dstStartPos + (*it)->offset);
 #ifdef COALESCE_BLOCKS_DEBUG
-        assert(! findLeaf(Key(KFS_CHUNKINFO, dstFa->id(), boundary)));
+        int kp;
+        assert(! findLeaf(Key(KFS_CHUNKINFO, dstFa->id(), boundary)), kp);
 #endif
         gLayoutManager.ChangeChunkFid(srcFa, dstFa, *it);
         // ChangeChunkFid() ensures that *it remains valid after the
@@ -1676,7 +1692,7 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
             panic("coalesce block failed to insert chunk");
         }
 #ifdef COALESCE_BLOCKS_DEBUG
-        assert(findLeaf(Key(KFS_CHUNKINFO, dstFa->id(), boundary)));
+        assert(findLeaf(Key(KFS_CHUNKINFO, dstFa->id(), boundary)), kp);
 #endif
             if (boundary >= dstFa->nextChunkOffset()) {
                 dstFa->nextChunkOffset() = boundary + CHUNKSIZE;
@@ -1763,12 +1779,6 @@ Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t* mtime,
     return 0;
 }
 
-static bool
-ChunkInfo_compare(const MetaChunkInfo *first, const MetaChunkInfo *second)
-{
-    return first->offset < second->offset;
-}
-
 struct MetaChunkInfoSt : public MetaChunkInfo
 {
     MetaChunkInfoSt(MetaFattr* fa, chunkOff_t off)
@@ -1781,11 +1791,16 @@ struct MetaChunkInfoSt : public MetaChunkInfo
 };
 
 int
-Tree::truncate(fid_t file, chunkOff_t offset, const string& path,
-    const int64_t* mtime,
-    kfsUid_t euser /* = kKfsUserRoot */, kfsGid_t egroup /* = kKfsGroupRoot */)
+Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
+    kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset)
 {
-    MetaFattr* const fa = getFattr(file);
+    if (endOffset > 0 &&
+            (endOffset < offset || endOffset % CHUNKSIZE != 0)) {
+        return -EINVAL;
+    }
+
+    MetaFattr*    fa  = 0;
+    ChunkIterator cit = getAlloc(file, fa);
 
     if (! fa) {
         return -ENOENT;
@@ -1807,7 +1822,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const string& path,
         // allow to create trailing hole.
         // Use truncate only to set the logical eof.
         // The eof should always be in the the last block.
-        if (offset < fa->filesize ||
+        if (endOffset >= 0 || offset < fa->filesize ||
                 fa->FilePosToChunkBlkIndex(offset - 1) !=
                 fa->LastChunkBlkIndex()) {
             return -EACCES;
@@ -1816,18 +1831,22 @@ Tree::truncate(fid_t file, chunkOff_t offset, const string& path,
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }
-
-    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
-    vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-    getalloc(fa->id(), chunkInfo);
-    assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-
     // Compute the last chunk offset.
-    MetaChunkInfoSt const last(fa, chunkStartOffset(offset));
-    vector<MetaChunkInfo *>::iterator m = lower_bound(
-        chunkInfo.begin(), chunkInfo.end(), &last, &ChunkInfo_compare);
-    if (m != chunkInfo.end() && (*m)->offset < offset &&
-            offset < fa->filesize) {
+    const chunkOff_t lco = chunkStartOffset(offset);
+    MetaChunkInfo*   ci  = cit.next();
+    if (ci) {
+        if (lco + 8 * CHUNKSIZE < ci->offset) {
+            const Key   key(KFS_CHUNKINFO, file, lco);
+            int         kp;
+            Node*       n = lowerBound(key, kp);
+            cit = ChunkIterator(n, kp, key);
+            ci = cit.next();
+        } else {
+            while (ci->offset < lco && (ci = cit.next()))
+                {}
+        }
+    }
+    if (ci && ci->offset < offset && offset < fa->filesize) {
         // For now do not support chunk truncation in meta server.
         // Probably the simplest way to implement this is to do this in
         // the client using standard write protocol: get write lease
@@ -1844,20 +1863,33 @@ Tree::truncate(fid_t file, chunkOff_t offset, const string& path,
         // be zero filled, it can not contain the previous / stale data.
         return -EACCES;
     }
-
-    // delete everything past the last chunk
-    while (m != chunkInfo.end()) {
-        (*m)->DeleteChunk();
-        ++m;
+    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+    vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+    while (ci && (endOffset < 0 || ci->offset < endOffset)) {
+        chunkInfo.push_back(ci);
+        ci = cit.next();
+    }
+    // Delete chunks.
+    while (! chunkInfo.empty()) {
+        chunkInfo.back()->DeleteChunk();
+        chunkInfo.pop_back();
         fa->chunkcount()--;
         UpdateNumChunks(-1);
     }
-    if (offset > 0) {
-        fa->nextChunkOffset() = last.offset + CHUNKSIZE;
+    if (endOffset < 0) {
+        if (lco < offset) {
+            fa->nextChunkOffset() = lco + CHUNKSIZE;
+        } else {
+            fa->nextChunkOffset() = lco;
+        }
+        setFileSize(fa, offset);
     } else {
-        fa->nextChunkOffset() = 0;
+        if (fa->filesize < endOffset) {
+            // endOffset % CHUNKSIZE == 0 see the above.
+            fa->nextChunkOffset() = endOffset;
+            setFileSize(fa, endOffset);
+        }
     }
-    setFileSize(fa, offset);
     if (mtime) {
         fa->mtime = *mtime;
     }

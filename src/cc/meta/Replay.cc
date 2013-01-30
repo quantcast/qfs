@@ -511,17 +511,22 @@ replay_truncate(DETokenizer& c)
 {
     fid_t fid;
     chunkOff_t offset;
+    chunkOff_t endOffset;
     int status = 0;
     int64_t mtime;
 
     c.pop_front();
     bool ok = pop_fid(fid, "file", c, true);
-    ok = pop_fid(offset, "offset", c, ok);
+    ok = pop_offset(offset, "offset", c, ok);
     // if the log has the mtime, pass it thru
-    bool gottime = pop_time(mtime, "mtime", c, ok);
+    const bool gottime = pop_time(mtime, "mtime", c, ok);
+    if (! gottime || ! pop_offset(endOffset, "endoff", c, ok)) {
+        endOffset = -1;
+    }
     if (ok) {
-        status = metatree.truncate(fid, offset, string(),
-            gottime ? &mtime : 0);
+        status = metatree.truncate(fid, offset,
+            gottime ? &mtime : 0,
+            kKfsUserRoot, kKfsGroupRoot, endOffset);
     }
     return (ok && status == 0);
 }

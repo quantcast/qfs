@@ -161,6 +161,10 @@ public:
      * \return  pointer to corresponding metadata
      * \warning only use in cases where the key is unique
      */
+    template <typename T> T *extractMeta(int n)
+    {
+        return refine<T>(leaf(n));
+    }
     template <typename T> T *extractMeta(const Key &k)
     {
         return refine<T>(leaf(findplace(k)));
@@ -327,12 +331,8 @@ class Tree {
     StTmp<vector<MetaDentry*> >::Tmp    mDentriesTmp;
 
 
-    /*
-     * Return the leaf node containing the first instance of
-     * the specified key.
-     */
     template<typename MATCH>
-    Node* findLeaf(const MATCH &k) const
+    Node* lowerBound(const MATCH &k, int& kp) const
     {
         Node *n = root;
         int p = n->findplace(k);
@@ -341,7 +341,18 @@ class Tree {
             n = n->child(p);
             p = n->findplace(k);
         }
-        return (p != n->children() && n->getkey(p) == k) ? n : NULL;
+        kp = p;
+        return (p != n->children() ? n : 0);
+    }
+    /*
+     * Return the leaf node containing the first instance of
+     * the specified key.
+     */
+    template<typename MATCH>
+    Node* findLeaf(const MATCH &k, int& kp) const
+    {
+        Node *n = lowerBound(k, kp);
+        return ((n && n->getkey(kp) == k) ? n : 0);
     }
     void unlink(fid_t dir, const string& fname, MetaFattr *fa, bool save_fa);
     int link(fid_t dir, const string& fname, FileType type, fid_t myID,
@@ -359,11 +370,12 @@ class Tree {
         T& functor, MetaFattr* parentfa, MetaFattr* curfa, size_t depth)
     {
         const PartialMatch dkey(KFS_DENTRY, curfa->id());
-        Node* const        l = findLeaf(dkey);
+        int                kp;
+        Node* const        l = findLeaf(dkey, kp);
         if (! l) {
             return;
         }
-        LeafIter it(l, l->findplace(dkey));
+        LeafIter it(l, kp);
         Node*    p;
         while ((p = it.parent()) && p->getkey(it.index()) == dkey) {
             MetaDentry* const de = refine<MetaDentry>(it.current());
@@ -598,9 +610,8 @@ public:
      * \retval 0 on success; -errno on failure; 1 if an allocation
      * is needed
      */
-    int truncate(fid_t file, chunkOff_t offset, const string& path,
-        const int64_t* mtime,
-        kfsUid_t euser = kKfsUserRoot, kfsGid_t egroup = kKfsGroupRoot);
+    int truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
+        kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset );
 
     /*
      * \brief Is like truncate, but in the opposite direction: delete blks
@@ -641,9 +652,9 @@ public:
  * with the same key.
  */
 template <typename MATCH, typename T> void
-extractAll(Node *n, const MATCH &k, vector <T *> &result)
+extractAll(Node *n, int kp, const MATCH &k, vector <T *> &result)
 {
-    int p = n->findplace(k);
+    int p = kp;
     while (n != NULL && k == n->getkey(p)) {
         result.push_back(refine<T>(n->leaf(p)));
         if (++p == n->children()) {

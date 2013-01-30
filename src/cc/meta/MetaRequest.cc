@@ -1877,8 +1877,12 @@ MetaTruncate::handle()
         status = metatree.pruneFromHead(fid, offset, &mtime, eu, egroup);
         return;
     }
-    const string path(pathname.GetStr());
-    status = metatree.truncate(fid, offset, path, &mtime, eu, egroup);
+    if (endOffset >= 0 && endOffset < offset) {
+        status    = -EINVAL;
+        statusMsg = "end offset less than offset";
+        return;
+    }
+    status = metatree.truncate(fid, offset, &mtime, eu, egroup, endOffset);
 }
 
 /* virtual */ void
@@ -3057,7 +3061,11 @@ MetaTruncate::log(ostream &file) const
             << "/mtime/" << ShowTime(mtime) << '\n';
     } else {
         file << "truncate/file/" << fid << "/offset/" << offset
-            << "/mtime/" << ShowTime(mtime) << '\n';
+            << "/mtime/" << ShowTime(mtime);
+        if (endOffset >= 0) {
+            file << "/endoff/" << endOffset;
+        }
+        file << '\n';
     }
     return file.fail() ? -EIO : 0;
 }
