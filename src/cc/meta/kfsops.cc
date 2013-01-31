@@ -1837,11 +1837,10 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     if (ci) {
         if (8 < fa->chunkcount() &&
                 ci->offset + 8 * (chunkOff_t)CHUNKSIZE < lco) {
-            const Key   key(KFS_CHUNKINFO, file, lco);
             int         kp;
-            Node*       n = lowerBound(key, kp);
-            cit = ChunkIterator(n, kp, key);
-            ci = cit.next();
+            Node*       n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
+            cit = ChunkIterator(n, kp, file);
+            ci  = cit.next();
         } else {
             while (ci->offset < lco && (ci = cit.next()))
                 {}

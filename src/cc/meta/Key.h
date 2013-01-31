@@ -80,9 +80,6 @@ public:
     PartialMatch(MetaType k, KeyData d1)
         : key(k, d1)
         {}
-    PartialMatch(const Key& k)
-        : key(k)
-        {}
     bool operator < (const Key &test) const {
         return (key.hi < test.hi || (key.hi == test.hi &&
             (key.lo & mask) < (test.lo & mask)));
