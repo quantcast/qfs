@@ -11,4 +11,8 @@
 *.la
 *.a
 
+# Byte-compiled Java
+*.class
+*.jar
+
 .DS_Store
