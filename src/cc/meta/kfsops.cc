@@ -1372,31 +1372,27 @@ int
 Tree::getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
     MetaFattr*& fa, MetaChunkInfo*& c)
 {
-    c  = 0;
     fa = 0;
-    const Key fkey(KFS_FATTR, fid);
-    int   kp;
-    Node* l = findLeaf(fkey, kp);
-    if (! l) {
+    ChunkIterator cit = getAlloc(fid, fa);
+    c = cit.next();
+    if (! fa) {
         return -ENOENT;
     }
-    LeafIter it(l, kp);
-    fa = refine<MetaFattr>(it.current());
-    if (fa->type != KFS_FILE) {
-        fa = 0;
-        return -EISDIR;
-    }
-    if (nonStripedFileFlag && fa->IsStriped()) {
+    if (! c) {
         return 0;
     }
-    // Chunk attributes follow the file attribute: they have same fid, and
-    // KFS_FATTR < KFS_CHUNKINFO
-    it.next();
-    const PartialMatch ckey(KFS_CHUNKINFO, fid);
-    Node* p;
-    while ((p = it.parent()) && p->getkey(it.index()) == ckey) {
-        c = refine<MetaChunkInfo>(it.current());
-        it.next();
+    if (8 < fa->chunkcount() &&
+            c->offset + 8 * (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
+        int         kp;
+        Node* const l = lowerBound(
+            Key(KFS_CHUNKINFO, fid, fa->nextChunkOffset() - CHUNKSIZE), kp);
+        if (l) {
+            cit = ChunkIterator(l, kp, fid);
+        }
+    }
+    MetaChunkInfo* ci;
+    while ((ci = cit.next())) {
+        c = ci;
     }
     return 0;
 }
@@ -1412,25 +1408,19 @@ Tree::getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
 int
 Tree::getalloc(fid_t fid, chunkOff_t offset, vector<MetaChunkInfo*>& v, int maxChunks)
 {
-    // Allocation information is stored for offset's in the file that
-    // correspond to chunk boundaries.
-    const chunkOff_t boundary = chunkStartOffset(offset);
-    const Key key(KFS_CHUNKINFO, fid, boundary);
     int   kp;
-    Node* l = findLeaf(key, kp);
+    Node* l = lowerBound(Key(KFS_CHUNKINFO, fid, chunkStartOffset(offset)), kp);
     if (! l) {
         return -ENOENT;
     }
-    int maxRet = max(0, maxChunks);
-    LeafIter it(l, kp);
-    const PartialMatch ckey(KFS_CHUNKINFO, fid);
-    Node* p;
-    while ((p = it.parent()) && p->getkey(it.index()) == ckey) {
-        v.push_back(refine<MetaChunkInfo>(it.current()));
+    int            maxRet = max(0, maxChunks);
+    ChunkIterator  cit(l, kp, fid);
+    MetaChunkInfo* ci;
+    while ((ci = cit.next())) {
+        v.push_back(ci);
         if (--maxRet == 0) {
             break;
         }
-        it.next();
     }
     return 0;
 }
@@ -1694,9 +1684,9 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
 #ifdef COALESCE_BLOCKS_DEBUG
         assert(findLeaf(Key(KFS_CHUNKINFO, dstFa->id(), boundary)), kp);
 #endif
-            if (boundary >= dstFa->nextChunkOffset()) {
-                dstFa->nextChunkOffset() = boundary + CHUNKSIZE;
-            }
+        if (boundary >= dstFa->nextChunkOffset()) {
+            dstFa->nextChunkOffset() = boundary + CHUNKSIZE;
+        }
         dstFa->chunkcount()++;
         numChunksMoved++;
     }
@@ -1799,8 +1789,23 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         return -EINVAL;
     }
 
-    MetaFattr*    fa  = 0;
-    ChunkIterator cit = getAlloc(file, fa);
+    MetaFattr*       fa         = 0;
+    const chunkOff_t lco        = chunkStartOffset(offset);
+    MetaChunkInfo*   ci         = 0;
+    const bool       searchFlag = (chunkOff_t)CHUNKSIZE < offset;
+    ChunkIterator    cit;
+    if (searchFlag) {
+        int   kp;
+        Node* n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
+        cit = ChunkIterator(n, kp, file);
+        ci  = cit.next();
+        if (ci) {
+            fa = CSMap::Entry::GetCsEntry(ci)->GetFattr();
+        }
+    }
+    if (! fa) {
+        cit = getAlloc(file, fa);
+    }
 
     if (! fa) {
         return -ENOENT;
@@ -1831,20 +1836,12 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }
-    // Compute the last chunk offset.
-    const chunkOff_t lco = chunkStartOffset(offset);
-    MetaChunkInfo*   ci  = cit.next();
+    if (! searchFlag) {
+        ci = cit.next();
+    }
     if (ci) {
-        if (8 < fa->chunkcount() &&
-                ci->offset + 8 * (chunkOff_t)CHUNKSIZE < lco) {
-            int         kp;
-            Node*       n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
-            cit = ChunkIterator(n, kp, file);
-            ci  = cit.next();
-        } else {
-            while (ci->offset < lco && (ci = cit.next()))
-                {}
-        }
+        while (ci->offset < lco && (ci = cit.next()))
+            {}
     }
     if (ci && ci->offset < offset && offset < fa->filesize) {
         // For now do not support chunk truncation in meta server.
@@ -2096,8 +2093,8 @@ Tree::changeFileReplication(MetaFattr *fa, int16_t numReplicas)
     fa->setReplication(numReplicas);
     StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
     vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-        getalloc(fa->id(), chunkInfo);
-        for (vector<ChunkLayoutInfo>::size_type i = 0; i < chunkInfo.size(); ++i) {
+    getalloc(fa->id(), chunkInfo);
+    for (vector<ChunkLayoutInfo>::size_type i = 0; i < chunkInfo.size(); ++i) {
         gLayoutManager.ChangeChunkReplication(chunkInfo[i]->chunkId);
     }
     return 0;

@@ -2306,7 +2306,8 @@ LayoutManager::UpdateDelayedRecovery(const MetaFattr& fa,
         // update the state.
         return;
     }
-    vector<MetaChunkInfo*> chunks;
+    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+    vector<MetaChunkInfo*>&        chunks = cinfoTmp.Get();
     if (metatree.getalloc(fa.id(), chunks) != 0) {
         return;
     }
