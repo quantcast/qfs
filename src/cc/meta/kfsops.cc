@@ -1800,7 +1800,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         cit = ChunkIterator(n, kp, file);
         ci  = cit.next();
         if (ci) {
-            fa = CSMap::Entry::GetCsEntry(ci)->GetFattr();
+            fa = ci->getFattr();
         }
     }
     if (! fa) {

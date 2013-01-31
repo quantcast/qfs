@@ -1336,7 +1336,7 @@ MetaGetlayout::handle()
             status = -EFAULT;
             return;
         }
-        fa = CSMap::Entry::GetCsEntry(chunkInfo.front())->GetFattr();
+        fa = chunkInfo.front()->getFattr();
         if (! fa) {
             panic("MetaGetlayout::handle -- invalid chunk entry");
             status = -EFAULT;
