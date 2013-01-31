@@ -3841,7 +3841,13 @@ MetaChunkDirInfo::response(ostream& os)
 void
 MetaTruncate::response(ostream &os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    if (endOffset >= 0) {
+        os << "End-offset: " << endOffset << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
