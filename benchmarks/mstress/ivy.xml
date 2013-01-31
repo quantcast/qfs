@@ -1,0 +1,22 @@
+<ivy-module version="1.0" xmlns:e="http://ant.apache.org/ivy/extra"
+    xmlns:m="http://ant.apache.org/ivy/maven">
+    <info organisation="com.quantcast" module="qfs_mstress"/>
+
+    <configurations>
+        <conf name="compile" description="Dependencies needed to compile" />
+        <conf name="master" visibility="public" description="The artifacts published by this project" />
+        <conf name="source" visibility="public" />
+        <conf name="javadoc" visibility="public" />
+    </configurations>
+
+    <publications>
+        <artifact type="jar" conf="master" ext="jar"/>
+        <artifact m:classifier="sources" type="source" conf="source" ext="zip"/>
+        <artifact m:classifier="javadoc" type="javadoc" conf="javadoc" ext="zip"/>
+    </publications>
+
+    <dependencies defaultconfmapping="*->default">
+        <dependency org="org.apache.hadoop" name="hadoop-common" rev="latest.integration" conf="compile->master"/>
+        <dependency org="org.apache.hadoop" name="hadoop-hdfs" rev="latest.integration" conf="compile->master"/>
+    </dependencies>
+</ivy-module>
