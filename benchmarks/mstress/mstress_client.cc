@@ -38,7 +38,7 @@
 
 using namespace std;
 
-#include "KfsClient.h"
+#include "libclient/KfsClient.h"
 
 FILE* logFile = stdout;
 

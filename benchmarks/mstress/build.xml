@@ -1,0 +1,82 @@
+<project name="qfs_mstress" default="compile" xmlns:ivy="antlib:org.apache.ivy.ant">
+
+    <property name="ivy.install.version" value="2.3.0" />
+    <property name="ivy.jar.dir" value="${basedir}/.ivy" />
+    <property name="ivy.jar.file" value="${ivy.jar.dir}/ivy.jar" />
+    <property name="build.dir" value="build/output" />
+    <property name="src.dir" value="." />
+
+    <!--=======================
+        target: get-ivy
+    ===========================-->
+    <target name="get-ivy" unless="skip.download">
+        <mkdir dir="${ivy.jar.dir}"/>
+        <echo message="installing ivy..."/>
+        <get src="http://repo1.maven.org/maven2/org/apache/ivy/ivy/${ivy.install.version}/ivy-${ivy.install.version}.jar"
+            dest="${ivy.jar.file}" usetimestamp="true"/>
+    </target>
+
+    <!--=======================
+        target: setup-ivy
+    ===========================-->
+    <target name="setup-ivy" depends="get-ivy" description="==> install ivy">
+        <path id="ivy.lib.path">
+            <fileset dir="${ivy.jar.dir}" includes="*.jar"/>
+        </path>
+        <taskdef resource="org/apache/ivy/ant/antlib.xml" uri="antlib:org.apache.ivy.ant" classpathref="ivy.lib.path"/>
+    </target>
+
+    <!--=======================
+        target: resolve
+    ===========================-->
+    <target name="resolve" depends="setup-ivy" description="==> resolve ivy dependencies">
+        <ivy:cachepath pathid="ivy.lib.path" conf="compile" />
+    </target>
+
+    <!--=======================
+        target: compile
+    ===========================-->
+    <target name="compile" depends="resolve" description="==> compile sources">
+        <mkdir dir="${build.dir}" />
+        <javac srcdir="${src.dir}" destdir="${build.dir}" classpathref="ivy.lib.path" />
+    </target>
+
+    <!--=======================
+        target: run
+    ===========================-->
+    <target name="run" depends="compile, input-runargs" description="==> run the client">
+        <java classname="MStress_Client">
+            <arg line="${runArgs}" />
+            <classpath>
+                <path refid="ivy.lib.path" />
+                <path location="${build.dir}" />
+            </classpath>
+        </java>
+    </target>
+    <target name="input-runargs" unless="runArgs" description="prompts for command line arguments">
+        <input addProperty="runArgs" message="Enter command line arguments:"/>
+    </target>
+
+    <!--=======================
+        target: clean
+    ===========================-->
+    <target name="clean" description="==> clean the project">
+        <delete includeemptydirs="true" quiet="true">
+            <fileset dir="${build.dir}" />
+        </delete>
+    </target>
+
+    <!--=======================
+        target: clean-ivy
+    ===========================-->
+    <target name="clean-ivy" description="==> clean the ivy installation">
+        <delete dir="${ivy.jar.dir}"/>
+    </target>
+
+    <!--=======================
+        target: clean-cache
+    ===========================-->
+    <target name="clean-cache" depends="setup-ivy" description="==> clean the ivy cache">
+        <ivy:cleancache />
+    </target>
+</project>

@@ -165,6 +165,7 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
+add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
 
 IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
     set(JNI_FOUND TRUE)
