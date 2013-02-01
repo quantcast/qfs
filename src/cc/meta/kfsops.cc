@@ -49,6 +49,22 @@ const string kThisDir(".");
 
 const string DUMPSTERDIR("dumpster");
 
+inline void
+Tree::FindChunk(int64_t chunkCount, fid_t fid, chunkOff_t pos,
+    ChunkIterator& cit, MetaChunkInfo*& ci) const
+{
+    const int kLSearchThreshold = 32;
+    if (kLSearchThreshold < chunkCount &&
+            ci->offset + kLSearchThreshold * (chunkOff_t)CHUNKSIZE < pos) {
+        int         kp;
+        Node* const l = lowerBound(Key(KFS_CHUNKINFO, fid, pos), kp);
+        cit = ChunkIterator(l, kp, fid);
+        ci = cit.next();
+    } else if (ci->offset < pos) {
+        ci = cit.lowerBound(Key(KFS_CHUNKINFO, fid, pos));
+    }
+}
+
 static inline time_t
 TimeNow()
 {
@@ -1316,44 +1332,33 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
     if (offset < 0) {
         offset = fa->nextChunkOffset();
     }
-    const int kFindThreshold = 16;
-    if ((! fa->IsStriped() || ! chunkBlock) &&
-            fa->chunkcount() > kFindThreshold &&
-            offset > kFindThreshold * (chunkOff_t)CHUNKSIZE) {
-        return getalloc(fid, offset, &c);
-    }
     // Chunk attributes follow the file attribute: they have same fid, and
     // KFS_FATTR < KFS_CHUNKINFO
     it.next();
-    const chunkOff_t boundary = chunkStartOffset(offset);
-    const chunkOff_t bstart   = fa->ChunkPosToChunkBlkStartPos(boundary);
-    const chunkOff_t bend     = bstart + fa->ChunkBlkSize();
-    const PartialMatch match(KFS_CHUNKINFO, fid);
-    const Key          kstart(KFS_CHUNKINFO, fid, bstart);
-    while ((n = it.parent())) {
-        const Key& k = n->getkey(it.index());
-        if (k != match) {
-            break;
-        }
-        // Avoid de-referencing terminal node pointers.
-        if (k < kstart) {
-            it.next();
-            continue;
-        }
-        MetaChunkInfo* const ci = refine<MetaChunkInfo>(it.current());
-        if (bend <= ci->offset) {
-            break;
-        }
+    ChunkIterator  cit(it.parent(), it.index(), fid);
+    MetaChunkInfo* ci = cit.next();
+    if (! ci) {
+        return -ENOENT;
+    }
+    const chunkOff_t boundary  = chunkStartOffset(offset);
+    const chunkOff_t bstart    = fa->ChunkPosToChunkBlkStartPos(boundary);
+    const chunkOff_t bend      = bstart +
+        fa->ChunkBlkSize() - (chunkOff_t)CHUNKSIZE;
+    FindChunk(fa->chunkcount(), fid, chunkBlock ? bstart : boundary, cit, ci);
+    while (ci && ci->offset <= bend) {
         if (ci->offset == boundary) {
             c = ci;
             if (! chunkBlock || ! fa->IsStriped()) {
                 break;
             }
         }
-        if (chunkBlock && bstart <= ci->offset) {
+        if (chunkBlock) {
             chunkBlock->push_back(ci);
         }
-        it.next();
+        if (ci->offset == bend) {
+            break;
+        }
+        ci = cit.next();
     }
     if (chunkBlockStartPos) {
         *chunkBlockStartPos = bstart;
@@ -1437,12 +1442,12 @@ Tree::getalloc(fid_t fid, chunkOff_t offset, MetaChunkInfo **c)
 {
     // Allocation information is stored for offset's in the file that
     // correspond to chunk boundaries.
-    const chunkOff_t boundary = chunkStartOffset(offset);
-    const Key ckey(KFS_CHUNKINFO, fid, boundary);
-    int   kp;
-    Node* l = findLeaf(ckey, kp);
-    if (l == NULL)
+    int         kp;
+    Node* const l = findLeaf(
+        Key(KFS_CHUNKINFO, fid, chunkStartOffset(offset)), kp);
+    if (! l) {
         return -ENOENT;
+    }
     *c = l->extractMeta<MetaChunkInfo>(kp);
     return 0;
 }
@@ -1838,16 +1843,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         return 0;
     }
     if (! searchFlag && (ci = cit.next())) {
-        if (8 < fa->chunkcount() &&
-                ci->offset + 8 * (chunkOff_t)CHUNKSIZE < lco) {
-            int         kp;
-            Node* const n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
-            cit = ChunkIterator(n, kp, file);
-            ci  = cit.next();
-        } else {
-            while (ci->offset < lco && (ci = cit.next()))
-                {}
-        }
+        FindChunk(fa->chunkcount(), file, lco, cit, ci);
     }
     if (ci && ci->offset < offset && offset < fa->filesize) {
         // For now do not support chunk truncation in meta server.

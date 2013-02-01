@@ -228,6 +228,16 @@ public:
         }
         return n;
     }
+    T* lowerBound(const Key& key)
+    {
+        int   p = 0;
+        Node* n = mIt.parent();
+        while (n && (p = n->findplace(key)) == n->children()) {
+            n = n->peer();
+        }
+        mIt.reset(n, p);
+        return next();
+    }
 private:
     PartialMatch mKey;
     LeafIter     mIt;
@@ -392,6 +402,8 @@ class Tree {
             it.next();
         }
     }
+    void FindChunk(int64_t chunkCount, fid_t fid, chunkOff_t pos,
+        ChunkIterator& cit, MetaChunkInfo*& ci) const;
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
 public:
