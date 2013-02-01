@@ -1882,7 +1882,8 @@ MetaTruncate::handle()
         statusMsg = "end offset less than offset";
         return;
     }
-    status = metatree.truncate(fid, offset, &mtime, eu, egroup, endOffset);
+    status = metatree.truncate(fid, offset, &mtime, eu, egroup,
+        endOffset, setEofHintFlag);
 }
 
 /* virtual */ void

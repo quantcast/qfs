@@ -611,7 +611,7 @@ public:
      * is needed
      */
     int truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
-        kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset );
+        kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag);
 
     /*
      * \brief Is like truncate, but in the opposite direction: delete blks

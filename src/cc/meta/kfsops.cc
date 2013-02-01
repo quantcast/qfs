@@ -1782,7 +1782,7 @@ struct MetaChunkInfoSt : public MetaChunkInfo
 
 int
 Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
-    kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset)
+    kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag)
 {
     if (endOffset >= 0 &&
             (endOffset < offset || endOffset % CHUNKSIZE != 0)) {
@@ -1792,11 +1792,12 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     MetaFattr*       fa         = 0;
     const chunkOff_t lco        = chunkStartOffset(offset);
     MetaChunkInfo*   ci         = 0;
-    const bool       searchFlag = (chunkOff_t)CHUNKSIZE < offset;
+    const bool       searchFlag = (! setEofHintFlag || endOffset >= 0) &&
+        (chunkOff_t)CHUNKSIZE < offset;
     ChunkIterator    cit;
     if (searchFlag) {
         int   kp;
-        Node* n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
+        Node* const n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
         cit = ChunkIterator(n, kp, file);
         ci  = cit.next();
         if (ci) {
@@ -1836,12 +1837,17 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }
-    if (! searchFlag) {
-        ci = cit.next();
-    }
-    if (ci) {
-        while (ci->offset < lco && (ci = cit.next()))
-            {}
+    if (! searchFlag && (ci = cit.next())) {
+        if (8 < fa->chunkcount() &&
+                ci->offset + 8 * (chunkOff_t)CHUNKSIZE < lco) {
+            int         kp;
+            Node* const n = lowerBound(Key(KFS_CHUNKINFO, file, lco), kp);
+            cit = ChunkIterator(n, kp, file);
+            ci  = cit.next();
+        } else {
+            while (ci->offset < lco && (ci = cit.next()))
+                {}
+        }
     }
     if (ci && ci->offset < offset && offset < fa->filesize) {
         // For now do not support chunk truncation in meta server.

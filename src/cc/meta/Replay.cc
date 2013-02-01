@@ -524,9 +524,10 @@ replay_truncate(DETokenizer& c)
         endOffset = -1;
     }
     if (ok) {
+        const bool kSetEofHintFlag = true;
         status = metatree.truncate(fid, offset,
             gottime ? &mtime : 0,
-            kKfsUserRoot, kKfsGroupRoot, endOffset);
+            kKfsUserRoot, kKfsGroupRoot, endOffset, kSetEofHintFlag);
     }
     return (ok && status == 0);
 }
