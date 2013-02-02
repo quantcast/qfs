@@ -374,7 +374,6 @@ replay_allocate(DETokenizer& c)
     chunkOff_t offset, tmp = 0;
     seq_t chunkVersion, logChunkVersion;
     int status = 0;
-    MetaFattr *fa;
     int64_t mtime;
 
     c.pop_front();
@@ -395,15 +394,15 @@ replay_allocate(DETokenizer& c)
     // the file attributes.  we move on...when the chunkservers
     // that has the associated chunks for the file contacts us, we won't
     // find the fid and so those chunks will get nuked as stale.
-    fa = metatree.getFattr(fid);
-    if (fa == NULL)
+    MetaFattr* const fa = metatree.getFattr(fid);
+    if (! fa) {
         return ok;
-
+    }
     if (ok) {
         // if the log has the mtime, set it up in the FA
-        if (gottime)
+        if (gottime) {
             fa->mtime = mtime;
-
+        }
         cid = logChunkId;
         bool stripedFile = false;
         status = metatree.allocateChunkId(fid, offset, &cid,
@@ -421,10 +420,12 @@ replay_allocate(DETokenizer& c)
             // we end up in a situation where what we get from the
             // log matches what is in the tree, ignore it and move
             // on
-            if (cid != logChunkId)
+            if (cid != logChunkId) {
                 return false;
-            if (chunkVersion == logChunkVersion)
+            }
+            if (chunkVersion == logChunkVersion) {
                 return ok;
+            }
             status = 0;
         }
 
@@ -432,7 +433,7 @@ replay_allocate(DETokenizer& c)
             assert(cid == logChunkId);
             chunkVersion = logChunkVersion;
             status = metatree.assignChunkId(fid, offset,
-                            cid, chunkVersion);
+                            cid, chunkVersion, 0, 0, append);
             if (status == 0) {
                 fid_t cfid = 0;
                 if (chunkExists &&
@@ -443,9 +444,10 @@ replay_allocate(DETokenizer& c)
                 }
                 // In case of append create begin make chunk stable entry,
                 // if it doesn't already exist.
-                if (append)
+                if (append) {
                     gLayoutManager.ReplayPendingMakeStable(
                         cid, chunkVersion, -1, false, 0, true);
+                }
                 if (cid > chunkID.getseed()) {
                     // chunkID are handled by a two-stage
                     // allocation: the seed is updated in
@@ -462,8 +464,9 @@ replay_allocate(DETokenizer& c)
             }
             // assign updates the mtime; so, set it to what is in
             // the log
-            if (gottime)
+            if (gottime) {
                 fa->mtime = mtime;
+            }
         }
     }
     return (ok && status == 0);

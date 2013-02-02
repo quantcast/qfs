@@ -1527,7 +1527,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
 int
 Tree::assignChunkId(fid_t file, chunkOff_t offset,
     chunkId_t chunkId, seq_t chunkVersion,
-    chunkOff_t* appendOffset, chunkId_t* curChunkId)
+    chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag)
 {
     MetaFattr * const fa = getFattr(file);
     if (fa == NULL) {
@@ -1550,7 +1550,13 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
                 return -EEXIST;
             }
             c->chunkVersion = chunkVersion;
-            if (boundary + chunkOff_t(CHUNKSIZE) >=
+            if (appendReplayFlag && ! fa->IsStriped()) {
+                const chunkOff_t size = max(
+                    fa->nextChunkOffset(), boundary + chunkOff_t(CHUNKSIZE));
+                if (fa->filesize < size) {
+                    setFileSize(fa, size);
+                }
+            } else if (boundary + chunkOff_t(CHUNKSIZE) >=
                         fa->nextChunkOffset() &&
                     ! fa->IsStriped() &&
                     fa->filesize >= 0) {
@@ -1579,12 +1585,19 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     // insert succeeded; so, bump the chunkcount.
     fa->chunkcount()++;
     if (boundary >= fa->nextChunkOffset()) {
-        // We will know the size of the file only when the write to
-        // this chunk is finished. Invalidate the size now.
-        if (! fa->IsStriped() && fa->filesize >= 0) {
+        if (! fa->IsStriped() && fa->filesize >= 0 &&
+                ! appendOffset && ! appendReplayFlag) {
+            // We will know the size of the file only when the write to
+            // this chunk is finished. Invalidate the size now.
             invalidateFileSize(fa);
         }
         fa->nextChunkOffset() = boundary + CHUNKSIZE;
+    }
+    if ((appendReplayFlag || appendOffset) && ! fa->IsStriped()) {
+        const chunkOff_t size = fa->nextChunkOffset();
+        if (fa->filesize < size) {
+            setFileSize(fa, size);
+        }
     }
 
     UpdateNumChunks(1);
@@ -1736,54 +1749,13 @@ int
 Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t* mtime,
     kfsUid_t euser /* = kKfsUserRoot */, kfsGid_t egroup /* = kKfsGroupRoot */)
 {
-    MetaFattr* const fa = getFattr(file);
-
-    if (! fa) {
-        return -ENOENT;
+    if (offset < 0) {
+        return -EINVAL;
     }
-    if (fa->type != KFS_FILE) {
-        return -EISDIR;
-    }
-    if (! fa->CanWrite(euser, egroup)) {
-        return -EACCES;
-    }
-    // Do not allow truncation of striped files for now.
-    if (fa->IsStriped()) {
-        return -EACCES;
-    }
-
-    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
-    vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-    getalloc(fa->id(), chunkInfo);
-    assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-
-    // compute the starting offset for what will be the
-    // "first" chunk for the file
-    const chunkOff_t firstChunkStartOffset = chunkStartOffset(offset);
-    vector<MetaChunkInfo*>::iterator m = chunkInfo.begin();
-    while (m != chunkInfo.end() &&
-            (*m)->offset < firstChunkStartOffset) {
-        (*m)->DeleteChunk();
-        ++m;
-        fa->chunkcount()--;
-        UpdateNumChunks(-1);
-    }
-    if (mtime) {
-        fa->mtime = *mtime;
-    }
-    return 0;
+    const bool kSetEofHintFlag = false;
+    return truncate(file, 0, mtime, euser, egroup,
+        chunkStartOffset(offset), kSetEofHintFlag);
 }
-
-struct MetaChunkInfoSt : public MetaChunkInfo
-{
-    MetaChunkInfoSt(MetaFattr* fa, chunkOff_t off)
-        : MetaChunkInfo(fa, off, 0, 0)
-        {}
-    virtual void destroy() {
-        panic("MetaChunkInfoSt::destory(): unexpected invocation",
-            false);
-    }
-};
 
 int
 Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
