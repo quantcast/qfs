@@ -1068,5 +1068,16 @@ ChownOp::Request(ostream &os)
     os << "\r\n";
 }
 
+void
+TruncateOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    respEndOffset = prop.getValue("End-offset", int64_t(-1));
+    if (status == 0 && ! pruneBlksFromHead &&
+            endOffset >= 0 && respEndOffset != endOffset) {
+        status    = -EFAULT;
+        statusMsg = "range truncate is not supported";
+    }
+}
+
 } //namespace client
 } //namespace KFS

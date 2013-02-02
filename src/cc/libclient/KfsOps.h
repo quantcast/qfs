@@ -648,6 +648,7 @@ struct TruncateOp : public KfsOp {
     chunkOff_t  endOffset;
     bool        pruneBlksFromHead;
     bool        setEofHintFlag;
+    chunkOff_t  respEndOffset;
     TruncateOp(kfsSeq_t s, const char *p, kfsFileId_t f, chunkOff_t o)
         : KfsOp(CMD_TRUNCATE, s),
           pathname(p),
@@ -655,17 +656,20 @@ struct TruncateOp : public KfsOp {
           fileOffset(o),
           endOffset(-1),
           pruneBlksFromHead(false),
-          setEofHintFlag(true)
+          setEofHintFlag(true),
+          respEndOffset(-1)
         {}
-    void Request(ostream &os);
-    string Show() const {
+    virtual void Request(ostream &os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual string Show() const {
         ostringstream os;
-
-        if (pruneBlksFromHead)
-            os << "prune blks from head: ";
-        else
-            os << "truncate: ";
-        os << " fid: " << fid << " offset: " << fileOffset;
+        os << (pruneBlksFromHead ? "prune blks from head: " : "truncate: ") <<
+            " fid: "    << fid <<
+            " offset: " << fileOffset
+        ;
+        if (endOffset >= 0) {
+            os << " end: " << endOffset;
+        }
         return os.str();
     }
 };
