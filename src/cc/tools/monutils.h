@@ -57,7 +57,7 @@ using namespace KFS;
         const KfsMonOp_t op;
         kfsSeq_t         seq;
         int              status;
-        KfsMonOp(KfsMonOp_t o, int32_t s)
+        KfsMonOp(KfsMonOp_t o, kfsSeq_t s)
             : op(o), seq(s)
             {}
         virtual ~KfsMonOp() {}
@@ -73,7 +73,7 @@ using namespace KFS;
     struct MetaPingOp : public KfsMonOp {
         vector<string> upServers; /// result
         vector<string> downServers; /// result
-        MetaPingOp(int32_t s) :
+        MetaPingOp(kfsSeq_t s) :
             KfsMonOp(CMD_METAPING, s) { };
         void Request(ostream& os);
         void ParseResponse(const Properties& prop);
@@ -81,7 +81,7 @@ using namespace KFS;
 
     struct MetaToggleWORMOp : public KfsMonOp {
         int value;
-        MetaToggleWORMOp(int32_t s, int v)
+        MetaToggleWORMOp(kfsSeq_t s, int v)
             : KfsMonOp(CMD_METATOGGLE_WORM, s), value(v)
             {}
         void Request(ostream& os);
@@ -93,7 +93,7 @@ using namespace KFS;
         ServerLocation location;
         int64_t totalSpace;
         int64_t usedSpace;
-        ChunkPingOp(int32_t s)
+        ChunkPingOp(kfsSeq_t s)
             : KfsMonOp(CMD_CHUNKPING, s)
             {}
         void Request(ostream& os);
@@ -102,7 +102,7 @@ using namespace KFS;
 
     struct MetaStatsOp : public KfsMonOp {
         Properties stats; // result
-        MetaStatsOp(int32_t s)
+        MetaStatsOp(kfsSeq_t s)
             : KfsMonOp(CMD_METASTATS, s)
             {}
         void Request(ostream& os);
@@ -113,7 +113,7 @@ using namespace KFS;
 
     struct ChunkStatsOp : public KfsMonOp {
         Properties stats; // result
-        ChunkStatsOp(int32_t s)
+        ChunkStatsOp(kfsSeq_t s)
             : KfsMonOp(CMD_CHUNKSTATS, s)
             {}
         void Request(ostream& os);
@@ -125,7 +125,7 @@ using namespace KFS;
     struct RetireChunkserverOp : public KfsMonOp {
         ServerLocation chunkLoc;
         int downtime; // # of seconds of downtime
-        RetireChunkserverOp(int32_t s, const ServerLocation &c, int d)
+        RetireChunkserverOp(kfsSeq_t s, const ServerLocation &c, int d)
             : KfsMonOp(CMD_RETIRE_CHUNKSERVER, s), chunkLoc(c), downtime(d)
             {}
         void Request(ostream& os);
