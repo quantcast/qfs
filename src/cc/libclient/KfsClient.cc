@@ -3217,6 +3217,7 @@ KfsClientImpl::Truncate(const char* pathname, chunkOff_t offset)
         return -EACCES;
     }
     TruncateOp op(nextSeq(), pathname, attr.fileId, offset);
+    op.setEofHintFlag = attr.numStripes > 1;
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
         return op.status;
@@ -3241,6 +3242,7 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
 
     FileAttr *fa = FdAttr(fd);
     TruncateOp op(nextSeq(), FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
+    op.setEofHintFlag = fa->numStripes > 1;
     DoMetaOpWithRetry(&op);
     int res = op.status;
 

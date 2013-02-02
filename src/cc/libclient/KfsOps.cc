@@ -356,6 +356,13 @@ TruncateOp::Request(ostream &os)
     if (pruneBlksFromHead) {
         os << "Prune-from-head: 1\r\n";
     }
+    if (! setEofHintFlag) {
+        // Default is true
+        os << "Set-eof: 0\r\n";
+    }
+    if (endOffset >= 0) {
+        os << "End-offset: " << endOffset << "\r\n";
+    }
     os << "\r\n";
 }
 
