@@ -19,7 +19,8 @@
 # Build the C++ mstress benchmark
 #
 
-add_executable (mstress_client mstress_client.cc)
+add_executable (mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
+
 IF (USE_STATIC_LIB_LINKAGE)
     add_dependencies (mstress_client kfsClient)
     target_link_libraries (mstress_client kfsClient qcdio pthread)
@@ -31,6 +32,3 @@ ENDIF (USE_STATIC_LIB_LINKAGE)
 IF (NOT APPLE)
     target_link_libraries (rt)
 ENDIF (NOT APPLE)
-
-install (TARGETS mstress_client
-        RUNTIME DESTINATION bin/benchmarks)
