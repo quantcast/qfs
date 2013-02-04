@@ -17,7 +17,7 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  *
- * This Java client performs filesystem meta opetarions on the Hadoop namenode
+ * This Java client performs filesystem meta operations on the Hadoop namenode
  * using HDFS DFSClient.
  */
 

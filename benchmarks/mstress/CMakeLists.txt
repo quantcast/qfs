@@ -32,3 +32,13 @@ ENDIF (USE_STATIC_LIB_LINKAGE)
 IF (NOT APPLE)
     target_link_libraries (rt)
 ENDIF (NOT APPLE)
+
+add_custom_command (
+    OUTPUT mstress.jar
+    COMMAND ant -f ${CMAKE_CURRENT_SOURCE_DIR}/build.xml
+    DEPENDS MStress_Client.java
+    COMMENT The HDFS mstress client bundled as a jar.
+    VERBATIM
+)
+
+add_custom_target (mstress DEPENDS mstress_client mstress.jar)
