@@ -42,3 +42,52 @@ add_custom_command (
 )
 
 add_custom_target (mstress DEPENDS mstress_client mstress.jar)
+
+set (mstress_scripts
+    mstress_plan.py
+    mstress_run.py
+    mstress.py
+    mstress_cleanup.py
+)
+
+foreach (script ${mstress_scripts})
+    add_custom_command (
+        OUTPUT ${script}
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${script} ${CMAKE_CURRENT_BINARY_DIR}/
+    )
+endforeach(script)
+
+add_custom_target (
+    mstress-scripts
+    DEPENDS ${mstress_scripts}
+    COMMENT Copy mstress scripts to build directory.
+)
+
+add_custom_target (
+    mstress-tarball
+    COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress.tgz
+		mstress/mstress_client
+		mstress/mstress.jar
+		mstress/*.py
+    DEPENDS mstress_client mstress.jar
+    COMMENT Bundle mstress files in a tar archive.
+)
+add_dependencies(mstress-tarball mstress-scripts)
+
+get_property (metaserver_location TARGET metaserver PROPERTY LOCATION)
+add_custom_target (
+    mstress-bootstrap
+    COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/
+    COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
+		mstress/mstress_client
+		mstress/mstress.jar
+                mstress/*.py
+                mstress/metaserver
+    DEPENDS mstress_client mstress.jar metaserver
+    COMMENT Bundle mstress files along with the metaserver binary.
+)
+add_dependencies(mstress-bootstrap mstress-scripts)
+
+set_directory_properties (PROPERTIES
+    ADDITIONAL_MAKE_CLEAN_FILES "../mstress.tgz;mstress.jar;${mstress_scripts}"
+)
