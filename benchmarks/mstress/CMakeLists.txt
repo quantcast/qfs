@@ -75,16 +75,21 @@ add_custom_target (
 add_dependencies(mstress-tarball mstress-scripts)
 
 get_property (metaserver_location TARGET metaserver PROPERTY LOCATION)
+get_property (chunkserver_location TARGET chunkserver PROPERTY LOCATION)
 add_custom_target (
     mstress-bootstrap
-    COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
 		mstress/mstress_client
 		mstress/mstress.jar
                 mstress/*.py
-                mstress/metaserver
-    DEPENDS mstress_client mstress.jar metaserver
-    COMMENT Bundle mstress files along with the metaserver binary.
+                mstress/bin/metaserver
+                mstress/bin/chunkserver
+                mstress/webui/
+    DEPENDS mstress_client mstress.jar metaserver chunkserver
+    COMMENT Bundle mstress files along with QFS binaries.
 )
 add_dependencies(mstress-bootstrap mstress-scripts)
 
