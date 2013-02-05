@@ -35,7 +35,8 @@
     <!--=======================
         target: get-ivy
     ========================-->
-    <target name="get-ivy" unless="skip.download">
+    <available property="ivy.jar.present" file="${ivy.jar.file}"/>
+    <target name="get-ivy" unless="ivy.jar.present">
         <mkdir dir="${ivy.jar.dir}"/>
         <echo message="installing ivy..."/>
         <get src="http://repo1.maven.org/maven2/org/apache/ivy/ivy/${ivy.install.version}/ivy-${ivy.install.version}.jar"
