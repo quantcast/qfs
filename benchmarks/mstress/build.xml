@@ -57,6 +57,7 @@
     ========================-->
     <target name="resolve" depends="setup-ivy" description="==> resolve ivy dependencies">
         <ivy:cachepath pathid="ivy.lib.path" conf="compile" />
+        <ivy:cachefileset setid="compile.classpath" conf="compile" type="jar" />
     </target>
 
     <!--=======================
@@ -72,7 +73,7 @@
     ========================-->
     <target name="build" depends="compile" description="==> package files into a jar">
         <jar jarfile="${dist.dir}/mstress.jar" basedir="${build.dir}" compress="true">
-            <zipgroupfileset dir="${ivy.jar.dir}" includes="*.jar" />
+            <zipgroupfileset refid="compile.classpath" />
             <manifest>
                 <attribute name="Main-Class" value="MStress_Client" />
             </manifest>
