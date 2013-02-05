@@ -78,6 +78,7 @@ get_property (metaserver_location TARGET metaserver PROPERTY LOCATION)
 get_property (chunkserver_location TARGET chunkserver PROPERTY LOCATION)
 add_custom_target (
     mstress-bootstrap
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/
