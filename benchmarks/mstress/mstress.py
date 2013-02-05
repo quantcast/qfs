@@ -407,8 +407,7 @@ def SetGlobalPaths(opts):
     Globals.SERVER_CMD = Globals.KFS_SERVER_CMD
     Globals.SERVER_KEYWORD = Globals.KFS_SERVER_KEYWORD
   elif opts.filesystem == 'hdfs':
-    hdfsjars = commands.getoutput("echo %s/mstress_hdfs_client_jars/*.jar | sed 's/ /:/g'" % mydir)
-    Globals.CLIENT_PATH = 'java -Xmx256m -cp %s:%s MStress_Client' % (mydir,hdfsjars)
+    Globals.CLIENT_PATH = 'java -Xmx256m -jar %s/mstress.jar' % mydir
     Globals.SERVER_CMD = Globals.HDFS_SERVER_CMD
     Globals.SERVER_KEYWORD = Globals.HDFS_SERVER_KEYWORD
   else:
