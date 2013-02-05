@@ -171,9 +171,9 @@ on the same box, "localhost".
     also get copied to the participating client hosts in the '-c' option.
 
 (7) Checklist: check the presence of,
-     - the plan file on master host and client hosts (step 8 does this for you)
+     - the plan file on master host and client hosts (step 6 does this for you)
      - the mstress_client binaries (QFS and HDFS clients) on master and all
-       client hosts (step 7).
+       client hosts (step 5).
 
 (8) Run the benchmark from the master with mstress.py.
      Do ./mstress.py --help to see options.
