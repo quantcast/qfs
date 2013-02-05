@@ -81,14 +81,14 @@ add_custom_target (
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/webui
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
 		mstress/mstress_client
 		mstress/mstress.jar
                 mstress/*.py
                 mstress/bin/metaserver
                 mstress/bin/chunkserver
-                mstress/webui/
+                mstress/webui
     DEPENDS mstress_client mstress.jar metaserver chunkserver
     COMMENT Bundle mstress files along with QFS binaries.
 )
