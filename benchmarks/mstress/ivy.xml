@@ -5,6 +5,7 @@
     <configurations>
         <conf name="compile" description="Dependencies needed to compile" />
         <conf name="master" visibility="public" description="The artifacts published by this project" />
+        <conf name="runtime" description="All dependendies needed to run the client" />
     </configurations>
 
     <publications>
@@ -12,7 +13,9 @@
     </publications>
 
     <dependencies defaultconfmapping="*->default">
-        <dependency org="org.apache.hadoop" name="hadoop-common" rev="${hadoop.build.version}" conf="compile->master"/>
-        <dependency org="org.apache.hadoop" name="hadoop-hdfs" rev="${hadoop.build.version}" conf="compile->master"/>
+        <dependency org="org.apache.hadoop" name="hadoop-common" rev="${hadoop.build.version}"
+            conf="compile->master; runtime->runtime" />
+        <dependency org="org.apache.hadoop" name="hadoop-hdfs" rev="${hadoop.build.version}"
+            conf="compile->master; runtime->runtime" />
     </dependencies>
 </ivy-module>
