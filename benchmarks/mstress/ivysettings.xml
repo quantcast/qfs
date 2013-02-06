@@ -3,7 +3,6 @@
     <resolvers>
         <ibiblio name="public" m2compatible="true" checkconsistency="false" />
     </resolvers>
-    <include url="${ivy.default.settings.dir}/ivysettings-shared.xml"/>
     <include url="${ivy.default.settings.dir}/ivysettings-local.xml"/>
     <include url="${ivy.default.settings.dir}/ivysettings-main-chain.xml"/>
     <include url="${ivy.default.settings.dir}/ivysettings-default-chain.xml"/>
