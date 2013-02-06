@@ -663,9 +663,11 @@ struct TruncateOp : public KfsOp {
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual string Show() const {
         ostringstream os;
-        os << (pruneBlksFromHead ? "prune blks from head: " : "truncate: ") <<
+        os <<
+            "truncate:"
             " fid: "    << fid <<
-            " offset: " << fileOffset
+            " offset: " << fileOffset <<
+            (pruneBlksFromHead ? " prune from head" : "")
         ;
         if (endOffset >= 0) {
             os << " end: " << endOffset;
