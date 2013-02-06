@@ -1,9 +1,11 @@
 <ivysettings>
-    <settings defaultResolver="default"/>
+    <settings defaultResolver="main"/>
+    <include url="${ivy.default.settings.dir}/ivysettings-local.xml"/>
     <resolvers>
         <ibiblio name="public" m2compatible="true" checkconsistency="false" />
+        <chain name="main" dual="true">
+            <resolver ref="local"/>
+            <resolver ref="public"/>
+        </chain>
     </resolvers>
-    <include url="${ivy.default.settings.dir}/ivysettings-local.xml"/>
-    <include url="${ivy.default.settings.dir}/ivysettings-main-chain.xml"/>
-    <include url="${ivy.default.settings.dir}/ivysettings-default-chain.xml"/>
 </ivysettings>
