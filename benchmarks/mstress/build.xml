@@ -58,7 +58,7 @@
     ========================-->
     <target name="resolve" depends="setup-ivy" description="==> resolve ivy dependencies">
         <ivy:cachepath pathid="ivy.lib.path" conf="compile" />
-        <ivy:cachefileset setid="runtime.classpath" conf="runtime" type="jar" />
+        <ivy:cachefileset setid="runtime.classpath" conf="runtime" type="jar,bundle" />
     </target>
 
     <!--=======================
