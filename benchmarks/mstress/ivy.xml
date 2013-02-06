@@ -14,8 +14,8 @@
 
     <dependencies defaultconfmapping="*->default">
         <dependency org="org.apache.hadoop" name="hadoop-common" rev="${hadoop.build.version}"
-            conf="compile->master; runtime->runtime" />
+            conf="compile->master; runtime->runtime,master" />
         <dependency org="org.apache.hadoop" name="hadoop-hdfs" rev="${hadoop.build.version}"
-            conf="compile->master; runtime->runtime" />
+            conf="compile->master; runtime->runtime,master" />
     </dependencies>
 </ivy-module>
