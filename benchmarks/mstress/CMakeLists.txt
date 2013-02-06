@@ -48,6 +48,7 @@ set (mstress_scripts
     mstress_run.py
     mstress.py
     mstress_cleanup.py
+    mstress_install.sh
 )
 
 foreach (script ${mstress_scripts})
@@ -66,9 +67,10 @@ add_custom_target (
 add_custom_target (
     mstress-tarball
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress.tgz
-		mstress/mstress_client
-		mstress/mstress.jar
-		mstress/*.py
+                mstress/mstress_client
+                mstress/mstress.jar
+                mstress/*.py
+                mstress/*.sh
     DEPENDS mstress_client mstress.jar
     COMMENT Bundle mstress files in a tar archive.
 )
@@ -83,9 +85,10 @@ add_custom_target (
     COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/webui
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
-		mstress/mstress_client
-		mstress/mstress.jar
+                mstress/mstress_client
+                mstress/mstress.jar
                 mstress/*.py
+                mstress/*.sh
                 mstress/bin/metaserver
                 mstress/bin/chunkserver
                 mstress/webui

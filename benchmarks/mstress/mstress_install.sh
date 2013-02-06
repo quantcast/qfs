@@ -30,10 +30,10 @@ TAR=${TAR:-"tar"}
 
 if [ x"$BOOTSTRAP" == x ]
 then
-	tarfile="build/benchmarks/mstress.tgz"
+	tarfile="mstress.tgz"
 	target="mstress-tarball"
 else
-	tarfile="build/benchmarks/mstress-bootstrap.tgz"
+	tarfile="mstress-bootstrap.tgz"
 	target="mstress-bootstrap"
 fi
 
@@ -47,7 +47,7 @@ fi
 if [ ! -f "$tarfile" ]
 then
 	[ -d build ] || mkdir build
-	(cd build && cmake ../../.. && make "$target") || exit 1
+	(cd build && cmake ../../.. && make "$target" && cp "benchmarks/$tarfile" ..) || exit 1
 fi
 
 while [ $# -ne 0 ]
