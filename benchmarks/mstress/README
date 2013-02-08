@@ -78,9 +78,9 @@ specified by the benchmark plan.
     Builds the QFS stress client (C++) and HDFS stress client (Java) along with
     the main release build.
 
-  - build.xml, ivy.xml
-    Ant build file and Ivy dependency file, used by CMakeLists.txt to build the
-    HDFS stress client (Java).  Please ensure that $JAVA_HOME is set correctly.
+  - build.xml, ivy.xml, ivysettings.xml
+    Ant build file and Ivy dependency and settings files, used by CMakeLists.txt
+    to build the HDFS stress client (Java).  Ensure that $JAVA_HOME is set.
 
   - mstress_client.cc
     Produces the mstress_client binary that actually drives the QFS metaserver.
