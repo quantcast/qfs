@@ -128,8 +128,8 @@ def kill_running_program(binaryPath):
         checkPath = os.path.split(binaryPath)[1]
         if not checkPath:
             return
-        cmd = ('ps -ef | grep %s | grep -v grep | awk \'{print $2}\''
-               % checkPath)
+        cmd = ('ps -ef | grep %s | grep %s | grep -v grep | awk \'{print $2}\''
+               % (os.getlogin(), checkPath))
         res = subprocess.Popen(cmd, shell=True,
                                stdout=subprocess.PIPE).communicate()
         pids = res[0].split('\n')
@@ -138,8 +138,8 @@ def kill_running_program(binaryPath):
                 os.kill(int(pid.strip()), signal.SIGTERM)
     else:
         if binaryPath.find('qfsstatus') >= 0:
-            cmd = ('ps -ef | grep /qfsbase/ | grep %s | grep -v grep | awk \'{print $2}\''
-                   % binaryPath)
+            cmd = ('ps -ef | grep %s | grep /qfsbase/ | grep %s | grep -v grep | awk \'{print $2}\''
+                   % (os.getlogin(), binaryPath))
             res = subprocess.Popen(cmd, shell=True,
                                    stdout=subprocess.PIPE).communicate()
             pids = res[0].split('\n')
