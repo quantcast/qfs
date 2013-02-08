@@ -30,7 +30,6 @@ if [ $? -ne 0 ]
 then
 	echo >&2 "Failed to curl $url"
 	rm "$tmpfile"
-	exit 1
 elif [ "$code" = 200 ]
 then
 	mv "$tmpfile" "$tarfile"
@@ -40,15 +39,20 @@ then
 	rm "$tmpfile"
 fi
 
+if [ ! -f "$tarfile" ]
+then
+	exit 1
+fi
+
 echo "Unpacking $tarfile"
 contents=`tar xzfv "$tarfile"` || exit $?
 echo -n "$contents" | sed 's/^/  /'
-cd mstress
 
 echo "Installing client files"
-./mstress_install.sh localhost || exit $?
+./mstress/mstress_install.sh localhost || exit $?
 
 echo "Configuring meta and chunk servers"
+cd mstress
 cat >setup.cfg <<EOF
 [metaserver]
 hostname    = localhost
@@ -76,7 +80,7 @@ hostname    = localhost
 rundir      = ~/qfsbase/web
 webport     = 42000
 EOF
-./setup.py -c setup.cfg -r mstress -s mstress -a install || exit $?
+./setup.py -c setup.cfg -r . -s . -a install || exit $?
 
 echo "Running benchmark"
 (
@@ -90,12 +94,13 @@ ret=$?
 uid=`id -u`
 pid=`pgrep -u $uid metaserver`
 ctime=`awk '{print $14,$15}' /proc/$pid/stat`
+rev=`strings bin/metaserver | grep -B1 KFS_BUILD_INFO_END | head -1 | cut -d@ -f2 | cut -c-16`
 
-./setup.py -c setup.cfg -r mstress -s mstress -a uninstall || exit $?
+./setup.py -c setup.cfg -r . -s . -a uninstall || exit $?
 
 if [ $ret -eq 0 ]
 then
-	echo "Metaserver cpu usage (date utime stime):"
-	echo "$date $ctime"
+	echo "Metaserver cpu usage (date gitrev utime stime):"
+	echo "$date $rev $ctime"
 fi
 exit $ret
