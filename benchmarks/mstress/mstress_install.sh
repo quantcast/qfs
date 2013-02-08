@@ -27,7 +27,7 @@
 
 TAR=${TAR:-"tar"}
 
-if [ x"$BOOTSTRAP" == x ]
+if [ -z "$BOOTSTRAP" ]
 then
 	tarfile="mstress.tgz"
 	target="mstress-tarball"

@@ -84,6 +84,7 @@ add_custom_target (
     COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/webui
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/examples/sampleservers/sample_setup.py ${CMAKE_CURRENT_BINARY_DIR}/setup.py
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
                 mstress/mstress_client
                 mstress/mstress.jar
