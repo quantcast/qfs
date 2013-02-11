@@ -1609,7 +1609,9 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     if (gLayoutManager.Validate(this) && status != 0) {
         // we have a problem: it is possible that the server
         // went down.  ask the client to retry....
-        status = -EALLOCFAILED;
+        if (status >= 0) {
+            status = -EALLOCFAILED;
+        }
         if (initialChunkVersion >= 0) {
             gLayoutManager.CommitOrRollBackChunkVersion(this);
         } else {
@@ -1778,7 +1780,7 @@ bool
 MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 {
     // if there is a non-zero status, don't throw it away
-    if (chunkAlloc.status < 0 && status == 0 && firstFailedServerIdx < 0) {
+    if (chunkAlloc.status != 0 && status == 0 && firstFailedServerIdx < 0) {
         status    = chunkAlloc.status;
         statusMsg = chunkAlloc.statusMsg;
         // In the case of version change failure take the first failed
