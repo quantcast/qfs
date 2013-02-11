@@ -107,14 +107,14 @@ public:
     ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer);
     void Run();
     // Handle the callback for a size request
-    int HandleStartDone(int code, void *data);
+    int HandleStartDone(int code, void* data);
     // Handle the callback for a remote read request
-    int HandleReadDone(int code, void *data);
+    int HandleReadDone(int code, void* data);
     // Handle the callback for a write
-    int HandleWriteDone(int code, void *data);
+    int HandleWriteDone(int code, void* data);
     // When replication done, we write out chunk meta-data; this is
     // the handler that gets called when this event is done.
-    int HandleReplicationDone(int code, void *data);
+    int HandleReplicationDone(int code, void* data);
     virtual void Granted(ByteCount byteCount);
     static Counters& Ctrs()
         { return sCounters; };
@@ -144,7 +144,7 @@ protected:
 
     virtual ~ReplicatorImpl();
     // Cleanup...
-    void Terminate();
+    void Terminate(int status);
     string GetPeerName() const;
     // Start by sending out a size request
     virtual void Start();
@@ -156,7 +156,7 @@ protected:
         if (IsWaiting()) {
             // Cancel buffers wait, and fail the op.
             CancelRequest();
-            Terminate();
+            Terminate(ECANCELED);
         }
     }
     virtual ByteCount GetBufferBytesRequired() const;
@@ -286,7 +286,7 @@ ReplicatorImpl::Run()
             // Non debug version -- an attempt to restart? &other == this
             // Delete chunk and declare error.
             mCancelFlag = false;
-            Terminate();
+            Terminate(ECANCELED);
             return;
         }
     }
@@ -302,7 +302,7 @@ ReplicatorImpl::Run()
             " total: "      << GetByteCount() <<
             " over quota: " << bufMgr.GetMaxClientQuota() <<
         KFS_LOG_EOM;
-        Terminate();
+        Terminate(ENOMEM);
         return;
     }
     if (bufMgr.GetForDiskIo(*this, bufBytes)) {
@@ -346,10 +346,10 @@ ReplicatorImpl::Start()
 }
 
 int
-ReplicatorImpl::HandleStartDone(int code, void *data)
+ReplicatorImpl::HandleStartDone(int code, void* data)
 {
     if (mCancelFlag || mChunkMetadataOp.status < 0) {
-        Terminate();
+        Terminate(mCancelFlag ? ECANCELED : mChunkMetadataOp.status);
         return 0;
     }
     mChunkSize    = mChunkMetadataOp.chunkSize;
@@ -358,20 +358,32 @@ ReplicatorImpl::HandleStartDone(int code, void *data)
         KFS_LOG_STREAM_INFO << "replication:"
             " invalid chunk size: " << mChunkSize <<
         KFS_LOG_EOM;
-        Terminate();
+        Terminate(EINVAL);
         return 0;
     }
 
     mReadOp.chunkVersion = mChunkVersion;
     // Delete stale copy if it exists, before replication.
-    // Replication request implicitly makes previous copy stale.
+    // Replication request implicitly makes the previous copy stale.
     const bool kDeleteOkFlag = true;
     gChunkManager.StaleChunk(mChunkId, kDeleteOkFlag);
     // set the version to a value that will never be used; if
     // replication is successful, we then bump up the counter.
     mWriteOp.chunkVersion = 0;
-    if (gChunkManager.AllocChunk(mFileId, mChunkId, 0, true) < 0) {
-        Terminate();
+    const bool kIsBeingReplicatedFlag = true;
+    const bool kMustExistFlag         = false;
+    const int status = gChunkManager.AllocChunk(
+        mFileId,
+        mChunkId,
+        mWriteOp.chunkVersion,
+        mOwner->minStorageTier,
+        mOwner->minStorageTier,
+        kIsBeingReplicatedFlag,
+        0,
+        kMustExistFlag
+    );
+    if (status < 0) {
+        Terminate(status);
         return -1;
     }
     KFS_LOG_STREAM_INFO << "replication:"
@@ -402,7 +414,7 @@ ReplicatorImpl::Read()
             " size: "     << mChunkSize <<
             " "           << mOwner->Show() <<
         KFS_LOG_EOM;
-        Terminate();
+        Terminate(mDone ? 0 : -EIO);
         return;
     }
 
@@ -418,7 +430,7 @@ ReplicatorImpl::Read()
 }
 
 int
-ReplicatorImpl::HandleReadDone(int code, void *data)
+ReplicatorImpl::HandleReadDone(int code, void* data)
 {
     assert(code == EVENT_CMD_DONE && data == &mReadOp);
 
@@ -444,7 +456,7 @@ ReplicatorImpl::HandleReadDone(int code, void *data)
     }
     if (mCancelFlag || mReadOp.status < 0 || mOffset == mChunkSize) {
         mDone = mOffset == mChunkSize && mReadOp.status >= 0 && ! mCancelFlag;
-        Terminate();
+        Terminate(mDone ? 0 : (mCancelFlag ? ECANCELED : mReadOp.status));
         return 0;
     }
 
@@ -484,15 +496,16 @@ ReplicatorImpl::HandleReadDone(int code, void *data)
     }
 
     SET_HANDLER(this, &ReplicatorImpl::HandleWriteDone);
-    if (gChunkManager.WriteChunk(&mWriteOp) < 0) {
+    const int status = gChunkManager.WriteChunk(&mWriteOp);
+    if (status < 0) {
         // abort everything
-        Terminate();
+        Terminate(status);
     }
     return 0;
 }
 
 int
-ReplicatorImpl::HandleWriteDone(int code, void *data)
+ReplicatorImpl::HandleWriteDone(int code, void* data)
 {
     assert(
         (code == EVENT_DISK_ERROR) ||
@@ -510,7 +523,7 @@ ReplicatorImpl::HandleWriteDone(int code, void *data)
         KFS_LOG_EOM;
     }
     if (mCancelFlag || mWriteOp.status < 0) {
-        Terminate();
+        Terminate(mCancelFlag ? ECANCELED : mWriteOp.status);
         return 0;
     }
     mOffset += mWriteOp.numBytesIO;
@@ -526,35 +539,37 @@ ReplicatorImpl::HandleWriteDone(int code, void *data)
 }
 
 void
-ReplicatorImpl::Terminate()
+ReplicatorImpl::Terminate(int status)
 {
-    int res = -1;
+    int res;
     if (mDone && ! mCancelFlag) {
         KFS_LOG_STREAM_INFO << "replication:"
             " chunk: "  << mChunkId <<
             " peer: "   << GetPeerName() <<
             " finished" <<
         KFS_LOG_EOM;
-        // now that replication is all done, set the version appropriately, and write
-        // meta data
+        // The data copy or recovery has completed.
+        // Set the version appropriately, and write the meta data.
         SET_HANDLER(this, &ReplicatorImpl::HandleReplicationDone);
-        const bool stableFlag = true;
+        const bool kStableFlag = true;
         res = gChunkManager.ChangeChunkVers(
-            mChunkId, mChunkVersion, stableFlag, this);
+            mChunkId, mChunkVersion, kStableFlag, this);
         if (res == 0) {
             return;
         }
+    } else {
+        res = status < 0 ? status : (status == 0 ? -1 : -status);
     }
     HandleReplicationDone(EVENT_DISK_ERROR, &res);
 }
 
 int
-ReplicatorImpl::HandleReplicationDone(int code, void *data)
+ReplicatorImpl::HandleReplicationDone(int code, void* data)
 {
     assert(mOwner);
 
     const int status = data ? *reinterpret_cast<int*>(data) : 0;
-    mOwner->status = status >= 0 ? 0 : -1;
+    mOwner->status = status >= 0 ? 0 : status;
     if (status < 0) {
         KFS_LOG_STREAM_ERROR << "replication:" <<
             " chunk: "  << mChunkId <<

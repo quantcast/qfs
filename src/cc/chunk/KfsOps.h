@@ -248,6 +248,8 @@ struct AllocChunkOp : public KfsOp {
     string       servers;      // input
     uint32_t     numServers;
     bool         mustExistFlag;
+    kfsSTier_t   minStorageTier;
+    kfsSTier_t   maxStorageTier;
     AllocChunkOp(kfsSeq_t s = 0)
         : KfsOp(CMD_ALLOC_CHUNK, s),
           fileId(-1),
@@ -257,7 +259,9 @@ struct AllocChunkOp : public KfsOp {
           appendFlag(false),
           servers(),
           numServers(0),
-          mustExistFlag(false)
+          mustExistFlag(false),
+          minStorageTier(kKfsSTierUndef),
+          maxStorageTier(kKfsSTierUndef)
     {
         // All inputs will be parsed in
     }
@@ -281,13 +285,15 @@ struct AllocChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",   &AllocChunkOp::fileId,       kfsFileId_t(-1))
-        .Def("Chunk-handle",  &AllocChunkOp::chunkId,      kfsChunkId_t(-1))
-        .Def("Chunk-version", &AllocChunkOp::chunkVersion, int64_t(-1))
-        .Def("Lease-id",      &AllocChunkOp::leaseId,      int64_t(-1))
-        .Def("Chunk-append",  &AllocChunkOp::appendFlag,   false)
+        .Def("File-handle",   &AllocChunkOp::fileId,         kfsFileId_t(-1))
+        .Def("Chunk-handle",  &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def("Chunk-version", &AllocChunkOp::chunkVersion,   int64_t(-1))
+        .Def("Lease-id",      &AllocChunkOp::leaseId,        int64_t(-1))
+        .Def("Chunk-append",  &AllocChunkOp::appendFlag,     false)
         .Def("Num-servers",   &AllocChunkOp::numServers)
         .Def("Servers",       &AllocChunkOp::servers)
+        .Def("Min-tier",      &AllocChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def("Max-tier",      &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
         ;
     }
 };
@@ -490,6 +496,8 @@ struct ReplicateChunkOp : public KfsOp {
     int16_t        numStripes;
     int16_t        numRecoveryStripes;
     int32_t        stripeSize;
+    kfsSTier_t     minStorageTier;
+    kfsSTier_t     maxStorageTier;
     string         pathName;
     string         invalidStripeIdx;
     int            metaPort;
@@ -506,6 +514,8 @@ struct ReplicateChunkOp : public KfsOp {
         numStripes(0),
         numRecoveryStripes(0),
         stripeSize(0),
+        minStorageTier(kKfsSTierUndef),
+        maxStorageTier(kKfsSTierUndef),
         pathName(),
         invalidStripeIdx(),
         metaPort(-1),
@@ -543,18 +553,20 @@ struct ReplicateChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",          &ReplicateChunkOp::fid,          kfsFileId_t(-1))
-        .Def("Chunk-handle",         &ReplicateChunkOp::chunkId,      kfsChunkId_t(-1))
-        .Def("Chunk-version",        &ReplicateChunkOp::chunkVersion, int64_t(-1))
+        .Def("File-handle",          &ReplicateChunkOp::fid,            kfsFileId_t(-1))
+        .Def("Chunk-handle",         &ReplicateChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def("Chunk-version",        &ReplicateChunkOp::chunkVersion,   int64_t(-1))
         .Def("Chunk-location",       &ReplicateChunkOp::locationStr)
-        .Def("Meta-port",            &ReplicateChunkOp::metaPort,     int(-1))
-        .Def("Chunk-offset",         &ReplicateChunkOp::chunkOffset,  int64_t(-1))
-        .Def("Striper-type",         &ReplicateChunkOp::striperType,  int16_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def("Meta-port",            &ReplicateChunkOp::metaPort,       int(-1))
+        .Def("Chunk-offset",         &ReplicateChunkOp::chunkOffset,    int64_t(-1))
+        .Def("Striper-type",         &ReplicateChunkOp::striperType,    int16_t(KFS_STRIPED_FILE_TYPE_NONE))
         .Def("Num-stripes",          &ReplicateChunkOp::numStripes)
         .Def("Num-recovery-stripes", &ReplicateChunkOp::numRecoveryStripes)
         .Def("Stripe-size",          &ReplicateChunkOp::stripeSize)
         .Def("Pathname",             &ReplicateChunkOp::pathName)
-        .Def("File-size",            &ReplicateChunkOp::fileSize,     int64_t(-1))
+        .Def("File-size",            &ReplicateChunkOp::fileSize,       int64_t(-1))
+        .Def("Min-tier",             &ReplicateChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def("Max-tier",             &ReplicateChunkOp::maxStorageTier, kKfsSTierUndef)
         ;
     }
 };

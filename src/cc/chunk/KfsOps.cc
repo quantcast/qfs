@@ -780,9 +780,17 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
             assert(myPos >= 0);
             gChunkManager.AllocChunkForAppend(this, myPos, peerLoc);
         } else {
-            bool beingReplicatedFlag = false;
-            status = gChunkManager.AllocChunk(fileId, chunkId, chunkVersion,
-                beingReplicatedFlag, 0, mustExistFlag);
+            bool kBeingReplicatedFlag = false;
+            status = gChunkManager.AllocChunk(
+                fileId,
+                chunkId,
+                chunkVersion,
+                minStorageTier,
+                maxStorageTier,
+                kBeingReplicatedFlag,
+                0,
+                mustExistFlag
+            );
         }
         if (status >= 0 && leaseId >= 0) {
             gLeaseClerk.RegisterLease(chunkId, leaseId, appendFlag);

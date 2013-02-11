@@ -85,6 +85,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     ChunkDirInfo()
         : ITimeout(),
           dirname(),
+          storageTier(kKfsSTierUndef),
           usedSpace(0),
           availableSpace(0),
           totalSpace(0),
@@ -479,6 +480,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     };
 
     string                 dirname;
+    kfsSTier_t             storageTier;
     int64_t                usedSpace;
     int64_t                availableSpace;
     int64_t                totalSpace;
@@ -1423,6 +1425,8 @@ ChunkManager::ChunkManager()
       mMetaEvacuateCount(-1),
       mMaxEvacuateIoErrors(2),
       mAvailableChunksRetryInterval(30 * 1000),
+      mAllocDefaultMinTier(kKfsSTierMin),
+      mAllocDefaultMaxTier(kKfsSTierMax),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1680,6 +1684,10 @@ ChunkManager::SetParameters(const Properties& prop)
         now + mSendChunDirInfoIntervalSecs);
     mNextInactiveFdFullScanTime = min(mNextInactiveFdFullScanTime,
         now + mInactiveFdFullScanIntervalSecs);
+    mAllocDefaultMinTier = prop.getValue(
+        "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
+    mAllocDefaultMaxTier = prop.getValue(
+        "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
 }
 
 static string AddTrailingPathSeparator(const string& dir)
@@ -1770,7 +1778,8 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end();
             ++it, ++di) {
-        it->dirname = *di;
+        it->dirname     = *di;
+        it->storageTier = kKfsSTierMax;
     }
 
     string errMsg;
@@ -1818,9 +1827,11 @@ ChunkManager::AllocChunk(
     kfsFileId_t       fileId,
     kfsChunkId_t      chunkId,
     kfsSeq_t          chunkVersion,
-    bool              isBeingReplicated,
-    ChunkInfoHandle** outCih,
-    bool              mustExistFlag /* = false */)
+    kfsSTier_t        minTier,
+    kfsSTier_t        maxTier,
+    bool              isBeingReplicated /* = false */,
+    ChunkInfoHandle** outCih            /* = 0 */,
+    bool              mustExistFlag     /* = false */)
 {
     ChunkInfoHandle** const cie = mChunkTable.Find(chunkId);
     if (cie) {
@@ -1842,7 +1853,10 @@ ChunkManager::AllocChunk(
     }
 
     // Find the directory to use
-    ChunkDirInfo* const chunkdir = GetDirForChunk();
+    ChunkDirInfo* const chunkdir = GetDirForChunk(
+        minTier == kKfsSTierUndef ? mAllocDefaultMinTier : minTier,
+        maxTier == kKfsSTierUndef ? mAllocDefaultMaxTier : maxTier
+    );
     if (! chunkdir) {
         KFS_LOG_STREAM_INFO <<
             "no directory has space to host chunk " << chunkId <<
@@ -1893,9 +1907,16 @@ ChunkManager::AllocChunkForAppend(
         op->statusMsg = "random write in progress";
         op->status = -EINVAL;
     }
+    const bool kIsBeingReplicatedFlag = false;
     ChunkInfoHandle *cih = 0;
     op->status = AllocChunk(
-        op->fileId, op->chunkId, op->chunkVersion, false, &cih,
+        op->fileId,
+        op->chunkId,
+        op->chunkVersion,
+        op->minStorageTier,
+        op->maxStorageTier,
+        kIsBeingReplicatedFlag,
+        &cih,
         op->mustExistFlag);
     if (op->status != 0) {
         return;
@@ -2464,41 +2485,43 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
     }
 }
 
+template<typename T>
 ChunkManager::ChunkDirInfo*
-ChunkManager::GetDirForChunk()
+ChunkManager::GetDirForChunkT(T start, T end)
 {
-    // do weighted random, so that we can fill all drives
-    ChunkDirs::iterator dirToUse          = mChunkDirs.end();
-    int64_t             totalFreeSpace    = 0;
-    int64_t             totalPendingRead  = 0;
-    int64_t             totalPendingWrite = 0;
-    int64_t             maxFreeSpace      = 0;
-    int                 dirCount          = 0;
-    for (ChunkDirs::iterator it = mChunkDirs.begin();
-            it < mChunkDirs.end();
-            ++it) {
-        it->placementSkipFlag = true;
-        if (it->evacuateStartedFlag) {
+    if (start == end) {
+        return 0;
+    }
+    T          dirToUse          = end;
+    int64_t    totalFreeSpace    = 0;
+    int64_t    totalPendingRead  = 0;
+    int64_t    totalPendingWrite = 0;
+    int64_t    maxFreeSpace      = 0;
+    int        dirCount          = 0;
+    for (T it = start; it != end; ++it) {
+        ChunkDirInfo& di = **it;
+        di.placementSkipFlag = true;
+        if (di.evacuateStartedFlag) {
             continue;
         }
-        const int64_t space = it->availableSpace;
+        const int64_t space = di.availableSpace;
         if (space < mMinFsAvailableSpace ||
-                space <= it->totalSpace * mMaxSpaceUtilizationThreshold) {
+                space <= di.totalSpace * mMaxSpaceUtilizationThreshold) {
             continue;
         }
         dirCount++;
         totalFreeSpace += space;
-        if (dirToUse == mChunkDirs.end()) {
+        if (dirToUse == end) {
             dirToUse = it;
         }
         if (maxFreeSpace < space) {
             maxFreeSpace = space;
         }
-        it->placementSkipFlag = false;
+        di.placementSkipFlag = false;
         if (mChunkPlacementPendingReadWeight <= 0 &&
                 mChunkPlacementPendingWriteWeight <= 0) {
-            it->pendingReadBytes  = 0;
-            it->pendingWriteBytes = 0;
+            di.pendingReadBytes  = 0;
+            di.pendingWriteBytes = 0;
             continue;
         }
         int     freeRequestCount;
@@ -2507,24 +2530,24 @@ ChunkManager::GetDirForChunk()
         int64_t writeBlockCount;
         int     blockSize;
         if (! DiskIo::GetDiskQueuePendingCount(
-                it->diskQueue,
+                di.diskQueue,
                 freeRequestCount,
                 requestCount,
                 readBlockCount,
                 writeBlockCount,
                 blockSize)) {
-            die(it->dirname + ": get pending io count failed");
+            die(di.dirname + ": get pending io count failed");
         }
-        it->pendingReadBytes  = readBlockCount  * blockSize;
-        it->pendingWriteBytes = writeBlockCount * blockSize;
-        totalPendingRead  += it->pendingReadBytes;
-        totalPendingWrite += it->pendingWriteBytes;
+        di.pendingReadBytes  = readBlockCount  * blockSize;
+        di.pendingWriteBytes = writeBlockCount * blockSize;
+        totalPendingRead  += di.pendingReadBytes;
+        totalPendingWrite += di.pendingWriteBytes;
     }
     if (dirCount <= 0 || totalFreeSpace <= 0) {
         return 0;
     }
     if (dirCount == 1) {
-        return &(*dirToUse);
+        return &(**dirToUse);
     }
     if (mChunkPlacementPendingReadWeight > 0 ||
             mChunkPlacementPendingWriteWeight > 0) {
@@ -2532,82 +2555,95 @@ ChunkManager::GetDirForChunk()
         const int64_t maxPendingIo = max(mMinPendingIoThreshold, (int64_t)
             (totalPendingRead * mChunkPlacementPendingReadWeight +
             totalPendingWrite * mChunkPlacementPendingReadWeight) / dirCount);
-        ChunkDirs::iterator minIoPendingDir = mChunkDirs.end();
-        for (ChunkDirs::iterator it = dirToUse;
-                it < mChunkDirs.end();
-                ++it) {
-            if (it->placementSkipFlag) {
+        ChunkDirInfo* minIoPendingDir = 0;
+        for (T it = dirToUse; it != end; ++it) {
+            ChunkDirInfo& di = **it;
+            if (di.placementSkipFlag) {
                 continue;
             }
-            if (it->pendingReadBytes + it->pendingWriteBytes >
-                    maxPendingIo) {
-                if (minIoPendingDir == mChunkDirs.end() ||
-                        it->pendingReadBytes + it->pendingWriteBytes <
+            if (di.pendingReadBytes + di.pendingWriteBytes >  maxPendingIo) {
+                if (! minIoPendingDir ||
+                        di.pendingReadBytes + di.pendingWriteBytes <
                         minIoPendingDir->pendingReadBytes +
                             minIoPendingDir->pendingWriteBytes) {
-                    minIoPendingDir = it;
+                    minIoPendingDir = &di;
                 }
                 if (--dirCount <= 0) {
-                    return &(*minIoPendingDir);
+                    return minIoPendingDir;
                 }
-                it->placementSkipFlag = true;
-                if (it->availableSpace == maxFreeSpace) {
+                di.placementSkipFlag = true;
+                if (di.availableSpace == maxFreeSpace) {
                     maxFreeSpace = -1; // Force update.
                 }
-                totalFreeSpace -= it->availableSpace;
+                totalFreeSpace -= di.availableSpace;
                 if (it == dirToUse) {
-                    dirToUse = mChunkDirs.end();
+                    dirToUse = end;
                 }
-            } else if (dirToUse == mChunkDirs.end()) {
+            } else if (dirToUse == end) {
                 dirToUse = it;
             }
         }
+    }
+    if (dirCount == 1) {
+        return &(**dirToUse);
     }
     assert(totalFreeSpace > 0);
     int64_t minAvail = 0;
     if (mMaxPlacementSpaceRatio > 0) {
         if (maxFreeSpace < 0) {
             maxFreeSpace = 0;
-            for (ChunkDirs::iterator it = dirToUse;
-                    it < mChunkDirs.end();
-                    ++it) {
-                if (it->placementSkipFlag) {
+            for (T it = dirToUse; it != end; ++it) {
+                ChunkDirInfo& di = **it;
+                if (di.placementSkipFlag) {
                     continue;
                 }
-                if (maxFreeSpace < it->availableSpace) {
-                    maxFreeSpace = it->availableSpace;
+                if (maxFreeSpace < di.availableSpace) {
+                    maxFreeSpace = di.availableSpace;
                 }
             }
         }
         minAvail = (int64_t)(maxFreeSpace * mMaxPlacementSpaceRatio);
-        for (ChunkDirs::iterator it = dirToUse;
-                it < mChunkDirs.end();
-                ++it) {
-            if (it->placementSkipFlag) {
+        for (T it = dirToUse; it != end; ++it) {
+            ChunkDirInfo& di = **it;
+            if (di.placementSkipFlag) {
                 continue;
             }
-            if (minAvail <= it->availableSpace) {
+            if (minAvail <= di.availableSpace) {
                 continue;
             }
-            totalFreeSpace += minAvail - it->availableSpace;
+            totalFreeSpace += minAvail - di.availableSpace;
         }
     }
     const double spaceWeight = double(1) / totalFreeSpace;
     const double randVal     = drand48();
     double       curVal      = 0;
-    for (ChunkDirs::iterator it = dirToUse;
-            it < mChunkDirs.end();
-            ++it) {
-        if (it->placementSkipFlag) {
+    for (T it = dirToUse; it != end; ++it) {
+        ChunkDirInfo& di = **it;
+        if (di.placementSkipFlag) {
             continue;
         }
-        curVal += max(minAvail, it->availableSpace) * spaceWeight;
+        curVal += max(minAvail, di.availableSpace) * spaceWeight;
         if (randVal < curVal) {
             dirToUse = it;
             break;
         }
     }
-    return (dirToUse == mChunkDirs.end() ? 0 : &(*dirToUse));
+    return (dirToUse == end ? 0 : &(**dirToUse));
+}
+
+ChunkManager::ChunkDirInfo*
+ChunkManager::GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier)
+{
+    for (StorageTiers::const_iterator it = mStorageTiers.lower_bound(minTier);
+            it != mStorageTiers.end() && it->first <= maxTier;
+            ++it) {
+        ChunkDirInfo* const dir = GetDirForChunkT(
+            it->second.begin(), it->second.end());
+        if (dir) {
+            return dir;
+        }
+    }
+    return 0;
 }
 
 string
@@ -3423,6 +3459,18 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
         mCounters.mChunkDirLostCount++;
     }
     const bool updateFlag = dir.countFsSpaceAvailableFlag;
+    StorageTiers::iterator const tit = mStorageTiers.find(dir.storageTier);
+    if (tit == mStorageTiers.end()) {
+        die("invalid storage tiers");
+    } else {
+        StorageTiers::mapped_type::iterator const it = find(
+            tit->second.begin(), tit->second.end(), &dir);
+        if (it == tit->second.end()) {
+            die("invalid storage tier");
+        } else {
+            tit->second.erase(it);
+        }
+    }
     dir.Stop();
     if (updateFlag) {
         UpdateCountFsSpaceAvailableFlags();
@@ -4084,11 +4132,15 @@ ChunkManager::StartDiskIo()
         it->startCount++;
         KFS_LOG_STREAM_INFO <<
             "chunk directory: " << it->dirname <<
+            " tier: "           << it->storageTier <<
             " devId: "          << it->deviceId <<
             " space:"
             " available: "      << it->availableSpace <<
             " used: "           << it->usedSpace <<
         KFS_LOG_EOM;
+        StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
+        assert(find(tier.begin(), tier.end(), it) == tier.end());
+        tier.push_back(it);
     }
     mMaxIORequestSize = min(CHUNKSIZE, DiskIo::GetMaxRequestSize());
     UpdateCountFsSpaceAvailableFlags();
@@ -4797,12 +4849,16 @@ ChunkManager::CheckChunkDirs()
                 it->countFsSpaceAvailableFlag = cit == mChunkDirs.end();
                 KFS_LOG_STREAM_INFO <<
                     "chunk directory: "  << it->dirname <<
+                    " tier: "            << it->storageTier <<
                     " devId: "           << it->deviceId <<
                     " space:"
                     " used: "            << it->usedSpace <<
                     " countAvail: "      << it->countFsSpaceAvailableFlag <<
                     " chunks: "          << it->availableChunks.GetSize() <<
                 KFS_LOG_EOM;
+                StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
+                assert(find(tier.begin(), tier.end(), it) == tier.end());
+                tier.push_back(it);
                 getFsSpaceAvailFlag = true;
                 // Notify meta serve that directory is now in use.
                 gMetaServerSM.EnqueueOp(

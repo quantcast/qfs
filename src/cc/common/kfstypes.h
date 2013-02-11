@@ -57,12 +57,16 @@ typedef int64_t kfsSeq_t;
 typedef uint32_t kfsUid_t;
 typedef uint32_t kfsGid_t;
 typedef uint16_t kfsMode_t;
+typedef uint8_t  kfsSTier_t;
 
-const kfsUid_t  kKfsUserRoot  = 0;
-const kfsUid_t  kKfsUserNone  = ~kfsUid_t(0);
-const kfsGid_t  kKfsGroupRoot = 0;
-const kfsGid_t  kKfsGroupNone = ~kfsGid_t(0);
-const kfsMode_t kKfsModeUndef = ~kfsMode_t(0);
+const kfsUid_t   kKfsUserRoot   = 0;
+const kfsUid_t   kKfsUserNone   = ~kfsUid_t(0);
+const kfsGid_t   kKfsGroupRoot  = 0;
+const kfsGid_t   kKfsGroupNone  = ~kfsGid_t(0);
+const kfsMode_t  kKfsModeUndef  = ~kfsMode_t(0);
+const kfsSTier_t kKfsSTierUndef = ~kfsSTier_t(0);
+const kfsSTier_t kKfsSTierMin   = 0;
+const kfsSTier_t kKfsSTierMax   = ~kfsSTier_t(0) - 1;
 
 const size_t CHUNKSIZE = 64u << 20; //!< (64MB)
 const int MAX_RPC_HEADER_LEN = 16 << 10; //!< Max length of header in RPC req/response

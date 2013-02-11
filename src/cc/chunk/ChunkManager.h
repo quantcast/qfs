@@ -112,11 +112,15 @@ public:
     /// @param[in] chunkVersion  the version assigned by the metaserver to this chunk
     /// @param[in] isBeingReplicated is the allocation for replicating a chunk?
     /// @retval status code
-    int AllocChunk(kfsFileId_t fileId, kfsChunkId_t chunkId, 
-                           int64_t chunkVersion,
-                           bool isBeingReplicated = false,
-                           ChunkInfoHandle **cih = 0,
-                           bool mustExistFlag = false);
+    int AllocChunk(
+        kfsFileId_t       fileId,
+        kfsChunkId_t      chunkId, 
+        int64_t           chunkVersion,
+        kfsSTier_t        minTier,
+        kfsSTier_t        maxTier,
+        bool              isBeingReplicated,
+        ChunkInfoHandle** cih,
+        bool              mustExistFlag);
     void AllocChunkForAppend(
         AllocChunkOp*         op,
         int                   replicationPos,
@@ -625,6 +629,8 @@ private:
         ChunkDirs& operator=(const ChunkDirs&);
     };
 
+    typedef map<kfsSTier_t, vector<ChunkDirs::iterator> > StorageTiers;
+
     struct StaleChunkCompletion : public KfsCallbackObj
     {
         StaleChunkCompletion(
@@ -650,7 +656,7 @@ private:
         KeyCompare<kfsChunkId_t>,
         DynamicArray<
             SingleLinkedList<CMapEntry>*,
-            20 // 2 * sizeof(size_t) = 16 MB initial
+            20 // sizeof(SingleLinkedList<CMapEntry>*) MB initial (8MB 64bit)
         >,
         StdFastAllocator<CMapEntry>
     > CMap;
@@ -673,7 +679,8 @@ private:
     int    mFdsPerChunk;
     
     /// directories for storing the chunks
-    ChunkDirs mChunkDirs;
+    ChunkDirs    mChunkDirs;
+    StorageTiers mStorageTiers;
 
     /// See the comments in KfsOps.cc near WritePrepareOp related to write handling
     int64_t mWriteId;
@@ -731,6 +738,8 @@ private:
     int64_t    mMetaEvacuateCount;
     int        mMaxEvacuateIoErrors;
     int        mAvailableChunksRetryInterval;
+    kfsSTier_t mAllocDefaultMinTier;
+    kfsSTier_t mAllocDefaultMaxTier;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -744,7 +753,7 @@ private:
 
     /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.  
     /// This method does a "directory allocation".
-    ChunkDirInfo* GetDirForChunk();
+    ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
 
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
@@ -804,6 +813,7 @@ private:
     void RunStaleChunksQueue(bool completionFlag = false);
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
+    template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
 private:
     // No copy.
     ChunkManager(const ChunkManager&);
