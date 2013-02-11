@@ -1132,7 +1132,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     op->statusMsg = prop.getValue("Status-message", "");
     op->status    = prop.getValue("Status",         -1);
     if (op->status < 0) {
-        op->status = -KfsToSysErrno(op->status);
+        op->status = -KfsToSysErrno(-op->status);
     }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
