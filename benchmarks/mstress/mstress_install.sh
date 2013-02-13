@@ -39,7 +39,7 @@ fi
 if [ $# -lt 1 ]
 then
 	echo "Usage: $0 <comma-separated hosts>"
-  echo "  This copies the mstress bundle to master and client hosts."
+	echo "  This copies the mstress bundle to master and client hosts."
 	exit
 fi
 
