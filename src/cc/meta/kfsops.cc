@@ -1418,7 +1418,7 @@ Tree::getalloc(fid_t fid, chunkOff_t offset, vector<MetaChunkInfo*>& v, int maxC
     if (! l) {
         return -ENOENT;
     }
-    int            ret    = -ENOENT;;
+    int            ret    = -ENOENT;
     int            maxRet = max(0, maxChunks);
     ChunkIterator  cit(l, kp, fid);
     MetaChunkInfo* ci;
