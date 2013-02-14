@@ -1326,6 +1326,9 @@ MetaGetlayout::handle()
     } else {
         status = metatree.getalloc(fid, startOffset, chunkInfo,
             maxResCnt > 0 ? maxResCnt + 1 : maxResCnt);
+        if (status == -ENOENT && (fa = metatree.getFattr(fid))) {
+            status = 0;
+        }
     }
     if (status != 0) {
         return;
