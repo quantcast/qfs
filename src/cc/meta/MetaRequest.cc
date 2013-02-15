@@ -1660,7 +1660,8 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             if (appendChunk && status == -EEXIST) {
                 panic("append chunk allocation internal error",
                     false);
-            } else if (status == -EEXIST && curChunkId != chunkId) {
+            } else if (status == -ENOENT ||
+                    (status == -EEXIST && curChunkId != chunkId)) {
                 gLayoutManager.DeleteChunk(this);
             }
         }
