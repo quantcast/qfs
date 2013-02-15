@@ -225,6 +225,7 @@ main(int argc, char **argv)
             cout << "Data mismatch at : " << i << endl;
         }
     }
+    delete[] dataBuf;
 
     // seek to offset 40
     gKfsClient->Seek(fd, 40);
