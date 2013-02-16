@@ -1467,8 +1467,8 @@ MetaAllocate::handle()
             return;
         }
         // pick a chunk for which a write lease exists
-        status = gLayoutManager.AllocateChunkForAppend(this);
-        if (status == 0) {
+        status = 0;
+        if (gLayoutManager.AllocateChunkForAppend(this) == 0) {
             // all good
             KFS_LOG_STREAM_DEBUG <<
                 "For append re-using chunk " << chunkId <<
@@ -1477,12 +1477,16 @@ MetaAllocate::handle()
             logFlag = false; // Do not emit redundant log record.
             return;
         }
+        if (status != 0) {
+            return;
+        }
         offset = -1; // Allocate a new chunk past eof.
     }
     // force an allocation
     chunkId = 0;
     initialChunkVersion = -1;
     vector<MetaChunkInfo*> chunkBlock;
+    MetaFattr*             fa = 0;
     // start at step #2 above.
     status = metatree.allocateChunkId(
         fid, offset,
@@ -1494,7 +1498,8 @@ MetaAllocate::handle()
         &chunkBlockStart,
         gLayoutManager.VerifyAllOpsPermissions() ?
             euser : kKfsUserRoot,
-        egroup
+        egroup,
+        &fa
     );
     if (status != 0 && (status != -EEXIST || appendChunk)) {
         // we have a problem
@@ -1540,6 +1545,7 @@ MetaAllocate::handle()
         status = -ENOENT;
         return;
     }
+    permissions = fa;
     int ret;
     if (status == -EEXIST) {
         initialChunkVersion = chunkVersion;

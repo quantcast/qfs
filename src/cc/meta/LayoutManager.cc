@@ -250,7 +250,8 @@ ARAChunkCache::RequestNew(MetaAllocate& req)
         req.chunkVersion,
         req.offset,
         TimeNow(),
-        last
+        last,
+        req.permissions
     );
 }
 
@@ -4826,6 +4827,11 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
             ! entry->master) {
         panic("invalid write append cache entry");
         mARAChunkCache.Invalidate(req->fid);
+        return -1;
+    }
+    if (mVerifyAllOpsPermissionsFlag &&
+            ! entry->permissions->CanWrite(req->euser, req->egroup)) {
+        req->status = -EPERM;
         return -1;
     }
     // The client is providing an offset hint in the case when it needs a
