@@ -492,11 +492,12 @@ class ARAChunkCache
 public:
     struct Entry {
         Entry(
-            chunkId_t     cid   = -1,
-            seq_t         cv    = -1,
-            chunkOff_t    co    = -1,
-            time_t        now   = 0,
-            MetaAllocate* req   = 0)
+            chunkId_t           cid   = -1,
+            seq_t               cv    = -1,
+            chunkOff_t          co    = -1,
+            time_t              now   = 0,
+            MetaAllocate*       req   = 0,
+            const Permissions*  perms = 0)
             : chunkId(cid),
               chunkVersion(cv),
               offset(co),
@@ -504,6 +505,7 @@ public:
               lastDecayTime(now),
               spaceReservationSize(0),
               numAppendersInChunk(0),
+              permissions(perms),
               master(req ? req->master : ChunkServerPtr()),
               lastPendingRequest(req),
               responseStr()
@@ -513,18 +515,19 @@ public:
             return (lastPendingRequest != 0);
         }
         // index into chunk->server map to work out where the block lives
-        chunkId_t  chunkId;
-        seq_t      chunkVersion;
+        chunkId_t          chunkId;
+        seq_t              chunkVersion;
         // the file offset corresponding to the last chunk
-        chunkOff_t offset;
+        chunkOff_t         offset;
         // when was this info last accessed; use this to cleanup
-        time_t lastAccessedTime;
-        time_t lastDecayTime;
+        time_t             lastAccessedTime;
+        time_t             lastDecayTime;
         // chunk space reservation approximation
-        int  spaceReservationSize;
+        int                spaceReservationSize;
         // # of appenders to which this chunk was used for allocation
-        int  numAppendersInChunk;
-        ChunkServerPtr master;
+        int                numAppendersInChunk;
+        const Permissions* permissions;
+        ChunkServerPtr     master;
     private:
         MetaAllocate* lastPendingRequest;
         string        responseStr;
