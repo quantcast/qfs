@@ -34,6 +34,7 @@
 #define _FILE_OFFSET_BITS       64
 #include <fuse.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>

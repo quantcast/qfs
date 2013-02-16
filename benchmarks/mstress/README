@@ -74,28 +74,27 @@ specified by the benchmark plan.
 [2] Files
 =========
 
-  - mstress_initialize.sh
-    Helper script to be used before compiling the source and deploying the
-    mstress bundle.
-    Do ./mstress_initialize.sh --h to see options.
+  - CMakeLists.txt
+    Builds the QFS stress client (C++) and HDFS stress client (Java) along with
+    the main release build.
 
-  - Makefile
-    Used to build the QFS stress client (C++) and HDFS stress client (Java).
-    Ensure that $JAVA_HOME is set correctly.
+  - build.xml, ivy.xml, ivysettings.xml
+    Ant build file and Ivy dependency and settings files, used by CMakeLists.txt
+    to build the HDFS stress client (Java).  Ensure that $JAVA_HOME is set.
 
   - mstress_client.cc
     Produces the mstress_client binary that actually drives the QFS metaserver.
-    Build using the provided Makefile ('make ccclient')
+    Builds to $GIT_DIR/build/release/bin/benchmarks/mstress_client
     See 'Benchmarking Procedure' below for details.
 
   - MStress_Client.java
-    Produces the java MStress_Client for HDFS namenode.
-    Build using the provided Makefile ('make javaclient')
+    Produces the java MStress_Client for HDFS namenode.  Built using ant to
+    $GIT_DIR/build/release/bin/bin/benchmarks/mstress.jar
     See 'Benchmarking Procedure' below for details.
 
-  - mstress_prepare_master_clients.sh
-    Helper script used to copy the mstress directory to a list of hosts. To be
-    used after running make.
+  - mstress_install.sh
+    Helper script used to deploy mstress to a list of hosts.  Will invoke cmake
+    and make under ./build/.
 
   - mstress_plan.py
     Used to generate a plan file for benchmarking.
@@ -141,65 +140,20 @@ on the same box, "localhost".
 (1) Setup the QFS metaserver and HDFS namenode with the help of
     section [4] "Setting up DFS metaserver/namenode" below.
 
-
 (2) You should have SSH key authentication set up on the hosts involved so
     that the scripts can do password/passphrase-less login.
 
+(3) On the build host, compile and install QFS using the steps described in
+    https://github.com/quantcast/qfs/wiki/Developer-Documentation.
 
-(3) On the build machine, ensure that you have the Cloudera HDFS client jars.
-    This is typically at /usr/lib/hadoop/client/*.jars.
-    If you don't have them, install them by,
-    1. Add the following to /etc/yum.repos.d/thirdparty.repo (sudo needed)
-       -----------------------------------
-       [cloudera-cdh4]
-       name=Cloudera's Distribution for Hadoop, Version 4
-       baseurl=http://archive.cloudera.com/cdh4/redhat/6/x86_64/cdh/4/
-       gpgkey = http://archive.cloudera.com/cdh4/redhat/6/x86_64/cdh/RPM-GPG-KEY-cloudera
-       gpgcheck = 1
-       -----------------------------------
-    2. sudo yum install hadoop-client
-
-
-(4) On the build host, execute 'mstress_initialize.sh' to set up jar paths.
-     ./mstress_initialize.sh /usr/lib/hadoop/client/
-
-
-(5) On the build host, compile and install QFS using the steps described in
-    https://github.com/quantcast/qfs/wiki/Developer-Documentation. Then change
-    directory to benchmarks/mstress, and just issuing 'make' should build the
-    Java/C++ clients.
-
-    To manually build C++ client:
-      - Assuming the QFS code is in ~/code/qfs, compile and install QFS using
-        the steps described in 
-        https://github.com/quantcast/qfs/wiki/Developer-Documentation
-      - cd ~/code/qfs/benchmarks/mstress
-      - QFS_BUILD_INCLUDE=~/code/qfs/build/include    \
-        QFS_BUILD_STATLIB=~/code/qfs/build/lib/static \
-        BOOST_LIBRARY_DIR=/opt/local/lib              \
-        make
-    If you encounter any build problem, ensure that your QFS_BUILD_INCLUDE etc.
-    refer to valid paths.
-
-
-    To manually build MStress_Client.java
-    - Compile MStress_client.java with hadoop-client jars in the class path.
-      theCP=$(echo mstress_hdfs_client_jars/*.jar | sed 's/ /:/g')
-      javac -cp $theCP MStress_Client.java
-
-
-(6) Determine the master and load generating client hosts that you want to use
+(4) Determine the master and load generating client hosts that you want to use
     to connect to the DFS server. This could just be "localhost" if you want to
     run the benchmark locally.
 
+(5) From the build host in this directory, run `./mstress_install.sh hosts..`
+    to deploy mstress files to the participating hosts under ~/mstress.
 
-(7) From the build host, use "mstress_prepare_master_clients.sh" to copy your
-    mstress directory to the participating hosts.
-    Note: Do './mstress_prepare_master_clients.sh localhost' localhost-only run.
-    The mstress directory paths should be the same on master and client hosts.
-
-
-(8) On the master host change directory to ~/mstress
+(6) On the master host change directory to ~/mstress
     Create a plan file using mstress_plan.py.
     Do ./mstress_plan.py --help to see example usage.
     Eg:
@@ -216,19 +170,18 @@ on the same box, "localhost".
     The plan file gets copied to the /tmp directory where you run it. It will
     also get copied to the participating client hosts in the '-c' option.
 
-
-(9) Checklist: check the presence of,
-     - the plan file on master host and client hosts (step 8 does this for you)
+(7) Checklist: check the presence of,
+     - the plan file on master host and client hosts (step 6 does this for you)
      - the mstress_client binaries (QFS and HDFS clients) on master and all
-       client hosts (step 7).
+       client hosts (step 5).
 
-(10) Run the benchmark from the master with mstress.py.
+(8) Run the benchmark from the master with mstress.py.
      Do ./mstress.py --help to see options.
      Eg:
       ./mstress.py -f qfs -s <metahost> -p <metaport> -a </tmp/something.plan>
       ./mstress.py -f hdfs -s <namehost> -p <nameport> -a </tmp/something.plan>
 
-(11) The benchmark name, progress, and time taken will be printed out.
+(9) The benchmark name, progress, and time taken will be printed out.
 
 
 [4] DFS Server Setup

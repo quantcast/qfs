@@ -1326,6 +1326,9 @@ MetaGetlayout::handle()
     } else {
         status = metatree.getalloc(fid, startOffset, chunkInfo,
             maxResCnt > 0 ? maxResCnt + 1 : maxResCnt);
+        if (status == -ENOENT && (fa = metatree.getFattr(fid))) {
+            status = 0;
+        }
     }
     if (status != 0) {
         return;
@@ -1659,7 +1662,8 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             if (appendChunk && status == -EEXIST) {
                 panic("append chunk allocation internal error",
                     false);
-            } else if (status == -EEXIST && curChunkId != chunkId) {
+            } else if (status == -ENOENT ||
+                    (status == -EEXIST && curChunkId != chunkId)) {
                 gLayoutManager.DeleteChunk(this);
             }
         }
