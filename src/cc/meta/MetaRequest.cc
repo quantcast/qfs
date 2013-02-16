@@ -1477,16 +1477,12 @@ MetaAllocate::handle()
             logFlag = false; // Do not emit redundant log record.
             return;
         }
-        if (status == -EACCES) {
-            return;
-        }
         offset = -1; // Allocate a new chunk past eof.
     }
     // force an allocation
     chunkId = 0;
     initialChunkVersion = -1;
     vector<MetaChunkInfo*> chunkBlock;
-    MetaFattr*             fa = 0;
     // start at step #2 above.
     status = metatree.allocateChunkId(
         fid, offset,
@@ -1498,14 +1494,12 @@ MetaAllocate::handle()
         &chunkBlockStart,
         gLayoutManager.VerifyAllOpsPermissions() ?
             euser : kKfsUserRoot,
-        egroup,
-        &fa
+        egroup
     );
     if (status != 0 && (status != -EEXIST || appendChunk)) {
         // we have a problem
         return;
     }
-    permissions = *fa;
     if (stripedFileFlag && appendChunk) {
         status    = -EINVAL;
         statusMsg = "append is not supported with striped files";

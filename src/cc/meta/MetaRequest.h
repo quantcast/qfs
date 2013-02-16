@@ -883,7 +883,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     MetaAllocate*        next;
     int64_t              leaseId;
     chunkOff_t           chunkBlockStart;
-    Permissions          permissions;
     MetaLeaseRelinquish* pendingLeaseRelinquish;
     string               responseStr; // Cached response
     // With StringBufT instead of string the append allocation (presently
@@ -913,7 +912,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           next(0),
           leaseId(-1),
           chunkBlockStart(-1),
-          permissions(),
           pendingLeaseRelinquish(0),
           responseStr(),
           clientHost(),

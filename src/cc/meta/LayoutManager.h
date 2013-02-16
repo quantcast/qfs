@@ -496,8 +496,7 @@ public:
             seq_t         cv    = -1,
             chunkOff_t    co    = -1,
             time_t        now   = 0,
-            MetaAllocate* req   = 0,
-            Permissions   perms = Permissions())
+            MetaAllocate* req   = 0)
             : chunkId(cid),
               chunkVersion(cv),
               offset(co),
@@ -506,7 +505,6 @@ public:
               spaceReservationSize(0),
               numAppendersInChunk(0),
               master(req ? req->master : ChunkServerPtr()),
-              permissions(perms),
               lastPendingRequest(req),
               responseStr()
             {}
@@ -527,7 +525,6 @@ public:
         // # of appenders to which this chunk was used for allocation
         int  numAppendersInChunk;
         ChunkServerPtr master;
-        Permissions    permissions;
     private:
         MetaAllocate* lastPendingRequest;
         string        responseStr;
