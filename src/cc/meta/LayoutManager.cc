@@ -250,8 +250,7 @@ ARAChunkCache::RequestNew(MetaAllocate& req)
         req.chunkVersion,
         req.offset,
         TimeNow(),
-        last,
-        req.permissions
+        last
     );
 }
 
@@ -4828,10 +4827,6 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         panic("invalid write append cache entry");
         mARAChunkCache.Invalidate(req->fid);
         return -1;
-    }
-    if (mVerifyAllOpsPermissionsFlag && ! entry->permissions.CanWrite(
-            req->euser, req->egroup)) {
-        return -EACCES;
     }
     // The client is providing an offset hint in the case when it needs a
     // new chunk: space allocation failed because chunk is full, or it can
