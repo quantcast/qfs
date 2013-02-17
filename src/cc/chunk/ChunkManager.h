@@ -621,6 +621,7 @@ private:
         inline const_iterator end()   const;
         void Allocate(size_t size);
         size_t size() const { return mSize; }
+        bool empty()  const { return (mSize <= 0); }
     private:
         ChunkDirInfo* mChunkDirs;
         size_t        mSize;
@@ -813,6 +814,7 @@ private:
     void RunStaleChunksQueue(bool completionFlag = false);
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
+    void SetStorageTiers(const Properties& props);
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
 private:
     // No copy.

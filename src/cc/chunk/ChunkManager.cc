@@ -1688,6 +1688,51 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
     mAllocDefaultMaxTier = prop.getValue(
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
+    SetStorageTiers(prop);
+}
+
+void
+ChunkManager::SetStorageTiers(const Properties& props)
+{
+    if (mChunkDirs.empty()) {
+        return;
+    }
+    const string tierPrefixes = props.getValue(
+        "chunkServer.storageTierPrefixes", string());
+    if (tierPrefixes.empty()) {
+        return;
+    }
+    mStorageTiers.clear();
+    for (ChunkDirs::iterator it = mChunkDirs.begin();
+            it < mChunkDirs.end();
+            ++it) {
+        it->storageTier = kKfsSTierMax;
+    }
+    istringstream is(tierPrefixes);
+    string     prefix;
+    kfsSTier_t tier;
+    while ((is >> prefix >> tier)) {
+        if (tier == kKfsSTierUndef) {
+            continue;
+        }
+        for (ChunkDirs::iterator it = mChunkDirs.begin();
+                it < mChunkDirs.end();
+                ++it) {
+            const string& dirname = it->dirname;
+            if (prefix.length() <= dirname.length() &&
+                    prefix.compare(0, prefix.length(), dirname) == 0) {
+                it->storageTier = tier;
+            }
+        }
+    }
+    for (ChunkDirs::iterator it = mChunkDirs.begin();
+            it < mChunkDirs.end();
+            ++it) {
+        if (it->availableSpace < 0) {
+            continue;
+        }
+        mStorageTiers[it->storageTier].push_back(&(*it));
+    }
 }
 
 static string AddTrailingPathSeparator(const string& dir)
@@ -1724,13 +1769,13 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     mChunkDirLockName = prop.getValue(
         "chunkServer.dirLockFileName",
         mChunkDirLockName);
-    if (mStaleChunksDir.empty()) {
+    if (mStaleChunksDir.empty() || mStaleChunksDir.find('/') != string::npos) {
         KFS_LOG_STREAM_ERROR <<
             "invalid stale chunks dir name: " << mStaleChunksDir <<
         KFS_LOG_EOM;
         return false;
     }
-    if (mDirtyChunksDir.empty()) {
+    if (mDirtyChunksDir.empty() || mDirtyChunksDir.find('/') != string::npos) {
         KFS_LOG_STREAM_ERROR <<
             "invalid stale chunks dir name: " << mDirtyChunksDir <<
         KFS_LOG_EOM;
@@ -1781,6 +1826,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         it->dirname     = *di;
         it->storageTier = kKfsSTierMax;
     }
+    SetStorageTiers(prop);
 
     string errMsg;
     if (! DiskIo::Init(prop, &errMsg)) {
@@ -4140,7 +4186,7 @@ ChunkManager::StartDiskIo()
         KFS_LOG_EOM;
         StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
         assert(find(tier.begin(), tier.end(), it) == tier.end());
-        tier.push_back(it);
+        tier.push_back(&(*it));
     }
     mMaxIORequestSize = min(CHUNKSIZE, DiskIo::GetMaxRequestSize());
     UpdateCountFsSpaceAvailableFlags();
@@ -4858,7 +4904,7 @@ ChunkManager::CheckChunkDirs()
                 KFS_LOG_EOM;
                 StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
                 assert(find(tier.begin(), tier.end(), it) == tier.end());
-                tier.push_back(it);
+                tier.push_back(&(*it));
                 getFsSpaceAvailFlag = true;
                 // Notify meta serve that directory is now in use.
                 gMetaServerSM.EnqueueOp(
