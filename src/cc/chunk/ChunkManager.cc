@@ -87,7 +87,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           dirname(),
           storageTier(kKfsSTierUndef),
           usedSpace(0),
-          availableSpace(0),
+          availableSpace(-1),
           totalSpace(0),
           pendingReadBytes(0),
           pendingWriteBytes(0),
@@ -1697,20 +1697,16 @@ ChunkManager::SetStorageTiers(const Properties& props)
     if (mChunkDirs.empty()) {
         return;
     }
-    const string tierPrefixes = props.getValue(
-        "chunkServer.storageTierPrefixes", string());
-    if (tierPrefixes.empty()) {
-        return;
-    }
     mStorageTiers.clear();
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end();
             ++it) {
         it->storageTier = kKfsSTierMax;
     }
-    istringstream is(tierPrefixes);
-    string     prefix;
-    kfsSTier_t tier;
+    istringstream is(props.getValue(
+        "chunkServer.storageTierPrefixes", string()));
+    string        prefix;
+    kfsSTier_t    tier;
     while ((is >> prefix >> tier)) {
         if (tier == kKfsSTierUndef) {
             continue;
