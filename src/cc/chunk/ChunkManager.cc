@@ -96,6 +96,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           evacuateStartByteCount(0),
           evacuateStartChunkCount(-1),
           chunkCount(0),
+          notStableOpenCount(0),
           diskTimeoutCount(0),
           evacuateInFlightCount(0),
           rescheduleEvacuateThreshold(0),
@@ -198,6 +199,10 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         if (chunkCount != 0) {
             die("chunk dir stop: invalid chunk count");
             chunkCount = 0;
+        }
+        if (notStableOpenCount != 0) {
+            die("chunk dir stop: invalid not stable chunk count");
+            notStableOpenCount = 0;
         }
         if (diskQueue) {
             string err;
@@ -439,6 +444,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                     mLastWriteCounters.mIoCount) << "\r\n" <<
             "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
             "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
+            "Storage-tier: "          << mChunkDir.storageTier <<
                 "\r\n"
             ;
             mChunkDir.readCounters.Display(
@@ -491,6 +497,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     int64_t                evacuateStartByteCount;
     int                    evacuateStartChunkCount;
     int                    chunkCount;
+    int                    notStableOpenCount;
     int                    diskTimeoutCount;
     int                    evacuateInFlightCount;
     int                    rescheduleEvacuateThreshold;
@@ -904,6 +911,18 @@ public:
                 status, writeSize, ioTimeMicrosec);
         }
     }
+    void UpdateDirStableCount()
+    {
+        if (mChunkDirList == ChunkDirInfo::kChunkDirListNone) {
+            return;
+        }
+        if (! IsStable() && IsFileOpen()) {
+            mChunkDir.notStableOpenCount++;
+        } else {
+            assert(mChunkDir.notStableOpenCount > 0);
+            mChunkDir.notStableOpenCount--;
+        }
+    }
 
 private:
     bool                        mBeingReplicatedFlag:1;
@@ -929,6 +948,10 @@ private:
     void DetachFromChunkDir(bool evacuateFlag) {
         if (mChunkDirList == ChunkDirInfo::kChunkDirListNone) {
             return;
+        }
+        if (! IsStable() && IsFileOpen()) {
+            assert(mChunkDir.notStableOpenCount > 0);
+            mChunkDir.notStableOpenCount--;
         }
         ChunkDirList::Remove(mChunkDir.chunkLists[mChunkDirList], *this);
         assert(mChunkDir.chunkCount > 0);
@@ -1118,6 +1141,9 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
             "chunk " << chunkInfo.chunkId << " close error: " << errMsg <<
         KFS_LOG_EOM;
         dataFH.reset();
+    }
+    if (! IsStable()) {
+        UpdateDirStableCount();
     }
     KFS_LOG_STREAM_INFO <<
         "Closing chunk " << chunkInfo.chunkId << " and might give up lease" <<
@@ -1316,8 +1342,14 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
                         " unexpected event code: " << code;
                     die(os.str());
                 }
+                const bool updateFlag =
+                    mWriteMetaOpsHead->stableFlag != mStableFlag &&
+                    IsFileOpen();
                 mStableFlag = mWriteMetaOpsHead->stableFlag;
                 chunkInfo.chunkVersion = mWriteMetaOpsHead->targetVersion;
+                if (updateFlag) {
+                    UpdateDirStableCount();
+                }
                 if (mStableFlag) {
                     mWriteAppenderOwnsFlag = false;
                     // LruUpdate below will add it back to the lru list.
@@ -2864,7 +2896,9 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
     }
     globals().ctrOpenDiskFds.Update(1);
     LruUpdate(*cih);
-
+    if (! cih->IsStable()) {
+        cih->UpdateDirStableCount();
+    }
     // the checksums will be loaded async
     return 0;
 }
