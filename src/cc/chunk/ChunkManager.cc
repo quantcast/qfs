@@ -4229,7 +4229,8 @@ ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
     int& evacuateInFlightCount, int& writableDirs,
     int& evacuateChunks, int64_t& evacuateByteCount,
     int* evacuateDoneChunkCount, int64_t* evacuateDoneByteCount,
-    HelloMetaOp::LostChunkDirs* lostChunkDirs)
+    HelloMetaOp::LostChunkDirs* lostChunkDirs,
+    ChunkManager::StorageTiersInfo* tiersInfo)
 {
     totalFsSpace           = 0;
     chunkDirs              = 0;
@@ -4241,6 +4242,9 @@ ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
     int64_t evacuateDoneBytes      = 0;
     int64_t totalFsAvailableSpace  = 0;
     int64_t usedSpace              = 0;
+    if (tiersInfo) {
+        tiersInfo->clear();
+    }
     for (ChunkDirs::const_iterator it = mChunkDirs.begin();
             it < mChunkDirs.end(); ++it) {
         if (it->availableSpace < 0) {
@@ -4255,16 +4259,21 @@ ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
             // queue when counter is 0.
             // The counter can be sent on heartbeat, while evacuation response
             // in flight, so the two can potentially get out of sync.
-            evacuateInFlightCount  += max(1, it->evacuateInFlightCount);
-            evacuateChunks         += it->chunkCount;
-            evacuateByteCount      += it->usedSpace;
-            evacuateDoneChunks     += it->GetEvacuateDoneChunkCount();
-            evacuateDoneBytes      += it->GetEvacuateDoneByteCount();
+            evacuateInFlightCount += max(1, it->evacuateInFlightCount);
+            evacuateChunks        += it->chunkCount;
+            evacuateByteCount     += it->usedSpace;
+            evacuateDoneChunks    += it->GetEvacuateDoneChunkCount();
+            evacuateDoneBytes     += it->GetEvacuateDoneByteCount();
         } else {
             if (it->availableSpace > mMinFsAvailableSpace &&
                     it->availableSpace >
                         it->totalSpace * mMaxSpaceUtilizationThreshold) {
                 writableDirs++;
+                if (tiersInfo && it->countFsSpaceAvailableFlag) {
+                    StorageTiersInfo::mapped_type& v = (*tiersInfo)[it->storageTier];
+                    v.first++;
+                    v.second += it->notStableOpenCount;
+                }
             }
         }
         chunkDirs++;

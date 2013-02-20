@@ -246,6 +246,12 @@ public:
         const HostedChunkList& notStableAppend,
         const HostedChunkList& notStable);
 
+    typedef map<
+        kfsSTier_t,
+        pair<int, int>,
+        less<kfsSTier_t>,
+        StdFastAllocator<pair<const kfsSTier_t, pair<int, int> > >
+    > StorageTiersInfo;
     /// Return the total space that is exported by this server.  If
     /// chunks are stored in a single directory, we use statvfs to
     /// determine the total space avail; we report the min of statvfs
@@ -254,7 +260,8 @@ public:
         int& evacuateInFlightCount, int& writableDirs,
         int& evacuateChunks, int64_t& evacuteByteCount,
         int* evacuateDoneChunkCount = 0, int64_t* evacuateDoneByteCount = 0,
-        HelloMetaOp::LostChunkDirs* lostChunkDirs = 0);
+        HelloMetaOp::LostChunkDirs* lostChunkDirs = 0,
+        StorageTiersInfo* tiersInfo = 0);
     int64_t GetUsedSpace() const { return mUsedSpace; };
     long GetNumChunks() const { return mChunkTable.GetSize(); };
     long GetNumWritableChunks() const;
