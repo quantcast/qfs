@@ -6,7 +6,7 @@
 
 %global QFS_SOURCE_DIR %{_builddir}/qfs-%{QFS_VERSION}
 
-# Sets the maven package based upon what distribution we're building against.
+# Sets the maven package name based upon the distribution we're building for.
 %if 0%{?fedora} >= 16
 %global MAVEN_PACKAGE maven
 %else
@@ -16,10 +16,10 @@
 Name:           qfs
 Version:        %{QFS_VERSION}
 Release:        1%{?dist}
-Summary:        A robust distributed filesystem compliant with HDFS
+Summary:        A high-performance distributed network filesystem
 
-Group:          Networking/Filesystems
-License:        Apache 2.0
+Group:          
+License:        ASL 2.0
 URL:            https://github.com/quantcast/qfs
 Source0:        qfs-%{version}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -42,6 +42,7 @@ Requires:       boost >= 1.3.4
 Requires:       libuuid
 Requires:       openssl
 
+Obsoletes:      qfs-client
 
 %description
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
@@ -115,11 +116,12 @@ its JNI interface.
 Group:          Networking/Filesystems
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
-Summary:        Executables required to run the QFS metaserver
+Summary:        Executables required to run the Quantcast File System metaserver
 
 %description metaserver
-This package contains the executables required to run the QFS metaserver
-service, which tracks the location of data chunks against QFS chunkservers.
+This package contains the executables required to run the Quantcast File System
+metaserver service, which tracks the location of data chunks distributed across
+QFS chunkservers.
 
 
 %package python
@@ -130,7 +132,8 @@ Requires:       python
 Summary:        Python libraries for accessing the Quantcast File System
 
 %description python
-This package contains the libraries required to access QFS via Python.
+This package contains the libraries required to access the Quantcast File
+System libraries via Python.
 
 
 %package webui
@@ -138,11 +141,11 @@ Group:          Networking/Filesystems
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
 Requires:       python
-Summary:        Executables required to run the QFS metaserver
+Summary:        Quantcast File System metaserver/chunkserver web frontend
 
 %description webui
 This package contains several Python scripts which provide a simple Hadoop-like
-Web UI for viewing QFS chunkserver and metaserver status.
+Web UI for viewing Quantcast File Server chunkserver and metaserver status.
 
 
 # Build scripts:
@@ -243,6 +246,37 @@ install -m 644 %{QFS_SOURCE_DIR}/contrib/logrotate/qfs* %{buildroot}%{_sysconfdi
 
 %clean
 rm -rf $RPM_BUILD_ROOT
+
+
+# Install/uninstall scripts:
+%post chunkserver
+/sbin/chkconfig --add qfs-chunkserver
+
+%preun chunkserver
+if [ $1 -eq 0 ]; then
+    /sbin/service qfs-chunkserver stop &>/dev/null || :
+    /sbin/chkconfig --del qfs-chunkserver
+fi
+
+
+%post metaserver
+/sbin/chkconfig --add qfs-metaserver
+
+%preun metaserver
+if [ $1 -eq 0 ]; then
+    /sbin/service qfs-metaserver stop &>/dev/null || :
+    /sbin/chkconfig --del qfs-metaserver
+fi
+
+
+%post webui
+/sbin/chkconfig --add qfs-webui
+
+%preun webui
+if [ $1 -eq 0 ]; then
+    /sbin/service qfs-webui stop &>/dev/null || :
+    /sbin/chkconfig --del qfs-webui
+fi
 
 
 %files
