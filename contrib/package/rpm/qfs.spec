@@ -16,9 +16,9 @@
 Name:           qfs
 Version:        %{QFS_VERSION}
 Release:        1%{?dist}
-Summary:        A high-performance distributed network filesystem
+Summary:        Libraries required for Quantcast File System
 
-Group:          
+Group:          System Environment/Libraries
 License:        ASL 2.0
 URL:            https://github.com/quantcast/qfs
 Source0:        qfs-%{version}.tar.gz
@@ -51,7 +51,7 @@ reading and writing large files sequentially.
 
 
 %package chunkserver
-Group:          Networking/Filesystems
+Group:          System Environment/Daemons
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
 Summary:        Executables required to run the QFS chunkserver service.
@@ -73,7 +73,7 @@ tool binaries required to develop applications which build against QFS.
 
 
 %package fuse
-Group:          System/Filesystems
+Group:          Applications/System
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       fuse-libs
 Summary:        Support for mounting the Quantcast File System under FUSE
@@ -84,7 +84,7 @@ QFS distributed filesystems under FUSE.
 
 
 %package hadoop
-Group:          Networking/Filesystems
+Group:          Development/Libraries
 BuildRequires:  java-devel
 BuildRequires:  jpackage-utils
 BuildRequires:  %{MAVEN_PACKAGE} >= 3.0.3
@@ -113,7 +113,7 @@ its JNI interface.
 
 
 %package metaserver
-Group:          Networking/Filesystems
+Group:          System Environment/Daemons
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
 Summary:        Executables required to run the Quantcast File System metaserver
@@ -137,7 +137,7 @@ System libraries via Python.
 
 
 %package webui
-Group:          Networking/Filesystems
+Group:          System Environment/Daemons
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
 Requires:       python
