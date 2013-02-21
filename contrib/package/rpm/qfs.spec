@@ -33,6 +33,7 @@ BuildRequires:  fuse-devel
 BuildRequires:  gcc-c++
 BuildRequires:  libuuid-devel
 BuildRequires:  make
+BuildRequires:  net-tools
 BuildRequires:  openssl-devel
 BuildRequires:  python-devel
 BuildRequires:  xfsprogs-devel
