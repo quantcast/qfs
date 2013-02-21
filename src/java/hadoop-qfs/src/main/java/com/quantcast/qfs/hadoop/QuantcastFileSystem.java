@@ -172,11 +172,18 @@ public class QuantcastFileSystem extends FileSystem {
   // recursively delete the directory and its contents
   public boolean delete(Path path, boolean recursive) throws IOException {
     Path absolute = makeAbsolute(path);
+    FileStatus fs;
+    try {
+        fs = qfsImpl.stat(absolute);
+    } catch (FileNotFoundException e) {
+        return false;
+    }
+
     String srep = absolute.toUri().getPath();
-    if (qfsImpl.isFile(srep))
+    if (!fs.isDir())
       return qfsImpl.remove(srep) == 0;
 
-    FileStatus[] dirEntries = listStatus(absolute);
+    FileStatus[] dirEntries = qfsImpl.readdirplus(absolute);
     if ((!recursive) && (dirEntries != null) && (dirEntries.length != 0)) {
       throw new IOException("Directory " + path.toString() + " is not empty.");
     }
