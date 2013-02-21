@@ -150,7 +150,7 @@ public class QuantcastFileSystem extends FileSystem {
                                    FsPermission permission,
                                    boolean overwrite, int bufferSize,
                                    short replication, long blockSize,
-                                   Progressable progress)
+                                   Progressable progress) {
     return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
       replication, bufferSize, overwrite, permission.toShort());
   }
