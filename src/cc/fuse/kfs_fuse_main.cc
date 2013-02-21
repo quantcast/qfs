@@ -37,6 +37,8 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 using std::string;
 using std::vector;
