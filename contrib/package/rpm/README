@@ -23,10 +23,10 @@ against a Red Hat-like distribution such as RHEL or Fedora.  It is recommended
 to use a tool such as mock (https://fedoraproject.org/wiki/Projects/Mock) to
 build, as doing so will ensure cleaner builds and greater flexibility.
 
-To build using mock:
+To build using mock
+===================
 
-  Prerequisites
-  -------------
+  Prerequisites:
 
   1. Install mock:
 
@@ -39,17 +39,16 @@ To build using mock:
     - Fedora 17
     - CentOS/Scientific Linux 6
 
-  3. If building against EL6 or below, add the following Yum repository to your
-     Mock configuration under the config_opts['yum.conf'] section:
+  3. If building against EL6, add the following Yum repository to your Mock
+     configuration under the config_opts['yum.conf'] section:
 
     [epel-apache-maven]
     name=maven from apache foundation.
-    baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-$releasever/$basearch/
+    baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-6/x86_64/
     enabled=1
     gpgcheck=0 
 
-  Building the RPM
-  ----------------
+  Building the RPMs:
 
   1. Make an SRPM from the current git HEAD:
 
@@ -62,38 +61,42 @@ To build using mock:
   3. Built RPMs will land in /var/lib/mock/<configuration>/result.
 
 
-To build using rpmbuild/make:
+To build using rpmbuild/make
+============================
 
-  Prerequisites
-  -------------
+  Prerequisites:
 
-    On Fedora:
+  On Fedora
+  ---------
 
-    1. Install the following RPMs:
+  1. Install the following RPMs:
 
-      # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel \
-        make openssl-devel python-devel xfsprogs-devel java-devel \
-        jpackage-devel maven
+    # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel \
+      make openssl-devel python-devel xfsprogs-devel java-devel \
+      jpackage-devel maven
 
-    On EL6:
+  On EL6
+  ------
 
-    1. Add the following Yum repo to /etc/yum.repos.d:
+  1. Add the following Yum repo to /etc/yum.repos.d:
 
-      [epel-apache-maven]
-      name=maven from apache foundation.
-      baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-$releasever/$basearch/
-      enabled=1
-      gpgcheck=0
+    [epel-apache-maven]
+    name=maven from apache foundation.
+    baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-6/x86_64/
+    enabled=1
+    gpgcheck=0
 
-    2. Install the following RPMs:
+  2. Install the following RPMs:
 
-      # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel make \
-        openssl-devel python-devel xfsprogs-devel java-devel jpackage-devel \
-        apache-maven
+    # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel make \
+      openssl-devel python-devel xfsprogs-devel java-devel jpackage-devel \
+      apache-maven
 
-    3. Make RPMs:
+  Building the RPMs:
 
-      # make rpm
+  3. Make RPMs from the current git HEAD:
 
-    4. Built RPMs will land in rpmbuild/RPMS/.
+    # make rpm
+
+  4. Built RPMs will land in rpmbuild/RPMS/.
 

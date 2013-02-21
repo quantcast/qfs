@@ -2,7 +2,7 @@
 #
 # qfs-metaserver Starts a Quantcast File System chunkserver.
 #
-# chkconfig:   345 55 25
+# chkconfig:   - 55 25
 # description: This script starts the Quantcast File System \
 #              chunkserver service.
 
@@ -32,7 +32,7 @@ stderr_log="${logdir}/chunkserver.err"
 
 [ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
 
-lockfile=/var/lock/subsys/$prog
+lockfile=/var/lock/subsys/qfs-chunkserver
 
 start() {
     [ -x ${exec} ] || exit 5
@@ -69,7 +69,7 @@ force_reload() {
 }
 
 rh_status() {
-    status -p ${pid_file} ${prog}
+    pidofproc -p ${pid_file} ${prog}
 }
 
 rh_status_q() {

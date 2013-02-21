@@ -2,7 +2,7 @@
 #
 # qfs-metaserver Starts a Quantcast File System metaserver.
 #
-# chkconfig:   345 55 25
+# chkconfig:   - 55 25
 # description: This script starts the Quantcast File System \
 #              metaserver service.
 
@@ -32,7 +32,7 @@ stderr_log="${logdir}/metaserver.err"
 
 [ -e /etc/sysconfig/$prog ] && . /etc/sysconfig/$prog
 
-lockfile=/var/lock/subsys/$prog
+lockfile=/var/lock/subsys/qfs-metaserver
 
 start() {
     [ -x ${exec} ] || exit 5
@@ -70,7 +70,7 @@ force_reload() {
 
 rh_status() {
     # run checks to determine if the service is running or use generic status
-    status -p ${pid_file} ${prog}
+    pidofproc -p ${pid_file} ${prog}
 }
 
 rh_status_q() {
