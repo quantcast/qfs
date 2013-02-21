@@ -4225,11 +4225,16 @@ ChunkManager::StartDiskIo()
 }
 
 int64_t
-ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
-    int& evacuateInFlightCount, int& writableDirs,
-    int& evacuateChunks, int64_t& evacuateByteCount,
-    int* evacuateDoneChunkCount, int64_t* evacuateDoneByteCount,
-    HelloMetaOp::LostChunkDirs* lostChunkDirs,
+ChunkManager::GetTotalSpace(
+    int64_t&                        totalFsSpace,
+    int&                            chunkDirs,
+    int&                            evacuateInFlightCount,
+    int&                            writableDirs,
+    int&                            evacuateChunks,
+    int64_t&                        evacuateByteCount,
+    int*                            evacuateDoneChunkCount,
+    int64_t*                        evacuateDoneByteCount,
+    HelloMetaOp::LostChunkDirs*     lostChunkDirs,
     ChunkManager::StorageTiersInfo* tiersInfo)
 {
     totalFsSpace           = 0;
@@ -4270,19 +4275,18 @@ ChunkManager::GetTotalSpace(int64_t& totalFsSpace, int& chunkDirs,
                         it->totalSpace * mMaxSpaceUtilizationThreshold) {
                 writableDirs++;
                 if (tiersInfo && it->countFsSpaceAvailableFlag) {
-                    StorageTiersInfo::mapped_type& v = (*tiersInfo)[it->storageTier];
-                    v.first++;
-                    v.second += it->notStableOpenCount;
+                    StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
+                    ti.mDeviceCount++;
+                    ti.mNotStableOpen  += it->notStableOpenCount;
+                    ti.mSpaceAvailable += it->availableSpace;
+                    ti.mTotalSpace     += it->totalSpace;
                 }
             }
         }
         chunkDirs++;
         if (it->countFsSpaceAvailableFlag) {
-            totalFsSpace += it->totalSpace;
-            if (it->availableSpace > mMinFsAvailableSpace) {
-                totalFsAvailableSpace +=
-                    it->availableSpace - mMinFsAvailableSpace;
-            }
+            totalFsSpace          += it->totalSpace;
+            totalFsAvailableSpace += it->availableSpace;
         }
         usedSpace += it->usedSpace;
         KFS_LOG_STREAM_DEBUG <<
