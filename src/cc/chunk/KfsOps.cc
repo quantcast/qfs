@@ -1022,7 +1022,7 @@ HeartbeatOp::Execute()
             it != tiersInfo.end();
             ++it) {
         response <<
-            " " << it->first <<
+            " " << (unsigned int)it->first <<
             " " << it->second.mDeviceCount <<
             " " << it->second.mNotStableOpenCount <<
             " " << it->second.mSpaceAvailable <<

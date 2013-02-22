@@ -444,7 +444,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                     mLastWriteCounters.mIoCount) << "\r\n" <<
             "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
             "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
-            "Storage-tier: "          << mChunkDir.storageTier <<
+            "Storage-tier: "          << (unsigned int)mChunkDir.storageTier <<
                 "\r\n"
             ;
             mChunkDir.readCounters.Display(
@@ -4938,7 +4938,7 @@ ChunkManager::CheckChunkDirs()
                 it->countFsSpaceAvailableFlag = cit == mChunkDirs.end();
                 KFS_LOG_STREAM_INFO <<
                     "chunk directory: "  << it->dirname <<
-                    " tier: "            << it->storageTier <<
+                    " tier: "            << (unsigned int)it->storageTier <<
                     " devId: "           << it->deviceId <<
                     " space:"
                     " used: "            << it->usedSpace <<
