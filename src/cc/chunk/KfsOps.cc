@@ -997,11 +997,12 @@ HeartbeatOp::Execute()
     int64_t evacuateByteCount      = 0;
     int     evacuateDoneChunkCount = 0;
     int64_t evacuateDoneByteCount  = 0;
+    ChunkManager::StorageTiersInfo tiersInfo;
     cmdShow << " space:";
     Append("Total-space",    "total",  gChunkManager.GetTotalSpace(
         totalFsSpace, chunkDirs, evacuateInFlightCount, writableDirs,
         evacuateChunks, evacuateByteCount,
-        &evacuateDoneChunkCount, &evacuateDoneByteCount));
+        &evacuateDoneChunkCount, &evacuateDoneByteCount, 0, &tiersInfo));
     Append("Total-fs-space", "tfs",      totalFsSpace);
     Append("Used-space",     "used",     gChunkManager.GetUsedSpace());
     Append("Num-drives",     "drives",   chunkDirs);
@@ -1016,6 +1017,19 @@ HeartbeatOp::Execute()
     Append("Evacuate-done",         "evac-d",   evacuateDoneChunkCount);
     Append("Evacuate-done-bytes",   "evac-d-b", evacuateDoneByteCount);
     Append("Evacuate-in-flight",    "evac-fl",  evacuateInFlightCount);
+    response << "Storage-tiers:";
+    for (ChunkManager::StorageTiersInfo::const_iterator it = tiersInfo.begin();
+            it != tiersInfo.end();
+            ++it) {
+        response <<
+            " " << it->first <<
+            " " << it->second.mDeviceCount <<
+            " " << it->second.mNotStableOpenCount <<
+            " " << it->second.mSpaceAvailable <<
+            " " << it->second.mTotalSpace
+        ;
+    }
+    response << "\r\n";
     Append("Num-random-writes",     "rwr",  writeCount);
     Append("Num-appends",           "awr",  writeAppendCount);
     Append("Num-re-replications",   "rep",  replicationCount);

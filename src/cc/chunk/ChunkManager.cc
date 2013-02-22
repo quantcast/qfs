@@ -4277,9 +4277,9 @@ ChunkManager::GetTotalSpace(
                 if (tiersInfo && it->countFsSpaceAvailableFlag) {
                     StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
                     ti.mDeviceCount++;
-                    ti.mNotStableOpen  += it->notStableOpenCount;
-                    ti.mSpaceAvailable += it->availableSpace;
-                    ti.mTotalSpace     += it->totalSpace;
+                    ti.mNotStableOpenCount += it->notStableOpenCount;
+                    ti.mSpaceAvailable     += it->availableSpace;
+                    ti.mTotalSpace         += it->totalSpace;
                 }
             }
         }

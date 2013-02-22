@@ -251,12 +251,12 @@ public:
     public:
         StorageTierInfo()
             : mDeviceCount(0),
-              mNotStableOpen(0),
+              mNotStableOpenCount(0),
               mSpaceAvailable(0),
               mTotalSpace(0)
             {}
         int     mDeviceCount;
-        int     mNotStableOpen;
+        int     mNotStableOpenCount;
         int64_t mSpaceAvailable;
         int64_t mTotalSpace;
     };
