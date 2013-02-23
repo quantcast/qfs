@@ -120,17 +120,22 @@ reload() {
 }
 
 force_reload() {
-    restart
+  restart
 }
 
 rh_status() {
-  pid=`pidofproc -p ${pid_file} ${prog}`
+  pid=$(pidofproc -p ${pid_file} ${prog})
   if [ $? -eq 0 ]; then
     echo "${prog} (pid ${pid}) is running..."
     return 0
   else
-    echo "${prog} is stopped"
-    return 1
+    if [ -e $lockfile ]; then
+      echo "${prog} dead but lockfile exists"
+      return 2
+    else
+      echo "${prog} is stopped"
+      return 1
+    fi
   fi
 }
 

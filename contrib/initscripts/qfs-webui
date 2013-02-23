@@ -131,8 +131,13 @@ rh_status() {
     echo "${prog} (pid ${pid}) is running..."
     return 0
   else
-    echo "${prog} is stopped"
-    return 1
+    if [ -e $lockfile ]; then
+      echo "${prog} dead but lockfile exists"
+      return 2
+    else
+      echo "${prog} is stopped"
+      return 1
+    fi
   fi
 }
 
