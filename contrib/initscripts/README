@@ -16,7 +16,7 @@ Debian/Ubuntu pre-requisites:
 
   1. Install git and GCC:
 
-    # apt-get install git-core gcc
+    # apt-get install git-core gcc lsb
 
   2. Checkout daemonize source:
 

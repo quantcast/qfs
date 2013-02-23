@@ -69,8 +69,14 @@ force_reload() {
 }
 
 rh_status() {
-    # run checks to determine if the service is running or use generic status
-    pidofproc -p ${pid_file} ${prog}
+    pid=`pidofproc -p ${pid_file} ${prog}`
+    if [ $? -eq 0 ]; then
+        echo "${prog} (pid ${pid}) is running..."
+        return 0
+    else
+        echo "${prog} is stopped"
+        return 1
+    fi
 }
 
 rh_status_q() {
