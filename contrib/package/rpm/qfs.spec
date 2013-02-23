@@ -16,7 +16,7 @@
 Name:           qfs
 Version:        %{QFS_VERSION}
 Release:        1%{?dist}
-Summary:        Libraries required for Quantcast File System
+Summary:        Libraries required for accessing Quantcast File System
 
 Group:          System Environment/Libraries
 License:        ASL 2.0
@@ -39,7 +39,6 @@ BuildRequires:  python-devel
 BuildRequires:  xfsprogs-devel
 
 Requires:       boost >= 1.3.4
-Requires:       libuuid
 Requires:       openssl
 
 Obsoletes:      qfs-client
@@ -54,7 +53,7 @@ reading and writing large files sequentially.
 Group:          System Environment/Daemons
 Requires:       qfs%{?_isa} = %{version}-%{release}
 Requires:       daemonize
-Summary:        Executables required to run the QFS chunkserver service.
+Summary:        Executables required to run the Quantcast File System chunkserver
 
 %description chunkserver
 The QFS chunkserver service hosts the binary contents of the QFS distributed
@@ -65,7 +64,7 @@ replicating data amongst chunkservers in a redundant fashion.
 %package devel
 Group:          Development/Libraries
 Requires:       qfs%{?_isa} = %{version}-%{release}
-Summary:        Files needed for building QFS-based applications
+Summary:        Files needed for building Quantcast File System-based applications
 
 %description devel
 The QFS devel package contains the headers, static libraries, and developer
@@ -75,7 +74,6 @@ tool binaries required to develop applications which build against QFS.
 %package fuse
 Group:          Applications/System
 Requires:       qfs%{?_isa} = %{version}-%{release}
-Requires:       fuse-libs
 Summary:        Support for mounting the Quantcast File System under FUSE
 
 %description fuse
