@@ -124,7 +124,7 @@ force_reload() {
 }
 
 rh_status() {
-  pid=`pidofproc -p ${pid_file} ${prog}`
+  pid=$(pidofproc -p ${pid_file} ${prog})
   if [ $? -eq 0 ]; then
     echo "${prog} (pid ${pid}) is running..."
     return 0
@@ -149,7 +149,6 @@ case "$1" in
     $1
     ;;
   stop)
-    rh_status_q || exit 0
     $1
     ;;
   restart)

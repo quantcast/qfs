@@ -155,6 +155,7 @@ case "$1" in
     $1
     ;;
   reload)
+    rh_status_q || exit 7
     $1
     ;;
   force-reload)
