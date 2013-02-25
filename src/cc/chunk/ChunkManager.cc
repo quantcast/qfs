@@ -3548,19 +3548,21 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
     if (! dir.evacuateDoneFlag) {
         mCounters.mChunkDirLostCount++;
     }
-    const bool updateFlag = dir.IsCountFsSpaceAvailable();
-    StorageTiers::iterator const tit = mStorageTiers.find(dir.storageTier);
-    if (tit == mStorageTiers.end()) {
-        die("invalid storage tiers");
-    } else {
-        StorageTiers::mapped_type::iterator const it = find(
-            tit->second.begin(), tit->second.end(), &dir);
-        if (it == tit->second.end()) {
-            die("invalid storage tier");
+    if (dir.availableSpace >= 0) {
+        StorageTiers::iterator const tit = mStorageTiers.find(dir.storageTier);
+        if (tit == mStorageTiers.end()) {
+            die("invalid storage tiers");
         } else {
-            tit->second.erase(it);
+            StorageTiers::mapped_type::iterator const it = find(
+                tit->second.begin(), tit->second.end(), &dir);
+            if (it == tit->second.end()) {
+                die("invalid storage tier");
+            } else {
+                tit->second.erase(it);
+            }
         }
     }
+    const bool updateFlag = dir.IsCountFsSpaceAvailable();
     dir.Stop();
     if (updateFlag) {
         UpdateCountFsSpaceAvailable();
