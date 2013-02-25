@@ -1361,7 +1361,7 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
             const int64_t nowUsec = microseconds();
             WriteStats(status, ChunkHeaderBuffer::GetSize(), max(int64_t(0),
                 nowUsec - mWriteMetaOpsHead->diskIOTime));
-            mWriteMetaOpsHead->diskIOTime = nowUsec; 
+            mWriteMetaOpsHead->diskIOTime = nowUsec;
         }
         WriteChunkMetaOp* const cur = mWriteMetaOpsHead;
         mWriteMetaOpsHead = cur->next;
@@ -1428,7 +1428,7 @@ ChunkManager::ChunkManager()
       mInactiveFdsCleanupIntervalSecs(300),
       mNextInactiveFdCleanupTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
       mInactiveFdFullScanIntervalSecs(2),
-      mNextInactiveFdFullScanTime(globalNetManager().Now() - 365 * 24 * 60 * 60), 
+      mNextInactiveFdFullScanTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
       mReadChecksumMismatchMaxRetryCount(0),
       mAbortOnChecksumMismatchFlag(false),
       mRequireChunkHeaderChecksumFlag(false),
@@ -2568,7 +2568,7 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
             }
             if (sdir.availableSpace < 0) {
                 sdir.availableSpace = 0;
-            } 
+            }
         }
     }
 }

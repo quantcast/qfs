@@ -114,7 +114,7 @@ public:
     /// @retval status code
     int AllocChunk(
         kfsFileId_t       fileId,
-        kfsChunkId_t      chunkId, 
+        kfsChunkId_t      chunkId,
         int64_t           chunkVersion,
         kfsSTier_t        minTier,
         kfsSTier_t        maxTier,
@@ -130,7 +130,7 @@ public:
     /// @retval status code
     int DeleteChunk(kfsChunkId_t chunkId);
 
-    /// Dump chunk map with information about chunkID and chunkSize    
+    /// Dump chunk map with information about chunkID and chunkSize
     void DumpChunkMap();
 
     /// Dump chunk map with information about chunkID and chunkSize
@@ -164,7 +164,7 @@ public:
     /// @param[in] chunkId id of the chunk being allocated.
     /// @param[in] chunkVersion  the version assigned by the metaserver to this chunk
     /// @retval status code
-    int ChangeChunkVers(kfsChunkId_t chunkId, 
+    int ChangeChunkVers(kfsChunkId_t chunkId,
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
     int ChangeChunkVers(ChunkInfoHandle *cih,
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
@@ -193,7 +193,7 @@ public:
     vector<uint32_t> GetChecksums(kfsChunkId_t chunkId, int64_t offset, size_t numBytes);
 
     /// For telemetry purposes, provide the driveName where the chunk
-    /// is stored and pass that back to the client. 
+    /// is stored and pass that back to the client.
     string GetDirName(chunkId_t chunkId) const;
 
     /// Schedule a read on a chunk.
@@ -211,7 +211,7 @@ public:
     /// @retval 0 if op was successfully scheduled; -errno otherwise
     int WriteChunkMetadata(kfsChunkId_t chunkId, KfsCallbackObj *cb, bool forceFlag = false);
     int ReadChunkMetadata(kfsChunkId_t chunkId, KfsOp *cb);
-    
+
     /// Notification that read is finished
     void ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf);
     bool IsChunkMetadataLoaded(kfsChunkId_t chunkId);
@@ -232,7 +232,7 @@ public:
     /// Register a timeout handler with the net manager for taking
     /// checkpoints.  Also, get the logger going
     void Start();
-    
+
     /// Read the chunk table from disk following a restart.  See
     /// comments in the method for issues relating to validation (such
     /// as, checkpoint contains a chunk name, but the associated file
@@ -291,7 +291,7 @@ public:
 
     /// Check if a write is pending to a chunk.
     /// @param[in] chunkId  The chunkid for which we are checking for
-    /// pending write(s). 
+    /// pending write(s).
     /// @retval True if a write is pending; false otherwise
     bool IsWritePending(kfsChunkId_t chunkId) const {
         return mPendingWrites.HasChunkId(chunkId);
@@ -318,7 +318,7 @@ public:
     /// Set the status for a given write id
     void SetWriteStatus(int64_t writeId, int status);
     int  GetWriteStatus(int64_t writeId);
-    
+
     /// Is the write id a valid one
     bool IsValidWriteId(int64_t writeId) {
         return mPendingWrites.find(writeId);
@@ -688,7 +688,7 @@ private:
     /// take a checkpoint once every 2 mins
     int mCheckpointIntervalSecs;
 
-    /// space available for allocation 
+    /// space available for allocation
     int64_t mTotalSpace;
     /// how much is used up by chunks
     int64_t mUsedSpace;
@@ -699,7 +699,7 @@ private:
     int    mMaxOpenChunkFiles;
     int    mMaxOpenFds;
     int    mFdsPerChunk;
-    
+
     /// directories for storing the chunks
     ChunkDirs    mChunkDirs;
     StorageTiers mStorageTiers;
@@ -773,7 +773,7 @@ private:
     void AddMapping(ChunkDirInfo& dir, kfsFileId_t fileId, chunkId_t chunkId,
         kfsSeq_t chunkVers, int64_t chunkSize);
 
-    /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.  
+    /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.
     /// This method does a "directory allocation".
     ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
 
@@ -828,7 +828,7 @@ private:
     void Restore();
     /// Restore the chunk meta-data from the specified file name.
     void RestoreChunkMeta(const string &chunkMetaFn);
-    
+
     /// Update the checksums in the chunk metadata based on the op.
     void UpdateChecksums(ChunkInfoHandle *cih, WriteOp *op);
     bool IsChunkStable(const ChunkInfoHandle* cih) const;
