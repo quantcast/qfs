@@ -103,7 +103,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           diskQueue(0),
           deviceId(-1),
           dirLock(),
-          countFsSpaceAvailableFlag(true),
+          dirCountSpaceAvailable(0),
           fsSpaceAvailInFlightFlag(false),
           checkDirReadableFlightFlag(false),
           checkEvacuateFileInFlightFlag(false),
@@ -224,7 +224,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         stopEvacuationFlag             = false;
         evacuateDoneFlag               = false;
         diskTimeoutCount               = 0;
-        countFsSpaceAvailableFlag      = false;
+        dirCountSpaceAvailable         = 0;
         usedSpace                      = 0;
         totalSpace                     = 0;
         evacuateStartChunkCount        = -1;
@@ -258,6 +258,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         evacuateStartChunkCount = max(evacuateStartChunkCount, chunkCount);
         evacuateStartByteCount  = max(evacuateStartByteCount, usedSpace);
     }
+    bool IsCountFsSpaceAvailable() const
+        { return (this == dirCountSpaceAvailable); }
     int GetEvacuateDoneChunkCount() const
     {
         return (max(evacuateStartChunkCount, chunkCount) - chunkCount);
@@ -504,7 +506,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     DiskQueue*             diskQueue;
     DirChecker::DeviceId   deviceId;
     DirChecker::LockFdPtr  dirLock;
-    bool                   countFsSpaceAvailableFlag:1;
+    ChunkDirInfo*          dirCountSpaceAvailable;
     bool                   fsSpaceAvailInFlightFlag:1;
     bool                   checkDirReadableFlightFlag:1;
     bool                   checkEvacuateFileInFlightFlag:1;
@@ -2557,6 +2559,18 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
     if (dir.usedSpace < 0) {
         dir.usedSpace = 0;
     }
+    if (dir.dirCountSpaceAvailable) {
+        ChunkDirInfo& sdir = *dir.dirCountSpaceAvailable;
+        if (sdir.availableSpace >= 0) {
+            sdir.availableSpace += nbytes;
+            if (sdir.availableSpace > sdir.totalSpace) {
+                sdir.availableSpace = sdir.totalSpace;
+            }
+            if (sdir.availableSpace < 0) {
+                sdir.availableSpace = 0;
+            } 
+        }
+    }
 }
 
 template<typename T>
@@ -3534,7 +3548,7 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
     if (! dir.evacuateDoneFlag) {
         mCounters.mChunkDirLostCount++;
     }
-    const bool updateFlag = dir.countFsSpaceAvailableFlag;
+    const bool updateFlag = dir.IsCountFsSpaceAvailable();
     StorageTiers::iterator const tit = mStorageTiers.find(dir.storageTier);
     if (tit == mStorageTiers.end()) {
         die("invalid storage tiers");
@@ -3549,33 +3563,51 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
     }
     dir.Stop();
     if (updateFlag) {
-        UpdateCountFsSpaceAvailableFlags();
+        UpdateCountFsSpaceAvailable();
     }
     mDirChecker.Add(dir.dirname, dir.dirLock);
 }
 
 int
-ChunkManager::UpdateCountFsSpaceAvailableFlags()
+ChunkManager::UpdateCountFsSpaceAvailable()
 {
     int ret = 0;
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it != mChunkDirs.end();
             ++it) {
-        if (it->availableSpace < 0 || it->evacuateStartedFlag) {
-            it->countFsSpaceAvailableFlag = false;
+        if (it->availableSpace < 0) {
+            it->dirCountSpaceAvailable = 0;
             continue;
         }
-        ChunkDirs::const_iterator cit;
-        for (cit = mChunkDirs.begin();
-                cit != it &&
-                    (cit->availableSpace < 0 ||
-                        ! cit->countFsSpaceAvailableFlag ||
-                        cit->deviceId != it->deviceId);
-                ++cit)
-            {}
-        it->countFsSpaceAvailableFlag = cit == it;
-        if (it->countFsSpaceAvailableFlag) {
+        ChunkDirInfo* dirCountSpaceAvailable = &(*it);
+        if (it->dirCountSpaceAvailable &&
+                it->dirCountSpaceAvailable < dirCountSpaceAvailable &&
+                it->dirCountSpaceAvailable->IsCountFsSpaceAvailable() &&
+                it->deviceId == it->dirCountSpaceAvailable->deviceId) {
+            continue;
+        }
+        if (it->evacuateStartedFlag &&
+                (! it->dirCountSpaceAvailable ||
+                it->dirCountSpaceAvailable->evacuateStartedFlag ||
+                it->dirCountSpaceAvailable->availableSpace < 0)) {
+            it->dirCountSpaceAvailable = 0;
+            dirCountSpaceAvailable     = 0;
+        } else {
             ret++;
+            it->dirCountSpaceAvailable = dirCountSpaceAvailable;
+        }
+        for (ChunkDirs::iterator cit = it; ++cit != mChunkDirs.end(); ) {
+            if (cit->availableSpace >= 0 && cit->deviceId == it->deviceId) {
+                if (dirCountSpaceAvailable) {
+                    cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
+                } else if (cit->evacuateStartedFlag) {
+                    cit->dirCountSpaceAvailable = 0;
+                } else {
+                    dirCountSpaceAvailable = &(*cit);
+                    cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
+                    it->dirCountSpaceAvailable  = dirCountSpaceAvailable;
+                }
+            }
         }
     }
     return ret;
@@ -3746,7 +3778,7 @@ ChunkManager::Restore()
         }
     }
     if (scheduleEvacuateFlag) {
-        UpdateCountFsSpaceAvailableFlags();
+        UpdateCountFsSpaceAvailable();
         for (ChunkDirs::iterator it = mChunkDirs.begin();
                 it != mChunkDirs.end(); ++it) {
             if (it->evacuateFlag) {
@@ -4180,12 +4212,12 @@ ChunkManager::StartDiskIo()
             NotifyMetaChunksLost(*it);
             continue;
         }
-        // UpdateCountFsSpaceAvailableFlags() below will set the following flag.
-        it->countFsSpaceAvailableFlag = false;
-        it->deviceId                  = dit->second.mDeviceId;
-        it->dirLock                   = dit->second.mLockFdPtr;
-        it->availableSpace            = 0;
-        it->totalSpace                = it->usedSpace;
+        // UpdateCountFsSpaceAvailable() below will set the following.
+        it->dirCountSpaceAvailable = 0;
+        it->deviceId               = dit->second.mDeviceId;
+        it->dirLock                = dit->second.mLockFdPtr;
+        it->availableSpace         = 0;
+        it->totalSpace             = it->usedSpace;
         it->availableChunks.Clear();
         it->availableChunks.Swap(dit->second.mChunkInfos);
         string errMsg;
@@ -4219,7 +4251,7 @@ ChunkManager::StartDiskIo()
         tier.push_back(&(*it));
     }
     mMaxIORequestSize = min(CHUNKSIZE, DiskIo::GetMaxRequestSize());
-    UpdateCountFsSpaceAvailableFlags();
+    UpdateCountFsSpaceAvailable();
     GetFsSpaceAvailable();
     return true;
 }
@@ -4274,7 +4306,7 @@ ChunkManager::GetTotalSpace(
                     it->availableSpace >
                         it->totalSpace * mMaxSpaceUtilizationThreshold) {
                 writableDirs++;
-                if (tiersInfo && it->countFsSpaceAvailableFlag) {
+                if (tiersInfo && it->IsCountFsSpaceAvailable()) {
                     StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
                     ti.mDeviceCount++;
                     ti.mNotStableOpenCount += it->notStableOpenCount;
@@ -4284,7 +4316,7 @@ ChunkManager::GetTotalSpace(
             }
         }
         chunkDirs++;
-        if (it->countFsSpaceAvailableFlag) {
+        if (it->IsCountFsSpaceAvailable()) {
             totalFsSpace          += it->totalSpace;
             totalFsAvailableSpace += it->availableSpace;
         }
@@ -4500,8 +4532,8 @@ ChunkManager::ChunkDirInfo::EvacuateChunksDone(int code, void* data)
                 " restarting from evacuation file check" <<
             KFS_LOG_EOM;
         }
-        if (evacuateStartedFlag == countFsSpaceAvailableFlag) {
-            gChunkManager.UpdateCountFsSpaceAvailableFlags();
+        if (evacuateStartedFlag == IsCountFsSpaceAvailable()) {
+            gChunkManager.UpdateCountFsSpaceAvailable();
         }
         rescheduleEvacuateThreshold = max(0,
             evacuateInFlightCount - max(0, evacuateChunksOp.numChunks));
@@ -4514,8 +4546,8 @@ ChunkManager::ChunkDirInfo::EvacuateChunksDone(int code, void* data)
     }
 
     SetEvacuateStarted();
-    if (countFsSpaceAvailableFlag) {
-        gChunkManager.UpdateCountFsSpaceAvailableFlags();
+    if (IsCountFsSpaceAvailable()) {
+        gChunkManager.UpdateCountFsSpaceAvailable();
     }
     // Minor optimization: try to traverse the chunk list first, it likely
     // that all chunks that were scheduled for evacuation are still in the list
@@ -4778,10 +4810,10 @@ ChunkManager::ChunkDirInfo::ScheduleEvacuate(int maxChunkCount)
         // to prevent chunk allocation failures.
         // When the response comes back the evacuate started flag is set to
         // true.
-        const bool updateFlag = countFsSpaceAvailableFlag;
+        const bool updateFlag = IsCountFsSpaceAvailable();
         SetEvacuateStarted();
         if (updateFlag) {
-            gChunkManager.UpdateCountFsSpaceAvailableFlags();
+            gChunkManager.UpdateCountFsSpaceAvailable();
         }
         evacuateChunksOp.totalSpace = gChunkManager.GetTotalSpace(
             evacuateChunksOp.totalFsSpace,
@@ -4794,7 +4826,7 @@ ChunkManager::ChunkDirInfo::ScheduleEvacuate(int maxChunkCount)
         evacuateChunksOp.usedSpace = gChunkManager.GetUsedSpace();
         evacuateStartedFlag = false;
         if (updateFlag) {
-            gChunkManager.UpdateCountFsSpaceAvailableFlags();
+            gChunkManager.UpdateCountFsSpaceAvailable();
         }
     }
     UpdateLastEvacuationActivityTime();
@@ -4856,7 +4888,7 @@ ChunkManager::ChunkDirInfo::StopEvacuation()
     evacuateStartChunkCount     = -1;
     evacuateStartByteCount      = -1;
     if (updateSpaceAvailableFlag) {
-        gChunkManager.UpdateCountFsSpaceAvailableFlags();
+        gChunkManager.UpdateCountFsSpaceAvailable();
     }
     return true;
 }
@@ -4873,8 +4905,8 @@ ChunkManager::MetaServerConnectionLost()
         // Take directory out of allocation now. Hello will update the
         // meta server's free space parameters used in chunk placement.
         it->SetEvacuateStarted();
-        if (it->countFsSpaceAvailableFlag) {
-            UpdateCountFsSpaceAvailableFlags();
+        if (it->IsCountFsSpaceAvailable()) {
+            UpdateCountFsSpaceAvailable();
         }
         it->RestartEvacuation();
     }
@@ -4894,7 +4926,8 @@ ChunkManager::CheckChunkDirs()
 
     DirChecker::DirsAvailable dirs;
     mDirChecker.GetNewlyAvailable(dirs);
-    bool getFsSpaceAvailFlag = false;
+    bool getFsSpaceAvailFlag             = false;
+    bool updateCountFsSpaceAvailableFlag = false;
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end(); ++it) {
         if (it->availableSpace < 0 || it->checkDirReadableFlightFlag) {
@@ -4925,24 +4958,37 @@ ChunkManager::CheckChunkDirs()
                 it->evacuateCheckIoErrorsCount = 0;
                 it->availableChunks.Clear();
                 it->availableChunks.Swap(dit->second.mChunkInfos);
-                ChunkDirs::const_iterator cit;
-                for (cit = mChunkDirs.begin(); cit != mChunkDirs.end(); ++cit) {
-                    if (cit == it || cit->availableSpace < 0) {
-                        continue;
+                if (it->dirCountSpaceAvailable) {
+                    it->dirCountSpaceAvailable = 0;
+                    updateCountFsSpaceAvailableFlag = true;
+                } else if (! updateCountFsSpaceAvailableFlag) {
+                    ChunkDirs::iterator cit = mChunkDirs.begin();
+                    while (cit != mChunkDirs.end() &&
+                            (cit == it ||
+                            it->deviceId != cit->deviceId ||
+                            cit->availableSpace < 0)) {
+                        ++cit;
                     }
-                    if (it->deviceId == cit->deviceId &&
-                            it->countFsSpaceAvailableFlag) {
-                        break;
+                    if (cit == mChunkDirs.end()) {
+                        it->dirCountSpaceAvailable = &(*it);
+                    } else if (cit->dirCountSpaceAvailable &&
+                            cit->dirCountSpaceAvailable
+                                ->IsCountFsSpaceAvailable() &&
+                            cit->dirCountSpaceAvailable->availableSpace >= 0 &&
+                            ! cit->dirCountSpaceAvailable->evacuateFlag) {
+                        it->dirCountSpaceAvailable = cit->dirCountSpaceAvailable;
+                    } else {
+                        updateCountFsSpaceAvailableFlag = true;
                     }
                 }
-                it->countFsSpaceAvailableFlag = cit == mChunkDirs.end();
                 KFS_LOG_STREAM_INFO <<
                     "chunk directory: "  << it->dirname <<
                     " tier: "            << (unsigned int)it->storageTier <<
                     " devId: "           << it->deviceId <<
                     " space:"
                     " used: "            << it->usedSpace <<
-                    " countAvail: "      << it->countFsSpaceAvailableFlag <<
+                    " countAvail: "      << it->IsCountFsSpaceAvailable() <<
+                    " updateCntAvail: "  << updateCountFsSpaceAvailableFlag <<
                     " chunks: "          << it->availableChunks.GetSize() <<
                 KFS_LOG_EOM;
                 StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
@@ -4978,6 +5024,9 @@ ChunkManager::CheckChunkDirs()
     }
     if (getFsSpaceAvailFlag) {
         GetFsSpaceAvailable();
+    }
+    if (updateCountFsSpaceAvailableFlag) {
+        UpdateCountFsSpaceAvailable();
     }
 }
 

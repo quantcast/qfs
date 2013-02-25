@@ -391,7 +391,7 @@ public:
         { return mEvacuateFileName; }
     const string& GetEvacuateDoneFileName() const
         { return mEvacuateDoneFileName; }
-    int UpdateCountFsSpaceAvailableFlags();
+    int UpdateCountFsSpaceAvailable();
     void MetaHeartbeat(HeartbeatOp& op);
     int GetMaxEvacuateIoErrors() const
         { return mMaxEvacuateIoErrors; }
