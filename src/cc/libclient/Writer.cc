@@ -1593,11 +1593,11 @@ private:
         return (theOffset < theLeftEdge || theRightEdge <= theOffset);
     }
     bool TryToCloseIdle(
-        ChunkWriter* inWriterPtr)
+        const ChunkWriter* inWriterPtr)
     {
         ChunkWriter* thePtr = Writers::Back(mWriters);
         if (! thePtr) {
-            thePtr = inWriterPtr;
+            return (! inWriterPtr); // Already deleted.
         }
         bool theRetFlag = true;
         while (thePtr) {
