@@ -229,6 +229,22 @@ public class KfsTest
             kfsAccess.kfs_remove(npath);
 
             testDirs(kfsAccess, basedir + "/");
+
+            // Test recursive remove.
+            final String rtest    = basedir + "/rtest";
+            final String testPath = rtest + "/a/b/../../c/../d";
+            kfsAccess.kfs_retToIOException(kfsAccess.kfs_mkdirs(testPath));
+            if (! kfsAccess.kfs_exists(testPath)) {
+                System.out.println(testPath + " doesn't exist");
+                System.exit(1);
+            }
+            kfsAccess.kfs_create(testPath + "/test_file").close();
+            kfsAccess.kfs_retToIOException(kfsAccess.kfs_rmdirs(rtest));
+            if (kfsAccess.kfs_exists(rtest)) {
+                System.out.println(rtest + " exist");
+                System.exit(1);
+            }
+
             // remove the dir
             if (kfsAccess.kfs_rmdir(basedir) < 0) {
                 System.out.println("unable to remove: " + basedir);
