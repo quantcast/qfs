@@ -119,6 +119,13 @@ public class QFSEmulationImpl implements IFSImpl {
     return -1;
   }
 
+  public int rmdirs(String path) throws IOException {
+    if (isFile(path)) {
+      return -1;
+    }
+    return localFS.delete(new Path(path), true) ? 0 : -1;
+  }
+
   public long filesize(String path) throws IOException {
     return localFS.getLength(new Path(path));
   }

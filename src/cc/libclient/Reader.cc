@@ -1983,11 +1983,11 @@ private:
         return (theOffset < theLeftEdge || theRightEdge <= theOffset);
     }
     bool TryToCloseIdle(
-        ChunkReader* inReaderPtr)
+        const ChunkReader* inReaderPtr)
     {
         ChunkReader* thePtr = Readers::Back(mReaders);
         if (! thePtr) {
-            thePtr = inReaderPtr;
+            return (! inReaderPtr); // Already deleted.
         }
         bool theRetFlag = true;
         while (thePtr) {

@@ -46,6 +46,7 @@ interface IFSImpl {
   public int rename(String source, String dest) throws IOException;
 
   public int rmdir(String path) throws IOException;
+  public int rmdirs(String path) throws IOException;
   public int remove(String path) throws IOException;
   public long filesize(String path) throws IOException;
   public short getReplication(String path) throws IOException;

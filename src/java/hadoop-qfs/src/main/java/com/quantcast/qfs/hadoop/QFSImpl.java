@@ -144,6 +144,10 @@ class QFSImpl implements IFSImpl {
     return kfsAccess.kfs_rmdir(path);
   }
 
+  public int rmdirs(String path) throws IOException {
+    return kfsAccess.kfs_rmdirs(path);
+  }
+
   public int remove(String path) throws IOException {
     return kfsAccess.kfs_remove(path);
   }

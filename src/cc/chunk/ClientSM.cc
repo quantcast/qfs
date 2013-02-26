@@ -256,7 +256,10 @@ ClientSM::HandleRequest(int code, void* data)
 
     case EVENT_CMD_DONE: {
         // An op finished execution.  Send response back in FIFO
-        assert(data);
+        if (! data) {
+            die("invalid null op completion");
+            return -1;
+        }
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
         op->done = true;

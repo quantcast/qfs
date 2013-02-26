@@ -80,48 +80,39 @@ FILE* logFile = stdout;
 //Global datastructure to hold various options.
 struct Client {
   static const size_t INITIAL_SIZE;
-  struct Path
+  struct Path : private std::string
   {
-    char* actualPath_;
-    size_t actualSize_;
-    size_t len_;
-
-    Path() : actualSize_(INITIAL_SIZE), len_(0) {
-      actualPath_ = (char*)calloc(actualSize_, 1);
-    }
+    Path() : std::string(INITIAL_SIZE, '\0') { }
 
     void Push(const char* leafStr) {
-      size_t leafLen = strlen(leafStr);
+      const size_t leafLen = strlen(leafStr);
       if (leafLen == 0) {
         return;
       }
-      if (len_ + 1 + leafLen + 1 > actualSize_) {
-        actualSize_ *= 2;
-        actualPath_ = (char*)realloc(actualPath_, actualSize_);
-        fprintf(logFile, "Reallocating to %zu bytes\n", actualSize_);
-      }
       if (leafStr[0] != '/') {
-        strcpy(actualPath_ + len_, "/");
-        len_ ++;
+        reserve(length() + leafLen + 1);
+        push_back('/');
       }
-      strcpy(actualPath_ + len_, leafStr);
-      len_ += leafLen;
+      append(leafStr);
     }
 
     void Pop(const char* leafStr) {
-      size_t leafLen = strlen(leafStr);
-      if (leafLen > len_ - 1 ||
-          strncmp(actualPath_ + len_ - leafLen, leafStr, leafLen)) {
-        fprintf(logFile, "Error in pop %s from %s\n", leafStr, actualPath_);
+      const size_t leafLen = strlen(leafStr);
+      if (leafLen > length() - 1 ||
+          at(length() - leafLen - 1) != '/' ||
+          compare(length() - leafLen, leafLen, leafStr)) {
+        fprintf(logFile, "Error in pop %s from %s\n", leafStr, c_str());
         exit(0);
       }
-      len_ -= leafLen + 1;
-      *(actualPath_ + len_) = 0;
+      resize(length() - leafLen - 1);
     }
 
     void Reset() {
-      actualPath_[0] = 0;
-      len_ = 0;
+      resize(0);
+    }
+
+    const char * String() const {
+        return c_str();
     }
   };
 
@@ -346,9 +337,9 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
 
     if (isDir) {
       //fprintf(logFile, "Creating DIR [%s]\n", client->path_.actualPath_);
-      rc = kfsClient->Mkdir(client->path_.actualPath_);
+      rc = kfsClient->Mkdir(client->path_.String());
       if (rc < 0) {
-        fprintf(logFile, "Mkdir(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+        fprintf(logFile, "Mkdir(%s) failed with rc=%d\n", client->path_.String(), rc);
         return rc;
       }
       (*createdCount)++;
@@ -358,15 +349,15 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
       if (!isLeaf) {
         rc = CreateDFSPaths(client, kfs, level+1, createdCount);
         if (rc < 0) {
-          fprintf(logFile, "CreateDFSPaths(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+          fprintf(logFile, "CreateDFSPaths(%s) failed with rc=%d\n", client->path_.String(), rc);
           return rc;
         }
       }
     } else {
       //fprintf(logFile, "Creating file [%s]\n", client->path_.actualPath_);
-      rc = kfsClient->Create(client->path_.actualPath_);
+      rc = kfsClient->Create(client->path_.String());
       if (rc < 0) {
-        fprintf(logFile, "Create(%s) failed with rc=%d\n", client->path_.actualPath_, rc);
+        fprintf(logFile, "Create(%s) failed with rc=%d\n", client->path_.String(), rc);
         return rc;
       }
       (*createdCount)++;

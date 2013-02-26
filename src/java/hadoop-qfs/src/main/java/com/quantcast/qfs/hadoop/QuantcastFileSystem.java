@@ -146,6 +146,16 @@ public class QuantcastFileSystem extends FileSystem {
       replication, bufferSize, overwrite, permission.toShort());
   }
 
+  public FSDataOutputStream createNonRecursive(Path file,
+                                   FsPermission permission,
+                                   boolean overwrite, int bufferSize,
+                                   short replication, long blockSize,
+                                   Progressable progress)
+    throws IOException {
+    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
+      replication, bufferSize, overwrite, permission.toShort());
+  }
+
   public FSDataInputStream open(Path path, int bufferSize) throws IOException {
     return qfsImpl.open(makeAbsolute(path).toUri().getPath(), bufferSize);
   }
@@ -161,21 +171,30 @@ public class QuantcastFileSystem extends FileSystem {
 
   // recursively delete the directory and its contents
   public boolean delete(Path path, boolean recursive) throws IOException {
-    Path absolute = makeAbsolute(path);
-    String srep = absolute.toUri().getPath();
-    if (qfsImpl.isFile(srep))
-      return qfsImpl.remove(srep) == 0;
-
-    FileStatus[] dirEntries = listStatus(absolute);
-    if ((!recursive) && (dirEntries != null) && (dirEntries.length != 0)) {
-      throw new IOException("Directory " + path.toString() + " is not empty.");
-    }
-    if (dirEntries != null) {
-      for (int i = 0; i < dirEntries.length; i++) {
-        delete(new Path(absolute, dirEntries[i].getPath()), recursive);
+    final Path absolute = makeAbsolute(path);
+    try {
+      final KfsFileAttr fa   = qfsImpl.fullStat(absolute);
+      final String      srep = absolute.toUri().getPath();
+      if (! fa.isDirectory) {
+        return qfsImpl.remove(srep) == 0;
       }
+      if (recursive) {
+        return qfsImpl.rmdirs(srep) == 0;
+      }
+      boolean notEmptyFlag = fa.fileCount > 0 || fa.dirCount > 0;
+      if (! notEmptyFlag && (fa.fileCount < 0 || fa.dirCount < 0)) {
+        // Backward compatibility: handle the case if sub counts are not
+        // available.
+        final FileStatus[] dirEntries = qfsImpl.readdirplus(absolute);
+        notEmptyFlag = dirEntries != null && dirEntries.length > 0;
+      }
+      if (notEmptyFlag) {
+        throw new IOException("Directory " + path.toString() + " is not empty.");
+      }
+      return qfsImpl.rmdir(srep) == 0;
+    } catch (FileNotFoundException e) {
+      return false;
     }
-    return qfsImpl.rmdir(srep) == 0;
   }
 
   @Deprecated
