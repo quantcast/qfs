@@ -301,13 +301,16 @@ echo "Starting copy test. Test file sizes: $sizes"
 # For RS disable read ahead and set odd buffer size.
 cppidf="cptest${pidsuf}"
 { \
-    cpfromqfsopts='-r 1e6 -w 65537' && \
-    export cpfromqfsopts && \
+#    cptokfsopts='-W 2 -b 32767 -w 32767' && \
+#    export cptokfsopts && \
+    cpfromkfsopts='-r 1e6 -w 65537' && \
+    export cpfromkfsopts && \
     cptest.sh && \
-    cptoqfsopts='-S' && \
-    export cptoqfsopts && \
-    cpfromqfsopts='-r 0 -w 65537' && \
-    export cpfromqfsopts && \
+    mv cptest.log cptest-0.log && \
+    cptokfsopts='-S' && \
+    export cptokfsopts && \
+    cpfromkfsopts='-r 0 -w 65537' && \
+    export cpfromkfsopts && \
     cptest.sh; \
 } > cptest.out 2>&1 &
 cppid=$!
