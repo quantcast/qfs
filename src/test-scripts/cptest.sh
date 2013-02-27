@@ -52,10 +52,10 @@ export PATH
 
 mytime()
 {
-    if [ x"$xtime" != x ]; then
-        $xtime ${1+"$@"}
-    else
+    if [ x"$xtime" = x ]; then
         time ${1+"$@"}
+    else
+        $xtime ${1+"$@"}
     fi
 }
 
@@ -73,7 +73,7 @@ cd "$log" || exit
 
 $kfsshell rm "$dir" > /dev/null 2>&1
 $kfsshell mkdir "$dir" || exit
-sleep 3
+# sleep 3
 
 rseed=$randseed
 for s in $sizes; do
