@@ -230,6 +230,38 @@ public:
         ChunkIdSet& operator=(const ChunkIdSet&);
     };
 
+    class StorageTierInfo
+    {
+    public:
+        StorageTierInfo()
+            : mTier(kKfsSTierUndef),
+              mDeviceCount(0),
+              mNotStableOpenCount(0),
+              mSpaceAvailable(0),
+              mTotalSpace(0)
+            {}
+        kfsSTier_t mTier;
+        int        mDeviceCount;
+        int        mNotStableOpenCount;
+        int64_t    mSpaceAvailable;
+        int64_t    mTotalSpace;
+        StorageTierInfo& operator-=(const StorageTierInfo& info) {
+            mDeviceCount        -= info.mDeviceCount;
+            mNotStableOpenCount -= info.mNotStableOpenCount;
+            mSpaceAvailable     -= info.mSpaceAvailable;
+            mTotalSpace         -= info.mTotalSpace;
+            return *this;
+        }
+        StorageTierInfo& operator+=(const StorageTierInfo& info) {
+            mDeviceCount        += info.mDeviceCount;
+            mNotStableOpenCount += info.mNotStableOpenCount;
+            mSpaceAvailable     += info.mSpaceAvailable;
+            mTotalSpace         += info.mTotalSpace;
+            return *this;
+        }
+    };
+    typedef vector<StorageTierInfo> StorageTiersInfo;
+
     typedef multimap <
         chunkId_t,
         const MetaChunkRequest*,
@@ -832,6 +864,8 @@ protected:
     LostChunkDirs      mLostChunkDirs;
     ChunkDirInfos      mChunkDirInfos;
     const string       mPeerName;
+    StorageTiersInfo   mStorageTiers;
+    StorageTiersInfo   mStorageTiersDelta;
     ChunkServer*       mPrevPtr[kChunkSrvListsCount];
     ChunkServer*       mNextPtr[kChunkSrvListsCount];
 
@@ -930,6 +964,7 @@ protected:
     template <typename T> static T& Mutable(const T& v) {
         return const_cast<T&>(v);
     }
+    void UpdateStorageTiers(const Properties::String* tiers);
 };
 
 } // namespace KFS

@@ -33,8 +33,10 @@
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
+#include "common/RequestParser.h"
 
 #include <openssl/rand.h>
+#include <boost/bind.hpp>
 
 #include <cassert>
 #include <string>
@@ -52,7 +54,9 @@ using std::make_pair;
 using std::pair;
 using std::hex;
 using std::numeric_limits;
+using std::sort;
 using libkfsio::globalNetManager;
+using boost::bind;
 
 static inline time_t TimeNow()
 {
@@ -278,7 +282,9 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mEvacuateByteRate(0.),
       mLostChunkDirs(),
       mChunkDirInfos(),
-      mPeerName(peerName)
+      mPeerName(peerName),
+      mStorageTiers(),
+      mStorageTiersDelta()
 {
     assert(mNetConnection);
     ChunkServersList::Init(*this);
@@ -1151,6 +1157,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
         mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
         mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
+        UpdateStorageTiers(prop.getValue("Storage-tiers"));
         UpdateChunkWritesPerDrive(
             max(0, prop.getValue("Num-writable-chunks", 0)),
                    prop.getValue("Num-wr-drives",       mNumDrives)
@@ -1752,6 +1759,70 @@ ChunkServer::Escape(const char* buf, size_t len)
         }
     }
     return ret;
+}
+
+void
+ChunkServer::UpdateStorageTiers(const Properties::String* tiers)
+{
+    mStorageTiersDelta.clear();
+    if (tiers) {
+        const char*       p        = tiers->GetPtr();
+        const char* const e        = p + tiers->GetSize();
+        kfsSTier_t        prevTier = kKfsSTierMin;
+        bool              sortFlag = false;
+        StorageTierInfo   info;
+        while (p < e &&
+                DecIntParser::Parse(p, e - p, info.mTier) &&
+                DecIntParser::Parse(p, e - p, info.mDeviceCount) &&
+                DecIntParser::Parse(p, e - p, info.mNotStableOpenCount) &&
+                DecIntParser::Parse(p, e - p, info.mSpaceAvailable) &&
+                DecIntParser::Parse(p, e - p, info.mTotalSpace)) {
+            if (info.mTier == kKfsSTierUndef) {
+                continue;
+            }
+            sortFlag = sortFlag ||
+                (info.mTier <= prevTier && ! mStorageTiersDelta.empty());
+            prevTier = info.mTier;
+            mStorageTiersDelta.push_back(info);
+        }
+        // Sort unique keeping the last.
+        if (sortFlag && mStorageTiersDelta.size() > 1) {
+            sort(mStorageTiersDelta.begin(), mStorageTiersDelta.end(),
+                bind(&StorageTierInfo::mTier, _1) <
+                bind(&StorageTierInfo::mTier, _2));
+            StorageTiersInfo::iterator it = mStorageTiersDelta.begin();
+            for (StorageTiersInfo::iterator nit = it;
+                    ++nit != mStorageTiersDelta.end();) {
+                if (it->mTier == nit->mTier) {
+                    *it = *nit;
+                } else {
+                    ++it;
+                    if (it != nit) {
+                        *it = *nit;
+                    }
+                }
+            }
+            mStorageTiersDelta.erase(++it, mStorageTiersDelta.end());
+        }
+    }
+    for (StorageTiersInfo::iterator di = mStorageTiersDelta.begin(),
+            ti = mStorageTiers.begin();
+            di != mStorageTiersDelta.end() || ti != mStorageTiers.end(); ) {
+        if (ti == mStorageTiers.end() ||
+                (di != mStorageTiersDelta.end() && di->mTier < ti->mTier)) {
+            ti = mStorageTiers.insert(ti, *di++);
+            ++ti;
+        } else if (di == mStorageTiersDelta.end() || ti->mTier < di->mTier) {
+            di = mStorageTiersDelta.insert(di, StorageTierInfo());
+            di->mTier = ti->mTier;
+            *di++ -= *ti;
+            ti = mStorageTiers.erase(ti);
+        } else {
+            const StorageTierInfo cur = *di;
+            *di++ -= *ti;
+            *ti++ = cur;
+        }
+    }
 }
 
 } // namespace KFS
