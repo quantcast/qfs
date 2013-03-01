@@ -189,7 +189,9 @@ public:
           stripeSize(0),
           subcount1(0),
           subcount2(0),
-          filesize(0)
+          filesize(0),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMin)
         {}
     BaseFattr(
         FileType  t,
@@ -232,6 +234,8 @@ public:
     //!< size of file: is only a hint; if we don't have the size, the client will
     //!< compute the size whenever needed.
     chunkOff_t      filesize;
+    kfsSTier_t      minSTier;
+    kfsSTier_t      maxSTier;
 
     fid_t id() const { return fid; }    //!< return the owner id
     void setReplication(int16_t val) {

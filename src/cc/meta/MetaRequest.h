@@ -885,6 +885,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int64_t              leaseId;
     chunkOff_t           chunkBlockStart;
     MetaLeaseRelinquish* pendingLeaseRelinquish;
+    kfsSTier_t           minSTier;
+    kfsSTier_t           maxSTier;
     string               responseStr; // Cached response
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
@@ -915,6 +917,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           leaseId(-1),
           chunkBlockStart(-1),
           pendingLeaseRelinquish(0),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax),
           responseStr(),
           clientHost(),
           pathname()

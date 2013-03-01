@@ -112,7 +112,9 @@ public:
           mUsingServerExcludesFlag(false),
           mSortBySpaceUtilizationFlag(false),
           mSortCandidatesByLoadAvgFlag(false),
-          mUseTotalFsSpaceFlag(false)
+          mUseTotalFsSpaceFlag(false),
+          mMinSTier(kKfsSTierMin),
+          mMaxSTier(kKfsSTierMax)
         {}
     void Reset()
     {
@@ -132,10 +134,14 @@ public:
         mServerExcludes.Clear();
     }
     void FindCandidates(
-        bool   forReplicationFlag = false,
-        RackId rackIdToUse        = -1)
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier,
+        bool       forReplicationFlag = false,
+        RackId     rackIdToUse        = -1)
     {
         Reset();
+        mMinSTier                     = minSTier;
+        mMaxSTier                     = maxSTier;
         mForReplicationFlag           = forReplicationFlag;
         mSortBySpaceUtilizationFlag   =
             mLayoutManager.GetSortCandidatesBySpaceUtilizationFlag();
@@ -150,17 +156,25 @@ public:
         FindCandidatesSelf(rackIdToUse);
     }
     void FindCandidatesInRack(
-        RackId rackIdToUse)
-        { FindCandidates(false, rackIdToUse); }
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier,
+        RackId     rackIdToUse)
+        { FindCandidates(minSTier, maxSTier, false, rackIdToUse); }
 
-    void FindCandidatesForReplication()
-        { FindCandidates(true); }
+    void FindCandidatesForReplication(
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier)
+        { FindCandidates(minSTier, maxSTier, true); }
 
     void FindRebalanceCandidates(
-        double maxUtilization,
-        RackId rackIdToUse = -1)
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier,
+        double     maxUtilization,
+        RackId     rackIdToUse = -1)
     {
         Reset();
+        mMinSTier                     = minSTier;
+        mMaxSTier                     = maxSTier;
         mForReplicationFlag           = true;
         mSortBySpaceUtilizationFlag   = true;
         mSortCandidatesByLoadAvgFlag  = false;
@@ -691,6 +705,8 @@ private:
     bool             mSortBySpaceUtilizationFlag;
     bool             mSortCandidatesByLoadAvgFlag;
     bool             mUseTotalFsSpaceFlag;
+    kfsSTier_t       mMinSTier;
+    kfsSTier_t       mMaxSTier;
 
     int64_t Rand(
         int64_t interval)

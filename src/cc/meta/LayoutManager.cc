@@ -4241,8 +4241,7 @@ LayoutManager::AllocateChunk(
             }
         }
     }
-    const bool kForReplicationFlag = false;
-    placement.FindCandidates(kForReplicationFlag, rackIdToUse);
+    placement.FindCandidatesInRack(r->minSTier, r->maxSTier, rackIdToUse);
     size_t numServersPerRack(1);
     if (r->numReplicas > 1) {
         numServersPerRack = placement.GetCandidateRackCount();
@@ -4351,7 +4350,7 @@ LayoutManager::AllocateChunk(
             // racks.
             placement.clear();
             placement.ExcludeServerAndRack(r->servers);
-            placement.FindCandidates(kForReplicationFlag);
+            placement.FindCandidates(r->minSTier, r->maxSTier);
             numServersPerRack = placement.GetCandidateRackCount();
             numServersPerRack = numServersPerRack <= 1 ?
                 (size_t)(r->numReplicas - replicaCnt) :
@@ -7175,7 +7174,8 @@ LayoutManager::ReplicateChunk(
             useServerExcludesFlag = false;
         }
     }
-    placement.FindCandidatesForReplication();
+    const MetaFattr* const fa = clli.GetFattr();
+    placement.FindCandidatesForReplication(fa->minSTier, fa->maxSTier);
     const size_t numRacks = placement.GetCandidateRackCount();
     const size_t numServersPerRack = numRacks <= 1 ?
         (size_t)extraReplicas :
@@ -8816,8 +8816,9 @@ LayoutManager::RebalanceServers()
                     maxUtilization =
                         mMaxSpaceUtilizationThreshold;
                 }
+                const MetaFattr* const fa = entry.GetFattr();
                 placement.FindRebalanceCandidates(
-                    maxUtilization);
+                    fa->minSTier, fa->maxSTier, maxUtilization);
                 if (srvPos < 0) {
                     if (placement.IsUsingRackExcludes()) {
                         continue;
@@ -8843,7 +8844,10 @@ LayoutManager::RebalanceServers()
             }
         } else if (loadPos >= 0) {
             const RackId rackId = srvs[loadPos]->GetRack();
+            const MetaFattr* const fa = entry.GetFattr();
             placement.FindRebalanceCandidates(
+                fa->minSTier,
+                fa->maxSTier,
                 mMinRebalanceSpaceUtilThreshold,
                 rackId
             );

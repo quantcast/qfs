@@ -1546,6 +1546,8 @@ MetaAllocate::handle()
         return;
     }
     permissions = fa;
+    minSTier    = fa->minSTier;
+    maxSTier    = fa->maxSTier;
     int ret;
     if (status == -EEXIST) {
         initialChunkVersion = chunkVersion;
