@@ -114,7 +114,8 @@ public:
           mSortCandidatesByLoadAvgFlag(false),
           mUseTotalFsSpaceFlag(false),
           mMinSTier(kKfsSTierMin),
-          mMaxSTier(kKfsSTierMax)
+          mMaxSTier(kKfsSTierMax),
+          mCurSTier(kKfsSTierMin)
         {}
     void Reset()
     {
@@ -707,6 +708,7 @@ private:
     bool             mUseTotalFsSpaceFlag;
     kfsSTier_t       mMinSTier;
     kfsSTier_t       mMaxSTier;
+    kfsSTier_t       mCurSTier;
 
     int64_t Rand(
         int64_t interval)

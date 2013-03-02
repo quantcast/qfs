@@ -234,22 +234,42 @@ public:
     {
     public:
         StorageTierInfo()
-            : mTier(kKfsSTierUndef),
-              mDeviceCount(0),
+            : mDeviceCount(0),
               mNotStableOpenCount(0),
               mSpaceAvailable(0),
-              mTotalSpace(0)
+              mTotalSpace(0),
+              mAllocSpace(0),
+              mSpaceUtilization(1.0)
             {}
-        kfsSTier_t mTier;
-        int        mDeviceCount;
-        int        mNotStableOpenCount;
-        int64_t    mSpaceAvailable;
-        int64_t    mTotalSpace;
+        void Set(
+            int     deviceCount,
+            int     notStableOpenCount,
+            int64_t spaceAvailable,
+            int64_t totalSpace,
+            int64_t allocSpace = 0)
+        {
+            if (mSpaceAvailable != spaceAvailable ||
+                    mAllocSpace != allocSpace) {
+                mSpaceUtilization = -1;
+            }
+            if (mTotalSpace != totalSpace) {
+                mSpaceUtilization  = -1;
+                mOneOverTotalSpace = -1;
+            }
+            mDeviceCount        = deviceCount;
+            mNotStableOpenCount = notStableOpenCount;
+            mSpaceAvailable     = spaceAvailable;
+            mTotalSpace         = totalSpace;
+        }
+        void Clear()
+            { Set(0, 0, 0, 0); }
         StorageTierInfo& operator-=(const StorageTierInfo& info) {
             mDeviceCount        -= info.mDeviceCount;
             mNotStableOpenCount -= info.mNotStableOpenCount;
             mSpaceAvailable     -= info.mSpaceAvailable;
             mTotalSpace         -= info.mTotalSpace;
+            mSpaceUtilization   = -1;
+            mOneOverTotalSpace  = -1;
             return *this;
         }
         StorageTierInfo& operator+=(const StorageTierInfo& info) {
@@ -257,10 +277,57 @@ public:
             mNotStableOpenCount += info.mNotStableOpenCount;
             mSpaceAvailable     += info.mSpaceAvailable;
             mTotalSpace         += info.mTotalSpace;
+            mSpaceUtilization   = -1;
+            mOneOverTotalSpace  = -1;
+           return *this;
+        }
+        StorageTierInfo& Delta(const StorageTierInfo& cur) {
+            mDeviceCount        = cur.mDeviceCount        - mDeviceCount;
+            mNotStableOpenCount = cur.mNotStableOpenCount - mNotStableOpenCount;
+            mSpaceAvailable     = cur.mSpaceAvailable     - mSpaceAvailable;
+            mTotalSpace         = cur.mTotalSpace         - mTotalSpace;
+            mSpaceUtilization   = -1;
+            mOneOverTotalSpace  = -1;
             return *this;
         }
+        double GetSpaceUtilization() const {
+            if (mSpaceUtilization >= 0) {
+                return mSpaceUtilization;
+            }
+            const int64_t used = mTotalSpace - mSpaceAvailable - mAllocSpace;
+            if (used <= 0 || mTotalSpace <= 0) {
+                Mutable(*this).mSpaceUtilization = 1.;
+                return mSpaceUtilization;
+            }
+            if (mOneOverTotalSpace < 0) {
+                Mutable(mOneOverTotalSpace) = double(1) / (double)mTotalSpace;
+            }
+            Mutable(mSpaceUtilization) = (double)used * mOneOverTotalSpace;
+            return mSpaceUtilization;
+        }
+        void UpdateAllocSpace(int64_t delta) {
+            if (delta == 0) {
+                return;
+            }
+            mSpaceUtilization = -1;
+            mAllocSpace += delta;
+            if (mAllocSpace < 0) {
+                mAllocSpace = 0;
+            }
+        }
+    private:
+        int     mDeviceCount;
+        int     mNotStableOpenCount;
+        int64_t mSpaceAvailable;
+        int64_t mTotalSpace;
+        int64_t mAllocSpace;
+        double  mSpaceUtilization;
+        double  mOneOverTotalSpace;
+
+        template <typename T> static T& Mutable(const T& v) {
+            return const_cast<T&>(v);
+        }
     };
-    typedef vector<StorageTierInfo> StorageTiersInfo;
 
     typedef multimap <
         chunkId_t,
@@ -537,6 +604,12 @@ public:
             GetFsSpaceUtilization() :
             GetTotalSpaceUtilization()
         );
+    }
+    double GetSTierSpaceUtilization(kfsSTier_t tier) const {
+        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
+            return 1.0;
+        }
+        return mStorageTiersInfo[tier].GetSpaceUtilization();
     }
     double GetTotalSpaceUtilization() const {
         if (mTotalSpace <= 0) {
@@ -864,8 +937,8 @@ protected:
     LostChunkDirs      mLostChunkDirs;
     ChunkDirInfos      mChunkDirInfos;
     const string       mPeerName;
-    StorageTiersInfo   mStorageTiers;
-    StorageTiersInfo   mStorageTiersDelta;
+    StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
+    StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
     ChunkServer*       mPrevPtr[kChunkSrvListsCount];
     ChunkServer*       mNextPtr[kChunkSrvListsCount];
 

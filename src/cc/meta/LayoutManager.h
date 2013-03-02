@@ -392,13 +392,15 @@ typedef map <chunkId_t, PendingMakeStableEntry,
 class RackInfo
 {
 public:
-    typedef ChunkServer::RackId RackId;
-    typedef double              RackWeight;
-    typedef CSMap::Servers      Servers;
+    typedef ChunkServer::RackId          RackId;
+    typedef ChunkServer::StorageTierInfo StorageTierInfo;
+    typedef double                       RackWeight;
+    typedef CSMap::Servers               Servers;
 
-    RackInfo(RackId                id,
-         RackWeight            weight,
-         const ChunkServerPtr& server)
+    RackInfo(
+        RackId                id,
+        RackWeight            weight,
+        const ChunkServerPtr& server)
         : mRackId(id),
           mPossibleCandidatesCount(0),
           mRackWeight(1.0),
@@ -437,10 +439,11 @@ public:
         return (int64_t)(mRackWeight * mPossibleCandidatesCount);
     }
 private:
-    RackId     mRackId;
-    int        mPossibleCandidatesCount;
-    RackWeight mRackWeight;
-    Servers    mServers;
+    RackId          mRackId;
+    int             mPossibleCandidatesCount;
+    RackWeight      mRackWeight;
+    Servers         mServers;
+    StorageTierInfo mStorageTierInfo[kKfsSTierCount];
 };
 
 typedef map<
@@ -1093,6 +1096,7 @@ public:
         }
         SetUserAndGroupSelf(req, user, group);
     }
+    typedef ChunkServer::StorageTierInfo StorageTierInfo;
 protected:
     typedef vector<
         int,
@@ -1733,6 +1737,7 @@ protected:
     Random                    mRandom;
     const Random::result_type mRandMin;
     const uint64_t            mRandInterval;
+    StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
 
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk

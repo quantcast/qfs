@@ -283,8 +283,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mLostChunkDirs(),
       mChunkDirInfos(),
       mPeerName(peerName),
-      mStorageTiers(),
-      mStorageTiersDelta()
+      mStorageTiersInfo(),
+      mStorageTiersInfoDelta()
 {
     assert(mNetConnection);
     ChunkServersList::Init(*this);
@@ -425,13 +425,13 @@ ChunkServer::PutHelloBytes(MetaHello* req)
         return;
     }
     if (sHelloBytesCommitted < req->contentLength) {
-        panic("invalid hello request byte counter", false);
+        panic("invalid hello request byte counter");
         sHelloBytesCommitted = 0;
     } else {
         sHelloBytesCommitted -= req->contentLength;
     }
     if (sHelloBytesInFlight < req->bytesReceived) {
-        panic("invalid hello received byte counter", false);
+        panic("invalid hello received byte counter");
         sHelloBytesInFlight = 0;
     } else {
         sHelloBytesInFlight -= req->bytesReceived;
@@ -1324,7 +1324,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
                     r
                 ))
             ))).second) {
-        panic("duplicate op sequence number", false);
+        panic("duplicate op sequence number");
     }
     if (r->op == META_CHUNK_REPLICATE) {
         KFS_LOG_STREAM_INFO << r->Show() << KFS_LOG_EOM;
@@ -1569,7 +1569,7 @@ ChunkServer::TimeoutOps()
         DispatchedReqs::iterator const dri =
             mDispatchedReqs.find(it->second->opSeqno);
         if (dri == mDispatchedReqs.end()) {
-            panic("invalid timeout queue entry", false);
+            panic("invalid timeout queue entry");
         }
         sChunkOpsInFlight.erase(dri->second.second);
         mDispatchedReqs.erase(dri);
@@ -1764,64 +1764,48 @@ ChunkServer::Escape(const char* buf, size_t len)
 void
 ChunkServer::UpdateStorageTiers(const Properties::String* tiers)
 {
-    mStorageTiersDelta.clear();
+    bool clearFlags[kKfsSTierCount];
+    for (kfsSTier_t i = kKfsSTierMin; i < kKfsSTierMax; i++) {
+        mStorageTiersInfoDelta[i] = mStorageTiersInfo[i];
+        clearFlags[i]             = true;
+    }
     if (tiers) {
-        const char*       p        = tiers->GetPtr();
-        const char* const e        = p + tiers->GetSize();
-        kfsSTier_t        prevTier = kKfsSTierMin;
-        bool              sortFlag = false;
-        StorageTierInfo   info;
+        kfsSTier_t tier;
+        int        deviceCount;
+        int        notStableOpenCount;
+        int64_t    spaceAvailable;
+        int64_t    totalSpace;
+        const char*       p = tiers->GetPtr();
+        const char* const e = p + tiers->GetSize();
         while (p < e &&
-                DecIntParser::Parse(p, e - p, info.mTier) &&
-                DecIntParser::Parse(p, e - p, info.mDeviceCount) &&
-                DecIntParser::Parse(p, e - p, info.mNotStableOpenCount) &&
-                DecIntParser::Parse(p, e - p, info.mSpaceAvailable) &&
-                DecIntParser::Parse(p, e - p, info.mTotalSpace)) {
-            if (info.mTier == kKfsSTierUndef) {
+                DecIntParser::Parse(p, e - p, tier) &&
+                DecIntParser::Parse(p, e - p, deviceCount) &&
+                DecIntParser::Parse(p, e - p, notStableOpenCount) &&
+                DecIntParser::Parse(p, e - p, spaceAvailable) &&
+                DecIntParser::Parse(p, e - p, totalSpace)) {
+            if (tier == kKfsSTierUndef) {
                 continue;
             }
-            sortFlag = sortFlag ||
-                (info.mTier <= prevTier && ! mStorageTiersDelta.empty());
-            prevTier = info.mTier;
-            mStorageTiersDelta.push_back(info);
-        }
-        // Sort unique keeping the last.
-        if (sortFlag && mStorageTiersDelta.size() > 1) {
-            sort(mStorageTiersDelta.begin(), mStorageTiersDelta.end(),
-                bind(&StorageTierInfo::mTier, _1) <
-                bind(&StorageTierInfo::mTier, _2));
-            StorageTiersInfo::iterator it = mStorageTiersDelta.begin();
-            for (StorageTiersInfo::iterator nit = it;
-                    ++nit != mStorageTiersDelta.end();) {
-                if (it->mTier == nit->mTier) {
-                    *it = *nit;
-                } else {
-                    ++it;
-                    if (it != nit) {
-                        *it = *nit;
-                    }
-                }
+            if (tier < kKfsSTierMin) {
+                tier = kKfsSTierMin;
             }
-            mStorageTiersDelta.erase(++it, mStorageTiersDelta.end());
+            if (tier > kKfsSTierMax) {
+                tier = kKfsSTierMax;
+            }
+            mStorageTiersInfo[tier].Set(
+                deviceCount,
+                notStableOpenCount,
+                spaceAvailable,
+                totalSpace
+            );
+            clearFlags[tier] = false;
         }
     }
-    for (StorageTiersInfo::iterator di = mStorageTiersDelta.begin(),
-            ti = mStorageTiers.begin();
-            di != mStorageTiersDelta.end() || ti != mStorageTiers.end(); ) {
-        if (ti == mStorageTiers.end() ||
-                (di != mStorageTiersDelta.end() && di->mTier < ti->mTier)) {
-            ti = mStorageTiers.insert(ti, *di++);
-            ++ti;
-        } else if (di == mStorageTiersDelta.end() || ti->mTier < di->mTier) {
-            di = mStorageTiersDelta.insert(di, StorageTierInfo());
-            di->mTier = ti->mTier;
-            *di++ -= *ti;
-            ti = mStorageTiers.erase(ti);
-        } else {
-            const StorageTierInfo cur = *di;
-            *di++ -= *ti;
-            *ti++ = cur;
+    for (kfsSTier_t i = kKfsSTierMin; i < kKfsSTierMax; i++) {
+        if (clearFlags[i]) {
+            mStorageTiersInfo[i].Clear();
         }
+        mStorageTiersInfoDelta[i].Delta(mStorageTiersInfo[i]);
     }
 }
 

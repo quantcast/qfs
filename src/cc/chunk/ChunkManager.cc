@@ -1745,6 +1745,12 @@ ChunkManager::SetStorageTiers(const Properties& props)
         if (tier == kKfsSTierUndef) {
             continue;
         }
+        if (tier < kKfsSTierMin) {
+            tier = kKfsSTierMin;
+        }
+        if (tier > kKfsSTierMax) {
+            tier = kKfsSTierMax;
+        }
         for (ChunkDirs::iterator it = mChunkDirs.begin();
                 it < mChunkDirs.end();
                 ++it) {
