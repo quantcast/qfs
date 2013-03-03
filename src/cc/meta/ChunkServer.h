@@ -782,9 +782,6 @@ public:
     const ChunkDirInfos& GetChunkDirInfos() const {
         return mChunkDirInfos;
     }
-    const StorageTierInfo* GetStorageTiersInfoDelta() const {
-        return mStorageTiersInfoDelta;
-    }
     static void SetMaxHelloBufferBytes(int64_t maxBytes) {
         sMaxHelloBufferBytes = maxBytes;
     }

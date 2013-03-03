@@ -212,7 +212,7 @@ ChunkServer::UpdateChunkWritesPerDrive(
     mNumChunkWrites    = numChunkWrites;
     mNumWritableDrives = numWritableDrives;
     gLayoutManager.UpdateChunkWritesPerDrive(*this,
-        deltaChunkWrites, deltaWritableDrives);
+        deltaChunkWrites, deltaWritableDrives, mStorageTiersInfoDelta);
 }
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
@@ -587,7 +587,7 @@ ChunkServer::ForceDown()
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
     UpdateStorageTiers(0);
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta);
+    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
     mSelfPtr.reset(); // Unref / delete self
@@ -605,6 +605,9 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
     const int64_t delta = -mLoadAvg;
     mLoadAvg = 0;
     const bool kCanBeCandidateFlag = false;
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mStorageTiersInfoDelta[i].Clear();
+    }
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, kCanBeCandidateFlag);
     mCanBeChunkMaster = flag;
     mLoadAvg = -delta;
@@ -645,7 +648,7 @@ ChunkServer::Error(const char* errorMsg)
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
     UpdateStorageTiers(0);
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta);
+    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
     assert(sChunkDirsCount >= mChunkDirInfos.size());
@@ -1229,7 +1232,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         }
         const int64_t delta = loadAvg - mLoadAvg;
         mLoadAvg = loadAvg;
-        gLayoutManager.UpdateSrvLoadAvg(*this, delta);
+        gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
         if (sHeartbeatLogInterval > 0 &&
             mLastHeartBeatLoggedTime +
                 sHeartbeatLogInterval <= mLastHeard) {
@@ -1353,6 +1356,7 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 int
 ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId)
 {
+    // FIXME -- update tier
     mAllocSpace += CHUNKSIZE;
     UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
     Enqueue(new MetaChunkAllocate(
@@ -1365,6 +1369,7 @@ ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId)
 int
 ChunkServer::DeleteChunk(chunkId_t chunkId)
 {
+    // FIXME -- update tier
     mAllocSpace = max((int64_t)0, mAllocSpace - (int64_t)CHUNKSIZE);
     mChunksToEvacuate.Erase(chunkId);
     Enqueue(new MetaChunkDelete(NextSeq(), shared_from_this(), chunkId));
@@ -1423,6 +1428,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         r->srcLocation.port = sMetaClientPort;
     }
     mNumChunkWriteReplications++;
+    // FIXME -- update tier
     UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
     mAllocSpace += CHUNKSIZE;
     Enqueue(r, sReplicationTimeout);

@@ -83,6 +83,7 @@ using std::iter_swap;
 using std::setw;
 using std::setfill;
 using std::hex;
+using std::lower_bound;
 using boost::mem_fn;
 using boost::bind;
 using boost::ref;
@@ -2388,21 +2389,19 @@ LayoutManager::AddNewServer(MetaHello *r)
     // Ensure that rack exists before invoking UpdateSrvLoadAvg(), as it
     // can update rack possible allocation candidates count.
     if (rackId >= 0) {
-        RackInfos::iterator const rackIter = FindRack(rackId);
-        if (rackIter != mRacks.end()) {
+        RackInfos::iterator const rackIter = lower_bound(
+            mRacks.begin(), mRacks.end(),
+            RackInfoRackIdLess::sUnused,RackInfoRackIdLess(rackId)
+        );
+        if (rackIter != mRacks.end() && rackIter->id() == rackId) {
             rackIter->addServer(r->server);
         } else {
-            RackWeights::const_iterator const
-                it = mRackWeights.find(rackId);
-            mRacks.push_back(RackInfo(
+            RackWeights::const_iterator const it = mRackWeights.find(rackId);
+            mRacks.insert(rackIter, RackInfo(
                 rackId,
-                it != mRackWeights.end() ?
-                    it->second : double(1),
+                it != mRackWeights.end() ? it->second : double(1),
                 r->server
             ));
-            sort(mRacks.begin(), mRacks.end(),
-                bind(&RackInfo::id, _1) <  bind(&RackInfo::id, _2)
-            );
         }
     } else {
         KFS_LOG_STREAM_INFO << srvId <<
@@ -4062,7 +4061,8 @@ LayoutManager::IsCandidateServer(
 
 void
 LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
-    bool canBeCandidateFlag /* = true */)
+    bool canBeCandidateFlag /* = true */,
+    const LayoutManager::StorageTierInfo* tiersDelta)
 {
     mUpdateCSLoadAvgFlag      = true;
     mUpdatePlacementScaleFlag = true;
@@ -4091,8 +4091,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         (isPossibleCandidate ? 1 : -1);
     RackInfos::iterator const rackIter = FindRack(srv.GetRack());
     if (rackIter != mRacks.end()) {
-        rackIter->updatePossibleCandidatesCount(inc,
-            srv.GetStorageTiersInfoDelta());
+        rackIter->updatePossibleCandidatesCount(inc, tiersDelta);
     }
     if (inc == 0) {
         return;
@@ -4123,7 +4122,8 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
 
 void
 LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
-    int deltaNumChunkWrites, int deltaNumWritableDrives)
+    int deltaNumChunkWrites, int deltaNumWritableDrives,
+    const LayoutManager::StorageTierInfo* tiersDelta)
 {
     mTotalChunkWrites    += deltaNumChunkWrites;
     mTotalWritableDrives += deltaNumWritableDrives;
@@ -4143,14 +4143,16 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
         mMaxWritesPerDriveThreshold = max(mMinWritesPerDrive,
             (int)(mTotalChunkWrites * mTotalWritableDrivesMult));
     }
-    const StorageTierInfo* const stid = srv.GetStorageTiersInfoDelta();
+    if (! tiersDelta) {
+        return;
+    }
     for (size_t i = 0; i < kKfsSTierCount; i++) {
-        if (stid[i].GetDeviceCount() != 0) {
+        if (tiersDelta[i].GetDeviceCount() != 0) {
             mTiersTotalWritableDrivesMult[i] = mTotalWritableDrives > 0 ?
                 mMaxWritesPerDriveRatio / mTotalWritableDrives : 0.;
         }
         StorageTierInfo& info = mStorageTierInfo[i];
-        info += stid[i];
+        info += tiersDelta[i];
         if (info.GetDeviceCount() <= 0) {
             mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
             info.Clear();
@@ -9616,6 +9618,6 @@ LayoutManager::RebalanceCtrs::Show(
     return os;
 }
 
-RackInfo LayoutManager::RackInfoRackIdLess::sUnused;
+const RackInfo LayoutManager::RackInfoRackIdLess::sUnused;
 
 } // namespace KFS

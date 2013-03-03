@@ -446,6 +446,9 @@ public:
     void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid) {
         mPossibleCandidatesCount += delta;
         assert(mPossibleCandidatesCount >= 0);
+        if (! sid) {
+            return;
+        }
         for (size_t i = 0; i < kKfsSTierCount; i++) {
             mStorageTierInfo[i] += sid[i];
         }
@@ -725,9 +728,10 @@ ChunkRecoveryInfo()
 class LayoutManager : public ITimeout
 {
 public:
-    typedef CSMap::Servers          Servers;
-    typedef ChunkServer::ChunkIdSet ChunkIdSet;
-    typedef RackInfo::RackId        RackId;
+    typedef CSMap::Servers               Servers;
+    typedef ChunkServer::ChunkIdSet      ChunkIdSet;
+    typedef RackInfo::RackId             RackId;
+    typedef ChunkServer::StorageTierInfo StorageTierInfo;
 
     LayoutManager();
 
@@ -1046,7 +1050,7 @@ public:
     bool IsRetireOnCSRestart() const
         { return mRetireOnCSRestartFlag; }
     void UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
-        bool canBeCandidateFlag = true);
+        bool canBeCandidateFlag = true, const StorageTierInfo* stiersDelta = 0);
     int16_t GetMaxReplicasPerFile() const
         { return mMaxReplicasPerFile; }
     int16_t GetMaxReplicasPerRSFile() const
@@ -1086,7 +1090,8 @@ public:
         { return mRacks; }
     int64_t Rand(int64_t interval);
     void UpdateChunkWritesPerDrive(ChunkServer& srv,
-        int deltaNumChunkWrites, int deltaNumWritableDrives);
+        int deltaNumChunkWrites, int deltaNumWritableDrives,
+        const StorageTierInfo* tiersDelta);
 
     // Unix style permissions
     kfsUid_t GetDefaultUser() const
@@ -1128,7 +1133,6 @@ public:
         }
         SetUserAndGroupSelf(req, user, group);
     }
-    typedef ChunkServer::StorageTierInfo StorageTierInfo;
     template<typename T> static
     T FindRackT(T first, T last, RackId id) {
         T const it = lower_bound(first, last,
@@ -1144,7 +1148,7 @@ protected:
             {}
         bool operator()(const RackInfo& l, const RackInfo& /* r */) const
             { return (l.id() < id); }
-        static RackInfo sUnused;
+        static const RackInfo sUnused;
     private:
         const RackId id;
     };
