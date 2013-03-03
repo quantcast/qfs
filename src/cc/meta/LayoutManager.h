@@ -62,6 +62,7 @@
 #include <string.h>
 
 #include <boost/random.hpp>
+#include <boost/bind.hpp>
 
 class QCIoBufferPool;
 namespace KFS
@@ -80,6 +81,8 @@ using std::ostream;
 using std::ostringstream;
 using std::find;
 using std::ifstream;
+using std::lower_bound;
+using boost::bind;
 using libkfsio::globalNetManager;
 
 /// Model for leases: metaserver assigns write leases to chunkservers;
@@ -397,6 +400,16 @@ public:
     typedef double                       RackWeight;
     typedef CSMap::Servers               Servers;
 
+    RackInfo()
+        : mRackId(-1),
+          mPossibleCandidatesCount(0),
+          mRackWeight(1.0),
+          mServers()
+    {
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTierCandidateCount[i] = 0;
+        }
+    }
     RackInfo(
         RackId                id,
         RackWeight            weight,
@@ -405,7 +418,12 @@ public:
           mPossibleCandidatesCount(0),
           mRackWeight(1.0),
           mServers()
-        { RackInfo::addServer(server); }
+    {
+        RackInfo::addServer(server);
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTierCandidateCount[i] = 0;
+        }
+    }
     RackId id() const {
         return mRackId;
     }
@@ -425,9 +443,17 @@ public:
     int getPossibleCandidatesCount() const {
         return mPossibleCandidatesCount;
     }
-    void updatePossibleCandidatesCount(int delta) {
+    void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid) {
         mPossibleCandidatesCount += delta;
         assert(mPossibleCandidatesCount >= 0);
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mStorageTierInfo[i] += sid[i];
+        }
+    }
+    void updatePossibleCandidatesCount(kfsSTier_t tier, int delta) {
+        mTierCandidateCount[tier] += delta;
+        assert(tier >= kKfsSTierMin && tier <= kKfsSTierMax &&
+            mTierCandidateCount[tier] >= 0);
     }
     RackWeight getWeight() const {
         return mRackWeight;
@@ -438,11 +464,15 @@ public:
     int64_t getWeightedPossibleCandidatesCount() const {
         return (int64_t)(mRackWeight * mPossibleCandidatesCount);
     }
+    int64_t getWeightedPossibleCandidatesCount(kfsSTier_t tier) const {
+        return (int64_t)(mRackWeight * mTierCandidateCount[tier]);
+    }
 private:
     RackId          mRackId;
     int             mPossibleCandidatesCount;
     RackWeight      mRackWeight;
     Servers         mServers;
+    int             mTierCandidateCount[kKfsSTierCount];
     StorageTierInfo mStorageTierInfo[kKfsSTierCount];
 };
 
@@ -1030,8 +1060,10 @@ public:
         { return mReadDirLimit; }
     void ChangeIoBufPending(int64_t delta)
         { SyncAddAndFetch(mIoBufPending, delta); }
-    bool IsCandidateServer(const ChunkServer& c,
-        double writableChunksThresholdRatio = 1.0);
+    bool IsCandidateServer(
+        const ChunkServer& c,
+        kfsSTier_t         tier                         = kKfsSTierUndef,
+        double             writableChunksThresholdRatio = 1.0);
     bool GetPanicOnInvalidChunkFlag() const
         { return mPanicOnInvalidChunkFlag; }
 
@@ -1097,7 +1129,25 @@ public:
         SetUserAndGroupSelf(req, user, group);
     }
     typedef ChunkServer::StorageTierInfo StorageTierInfo;
+    template<typename T> static
+    T FindRackT(T first, T last, RackId id) {
+        T const it = lower_bound(first, last,
+            RackInfoRackIdLess::sUnused, RackInfoRackIdLess(id));
+        return ((it == last || it->id() != id) ? last : it);
+    }
 protected:
+    class RackInfoRackIdLess
+    {
+    public:
+        RackInfoRackIdLess(RackId v)
+            : id(v)
+            {}
+        bool operator()(const RackInfo& l, const RackInfo& /* r */) const
+            { return (l.id() < id); }
+        static RackInfo sUnused;
+    private:
+        const RackId id;
+    };
     typedef vector<
         int,
         StdAllocator<int>
@@ -1738,6 +1788,8 @@ protected:
     const Random::result_type mRandMin;
     const uint64_t            mRandInterval;
     StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
+    int                       mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
+    double                    mTiersTotalWritableDrivesMult[kKfsSTierCount];
 
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk
@@ -1842,7 +1894,7 @@ protected:
         bool deleteRetiringFlag = false);
     void DeleteChunk(fid_t fid, chunkId_t chunkId, const Servers& servers);
     void UpdateGoodCandidateLoadAvg();
-    bool CanBeCandidateServer(const ChunkServer& c) const;
+    bool CanBeCandidateServer(const ChunkServer& c, kfsSTier_t tier) const;
     inline static CSMap::Entry& GetCsEntry(MetaChunkInfo& chunkInfo);
     inline static CSMap::Entry* GetCsEntry(MetaChunkInfo* chunkInfo);
     bool CanBeRecovered(
@@ -1867,6 +1919,12 @@ protected:
         istream& fs, T OT::* map);
     void SetUserAndGroupSelf(const MetaRequest& req,
         kfsUid_t& user, kfsGid_t& group);
+    RackInfos::iterator FindRack(RackId id) {
+        return FindRackT(mRacks.begin(), mRacks.end(), id);
+    }
+    RackInfos::const_iterator FindRack(RackId id) const {
+        return FindRackT(mRacks.begin(), mRacks.end(), id);
+    }
 };
 
 extern LayoutManager& gLayoutManager;

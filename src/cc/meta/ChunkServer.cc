@@ -213,7 +213,6 @@ ChunkServer::UpdateChunkWritesPerDrive(
     mNumWritableDrives = numWritableDrives;
     gLayoutManager.UpdateChunkWritesPerDrive(*this,
         deltaChunkWrites, deltaWritableDrives);
-
 }
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
@@ -294,6 +293,9 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
     mNetConnection->SetMaxReadAhead(kMaxReadAhead);
     sChunkServerCount++;
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mCanBeCandidateServerFlags[i] = false;
+    }
     KFS_LOG_STREAM_INFO <<
         "new ChunkServer " << (const void*)this << " " <<
         GetPeerName() <<
@@ -584,6 +586,7 @@ ChunkServer::ForceDown()
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    UpdateStorageTiers(0);
     gLayoutManager.UpdateSrvLoadAvg(*this, delta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -641,6 +644,7 @@ ChunkServer::Error(const char* errorMsg)
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    UpdateStorageTiers(0);
     gLayoutManager.UpdateSrvLoadAvg(*this, delta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -1085,6 +1089,8 @@ ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
     if (op.usedSpace >= 0) {
         mUsedSpace = op.usedSpace;
     }
+#if 0
+    // FIXME
     if (op.numWritableDrives >= 0) {
         UpdateChunkWritesPerDrive(
             mNumChunkWrites, op.numWritableDrives);
@@ -1094,6 +1100,7 @@ ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
         UpdateChunkWritesPerDrive(
             mNumChunkWrites, min(mNumWritableDrives, mNumDrives));
     }
+#endif
     if (op.numEvacuateInFlight == 0) {
         mChunksToEvacuate.Clear();
                 mEvacuateCnt = 0;
@@ -1157,11 +1164,11 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
         mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
         mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
-        UpdateStorageTiers(prop.getValue("Storage-tiers"));
-        UpdateChunkWritesPerDrive(
-            max(0, prop.getValue("Num-writable-chunks", 0)),
-                   prop.getValue("Num-wr-drives",       mNumDrives)
-        );
+        const int numWrChunks = prop.getValue("Num-writable-chunks", 0);
+        const int numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        UpdateStorageTiers(prop.getValue("Storage-tiers"),
+            numWrDrives, numWrChunks);
+        UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);
         if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();
         }
@@ -1762,10 +1769,11 @@ ChunkServer::Escape(const char* buf, size_t len)
 }
 
 void
-ChunkServer::UpdateStorageTiers(const Properties::String* tiers)
+ChunkServer::UpdateStorageTiers(const Properties::String* tiers,
+    int deviceCount, int writableChunkCount)
 {
     bool clearFlags[kKfsSTierCount];
-    for (kfsSTier_t i = kKfsSTierMin; i < kKfsSTierMax; i++) {
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
         mStorageTiersInfoDelta[i] = mStorageTiersInfo[i];
         clearFlags[i]             = true;
     }
@@ -1800,8 +1808,18 @@ ChunkServer::UpdateStorageTiers(const Properties::String* tiers)
             );
             clearFlags[tier] = false;
         }
+    } else {
+        // Backward compatibility: no storage tiers in the heartbeat.
+        const kfsSTier_t tier = kKfsSTierMax;
+        mStorageTiersInfo[tier].Set(
+            deviceCount,
+            writableChunkCount,
+            min(mUsedSpace, mTotalFsSpace),
+            mTotalFsSpace
+        );
+        clearFlags[tier] = false;
     }
-    for (kfsSTier_t i = kKfsSTierMin; i < kKfsSTierMax; i++) {
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
         if (clearFlags[i]) {
             mStorageTiersInfo[i].Clear();
         }

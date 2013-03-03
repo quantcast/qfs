@@ -261,6 +261,18 @@ public:
             mSpaceAvailable     = spaceAvailable;
             mTotalSpace         = totalSpace;
         }
+        int GetDeviceCount() const {
+            return mDeviceCount;
+        }
+        int GetNotStableOpenCount() const {
+            return mNotStableOpenCount;
+        }
+        int64_t GetSpaceAvailable() const {
+            return mSpaceAvailable;
+        }
+        int64_t GetTotalSpace() const {
+            return mTotalSpace;
+        }
         void Clear()
             { Set(0, 0, 0, 0); }
         StorageTierInfo& operator-=(const StorageTierInfo& info) {
@@ -287,7 +299,9 @@ public:
             mSpaceAvailable     = cur.mSpaceAvailable     - mSpaceAvailable;
             mTotalSpace         = cur.mTotalSpace         - mTotalSpace;
             mSpaceUtilization   = -1;
-            mOneOverTotalSpace  = -1;
+            if (mTotalSpace != 0) {
+                mOneOverTotalSpace  = -1;
+            }
             return *this;
         }
         double GetSpaceUtilization() const {
@@ -597,6 +611,31 @@ public:
         return max(mUsedSpace, mTotalFsSpace - GetFreeFsSpace());
     }
 
+    int GetDeviceCount(kfsSTier_t tier) const {
+        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
+            return 0;
+        }
+        return mStorageTiersInfo[tier].GetDeviceCount();
+    }
+    int GetNotStableOpenCount(kfsSTier_t tier) const {
+        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
+            return 0;
+        }
+        return mStorageTiersInfo[tier].GetNotStableOpenCount();
+    }
+    int64_t GetStorageTierAvailSpace(kfsSTier_t tier) const {
+        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
+            return 0;
+        }
+        return mStorageTiersInfo[tier].GetSpaceAvailable();
+    }
+    double GetStorageTierSpaceUtilization(kfsSTier_t tier) const {
+        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
+            return 1.0;
+        }
+        return mStorageTiersInfo[tier].GetSpaceUtilization();
+    }
+
     /// Return an estimate of disk space utilization on this server.
     /// The estimate is between [0..1]
     double GetSpaceUtilization(bool useFsTotalSpaceFlag) const {
@@ -604,12 +643,6 @@ public:
             GetFsSpaceUtilization() :
             GetTotalSpaceUtilization()
         );
-    }
-    double GetSTierSpaceUtilization(kfsSTier_t tier) const {
-        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
-            return 1.0;
-        }
-        return mStorageTiersInfo[tier].GetSpaceUtilization();
     }
     double GetTotalSpaceUtilization() const {
         if (mTotalSpace <= 0) {
@@ -691,6 +724,13 @@ public:
     bool GetCanBeCandidateServerFlag() const {
         return mCanBeCandidateServerFlag;
     }
+    bool GetCanBeCandidateServerFlag(kfsSTier_t tier) const {
+        return (tier <= kKfsSTierMin && tier <= kKfsSTierMax &&
+            mCanBeCandidateServerFlags[tier]);
+    }
+    void SetCanBeCandidateServerFlag(kfsSTier_t tier, bool flag) {
+        mCanBeCandidateServerFlags[tier] = flag;
+    }
     void SetCanBeCandidateServerFlag(bool flag) {
         mCanBeCandidateServerFlag = flag;
     }
@@ -741,6 +781,9 @@ public:
     }
     const ChunkDirInfos& GetChunkDirInfos() const {
         return mChunkDirInfos;
+    }
+    const StorageTierInfo* GetStorageTiersInfoDelta() const {
+        return mStorageTiersInfoDelta;
     }
     static void SetMaxHelloBufferBytes(int64_t maxBytes) {
         sMaxHelloBufferBytes = maxBytes;
@@ -937,6 +980,7 @@ protected:
     LostChunkDirs      mLostChunkDirs;
     ChunkDirInfos      mChunkDirInfos;
     const string       mPeerName;
+    bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
     ChunkServer*       mPrevPtr[kChunkSrvListsCount];
@@ -1037,7 +1081,8 @@ protected:
     template <typename T> static T& Mutable(const T& v) {
         return const_cast<T&>(v);
     }
-    void UpdateStorageTiers(const Properties::String* tiers);
+    void UpdateStorageTiers(const Properties::String* tiers,
+        int deviceCount = 0, int writableChunkCount = 0);
 };
 
 } // namespace KFS

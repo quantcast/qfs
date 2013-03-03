@@ -1333,6 +1333,10 @@ LayoutManager::LayoutManager() :
     globals().counterManager.AddCounter(mTotalReplicationStats);
     globals().counterManager.AddCounter(mFailedReplicationStats);
     globals().counterManager.AddCounter(mStaleChunkCount);
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
+        mTiersTotalWritableDrivesMult[i]    = 0.;
+    }
 }
 
 LayoutManager::~LayoutManager()
@@ -2384,9 +2388,7 @@ LayoutManager::AddNewServer(MetaHello *r)
     // Ensure that rack exists before invoking UpdateSrvLoadAvg(), as it
     // can update rack possible allocation candidates count.
     if (rackId >= 0) {
-        RackInfos::iterator const rackIter = find_if(
-            mRacks.begin(), mRacks.end(),
-            bind(&RackInfo::id, _1) == rackId);
+        RackInfos::iterator const rackIter = FindRack(rackId);
         if (rackIter != mRacks.end()) {
             rackIter->addServer(r->server);
         } else {
@@ -2398,6 +2400,9 @@ LayoutManager::AddNewServer(MetaHello *r)
                     it->second : double(1),
                 r->server
             ));
+            sort(mRacks.begin(), mRacks.end(),
+                bind(&RackInfo::id, _1) <  bind(&RackInfo::id, _2)
+            );
         }
     } else {
         KFS_LOG_STREAM_INFO << srvId <<
@@ -3762,9 +3767,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     if (! validFlag) {
         return;
     }
-    RackInfos::iterator const rackIter = find_if(
-        mRacks.begin(), mRacks.end(),
-        bind(&RackInfo::id, _1) == server->GetRack());
+    RackInfos::iterator const rackIter = FindRack(server->GetRack());
     if (rackIter != mRacks.end()) {
         rackIter->removeServer(server);
         if (rackIter->getServers().empty()) {
@@ -4014,28 +4017,43 @@ LayoutManager::UpdateGoodCandidateLoadAvg()
 }
 
 bool
-LayoutManager::CanBeCandidateServer(const ChunkServer& c) const
+LayoutManager::CanBeCandidateServer(
+    const ChunkServer& c,
+    kfsSTier_t         tier) const
 {
     return (
-        c.GetAvailSpace() >= mChunkAllocMinAvailSpace &&
+        (tier == kKfsSTierUndef ?
+            c.GetAvailSpace() :
+            c.GetStorageTierAvailSpace(tier)
+        ) >= mChunkAllocMinAvailSpace &&
         c.IsResponsiveServer() &&
         ! c.IsRetiring() &&
         ! c.IsRestartScheduled() &&
-        c.GetSpaceUtilization(mUseFsTotalSpaceFlag) <=
-            mMaxSpaceUtilizationThreshold
+        (tier == kKfsSTierUndef ?
+            c.GetSpaceUtilization(mUseFsTotalSpaceFlag) :
+            c.GetStorageTierSpaceUtilization(tier)
+        ) <= mMaxSpaceUtilizationThreshold
     );
 }
 
 bool
-LayoutManager::IsCandidateServer(const ChunkServer& c,
-    double writableChunksThresholdRatio /* = 1 */)
+LayoutManager::IsCandidateServer(
+    const ChunkServer& c,
+    kfsSTier_t         tier /* = kKfsSTierUndef */,
+    double             writableChunksThresholdRatio /* = 1 */)
 {
     UpdateGoodCandidateLoadAvg();
     return (
         c.GetCanBeCandidateServerFlag() &&
-        c.GetNumChunkWrites() < c.GetNumWritableDrives() *
-            mMaxWritesPerDriveThreshold *
-            writableChunksThresholdRatio &&
+        (tier == kKfsSTierUndef || c.GetCanBeCandidateServerFlag(tier)) &&
+        (tier == kKfsSTierUndef ?
+            c.GetNumChunkWrites() < c.GetNumWritableDrives() *
+                mMaxWritesPerDriveThreshold * writableChunksThresholdRatio
+            :
+            c.GetNotStableOpenCount(tier) < c.GetDeviceCount(tier) *
+                mTiersMaxWritesPerDriveThreshold[tier] *
+                writableChunksThresholdRatio
+        ) &&
         (c.GetLoadAvg() <= (c.CanBeChunkMaster() ?
             mCSMaxGoodMasterCandidateLoadAvg :
             mCSMaxGoodSlaveCandidateLoadAvg))
@@ -4060,16 +4078,24 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
             mCSMasterLoadAvgSum >= 0 && mCSSlaveLoadAvgSum >= 0);
     }
     const bool isPossibleCandidate =
-        canBeCandidateFlag && CanBeCandidateServer(srv);
-    if (wasPossibleCandidate == isPossibleCandidate) {
-        return;
+        canBeCandidateFlag && CanBeCandidateServer(srv, kKfsSTierUndef);
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        srv.SetCanBeCandidateServerFlag(
+            i,
+            canBeCandidateFlag &&
+                srv.GetDeviceCount(i) > 0 &&
+                CanBeCandidateServer(srv, i)
+        );
     }
-    const int inc = isPossibleCandidate ? 1 : -1;
-    RackInfos::iterator const rackIter = find_if(
-        mRacks.begin(), mRacks.end(),
-        bind(&RackInfo::id, _1) == srv.GetRack());
+    const int inc = wasPossibleCandidate == isPossibleCandidate ? 0 :
+        (isPossibleCandidate ? 1 : -1);
+    RackInfos::iterator const rackIter = FindRack(srv.GetRack());
     if (rackIter != mRacks.end()) {
-        rackIter->updatePossibleCandidatesCount(inc);
+        rackIter->updatePossibleCandidatesCount(inc,
+            srv.GetStorageTiersInfoDelta());
+    }
+    if (inc == 0) {
+        return;
     }
     mCSTotalPossibleCandidateCount += inc;
     if (srv.CanBeChunkMaster()) {
@@ -4096,7 +4122,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
 }
 
 void
-LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& /* srv */,
+LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
     int deltaNumChunkWrites, int deltaNumWritableDrives)
 {
     mTotalChunkWrites    += deltaNumChunkWrites;
@@ -4117,6 +4143,25 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& /* srv */,
         mMaxWritesPerDriveThreshold = max(mMinWritesPerDrive,
             (int)(mTotalChunkWrites * mTotalWritableDrivesMult));
     }
+    const StorageTierInfo* const stid = srv.GetStorageTiersInfoDelta();
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        if (stid[i].GetDeviceCount() != 0) {
+            mTiersTotalWritableDrivesMult[i] = mTotalWritableDrives > 0 ?
+                mMaxWritesPerDriveRatio / mTotalWritableDrives : 0.;
+        }
+        StorageTierInfo& info = mStorageTierInfo[i];
+        info += stid[i];
+        if (info.GetDeviceCount() <= 0) {
+            mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
+            info.Clear();
+        } else if (info.GetNotStableOpenCount() <= info.GetDeviceCount()) {
+            mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
+        } else {
+            mTiersMaxWritesPerDriveThreshold[i] = max(mMinWritesPerDrive,
+                (int)(info.GetNotStableOpenCount() *
+                    mTiersTotalWritableDrivesMult[i]));
+        }
+    }
 }
 
 inline double
@@ -4128,8 +4173,8 @@ GetRackWeight(
     if (rack < 0) {
         return maxWeight;
     }
-    LayoutManager::RackInfos::const_iterator const it = find_if(
-        racks.begin(), racks.end(), bind(&RackInfo::id, _1) == rack);
+    LayoutManager::RackInfos::const_iterator const it =
+        LayoutManager::FindRackT(racks.begin(), racks.end(), rack);
     return (it == racks.end() ?
         maxWeight : min(maxWeight, it->getWeight()));
 }
@@ -4212,6 +4257,7 @@ LayoutManager::AllocateChunk(
             (! r->appendChunk || (*li)->CanBeChunkMaster()) &&
             IsCandidateServer(
                 **li,
+                r->minSTier,
                 GetRackWeight(mRacks, (*li)->GetRack(),
                     mMaxLocalPlacementWeight)
             ) &&
@@ -9569,5 +9615,7 @@ LayoutManager::RebalanceCtrs::Show(
     ;
     return os;
 }
+
+RackInfo LayoutManager::RackInfoRackIdLess::sUnused;
 
 } // namespace KFS

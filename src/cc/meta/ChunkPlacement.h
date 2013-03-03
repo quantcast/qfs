@@ -281,10 +281,8 @@ public:
                 const RackId rackId =
                     mRackExcludes.Get(mRackPos++);
                 typename RackInfos::const_iterator const it =
-                find_if(
-                    mRacks.begin(), mRacks.end(),
-                    bind(&RackInfo::id, _1) == rackId
-                );
+                    LayoutManager::FindRackT(
+                        mRacks.begin(), mRacks.end(), rackId);
                 if (it == mRacks.end()) {
                     KFS_LOG_STREAM_ERROR <<
                         " invalid rack id: " <<
