@@ -1224,8 +1224,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         }
         mAllocSpace       = mUsedSpace + mNumChunkWrites * CHUNKSIZE;
         mHeartbeatSent    = false;
-        mHeartbeatSkipped =
-            mLastHeartbeatSent + sHeartbeatInterval < now;
+        mHeartbeatSkipped = mLastHeartbeatSent + sHeartbeatInterval < now;
         mHeartbeatProperties.swap(prop);
         if (mTotalFsSpace < mTotalSpace) {
             mTotalFsSpace = mTotalSpace;
@@ -1816,12 +1815,13 @@ ChunkServer::UpdateStorageTiers(const Properties::String* tiers,
         }
     } else {
         // Backward compatibility: no storage tiers in the heartbeat.
-        const kfsSTier_t tier = kKfsSTierMax;
+        const kfsSTier_t tier         = kKfsSTierMax;
+        const int64_t    totalFsSpace = max(mTotalSpace, mTotalFsSpace);
         mStorageTiersInfo[tier].Set(
             deviceCount,
             writableChunkCount,
-            min(mUsedSpace, mTotalFsSpace),
-            mTotalFsSpace
+            min(mUsedSpace, totalFsSpace),
+            totalFsSpace
         );
         clearFlags[tier] = false;
     }

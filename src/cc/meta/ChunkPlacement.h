@@ -112,10 +112,10 @@ public:
           mUsingServerExcludesFlag(false),
           mSortBySpaceUtilizationFlag(false),
           mSortCandidatesByLoadAvgFlag(false),
-          mUseTotalFsSpaceFlag(false),
-          mMinSTier(kKfsSTierMin),
+          mLastAttemptFlag(false),
+          mMinSTier(kKfsSTierMax),
           mMaxSTier(kKfsSTierMax),
-          mCurSTier(kKfsSTierMin)
+          mCurSTier(mMinSTier)
         {}
     void Reset()
     {
@@ -123,8 +123,10 @@ public:
         mRackPos                 = 0;
         mCandidatePos            = 0;
         mCurRackId               = -1;
+        mCurSTier                = mMinSTier;
         mUsingRackExcludesFlag   = false;
         mUsingServerExcludesFlag = false;
+        mLastAttemptFlag         = false;
         mCandidateRacks.clear();
         mCandidates.clear();
     }
@@ -140,16 +142,20 @@ public:
         bool       forReplicationFlag = false,
         RackId     rackIdToUse        = -1)
     {
+        assert(
+            kKfsSTierMin <= minSTier && minSTier <= kKfsSTierMax &&
+            kKfsSTierMin <= maxSTier && maxSTier <= kKfsSTierMax &&
+            minSTier <= maxSTier
+        );
         Reset();
         mMinSTier                     = minSTier;
         mMaxSTier                     = maxSTier;
+        mCurSTier                     = mMinSTier;
         mForReplicationFlag           = forReplicationFlag;
         mSortBySpaceUtilizationFlag   =
             mLayoutManager.GetSortCandidatesBySpaceUtilizationFlag();
         mSortCandidatesByLoadAvgFlag  =
             mLayoutManager.GetSortCandidatesByLoadAvgFlag();
-        mUseTotalFsSpaceFlag          =
-            mLayoutManager.GetUseFsTotalSpaceFlag();
         mMaxSpaceUtilizationThreshold =
             mLayoutManager.GetMaxSpaceUtilizationThreshold();
         mMaxReplicationsPerNode       =
@@ -173,14 +179,18 @@ public:
         double     maxUtilization,
         RackId     rackIdToUse = -1)
     {
+        assert(
+            kKfsSTierMin <= minSTier && minSTier <= kKfsSTierMax &&
+            kKfsSTierMin <= maxSTier && maxSTier <= kKfsSTierMax &&
+            minSTier <= maxSTier
+        );
         Reset();
         mMinSTier                     = minSTier;
         mMaxSTier                     = maxSTier;
+        mCurSTier                     = mMinSTier;
         mForReplicationFlag           = true;
         mSortBySpaceUtilizationFlag   = true;
         mSortCandidatesByLoadAvgFlag  = false;
-        mUseTotalFsSpaceFlag          =
-            mLayoutManager.GetUseFsTotalSpaceFlag();
         mMaxSpaceUtilizationThreshold = min(maxUtilization,
             mLayoutManager.GetMaxSpaceUtilizationThreshold());
         mMaxReplicationsPerNode       =
@@ -214,13 +224,17 @@ public:
                 return ChunkServerPtr();
             }
             while (mCandidatePos < mServerExcludes.Size()) {
-                ChunkServer& srv = *(mServerExcludes.Get(
-                    mCandidatePos++));
+                ChunkServer& srv = *(mServerExcludes.Get(mCandidatePos++));
                 if (IsCandidateServer(srv)) {
                     return srv.shared_from_this();
                 }
             }
-            return ChunkServerPtr();
+            if (mMaxSTier <= mCurSTier) {
+                return ChunkServerPtr();
+            }
+            mCurSTier++;
+            mCandidatePos = 0;
+            return GetNext(canIgnoreServerExcludesFlag); // Tail recursion.
         }
         if (mCandidatePos <= 0) {
             if (! canIgnoreServerExcludesFlag ||
@@ -237,8 +251,7 @@ public:
         // Random shuffle chosen servers, such that the servers with
         // smaller "load" go before the servers with larger load.
         if (mCandidatePos == 1) {
-            return mCandidates[--mCandidatePos
-                ].second->shared_from_this();
+            return mCandidates[--mCandidatePos].second->shared_from_this();
         }
         assert(mLoadAvgSum > 0);
         int64_t rnd = Rand(mLoadAvgSum);
@@ -271,26 +284,46 @@ public:
                     return false;
                 }
                 if (size == mRackPos) {
-                    // The last attempt -- put it somewhere.
-                    FindCandidateServers(
-                        mLayoutManager.GetChunkServers()
-                    );
-                    mRackPos++;
-                    break;
+                    if (mLastAttemptFlag) {
+                        if (mMaxSTier <= mCurSTier) {
+                            mRackPos++;
+                            mCurSTier = mMinSTier;
+                            return false;
+                        } else {
+                            mCurSTier++;
+                        }
+                    } else {
+                        if (mCurSTier < mMaxSTier && mRackPos > 0) {
+                            mCurSTier++;
+                            mRackPos = 0;
+                        } else {
+                            mLastAttemptFlag = true;
+                            mCurSTier        = mMinSTier;
+                        }
+                    }
+                    if (mLastAttemptFlag) {
+                        // The last attempt -- put it somewhere.
+                        FindCandidateServers(
+                            mLayoutManager.GetChunkServers(),
+                            mLayoutManager.GetTierCandidatesCount(mCurSTier)
+                        );
+                        if (mCandidates.empty()) {
+                            continue;
+                        }
+                        break;
+                    }
                 }
-                const RackId rackId =
-                    mRackExcludes.Get(mRackPos++);
+                const RackId rackId = mRackExcludes.Get(mRackPos++);
                 typename RackInfos::const_iterator const it =
                     LayoutManager::FindRackT(
                         mRacks.begin(), mRacks.end(), rackId);
                 if (it == mRacks.end()) {
                     KFS_LOG_STREAM_ERROR <<
-                        " invalid rack id: " <<
-                        rackId <<
+                        " invalid rack id: " << rackId <<
                     KFS_LOG_EOM;
                     continue;
                 }
-                FindCandidateServers(it->getServers());
+                FindCandidateServers(*it);
                 if (mCandidates.empty()) {
                     continue;
                 }
@@ -298,26 +331,34 @@ public:
                 break;
             }
             if (mRackPos >= mCandidateRacks.size()) {
-                // Use rack excludes.
-                // Put the racks with least chunk replicas
-                // first, to put the same number of replicas on
-                // each rack.
-                mRackExcludes.SortByCount();
-                mRackPos               = 0;
-                mUsingRackExcludesFlag = true;
-                continue;
+                if (mRackPos == 0 || mMaxSTier <= mCurSTier) {
+                    // Use rack excludes.
+                    // Put the racks with least chunk replicas
+                    // first, to put the same number of replicas on
+                    // each rack.
+                    mRackExcludes.SortByCount();
+                    mCurSTier              = mMinSTier;
+                    mRackPos               = 0;
+                    mUsingRackExcludesFlag = true;
+                    continue;
+                }
+                mRackPos = 0;
+                // Try to use the next tier. Satisfying rack placement
+                // constraints has higher priority then satisfying storage
+                // tier constrain.
+                mCurSTier++;
             }
             // Random shuffle chosen racks, such that the racks with
             // larger number of possible allocation candidates have
             // higher probability to go before the racks with lesser
             // number of candidates.
-            if (mRackPos + 1 < mCandidateRacks.size()) {
+            if (mCurSTier == mMinSTier &&
+                    mRackPos + 1 < mCandidateRacks.size()) {
                 assert(mCandidatesInRacksCount > 0);
                 int64_t rnd = Rand(mCandidatesInRacksCount);
                 size_t  ri  = mRackPos;
                 for (; ;) {
-                    const int64_t sz =
-                        mCandidateRacks[ri].first;
+                    const int64_t sz = mCandidateRacks[ri].first;
                     if ((rnd -= sz) < 0) {
                         mCandidatesInRacksCount -= sz;
                         break;
@@ -327,9 +368,8 @@ public:
                 iter_swap(mCandidateRacks.begin() + mRackPos,
                     mCandidateRacks.begin() + ri);
             }
-            const RackInfo& rack = *(mCandidateRacks[
-                mRackPos++].second);
-            FindCandidateServers(rack.getServers());
+            const RackInfo& rack = *(mCandidateRacks[mRackPos++].second);
+            FindCandidateServers(rack);
             if (! mCandidates.empty()) {
                 mCurRackId = rack.id();
                 break;
@@ -487,21 +527,6 @@ public:
         return IsExcluded(*srv);
     }
 
-    bool CanBeUsed(
-        const ChunkServer& srv)
-    {
-        return (
-            IsCandidateServer(srv) &&
-            ! IsExcluded(srv)
-        );
-    }
-
-    bool CanBeUsed(
-        const ChunkServerPtr& srv)
-    {
-        return CanBeUsed(*srv);
-    }
-
     size_t GetExcludedServersCount() const
         { return mServerExcludes.Size(); }
 
@@ -523,10 +548,13 @@ public:
     RackId GetRackId() const
         { return mCurRackId; }
 
-    bool IsLastRack() const
+    kfsSTier_t GetStorageTier() const
+        { return mCurSTier; }
+
+    bool IsLastAttempt() const
     {
         return (
-            mUsingRackExcludesFlag &&
+            mLastAttemptFlag &&
             mRackExcludes.Size() < mRackPos
         );
     }
@@ -703,7 +731,7 @@ private:
     bool             mUsingServerExcludesFlag;
     bool             mSortBySpaceUtilizationFlag;
     bool             mSortCandidatesByLoadAvgFlag;
-    bool             mUseTotalFsSpaceFlag;
+    bool             mLastAttemptFlag;
     kfsSTier_t       mMinSTier;
     kfsSTier_t       mMaxSTier;
     kfsSTier_t       mCurSTier;
@@ -717,21 +745,19 @@ private:
         FindCandidateRacks(0, rackIdToUse);
         if (rackIdToUse >= 0 && mCandidateRacks.size() > 1) {
             for (size_t ri = 0; ri < mCandidateRacks.size(); ri++) {
-                if (mCandidateRacks[ri].second->id()
-                        != rackIdToUse) {
+                if (mCandidateRacks[ri].second->id() != rackIdToUse) {
                     continue;
                 }
-                mCandidatesInRacksCount -=
-                    mCandidateRacks[ri].first;
+                mCandidatesInRacksCount -= mCandidateRacks[ri].first;
                 iter_swap(mCandidateRacks.begin() + mRackPos,
                     mCandidateRacks.begin() + ri);
-                const RackInfo& rack = *(mCandidateRacks[
-                    mRackPos++].second);
-                FindCandidateServers(rack.getServers());
+                const RackInfo& rack = *(mCandidateRacks[mRackPos++].second);
+                FindCandidateServers(rack);
                 if (! mCandidates.empty()) {
                     mCurRackId = rack.id();
                     return;
                 }
+                break;
             }
         }
         NextRack();
@@ -762,7 +788,10 @@ private:
             if (id != rackIdToUse && mRackExcludes.Find(id)) {
                 continue;
             }
-            const int64_t cnt =
+            // If only one tier is requested, then get the candidates count in
+            // the requested tier.
+            const int64_t cnt = mCurSTier == mMaxSTier ?
+                rack.getWeightedPossibleCandidatesCount(mCurSTier) :
                 rack.getWeightedPossibleCandidatesCount();
             if (cnt <= 0) {
                 continue;
@@ -780,16 +809,13 @@ private:
     {
         const int64_t kLoadAvgFloor = 1;
         if (mSortBySpaceUtilizationFlag) {
-            return ((int64_t)(srv.GetSpaceUtilization(
-                mUseTotalFsSpaceFlag) *
-                (int64_t(1) << (10 + kSlaveScaleFracBits)))
-                + kLoadAvgFloor);
+            return ((int64_t)(srv.GetStorageTierSpaceUtilization(mCurSTier) *
+                (int64_t(1) << (10 + kSlaveScaleFracBits))) + kLoadAvgFloor);
         }
         if (mSortCandidatesByLoadAvgFlag) {
             int64_t load = srv.GetLoadAvg();
             if (! srv.CanBeChunkMaster()) {
-                load = (load *
-                mLayoutManager.GetSlavePlacementScale()
+                load = (load * mLayoutManager.GetSlavePlacementScale()
                 ) >> kSlaveScaleFracBits;
             }
             return (load + kLoadAvgFloor);
@@ -800,26 +826,36 @@ private:
         const ChunkServer& srv) const
     {
         return (
-            mLayoutManager.IsCandidateServer(srv) &&
-            srv.GetSpaceUtilization(mUseTotalFsSpaceFlag) <
+            mLayoutManager.IsCandidateServer(srv, mCurSTier) &&
+            srv.GetStorageTierSpaceUtilization(mCurSTier) <=
                 mMaxSpaceUtilizationThreshold &&
             (! mForReplicationFlag ||
-                srv.GetNumChunkReplications() <
-                    mMaxReplicationsPerNode)
+                srv.GetNumChunkReplications() < mMaxReplicationsPerNode)
         );
     }
     void FindCandidateServers(
-        const Sources& sources)
+        const RackInfo& rack)
+    {
+        FindCandidateServers(
+            rack.getServers(), rack.getPossibleCandidatesCount(mCurSTier));
+    }
+    void FindCandidateServers(
+        const Sources& sources,
+        int            candidatesCount)
     {
         mLoadAvgSum   = 0;
         mCandidatePos = 0;
         mCandidates.clear();
+        int cnt = 0;
         for (typename Servers::const_iterator it = sources.begin();
-                it != sources.end();
+                cnt < candidatesCount && it != sources.end();
                 ++it) {
             ChunkServer& srv = **it;
-            if (! IsCandidateServer(srv) ||
-                    mServerExcludes.Find(&srv)) {
+            if (! IsCandidateServer(srv)) {
+                continue;
+            }
+            cnt++;
+            if (mServerExcludes.Find(&srv)) {
                 continue;
             }
             const int64_t load = GetLoad(srv);

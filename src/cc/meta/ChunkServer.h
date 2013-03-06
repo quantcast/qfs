@@ -612,27 +612,15 @@ public:
     }
 
     int GetDeviceCount(kfsSTier_t tier) const {
-        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
-            return 0;
-        }
         return mStorageTiersInfo[tier].GetDeviceCount();
     }
     int GetNotStableOpenCount(kfsSTier_t tier) const {
-        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
-            return 0;
-        }
         return mStorageTiersInfo[tier].GetNotStableOpenCount();
     }
     int64_t GetStorageTierAvailSpace(kfsSTier_t tier) const {
-        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
-            return 0;
-        }
         return mStorageTiersInfo[tier].GetSpaceAvailable();
     }
     double GetStorageTierSpaceUtilization(kfsSTier_t tier) const {
-        if (tier < kKfsSTierMin || tier > kKfsSTierMax) {
-            return 1.0;
-        }
         return mStorageTiersInfo[tier].GetSpaceUtilization();
     }
 
@@ -725,8 +713,7 @@ public:
         return mCanBeCandidateServerFlag;
     }
     bool GetCanBeCandidateServerFlag(kfsSTier_t tier) const {
-        return (tier <= kKfsSTierMin && tier <= kKfsSTierMax &&
-            mCanBeCandidateServerFlags[tier]);
+        return mCanBeCandidateServerFlags[tier];
     }
     void SetCanBeCandidateServerFlag(kfsSTier_t tier, bool flag) {
         mCanBeCandidateServerFlags[tier] = flag;

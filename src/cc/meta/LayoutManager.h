@@ -443,6 +443,9 @@ public:
     int getPossibleCandidatesCount() const {
         return mPossibleCandidatesCount;
     }
+    int getPossibleCandidatesCount(kfsSTier_t tier) const {
+        return mTierCandidateCount[tier];
+    }
     void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid) {
         mPossibleCandidatesCount += delta;
         assert(mPossibleCandidatesCount >= 0);
@@ -452,11 +455,6 @@ public:
         for (size_t i = 0; i < kKfsSTierCount; i++) {
             mStorageTierInfo[i] += sid[i];
         }
-    }
-    void updatePossibleCandidatesCount(kfsSTier_t tier, int delta) {
-        mTierCandidateCount[tier] += delta;
-        assert(tier >= kKfsSTierMin && tier <= kKfsSTierMax &&
-            mTierCandidateCount[tier] >= 0);
     }
     RackWeight getWeight() const {
         return mRackWeight;
@@ -1133,6 +1131,9 @@ public:
         }
         SetUserAndGroupSelf(req, user, group);
     }
+
+    int GetTierCandidatesCount(kfsSTier_t tier) const
+        { return mTierCandidatesCount[tier]; }
     template<typename T> static
     T FindRackT(T first, T last, RackId id) {
         T const it = lower_bound(first, last,
@@ -1794,6 +1795,7 @@ protected:
     StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
     int                       mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
     double                    mTiersTotalWritableDrivesMult[kKfsSTierCount];
+    int                       mTierCandidatesCount[kKfsSTierCount];
 
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk
@@ -1898,7 +1900,6 @@ protected:
         bool deleteRetiringFlag = false);
     void DeleteChunk(fid_t fid, chunkId_t chunkId, const Servers& servers);
     void UpdateGoodCandidateLoadAvg();
-    bool CanBeCandidateServer(const ChunkServer& c, kfsSTier_t tier) const;
     inline static CSMap::Entry& GetCsEntry(MetaChunkInfo& chunkInfo);
     inline static CSMap::Entry* GetCsEntry(MetaChunkInfo* chunkInfo);
     bool CanBeRecovered(
@@ -1929,6 +1930,7 @@ protected:
     RackInfos::const_iterator FindRack(RackId id) const {
         return FindRackT(mRacks.begin(), mRacks.end(), id);
     }
+    bool FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier);
 };
 
 extern LayoutManager& gLayoutManager;

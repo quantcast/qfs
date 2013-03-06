@@ -191,7 +191,7 @@ public:
           subcount2(0),
           filesize(0),
           minSTier(kKfsSTierMax),
-          maxSTier(kKfsSTierMin)
+          maxSTier(kKfsSTierMax)
         {}
     BaseFattr(
         FileType  t,
@@ -213,7 +213,9 @@ public:
           crtime(crt),
           subcount1(c),
           subcount2(0),
-          filesize(0)
+          filesize(0),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax)
         {}
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;

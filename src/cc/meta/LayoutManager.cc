@@ -1337,6 +1337,7 @@ LayoutManager::LayoutManager() :
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
         mTiersTotalWritableDrivesMult[i]    = 0.;
+        mTierCandidatesCount[i]             = 0;
     }
 }
 
@@ -4016,26 +4017,6 @@ LayoutManager::UpdateGoodCandidateLoadAvg()
 }
 
 bool
-LayoutManager::CanBeCandidateServer(
-    const ChunkServer& c,
-    kfsSTier_t         tier) const
-{
-    return (
-        (tier == kKfsSTierUndef ?
-            c.GetAvailSpace() :
-            c.GetStorageTierAvailSpace(tier)
-        ) >= mChunkAllocMinAvailSpace &&
-        c.IsResponsiveServer() &&
-        ! c.IsRetiring() &&
-        ! c.IsRestartScheduled() &&
-        (tier == kKfsSTierUndef ?
-            c.GetSpaceUtilization(mUseFsTotalSpaceFlag) :
-            c.GetStorageTierSpaceUtilization(tier)
-        ) <= mMaxSpaceUtilizationThreshold
-    );
-}
-
-bool
 LayoutManager::IsCandidateServer(
     const ChunkServer& c,
     kfsSTier_t         tier /* = kKfsSTierUndef */,
@@ -4045,6 +4026,9 @@ LayoutManager::IsCandidateServer(
     return (
         c.GetCanBeCandidateServerFlag() &&
         (tier == kKfsSTierUndef || c.GetCanBeCandidateServerFlag(tier)) &&
+        (c.GetLoadAvg() <= (c.CanBeChunkMaster() ?
+            mCSMaxGoodMasterCandidateLoadAvg :
+            mCSMaxGoodSlaveCandidateLoadAvg)) &&
         (tier == kKfsSTierUndef ?
             c.GetNumChunkWrites() < c.GetNumWritableDrives() *
                 mMaxWritesPerDriveThreshold * writableChunksThresholdRatio
@@ -4052,10 +4036,7 @@ LayoutManager::IsCandidateServer(
             c.GetNotStableOpenCount(tier) < c.GetDeviceCount(tier) *
                 mTiersMaxWritesPerDriveThreshold[tier] *
                 writableChunksThresholdRatio
-        ) &&
-        (c.GetLoadAvg() <= (c.CanBeChunkMaster() ?
-            mCSMaxGoodMasterCandidateLoadAvg :
-            mCSMaxGoodSlaveCandidateLoadAvg))
+        )
     );
 }
 
@@ -4077,15 +4058,33 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         assert(mCSLoadAvgSum >= 0 &&
             mCSMasterLoadAvgSum >= 0 && mCSSlaveLoadAvgSum >= 0);
     }
-    const bool isPossibleCandidate =
-        canBeCandidateFlag && CanBeCandidateServer(srv, kKfsSTierUndef);
+    bool isPossibleCandidate = canBeCandidateFlag &&
+        srv.GetAvailSpace() >= mChunkAllocMinAvailSpace &&
+        srv.IsResponsiveServer() &&
+        ! srv.IsRetiring() &&
+        ! srv.IsRestartScheduled();
+    int candidateTiersCount = 0;
     for (size_t i = 0; i < kKfsSTierCount; i++) {
-        srv.SetCanBeCandidateServerFlag(
-            i,
-            canBeCandidateFlag &&
-                srv.GetDeviceCount(i) > 0 &&
-                CanBeCandidateServer(srv, i)
-        );
+        const bool flag = isPossibleCandidate &&
+            srv.GetDeviceCount(i) > 0 &&
+            srv.GetStorageTierAvailSpace(i) >= mChunkAllocMinAvailSpace &&
+            srv.GetStorageTierSpaceUtilization(i) <=
+                mMaxSpaceUtilizationThreshold;
+        if (flag) {
+            candidateTiersCount++;
+        }
+        if (flag == srv.GetCanBeCandidateServerFlag(i)) {
+            continue;
+        }
+        srv.SetCanBeCandidateServerFlag(i, flag);
+        if (flag) {
+            mTierCandidatesCount[i]++;
+        } else if (mTierCandidatesCount[i] > 0) {
+            mTierCandidatesCount[i]--;
+        }
+    }
+    if (isPossibleCandidate && candidateTiersCount <= 0) {
+        isPossibleCandidate = false;
     }
     const int inc = wasPossibleCandidate == isPossibleCandidate ? 0 :
         (isPossibleCandidate ? 1 : -1);
@@ -4166,6 +4165,28 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
     }
 }
 
+bool
+LayoutManager::FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier)
+{
+    if (minTier < kKfsSTierMin) {
+        minTier = kKfsSTierMin;
+    } else if (minTier > kKfsSTierMax) {
+        minTier = kKfsSTierMax;
+    }
+    if (maxTier < kKfsSTierMin) {
+        maxTier = kKfsSTierMin;
+    } else if (maxTier > kKfsSTierMax) {
+        maxTier = kKfsSTierMax;
+    }
+    while (minTier <= maxTier && mTierCandidatesCount[minTier] <= 0) {
+        ++minTier;
+    }
+    while (minTier <= maxTier && mTierCandidatesCount[maxTier] <= 0) {
+        --maxTier;
+    }
+    return (minTier <= maxTier);
+}
+
 inline double
 GetRackWeight(
     const LayoutManager::RackInfos& racks,
@@ -4197,6 +4218,17 @@ LayoutManager::AllocateChunk(
         KFS_LOG_EOM;
         r->statusMsg = "0 replicas";
         return -EINVAL;
+    }
+    kfsSTier_t minTier = r->minSTier;
+    kfsSTier_t maxTier = r->maxSTier;
+    if (! FindStorageTiersRange(minTier, maxTier)) {
+        KFS_LOG_STREAM_DEBUG <<
+            "allocate chunk no space: tiers: [" <<
+                (int)r->minSTier << "," << (int)r->maxSTier << "] => [" <<
+                (int)minTier << "," << (int)minTier << "]" <<
+        KFS_LOG_EOM;
+        r->statusMsg = "no space available";
+        return -ENOSPC;
     }
     StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
     ChunkPlacement&       placement = placementTmp.Get();
@@ -4257,13 +4289,9 @@ LayoutManager::AllocateChunk(
             MatchServerByHost(r->clientIp));
     if (li != mChunkServers.end() &&
             (! r->appendChunk || (*li)->CanBeChunkMaster()) &&
-            IsCandidateServer(
-                **li,
-                r->minSTier,
-                GetRackWeight(mRacks, (*li)->GetRack(),
-                    mMaxLocalPlacementWeight)
-            ) &&
-            placement.CanBeUsed(*li)) {
+            IsCandidateServer(**li, minTier, GetRackWeight(
+                mRacks, (*li)->GetRack(), mMaxLocalPlacementWeight)) &&
+            ! placement.IsExcluded(*li)) {
         replicaCnt++;
         localserver = *li;
         placement.ExcludeServer(localserver);
@@ -4289,7 +4317,7 @@ LayoutManager::AllocateChunk(
             }
         }
     }
-    placement.FindCandidatesInRack(r->minSTier, r->maxSTier, rackIdToUse);
+    placement.FindCandidatesInRack(minTier, maxTier, rackIdToUse);
     size_t numServersPerRack(1);
     if (r->numReplicas > 1) {
         numServersPerRack = placement.GetCandidateRackCount();
@@ -4323,14 +4351,12 @@ LayoutManager::AllocateChunk(
                 (n < numServersPerRack || rackId < 0) &&
                     replicaCnt < r->numReplicas;
                 ) {
-            const ChunkServerPtr cs =
-                placement.GetNext(r->stripedFileFlag);
+            const ChunkServerPtr cs = placement.GetNext(r->stripedFileFlag);
             if (! cs) {
                 break;
             }
             if (placement.IsUsingServerExcludes() &&
-                    find(r->servers.begin(),
-                        r->servers.end(), cs) !=
+                    find(r->servers.begin(), r->servers.end(), cs) !=
                     r->servers.end()) {
                 continue;
             }
@@ -4372,7 +4398,7 @@ LayoutManager::AllocateChunk(
             n++;
             replicaCnt++;
         }
-        if (r->numReplicas <= replicaCnt || placement.IsLastRack()) {
+        if (r->numReplicas <= replicaCnt || placement.IsLastAttempt()) {
             break;
         }
         if (r->appendChunk && mInRackPlacementForAppendFlag &&
@@ -4398,7 +4424,7 @@ LayoutManager::AllocateChunk(
             // racks.
             placement.clear();
             placement.ExcludeServerAndRack(r->servers);
-            placement.FindCandidates(r->minSTier, r->maxSTier);
+            placement.FindCandidates(minTier, maxTier);
             numServersPerRack = placement.GetCandidateRackCount();
             numServersPerRack = numServersPerRack <= 1 ?
                 (size_t)(r->numReplicas - replicaCnt) :
@@ -7203,6 +7229,12 @@ LayoutManager::ReplicateChunk(
     if (extraReplicas <= 0) {
         return 0;
     }
+    const MetaFattr* const fa       = clli.GetFattr();
+    kfsSTier_t             minSTier = fa->minSTier;
+    kfsSTier_t             maxSTier = fa->maxSTier;
+    if (! FindStorageTiersRange(minSTier, maxSTier)) {
+        return 0;
+    }
     bool useServerExcludesFlag = clli.GetFattr()->IsStriped();
     if (! recoveryInfo.HasRecovery()) {
         GetPlacementExcludes(clli, placement);
@@ -7222,8 +7254,7 @@ LayoutManager::ReplicateChunk(
             useServerExcludesFlag = false;
         }
     }
-    const MetaFattr* const fa = clli.GetFattr();
-    placement.FindCandidatesForReplication(fa->minSTier, fa->maxSTier);
+    placement.FindCandidatesForReplication(minSTier, maxSTier);
     const size_t numRacks = placement.GetCandidateRackCount();
     const size_t numServersPerRack = numRacks <= 1 ?
         (size_t)extraReplicas :
@@ -7251,7 +7282,7 @@ LayoutManager::ReplicateChunk(
                 break;
             }
         }
-        if (rem <= 0 || placement.IsLastRack()) {
+        if (rem <= 0 || placement.IsLastAttempt()) {
             break;
         }
         placement.ExcludeServer(
@@ -8851,30 +8882,35 @@ LayoutManager::RebalanceServers()
             }
             continue;
         }
-        const char* reason = 0;
+        const char*            reason = 0;
+        const MetaFattr* const fa     = entry.GetFattr();
         if (srvPos >= 0 || rackPos >= 0) {
             srvs.clear();
-            double maxUtilization = mMinRebalanceSpaceUtilThreshold;
+            double     maxUtilization = mMinRebalanceSpaceUtilThreshold;
+            kfsSTier_t minSTier       = kKfsSTierUndef;
+            kfsSTier_t maxSTier       = kKfsSTierUndef;
             for (int i = 0; ; i++) {
                 if (i > 0) {
-                    if (mMaxSpaceUtilizationThreshold <=
-                            maxUtilization) {
+                    if (mMaxSpaceUtilizationThreshold <= maxUtilization) {
                         break;
                     }
-                    maxUtilization =
-                        mMaxSpaceUtilizationThreshold;
+                    maxUtilization = mMaxSpaceUtilizationThreshold;
                 }
-                const MetaFattr* const fa = entry.GetFattr();
+                if (minSTier == kKfsSTierUndef) {
+                    minSTier = fa->minSTier;
+                    maxSTier = fa->maxSTier;
+                    if (! FindStorageTiersRange(minSTier, maxSTier)) {
+                        break;
+                    }
+                }
                 placement.FindRebalanceCandidates(
-                    fa->minSTier, fa->maxSTier, maxUtilization);
+                    minSTier, maxSTier, maxUtilization);
                 if (srvPos < 0) {
                     if (placement.IsUsingRackExcludes()) {
                         continue;
                     }
-                    const RackId rackId =
-                        placement.GetRackId();
-                    if (rackId < 0 || rackId == srvs[
-                            rackPos]->GetRack()) {
+                    const RackId rackId = placement.GetRackId();
+                    if (rackId < 0 || rackId == srvs[rackPos]->GetRack()) {
                         continue;
                     }
                 }
@@ -8891,17 +8927,20 @@ LayoutManager::RebalanceServers()
                 break;
             }
         } else if (loadPos >= 0) {
-            const RackId rackId = srvs[loadPos]->GetRack();
-            const MetaFattr* const fa = entry.GetFattr();
-            placement.FindRebalanceCandidates(
-                fa->minSTier,
-                fa->maxSTier,
-                mMinRebalanceSpaceUtilThreshold,
-                rackId
-            );
-            const bool kCanIgnoreServerExcludesFlag = false;
-            const ChunkServerPtr srv = placement.GetNext(
-                kCanIgnoreServerExcludesFlag);
+            const RackId   rackId   = srvs[loadPos]->GetRack();
+            kfsSTier_t     minSTier = fa->minSTier;
+            kfsSTier_t     maxSTier = fa->maxSTier;
+            ChunkServerPtr srv;
+            if (FindStorageTiersRange(minSTier, maxSTier)) {
+                placement.FindRebalanceCandidates(
+                    minSTier,
+                    maxSTier,
+                    mMinRebalanceSpaceUtilThreshold,
+                    rackId
+                );
+                const bool kCanIgnoreServerExcludesFlag = false;
+                srv = placement.GetNext(kCanIgnoreServerExcludesFlag);
+            }
             srvs.clear();
             if (srv && (srv->GetRack() >= 0 || rackId < 0) &&
                     ((placement.GetRackId() >= 0 &&
