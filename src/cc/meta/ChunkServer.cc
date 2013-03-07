@@ -215,6 +215,21 @@ ChunkServer::UpdateChunkWritesPerDrive(
         deltaChunkWrites, deltaWritableDrives, mStorageTiersInfoDelta);
 }
 
+inline void
+ChunkServer::NewChunkInTier(kfsSTier_t tier)
+{
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mStorageTiersInfoDelta[i].Clear();
+    }
+    if (kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
+            mStorageTiersInfo[tier].GetDeviceCount() > 0) {
+        mStorageTiersInfoDelta[tier].Set(0, 1, 0, 0, CHUNKSIZE);
+        mStorageTiersInfo[tier].UpdateAllocSpace(CHUNKSIZE, 1);
+    }
+    mAllocSpace += CHUNKSIZE;
+    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
+}
+
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
       CSMapServerInfo(),
@@ -1353,13 +1368,11 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 }
 
 int
-ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId)
+ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId, kfsSTier_t tier)
 {
-    // FIXME -- update tier
-    mAllocSpace += CHUNKSIZE;
-    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
+    NewChunkInTier(tier);
     Enqueue(new MetaChunkAllocate(
-            NextSeq(), r, shared_from_this(), leaseId),
+            NextSeq(), r, shared_from_this(), leaseId, tier, r->maxSTier),
         r->initialChunkVersion >= 0 ?
             sChunkReallocTimeout : sChunkAllocTimeout);
     return 0;
@@ -1368,8 +1381,6 @@ ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId)
 int
 ChunkServer::DeleteChunk(chunkId_t chunkId)
 {
-    // FIXME -- update tier
-    mAllocSpace = max((int64_t)0, mAllocSpace - (int64_t)CHUNKSIZE);
     mChunksToEvacuate.Erase(chunkId);
     Enqueue(new MetaChunkDelete(NextSeq(), shared_from_this(), chunkId));
     return 0;
@@ -1409,11 +1420,12 @@ ChunkServer::MakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
 
 int
 ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
-    const ChunkServerPtr& dataServer, const ChunkRecoveryInfo& recoveryInfo)
+    const ChunkServerPtr& dataServer, const ChunkRecoveryInfo& recoveryInfo,
+    kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     MetaChunkReplicate* const r = new MetaChunkReplicate(
         NextSeq(), shared_from_this(), fid, chunkId,
-        dataServer->GetServerLocation(), dataServer);
+        dataServer->GetServerLocation(), dataServer, minSTier, maxSTier);
     if (recoveryInfo.HasRecovery() && r->server == dataServer) {
         r->chunkVersion       = recoveryInfo.version;
         r->chunkOffset        = recoveryInfo.offset;
@@ -1427,9 +1439,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         r->srcLocation.port = sMetaClientPort;
     }
     mNumChunkWriteReplications++;
-    // FIXME -- update tier
-    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
-    mAllocSpace += CHUNKSIZE;
+    NewChunkInTier(minSTier);
     Enqueue(r, sReplicationTimeout);
     return 0;
 }

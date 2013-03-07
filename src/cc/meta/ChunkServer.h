@@ -319,7 +319,11 @@ public:
             Mutable(mSpaceUtilization) = (double)used * mOneOverTotalSpace;
             return mSpaceUtilization;
         }
-        void UpdateAllocSpace(int64_t delta) {
+        void UpdateAllocSpace(int64_t delta, int notStableOpenDelta = 0) {
+            mNotStableOpenCount += notStableOpenDelta;
+            if (mNotStableOpenCount < 0) {
+                mNotStableOpenCount = 0;
+            }
             if (delta == 0) {
                 return;
             }
@@ -389,7 +393,7 @@ public:
     /// @param[in] leaseId the id associated with the write lease.
     /// @retval 0 on success; -1 on failure
     ///
-    int AllocateChunk(MetaAllocate *r, int64_t leaseId);
+    int AllocateChunk(MetaAllocate *r, int64_t leaseId, kfsSTier_t tier);
 
     /// Send an RPC to delete a chunk on this server.
     /// An RPC request is enqueued and the call returns.
@@ -416,7 +420,8 @@ public:
     /// insufficient copies of a chunk, we replicate it.
     int ReplicateChunk(fid_t fid, chunkId_t chunkId,
         const ChunkServerPtr&    dataServer,
-        const ChunkRecoveryInfo& recoveryInfo);
+        const ChunkRecoveryInfo& recoveryInfo,
+        kfsSTier_t minSTier, kfsSTier_t maxSTier);
     /// Start write append recovery when chunk master is non operational.
     int BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion);
     /// Notify a chunkserver that the writes to a chunk are done;
@@ -1052,6 +1057,7 @@ protected:
     int TimeoutOps();
     inline void UpdateChunkWritesPerDrive(
         int numChunkWrites, int numWritableDrives);
+    inline void NewChunkInTier(kfsSTier_t tier);
     void ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
         IOBuffer& iobuf, int len, int linesToShow = 64);
     string GetPeerName() const {

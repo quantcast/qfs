@@ -4040,12 +4040,15 @@ MetaChunkAllocate::request(ostream &os)
 {
     assert(req);
 
-    os << "ALLOCATE \r\n";
-    os << "Cseq: " << opSeqno << "\r\n";
-    os << "Version: KFS/1.0\r\n";
-    os << "File-handle: " << req->fid << "\r\n";
-    os << "Chunk-handle: " << req->chunkId << "\r\n";
-    os << "Chunk-version: " << req->chunkVersion << "\r\n";
+    os << "ALLOCATE \r\n"
+        "Cseq: " << opSeqno << "\r\n"
+        "Version: KFS/1.0\r\n"
+        "File-handle: " << req->fid << "\r\n"
+        "Chunk-handle: " << req->chunkId << "\r\n"
+        "Chunk-version: " << req->chunkVersion << "\r\n"
+        "Min-tier: " << (int)minSTier << "\r\n"
+        "Max-tier: " << (int)maxSTier << "\r\n"
+    ;
     if (leaseId >= 0) {
         os << "Lease-id: " << leaseId << "\r\n";
     }
@@ -4203,6 +4206,8 @@ MetaChunkReplicate::request(ostream& os)
     "Version: KFS/1.0\r\n"
     "File-handle: "   << fid          << "\r\n"
     "Chunk-handle: "  << chunkId      << "\r\n"
+    "Min-tier: "      << (int)minSTier << "\r\n"
+    "Max-tier: "      << (int)maxSTier << "\r\n"
     ;
     if (numRecoveryStripes > 0) {
         rs <<

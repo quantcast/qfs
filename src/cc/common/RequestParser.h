@@ -251,7 +251,8 @@ public:
     }
 
 #define _KFS_ValueParser_IntTypes(f)                                           \
-    f(char)          f(short int)          f(int)          f(long int)         \
+    f(char)                                                                    \
+    f(signed char)   f(signed short int)   f(signed int)   f(signed long int)  \
     f(unsigned char) f(unsigned short int) f(unsigned int) f(unsigned long int)\
     f(long long int) f(unsigned long long int)
 

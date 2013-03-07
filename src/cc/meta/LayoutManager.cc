@@ -1315,6 +1315,7 @@ LayoutManager::LayoutManager() :
     mServers2Tmp(),
     mServers3Tmp(),
     mServers4Tmp(),
+    mPlacementTiersTmp(),
     mChunkPlacementTmp(),
     mRandom(RandSeed()),
     mRandMin(mRandom.min()),
@@ -4271,6 +4272,8 @@ LayoutManager::AllocateChunk(
         }
     }
     r->servers.reserve(r->numReplicas);
+    StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
+    vector<kfsSTier_t>&        tiers = tiersTmp.Get();
 
     // for non-record append case, take the server local to the machine on
     // which the client is on make that the master; this avoids a network transfer.
@@ -4338,6 +4341,7 @@ LayoutManager::AllocateChunk(
     // For append always reserve the first slot -- write master.
     if (r->appendChunk || localserver) {
         r->servers.push_back(localserver);
+        tiers.push_back(minTier);
     }
     int    mastersSkipped = 0;
     int    slavesSkipped  = 0;
@@ -4372,6 +4376,7 @@ LayoutManager::AllocateChunk(
                         continue;
                     }
                     r->servers.front() = cs;
+                    tiers.front() = placement.GetStorageTier();
                 } else {
                     if (r->servers.size() >=
                             (size_t)r->numReplicas) {
@@ -4385,6 +4390,7 @@ LayoutManager::AllocateChunk(
                         continue;
                     }
                     r->servers.push_back(cs);
+                    tiers.push_back(placement.GetStorageTier());
                 }
             } else {
                 if (mAllocateDebugVerifyFlag &&
@@ -4394,6 +4400,7 @@ LayoutManager::AllocateChunk(
                     continue;
                 }
                 r->servers.push_back(cs);
+                tiers.push_back(placement.GetStorageTier());
             }
             n++;
             replicaCnt++;
@@ -4414,6 +4421,7 @@ LayoutManager::AllocateChunk(
             r->servers.clear();
             r->servers.push_back(ChunkServerPtr());
             localserver.reset();
+            tiers.clear();
         } else if (r->stripedFileFlag && r->numReplicas > 1 &&
                 numServersPerRack == 1 &&
                 psz == 0 && r->servers.size() == size_t(1)) {
@@ -4527,7 +4535,10 @@ LayoutManager::AllocateChunk(
         KFS_LOG_EOM;
         return -ENOSPC;
     }
-    assert(r->servers.size() <= (size_t)r->numReplicas);
+    assert(
+        r->servers.size() <= (size_t)r->numReplicas &&
+        r->servers.size() == tiers.size()
+    );
     r->master = r->servers[0];
 
     if (! mChunkLeases.NewWriteLease(
@@ -4550,7 +4561,7 @@ LayoutManager::AllocateChunk(
         }
     }
     for (size_t i = r->servers.size(); i-- > 0; ) {
-        r->servers[i]->AllocateChunk(r, i == 0 ? r->leaseId : -1);
+        r->servers[i]->AllocateChunk(r, i == 0 ? r->leaseId : -1, tiers[i]);
     }
     // Handle possible recursion ensure that request still valid.
     if (! r->servers.empty() && r->appendChunk && r->status >= 0) {
@@ -4592,7 +4603,8 @@ struct MetaLogChunkVersionChange : public MetaRequest, public KfsCallbackObj
         MetaAllocate& r = alloc;
         delete this;
         for (size_t i = r.servers.size(); i-- > 0; ) {
-            r.servers[i]->AllocateChunk(&r, i == 0 ? r.leaseId : -1);
+            r.servers[i]->AllocateChunk(
+                &r, i == 0 ? r.leaseId : -1, r.minSTier);
         }
         return 0;
     }
@@ -7260,24 +7272,25 @@ LayoutManager::ReplicateChunk(
         (size_t)extraReplicas :
         ((size_t)extraReplicas + numRacks - 1) / numRacks;
     // Find candidates other than those that are already hosting the chunk.
-    StTmp<Servers> serversTmp(mServersTmp);
-    Servers& candidates = serversTmp.Get();
+    StTmp<Servers>             serversTmp(mServersTmp);
+    Servers&                   candidates = serversTmp.Get();
+    StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
+    vector<kfsSTier_t>&        tiers = tiersTmp.Get();
     for (int rem = extraReplicas; ;) {
         const size_t psz = candidates.size();
         for (size_t i = 0; ; ) {
-            const ChunkServerPtr cs =
-                placement.GetNext(useServerExcludesFlag);
+            const ChunkServerPtr cs = placement.GetNext(useServerExcludesFlag);
             if (! cs) {
                 break;
             }
             if (placement.IsUsingServerExcludes() && (
-                    find(candidates.begin(),
-                        candidates.end(), cs) !=
-                    candidates.end() ||
+                    find(candidates.begin(), candidates.end(), cs) !=
+                        candidates.end() ||
                     mChunkToServerMap.HasServer(cs, clli))) {
                 continue;
             }
             candidates.push_back(cs);
+            tiers.push_back(placement.GetStorageTier());
             if (--rem <= 0 || ++i >= numServersPerRack) {
                 break;
             }
@@ -7285,8 +7298,7 @@ LayoutManager::ReplicateChunk(
         if (rem <= 0 || placement.IsLastAttempt()) {
             break;
         }
-        placement.ExcludeServer(
-            candidates.begin() + psz, candidates.end());
+        placement.ExcludeServer(candidates.begin() + psz, candidates.end());
         if (! placement.NextRack()) {
             break;
         }
@@ -7300,7 +7312,8 @@ LayoutManager::ReplicateChunk(
         KFS_LOG_EOM;
         return 0;
     }
-    return ReplicateChunk(clli, extraReplicas, candidates, recoveryInfo);
+    return ReplicateChunk(clli, extraReplicas, candidates, recoveryInfo,
+        tiers, maxSTier);
 }
 
 int
@@ -7309,6 +7322,8 @@ LayoutManager::ReplicateChunk(
     int                           extraReplicas,
     const LayoutManager::Servers& candidates,
     const ChunkRecoveryInfo&      recoveryInfo,
+    const vector<kfsSTier_t>&     tiers,
+    kfsSTier_t                    maxSTier,
     const char*                   reasonMsg)
 {
     // prefer a server that is being retired to the other nodes as
@@ -7320,12 +7335,14 @@ LayoutManager::ReplicateChunk(
         servers.begin(), servers.end(),
         bind(&ChunkServer::IsEvacuationScheduled, _1, clli.GetChunkId())
     );
+    vector<kfsSTier_t>::const_iterator ti = tiers.begin();
     int numDone = 0;
     for (Servers::const_iterator it = candidates.begin();
             numDone < extraReplicas && it != candidates.end();
             ++it) {
-        const ChunkServerPtr& c  = *it;
-        ChunkServer&          cs = *c;
+        const ChunkServerPtr& c    = *it;
+        ChunkServer&          cs   = *c;
+        const kfsSTier_t      tier = ti != tiers.end() ? *ti : kKfsSTierUndef;
         // verify that we got good candidates
         if (find(servers.begin(), servers.end(), c) != servers.end()) {
             panic("invalid replication candidate");
@@ -7404,7 +7421,7 @@ LayoutManager::ReplicateChunk(
                 CSMap::Entry::kStatePendingReplication);
         }
         cs.ReplicateChunk(clli.GetFileId(), clli.GetChunkId(),
-            dataServer, recoveryInfo);
+            dataServer, recoveryInfo, tier, maxSTier);
         // Do not count synchronous failures.
         if (! cs.IsDown()) {
             numDone++;
@@ -8765,6 +8782,7 @@ LayoutManager::RebalanceServers()
     StTmp<Servers>                 serversTmp(mServersTmp);
     StTmp<ChunkPlacement>          placementTmp(mChunkPlacementTmp);
     StTmp<vector<MetaChunkInfo*> > cblkTmp(mChunkInfos2Tmp);
+    StTmp<vector<kfsSTier_t> >     tiersTmp(mPlacementTiersTmp);
     vector<MetaChunkInfo*>&        cblk           = cblkTmp.Get();
     bool                           rescheduleFlag = true;
     int64_t                        maxTime        =
@@ -8882,13 +8900,15 @@ LayoutManager::RebalanceServers()
             }
             continue;
         }
-        const char*            reason = 0;
-        const MetaFattr* const fa     = entry.GetFattr();
+        const char*            reason   = 0;
+        const MetaFattr* const fa       = entry.GetFattr();
+        vector<kfsSTier_t>&    tiers    = tiersTmp.Get();
+        kfsSTier_t             maxSTier = kKfsSTierUndef;
         if (srvPos >= 0 || rackPos >= 0) {
             srvs.clear();
+            tiers.clear();
             double     maxUtilization = mMinRebalanceSpaceUtilThreshold;
             kfsSTier_t minSTier       = kKfsSTierUndef;
-            kfsSTier_t maxSTier       = kKfsSTierUndef;
             for (int i = 0; ; i++) {
                 if (i > 0) {
                     if (mMaxSpaceUtilizationThreshold <= maxUtilization) {
@@ -8921,6 +8941,7 @@ LayoutManager::RebalanceServers()
                     continue;
                 }
                 srvs.push_back(srv);
+                tiers.push_back(placement.GetStorageTier());
                 reason = srvPos >= 0 ?
                     "re-balance server placement" :
                     "re-balance rack placement";
@@ -8929,7 +8950,7 @@ LayoutManager::RebalanceServers()
         } else if (loadPos >= 0) {
             const RackId   rackId   = srvs[loadPos]->GetRack();
             kfsSTier_t     minSTier = fa->minSTier;
-            kfsSTier_t     maxSTier = fa->maxSTier;
+            maxSTier = fa->maxSTier;
             ChunkServerPtr srv;
             if (FindStorageTiersRange(minSTier, maxSTier)) {
                 placement.FindRebalanceCandidates(
@@ -8942,6 +8963,7 @@ LayoutManager::RebalanceServers()
                 srv = placement.GetNext(kCanIgnoreServerExcludesFlag);
             }
             srvs.clear();
+            tiers.clear();
             if (srv && (srv->GetRack() >= 0 || rackId < 0) &&
                     ((placement.GetRackId() >= 0 &&
                         ! placement.IsUsingRackExcludes()
@@ -8951,6 +8973,7 @@ LayoutManager::RebalanceServers()
                     placement.GetExcludedRacksCount() +
                     numReplicas >= mRacks.size()))) {
                 srvs.push_back(srv);
+                tiers.push_back(placement.GetStorageTier());
                 reason = "re-balance utilization";
             }
         } else {
@@ -8977,7 +9000,8 @@ LayoutManager::RebalanceServers()
         if (noCandidatesFlag) {
             continue;
         }
-        if (ReplicateChunk(entry, 1, srvs, recoveryInfo, reason) > 0) {
+        if (ReplicateChunk(entry, 1, srvs, recoveryInfo, tiers, maxSTier,
+                reason) > 0) {
             mRebalanceCtrs.ReplicationStarted();
             MoveChunkBlockBack(cblk, mChunkToServerMap);
             cblk.clear();
@@ -9150,11 +9174,14 @@ LayoutManager::ExecuteRebalancePlan(
         return chunksToMove.Size();
     }
 
-    StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
-    StTmp<Servers>        serversTmp(mServersTmp);
-    StTmp<Servers>        candidatesTmp(mServers2Tmp);
-    Servers&              candidates = candidatesTmp.Get();
+    StTmp<ChunkPlacement>      placementTmp(mChunkPlacementTmp);
+    StTmp<Servers>             serversTmp(mServersTmp);
+    StTmp<Servers>             candidatesTmp(mServers2Tmp);
+    Servers&                   candidates = candidatesTmp.Get();
+    StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
+    vector<kfsSTier_t>&        tiers = tiersTmp.Get();
     candidates.push_back(c);
+    tiers.push_back(kKfsSTierMax);
 
     const ChunkRecoveryInfo recoveryInfo;
     size_t                  curScan = chunksToMove.Size();
@@ -9193,6 +9220,23 @@ LayoutManager::ExecuteRebalancePlan(
             mRebalanceCtrs.PlanNoChunk();
             continue;
         }
+        const MetaFattr* const fa = ci->GetFattr();
+        kfsSTier_t i;
+        for (i = fa->minSTier;
+                i <= fa->maxSTier && IsCandidateServer(*c, i);
+                i++)
+            {}
+        if (fa->maxSTier < i) {
+            KFS_LOG_STREAM_INFO <<
+                "cannot move"
+                " chunk: "    << cid <<
+                " to: "       << c->GetServerLocation() <<
+                " tiers: ["   << fa->minSTier << "," << fa->maxSTier << "]"
+                " no storage tiers available" <<
+            KFS_LOG_EOM;
+            continue;
+        }
+        tiers.front() = i;
         Servers& srvs = serversTmp.Get();
         mChunkToServerMap.GetServers(*ci, srvs);
         bool foundFlag = false;
@@ -9262,7 +9306,7 @@ LayoutManager::ExecuteRebalancePlan(
             continue;
         }
         if (ReplicateChunk(*ci, 1, candidates, recoveryInfo,
-                "re-balance plan") > 0) {
+                tiers, fa->maxSTier, "re-balance plan") > 0) {
             mRebalanceCtrs.PlanReplicationStarted();
             if (mRebalanceReplicationsThresholdCount <=
                     mNumOngoingReplications) {

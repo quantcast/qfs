@@ -1780,6 +1780,7 @@ protected:
     StTmp<Servers>::Tmp                 mServers2Tmp;
     StTmp<Servers>::Tmp                 mServers3Tmp;
     StTmp<Servers>::Tmp                 mServers4Tmp;
+    StTmp<vector<kfsSTier_t> >::Tmp     mPlacementTiersTmp;
 
     struct ChunkPlacement : public KFS::ChunkPlacement<LayoutManager>
     {
@@ -1827,11 +1828,13 @@ protected:
         ChunkPlacement&          chunkPlacement,
         const ChunkRecoveryInfo& recoveryInfo);
     int ReplicateChunk(
-        CSMap::Entry&            clli,
-        int                      extraReplicas,
-        const Servers&           candidates,
-        const ChunkRecoveryInfo& recoveryInfo,
-        const char*              reasonMsg = 0);
+        CSMap::Entry&             clli,
+        int                       extraReplicas,
+        const Servers&            candidates,
+        const ChunkRecoveryInfo&  recoveryInfo,
+        const vector<kfsSTier_t>& tiers,
+        kfsSTier_t                maxSTier,
+        const char*               reasonMsg = 0);
 
     /// From the candidates, handout work to nodes.  If any chunks are
     /// over-replicated/chunk is deleted from system, add them to delset.

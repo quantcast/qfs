@@ -232,7 +232,7 @@ public:
             if (mMaxSTier <= mCurSTier) {
                 return ChunkServerPtr();
             }
-            mCurSTier++;
+            NextTier();
             mCandidatePos = 0;
             return GetNext(canIgnoreServerExcludesFlag); // Tail recursion.
         }
@@ -290,11 +290,11 @@ public:
                             mCurSTier = mMinSTier;
                             return false;
                         } else {
-                            mCurSTier++;
+                            NextTier();
                         }
                     } else {
                         if (mCurSTier < mMaxSTier && mRackPos > 0) {
-                            mCurSTier++;
+                            NextTier();
                             mRackPos = 0;
                         } else {
                             mLastAttemptFlag = true;
@@ -346,7 +346,7 @@ public:
                 // Try to use the next tier. Satisfying rack placement
                 // constraints has higher priority then satisfying storage
                 // tier constrain.
-                mCurSTier++;
+                NextTier();
             }
             // Random shuffle chosen racks, such that the racks with
             // larger number of possible allocation candidates have
@@ -369,7 +369,12 @@ public:
                     mCandidateRacks.begin() + ri);
             }
             const RackInfo& rack = *(mCandidateRacks[mRackPos++].second);
-            FindCandidateServers(rack);
+            if (mCurSTier != mMinSTier && mRackExcludes.Find(rack.id())) {
+                // Skip rack if it is now in rack excludes.
+                FindCandidateServers(rack.getServers(), 0);
+            } else {
+                FindCandidateServers(rack);
+            }
             if (! mCandidates.empty()) {
                 mCurRackId = rack.id();
                 break;
@@ -864,6 +869,12 @@ private:
             mCandidates.push_back(make_pair(load, &srv));
         }
         mCandidatePos = mCandidates.size();
+    }
+    void NextTier()
+    {
+        while (mCurSTier < mMaxSTier &&
+                mLayoutManager.GetTierCandidatesCount(++mCurSTier) <= 0)
+            {}
     }
 private:
     ChunkPlacement(const ChunkPlacement&);

@@ -1480,11 +1480,16 @@ protected:
  */
 struct MetaChunkAllocate : public MetaChunkRequest {
     const int64_t       leaseId;
+    kfsSTier_t          minSTier;
+    kfsSTier_t          maxSTier;
     MetaAllocate* const req;
     MetaChunkAllocate(seq_t n, MetaAllocate *r,
-            const ChunkServerPtr& s, int64_t l)
+            const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
+            kfsSTier_t maxTier)
         : MetaChunkRequest(META_CHUNK_ALLOCATE, n, false, s, r->chunkId),
           leaseId(l),
+          minSTier(minTier),
+          maxSTier(maxTier),
           req(r)
           {}
     virtual void handle();
@@ -1536,10 +1541,12 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     string               pathname;
     int64_t              fileSize;
     InvalidStripes       invalidStripes;
+    kfsSTier_t           minSTier;
+    kfsSTier_t           maxSTier;
     MetaChunkVersChange* versChange;
     MetaChunkReplicate(seq_t n, const ChunkServerPtr& s,
             fid_t f, chunkId_t c, const ServerLocation& loc,
-            const ChunkServerPtr& src)
+            const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier)
         : MetaChunkRequest(META_CHUNK_REPLICATE, n, false, s, c),
           fid(f),
           chunkVersion(-1),
@@ -1553,6 +1560,8 @@ struct MetaChunkReplicate: public MetaChunkRequest {
           pathname(),
           fileSize(-1),
           invalidStripes(),
+          minSTier(minTier),
+          maxSTier(maxTier),
           versChange(0)
         {}
     virtual ~MetaChunkReplicate() { assert(! versChange); }
