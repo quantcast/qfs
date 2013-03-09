@@ -75,7 +75,7 @@ using boost::bind;
  * re-balancing attempts to choose re-replication source and destination withing
  * the same rack. If not enough different racks available, put chunk replicas
  * into the rack that has the least chunk replicas or lest chunks for a given rs
- * block. When more racks become available later, then re-balancing will move
+ * block. When more racks become available later, the re-balancing will move
  * the replicas accordingly.
  *
  */

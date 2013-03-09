@@ -338,20 +338,22 @@ struct MetaLookupPath: public MetaRequest {
  * \brief create a file
  */
 struct MetaCreate: public MetaRequest {
-    fid_t     dir;               //!< parent directory fid
-    fid_t     fid;               //!< file ID of new file
-    int16_t   numReplicas;         //!< desired degree of replication
-    int32_t   striperType;
-    int32_t   numStripes;
-    int32_t   numRecoveryStripes;
-    int32_t   stripeSize;
-    bool      exclusive;           //!< model the O_EXCL flag
-    fid_t     todumpster;          //!< moved existing to dumpster
-    kfsUid_t  user;
-    kfsGid_t  group;
-    kfsMode_t mode;
-    seq_t     reqId;
-    string    name;              //!< name to create
+    fid_t      dir;               //!< parent directory fid
+    fid_t      fid;               //!< file ID of new file
+    int16_t    numReplicas;         //!< desired degree of replication
+    int32_t    striperType;
+    int32_t    numStripes;
+    int32_t    numRecoveryStripes;
+    int32_t    stripeSize;
+    bool       exclusive;           //!< model the O_EXCL flag
+    fid_t      todumpster;          //!< moved existing to dumpster
+    kfsUid_t   user;
+    kfsGid_t   group;
+    kfsMode_t  mode;
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
+    seq_t      reqId;
+    string     name;              //!< name to create
     MetaCreate()
         : MetaRequest(META_CREATE, true),
           dir(-1),
@@ -365,6 +367,8 @@ struct MetaCreate: public MetaRequest {
           user(kKfsUserNone),
           group(kKfsGroupNone),
           mode(kKfsModeUndef),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax),
           reqId(-1),
           name()
         {}
@@ -405,6 +409,8 @@ struct MetaCreate: public MetaRequest {
         .Def("Group",                &MetaCreate::group,              kKfsGroupNone)
         .Def("Mode",                 &MetaCreate::mode,               kKfsModeUndef)
         .Def("ReqId",                &MetaCreate::reqId,              seq_t(-1))
+        .Def("Min-tier:",            &MetaCreate::minSTier,           kKfsSTierMax)
+        .Def("Max-tier:",            &MetaCreate::maxSTier,           kKfsSTierMax)
         ;
     }
 };

@@ -168,10 +168,12 @@ replay_create(DETokenizer& c)
     if (! pop_fid(todumpster, "todumpster", c, ok)) {
         todumpster = -1;
     }
-    kfsUid_t  user  = kKfsUserNone;
-    kfsUid_t  group = kKfsGroupNone;
-    kfsMode_t mode  = 0;
-    int64_t   k     = user;
+    kfsUid_t   user     = kKfsUserNone;
+    kfsUid_t   group    = kKfsGroupNone;
+    kfsMode_t  mode     = 0;
+    int64_t    k        = user;
+    kfsSTier_t minSTier = kKfsSTierMax;
+    kfsSTier_t maxSTier = kKfsSTierMax;
     if (pop_num(k, "user", c, ok)) {
         user = (kfsUid_t)k;
         if (user == kKfsUserNone) {
@@ -190,6 +192,13 @@ replay_create(DETokenizer& c)
             return false;
         }
         mode = (kfsMode_t)k;
+        if (pop_num(k, "minTier", c, ok)) {
+            minSTier = (kfsSTier_t)k;
+            if (! pop_num(k, "maxTier", c, ok)) {
+                return false;
+            }
+            maxSTier = (kfsSTier_t)k;
+        }
     } else {
         user  = gLayoutManager.GetDefaultLoadUser();
         group = gLayoutManager.GetDefaultLoadGroup();
@@ -197,6 +206,11 @@ replay_create(DETokenizer& c)
     }
     if (user == kKfsUserNone || group == kKfsGroupNone ||
             mode == kKfsModeUndef) {
+        return false;
+    }
+    if (maxSTier < minSTier ||
+            minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
         return false;
     }
     // for all creates that were successful during normal operation,
@@ -213,6 +227,10 @@ replay_create(DETokenizer& c)
             if (fa->IsStriped()) {
                 fa->filesize = 0;
             }
+        }
+        if (minSTier < kKfsSTierMax) {
+            fa->minSTier = minSTier;
+            fa->maxSTier = maxSTier;
         }
     }
     KFS_LOG_STREAM_DEBUG << "replay create:"

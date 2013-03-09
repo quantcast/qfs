@@ -214,6 +214,20 @@ restore_fattr(DETokenizer& c)
             return false;
         }
         f->mode = (kfsMode_t)n;
+        if (type == KFS_FILE && pop_num(n, "minTier", c, ok)) {
+            f->minSTier = (kfsSTier_t)n;
+            if (! pop_num(n, "maxTier", c, ok)) {
+                f->destroy();
+                return false;
+            }
+            f->maxSTier = (kfsSTier_t)n;
+            if (f->maxSTier < f->minSTier ||
+                    f->minSTier < kKfsSTierMin || f->minSTier > kKfsSTierMax ||
+                    f->maxSTier < kKfsSTierMin || f->maxSTier > kKfsSTierMax) {
+                f->destroy();
+                return false;
+            }
+        }
     } else {
         f->user  = gLayoutManager.GetDefaultLoadUser();
         f->group = gLayoutManager.GetDefaultLoadGroup();

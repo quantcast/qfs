@@ -568,6 +568,8 @@ MetaCreate::handle()
         }
         mode         = 0;
         rootUserFlag = true;
+        minSTier     = kKfsSTierMax;
+        maxSTier     = kKfsSTierMax;
     } else {
         if (! CheckCreatePerms(*this)) {
             return;
@@ -589,6 +591,14 @@ MetaCreate::handle()
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerFile());
     }
+    if (maxSTier < minSTier ||
+            minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
+        status    = -EINVAL;
+        statusMsg = "invalid storage tier range";
+        return;
+    }
+    MetaFattr* fa = 0;
     status = metatree.create(
         dir,
         name,
@@ -604,8 +614,13 @@ MetaCreate::handle()
         group,
         mode,
         rootUserFlag ? kKfsUserRoot : euser,
-        egroup
+        egroup,
+        &fa
     );
+    if (status == 0 && minSTier < kKfsSTierMax) {
+        fa->minSTier = minSTier;
+        fa->maxSTier = maxSTier;
+    }
 }
 
 /* virtual */ void
@@ -867,6 +882,8 @@ private:
     static const PropName kLRepl;
     static const PropName kFileCount;
     static const PropName kDirCount;
+    static const PropName kMinTier;
+    static const PropName kMaxTier;
     static const PropName kSpace;
     static const Token    kFileType[];
 
@@ -964,6 +981,12 @@ private:
         WriteInt(entry.filesize);
         Write(kRepl);
         WriteInt(entry.numReplicas);
+        if (entry.type == KFS_FILE && entry.minSTier < kKfsSTierMax) {
+            Write(kMinTier);
+            WriteInt(entry.minSTier);
+            Write(kMaxTier);
+            WriteInt(entry.minSTier);
+        }
         if (entry.type == KFS_DIR || entry.IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
                 entry.filesize >= 0)) {
@@ -1101,6 +1124,12 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kDirCount(
     "\nDC:" , "\r\nDir-count: ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kMinTier(
+    "\nFT:" , "\r\nMin-tier: ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kMaxTier(
+    "\nLT:" , "\r\nMax-tier: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kSpace(
     " " , " ");
@@ -2932,7 +2961,7 @@ MetaLookupPath::log(ostream& /* file */) const
  * \brief log a file create
  */
 int
-MetaCreate::log(ostream &file) const
+MetaCreate::log(ostream& file) const
 {
     // use the log entry time as a proxy for when the file was created
     file << "create"
@@ -2955,8 +2984,12 @@ MetaCreate::log(ostream &file) const
     }
     file << "/user/"  << user <<
         "/group/" << group <<
-        "/mode/"  << mode <<
-    '\n';
+        "/mode/"  << mode
+    ;
+    if (minSTier < kKfsSTierMax) {
+        file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
+    }
+    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 

@@ -82,10 +82,15 @@ MetaFattr::show(ostream& os) const
             "/numRecoveryStripes/" << numRecoveryStripes <<
             "/stripeSize/"         << stripeSize;
     }
-        os <<
+    os <<
         "/user/"  << user <<
         "/group/" << group <<
         "/mode/"  << mode;
+    if (minSTier < kKfsSTierMax) {
+        os <<
+            "/minTier/" << minSTier <<
+            "/maxTier/" << maxSTier;
+    }
     return os;
 }
 
