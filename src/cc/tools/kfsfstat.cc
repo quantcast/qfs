@@ -49,7 +49,7 @@ using std::ofstream;
 using std::vector;
 
 int
-handleFstat(KfsClient *kfsClient, const vector<string> &args)
+handleFstat(KfsClient* kfsClient, const vector<string>& args)
 {
     if (args.empty() || args[0] == "--help") {
         cout << "Usage: stat <path> " << "\n";
@@ -77,6 +77,12 @@ handleFstat(KfsClient *kfsClient, const vector<string> &args)
             "Group:            " << attr.group << "\n"
             "Mode:             " << oct << attr.mode << dec << "\n"
         ;
+        if (! attr.isDirectory) {
+            cout <<
+            "MinTier:          " << (int)attr.minSTier << "\n"
+            "MaxTier:          " << (int)attr.maxSTier << "\n"
+            ;
+        }
         if (attr.striperType == KFS_STRIPED_FILE_TYPE_NONE) {
             continue;
         }

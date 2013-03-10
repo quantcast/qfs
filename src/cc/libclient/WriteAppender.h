@@ -170,10 +170,14 @@ public:
     int Open(
         const char* inFileNamePtr,
         int         inNumReplicas  = 3,
-        bool        inMakeDirsFlag = false);
+        bool        inMakeDirsFlag = false,
+        kfsSTier_t  inMinSTier     = kKfsSTierMax,
+        kfsSTier_t  inMaxSTier     = kKfsSTierMax);
     int Open(
         kfsFileId_t inFileId,
-        const char* inFileNamePtr);
+        const char* inFileNamePtr,
+        kfsSTier_t  inMinSTier = kKfsSTierMax,
+        kfsSTier_t  inMaxSTier = kKfsSTierMax);
     int Close();
     int Append(
         IOBuffer& inBuffer,

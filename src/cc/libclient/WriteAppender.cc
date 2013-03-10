@@ -107,6 +107,8 @@ public:
           mAppendRestartRetryCount(0),
           mWriteThreshold(inWriteThreshold),
           mNumReplicas(0),
+          mMinSTier(kKfsSTierMax),
+          mMaxSTier(kKfsSTierMax),
           mPartialBuffersCount(0),
           mAppendLength(0),
           mForcedAllocationInterval(0),
@@ -158,7 +160,9 @@ public:
     int Open(
         const char* inFileNamePtr,
         int         inNumReplicas,
-        bool        inMakeDirsFlag)
+        bool        inMakeDirsFlag,
+        kfsSTier_t  inMinSTier,
+        kfsSTier_t  inMaxSTier)
     {
         if (! inFileNamePtr || ! *inFileNamePtr) {
             return -EINVAL;
@@ -186,13 +190,17 @@ public:
         mPathNamePos           = 0;
         mSpaceReserveOp.status = 0; // Do allocate with append flag.
         mMakeDirsFlag          = inMakeDirsFlag;
+        mMinSTier              = inMinSTier;
+        mMaxSTier              = inMaxSTier;
         assert(! mPathName.empty());
         LookupPath();
         return mErrorCode;
     }
     int Open(
         kfsFileId_t inFileId,
-        const char* inFileNamePtr)
+        const char* inFileNamePtr,
+        kfsSTier_t  inMinSTier,
+        kfsSTier_t  inMaxSTier)
     {
         if (inFileId <= 0 || ! inFileNamePtr || ! *inFileNamePtr) {
             return -EINVAL;
@@ -219,6 +227,8 @@ public:
         mSpaceReserveOp.status = 0;  // Do allocate with append flag.
         mMakeDirsFlag          = false;
         mNumReplicas           = 0; // Do not create if doesn't exist.
+        mMinSTier              = inMinSTier;
+        mMaxSTier              = inMaxSTier;
         assert(! mPathName.empty());
         mLookupOp.parentFid = -1;   // Input, not known, and not needed.
         mLookupOp.status    = 0;
@@ -476,6 +486,8 @@ private:
     int                     mAppendRestartRetryCount;
     int                     mWriteThreshold;
     int                     mNumReplicas;
+    kfsSTier_t              mMinSTier;
+    kfsSTier_t              mMaxSTier;
     int                     mPartialBuffersCount;
     int                     mAppendLength;
     int                     mForcedAllocationInterval;
@@ -743,6 +755,8 @@ private:
         mCreateOp.numReplicas = mNumReplicas;
         // With false it deletes the file then creates it again.
         mCreateOp.exclusive   = true;
+        mCreateOp.minSTier    = mMinSTier;
+        mCreateOp.maxSTier    = mMinSTier;
         EnqueueMeta(mCreateOp);
     }
     void Done(
@@ -1576,17 +1590,22 @@ int
 WriteAppender::Open(
     const char* inFileNamePtr,
     int         inNumReplicas  /* = 3 */,
-    bool        inMakeDirsFlag /* = false */)
+    bool        inMakeDirsFlag /* = false */,
+    kfsSTier_t  inMinSTier     /* = kKfsSTierMax */,
+    kfsSTier_t  inMaxSTier     /* = kKfsSTierMax */)
 {
-    return mImpl.Open(inFileNamePtr, inNumReplicas, inMakeDirsFlag);
+    return mImpl.Open(inFileNamePtr, inNumReplicas, inMakeDirsFlag,
+        inMinSTier, inMaxSTier);
 }
 
 int
 WriteAppender::Open(
     kfsFileId_t inFileId,
-    const char* inFileNamePtr)
+    const char* inFileNamePtr,
+    kfsSTier_t  inMinSTier /* = kKfsSTierMax */,
+    kfsSTier_t  inMaxSTier /* = kKfsSTierMax */)
 {
-    return mImpl.Open(inFileId, inFileNamePtr);
+    return mImpl.Open(inFileId, inFileNamePtr, inMinSTier, inMaxSTier);
 }
 
 int
