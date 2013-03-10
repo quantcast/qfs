@@ -275,10 +275,22 @@ public:
     /// @param[out] numRecoveryStripes
     /// @param[out] stripeSize
     /// @param[out] stripedType
+    /// @param[out] minSTier
+    /// @param[out] maxSTier
     /// @retval 0 on success; -errno on failure.
     static int ParseCreateParams(const char* params, int& numReplicas,
         int& numStripes, int& numRecoveryStripes, int& stripeSize,
-        int& stripedType);
+        int& stripedType, kfsSTier_t& minSTier, kfsSTier_t& maxSTier);
+    /// Backward compatibility version.
+    static int ParseCreateParams(const char* params, int& numReplicas,
+        int& numStripes, int& numRecoveryStripes, int& stripeSize,
+        int& stripedType)
+    {
+        kfsSTier_t minSTier = kKfsSTierMax;
+        kfsSTier_t maxSTier = kKfsSTierMax;
+        return ParseCreateParams(params, numReplicas, numStripes,
+            numRecoveryStripes, stripeSize, stripedType, minSTier, maxSTier);
+    }
 
     ///
     /// Create a file which is specified by a complete path.
@@ -292,7 +304,8 @@ public:
     int Create(const char *pathname, int numReplicas = 3, bool exclusive = false,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
-        kfsMode_t mode = 0666);
+        kfsMode_t mode = 0666,
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
 
     ///
     /// Create a file which is specified by a complete path.
@@ -343,7 +356,8 @@ public:
     int Open(const char *pathname, int openFlags, int numReplicas = 3,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
-        kfsMode_t mode = 0666);
+        kfsMode_t mode = 0666,
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
 
     ///
     /// Create a file which is specified by a complete path.

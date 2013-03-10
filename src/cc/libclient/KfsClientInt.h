@@ -385,7 +385,8 @@ public:
     int Create(const char *pathname, int numReplicas = 3, bool exclusive = false,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
-        kfsMode_t mode = kKfsModeUndef);
+        kfsMode_t mode = kKfsModeUndef,
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
 
     ///
     /// Remove a file which is specified by a complete path.
@@ -426,7 +427,7 @@ public:
     ///
     int Open(const char *pathname, int openFlags, int numReplicas,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        kfsMode_t mode);
+        kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier);
 
     ///
     /// Close a file
@@ -792,7 +793,9 @@ private:
         string* path = 0, FAttr** fa = 0, bool validSubCountsRequiredFlag = false);
     int OpenSelf(const char *pathname, int openFlags, int numReplicas = 3,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
-        int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool cacheAttributesFlag = false,
+        int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
+        bool cacheAttributesFlag = false,
         kfsMode_t mode = kKfsModeUndef, string* path = 0);
     int CacheAttributes(const char* pathname);
     int GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
@@ -800,7 +803,7 @@ private:
     int TruncateSelf(int fd, chunkOff_t offset);
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        bool forceTypeFlag, kfsMode_t mode);
+        bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier);
     ssize_t SetReadAheadSize(FileTableEntry& inEntry, size_t inSize, bool optimalFlag = false);
     ssize_t SetIoBufferSize(FileTableEntry& entry, size_t size, bool optimalFlag = false);
     ssize_t SetOptimalIoBufferSize(FileTableEntry& entry, size_t size) {

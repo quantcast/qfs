@@ -214,6 +214,10 @@ FattrReply(const MetaFattr* fa, MFattr& ofa)
         return;
     }
     ofa = *fa;
+    // Keep the following to handle purely theoretical case: "re-open" file
+    // for append. Normal append now does not attempt to calculate "the actual"
+    // file size as append files are sparse anyway, and always sets file size
+    // equal to the begining of the "next" chunk.
     if (fa->filesize < 0 &&
             fa->type == KFS_FILE &&
             fa->chunkcount() > 0 &&
@@ -223,8 +227,7 @@ FattrReply(const MetaFattr* fa, MFattr& ofa)
         if (metatree.getalloc(fa->id(),
                 fa->nextChunkOffset() - CHUNKSIZE, &ci) == 0 &&
                 ci &&
-                gLayoutManager.HasWriteAppendLease(
-                    ci->chunkId)) {
+                gLayoutManager.HasWriteAppendLease(ci->chunkId)) {
             // Reduce getlayout calls, return the same value to the
             // client as in the case of getlayout followed by
             // getsize on unstable write append chunk.
@@ -265,6 +268,11 @@ FattrReply(ostream& os, const MFattr& fa)
     "User: "  << fa.user  << "\r\n"
     "Group: " << fa.group << "\r\n"
     "Mode: "  << fa.mode  << "\r\n";
+    if (fa.minSTier < kKfsSTierMax) {
+        os <<
+        "Min-tier: " << (int)fa.minSTier << "\r\n"
+        "Max-tier: " << (int)fa.maxSTier << "\r\n";
+    }
     return os;
 }
 

@@ -155,7 +155,7 @@ RandomSeqNo()
 static int
 ValidateCreateParams(
     int numReplicas, int numStripes, int numRecoveryStripes,
-    int stripeSize, int stripedType)
+    int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     return (
         (numReplicas <= 0 ||
@@ -168,7 +168,9 @@ ValidateCreateParams(
                 stripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
                 (numRecoveryStripes != 0 &&
                     (numRecoveryStripes != RS_LIB_MAX_RECOVERY_BLOCKS ||
-                    numStripes > RS_LIB_MAX_DATA_BLOCKS))))
+                    numStripes > RS_LIB_MAX_DATA_BLOCKS)))) ||
+        (minSTier > maxSTier || maxSTier > kKfsSTierMax || minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin || minSTier < kKfsSTierMin)
         ) ? -EINVAL : 0
     );
 }
@@ -362,13 +364,16 @@ KfsClient::VerifyDataChecksums(int fd)
 /* static */ int
 KfsClient::ParseCreateParams(const char* params,
     int& numReplicas, int& numStripes, int& numRecoveryStripes,
-    int& stripeSize, int& stripedType)
+    int& stripeSize, int& stripedType,
+    kfsSTier_t& minSTier, kfsSTier_t& maxSTier)
 {
     numReplicas        = 2;
     numStripes         = 0;
     numRecoveryStripes = 0;
     stripeSize         = 0;
     stripedType        = KFS_STRIPED_FILE_TYPE_NONE;
+    minSTier           = kKfsSTierMax;
+    maxSTier           = kKfsSTierMax;
     if (! params || ! *params) {
         return 0;
     }
@@ -389,42 +394,47 @@ KfsClient::ParseCreateParams(const char* params,
     if (*p == ',') numRecoveryStripes = (int)strtol(p + 1, &p, 10);
     if (*p == ',') stripeSize         = (int)strtol(p + 1, &p, 10);
     if (*p == ',') stripedType        = (int)strtol(p + 1, &p, 10);
+    if (*p == ',') minSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
+    if (*p == ',') maxSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
     if (stripedType == KFS_STRIPED_FILE_TYPE_NONE) {
         numStripes         = 0;
         numRecoveryStripes = 0;
         stripeSize         = 0;
     }
     return ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
-        stripeSize, stripedType);
+        stripeSize, stripedType, minSTier, maxSTier);
 }
 
 int
 KfsClient::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    bool forceTypeFlag, kfsMode_t mode)
+    bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     return mImpl->Create(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
-        mode);
+        mode, minSTier, maxSTier);
 }
 
 
 int
 KfsClient::Create(const char *pathname, bool exclusive, const char *params)
 {
-    int numReplicas;
-    int numStripes;
-    int numRecoveryStripes;
-    int stripeSize;
-    int stripedType;
+    int        numReplicas;
+    int        numStripes;
+    int        numRecoveryStripes;
+    int        stripeSize;
+    int        stripedType;
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
     const int ret = ParseCreateParams(
         params, numReplicas, numStripes, numRecoveryStripes,
-        stripeSize, stripedType);
+        stripeSize, stripedType, minSTier, maxSTier);
     if (ret) {
         return ret;
     }
     return mImpl->Create(pathname, numReplicas, exclusive,
-        numStripes, numRecoveryStripes, stripeSize, stripedType, true);
+        numStripes, numRecoveryStripes, stripeSize, stripedType, true,
+        0666, maxSTier, minSTier);
 }
 
 int
@@ -454,29 +464,33 @@ KfsClient::SetMtime(const char *pathname, const struct timeval &mtime)
 int
 KfsClient::Open(const char *pathname, int openFlags, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    kfsMode_t mode)
+    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     return mImpl->Open(pathname, openFlags, numReplicas,
-        numStripes, numRecoveryStripes, stripeSize, stripedType, mode);
+        numStripes, numRecoveryStripes, stripeSize, stripedType, mode,
+        minSTier, maxSTier);
 }
 
 int
 KfsClient::Open(const char *pathname, int openFlags, const char *params,
     kfsMode_t mode)
 {
-    int numReplicas;
-    int numStripes;
-    int numRecoveryStripes;
-    int stripeSize;
-    int stripedType;
+    int        numReplicas;
+    int        numStripes;
+    int        numRecoveryStripes;
+    int        stripeSize;
+    int        stripedType;
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
     const int ret = ParseCreateParams(
         params, numReplicas, numStripes, numRecoveryStripes,
-        stripeSize, stripedType);
+        stripeSize, stripedType, minSTier, maxSTier);
     if (ret) {
         return ret;
     }
     return mImpl->Open(pathname, openFlags, numReplicas,
-        numStripes, numRecoveryStripes, stripeSize, stripedType, mode);
+        numStripes, numRecoveryStripes, stripeSize, stripedType, mode,
+        minSTier, maxSTier);
 }
 
 int
@@ -1845,6 +1859,8 @@ private:
             chunkId              = -1;
             chunkVersion         = -1;
             lastchunkNumReplicas = 0;
+            minSTier             = kKfsSTierMax;
+            maxSTier             = kKfsSTierMax;
             ctime.tv_usec        = kCTimeUndef;
             lastChunkReplicas.clear();
             type.clear();
@@ -2016,6 +2032,8 @@ private:
             .Def("Mode",                 &Entry::mode,            kKfsModeUndef)
             .Def("File-count",           &Entry::subCount1,         int64_t(-1))
             .Def("Dir-count",            &Entry::subCount2,         int64_t(-1))
+            .Def("Min-tier",             &Entry::minSTier,         kKfsSTierMax)
+            .Def("Max-tier",             &Entry::maxSTier,         kKfsSTierMax)
             .DefDone()
         ;
     };
@@ -2047,6 +2065,8 @@ private:
             .Def("A",  &Entry::mode,              kKfsModeUndef)
             .Def("FC", &Entry::subCount1,           int64_t(-1))
             .Def("DC", &Entry::subCount2,           int64_t(-1))
+            .Def("FT", &Entry::minSTier,           kKfsSTierMax)
+            .Def("LT", &Entry::maxSTier,           kKfsSTierMax)
             .DefDone()
         ;
     }
@@ -2426,18 +2446,18 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
 int
 KfsClientImpl::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    bool forceTypeFlag, kfsMode_t mode)
+    bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     QCStMutexLocker l(mMutex);
     return CreateSelf(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
-        mode);
+        mode, minSTier, maxSTier);
 }
 
 int
 KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    bool forceTypeFlag, kfsMode_t mode)
+    bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     if (! pathname || ! *pathname) {
         return -EINVAL;
@@ -2445,7 +2465,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
 
     assert(mMutex.IsOwned());
     int res = ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
-        stripeSize, stripedType);
+        stripeSize, stripedType, minSTier, maxSTier);
     if (res < 0) {
         return res;
     }
@@ -2465,7 +2485,8 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     CreateOp op(nextSeq(), parentFid, filename.c_str(), numReplicas, exclusive,
         Permissions(mEUser, mEGroup,
             mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
-        exclusive ? NextCreateId() : -1
+        exclusive ? NextCreateId() : -1,
+        minSTier, maxSTier
     );
     if (stripedType == KFS_STRIPED_FILE_TYPE_RS) {
         if (numStripes <= 0) {
@@ -2798,9 +2819,10 @@ KfsClientImpl::OpenDirectory(const char *pathname)
     QCStMutexLocker l(mMutex);
 
     string path;
+    const bool kCacheAttributesFlag = false;
     const int fd = OpenSelf(pathname, O_RDONLY,
-        3, 0, 0, 0, KFS_STRIPED_FILE_TYPE_NONE, false, kKfsModeUndef,
-        &path);
+        3, 0, 0, 0, KFS_STRIPED_FILE_TYPE_NONE, kKfsSTierMax, kKfsSTierMax,
+        kCacheAttributesFlag, kKfsModeUndef, &path);
     if (fd < 0) {
         return fd;
     }
@@ -2937,24 +2959,27 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
 int
 KfsClientImpl::Open(const char *pathname, int openMode, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    kfsMode_t mode)
+    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     QCStMutexLocker l(mMutex);
     const bool kCacheAttributesFlag = false;
     return OpenSelf(pathname, openMode, numReplicas,
         numStripes, numRecoveryStripes, stripeSize, stripedType,
-        kCacheAttributesFlag, mode);
+        minSTier, maxSTier, kCacheAttributesFlag, mode);
 }
 
 int
 KfsClientImpl::CacheAttributes(const char *pathname)
 {
-    return OpenSelf(pathname, 0, 0, 0, 0, 0, KFS_STRIPED_FILE_TYPE_NONE, true);
+    const bool kCacheAttributesFlag = true;
+    return OpenSelf(pathname, 0, 0, 0, 0, 0, KFS_STRIPED_FILE_TYPE_NONE,
+        kKfsSTierMax, kKfsSTierMax, kCacheAttributesFlag);
 }
 
 int
 KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
+    kfsSTier_t minSTier, kfsSTier_t maxSTier,
     bool cacheAttributesFlag, kfsMode_t mode, string* path)
 {
     if ((openMode & O_TRUNC) != 0 && (openMode & (O_RDWR | O_WRONLY)) == 0) {
@@ -2989,7 +3014,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 // file doesn't exist.  Create it
                 const int fte = CreateSelf(pathname, numReplicas, openMode & O_EXCL,
                     numStripes, numRecoveryStripes, stripeSize, stripedType, false,
-                    mode);
+                    mode, minSTier, maxSTier);
                 if (fte >= 0 && (openMode & O_APPEND) != 0) {
                     FileTableEntry& entry = *mFileTable[fte];
                     assert(! entry.fattr.isDirectory);

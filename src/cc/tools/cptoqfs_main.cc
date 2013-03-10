@@ -67,7 +67,9 @@ public:
           mStriperType(KFS_STRIPED_FILE_TYPE_NONE),
           mStripeSize(0),
           mNumStripes(0),
-          mNumRecoveryStripes(0)
+          mNumRecoveryStripes(0),
+          mMinSTier(kKfsSTierMax),
+          mMaxSTier(kKfsSTierMax)
     {}
     ~CpToKfs()
     {
@@ -94,6 +96,8 @@ private:
     int        mStripeSize;
     int        mNumStripes;
     int        mNumRecoveryStripes;
+    kfsSTier_t mMinSTier;
+    kfsSTier_t mMaxSTier;
 
     bool Mkdirs(string path);
 
@@ -141,7 +145,7 @@ CpToKfs::Run(int argc, char **argv)
     int                 optchar;
 
     while ((optchar = getopt(argc, argv,
-            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:S")) != -1) {
+            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:")) != -1) {
         switch (optchar) {
             case 'd':
                 sourcePath = optarg;
@@ -215,7 +219,13 @@ CpToKfs::Run(int argc, char **argv)
             case 'X':
                 mCreateExclusiveFlag = true;
                 break;
-          default:
+            case 'm':
+                mMinSTier = (kfsSTier_t)atol(optarg);
+                break;
+            case 'l':
+                mMaxSTier = (kfsSTier_t)atol(optarg);
+                break;
+            default:
                 help = true;
                 break;
         }
@@ -247,6 +257,8 @@ CpToKfs::Run(int argc, char **argv)
             " [-D] -- op retry delay, default -1 -- qfs client default\n"
             " [-T] -- op timeout, default -1 -- qfs client default\n"
             " [-X] -- create exclusive\n"
+            " [-m] -- min storage tier\n"
+            " [-l] -- max storage tier\n"
         ;
         return(-1);
     }
@@ -425,6 +437,7 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
             return(-1);
         }
     }
+    const bool kForceTypeFlag = true;
     const int kfsfd = (mCreateExclusiveFlag || (mDeleteFlag && ! mAppendMode)) ?
         mKfsClient->Create(
             kfsfilename.c_str(),
@@ -433,7 +446,11 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
             mNumStripes,
             mNumRecoveryStripes,
             mStripeSize,
-            mStriperType
+            mStriperType,
+            kForceTypeFlag,
+            0666,
+            mMinSTier,
+            mMaxSTier
         )
         :
         mKfsClient->Open(
@@ -445,7 +462,10 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
             mNumStripes,
             mNumRecoveryStripes,
             mStripeSize,
-            mStriperType
+            mStriperType,
+            0666,
+            mMinSTier,
+            mMaxSTier
         );
     if (kfsfd < 0) {
         ReportError("open", kfsfilename, kfsfd);

@@ -65,6 +65,8 @@ struct FileAttr : public Permissions
     int16_t         numRecoveryStripes;
     StripedFileType striperType;
     int32_t         stripeSize;
+    kfsSTier_t      minSTier;
+    kfsSTier_t      maxSTier;
 
     FileAttr()
         : Permissions(),
@@ -80,7 +82,9 @@ struct FileAttr : public Permissions
           numStripes(0),
           numRecoveryStripes(0),
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
-          stripeSize(0)
+          stripeSize(0),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax)
         {}
     void Reset()
         { *this = FileAttr(); }

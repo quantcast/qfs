@@ -48,6 +48,26 @@ AsciiCharToLower(int c)
     return ((c >= 'A' && c <= 'Z') ? 'a' + (c - 'A') : c);
 }
 
+template<typename T> inline bool
+Properties::Parse(const Properties::String& str, const T& def, T& out) const
+{
+    const char*  ptr  = str.GetPtr();
+    const size_t size = str.GetSize();
+    if (intbase == 10) {
+        if (! DecIntParser::Parse(ptr, size, out)) {
+            out = def;
+        }
+        return true;
+    }
+    if (intbase == 8) {
+        if (! HexIntParser::Parse(ptr, size, out)) {
+            out = def;
+        }
+        return true;
+    }
+    return false;
+}
+
 template<typename T> inline static void
 removeLTSpaces(const string& str, string::size_type start,
     string::size_type end, T& outStr, bool asciiToLower = false)
@@ -277,8 +297,9 @@ int
 Properties::getValueSelf(const Properties::String& key, int def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def :
-        (int)strtol(i->second.c_str(), 0, intbase));
+    int ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        (int)strtol(i->second.c_str(), 0, intbase)));
 }
 
 unsigned int
@@ -293,21 +314,27 @@ long
 Properties::getValueSelf(const Properties::String& key, long def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : strtol(i->second.c_str(), 0, intbase));
+    long ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        strtol(i->second.c_str(), 0, intbase)));
 }
 
 unsigned long
 Properties::getValueSelf(const Properties::String& key, unsigned long def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : strtoul(i->second.c_str(), 0, intbase));
+    unsigned long ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        strtoul(i->second.c_str(), 0, intbase)));
 }
 
 long long
 Properties::getValueSelf(const Properties::String& key, long long def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : strtoll(i->second.c_str(), 0, intbase));
+    long long ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        strtoll(i->second.c_str(), 0, intbase)));
 }
 
 unsigned long long
@@ -315,14 +342,49 @@ Properties::getValueSelf(const Properties::String& key, unsigned long long def)
     const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : strtoull(i->second.c_str(), 0, intbase));
+    unsigned long long ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        strtoull(i->second.c_str(), 0, intbase)));
 }
 
 double
 Properties::getValueSelf(const Properties::String& key, double def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def : atof(i->second.c_str()));
+    if (i == propmap.end()) {
+        return def;
+    }
+    char*             e   = 0;
+    const char* const p   = i->second.c_str();
+    double            ret = strtod(p, &e);
+    return ((p < e && *e <= ' ') ? ret : def);
+}
+
+signed char
+Properties::getValueSelf(const Properties::String& key, signed char def) const
+{
+    PropMap::const_iterator const i = find(key);
+    signed char ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        (signed char)strtol(i->second.c_str(), 0, intbase)));
+}
+
+unsigned char
+Properties::getValueSelf(const Properties::String& key, unsigned char def) const
+{
+    PropMap::const_iterator const i = find(key);
+    unsigned char ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        (unsigned char)strtoul(i->second.c_str(), 0, intbase)));
+}
+
+char
+Properties::getValueSelf(const Properties::String& key, char def) const
+{
+    PropMap::const_iterator const i = find(key);
+    char ret;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        (char)strtol(i->second.c_str(), 0, intbase)));
 }
 
 bool

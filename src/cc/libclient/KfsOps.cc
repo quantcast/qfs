@@ -128,6 +128,11 @@ CreateOp::Request(ostream &os)
     if (reqId >= 0) {
         os << "ReqId: " << reqId << "\r\n";
     }
+    if (minSTier < kKfsSTierMax) {
+        os <<
+            "Min-tier: " << (int)minSTier << "\r\n"
+            "Max-tier: " << (int)maxSTier << "\r\n";
+    }
     os << "\r\n";
 }
 
@@ -821,6 +826,8 @@ ParseFileAttribute(const Properties &prop, FileAttr &fattr)
     fattr.user               =          prop.getValue("User",                 kKfsUserNone);
     fattr.group              =          prop.getValue("Group",                kKfsGroupNone);
     fattr.mode               =          prop.getValue("Mode",                 kKfsModeUndef);
+    fattr.minSTier           =          prop.getValue("Min-tier",             kKfsSTierMax);
+    fattr.maxSTier           =          prop.getValue("Max-tier",             kKfsSTierMax);
 }
 
 void

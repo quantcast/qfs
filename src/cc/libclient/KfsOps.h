@@ -176,33 +176,43 @@ private:
 
 struct CreateOp : public KfsOp {
     kfsFileId_t parentFid; // input parent file-id
-    const char *filename;
+    const char* filename;
     kfsFileId_t fileId; // result
-    int numReplicas; // desired degree of replication
-    bool exclusive; // O_EXCL flag
-    int striperType;
-    int numStripes;
-    int numRecoveryStripes;
-    int stripeSize;
-    int metaStriperType;
+    int         numReplicas; // desired degree of replication
+    bool        exclusive; // O_EXCL flag
+    int         striperType;
+    int         numStripes;
+    int         numRecoveryStripes;
+    int         stripeSize;
+    int         metaStriperType;
     Permissions permissions;
-    kfsSeq_t reqId;
-    CreateOp(kfsSeq_t s, kfsFileId_t p, const char *f, int n, bool e,
-            const Permissions& perms = Permissions(),
-            kfsSeq_t id = -1) :
-        KfsOp(CMD_CREATE, s),
-        parentFid(p),
-        filename(f),
-        numReplicas(n),
-        exclusive(e),
-        striperType(KFS_STRIPED_FILE_TYPE_NONE),
-        numStripes(0),
-        numRecoveryStripes(0),
-        stripeSize(0),
-        metaStriperType(KFS_STRIPED_FILE_TYPE_UNKNOWN),
-        permissions(perms),
-        reqId(id)
-    {}
+    kfsSeq_t    reqId;
+    kfsSTier_t  minSTier;
+    kfsSTier_t  maxSTier;
+    CreateOp(kfsSeq_t s,
+            kfsFileId_t        p,
+            const char*        f,
+            int                n,
+            bool               e,
+            const Permissions& perms   = Permissions(),
+            kfsSeq_t           id      = -1,
+            kfsSTier_t         minTier = kKfsSTierMax,
+            kfsSTier_t         maxTier = kKfsSTierMax)
+        : KfsOp(CMD_CREATE, s),
+          parentFid(p),
+          filename(f),
+          numReplicas(n),
+          exclusive(e),
+          striperType(KFS_STRIPED_FILE_TYPE_NONE),
+          numStripes(0),
+          numRecoveryStripes(0),
+          stripeSize(0),
+          metaStriperType(KFS_STRIPED_FILE_TYPE_UNKNOWN),
+          permissions(perms),
+          reqId(id),
+          minSTier(minTier),
+          maxSTier(maxTier)
+        {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     string Show() const {
@@ -425,8 +435,8 @@ struct ReaddirPlusOp : public KfsOp {
 // Lookup the attributes of a file in a directory
 struct LookupOp : public KfsOp {
     kfsFileId_t parentFid; // fid of the parent dir
-    const char *filename; // file in the dir
-    FileAttr fattr; // result
+    const char* filename; // file in the dir
+    FileAttr    fattr; // result
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char *f) :
         KfsOp(CMD_LOOKUP, s), parentFid(p), filename(f)
     {
@@ -446,8 +456,8 @@ struct LookupOp : public KfsOp {
 // Lookup the attributes of a file relative to a root dir.
 struct LookupPathOp : public KfsOp {
     kfsFileId_t rootFid; // fid of the root dir
-    const char *filename; // path relative to root
-    FileAttr fattr; // result
+    const char* filename; // path relative to root
+    FileAttr    fattr; // result
     LookupPathOp(kfsSeq_t s, kfsFileId_t r, const char *f) :
         KfsOp(CMD_LOOKUP, s), rootFid(r), filename(f)
     {

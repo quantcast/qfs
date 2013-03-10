@@ -58,6 +58,8 @@ private:
         StdFastAllocator<std::pair<const String, String> >
     > PropMap;
     PropMap propmap;
+    template<typename T> bool Parse(
+        const Properties::String& str, const T& def, T& out) const;
     inline PropMap::const_iterator find(const String& key) const;
     string getValueSelf(const String& key, const string& def) const;
     const char* getValueSelf(const String& key, const char* def) const;
@@ -69,6 +71,9 @@ private:
     unsigned long long getValueSelf(const String& key, unsigned long long def)
         const;
     double getValueSelf(const String& key, double def) const;
+    char getValueSelf(const String& key, char def) const;
+    signed char getValueSelf(const String& key, signed char def) const;
+    unsigned char getValueSelf(const String& key, unsigned char def) const;
 
 public:
     static string AsciiToLower(const string& str);

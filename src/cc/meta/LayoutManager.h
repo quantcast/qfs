@@ -1720,6 +1720,7 @@ protected:
     int     mTotalChunkWrites;
     int     mTotalWritableDrives;
     int     mMinWritesPerDrive;
+    int     mMaxWritesPerDrive;
     int     mMaxWritesPerDriveThreshold;
     double  mMaxWritesPerDriveRatio;
     double  mMaxLocalPlacementWeight;
@@ -1795,6 +1796,7 @@ protected:
     const uint64_t            mRandInterval;
     StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
     int                       mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
+    int                       mTiersMaxWritesPerDrive[kKfsSTierCount];
     double                    mTiersTotalWritableDrivesMult[kKfsSTierCount];
     int                       mTierCandidatesCount[kKfsSTierCount];
 

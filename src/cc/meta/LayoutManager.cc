@@ -1290,6 +1290,7 @@ LayoutManager::LayoutManager() :
     mTotalChunkWrites(0),
     mTotalWritableDrives(0),
     mMinWritesPerDrive(10),
+    mMaxWritesPerDrive(4 << 10),
     mMaxWritesPerDriveThreshold(mMinWritesPerDrive),
     mMaxWritesPerDriveRatio(1.5),
     mMaxLocalPlacementWeight(1.0),
@@ -1337,6 +1338,7 @@ LayoutManager::LayoutManager() :
     globals().counterManager.AddCounter(mStaleChunkCount);
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
+        mTiersMaxWritesPerDrive[i]          = mMaxWritesPerDrive;
         mTiersTotalWritableDrivesMult[i]    = 0.;
         mTierCandidatesCount[i]             = 0;
     }
@@ -1771,6 +1773,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.appendCacheCleanupInterval",
         double(mAppendCacheCleanupInterval));
     UpdateReplicationsThreshold();
+    mMaxWritesPerDrive = props.getValue(
+        "metaServer.maxWritesPerDrive",
+        mMaxWritesPerDrive);
     mMaxWritesPerDriveRatio = props.getValue(
         "metaServer.maxWritesPerDriveRatio",
         mMaxWritesPerDriveRatio);
@@ -1845,6 +1850,20 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         } else {
             LoadIdRemap(fs,
                 &HostUserGroupRemap::value_type::mGroupMap);
+        }
+    }
+    {
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTiersMaxWritesPerDrive[i] = mMaxWritesPerDrive;
+        }
+        istringstream is(props.getValue(
+            "metaServer.tiersMaxWrtiesPerDrive", string()));
+        int tier;
+        int maxWr;
+        while ((is >> tier >> maxWr)) {
+            if (tier >= 0 && tier < kKfsSTierCount) {
+                mTiersMaxWritesPerDrive[tier] = maxWr;
+            }
         }
     }
     mConfig.clear();
@@ -4140,28 +4159,29 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
     } else if (mTotalChunkWrites <= mTotalWritableDrives) {
         mMaxWritesPerDriveThreshold = mMinWritesPerDrive;
     } else {
-        mMaxWritesPerDriveThreshold = max(mMinWritesPerDrive,
-            (int)(mTotalChunkWrites * mTotalWritableDrivesMult));
+        mMaxWritesPerDriveThreshold = min(mMaxWritesPerDrive,
+            max(mMinWritesPerDrive, (int)(mTotalChunkWrites *
+            mTotalWritableDrivesMult)));
     }
     if (! tiersDelta) {
         return;
     }
     for (size_t i = 0; i < kKfsSTierCount; i++) {
-        if (tiersDelta[i].GetDeviceCount() != 0) {
-            mTiersTotalWritableDrivesMult[i] = mTotalWritableDrives > 0 ?
-                mMaxWritesPerDriveRatio / mTotalWritableDrives : 0.;
-        }
         StorageTierInfo& info = mStorageTierInfo[i];
         info += tiersDelta[i];
+        if (tiersDelta[i].GetDeviceCount() != 0) {
+            mTiersTotalWritableDrivesMult[i] = info.GetDeviceCount() > 0 ?
+                mMaxWritesPerDriveRatio / info.GetDeviceCount() : 0.;
+        }
         if (info.GetDeviceCount() <= 0) {
             mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
             info.Clear();
         } else if (info.GetNotStableOpenCount() <= info.GetDeviceCount()) {
             mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
         } else {
-            mTiersMaxWritesPerDriveThreshold[i] = max(mMinWritesPerDrive,
-                (int)(info.GetNotStableOpenCount() *
-                    mTiersTotalWritableDrivesMult[i]));
+            mTiersMaxWritesPerDriveThreshold[i] = min(mTiersMaxWritesPerDrive[i],
+                max(mMinWritesPerDrive, (int)(info.GetNotStableOpenCount() *
+                    mTiersTotalWritableDrivesMult[i])));
         }
     }
 }

@@ -409,8 +409,8 @@ struct MetaCreate: public MetaRequest {
         .Def("Group",                &MetaCreate::group,              kKfsGroupNone)
         .Def("Mode",                 &MetaCreate::mode,               kKfsModeUndef)
         .Def("ReqId",                &MetaCreate::reqId,              seq_t(-1))
-        .Def("Min-tier:",            &MetaCreate::minSTier,           kKfsSTierMax)
-        .Def("Max-tier:",            &MetaCreate::maxSTier,           kKfsSTierMax)
+        .Def("Min-tier",             &MetaCreate::minSTier,           kKfsSTierMax)
+        .Def("Max-tier",             &MetaCreate::maxSTier,           kKfsSTierMax)
         ;
     }
 };

@@ -90,13 +90,13 @@ for s in $sizes; do
         rm "$s.chk" || exit
     fi
     $rand -g $s $rseed | \
-        mytime $cptokfs -k "$dir/$s.test" -d - -v > "$s.log" 2>&1 &
+        mytime $cptokfs -k "$dir/$s.test" -d - -v > "$s.wr.log" 2>&1 &
     rseed=`expr $rseed + 1`
 done
 wait
 
 for s in $sizes; do
-    mytime $cpfromkfs -k "$dir/$s.test" -d - -v 2>>"$s.log" \
+    mytime $cpfromkfs -k "$dir/$s.test" -d - -v 2>"$s.rd.log" \
         | $chksum > "$s.chk" &
 done
 wait

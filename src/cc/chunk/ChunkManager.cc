@@ -1739,8 +1739,8 @@ ChunkManager::SetStorageTiers(const Properties& props)
     }
     istringstream is(props.getValue(
         "chunkServer.storageTierPrefixes", string()));
-    string        prefix;
-    kfsSTier_t    tier;
+    string prefix;
+    int    tier;
     while ((is >> prefix >> tier)) {
         if (tier == kKfsSTierUndef) {
             continue;
@@ -1752,12 +1752,12 @@ ChunkManager::SetStorageTiers(const Properties& props)
             tier = kKfsSTierMax;
         }
         for (ChunkDirs::iterator it = mChunkDirs.begin();
-                it < mChunkDirs.end();
+                it != mChunkDirs.end();
                 ++it) {
             const string& dirname = it->dirname;
             if (prefix.length() <= dirname.length() &&
-                    prefix.compare(0, prefix.length(), dirname) == 0) {
-                it->storageTier = tier;
+                    dirname.compare(0, prefix.length(), prefix) == 0) {
+                it->storageTier = (kfsSTier_t)tier;
             }
         }
     }
@@ -4287,6 +4287,7 @@ ChunkManager::GetTotalSpace(
     int64_t evacuateDoneBytes      = 0;
     int64_t totalFsAvailableSpace  = 0;
     int64_t usedSpace              = 0;
+    int     tierSpaceAvailableCnt  = 0;
     if (tiersInfo) {
         tiersInfo->clear();
     }
@@ -4314,12 +4315,15 @@ ChunkManager::GetTotalSpace(
                     it->availableSpace >
                         it->totalSpace * mMaxSpaceUtilizationThreshold) {
                 writableDirs++;
-                if (tiersInfo && it->IsCountFsSpaceAvailable()) {
+                if (tiersInfo) {
                     StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
-                    ti.mDeviceCount++;
                     ti.mNotStableOpenCount += it->notStableOpenCount;
-                    ti.mSpaceAvailable     += it->availableSpace;
-                    ti.mTotalSpace         += it->totalSpace;
+                    if (it->IsCountFsSpaceAvailable()) {
+                        tierSpaceAvailableCnt++;
+                        ti.mDeviceCount++;
+                        ti.mSpaceAvailable += it->availableSpace;
+                        ti.mTotalSpace     += it->totalSpace;
+                    }
                 }
             }
         }
@@ -4342,6 +4346,31 @@ ChunkManager::GetTotalSpace(
     }
     if (evacuateDoneByteCount) {
         *evacuateDoneByteCount = evacuateDoneBytes;
+    }
+    // If device / host fs belongs to more than one tier (normally makes sense
+    // only for testing), then count the device in all tiers it belongs to.
+    if (tiersInfo && tiersInfo->size() > tierSpaceAvailableCnt) {
+        for (StorageTiersInfo::iterator it = tiersInfo->begin();
+                it != tiersInfo->end(); ) {
+            if (it->second.mDeviceCount <= 0) {
+                StorageTiers::iterator const ti = mStorageTiers.find(it->first);
+                if (ti == mStorageTiers.end()) {
+                    tiersInfo->erase(it++);
+                    continue;
+                }
+                StorageTiers::mapped_type::iterator di = ti->second.begin();
+                while (di != ti->second.end() && (*di)->availableSpace <= 0)
+                    {}
+                if (di == ti->second.end()) {
+                    tiersInfo->erase(it++);
+                    continue;
+                }
+                it->second.mDeviceCount    = 1;
+                it->second.mSpaceAvailable = (*di)->availableSpace;
+                it->second.mTotalSpace     = (*di)->totalSpace;
+            }
+            ++it;
+        }
     }
     return (min(totalFsAvailableSpace, mTotalSpace) + mUsedSpace);
 }

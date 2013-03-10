@@ -264,13 +264,14 @@ while [ $i -lt $e ]; do
     dir="$chunksrvdir/$i"
     mkdir "$dir" || exit
     mkdir "$dir/kfschunk" || exit
+    mkdir "$dir/kfschunk-tier0" || exit
     cat > "$dir/$chunksrvprop" << EOF
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
 chunkServer.clientPort = $i
 chunkServer.clusterKey = $clustername
 chunkServer.rackId = 0
-chunkServer.chunkDir = kfschunk
+chunkServer.chunkDir = kfschunk kfschunk-tier0
 chunkServer.logDir = kfslog
 chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
@@ -278,6 +279,7 @@ chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
 chunkServer.ioBufferPool.partitionBufferCount = 81920
 chunkServer.requireChunkHeaderChecksum = 1
+chunkServer.storageTierPrefixes = kfschunk-tier0 0
 EOF
     cd "$dir" || exit
     echo "Starting chunk server $i"
@@ -302,12 +304,13 @@ echo "Starting copy test. Test file sizes: $sizes"
 cppidf="cptest${pidsuf}"
 { \
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
-#    export cptokfsopts && \
+    cptokfsopts='-m 1 -l 15' && \
+    export cptokfsopts && \
     cpfromkfsopts='-r 1e6 -w 65537' && \
     export cpfromkfsopts && \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
-    cptokfsopts='-S' && \
+    cptokfsopts='-S -m 0 -l 0' && \
     export cptokfsopts && \
     cpfromkfsopts='-r 0 -w 65537' && \
     export cpfromkfsopts && \
