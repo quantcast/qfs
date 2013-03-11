@@ -4287,7 +4287,7 @@ ChunkManager::GetTotalSpace(
     int64_t evacuateDoneBytes      = 0;
     int64_t totalFsAvailableSpace  = 0;
     int64_t usedSpace              = 0;
-    int     tierSpaceAvailableCnt  = 0;
+    size_t  tierSpaceAvailableCnt  = 0;
     if (tiersInfo) {
         tiersInfo->clear();
     }
