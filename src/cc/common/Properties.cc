@@ -297,7 +297,7 @@ int
 Properties::getValueSelf(const Properties::String& key, int def) const
 {
     PropMap::const_iterator const i = find(key);
-    int ret;
+    int ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         (int)strtol(i->second.c_str(), 0, intbase)));
 }
@@ -306,15 +306,16 @@ unsigned int
 Properties::getValueSelf(const Properties::String& key, unsigned int def) const
 {
     PropMap::const_iterator const i = find(key);
-    return (i == propmap.end() ? def :
-        (unsigned int)strtoul(i->second.c_str(), 0, intbase));
+    unsigned int ret = def;
+    return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
+        (unsigned int)strtoul(i->second.c_str(), 0, intbase)));
 }
 
 long
 Properties::getValueSelf(const Properties::String& key, long def) const
 {
     PropMap::const_iterator const i = find(key);
-    long ret;
+    long ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         strtol(i->second.c_str(), 0, intbase)));
 }
@@ -323,7 +324,7 @@ unsigned long
 Properties::getValueSelf(const Properties::String& key, unsigned long def) const
 {
     PropMap::const_iterator const i = find(key);
-    unsigned long ret;
+    unsigned long ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         strtoul(i->second.c_str(), 0, intbase)));
 }
@@ -332,7 +333,7 @@ long long
 Properties::getValueSelf(const Properties::String& key, long long def) const
 {
     PropMap::const_iterator const i = find(key);
-    long long ret;
+    long long ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         strtoll(i->second.c_str(), 0, intbase)));
 }
@@ -342,7 +343,7 @@ Properties::getValueSelf(const Properties::String& key, unsigned long long def)
     const
 {
     PropMap::const_iterator const i = find(key);
-    unsigned long long ret;
+    unsigned long long ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         strtoull(i->second.c_str(), 0, intbase)));
 }
@@ -356,7 +357,7 @@ Properties::getValueSelf(const Properties::String& key, double def) const
     }
     char*             e   = 0;
     const char* const p   = i->second.c_str();
-    double            ret = strtod(p, &e);
+    const double      ret = strtod(p, &e);
     return ((p < e && *e <= ' ') ? ret : def);
 }
 
@@ -364,7 +365,7 @@ signed char
 Properties::getValueSelf(const Properties::String& key, signed char def) const
 {
     PropMap::const_iterator const i = find(key);
-    signed char ret;
+    signed char ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         (signed char)strtol(i->second.c_str(), 0, intbase)));
 }
@@ -373,7 +374,7 @@ unsigned char
 Properties::getValueSelf(const Properties::String& key, unsigned char def) const
 {
     PropMap::const_iterator const i = find(key);
-    unsigned char ret;
+    unsigned char ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         (unsigned char)strtoul(i->second.c_str(), 0, intbase)));
 }
@@ -382,7 +383,7 @@ char
 Properties::getValueSelf(const Properties::String& key, char def) const
 {
     PropMap::const_iterator const i = find(key);
-    char ret;
+    char ret = def;
     return (i == propmap.end() ? def : (Parse(i->second, def, ret) ? ret :
         (char)strtol(i->second.c_str(), 0, intbase)));
 }
