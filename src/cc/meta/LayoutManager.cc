@@ -1861,7 +1861,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         int tier;
         int maxWr;
         while ((is >> tier >> maxWr)) {
-            if (tier >= 0 && tier < kKfsSTierCount) {
+            if (tier >= 0 && tier < (int)kKfsSTierCount) {
                 mTiersMaxWritesPerDrive[tier] = maxWr;
             }
         }
