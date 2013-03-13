@@ -377,29 +377,36 @@ KfsClient::ParseCreateParams(const char* params,
     if (! params || ! *params) {
         return 0;
     }
-    if (params[0] == 'S' && params[1] == 0) {
+    if (params[0] == 'S' && (params[1] == 0 || params[1] == ',')) {
         numReplicas        = 1;
         numStripes         = 6;
         numRecoveryStripes = 3;
         stripeSize         = 64 << 10,
         stripedType        = KFS_STRIPED_FILE_TYPE_RS;
-        return 0;
-    }
-    char* p = 0;
-    numReplicas = (int)strtol(params, &p, 10);
-    if (numReplicas <= 0) {
-        return -EINVAL;
-    }
-    if (*p == ',') numStripes         = (int)strtol(p + 1, &p, 10);
-    if (*p == ',') numRecoveryStripes = (int)strtol(p + 1, &p, 10);
-    if (*p == ',') stripeSize         = (int)strtol(p + 1, &p, 10);
-    if (*p == ',') stripedType        = (int)strtol(p + 1, &p, 10);
-    if (*p == ',') minSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
-    if (*p == ',') maxSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
-    if (stripedType == KFS_STRIPED_FILE_TYPE_NONE) {
-        numStripes         = 0;
-        numRecoveryStripes = 0;
-        stripeSize         = 0;
+        if (params[1] == ',') {
+            char* p = 0;
+            minSTier = (kfsSTier_t)strtol(params + 2, &p, 10);
+            if (*p == ',') {
+                maxSTier = (kfsSTier_t)strtol(p + 1, &p, 10);
+            }
+        }
+    } else {
+        char* p = 0;
+        numReplicas = (int)strtol(params, &p, 10);
+        if (numReplicas <= 0) {
+            return -EINVAL;
+        }
+        if (*p == ',') numStripes         = (int)strtol(p + 1, &p, 10);
+        if (*p == ',') numRecoveryStripes = (int)strtol(p + 1, &p, 10);
+        if (*p == ',') stripeSize         = (int)strtol(p + 1, &p, 10);
+        if (*p == ',') stripedType        = (int)strtol(p + 1, &p, 10);
+        if (*p == ',') minSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
+        if (*p == ',') maxSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
+        if (stripedType == KFS_STRIPED_FILE_TYPE_NONE) {
+            numStripes         = 0;
+            numRecoveryStripes = 0;
+            stripeSize         = 0;
+        }
     }
     return ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
         stripeSize, stripedType, minSTier, maxSTier);
