@@ -199,8 +199,12 @@ restore_fattr(DETokenizer& c)
         }
     }
     int64_t n = f->user;
-    const bool gotperms = pop_num(n, "user", c, true);
+    const bool gotperms = ! c.empty();
     if (gotperms) {
+        if (! pop_num(n, "user", c, true)) {
+            f->destroy();
+            return false;
+        }
         f->user = (kfsUid_t)n;
         n = f->group;
         if (! pop_num(n, "group", c, true)) {
@@ -214,7 +218,11 @@ restore_fattr(DETokenizer& c)
             return false;
         }
         f->mode = (kfsMode_t)n;
-        if (type == KFS_FILE && pop_num(n, "minTier", c, ok)) {
+        if (type == KFS_FILE && ! c.empty()) {
+            if (! pop_num(n, "minTier", c, ok)) {
+                f->destroy();
+                return false;
+            }
             f->minSTier = (kfsSTier_t)n;
             if (! pop_num(n, "maxTier", c, ok)) {
                 f->destroy();

@@ -174,7 +174,10 @@ replay_create(DETokenizer& c)
     int64_t    k        = user;
     kfsSTier_t minSTier = kKfsSTierMax;
     kfsSTier_t maxSTier = kKfsSTierMax;
-    if (pop_num(k, "user", c, ok)) {
+    if (! c.empty()) {
+        if (! pop_num(k, "user", c, ok)) {
+            return false;
+        }
         user = (kfsUid_t)k;
         if (user == kKfsUserNone) {
             return false;
@@ -192,7 +195,10 @@ replay_create(DETokenizer& c)
             return false;
         }
         mode = (kfsMode_t)k;
-        if (pop_num(k, "minTier", c, ok)) {
+        if (! c.empty()) {
+            if (! pop_num(k, "minTier", c, ok)) {
+                return false;
+            }
             minSTier = (kfsSTier_t)k;
             if (! pop_num(k, "maxTier", c, ok)) {
                 return false;
