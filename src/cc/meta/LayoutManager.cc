@@ -1885,7 +1885,7 @@ LayoutManager::Validate(MetaHello& r) const
 LayoutManager::RackId
 LayoutManager::GetRackId(const ServerLocation& loc)
 {
-    return mRackPrefixes.GetId(loc, mRackPrefixUsePortFlag, -1);
+    return mRackPrefixes.GetId(loc, -1, mRackPrefixUsePortFlag);
 }
 
 LayoutManager::RackId
