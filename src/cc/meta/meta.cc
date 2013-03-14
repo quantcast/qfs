@@ -88,8 +88,8 @@ MetaFattr::show(ostream& os) const
         "/mode/"  << mode;
     if (minSTier < kKfsSTierMax) {
         os <<
-            "/minTier/" << minSTier <<
-            "/maxTier/" << maxSTier;
+            "/minTier/" << (int)minSTier <<
+            "/maxTier/" << (int)maxSTier;
     }
     return os;
 }
