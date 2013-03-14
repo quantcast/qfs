@@ -239,7 +239,8 @@ public:
               mSpaceAvailable(0),
               mTotalSpace(0),
               mAllocSpace(0),
-              mSpaceUtilization(1.0)
+              mSpaceUtilization(1.0),
+              mOneOverTotalSpace(-1)
             {}
         void Set(
             int     deviceCount,

@@ -1911,7 +1911,7 @@ LayoutManager::Validate(MetaHello& r) const
 LayoutManager::RackId
 LayoutManager::GetRackId(const ServerLocation& loc)
 {
-    return mRackPrefixes.GetId(loc, mRackPrefixUsePortFlag, -1);
+    return mRackPrefixes.GetId(loc, -1, mRackPrefixUsePortFlag);
 }
 
 LayoutManager::RackId
@@ -2429,7 +2429,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             ": no rack specified: " << rackId <<
         KFS_LOG_EOM;
     }
-    UpdateSrvLoadAvg(srv, 0);
+    UpdateSrvLoadAvg(srv, 0, 0);
 
     if (mAssignMasterByIpFlag) {
         // if the server node # is odd, it is master; else slave
@@ -4062,8 +4062,8 @@ LayoutManager::IsCandidateServer(
 
 void
 LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
-    bool canBeCandidateFlag /* = true */,
-    const LayoutManager::StorageTierInfo* tiersDelta)
+    const LayoutManager::StorageTierInfo* tiersDelta,
+    bool canBeCandidateFlag)
 {
     mUpdateCSLoadAvgFlag      = true;
     mUpdatePlacementScaleFlag = true;
@@ -4084,6 +4084,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         ! srv.IsRetiring() &&
         ! srv.IsRestartScheduled();
     int candidateTiersCount = 0;
+    int racksCandidatesDelta[kKfsSTierCount];
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         const bool flag = isPossibleCandidate &&
             srv.GetDeviceCount(i) > 0 &&
@@ -4094,6 +4095,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
             candidateTiersCount++;
         }
         if (flag == srv.GetCanBeCandidateServerFlag(i)) {
+            racksCandidatesDelta[i] = 0;
             continue;
         }
         srv.SetCanBeCandidateServerFlag(i, flag);
@@ -4102,6 +4104,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         } else if (mTierCandidatesCount[i] > 0) {
             mTierCandidatesCount[i]--;
         }
+        racksCandidatesDelta[i] = flag ? 1 : -1;
     }
     if (isPossibleCandidate && candidateTiersCount <= 0) {
         isPossibleCandidate = false;
@@ -4110,7 +4113,8 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         (isPossibleCandidate ? 1 : -1);
     RackInfos::iterator const rackIter = FindRack(srv.GetRack());
     if (rackIter != mRacks.end()) {
-        rackIter->updatePossibleCandidatesCount(inc, tiersDelta);
+        rackIter->updatePossibleCandidatesCount(
+            inc, tiersDelta, racksCandidatesDelta);
     }
     if (inc == 0) {
         return;
@@ -5795,6 +5799,36 @@ public:
     }
 };
 
+inline static void
+ShowTiersInfo(
+    ostream&                         os,
+    const RackInfo*                  rack,
+    const RackInfo::StorageTierInfo* tiersInfo,
+    const int*                       candidatesCnt)
+{
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        const RackInfo::StorageTierInfo& info = tiersInfo[i];
+        if (info.GetDeviceCount() <= 0) {
+            continue;
+        }
+        if (rack) {
+            os << "\t" << rack->id();
+        } else {
+            os << "\tall";
+        }
+        os <<
+            "\t" << i <<
+            "\t" << info.GetDeviceCount() <<
+            "\t" << info.GetNotStableOpenCount() <<
+            "\t" << info.GetSpaceAvailable() <<
+            "\t" << info.GetTotalSpace() <<
+            "\t" << info.GetSpaceUtilization() <<
+            "\t" << (candidatesCnt ? candidatesCnt[i] :
+                rack->getPossibleCandidatesCount(i))
+        ;
+    }
+}
+
 void
 LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
 {
@@ -5844,6 +5878,19 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
         "\r\n"
         "Rusage children: ";
     showrusage(mWOstream, "= ", "\t", ! kRusageSelfFlag);
+    mWOstream <<
+        "\r\n"
+        "Storage tiers info names: "
+        "rack\ttier\tdevices\twr-chunks\tspace-available\ttotal-space\tcandidates"
+        "\r\n"
+        "Storage tiers info: "
+    ;
+    ShowTiersInfo(mWOstream, 0, mStorageTierInfo, mTierCandidatesCount);
+    for (RackInfos::const_iterator it = mRacks.begin();
+            it != mRacks.end();
+            ++it) {
+        ShowTiersInfo(mWOstream, &*it, it->getStorageTiersInfo(), 0);
+    }
     mWOstream << "\r\n\r\n"; // End of headers.
     mWOstream.flush();
     // Initial headers.

@@ -446,14 +446,16 @@ public:
     int getPossibleCandidatesCount(kfsSTier_t tier) const {
         return mTierCandidateCount[tier];
     }
-    void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid) {
+    void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid,
+            const int* candidatesDelta) {
         mPossibleCandidatesCount += delta;
         assert(mPossibleCandidatesCount >= 0);
         if (! sid) {
             return;
         }
         for (size_t i = 0; i < kKfsSTierCount; i++) {
-            mStorageTierInfo[i] += sid[i];
+            mStorageTierInfo[i]    += sid[i];
+            mTierCandidateCount[i] += candidatesDelta[i];
         }
     }
     RackWeight getWeight() const {
@@ -467,6 +469,9 @@ public:
     }
     int64_t getWeightedPossibleCandidatesCount(kfsSTier_t tier) const {
         return (int64_t)(mRackWeight * mTierCandidateCount[tier]);
+    }
+    const StorageTierInfo* getStorageTiersInfo() const {
+        return mStorageTierInfo;
     }
 private:
     RackId          mRackId;
@@ -1048,7 +1053,7 @@ public:
     bool IsRetireOnCSRestart() const
         { return mRetireOnCSRestartFlag; }
     void UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
-        bool canBeCandidateFlag = true, const StorageTierInfo* stiersDelta = 0);
+        const StorageTierInfo* stiersDelta, bool canBeCandidateFlag = true);
     int16_t GetMaxReplicasPerFile() const
         { return mMaxReplicasPerFile; }
     int16_t GetMaxReplicasPerRSFile() const
@@ -1147,8 +1152,8 @@ protected:
         RackInfoRackIdLess(RackId v)
             : id(v)
             {}
-        bool operator()(const RackInfo& l, const RackInfo& /* r */) const
-            { return (l.id() < id); }
+        bool operator()(const RackInfo& l, const RackInfo& r) const
+            { return (&sUnused == &l ? id < r.id() : l.id() < id); }
         static const RackInfo sUnused;
     private:
         const RackId id;

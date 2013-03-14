@@ -323,7 +323,7 @@ LayoutEmulator::AddServer(
     } else if (rack >= 0) {
         mRacks.push_back(RackInfo(rack, 1.0, c));
     }
-    UpdateSrvLoadAvg(srv, 0);
+    UpdateSrvLoadAvg(srv, 0, 0);
     UpdateReplicationsThreshold();
 
     KFS_LOG_STREAM_INFO <<
@@ -369,7 +369,7 @@ LayoutEmulator::RunChunkserverOps()
             break;
         }
         if (&*mChunkServers[i] == &srv) {
-            UpdateSrvLoadAvg(srv, 0);
+            UpdateSrvLoadAvg(srv, 0, 0);
         }
     }
     return opsCount;

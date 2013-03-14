@@ -623,10 +623,11 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mStorageTiersInfoDelta[i].Clear();
     }
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta, kCanBeCandidateFlag);
+    gLayoutManager.UpdateSrvLoadAvg(
+        *this, delta, mStorageTiersInfoDelta, kCanBeCandidateFlag);
     mCanBeChunkMaster = flag;
     mLoadAvg = -delta;
-    gLayoutManager.UpdateSrvLoadAvg(*this, mLoadAvg);
+    gLayoutManager.UpdateSrvLoadAvg(*this, mLoadAvg, mStorageTiersInfoDelta);
 }
 
 void

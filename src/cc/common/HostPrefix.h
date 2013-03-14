@@ -118,6 +118,9 @@ public:
         bool                  inUsePortFlag) const
     {
         if (inUsePortFlag) {
+            if (mHostPrefixes.empty()) {
+                return inDefault;
+            }
             ostringstream theStream;
             theStream << inLocation.hostname << ":" << inLocation.port;
             const string theName = theStream.str();
