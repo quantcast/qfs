@@ -971,6 +971,24 @@ HeartbeatOp::Append(const char* key1, const char* key2, T val)
     }
 }
 
+inline static void
+AppendStorageTiersInfo(ostream& os, const ChunkManager::StorageTiersInfo& tiersInfo)
+{
+    os << "Storage-tiers:";
+    for (ChunkManager::StorageTiersInfo::const_iterator it = tiersInfo.begin();
+            it != tiersInfo.end();
+            ++it) {
+        os <<
+            " " << (unsigned int)it->first <<
+            " " << it->second.mDeviceCount <<
+            " " << it->second.mNotStableOpenCount <<
+            " " << it->second.mSpaceAvailable <<
+            " " << it->second.mTotalSpace
+        ;
+    }
+    os << "\r\n";
+}
+
 // This is the heartbeat sent by the meta server
 void
 HeartbeatOp::Execute()
@@ -1017,19 +1035,7 @@ HeartbeatOp::Execute()
     Append("Evacuate-done",         "evac-d",   evacuateDoneChunkCount);
     Append("Evacuate-done-bytes",   "evac-d-b", evacuateDoneByteCount);
     Append("Evacuate-in-flight",    "evac-fl",  evacuateInFlightCount);
-    response << "Storage-tiers:";
-    for (ChunkManager::StorageTiersInfo::const_iterator it = tiersInfo.begin();
-            it != tiersInfo.end();
-            ++it) {
-        response <<
-            " " << (unsigned int)it->first <<
-            " " << it->second.mDeviceCount <<
-            " " << it->second.mNotStableOpenCount <<
-            " " << it->second.mSpaceAvailable <<
-            " " << it->second.mTotalSpace
-        ;
-    }
-    response << "\r\n";
+    AppendStorageTiersInfo(response, tiersInfo);
     Append("Num-random-writes",     "rwr",  writeCount);
     Append("Num-appends",           "awr",  writeAppendCount);
     Append("Num-re-replications",   "rep",  replicationCount);
@@ -2730,6 +2736,7 @@ EvacuateChunksOp::Request(ostream &os)
     }
     if (writableChunkDirs >= 0) {
         os << "Num-wr-drives: " << writableChunkDirs << "\r\n";
+        AppendStorageTiersInfo(os, tiersInfo);
     }
     if (evacuateInFlightCount >= 0) {
         os << "Num-evacuate: " << evacuateInFlightCount << "\r\n";

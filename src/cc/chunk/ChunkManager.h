@@ -246,26 +246,8 @@ public:
         const HostedChunkList& notStableAppend,
         const HostedChunkList& notStable);
 
-    class StorageTierInfo
-    {
-    public:
-        StorageTierInfo()
-            : mDeviceCount(0),
-              mNotStableOpenCount(0),
-              mSpaceAvailable(0),
-              mTotalSpace(0)
-            {}
-        int     mDeviceCount;
-        int     mNotStableOpenCount;
-        int64_t mSpaceAvailable;
-        int64_t mTotalSpace;
-    };
-    typedef map<
-        kfsSTier_t,
-        StorageTierInfo,
-        less<kfsSTier_t>,
-        StdFastAllocator<pair<const kfsSTier_t, StorageTierInfo> >
-    > StorageTiersInfo;
+    typedef EvacuateChunksOp::StorageTierInfo  StorageTierInfo;
+    typedef EvacuateChunksOp::StorageTiersInfo StorageTiersInfo;
     /// Return the total space that is exported by this server.  If
     /// chunks are stored in a single directory, we use statvfs to
     /// determine the total space avail; we report the min of statvfs

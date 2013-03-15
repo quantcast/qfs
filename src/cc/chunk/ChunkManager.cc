@@ -4829,6 +4829,7 @@ ChunkManager::ChunkDirInfo::ScheduleEvacuate(int maxChunkCount)
         evacuateChunksOp.numChunks             = 0;
         evacuateChunksOp.evacuateChunks        = -1;
         evacuateChunksOp.evacuateByteCount     = -1;
+        evacuateChunksOp.tiersInfo.clear();
         const int maxCnt = maxChunkCount > 0 ?
             min(int(EvacuateChunksOp::kMaxChunkIds), maxChunkCount) :
             EvacuateChunksOp::kMaxChunkIds;
@@ -4852,13 +4853,18 @@ ChunkManager::ChunkDirInfo::ScheduleEvacuate(int maxChunkCount)
         if (updateFlag) {
             gChunkManager.UpdateCountFsSpaceAvailable();
         }
+        evacuateChunksOp.tiersInfo.clear();
         evacuateChunksOp.totalSpace = gChunkManager.GetTotalSpace(
             evacuateChunksOp.totalFsSpace,
             evacuateChunksOp.chunkDirs,
             evacuateChunksOp.evacuateInFlightCount,
             evacuateChunksOp.writableChunkDirs,
             evacuateChunksOp.evacuateChunks,
-            evacuateChunksOp.evacuateByteCount
+            evacuateChunksOp.evacuateByteCount,
+            0,
+            0,
+            0,
+            &evacuateChunksOp.tiersInfo
         );
         evacuateChunksOp.usedSpace = gChunkManager.GetUsedSpace();
         evacuateStartedFlag = false;

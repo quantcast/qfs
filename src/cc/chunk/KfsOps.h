@@ -62,6 +62,8 @@ using std::list;
 using std::ostream;
 using std::istream;
 using std::ostringstream;
+using std::map;
+using std::pair;
 
 enum KfsOp_t {
     CMD_UNKNOWN,
@@ -1771,17 +1773,38 @@ private:
 };
 
 struct EvacuateChunksOp : public KfsOp {
+    class StorageTierInfo
+    {
+    public:
+        StorageTierInfo()
+            : mDeviceCount(0),
+              mNotStableOpenCount(0),
+              mSpaceAvailable(0),
+              mTotalSpace(0)
+            {}
+        int     mDeviceCount;
+        int     mNotStableOpenCount;
+        int64_t mSpaceAvailable;
+        int64_t mTotalSpace;
+    };
+    typedef map<
+        kfsSTier_t,
+        StorageTierInfo,
+        less<kfsSTier_t>,
+        StdFastAllocator<pair<const kfsSTier_t, StorageTierInfo> >
+    > StorageTiersInfo;
     enum { kMaxChunkIds = 32 };
-    kfsChunkId_t chunkIds[kMaxChunkIds]; // input
-    int          numChunks;
-    int          chunkDirs;
-    int          writableChunkDirs;
-    int          evacuateInFlightCount;
-    int          evacuateChunks;
-    int64_t      totalSpace;
-    int64_t      totalFsSpace;
-    int64_t      usedSpace;
-    int64_t      evacuateByteCount;
+    kfsChunkId_t     chunkIds[kMaxChunkIds]; // input
+    int              numChunks;
+    int              chunkDirs;
+    int              writableChunkDirs;
+    int              evacuateInFlightCount;
+    int              evacuateChunks;
+    int64_t          totalSpace;
+    int64_t          totalFsSpace;
+    int64_t          usedSpace;
+    int64_t          evacuateByteCount;
+    StorageTiersInfo tiersInfo;
 
     EvacuateChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
         : KfsOp(CMD_EVACUATE_CHUNKS, s, c),
@@ -1793,7 +1816,8 @@ struct EvacuateChunksOp : public KfsOp {
           totalSpace(-1),
           totalFsSpace(-1),
           usedSpace(-1),
-          evacuateByteCount(-1)
+          evacuateByteCount(-1),
+          tiersInfo()
     {
         SET_HANDLER(this, &EvacuateChunksOp::HandleDone);
     }

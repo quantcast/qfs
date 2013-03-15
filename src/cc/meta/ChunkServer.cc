@@ -1118,21 +1118,23 @@ ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
     if (op.usedSpace >= 0) {
         mUsedSpace = op.usedSpace;
     }
-#if 0
-    // FIXME
-    if (op.numWritableDrives >= 0) {
-        UpdateChunkWritesPerDrive(
-            mNumChunkWrites, op.numWritableDrives);
-    }
+    int wrDrives = op.numWritableDrives;
     if (op.numDrives >= 0) {
         mNumDrives = op.numDrives;
-        UpdateChunkWritesPerDrive(
-            mNumChunkWrites, min(mNumWritableDrives, mNumDrives));
+        if (mNumDrives < mNumWritableDrives && wrDrives < 0) {
+            wrDrives = mNumDrives;
+        }
     }
-#endif
+    if (mNumDrives < wrDrives) {
+        wrDrives = mNumDrives;
+    }
+    if (wrDrives >= 0) {
+        UpdateStorageTiers(&op.storageTiersInfo, wrDrives, mNumChunkWrites);
+        UpdateChunkWritesPerDrive(mNumChunkWrites, wrDrives);
+    }
     if (op.numEvacuateInFlight == 0) {
         mChunksToEvacuate.Clear();
-                mEvacuateCnt = 0;
+        mEvacuateCnt = 0;
     } else if (op.numEvacuateInFlight > 0) {
         mEvacuateInFlight = op.numEvacuateInFlight;
     }

@@ -2445,6 +2445,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     int                 numDrives;
     int                 numWritableDrives;
     int                 numEvacuateInFlight;
+    Properties::String  storageTiersInfo;
     StringBufT<21 * 32> chunkIds; //!< input
     ChunkServerPtr      server;
     MetaChunkEvacuate(seq_t s = -1)
@@ -2455,6 +2456,7 @@ struct MetaChunkEvacuate: public MetaRequest {
           numDrives(-1),
           numWritableDrives(-1),
           numEvacuateInFlight(-1),
+          storageTiersInfo(),
           chunkIds(),
           server()
         {}
@@ -2483,6 +2485,7 @@ struct MetaChunkEvacuate: public MetaRequest {
         .Def("Num-drives",     &MetaChunkEvacuate::numDrives,           int(-1))
         .Def("Num-wr-drives",  &MetaChunkEvacuate::numWritableDrives,   int(-1))
         .Def("Num-evacuate",   &MetaChunkEvacuate::numEvacuateInFlight, int(-1))
+        .Def("Storage-tiers:", &MetaChunkEvacuate::storageTiersInfo)
         ;
     }
 };
