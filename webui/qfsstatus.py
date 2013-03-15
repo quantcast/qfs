@@ -397,6 +397,7 @@ class Status:
                     rowCnt = rowCnt + 1
             if colCnt > 0:
                 while colCnt < colCount:
+                    colCnt = colCnt + 1
                     print >> buffer, '''<td> </td>'''
                 print >> buffer, '''</tr>'''
             print >> buffer, '''
