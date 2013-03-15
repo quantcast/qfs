@@ -132,6 +132,8 @@ class Status:
         self.freeFsSpace = 0
         self.canNotBeUsedForPlacment = 0
         self.goodNoRackAssignedCount = 0
+        self.tiersColumnNames = {}
+        self.tiersInfo = {}
         self.systemInfo = SystemInfo()
 
     def systemStatus(self, buffer):
@@ -147,6 +149,8 @@ class Status:
             self.canNotBeUsedForPlacment,
             self.goodNoRackAssignedCount,
             self.systemInfo,
+            self.tiersColumnNames,
+            self.tiersInfo
         )
 
     def display(
@@ -161,7 +165,9 @@ class Status:
             freeFsSpace,
             canNotBeUsedForPlacment,
             goodNoRackAssignedCount,
-            systemInfo
+            systemInfo,
+            tiersColumnNames,
+            tiersInfo
         ) :
         global gQfsBrowser
         rows = ''
@@ -333,6 +339,70 @@ class Status:
             </tbody>
             </table></div>'''
 
+        colCount = len(tiersColumnNames)
+        if colCount > 0 and len(tiersInfo) >= colCount:
+            print >> buffer, '''
+            <div class="floatleft">
+             <table class="sortable status-table" id="tiersInfo" cellspacing="0" cellpadding="0.1em"
+                summary="Status of storage tiers in the system">
+             <caption> <a name="StorageTiers">Storage Tiers Status</a> </caption>
+             <thead>
+             <tr>
+            '''
+            conv = {}
+            colCnt = 0
+            for col in tiersColumnNames:
+                conv[colCnt] = ''
+                if col == '%util.':
+                    col = 'used%'
+                    conv[colCnt] = '%.2f'
+                elif col == 'space-available':
+                    col = 'free'
+                    conv[colCnt] = '%.2e'
+                elif col == 'total-space':
+                    col = 'total'
+                    conv[colCnt] = '%.2e'
+                elif col == 'devices':
+                    col = 'writable dev.'
+                elif col == 'wr-chunks':
+                    col = 'writable chunks'
+                colCnt = colCnt + 1
+                print >> buffer, '''<th>''', col.capitalize(), '''</th>'''
+            print >> buffer, '''
+             </tr>
+             </thead>
+             <tbody>
+            '''
+            rowCnt  = 0
+            colCnt  = 0
+            trclass = ''
+            for val in tiersInfo:
+                if colCnt == 0:
+                    if rowCnt % 2 == 0:
+                        trclass = ''
+                    else:
+                        trclass = 'class=odd'
+                    print >> buffer, '''<tr ''', trclass, '''>'''
+                if  conv[colCnt] == 's':
+                    v = bytesToReadable(val)
+                elif conv[colCnt] == '':
+                    v = val
+                else:
+                    v = conv[colCnt] % float(val)
+                print >> buffer, '''<td>''', v, '''</td>'''
+                colCnt = colCnt + 1
+                if colCnt >= colCount:
+                    print >> buffer, '''</tr>'''
+                    colCnt = 0
+                    rowCnt = rowCnt + 1
+            if colCnt > 0:
+                while colCnt < colCount:
+                    print >> buffer, '''<td> </td>'''
+                print >> buffer, '''</tr>'''
+            print >> buffer, '''
+            </tbody>
+            </table></div>'''
+
         print >> buffer, '''
         <div class="floatleft">
          <table class="sortable status-table" id="table1" cellspacing="0" cellpadding="0.1em"
@@ -342,7 +412,7 @@ class Status:
          <tr>
          <th>Chunkserver</th>
          <th># drives</th>
-         <th>Writable drv.</th>
+         <th>Writable dev.</th>
          <th>Used</th>
          <th>Free</th>
          <th>Total</th>
@@ -959,6 +1029,8 @@ def ping(status, metaserver):
     req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 114\r\n\r\n"
     sock.send(req)
     sockIn = sock.makefile('r')
+    status.tiersColumnNames = {}
+    status.tiersInfo = {}
     for line in sockIn:
         line = line.lstrip()
         if line == '':
@@ -999,6 +1071,14 @@ def ping(status, metaserver):
 
         if line.startswith('Servers:'):
             processUpNodes(status, line[line.find(':') + 1:].strip())
+            continue
+
+        if line.startswith('Storage tiers info names:'):
+            status.tiersColumnNames = line[line.find(':') + 1:].strip().split('\t')
+            continue
+
+        if line.startswith('Storage tiers info:'):
+            status.tiersInfo = line[line.find(':') + 1:].strip().split('\t')
             continue
 
     mergeDownUpNodes(status)
