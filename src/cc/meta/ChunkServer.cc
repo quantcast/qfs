@@ -205,14 +205,21 @@ ChunkServerRequest(MetaChunkRequest& req, ostream& os, IOBuffer& buf)
 
 inline void
 ChunkServer::UpdateChunkWritesPerDrive(
-    int numChunkWrites, int numWritableDrives)
+    int  numChunkWrites,
+    int  numWritableDrives,
+    bool updateRackTiersFlag /* = false */)
 {
-    const int deltaChunkWrites    = numChunkWrites - mNumChunkWrites;
+    const int deltaChunkWrites    = numChunkWrites    - mNumChunkWrites;
     const int deltaWritableDrives = numWritableDrives - mNumWritableDrives;
     mNumChunkWrites    = numChunkWrites;
     mNumWritableDrives = numWritableDrives;
-    gLayoutManager.UpdateChunkWritesPerDrive(*this,
-        deltaChunkWrites, deltaWritableDrives, mStorageTiersInfoDelta);
+    gLayoutManager.UpdateChunkWritesPerDrive(
+        *this,
+        deltaChunkWrites,
+        deltaWritableDrives,
+        mStorageTiersInfoDelta,
+        updateRackTiersFlag
+    );
 }
 
 inline void
@@ -223,11 +230,14 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     }
     if (kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
             mStorageTiersInfo[tier].GetDeviceCount() > 0) {
-        mStorageTiersInfoDelta[tier].Set(0, 1, 0, 0, CHUNKSIZE);
+        mStorageTiersInfoDelta[tier] = mStorageTiersInfo[tier];
         mStorageTiersInfo[tier].UpdateAllocSpace(CHUNKSIZE, 1);
+        mStorageTiersInfoDelta[tier].Delta(mStorageTiersInfo[tier]);
     }
     mAllocSpace += CHUNKSIZE;
-    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
+    const bool kUpdateRackTiersFlag = true;
+    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives,
+        kUpdateRackTiersFlag);
 }
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)

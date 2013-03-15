@@ -1057,7 +1057,9 @@ protected:
     int Heartbeat();
     int TimeoutOps();
     inline void UpdateChunkWritesPerDrive(
-        int numChunkWrites, int numWritableDrives);
+        int  numChunkWrites,
+        int  numWritableDrives,
+        bool updateRackTiersFlag = false);
     inline void NewChunkInTier(kfsSTier_t tier);
     void ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
         IOBuffer& iobuf, int len, int linesToShow = 64);

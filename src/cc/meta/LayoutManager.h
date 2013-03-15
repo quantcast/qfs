@@ -82,6 +82,7 @@ using std::ostringstream;
 using std::find;
 using std::ifstream;
 using std::lower_bound;
+using std::min;
 using boost::bind;
 using libkfsio::globalNetManager;
 
@@ -446,16 +447,20 @@ public:
     int getPossibleCandidatesCount(kfsSTier_t tier) const {
         return mTierCandidateCount[tier];
     }
-    void updatePossibleCandidatesCount(int delta, const StorageTierInfo* sid,
-            const int* candidatesDelta) {
+    void updatePossibleCandidatesCount(
+            int                    delta,
+            const StorageTierInfo* storageTiersDelta,
+            const int*             candidatesDelta) {
         mPossibleCandidatesCount += delta;
         assert(mPossibleCandidatesCount >= 0);
-        if (! sid) {
+        if (! storageTiersDelta) {
             return;
         }
         for (size_t i = 0; i < kKfsSTierCount; i++) {
-            mStorageTierInfo[i]    += sid[i];
-            mTierCandidateCount[i] += candidatesDelta[i];
+            mStorageTierInfo[i] += storageTiersDelta[i];
+            if (candidatesDelta) {
+                mTierCandidateCount[i] += candidatesDelta[i];
+            }
         }
     }
     RackWeight getWeight() const {
@@ -1092,9 +1097,12 @@ public:
     const RackInfos& GetRacks() const
         { return mRacks; }
     int64_t Rand(int64_t interval);
-    void UpdateChunkWritesPerDrive(ChunkServer& srv,
-        int deltaNumChunkWrites, int deltaNumWritableDrives,
-        const StorageTierInfo* tiersDelta);
+    void UpdateChunkWritesPerDrive(
+        ChunkServer&           srv,
+        int                    deltaNumChunkWrites,
+        int                    deltaNumWritableDrives,
+        const StorageTierInfo* tiersDelta,
+        bool                   updateRackTiersFlag);
 
     // Unix style permissions
     kfsUid_t GetDefaultUser() const
@@ -1139,8 +1147,16 @@ public:
 
     int GetTierCandidatesCount(kfsSTier_t tier) const
         { return mTierCandidatesCount[tier]; }
+    double GetMaxTierSpaceUtilization(kfsSTier_t tier) const
+    {
+        return min(mTierSpaceUtilizationThreshold[tier],
+                    mMaxSpaceUtilizationThreshold);
+    }
     template<typename T> static
     T FindRackT(T first, T last, RackId id) {
+        if (id < 0) {
+            return last;
+        }
         T const it = lower_bound(first, last,
             RackInfoRackIdLess::sUnused, RackInfoRackIdLess(id));
         return ((it == last || it->id() != id) ? last : it);
@@ -1800,6 +1816,7 @@ protected:
     const Random::result_type mRandMin;
     const uint64_t            mRandInterval;
     StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
+    double                    mTierSpaceUtilizationThreshold[kKfsSTierCount];
     int                       mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
     int                       mTiersMaxWritesPerDrive[kKfsSTierCount];
     double                    mTiersTotalWritableDrivesMult[kKfsSTierCount];

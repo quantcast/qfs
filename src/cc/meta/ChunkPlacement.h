@@ -107,6 +107,7 @@ public:
           mCandidatesInRacksCount(0),
           mMaxReplicationsPerNode(0),
           mMaxSpaceUtilizationThreshold(0),
+          mCurSTierMaxSpaceUtilizationThreshold(0),
           mForReplicationFlag(false),
           mUsingRackExcludesFlag(false),
           mUsingServerExcludesFlag(false),
@@ -731,6 +732,7 @@ private:
     int64_t          mCandidatesInRacksCount;
     int              mMaxReplicationsPerNode;
     double           mMaxSpaceUtilizationThreshold;
+    double           mCurSTierMaxSpaceUtilizationThreshold;
     bool             mForReplicationFlag;
     bool             mUsingRackExcludesFlag;
     bool             mUsingServerExcludesFlag;
@@ -771,6 +773,10 @@ private:
         bool*  anyAvailableFlag = 0,
         RackId rackIdToUse      = -1)
     {
+        mCurSTierMaxSpaceUtilizationThreshold = min(
+            mLayoutManager.GetMaxTierSpaceUtilization(mCurSTier),
+            mMaxSpaceUtilizationThreshold
+        );
         if (anyAvailableFlag) {
             if ((*anyAvailableFlag = ! mCandidateRacks.empty())) {
                 return;
@@ -833,7 +839,7 @@ private:
         return (
             mLayoutManager.IsCandidateServer(srv, mCurSTier) &&
             srv.GetStorageTierSpaceUtilization(mCurSTier) <=
-                mMaxSpaceUtilizationThreshold &&
+                mCurSTierMaxSpaceUtilizationThreshold &&
             (! mForReplicationFlag ||
                 srv.GetNumChunkReplications() < mMaxReplicationsPerNode)
         );
@@ -875,6 +881,10 @@ private:
         while (mCurSTier < mMaxSTier &&
                 mLayoutManager.GetTierCandidatesCount(++mCurSTier) <= 0)
             {}
+        mCurSTierMaxSpaceUtilizationThreshold = min(
+            mLayoutManager.GetMaxTierSpaceUtilization(mCurSTier),
+            mMaxSpaceUtilizationThreshold
+        );
     }
 private:
     ChunkPlacement(const ChunkPlacement&);

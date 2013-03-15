@@ -1337,6 +1337,7 @@ LayoutManager::LayoutManager() :
     globals().counterManager.AddCounter(mFailedReplicationStats);
     globals().counterManager.AddCounter(mStaleChunkCount);
     for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mTierSpaceUtilizationThreshold[i]   = 2.;
         mTiersMaxWritesPerDriveThreshold[i] = mMinWritesPerDrive;
         mTiersMaxWritesPerDrive[i]          = mMaxWritesPerDrive;
         mTiersTotalWritableDrivesMult[i]    = 0.;
@@ -1863,6 +1864,20 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         while ((is >> tier >> maxWr)) {
             if (tier >= 0 && tier < (int)kKfsSTierCount) {
                 mTiersMaxWritesPerDrive[tier] = maxWr;
+            }
+        }
+    }
+    {
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTierSpaceUtilizationThreshold[i] = 2.;
+        }
+        istringstream is(props.getValue(
+            "metaServer.tiersMaxSpaceUtilization", string()));
+        int    tier;
+        double util;
+        while ((is >> tier >> util)) {
+            if (tier >= 0 && tier < (int)kKfsSTierCount) {
+                mTierSpaceUtilizationThreshold[tier] = util;
             }
         }
     }
@@ -2412,7 +2427,7 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (rackId >= 0) {
         RackInfos::iterator const rackIter = lower_bound(
             mRacks.begin(), mRacks.end(),
-            RackInfoRackIdLess::sUnused,RackInfoRackIdLess(rackId)
+            RackInfoRackIdLess::sUnused, RackInfoRackIdLess(rackId)
         );
         if (rackIter != mRacks.end() && rackIter->id() == rackId) {
             rackIter->addServer(r->server);
@@ -4090,7 +4105,8 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
             srv.GetDeviceCount(i) > 0 &&
             srv.GetStorageTierAvailSpace(i) >= mChunkAllocMinAvailSpace &&
             srv.GetStorageTierSpaceUtilization(i) <=
-                mMaxSpaceUtilizationThreshold;
+                GetMaxTierSpaceUtilization(i)
+        ;
         if (flag) {
             candidateTiersCount++;
         }
@@ -4111,6 +4127,9 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
     }
     const int inc = wasPossibleCandidate == isPossibleCandidate ? 0 :
         (isPossibleCandidate ? 1 : -1);
+    if (inc == 0 && ! tiersDelta) {
+        return;
+    }
     RackInfos::iterator const rackIter = FindRack(srv.GetRack());
     if (rackIter != mRacks.end()) {
         rackIter->updatePossibleCandidatesCount(
@@ -4145,8 +4164,10 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
 
 void
 LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
-    int deltaNumChunkWrites, int deltaNumWritableDrives,
-    const LayoutManager::StorageTierInfo* tiersDelta)
+    int                                   deltaNumChunkWrites,
+    int                                   deltaNumWritableDrives,
+    const LayoutManager::StorageTierInfo* tiersDelta,
+    bool                                  updateRackTiersFlag)
 {
     mTotalChunkWrites    += deltaNumChunkWrites;
     mTotalWritableDrives += deltaNumWritableDrives;
@@ -4167,6 +4188,7 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
             max(mMinWritesPerDrive, (int)(mTotalChunkWrites *
             mTotalWritableDrivesMult)));
     }
+    assert(tiersDelta);
     if (! tiersDelta) {
         return;
     }
@@ -4187,6 +4209,13 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
                 max(mMinWritesPerDrive, (int)(info.GetNotStableOpenCount() *
                     mTiersTotalWritableDrivesMult[i])));
         }
+    }
+    if (! updateRackTiersFlag) {
+        return;
+    }
+    RackInfos::iterator const it = FindRack(srv.GetRack());
+    if (it != mRacks.end()) {
+        it->updatePossibleCandidatesCount(0, tiersDelta, 0);
     }
 }
 
@@ -4445,7 +4474,7 @@ LayoutManager::AllocateChunk(
             r->servers.clear();
             r->servers.push_back(ChunkServerPtr());
             localserver.reset();
-            tiers.clear();
+            tiers.resize(1, minTier);
         } else if (r->stripedFileFlag && r->numReplicas > 1 &&
                 numServersPerRack == 1 &&
                 psz == 0 && r->servers.size() == size_t(1)) {
