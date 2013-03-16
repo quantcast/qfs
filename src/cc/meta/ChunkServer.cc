@@ -55,6 +55,8 @@ using std::pair;
 using std::hex;
 using std::numeric_limits;
 using std::sort;
+using std::setprecision;
+using std::scientific;
 using libkfsio::globalNetManager;
 using boost::bind;
 
@@ -1733,8 +1735,9 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
             i <<
             ":" << info.GetDeviceCount() <<
             ":" << info.GetNotStableOpenCount() <<
-            ":" << info.GetSpaceAvailable() <<
-            ":" << info.GetTotalSpace() <<
+            setprecision(2) << scientific <<
+            ":" << (double)info.GetSpaceAvailable() <<
+            ":" << (double)info.GetTotalSpace() <<
             ":" << info.GetSpaceUtilization() * 1e2
         ;
         delim = ";";

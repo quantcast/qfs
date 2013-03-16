@@ -83,6 +83,8 @@ using std::iter_swap;
 using std::setw;
 using std::setfill;
 using std::hex;
+using std::setprecision;
+using std::fixed;
 using std::lower_bound;
 using boost::mem_fn;
 using boost::bind;
@@ -5851,7 +5853,8 @@ ShowTiersInfo(
             "\t" << info.GetNotStableOpenCount() <<
             "\t" << info.GetSpaceAvailable() <<
             "\t" << info.GetTotalSpace() <<
-            "\t" << info.GetSpaceUtilization() * 1e2 <<
+            "\t" << setprecision(2) << fixed <<
+                info.GetSpaceUtilization() * 1e2 <<
             "\t" << (candidatesCnt ? candidatesCnt[i] :
                 rack->getPossibleCandidatesCount(i))
         ;
