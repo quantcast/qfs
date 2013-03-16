@@ -365,7 +365,7 @@ class Status:
                 elif col == 'devices':
                     col = 'writable dev.'
                 elif col == 'wr-chunks':
-                    col = 'writable chunks'
+                    col = 'writable blocks'
                 colCnt = colCnt + 1
                 print >> buffer, '''<th>''', col.capitalize(), '''</th>'''
             print >> buffer, '''
