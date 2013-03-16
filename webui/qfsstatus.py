@@ -709,7 +709,7 @@ class UpServer:
                 setattr(self, 'nwrites', -1)
 
             if hasattr(self, 'tiers'):
-                self.rack = self.tiers
+                self.tiers = self.tiers
             else:
                 setattr(self, 'tiers', '')
 
@@ -790,7 +790,7 @@ class UpServer:
                         <div class="floatleft">
                         <table class="sortable status-table-span" id="srvTier''', count, '''>
                         <tr class="" >
-                            <th>Tier</th><th>Wr. dev.</th><th>Free</th><th>Total</th><th>%Used</th>
+                            <th>Tier</th><th>Wr. dev.</th><th>Wr. blocks</th><th>Free</th><th>Total</th><th>%Used</th>
                          </tr><tbody><tr><td>
                             ''', self.tiers.replace(
                                     ';', '</td></tr><tr><td>'
