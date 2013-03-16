@@ -57,6 +57,7 @@ using std::numeric_limits;
 using std::sort;
 using std::setprecision;
 using std::scientific;
+using std::fixed;
 using libkfsio::globalNetManager;
 using boost::bind;
 
@@ -1706,7 +1707,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", used=" << mUsedSpace
         << ", free=" << freeSpace
         << ", total=" << mTotalFsSpace
-        << ", util=" << utilisation * 100.0
+        << ", util=" << setprecision(2) << fixed << utilisation * 1e2
         << ", nblocks=" << mNumChunks
         << ", lastheard=" << (now - mLastHeard)
         << ", ncorrupt=" << mNumCorruptChunks
@@ -1738,6 +1739,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
             setprecision(2) << scientific <<
             ":" << (double)info.GetSpaceAvailable() <<
             ":" << (double)info.GetTotalSpace() <<
+            fixed <<
             ":" << info.GetSpaceUtilization() * 1e2
         ;
         delim = ";";
