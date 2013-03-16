@@ -247,6 +247,7 @@ chunkServer.chunkPlacementPendingWriteWeight = 1.3
 chunkServer.bufferManager.waitingAvgInterval = 8
 chunkServer.diskIo.maxIoTimeSec = 40
 chunkServer.forceDeleteStaleChunks = 1
+chunkServer.storageTierPrefixes = kfschunk1 0 kfschunk2 14 kfschunk3 9
 # chunkServer.msgLogWriter.logLevel = ERROR
 
 metaServer.maxSpaceUtilizationThreshold = 0.89
