@@ -279,7 +279,7 @@ chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
 chunkServer.ioBufferPool.partitionBufferCount = 81920
 chunkServer.requireChunkHeaderChecksum = 1
-chunkServer.storageTierPrefixes = kfschunk-tier0 0
+chunkServer.storageTierPrefixes = kfschunk-tier0 2
 EOF
     cd "$dir" || exit
     echo "Starting chunk server $i"
@@ -310,7 +310,7 @@ cppidf="cptest${pidsuf}"
     export cpfromkfsopts && \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
-    cptokfsopts='-S -m 0 -l 0' && \
+    cptokfsopts='-S -m 2 -l 2' && \
     export cptokfsopts && \
     cpfromkfsopts='-r 0 -w 65537' && \
     export cpfromkfsopts && \
