@@ -64,7 +64,7 @@ font-size:12px;
         margin-right:15px;
 }
 
-.status-table {
+.status-table, .status-table-span {
 	font-family:Verdana, Arial, Helvetica, sans-serif;
 	border-collapse:collapse;
 	width: auto;
@@ -73,25 +73,33 @@ font-size:12px;
         margin-right:15px;
 }
 
-.status-table th, .status-table td, .network-status-table th, .network-status-table td
+.status-table th, .status-table td, .network-status-table th, .network-status-table td, .status-table-span th, .status-table-span td
 {
 padding: 0.1em 1em;
 }
 
 .status-table th, .network-status-table th {
-text-align:left
+text-align:left;
 }
 
-.network-status-table tbody tr td {
-background-color:#FFFFFF
+.status-table-span th {
+text-align:center;
 }
 
-.status-table tbody tr.even td, .network-status-table tbody tr.even td {
-background-color:#FFFFFF
+.status-table-span td {
+text-align:right;
 }
 
-.status-table tbody tr.odd td, .network-status-table tbody tr.odd td {
-background-color:#CFCFCF
+.status-table tbody tr td, .status-table-span tbody tr td, .network-status-table tbody tr td {
+background-color:#FFFFFF;
+}
+
+.status-table tbody tr.even td, .network-status-table tbody tr.even td, .status-table-span tbody tr.even td {
+background-color:#FFFFFF;
+}
+
+.status-table tbody tr.odd td, .network-status-table tbody tr.odd td, .status-table-span tbody tr.odd td {
+background-color:#CFCFCF;
 }
 
 .status-table tbody tr.totalCls td {
@@ -101,44 +109,40 @@ font-weight:bold;
 }
 
 .status-table tbody tr.dead td, .network-status-table tbody tr.dead td {
-background-color:#FF3300
+background-color:#FF3300;
 }
 
 .status-table tbody tr.retiring td, .network-status-table tbody tr.retiring td {
-background-color:#FF00FF
+background-color:#FF00FF;
 }
 
 .status-table tbody tr.evacuating td, .network-status-table tbody tr.evacuating td {
-background-color:#FFFF00
+background-color:#FFFF00;
 }
 
 .status-table tbody tr.overloaded td, .network-status-table tbody tr.overloaded td {
-background-color:#FF6666
+background-color:#FF6666;
 }
 
 .status-table tbody tr.notgood td, .network-status-table tbody tr.notgood td {
-background-color:#FF6699
+background-color:#FF6699;
 }
 
 .status-table tbody tr.notstarted td, .network-status-table tbody tr.notstarted td {
-background-color:#FFFF66
+background-color:#FFFF66;
 }
 
 .status-table tbody tr.norack td, .network-status-table tbody tr.norack td {
-background-color:#FF9933 
+background-color:#FF9933;
 }
 
-.status-table caption {
+.status-table caption, .status-table-span caption {
 font-size:9px;
 font-weight:bold;
 }
 
 div.floatleft {
-float:left
-}
-
-.status-table tbody tr td {
-background-color:#FFFFFF
+float:left;
 }
 
 .info-table table {
@@ -189,4 +193,28 @@ padding: 0.2em 0.6em;
     padding:          5px;
     border:           thin solid #88a;
     white-space:      pre-wrap;
+}
+
+#linkspandetailtable a {
+    text-decoration:  none;
+    /* color:            #434d68;
+    background-color: #F0F1F1; */
+    border:           thin solid #88a;
+}
+#linkspandetailtable a span {
+    display:none;
+}
+#linkspandetailtable a:hover {
+    color:            #000000;
+    background-color: #F0F080;
+    border:           thin solid #88a;
+    cursor:           default;
+}
+#linkspandetailtable a:hover span {
+    display:          block;
+    position:         absolute;
+    color:            #000000;
+    background-color: #F0F080;
+    padding:          5px;
+    border:           thin solid #88a;
 }

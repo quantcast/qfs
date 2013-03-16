@@ -1719,8 +1719,27 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", nevacuate=" << mEvacuateCnt
         << ", bytesevacuate=" << mEvacuateBytes
         << ", nlost=" << mLostChunks
-        << ", lostChunkDirs="
+        << ", nwrites=" << mNumChunkWrites
+        << ", tiers="
     ;
+    const char* delim = "";
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        const StorageTierInfo& info = mStorageTiersInfo[i];
+        if (info.GetDeviceCount() <= 0) {
+            continue;
+        }
+        os <<
+            delim <<
+            i <<
+            ":" << info.GetDeviceCount() <<
+            ":" << info.GetNotStableOpenCount() <<
+            ":" << info.GetSpaceAvailable() <<
+            ":" << info.GetTotalSpace() <<
+            ":" << info.GetSpaceUtilization() * 1e2
+        ;
+        delim = ";";
+    }
+    os << ", lostChunkDirs=";
     LostChunkDirs::const_iterator it = mLostChunkDirs.begin();
     if (it != mLostChunkDirs.end()) {
         for (; ;) {

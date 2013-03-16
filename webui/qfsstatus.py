@@ -378,18 +378,14 @@ class Status:
             trclass = ''
             for val in tiersInfo:
                 if colCnt == 0:
-                    if rowCnt % 2 == 0:
-                        trclass = ''
-                    else:
-                        trclass = 'class=odd'
-                    print >> buffer, '''<tr ''', trclass, '''>'''
+                    print >> buffer, '''<tr>'''
                 if  conv[colCnt] == 's':
                     v = bytesToReadable(val)
                 elif conv[colCnt] == '':
                     v = val
                 else:
                     v = conv[colCnt] % float(val)
-                print >> buffer, '''<td>''', v, '''</td>'''
+                print >> buffer, '''<td align="right">''', v, '''</td>'''
                 colCnt = colCnt + 1
                 if colCnt >= colCount:
                     print >> buffer, '''</tr>'''
@@ -402,7 +398,9 @@ class Status:
                 print >> buffer, '''</tr>'''
             print >> buffer, '''
             </tbody>
-            </table></div>'''
+            </table>
+            </div>
+            '''
 
         print >> buffer, '''
         <div class="floatleft">
@@ -412,8 +410,10 @@ class Status:
          <thead>
          <tr>
          <th>Chunkserver</th>
-         <th># drives</th>
+         <th># dev.</th>
          <th>Writable dev.</th>
+         <th>Wr. blocks</th>
+         <th>Tiers</th>
          <th>Used</th>
          <th>Free</th>
          <th>Total</th>
@@ -703,6 +703,20 @@ class UpServer:
             else:
                 setattr(self, 'rack', -1)
 
+            if hasattr(self, 'nwrites'):
+                self.nwrites = int(self.nwrites)
+            else:
+                setattr(self, 'nwrites', -1)
+
+            if hasattr(self, 'tiers'):
+                self.rack = self.tiers
+            else:
+                setattr(self, 'tiers', '')
+
+            self.tiersCount = self.tiers.count(';') + 1
+            if self.tiersCount <= 1 and self.tiers.find(':') < 0:
+                self.tiersCount = 0
+
             self.lastheard = int(self.lastheard.split('(')[0])
 
             self.util  = float(self.util.split('%')[0])
@@ -767,6 +781,27 @@ class UpServer:
             return
         print >> buffer, '''<td align="right">''', self.numDrives, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numWritableDrives, '''</td>'''
+        print >> buffer, '''<td align="right">''', self.nwrites, '''</td>'''
+        print >> buffer, '''
+            <td align="right">
+                <div id="linkspandetailtable">
+                    <a href="#">''', self.tiersCount, '''
+                        <span>
+                        <div class="floatleft">
+                        <table class="sortable status-table-span" id="srvTier''', count, '''>
+                        <tr class="" >
+                            <th>Tier</th><th>Wr. dev.</th><th>Free</th><th>Total</th><th>%Used</th>
+                         </tr><tbody><tr><td>
+                            ''', self.tiers.replace(
+                                    ';', '</td></tr><tr><td>'
+                                ).replace(
+                                    ':', '</td><td>'
+                                ), '''
+                        </td></tr></tbody></table></div></span>
+                    </a>
+                </div>
+            </td>
+        '''
         print >> buffer, '''<td>''', '%.2e' % self.used, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.free, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.total, '''</td>'''
@@ -776,8 +811,7 @@ class UpServer:
         print >> buffer, '''<td align="right">''', self.numReplications, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numReadReplications, '''</td>'''
         print >> buffer, '''<td align="right">''', self.ncorrupt, '''</td>'''
-        print >> buffer, '''<td align="right">''', self.rack, '''</td>'''
-        print >> buffer, '''</tr>'''
+        print >> buffer, '''<td align="right">''', self.rack, '''</td></tr>'''
 
 class RackNode:
     def __init__(self, host, rackId):
@@ -849,20 +883,16 @@ def processEvacuatingNodes(status, nodes):
         status.evacuatingServers = [EvacuatingServer(c) for c in servers if c != '']
         status.evacuatingServers.sort()
 
-def bytesToReadable(v):
-    s = long(v)
+def bytesToReadable(b):
+    v = long(b)
     if (v > (long(1) << 50)):
-        r = "%.2f&nbsp;PB" % (float(v) / (long(1) << 50))
-        return r
+        return "%.2f&nbsp;PB" % (float(v) / (long(1) << 50))
     if (v > (long(1) << 40)):
-        r = "%.2f&nbsp;TB" % (float(v) / (long(1) << 40))
-        return r
+        return "%.2f&nbsp;TB" % (float(v) / (long(1) << 40))
     if (v > (long(1) << 30)):
-        r = "%.2f&nbsp;GB" % (float(v) / (long(1) << 30))
-        return r
+        return "%.2f&nbsp;GB" % (float(v) / (long(1) << 30))
     if (v > (long(1) << 20)):
-        r = "%.2f&nbsp;MB" % (float(v) / (long(1) << 20))
-        return r
+        return "%.2f&nbsp;MB" % (float(v) / (long(1) << 20))
     return "%.2f&nbsp;bytes" % (v)
 
 def processSystemInfo(systemInfo, sysInfo):
@@ -1155,7 +1185,7 @@ def rackView(buffer, status):
 			  <td>
          <p> Number of nodes: ''', numNodes, ''' </p>
 				</td>
-				<td align=right>
+				<td align="right">
 					<table class="network-status-table" font-size=14>
 					<tbody>
 					  <tr class=notstarted><td></td><td>Not Started</td></tr>
