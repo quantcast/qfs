@@ -2439,13 +2439,15 @@ struct MetaChunkCorrupt: public MetaRequest {
  * \brief chunk server chunks evacuate request
  */
 struct MetaChunkEvacuate: public MetaRequest {
+    typedef StringBufT<256> StorageStr;
+
     int64_t             totalSpace;
     int64_t             totalFsSpace;
     int64_t             usedSpace;
     int                 numDrives;
     int                 numWritableDrives;
     int                 numEvacuateInFlight;
-    Properties::String  storageTiersInfo;
+    StorageStr          storageTiersInfo;
     StringBufT<21 * 32> chunkIds; //!< input
     ChunkServerPtr      server;
     MetaChunkEvacuate(seq_t s = -1)
@@ -2456,7 +2458,7 @@ struct MetaChunkEvacuate: public MetaRequest {
           numDrives(-1),
           numWritableDrives(-1),
           numEvacuateInFlight(-1),
-          storageTiersInfo(),
+          storageTiersInfo("X"),
           chunkIds(),
           server()
         {}
@@ -2474,6 +2476,13 @@ struct MetaChunkEvacuate: public MetaRequest {
     bool Validate()
     {
         return true;
+    }
+    const StorageStr* GetStorageTiersInfo() const
+    {
+        if (storageTiersInfo == "X") {
+            return 0;
+        }
+        return &storageTiersInfo;
     }
     template<typename T> static T& ParserDef(T& parser)
     {

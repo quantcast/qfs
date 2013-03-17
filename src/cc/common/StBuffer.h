@@ -334,7 +334,10 @@ public:
         { return strcmp(GetPtr(), inStrPtr); }
     bool operator==(
         const char* inStrPtr) const
-        {   return (Compare(inStrPtr) == 0); }
+        { return (Compare(inStrPtr) == 0); }
+    bool operator!=(
+        const char* inStrPtr) const
+        { return !(*this == inStrPtr); }
     template<size_t CAPACITY>
     bool operator!=(
         const StringBufT<CAPACITY>& inBuf) const
@@ -374,7 +377,7 @@ private:
 
 template<size_t DEFAULT_CAPACITY>
 inline static bool operator==(
-    const string&                  inStr,
+    const string&                       inStr,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 {
     return (inBuf == inStr);

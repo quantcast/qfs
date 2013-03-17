@@ -1074,8 +1074,23 @@ protected:
     template <typename T> static T& Mutable(const T& v) {
         return const_cast<T&>(v);
     }
-    void UpdateStorageTiers(const Properties::String* tiers,
-        int deviceCount = 0, int writableChunkCount = 0);
+    template<typename T>
+    void UpdateStorageTiers(
+        const T* tiers,
+        int      deviceCount,
+        int      writableChunkCount)
+    {
+        UpdateStorageTiersSelf(
+            tiers ? tiers->GetPtr()  : 0,
+            tiers ? tiers->GetSize() : size_t(0),
+            deviceCount,
+            writableChunkCount
+        );
+    }
+    void UpdateStorageTiers()
+        { UpdateStorageTiersSelf(0, 0, 0, 0); }
+    void UpdateStorageTiersSelf(const char* buf, size_t len,
+        int deviceCount, int writableChunkCount);
 };
 
 } // namespace KFS

@@ -614,7 +614,7 @@ ChunkServer::ForceDown()
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
-    UpdateStorageTiers(0);
+    UpdateStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -676,7 +676,7 @@ ChunkServer::Error(const char* errorMsg)
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
-    UpdateStorageTiers(0);
+    UpdateStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -1132,8 +1132,9 @@ ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
         wrDrives = mNumDrives;
     }
     if (wrDrives >= 0) {
-        UpdateStorageTiers(&op.storageTiersInfo, wrDrives, mNumChunkWrites);
+        UpdateStorageTiers(op.GetStorageTiersInfo(), wrDrives, mNumChunkWrites);
         UpdateChunkWritesPerDrive(mNumChunkWrites, wrDrives);
+        gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
     }
     if (op.numEvacuateInFlight == 0) {
         mChunksToEvacuate.Clear();
@@ -1821,22 +1822,25 @@ ChunkServer::Escape(const char* buf, size_t len)
 }
 
 void
-ChunkServer::UpdateStorageTiers(const Properties::String* tiers,
-    int deviceCount, int writableChunkCount)
+ChunkServer::UpdateStorageTiersSelf(
+    const char* buf,
+    size_t      len,
+    int         deviceCount,
+    int         writableChunkCount)
 {
     bool clearFlags[kKfsSTierCount];
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mStorageTiersInfoDelta[i] = mStorageTiersInfo[i];
         clearFlags[i]             = true;
     }
-    if (tiers) {
+    if (buf) {
         kfsSTier_t tier;
         int        deviceCount;
         int        notStableOpenCount;
         int64_t    spaceAvailable;
         int64_t    totalSpace;
-        const char*       p = tiers->GetPtr();
-        const char* const e = p + tiers->GetSize();
+        const char*       p = buf;
+        const char* const e = p + len;
         while (p < e &&
                 DecIntParser::Parse(p, e - p, tier) &&
                 DecIntParser::Parse(p, e - p, deviceCount) &&
