@@ -5851,6 +5851,7 @@ ShowTiersInfo(
             "\t" << i <<
             "\t" << info.GetDeviceCount() <<
             "\t" << info.GetNotStableOpenCount() <<
+            "\t" << info.GetChunkCount() <<
             "\t" << info.GetSpaceAvailable() <<
             "\t" << info.GetTotalSpace() <<
             "\t" << setprecision(2) << fixed <<
@@ -5913,7 +5914,7 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
     mWOstream <<
         "\r\n"
         "Storage tiers info names: "
-        "rack\ttier\tdevices\twr-chunks\tspace-available"
+        "rack\ttier\tdevices\twr-chunks\tchunks\tspace-available"
             "\ttotal-space\t%util.\tcandidates"
         "\r\n"
         "Storage tiers info: "

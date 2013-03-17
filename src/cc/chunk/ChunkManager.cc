@@ -497,12 +497,12 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     int64_t                corruptedChunksCount;
     int64_t                evacuateCheckIoErrorsCount;
     int64_t                evacuateStartByteCount;
-    int                    evacuateStartChunkCount;
-    int                    chunkCount;
-    int                    notStableOpenCount;
-    int                    diskTimeoutCount;
-    int                    evacuateInFlightCount;
-    int                    rescheduleEvacuateThreshold;
+    int32_t                evacuateStartChunkCount;
+    int32_t                chunkCount;
+    int32_t                notStableOpenCount;
+    int32_t                diskTimeoutCount;
+    int32_t                evacuateInFlightCount;
+    int32_t                rescheduleEvacuateThreshold;
     DiskQueue*             diskQueue;
     DirChecker::DeviceId   deviceId;
     DirChecker::LockFdPtr  dirLock;
@@ -523,8 +523,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     time_t                 lastEvacuationActivityTime;
     time_t                 startTime;
     time_t                 stopTime;
-    int                    startCount;
-    int                    evacuateCompletedCount;
+    int32_t                startCount;
+    int32_t                evacuateCompletedCount;
     Counters               readCounters;
     Counters               writeCounters;
     Counters               totalReadCounters;
@@ -4327,6 +4327,7 @@ ChunkManager::GetTotalSpace(
                 if (tiersInfo) {
                     StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
                     ti.mNotStableOpenCount += it->notStableOpenCount;
+                    ti.mChunkCount         += it->chunkCount;
                     if (it->IsCountFsSpaceAvailable()) {
                         tierSpaceAvailableCnt++;
                         ti.mDeviceCount++;

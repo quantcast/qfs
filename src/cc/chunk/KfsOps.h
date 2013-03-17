@@ -1779,11 +1779,13 @@ struct EvacuateChunksOp : public KfsOp {
         StorageTierInfo()
             : mDeviceCount(0),
               mNotStableOpenCount(0),
+              mChunkCount(0),
               mSpaceAvailable(0),
               mTotalSpace(0)
             {}
-        int     mDeviceCount;
-        int     mNotStableOpenCount;
+        int32_t mDeviceCount;
+        int32_t mNotStableOpenCount;
+        int32_t mChunkCount;
         int64_t mSpaceAvailable;
         int64_t mTotalSpace;
     };

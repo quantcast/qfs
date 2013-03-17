@@ -234,7 +234,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     if (kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
             mStorageTiersInfo[tier].GetDeviceCount() > 0) {
         mStorageTiersInfoDelta[tier] = mStorageTiersInfo[tier];
-        mStorageTiersInfo[tier].UpdateAllocSpace(CHUNKSIZE, 1);
+        mStorageTiersInfo[tier].UpdateAllocSpace(CHUNKSIZE, 1, 1);
         mStorageTiersInfoDelta[tier].Delta(mStorageTiersInfo[tier]);
     }
     mAllocSpace += CHUNKSIZE;
@@ -1737,6 +1737,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
             i <<
             ":" << info.GetDeviceCount() <<
             ":" << info.GetNotStableOpenCount() <<
+            ":" << info.GetChunkCount() <<
             setprecision(2) << scientific <<
             ":" << (double)info.GetSpaceAvailable() <<
             ":" << (double)info.GetTotalSpace() <<
@@ -1835,8 +1836,9 @@ ChunkServer::UpdateStorageTiersSelf(
     }
     if (buf) {
         kfsSTier_t tier;
-        int        deviceCount;
-        int        notStableOpenCount;
+        int32_t    deviceCount;
+        int32_t    notStableOpenCount;
+        int32_t    chunkCount;
         int64_t    spaceAvailable;
         int64_t    totalSpace;
         const char*       p = buf;
@@ -1845,6 +1847,7 @@ ChunkServer::UpdateStorageTiersSelf(
                 DecIntParser::Parse(p, e - p, tier) &&
                 DecIntParser::Parse(p, e - p, deviceCount) &&
                 DecIntParser::Parse(p, e - p, notStableOpenCount) &&
+                DecIntParser::Parse(p, e - p, chunkCount) &&
                 DecIntParser::Parse(p, e - p, spaceAvailable) &&
                 DecIntParser::Parse(p, e - p, totalSpace)) {
             if (tier == kKfsSTierUndef) {
@@ -1859,6 +1862,7 @@ ChunkServer::UpdateStorageTiersSelf(
             mStorageTiersInfo[tier].Set(
                 deviceCount,
                 notStableOpenCount,
+                chunkCount,
                 spaceAvailable,
                 totalSpace
             );
@@ -1871,6 +1875,7 @@ ChunkServer::UpdateStorageTiersSelf(
         mStorageTiersInfo[tier].Set(
             deviceCount,
             writableChunkCount,
+            GetChunkCount(),
             min(mUsedSpace, totalFsSpace),
             totalFsSpace
         );

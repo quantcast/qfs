@@ -236,21 +236,21 @@ public:
         StorageTierInfo()
             : mDeviceCount(0),
               mNotStableOpenCount(0),
+              mChunkCount(0),
+              mAllocSpace(0),
               mSpaceAvailable(0),
               mTotalSpace(0),
-              mAllocSpace(0),
               mSpaceUtilization(1.0),
               mOneOverTotalSpace(-1)
             {}
         void Set(
-            int     deviceCount,
-            int     notStableOpenCount,
+            int32_t deviceCount,
+            int32_t notStableOpenCount,
+            int32_t chunkCount,
             int64_t spaceAvailable,
-            int64_t totalSpace,
-            int64_t allocSpace = 0)
+            int64_t totalSpace)
         {
-            if (mSpaceAvailable != spaceAvailable ||
-                    mAllocSpace != allocSpace) {
+            if (mSpaceAvailable != spaceAvailable || mAllocSpace != 0) {
                 mSpaceUtilization = -1;
             }
             if (mTotalSpace != totalSpace) {
@@ -259,14 +259,19 @@ public:
             }
             mDeviceCount        = deviceCount;
             mNotStableOpenCount = notStableOpenCount;
+            mChunkCount         = chunkCount;
             mSpaceAvailable     = spaceAvailable;
             mTotalSpace         = totalSpace;
+            mAllocSpace         = 0;
         }
-        int GetDeviceCount() const {
+        int32_t GetDeviceCount() const {
             return mDeviceCount;
         }
-        int GetNotStableOpenCount() const {
+        int32_t GetNotStableOpenCount() const {
             return mNotStableOpenCount;
+        }
+        int32_t GetChunkCount() const {
+            return mChunkCount;
         }
         int64_t GetSpaceAvailable() const {
             return mSpaceAvailable;
@@ -275,12 +280,14 @@ public:
             return mTotalSpace;
         }
         void Clear()
-            { Set(0, 0, 0, 0); }
+            { Set(0, 0, 0, 0, 0); }
         StorageTierInfo& operator-=(const StorageTierInfo& info) {
             mDeviceCount        -= info.mDeviceCount;
             mNotStableOpenCount -= info.mNotStableOpenCount;
+            mChunkCount         -= info.mChunkCount;
             mSpaceAvailable     -= info.mSpaceAvailable;
             mTotalSpace         -= info.mTotalSpace;
+            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
             mOneOverTotalSpace  = -1;
             return *this;
@@ -288,8 +295,10 @@ public:
         StorageTierInfo& operator+=(const StorageTierInfo& info) {
             mDeviceCount        += info.mDeviceCount;
             mNotStableOpenCount += info.mNotStableOpenCount;
+            mChunkCount         += info.mChunkCount;
             mSpaceAvailable     += info.mSpaceAvailable;
             mTotalSpace         += info.mTotalSpace;
+            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
             mOneOverTotalSpace  = -1;
            return *this;
@@ -297,12 +306,12 @@ public:
         StorageTierInfo& Delta(const StorageTierInfo& cur) {
             mDeviceCount        = cur.mDeviceCount        - mDeviceCount;
             mNotStableOpenCount = cur.mNotStableOpenCount - mNotStableOpenCount;
+            mChunkCount         = cur.mChunkCount         - mChunkCount;
             mSpaceAvailable     = cur.mSpaceAvailable     - mSpaceAvailable;
             mTotalSpace         = cur.mTotalSpace         - mTotalSpace;
+            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
-            if (mTotalSpace != 0) {
-                mOneOverTotalSpace  = -1;
-            }
+            mOneOverTotalSpace  = -1;
             return *this;
         }
         double GetSpaceUtilization() const {
@@ -320,10 +329,15 @@ public:
             Mutable(mSpaceUtilization) = (double)used * mOneOverTotalSpace;
             return mSpaceUtilization;
         }
-        void UpdateAllocSpace(int64_t delta, int notStableOpenDelta = 0) {
+        void UpdateAllocSpace(
+                int64_t delta, int notStableOpenDelta, int chunkCountDelta) {
             mNotStableOpenCount += notStableOpenDelta;
             if (mNotStableOpenCount < 0) {
                 mNotStableOpenCount = 0;
+            }
+            mChunkCount += chunkCountDelta;
+            if (mChunkCount < 0) {
+                mChunkCount = 0;
             }
             if (delta == 0) {
                 return;
@@ -335,11 +349,12 @@ public:
             }
         }
     private:
-        int     mDeviceCount;
-        int     mNotStableOpenCount;
+        int32_t mDeviceCount;
+        int32_t mNotStableOpenCount;
+        int32_t mChunkCount;
+        int32_t mAllocSpace;
         int64_t mSpaceAvailable;
         int64_t mTotalSpace;
-        int64_t mAllocSpace;
         double  mSpaceUtilization;
         double  mOneOverTotalSpace;
 

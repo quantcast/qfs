@@ -982,6 +982,7 @@ AppendStorageTiersInfo(ostream& os, const ChunkManager::StorageTiersInfo& tiersI
             " " << (unsigned int)it->first <<
             " " << it->second.mDeviceCount <<
             " " << it->second.mNotStableOpenCount <<
+            " " << it->second.mChunkCount <<
             " " << it->second.mSpaceAvailable <<
             " " << it->second.mTotalSpace
         ;

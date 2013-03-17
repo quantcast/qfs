@@ -366,6 +366,8 @@ class Status:
                     col = 'writable dev.'
                 elif col == 'wr-chunks':
                     col = 'writable blocks'
+                elif col == 'chunks':
+                    col = 'blocks'
                 colCnt = colCnt + 1
                 print >> buffer, '''<th>''', col.capitalize(), '''</th>'''
             print >> buffer, '''
@@ -790,7 +792,7 @@ class UpServer:
                         <div class="floatleft">
                         <table class="sortable status-table-span" id="srvTier''', count, '''>
                         <tr class="" >
-                            <th>Tier</th><th>Wr. dev.</th><th>Wr. blocks</th><th>Free</th><th>Total</th><th>%Used</th>
+                            <th>Tier</th><th>Wr. dev.</th><th>Wr. blocks</th><th>Blocks</th><th>Free</th><th>Total</th><th>%Used</th>
                          </tr><tbody><tr><td>
                             ''', self.tiers.replace(
                                     ';', '</td></tr><tr><td>'
