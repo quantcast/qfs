@@ -237,7 +237,7 @@ public:
             : mDeviceCount(0),
               mNotStableOpenCount(0),
               mChunkCount(0),
-              mAllocSpace(0),
+              mInFlightAllocCount(0),
               mSpaceAvailable(0),
               mTotalSpace(0),
               mSpaceUtilization(1.0),
@@ -250,7 +250,7 @@ public:
             int64_t spaceAvailable,
             int64_t totalSpace)
         {
-            if (mSpaceAvailable != spaceAvailable || mAllocSpace != 0) {
+            if (mSpaceAvailable != spaceAvailable || mInFlightAllocCount != 0) {
                 mSpaceUtilization = -1;
             }
             if (mTotalSpace != totalSpace) {
@@ -262,13 +262,16 @@ public:
             mChunkCount         = chunkCount;
             mSpaceAvailable     = spaceAvailable;
             mTotalSpace         = totalSpace;
-            mAllocSpace         = 0;
+            mInFlightAllocCount = 0;
         }
         int32_t GetDeviceCount() const {
             return mDeviceCount;
         }
         int32_t GetNotStableOpenCount() const {
             return mNotStableOpenCount;
+        }
+        int32_t GetInFlightAllocCount() const {
+            return mInFlightAllocCount;
         }
         int32_t GetChunkCount() const {
             return mChunkCount;
@@ -284,10 +287,10 @@ public:
         StorageTierInfo& operator-=(const StorageTierInfo& info) {
             mDeviceCount        -= info.mDeviceCount;
             mNotStableOpenCount -= info.mNotStableOpenCount;
+            mInFlightAllocCount -= info.mInFlightAllocCount;
             mChunkCount         -= info.mChunkCount;
             mSpaceAvailable     -= info.mSpaceAvailable;
             mTotalSpace         -= info.mTotalSpace;
-            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
             mOneOverTotalSpace  = -1;
             return *this;
@@ -295,10 +298,10 @@ public:
         StorageTierInfo& operator+=(const StorageTierInfo& info) {
             mDeviceCount        += info.mDeviceCount;
             mNotStableOpenCount += info.mNotStableOpenCount;
+            mInFlightAllocCount += info.mInFlightAllocCount;
             mChunkCount         += info.mChunkCount;
             mSpaceAvailable     += info.mSpaceAvailable;
             mTotalSpace         += info.mTotalSpace;
-            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
             mOneOverTotalSpace  = -1;
            return *this;
@@ -306,10 +309,10 @@ public:
         StorageTierInfo& Delta(const StorageTierInfo& cur) {
             mDeviceCount        = cur.mDeviceCount        - mDeviceCount;
             mNotStableOpenCount = cur.mNotStableOpenCount - mNotStableOpenCount;
+            mInFlightAllocCount = cur.mInFlightAllocCount - mInFlightAllocCount;
             mChunkCount         = cur.mChunkCount         - mChunkCount;
             mSpaceAvailable     = cur.mSpaceAvailable     - mSpaceAvailable;
             mTotalSpace         = cur.mTotalSpace         - mTotalSpace;
-            mAllocSpace         = 0;
             mSpaceUtilization   = -1;
             mOneOverTotalSpace  = -1;
             return *this;
@@ -318,7 +321,8 @@ public:
             if (mSpaceUtilization >= 0) {
                 return mSpaceUtilization;
             }
-            const int64_t used = mTotalSpace - mSpaceAvailable - mAllocSpace;
+            const int64_t used = mTotalSpace - mSpaceAvailable -
+                mInFlightAllocCount * (int64_t)CHUNKSIZE;
             if (used <= 0 || mTotalSpace <= 0) {
                 Mutable(*this).mSpaceUtilization = 1.;
                 return mSpaceUtilization;
@@ -329,30 +333,17 @@ public:
             Mutable(mSpaceUtilization) = (double)used * mOneOverTotalSpace;
             return mSpaceUtilization;
         }
-        void UpdateAllocSpace(
-                int64_t delta, int notStableOpenDelta, int chunkCountDelta) {
-            mNotStableOpenCount += notStableOpenDelta;
-            if (mNotStableOpenCount < 0) {
-                mNotStableOpenCount = 0;
-            }
-            mChunkCount += chunkCountDelta;
-            if (mChunkCount < 0) {
-                mChunkCount = 0;
-            }
-            if (delta == 0) {
-                return;
-            }
+        void AddInFlightAlloc() {
             mSpaceUtilization = -1;
-            mAllocSpace += delta;
-            if (mAllocSpace < 0) {
-                mAllocSpace = 0;
-            }
+            mInFlightAllocCount++;
+            mNotStableOpenCount++;
+            mChunkCount++;
         }
     private:
         int32_t mDeviceCount;
         int32_t mNotStableOpenCount;
         int32_t mChunkCount;
-        int32_t mAllocSpace;
+        int32_t mInFlightAllocCount;
         int64_t mSpaceAvailable;
         int64_t mTotalSpace;
         double  mSpaceUtilization;
@@ -1073,8 +1064,7 @@ protected:
     int TimeoutOps();
     inline void UpdateChunkWritesPerDrive(
         int  numChunkWrites,
-        int  numWritableDrives,
-        bool updateRackTiersFlag = false);
+        int  numWritableDrives);
     inline void NewChunkInTier(kfsSTier_t tier);
     void ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
         IOBuffer& iobuf, int len, int linesToShow = 64);

@@ -209,8 +209,7 @@ ChunkServerRequest(MetaChunkRequest& req, ostream& os, IOBuffer& buf)
 inline void
 ChunkServer::UpdateChunkWritesPerDrive(
     int  numChunkWrites,
-    int  numWritableDrives,
-    bool updateRackTiersFlag /* = false */)
+    int  numWritableDrives)
 {
     const int deltaChunkWrites    = numChunkWrites    - mNumChunkWrites;
     const int deltaWritableDrives = numWritableDrives - mNumWritableDrives;
@@ -220,8 +219,7 @@ ChunkServer::UpdateChunkWritesPerDrive(
         *this,
         deltaChunkWrites,
         deltaWritableDrives,
-        mStorageTiersInfoDelta,
-        updateRackTiersFlag
+        mStorageTiersInfoDelta
     );
 }
 
@@ -234,13 +232,12 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     if (kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
             mStorageTiersInfo[tier].GetDeviceCount() > 0) {
         mStorageTiersInfoDelta[tier] = mStorageTiersInfo[tier];
-        mStorageTiersInfo[tier].UpdateAllocSpace(CHUNKSIZE, 1, 1);
+        mStorageTiersInfo[tier].AddInFlightAlloc();
         mStorageTiersInfoDelta[tier].Delta(mStorageTiersInfo[tier]);
     }
     mAllocSpace += CHUNKSIZE;
-    const bool kUpdateRackTiersFlag = true;
-    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives,
-        kUpdateRackTiersFlag);
+    UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
+    gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
@@ -1072,6 +1069,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mUptime                   = mHelloOp->uptime;
     mNumAppendsWithWid        = mHelloOp->numAppendsWithWid;
     mStaleChunksHexFormatFlag = mHelloOp->staleChunksHexFormatFlag;
+    for (size_t i = 0; i < kKfsSTierCount; i++) {
+        mStorageTiersInfoDelta[i].Clear();
+    }
     UpdateChunkWritesPerDrive((int)(mHelloOp->notStableAppendChunks.size() +
         mHelloOp->notStableChunks.size()), mNumWritableDrives);
     mLastHeartbeatSent = mLastHeard;

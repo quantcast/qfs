@@ -1101,8 +1101,7 @@ public:
         ChunkServer&           srv,
         int                    deltaNumChunkWrites,
         int                    deltaNumWritableDrives,
-        const StorageTierInfo* tiersDelta,
-        bool                   updateRackTiersFlag);
+        const StorageTierInfo* tiersDelta);
 
     // Unix style permissions
     kfsUid_t GetDefaultUser() const

@@ -4168,8 +4168,7 @@ void
 LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
     int                                   deltaNumChunkWrites,
     int                                   deltaNumWritableDrives,
-    const LayoutManager::StorageTierInfo* tiersDelta,
-    bool                                  updateRackTiersFlag)
+    const LayoutManager::StorageTierInfo* tiersDelta)
 {
     mTotalChunkWrites    += deltaNumChunkWrites;
     mTotalWritableDrives += deltaNumWritableDrives;
@@ -4211,13 +4210,6 @@ LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
                 max(mMinWritesPerDrive, (int)(info.GetNotStableOpenCount() *
                     mTiersTotalWritableDrivesMult[i])));
         }
-    }
-    if (! updateRackTiersFlag) {
-        return;
-    }
-    RackInfos::iterator const it = FindRack(srv.GetRack());
-    if (it != mRacks.end()) {
-        it->updatePossibleCandidatesCount(0, tiersDelta, 0);
     }
 }
 
