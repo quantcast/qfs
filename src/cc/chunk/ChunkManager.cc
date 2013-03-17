@@ -2561,6 +2561,9 @@ void
 ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
 {
     ChunkDirInfo& dir = cih->GetDirInfo();
+    if (dir.availableSpace < 0) {
+        return; // Directory is not in use.
+    }
     dir.usedSpace += nbytes;
     if (dir.usedSpace < 0) {
         dir.usedSpace = 0;
@@ -3988,37 +3991,43 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
     ChunkInfoHandle* cih;
     while (mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
             (cih = it.Next())) {
-        // If the chunk with target version already exists withing the same
-        // chunk directory, then do not issue delete.
-        // If the existing chunk is already stable but the chunk to delete has
-        // the same version but it is not stable, then the file is likely have
-        // already been deleted , when the existing chunk transitioned into
-        // stable version. If not then unstable chunk will be cleaned up on the
-        // next restart.
-        const ChunkInfoHandle* const* const ci =
-            mChunkTable.Find(cih->chunkInfo.chunkId);
-        if (! ci ||
-                &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
-                ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
-            if (cih->IsKeep()) {
-                if (MarkChunkStale(cih, &mStaleChunkCompletion) == 0) {
-                    mStaleChunkOpsInFlight++;
+        // If disk queue has been already stopped, then the queue directory
+        // prefix has already been removed, and it will not be possible to
+        // queue disk io request (delete or rename) anyway, and attempt to do
+        // so will return an error.
+        if (cih->GetDirInfo().diskQueue) {
+            // If the chunk with target version already exists withing the same
+            // chunk directory, then do not issue delete.
+            // If the existing chunk is already stable but the chunk to delete
+            // has the same version but it is not stable, then the file is
+            // likely have already been deleted , when the existing chunk
+            // transitioned into stable version. If not then unstable chunk will
+            // be cleaned up on the next restart.
+            const ChunkInfoHandle* const* const ci =
+                mChunkTable.Find(cih->chunkInfo.chunkId);
+            if (! ci ||
+                    &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
+                    ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
+                if (cih->IsKeep()) {
+                    if (MarkChunkStale(cih, &mStaleChunkCompletion) == 0) {
+                        mStaleChunkOpsInFlight++;
+                    }
+                } else {
+                    const string fileName = MakeChunkPathname(cih);
+                    string err;
+                    const bool ok = DiskIo::Delete(
+                        fileName.c_str(), &mStaleChunkCompletion, &err);
+                    if (ok) {
+                        mStaleChunkOpsInFlight++;
+                    }
+                    KFS_LOG_STREAM(ok ?
+                            MsgLogger::kLogLevelINFO :
+                            MsgLogger::kLogLevelERROR) <<
+                        "deleting stale chunk: " << fileName <<
+                        (ok ? " ok" : " error: ") << err <<
+                        " in flight: " << mStaleChunkOpsInFlight <<
+                    KFS_LOG_EOM;
                 }
-            } else {
-                const string fileName = MakeChunkPathname(cih);
-                string err;
-                const bool ok = DiskIo::Delete(
-                    fileName.c_str(), &mStaleChunkCompletion, &err);
-                if (ok) {
-                    mStaleChunkOpsInFlight++;
-                }
-                KFS_LOG_STREAM(ok ?
-                        MsgLogger::kLogLevelINFO :
-                        MsgLogger::kLogLevelERROR) <<
-                    "deleting stale chunk: " << fileName <<
-                    (ok ? " ok" : " error: ") << err <<
-                    " in flight: " << mStaleChunkOpsInFlight <<
-                KFS_LOG_EOM;
             }
         }
         const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
