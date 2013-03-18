@@ -611,7 +611,7 @@ ChunkServer::ForceDown()
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
-    UpdateStorageTiers();
+    ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -673,7 +673,7 @@ ChunkServer::Error(const char* errorMsg)
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
-    UpdateStorageTiers();
+    ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
@@ -1868,7 +1868,7 @@ ChunkServer::UpdateStorageTiersSelf(
             );
             clearFlags[tier] = false;
         }
-    } else if (! mDown) {
+    } else {
         // Backward compatibility: no storage tiers in the heartbeat.
         const kfsSTier_t tier         = kKfsSTierMax;
         const int64_t    totalFsSpace = max(mTotalSpace, mTotalFsSpace);

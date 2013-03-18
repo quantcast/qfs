@@ -1085,8 +1085,8 @@ protected:
             writableChunkCount
         );
     }
-    void UpdateStorageTiers()
-        { UpdateStorageTiersSelf(0, 0, 0, 0); }
+    void ClearStorageTiers()
+        { UpdateStorageTiersSelf("", 0, 0, 0); }
     void UpdateStorageTiersSelf(const char* buf, size_t len,
         int deviceCount, int writableChunkCount);
 };
