@@ -818,7 +818,7 @@ class UpServer:
                 </td>
             '''
         else:
-            print >> buffer, '''td align="right">''', self.tiersCount, '''</td>'''
+            print >> buffer, '''<td align="right">''', self.tiersCount, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.used, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.free, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.total, '''</td>'''
