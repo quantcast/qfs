@@ -425,6 +425,7 @@ class Status:
          <th>Repl. in</th>
          <th>Repl. out</th>
          <th>IOErr</th>
+         <th>Load</th>
          <th>Rack</th>
          </tr>
          </thead>
@@ -710,6 +711,11 @@ class UpServer:
             else:
                 setattr(self, 'nwrites', -1)
 
+            if hasattr(self, 'load'):
+                self.load = int(self.load)
+            else:
+                setattr(self, 'load', -1)
+
             if hasattr(self, 'tiers'):
                 self.tiers = self.tiers
             else:
@@ -813,6 +819,7 @@ class UpServer:
         print >> buffer, '''<td align="right">''', self.numReplications, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numReadReplications, '''</td>'''
         print >> buffer, '''<td align="right">''', self.ncorrupt, '''</td>'''
+        print >> buffer, '''<td>''', '%.2e' % self.load, '''</td>'''
         print >> buffer, '''<td align="right">''', self.rack, '''</td></tr>'''
 
 class RackNode:

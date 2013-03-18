@@ -1228,15 +1228,12 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
             mPrevEvacuateDoneCnt        = mEvacuateDoneCnt;
             mPrevEvacuateDoneBytes      = mEvacuateDoneBytes;
         }
-        const int64_t srvLoad =
-            prop.getValue(sSrvLoadPropName, int64_t(0));
+        const int64_t srvLoad = prop.getValue(sSrvLoadPropName, int64_t(0));
         int64_t loadAvg;
         if (sSrvLoadSamplerSampleCount > 0) {
-            if (mSrvLoadSampler.GetMaxSamples() !=
-                    sSrvLoadSamplerSampleCount) {
+            if (mSrvLoadSampler.GetMaxSamples() != sSrvLoadSamplerSampleCount) {
                 mSrvLoadSampler.SetMaxSamples(
-                    sSrvLoadSamplerSampleCount, srvLoad,
-                    now);
+                    sSrvLoadSamplerSampleCount, srvLoad, now);
             } else {
                 mSrvLoadSampler.Put(srvLoad, now);
             }
@@ -1724,6 +1721,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", bytesevacuate=" << mEvacuateBytes
         << ", nlost=" << mLostChunks
         << ", nwrites=" << mNumChunkWrites
+        << ", load=" << mLoadAvg
         << ", tiers="
     ;
     const char* delim = "";
