@@ -790,26 +790,35 @@ class UpServer:
         print >> buffer, '''<td align="right">''', self.numDrives, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numWritableDrives, '''</td>'''
         print >> buffer, '''<td align="right">''', self.nwrites, '''</td>'''
-        print >> buffer, '''
-            <td align="right">
-                <div id="linkspandetailtable">
-                    <a href="#">''', self.tiersCount, '''
-                        <span>
-                        <div class="floatleft">
-                        <table class="sortable status-table-span" id="srvTier''', count, '''>
-                        <tr class="" >
-                            <th>Tier</th><th>Wr. dev.</th><th>Wr. blocks</th><th>Blocks</th><th>Free</th><th>Total</th><th>%Used</th>
-                         </tr><tbody><tr><td>
-                            ''', self.tiers.replace(
-                                    ';', '</td></tr><tr><td>'
-                                ).replace(
-                                    ':', '</td><td>'
-                                ), '''
-                        </td></tr></tbody></table></div></span>
-                    </a>
-                </div>
-            </td>
-        '''
+        if self.tiersCount > 0:
+            print >> buffer, '''
+                <td align="right">
+                    <div id="linkspandetailtable">
+                        <a href="#">''', self.tiersCount, '''
+                            <span>
+                            <div class="floatleft">
+                            <table class="sortable status-table-span" id="srvTier''', count, '''>
+                            <tr class="" >
+                                <th>Tier</th>
+                                <th>Wr. dev.</th>
+                                <th>Wr. blocks</th>
+                                <th>Blocks</th>
+                                <th>Free</th>
+                                <th>Total</th>
+                                <th>%Used</th>
+                             </tr><tbody><tr><td>
+                                ''', self.tiers.replace(
+                                        ';', '</td></tr><tr><td>'
+                                    ).replace(
+                                        ':', '</td><td>'
+                                    ), '''
+                            </td></tr></tbody></table></div></span>
+                        </a>
+                    </div>
+                </td>
+            '''
+        else:
+            print >> buffer, '''td align="right">''', self.tiersCount, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.used, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.free, '''</td>'''
         print >> buffer, '''<td>''', '%.2e' % self.total, '''</td>'''
