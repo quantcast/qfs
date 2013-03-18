@@ -1868,7 +1868,7 @@ ChunkServer::UpdateStorageTiersSelf(
             );
             clearFlags[tier] = false;
         }
-    } else {
+    } else if (! mDown) {
         // Backward compatibility: no storage tiers in the heartbeat.
         const kfsSTier_t tier         = kKfsSTierMax;
         const int64_t    totalFsSpace = max(mTotalSpace, mTotalFsSpace);
