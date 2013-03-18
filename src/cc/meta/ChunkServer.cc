@@ -1875,7 +1875,7 @@ ChunkServer::UpdateStorageTiersSelf(
         mStorageTiersInfo[tier].Set(
             deviceCount,
             writableChunkCount,
-            GetChunkCount(),
+            (int32_t)GetChunkCount(),
             min(mUsedSpace, totalFsSpace),
             totalFsSpace
         );
