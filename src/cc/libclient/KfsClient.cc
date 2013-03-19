@@ -4264,19 +4264,25 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
         pair<NameToFAttrMap::iterator, bool> const
             res = mPathCache.insert(make_pair(pathname, fa));
         if (! res.second) {
-            const FAttr* const cfa = res.first->second;
-            KFS_LOG_STREAM_FATAL << "fattr path entry already exists: " <<
-                " parent: "  << parentFid <<
-                " name: "    << name <<
-                " path: "    << pathname <<
-                " gen: "     << mFAttrCacheGeneration <<
-                " entry:"
-                " gen: "     << cfa->generation <<
-                " parent: "  << cfa->fidNameIt->first.first <<
-                " name: "    << cfa->fidNameIt->first.second <<
-            KFS_LOG_EOM;
-            MsgLogger::Stop();
-            abort();
+            FAttr* const cfa = res.first->second;
+            if (cfa->generation == mFAttrCacheGeneration ||
+                    cfa->nameIt != res.first) {
+                KFS_LOG_STREAM_FATAL << "fattr path entry already exists: " <<
+                    " parent: "  << parentFid <<
+                    " name: "    << name <<
+                    " path: "    << pathname <<
+                    " gen: "     << mFAttrCacheGeneration <<
+                    " entry:"
+                    " gen: "     << cfa->generation <<
+                    " parent: "  << cfa->fidNameIt->first.first <<
+                    " name: "    << cfa->fidNameIt->first.second <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
+            cfa->nameIt = mPathCacheNone;
+            Delete(cfa);
+            res.first->second = fa;
         }
         fa->nameIt = res.first;
     } else {
