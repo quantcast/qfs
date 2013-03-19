@@ -229,7 +229,7 @@ public:
                 (theCopyFlag = strcmp(theCmdPtr, "copyToLocal") == 0) ||
                 (theMoveFlag = strcmp(theCmdPtr, "moveToLocal") == 0)) {
             if (theMoveFlag) {
-                // Do not allow for now as i
+                // Do not allow for now as with "dfs".
                 cerr << theCmdPtr << " is not implemented yet.\n";
                 theErr = -EINVAL;
             } else {
@@ -245,7 +245,6 @@ public:
                         strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
                     theErr = Cat(theArgsPtr, theArgCnt - 1);
                 } else {
-                    theMoveFlag = true;
                     theErr = CopyToLocal(
                         theArgsPtr, theArgCnt, theMoveFlag, cerr);
                 }
