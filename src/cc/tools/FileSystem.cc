@@ -707,6 +707,8 @@ public:
         outStatBuf.mNumRecoveryStripes = inAttr.numRecoveryStripes;
         outStatBuf.mStriperType        = inAttr.striperType;
         outStatBuf.mStripeSize         = inAttr.stripeSize;
+        outStatBuf.mMinSTier           = inAttr.minSTier;
+        outStatBuf.mMaxSTier           = inAttr.maxSTier;
         if (inAttr.fileSize > 0) {
             outStatBuf.st_size = inAttr.fileSize;
         }

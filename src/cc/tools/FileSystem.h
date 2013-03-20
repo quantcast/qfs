@@ -61,7 +61,9 @@ public:
               mNumStripes(-1),
               mNumRecoveryStripes(-1),
               mStriperType(-1),
-              mStripeSize(-1)
+              mStripeSize(-1),
+              mMinSTier(-1),
+              mMaxSTier(-1)
             {}
         void Reset()
             { *this = StatBuf(); }
@@ -72,6 +74,8 @@ public:
         int16_t mNumRecoveryStripes;
         int32_t mStriperType;
         int32_t mStripeSize;
+        int16_t mMinSTier;
+        int16_t mMaxSTier;
     };
     class DirIterator
     {
