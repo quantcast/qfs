@@ -2421,21 +2421,7 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
     }
     if (fa) {
         // Update i-node cache.
-        if (! path.empty() && path[0] == '/') {
-                if (fa->nameIt == mPathCacheNone) {
-                    if (filename != "." && filename != "..") {
-                        fa->nameIt =
-                            mPathCache.insert(make_pair(path, fa)).first;
-                        assert(fa->nameIt->second == fa);
-                    }
-                } else if (fa->nameIt->first != path) {
-                    mPathCache.erase(fa->nameIt);
-                    mPathCache[path] = fa;
-                }
-        } else if (fa->nameIt != mPathCacheNone) {
-            mPathCache.erase(fa->nameIt);
-            fa->nameIt = mPathCacheNone;
-        }
+        UpdatePath(fa, path);
         FAttrLru::PushBack(mFAttrLru, *fa);
     } else {
         fa = NewFAttr(parentFid, filename, path);
@@ -3993,7 +3979,11 @@ KfsClientImpl::UpdateFilesize(int fd)
         return -EBADF;
     }
     FileTableEntry& entry = *(mFileTable[fd]);
-    FAttr* const fa = LookupFAttr(entry.parentFid, entry.name);
+    FAttr* fa = LookupFAttr(entry.parentFid, entry.name);
+    if (fa && fa->generation != mFAttrCacheGeneration) {
+        Delete(fa);
+        fa = 0;
+    }
     if (entry.fattr.isDirectory ||
             entry.fattr.striperType != KFS_STRIPED_FILE_TYPE_NONE) {
         LookupOp op(nextSeq(), entry.parentFid, entry.name.c_str());
@@ -4287,10 +4277,17 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
     pair<FidNameToFAttrMap::iterator, bool> const res =
         mFidNameToFAttrMap.insert(make_pair(make_pair(parentFid, name), fa));
     if (! res.second) {
+        const FAttr* const cfa = res.first->second;
         KFS_LOG_STREAM_FATAL << "fattr entry already exists: " <<
-            " fid: "  << parentFid <<
-            " name: " << name <<
+            " parent: "  << parentFid <<
+            " name: "    << name <<
+            " path: "    << pathname <<
+            " gen: "     << mFAttrCacheGeneration <<
+            " entry:"
+            " gen: "     << cfa->generation <<
+            " path: "    << cfa->nameIt->first <<
         KFS_LOG_EOM;
+        MsgLogger::Stop();
         abort();
     }
     fa->fidNameIt = res.first;
@@ -4299,11 +4296,25 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
         pair<NameToFAttrMap::iterator, bool> const
             res = mPathCache.insert(make_pair(pathname, fa));
         if (! res.second) {
-            KFS_LOG_STREAM_FATAL << "fattr path entry already exists: " <<
-                " fid: "  << parentFid <<
-                " name: " << name <<
-            KFS_LOG_EOM;
-            abort();
+            FAttr* const cfa = res.first->second;
+            if (cfa->generation == mFAttrCacheGeneration ||
+                    cfa->nameIt != res.first) {
+                KFS_LOG_STREAM_FATAL << "fattr path entry already exists: " <<
+                    " parent: "  << parentFid <<
+                    " name: "    << name <<
+                    " path: "    << pathname <<
+                    " gen: "     << mFAttrCacheGeneration <<
+                    " entry:"
+                    " gen: "     << cfa->generation <<
+                    " parent: "  << cfa->fidNameIt->first.first <<
+                    " name: "    << cfa->fidNameIt->first.second <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
+            cfa->nameIt = mPathCacheNone;
+            Delete(cfa);
+            res.first->second = fa;
         }
         fa->nameIt = res.first;
     } else {
@@ -4382,9 +4393,21 @@ KfsClientImpl::UpdatePath(KfsClientImpl::FAttr* fa, const string& path,
     if (fa->nameIt != mPathCacheNone) {
         mPathCache.erase(fa->nameIt);
     }
-    fa->nameIt = mPathCache.insert(
+    const string& name = fa->fidNameIt->first.second;
+    if (name == "." || name == ".." || path.empty() || path[0] != '/') {
+        fa->nameIt = mPathCacheNone;
+        return;
+    }
+    pair<NameToFAttrMap::iterator, bool> const res = mPathCache.insert(
         make_pair(copyPathFlag ? string(path.data(), path.length()) : path, fa)
-    ).first;
+    );
+    if (res.second) {
+        fa->nameIt = res.first;
+        return;
+    }
+    res.first->second->nameIt = mPathCacheNone;
+    res.first->second = fa;
+    fa->nameIt = res.first;
 }
 
 ///

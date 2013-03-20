@@ -34,7 +34,7 @@ if [ x"$1" = x'-g' -o  x"$1" = x'-get' ]; then
 fi
 
 # Set official release version here.
-qfs_release_version="1.0.1"
+qfs_release_version="1.0.2"
 qfs_source_revision=""
 
 # If git is present override the release version with git tag.
