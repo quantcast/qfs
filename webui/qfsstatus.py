@@ -56,6 +56,7 @@ docRoot = '.'
 displayName = ''
 autoRefresh = 60
 displayPorts = False
+displayChunkServerStorageTiers = True
 
 kServerName="XMeta-server-location" #todo - put it to config file
 kChunkDirName="Chunk-server-dir"
@@ -460,7 +461,7 @@ class Status:
 
         if len(downServers) > 0:
             print >> buffer, '''<div class="floatleft">
-            <table class="status-table" cellspacing="0" cellpadding="0.1em" summary="Status of retiring nodes in the system">
+            <table class="status-table" cellspacing="0" cellpadding="0.1em" summary="Status of down nodes in the system">
             <caption> <a name="DeadNodes">Dead Nodes History</a></caption>
          <thead>
             <tr><th> Chunkserver </th> <th> Down Since </th> <th> Reason </th> </tr>
@@ -776,7 +777,7 @@ class UpServer:
             trclass = 'class="evacuating"'
         elif self.overloaded:
             trclass = 'class="overloaded"'
-        elif not self.good:
+        elif not self.good or self.down:
             trclass = 'class="notgood"'
         elif showNoRack and self.rack < 0:
             trclass = 'class="norack"'
@@ -784,21 +785,18 @@ class UpServer:
             trclass = ''
 
         print >> buffer, '''<tr ''', trclass, '''><td align="right">''', self.displayName, '''</td>'''
-        if self.down:
-            print >> buffer, '''</tr>'''
-            return
         print >> buffer, '''<td align="right">''', self.numDrives, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numWritableDrives, '''</td>'''
         print >> buffer, '''<td align="right">''', self.nwrites, '''</td>'''
-        if self.tiersCount > 0:
+        if self.tiersCount > 0 and displayChunkServerStorageTiers :
             print >> buffer, '''
                 <td align="right">
                     <div id="linkspandetailtable">
                         <a href="#">''', self.tiersCount, '''
                             <span>
                             <div class="floatleft">
-                            <table class="sortable status-table-span" id="srvTier''', count, '''>
-                            <tr class="" >
+                            <table class="sortable status-table-span" id="cs%stiers">''' % count, '''
+                            <thead><tr>
                                 <th>Tier</th>
                                 <th>Wr. dev.</th>
                                 <th>Wr. blocks</th>
@@ -806,7 +804,7 @@ class UpServer:
                                 <th>Free</th>
                                 <th>Total</th>
                                 <th>%Used</th>
-                             </tr><tbody><tr><td>
+                             </tr></thead><tbody><tr><td>
                                 ''', self.tiers.replace(
                                         ';', '</td></tr><tr><td>'
                                     ).replace(
@@ -1873,6 +1871,11 @@ if __name__ == '__main__':
         socketTimeout = config.get('webserver', 'webServer.socketTimeout')
     except:
         socketTimeout = 90
+        pass
+    try:
+        displayChunkServerStorageTiers = config.getboolean('webserver', 'webServer.displayChunkServerStorageTiers')
+    except:
+        displayChunkServerStorageTiers = True
         pass
     docRoot = config.get('webserver', 'webServer.docRoot')
     PORT = config.getint('webserver', 'webServer.port')
