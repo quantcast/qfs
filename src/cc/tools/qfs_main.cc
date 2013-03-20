@@ -3791,7 +3791,7 @@ const char* const KfsTool::sHelpStrings[] =
         "trash current directory name\n\t\t"
     "fs.trash.interval        = 60\n\t\t\t"
         "trash emptier interval in sec\n\t\t"
-    "fs.trash.minPathDepth    = 5\n\t\t"
+    "fs.trash.minPathDepth    = 5\n\t\t\t"
         "min. path depth permitted to be moved to trash\n\t\t\t"
         "without dfs.force.remove=true set\n\t\t"
     "dfs.force.remove         = false\n\t\t\t"
