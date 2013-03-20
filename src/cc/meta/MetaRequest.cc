@@ -993,7 +993,7 @@ private:
             Write(kMinTier);
             WriteInt(entry.minSTier);
             Write(kMaxTier);
-            WriteInt(entry.minSTier);
+            WriteInt(entry.maxSTier);
         }
         if (entry.type == KFS_DIR || entry.IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
