@@ -72,13 +72,14 @@ using std::setw;
 using std::flush;
 using std::left;
 using std::right;
+using std::oct;
+using std::dec;
 using std::make_pair;
 
 using client::Path;
 
-const string      kDefaultCreateParams("S"); // RS 6+3 64K stripe
 const string      kTrashCfgPrefix("fs.trash.");
-const char* const kMsgLogWriterPrefix = "fs.msgLogWriter.";
+const char* const kMsgLogWriterCfgPrefix = "fs.msgLogWriter.";
 
 class KfsTool
 {
@@ -86,6 +87,7 @@ public:
     KfsTool()
         : mIoBufferSize(6 << 20),
           mIoBufferPtr(new char[mIoBufferSize]),
+          mDefaultCreateParams("S"), // RS 6+3 64K stripe
           mConfig()
         {}
     ~KfsTool()
@@ -149,11 +151,11 @@ public:
         if (theLogLevel == MsgLogger::kLogLevelDEBUG) {
             // -v overrides configuration setting, if any.
             mConfig.setValue(
-                Properties::String(kMsgLogWriterPrefix).Append("logLevel"),
+                Properties::String(kMsgLogWriterCfgPrefix).Append("logLevel"),
                 Properties::String("DEBUG")
             );
         }
-        MsgLogger::Init(0, theLogLevel, &mConfig, kMsgLogWriterPrefix);
+        MsgLogger::Init(0, theLogLevel, &mConfig, kMsgLogWriterCfgPrefix);
         if (theUri.empty()) {
             theUri = mConfig.getValue("fs.default", theUri);
         }
@@ -165,6 +167,8 @@ public:
                 return 1;
             }
         }
+        mDefaultCreateParams = mConfig.getValue(
+            "fs.createParams", mDefaultCreateParams);
         const char* const theCmdPtr  = inArgsPtr[theArgIndex++] + 1;
         if (theCmdPtr[-1] != '-') {
             ShortHelp(cerr);
@@ -215,14 +219,15 @@ public:
                 }
             }
             if (theArgCnt == 2 && strcmp(theArgsPtr[0], "-") == 0) {
-                theErr = CopyFromStream(theArgsPtr[1], cin, cerr);
+                theErr = CopyFromStream(
+                    theArgsPtr[1], cin, cerr, mDefaultCreateParams);
             } else {
                 if (theArgCnt < 2) {
                     theErr = EINVAL;
                     ShortHelp(cerr, "Usage: ", theCmdPtr);
                 } else {
-                    theErr = CopyFromLocal(theArgsPtr, theArgCnt, theMoveFlag,
-                        cerr);
+                    theErr = CopyFromLocal(
+                        theArgsPtr, theArgCnt, theMoveFlag, cerr);
                 }
             }
         } else if (strcmp(theCmdPtr, "get") == 0 ||
@@ -241,7 +246,10 @@ public:
                         theArgCnt--;
                     }
                 }
-                if (theArgCnt >= 2 &&
+                if (theArgCnt < 2) {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else if (theArgCnt == 2 &&
                         strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
                     theErr = Cat(theArgsPtr, theArgCnt - 1);
                 } else {
@@ -386,6 +394,13 @@ public:
             } else {
                 theErr = Stat(theArgsPtr, theArgCnt, theFormatPtr);
             }
+        } else if (strcmp(theCmdPtr, "astat") == 0) {
+            if (theArgCnt <= 0) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = FullStat(theArgsPtr, theArgCnt);
+            }
         } else if (strcmp(theCmdPtr, "tail") == 0) {
             bool theFollowFlag = theArgCnt > 0 &&
                 strcmp(theArgsPtr[0], "-f") == 0;
@@ -459,6 +474,15 @@ private:
         return inStat.st_mtime;
 #else
         return inStat.st_mtimespec.tv_sec;
+#endif
+    }
+    static time_t GetCTime(
+        const FileSystem::StatBuf& inStat)
+    {
+#ifndef KFS_OS_NAME_DARWIN
+        return inStat.st_ctime;
+#else
+        return inStat.st_ctimespec.tv_sec;
 #endif
     }
     static const char* const sHelpStrings[];
@@ -1692,15 +1716,17 @@ private:
     public:
         enum { kBufferSize = 6 << 20 };
         CopyFunctor(
-            bool inMoveFlag      = false,
-            bool inOverwriteFlag = true)
+            const string& inDefaultCreateParams,
+            bool          inMoveFlag      = false,
+            bool          inOverwriteFlag = true)
             : mDestPtr(0),
               mDstName(),
               mBufferPtr(0),
               mDstDirStat(),
               mMoveFlag(inMoveFlag),
               mOverwriteFlag(inOverwriteFlag),
-              mCheckDestFlag(true)
+              mCheckDestFlag(true),
+              mDefaultCreateParams(inDefaultCreateParams)
             {}
         ~CopyFunctor()
             { delete [] mBufferPtr; }
@@ -1801,11 +1827,17 @@ private:
             if (! mBufferPtr) {
                 mBufferPtr = new char[kBufferSize];
             }
-            Copier theCopier(inFs, theDstFs,
-                inErrorReporter, theDstErrorReporter, mBufferPtr, kBufferSize,
+            Copier theCopier(
+                inFs,
+                theDstFs,
+                inErrorReporter,
+                theDstErrorReporter,
+                mBufferPtr,
+                kBufferSize,
                 inFs == theDstFs ? &mDstDirStat : 0,
                 mMoveFlag,
-                mOverwriteFlag
+                mOverwriteFlag,
+                mDefaultCreateParams
             );
             theStatus = theCopier.Copy(inPath, mDstName, theStat);
             if (theStatus == 0 && theSetModeFlag &&
@@ -1829,6 +1861,7 @@ private:
         const bool          mMoveFlag;
         const bool          mOverwriteFlag;
         bool                mCheckDestFlag;
+        const string        mDefaultCreateParams;
     private:
         CopyFunctor(
             const CopyFunctor& inFunctor);
@@ -1841,7 +1874,7 @@ private:
         char** inArgsPtr,
         int    inArgCount)
     {
-        CpFunctor theCopyFunc;
+        CpFunctor theCopyFunc(mDefaultCreateParams);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
@@ -1933,7 +1966,7 @@ private:
         }
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
-        CpFunctor theCopyFunc(inMoveFlag, kOverwriteFlag);
+        CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
@@ -1996,7 +2029,7 @@ private:
         }
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
-        CpFunctor theCopyFunc(inMoveFlag, kOverwriteFlag);
+        CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
@@ -2015,7 +2048,8 @@ private:
             size_t                     inBufferSize,
             const FileSystem::StatBuf* inSkipDirStatPtr,
             bool                       inRemoveSrcFlag,
-            bool                       inOverwriteFlag)
+            bool                       inOverwriteFlag,
+            const string&              inDefaultCreateParams)
             : mSrcFs(inSrcFs),
               mDstFs(inDstFs),
               mSrcErrorReporter(inSrcErrorReporter),
@@ -2029,7 +2063,8 @@ private:
               mDstName(),
               mSkipDirStatPtr(inSkipDirStatPtr),
               mRemoveSrcFlag(inRemoveSrcFlag),
-              mOverwriteFlag(inOverwriteFlag)
+              mOverwriteFlag(inOverwriteFlag),
+              mDefaultCreateParams(inDefaultCreateParams)
             {}
         ~Copier()
         {
@@ -2184,7 +2219,7 @@ private:
                 }
                 mCreateParams.assign(thePtr, theEndPtr);
             } else {
-                mCreateParams = kDefaultCreateParams;
+                mCreateParams = mDefaultCreateParams;
             }
             const int theDstFd = mDstFs.Open(
                 inDstPath,
@@ -2277,6 +2312,7 @@ private:
         const FileSystem::StatBuf* const mSkipDirStatPtr;
         const bool                       mRemoveSrcFlag;
         const bool                       mOverwriteFlag;
+        const string                     mDefaultCreateParams;
         char                             mTmpBuf[kTmpBufSize];
     private:
         Copier(
@@ -2363,7 +2399,7 @@ private:
         int    inArgCount)
     {
         const bool kMoveFlag = true;
-        CpFunctor theMoveFunctor(kMoveFlag);
+        CpFunctor theMoveFunctor(mDefaultCreateParams, kMoveFlag);
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theMoveFunctor, cerr);
         theMoveFunctor.SetDest(theFunc.GetInit());
@@ -2794,12 +2830,13 @@ private:
     class TouchzFunctor
     {
     public:
-        TouchzFunctor()
+        TouchzFunctor(
+            const string& inCreateParams)
             : mTime(),
               mStat(),
               mStatus(0),
               mTimeSetFlag(false),
-              mCreateParams(kDefaultCreateParams)
+              mCreateParams(inCreateParams)
             {}
         int operator()(
             FileSystem&    inFs,
@@ -2853,7 +2890,7 @@ private:
         char** inArgsPtr,
         int    inArgCount)
     {
-        TouchzFunctor theTouchzFunc;
+        TouchzFunctor theTouchzFunc(mDefaultCreateParams);
         return ApplyT(inArgsPtr, inArgCount, theTouchzFunc);
     }
     class SetModTimeFunctor
@@ -2955,8 +2992,8 @@ private:
         const string& inUri,
         istream&      inInStream,
         ostream&      inErrStream,
-        int           inOpenFlags    = O_CREAT | O_WRONLY | O_EXCL,
-        const string& inCreateParams = kDefaultCreateParams)
+        const string& inCreateParams,
+        int           inOpenFlags    = O_CREAT | O_WRONLY | O_EXCL)
     {
         FileSystem*  theFsPtr = 0;
         string       thePath;
@@ -3651,9 +3688,68 @@ private:
         UnzipFunctor theFunc(cout, "stdout", mIoBufferSize, mIoBufferPtr);
         return ApplyT(inArgsPtr, inArgCount, theFunc);
     }
+    class FullStatFunc
+    {
+    public:
+        FullStatFunc(
+            ostream& inOutStream)
+            : mOutStream(inOutStream),
+              mStat()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            const int theErr = inFs.Stat(inPath, mStat);
+            if (theErr != 0) {
+                return theErr;
+            }
+            mOutStream <<
+                "Uri:              " << inFs.GetUri() << inPath     << "\n"
+                "Type:             " << (S_ISDIR(mStat.st_mode) ?
+                    "dir" : "file") << "\n"
+                "Created:          " << GetCTime(mStat)             << "\n"
+                "Modified:         " << GetMTime(mStat)             << "\n"
+                "Size:             " << mStat.st_size               << "\n"
+                "I-node:           " << mStat.st_ino                << "\n"
+                "Mode:             " << oct << mStat.st_mode << dec << "\n"
+                "Owner:            " << mStat.st_uid                << "\n"
+                "Group:            " << mStat.st_gid                << "\n"
+            ;
+            if (S_ISDIR(mStat.st_mode)) {
+                mOutStream <<
+                "Files:            " << mStat.mSubCount1 << "\n"
+                "Dirs:             " << mStat.mSubCount2 << "\n"
+                ;
+            } else {
+                mOutStream <<
+                "Chunks:           " << mStat.mSubCount1          << "\n"
+                "Replicas:         " << mStat.mNumReplicas        << "\n"
+                "Data stripes:     " << mStat.mNumStripes         << "\n"
+                "Recovery stripes: " << mStat.mNumRecoveryStripes << "\n"
+                "Striper type:     " << mStat.mStriperType        << "\n"
+                "Stripe size:      " << mStat.mStripeSize         << "\n"
+                ;
+            }
+            return theErr;
+        }
+    private:
+        ostream&            mOutStream;
+        FileSystem::StatBuf mStat;
+    };
+    int FullStat(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        FullStatFunc theFullStatFunc(cout);
+        FunctorT<FullStatFunc> theFunc(theFullStatFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
+    string       mDefaultCreateParams;
     Properties   mConfig;
 private:
     KfsTool(const KfsTool& inTool);
@@ -3670,7 +3766,39 @@ const char* const KfsTool::sHelpStrings[] =
     "with -D option below",
 
     "D", "key=value",
-    "Define qfs key value configuration pair",
+    "Define qfs key value configuration pair\n\t\t"
+    "fs.default               = local\n\t\t\t"
+        "default file system url\n\t\t"
+    "fs.euser                 = <effective user id>\n\t\t\t"
+        "set effective user id with qfs\n\t\t"
+    "fs.egroup                = <effective group id>\n\t\t\t"
+        "set effective group id with qfs\n\t\t"
+    "fs.createParams          = S\n\t\t\t"
+        "qfs file create parameters: 1,6,3,65536,2\n\t\t\t"
+        "<replication>,<data stripe count>,<recovery stripe count>,"
+        "<stripe size>,<striper type>\n\t\t\t"
+        "S is shortcut for 1,6,3,65536,2\n\t\t\t"
+        "data stripe count:     from 1 to 64 with Reed Solomon encoding (RS),"
+            " and up to 511 with no recovery\n\t\t\t"
+        "recovery stripe count: 0, or 3 with RS\n\t\t\t"
+        "stripe size:           from 4096 to 67108864 in 4096 increments"
+            "\n\t\t\t"
+        "stiper type:           1 no stiping, or 2 is RS\n\t\t"
+    "fs.trash.trash           = .Trash\n\t\t\t"
+        "trash directory name\n\t\t"
+    "fs.trash.homesPrefix     = /user\n\t\t\t"
+        "qfs (non local) homes directories pfefix\n\t\t"
+    "fs.trash.current         = Current\n\t\t\t"
+        "trash current directory name\n\t\t"
+    "fs.trash.interval        = 60\n\t\t\t"
+        "trash emptier interval in sec\n\t\t"
+    "fs.trash.minPathDepth    = 5\n\t\t"
+        "min. path depth permitted to be moved to trash\n\t\t\t"
+        "without dfs.force.remove=true set\n\t\t"
+    "dfs.force.remove         = false\n\t\t"
+        "see the above\n\t\t"
+    "fs.msgLogWriter.logLevel = INFO\n\t\t\t"
+        "trace log level: {DEBUG|INFO|NOTICE|WARN|ERROR|FATAL}\n",
 
     "fs", "[local | <file system URI>]",
     "Specify the file system to use.\n\t\t"
@@ -3810,6 +3938,9 @@ const char* const KfsTool::sHelpStrings[] =
     " filename (%n),\n\t\t"
     "block size (%o), replication (%r), modification date (%y, %Y)\n\t\t"
     "file type (%F)\n",
+
+    "astat", "<glob> [<glob>...]",
+    "displays all attributes",
 
     "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
     "Changes permissions of a file.\n\t\t"
