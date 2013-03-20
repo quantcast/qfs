@@ -3794,7 +3794,7 @@ const char* const KfsTool::sHelpStrings[] =
     "fs.trash.minPathDepth    = 5\n\t\t"
         "min. path depth permitted to be moved to trash\n\t\t\t"
         "without dfs.force.remove=true set\n\t\t"
-    "dfs.force.remove         = false\n\t\t"
+    "dfs.force.remove         = false\n\t\t\t"
         "see the above\n\t\t"
     "fs.msgLogWriter.logLevel = INFO\n\t\t\t"
         "trace log level: {DEBUG|INFO|NOTICE|WARN|ERROR|FATAL}\n",
