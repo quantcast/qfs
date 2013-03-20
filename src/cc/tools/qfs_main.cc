@@ -249,8 +249,7 @@ public:
                 if (theArgCnt < 2) {
                     theErr = EINVAL;
                     ShortHelp(cerr, "Usage: ", theCmdPtr);
-                } else if (theArgCnt == 2 &&
-                        strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
+                } else if (strcmp(theArgsPtr[theArgCnt - 1], "-") == 0) {
                     theErr = Cat(theArgsPtr, theArgCnt - 1);
                 } else {
                     theErr = CopyToLocal(
