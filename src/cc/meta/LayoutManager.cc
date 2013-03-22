@@ -2540,12 +2540,12 @@ LayoutManager::AddNewServer(MetaHello *r)
                     // This chunk is non-stale. Check replication,
                     // and update file size if this is the last
                     // chunk and update required.
-                    const int res = AddHosted(c, r->server);
-                    assert(res >= 0);
-                    if (! fa.IsStriped() && fa.filesize < 0 &&
-                            ci.offset +
-                                (chunkOff_t)CHUNKSIZE >=
-                            fa.nextChunkOffset()) {
+                    const bool res = AddHosted(c, r->server);
+                    assert(res);
+                    if (res &&
+                            ! fa.IsStriped() && fa.filesize < 0 &&
+                            ci.offset + (chunkOff_t)CHUNKSIZE >=
+                                fa.nextChunkOffset()) {
                         KFS_LOG_STREAM_DEBUG << srvId <<
                             " chunk size: <" << fileId <<
                             "," << chunkId << ">" <<

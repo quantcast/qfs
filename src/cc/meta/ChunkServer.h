@@ -314,7 +314,7 @@ public:
                 return mSpaceUtilization;
             }
             const int64_t used = mTotalSpace - mSpaceAvailable;
-            if (used <= 0 || mTotalSpace <= 0) {
+            if (used < 0 || mTotalSpace <= 0) {
                 Mutable(*this).mSpaceUtilization = 1.;
                 return mSpaceUtilization;
             }
