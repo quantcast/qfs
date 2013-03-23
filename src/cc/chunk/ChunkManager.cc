@@ -68,6 +68,7 @@ using std::make_pair;
 using std::sort;
 using std::unique;
 using std::greater;
+using std::set;
 using std::binary_function;
 
 using namespace KFS::libkfsio;
@@ -85,6 +86,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     ChunkDirInfo()
         : ITimeout(),
           dirname(),
+          bufferedIoFlag(false),
           storageTier(kKfsSTierUndef),
           usedSpace(0),
           availableSpace(-1),
@@ -105,7 +107,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           dirLock(),
           dirCountSpaceAvailable(0),
           fsSpaceAvailInFlightFlag(false),
-          checkDirReadableFlightFlag(false),
+          checkDirFlightFlag(false),
           checkEvacuateFileInFlightFlag(false),
           evacuateChunksOpInFlightFlag(false),
           evacuateFlag(false),
@@ -129,7 +131,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           totalWriteCounters(),
           availableChunks(),
           fsSpaceAvailCb(),
-          checkDirReadableCb(),
+          checkDirCb(),
           checkEvacuateFileCb(),
           evacuateChunksCb(),
           renameEvacuateFileCb(),
@@ -140,8 +142,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     {
         fsSpaceAvailCb.SetHandler(this,
             &ChunkDirInfo::FsSpaceAvailDone);
-        checkDirReadableCb.SetHandler(this,
-            &ChunkDirInfo::CheckDirReadableDone);
+        checkDirCb.SetHandler(this,
+            &ChunkDirInfo::CheckDirDone);
         checkEvacuateFileCb.SetHandler(this,
             &ChunkDirInfo::CheckEvacuateFileDone);
         evacuateChunksCb.SetHandler(this,
@@ -163,7 +165,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         }
      }
     int FsSpaceAvailDone(int code, void* data);
-    int CheckDirReadableDone(int code, void* data);
+    int CheckDirDone(int code, void* data);
     int CheckEvacuateFileDone(int code, void* data);
     int RenameEvacuateFileDone(int code, void* data);
     void DiskError(int sysErr);
@@ -447,6 +449,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
             "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
             "Storage-tier: "          << (unsigned int)mChunkDir.storageTier <<
+            "Buffered-io: "           << (mChunkDir.bufferedIoFlag ? 1 : 0) <<
                 "\r\n"
             ;
             mChunkDir.readCounters.Display(
@@ -488,6 +491,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     };
 
     string                 dirname;
+    bool                   bufferedIoFlag;
     kfsSTier_t             storageTier;
     int64_t                usedSpace;
     int64_t                availableSpace;
@@ -508,7 +512,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     DirChecker::LockFdPtr  dirLock;
     ChunkDirInfo*          dirCountSpaceAvailable;
     bool                   fsSpaceAvailInFlightFlag:1;
-    bool                   checkDirReadableFlightFlag:1;
+    bool                   checkDirFlightFlag:1;
     bool                   checkEvacuateFileInFlightFlag:1;
     bool                   evacuateChunksOpInFlightFlag:1;
     bool                   evacuateFlag:1;
@@ -531,7 +535,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     Counters               totalWriteCounters;
     DirChecker::ChunkInfos availableChunks;
     KfsCallbackObj         fsSpaceAvailCb;
-    KfsCallbackObj         checkDirReadableCb;
+    KfsCallbackObj         checkDirCb;
     KfsCallbackObj         checkEvacuateFileCb;
     KfsCallbackObj         evacuateChunksCb;
     KfsCallbackObj         renameEvacuateFileCb;
@@ -1445,6 +1449,7 @@ ChunkManager::ChunkManager()
       mAllowSparseChunksFlag(true),
       mBufferedIoFlag(false),
       mSyncChunkHeaderFlag(false),
+      mCheckDirWritableFlag(true),
       mNullBlockChecksum(0),
       mCounters(),
       mDirChecker(),
@@ -1648,6 +1653,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mSyncChunkHeaderFlag = prop.getValue(
         "chunkServer.syncChunkHeader",
         mSyncChunkHeaderFlag ? 1 : 0) != 0;
+    mCheckDirWritableFlag = prop.getValue(
+        "chunkServer.checkDirWritableFlag",
+        mCheckDirWritableFlag ? 1 : 0) != 0;
     mEvacuateFileName = prop.getValue(
         "chunkServer.evacuateFileName",
         mEvacuateFileName);
@@ -1722,6 +1730,37 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
     mAllocDefaultMaxTier = prop.getValue(
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
+    {
+        istringstream is(prop.getValue(
+            "chunkServer.bufferedIoDirPrefixes", string()));
+        string prefix;
+        set<string> prefixes;
+        while ((is >> prefix)) {
+            prefixes.insert(prefix);
+        }
+        if (! prefixes.empty()) {
+            for (ChunkDirs::iterator it = mChunkDirs.begin();
+                    it != mChunkDirs.end();
+                    ++it) {
+                const string& dirname = it->dirname;
+                set<string>::const_iterator pit = prefixes.begin();
+                for (; pit != prefixes.end(); ++pit) {
+                    const string& prefix = *pit;
+                    if (prefix.length() <= dirname.length() &&
+                            dirname.compare(0, prefix.length(), prefix) == 0) {
+                        break;
+                    }
+                }
+                const bool bufferedIoFlag = pit != prefixes.end();
+                if (bufferedIoFlag != it->bufferedIoFlag) {
+                    it->bufferedIoFlag = bufferedIoFlag;
+                    if (it->availableSpace < 0 && ! it->dirLock) {
+                        mDirChecker.Add(it->dirname, it->availableSpace);
+                    }
+                }
+            }
+        }
+    }
     SetStorageTiers(prop);
 }
 
@@ -2894,7 +2933,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
             (openFlags & O_CREAT) != 0,
             &errMsg,
             &tempFailureFlag,
-            mBufferedIoFlag)) {
+            mBufferedIoFlag || cih->GetDirInfo().bufferedIoFlag)) {
         mCounters.mOpenErrorCount++;
         if ((openFlags & O_CREAT) != 0 || ! tempFailureFlag) {
             //
@@ -3576,7 +3615,7 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
     if (updateFlag) {
         UpdateCountFsSpaceAvailable();
     }
-    mDirChecker.Add(dir.dirname, dir.dirLock);
+    mDirChecker.Add(dir.dirname, dir.bufferedIoFlag, dir.dirLock);
 }
 
 int
@@ -4207,7 +4246,7 @@ ChunkManager::StartDiskIo()
     mDirChecker.SetIgnoreErrorsFlag(true);
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end(); ++it) {
-        mDirChecker.Add(it->dirname);
+        mDirChecker.Add(it->dirname, it->bufferedIoFlag);
     }
     mDirChecker.AddSubDir(mStaleChunksDir);
     mDirChecker.AddSubDir(mDirtyChunksDir);
@@ -4257,7 +4296,7 @@ ChunkManager::StartDiskIo()
         it->startCount++;
         KFS_LOG_STREAM_INFO <<
             "chunk directory: " << it->dirname <<
-            " tier: "           << it->storageTier <<
+            " tier: "           << (int)it->storageTier <<
             " devId: "          << it->deviceId <<
             " space:"
             " available: "      << it->availableSpace <<
@@ -4396,14 +4435,15 @@ ChunkManager::SendChunkDirInfo()
 }
 
 int
-ChunkManager::ChunkDirInfo::CheckDirReadableDone(int code, void* data)
+ChunkManager::ChunkDirInfo::CheckDirDone(int code, void* data)
 {
     if ((code != EVENT_DISK_CHECK_DIR_READABLE_DONE &&
-            code != EVENT_DISK_ERROR) || ! checkDirReadableFlightFlag) {
-        die("CheckDirReadableDone invalid completion");
+            code != EVENT_DISK_CHECK_DIR_WRITABLE_DONE &&
+            code != EVENT_DISK_ERROR) || ! checkDirFlightFlag) {
+        die("CheckDirDone invalid completion");
     }
 
-    checkDirReadableFlightFlag = false;
+    checkDirFlightFlag = false;
     if (availableSpace < 0) {
         return 0; // Ignore, already marked not in use.
     }
@@ -4412,7 +4452,7 @@ ChunkManager::ChunkDirInfo::CheckDirReadableDone(int code, void* data)
         DiskError(*reinterpret_cast<int*>(data));
     } else {
         KFS_LOG_STREAM_DEBUG <<
-            "chunk directory: " << dirname << " is readable"
+            "chunk directory: " << dirname << " is ok"
             " space: " << availableSpace <<
             " used: "  << usedSpace <<
             " dev: "   << deviceId <<
@@ -4983,15 +5023,17 @@ ChunkManager::CheckChunkDirs()
     bool updateCountFsSpaceAvailableFlag = false;
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end(); ++it) {
-        if (it->availableSpace < 0 || it->checkDirReadableFlightFlag) {
+        if (it->availableSpace < 0 || it->checkDirFlightFlag) {
             DirChecker::DirsAvailable::iterator const dit =
                 dirs.find(it->dirname);
             if (dit == dirs.end()) {
                 continue;
             }
-            if (it->checkDirReadableFlightFlag) {
-                // Add it back, and wait in flight op completion.
-                mDirChecker.Add(it->dirname);
+            if (it->checkDirFlightFlag ||
+                    it->bufferedIoFlag != dit->second.mBufferedIoFlag) {
+                // Add it back, and wait in flight op completion, or re-check
+                // with the current buffered io flag.
+                mDirChecker.Add(it->dirname, it->bufferedIoFlag);
                 continue;
             }
             string errMsg;
@@ -5059,16 +5101,24 @@ ChunkManager::CheckChunkDirs()
                 " dev: << " << it->deviceId << " :" << errMsg <<
             KFS_LOG_EOM;
             // For now do not keep trying.
-            // mDirChecker.Add(it->dirname);
+            // mDirChecker.Add(it->dirname, it->bufferedIoFlag);
             continue;
         }
         string err;
-        it->checkDirReadableFlightFlag = true;
-        if (! DiskIo::CheckDirReadable(
-                it->dirname.c_str(), &(it->checkDirReadableCb), &err)) {
-            it->checkDirReadableFlightFlag = false;
+        it->checkDirFlightFlag = true;
+        string name = it->dirname;
+        if (mCheckDirWritableFlag) {
+            name += "dircheck.tmp";
+        }
+        if ((mCheckDirWritableFlag ? 
+            ! DiskIo::CheckDirWritable(
+                name.c_str(), it->bufferedIoFlag,
+                &(it->checkDirCb), &err) :
+            ! DiskIo::CheckDirReadable(
+                name.c_str(), &(it->checkDirCb), &err))) {
+            it->checkDirFlightFlag = false;
             KFS_LOG_STREAM_ERROR << "failed to queue"
-                " check dir readable request for: " << it->dirname <<
+                " check dir request for: " << it->dirname <<
                 " : " << err <<
             KFS_LOG_EOM;
             // Do not declare directory unusable on req. queueing failure.

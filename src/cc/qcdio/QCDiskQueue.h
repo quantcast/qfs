@@ -64,6 +64,7 @@ public:
         kReqTypeCheckDirReadable = 10,
         kReqTypeClose            = 11,
         kReqTypeWriteSync        = 12,
+        kReqTypeCheckDirWritable = 13,
         kReqTypeMax
     };
 
@@ -89,7 +90,8 @@ public:
         kErrorDelete               = 17,
         kErrorRename               = 18,
         kErrorGetFsAvailable       = 19,
-        kErrorCheckDirReadable     = 20
+        kErrorCheckDirReadable     = 20,
+        kErrorCheckDirWritable     = 21
     };
 
     enum { kRequestIdNone = -1 };
@@ -398,6 +400,12 @@ public:
 
     EnqueueStatus CheckDirReadable(
         const char*    inDirNamePtr,
+        IoCompletion*  inIoCompletionPtr,
+        Time           inTimeWaitNanoSec = -1);
+
+    EnqueueStatus CheckDirWritable(
+        const char*    inTestFileNamePtr,
+        bool           inBufferedIoFlag,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec = -1);
 

@@ -70,7 +70,7 @@ public:
         : QCRunnable(),
           mDeviceIds(),
           mNextDevId(1),
-          mDirNames(),
+          mDirInfos(),
           mSubDirNames(),
           mDontUseIfExistFileNames(),
           mIgnoreFileNames(),
@@ -86,7 +86,7 @@ public:
           mRunFlag(false),
           mDoneFlag(false),
           mSleepFlag(true),
-          mUpdateDirNamesFlag(false),
+          mUpdateDirInfosFlag(false),
           mRequireChunkHeaderChecksumFlag(false),
           mIgnoreErrorsFlag(false),
           mChunkHeaderBuffer()
@@ -98,13 +98,13 @@ public:
         const string    theLockToken = CreateLockToken();
 
         QCStMutexLocker theLocker(mMutex);
-        DirNames        theDirNames                = mDirNames;
+        DirInfos        theDirInfos                = mDirInfos;
         DirNames        theSubDirNames             = mSubDirNames;
         FileNames       theDontUseIfExistFileNames = mDontUseIfExistFileNames;
         FileNames       theIgnoreFileNames         = mIgnoreFileNames;
         string          theLockFileName;
         DirLocks        theDirLocks;
-        mUpdateDirNamesFlag = false;
+        mUpdateDirInfosFlag = false;
         while (mRunFlag) {
             if (mSleepFlag) {
                 mCond.Wait(mMutex, mCheckIntervalNanoSec);
@@ -113,12 +113,12 @@ public:
                 break;
             }
             mSleepFlag = true;
-            if (mUpdateDirNamesFlag) {
-                theDirNames                = mDirNames;
+            if (mUpdateDirInfosFlag) {
+                theDirInfos                = mDirInfos;
                 theSubDirNames             = mSubDirNames;
                 theDontUseIfExistFileNames = mDontUseIfExistFileNames;
                 theIgnoreFileNames         = mIgnoreFileNames;
-                mUpdateDirNamesFlag = false;
+                mUpdateDirInfosFlag = false;
             }
             const bool theRemoveFilesFlag = mRemoveFilesFlag;
             theLockFileName = mLockFileName;
@@ -132,7 +132,7 @@ public:
                 QCStMutexUnlocker theUnlocker(mMutex);
                 theDirLocks.clear();
                 CheckDirs(
-                    theDirNames,
+                    theDirInfos,
                     theSubDirNames,
                     theDontUseIfExistFileNames,
                     theIgnoreFileNames,
@@ -147,11 +147,11 @@ public:
                     mChunkHeaderBuffer
                 );
             }
-            bool theUpdateDirNamesFlag = false;
+            bool theUpdateDirInfosFlag = false;
             for (DirsAvailable::iterator theIt = theAvailableDirs.begin();
                     theIt != theAvailableDirs.end();
                     ) {
-                if (mDirNames.erase(theIt->first) <= 0) {
+                if (mDirInfos.erase(theIt->first) <= 0) {
                     if (mAvailableDirs.empty()) {
                         theAvailableDirs.erase(theIt++);
                     } else {
@@ -162,11 +162,11 @@ public:
                         mAvailableDirs.insert(*theIt);
                     }
                     ++theIt;
-                    theUpdateDirNamesFlag = true;
+                    theUpdateDirInfosFlag = true;
                 }
             }
-            if (theUpdateDirNamesFlag) {
-                theDirNames = mDirNames;
+            if (theUpdateDirInfosFlag) {
+                theDirInfos = mDirInfos;
             }
             if (mAvailableDirs.empty()) {
                 mAvailableDirs.swap(theAvailableDirs);
@@ -200,12 +200,13 @@ public:
     void Clear()
     {
         QCStMutexLocker theLocker(mMutex);
-        mUpdateDirNamesFlag = true;
-        mDirNames.clear();
+        mUpdateDirInfosFlag = true;
+        mDirInfos.clear();
         mAvailableDirs.clear();
     }
     bool Add(
         const string& inDirName,
+        bool          inBufferedIoFlag,
         LockFdPtr*    inLockPtr)
     {
         QCStMutexLocker theLocker(mMutex);
@@ -220,9 +221,13 @@ public:
             return false;
         }
         const string theDirName = Normalize(inDirName);
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
         mAvailableDirs.erase(theDirName);
-        return mDirNames.insert(theDirName).second;
+        pair<DirInfos::iterator, bool> const
+            theRes = mDirInfos.insert(
+                make_pair(theDirName, inBufferedIoFlag));
+        theRes.first->second = inBufferedIoFlag;
+        return theRes.second;
     }
     bool Remove(
         const string& inDirName)
@@ -232,34 +237,16 @@ public:
         }
         const string theDirName = Normalize(inDirName);
         QCStMutexLocker theLocker(mMutex);
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
         mAvailableDirs.erase(theDirName);
-        return (mDirNames.erase(theDirName) != 0);
-    }
-    bool Add(
-        const DirNames& inDirNames)
-    {
-        QCStMutexLocker theLocker(mMutex);
-        mUpdateDirNamesFlag = true;
-        const size_t theSize = mDirNames.size();
-        for (DirNames::const_iterator theIt = inDirNames.begin();
-                theIt != inDirNames.end();
-                ++theIt) {
-            if (theIt->empty()) {
-                continue;
-            }
-            const string theDirName = Normalize(*theIt);
-            mAvailableDirs.erase(theDirName);
-            mDirNames.insert(theDirName);
-        }
-        return (theSize < mDirNames.size());
+        return (mDirInfos.erase(theDirName) != 0);
     }
     bool Remove(
         const DirNames& inDirNames)
     {
         QCStMutexLocker theLocker(mMutex);
-        mUpdateDirNamesFlag = true;
-        const size_t theSize = mDirNames.size();
+        mUpdateDirInfosFlag = true;
+        const size_t theSize = mDirInfos.size();
         for (DirNames::const_iterator theIt = inDirNames.begin();
                 theIt != inDirNames.end();
                 ++theIt) {
@@ -268,9 +255,9 @@ public:
             }
             const string theDirName = Normalize(*theIt);
             mAvailableDirs.erase(theDirName);
-            mDirNames.erase(theDirName);
+            mDirInfos.erase(theDirName);
         }
-        return (theSize > mDirNames.size());
+        return (theSize > mDirInfos.size());
     }
     void GetNewlyAvailable(
         DirsAvailable& outDirs,
@@ -291,9 +278,9 @@ public:
         for (DirsAvailable::const_iterator theIt = mAvailableDirs.begin();
                 theIt != mAvailableDirs.end();
                 ++theIt) {
-            mDirNames.erase(theIt->first);
+            mDirInfos.erase(theIt->first);
         }
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
         if (outDirs.empty()) {
             outDirs.swap(mAvailableDirs);
             return;
@@ -336,7 +323,7 @@ public:
         }
         QCStMutexLocker theLocker(mMutex);
         mSubDirNames.insert(Normalize(inDirName.substr(i)));
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
     }
     void SetDontUseIfExist(
         const FileNames& inFileNames)
@@ -351,14 +338,14 @@ public:
             }
             mDontUseIfExistFileNames.insert(*it);
         }
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
     }
     void SetIgnoreFileNames(
         const FileNames& inFileNames)
     {
         QCStMutexLocker theLocker(mMutex);
         mIgnoreFileNames = inFileNames;
-        mUpdateDirNamesFlag = true;
+        mUpdateDirInfosFlag = true;
     }
     void SetRemoveFilesFlag(
         bool inFlag)
@@ -388,10 +375,11 @@ public:
 private:
     typedef std::map<dev_t, DeviceId> DeviceIds;
     typedef std::deque<LockFdPtr>     DirLocks;
+    typedef std::map<string, bool>    DirInfos;
 
     DeviceIds         mDeviceIds;
     DeviceId          mNextDevId;
-    DirNames          mDirNames;
+    DirInfos          mDirInfos;
     DirNames          mSubDirNames;
     FileNames         mDontUseIfExistFileNames;
     FileNames         mIgnoreFileNames;
@@ -407,13 +395,13 @@ private:
     bool              mRunFlag;
     bool              mDoneFlag;
     bool              mSleepFlag;
-    bool              mUpdateDirNamesFlag;
+    bool              mUpdateDirInfosFlag;
     bool              mRequireChunkHeaderChecksumFlag;
     bool              mIgnoreErrorsFlag;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
     static void CheckDirs(
-        const DirNames&    inDirNames,
+        const DirInfos&    inDirInfos,
         const DirNames&    inSubDirNames,
         const FileNames&   inDontUseIfExistFileNames,
         const FileNames&   inIgnoreFileNames,
@@ -427,11 +415,11 @@ private:
         bool               inRequireChunkHeaderChecksumFlag,
         ChunkHeaderBuffer& inChunkHeaderBuffer)
     {
-        for (DirNames::const_iterator theIt = inDirNames.begin();
-                theIt != inDirNames.end();
+        for (DirInfos::const_iterator theIt = inDirInfos.begin();
+                theIt != inDirInfos.end();
                 ++theIt) {
             struct stat theStat = {0};
-            if (stat(theIt->c_str(), &theStat) != 0 ||
+            if (stat(theIt->first.c_str(), &theStat) != 0 ||
                    ! S_ISDIR(theStat.st_mode)) {
                 continue;
             }
@@ -440,7 +428,7 @@ private:
             for (theEit = inDontUseIfExistFileNames.begin();
                     theEit != inDontUseIfExistFileNames.end();
                     ++theEit) {
-                string theFileName = *theIt + *theEit;
+                string theFileName = theIt->first + *theEit;
                 if (stat(theFileName.c_str(), &theStat) == 0) {
                     break;
                 }
@@ -458,8 +446,9 @@ private:
             }
             LockFdPtr theLockFdPtr;
             if (! inLockName.empty()) {
-                const string theLockName = *theIt + inLockName;
-                const int    theLockFd   = TryLock(theLockName, inLockToken);
+                const string theLockName = theIt->first + inLockName;
+                const int    theLockFd   = TryLock(
+                    theLockName, inLockToken, theIt->second);
                 if (theLockFd < 0) {
                     KFS_LOG_STREAM_ERROR <<
                         theLockName << ": " <<
@@ -473,7 +462,7 @@ private:
             for (theSit = inSubDirNames.begin();
                     theSit != inSubDirNames.end();
                     ++theSit) {
-                string theDirName = *theIt + *theSit;
+                string theDirName = theIt->first + *theSit;
                 if (mkdir(theDirName.c_str(), 0755)) {
                     if (errno != EEXIST) {
                         KFS_LOG_STREAM_ERROR <<
@@ -506,7 +495,7 @@ private:
             }
             ChunkInfos theChunkInfos;
             if (GetChunkFiles(
-                    *theIt,
+                    theIt->first,
                     inLockName,
                     inIgnoreFileNames,
                     inRequireChunkHeaderChecksumFlag,
@@ -522,8 +511,8 @@ private:
                 ioNextDevId++;
             }
             pair<DirsAvailable::iterator, bool> const theDirRes =
-                outDirsAvailable.insert(make_pair(*theIt, DirInfo(
-                        theDevRes.first->second, theLockFdPtr)));
+                outDirsAvailable.insert(make_pair(theIt->first, DirInfo(
+                        theDevRes.first->second, theLockFdPtr, theIt->second)));
             if (! theChunkInfos.IsEmpty() && theDirRes.second) {
                 theChunkInfos.Swap(theDirRes.first->second.mChunkInfos);
             }
@@ -667,8 +656,19 @@ private:
     }
     static int TryLock(
         const string& inFileName,
-        const string& inLockToken)
+        const string& inLockToken,
+        bool          inBufferedIoFlag)
     {
+#ifdef O_DIRECT
+        if (! inBufferedIoFlag) {
+            const int theFd = open(
+                inFileName.c_str(), O_DIRECT|O_CREAT|O_RDWR, 0644);
+            if (theFd < 0) {
+                return (errno > 0 ? -errno : -1);
+            }
+            close(theFd);
+        }
+#endif
         const int theFd = open(inFileName.c_str(), O_CREAT|O_RDWR, 0644);
         if (theFd < 0) {
             return (errno > 0 ? -errno : -1);
@@ -779,32 +779,27 @@ DirChecker::Clear()
 }
 
     bool
-DirChecker::Add(
-    const DirNames& inDirNames)
-{
-    return mImpl.Add(inDirNames);
-}
-
-    bool
 DirChecker::Remove(
-    const DirNames& inDirNames)
+    const DirChecker::DirNames& inDirNames)
 {
     return mImpl.Remove(inDirNames);
 }
 
     bool
 DirChecker::Add(
-    const string& inDirName)
+    const string& inDirName,
+    bool          inBufferedIoFlag)
 {
-    return mImpl.Add(inDirName, 0);
+    return mImpl.Add(inDirName, inBufferedIoFlag, 0);
 }
 
     bool
 DirChecker::Add(
     const string&          inDirName,
+    bool                   inBufferedIoFlag,
     DirChecker::LockFdPtr& ioLockFdPtr)
 {
-    return mImpl.Add(inDirName, &ioLockFdPtr);
+    return mImpl.Add(inDirName, inBufferedIoFlag, &ioLockFdPtr);
 }
 
     bool
@@ -824,7 +819,7 @@ DirChecker::GetNewlyAvailable(
 
     void
 DirChecker::Start(
-    DirsAvailable& outDirs)
+    DirChecker::DirsAvailable& outDirs)
 {
     mImpl.Start(outDirs);
 }

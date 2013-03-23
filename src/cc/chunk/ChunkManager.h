@@ -726,6 +726,7 @@ private:
     bool mAllowSparseChunksFlag;
     bool mBufferedIoFlag;
     bool mSyncChunkHeaderFlag;
+    bool mCheckDirWritableFlag;
 
     uint32_t mNullBlockChecksum;
 

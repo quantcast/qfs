@@ -71,7 +71,9 @@ public:
         Counter mGetFsSpaceAvailableCount;
         Counter mGetFsSpaceAvailableErrorCount;
         Counter mCheckDirReadableCount;
+        Counter mCheckDirWritableCount;
         Counter mCheckDirReadableErrorCount;
+        Counter mCheckDirWritableErrorCount;
         Counter mTimedOutErrorCount;
         Counter mTimedOutErrorReadByteCount;
         Counter mTimedOutErrorWriteByteCount;
@@ -94,6 +96,7 @@ public:
             mGetFsSpaceAvailableErrorCount = 0;
             mCheckDirReadableCount         = 0;
             mCheckDirReadableErrorCount    = 0;
+            mCheckDirWritableErrorCount    = 0;
             mTimedOutErrorCount            = 0;
             mTimedOutErrorReadByteCount    = 0;
             mTimedOutErrorWriteByteCount   = 0;
@@ -139,6 +142,11 @@ public:
         string*         inErrMessagePtr  = 0);
     static bool CheckDirReadable(
         const char*     inDirNamePtr,
+        KfsCallbackObj* inCallbackObjPtr = 0,
+        string*         inErrMessagePtr  = 0);
+    static bool CheckDirWritable(
+        const char*     inTestFileNamePtr,
+        bool            inBufferedIoFlag,
         KfsCallbackObj* inCallbackObjPtr = 0,
         string*         inErrMessagePtr  = 0);
     static bool GetDiskQueuePendingCount(
@@ -284,6 +292,7 @@ private:
         kMetaOpTypeRename              = 2,
         kMetaOpTypeGetFsSpaceAvailable = 3,
         kMetaOpTypeCheckDirReadable    = 4,
+        kMetaOpTypeCheckDirWritable    = 5,
         kMetaOpTypeNumOps
     };
 

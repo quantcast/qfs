@@ -100,6 +100,7 @@ static int DiskQueueToSysError(
         case QCDiskQueue::kErrorRename:               return EIO;
         case QCDiskQueue::kErrorGetFsAvailable:       return EIO;
         case QCDiskQueue::kErrorCheckDirReadable:     return EIO;
+        case QCDiskQueue::kErrorCheckDirWritable:     return EIO;
         default:                                      break;
     }
     return EINVAL;
@@ -297,6 +298,7 @@ public:
           mRenameNullFilePtr(new DiskIo::File()),
           mGetFsSpaceAvailableNullFilePtr(new DiskIo::File()),
           mCheckDirReadableNullFilePtr(new DiskIo::File()),
+          mCheckDirWritableNullFilePtr(new DiskIo::File()),
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0)
     {
@@ -307,6 +309,7 @@ public:
         mRenameNullFilePtr->mQueuePtr              = this;
         mGetFsSpaceAvailableNullFilePtr->mQueuePtr = this;
         mCheckDirReadableNullFilePtr->mQueuePtr    = this;
+        mCheckDirWritableNullFilePtr->mQueuePtr    = this;
     }
     void Delete(
         DiskQueue** inListPtr)
@@ -414,6 +417,8 @@ public:
         { return mGetFsSpaceAvailableNullFilePtr; };
     DiskIo::FilePtr GetCheckDirReadableNullFile()
         { return mCheckDirReadableNullFilePtr; };
+    DiskIo::FilePtr GetCheckDirWritableNullFile()
+        { return mCheckDirWritableNullFilePtr; }
     virtual void TraceMsg(
         const char* inMsgPtr,
         int         inLength)
@@ -439,6 +444,7 @@ private:
     DiskIo::FilePtr           mRenameNullFilePtr;
     DiskIo::FilePtr           mGetFsSpaceAvailableNullFilePtr;
     DiskIo::FilePtr           mCheckDirReadableNullFilePtr;
+    DiskIo::FilePtr           mCheckDirWritableNullFilePtr;
     DiskErrorSimulator* const mSimulatorPtr;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
@@ -912,6 +918,15 @@ public:
             mCounters.mCheckDirReadableErrorCount++;
         }
     }
+    void CheckDirWritableDone(
+        int64_t inRetCode)
+    {
+        if (inRetCode >= 0) {
+            mCounters.mCheckDirWritableCount++;
+        } else {
+            mCounters.mCheckDirWritableErrorCount++;
+        }
+    }
     int GetFdCountPerFile() const
         { return mDiskQueueThreadCount; }
     void GetCounters(
@@ -1330,6 +1345,22 @@ DiskIo::CheckDirReadable(
     );
 }
 
+     /* static */ bool
+DiskIo::CheckDirWritable(
+    const char*     inTestFileNamePtr,
+    bool            inBufferedIoFlag,
+    KfsCallbackObj* inCallbackObjPtr /* = 0 */,
+    string*         inErrMessagePtr /* = 0 */)
+{
+    return EnqueueMeta(
+        kMetaOpTypeCheckDirWritable,
+        inTestFileNamePtr,
+        inBufferedIoFlag ? "buffio" : "",
+        inCallbackObjPtr,
+        inErrMessagePtr
+    );
+}
+
     /* static */ bool
 DiskIo::GetDiskQueuePendingCount(
     DiskQueue* inDiskQueuePtr,
@@ -1459,6 +1490,22 @@ DiskIo::EnqueueMeta(
                     );
                     if (theStatus.IsError()) {
                         sDiskIoQueuesPtr->CheckDirReadableDone(-1);
+                    }
+                    break;
+                case kMetaOpTypeCheckDirWritable:
+                    theDiskIoPtr = new DiskIo(
+                        theQueuePtr->GetCheckDirWritableNullFile(),
+                        theCallbackPtr
+                    );
+                    sDiskIoQueuesPtr->SetInFlight(theDiskIoPtr);
+                    theStatus = theQueuePtr->CheckDirWritable(
+                        inNamePtr,
+                        inNextNamePtr && inNextNamePtr[0] != 0,
+                        theDiskIoPtr,
+                        sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
+                    );
+                    if (theStatus.IsError()) {
+                        sDiskIoQueuesPtr->CheckDirWritableDone(-1);
                     }
                     break;
                 default:
@@ -1961,6 +2008,12 @@ DiskIo::RunCompletion()
         theMetaFlag = true;
         theCode = EVENT_DISK_CHECK_DIR_READABLE_DONE;
         sDiskIoQueuesPtr->CheckDirReadableDone(mIoRetCode);
+    } else if (mFilePtr.get() ==
+            theQueuePtr->GetCheckDirWritableNullFile().get()) {
+        theOpNamePtr = "check dir writable";
+        theMetaFlag = true;
+        theCode = EVENT_DISK_CHECK_DIR_WRITABLE_DONE;
+        sDiskIoQueuesPtr->CheckDirWritableDone(mIoRetCode);
     } else if (mReadLength > 0) {
         sDiskIoQueuesPtr->ReadPending(-int64_t(mReadLength), mIoRetCode);
         theOpNamePtr = "read";

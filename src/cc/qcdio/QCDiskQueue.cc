@@ -166,6 +166,11 @@ public:
         const char*    inDirNamePtr,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec);
+    EnqueueStatus CheckDirWritable(
+        const char*    inTestFileNamePtr,
+        bool           inBufferedIoFlag,
+        IoCompletion*  inIoCompletionPtr,
+        Time           inTimeWaitNanoSec);
     EnqueueStatus EnqueueMeta(
         ReqType        inReqType,
         const char*    inFileName1Ptr,
@@ -193,7 +198,8 @@ public:
         return (
             IsBarrierReqType(inReqType) ||
             inReqType == kReqTypeGetFsAvailable ||
-            inReqType == kReqTypeCheckDirReadable
+            inReqType == kReqTypeCheckDirReadable ||
+            inReqType == kReqTypeCheckDirWritable
         );
     }
     static bool IsWriteReqType(
@@ -1523,7 +1529,8 @@ QCDiskQueue::Queue::ProcessMeta(
         (inReq.mReqType == kReqTypeDelete ||
          inReq.mReqType == kReqTypeRename ||
          inReq.mReqType == kReqTypeGetFsAvailable ||
-         inReq.mReqType == kReqTypeCheckDirReadable) &&
+         inReq.mReqType == kReqTypeCheckDirReadable ||
+         inReq.mReqType == kReqTypeCheckDirWritable) &&
          (int)inReq.mFileIdx == mFileCount - 1 // always the last pseudo entry
     );
     inReq.mInFlightFlag = true;
@@ -1584,7 +1591,32 @@ QCDiskQueue::Queue::ProcessMeta(
                         theSysErr = errno;
                         theError  = kErrorCheckDirReadable;
                     } else {
-                        closedir(theDirPtr);
+                        if (closedir(theDirPtr)) {
+                            theSysErr = errno;
+                            theError  = kErrorCheckDirReadable;
+                        }
+                    }
+                }
+            }
+            break;
+        case kReqTypeCheckDirWritable: {
+                const bool theBufferedIoFlag =
+                    theNamePtr[theNextNameStart] != 0;
+                const int theOpenFlags       =
+                    O_RDWR | GetOpenCommonFlags(theBufferedIoFlag);
+                const int theFd = CreateFile(
+                    theNamePtr, theOpenFlags, S_IRUSR | S_IWUSR);
+                if (theFd < 0) {
+                    theSysErr = errno;
+                    theError  = kErrorCheckDirWritable;
+                } else {
+                    if (close(theFd)) {
+                        theSysErr = errno;
+                        theError  = kErrorCheckDirWritable;
+                    }
+                    if (unlink(theNamePtr) && theError == kErrorNone) {
+                        theSysErr = errno;
+                        theError  = kErrorCheckDirWritable;
                     }
                 }
             }
@@ -1813,6 +1845,25 @@ QCDiskQueue::Queue::CheckDirReadable(
 }
 
     QCDiskQueue::EnqueueStatus
+QCDiskQueue::Queue::CheckDirWritable(
+    const char*                inTestFileNamePtr,
+    bool                       inBufferedIoFlag,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec)
+{
+    if (! inTestFileNamePtr || ! *inTestFileNamePtr) {
+        return EnqueueStatus(kRequestIdNone, kErrorParameter);
+    }
+    return EnqueueMeta(
+        kReqTypeCheckDirWritable,
+        inTestFileNamePtr,
+        inBufferedIoFlag ? "buffio" : "",
+        inIoCompletionPtr,
+        inTimeWaitNanoSec
+    );
+}
+
+    QCDiskQueue::EnqueueStatus
 QCDiskQueue::Queue::EnqueueMeta(
     QCDiskQueue::ReqType       inReqType,
     const char*                inFileName1Ptr,
@@ -1837,16 +1888,22 @@ QCDiskQueue::Queue::EnqueueMeta(
         inFileName2Ptr ? strlen(inFileName2Ptr) + 1 : 0;
     char* const  theFileNamesPtr = (theFileName1Len + theFileName2Len > 0) ?
         new char[theFileName1Len + theFileName2Len] : 0;
-    memcpy(theFileNamesPtr, inFileName1Ptr, theFileName1Len);
-    memcpy(theFileNamesPtr + theFileName1Len, inFileName2Ptr,
-        theFileName2Len);
+    if (theFileNamesPtr) {
+        if (inFileName1Ptr) {
+            memcpy(theFileNamesPtr, inFileName1Ptr, theFileName1Len);
+        }
+        if (inFileName2Ptr) {
+            memcpy(theFileNamesPtr + theFileName1Len, inFileName2Ptr,
+                theFileName2Len);
+        }
+    }
 
     Request& theReq = *theReqPtr;
-    theReq.mReqType         = inReqType;
-    theReq.mBufferCount     = 0;
-    theReq.mFileIdx         = mFileCount - 1;
-    theReq.mBlockIdx        = inFileName2Ptr ? theFileName1Len : 0;
-    theReq.mIoCompletionPtr = inIoCompletionPtr;
+    theReq.mReqType          = inReqType;
+    theReq.mBufferCount      = 0;
+    theReq.mFileIdx          = mFileCount - 1;
+    theReq.mBlockIdx         = inFileName2Ptr ? theFileName1Len : 0;
+    theReq.mIoCompletionPtr  = inIoCompletionPtr;
     GetBuffersPtr(theReq)[0] = theFileNamesPtr;
     Enqueue(theReq);
     mWorkCond.Notify();
@@ -1962,6 +2019,7 @@ QCDiskQueue::ToString(
         case kErrorRename:               return "rename";
         case kErrorGetFsAvailable:       return "get fs available";
         case kErrorCheckDirReadable:     return "dir readable";
+        case kErrorCheckDirWritable:     return "dir writable";
         default:                         return "invalid error code";
     }
 }
@@ -2143,10 +2201,10 @@ QCDiskQueue::Sync(
 
     QCDiskQueue::EnqueueStatus
 QCDiskQueue::Rename(
-        const char*                inSrcFileNamePtr,
-        const char*                inDstFileNamePtr,
-        QCDiskQueue::IoCompletion* inIoCompletionPtr,
-        QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
+    const char*                inSrcFileNamePtr,
+    const char*                inDstFileNamePtr,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
         mQueuePtr->Rename(inSrcFileNamePtr, inDstFileNamePtr,
@@ -2157,9 +2215,9 @@ QCDiskQueue::Rename(
 
     QCDiskQueue::EnqueueStatus
 QCDiskQueue::Delete(
-        const char*                inFileNamePtr,
-        QCDiskQueue::IoCompletion* inIoCompletionPtr,
-        QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
+    const char*                inFileNamePtr,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
         mQueuePtr->Delete(inFileNamePtr, inIoCompletionPtr, inTimeWaitNanoSec) :
@@ -2169,9 +2227,9 @@ QCDiskQueue::Delete(
 
     QCDiskQueue::EnqueueStatus
 QCDiskQueue::GetFsSpaceAvailable(
-        const char*                inPathNamePtr,
-        QCDiskQueue::IoCompletion* inIoCompletionPtr,
-        QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
+    const char*                inPathNamePtr,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
         mQueuePtr->GetFsSpaceAvailable(inPathNamePtr, inIoCompletionPtr,
@@ -2182,13 +2240,27 @@ QCDiskQueue::GetFsSpaceAvailable(
 
     QCDiskQueue::EnqueueStatus
 QCDiskQueue::CheckDirReadable(
-        const char*                inDirNamePtr,
-        QCDiskQueue::IoCompletion* inIoCompletionPtr,
-        QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
+    const char*                inDirNamePtr,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
         mQueuePtr->CheckDirReadable(inDirNamePtr, inIoCompletionPtr,
             inTimeWaitNanoSec) :
+        EnqueueStatus(kRequestIdNone, kErrorParameter)
+    );
+}
+
+    QCDiskQueue::EnqueueStatus
+QCDiskQueue::CheckDirWritable(
+    const char*                inTestFileNamePtr,
+    bool                       inBufferedIoFlag,
+    QCDiskQueue::IoCompletion* inIoCompletionPtr,
+    QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
+{
+    return (mQueuePtr ?
+        mQueuePtr->CheckDirWritable(inTestFileNamePtr, inBufferedIoFlag,
+            inIoCompletionPtr, inTimeWaitNanoSec) :
         EnqueueStatus(kRequestIdNone, kErrorParameter)
     );
 }

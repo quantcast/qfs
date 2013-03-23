@@ -93,14 +93,17 @@ public:
     {
     public:
         DirInfo(
-            DeviceId         inDeviceId  = -1,
-            const LockFdPtr& inLockFdPtr = LockFdPtr())
+            DeviceId         inDeviceId       = -1,
+            const LockFdPtr& inLockFdPtr      = LockFdPtr(),
+            bool             inBufferedIoFlag = false)
             : mDeviceId(inDeviceId),
               mLockFdPtr(inLockFdPtr),
+              mBufferedIoFlag(inBufferedIoFlag),
               mChunkInfos()
             {}
         DeviceId   mDeviceId;
         LockFdPtr  mLockFdPtr;
+        bool       mBufferedIoFlag;
         ChunkInfos mChunkInfos;
     };
     typedef map<string, DirInfo> DirsAvailable;
@@ -109,14 +112,14 @@ public:
     ~DirChecker();
     void Clear();
     bool Add(
-        const string& inDirName);
+        const string& inDirName,
+        bool          inBufferedIoFlag);
     bool Add(
         const string& inDirName,
+        bool          inBufferedIoFlag,
         LockFdPtr&    ioLockFdPtr);
     bool Remove(
         const string& inDirName);
-    bool Add(
-        const DirNames& inDirNames);
     bool Remove(
         const DirNames& inDirNames);
     void GetNewlyAvailable(
