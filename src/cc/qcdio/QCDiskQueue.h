@@ -352,7 +352,7 @@ public:
             inOutBufferIteratroPtr);
     }
 
-    EnqueueStatus Sync(
+    EnqueueStatus CheckOpenStatus(
         FileIdx       inFileIdx,
         IoCompletion* inIoCompletionPtr,
         Time          inTimeWaitNanoSec = -1);

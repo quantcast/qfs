@@ -143,7 +143,7 @@ public:
         int64_t inFileSize);
     int GetBlockSize() const
         { return mBlockSize; }
-    EnqueueStatus Sync(
+    EnqueueStatus CheckOpenStatus(
         FileIdx       inFileIdx,
         IoCompletion* inIoCompletionPtr,
         Time          inTimeWaitNanoSec);
@@ -1726,7 +1726,7 @@ QCDiskQueue::Queue::CloseFile(
 }
 
     QCDiskQueue::EnqueueStatus
-QCDiskQueue::Queue::Sync(
+QCDiskQueue::Queue::CheckOpenStatus(
     QCDiskQueue::FileIdx       inFileIdx,
     QCDiskQueue::IoCompletion* inIoCompletionPtr,
     QCDiskQueue::Time          inTimeWaitNanoSec)
@@ -1742,7 +1742,7 @@ QCDiskQueue::Queue::Sync(
     if (! theReqPtr) {
         return EnqueueStatus(kRequestIdNone, kErrorOutOfRequests);
     }
-    // FIXME: implement real io barrier, for now just queue empty read request.
+    // Queue empty read request.
     Request& theReq = *theReqPtr;
     theReq.mReqType         = kReqTypeRead;
     theReq.mBufferCount     = 0;
@@ -2188,13 +2188,14 @@ QCDiskQueue::CloseFile(
 }
 
     QCDiskQueue::EnqueueStatus
-QCDiskQueue::Sync(
+QCDiskQueue::CheckOpenStatus(
     QCDiskQueue::FileIdx       inFileIdx,
     QCDiskQueue::IoCompletion* inIoCompletionPtr,
     QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
-        mQueuePtr->Sync(inFileIdx, inIoCompletionPtr, inTimeWaitNanoSec) :
+        mQueuePtr->CheckOpenStatus(
+            inFileIdx, inIoCompletionPtr, inTimeWaitNanoSec) :
         EnqueueStatus(kRequestIdNone, kErrorParameter)
     );
 }

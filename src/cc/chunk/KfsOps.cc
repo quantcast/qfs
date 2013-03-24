@@ -772,30 +772,42 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
         if (leaseId >= 0) {
             OpCounters::WriteMaster();
         }
-        if (appendFlag) {
-            int            myPos   = -1;
-            int64_t        writeId = -1;
-            ServerLocation peerLoc;
-            needToForwardToPeer(servers, numServers, myPos, peerLoc, false, writeId);
-            assert(myPos >= 0);
-            gChunkManager.AllocChunkForAppend(this, myPos, peerLoc);
-        } else {
-            bool kBeingReplicatedFlag = false;
-            status = gChunkManager.AllocChunk(
-                fileId,
-                chunkId,
-                chunkVersion,
-                minStorageTier,
-                maxStorageTier,
-                kBeingReplicatedFlag,
-                0,
-                mustExistFlag
-            );
+        if (! diskIo) {
+            SET_HANDLER(this, &AllocChunkOp::HandleChunkAllocDone);
+            if (appendFlag) {
+                int            myPos   = -1;
+                int64_t        writeId = -1;
+                ServerLocation peerLoc;
+                needToForwardToPeer(
+                    servers, numServers, myPos, peerLoc, false, writeId);
+                assert(myPos >= 0);
+                gChunkManager.AllocChunkForAppend(this, myPos, peerLoc);
+            } else {
+                bool kBeingReplicatedFlag = false;
+                status = gChunkManager.AllocChunk(
+                    fileId,
+                    chunkId,
+                    chunkVersion,
+                    minStorageTier,
+                    maxStorageTier,
+                    kBeingReplicatedFlag,
+                    0,
+                    mustExistFlag,
+                    this
+                );
+            }
+            if (diskIo) {
+                // File create is in progress. This method will be called again
+                // when create / open completes.
+                assert(status == 0);
+                return 0;
+            }
         }
         if (status >= 0 && leaseId >= 0) {
             gLeaseClerk.RegisterLease(chunkId, leaseId, appendFlag);
         }
     }
+    diskIo.reset();
     gLogger.Submit(this);
     return 0;
 }

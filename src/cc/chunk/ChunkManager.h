@@ -120,7 +120,8 @@ public:
         kfsSTier_t        maxTier,
         bool              isBeingReplicated,
         ChunkInfoHandle** cih,
-        bool              mustExistFlag);
+        bool              mustExistFlag,
+        AllocChunkOp*     op = 0);
     void AllocChunkForAppend(
         AllocChunkOp*         op,
         int                   replicationPos,

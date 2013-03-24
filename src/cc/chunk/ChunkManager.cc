@@ -1950,9 +1950,10 @@ ChunkManager::AllocChunk(
     kfsSeq_t          chunkVersion,
     kfsSTier_t        minTier,
     kfsSTier_t        maxTier,
-    bool              isBeingReplicated /* = false */,
-    ChunkInfoHandle** outCih            /* = 0 */,
-    bool              mustExistFlag     /* = false */)
+    bool              isBeingReplicated,
+    ChunkInfoHandle** outCih,
+    bool              mustExistFlag,
+    AllocChunkOp*     op /* = 0 */)
 {
     ChunkInfoHandle** const cie = mChunkTable.Find(chunkId);
     if (cie) {
@@ -2015,6 +2016,16 @@ ChunkManager::AllocChunk(
     if (outCih) {
         *outCih = cih;
     }
+    if (ret == 0 && op && ! op->diskIo) {
+        op->diskIo.reset(SetupDiskIo(cih, op));
+        const int status = op->diskIo ?
+            op->diskIo->CheckOpenStatus() : -ESERVERBUSY;
+        if (status != 0) {
+            const bool forceDeleteFlag = true;
+            StaleChunk(cih, forceDeleteFlag);
+            return status;
+        }
+    }
     return ret;
 }
 
@@ -2038,7 +2049,9 @@ ChunkManager::AllocChunkForAppend(
         op->maxStorageTier,
         kIsBeingReplicatedFlag,
         &cih,
-        op->mustExistFlag);
+        op->mustExistFlag,
+        op
+    );
     if (op->status != 0) {
         return;
     }

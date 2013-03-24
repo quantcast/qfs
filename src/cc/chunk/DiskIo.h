@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #ifndef _DISKIO_H
@@ -64,6 +64,8 @@ public:
         Counter mWriteErrorCount;
         Counter mSyncCount;
         Counter mSyncErrorCount;
+        Counter mCheckOpenCount;
+        Counter mCheckOpenErrorCount;
         Counter mDeleteCount;
         Counter mDeleteErrorCount;
         Counter mRenameCount;
@@ -80,18 +82,20 @@ public:
         Counter mOpenFilesCount;
         void Clear()
         {
-            mReadCount                     = 0;   
-            mReadByteCount                 = 0;   
-            mReadErrorCount                = 0;   
-            mWriteCount                    = 0;   
-            mWriteByteCount                = 0;   
-            mWriteErrorCount               = 0;   
-            mSyncCount                     = 0;   
-            mSyncErrorCount                = 0;   
-            mDeleteCount                   = 0;   
-            mDeleteErrorCount              = 0;   
-            mRenameCount                   = 0;   
-            mRenameErrorCount              = 0;   
+            mReadCount                     = 0;
+            mReadByteCount                 = 0;
+            mReadErrorCount                = 0;
+            mWriteCount                    = 0;
+            mWriteByteCount                = 0;
+            mWriteErrorCount               = 0;
+            mSyncCount                     = 0;
+            mSyncErrorCount                = 0;
+            mCheckOpenCount                = 0;
+            mCheckOpenErrorCount           = 0;
+            mDeleteCount                   = 0;
+            mDeleteErrorCount              = 0;
+            mRenameCount                   = 0;
+            mRenameErrorCount              = 0;
             mGetFsSpaceAvailableCount      = 0;
             mGetFsSpaceAvailableErrorCount = 0;
             mCheckDirReadableCount         = 0;
@@ -233,23 +237,26 @@ public:
     /// @param[in] numBytes # of bytes that need to be read.
     /// @param[in] offset offset in the file at which to start reading data from.
     /// @retval # of bytes for which read was successfully scheduled;
-    /// -1 if there was an error. 
+    /// -1 if there was an error.
     ssize_t Read(
         Offset inOffset,
         size_t inNumBytes);
 
-    /// Schedule a write.  
+    /// Schedule a write.
     /// @param[in] numBytes # of bytes that need to be written
     /// @param[in] offset offset in the file at which to start writing data.
     /// @param[in] buf IOBuffer which contains data that should be written
     /// out to disk.
     /// @retval # of bytes for which write was successfully scheduled;
-    /// -1 if there was an error. 
+    /// -1 if there was an error.
     ssize_t Write(
         Offset    inOffset,
         size_t    inNumBytes,
         IOBuffer* inBufferPtr,
         bool      inSyncFlag = false);
+
+    /// Retrieves [pending] open completion by queuing empty read.
+    int CheckOpenStatus();
 
     FilePtr GetFilePtr() const
         { return mFilePtr; }
@@ -274,7 +281,8 @@ private:
     void RunCompletion();
     void IoCompletion(
         IOBuffer* inBufferPtr,
-        int       inRetCode);
+        int       inRetCode,
+        bool      inCheckStatusFlag = false);
     virtual bool Done(
         QCDiskQueue::RequestId      inRequestId,
         QCDiskQueue::FileIdx        inFileIdx,

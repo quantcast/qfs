@@ -252,6 +252,7 @@ struct AllocChunkOp : public KfsOp {
     bool         mustExistFlag;
     kfsSTier_t   minStorageTier;
     kfsSTier_t   maxStorageTier;
+    DiskIoPtr    diskIo;
     AllocChunkOp(kfsSeq_t s = 0)
         : KfsOp(CMD_ALLOC_CHUNK, s),
           fileId(-1),
@@ -263,10 +264,9 @@ struct AllocChunkOp : public KfsOp {
           numServers(0),
           mustExistFlag(false),
           minStorageTier(kKfsSTierUndef),
-          maxStorageTier(kKfsSTierUndef)
-    {
-        // All inputs will be parsed in
-    }
+          maxStorageTier(kKfsSTierUndef),
+          diskIo()
+        {}
     void Execute();
     // handlers for reading/writing out the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);

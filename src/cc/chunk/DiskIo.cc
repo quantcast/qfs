@@ -882,6 +882,15 @@ public:
             mCounters.mSyncErrorCount++;
         }
     }
+    void CheckOpenStatusDone(
+        int64_t inRetCode)
+    {
+        if (inRetCode >= 0) {
+            mCounters.mCheckOpenCount++;
+        } else {
+            mCounters.mCheckOpenErrorCount++;
+        }
+    }
     void DeleteDone(
         int64_t inRetCode)
     {
@@ -1794,7 +1803,7 @@ DiskIo::Read(
     KFS_LOG_STREAM_ERROR <<
         "read queuing error: " << theErrMsg <<
     KFS_LOG_EOM;
-    
+
     const int theErr = DiskQueueToSysError(theStatus);
     DiskIoReportError("DiskIo::Read: " + theErrMsg, theErr);
     return -theErr;
@@ -1913,6 +1922,47 @@ DiskIo::Write(
     return -theErr;
 }
 
+    int
+DiskIo::CheckOpenStatus()
+{
+    if (mRequestId != QCDiskQueue::kRequestIdNone || ! mFilePtr->IsOpen()) {
+        KFS_LOG_STREAM_ERROR <<
+            "file: "  << mFilePtr->GetFileIdx() <<
+            " "       << (mFilePtr->IsOpen() ? "open" : "closed") <<
+            " check status request: " << mRequestId <<
+        KFS_LOG_EOM;
+        DiskIoReportError("DiskIo::CheckStatus: bad parameters", EINVAL);
+        return -EINVAL;
+    }
+    mIoBuffers.clear();
+    DiskQueue* const theQueuePtr = mFilePtr->GetDiskQueuePtr();
+    if (! theQueuePtr) {
+        KFS_LOG_STREAM_ERROR << "check status: no queue" << KFS_LOG_EOM;
+        DiskIoReportError("DiskIo::CheckStatus: no queue", EINVAL);
+        return -EINVAL;
+    }
+    mCompletionRequestId = QCDiskQueue::kRequestIdNone;
+    mCompletionCode      = QCDiskQueue::kErrorNone;
+    sDiskIoQueuesPtr->SetInFlight(this);
+    const DiskQueue::EnqueueStatus theStatus = theQueuePtr->CheckOpenStatus(
+        mFilePtr->GetFileIdx(),
+        this,
+        sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
+    );
+    if (theStatus.IsGood()) {
+        mRequestId = theStatus.GetRequestId();
+        QCRTASSERT(mRequestId != QCDiskQueue::kRequestIdNone);
+        return 0;
+    }
+    sDiskIoQueuesPtr->ResetInFlight(this);
+    const string theErrMsg(QCDiskQueue::ToString(theStatus.GetError()));
+    KFS_LOG_STREAM_ERROR << "check status queuing error: " << theErrMsg <<
+    KFS_LOG_EOM;
+    const int theErr = DiskQueueToSysError(theStatus);
+    DiskIoReportError("DiskIo::CheckStatus: " + theErrMsg, theErr);
+    return -theErr;
+}
+
     /* virtual */ bool
 DiskIo::Done(
     QCDiskQueue::RequestId      inRequestId,
@@ -2026,8 +2076,8 @@ DiskIo::RunCompletion()
             sDiskIoQueuesPtr->SyncDone(mIoRetCode);
         }
     } else {
-        theOpNamePtr = "sync";
-        sDiskIoQueuesPtr->SyncDone(mIoRetCode);
+        theOpNamePtr = "check status";
+        sDiskIoQueuesPtr->CheckOpenStatusDone(mIoRetCode);
     }
     int theNumRead(mIoRetCode);
     if (mIoRetCode < 0) {
@@ -2060,8 +2110,9 @@ DiskIo::RunCompletion()
     }
     QCRTASSERT(theNumRead == mIoRetCode);
     if (mIoRetCode < 0 || mReadLength <= 0) {
+        const bool inCheckStatusFlag = mReadLength == 0 && mIoBuffers.empty();
         mIoBuffers.clear();
-        IoCompletion(0, theNumRead);
+        IoCompletion(0, theNumRead, inCheckStatusFlag);
         return;
     }
     // Read. Skip/trim first/last buffers if needed.
@@ -2104,10 +2155,13 @@ DiskIo::RunCompletion()
     void
 DiskIo::IoCompletion(
     IOBuffer* inBufferPtr,
-    int       inRetCode)
+    int       inRetCode,
+    bool      inCheckStatusFlag /* = false */)
 {
     if (inRetCode < 0) {
         mCallbackObjPtr->HandleEvent(EVENT_DISK_ERROR, &inRetCode);
+    } else if (inCheckStatusFlag) {
+        mCallbackObjPtr->HandleEvent(EVENT_CHECK_OPNE_STATUS_DONE, 0);
     } else if (inBufferPtr) {
         globals().ctrDiskBytesRead.Update(int(mIoRetCode));
         mCallbackObjPtr->HandleEvent(EVENT_DISK_READ, inBufferPtr);
