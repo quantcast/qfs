@@ -432,23 +432,25 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 mLastWriteCounters.mErrorTimeMicrosec) << "\r\n"
             "Read-io-rate: " <<
                 (mChunkDir.readCounters.mIoCount -
-                mLastReadCounters.mIoCount) * oneOverTime << "\r\n" <<
+                mLastReadCounters.mIoCount) * oneOverTime << "\r\n"
             "Write-io-rate: " <<
                 (mChunkDir.writeCounters.mIoCount -
-                mLastWriteCounters.mIoCount) * oneOverTime << "\r\n" <<
+                mLastWriteCounters.mIoCount) * oneOverTime << "\r\n"
             "Avg-read-io-bytes: " <<
                 (mChunkDir.readCounters.mByteCount -
                     mLastReadCounters.mByteCount) /
                 max(Counters::Counter(1), mChunkDir.readCounters.mIoCount -
-                    mLastReadCounters.mIoCount) << "\r\n" <<
+                    mLastReadCounters.mIoCount) << "\r\n"
             "Avg-write-io-bytes: " <<
                 (mChunkDir.writeCounters.mByteCount -
                     mLastWriteCounters.mByteCount) /
                 max(Counters::Counter(1), mChunkDir.writeCounters.mIoCount -
-                    mLastWriteCounters.mIoCount) << "\r\n" <<
-            "Avg-time-interval-sec: " << avgTimeInterval << "\r\n" <<
+                    mLastWriteCounters.mIoCount) << "\r\n"
+            "Avg-time-interval-sec: " << avgTimeInterval << "\r\n"
             "Evacuate-complete-cnt: " << mChunkDir.evacuateCompletedCount <<
+                "\r\n"
             "Storage-tier: "          << (unsigned int)mChunkDir.storageTier <<
+                "\r\n"
             "Buffered-io: "           << (mChunkDir.bufferedIoFlag ? 1 : 0) <<
                 "\r\n"
             ;
