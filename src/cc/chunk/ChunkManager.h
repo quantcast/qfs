@@ -728,6 +728,7 @@ private:
     bool mBufferedIoFlag;
     bool mSyncChunkHeaderFlag;
     bool mCheckDirWritableFlag;
+    string mCheckDirWritableTmpFileName;
 
     uint32_t mNullBlockChecksum;
 

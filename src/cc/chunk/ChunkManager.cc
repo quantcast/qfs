@@ -1450,6 +1450,7 @@ ChunkManager::ChunkManager()
       mBufferedIoFlag(false),
       mSyncChunkHeaderFlag(false),
       mCheckDirWritableFlag(true),
+      mCheckDirWritableTmpFileName("checkdir.tmp"),
       mNullBlockChecksum(0),
       mCounters(),
       mDirChecker(),
@@ -1656,6 +1657,12 @@ ChunkManager::SetParameters(const Properties& prop)
     mCheckDirWritableFlag = prop.getValue(
         "chunkServer.checkDirWritableFlag",
         mCheckDirWritableFlag ? 1 : 0) != 0;
+    mCheckDirWritableTmpFileName = prop.getValue(
+        "chunkserver.checkDirWritableTmpFileName",
+        mCheckDirWritableTmpFileName);
+    if (mCheckDirWritableTmpFileName.empty()) {
+        mCheckDirWritableTmpFileName = "checkdir.tmp";
+    }
     mEvacuateFileName = prop.getValue(
         "chunkServer.evacuateFileName",
         mEvacuateFileName);
@@ -1712,6 +1719,9 @@ ChunkManager::SetParameters(const Properties& prop)
     names.clear();
     if (! mEvacuateFileName.empty()) {
         names.insert(mEvacuateFileName);
+    }
+    if (! mCheckDirWritableTmpFileName.empty()) {
+        names.insert(mCheckDirWritableTmpFileName);
     }
     mDirChecker.SetIgnoreFileNames(names);
 
@@ -5121,7 +5131,7 @@ ChunkManager::CheckChunkDirs()
         it->checkDirFlightFlag = true;
         string name = it->dirname;
         if (mCheckDirWritableFlag) {
-            name += "dircheck.tmp";
+            name += mCheckDirWritableTmpFileName;
         }
         if ((mCheckDirWritableFlag ? 
             ! DiskIo::CheckDirWritable(
