@@ -1469,6 +1469,10 @@ ChunkManager::ChunkManager()
       mAvailableChunksRetryInterval(30 * 1000),
       mAllocDefaultMinTier(kKfsSTierMin),
       mAllocDefaultMaxTier(kKfsSTierMax),
+      mStorageTiersPrefixes(),
+      mStorageTiersSetFlag(false),
+      mBufferedIoPrefixes(),
+      mBufferedIoSetFlag(false),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1742,44 +1746,23 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
     mAllocDefaultMaxTier = prop.getValue(
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
-    {
-        istringstream is(prop.getValue(
+    istringstream is(prop.getValue(
             "chunkServer.bufferedIoDirPrefixes", string()));
-        string prefix;
-        set<string> prefixes;
-        while ((is >> prefix)) {
-            prefixes.insert(prefix);
-        }
-        if (! prefixes.empty()) {
-            for (ChunkDirs::iterator it = mChunkDirs.begin();
-                    it != mChunkDirs.end();
-                    ++it) {
-                const string& dirname = it->dirname;
-                set<string>::const_iterator pit = prefixes.begin();
-                for (; pit != prefixes.end(); ++pit) {
-                    const string& prefix = *pit;
-                    if (prefix.length() <= dirname.length() &&
-                            dirname.compare(0, prefix.length(), prefix) == 0) {
-                        break;
-                    }
-                }
-                const bool bufferedIoFlag = pit != prefixes.end();
-                if (bufferedIoFlag != it->bufferedIoFlag) {
-                    it->bufferedIoFlag = bufferedIoFlag;
-                    if (it->availableSpace < 0 && ! it->dirLock) {
-                        mDirChecker.Add(it->dirname, it->availableSpace);
-                    }
-                }
-            }
-        }
-    }
     SetStorageTiers(prop);
+    SetBufferedIo(prop);
 }
 
 void
 ChunkManager::SetStorageTiers(const Properties& props)
 {
+    const string prevPrefixes = mStorageTiersPrefixes;
+    mStorageTiersPrefixes = props.getValue(
+        "chunkServer.storageTierPrefixes", mStorageTiersPrefixes);
+    if (prevPrefixes == mStorageTiersPrefixes && mStorageTiersSetFlag) {
+        return;
+    }
     if (mChunkDirs.empty()) {
+        mStorageTiersSetFlag = false;
         return;
     }
     mStorageTiers.clear();
@@ -1788,8 +1771,7 @@ ChunkManager::SetStorageTiers(const Properties& props)
             ++it) {
         it->storageTier = kKfsSTierMax;
     }
-    istringstream is(props.getValue(
-        "chunkServer.storageTierPrefixes", string()));
+    istringstream is(mStorageTiersPrefixes);
     string prefix;
     int    tier;
     while ((is >> prefix >> tier)) {
@@ -1820,6 +1802,49 @@ ChunkManager::SetStorageTiers(const Properties& props)
         }
         mStorageTiers[it->storageTier].push_back(&(*it));
     }
+    mStorageTiersSetFlag = true;
+}
+
+void
+ChunkManager::SetBufferedIo(const Properties& props)
+{
+    const string prevPrefixes = mBufferedIoPrefixes;
+    mBufferedIoPrefixes = props.getValue(
+        "chunkServer.bufferedIoDirPrefixes", mBufferedIoPrefixes);
+    if (prevPrefixes == mBufferedIoPrefixes && mBufferedIoSetFlag) {
+        return;
+    }
+    if (mChunkDirs.empty()) {
+        mBufferedIoSetFlag = false;
+        return;
+    }
+    istringstream is(mBufferedIoPrefixes);
+    string prefix;
+    set<string> prefixes;
+    while ((is >> prefix)) {
+        prefixes.insert(prefix);
+    }
+    for (ChunkDirs::iterator it = mChunkDirs.begin();
+            it != mChunkDirs.end();
+            ++it) {
+        const string& dirname = it->dirname;
+        set<string>::const_iterator pit = prefixes.begin();
+        for (; pit != prefixes.end(); ++pit) {
+            const string& prefix = *pit;
+            if (prefix.length() <= dirname.length() &&
+                    dirname.compare(0, prefix.length(), prefix) == 0) {
+                break;
+            }
+        }
+        const bool bufferedIoFlag = pit != prefixes.end();
+        if (bufferedIoFlag != it->bufferedIoFlag) {
+            it->bufferedIoFlag = bufferedIoFlag;
+            if (it->availableSpace < 0 && ! it->dirLock) {
+                mDirChecker.Add(it->dirname, it->availableSpace);
+            }
+        }
+    }
+    mBufferedIoSetFlag = true;
 }
 
 static string AddTrailingPathSeparator(const string& dir)
@@ -1914,6 +1939,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         it->storageTier = kKfsSTierMax;
     }
     SetStorageTiers(prop);
+    SetBufferedIo(prop);
 
     string errMsg;
     if (! DiskIo::Init(prop, &errMsg)) {

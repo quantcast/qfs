@@ -747,6 +747,10 @@ private:
     int        mAvailableChunksRetryInterval;
     kfsSTier_t mAllocDefaultMinTier;
     kfsSTier_t mAllocDefaultMaxTier;
+    string     mStorageTiersPrefixes;
+    bool       mStorageTiersSetFlag;
+    string     mBufferedIoPrefixes;
+    bool       mBufferedIoSetFlag;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -821,6 +825,7 @@ private:
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);
+    void SetBufferedIo(const Properties& props);
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
 private:
     // No copy.
