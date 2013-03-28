@@ -46,7 +46,7 @@ To build using mock
     name=maven from apache foundation.
     baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-6/x86_64/
     enabled=1
-    gpgcheck=0 
+    gpgcheck=0
 
   Building the RPMs:
 

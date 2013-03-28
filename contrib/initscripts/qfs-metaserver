@@ -7,7 +7,7 @@
 #              metaserver service.
 
 ### BEGIN INIT INFO
-# Provides: qfs-metaserver 
+# Provides: qfs-metaserver
 # Required-Start:
 # Required-Stop:
 # Should-Start:

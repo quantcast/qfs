@@ -6,7 +6,7 @@ RHEL/CentOS pre-requisites:
 
   1. Install EPEL, which is needed for the daemonize binary:
 
-    - http://fedoraproject.org/wiki/EPEL 
+    - http://fedoraproject.org/wiki/EPEL
 
   2. Install dependencies:
 

@@ -7,7 +7,7 @@
 #              chunkserver service.
 
 ### BEGIN INIT INFO
-# Provides: qfs-chunkserver 
+# Provides: qfs-chunkserver
 # Required-Start:
 # Required-Stop:
 # Should-Start:
