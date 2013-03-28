@@ -59,7 +59,7 @@ Properties::Parse(const Properties::String& str, const T& def, T& out) const
         }
         return true;
     }
-    if (intbase == 8) {
+    if (intbase == 16) {
         if (! HexIntParser::Parse(ptr, size, out)) {
             out = def;
         }
