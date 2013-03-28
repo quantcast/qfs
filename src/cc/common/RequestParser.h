@@ -238,6 +238,54 @@ public:
             outValue.Copy(inPtr, inLen);
         }
     }
+    template<typename T>
+    static bool ParseFloat(
+        const char*   inPtr,
+        size_t        inLen,
+        T&            outValue)
+    {
+        if (inLen <= 0) {
+            return false;
+        }
+        char* theEndPtr = 0;
+        if ((inPtr[inLen - 1] & 0xFF) <= ' ') {
+            ParseFloatSelf(inPtr, &theEndPtr, outValue);
+        } else {
+            StringBufT<64> theTmp(inPtr, inLen);
+            ParseFloatSelf(theTmp.GetPtr(), &theEndPtr, outValue);
+        }
+        return ((*theEndPtr & 0xFF) <= ' ');
+    }
+    static void ParseFloatSelf(
+        const char*   inPtr,
+        char**        inEndPtr,
+        float&        outValue)
+        { outValue = strtof(inPtr, inEndPtr); }
+    static void ParseFloatSelf(
+        const char*   inPtr,
+        char**        inEndPtr,
+        double&       outValue)
+        { outValue = strtod(inPtr, inEndPtr); }
+    static void SetValue(
+        const char*  inPtr,
+        size_t       inLen,
+        const float& inDefaultValue,
+        float&       outValue)
+    {
+        if (! ParseFloat(inPtr, inLen, outValue)) {
+            outValue = inDefaultValue;
+        }
+    }
+    static void SetValue(
+        const char*   inPtr,
+        size_t        inLen,
+        const double& inDefaultValue,
+        double&       outValue)
+    {
+        if (! ParseFloat(inPtr, inLen, outValue)) {
+            outValue = inDefaultValue;
+        }
+    }
     // The following is used for integer overloaded versions of SetValue, in
     // the hope that this would be more efficient than the preceding generic
     // version the above.
