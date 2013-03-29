@@ -15,8 +15,8 @@ mkdir: clean
 
 prepare_source: mkdir
 	cp *.patch rpmbuild/SOURCES
-	git clone ../../.. rpmbuild/SOURCES/qfs-$(VERSION)
-	cd rpmbuild/SOURCES && tar cvzf qfs-$(VERSION).tar.gz qfs-$(VERSION)
+	(cd `git rev-parse --show-toplevel` && git archive --format=tar --prefix=qfs-$(VERSION)/ $(VERSION)) | \
+	   gzip > rpmbuild/SOURCES/qfs-$(VERSION).tar.gz
 
 srpm: prepare_source
 	rpmbuild --define "_topdir %(pwd)" \
