@@ -1,5 +1,5 @@
 %global HADOOP_VERSION 1.0.4
-%global QFS_VERSION 1.0.1
+%global QFS_VERSION 1.0.2
 
 %global HADOOP_HOME /usr/lib/hadoop
 %global JDK_LOCATION /usr/lib/jvm/java
