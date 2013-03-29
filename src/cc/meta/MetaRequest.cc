@@ -1694,16 +1694,16 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?
                     MsgLogger::kLogLevelERROR :
                     MsgLogger::kLogLevelDEBUG) <<
-                "Assign chunk id failed for"
+                "assign chunk id: " << chunkId << " failed for"
                 " <" << fid << "," << offset << ">"
                 " status: " << status <<
             KFS_LOG_EOM;
             if (appendChunk && status == -EEXIST) {
-                panic("append chunk allocation internal error",
-                    false);
+                panic("append chunk allocation internal error", false);
             } else if (status == -ENOENT ||
                     (status == -EEXIST && curChunkId != chunkId)) {
                 gLayoutManager.DeleteChunk(this);
+                servers.clear(); // Chunk delete is already issued.
             }
         }
         gLayoutManager.CommitOrRollBackChunkVersion(this);

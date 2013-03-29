@@ -6262,6 +6262,8 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         if (! mChunkToServerMap.Find(r->chunkId)) {
             // Chunk does not exist, deleted.
             mChunkVersionRollBack.erase(r->chunkId);
+            for_each(r->servers.begin(), r->servers.end(),
+                bind(&ChunkServer::DeleteChunk, _1, r->chunkId));
             return;
         }
         panic("chunk version roll back failed to delete write lease");
@@ -6275,6 +6277,8 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
     if (! ci) {
         mChunkVersionRollBack.erase(r->chunkId);
+        for_each(r->servers.begin(), r->servers.end(),
+            bind(&ChunkServer::DeleteChunk, _1, r->chunkId));
         return;
     }
     if (r->initialChunkVersion + GetChunkVersionRollBack(r->chunkId) !=
