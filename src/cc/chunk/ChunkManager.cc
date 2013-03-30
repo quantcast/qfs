@@ -1746,8 +1746,6 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
     mAllocDefaultMaxTier = prop.getValue(
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
-    istringstream is(prop.getValue(
-            "chunkServer.bufferedIoDirPrefixes", string()));
     SetStorageTiers(prop);
     SetBufferedIo(prop);
 }
