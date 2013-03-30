@@ -1663,6 +1663,11 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             gLayoutManager.DeleteChunk(this);
         }
         // processing for this message is all done
+    } else if (status < 0 && initialChunkVersion < 0) {
+        // Cleanup stale chunk in the case when client has already invalidated
+        // the chunk, and the chunk didn't exist. In this case a new chunk id
+        // was created.
+        gLayoutManager.DeleteChunk(this);
     }
     if (status == 0) {
         // layout is complete (step #6)
@@ -1681,10 +1686,8 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         // if it succeeds, and returns the value in appendOffset.
         chunkOff_t appendOffset = offset;
         chunkId_t  curChunkId   = chunkId;
-        status = metatree.assignChunkId(fid, offset,
-                        chunkId, chunkVersion,
-                        appendChunk ? &appendOffset : 0,
-                        &curChunkId);
+        status = metatree.assignChunkId(fid, offset, chunkId, chunkVersion,
+            appendChunk ? &appendOffset : 0, &curChunkId);
         if (status == 0) {
             // Offset can change in the case of append.
             offset = appendOffset;
