@@ -6168,13 +6168,28 @@ LayoutManager::Validate(MetaAllocate* r)
 {
     const ChunkLeases::WriteLease* const lease =
         mChunkLeases.GetWriteLease(r->chunkId);
-    if (lease && lease->allocInFlight &&
+    if (lease && lease->allocInFlight == r &&
             lease->leaseId == r->leaseId &&
             lease->chunkVersion == r->chunkVersion) {
         return true;
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "stale allocation: " << (const void*)r <<
+        " status: "   << r->status <<
+        " chunk: "    << r->chunkId <<
+        " version:"
+        " initial: "  << r->initialChunkVersion <<
+        " current: "  << r->chunkVersion <<
+        " lease: "
+        " id: "       << (lease ? lease->leaseId : ChunkLeases::LeaseId(-1)) <<
+        " inflight: " << (lease ?
+            (const void*)lease->allocInFlight : (const void*)0) <<
+        " version: "  << (lease ? lease->chunkVersion : seq_t(-1)) <<
+        " expires: "  << (lease->expires - TimeNow()) <<
+    KFS_LOG_EOM;
     if (r->status >= 0) {
-        r->status = -EALLOCFAILED;
+        r->status    = -EALLOCFAILED;
+        r->statusMsg = lease ? "invalid write lease" : "no write lease";
     }
     return false;
 }
