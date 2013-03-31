@@ -578,14 +578,17 @@ ChunkLeases::ExpiredCleanup(
     ARAChunkCache&                     arac,
     CSMap&                             csmap)
 {
-    WriteLease&         wl      = it->second;
+    WriteLease& wl = it->second;
+    if (wl.allocInFlight) {
+        return false;
+    }
     const chunkId_t     chunkId = it->first;
     CSMap::Entry* const ci      = csmap.Find(chunkId);
     if (! ci) {
         Erase(it);
         return true;
     }
-    if (wl.allocInFlight || now <= wl.expires +
+    if (now <= wl.expires +
             ((wl.ownerWasDownFlag && ownerDownExpireDelay > 0) ?
                 ownerDownExpireDelay : 0)) {
         return false;
@@ -768,11 +771,7 @@ ChunkLeases::Timer(
         return false; // Do not allow recursion.
     }
     mTimerRunningFlag = true;
-    // Properly handling clock jump is a bit more involved, for now check
-    // for long leases, and cleanup stale ones.
-    const time_t checkChunkPresentExpireTime =
-        now + 2 * LEASE_INTERVAL_SECS;
-    bool         cleanedFlag                 = false;
+    bool cleanedFlag = false;
     for (ReadLeases::iterator ri = mReadLeases.begin();
             ri != mReadLeases.end(); ) {
         ReadLeases::iterator const it = ri++;
@@ -784,19 +783,12 @@ ChunkLeases::Timer(
             mCurWrIt != mWriteLeases.end(); ) {
         WriteLeases::iterator const it = mCurWrIt++;
         if (ExpiredCleanup(
-                    it,
-                    now,
-                    ownerDownExpireDelay,
-                    arac,
-                    csmap)) {
+                it,
+                now,
+                ownerDownExpireDelay,
+                arac,
+                csmap)) {
             cleanedFlag = true;
-        } else if (! it->second.allocInFlight &&
-                checkChunkPresentExpireTime <
-                it->second.expires) {
-            if (! csmap.Find(it->first)) {
-                Erase(it);
-                cleanedFlag = true;
-            }
         }
     }
     mTimerRunningFlag = false;
