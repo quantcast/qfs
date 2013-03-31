@@ -6185,7 +6185,7 @@ LayoutManager::Validate(MetaAllocate* r)
         " inflight: " << (lease ?
             (const void*)lease->allocInFlight : (const void*)0) <<
         " version: "  << (lease ? lease->chunkVersion : seq_t(-1)) <<
-        " expires: "  << (lease ? time_t(-1) : lease->expires - TimeNow()) <<
+        " expires: "  << (lease ? lease->expires - TimeNow() : time_t(-1)) <<
     KFS_LOG_EOM;
     if (r->status >= 0) {
         r->status    = -EALLOCFAILED;
