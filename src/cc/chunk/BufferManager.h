@@ -113,8 +113,15 @@ public:
         ByteCount      mWaitingForByteCount;
         int64_t        mWaitStart;
 
+        inline void Reset();
+
         friend class BufferManager;
         friend class QCDLListOp<Client, 0>;
+    private:
+        Client(
+            const Client& inClient);
+        Client& operator=(
+            const Client& inClient);
     };
     BufferManager(
         bool inEnabledFlag);

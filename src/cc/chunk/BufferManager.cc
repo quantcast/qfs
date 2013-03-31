@@ -47,6 +47,15 @@ BufferManager::Client::Client()
     WaitQueue::Init(*this);
 }
 
+    inline void
+BufferManager::Client::Reset()
+{
+    mManagerPtr          = 0;
+    mByteCount           = 0;
+    mWaitingForByteCount = 0;
+    mWaitStart           = 0;
+}
+
 BufferManager::BufferManager(
     bool inEnabledFlag /* = true */)
     : ITimeout(),
@@ -191,6 +200,7 @@ BufferManager::Unregister(
     inClient.mWaitingForByteCount = 0;
     Put(inClient, inClient.mByteCount);
     assert(! inClient.IsWaiting() && inClient.mByteCount == 0);
+    inClient.Reset();
 }
 
     void

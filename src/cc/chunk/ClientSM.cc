@@ -43,13 +43,20 @@
 #include <string>
 #include <sstream>
 
-#define CLIENT_SM_LOG_STREAM_PREFIX << "I" << mInstanceNum << "I " << GetPeerName() << " "
-#define CLIENT_SM_LOG_STREAM(pri)  KFS_LOG_STREAM(pri)  CLIENT_SM_LOG_STREAM_PREFIX
-#define CLIENT_SM_LOG_STREAM_DEBUG KFS_LOG_STREAM_DEBUG CLIENT_SM_LOG_STREAM_PREFIX
-#define CLIENT_SM_LOG_STREAM_WARN  KFS_LOG_STREAM_WARN  CLIENT_SM_LOG_STREAM_PREFIX
-#define CLIENT_SM_LOG_STREAM_INFO  KFS_LOG_STREAM_INFO  CLIENT_SM_LOG_STREAM_PREFIX
-#define CLIENT_SM_LOG_STREAM_ERROR KFS_LOG_STREAM_ERROR CLIENT_SM_LOG_STREAM_PREFIX
-#define CLIENT_SM_LOG_STREAM_FATAL KFS_LOG_STREAM_FATAL CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_PREFIX \
+    << "I" << mInstanceNum << "I " << GetPeerName() << " "
+#define CLIENT_SM_LOG_STREAM(pri)  \
+    KFS_LOG_STREAM(pri)  CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_DEBUG \
+    KFS_LOG_STREAM_DEBUG CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_WARN  \
+    KFS_LOG_STREAM_WARN  CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_INFO  \
+    KFS_LOG_STREAM_INFO  CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_ERROR \
+    KFS_LOG_STREAM_ERROR CLIENT_SM_LOG_STREAM_PREFIX
+#define CLIENT_SM_LOG_STREAM_FATAL \
+    KFS_LOG_STREAM_FATAL CLIENT_SM_LOG_STREAM_PREFIX
 
 namespace KFS
 {
@@ -75,10 +82,32 @@ ClientSM::GetPeerName()
     );
 }
 
-inline BufferManager&
+inline /* static */ BufferManager&
 ClientSM::GetBufferManager()
 {
     return DiskIo::GetBufferManager();
+}
+
+inline /* static */ BufferManager*
+ClientSM::FindDevBufferManager(KfsOp& op)
+{
+    const bool kFindFlag  = true;
+    const bool kResetFlag = false;
+    return op.GetDeviceBufferManager(kFindFlag, kResetFlag);
+}
+
+inline void
+ClientSM::PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes)
+{
+    const bool kFindFlag  = false;
+    const bool kResetFlag = true;
+    BufferManager* const devBufMgr =
+        op.GetDeviceBufferManager(kFindFlag, kResetFlag);
+    if (devBufMgr) {
+        // Return everything back to the device buffer manager now, only count
+        // pending response against global buffer manager.
+        devBufMgr->Put(mDevBufMgrClient, opBytes);
+    }
 }
 
 inline void
@@ -89,6 +118,7 @@ ClientSM::SendResponse(KfsOp* op, ClientSM::ByteCount opBytes)
     respBytes = max(ByteCount(0),
         mNetConnection->GetNumBytesToWrite() - respBytes);
     mPrevNumToWrite = mNetConnection->GetNumBytesToWrite();
+    PutAndResetDevBufferManager(*op, opBytes);
     GetBufferManager().Put(*this, opBytes - respBytes);
 }
 
@@ -107,7 +137,9 @@ IsDependingOpType(const KfsOp* op)
 }
 
 ClientSM::ClientSM(NetConnectionPtr &conn)
-    : mNetConnection(conn),
+    : KfsCallbackObj(),
+      BufferManager::Client(),
+      mNetConnection(conn),
       mCurOp(0),
       mOps(),
       mReservations(),
@@ -117,7 +149,9 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mPrevNumToWrite(0),
       mRecursionCnt(0),
       mInstanceNum(sInstanceNum++),
-      mWOStream()
+      mWOStream(),
+      mDevBufMgrClient(*this),
+      mDevBufMgr(0)
 {
     SET_HANDLER(this, &ClientSM::HandleRequest);
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
@@ -275,9 +309,9 @@ ClientSM::HandleRequest(int code, void* data)
                 KFS_LOG_EOM;
             }
         }
-        while (!mOps.empty()) {
-            KfsOp* qop = mOps.front().first;
-            if (!qop->done) {
+        while (! mOps.empty()) {
+            KfsOp* const qop = mOps.front().first;
+            if (! qop->done) {
                 if (! op) {
                     break;
                 }
@@ -295,6 +329,7 @@ ClientSM::HandleRequest(int code, void* data)
                         OpFinished(op);
                     }
                     delete op;
+                    op = 0;
                 } else {
                     CLIENT_SM_LOG_STREAM_DEBUG <<
                         "previous op still pending: " <<
@@ -311,6 +346,17 @@ ClientSM::HandleRequest(int code, void* data)
             mOps.pop_front();
             OpFinished(qop);
             delete qop;
+        }
+        if (op) {
+            // Waiting for other op. Disk io done -- put device buffers.
+            OpsQueue::iterator i;
+            for (i = mOps.begin(); i != mOps.end() && op != i->first; ++i)
+                {}
+            if (i == mOps.end()) {
+                die("deferred reply op is not in the queue");
+            } else {
+                PutAndResetDevBufferManager(*op, i->second);
+            }
         }
         break;
     }
@@ -381,19 +427,24 @@ int
 ClientSM::HandleTerminate(int code, void* data)
 {
     switch (code) {
+
     case EVENT_CMD_DONE: {
         assert(data);
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
         // An op finished execution.  Send a response back
         op->done = true;
-        if (op != mOps.front().first)
+        if (op != mOps.front().first) {
             break;
+        }
         while (!mOps.empty()) {
             op = mOps.front().first;
-            if (!op->done)
+            if (!op->done) {
                 break;
-            GetBufferManager().Put(*this, mOps.front().second);
+            }
+            const ByteCount opBytes = mOps.front().second;
+            PutAndResetDevBufferManager(*op, opBytes);
+            GetBufferManager().Put(*this, opBytes);
             OpFinished(op);
             // we are done with the op
             mOps.pop_front();
@@ -443,24 +494,32 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
     IOBuffer* iobuf, IOBuffer*& ioOpBuf, bool forwardFlag)
 {
     const int nAvail = iobuf->BytesConsumable();
-    if (! mCurOp) {
-        const ByteCount bufferBytes = IoRequestBytes(numBytes, forwardFlag);
-        BufferManager& bufMgr = GetBufferManager();
-        bool overQuota = false;
-        if (numBytes < 0 ||
+    if (! mCurOp || mDevBufMgr) {
+        mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*wop);
+        const ByteCount bufferBytes   = IoRequestBytes(numBytes, forwardFlag);
+        BufferManager&  bufMgr        = GetBufferManager();
+        bool            overQuotaFlag = false;
+        if (! mCurOp && (numBytes < 0 ||
                 (size_t)numBytes > gChunkManager.GetMaxIORequestSize() ||
-                (overQuota = bufMgr.IsOverQuota(*this, bufferBytes))) {
+                (overQuotaFlag =
+                    bufMgr.IsOverQuota(*this, bufferBytes) ||
+                    (mDevBufMgr &&
+                    mDevBufMgr->IsOverQuota(*this, bufferBytes))))) {
+            // Over quota can theoretically occur if the quota set unreasonably
+            // low, or if client uses the same connection to do both read and
+            // write simultaneously. Presently client never attempts to do
+            // concurrent read and write using the same connection.
             CLIENT_SM_LOG_STREAM_ERROR <<
                 "seq: " << wop->seq <<
                 " invalid write request size: " << bufferBytes <<
                 " buffers: " << GetByteCount() <<
-                (overQuota ? " over quota" : "") <<
+                (overQuotaFlag ? " over quota" : "") <<
                 ", closing connection" <<
             KFS_LOG_EOM;
             delete wop;
             return false;
         }
-        if (nAvail <= numBytes) {
+        if (! mCurOp && nAvail <= numBytes) {
             // Move write data to the start of the buffers, to make it
             // aligned. Normally only one buffer will be created.
             const int off(align % IOBufferData::GetDefaultBufferSize());
@@ -474,14 +533,20 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
             }
         }
         mCurOp = wop;
-        if (! bufMgr.GetForDiskIo(*this, bufferBytes)) {
+        if (mDevBufMgr &&
+                mDevBufMgr->GetForDiskIo(mDevBufMgrClient, bufferBytes)) {
+            mDevBufMgr = 0;
+        }
+        if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
+            const BufferManager& mgr = mDevBufMgr ? *mDevBufMgr : bufMgr;
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "seq: " << wop->seq <<
                 " request for: " << bufferBytes << " bytes denied" <<
+                (mDevBufMgr ? " by dev." : "") <<
                 " cur: "   << GetByteCount() <<
-                " total: " << bufMgr.GetTotalByteCount() <<
-                " used: "  << bufMgr.GetUsedByteCount() <<
-                " bufs: "  << bufMgr.GetFreeBufferCount() <<
+                " total: " << mgr.GetTotalByteCount() <<
+                " used: "  << mgr.GetUsedByteCount() <<
+                " bufs: "  << mgr.GetFreeBufferCount() <<
                 " op: " << wop->Show() <<
                 " waiting for buffers" <<
             KFS_LOG_EOM;
@@ -590,34 +655,47 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
     bool submitResponseFlag = false;
     kfsChunkId_t chunkId = 0;
     int64_t reqBytes = 0;
-    if (bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId) && reqBytes >= 0) {
+    if (bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId) &&
+            reqBytes >= 0) {
         bufferBytes = reqBytes + IoRequestBytes(0); // 1 buffer for reply header
-        if (! mCurOp) {
+        if (! mCurOp || mDevBufMgr) {
+            mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*op);
             BufferManager& bufMgr = GetBufferManager();
-            if (bufMgr.IsOverQuota(*this, bufferBytes)) {
+            if (! mCurOp && (bufMgr.IsOverQuota(*this, bufferBytes) ||
+                    (mDevBufMgr &&
+                    mDevBufMgr->IsOverQuota(mDevBufMgrClient, bufferBytes)))) {
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     " bad read request size: " << bufferBytes <<
                     " need: " << bufferBytes <<
                     " buffers: " << GetByteCount() <<
-                    " over quota, closing connection" <<
+                    " over buffer quota" <<
                     " " << op->Show() <<
                 KFS_LOG_EOM;
                 op->status         = -EAGAIN;
                 op->statusMsg      = "over io buffers quota";
                 submitResponseFlag = true;
-            } else if (! bufMgr.GetForDiskIo(*this, bufferBytes)) {
-                mCurOp = op;
-                CLIENT_SM_LOG_STREAM_DEBUG <<
-                    "request for: " << bufferBytes << " bytes denied" <<
-                    " cur: "   << GetByteCount() <<
-                    " total: " << bufMgr.GetTotalByteCount() <<
-                    " used: "  << bufMgr.GetUsedByteCount() <<
-                    " bufs: "  << bufMgr.GetFreeBufferCount() <<
-                    " op: "    << op->Show() <<
-                    " waiting for buffers" <<
-                KFS_LOG_EOM;
-                mNetConnection->SetMaxReadAhead(0);
-                return false;
+            } else {
+                if (mDevBufMgr && mDevBufMgr->GetForDiskIo(
+                        mDevBufMgrClient, bufferBytes)) {
+                    mDevBufMgr = 0;
+                }
+                if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
+                    mCurOp = op;
+                    const BufferManager& mgr =
+                        mDevBufMgr ? *mDevBufMgr : bufMgr;
+                    CLIENT_SM_LOG_STREAM_DEBUG <<
+                        "request for: " << bufferBytes << " bytes denied" <<
+                            (mDevBufMgr ? " by dev." : "") <<
+                        " cur: "   << GetByteCount() <<
+                        " total: " << mgr.GetTotalByteCount() <<
+                        " used: "  << mgr.GetUsedByteCount() <<
+                        " bufs: "  << mgr.GetFreeBufferCount() <<
+                        " op: "    << op->Show() <<
+                        " waiting for buffers" <<
+                    KFS_LOG_EOM;
+                    mNetConnection->SetMaxReadAhead(0);
+                    return false;
+                }
             }
             mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         }
@@ -776,11 +854,15 @@ ClientSM::FindServer(const ServerLocation &loc, bool connect)
 }
 
 void
-ClientSM::Granted(ClientSM::ByteCount byteCount)
+ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
 {
-    CLIENT_SM_LOG_STREAM_DEBUG << "granted: " << byteCount << " op: " <<
+    CLIENT_SM_LOG_STREAM_DEBUG <<
+        "granted: " << (devBufManagerFlag ? "by dev. " : "") <<
+        byteCount << " op: " <<
+        " dev. mgr: " << (const void*)mDevBufMgr <<
         (mCurOp ? mCurOp->Show() : string("null")) <<
     KFS_LOG_EOM;
+    assert(devBufManagerFlag == (mDevBufMgr != 0));
     if (! mNetConnection) {
         return;
     }
