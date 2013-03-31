@@ -682,8 +682,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         bufferBytes = reqBytes + IoRequestBytes(0); // 1 buffer for reply header
         if (! mCurOp || mDevBufMgr) {
             mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*op);
-            Client* const   mgrCli = GetDevBufMgrClient(mDevBufMgr);
-            BufferManager& bufMgr  = GetBufferManager();
+            Client* const  mgrCli = GetDevBufMgrClient(mDevBufMgr);
+            BufferManager& bufMgr = GetBufferManager();
             if (! mCurOp && (bufMgr.IsOverQuota(*this, bufferBytes) ||
                     (mDevBufMgr &&
                     mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes)))) {
@@ -698,7 +698,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 op->statusMsg      = "over io buffers quota";
                 submitResponseFlag = true;
             } else {
-                if (mDevBufMgr && mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
+                if (mDevBufMgr &&
+                        mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
                     mDevBufMgr = 0;
                 }
                 if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
