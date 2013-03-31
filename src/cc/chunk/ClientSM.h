@@ -179,6 +179,7 @@ private:
             DevBufferManagerClient*
         > >
     > DevBufferManagerClients;
+    typedef StdFastAllocator<DevBufferManagerClient> DevClientMgrAllocator;
 
     NetConnectionPtr           mNetConnection;
     KfsOp*                     mCurOp;
@@ -201,6 +202,7 @@ private:
     IOBuffer::WOStream         mWOStream;
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
+    DevClientMgrAllocator      mDevCliMgrAllocator;
 
     static bool                sTraceRequestResponse;
     static uint64_t            sInstanceNum;

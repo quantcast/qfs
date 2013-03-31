@@ -104,7 +104,8 @@ ClientSM::GetDevBufMgrClient(const BufferManager* bufMgr)
     }
     DevBufferManagerClient*& cli = mDevBufMgrClients[bufMgr];
     if (! cli) {
-        cli = new DevBufferManagerClient(*this);
+        cli = new (mDevCliMgrAllocator.allocate(1))
+            DevBufferManagerClient(*this);
     }
     return cli;
 }
@@ -164,7 +165,8 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mInstanceNum(sInstanceNum++),
       mWOStream(),
       mDevBufMgrClients(),
-      mDevBufMgr(0)
+      mDevBufMgr(0),
+      mDevCliMgrAllocator()
 {
     SET_HANDLER(this, &ClientSM::HandleRequest);
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
@@ -196,7 +198,9 @@ ClientSM::~ClientSM()
     for (DevBufferManagerClients::iterator it = mDevBufMgrClients.begin();
             it != mDevBufMgrClients.end();
             ++it) {
-        delete it->second;
+        assert(it->second);
+        mDevCliMgrAllocator.destroy(it->second);
+        mDevCliMgrAllocator.deallocate(it->second, 1);
     }
     gClientManager.Remove(this);
 }
