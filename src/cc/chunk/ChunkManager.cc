@@ -4483,6 +4483,12 @@ ChunkManager::SendChunkDirInfo()
     }
 }
 
+BufferManager*
+ChunkManager::FindDeviceBufferManager(kfsChunkId_t chunkId)
+{
+    return 0;
+}
+
 int
 ChunkManager::ChunkDirInfo::CheckDirDone(int code, void* data)
 {

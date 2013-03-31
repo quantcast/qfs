@@ -139,6 +139,7 @@ enum OpType_t {
 const char* const KFS_VERSION_STR = "KFS/1.0";
 
 class ClientSM;
+class BufferManager;
 
 struct KfsOp : public KfsCallbackObj {
     const KfsOp_t   op;
@@ -198,6 +199,8 @@ struct KfsOp : public KfsCallbackObj {
     virtual bool ParseContent(istream& is) { return true; }
     virtual bool IsChunkReadOp(
         int64_t& /* numBytes */, kfsChunkId_t& /* chunkId */) { return false; }
+    virtual BufferManager* GetDeviceBufferManager(
+        bool /* findFlag */, bool /* resetFlag */) { return 0; }
     static int64_t GetOpsCount() { return sOpsCount; }
     bool ValidateRequestHeader(
         const char* name,
@@ -227,6 +230,22 @@ struct KfsOp : public KfsCallbackObj {
         .Def("Cseq", &KfsOp::seq, kfsSeq_t(-1))
         ;
     }
+    static inline BufferManager* GetDeviceBufferMangerSelf(
+        bool            findFlag,
+        bool            resetFlag,
+        kfsChunkId_t    chunkId,
+        BufferManager*& devBufMgr)
+    {
+        if (findFlag && ! devBufMgr) {
+            devBufMgr = FindDeviceBufferManager(chunkId);
+        }
+        BufferManager* const ret = devBufMgr;
+        if (resetFlag) {
+            devBufMgr = 0;
+        }
+        return ret;
+    }
+    static BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
 protected:
     virtual void Request(ostream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
@@ -758,6 +777,7 @@ struct RecordAppendOp : public KfsOp {
     KfsCallbackObj* origClnt;
     kfsSeq_t        origSeq;
     time_t          replicationStartTime;
+    BufferManager*  devBufMgr;
     RecordAppendOp* mPrevPtr[1];
     RecordAppendOp* mNextPtr[1];
 
@@ -769,6 +789,12 @@ struct RecordAppendOp : public KfsOp {
     void Execute();
     string Show() const;
     bool Validate();
+    virtual BufferManager* GetDeviceBufferManager(
+        bool findFlag, bool resetFlag)
+    {
+        return GetDeviceBufferMangerSelf(
+            findFlag, resetFlag, chunkId, devBufMgr);
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
@@ -971,6 +997,8 @@ struct WritePrepareOp : public KfsOp {
     uint32_t           numDone; // if we did forwarding, we wait for
                                 // local/remote to be done; otherwise, we only
                                 // wait for local to be done
+    BufferManager*     devBufMgr;
+
     WritePrepareOp(kfsSeq_t s = 0)
         : KfsOp(CMD_WRITE_PREPARE, s),
           chunkId(-1),
@@ -985,7 +1013,8 @@ struct WritePrepareOp : public KfsOp {
           dataBuf(0),
           writeFwdOp(0),
           writeOp(0),
-          numDone(0)
+          numDone(0),
+          devBufMgr(0)
         { SET_HANDLER(this, &WritePrepareOp::Done); }
     ~WritePrepareOp();
 
@@ -994,6 +1023,12 @@ struct WritePrepareOp : public KfsOp {
 
     int ForwardToPeer(const ServerLocation& peer);
     int Done(int code, void *data);
+    virtual BufferManager* GetDeviceBufferManager(
+        bool findFlag, bool resetFlag)
+    {
+        return GetDeviceBufferMangerSelf(
+            findFlag, resetFlag, chunkId, devBufMgr);
+    }
 
     string Show() const {
         ostringstream os;
@@ -1262,9 +1297,11 @@ struct ReadOp : public KfsOp {
      * for writes that require the associated checksum block to be
      * read in, store the pointer to the associated write op.
     */
-    WriteOp*            wop;
+    WriteOp*         wop;
     // for getting chunk metadata, we do a data scrub.
     GetChunkMetadataOp* scrubOp;
+    BufferManager*   devBufMgr;
+
     ReadOp(kfsSeq_t s = 0)
         : KfsOp(CMD_READ, s),
           chunkId(-1),
@@ -1278,7 +1315,8 @@ struct ReadOp : public KfsOp {
           diskIOTime(0),
           retryCnt(0),
           wop(0),
-          scrubOp(0)
+          scrubOp(0),
+          devBufMgr(0)
         { SET_HANDLER(this, &ReadOp::HandleDone); }
     ReadOp(WriteOp* w, int64_t o, size_t n)
         : KfsOp(CMD_READ, w->seq),
@@ -1293,7 +1331,8 @@ struct ReadOp : public KfsOp {
           diskIOTime(0),
           retryCnt(0),
           wop(w),
-          scrubOp(0)
+          scrubOp(0),
+          devBufMgr(0)
     {
         clnt = w;
         SET_HANDLER(this, &ReadOp::HandleDone);
@@ -1332,6 +1371,12 @@ struct ReadOp : public KfsOp {
         return os.str();
     }
     virtual bool IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId);
+    virtual BufferManager* GetDeviceBufferManager(
+        bool findFlag, bool resetFlag)
+    {
+        return GetDeviceBufferMangerSelf(
+            findFlag, resetFlag, chunkId, devBufMgr);
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)

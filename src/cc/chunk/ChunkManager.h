@@ -57,8 +57,8 @@ using std::make_pair;
 using std::less;
 
 class ChunkInfoHandle;
-
 class Properties;
+class BufferManager;
 
 /// The chunk manager writes out chunks as individual files on disk.
 /// The location of the chunk directory is defined by chunkBaseDir.
@@ -389,6 +389,7 @@ public:
         bool forceDeleteFlag, bool evacuatedFlag);
     inline void DeleteSelf(ChunkInfoHandle& cih);
     inline bool Remove(ChunkInfoHandle& cih);
+    BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
 
 private:
     class PendingWrites

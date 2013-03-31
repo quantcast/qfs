@@ -29,6 +29,7 @@
 
 #include <deque>
 #include <list>
+#include <map>
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <tr1/unordered_map>
@@ -76,7 +77,10 @@ typedef std::tr1::unordered_map<
 > ChunkSpaceResMap;
 
 // KFS client protocol state machine.
-class ClientSM : public KfsCallbackObj, private BufferManager::Client {
+class ClientSM :
+    public KfsCallbackObj,
+    private BufferManager::Client
+{
 public:
 
     ClientSM(NetConnectionPtr &conn);
@@ -141,11 +145,41 @@ public:
         sTraceRequestResponse = flag;
     }
 
-    virtual void Granted(ByteCount byteCount);
+    virtual void Granted(ByteCount byteCount)
+        { GrantedSelf(byteCount, false); }
 private:
     typedef std::deque<std::pair<KfsOp*, ByteCount> > OpsQueue;
     typedef std::list<OpPair,
         StdFastAllocator<OpPair> > PendingOpsList;
+
+    class DevBufferManagerClient : public BufferManager::Client
+    {
+    public:
+        DevBufferManagerClient(ClientSM& client)
+            : BufferManager::Client(),
+              mClient(client)
+            {}
+        virtual ~DevBufferManagerClient()
+            {}
+        virtual void Granted(ByteCount byteCount)
+            { mClient.GrantedSelf(byteCount, true); }
+    private:
+        ClientSM& mClient;
+    private:
+        DevBufferManagerClient(const DevBufferManagerClient&);
+        DevBufferManagerClient& operator=(const DevBufferManagerClient&);
+    };
+    friend class DevBufferManagerClient;
+    typedef std::map<
+        const BufferManager*,
+        DevBufferManagerClient*,
+        std::less<const BufferManager*>,
+        StdFastAllocator<pair<
+            const BufferManager* const,
+            DevBufferManagerClient*
+        > >
+    > DevBufferManagerClients;
+    typedef StdFastAllocator<DevBufferManagerClient> DevClientMgrAllocator;
 
     NetConnectionPtr           mNetConnection;
     KfsOp*                     mCurOp;
@@ -166,6 +200,10 @@ private:
     int                        mRecursionCnt;
     const uint64_t             mInstanceNum;
     IOBuffer::WOStream         mWOStream;
+    DevBufferManagerClients    mDevBufMgrClients;
+    BufferManager*             mDevBufMgr;
+    DevClientMgrAllocator      mDevCliMgrAllocator;
+
     static bool                sTraceRequestResponse;
     static uint64_t            sInstanceNum;
 
@@ -184,6 +222,10 @@ private:
     std::string GetPeerName();
     inline void SendResponse(KfsOp* op, ByteCount opBytes);
     inline static BufferManager& GetBufferManager();
+    inline static BufferManager* FindDevBufferManager(KfsOp& op);
+    inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
+    inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
+    void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
 private:
     // No copy.
     ClientSM(const ClientSM&);

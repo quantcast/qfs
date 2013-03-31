@@ -219,6 +219,12 @@ KfsOp::Checksum(
         ComputeBlockChecksum(name, nameLen), header, headerLen);
 }
 
+/* static */ BufferManager*
+KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
+{
+    return gChunkManager.FindDeviceBufferManager(chunkId);
+}
+
 typedef RequestHandler<KfsOp> ChunkRequestHandler;
 static const ChunkRequestHandler&
 MakeRequestHandler()

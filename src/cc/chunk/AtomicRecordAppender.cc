@@ -181,7 +181,8 @@ RecordAppendOp::RecordAppendOp(kfsSeq_t s)
       dataBuf(),
       origClnt(0),
       origSeq(s),
-      replicationStartTime(0)
+      replicationStartTime(0),
+      devBufMgr(0)
 {
     AppendReplicationList::Init(*this);
 }
