@@ -96,6 +96,19 @@ ClientSM::FindDevBufferManager(KfsOp& op)
     return op.GetDeviceBufferManager(kFindFlag, kResetFlag);
 }
 
+inline ClientSM::Client*
+ClientSM::GetDevBufMgrClient(const BufferManager* bufMgr)
+{
+    if (! bufMgr) {
+        return 0;
+    }
+    DevBufferManagerClient*& cli = mDevBufMgrClients[bufMgr];
+    if (! cli) {
+        cli = new DevBufferManagerClient(*this);
+    }
+    return cli;
+}
+
 inline void
 ClientSM::PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes)
 {
@@ -106,7 +119,7 @@ ClientSM::PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes)
     if (devBufMgr) {
         // Return everything back to the device buffer manager now, only count
         // pending response against global buffer manager.
-        devBufMgr->Put(mDevBufMgrClient, opBytes);
+        devBufMgr->Put(*GetDevBufMgrClient(devBufMgr), opBytes);
     }
 }
 
@@ -150,7 +163,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mRecursionCnt(0),
       mInstanceNum(sInstanceNum++),
       mWOStream(),
-      mDevBufMgrClient(*this),
+      mDevBufMgrClients(),
       mDevBufMgr(0)
 {
     SET_HANDLER(this, &ClientSM::HandleRequest);
@@ -180,6 +193,11 @@ ClientSM::~ClientSM()
     }
     delete mCurOp;
     mCurOp = 0;
+    for (DevBufferManagerClients::iterator it = mDevBufMgrClients.begin();
+            it != mDevBufMgrClients.end();
+            ++it) {
+        delete it->second;
+    }
     gClientManager.Remove(this);
 }
 
@@ -496,6 +514,7 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
     const int nAvail = iobuf->BytesConsumable();
     if (! mCurOp || mDevBufMgr) {
         mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*wop);
+        Client* const   mgrCli        = GetDevBufMgrClient(mDevBufMgr);
         const ByteCount bufferBytes   = IoRequestBytes(numBytes, forwardFlag);
         BufferManager&  bufMgr        = GetBufferManager();
         bool            overQuotaFlag = false;
@@ -504,7 +523,7 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
                 (overQuotaFlag =
                     bufMgr.IsOverQuota(*this, bufferBytes) ||
                     (mDevBufMgr &&
-                    mDevBufMgr->IsOverQuota(*this, bufferBytes))))) {
+                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes))))) {
             // Over quota can theoretically occur if the quota set unreasonably
             // low, or if client uses the same connection to do both read and
             // write simultaneously. Presently client never attempts to do
@@ -533,8 +552,7 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
             }
         }
         mCurOp = wop;
-        if (mDevBufMgr &&
-                mDevBufMgr->GetForDiskIo(mDevBufMgrClient, bufferBytes)) {
+        if (mDevBufMgr && mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
             mDevBufMgr = 0;
         }
         if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
@@ -660,10 +678,11 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         bufferBytes = reqBytes + IoRequestBytes(0); // 1 buffer for reply header
         if (! mCurOp || mDevBufMgr) {
             mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*op);
-            BufferManager& bufMgr = GetBufferManager();
+            Client* const   mgrCli = GetDevBufMgrClient(mDevBufMgr);
+            BufferManager& bufMgr  = GetBufferManager();
             if (! mCurOp && (bufMgr.IsOverQuota(*this, bufferBytes) ||
                     (mDevBufMgr &&
-                    mDevBufMgr->IsOverQuota(mDevBufMgrClient, bufferBytes)))) {
+                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes)))) {
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     " bad read request size: " << bufferBytes <<
                     " need: " << bufferBytes <<
@@ -675,8 +694,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 op->statusMsg      = "over io buffers quota";
                 submitResponseFlag = true;
             } else {
-                if (mDevBufMgr && mDevBufMgr->GetForDiskIo(
-                        mDevBufMgrClient, bufferBytes)) {
+                if (mDevBufMgr && mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
                     mDevBufMgr = 0;
                 }
                 if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {

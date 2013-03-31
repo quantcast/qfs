@@ -29,6 +29,7 @@
 
 #include <deque>
 #include <list>
+#include <map>
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <tr1/unordered_map>
@@ -169,6 +170,15 @@ private:
         DevBufferManagerClient& operator=(const DevBufferManagerClient&);
     };
     friend class DevBufferManagerClient;
+    typedef std::map<
+        const BufferManager*,
+        DevBufferManagerClient*,
+        std::less<const BufferManager*>,
+        StdFastAllocator<pair<
+            const BufferManager* const,
+            DevBufferManagerClient*
+        > >
+    > DevBufferManagerClients;
 
     NetConnectionPtr           mNetConnection;
     KfsOp*                     mCurOp;
@@ -189,7 +199,7 @@ private:
     int                        mRecursionCnt;
     const uint64_t             mInstanceNum;
     IOBuffer::WOStream         mWOStream;
-    DevBufferManagerClient     mDevBufMgrClient;
+    DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
 
     static bool                sTraceRequestResponse;
@@ -211,6 +221,7 @@ private:
     inline void SendResponse(KfsOp* op, ByteCount opBytes);
     inline static BufferManager& GetBufferManager();
     inline static BufferManager* FindDevBufferManager(KfsOp& op);
+    inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
     inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
     void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
 private:
