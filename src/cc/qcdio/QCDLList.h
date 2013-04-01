@@ -227,7 +227,7 @@ public:
     {
         NodeT*& theHeadPtr = inListPtr[ListT];
         if (theHeadPtr) {
-            NodeT* thePtr = theHeadPtr;
+            NodeT* thePtr;
             while ((thePtr = &GetNext(*theHeadPtr)) != theHeadPtr) {
                 ListOp::Remove(*thePtr);
             }
