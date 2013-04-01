@@ -910,12 +910,15 @@ canAccess(Tree& tree, fid_t dir, MetaFattr& fa,
     MetaFattr* parent = fa.parent;
     if (! parent) {
         parent = dir == ROOTFID ? &fa : tree.getFattr(dir);
+        if (! parent) {
+            panic("canAccess: no parent attribute");
+            return false;
+        }
     }
     if (outParent) {
         *outParent = parent;
     }
-    return (euser == kKfsUserRoot ||
-        parent->CanSearch(euser, egroup));
+    return (euser == kKfsUserRoot || parent->CanSearch(euser, egroup));
 }
 
 /*!
@@ -943,7 +946,10 @@ Tree::lookup(fid_t dir, const string& fname,
     if (! fa) {
         fa = getFattr(d->id());
     }
-    assert(fa);
+    if (! fa) {
+        panic("lookup: no directory attribute");
+        return -EFAULT;
+    }
     if (! canAccess(*this, dir, *fa, euser, egroup, outParent)) {
         fa = 0;
         return -EACCES;
