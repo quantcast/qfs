@@ -289,6 +289,9 @@ public:
         DiskQueue**                       inListPtr,
         DeviceId                          inDeviceId,
         const char*                       inFileNamePrefixPtr,
+        int64_t                           inMaxBuffersBytes,
+        int64_t                           inMaxClientQuota,
+        int                               inWaitingAvgInterval,
         const DiskErrorSimulator::Config* inSimulatorConfigPtr)
         : QCDiskQueue(),
           QCDiskQueue::DebugTracer(),
@@ -299,6 +302,7 @@ public:
           mGetFsSpaceAvailableNullFilePtr(new DiskIo::File()),
           mCheckDirReadableNullFilePtr(new DiskIo::File()),
           mCheckDirWritableNullFilePtr(new DiskIo::File()),
+          mBufferManager(true),
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0)
     {
@@ -310,6 +314,8 @@ public:
         mGetFsSpaceAvailableNullFilePtr->mQueuePtr = this;
         mCheckDirReadableNullFilePtr->mQueuePtr    = this;
         mCheckDirWritableNullFilePtr->mQueuePtr    = this;
+        mBufferManager.Init(0, inMaxBuffersBytes, inMaxClientQuota, 0);
+        mBufferManager.SetWaitingAvgInterval(inWaitingAvgInterval);
     }
     void Delete(
         DiskQueue** inListPtr)
@@ -437,6 +443,8 @@ public:
         }
         QCDiskQueue::Stop();
     }
+    BufferManager& GetBufferManager()
+        { return mBufferManager; }
 private:
     string                    mFileNamePrefixes;
     DeviceId                  mDeviceId;
@@ -445,6 +453,7 @@ private:
     DiskIo::FilePtr           mGetFsSpaceAvailableNullFilePtr;
     DiskIo::FilePtr           mCheckDirReadableNullFilePtr;
     DiskIo::FilePtr           mCheckDirWritableNullFilePtr;
+    BufferManager             mBufferManager;
     DiskErrorSimulator* const mSimulatorPtr;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
@@ -523,6 +532,9 @@ public:
             "chunkServer.diskIo.crashOnError", false)),
           mBufferManagerMaxRatio(inConfig.getValue(
             "chunkServer.bufferManager.maxRatio", 0.4)),
+          mDiskBufferManagerMaxRatio(inConfig.getValue(
+            "chunkServer.disk.bufferManager.maxRatio",
+                mBufferManagerMaxRatio * .35)),
           mMaxClientQuota(inConfig.getValue(
             "chunkServer.bufferManager.maxClientQuota",
             int64_t(CHUNKSIZE + (4 << 20)))),
@@ -793,6 +805,11 @@ public:
             mDiskQueuesPtr,
             inDeviceId,
             inDirNamePtr,
+            (int64_t)(
+                mDiskBufferManagerMaxRatio * mBufferAllocator.GetBufferSize() *
+                mBufferPoolPartitionCount * mBufferPoolPartitionBufferCount),
+            mMaxClientQuota,
+            mBufferManager.GetWaitingAvgInterval(),
             mDiskErrorSimulatorConfig.IsEnabled(inDirNamePtr) ?
                 &mDiskErrorSimulatorConfig : 0
         );
@@ -972,9 +989,20 @@ public:
     void SetParameters(
         const Properties& inProperties)
     {
-        mBufferManager.SetWaitingAvgInterval(inProperties.getValue(
+        const int theCurAvgIntervalSecs =
+            mBufferManager.GetWaitingAvgInterval();
+        const int theAvgIntervalSecs    = inProperties.getValue(
             "chunkServer.bufferManager.waitingAvgInterval",
-            mBufferManager.GetWaitingAvgInterval()));
+            theCurAvgIntervalSecs);
+        if (theCurAvgIntervalSecs != theAvgIntervalSecs) {
+            mBufferManager.SetWaitingAvgInterval(theAvgIntervalSecs);
+            DiskQueueList::Iterator theIt(mDiskQueuesPtr);
+            DiskQueue* thePtr;
+            while ((thePtr = theIt.Next())) {
+                thePtr->GetBufferManager().SetWaitingAvgInterval(
+                    theAvgIntervalSecs);
+            }
+        }
         mMaxIoTime = max(1, inProperties.getValue(
             "chunkServer.diskIo.maxIoTimeSec", mMaxIoTime));
     }
@@ -1058,6 +1086,7 @@ private:
     const int64_t                  mDiskClearOverloadedPendingWriteByteCount;
     const bool                     mCrashOnErrorFlag;
     const double                   mBufferManagerMaxRatio;
+    const double                   mDiskBufferManagerMaxRatio;
     const BufferManager::ByteCount mMaxClientQuota;
     int                            mMaxIoTime;
     bool                           mOverloadedFlag;
@@ -1280,6 +1309,15 @@ DiskIo::GetBufferManager()
 {
     QCRTASSERT(sDiskIoQueuesPtr);
     return (sDiskIoQueuesPtr->GetBufferManager());
+}
+
+    /* static */ BufferManager*
+DiskIo::GetDiskBufferManager(
+    DiskQueue* inDiskQueuePtr)
+{
+    return ((inDiskQueuePtr && sDiskIoQueuesPtr) ?
+        &inDiskQueuePtr->GetBufferManager() : 0
+    );
 }
 
     /* static */ void

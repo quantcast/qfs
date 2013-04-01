@@ -129,6 +129,8 @@ public:
     static size_t GetMaxRequestSize();
     static int GetFdCountPerFile();
     static BufferManager& GetBufferManager();
+    static BufferManager* GetDiskBufferManager(
+        DiskQueue* inDiskQueuePtr);
     static void GetCounters(
         Counters& outCounters);
     static bool Delete(

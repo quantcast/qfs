@@ -752,6 +752,7 @@ private:
     bool       mStorageTiersSetFlag;
     string     mBufferedIoPrefixes;
     bool       mBufferedIoSetFlag;
+    bool       mDiskBufferManagerEnabledFlag;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 

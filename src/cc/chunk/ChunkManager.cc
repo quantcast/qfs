@@ -1473,6 +1473,7 @@ ChunkManager::ChunkManager()
       mStorageTiersSetFlag(false),
       mBufferedIoPrefixes(),
       mBufferedIoSetFlag(false),
+      mDiskBufferManagerEnabledFlag(true),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1746,6 +1747,9 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMinTier", mAllocDefaultMinTier);
     mAllocDefaultMaxTier = prop.getValue(
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
+    mDiskBufferManagerEnabledFlag = prop.getValue(
+        "chunkServer.disk.bufferManager.enabled",
+        mDiskBufferManagerEnabledFlag ? 1 : 0) != 0,
     SetStorageTiers(prop);
     SetBufferedIo(prop);
 }
@@ -4486,7 +4490,12 @@ ChunkManager::SendChunkDirInfo()
 BufferManager*
 ChunkManager::FindDeviceBufferManager(kfsChunkId_t chunkId)
 {
-    return 0;
+    if (! mDiskBufferManagerEnabledFlag) {
+        return 0;
+    }
+    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    return (! ci ? 0 :
+        DiskIo::GetDiskBufferManager((*ci)->GetDirInfo().diskQueue));
 }
 
 int
