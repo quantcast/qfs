@@ -1456,6 +1456,7 @@ ChunkManager::ChunkManager()
       mChunkPlacementPendingWriteWeight(0),
       mMaxPlacementSpaceRatio(0.2),
       mMinPendingIoThreshold(8 << 20),
+      mPlacementMaxWaitingAvgUsecsThreshold(5 * 60 * 1000 * 1000),
       mAllowSparseChunksFlag(true),
       mBufferedIoFlag(false),
       mSyncChunkHeaderFlag(false),
@@ -1657,6 +1658,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mMinPendingIoThreshold = prop.getValue(
         "chunkServer.minPendingIoThreshold",
         mMinPendingIoThreshold);
+    mPlacementMaxWaitingAvgUsecsThreshold = (int64_t)(1e6 * prop.getValue(
+        "chunkServer.placementMaxWaitingAvgSecsThreshold",
+        (double)mPlacementMaxWaitingAvgUsecsThreshold * 1e-6));
     mMaxPlacementSpaceRatio = prop.getValue(
         "chunkServer.maxPlacementSpaceRatio",
         mMaxPlacementSpaceRatio);
@@ -2704,6 +2708,12 @@ ChunkManager::GetDirForChunkT(T start, T end)
         const int64_t space = di.availableSpace;
         if (space < mMinFsAvailableSpace ||
                 space <= di.totalSpace * mMaxSpaceUtilizationThreshold) {
+            continue;
+        }
+        BufferManager* const bufMgr =
+            DiskIo::GetDiskBufferManager(di.diskQueue);
+        if (bufMgr && bufMgr->GetWaitingAvgUsecs() >
+                mPlacementMaxWaitingAvgUsecsThreshold) {
             continue;
         }
         dirCount++;

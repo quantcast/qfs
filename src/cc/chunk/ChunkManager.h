@@ -725,6 +725,7 @@ private:
     double mChunkPlacementPendingWriteWeight;
     double mMaxPlacementSpaceRatio;
     int64_t mMinPendingIoThreshold;
+    int64_t mPlacementMaxWaitingAvgUsecsThreshold;
     bool mAllowSparseChunksFlag;
     bool mBufferedIoFlag;
     bool mSyncChunkHeaderFlag;
