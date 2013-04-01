@@ -392,6 +392,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             const double avgTimeInterval  = max(0.5, (double)(now - mLastSent));
             const double oneOverTime      = 1.0 / avgTimeInterval;
             const double timeUtilMicroPct = 1e-4 * oneOverTime;
+            const BufferManager* const bufMgr =
+                DiskIo::GetDiskBufferManager(mChunkDir.diskQueue);
 
             inStream <<
             "CHUNKDIR_INFO\r\n"
@@ -453,6 +455,12 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 "\r\n"
             "Buffered-io: "           << (mChunkDir.bufferedIoFlag ? 1 : 0) <<
                 "\r\n"
+            "Wait-avg-usec: "         <<
+                (bufMgr ? bufMgr->GetWaitingAvgUsecs() : int64_t(0)) << "\r\n"
+            "Wait-avg-bytes: "        <<
+                (bufMgr ? bufMgr->GetWaitingAvgBytes() : int64_t(0)) << "\r\n"
+            "Wait-avg-count: "        <<
+                (bufMgr ? bufMgr->GetWaitingAvgCount() : int64_t(0)) << "\r\n"
             ;
             mChunkDir.readCounters.Display(
                 "Read-",         "\r\n", inStream);
