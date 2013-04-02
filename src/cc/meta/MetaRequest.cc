@@ -2038,7 +2038,7 @@ MetaLeaseAcquire::handle()
         // check here isn't strictly required, well unless something pretends to
         // be chunkserver, sends hello, then this request.
         if (fromClientSMFlag &&
-                static_cast<const ClientSM*>(clnt)->GetConnection()) {
+                ! static_cast<const ClientSM*>(clnt)->GetConnection()) {
             status = -EAGAIN;
             return;
         }
