@@ -336,7 +336,8 @@ struct MakeChunkStableInfo
           pathname(name),
           chunkChecksum(0),
           chunkSize(-1),
-          chunkVersion(cvers)
+          chunkVersion(cvers),
+          pendingReqHead(0)
         {}
     bool         beginMakeStableFlag:1;
     bool         logMakeChunkStableFlag:1;
@@ -349,6 +350,7 @@ struct MakeChunkStableInfo
     uint32_t     chunkChecksum;
     chunkOff_t   chunkSize;
     seq_t        chunkVersion;
+    MetaRequest* pendingReqHead;
 };
 typedef map <chunkId_t, MakeChunkStableInfo,
     less<chunkId_t>,
@@ -821,6 +823,10 @@ public:
         seq_t      chunkVersion);
     int WritePendingChunkVersionChange(ostream& os) const;
     int WritePendingMakeStable(ostream& os) const;
+    void DeleteNonStableEntry(
+        NonStableChunksMap::iterator it,
+        int                          status    = 0,
+        const char*                  statusMsg = 0);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
     int GetChunkSizeDone(MetaChunkSize* req);
     bool IsChunkStable(chunkId_t chunkId);

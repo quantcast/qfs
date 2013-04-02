@@ -5068,6 +5068,10 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 int
 LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
 {
+    if (req->suspended || req->next) {
+        panic("invalid read lease request");
+        return -EFAULT;
+    }
     const int ret = GetChunkReadLeases(*req);
     if (ret != 0 || req->chunkId < 0) {
         return ret;
@@ -5094,12 +5098,15 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     // the client read from servers where the data is stable, but that
     // requires more book-keeping; so, we'll defer for now.
     //
-    if (! IsChunkStable(req->chunkId)) {
-        req->statusMsg = "is not yet stable";
-        KFS_LOG_STREAM_INFO << "Chunk " << req->chunkId <<
-            " " << req->statusMsg << " => EBUSY" <<
+    NonStableChunksMap::iterator const it = mNonStableChunks.find(req->chunkId);
+    if (it != mNonStableChunks.end()) {
+        req->suspended = true;
+        req->next = it->second.pendingReqHead;
+        it->second.pendingReqHead = req->next;
+        KFS_LOG_STREAM_INFO << "chunk: " << req->chunkId <<
+            " " << "not yet stable suspending read lease acquire request" <<
         KFS_LOG_EOM;
-        return -EBUSY;
+        return 0;
     }
     if ((req->leaseTimeout <= 0 ?
             ! mChunkLeases.HasWriteLease(req->chunkId) :
@@ -6520,7 +6527,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             " <" << req->fid << "," << req->chunkId  << ">"
             " no such chunk, cleaning up" <<
         KFS_LOG_EOM;
-        mNonStableChunks.erase(it);
+        DeleteNonStableEntry(it, -EINVAL, "no such chunk");
         mPendingMakeStable.erase(req->chunkId);
         return;
     }
@@ -6573,7 +6580,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             KFS_LOG_EOM;
         }
         // Try again later.
-        mNonStableChunks.erase(it);
+        DeleteNonStableEntry(it, -EAGAIN, "no servers");
         UpdateReplicationState(*ci);
         return;
     }
@@ -6628,7 +6635,11 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
             // entry exists.
             mPendingMakeStable.erase(req->chunkId);
         }
-        mNonStableChunks.erase(it);
+        DeleteNonStableEntry(
+            it,
+            ci ? -EINVAL         : -EAGAIN,
+            ci ? "no such chunk" : "no replicas available"
+        );
         return;
     }
     const bool     serverWasAddedFlag = info.serverAddedFlag;
@@ -6799,7 +6810,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         pathname = info.pathname;
         updateSizeFlag  = ! info.stripedFileFlag;
         updateMTimeFlag = info.updateMTimeFlag;
-        mNonStableChunks.erase(it);
+        DeleteNonStableEntry(it);
         // "&info" is invalid at this point.
     }
     if (! pinfo) {
@@ -6995,6 +7006,27 @@ LayoutManager::ReplayPendingMakeStable(
         " checksum: " << (hasChunkChecksum ?
             int64_t(chunkChecksum) : int64_t(-1)) <<
     KFS_LOG_EOM;
+}
+
+void
+LayoutManager::DeleteNonStableEntry(
+    NonStableChunksMap::iterator it,
+    int                          status    /* = 0 */,
+    const char*                  statusMsg /* = 0 */)
+{
+    MetaRequest* next = it->second.pendingReqHead;
+    mNonStableChunks.erase(it);
+    while (next) {
+        MetaRequest& req = *next;
+        next = req.next;
+        req.next = 0;
+        req.suspended = false;
+        req.status = status;
+        if (statusMsg) {
+            req.statusMsg = statusMsg;
+        }
+        submit_request(&req);
+    }
 }
 
 int
