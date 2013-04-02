@@ -5102,7 +5102,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     if (it != mNonStableChunks.end()) {
         req->suspended = true;
         req->next = it->second.pendingReqHead;
-        it->second.pendingReqHead = req->next;
+        it->second.pendingReqHead = req;
         KFS_LOG_STREAM_INFO << "chunk: " << req->chunkId <<
             " " << "not yet stable suspending read lease acquire request" <<
         KFS_LOG_EOM;
