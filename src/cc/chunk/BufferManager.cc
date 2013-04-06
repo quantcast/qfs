@@ -215,6 +215,8 @@ BufferManager::CancelRequest(
         assert(inClient.mWaitingForByteCount == 0);
         return;
     }
+    mCounters.mReqeustCanceledCount++;
+    mCounters.mReqeustCanceledBytes += inClient.mWaitingForByteCount;
     WaitQueue::Remove(mWaitQueuePtr, inClient);
     mWaitingCount--;
     mWaitingByteCount -= inClient.mWaitingForByteCount;

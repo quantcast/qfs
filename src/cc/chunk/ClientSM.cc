@@ -415,9 +415,14 @@ ClientSM::HandleRequest(int code, void* data)
         KFS_LOG_EOM;
         mNetConnection->Close();
         if (mCurOp) {
+            if (mDevBufMgr) {
+                GetDevBufMgrClient(mDevBufMgr)->CancelRequest();
+            } else {
+                PutAndResetDevBufferManager(*mCurOp, GetWaitingForByteCount());
+                CancelRequest();
+            }
             delete mCurOp;
             mCurOp = 0;
-            CancelRequest();
         }
         break;
 
@@ -668,11 +673,12 @@ ClientSM::FailIfExceedsWait(
     op.status         = -ESERVERBUSY;
     op.statusMsg      = "exceeds max wait";
     if(devMgrWaitFlag) {
-        mDevBufMgr->CancelRequest(*mgrCli);
+        mgrCli->CancelRequest();
     } else {
         PutAndResetDevBufferManager(op, bufferBytes);
-        bufMgr.CancelRequest(*this);
+        CancelRequest();
     }
+    gClientManager.WaitTimeExceeded();
     return true;
 }
 

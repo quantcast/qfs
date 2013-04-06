@@ -59,6 +59,8 @@ public:
         Counter mRequestDeniedByteCount;
         Counter mRequestGrantedCount;
         Counter mRequestGrantedByteCount;
+        Counter mReqeustCanceledCount;
+        Counter mReqeustCanceledBytes;
         Counter mRequestWaitUsecs;
 
         void Clear()
@@ -69,6 +71,8 @@ public:
             mRequestDeniedByteCount  = 0;
             mRequestGrantedCount     = 0;
             mRequestGrantedByteCount = 0;
+            mReqeustCanceledCount    = 0;
+            mReqeustCanceledBytes    = 0;
             mRequestWaitUsecs        = 0;
         }
     };

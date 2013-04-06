@@ -394,7 +394,12 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             const double timeUtilMicroPct = 1e-4 * oneOverTime;
             const BufferManager* const bufMgr =
                 DiskIo::GetDiskBufferManager(mChunkDir.diskQueue);
-
+            BufferManager::Counters    ctrs;
+            if (bufMgr) {
+                bufMgr->GetCounters(ctrs);
+            } else {
+                ctrs.Clear();
+            }
             inStream <<
             "CHUNKDIR_INFO\r\n"
             "Version: "            << KFS_VERSION_STR                  << "\r\n"
@@ -461,6 +466,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 (bufMgr ? bufMgr->GetWaitingAvgBytes() : int64_t(0)) << "\r\n"
             "Wait-avg-count: "        <<
                 (bufMgr ? bufMgr->GetWaitingAvgCount() : int64_t(0)) << "\r\n"
+            "Canceled-count: "        << ctrs.mReqeustCanceledCount  << "\r\n"
+            "Canceled-bytes: "        << ctrs.mReqeustCanceledBytes  << "\r\n"
             ;
             mChunkDir.readCounters.Display(
                 "Read-",         "\r\n", inStream);

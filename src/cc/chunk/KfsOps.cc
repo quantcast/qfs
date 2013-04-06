@@ -1122,6 +1122,7 @@ HeartbeatOp::Execute()
     Append("Client-req-invalid-header", "hdr",   cli.mBadRequestHeaderCount);
     Append("Client-req-invalid-length", "len",
         cli.mRequestLengthExceededCount);
+    Append("Client-wait-exceed",     "wex",  cli.mWaitTimeExceededCount);
     cmdShow << " read:";
     Append("Client-read-count",     "cnt",   cli.mReadRequestCount);
     Append("Client-read-bytes",     "bytes", cli.mReadRequestBytes);

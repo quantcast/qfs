@@ -63,6 +63,7 @@ public:
         Counter mAppendRequestTimeMicroSecs;
         Counter mAppendRequestBytes;
         Counter mAppendRequestErrors;
+        Counter mWaitTimeExceededCount;
 
         void Clear() {
             mAcceptCount                = 0;
@@ -86,6 +87,7 @@ public:
             mAppendRequestTimeMicroSecs = 0;
             mAppendRequestBytes         = 0;
             mAppendRequestErrors        = 0;
+            mWaitTimeExceededCount      = 0;
         }
     };
     ClientManager()
@@ -130,6 +132,9 @@ public:
     }
     void IdleTimeout() {
         mCounters.mIdleTimeoutCount++;
+    }
+    void WaitTimeExceeded() {
+        mCounters.mWaitTimeExceededCount++;
     }
     void RequestDone(int64_t requestTimeMicroSecs, const KfsOp& op) {
         const int64_t tm = requestTimeMicroSecs > 0 ? requestTimeMicroSecs : 0;
