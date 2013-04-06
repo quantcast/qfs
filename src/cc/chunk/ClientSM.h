@@ -233,9 +233,7 @@ private:
     inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
     bool FailIfExceedsWait(
         BufferManager&         bufMgr,
-        BufferManager::Client* mgrCli,
-        KfsOp&                 op,
-        int64_t                bufferBytes);
+        BufferManager::Client* mgrCli);
     void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
 private:
     // No copy.

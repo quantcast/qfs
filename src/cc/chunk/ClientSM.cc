@@ -592,13 +592,14 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
             mDevBufMgr = 0;
         }
         if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
-            const bool failFlag = numBytes <= sMaxReqSizeDiscard - nAvail &&
-                FailIfExceedsWait(bufMgr, 0, *wop, bufferBytes);
-            const BufferManager& mgr = mDevBufMgr ? *mDevBufMgr : bufMgr;
+            const BufferManager& mgr      = mDevBufMgr ? *mDevBufMgr : bufMgr;
+            const bool           failFlag =
+                numBytes <= sMaxReqSizeDiscard + nAvail &&
+                FailIfExceedsWait(bufMgr, 0);
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "seq: " << wop->seq <<
                 " request for: " << bufferBytes << " bytes denied" <<
-                (mDevBufMgr ? " by dev." : "") <<
+                (&mgr == &bufMgr ? "" : " by dev.") <<
                 " cur: "   << GetByteCount() <<
                 " total: " << mgr.GetTotalByteCount() <<
                 " used: "  << mgr.GetUsedByteCount() <<
@@ -617,8 +618,8 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
     if (mDiscardByteCnt > 0) {
         mDiscardByteCnt -= iobuf->Consume(mDiscardByteCnt);
         if (mDiscardByteCnt > 0) {
-            mNetConnection->SetMaxReadAhead(
-                min(mDiscardByteCnt, 2 * kMaxCmdHeaderLength));
+            mNetConnection->SetMaxReadAhead(min(mDiscardByteCnt,
+                8 * IOBufferData::GetDefaultBufferSize()));
             return false;
         }
         if (wop->status >= 0) {
@@ -656,33 +657,32 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
 bool
 ClientSM::FailIfExceedsWait(
     BufferManager&         bufMgr,
-    BufferManager::Client* mgrCli,
-    KfsOp&                 op,
-    int64_t                bufferBytes)
+    BufferManager::Client* mgrCli)
 {
-    if (! sEnforceMaxWaitFlag || op.maxWaitMillisec <= 0) {
+    if (! sEnforceMaxWaitFlag || ! mCurOp || mCurOp->maxWaitMillisec <= 0) {
         return false;
     }
-    const int64_t maxWait        = op.maxWaitMillisec * 1000;
+    const int64_t maxWait        = mCurOp->maxWaitMillisec * 1000;
     const bool    devMgrWaitFlag = mDevBufMgr != 0 && mgrCli != 0;
     const int64_t curWait        = bufMgr.GetWaitingAvgUsecs() +
         (devMgrWaitFlag ? mDevBufMgr->GetWaitingAvgUsecs() : int64_t(0));
     if (curWait <= maxWait ||
-            microseconds() + curWait < op.startTime + maxWait) {
+            microseconds() + curWait < mCurOp->startTime + maxWait) {
         return false;
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         " exceeded wait:"
         " current: " << curWait <<
         " max: "     << maxWait <<
-        " op: "      << op.Show() <<
+        " op: "      << mCurOp->Show() <<
     KFS_LOG_EOM;
-    op.status         = -ESERVERBUSY;
-    op.statusMsg      = "exceeds max wait";
+    mCurOp->status    = -ESERVERBUSY;
+    mCurOp->statusMsg = "exceeds max wait";
     if(devMgrWaitFlag) {
         mgrCli->CancelRequest();
+        mDevBufMgr = 0;
     } else {
-        PutAndResetDevBufferManager(op, bufferBytes);
+        PutAndResetDevBufferManager(*mCurOp, GetWaitingForByteCount());
         CancelRequest();
     }
     gClientManager.WaitTimeExceeded();
@@ -793,13 +793,12 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 }
                 if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
                     mCurOp = op;
-                    submitResponseFlag =
-                        FailIfExceedsWait(bufMgr, mgrCli, *op, bufferBytes);
                     const BufferManager& mgr =
                         mDevBufMgr ? *mDevBufMgr : bufMgr;
+                    submitResponseFlag = FailIfExceedsWait(bufMgr, mgrCli);
                     CLIENT_SM_LOG_STREAM_DEBUG <<
                         "request for: " << bufferBytes << " bytes denied" <<
-                            (mDevBufMgr ? " by dev." : "") <<
+                        (&mgr == &bufMgr ? "" : " by dev.") <<
                         " cur: "   << GetByteCount() <<
                         " total: " << mgr.GetTotalByteCount() <<
                         " used: "  << mgr.GetUsedByteCount() <<
@@ -861,8 +860,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             BufferManager& bufMgr = GetBufferManager();
             if (! bufMgr.Get(*this, bufferBytes)) {
                 mCurOp = op;
-                submitResponseFlag =
-                    FailIfExceedsWait(bufMgr, 0, *op, bufferBytes);
+                submitResponseFlag = FailIfExceedsWait(bufMgr, 0);
                 CLIENT_SM_LOG_STREAM_DEBUG <<
                     "request for: " << bufferBytes << " bytes denied" <<
                     " cur: "   << GetByteCount() <<
