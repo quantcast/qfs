@@ -71,12 +71,16 @@ public:
         {}
     ostream& Insert(ostream& os) const
     {
-        return (os <<
+        os <<
             "Cseq: "                    << op.seq                << "\r\n"
             "Version: "                    "KFS/1.0"                "\r\n"
             "Client-Protocol-Version: " << KFS_CLIENT_PROTO_VERS << "\r\n"
             << KfsOp::sExtraHeaders
-        );
+        ;
+        if (op.maxWaitMillisec > 0) {
+            os << "Max-wait-ms: " << op.maxWaitMillisec << "\r\n";
+        }
+        return os;
     }
 private:
     const KfsOp& op;

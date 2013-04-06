@@ -192,24 +192,23 @@ RecordAppendOp::~RecordAppendOp()
     assert(! origClnt && ! QCDLListOp<RecordAppendOp>::IsInList(*this));
 }
 
-string
-RecordAppendOp::Show() const
+/* virtual */ ostream&
+RecordAppendOp::ShowSelf(ostream& os) const
 {
-    ostringstream os;
-    os << "record-append:"
-       " seq: " << seq <<
-       " chunkId: " << chunkId <<
-       " chunkversion: " << chunkVersion <<
-       " file-offset: " << fileOffset <<
-       " writeId = " << writeId <<
-       " offset: " << offset <<
-       " numBytes: " << numBytes <<
-       " servers: " << servers <<
-       " checksum: " << checksum <<
-       " client-seq: " << clientSeq <<
-       " master-committed: " << masterCommittedOffset
+    return os <<
+        "record-append:"
+        " seq: "              << seq <<
+        " chunkId: "          << chunkId <<
+        " chunkversion: "     << chunkVersion <<
+        " file-offset: "      << fileOffset <<
+        " writeId = "         << writeId <<
+        " offset: "           << offset <<
+        " numBytes: "         << numBytes <<
+        " servers: "          << servers <<
+        " checksum: "         << checksum <<
+        " client-seq: "       << clientSeq <<
+        " master-committed: " << masterCommittedOffset
     ;
-    return os.str();
 }
 
 typedef QCDLList<AtomicRecordAppender> PendingFlushList;
@@ -1842,7 +1841,7 @@ AtomicRecordAppender::BeginMakeStable(
         " in flight:"
         " replicaton: " << mReplicationsInFlight <<
         " ios: "        << mIoOpsInFlight <<
-        " " << (op ? op->Show() : string("no op")) <<
+        " " << KfsOp::ShowOp(op) <<
     KFS_LOG_EOM;
 
     mLastActivityTime = Now();
@@ -2229,7 +2228,7 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
         " in flight:"
         " replication: " << mReplicationsInFlight <<
         " ios: "      << mIoOpsInFlight <<
-        (op ? " " : "")  << (op ? op->Show() : "") <<
+        (op ? " " : "")  << KfsOp::ShowOp(op) <<
     KFS_LOG_EOM;
     if (! mMakeChunkStableOp) {
         FatalError();

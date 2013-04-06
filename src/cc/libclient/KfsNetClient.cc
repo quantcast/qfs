@@ -530,7 +530,9 @@ private:
             return false;
         }
         mIdleTimeoutFlag = false;
-        inOpPtr->seq = mNextSeqNum++;
+        inOpPtr->seq             = mNextSeqNum++;
+        inOpPtr->maxWaitMillisec = mOpTimeoutSec > 0 ?
+            int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
         const bool theResetTimerFlag = mPendingOpQueue.empty();
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(

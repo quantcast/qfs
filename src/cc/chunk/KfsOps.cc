@@ -199,6 +199,28 @@ SubmitOpResponse(KfsOp *op)
     op->HandleEvent(EVENT_CMD_DONE, op);
 }
 
+class KfsOp::NullOp : public KfsOp
+{
+protected:
+    NullOp()
+        : KfsOp(CMD_UNKNOWN, 0)
+        {}
+    virtual void Execute()
+        {}
+    virtual ostream& ShowSelf(ostream& os) const
+        { return os << "null"; }
+    static const KfsOp& sNullOp;
+    friend struct KfsOp;
+};
+const KfsOp& KfsOp::NullOp::sNullOp = KfsOp::GetNullOp(); // Force construction.
+
+/* static */ const KfsOp&
+KfsOp::GetNullOp()
+{
+    static const NullOp sNullOp;
+    return sNullOp;
+}
+
 int64_t KfsOp::sOpsCount = 0;
 
 KfsOp::~KfsOp()

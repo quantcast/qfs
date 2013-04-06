@@ -3714,6 +3714,8 @@ KfsClientImpl::DoOpSend(KfsOp *op, TcpSocket *sock)
         return -1;
     }
     ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
+    op->maxWaitMillisec = mDefaultOpTimeout > 0 ?
+        mDefaultOpTimeout * 1000 : -1;
     op->Request(os);
     const size_t len = mTmpOutputStream.GetLength();
     mTmpOutputStream.Set();

@@ -141,7 +141,23 @@ const char* const KFS_VERSION_STR = "KFS/1.0";
 class ClientSM;
 class BufferManager;
 
-struct KfsOp : public KfsCallbackObj {
+struct KfsOp : public KfsCallbackObj
+{
+    class Display
+    {
+    public:
+        Display(const KfsOp& op)
+            : mOp(op)
+            {}
+        Display(const Display& other)
+            : mOp(other.mOp)
+            {}
+        ostream& Show(ostream& os) const
+            { return mOp.ShowSelf(os); }
+    private:
+        const KfsOp& mOp;
+    };
+
     const KfsOp_t   op;
     OpType_t        type;
     kfsSeq_t        seq;
@@ -151,6 +167,7 @@ struct KfsOp : public KfsCallbackObj {
     bool            noReply:1;
     bool            noRetry:1;
     bool            clientSMFlag:1;
+    int64_t         maxWaitMillisec;
     string          statusMsg; // output, optional, mostly for debugging
     KfsCallbackObj* clnt;
     // keep statistics
@@ -166,6 +183,7 @@ struct KfsOp : public KfsCallbackObj {
           noReply(false),
           noRetry(false),
           clientSMFlag(false),
+          maxWaitMillisec(-1),
           statusMsg(),
           clnt(c),
           startTime(microseconds())
@@ -191,7 +209,7 @@ struct KfsOp : public KfsCallbackObj {
     }
     virtual void Execute() = 0;
     // Return info. about op for debugging
-    virtual string Show() const = 0;
+    Display Show() const { return Display(*this); }
     // If the execution of an op suspends and then resumes and
     // finishes, this method should be invoked to signify completion.
     virtual int HandleDone(int code, void *data);
@@ -227,7 +245,8 @@ struct KfsOp : public KfsCallbackObj {
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
-        .Def("Cseq", &KfsOp::seq, kfsSeq_t(-1))
+        .Def("Cseq",        &KfsOp::seq,            kfsSeq_t(-1))
+        .Def("Max-wait-ms", &KfsOp::maxWaitMillisec, int64_t(-1))
         ;
     }
     static inline BufferManager* GetDeviceBufferMangerSelf(
@@ -246,13 +265,21 @@ struct KfsOp : public KfsCallbackObj {
         return ret;
     }
     static BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
+    inline static Display ShowOp(const KfsOp* op)
+        { return (op ? Display(*op) : Display(GetNullOp())); }
 protected:
     virtual void Request(ostream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
     };
+    virtual ostream& ShowSelf(ostream& os) const = 0;
+    static const KfsOp& GetNullOp();
+    class NullOp;
+    friend class NullOp;
 private:
     static int64_t sOpsCount;
 };
+inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
+{ return disp.Show(os); }
 
 //
 // Model used in all the c'tor's of the ops: we do minimal
@@ -290,9 +317,8 @@ struct AllocChunkOp : public KfsOp {
     // handlers for reading/writing out the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);
     int HandleChunkAllocDone(int code, void *data);
-    string Show() const {
-        ostringstream os;
-        os <<
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
             "alloc-chunk:"
             " seq: "       << seq <<
             " fileid: "    << fileId <<
@@ -301,7 +327,6 @@ struct AllocChunkOp : public KfsOp {
             " leaseid: "   << leaseId <<
             " append: "    << (appendFlag ? 1 : 0)
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -337,9 +362,9 @@ struct BeginMakeChunkStableOp : public KfsOp {
         {}
     void Execute();
     void Response(ostream &os);
-    string Show() const {
-        ostringstream os;
-        os << "begin-make-chunk-stable:"
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "begin-make-chunk-stable:"
             " seq: "       << seq <<
             " fileid: "    << fileId <<
             " chunkid: "   << chunkId <<
@@ -347,7 +372,6 @@ struct BeginMakeChunkStableOp : public KfsOp {
             " size: "      << chunkSize <<
             " checksum: "  << chunkChecksum
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -382,10 +406,9 @@ struct MakeChunkStableOp : public KfsOp {
     void Execute();
     int HandleChunkMetaReadDone(int code, void *data);
     int HandleMakeStableDone(int code, void *data);
-    string Show() const {
-        ostringstream os;
-
-        os << "make-chunk-stable:"
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "make-chunk-stable:"
             " seq: "          << seq <<
             " fileid: "       << fileId <<
             " chunkid: "      << chunkId <<
@@ -394,7 +417,6 @@ struct MakeChunkStableOp : public KfsOp {
             " checksum: "     << chunkChecksum <<
             " has-checksum: " << (hasChecksum ? "yes" : "no")
         ;
-        return os.str();
     }
     // generic response from KfsOp works..
     bool Validate();
@@ -428,16 +450,15 @@ struct ChangeChunkVersOp : public KfsOp {
     // handler for reading in the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);
     int HandleChunkMetaWriteDone(int code, void *data);
-    string Show() const {
-        ostringstream os;
-
-        os << "change-chunk-vers:"
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "change-chunk-vers:"
+            " seq: "         << seq <<
             " fileid: "      << fileId <<
             " chunkid: "     << chunkId <<
             " chunkvers: "   << chunkVersion <<
             " make stable: " << makeStableFlag
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -458,11 +479,12 @@ struct DeleteChunkOp : public KfsOp {
          chunkId(-1)
         {}
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "delete-chunk: chunkid: " << chunkId;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "delete-chunk:"
+            " seq: "     << seq <<
+            " chunkid: " << chunkId
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -484,14 +506,13 @@ struct TruncateChunkOp : public KfsOp {
     // handler for reading in the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);
     int HandleChunkMetaWriteDone(int code, void *data);
-    string Show() const {
-        ostringstream os;
-
-        os << "truncate-chunk:"
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "truncate-chunk:"
+            " seq: "       << seq <<
             " chunkid: "   << chunkId <<
             " chunksize: " << chunkSize
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -544,10 +565,10 @@ struct ReplicateChunkOp : public KfsOp {
         {}
     void Execute();
     void Response(ostream &os);
-    string Show() const {
-        ostringstream os;
-
-        os << "replicate-chunk:" <<
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "replicate-chunk:" <<
+            " seq: "      << seq <<
             " fid: "      << fid <<
             " chunkid: "  << chunkId <<
             " version: "  << chunkVersion <<
@@ -560,7 +581,6 @@ struct ReplicateChunkOp : public KfsOp {
             " fname: "    << pathName <<
             " invals: "   << invalidStripeIdx
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -604,8 +624,8 @@ struct HeartbeatOp : public KfsOp {
         { cmdShow << "meta-heartbeat:"; }
     void Execute();
     void Response(ostream &os);
-    string Show() const {
-        return cmdShow.str();
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os << cmdShow.str();
     }
     template<typename T> void Append(const char* key1, const char* key2, T val);
     template<typename T> static T& ParserDef(T& parser)
@@ -632,12 +652,13 @@ struct StaleChunksOp : public KfsOp {
           staleChunkIds()
         {}
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "stale chunks: count: " << numStaleChunks <<
-            " evacuated: " << evacuatedFlag;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "stale chunks:"
+            " seq: "       << seq <<
+            " count: "     << numStaleChunks <<
+            " evacuated: " << evacuatedFlag
+        ;
     }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is);
@@ -657,8 +678,9 @@ struct RetireOp : public KfsOp {
         : KfsOp(CMD_RETIRE, s)
         {}
     void Execute();
-    string Show() const {
-        return "meta-server is telling us to retire";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "meta-server is telling us to retire";
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -678,11 +700,13 @@ struct OpenOp : public KfsOp {
           intentStr()
         {}
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "open: chunkId: " << chunkId;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "open: "
+            " seq: "     << seq <<
+            " chunkId: " << chunkId
+        ;
     }
     bool Valudate()
     {
@@ -715,10 +739,11 @@ struct CloseOp : public KfsOp {
           servers        (op ? op->servers         : string())
         {}
     void Execute();
-    string Show() const {
-        ostringstream os;
-        os <<
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
             "close:"
+            " seq: "             << seq <<
             " chunkId: "         << chunkId <<
             " num-servers: "     << numServers <<
             " servers: "         << servers <<
@@ -726,7 +751,6 @@ struct CloseOp : public KfsOp {
             " has-write-id: "    << hasWriteId <<
             " mater-committed: " << masterCommitted
         ;
-        return os.str();
     }
     // if there was a daisy chain for this chunk, forward the close down the chain
     void Request(ostream &os);
@@ -787,7 +811,7 @@ struct RecordAppendOp : public KfsOp {
     void Request(ostream &os);
     void Response(ostream &os);
     void Execute();
-    string Show() const;
+    virtual ostream& ShowSelf(ostream& os) const;
     bool Validate();
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
@@ -861,10 +885,10 @@ struct GetRecordAppendOpStatus : public KfsOp
     void Request(ostream &os);
     void Response(ostream &os);
     void Execute();
-    string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os << "get-record-append-op-status:"
+        return os <<
+            "get-record-append-op-status:"
             " seq: "          << seq <<
             " chunkId: "      << chunkId <<
             " writeId: "      << writeId <<
@@ -873,7 +897,6 @@ struct GetRecordAppendOpStatus : public KfsOp
             " op-status: "    << opStatus <<
             " wid: "          << (widReadOnlyFlag ? "ro" : "w")
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -950,10 +973,10 @@ struct WriteIdAllocOp : public KfsOp {
     int HandlePeerReply(int code, void *data);
     int Done(int code, void *data);
 
-    string Show() const {
-        ostringstream os;
-
-        os << "write-id-alloc:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "write-id-alloc:"
             " seq: "          << seq <<
             " client-seq: "   << clientSeq <<
             " chunkId: "      << chunkId <<
@@ -962,7 +985,6 @@ struct WriteIdAllocOp : public KfsOp {
             " status: "       << status <<
             " msg: "          << statusMsg
         ;
-        return os.str();
     }
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
@@ -1030,17 +1052,16 @@ struct WritePrepareOp : public KfsOp {
             findFlag, resetFlag, chunkId, devBufMgr);
     }
 
-    string Show() const {
-        ostringstream os;
-
-        os << "write-prepare:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "write-prepare:"
             " seq: "          << seq <<
             " chunkId: "      << chunkId <<
             " chunkversion: " << chunkVersion <<
             " offset: "       << offset <<
             " numBytes: "     << numBytes
         ;
-        return os.str();
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1068,8 +1089,13 @@ struct WritePrepareFwdOp : public KfsOp {
     // decl. to keep compiler happy
     void Execute() {}
 
-    string Show() const {
-        return ("write-prepare-fwd: " + owner.Show());
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "write-prepare-fwd: "
+            "seq: " << seq <<
+            " " << owner.Show()
+        ;
     }
 };
 
@@ -1161,16 +1187,15 @@ struct WriteOp : public KfsOp {
     int HandleWriteDone(int code, void *data);
     int HandleLoggingDone(int code, void *data);
 
-    string Show() const {
-        ostringstream os;
-
-        os << "write:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "write:"
             " chunkId: "       << chunkId <<
             " chunkversion: "  << chunkVersion <<
             " offset: "        << offset <<
             " numBytes: "      << numBytes
         ;
-        return os.str();
     }
 };
 
@@ -1220,17 +1245,16 @@ struct WriteSyncOp : public KfsOp {
     int ForwardToPeer(const ServerLocation &peer);
     int Done(int code, void *data);
 
-    string Show() const {
-        ostringstream os;
-
-        os << "write-sync:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "write-sync:"
             " seq: "          << seq <<
             " chunkId: "      << chunkId <<
             " chunkversion: " << chunkVersion <<
             " offset: "       << offset <<
             " numBytes: "     << numBytes <<
             " write-ids: "    << servers;
-        return os.str();
     }
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
@@ -1265,11 +1289,12 @@ struct ReadChunkMetaOp : public KfsOp {
     }
 
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-
-        os << "read-chunk-meta: chunkid: " << chunkId;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "read-chunk-meta:"
+            " chunkid: " << chunkId
+        ;
     }
 
     void AddWaiter(KfsOp *op) {
@@ -1359,16 +1384,15 @@ struct ReadOp : public KfsOp {
     // handler for dealing with re-replication events
     int HandleReplicatorDone(int code, void *data);
     int HandleScrubReadDone(int code, void *data);
-    string Show() const {
-        ostringstream os;
-
-        os << "read:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "read:"
             " chunkId: "      << chunkId <<
             " chunkversion: " << chunkVersion <<
             " offset: "       << offset <<
             " numBytes: "     << numBytes
         ;
-        return os.str();
     }
     virtual bool IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId);
     virtual BufferManager* GetDeviceBufferManager(
@@ -1409,14 +1433,15 @@ struct SizeOp : public KfsOp {
     void Request(ostream &os);
     void Response(ostream &os);
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "size:"
-        " chunkId: "      << chunkId <<
-        " chunkversion: " << chunkVersion <<
-        " size: "         << size;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "size:"
+            " seq: "          << seq <<
+            " chunkId: "      << chunkId <<
+            " chunkversion: " << chunkVersion <<
+            " size: "         << size
+        ;
     }
     int HandleDone(int code, void *data);
     template<typename T> static T& ParserDef(T& parser)
@@ -1460,11 +1485,14 @@ struct ChunkSpaceReserveOp : public KfsOp {
         {}
 
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "space reserve: chunkId: " << chunkId << " nbytes: " << nbytes;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "space reserve:"
+            " seq: "     << seq <<
+            " chunkId: " << chunkId <<
+            " nbytes: "  << nbytes
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1502,11 +1530,14 @@ struct ChunkSpaceReleaseOp : public KfsOp {
         {}
 
     void Execute();
-    string Show() const {
-        ostringstream os;
-
-        os << "space release: chunkId: " << chunkId << " nbytes: " << nbytes;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "space release:"
+            " seq: "     << seq <<
+            " chunkId: " << chunkId <<
+            " nbytes: "  << nbytes
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1558,14 +1589,14 @@ struct GetChunkMetadataOp : public KfsOp {
         buf  = status >= 0 ? dataBuf : 0;
         size = buf ? numBytesIO : 0;
     }
-    string Show() const {
-        ostringstream os;
-
-        os << "get-chunk-metadata:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "get-chunk-metadata:"
+            " seq: "          << seq <<
             " chunkid: "      << chunkId <<
             " chunkversion: " << chunkVersion
         ;
-        return os.str();
     }
     int HandleDone(int code, void *data);
     virtual bool IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId) {
@@ -1597,8 +1628,12 @@ struct PingOp : public KfsOp {
         {}
     void Response(ostream &os);
     void Execute();
-    string Show() const {
-        return "monitoring ping";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "monitoring ping:"
+            " seq: " << seq
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1614,8 +1649,12 @@ struct DumpChunkMapOp : public KfsOp {
        {}
     void Response(ostream &os);
     void Execute();
-    string Show() const {
-       return "dumping chunk map";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "dump chunk map:"
+            "seq: " << seq
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1633,8 +1672,12 @@ struct StatsOp : public KfsOp {
         {}
     void Response(ostream &os);
     void Execute();
-    string Show() const {
-        return "monitoring stats";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << 
+            "monitoring stats:"
+            " seq: " << seq
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1659,15 +1702,15 @@ struct LeaseRenewOp : public KfsOp {
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-
-        os << "lease-renew:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "lease-renew:"
+            " seq: "     << seq <<
             " chunkid: " << chunkId <<
             " leaseId: " << leaseId <<
             " type: "    << leaseType
         ;
-        return os.str();
     }
 };
 
@@ -1695,17 +1738,17 @@ struct LeaseRelinquishOp : public KfsOp {
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-
-        os << "lease-relinquish:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "lease-relinquish:"
+            " seq: "      << seq <<
             " chunkid: "  << chunkId <<
             " leaseId: "  << leaseId <<
             " type: "     << leaseType <<
             " size: "     << chunkSize <<
             " checksum: " << chunkChecksum
         ;
-        return os.str();
     }
 };
 
@@ -1753,10 +1796,10 @@ struct HelloMetaOp : public KfsOp {
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);
-    string Show() const {
-        ostringstream os;
-
-        os << "meta-hello:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "meta-hello:"
             " seq: "         << seq <<
             " mylocation: "  << myLocation.ToString() <<
             " cluster-key: " << clusterKey <<
@@ -1768,7 +1811,6 @@ struct HelloMetaOp : public KfsOp {
             " not-stable: "  << chunkLists[kNotStableChunkList].count <<
             " append: "      << chunkLists[kNotStableAppendChunkList].count
         ;
-        return os.str();
     }
 };
 
@@ -1805,13 +1847,14 @@ struct CorruptChunkOp : public KfsOp {
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-        os << "corrupt chunk:"
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "corrupt chunk:"
+            " seq: "     << seq <<
             " fileid: "  << fid <<
             " chunkid: " << chunkId
         ;
-        return os.str();
     }
 private:
     int refCount;
@@ -1878,13 +1921,13 @@ struct EvacuateChunksOp : public KfsOp {
         return 0;
     }
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-        os << "evacuate chunks:";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        os << "evacuate chunks: seq: " << seq;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunkIds[i];
         }
-        return os.str();
+        return os;
     }
 };
 
@@ -1910,13 +1953,13 @@ struct AvailableChunksOp : public KfsOp {
         return 0;
     }
     void Execute() {}
-    string Show() const {
-        ostringstream os;
-        os << "available chunks:";
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        os << "available chunks: seq: " << seq;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunkIds[i] << "." << chunkVersions[i];
         }
-        return os.str();
+        return os;
     }
 };
 
@@ -1930,10 +1973,15 @@ struct SetProperties : public KfsOp {
         {}
     virtual void Request(ostream &os);
     virtual void Execute();
-    virtual string Show() const {
-        string ret("set-properties: " );
-        properties.getList(ret, "", ";");
-        return ret;
+    virtual virtual ostream& ShowSelf(ostream& os) const
+    {
+        string list;
+        properties.getList(list, "", ";");
+        return os <<
+            "set-properties: " <<
+            " seq: " << seq <<
+            list
+        ;
     }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is);
@@ -1950,8 +1998,9 @@ struct RestartChunkServerOp : public KfsOp {
         : KfsOp(CMD_RESTART_CHUNK_SERVER, seq)
         {}
     virtual void Execute();
-    virtual string Show() const {
-        return string("restart");
+    virtual virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "restart";
     }
     template<typename T> static T& ParserDef(T& parser)
     {

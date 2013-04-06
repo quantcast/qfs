@@ -49,10 +49,15 @@ namespace KFS
 // There is a dependency in waiting for a write-op to finish
 // before we can execute a write-sync op. Use this struct to track
 // such dependencies.
-struct OpPair {
+struct OpPair
+{
     // once op is finished, we can then execute dependent op.
-    KfsOp *op;
-    KfsOp *dependentOp;
+    OpPair(KfsOp* o, KfsOp* d)
+        : op(0),
+          dependentOp(d)
+        {}
+    KfsOp* op;
+    KfsOp* dependentOp;
 };
 
 // For record appends when client reserves space within a chunk,
@@ -76,15 +81,17 @@ typedef std::tr1::unordered_map<
     ChunkSpaceReservationKey_t, size_t, boost::hash<ChunkSpaceReservationKey_t>
 > ChunkSpaceResMap;
 
+class Properties;
+
 // KFS client protocol state machine.
 class ClientSM :
     public KfsCallbackObj,
     private BufferManager::Client
 {
 public:
+    static void SetParameters(const Properties& prop);
 
     ClientSM(NetConnectionPtr &conn);
-
     ~ClientSM(); 
 
     //
@@ -140,11 +147,6 @@ public:
             std::make_pair(ChunkSpaceReservationKey_t(chunkId, writeId), 0)
         ).first->second += nbytes;
     }
-
-    static void SetTraceRequestResponse(bool flag) {
-        sTraceRequestResponse = flag;
-    }
-
     virtual void Granted(ByteCount byteCount)
         { GrantedSelf(byteCount, false); }
 private:
@@ -198,13 +200,16 @@ private:
     std::list<RemoteSyncSMPtr> mRemoteSyncers;
     ByteCount                  mPrevNumToWrite;
     int                        mRecursionCnt;
+    int                        mDiscardByteCnt;
     const uint64_t             mInstanceNum;
     IOBuffer::WOStream         mWOStream;
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
     DevClientMgrAllocator      mDevCliMgrAllocator;
 
-    static bool                sTraceRequestResponse;
+    static bool                sTraceRequestResponseFlag;
+    static bool                sEnforceMaxWaitFlag;
+    static int                 sMaxReqSizeDiscard;
     static uint64_t            sInstanceNum;
 
     /// Given a (possibly) complete op in a buffer, run it.
@@ -225,6 +230,11 @@ private:
     inline static BufferManager* FindDevBufferManager(KfsOp& op);
     inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
     inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
+    bool FailIfExceedsWait(
+        BufferManager&         bufMgr,
+        BufferManager::Client* mgrCli,
+        KfsOp&                 op,
+        int64_t                bufferBytes);
     void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
 private:
     // No copy.

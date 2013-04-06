@@ -101,14 +101,22 @@ struct KfsOp {
     kfsSeq_t seq;
     int32_t  status;
     uint32_t checksum; // a checksum over the data
+    int64_t  maxWaitMillisec;
     size_t   contentLength;
     size_t   contentBufLen;
     char*    contentBuf;
     string   statusMsg; // optional, mostly for debugging
 
     KfsOp (KfsOp_t o, kfsSeq_t s)
-        : op(o), seq(s), status(0), checksum(0), contentLength(0),
-          contentBufLen(0), contentBuf(0), statusMsg()
+        : op(o),
+          seq(s),
+          status(0),
+          checksum(0),
+          maxWaitMillisec(-1),
+          contentLength(0),
+          contentBufLen(0),
+          contentBuf(0),
+          statusMsg()
         {}
     // to allow dynamic-type-casting, make the destructor virtual
     virtual ~KfsOp() {

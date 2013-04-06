@@ -70,8 +70,10 @@ using KFS::libkfsio::globalNetManager;
 
 const int kMaxCmdHeaderLength = 1 << 10;
 
-bool     ClientSM::sTraceRequestResponse = false;
-uint64_t ClientSM::sInstanceNum = 10000;
+bool     ClientSM::sTraceRequestResponseFlag = false;
+bool     ClientSM::sEnforceMaxWaitFlag       = true;
+int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
+uint64_t ClientSM::sInstanceNum              = 10000;
 
 inline string
 ClientSM::GetPeerName()
@@ -150,6 +152,20 @@ IsDependingOpType(const KfsOp* op)
     );
 }
 
+/* static */ void
+ClientSM::SetParameters(const Properties& prop)
+{
+    sTraceRequestResponseFlag = prop.getValue(
+        "chunkServer.clientSM.traceRequestResponse",
+        sTraceRequestResponseFlag ? 1 : 0) != 0;
+    sEnforceMaxWaitFlag = prop.getValue(
+        "chunkServer.clientSM.enforceMaxWait",
+        sEnforceMaxWaitFlag ? 1 : 0) != 0;
+    sMaxReqSizeDiscard = prop.getValue(
+        "chunkServer.clientSM.maxReqSizeDiscard",
+        sMaxReqSizeDiscard);
+}
+
 ClientSM::ClientSM(NetConnectionPtr &conn)
     : KfsCallbackObj(),
       BufferManager::Client(),
@@ -162,6 +178,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mRemoteSyncers(),
       mPrevNumToWrite(0),
       mRecursionCnt(0),
+      mDiscardByteCnt(0),
       mInstanceNum(sInstanceNum++),
       mWOStream(),
       mDevBufMgrClients(),
@@ -258,11 +275,13 @@ ClientSM::HandleRequest(int code, void* data)
 
     switch (code) {
     case EVENT_NET_READ: {
-        if (IsWaiting()) {
+        if (IsWaiting() || mDevBufMgr) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
-                "spurious read: " << (mCurOp ? mCurOp->Show() : "cmd") <<
-                " waiting for: " << GetByteCount() <<
-                " bytes of io buffers" <<
+                "spurious read:"
+                " cur op: "  << KfsOp::ShowOp(mCurOp) <<
+                " buffers: " << GetByteCount() <<
+                " waiting for " << (mDevBufMgr ? "dev. " : "") <<
+                "io buffers " <<
             KFS_LOG_EOM;
             mNetConnection->SetMaxReadAhead(0);
             break;
@@ -319,8 +338,8 @@ ClientSM::HandleRequest(int code, void* data)
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
         op->done = true;
-        assert(!mOps.empty());
-        if (sTraceRequestResponse) {
+        assert(! mOps.empty());
+        if (sTraceRequestResponseFlag) {
             IOBuffer::OStream os;
             op->Response(os);
             IOBuffer::IStream is(os);
@@ -555,11 +574,14 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
                 iobuf->MakeBuffersFull();
             }
         }
-        mCurOp = wop;
+        mDiscardByteCnt = 0;
+        mCurOp          = wop;
         if (mDevBufMgr && mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
             mDevBufMgr = 0;
         }
         if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
+            const bool failFlag = numBytes <= sMaxReqSizeDiscard - nAvail &&
+                FailIfExceedsWait(bufMgr, 0, *wop, bufferBytes);
             const BufferManager& mgr = mDevBufMgr ? *mDevBufMgr : bufMgr;
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "seq: " << wop->seq <<
@@ -570,11 +592,29 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
                 " used: "  << mgr.GetUsedByteCount() <<
                 " bufs: "  << mgr.GetFreeBufferCount() <<
                 " op: " << wop->Show() <<
-                " waiting for buffers" <<
+                (failFlag ? "exceeds max wait" : " waiting for buffers") <<
             KFS_LOG_EOM;
-            mNetConnection->SetMaxReadAhead(0);
+            if (failFlag) {
+                mDiscardByteCnt = numBytes;
+            } else {
+                mNetConnection->SetMaxReadAhead(0);
+                return false;
+            }
+        }
+    }
+    if (mDiscardByteCnt > 0) {
+        mDiscardByteCnt -= iobuf->Consume(mDiscardByteCnt);
+        if (mDiscardByteCnt > 0) {
+            mNetConnection->SetMaxReadAhead(
+                min(mDiscardByteCnt, 2 * kMaxCmdHeaderLength));
             return false;
         }
+        if (wop->status >= 0) {
+            wop->status = -ESERVERBUSY;
+        }
+        mDiscardByteCnt = 0;
+        mCurOp          = 0;
+        return true;
     }
     if (nAvail < numBytes) {
         mNetConnection->SetMaxReadAhead(numBytes - nAvail);
@@ -601,6 +641,41 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
     return true;
 }
 
+bool
+ClientSM::FailIfExceedsWait(
+    BufferManager&         bufMgr,
+    BufferManager::Client* mgrCli,
+    KfsOp&                 op,
+    int64_t                bufferBytes)
+{
+    if (! sEnforceMaxWaitFlag || op.maxWaitMillisec <= 0) {
+        return false;
+    }
+    const int64_t maxWait        = op.maxWaitMillisec * 1000;
+    const bool    devMgrWaitFlag = mDevBufMgr != 0 && mgrCli != 0;
+    const int64_t curWait        = bufMgr.GetWaitingAvgUsecs() +
+        (devMgrWaitFlag ? mDevBufMgr->GetWaitingAvgUsecs() : int64_t(0));
+    if (curWait <= maxWait ||
+            microseconds() + curWait < op.startTime + maxWait) {
+        return false;
+    }
+    CLIENT_SM_LOG_STREAM_DEBUG <<
+        " exceeded wait:"
+        " current: " << curWait <<
+        " max: "     << maxWait <<
+        " op: "      << op.Show() <<
+    KFS_LOG_EOM;
+    op.status         = -ESERVERBUSY;
+    op.statusMsg      = "exceeds max wait";
+    if(devMgrWaitFlag) {
+        mDevBufMgr->CancelRequest(*mgrCli);
+    } else {
+        PutAndResetDevBufferManager(op, bufferBytes);
+        bufMgr.CancelRequest(*this);
+    }
+    return true;
+}
+
 ///
 /// We have a command in a buffer.  It is possible that we don't have
 /// everything we need to execute it (for example, for a write we may
@@ -614,7 +689,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
 
     assert(op ? cmdLen == 0 : cmdLen > 0);
     if (! op) {
-        if (sTraceRequestResponse) {
+        if (sTraceRequestResponseFlag) {
             IOBuffer::IStream is(*iobuf, cmdLen);
             string line;
             while (getline(is, line)) {
@@ -649,10 +724,10 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 iobuf, wop->dataBuf, kForwardFlag)) {
             return false;
         }
-        bufferBytes = IoRequestBytes(wop->numBytes);
+        bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
     } else if (op->op == CMD_RECORD_APPEND) {
         RecordAppendOp* const waop = static_cast<RecordAppendOp*>(op);
-        IOBuffer* opBuf = &waop->dataBuf;
+        IOBuffer*  opBuf       = &waop->dataBuf;
         bool       forwardFlag = false;
         const int  align       = mCurOp ? 0 :
             gAtomicRecordAppendManager.GetAlignmentAndFwdFlag(
@@ -668,16 +743,17 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             return false;
         }
         assert(opBuf == &waop->dataBuf);
-        bufferBytes = IoRequestBytes(waop->numBytes);
+        bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "got: seq: " << op->seq << " " << op->Show() <<
     KFS_LOG_EOM;
 
-    bool submitResponseFlag = false;
-    kfsChunkId_t chunkId = 0;
-    int64_t reqBytes = 0;
-    if (bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId) &&
+    bool         submitResponseFlag = op->status < 0;
+    kfsChunkId_t chunkId  = 0;
+    int64_t      reqBytes = 0;
+    if (! submitResponseFlag &&
+            bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId) &&
             reqBytes >= 0) {
         bufferBytes = reqBytes + IoRequestBytes(0); // 1 buffer for reply header
         if (! mCurOp || mDevBufMgr) {
@@ -704,6 +780,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 }
                 if (mDevBufMgr || ! bufMgr.GetForDiskIo(*this, bufferBytes)) {
                     mCurOp = op;
+                    submitResponseFlag =
+                        FailIfExceedsWait(bufMgr, mgrCli, *op, bufferBytes);
                     const BufferManager& mgr =
                         mDevBufMgr ? *mDevBufMgr : bufMgr;
                     CLIENT_SM_LOG_STREAM_DEBUG <<
@@ -714,10 +792,13 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                         " used: "  << mgr.GetUsedByteCount() <<
                         " bufs: "  << mgr.GetFreeBufferCount() <<
                         " op: "    << op->Show() <<
-                        " waiting for buffers" <<
+                        (submitResponseFlag ?
+                            "exceeds max wait" : " waiting for buffers") <<
                     KFS_LOG_EOM;
-                    mNetConnection->SetMaxReadAhead(0);
-                    return false;
+                    if (! submitResponseFlag) {
+                        mNetConnection->SetMaxReadAhead(0);
+                        return false;
+                    }
                 }
             }
             mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
@@ -767,6 +848,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             BufferManager& bufMgr = GetBufferManager();
             if (! bufMgr.Get(*this, bufferBytes)) {
                 mCurOp = op;
+                submitResponseFlag =
+                    FailIfExceedsWait(bufMgr, 0, *op, bufferBytes);
                 CLIENT_SM_LOG_STREAM_DEBUG <<
                     "request for: " << bufferBytes << " bytes denied" <<
                     " cur: "   << GetByteCount() <<
@@ -774,10 +857,13 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                     " used: "  << bufMgr.GetUsedByteCount() <<
                     " bufs: "  << bufMgr.GetFreeBufferCount() <<
                     " op: "    << op->Show() <<
-                    " waiting for buffers" <<
+                    (submitResponseFlag ?
+                        "exceeds max wait" : " waiting for buffers") <<
                 KFS_LOG_EOM;
-                mNetConnection->SetMaxReadAhead(0);
-                return false;
+                if (! submitResponseFlag) {
+                    mNetConnection->SetMaxReadAhead(0);
+                    return false;
+                }
             }
         }
         mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
@@ -794,13 +880,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             }
         }
         if (w) {
-            OpPair p;
-
             op->clnt = this;
-            p.op = w;
-            p.dependentOp = op;
-            mPendingOps.push_back(p);
-
+            mPendingOps.push_back(OpPair(w, op));
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "keeping write-sync (" << op->seq <<
                 ") pending and depends on " << w->seq <<
@@ -881,9 +962,8 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
 {
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "granted: " << (devBufManagerFlag ? "by dev. " : "") <<
-        byteCount << " op: " <<
+        byteCount << " op: " << KfsOp::ShowOp(mCurOp) <<
         " dev. mgr: " << (const void*)mDevBufMgr <<
-        (mCurOp ? mCurOp->Show() : string("null")) <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
     if (! mNetConnection) {

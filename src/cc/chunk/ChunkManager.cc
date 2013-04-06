@@ -487,9 +487,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         }
         void Execute()
             {}
-        string Show() const
+        virtual ostream& ShowSelf(ostream& os) const
         {
-            return ("chunk dir info: " + mChunkDir.dirname);
+            return os << "chunk dir info: " << mChunkDir.dirname;
         }
     private:
         const ChunkDirInfo& mChunkDir;
@@ -613,7 +613,8 @@ ChunkManager::ChunkDirs::Allocate(size_t size)
 // OP for reading/writing out the meta-data associated with each chunk.  This
 // is an internally generated op (ops that generate this one are
 // allocate/write/truncate/change-chunk-vers).
-struct WriteChunkMetaOp : public KfsOp {
+struct WriteChunkMetaOp : public KfsOp
+{
     kfsChunkId_t const chunkId;
     DiskIo* const      diskIo;  /* disk connection used for writing data */
     IOBuffer           dataBuf; /* buffer with the data to be written */
@@ -642,29 +643,26 @@ struct WriteChunkMetaOp : public KfsOp {
     {
         SET_HANDLER(this, &WriteChunkMetaOp::HandleDone);
     }
-    ~WriteChunkMetaOp() {
-        delete diskIo;
-    }
+    ~WriteChunkMetaOp()
+        { delete diskIo; }
     void Execute() {}
     inline bool IsRenameNeeded(const ChunkInfoHandle* cih) const;
-    bool IsWaiting() const {
-        return (! diskIo && ! renameFlag);
-    }
+    bool IsWaiting() const
+        { return (! diskIo && ! renameFlag); }
     int Start(ChunkInfoHandle* cih);
-    string Show() const {
-        ostringstream os;
-        os << "write-chunk-meta: "
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "write-chunk-meta: "
             " chunkid: " << chunkId <<
             " rename:  " << renameFlag <<
             " stable:  " << stableFlag <<
             " version: " << targetVersion
         ;
-        return os.str();
-
     }
     // Notify the op that is waiting for the write to finish that all
     // is done
-    int HandleDone(int code, void *data) {
+    int HandleDone(int code, void *data)
+    {
         if (clnt) {
             clnt->HandleEvent(code, data);
         }
@@ -1762,6 +1760,7 @@ ChunkManager::SetParameters(const Properties& prop)
     mDiskBufferManagerEnabledFlag = prop.getValue(
         "chunkServer.disk.bufferManager.enabled",
         mDiskBufferManagerEnabledFlag ? 1 : 0) != 0,
+    ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
 }
