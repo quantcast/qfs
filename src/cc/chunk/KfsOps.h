@@ -1973,7 +1973,7 @@ struct SetProperties : public KfsOp {
         {}
     virtual void Request(ostream &os);
     virtual void Execute();
-    virtual virtual ostream& ShowSelf(ostream& os) const
+    virtual ostream& ShowSelf(ostream& os) const
     {
         string list;
         properties.getList(list, "", ";");
@@ -1998,7 +1998,7 @@ struct RestartChunkServerOp : public KfsOp {
         : KfsOp(CMD_RESTART_CHUNK_SERVER, seq)
         {}
     virtual void Execute();
-    virtual virtual ostream& ShowSelf(ostream& os) const
+    virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "restart";
     }
