@@ -531,6 +531,33 @@ CheckCreatePerms(T& req)
 const string kInvalidChunksPath("/proc/invalid_chunks");
 const string kInvalidChunksPrefix(kInvalidChunksPath + "/");
 
+class MetaRequestNull : public MetaRequest
+{
+protected:
+    MetaRequestNull()
+        : MetaRequest(META_NUM_OPS_COUNT, false)
+        {}
+    virtual ostream& ShowSelf(ostream& os) const
+        { return os << "null"; }
+    virtual int log(ostream& /* os */) const
+        { return 0; }
+    static const MetaRequest& Instance()
+    {
+        static const MetaRequestNull sInstance;
+        return sInstance;
+    }
+    static const MetaRequest& sNullReq;
+    friend struct MetaRequest;
+};
+// Force construction;
+const MetaRequest& MetaRequestNull::sNullReq = MetaRequestNull::Instance();
+
+/* static */ const MetaRequest&
+MetaRequest::GetNullReq()
+{
+    return MetaRequestNull::Instance();
+}
+
 /* virtual */ void
 MetaCreate::handle()
 {
@@ -1876,12 +1903,11 @@ MetaChunkAllocate::handle()
     }
 }
 
-string
-MetaAllocate::Show() const
+ostream&
+MetaAllocate::ShowSelf(ostream& os) const
 {
-    ostringstream os;
     os << "allocate:"
-        " seq:  "     << opSeqno     <<
+        " seq: "      << opSeqno     <<
         " path: "     << pathname    <<
         " fid: "      << fid         <<
         " chunkId: "  << chunkId     <<
@@ -1896,7 +1922,7 @@ MetaAllocate::Show() const
             ++i) {
         os << " " << (*i)->GetServerLocation();
     }
-    return os.str();
+    return os;
 }
 
 /* virtual */ void
@@ -2307,11 +2333,10 @@ MetaChunkMakeStable::handle()
     status = 0;
 }
 
-/* virtual */ string
-MetaChunkMakeStable::Show() const
+/* virtual */ ostream&
+MetaChunkMakeStable::ShowSelf(ostream& os) const
 {
-    ostringstream os;
-    os <<
+    return os <<
         "make-chunk-stable:"
         " server: "        << server->GetServerLocation() <<
         " seq: "           << opSeqno <<
@@ -2323,7 +2348,6 @@ MetaChunkMakeStable::Show() const
         " chunkSize: "     << chunkSize <<
         " chunkChecksum: " << chunkChecksum
     ;
-    return os.str();
 }
 
 /* virtual */ void
@@ -2338,11 +2362,10 @@ MetaChunkReplicate::handle()
     gLayoutManager.ChunkReplicationDone(this);
 }
 
-/* virtual */ string
-MetaChunkReplicate::Show() const
+/* virtual */ ostream&
+MetaChunkReplicate::ShowSelf(ostream& os) const
 {
-    ostringstream os;
-    os <<
+    return os <<
         (numRecoveryStripes > 0 ? "recover" : "replicate:") <<
         " chunk: "        << chunkId <<
         " version: "      << chunkVersion <<
@@ -2356,7 +2379,6 @@ MetaChunkReplicate::Show() const
         " to: "           << (server ?
             server->GetServerLocation() : ServerLocation())
     ;
-    return os.str();
 }
 
 /* virtual */ void

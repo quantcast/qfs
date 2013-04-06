@@ -4623,9 +4623,12 @@ struct MetaLogChunkVersionChange : public MetaRequest, public KfsCallbackObj
     }
     virtual void handle()
         { status = 0; }
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return string("log-chunk-version-change: ") + alloc.Show();
+        return os << 
+            "log-chunk-version-change: " <<
+            alloc.Show()
+        ;
     }
     virtual int log(ostream &file) const
     {
@@ -7250,7 +7253,7 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
         "delete pending MCS:"
         " <" << fid << "," << chunkId << ">" <<
         " total: " << mPendingMakeStable.size() <<
-        " " << (op ? op->Show() : string("size < 0")) <<
+        " " << MetaRequest::ShowReq(op) <<
     KFS_LOG_EOM;
     if (op) {
         submit_request(op);

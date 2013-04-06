@@ -159,6 +159,21 @@ struct MetaRequest {
         StdAllocator<ChunkServerPtr>
     > Servers;
 
+    class Display
+    {
+    public:
+        Display(const MetaRequest& req)
+            : mReq(req)
+            {}
+        Display(const Display& other)
+            : mReq(other.mReq)
+            {}
+        ostream& Show(ostream& os) const
+            { return mReq.ShowSelf(os); }
+    private:
+        const MetaRequest& mReq;
+    };
+
     const MetaOp    op;              //!< type of request
     int             status;          //!< returned status
     int             clientProtoVers; //!< protocol version # sent by client
@@ -191,7 +206,7 @@ struct MetaRequest {
           suspended(false),
           fromChunkServerFlag(false),
           clientIp(),
-                  reqHeaders(),
+          reqHeaders(),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           next(0),
@@ -205,7 +220,7 @@ struct MetaRequest {
     virtual void response(ostream& /* os */) {}
     virtual void response(ostream& os, IOBuffer& /* buf */) { response(os); }
     virtual int log(ostream &file) const = 0; //!< write request to log
-    virtual string Show() const { return string(); }
+    Display Show() const { return Display(*this); }
     virtual void setChunkServer(const ChunkServerPtr& /* cs */) {};
     bool ValidateRequestHeader(
         const char* name,
@@ -236,6 +251,7 @@ struct MetaRequest {
         .Def("GroupId",                 &MetaRequest::egroup, kKfsGroupNone)
         ;
     }
+    virtual ostream& ShowSelf(ostream& os) const = 0;
     static void SetParameters(const Properties& props);
     static uint32_t Checksum(
         const char* name,
@@ -244,6 +260,10 @@ struct MetaRequest {
         size_t      headerLen);
     static int GetRequestCount()
         { return sMetaRequestCount; }
+    static Display ShowReq(const MetaRequest* req)
+    {
+        return (req ? *req : GetNullReq()).Show();
+    }
 private:
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];
@@ -256,7 +276,10 @@ private:
     friend class QCDLListOp<MetaRequest, 0>;
     typedef QCDLList<MetaRequest, 0> MetaRequestsList;
     void Init();
+    static const MetaRequest& GetNullReq();
 };
+inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
+{ return disp.Show(os); }
 
 void submit_request(MetaRequest *r);
 
@@ -276,13 +299,13 @@ struct MetaLookup: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "lookup: name = " << name;
-        os << " (parent fid = " << dir << ")";
-        return os.str();
+        return os <<
+            "lookup:"
+            " name: "   << name <<
+            " parent: " << dir
+        ;
     }
     bool Validate()
     {
@@ -313,13 +336,13 @@ struct MetaLookupPath: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "lookup_path: path = " << path;
-        os << " (root fid = " << root << ")";
-        return os.str();
+        return os <<
+            "lookup path:"
+            " path: " << path <<
+            " root: " << root
+        ;
     }
     bool Validate()
     {
@@ -375,10 +398,10 @@ struct MetaCreate: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os << "create:"
+        return os <<
+            "create:"
             " name: "        << name <<
             " parent: "      << dir <<
             " replication: " << numReplicas <<
@@ -391,7 +414,6 @@ struct MetaCreate: public MetaRequest {
             " group: "       << group <<
             " mode: "        << oct << mode << dec
         ;
-        return os.str();
     }
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
@@ -439,11 +461,10 @@ struct MetaMkdir: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "mkdir:"
+        return os <<
+            "mkdir:"
             " name: "   << name <<
             " parent: " << dir  <<
             " user: "   << user <<
@@ -452,7 +473,6 @@ struct MetaMkdir: public MetaRequest {
             " euser: "  << euser <<
             " egroup: " << egroup
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -489,17 +509,15 @@ struct MetaRemove: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "remove:"
+        return os <<
+            "remove:"
             " path: "       << pathname <<
             " name: "       << name <<
             " dir: "        << dir <<
             " todumpster: " << todumpster
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -531,13 +549,14 @@ struct MetaRmdir: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "rmdir: path = " << pathname << " (name = " << name << ")";
-        os << " (parent fid = " << dir << ")";
-        return os.str();
+        return os <<
+            "rmdir:"
+            " path: "   << pathname <<
+            " name: "   << name <<
+            " parent: " << dir
+        ;
     }
     bool Validate()
     {
@@ -573,11 +592,9 @@ struct MetaReaddir: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os << "readdir: dir fid = " << dir;
-        return os.str();
+        return os << "readdir: dir: " << dir;
     }
     bool Validate()
     {
@@ -674,12 +691,9 @@ struct MetaReaddirPlus: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "readdir plus: dir fid = " << dir;
-        return os.str();
+        return os << "readdir plus: dir: " << dir;
     }
     bool Validate()
     {
@@ -721,13 +735,14 @@ struct MetaGetalloc: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "getalloc: " << pathname << " (fid = " << fid << ")";
-        os << " offset = " << offset;
-        return os.str();
+        return os <<
+            "getalloc:"
+            " fid: "    << fid <<
+            " offset: " << offset <<
+            " path: "   << pathname
+        ;
     }
     bool Validate()
     {
@@ -769,12 +784,9 @@ struct MetaGetlayout: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "getlayout: fid = " << fid;
-        return os.str();
+        return os << "getlayout: fid: " << fid;
     }
     bool Validate()
     {
@@ -816,10 +828,9 @@ struct MetaLeaseRelinquish: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
+        return os <<
         "relinquish " <<
             (leaseType == READ_LEASE ? "read" : "write") <<
         " lease: "     << leaseId <<
@@ -828,7 +839,6 @@ struct MetaLeaseRelinquish: public MetaRequest {
         " checksum: "  << (hasChunkChecksum ?
             int64_t(chunkChecksum) : int64_t(-1))
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -936,7 +946,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const;
+    virtual ostream& ShowSelf(ostream& os) const;
     void responseSelf(ostream &os);
     void LayoutDone(int64_t chunkAllocProcessTime);
     int logOrLeaseRelinquishDone(int code, void *data);
@@ -987,17 +997,15 @@ struct MetaTruncate: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
+        return os <<
             (pruneBlksFromHead ?
                 "prune from head:" : "truncate:") <<
             " path: "   << pathname <<
             " fid: "    << fid <<
             " offset: " << offset
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -1038,17 +1046,15 @@ struct MetaRename: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "rename:"
-        " dir: "        << dir     <<
-        " from: "       << oldpath <<
-        " to: "         << newname <<
-        " todumpster: " << todumpster
+        return os <<
+            "rename:"
+            " dir: "        << dir     <<
+            " from: "       << oldpath <<
+            " to: "         << newname <<
+            " todumpster: " << todumpster
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -1084,14 +1090,13 @@ struct MetaSetMtime: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os << "setmtime:"
+        return os <<
+            "setmtime:"
             " path: "  << pathname <<
             " mtime: " << ShowTime(mtime)
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -1125,13 +1130,13 @@ struct MetaChangeFileReplication: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "change-file-replication: fid = " << fid;
-        os << " new # of replicas: " << numReplicas << ' ';
-        return os.str();
+        return os <<
+            "change-file-replication:"
+            " fid: "      << fid <<
+            " replicas: " << numReplicas
+        ;
     }
     bool Validate()
     {
@@ -1173,13 +1178,13 @@ struct MetaCoalesceBlocks: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "coalesce blocks: src = " << srcPath;
-        os << " dst = " << dstPath;
-        return os.str();
+        return os <<
+            "coalesce blocks:"
+            " src: "  << srcPath <<
+            " dst = " << dstPath
+        ;
     }
     bool Validate()
     {
@@ -1218,11 +1223,13 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return ((nSecsDown > 0 ?
-            "hibernating server: " : "retiring server: "
-        ) + location.ToString());
+        return os <<
+            (nSecsDown > 0 ? "hibernating server: " : "retiring server: ") <<
+            location <<
+            "down time: " << nSecsDown
+        ;
     }
     bool Validate()
     {
@@ -1297,9 +1304,9 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "Chunkserver Hello";
+        return os << "Chunkserver hello";
     }
     bool Validate()
     {
@@ -1338,9 +1345,9 @@ struct MetaBye: public MetaRequest {
         MetaRequest(META_BYE, false, s), server(c) { }
     virtual void handle();
     virtual int log(ostream &file) const;
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "Chunkserver Bye";
+        return os << "Chunkserver bye";
     }
 };
 
@@ -1359,16 +1366,14 @@ struct MetaGetPathName: public MetaRequest {
     virtual void handle();
     virtual void response(ostream &os);
     virtual int log(ostream& /* file */) const { return 0; }
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
+        return os <<
             "get pathname:"
             " fid: "     << fid <<
             " chunkId: " << chunkId <<
             " status: "  << status
         ;
-        return os.str();
     }
     bool Validate()
         { return (fid >= 0 || chunkId >= 0); }
@@ -1392,16 +1397,14 @@ struct MetaChmod: public MetaRequest {
     virtual void handle();
     virtual void response(ostream &os);
     virtual int log(ostream& file) const;
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
+        return os <<
             "chmod:"
             " fid: "    << fid <<
             " mode: "   << oct << mode << dec <<
             " status: " << status
         ;
-        return os.str();
     }
     bool Validate()
         { return (fid >= 0 && mode != kKfsModeUndef); }
@@ -1427,10 +1430,9 @@ struct MetaChown: public MetaRequest {
     virtual void handle();
     virtual void response(ostream &os);
     virtual int log(ostream& file) const;
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
+        return os <<
             "chown:"
             " euser: "  << euser <<
             " egroup: " << egroup <<
@@ -1439,7 +1441,6 @@ struct MetaChown: public MetaRequest {
             " group: "  << group <<
             " status: " << status
         ;
-        return os.str();
     }
     bool Validate()
         { return (fid >= 0); }
@@ -1500,9 +1501,13 @@ struct MetaChunkAllocate : public MetaChunkRequest {
           {}
     virtual void handle();
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return ("meta->chunk allocate:" + (req ? req->Show() : string()));
+        os << "meta->chunk allocate:";
+        if (req) {
+            os << req->Show();
+        }
+        return os;
     }
 };
 
@@ -1514,12 +1519,9 @@ struct MetaChunkDelete: public MetaChunkRequest {
         : MetaChunkRequest(META_CHUNK_DELETE, n, false, s, c)
         {}
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << "meta->chunk delete: chunkId: " << chunkId;
-        return os.str();
+        return os << "meta->chunk delete: chunkId: " << chunkId;
     }
 };
 
@@ -1574,7 +1576,7 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     virtual void handle();
     virtual void request(ostream &os);
     virtual void handleReply(const Properties& prop);
-    virtual string Show() const;
+    virtual ostream& ShowSelf(ostream& os) const;
 };
 
 /*!
@@ -1614,11 +1616,9 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     virtual ~MetaChunkVersChange()  { assert(! replicate); }
     virtual void handle();
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os <<
+        return os <<
             "meta->chunk vers change:"
             " fid: "        << fid <<
             " chunkId: "        << chunkId <<
@@ -1626,7 +1626,6 @@ struct MetaChunkVersChange: public MetaChunkRequest {
             " => to: "          << chunkVersion <<
             " make stable: "    << makeStableFlag
         ;
-        return os.str();
     }
 };
 
@@ -1663,16 +1662,15 @@ struct MetaChunkSize: public MetaChunkRequest {
     {
         chunkSize = prop.getValue("Size", (chunkOff_t) -1);
     }
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-        os <<
-        "meta->chunk size: " << pathname <<
-        " fid: "             << fid <<
-        " chunkId: "         << chunkId <<
-        " chunkVersion: "    << chunkVersion <<
-        " size: "            << chunkSize;
-        return os.str();
+        return os <<
+            "meta->chunk size: " << pathname <<
+            " fid: "             << fid <<
+            " chunkId: "         << chunkId <<
+            " chunkVersion: "    << chunkVersion <<
+            " size: "            << chunkSize
+        ;
     }
 };
 
@@ -1689,9 +1687,9 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
           evacuateCount(evacuateCnt)
         {}
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "meta->chunk heartbeat";
+        return os << "meta->chunk heartbeat";
     }
 };
 
@@ -1712,9 +1710,9 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     bool         evacuatedFlag;
     bool         hexFormatFlag;
     virtual void request(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "meta->chunk stale notify";
+        return os << "meta->chunk stale notify";
     }
 };
 
@@ -1737,19 +1735,19 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
         chunkSize     =           prop.getValue("Chunk-size",     (int64_t) -1);
         chunkChecksum = (uint32_t)prop.getValue("Chunk-checksum", (uint64_t)0);
     }
-    virtual string Show() const {
-        ostringstream os;
-        os << "begin-make-chunk-stable:"
-        " server: "        << serverLoc <<
-        " seq: "           << opSeqno <<
-        " status: "        << status <<
-        (statusMsg.empty() ? "" : " ") << statusMsg <<
-        " fileid: "        << fid <<
-        " chunkid: "       << chunkId <<
-        " chunkvers: "     << chunkVersion <<
-        " chunkSize: "     << chunkSize <<
-        " chunkChecksum: " << chunkChecksum;
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            "begin-make-chunk-stable:"
+            " server: "        << serverLoc <<
+            " seq: "           << opSeqno <<
+            " status: "        << status <<
+            (statusMsg.empty() ? "" : " ") << statusMsg <<
+            " fileid: "        << fid <<
+            " chunkid: "       << chunkId <<
+            " chunkvers: "     << chunkVersion <<
+            " chunkSize: "     << chunkSize <<
+            " chunkChecksum: " << chunkChecksum
+        ;
     }
 };
 
@@ -1778,18 +1776,18 @@ struct MetaLogMakeChunkStable : public MetaRequest, public  KfsCallbackObj {
         clnt = this;
     }
     virtual void handle() { status = 0; }
-    virtual string Show() const {
-        ostringstream os;
-        os << (op == META_LOG_MAKE_CHUNK_STABLE ?
-            "log-make-chunk-stable:" :
-            "log-make-chunk-stable-done:") <<
-        " fleid: "         << fid <<
-        " chunkid: "       << chunkId <<
-        " chunkvers: "     << chunkVersion <<
-        " chunkSize: "     << chunkSize <<
-        " chunkChecksum: " << (hasChunkChecksum ?
-            int64_t(chunkChecksum) : int64_t(-1));
-        return os.str();
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os <<
+            (op == META_LOG_MAKE_CHUNK_STABLE ?
+                "log-make-chunk-stable:" :
+                "log-make-chunk-stable-done:") <<
+            " fleid: "         << fid <<
+            " chunkid: "       << chunkId <<
+            " chunkvers: "     << chunkVersion <<
+            " chunkSize: "     << chunkSize <<
+            " chunkChecksum: " << (hasChunkChecksum ?
+                int64_t(chunkChecksum) : int64_t(-1))
+        ;
     }
     virtual int log(ostream &file) const;
     int logDone(int code, void *data);
@@ -1836,7 +1834,7 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
     const uint32_t   chunkChecksum;
     virtual void handle();
     virtual void request(ostream &os);
-    virtual string Show() const;
+    virtual ostream& ShowSelf(ostream& os) const;
 };
 
 
@@ -1848,9 +1846,9 @@ struct MetaChunkRetire: public MetaChunkRequest {
     MetaChunkRetire(seq_t n, const ChunkServerPtr& s):
         MetaChunkRequest(META_CHUNK_RETIRE, n, false, s, -1) { }
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "chunkserver retire";
+        return os << "chunkserver retire";
     }
 };
 
@@ -1862,9 +1860,9 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
           serverProps(Properties2Str(props))
     {}
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "chunkserver set properties";
+        return os << "chunkserver set properties";
     }
     static string Properties2Str(const Properties& props)
     {
@@ -1879,9 +1877,9 @@ struct MetaChunkServerRestart : public MetaChunkRequest {
         : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, false, s, -1)
         {}
     virtual void request(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "chunkserver restart";
+        return os << "chunkserver restart";
     }
 };
 
@@ -1903,9 +1901,9 @@ struct MetaPing : public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "ping";
+        return os << "ping";
     }
     bool Validate()
     {
@@ -1931,9 +1929,9 @@ struct MetaUpServers: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "upservers";
+        return os << "upservers";
     }
     bool Validate()
     {
@@ -1959,9 +1957,10 @@ struct MetaToggleWORM: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return (value ? "Toggle WORM: Enabled" : "Toggle WORM: Disabled");
+        return os <<
+            (value ? "Toggle WORM: Enabled" : "Toggle WORM: Disabled");
     }
     bool Validate()
     {
@@ -1989,9 +1988,9 @@ struct MetaStats: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "stats";
+        return os << "stats";
     }
     bool Validate()
     {
@@ -2014,9 +2013,9 @@ struct MetaRecomputeDirsize: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "recompute dir size";
+        return os << "recompute dir size";
     }
     bool Validate()
     {
@@ -2044,9 +2043,9 @@ struct MetaDumpChunkToServerMap: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "dump chunk2server map";
+        return os << "dump chunk2server map";
     }
     bool Validate()
     {
@@ -2069,9 +2068,9 @@ struct MetaCheckLeases: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "checking all leases";
+        return os << "checking all leases";
     }
     bool Validate()
     {
@@ -2102,9 +2101,9 @@ struct MetaDumpChunkReplicationCandidates: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "dump chunk replication candidates";
+        return os << "dump chunk replication candidates";
     }
     bool Validate()
     {
@@ -2132,9 +2131,9 @@ struct MetaFsck: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "fsck";
+        return os << "fsck";
     }
     bool Validate()
     {
@@ -2184,9 +2183,9 @@ struct MetaOpenFiles: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "open files";
+        return os << "open files";
     }
     bool Validate()
     {
@@ -2208,11 +2207,11 @@ struct MetaSetChunkServersProperties : public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
         string ret("set chunk servers properties ");
         properties.getList(ret, "", ";");
-        return ret;
+        return os << ret;
     }
     bool HandleUnknownField(
         const char* key, size_t keyLen,
@@ -2250,9 +2249,9 @@ struct MetaGetChunkServersCounters : public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return string("get chunk servers counters");
+        return os << "get chunk servers counters";
     }
     bool Validate()
     {
@@ -2278,9 +2277,9 @@ struct MetaGetChunkServerDirsCounters : public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return string("get chunk servers dir counters");
+        return os << "get chunk servers dir counters";
     }
     bool Validate()
     {
@@ -2308,9 +2307,9 @@ struct MetaGetRequestCounters : public MetaRequest {
         return 0;
     }
     virtual void response(ostream &os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return string("get request counters ");
+        return os << "get request counters ";
     }
     bool Validate()
     {
@@ -2348,9 +2347,9 @@ struct MetaCheckpoint : public MetaRequest {
     {
         return 0;
     }
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return string("checkpoint");
+        return os << "checkpoint";
     }
     void SetParameters(const Properties& props);
     void ScheduleNow();
@@ -2381,7 +2380,8 @@ struct MetaDisconnect : public MetaRequest {
         clientProtoVers = KFS_CLIENT_PROTO_VERS;
         }
     virtual void handle()                {}
-    virtual string Show() const          { return string("disconnect"); }
+    virtual ostream& ShowSelf(ostream& os) const
+        { return os << "disconnect"; }
     virtual int log(ostream &file) const { return 0; }
     bool Validate()                      { return true; }
 };
@@ -2410,12 +2410,13 @@ struct MetaChunkCorrupt: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os << (isChunkLost ? "lost" : "corrupt") << " chunk: fid = " << fid << " chunkid = " << chunkId;
-        return os.str();
+        return os <<
+            (isChunkLost ? "lost" : "corrupt") <<
+            " fid: "   << fid <<
+            " chunk: " << chunkId
+        ;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -2468,9 +2469,11 @@ struct MetaChunkEvacuate: public MetaRequest {
         return 0;
     }
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return ("evacuate: " + chunkIds.GetStr());
+        os << "evacuate: ";
+        os.write(chunkIds.GetPtr(), chunkIds.GetSize());
+        return os;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -2513,9 +2516,11 @@ struct MetaChunkAvailable : public MetaRequest {
         return 0;
     }
     virtual void response(ostream& os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return ("chunk available: " + chunkIdAndVers.GetStr());
+        os << "chunk available: ";
+        os.write(chunkIdAndVers.GetPtr(), chunkIdAndVers.GetSize());
+        return os;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -2553,9 +2558,9 @@ struct MetaChunkDirInfo : public MetaRequest {
         return 0;
     }
     virtual void response(ostream& os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return ("chunk dir info");
+        return os << "chunk dir info";
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -2615,18 +2620,15 @@ struct MetaLeaseAcquire: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os, IOBuffer& buf);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
-        os <<
-        "lease acquire:"
-        " chunkId: " << chunkId <<
-        " " << pathname <<
-        (leaseType == READ_LEASE ? " read lease " : " write lease ") <<
-        (flushFlag ? " flush" : "")
+        return os <<
+            "lease acquire:"
+            " chunkId: " << chunkId <<
+            " " << pathname <<
+            (leaseType == READ_LEASE ? " read lease " : " write lease ") <<
+            (flushFlag ? " flush" : "")
         ;
-        return os.str();
     }
     bool Validate()
     {
@@ -2664,10 +2666,8 @@ struct MetaLeaseRenew: public MetaRequest {
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        ostringstream os;
-
         os << "lease renew: " << pathname << " ";
         if (leaseType == READ_LEASE)
             os << "read lease ";
@@ -2675,7 +2675,7 @@ struct MetaLeaseRenew: public MetaRequest {
             os << "write lease ";
 
         os << " chunkId = " << chunkId;
-        return os.str();
+        return os;
     }
     bool Validate()
     {
@@ -2705,9 +2705,9 @@ struct MetaLeaseCleanup: public MetaRequest {
 
     virtual void handle();
     virtual int log(ostream &file) const;
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "lease cleanup";
+        return os << "lease cleanup";
     }
 };
 
@@ -2722,9 +2722,9 @@ struct MetaChunkReplicationCheck : public MetaRequest {
 
     virtual void handle();
     virtual int log(ostream &file) const;
-    virtual string Show() const
+    virtual ostream& ShowSelf(ostream& os) const
     {
-        return "chunk replication check";
+        return os << "chunk replication check";
     }
 };
 
