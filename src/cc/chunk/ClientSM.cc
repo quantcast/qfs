@@ -70,10 +70,11 @@ using KFS::libkfsio::globalNetManager;
 
 const int kMaxCmdHeaderLength = 1 << 10;
 
-bool     ClientSM::sTraceRequestResponseFlag = false;
-bool     ClientSM::sEnforceMaxWaitFlag       = true;
-int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
-uint64_t ClientSM::sInstanceNum              = 10000;
+bool     ClientSM::sTraceRequestResponseFlag         = false;
+bool     ClientSM::sEnforceMaxWaitFlag               = true;
+bool     ClientSM::sCloseWriteOnPendingOverQuotaFlag = false;
+int      ClientSM::sMaxReqSizeDiscard                = 256 << 10;
+uint64_t ClientSM::sInstanceNum                      = 10000;
 
 inline string
 ClientSM::GetPeerName()
@@ -161,6 +162,9 @@ ClientSM::SetParameters(const Properties& prop)
     sEnforceMaxWaitFlag = prop.getValue(
         "chunkServer.clientSM.enforceMaxWait",
         sEnforceMaxWaitFlag ? 1 : 0) != 0;
+    sCloseWriteOnPendingOverQuotaFlag = prop.getValue(
+        "chunkServer.clientSM.closeWriteOnPendingOverQuota",
+        sCloseWriteOnPendingOverQuotaFlag ? 1 : 0) != 0;
     sMaxReqSizeDiscard = prop.getValue(
         "chunkServer.clientSM.maxReqSizeDiscard",
         sMaxReqSizeDiscard);
@@ -232,9 +236,9 @@ ClientSM::SendResponse(KfsOp* op)
 {
     assert(mNetConnection && op);
 
-    const int64_t timespent =
-        globalNetManager().Now() - op->startTime / 1000000;
-    const bool    tooLong   = timespent > 5;
+    const int64_t timespent = max(int64_t(0),
+        globalNetManager().Now() * 1000000 - op->startTime);
+    const bool    tooLong   = timespent > 5 * 1000000;
     CLIENT_SM_LOG_STREAM(
             (op->status >= 0 ||
                 (op->op == CMD_SPC_RESERVE && op->status == -ENOSPC)) ?
@@ -246,7 +250,7 @@ ClientSM::SendResponse(KfsOp* op)
         " " << op->Show() <<
         (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
         (tooLong ? " RPC too long " : " took: ") <<
-            timespent << " sec." <<
+            timespent << " usec." <<
     KFS_LOG_EOM;
 
     op->Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
@@ -546,12 +550,15 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
         const ByteCount bufferBytes   = IoRequestBytes(numBytes, forwardFlag);
         BufferManager&  bufMgr        = GetBufferManager();
         bool            overQuotaFlag = false;
-        if (! mCurOp && (numBytes < 0 ||
-                (size_t)numBytes > gChunkManager.GetMaxIORequestSize() ||
-                (overQuotaFlag =
-                    bufMgr.IsOverQuota(*this, bufferBytes) ||
+        if (! mCurOp && (numBytes < 0 || numBytes > min(
+                        mDevBufMgr ? mDevBufMgr->GetMaxClientQuota() :
+                            (ByteCount(1) << 31),
+                        min(bufMgr.GetMaxClientQuota(),
+                            (ByteCount)gChunkManager.GetMaxIORequestSize())) ||
+                (overQuotaFlag = sCloseWriteOnPendingOverQuotaFlag &&
+                    (bufMgr.IsOverQuota(*this, bufferBytes) ||
                     (mDevBufMgr &&
-                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes))))) {
+                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes)))))) {
             // Over quota can theoretically occur if the quota set unreasonably
             // low, or if client uses the same connection to do both read and
             // write simultaneously. Presently client never attempts to do

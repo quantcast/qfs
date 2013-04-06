@@ -209,6 +209,7 @@ private:
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
+    static bool                sCloseWriteOnPendingOverQuotaFlag;
     static int                 sMaxReqSizeDiscard;
     static uint64_t            sInstanceNum;
 
