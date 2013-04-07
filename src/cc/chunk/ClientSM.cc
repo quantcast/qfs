@@ -280,12 +280,11 @@ ClientSM::HandleRequest(int code, void* data)
         if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
-                " cur op: "  << KfsOp::ShowOp(mCurOp) <<
-                " buffers: " << GetByteCount() <<
+                " cur op: "     << KfsOp::ShowOp(mCurOp) <<
+                " buffers: "    << GetByteCount() <<
                 " waiting for " << (mDevBufMgr ? "dev. " : "") <<
-                "io buffers " <<
+                " io buffers "  <<
             KFS_LOG_EOM;
-            mNetConnection->SetMaxReadAhead(0);
             break;
         }
         // We read something from the network.  Run the RPC that
@@ -411,9 +410,10 @@ ClientSM::HandleRequest(int code, void* data)
             " due to " << (code == EVENT_INACTIVITY_TIMEOUT ?
                 "inactivity timeout" : "network error") <<
             ", socket error: " <<
-                QCUtils::SysError(mNetConnection->GetSocketError()) <<
+                    QCUtils::SysError(mNetConnection->GetSocketError()) <<
             ", pending read: " << mNetConnection->GetNumBytesToRead() <<
-            " write: " << mNetConnection->GetNumBytesToWrite() <<
+            " write: "         << mNetConnection->GetNumBytesToWrite() <<
+            " wants read: "    << mNetConnection->IsReadReady() <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         if (mCurOp) {
@@ -443,6 +443,11 @@ ClientSM::HandleRequest(int code, void* data)
                     mNetConnection->IsWriteReady()) ?
                 gClientManager.GetIoTimeoutSec() :
                 gClientManager.GetIdleTimeoutSec());
+            if (IsWaiting() || mDevBufMgr) {
+                mNetConnection->SetMaxReadAhead(0);
+            } else if (! mNetConnection->IsReadReady()) {
+                mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
+            }
         } else {
             list<RemoteSyncSMPtr> serversToRelease;
 
@@ -611,7 +616,6 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
             if (failFlag) {
                 mDiscardByteCnt = numBytes;
             } else {
-                mNetConnection->SetMaxReadAhead(0);
                 return false;
             }
         }
@@ -631,7 +635,6 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         }
         mDiscardByteCnt = 0;
         mCurOp          = 0;
-        mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         return true;
     }
     if (nAvail < numBytes) {
@@ -655,7 +658,6 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         ioOpBuf->Move(iobuf);
     }
     mCurOp = 0;
-    mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     return true;
 }
 
@@ -778,8 +780,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
     kfsChunkId_t chunkId  = 0;
     int64_t      reqBytes = 0;
     if (! submitResponseFlag &&
-            bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId) &&
-            reqBytes >= 0) {
+            bufferBytes < 0 && op->IsChunkReadOp(reqBytes, chunkId)) {
         bufferBytes = reqBytes + IoRequestBytes(0); // 1 buffer for reply header
         if (! mCurOp || mDevBufMgr) {
             mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*op);
@@ -825,12 +826,10 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                         " op: "    << op->Show() <<
                     KFS_LOG_EOM;
                     if (! submitResponseFlag) {
-                        mNetConnection->SetMaxReadAhead(0);
                         return false;
                     }
                 }
             }
-            mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         }
         mCurOp = 0;
         if (! submitResponseFlag &&
@@ -890,12 +889,10 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                         "exceeds max wait" : " waiting for buffers") <<
                 KFS_LOG_EOM;
                 if (! submitResponseFlag) {
-                    mNetConnection->SetMaxReadAhead(0);
                     return false;
                 }
             }
         }
-        mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         mCurOp = 0;
     }
 
@@ -998,11 +995,7 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
     if (! mNetConnection) {
         return;
     }
-    if (mCurOp) {
-        QCStValueChanger<bool> change(mGrantedFlag, true);
-        HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
-    } else {
-        mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
-    }
+    QCStValueChanger<bool> change(mGrantedFlag, true);
+    HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 }
