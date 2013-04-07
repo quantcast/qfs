@@ -205,11 +205,11 @@ private:
     IOBuffer::WOStream         mWOStream;
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
+    bool                       mGrantedFlag;
     DevClientMgrAllocator      mDevCliMgrAllocator;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
-    static bool                sCloseWriteOnPendingOverQuotaFlag;
     static int                 sMaxReqSizeDiscard;
     static uint64_t            sInstanceNum;
 

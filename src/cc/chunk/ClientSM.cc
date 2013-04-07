@@ -38,6 +38,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/NetManager.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCStUtils.h"
 
 #include <algorithm>
 #include <string>
@@ -183,6 +184,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mWOStream(),
       mDevBufMgrClients(),
       mDevBufMgr(0),
+      mGrantedFlag(false),
       mDevCliMgrAllocator()
 {
     SET_HANDLER(this, &ClientSM::HandleRequest);
@@ -233,7 +235,7 @@ ClientSM::SendResponse(KfsOp* op)
     assert(mNetConnection && op);
 
     const int64_t timespent = max(int64_t(0),
-        globalNetManager().Now() * 1000000 - op->startTime);
+        (int64_t)globalNetManager().Now() * 1000000 - op->startTime);
     const bool    tooLong   = timespent > 5 * 1000000;
     CLIENT_SM_LOG_STREAM(
             (op->status >= 0 ||
@@ -275,7 +277,7 @@ ClientSM::HandleRequest(int code, void* data)
 
     switch (code) {
     case EVENT_NET_READ: {
-        if (IsWaiting() || mDevBufMgr) {
+        if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
                 " cur op: "  << KfsOp::ShowOp(mCurOp) <<
@@ -997,7 +999,8 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         return;
     }
     if (mCurOp) {
-        ClientSM::HandleClientCmd(&(mNetConnection->GetInBuffer()), 0);
+        QCStValueChanger<bool> change(mGrantedFlag, true);
+        HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
     } else {
         mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     }
