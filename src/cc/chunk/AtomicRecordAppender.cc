@@ -537,6 +537,22 @@ const char* const AtomicRecordAppender::sStateNames[kNumStates] =
 uint64_t AtomicRecordAppender::sInstanceNum = 10000;
 
 inline void
+AtomicRecordAppendManager::UpdatePendingFlushIterators(
+    AtomicRecordAppender& appender)
+{
+    if (mCurUpdateFlush == &appender &&
+            (mCurUpdateFlush = &PendingFlushList::GetNext(appender)) ==
+            PendingFlushList::Front(mPendingFlushList)) {
+        mCurUpdateFlush = 0;
+    }
+    if (mCurUpdateLowBufFlush == &appender &&
+            (mCurUpdateLowBufFlush = &PendingFlushList::GetNext(appender)) ==
+            PendingFlushList::Front(mPendingFlushList)) {
+        mCurUpdateLowBufFlush = 0;
+    }
+}
+
+inline void
 AtomicRecordAppendManager::UpdatePendingFlush(AtomicRecordAppender& appender)
 {
     if (appender.CanDoLowOnBuffersFlush()) {
@@ -544,6 +560,7 @@ AtomicRecordAppendManager::UpdatePendingFlush(AtomicRecordAppender& appender)
             PendingFlushList::PushFront(mPendingFlushList, appender);
         }
     } else {
+        UpdatePendingFlushIterators(appender);
         PendingFlushList::Remove(mPendingFlushList, appender);
     }
 }
@@ -560,6 +577,7 @@ AtomicRecordAppendManager::Detach(AtomicRecordAppender& appender)
         KFS_LOG_EOM;
         appender.FatalError();
     }
+    UpdatePendingFlushIterators(appender);
     PendingFlushList::Remove(mPendingFlushList, appender);
 }
 
@@ -2629,6 +2647,8 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mMaxWriteIdsPerChunk(16 << 10),
       mCloseOutOfSpaceThreshold(4),
       mCloseOutOfSpaceSec(5),
+      mCurUpdateFlush(0),
+      mCurUpdateLowBufFlush(0),
       mInstanceNum(0),
       mCounters()
 {
@@ -2716,11 +2736,15 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
         (mTotalBuffersBytes + mTotalPendingBytes) /
         max(int64_t(1), mActiveAppendersCount)
     );
-    if (prevLimit * 15 / 16 > mMaxAppenderBytes) {
-        PendingFlushList::Iterator it(mPendingFlushList);
-        AtomicRecordAppender* appender;
-        while ((appender = it.Next())) {
-            appender->UpdateFlushLimit(mMaxAppenderBytes);
+    if (! mCurUpdateFlush && prevLimit * 15 / 16 > mMaxAppenderBytes) {
+        mCurUpdateFlush = PendingFlushList::Front(mPendingFlushList);
+        while (mCurUpdateFlush) {
+            AtomicRecordAppender& cur = *mCurUpdateFlush;
+            mCurUpdateFlush = &PendingFlushList::GetNext(cur);
+            if (mCurUpdateFlush == PendingFlushList::Front(mPendingFlushList)) {
+                mCurUpdateFlush = 0;
+            }
+            cur.UpdateFlushLimit(mMaxAppenderBytes);
         }
     }
 }
@@ -2835,13 +2859,21 @@ AtomicRecordAppendManager::Timeout()
 void
 AtomicRecordAppendManager::FlushIfLowOnBuffers()
 {
+    if (mCurUpdateLowBufFlush) {
+        return; // Prevent recursion.
+    }
     if (! DiskIo::GetBufferManager().IsLowOnBuffers()) {
         return;
     }
-    PendingFlushList::Iterator it(mPendingFlushList);
-    AtomicRecordAppender* appender;
-    while ((appender = it.Next())) {
-        appender->LowOnBuffersFlush();
+    mCurUpdateLowBufFlush = PendingFlushList::Front(mPendingFlushList);
+    while (mCurUpdateLowBufFlush) {
+        AtomicRecordAppender& cur = *mCurUpdateLowBufFlush;
+        mCurUpdateLowBufFlush = &PendingFlushList::GetNext(cur);
+        if (mCurUpdateLowBufFlush ==
+                PendingFlushList::Front(mPendingFlushList)) {
+            mCurUpdateLowBufFlush = 0;
+        }
+        cur.LowOnBuffersFlush();
     }
 }
 

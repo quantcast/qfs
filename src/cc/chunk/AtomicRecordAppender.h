@@ -199,8 +199,12 @@ private:
     int                   mCloseOutOfSpaceThreshold;
     int                   mCloseOutOfSpaceSec;
     AtomicRecordAppender* mPendingFlushList[1];
+    AtomicRecordAppender* mCurUpdateFlush;
+    AtomicRecordAppender* mCurUpdateLowBufFlush;
     const uint64_t        mInstanceNum;
     Counters              mCounters;
+
+    inline void UpdatePendingFlushIterators(AtomicRecordAppender& appender);
 };
 
 extern AtomicRecordAppendManager gAtomicRecordAppendManager;
