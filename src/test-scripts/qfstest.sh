@@ -277,6 +277,7 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
+# chunkServer.ioBufferPool.partitionBufferCount = 81920
 chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1

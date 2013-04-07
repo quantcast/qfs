@@ -211,6 +211,7 @@ private:
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
     static int                 sMaxReqSizeDiscard;
+    static size_t              sMaxAppendRequestSize;
     static uint64_t            sInstanceNum;
 
     /// Given a (possibly) complete op in a buffer, run it.

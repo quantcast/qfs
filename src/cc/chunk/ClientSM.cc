@@ -74,6 +74,7 @@ const int kMaxCmdHeaderLength = 1 << 10;
 bool     ClientSM::sTraceRequestResponseFlag = false;
 bool     ClientSM::sEnforceMaxWaitFlag       = true;
 int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
+size_t   ClientSM::sMaxAppendRequestSize     = CHUNKSIZE;
 uint64_t ClientSM::sInstanceNum              = 10000;
 
 inline string
@@ -165,6 +166,9 @@ ClientSM::SetParameters(const Properties& prop)
     sMaxReqSizeDiscard = prop.getValue(
         "chunkServer.clientSM.maxReqSizeDiscard",
         sMaxReqSizeDiscard);
+    sMaxAppendRequestSize = prop.getValue(
+        "chunkServer.clientSM.maxAppendRequestSize",
+        sMaxAppendRequestSize);
 }
 
 ClientSM::ClientSM(NetConnectionPtr &conn)
@@ -563,13 +567,16 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         BufferManager&  bufMgr      = GetBufferManager();
         ByteCount       quota       = -1;
         if (! mCurOp && (numBytes < 0 ||
-                gChunkManager.GetMaxIORequestSize() < (size_t)numBytes ||
+                (op.op == CMD_RECORD_APPEND ? sMaxAppendRequestSize :
+                    gChunkManager.GetMaxIORequestSize()) < (size_t)numBytes ||
                 (quota = GetQuota(bufMgr, mDevBufMgr)) < bufferBytes)) {
             CLIENT_SM_LOG_STREAM_ERROR <<
                 "invalid write request size"
                 " seq: "          << op.seq <<
                 " size: "         << numBytes <<
-                " max allowed: "  << gChunkManager.GetMaxIORequestSize() <<
+                " max allowed: "  <<
+                    (op.op == CMD_RECORD_APPEND ? sMaxAppendRequestSize :
+                        gChunkManager.GetMaxIORequestSize()) <<
                 " buffer bytes: " << bufferBytes <<
                 " max allowed: "  << quota <<
                 " buffers: "      << GetByteCount() <<
