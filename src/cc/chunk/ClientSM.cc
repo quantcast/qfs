@@ -38,7 +38,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/NetManager.h"
 #include "qcdio/QCUtils.h"
-#include "qcdio/QCStUtils.h"
+#include "qcdio/qcstutils.h"
 
 #include <algorithm>
 #include <string>
