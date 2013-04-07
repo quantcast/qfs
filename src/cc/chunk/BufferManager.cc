@@ -27,6 +27,7 @@
 
 #include "BufferManager.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/qcdebug.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 
@@ -42,7 +43,8 @@ BufferManager::Client::Client()
     : mManagerPtr(0),
       mByteCount(0),
       mWaitingForByteCount(0),
-      mWaitStart(0)
+      mWaitStart(0),
+      mOverQuotaWaitingFlag(false)
 {
     WaitQueue::Init(*this);
 }
@@ -50,10 +52,11 @@ BufferManager::Client::Client()
     inline void
 BufferManager::Client::Reset()
 {
-    mManagerPtr          = 0;
-    mByteCount           = 0;
-    mWaitingForByteCount = 0;
-    mWaitStart           = 0;
+    mManagerPtr           = 0;
+    mByteCount            = 0;
+    mWaitingForByteCount  = 0;
+    mWaitStart            = 0;
+    mOverQuotaWaitingFlag = false;
 }
 
 BufferManager::BufferManager(
@@ -63,11 +66,13 @@ BufferManager::BufferManager(
       mMaxClientQuota(0),
       mRemainingCount(0),
       mWaitingByteCount(0),
+      mOverQuotaWaitingByteCount(0),
       mGetRequestCount(0),
       mPutRequestCount(0),
       mClientsWihtBuffersCount(0),
       mMinBufferCount(0),
       mWaitingCount(0),
+      mOverQuotaWaitingCount(0),
       mInitedFlag(false),
       mDiskOverloadedFlag(false),
       mEnabledFlag(inEnabledFlag),
@@ -81,13 +86,17 @@ BufferManager::BufferManager(
       mCounters()
 {
     WaitQueue::Init(mWaitQueuePtr);
+    WaitQueue::Init(mOverQuotaWaitQueuePtr);
     mCounters.Clear();
     BufferManager::SetWaitingAvgInterval(20);
 }
 
 BufferManager::~BufferManager()
 {
-    QCRTASSERT(WaitQueue::IsEmpty(mWaitQueuePtr));
+    QCRTASSERT(
+        WaitQueue::IsEmpty(mWaitQueuePtr) &&
+        WaitQueue::IsEmpty(mOverQuotaWaitQueuePtr)
+    );
     globalNetManager().UnRegisterTimeoutHandler(this);
 }
 
@@ -99,19 +108,55 @@ BufferManager::Init(
     int                      inMinBufferCount)
 {
     QCRTASSERT(! mInitedFlag);
-    mInitedFlag              = true;
-    mWaitingCount            = 0;
-    mWaitingByteCount        = 0;
-    mGetRequestCount         = 0;
-    mPutRequestCount         = 0;
-    mClientsWihtBuffersCount = 0;
-    mBufferPoolPtr           = inBufferPoolPtr;
-    mTotalCount              = inTotalCount;
-    mRemainingCount          = mTotalCount;
-    mMinBufferCount          = inMinBufferCount;
-    mMaxClientQuota          = min(mTotalCount, inMaxClientQuota);
-    mDiskOverloadedFlag      = false;
+    mInitedFlag                = true;
+    mWaitingCount              = 0;
+    mOverQuotaWaitingCount     = 0;
+    mWaitingByteCount          = 0;
+    mOverQuotaWaitingByteCount = 0;
+    mGetRequestCount           = 0;
+    mPutRequestCount           = 0;
+    mClientsWihtBuffersCount   = 0;
+    mBufferPoolPtr             = inBufferPoolPtr;
+    mTotalCount                = inTotalCount;
+    mRemainingCount            = mTotalCount;
+    mMinBufferCount            = inMinBufferCount;
+    mMaxClientQuota            = min(mTotalCount, inMaxClientQuota);
+    mDiskOverloadedFlag        = false;
     globalNetManager().RegisterTimeoutHandler(this);
+}
+
+void
+BufferManager::ChangeOverQuotaWait(
+    BufferManager::Client& inClient,
+    bool                   inFlag)
+{
+    QCASSERT(IsWaiting(inClient));
+    if (inClient.mOverQuotaWaitingFlag == inFlag) {
+        return;
+    }
+    WaitQueue::Remove(
+        inClient.mOverQuotaWaitingFlag ? mOverQuotaWaitQueuePtr : mWaitQueuePtr,
+        inClient
+    );
+    if (inClient.mOverQuotaWaitingFlag) {
+        mOverQuotaWaitingCount--;
+        mOverQuotaWaitingByteCount -= inClient.mWaitingForByteCount;
+    } else {
+        mWaitingCount--;
+        mWaitingByteCount -= inClient.mWaitingForByteCount;
+    }
+    inClient.mOverQuotaWaitingFlag = inFlag;
+    WaitQueue::PushBack(
+        inClient.mOverQuotaWaitingFlag ? mOverQuotaWaitQueuePtr : mWaitQueuePtr,
+        inClient
+    );
+    if (inClient.mOverQuotaWaitingFlag) {
+        mOverQuotaWaitingCount++;
+        mOverQuotaWaitingByteCount += inClient.mWaitingForByteCount;
+    } else {
+        mWaitingCount++;
+        mWaitingByteCount += inClient.mWaitingForByteCount;
+    }
 }
 
     bool
@@ -123,12 +168,12 @@ BufferManager::Modify(
     if (! mEnabledFlag) {
         return true;
     }
-    assert(inClient.mByteCount >= 0 && inClient.mWaitingForByteCount >= 0);
-    assert(inClient.mManagerPtr ||
+    QCASSERT(inClient.mByteCount >= 0 && inClient.mWaitingForByteCount >= 0);
+    QCASSERT(inClient.mManagerPtr ||
         inClient.mWaitingForByteCount + inClient.mByteCount == 0);
-    assert(! inClient.mManagerPtr || inClient.mManagerPtr == this);
-    assert(inClient.IsWaiting() || inClient.mWaitingForByteCount == 0);
-    assert(mRemainingCount + inClient.mByteCount <= mTotalCount);
+    QCASSERT(! inClient.mManagerPtr || inClient.mManagerPtr == this);
+    QCASSERT(inClient.IsWaiting() || inClient.mWaitingForByteCount == 0);
+    QCASSERT(mRemainingCount + inClient.mByteCount <= mTotalCount);
 
     const bool theHadBuffersFlag = inClient.mByteCount > 0;
     mRemainingCount += inClient.mByteCount;
@@ -142,42 +187,67 @@ BufferManager::Modify(
         if (theHadBuffersFlag && inClient.mByteCount <= 0) {
             mClientsWihtBuffersCount--;
         }
+        if (inClient.mOverQuotaWaitingFlag) {
+            QCRTASSERT(WaitQueue::IsInList(mOverQuotaWaitQueuePtr, inClient));
+            ChangeOverQuotaWait(inClient, IsOverQuota(inClient));
+        }
         return true;
     }
     mCounters.mRequestCount++;
     mCounters.mRequestByteCount += inByteCount;
     mGetRequestCount++;
     inClient.mManagerPtr = this;
-    const ByteCount theReqCount    =
+    const ByteCount theReqByteCount  =
         inClient.mWaitingForByteCount + inClient.mByteCount + inByteCount;
-    const bool      theGrantedFlag = ! inClient.IsWaiting() && (
-        theReqCount <= 0 || (
+    const bool      theOverQuotaFlag = mMaxClientQuota < theReqByteCount;
+    const bool      theGrantedFlag   = ! inClient.IsWaiting() && (
+        theReqByteCount <= 0 || (
             (! inForDiskIoFlag || ! mDiskOverloadedFlag) &&
             ! IsLowOnBuffers() &&
-            theReqCount < mRemainingCount &&
-            ! IsOverQuota(inClient)
+            theReqByteCount < mRemainingCount &&
+            ! theOverQuotaFlag
         )
     );
     if (theGrantedFlag) {
-        inClient.mByteCount = theReqCount;
-        mRemainingCount -= theReqCount;
+        inClient.mByteCount = theReqByteCount;
+        mRemainingCount -= theReqByteCount;
         mCounters.mRequestGrantedCount++;
         mCounters.mRequestGrantedByteCount += inByteCount;
     } else {
-        mCounters.mRequestDeniedCount++;
-        mCounters.mRequestDeniedByteCount += inByteCount;
-        // If already waiting leave him in the same place in the queue.
-        if (! inClient.IsWaiting()) {
-            inClient.mWaitStart = microseconds();
-            WaitQueue::PushBack(mWaitQueuePtr, inClient);
-            mWaitingCount++;
+        if (theOverQuotaFlag) {
+            mCounters.mOverQuotaRequestDeniedCount++;
+            mCounters.mOverQuotaRequestDeniedByteCount += inByteCount;
+        } else {
+            mCounters.mRequestDeniedCount++;
+            mCounters.mRequestDeniedByteCount += inByteCount;
         }
-        mWaitingByteCount += inByteCount;
+        // If already waiting leave him in the same place in the queue, unless
+        // it's over quota.
+        if (inClient.IsWaiting()) {
+            ChangeOverQuotaWait(inClient, theOverQuotaFlag);
+        } else {
+            inClient.mWaitStart            = microseconds();
+            inClient.mOverQuotaWaitingFlag = theOverQuotaFlag;
+            WaitQueue::PushBack(
+                theOverQuotaFlag ? mOverQuotaWaitQueuePtr : mWaitQueuePtr,
+                inClient
+            );
+            if (theOverQuotaFlag) {
+                mOverQuotaWaitingCount++;
+            } else {
+                mWaitingCount++;
+            }
+        }
+        if (inClient.mOverQuotaWaitingFlag) {
+            mOverQuotaWaitingByteCount += inByteCount;
+        } else {
+            mWaitingByteCount += inByteCount;
+        }
         mRemainingCount -= inClient.mByteCount;
         inClient.mWaitingForByteCount += inByteCount;
     }
-    assert(mRemainingCount >= 0 && mRemainingCount <= mTotalCount);
-    assert(inClient.IsWaiting() || inClient.mWaitingForByteCount == 0);
+    QCASSERT(mRemainingCount >= 0 && mRemainingCount <= mTotalCount);
+    QCASSERT(inClient.IsWaiting() || inClient.mWaitingForByteCount == 0);
     if (! theHadBuffersFlag && inClient.mByteCount > 0) {
         mClientsWihtBuffersCount++;
     }
@@ -193,13 +263,22 @@ BufferManager::Unregister(
     }
     QCRTASSERT(inClient.mManagerPtr == this);
     if (IsWaiting(inClient)) {
-        mWaitingCount--;
-        mWaitingByteCount -= inClient.mWaitingForByteCount;
+        if (inClient.mOverQuotaWaitingFlag) {
+            mOverQuotaWaitingCount--;
+            mOverQuotaWaitingByteCount -= inClient.mWaitingForByteCount;
+        } else {
+            mWaitingCount--;
+            mWaitingByteCount -= inClient.mWaitingForByteCount;
+        }
+        WaitQueue::Remove(
+            inClient.mOverQuotaWaitingFlag ?
+                mOverQuotaWaitQueuePtr : mWaitQueuePtr,
+            inClient
+        );
     }
-    WaitQueue::Remove(mWaitQueuePtr, inClient);
     inClient.mWaitingForByteCount = 0;
     Put(inClient, inClient.mByteCount);
-    assert(! inClient.IsWaiting() && inClient.mByteCount == 0);
+    QCASSERT(! inClient.IsWaiting() && inClient.mByteCount == 0);
     inClient.Reset();
 }
 
@@ -212,15 +291,24 @@ BufferManager::CancelRequest(
     }
     QCRTASSERT(inClient.mManagerPtr == this);
     if (! IsWaiting(inClient)) {
-        assert(inClient.mWaitingForByteCount == 0);
+        QCASSERT(inClient.mWaitingForByteCount == 0);
         return;
     }
     mCounters.mReqeustCanceledCount++;
     mCounters.mReqeustCanceledBytes += inClient.mWaitingForByteCount;
-    WaitQueue::Remove(mWaitQueuePtr, inClient);
-    mWaitingCount--;
-    mWaitingByteCount -= inClient.mWaitingForByteCount;
-    inClient.mWaitingForByteCount = 0;
+    WaitQueue::Remove(
+        inClient.mOverQuotaWaitingFlag ? mOverQuotaWaitQueuePtr : mWaitQueuePtr,
+        inClient
+    );
+    if (inClient.mOverQuotaWaitingFlag) {
+        mOverQuotaWaitingCount--;
+        mOverQuotaWaitingByteCount -= inClient.mWaitingForByteCount;
+    } else {
+        mWaitingCount--;
+        mWaitingByteCount -= inClient.mWaitingForByteCount;
+    }
+    inClient.mWaitingForByteCount  = 0;
+    inClient.mOverQuotaWaitingFlag = false;
 }
 
     bool
@@ -241,14 +329,7 @@ BufferManager::Timeout()
     bool    theSetTimeFlag = true;
     int64_t theNowUsecs    = 0;
     while (! mDiskOverloadedFlag && ! IsLowOnBuffers()) {
-        WaitQueue::Iterator theIt(mWaitQueuePtr);
-        Client*             theClientPtr;
-        while ((theClientPtr = theIt.Next())) {
-            // Skip all that are over quota.
-            if (! IsOverQuota(*theClientPtr)) {
-                break;
-            }
-        }
+        Client* const theClientPtr = WaitQueue::Front(mWaitQueuePtr);
         if (! theClientPtr ||
                 theClientPtr->mWaitingForByteCount > mRemainingCount) {
             break;
@@ -256,9 +337,9 @@ BufferManager::Timeout()
         WaitQueue::Remove(mWaitQueuePtr, *theClientPtr);
         mWaitingCount--;
         const ByteCount theGrantedCount = theClientPtr->mWaitingForByteCount;
-        assert(theGrantedCount > 0);
+        QCASSERT(theGrantedCount > 0);
         mRemainingCount -= theGrantedCount;
-        assert(mRemainingCount <= mTotalCount);
+        QCASSERT(mRemainingCount <= mTotalCount);
         mWaitingByteCount -= theGrantedCount;
         if (theClientPtr->mByteCount <= 0 && theGrantedCount > 0) {
             mClientsWihtBuffersCount++;

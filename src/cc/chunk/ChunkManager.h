@@ -258,7 +258,8 @@ public:
         int& evacuateChunks, int64_t& evacuteByteCount,
         int* evacuateDoneChunkCount = 0, int64_t* evacuateDoneByteCount = 0,
         HelloMetaOp::LostChunkDirs* lostChunkDirs = 0,
-        StorageTiersInfo* tiersInfo = 0);
+        StorageTiersInfo* tiersInfo = 0,
+        int64_t* devWaitAvgUsec = 0);
     int64_t GetUsedSpace() const { return mUsedSpace; };
     long GetNumChunks() const { return mChunkTable.GetSize(); };
     long GetNumWritableChunks() const;

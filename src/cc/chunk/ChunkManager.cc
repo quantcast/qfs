@@ -4400,7 +4400,8 @@ ChunkManager::GetTotalSpace(
     int*                            evacuateDoneChunkCount,
     int64_t*                        evacuateDoneByteCount,
     HelloMetaOp::LostChunkDirs*     lostChunkDirs,
-    ChunkManager::StorageTiersInfo* tiersInfo)
+    ChunkManager::StorageTiersInfo* tiersInfo,
+    int64_t*                        devWaitAvgUsec)
 {
     totalFsSpace           = 0;
     chunkDirs              = 0;
@@ -4413,6 +4414,8 @@ ChunkManager::GetTotalSpace(
     int64_t totalFsAvailableSpace  = 0;
     int64_t usedSpace              = 0;
     size_t  tierSpaceAvailableCnt  = 0;
+    int64_t waitAvgUsec            = 0;
+    int64_t waitAvgCnt             = 0;
     if (tiersInfo) {
         tiersInfo->clear();
     }
@@ -4440,6 +4443,12 @@ ChunkManager::GetTotalSpace(
                     it->availableSpace >
                         it->totalSpace * mMaxSpaceUtilizationThreshold) {
                 writableDirs++;
+                const BufferManager* const bufMgr =
+                    DiskIo::GetDiskBufferManager(it->diskQueue);
+                if (bufMgr) {
+                    waitAvgUsec += bufMgr->GetWaitingAvgUsecs();
+                    waitAvgCnt++;
+                }
                 if (tiersInfo) {
                     StorageTierInfo& ti = (*tiersInfo)[it->storageTier];
                     ti.mNotStableOpenCount += it->notStableOpenCount;
@@ -4497,6 +4506,9 @@ ChunkManager::GetTotalSpace(
             }
             ++it;
         }
+    }
+    if (devWaitAvgUsec) {
+        *devWaitAvgUsec = waitAvgCnt > 0 ? waitAvgUsec / waitAvgCnt : 0;
     }
     return (min(totalFsAvailableSpace, mTotalSpace) + mUsedSpace);
 }

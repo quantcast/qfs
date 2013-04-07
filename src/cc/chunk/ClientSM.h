@@ -222,8 +222,8 @@ private:
     void SendResponse(KfsOp *op);
 
     /// Submit ops that have been held waiting for doneOp to finish.
-    void OpFinished(KfsOp *doneOp);
-    bool GetWriteOp(KfsOp* wop, int align, int numBytes, IOBuffer* iobuf,
+    void OpFinished(KfsOp* doneOp);
+    bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer* iobuf,
         IOBuffer*& ioOpBuf, bool forwardFlag);
     std::string GetPeerName();
     inline void SendResponse(KfsOp* op, ByteCount opBytes);

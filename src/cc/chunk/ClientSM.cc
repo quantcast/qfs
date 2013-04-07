@@ -70,11 +70,10 @@ using KFS::libkfsio::globalNetManager;
 
 const int kMaxCmdHeaderLength = 1 << 10;
 
-bool     ClientSM::sTraceRequestResponseFlag         = false;
-bool     ClientSM::sEnforceMaxWaitFlag               = true;
-bool     ClientSM::sCloseWriteOnPendingOverQuotaFlag = false;
-int      ClientSM::sMaxReqSizeDiscard                = 256 << 10;
-uint64_t ClientSM::sInstanceNum                      = 10000;
+bool     ClientSM::sTraceRequestResponseFlag = false;
+bool     ClientSM::sEnforceMaxWaitFlag       = true;
+int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
+uint64_t ClientSM::sInstanceNum              = 10000;
 
 inline string
 ClientSM::GetPeerName()
@@ -162,9 +161,6 @@ ClientSM::SetParameters(const Properties& prop)
     sEnforceMaxWaitFlag = prop.getValue(
         "chunkServer.clientSM.enforceMaxWait",
         sEnforceMaxWaitFlag ? 1 : 0) != 0;
-    sCloseWriteOnPendingOverQuotaFlag = prop.getValue(
-        "chunkServer.clientSM.closeWriteOnPendingOverQuota",
-        sCloseWriteOnPendingOverQuotaFlag ? 1 : 0) != 0;
     sMaxReqSizeDiscard = prop.getValue(
         "chunkServer.clientSM.maxReqSizeDiscard",
         sMaxReqSizeDiscard);
@@ -539,38 +535,41 @@ IoRequestBytes(BufferManager::ByteCount numBytes, bool forwardFlag = false)
     return ret;
 }
 
+inline BufferManager::ByteCount
+GetQuota(const BufferManager& bufMgr, const BufferManager* devBufMgr)
+{
+    if (devBufMgr) {
+        return min(bufMgr.GetMaxClientQuota(), devBufMgr->GetMaxClientQuota());
+    }
+    return bufMgr.GetMaxClientQuota();
+}
+
 bool
-ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
+ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     IOBuffer* iobuf, IOBuffer*& ioOpBuf, bool forwardFlag)
 {
     const int nAvail = iobuf->BytesConsumable();
     if (! mCurOp || mDevBufMgr) {
-        mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*wop);
-        Client* const   mgrCli        = GetDevBufMgrClient(mDevBufMgr);
-        const ByteCount bufferBytes   = IoRequestBytes(numBytes, forwardFlag);
-        BufferManager&  bufMgr        = GetBufferManager();
-        bool            overQuotaFlag = false;
-        if (! mCurOp && (numBytes < 0 || numBytes > min(
-                        mDevBufMgr ? mDevBufMgr->GetMaxClientQuota() :
-                            (ByteCount(1) << 31),
-                        min(bufMgr.GetMaxClientQuota(),
-                            (ByteCount)gChunkManager.GetMaxIORequestSize())) ||
-                (overQuotaFlag = sCloseWriteOnPendingOverQuotaFlag &&
-                    (bufMgr.IsOverQuota(*this, bufferBytes) ||
-                    (mDevBufMgr &&
-                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes)))))) {
-            // Over quota can theoretically occur if the quota set unreasonably
-            // low, or if client uses the same connection to do both read and
-            // write simultaneously. Presently client never attempts to do
-            // concurrent read and write using the same connection.
+        mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(op);
+        Client* const   mgrCli      = GetDevBufMgrClient(mDevBufMgr);
+        const ByteCount bufferBytes = IoRequestBytes(numBytes, forwardFlag);
+        BufferManager&  bufMgr      = GetBufferManager();
+        ByteCount       quota       = -1;
+        if (! mCurOp && (numBytes < 0 ||
+                gChunkManager.GetMaxIORequestSize() < (size_t)numBytes ||
+                (quota = GetQuota(bufMgr, mDevBufMgr)) < bufferBytes)) {
             CLIENT_SM_LOG_STREAM_ERROR <<
-                "seq: " << wop->seq <<
-                " invalid write request size: " << bufferBytes <<
-                " buffers: " << GetByteCount() <<
-                (overQuotaFlag ? " over quota" : "") <<
-                ", closing connection" <<
+                "invalid write request size"
+                " seq: "          << op.seq <<
+                " size: "         << numBytes <<
+                " max allowed: "  << gChunkManager.GetMaxIORequestSize() <<
+                " buffer bytes: " << bufferBytes <<
+                " max allowed: "  << quota <<
+                " buffers: "      << GetByteCount() <<
+                " closing connection"
+                " op: "           << op.Show() <<
             KFS_LOG_EOM;
-            delete wop;
+            delete &op;
             return false;
         }
         if (! mCurOp && nAvail <= numBytes) {
@@ -587,7 +586,7 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
             }
         }
         mDiscardByteCnt = 0;
-        mCurOp          = wop;
+        mCurOp          = &op;
         if (mDevBufMgr && mDevBufMgr->GetForDiskIo(*mgrCli, bufferBytes)) {
             mDevBufMgr = 0;
         }
@@ -597,15 +596,15 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
                 numBytes <= sMaxReqSizeDiscard + nAvail &&
                 FailIfExceedsWait(bufMgr, 0);
             CLIENT_SM_LOG_STREAM_DEBUG <<
-                "seq: " << wop->seq <<
                 " request for: " << bufferBytes << " bytes denied" <<
                 (&mgr == &bufMgr ? "" : " by dev.") <<
+                " seq: "   << op.seq <<
                 " cur: "   << GetByteCount() <<
                 " total: " << mgr.GetTotalByteCount() <<
                 " used: "  << mgr.GetUsedByteCount() <<
                 " bufs: "  << mgr.GetFreeBufferCount() <<
-                " op: " << wop->Show() <<
                 (failFlag ? "exceeds max wait" : " waiting for buffers") <<
+                " op: " << op.Show() <<
             KFS_LOG_EOM;
             if (failFlag) {
                 mDiscardByteCnt = numBytes;
@@ -622,8 +621,8 @@ ClientSM::GetWriteOp(KfsOp* wop, int align, int numBytes,
                 8 * IOBufferData::GetDefaultBufferSize()));
             return false;
         }
-        if (wop->status >= 0) {
-            wop->status = -ESERVERBUSY;
+        if (op.status >= 0) {
+            op.status = -ESERVERBUSY;
         }
         mDiscardByteCnt = 0;
         mCurOp          = 0;
@@ -733,7 +732,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         WritePrepareOp* const wop = static_cast<WritePrepareOp*>(op);
         assert(! wop->dataBuf);
         const bool kForwardFlag = false; // The forward always share the buffers.
-        if (! GetWriteOp(wop, wop->offset, (int)wop->numBytes,
+        if (! GetWriteOp(*wop, wop->offset, (int)wop->numBytes,
                 iobuf, wop->dataBuf, kForwardFlag)) {
             return false;
         }
@@ -746,7 +745,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             gAtomicRecordAppendManager.GetAlignmentAndFwdFlag(
                 waop->chunkId, forwardFlag);
         if (! GetWriteOp(
-                waop,
+                *waop,
                 align,
                 (int)waop->numBytes,
                 iobuf,
@@ -773,18 +772,22 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(*op);
             Client* const  mgrCli = GetDevBufMgrClient(mDevBufMgr);
             BufferManager& bufMgr = GetBufferManager();
-            if (! mCurOp && (bufMgr.IsOverQuota(*this, bufferBytes) ||
-                    (mDevBufMgr &&
-                    mDevBufMgr->IsOverQuota(*mgrCli, bufferBytes)))) {
+            ByteCount      quota  = -1;
+            if (! mCurOp && (reqBytes < 0 ||
+                    gChunkManager.GetMaxIORequestSize() < (size_t)reqBytes ||
+                    (quota = GetQuota(bufMgr, mDevBufMgr)) < bufferBytes)) {
                 CLIENT_SM_LOG_STREAM_ERROR <<
-                    " bad read request size: " << bufferBytes <<
-                    " need: " << bufferBytes <<
-                    " buffers: " << GetByteCount() <<
-                    " over buffer quota" <<
-                    " " << op->Show() <<
+                    "invalid read request size"
+                    " seq: "          << op->seq <<
+                    " size: "         << reqBytes <<
+                    " max allowed: "  << gChunkManager.GetMaxIORequestSize() <<
+                    " buffer bytes: " << bufferBytes <<
+                    " max allowed: "  << quota <<
+                    " buffers: "      << GetByteCount() <<
+                    " op : "          << op->Show() <<
                 KFS_LOG_EOM;
-                op->status         = -EAGAIN;
-                op->statusMsg      = "over io buffers quota";
+                op->status         = -ENOMEM;
+                op->statusMsg      = "exceeds max request size";
                 submitResponseFlag = true;
             } else {
                 if (mDevBufMgr &&
@@ -799,13 +802,14 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                     CLIENT_SM_LOG_STREAM_DEBUG <<
                         "request for: " << bufferBytes << " bytes denied" <<
                         (&mgr == &bufMgr ? "" : " by dev.") <<
+                        " seq: "   << op->seq <<
                         " cur: "   << GetByteCount() <<
                         " total: " << mgr.GetTotalByteCount() <<
                         " used: "  << mgr.GetUsedByteCount() <<
                         " bufs: "  << mgr.GetFreeBufferCount() <<
-                        " op: "    << op->Show() <<
                         (submitResponseFlag ?
                             "exceeds max wait" : " waiting for buffers") <<
+                        " op: "    << op->Show() <<
                     KFS_LOG_EOM;
                     if (! submitResponseFlag) {
                         mNetConnection->SetMaxReadAhead(0);

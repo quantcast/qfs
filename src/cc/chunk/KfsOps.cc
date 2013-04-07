@@ -1056,12 +1056,14 @@ HeartbeatOp::Execute()
     int64_t evacuateByteCount      = 0;
     int     evacuateDoneChunkCount = 0;
     int64_t evacuateDoneByteCount  = 0;
+    int64_t devWaitAvgUsec         = 0;
     ChunkManager::StorageTiersInfo tiersInfo;
     cmdShow << " space:";
     Append("Total-space",    "total",  gChunkManager.GetTotalSpace(
         totalFsSpace, chunkDirs, evacuateInFlightCount, writableDirs,
         evacuateChunks, evacuateByteCount,
-        &evacuateDoneChunkCount, &evacuateDoneByteCount, 0, &tiersInfo));
+        &evacuateDoneChunkCount, &evacuateDoneByteCount, 0, &tiersInfo,
+        &devWaitAvgUsec));
     Append("Total-fs-space", "tfs",      totalFsSpace);
     Append("Used-space",     "used",     gChunkManager.GetUsedSpace());
     Append("Num-drives",     "drives",   chunkDirs);
@@ -1199,7 +1201,9 @@ HeartbeatOp::Execute()
     Append("Buffer-bytes-total",      "total", bufMgr.GetTotalByteCount());
     Append("Buffer-bytes-wait",       "wait",  bufMgr.GetWaitingByteCount());
     Append("Buffer-bytes-wait-avg",   "wavg",  bufMgr.GetWaitingAvgBytes());
-    Append("Buffer-usec-wait-avg",    "uavg",  bufMgr.GetWaitingAvgUsecs());
+    Append("Buffer-s-usec-wait-avg",  "usvg",  bufMgr.GetWaitingAvgUsecs());
+    Append("Buffer-usec-wait-avg",    "uavg",
+        bufMgr.GetWaitingAvgUsecs() + devWaitAvgUsec);
     Append("Buffer-clients-wait-avg", "cavg",  bufMgr.GetWaitingAvgCount());
     cmdShow << " cnt:";
     Append("Buffer-total-count", "total", bufMgr.GetTotalBufferCount());
@@ -1208,6 +1212,7 @@ HeartbeatOp::Execute()
     cmdShow << " req:";
     Append("Buffer-clients",      "cbuf",  bufMgr.GetClientsWihtBuffersCount());
     Append("Buffer-clients-wait", "cwait", bufMgr.GetWaitingCount());
+    Append("Buffer-quota-clients-wait", "cqw",   bufMgr.GetOverQuotaWaitingCount());
     BufferManager::Counters bmCnts;
     bufMgr.GetCounters(bmCnts);
     Append("Buffer-req-total",         "cnt",   bmCnts.mRequestCount);
@@ -1217,6 +1222,9 @@ HeartbeatOp::Execute()
     Append("Buffer-req-granted-total", "grn",   bmCnts.mRequestGrantedCount);
     Append("Buffer-req-granted-bytes", "grnb",  bmCnts.mRequestGrantedByteCount);
     Append("Buffer-req-wait-usec",     "rwu",   bmCnts.mRequestWaitUsecs);
+    Append("Buffer-req-denied-quota",  "rdq",   bmCnts.mOverQuotaRequestDeniedCount);
+    Append("Buffer-req-denied-quota-bytes", "bdq",
+        bmCnts.mOverQuotaRequestDeniedByteCount);
 
     DiskIo::Counters dio;
     DiskIo::GetCounters(dio);

@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #ifndef BUFFER_MANAGER_H
@@ -62,18 +62,22 @@ public:
         Counter mReqeustCanceledCount;
         Counter mReqeustCanceledBytes;
         Counter mRequestWaitUsecs;
+        Counter mOverQuotaRequestDeniedCount;
+        Counter mOverQuotaRequestDeniedByteCount;
 
         void Clear()
         {
-            mRequestCount            = 0;
-            mRequestByteCount        = 0;
-            mRequestDeniedCount      = 0;
-            mRequestDeniedByteCount  = 0;
-            mRequestGrantedCount     = 0;
-            mRequestGrantedByteCount = 0;
-            mReqeustCanceledCount    = 0;
-            mReqeustCanceledBytes    = 0;
-            mRequestWaitUsecs        = 0;
+            mRequestCount                    = 0;
+            mRequestByteCount                = 0;
+            mRequestDeniedCount              = 0;
+            mRequestDeniedByteCount          = 0;
+            mRequestGrantedCount             = 0;
+            mRequestGrantedByteCount         = 0;
+            mReqeustCanceledCount            = 0;
+            mReqeustCanceledBytes            = 0;
+            mRequestWaitUsecs                = 0;
+            mOverQuotaRequestDeniedCount     = 0;
+            mOverQuotaRequestDeniedByteCount = 0;
         }
     };
 
@@ -116,6 +120,7 @@ public:
         ByteCount      mByteCount;
         ByteCount      mWaitingForByteCount;
         int64_t        mWaitStart;
+        bool           mOverQuotaWaitingFlag;
 
         inline void Reset();
 
@@ -166,7 +171,12 @@ public:
     virtual void Timeout();
     bool IsWaiting(
         const Client& inClient) const
-        { return WaitQueue::IsInList(mWaitQueuePtr, inClient); }
+    {
+        return (
+            WaitQueue::IsInList(mWaitQueuePtr, inClient) ||
+            WaitQueue::IsInList(mOverQuotaWaitQueuePtr, inClient)
+        );
+    }
     void Unregister(
         Client& inClient);
     void CancelRequest(
@@ -188,8 +198,12 @@ public:
     }
     int GetWaitingCount() const
         { return mWaitingCount; }
-    int GetWaitingByteCount() const
+    int GetOverQuotaWaitingCount() const
+        { return mOverQuotaWaitingCount; }
+    ByteCount GetWaitingByteCount() const
         { return mWaitingByteCount; }
+    ByteCount GetOverQuotaWaitingByteCount() const
+        { return mOverQuotaWaitingByteCount; }
     RequestCount GetGetRequestCount() const
         { return mGetRequestCount; }
     RequestCount GetPutRequestCount() const
@@ -223,16 +237,19 @@ private:
     enum { kWaitingAvgSampleIntervalSec = 1 };
 
     Client*         mWaitQueuePtr[1];
+    Client*         mOverQuotaWaitQueuePtr[1];
     QCIoBufferPool* mBufferPoolPtr;
     ByteCount       mTotalCount;
     ByteCount       mMaxClientQuota;
     ByteCount       mRemainingCount;
     ByteCount       mWaitingByteCount;
+    ByteCount       mOverQuotaWaitingByteCount;
     RequestCount    mGetRequestCount;
     RequestCount    mPutRequestCount;
     int             mClientsWihtBuffersCount;
     int             mMinBufferCount;
     int             mWaitingCount;
+    int             mOverQuotaWaitingCount;
     bool            mInitedFlag;
     bool            mDiskOverloadedFlag;
     const bool      mEnabledFlag;
@@ -253,7 +270,9 @@ private:
     int64_t CalcWaitingAvg(
         int64_t inAvg,
         int64_t inSample) const;
-
+    void ChangeOverQuotaWait(
+        BufferManager::Client& inClient,
+        bool                   inFlag);
     BufferManager(
         const BufferManager& inManager);
     BufferManager& operator=(
