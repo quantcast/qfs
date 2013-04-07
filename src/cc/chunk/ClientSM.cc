@@ -240,7 +240,7 @@ ClientSM::SendResponse(KfsOp* op)
                 (op->op == CMD_SPC_RESERVE && op->status == -ENOSPC)) ?
             (tooLong ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) :
             MsgLogger::kLogLevelERROR) <<
-        "seq: "        << op->seq <<
+        "-seq: "       << op->seq <<
         " status: "    << op->status <<
         " buffers: "   << GetByteCount() <<
         " " << op->Show() <<
@@ -617,8 +617,11 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     if (mDiscardByteCnt > 0) {
         mDiscardByteCnt -= iobuf->Consume(mDiscardByteCnt);
         if (mDiscardByteCnt > 0) {
-            mNetConnection->SetMaxReadAhead(min(mDiscardByteCnt,
-                8 * IOBufferData::GetDefaultBufferSize()));
+            mNetConnection->SetMaxReadAhead(
+                (int)min((ByteCount)mDiscardByteCnt, max(ByteCount(1),
+                    min(GetBufferManager().GetRemainingByteCount(),
+                    ByteCount(8) * IOBufferData::GetDefaultBufferSize())))
+            );
             return false;
         }
         if (op.status >= 0) {
@@ -626,6 +629,7 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         }
         mDiscardByteCnt = 0;
         mCurOp          = 0;
+        mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         return true;
     }
     if (nAvail < numBytes) {
@@ -724,6 +728,9 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             // got a bogus command
             return false;
         }
+        CLIENT_SM_LOG_STREAM_DEBUG <<
+            "+seq: " << op->seq << " " << op->Show() <<
+        KFS_LOG_EOM;
     }
 
     iobuf->Consume(cmdLen);
@@ -758,7 +765,11 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
-        "got: seq: " << op->seq << " " << op->Show() <<
+        "got:"
+        " seq: "    << op->seq <<
+        " status: " << op->status <<
+        (op->statusMsg.empty() ? string() : " " + op->statusMsg) <<
+        " " << op->Show() <<
     KFS_LOG_EOM;
 
     bool         submitResponseFlag = op->status < 0;
@@ -820,7 +831,8 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
         }
         mCurOp = 0;
-        if (! gChunkManager.IsChunkReadable(chunkId)) {
+        if (! submitResponseFlag &&
+                ! gChunkManager.IsChunkReadable(chunkId)) {
             // Do not allow dirty reads.
             op->statusMsg = "chunk not readable";
             op->status    = -EAGAIN;
@@ -886,6 +898,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
     }
 
     op->clientSMFlag = true;
+    op->clnt         = this;
     if (op->op == CMD_WRITE_SYNC) {
         // make the write sync depend on a previous write
         KfsOp* w = 0;
@@ -895,11 +908,10 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             }
         }
         if (w) {
-            op->clnt = this;
             mPendingOps.push_back(OpPair(w, op));
             CLIENT_SM_LOG_STREAM_DEBUG <<
-                "keeping write-sync (" << op->seq <<
-                ") pending and depends on " << w->seq <<
+                "keeping write-sync seq:" << op->seq <<
+                " pending and depends on seq: " << w->seq <<
             KFS_LOG_EOM;
             return true;
         } else {
@@ -909,9 +921,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
             KFS_LOG_EOM;
         }
     }
-
     mOps.push_back(make_pair(op, bufferBytes));
-    op->clnt = this;
     gChunkServer.OpInserted();
     if (submitResponseFlag) {
         HandleRequest(EVENT_CMD_DONE, op);
@@ -977,7 +987,9 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
 {
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "granted: " << (devBufManagerFlag ? "by dev. " : "") <<
-        byteCount << " op: " << KfsOp::ShowOp(mCurOp) <<
+        byteCount <<
+        " seq: " << (mCurOp ? mCurOp->seq : -1) <<
+        " op: " << KfsOp::ShowOp(mCurOp) <<
         " dev. mgr: " << (const void*)mDevBufMgr <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
