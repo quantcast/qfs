@@ -1179,8 +1179,8 @@ private:
                     (int)(CHECKSUM_BLOCKSIZE -
                         inOp.offset % CHECKSUM_BLOCKSIZE));
                 while (0 < theTLen) {
-                    int       theRem      = theLen;
-                    uint32_t  theChecksum = kKfsNullChecksum;
+                    theChecksum = kKfsNullChecksum;
+                    int theRem = theLen;
                     for ( ; theIt != theEndIt; ++theIt) {
                         if (theEndPtr <= thePtr) {
                             thePtr    = theIt->Consumer();
