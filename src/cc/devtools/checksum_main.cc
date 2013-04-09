@@ -36,7 +36,7 @@ int main(int argc, char** argv)
         printf("Usage: %s [flags]\n"
                "       flags can be any combination of 'c', 'n', 'd'.\n"
                "       c: test adler32 combine.\n"
-               "       n: pad with 0.\n"
+               "       n: don't pad with 0.\n"
                "       d: debug.\n"
                "       The test reads input from STDIN ended by Ctrl+D.\n",
                argv[0]);
