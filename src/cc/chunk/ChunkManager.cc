@@ -3462,7 +3462,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         // The buffer should always start at the checksum block boundary.
         // AdjustDataRead() below trims the front of the buffer if offset isn't
         // checksum block aligned.
-        const const size_t cnt =
+        const size_t cnt =
             (size_t)(bufSize + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE;
         op->checksum.resize(cnt, mNullBlockChecksum);
         if (op->offset % CHECKSUM_BLOCKSIZE != 0) {
