@@ -449,7 +449,7 @@ ClientSM::HandleRequest(int code, void* data)
                 gClientManager.GetIdleTimeoutSec());
             if (IsWaiting() || mDevBufMgr) {
                 mNetConnection->SetMaxReadAhead(0);
-            } else if (! mNetConnection->IsReadReady()) {
+            } else if (! mCurOp || ! mNetConnection->IsReadReady()) {
                 mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
             }
         } else {
@@ -835,6 +835,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                     if (! submitResponseFlag) {
                         return false;
                     }
+                    bufferBytes = 0; // Buffer accounting is already done.
                 }
             }
         }
