@@ -450,13 +450,38 @@ ReadOp::HandleDone(int code, void *data)
     }
 
     if (status >= 0) {
-        assert(numBytesIO >= 0);
-        if (offset % CHECKSUM_BLOCKSIZE != 0 ||
-                numBytesIO % CHECKSUM_BLOCKSIZE != 0) {
-            checksum = ComputeChecksums(dataBuf, numBytesIO);
+        assert(
+            numBytesIO >= 0 && (numBytesIO == 0 ||
+            (size_t)((offset + numBytesIO - 1) / CHECKSUM_BLOCKSIZE + 1 -
+                offset / CHECKSUM_BLOCKSIZE) == checksum.size())
+        );
+        if (numBytesIO <= 0) {
+            checksum.clear();
+        } else if (skipVerifyDiskChecksumFlag) {
+            size_t len = CHECKSUM_BLOCKSIZE -
+                (size_t)(offset % CHECKSUM_BLOCKSIZE);
+            if (len != 0) {
+                checksum.front() = ComputeBlockChecksum(dataBuf, len);
+            }
+            if (checksum.size() > 1 &&
+                    (len = (size_t)(offset + numBytesIO) %
+                        CHECKSUM_BLOCKSIZE) > 0) {
+                checksum.back() = ComputeBlockChecksumAt(
+                    dataBuf, numBytesIO - len, (size_t)len);
+            }
+        } else {
+            if (offset % CHECKSUM_BLOCKSIZE != 0) {
+                checksum = ComputeChecksums(dataBuf, numBytesIO);
+            } else {
+                const int len = (int)(numBytesIO % CHECKSUM_BLOCKSIZE);
+                if (len > 0) {
+                    checksum.back() = ComputeBlockChecksumAt(
+                        dataBuf, numBytesIO - len, (size_t)len);
+                }
+            }
+            assert((size_t)((numBytesIO + CHECKSUM_BLOCKSIZE - 1) /
+                CHECKSUM_BLOCKSIZE) == checksum.size());
         }
-        assert(size_t((numBytesIO + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE) ==
-            checksum.size());
     }
 
     if (wop) {
@@ -2292,6 +2317,9 @@ ReadOp::Response(ostream &os)
 
     os << "DiskIOtime: " << (diskIOTime * 1e-6) << "\r\n";
     os << "Checksum-entries: " << checksum.size() << "\r\n";
+    if (skipVerifyDiskChecksumFlag) {
+        os << "Skip-Disk-Chksum: 1\r\n";
+    }
     if (checksum.size() == 0) {
         os << "Checksums: " << 0 << "\r\n";
     } else {

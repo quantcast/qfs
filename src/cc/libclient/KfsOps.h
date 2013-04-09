@@ -789,20 +789,24 @@ struct ReadOp : public KfsOp {
     int64_t      chunkVersion; /* input */
     chunkOff_t   offset;   /* input */
     size_t       numBytes; /* input */
+    bool         skipVerifyDiskChecksumFlag;
     struct timeval submitTime; /* when the client sent the request to the server */
     vector<uint32_t> checksums; /* checksum for each 64KB block */
     float   diskIOTime; /* as reported by the server */
     float   elapsedTime; /* as measured by the client */
 
-    ReadOp(kfsSeq_t s, kfsChunkId_t c, int64_t v) :
-        KfsOp(CMD_READ, s), chunkId(c), chunkVersion(v),
-        offset(0), numBytes(0), diskIOTime(0.0), elapsedTime(0.0)
-    {
-
-    }
+    ReadOp(kfsSeq_t s, kfsChunkId_t c, int64_t v)
+        : KfsOp(CMD_READ, s),
+          chunkId(c),
+          chunkVersion(v),
+          offset(0),
+          numBytes(0),
+          skipVerifyDiskChecksumFlag(false),
+          diskIOTime(0.0),
+          elapsedTime(0.0)
+        {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
-
     string Show() const {
         ostringstream os;
 
@@ -811,7 +815,8 @@ struct ReadOp : public KfsOp {
             " version: "  << chunkVersion <<
             " offset: "   << offset <<
             " numBytes: " << numBytes <<
-            " iotm: "     << diskIOTime
+            " iotm: "     << diskIOTime <<
+            (skipVerifyDiskChecksumFlag ? " skip-disk-chksum" : "")
         ;
         return os.str();
     }

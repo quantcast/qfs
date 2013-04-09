@@ -426,7 +426,11 @@ ReadOp::Request(ostream &os)
         "Chunk-version: " << chunkVersion      << "\r\n"
         "Offset: "        << offset            << "\r\n"
         "Num-bytes: "     << numBytes          << "\r\n"
-    "\r\n";
+    ;
+    if (skipVerifyDiskChecksumFlag) {
+        os << "Skip-Disk-Chksum: 1\r\n";
+    }
+    os << "\r\n";
 }
 
 void
@@ -969,6 +973,7 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
     nentries = prop.getValue("Checksum-entries", 0);
     checksumStr = prop.getValue("Checksums", "");
     diskIOTime = prop.getValue("DiskIOtime", 0.0);
+    skipVerifyDiskChecksumFlag = prop.getValue("Skip-Disk-Chksum", 0) != 0;
     istringstream ist(checksumStr);
     checksums.clear();
     for (uint32_t i = 0; i < nentries; i++) {

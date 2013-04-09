@@ -1318,14 +1318,15 @@ struct ReadOp : public KfsOp {
     vector<uint32_t> checksum; /* checksum over the data that is sent back to client */
     int64_t          diskIOTime; /* how long did the AIOs take */
     int              retryCnt;
+    bool             skipVerifyDiskChecksumFlag;
     /*
      * for writes that require the associated checksum block to be
      * read in, store the pointer to the associated write op.
     */
-    WriteOp*         wop;
+    WriteOp*            wop;
     // for getting chunk metadata, we do a data scrub.
     GetChunkMetadataOp* scrubOp;
-    BufferManager*   devBufMgr;
+    BufferManager*      devBufMgr;
 
     ReadOp(kfsSeq_t s = 0)
         : KfsOp(CMD_READ, s),
@@ -1339,6 +1340,7 @@ struct ReadOp : public KfsOp {
           checksum(),
           diskIOTime(0),
           retryCnt(0),
+          skipVerifyDiskChecksumFlag(false),
           wop(0),
           scrubOp(0),
           devBufMgr(0)
@@ -1355,6 +1357,7 @@ struct ReadOp : public KfsOp {
           checksum(),
           diskIOTime(0),
           retryCnt(0),
+          skipVerifyDiskChecksumFlag(false),
           wop(w),
           scrubOp(0),
           devBufMgr(0)
@@ -1391,7 +1394,8 @@ struct ReadOp : public KfsOp {
             " chunkId: "      << chunkId <<
             " chunkversion: " << chunkVersion <<
             " offset: "       << offset <<
-            " numBytes: "     << numBytes
+            " numBytes: "     << numBytes <<
+            (skipVerifyDiskChecksumFlag ? " skip-disk-chksum" : "")
         ;
     }
     virtual bool IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId);
@@ -1408,6 +1412,7 @@ struct ReadOp : public KfsOp {
         .Def("Chunk-version",    &ReadOp::chunkVersion, int64_t(-1))
         .Def("Offset",           &ReadOp::offset)
         .Def("Num-bytes",        &ReadOp::numBytes)
+        .Def("Skip-Disk-Chksum", &ReadOp::skipVerifyDiskChecksumFlag, false)
         ;
     }
 };

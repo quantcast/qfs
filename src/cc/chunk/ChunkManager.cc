@@ -1488,6 +1488,7 @@ ChunkManager::ChunkManager()
       mBufferedIoPrefixes(),
       mBufferedIoSetFlag(false),
       mDiskBufferManagerEnabledFlag(true),
+      mForceVerifyDiskReadChecksumFlag(false),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1767,6 +1768,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mDiskBufferManagerEnabledFlag = prop.getValue(
         "chunkServer.disk.bufferManager.enabled",
         mDiskBufferManagerEnabledFlag ? 1 : 0) != 0,
+    mForceVerifyDiskReadChecksumFlag = prop.getValue(
+        "chunkServer.forceVerifyDiskReadChecksum",
+        mForceVerifyDiskReadChecksumFlag ? 1 : 0) != 0,
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -3427,23 +3431,10 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         }
         return true;
     }
-
-    ZeroPad(op->dataBuf);
-
-    assert(op->dataBuf->BytesConsumable() >= (int) CHECKSUM_BLOCKSIZE);
-
-    // either nothing to verify or it better match
-
-    bool mismatch = false;
-
-    // figure out the block we are starting from and grab all the checksums
-    vector<uint32_t>::size_type i, checksumBlock = OffsetToChecksumBlockNum(op->offset);
-    op->checksum = ComputeChecksums(op->dataBuf, op->dataBuf->BytesConsumable());
-
-    // the checksums should be loaded...
-    if (!cih->chunkInfo.AreChecksumsLoaded()) {
+    // Checksums should be loaded.
+    if (! cih->chunkInfo.AreChecksumsLoaded()) {
         // the read took too long; the checksums got paged out.  ask the client to retry
-        KFS_LOG_STREAM_INFO << "Checksums for chunk " <<
+        KFS_LOG_STREAM_INFO << "checksums for chunk: " <<
             cih->chunkInfo.chunkId  <<
             " got paged out; returning EAGAIN to client" <<
         KFS_LOG_EOM;
@@ -3451,9 +3442,32 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         op->status = -EAGAIN;
         return true;
     }
+    if (mForceVerifyDiskReadChecksumFlag) {
+        op->skipVerifyDiskChecksumFlag = false;
+    }
 
+    if (op->skipVerifyDiskChecksumFlag) {
+        // The buffer should always start at the checksum block boundary.
+        // AdjustDataRead() below trims the front of the buffer if offset isn't
+        // checksum block aligned.
+        op->checksum.resize(
+            (size_t)(op->dataBuf->BytesConsumable() + CHECKSUM_BLOCKSIZE - 1) /
+                CHECKSUM_BLOCKSIZE,
+            mNullBlockChecksum
+        );
+    } else {
+        ZeroPad(op->dataBuf);
+        assert(op->dataBuf->BytesConsumable() >= (int)CHECKSUM_BLOCKSIZE);
+        op->checksum = ComputeChecksums(
+            op->dataBuf, op->dataBuf->BytesConsumable());
+    }
     cih->chunkInfo.VerifyChecksumsLoaded();
 
+    // figure out the block we are starting from and grab all the checksums
+    size_t checksumBlock = OffsetToChecksumBlockNum(op->offset);
+    // either nothing to verify or it better match
+    bool mismatch = false;
+    size_t i;
     for (i = 0;
             i < op->checksum.size() &&
                 checksumBlock < MAX_CHUNK_CHECKSUM_BLOCKS;
@@ -3470,13 +3484,15 @@ ChunkManager::ReadChunkDone(ReadOp* op)
             KFS_LOG_EOM;
             continue;
         }
-        if (op->checksum[i] != checksum) {
+        if (op->skipVerifyDiskChecksumFlag) {
+            op->checksum[i] = checksum;
+        } else if (op->checksum[i] != checksum) {
             mismatch = true;
             break;
         }
     }
 
-    if (!mismatch) {
+    if (! mismatch) {
         // for checksums to verify, we did reads in multiples of
         // checksum block sizes.  so, get rid of the extra
         cih->ReadStats(op->status, readLen, op->diskIOTime);
@@ -3489,7 +3505,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
 
     ostringstream os;
     os <<
-        "Checksum mismatch for chunk=" << op->chunkId <<
+        "checksum mismatch for chunk=" << op->chunkId <<
         " offset="    << op->offset <<
         " bytes="     << op->numBytesIO <<
         ": expect: "  << cih->chunkInfo.chunkBlockChecksum[checksumBlock] <<

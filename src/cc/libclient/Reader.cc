@@ -349,8 +349,9 @@ private:
                   mCancelFlag(false)
             {
                 Queue::Init(*this);
-                numBytes = inOpSize;
-                offset   = inOffset;
+                numBytes                   = inOpSize;
+                offset                     = inOffset;
+                skipVerifyDiskChecksumFlag = true;
             }
             void Delete(
                 ReadOp** inQueuePtr)
@@ -1161,8 +1162,79 @@ private:
             if (inOp.contentLength <= 0 && inOp.checksums.empty()) {
                 return true;
             }
-            const vector<uint32_t> theChecksums =
-                ComputeChecksums(&inOp.mTmpBuffer, inOp.contentLength);
+            if (inOp.skipVerifyDiskChecksumFlag) {
+                vector<uint32_t>::const_iterator const theOpEndIt =
+                    inOp.checksums.end();
+                vector<uint32_t>::const_iterator       theOpIt    =
+                    inOp.checksums.begin();
+                IOBuffer::iterator const theEndIt     = inOp.mTmpBuffer.end();
+                IOBuffer::iterator       theIt        = inOp.mTmpBuffer.begin();
+                int                      theTLen      = inOp.contentLength;
+                const char*              thePtr       = 0;
+                const char*              theEndPtr    = 0;
+                size_t                   theIdx       = 0;
+                uint32_t                 theChecksum  = kKfsNullChecksum;
+                bool                     theErrorFlag = false;
+                int                      theLen       = min(theTLen,
+                    (int)(CHECKSUM_BLOCKSIZE -
+                        inOp.offset % CHECKSUM_BLOCKSIZE));
+                while (0 < theTLen) {
+                    int       theRem      = theLen;
+                    uint32_t  theChecksum = kKfsNullChecksum;
+                    for ( ; theIt != theEndIt; ++theIt) {
+                        if (theEndPtr <= thePtr) {
+                            thePtr    = theIt->Consumer();
+                            theEndPtr = theIt->Producer();
+                        }
+                        const int theBLen =
+                            min((int)(theEndPtr - thePtr), theRem);
+                        if (theBLen <= 0) {
+                            continue;
+                        }
+                        theChecksum = ComputeBlockChecksum(
+                            theChecksum, thePtr, (size_t)theBLen);
+                        thePtr += theBLen;
+                        if ((theRem -= theBLen) <= 0) {
+                            break;
+                        }
+                    }
+                    if (theRem < theLen) {
+                        if (theOpEndIt == theOpIt ||
+                                theChecksum != *theOpIt) {
+                            theErrorFlag = true;
+                            break;
+                        }
+                        ++theIdx;
+                        ++theOpIt;
+                    }
+                    if (0 < theRem) {
+                        break;
+                    }
+                    theTLen -= theLen;
+                    theLen = min(theTLen, (int)CHECKSUM_BLOCKSIZE);
+                }
+                if (! theErrorFlag && theOpEndIt == theOpIt) {
+                    return true;
+                }
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "checksum vector mismatch:"
+                    " chunk: "    << inOp.chunkId <<
+                    " version: "  << inOp.chunkVersion <<
+                    " offset: "   << inOp.offset <<
+                    " length: "   << inOp.contentLength <<
+                    " idx: "      << theIdx <<
+                    " got: "      << inOp.checksums.size() <<
+                    " expect: "   << (theErrorFlag ?
+                        (int64_t)theChecksum : int64_t(-1)) <<
+                    " got: "      << (theOpEndIt != theOpIt ?
+                        (int64_t)*theOpIt : int64_t(-1)) <<
+                KFS_LOG_EOM;
+                inOp.status    = kErrorChecksum;
+                inOp.statusMsg = "received checksum mismatch";
+                return false;
+            }
+            vector<uint32_t> const theChecksums =
+                    ComputeChecksums(&inOp.mTmpBuffer, inOp.contentLength);
             if (theChecksums == inOp.checksums) {
                 return true;
             }
@@ -1172,6 +1244,7 @@ private:
                     " chunk: "    << inOp.chunkId <<
                     " version: "  << inOp.chunkVersion <<
                     " offset: "   << inOp.offset <<
+                    " length: "   << inOp.contentLength <<
                     " expected: " << theChecksums.size() <<
                     " got: "      << inOp.checksums.size() <<
                 KFS_LOG_EOM;
@@ -1441,29 +1514,43 @@ private:
                 }
             } else {
                 mOuter.mStats.mRetriesCount++;
-                if (inOp.op == CMD_READ || &mSizeOp == &inOp ||
-                        theReadLeaseOtherFalureFlag) {
-                    if (theReadLeaseOtherFalureFlag ||
-                            ++mChunkServerIdx >= mGetAllocOp.chunkServers.size()) {
-                        mChunkServerIdx = 0;
-                        if (inOp.op != CMD_READ ||
-                                inOp.status != kErrorChecksum) {
-                            theTimeToNextRetry = GetTimeToNextRetry();
-                        }
-                        mRetryCount++;
-                        // Restart from get alloc, chunk might have been moved
-                        // or re-replicated.
-                        mGetAllocOp.status  = 0;
-                        mGetAllocOp.chunkId = -1;
-                    }
-                    // Always restart from get chunk size, [first] read failure
-                    // might imply that reported chunk size wasn't valid.
-                    // Chunk servers don't initially load chunk headers, instead
-                    // stat() system call is used to compute chunk size.
-                    mSizeOp.size = -1;
-                } else {
-                    theTimeToNextRetry = GetTimeToNextRetry();
+                bool thePossibleDiskCheckusmErrorFlag = false;
+                if (inOp.op == CMD_READ && inOp.status == kErrorChecksum) {
+                    ReadOp& theReadOp = static_cast<ReadOp&>(inOp);
+                    thePossibleDiskCheckusmErrorFlag =
+                        theReadOp.skipVerifyDiskChecksumFlag;
+                    theReadOp.skipVerifyDiskChecksumFlag = false;
                 }
+                if (! thePossibleDiskCheckusmErrorFlag) {
+                    if (inOp.op == CMD_READ || &mSizeOp == &inOp ||
+                            theReadLeaseOtherFalureFlag) {
+                        if (theReadLeaseOtherFalureFlag ||
+                                ++mChunkServerIdx >=
+                                    mGetAllocOp.chunkServers.size()) {
+                            mChunkServerIdx = 0;
+                            if (inOp.op != CMD_READ ||
+                                    inOp.status != kErrorChecksum) {
+                                theTimeToNextRetry = GetTimeToNextRetry();
+                            }
+                            mRetryCount++;
+                            // Restart from get alloc, chunk might have been
+                            // moved or re-replicated.
+                            mGetAllocOp.status  = 0;
+                            mGetAllocOp.chunkId = -1;
+                        }
+                        // Always restart from get chunk size, [first] read
+                        // failure might imply that reported chunk size wasn't
+                        // valid.
+                        // Chunk servers don't initially load chunk headers,
+                        // instead stat() system call is used to compute chunk
+                        // size.
+                        mSizeOp.size = -1;
+                    } else {
+                        theTimeToNextRetry = GetTimeToNextRetry();
+                    }
+                }
+                // Do not increment retry count with possible disk checksum
+                // failure.
             }
             if (mRetryCount >= mOuter.mMaxRetryCount || theFailFlag) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<

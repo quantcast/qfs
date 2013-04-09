@@ -755,6 +755,7 @@ private:
     string     mBufferedIoPrefixes;
     bool       mBufferedIoSetFlag;
     bool       mDiskBufferManagerEnabledFlag;
+    bool       mForceVerifyDiskReadChecksumFlag;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
