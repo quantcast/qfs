@@ -34,6 +34,7 @@
 #include "NetDispatch.h"
 #include "Restorer.h"
 #include "AuditLog.h"
+#include "ClientSM.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
@@ -2096,7 +2097,22 @@ MetaBye::handle()
 /* virtual */ void
 MetaLeaseAcquire::handle()
 {
-    if (gLayoutManager.VerifyAllOpsPermissions()) {
+    if (status < 0) {
+        return;
+    }
+    if (submitCount > 1) {
+        // Minimize spurious read lease acquisitions, when client timed out, and
+        // closed connection. The connection check is racy, but should suffice
+        // for the purpose at hands.
+        // Presently the request can only come from the client. fromClientSMFlag
+        // check here isn't strictly required, well unless something pretends to
+        // be chunkserver, sends hello, then this request.
+        if (fromClientSMFlag &&
+                ! static_cast<const ClientSM*>(clnt)->GetConnection()) {
+            status = -EAGAIN;
+            return;
+        }
+    } else if (gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
     status = gLayoutManager.GetChunkReadLease(this);
