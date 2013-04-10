@@ -3561,7 +3561,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
                 checksumBlock++;
             }
         }
-        if (! mismatchFlag && obi < blockCount &&
+        if (! mismatchFlag && obi < (size_t)blockCount &&
                 (len = (int)(op->offset + op->numBytesIO) %
                     (int)CHECKSUM_BLOCKSIZE) > 0) {
             IOBuffer::iterator const eit = op->dataBuf->end();
