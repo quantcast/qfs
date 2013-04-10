@@ -628,7 +628,9 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         }
     }
     if (mDiscardByteCnt > 0) {
-        mDiscardByteCnt -= iobuf->Consume(mDiscardByteCnt);
+        const int discardedCnt = iobuf->Consume(mDiscardByteCnt);
+        gClientManager.Discarded(discardedCnt);
+        mDiscardByteCnt -= discardedCnt;
         if (mDiscardByteCnt > 0) {
             mNetConnection->SetMaxReadAhead(
                 (int)min((ByteCount)mDiscardByteCnt, max(ByteCount(1),

@@ -64,6 +64,7 @@ public:
         Counter mAppendRequestBytes;
         Counter mAppendRequestErrors;
         Counter mWaitTimeExceededCount;
+        Counter mDiscardedBytesCount;
 
         void Clear() {
             mAcceptCount                = 0;
@@ -88,6 +89,7 @@ public:
             mAppendRequestBytes         = 0;
             mAppendRequestErrors        = 0;
             mWaitTimeExceededCount      = 0;
+            mDiscardedBytesCount        = 0;
         }
     };
     ClientManager()
@@ -192,6 +194,12 @@ public:
     }
     int GetPort() const
         { return (mAcceptor ? mAcceptor->GetPort() : -1); }
+    void Discarded(int byteCount)
+    {
+        if (byteCount > 0) {
+            mCounters.mDiscardedBytesCount += byteCount;
+        }
+    }
 private:
     Acceptor* mAcceptor;
     int       mIoTimeoutSec;

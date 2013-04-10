@@ -457,19 +457,7 @@ ReadOp::HandleDone(int code, void *data)
         );
         if (numBytesIO <= 0) {
             checksum.clear();
-        } else if (skipVerifyDiskChecksumFlag) {
-            size_t len = CHECKSUM_BLOCKSIZE -
-                (size_t)(offset % CHECKSUM_BLOCKSIZE);
-            if (len != 0) {
-                checksum.front() = ComputeBlockChecksum(dataBuf, len);
-            }
-            if (checksum.size() > 1 &&
-                    (len = (size_t)(offset + numBytesIO) %
-                        CHECKSUM_BLOCKSIZE) > 0) {
-                checksum.back() = ComputeBlockChecksumAt(
-                    dataBuf, numBytesIO - len, (size_t)len);
-            }
-        } else {
+        } else if (! skipVerifyDiskChecksumFlag) {
             if (offset % CHECKSUM_BLOCKSIZE != 0) {
                 checksum = ComputeChecksums(dataBuf, numBytesIO);
             } else {
@@ -1149,6 +1137,7 @@ HeartbeatOp::Execute()
     Append("Client-req-invalid-header", "hdr",   cli.mBadRequestHeaderCount);
     Append("Client-req-invalid-length", "len",
         cli.mRequestLengthExceededCount);
+    Append("Client-discarded-bytes", "bdcd", cli.mDiscardedBytesCount);
     Append("Client-wait-exceed",     "wex",  cli.mWaitTimeExceededCount);
     cmdShow << " read:";
     Append("Client-read-count",     "cnt",   cli.mReadRequestCount);

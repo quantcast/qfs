@@ -93,6 +93,12 @@ KfsChecksumCombine(uint32_t chksum1, uint32_t chksum2, size_t len2)
 }
 
 uint32_t
+ChecksumBlocksCombine(uint32_t chksum1, uint32_t chksum2, size_t len2)
+{
+    return KfsChecksumCombine(chksum1, chksum2, len2);
+}
+
+uint32_t
 OffsetToChecksumBlockNum(off_t offset)
 {
     return offset / CHECKSUM_BLOCKSIZE;
@@ -176,19 +182,17 @@ ComputeBlockChecksumAt(
 {
     IOBuffer::iterator const end = data->end();
     IOBuffer::iterator       it  = data->begin();
-    for (int rem = pos; it != end; ++it) {
+    uint32_t                 res = chksum;
+    size_t                   l   = len;
+    for (int rem = max(0, pos); 0 < l && it != end; ++it) {
         const int nb = it->BytesConsumable();
-        if (nb > 0 && (rem -= nb) < 0) {
-            break;
-        }
-    }
-    uint32_t res = chksum;
-    for (size_t rem = len; 0 < len && it != end; ++it) {
-        const int nb = it->BytesConsumable();
-        if (nb > 0) {
-            const size_t sz = min((size_t)nb, rem);
-            res = KfsChecksum(res, it->Consumer(), sz);
-            rem -= sz;
+        if (rem < nb) {
+            const size_t sz = min((size_t)(nb - rem), l);
+            res = KfsChecksum(res, it->Consumer() + rem, sz);
+            l -= sz;
+            rem = 0;
+        } else if (nb > 0) {
+            rem -= nb;
         }
     }
     return res;

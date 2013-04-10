@@ -45,6 +45,8 @@ extern uint32_t OffsetToChecksumBlockNum(off_t offset);
 extern uint32_t OffsetToChecksumBlockStart(off_t offset);
 
 extern uint32_t OffsetToChecksumBlockEnd(off_t offset);
+extern uint32_t ChecksumBlocksCombine(uint32_t chksum1, uint32_t chksum2,
+    size_t len2);
 
 /// Call this function if you want checksum computed over CHECKSUM_BLOCKSIZE bytes
 extern uint32_t ComputeBlockChecksum(const IOBuffer* data, size_t len,

@@ -3447,70 +3447,229 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     }
 
     ZeroPad(op->dataBuf);
-    const int bufSize = op->dataBuf->BytesConsumable();
-    if (bufSize < (int)CHECKSUM_BLOCKSIZE) {
-        die("read verify: invalid verify size");
+    // figure out the block we are starting from and grab all the checksums
+    size_t checksumBlock = OffsetToChecksumBlockNum(op->offset);
+    const int bufSize    = op->dataBuf->BytesConsumable();
+    int       blockCount = bufSize / (int)CHECKSUM_BLOCKSIZE;
+    if (blockCount < 1 || blockCount * (int)CHECKSUM_BLOCKSIZE != bufSize ||
+            MAX_CHUNK_CHECKSUM_BLOCKS < checksumBlock + blockCount) {
+        die("read verify: invalid buffer size");
         op->status = -EFAULT;
         return true;
     }
-    // figure out the block we are starting from and grab all the checksums
-    size_t checksumBlock = OffsetToChecksumBlockNum(op->offset);
     // either nothing to verify or it better match
     bool   mismatchFlag = false;
-    size_t i            = 0;
+    size_t obi          = 0;
     if (op->skipVerifyDiskChecksumFlag) {
         // The buffer should always start at the checksum block boundary.
         // AdjustDataRead() below trims the front of the buffer if offset isn't
         // checksum block aligned.
-        const size_t cnt =
-            (size_t)(bufSize + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE;
-        op->checksum.resize(cnt, mNullBlockChecksum);
-        if (op->offset % CHECKSUM_BLOCKSIZE != 0) {
-            op->checksum.front() = ComputeBlockChecksum(
-                op->dataBuf, CHECKSUM_BLOCKSIZE);
-            mismatchFlag = op->checksum.front() != 
+        op->checksum.resize((size_t)blockCount, mNullBlockChecksum);
+        int len = (int)(op->offset % CHECKSUM_BLOCKSIZE);
+        if (len > 0) {
+            IOBuffer::iterator const eit = op->dataBuf->end();
+            IOBuffer::iterator       it  = op->dataBuf->begin();
+            int                      el  = (int)CHECKSUM_BLOCKSIZE - len;
+            int                      nb  = 0;
+            int32_t                  bcs = kKfsNullChecksum;
+            for ( ; it != eit; ++it) {
+                nb = it->BytesConsumable();
+                if(nb <= 0) {
+                    continue;
+                }
+                const int l = min(nb, len);
+                bcs = ComputeBlockChecksum(bcs, it->Consumer(), (size_t)l);
+                nb  -= l;
+                len -= l;
+                if (len <= 0) {
+                    break;
+                }
+            }
+            if (len != 0) {
+                die("read verify: internal error invalid buffer size");
+                op->status = -EFAULT;
+                return true;
+            }
+            const int ml = min(op->numBytesIO, (ssize_t)el);
+            el -= ml;
+            len = ml;
+            uint32_t mcs = kKfsNullChecksum;
+            uint32_t ecs = kKfsNullChecksum;
+            uint32_t* ccs = &mcs;
+            if (0 < nb) {
+                const int l = min(nb, len);
+                mcs = ComputeBlockChecksum(
+                    mcs, it->Producer() - nb, (size_t)l);
+                len -= l;
+                nb  -= l;
+                if (len <= 0) {
+                    len = el;
+                    ccs = &ecs;
+                }
+                if (0 < nb && 0 < len) {
+                    const int l = min(nb, len);
+                    ecs = ComputeBlockChecksum(
+                        ecs, it->Producer() - nb, (size_t)l);
+                    len -= l;
+                }
+            }
+            while (0 < len) {
+                while (++it != eit) {
+                    nb = it->BytesConsumable();
+                    if (nb <= 0) {
+                        continue;
+                    }
+                    const int l = min(nb, len);
+                    *ccs = ComputeBlockChecksum(
+                        *ccs, it->Consumer(), (size_t)l);
+                    len -= l;
+                    nb  -= l;
+                    if (len <= 0) {
+                        break;
+                    }
+                }
+                if (ccs == &ecs || (len = el) <= 0 || it == eit) {
+                    break;
+                }
+                ccs = &ecs;
+                if (0 < nb) {
+                    const int l = min(nb, len);
+                    ecs = ComputeBlockChecksum(
+                        ecs, it->Producer() - nb, (size_t)l);
+                    len -= l;
+                }
+            }
+            if (len != 0) {
+                die("read verify: internal error invalid verify size");
+                op->status = -EFAULT;
+                return true;
+            }
+            uint32_t cs = ChecksumBlocksCombine(bcs, mcs, (size_t)ml);
+            if (el > 0) {
+                cs = ChecksumBlocksCombine(cs, ecs, (size_t)el);
+            }
+            const uint32_t hcs =
                 cih->chunkInfo.chunkBlockChecksum[checksumBlock];
+            mismatchFlag = cs != hcs && (hcs != 0 ||
+                cs != mNullBlockChecksum || ! mAllowSparseChunksFlag);
+            if (mismatchFlag) {
+                op->checksum.front() = cs;
+            } else {
+                op->checksum.front() = mcs;
+                // Do not copy the first entry.
+                obi = 1;
+                checksumBlock++;
+            }
         }
-        if (! mismatchFlag &&
-                (int)CHECKSUM_BLOCKSIZE < bufSize &&
-                (op->offset + op->numBytesIO) % (int)CHECKSUM_BLOCKSIZE != 0) {
-            i = cnt - 1;
-            op->checksum.back() = ComputeBlockChecksumAt(
-                op->dataBuf,
-                bufSize - (int)CHECKSUM_BLOCKSIZE,
-                CHECKSUM_BLOCKSIZE
-            );
-            if ((mismatchFlag =
-                    checksumBlock + i < MAX_CHUNK_CHECKSUM_BLOCKS &&
-                    op->checksum.back() !=
-                    cih->chunkInfo.chunkBlockChecksum[checksumBlock + i])) {
-                checksumBlock += i;
+        if (! mismatchFlag && obi < blockCount &&
+                (len = (int)(op->offset + op->numBytesIO) %
+                    (int)CHECKSUM_BLOCKSIZE) > 0) {
+            IOBuffer::iterator const eit = op->dataBuf->end();
+            IOBuffer::iterator const bit = op->dataBuf->begin();
+            IOBuffer::iterator       it  = eit;
+            int rem = (int)CHECKSUM_BLOCKSIZE;
+            int nb  = 0;
+            while (it != bit) {
+                --it;
+                nb = it->BytesConsumable();
+                if(nb <= 0) {
+                    continue;
+                }
+                if (rem <= nb) {
+                    break;
+                }
+                rem -= nb;
+            }
+            if (nb < rem || it == eit) {
+                die("read verify: invalid buffer iterator");
+                op->status = -EFAULT;
+                return true;
+            }
+            int l = min(len, rem);
+            uint32_t cs  = ComputeBlockChecksum(
+                kKfsNullChecksum, it->Producer() - rem, (size_t)l);
+            rem -= l;
+            len -= l;
+            uint32_t ecs;
+            if (0 < rem) {
+                ecs = cs;
+                cs  = ComputeBlockChecksum(
+                    cs, it->Producer() - rem, (size_t)rem);
+                rem = (int)CHECKSUM_BLOCKSIZE - l - rem;
+            } else {
+                rem = (int)CHECKSUM_BLOCKSIZE - l - len;
+                nb  = 0;
+                while (0 < len) {
+                    ++it;
+                    nb = it->BytesConsumable();
+                    if (nb <= 0) {
+                        continue;
+                    }
+                    l = min(len, nb);
+                    cs = ComputeBlockChecksum(cs, it->Consumer(), (size_t)l);
+                    len -= l;
+                    nb  -= l;
+                }
+                ecs = cs;
+                if (0 < nb) {
+                    cs = ComputeBlockChecksum(
+                        cs, it->Producer() - nb, (size_t)nb);
+                    rem -= nb;
+                }
+            }
+            while (0 < rem) {
+                ++it;
+                nb = it->BytesConsumable();
+                if (nb <= 0) {
+                    continue;
+                }
+                cs = ComputeBlockChecksum(cs, it->Consumer(), (size_t)nb);
+                rem -= nb;
+            }
+            if (rem != 0) {
+                die("read verify: internal error");
+                op->status = -EFAULT;
+                return true;
+            }
+            const size_t   idx = checksumBlock - obi + blockCount - 1;
+            const uint32_t hcs = cih->chunkInfo.chunkBlockChecksum[idx];
+            mismatchFlag = cs != hcs && (hcs != 0 ||
+                cs != mNullBlockChecksum || ! mAllowSparseChunksFlag);
+            if (mismatchFlag) {
+                obi           = blockCount - 1;
+                checksumBlock = idx;
+                op->checksum.back() = cs;
+            } else {
+                op->checksum.back() = ecs;
+                blockCount--; // Do not copy the last entry.
             }
         }
     } else {
         op->checksum = ComputeChecksums(op->dataBuf, bufSize);
+        if ((size_t)blockCount != op->checksum.size()) {
+            die("read verify: invalid checksum vector size");
+            op->status = -EFAULT;
+            return true;
+        }
     }
 
     if (! mismatchFlag) {
-        const size_t cnt = op->checksum.size();
-        for (i = 0;
-                i < cnt && checksumBlock < MAX_CHUNK_CHECKSUM_BLOCKS;
-                checksumBlock++, i++) {
+        for ( ; obi < (size_t)blockCount; checksumBlock++, obi++) {
             const uint32_t checksum =
                 cih->chunkInfo.chunkBlockChecksum[checksumBlock];
-            if (checksum == 0 && op->checksum[i] == mNullBlockChecksum &&
+            if (checksum == 0 && op->checksum[obi] == mNullBlockChecksum &&
                     mAllowSparseChunksFlag) {
                 KFS_LOG_STREAM_INFO <<
                     " chunk: "      << cih->chunkInfo.chunkId <<
                     " block: "      << checksumBlock <<
                     " no checksum " <<
-                    " read: "       << op->checksum[i] <<
+                    " read: "       << op->checksum[obi] <<
                 KFS_LOG_EOM;
                 continue;
             }
             if (op->skipVerifyDiskChecksumFlag) {
-                op->checksum[i] = checksum;
-            } else if (op->checksum[i] != checksum) {
+                op->checksum[obi] = checksum;
+            } else if (op->checksum[obi] != checksum) {
                 mismatchFlag = true;
                 break;
             }
@@ -3533,7 +3692,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         " offset="    << op->offset <<
         " bytes="     << op->numBytesIO <<
         ": expect: "  << cih->chunkInfo.chunkBlockChecksum[checksumBlock] <<
-        " computed: " << op->checksum[i] <<
+        " computed: " << op->checksum[obi] <<
         " try: "      << op->retryCnt <<
         ((mAbortOnChecksumMismatchFlag && ! retry) ? " abort" : "")
     ;
@@ -3548,6 +3707,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     if (mAbortOnChecksumMismatchFlag) {
         die(str);
     }
+    op->checksum.clear();
     op->dataBuf->Clear();
 
     // Notify the metaserver that the chunk we have is "bad"; the
