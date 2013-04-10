@@ -5235,6 +5235,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     //
     NonStableChunksMap::iterator const it = mNonStableChunks.find(req->chunkId);
     if (it != mNonStableChunks.end()) {
+        if (req->fromChunkServerFlag || req->leaseTimeout <= 0) {
+            req->statusMsg = "not yet stable";
+            return -EBUSY;
+        }
         req->suspended = true;
         req->next = it->second.pendingReqHead;
         it->second.pendingReqHead = req;
@@ -7216,6 +7220,15 @@ LayoutManager::DeleteNonStableEntry(
 {
     MetaRequest* next = it->second.pendingReqHead;
     mNonStableChunks.erase(it);
+    // Submit requests in the same order they came in.
+    MetaRequest* head = 0;
+    while (next) {
+        MetaRequest& req = *next;
+        next = req.next;
+        req.next = head;
+        head = &req;
+    }
+    next = head;
     while (next) {
         MetaRequest& req = *next;
         next = req.next;

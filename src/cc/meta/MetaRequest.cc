@@ -2107,6 +2107,15 @@ MetaLeaseAcquire::handle()
         // Presently the request can only come from the client. fromClientSMFlag
         // check here isn't strictly required, well unless something pretends to
         // be chunkserver, sends hello, then this request.
+        const int64_t kMicroseconds = 1000 * 1000;
+        const int64_t now           = globalNetManager().Now() * kMicroseconds;
+        if ((submitTime + leaseTimeout * kMicroseconds < now) ||
+                (0 < maxWaitMillisec &&
+                    submitTime + maxWaitMillisec * 1000 < now)) {
+            statusMsg = "lease wait timed out";
+            status    = -EAGAIN;
+            return;
+        }
         if (fromClientSMFlag &&
                 ! static_cast<const ClientSM*>(clnt)->GetConnection()) {
             status = -EAGAIN;

@@ -191,6 +191,7 @@ struct MetaRequest {
     IOBuffer        reqHeaders;
     kfsUid_t        euser;
     kfsGid_t        egroup;
+    int64_t         maxWaitMillisec;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
     MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
@@ -211,6 +212,7 @@ struct MetaRequest {
           reqHeaders(),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
+          maxWaitMillisec(-1),
           next(0),
           clnt(0)
         { MetaRequest::Init(); }
@@ -251,6 +253,7 @@ struct MetaRequest {
         .Def("From-chunk-server",       &MetaRequest::fromChunkServerFlag, false)
         .Def("UserId",                  &MetaRequest::euser,  kKfsUserNone)
         .Def("GroupId",                 &MetaRequest::egroup, kKfsGroupNone)
+        .Def("Max-wait-ms",             &MetaRequest::maxWaitMillisec, int64_t(-1))
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
