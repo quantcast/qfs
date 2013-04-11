@@ -1,4 +1,11 @@
-VERSION = 1.0.2
+GIT_COMMIT ?= HEAD
+GIT_VERSION = $(subst -, ,$(shell git describe $(GIT_COMMIT)))
+VERSION ?= $(word 1,$(GIT_VERSION))
+RELEASE ?= $(word 2,$(GIT_VERSION))
+ifeq ($(VERSION),)
+$(error Unable to determine git version)
+endif
+$(info QFS Version $(VERSION)-$(RELEASE))
 
 all: rpm
 
@@ -15,7 +22,7 @@ mkdir: clean
 
 prepare_source: mkdir
 	cp *.patch rpmbuild/SOURCES
-	(cd `git rev-parse --show-toplevel` && git archive --format=tar --prefix=qfs-$(VERSION)/ $(VERSION)) | \
+	(cd `git rev-parse --show-toplevel` && git archive --format=tar --prefix=qfs-$(VERSION)/ $(GIT_COMMIT)) | \
 	   gzip > rpmbuild/SOURCES/qfs-$(VERSION).tar.gz
 
 srpm: prepare_source
@@ -26,6 +33,8 @@ srpm: prepare_source
 	  --define "_srcrpmdir %{_topdir}/rpmbuild/SRPMS" \
 	  --define "_specdir %{_topdir}" \
 	  --define "_sourcedir  %{_topdir}/rpmbuild/SOURCES" \
+	  --define "QFS_VERSION $(VERSION)" \
+	  --define "QFS_RELEASE $(RELEASE)" \
 	  --nodeps -bs qfs.spec
 
 rpm: prepare_source
@@ -36,5 +45,7 @@ rpm: prepare_source
 	  --define "_srcrpmdir %{_topdir}/rpmbuild/SRPMS" \
 	  --define "_specdir %{_topdir}" \
 	  --define "_sourcedir  %{_topdir}/rpmbuild/SOURCES" \
+	  --define "QFS_VERSION $(VERSION)" \
+	  --define "QFS_RELEASE $(RELEASE)" \
 	  -ba qfs.spec
 

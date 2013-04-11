@@ -1,5 +1,10 @@
 %global HADOOP_VERSION 1.0.4
+%if %{?!QFS_VERSION:1}0
 %global QFS_VERSION 1.0.2
+%endif
+%if %{?!QFS_RELEASE:1}0
+%global QFS_RELEASE 0
+%endif
 
 %global HADOOP_HOME /usr/lib/hadoop
 %global JDK_LOCATION /usr/lib/jvm/java
@@ -15,7 +20,7 @@
 
 Name:           qfs
 Version:        %{QFS_VERSION}
-Release:        1%{?dist}
+Release:        %{QFS_RELEASE}%{?dist}
 Summary:        Libraries required for accessing Quantcast File System
 
 Group:          System Environment/Libraries
