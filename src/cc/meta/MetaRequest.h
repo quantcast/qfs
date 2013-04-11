@@ -171,6 +171,7 @@ struct MetaRequest {
     const bool      mutation;        //!< mutates metatree
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
+    bool            fromClientSMFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        euser;
@@ -190,8 +191,9 @@ struct MetaRequest {
           mutation(mu),
           suspended(false),
           fromChunkServerFlag(false),
+          fromClientSMFlag(false),
           clientIp(),
-                  reqHeaders(),
+          reqHeaders(),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           next(0),

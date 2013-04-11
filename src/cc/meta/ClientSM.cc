@@ -434,8 +434,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
-    op->clientIp = mClientIp;
-    op->clnt     = this;
+    op->clientIp         = mClientIp;
+    op->fromClientSMFlag = true;
+    op->clnt             = this;
     mPendingOpsCount++;
     ClientManager::SubmitRequest(mClientThread, *op);
 }
