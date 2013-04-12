@@ -1178,13 +1178,17 @@ private:
                 int                      theLen       = min(theTLen,
                     (int)(CHECKSUM_BLOCKSIZE -
                         inOp.offset % CHECKSUM_BLOCKSIZE));
-                while (0 < theTLen) {
+                while (0 < theLen) {
                     theChecksum = kKfsNullChecksum;
                     int theRem = theLen;
-                    for ( ; theIt != theEndIt; ++theIt) {
+                    for ( ; ; ) {
                         if (theEndPtr <= thePtr) {
+                            if (theIt == theEndIt) {
+                                break;
+                            }
                             thePtr    = theIt->Consumer();
                             theEndPtr = theIt->Producer();
+                            ++theIt;
                         }
                         const int theBLen =
                             min((int)(theEndPtr - thePtr), theRem);
