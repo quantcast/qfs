@@ -2715,7 +2715,9 @@ ChunkManager::GetDirForChunkT(T start, T end)
         if (di.evacuateStartedFlag) {
             continue;
         }
-        const int64_t space = di.availableSpace;
+        const int64_t space = min(di.dirCountSpaceAvailable ?
+            di.dirCountSpaceAvailable->availableSpace : di.availableSpace,
+            di.availableSpace);
         if (space < mMinFsAvailableSpace ||
                 space <= di.totalSpace * mMaxSpaceUtilizationThreshold) {
             continue;
@@ -3439,7 +3441,8 @@ ChunkManager::ReadChunkDone(ReadOp* op)
             " got paged out; returning EAGAIN to client" <<
         KFS_LOG_EOM;
         cih->ReadStats(op->status, readLen, op->diskIOTime);
-        op->status = -EAGAIN;
+        op->statusMsg = "chunk closed";
+        op->status    = -EAGAIN;
         return true;
     }
     if (mForceVerifyDiskReadChecksumFlag) {
@@ -3467,6 +3470,8 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         op->checksum.resize((size_t)blockCount, mNullBlockChecksum);
         int len = (int)(op->offset % CHECKSUM_BLOCKSIZE);
         if (len > 0) {
+            mCounters.mReadSkipDiskVerifyChecksumByteCount +=
+                CHECKSUM_BLOCKSIZE;
             IOBuffer::iterator const eit = op->dataBuf->end();
             IOBuffer::iterator       it  = op->dataBuf->begin();
             int                      el  = (int)CHECKSUM_BLOCKSIZE - len;
@@ -3564,6 +3569,8 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         if (! mismatchFlag && obi < (size_t)blockCount &&
                 (len = (int)(op->offset + op->numBytesIO) %
                     (int)CHECKSUM_BLOCKSIZE) > 0) {
+            mCounters.mReadSkipDiskVerifyChecksumByteCount +=
+                CHECKSUM_BLOCKSIZE;
             IOBuffer::iterator const eit = op->dataBuf->end();
             IOBuffer::iterator const bit = op->dataBuf->begin();
             IOBuffer::iterator       it  = eit;
@@ -3644,7 +3651,14 @@ ChunkManager::ReadChunkDone(ReadOp* op)
                 blockCount--; // Do not copy the last entry.
             }
         }
+        if (mismatchFlag) {
+            mCounters.mReadSkipDiskVerifyErrorCount++;
+        }
+        mCounters.mReadSkipDiskVerifyCount++;
+        mCounters.mReadSkipDiskVerifyByteCount += op->numBytesIO;
     } else {
+        mCounters.mReadChecksumCount++;
+        mCounters.mReadChecksumByteCount += bufSize;
         op->checksum = ComputeChecksums(op->dataBuf, bufSize);
         if ((size_t)blockCount != op->checksum.size()) {
             die("read verify: invalid checksum vector size");

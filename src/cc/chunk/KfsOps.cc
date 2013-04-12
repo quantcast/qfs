@@ -1115,6 +1115,15 @@ HeartbeatOp::Execute()
     Append("Chunk-open-errors",   "open", cm.mOpenErrorCount);
     Append("Dir-chunk-lost",      "dce",  cm.mDirLostChunkCount);
     Append("Chunk-dir-lost",      "cdl",  cm.mChunkDirLostCount);
+    cmdShow << "rd-chksum:";
+    Append("Read-chksum",               "rcs", cm.mReadChecksumCount);
+    Append("Read-chksum-bytes",         "rcb", cm.mReadChecksumByteCount);
+    Append("Read-chksum-skip",          "rsv", cm.mReadSkipDiskVerifyCount);
+    Append("Read-chksum-skip-err",      "rse",
+        cm.mReadSkipDiskVerifyErrorCount);
+    Append("Read-chksum-skip-bytes",    "rsb", cm.mReadSkipDiskVerifyByteCount);
+    Append("Read-chksum-skip-cs-bytes", "rsc",
+        cm.mReadSkipDiskVerifyChecksumByteCount);
 
     MetaServerSM::Counters mc;
     gMetaServerSM.GetCounters(mc);

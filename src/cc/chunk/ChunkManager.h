@@ -83,18 +83,30 @@ public:
         Counter mLostChunksCount;
         Counter mDirLostChunkCount;
         Counter mChunkDirLostCount;
+        Counter mReadChecksumCount;
+        Counter mReadChecksumByteCount;
+        Counter mReadSkipDiskVerifyCount;
+        Counter mReadSkipDiskVerifyErrorCount;
+        Counter mReadSkipDiskVerifyByteCount;
+        Counter mReadSkipDiskVerifyChecksumByteCount;
 
         void Clear()
         {
-            mBadChunkHeaderErrorCount = 0;
-            mReadChecksumErrorCount   = 0;
-            mReadErrorCount           = 0;
-            mWriteErrorCount          = 0;
-            mOpenErrorCount           = 0;
-            mCorruptedChunksCount     = 0;
-            mLostChunksCount          = 0;
-            mDirLostChunkCount        = 0;
-            mChunkDirLostCount        = 0;
+            mBadChunkHeaderErrorCount            = 0;
+            mReadChecksumErrorCount              = 0;
+            mReadErrorCount                      = 0;
+            mWriteErrorCount                     = 0;
+            mOpenErrorCount                      = 0;
+            mCorruptedChunksCount                = 0;
+            mLostChunksCount                     = 0;
+            mDirLostChunkCount                   = 0;
+            mChunkDirLostCount                   = 0;
+            mReadChecksumCount                   = 0;
+            mReadChecksumByteCount               = 0;
+            mReadSkipDiskVerifyCount             = 0;
+            mReadSkipDiskVerifyErrorCount        = 0;
+            mReadSkipDiskVerifyByteCount         = 0;
+            mReadSkipDiskVerifyChecksumByteCount = 0;
         }
     };
 
