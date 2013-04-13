@@ -973,7 +973,9 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
     nentries = prop.getValue("Checksum-entries", 0);
     checksumStr = prop.getValue("Checksums", "");
     diskIOTime = prop.getValue("DiskIOtime", 0.0);
-    skipVerifyDiskChecksumFlag = prop.getValue("Skip-Disk-Chksum", 0) != 0;
+    skipVerifyDiskChecksumFlag =
+        skipVerifyDiskChecksumFlag &&
+        prop.getValue("Skip-Disk-Chksum", 0) != 0;
     istringstream ist(checksumStr);
     checksums.clear();
     for (uint32_t i = 0; i < nentries; i++) {
