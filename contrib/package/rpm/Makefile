@@ -1,13 +1,22 @@
+
 GIT_COMMIT ?= HEAD
-GIT_VERSION = $(subst -, ,$(shell git describe $(GIT_COMMIT)))
+GIT_VERSION := $(shell git describe $(GIT_COMMIT))
+GIT_VERSION := $(subst -, ,$(GIT_VERSION))
+
 VERSION ?= $(word 1,$(GIT_VERSION))
 RELEASE ?= $(word 2,$(GIT_VERSION))
-ifeq ($(VERSION),)
-$(error Unable to determine git version)
-endif
-$(info QFS Version $(VERSION)-$(RELEASE))
+
+.PHONY: all version clean mkdir prepare_source srpm rpm
 
 all: rpm
+
+version:
+	@if [ -n "$(VERSION)" ] ; then \
+		echo QFS Version $(VERSION)-$(RELEASE); \
+	else \
+		echo >&2 Unable to determine qfs version; \
+		exit 1; \
+	fi
 
 clean:
 	rm -rf rpmbuild
@@ -25,7 +34,7 @@ prepare_source: mkdir
 	(cd `git rev-parse --show-toplevel` && git archive --format=tar --prefix=qfs-$(VERSION)/ $(GIT_COMMIT)) | \
 	   gzip > rpmbuild/SOURCES/qfs-$(VERSION).tar.gz
 
-srpm: prepare_source
+srpm: version prepare_source
 	rpmbuild --define "_topdir %(pwd)" \
 	  --define "_builddir %{_topdir}/rpmbuild/BUILD" \
 	  --define "_buildrootdir %{_topdir}/rpmbuild/BUILDROOT" \
@@ -37,7 +46,7 @@ srpm: prepare_source
 	  --define "QFS_RELEASE $(RELEASE)" \
 	  --nodeps -bs qfs.spec
 
-rpm: prepare_source
+rpm: version prepare_source
 	rpmbuild --define "_topdir %(pwd)" \
 	  --define "_builddir %{_topdir}/rpmbuild/BUILD" \
           --define "_buildrootdir %{_topdir}/rpmbuild/BUILDROOT" \
