@@ -339,21 +339,25 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
                 op->status = -KfsToSysErrno(-op->status);
             }
             if (op->op == CMD_WRITE_ID_ALLOC) {
-                WriteIdAllocOp *wiao = static_cast<WriteIdAllocOp *>(op);
-                wiao->writeIdStr            = prop.getValue("Write-id", "");
+                WriteIdAllocOp* const wiao  = static_cast<WriteIdAllocOp*>(op);
+                wiao->writeIdStr            = prop.getValue("Write-id", string());
                 wiao->writePrepareReplyFlag =
                     prop.getValue("Write-prepare-reply", 0) != 0;
             } else if (op->op == CMD_READ) {
-                ReadOp *rop = static_cast<ReadOp *> (op);
+                ReadOp* const rop = static_cast<ReadOp*>(op);
                 const int checksumEntries = prop.getValue("Checksum-entries", 0);
+                rop->checksum.clear();
                 if (checksumEntries > 0) {
-                    istringstream is(prop.getValue("Checksums", ""));
+                    istringstream is(prop.getValue("Checksums", string()));
                     uint32_t cks;
                     for (int i = 0; i < checksumEntries; i++) {
                         is >> cks;
                         rop->checksum.push_back(cks);
                     }
                 }
+                rop->skipVerifyDiskChecksumFlag =
+                    rop->skipVerifyDiskChecksumFlag &&
+                    prop.getValue("Skip-Disk-Chksum", 0) != 0;
                 const int off(rop->offset % IOBufferData::GetDefaultBufferSize());
                 if (off > 0) {
                     IOBuffer buf;
@@ -364,10 +368,11 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
                     iobuf->MakeBuffersFull();
                 }
             } else if (op->op == CMD_SIZE) {
-                SizeOp *sop = static_cast<SizeOp *>(op);
+                SizeOp* const sop = static_cast<SizeOp*>(op);
                 sop->size = prop.getValue("Size", 0);
             } else if (op->op == CMD_GET_CHUNK_METADATA) {
-                GetChunkMetadataOp *gcm = static_cast<GetChunkMetadataOp *>(op);
+                GetChunkMetadataOp* const gcm =
+                    static_cast<GetChunkMetadataOp*>(op);
                 gcm->chunkVersion = prop.getValue("Chunk-version", 0);
                 gcm->chunkSize = prop.getValue("Size", 0);
             }
@@ -393,18 +398,21 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         i = mDispatchedOps.find(mReplySeqNum);
     }
     if (i != mDispatchedOps.end()) {
-        KfsOp *const op = i->second;
+        KfsOp* const op = i->second;
         mDispatchedOps.erase(i);
         if (op->op == CMD_READ) {
-            ReadOp *rop = static_cast<ReadOp *> (op);
-            if (rop->dataBuf == NULL)
+            ReadOp* const rop = static_cast<ReadOp*>(op);
+            if (! rop->dataBuf) {
                 rop->dataBuf = new IOBuffer();
+            }
             rop->dataBuf->Move(iobuf, mReplyNumBytes);
             rop->numBytesIO = mReplyNumBytes;
         } else if (op->op == CMD_GET_CHUNK_METADATA) {
-            GetChunkMetadataOp *gcm = static_cast<GetChunkMetadataOp *>(op);
-            if (gcm->dataBuf == NULL)
+            GetChunkMetadataOp* const gcm =
+                static_cast<GetChunkMetadataOp*>(op);
+            if (! gcm->dataBuf) {
                 gcm->dataBuf = new IOBuffer();
+            }
             gcm->dataBuf->Move(iobuf, mReplyNumBytes);
         }
         mReplyNumBytes = 0;

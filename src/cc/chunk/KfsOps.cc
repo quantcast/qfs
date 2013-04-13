@@ -502,17 +502,19 @@ ReadOp::HandleDone(int code, void *data)
 int
 ReadOp::HandleReplicatorDone(int code, void *data)
 {
-    if (status >= 0 && ! checksum.empty()) {
-        const vector<uint32_t> datacksums = ComputeChecksums(dataBuf, numBytesIO);
+    if (status >= 0) {
+        vector<uint32_t> datacksums = ComputeChecksums(
+            dataBuf, numBytesIO);
         if (datacksums.size() > checksum.size()) {
-                    KFS_LOG_STREAM_INFO <<
-                        "Checksum number of entries mismatch in re-replication: "
-                        " expect: " << datacksums.size() <<
-                        " got: " << checksum.size() <<
-                    KFS_LOG_EOM;
-                    status = -EBADCKSUM;
+            KFS_LOG_STREAM_INFO <<
+                "Checksum number of entries mismatch in re-replication: "
+                " expect: " << datacksums.size() <<
+                " got: " << checksum.size() <<
+            KFS_LOG_EOM;
+            status = -EBADCKSUM;
         } else {
-            for (uint32_t i = 0; i < datacksums.size(); i++) {
+            const size_t sz = datacksums.size();
+            for (size_t i = 0; i < sz; i++) {
                 if (datacksums[i] != checksum[i]) {
                     KFS_LOG_STREAM_INFO <<
                         "Checksum mismatch in re-replication: "
@@ -522,6 +524,9 @@ ReadOp::HandleReplicatorDone(int code, void *data)
                     status = -EBADCKSUM;
                     break;
                 }
+            }
+            if (sz != checksum.size()) {
+                checksum.swap(datacksums);
             }
         }
     }
@@ -2447,34 +2452,43 @@ CloseOp::Request(ostream &os)
 void
 SizeOp::Request(ostream &os)
 {
-    os << "SIZE \r\n";
-    os << "Cseq: " << seq << "\r\n";
-    os << "Version: " << KFS_VERSION_STR << "\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n\r\n";
+    os <<
+        "SIZE\r\n"
+        "Cseq: "          << seq             << "\r\n"
+        "Version: "       << KFS_VERSION_STR << "\r\n"
+        "Chunk-handle: "  << chunkId         << "\r\n"
+        "Chunk-version: " << chunkVersion    << "\r\n"
+    "\r\n";
 }
 
 void
 GetChunkMetadataOp::Request(ostream &os)
 {
-    os << "GET_CHUNK_METADATA \r\n"
-        "Cseq: " << seq << "\r\n"
-        "Version: " << KFS_VERSION_STR << "\r\n"
-        "Chunk-handle: " << chunkId << "\r\n"
-        "Read-verify: " << (readVerifyFlag ? 1 : 0) << "\r\n"
+    os <<
+        "GET_CHUNK_METADATA\r\n"
+        "Cseq: "         << seq                      << "\r\n"
+        "Version: "      << KFS_VERSION_STR          << "\r\n"
+        "Chunk-handle: " << chunkId                  << "\r\n"
+        "Read-verify: "  << (readVerifyFlag ? 1 : 0) << "\r\n"
     "\r\n";
 }
 
 void
 ReadOp::Request(ostream &os)
 {
-    os << "READ \r\n";
-    os << "Cseq: " << seq << "\r\n";
-    os << "Version: " << KFS_VERSION_STR << "\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n";
-    os << "Offset: " << offset << "\r\n";
-    os << "Num-bytes: " << numBytes << "\r\n\r\n";
+    os <<
+        "READ\r\n"
+        "Cseq: "          << seq             << "\r\n"
+        "Version: "       << KFS_VERSION_STR << "\r\n"
+        "Chunk-handle: "  << chunkId         << "\r\n"
+        "Chunk-version: " << chunkVersion    << "\r\n"
+        "Offset: "        << offset          << "\r\n"
+        "Num-bytes: "     << numBytes        << "\r\n"
+    ;
+    if (skipVerifyDiskChecksumFlag) {
+        os << "Skip-Disk-Chksum: 1\r\n";
+    }
+    os << "\r\n";
 }
 
 void

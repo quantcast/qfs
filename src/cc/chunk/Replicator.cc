@@ -98,8 +98,12 @@ public:
     static void SetParameters(const Properties& props)
     {
         sUseConnectionPoolFlag = props.getValue(
-            "chunkServer.rsReader.meta.idleTimeoutSec",
+            "chunkServer.replicator.useConnetionPool",
             sUseConnectionPoolFlag ? 1 : 0
+        ) != 0;
+        sReadSkipDiskVerifyFlag = props.getValue(
+            "chunkServer.replicator.readSkipDiskVerify",
+            sReadSkipDiskVerifyFlag ? 1 : 0
         ) != 0;
     }
     static void GetCounters(Replicator::Counters& counters);
@@ -174,6 +178,7 @@ private:
     static Counters             sCounters;
     static int                  sReplicationCount;
     static bool                 sUseConnectionPoolFlag;
+    static bool                 sReadSkipDiskVerifyFlag;
 private:
     // No copy.
     ReplicatorImpl(const ReplicatorImpl&);
@@ -186,7 +191,8 @@ const int kDefaultReplicationReadSize = (int)(
 ReplicatorImpl::InFlightReplications ReplicatorImpl::sInFlightReplications;
 ReplicatorImpl::Counters             ReplicatorImpl::sCounters;
 int                                  ReplicatorImpl::sReplicationCount = 0;
-bool ReplicatorImpl::sUseConnectionPoolFlag = false;
+bool ReplicatorImpl::sUseConnectionPoolFlag  = false;
+bool ReplicatorImpl::sReadSkipDiskVerifyFlag = true;
 
 int
 ReplicatorImpl::GetNumReplications()
@@ -339,8 +345,9 @@ ReplicatorImpl::Start()
 {
     assert(mPeer);
 
-    mChunkMetadataOp.chunkId = mChunkId;
-    mChunkMetadataOp.readVerifyFlag = false;
+    mChunkMetadataOp.chunkId           = mChunkId;
+    mReadOp.skipVerifyDiskChecksumFlag = sReadSkipDiskVerifyFlag;
+    mChunkMetadataOp.readVerifyFlag    = false;
     SET_HANDLER(this, &ReplicatorImpl::HandleStartDone);
     mPeer->Enqueue(&mChunkMetadataOp);
 }
@@ -418,6 +425,9 @@ ReplicatorImpl::Read()
         return;
     }
 
+    if (mOffset % (int)CHECKSUM_BLOCKSIZE != 0) {
+        mReadOp.skipVerifyDiskChecksumFlag = false;
+    }
     assert(mPeer);
     SET_HANDLER(this, &ReplicatorImpl::HandleReadDone);
     mReadOp.checksum.clear();
@@ -426,6 +436,7 @@ ReplicatorImpl::Read()
     mReadOp.numBytesIO = 0;
     mReadOp.numBytes   = (int)min(
         mChunkSize - mOffset, int64_t(kDefaultReplicationReadSize));
+    mReadOp.checksum.clear();
     mPeer->Enqueue(&mReadOp);
 }
 
@@ -442,6 +453,19 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
             " read failed:"
             " error: " << mReadOp.status <<
         KFS_LOG_EOM;
+        if (mReadOp.skipVerifyDiskChecksumFlag &&
+                mReadOp.status == -EBADCKSUM) {
+            KFS_LOG_STREAM_INFO << "replication:"
+                " chunk: " << mChunkId <<
+                " peer: "  << GetPeerName() <<
+                " retrying read:"
+                " offset: " << mReadOp.offset <<
+                " with disk checksum verify" <<
+            KFS_LOG_EOM;
+            mReadOp.skipVerifyDiskChecksumFlag = false;
+            Read();
+            return 0;
+        }
     } else if (! mCancelFlag &&
             numRd < (int)mReadOp.numBytes &&
             mOffset + numRd < mChunkSize) {
@@ -461,7 +485,14 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
     }
 
     const int kChecksumBlockSize = (int)CHECKSUM_BLOCKSIZE;
-    assert(mOffset % kChecksumBlockSize == 0);
+    if (mOffset % kChecksumBlockSize != 0 ||
+            (! mReadOp.checksum.empty() &&
+            mReadOp.checksum.size() !=
+            (size_t)(numRd + kChecksumBlockSize - 1) / kChecksumBlockSize)) {
+        die("replicator: invalid read completion");
+        Terminate(-EFAULT);
+        return 0;
+    }
     // Swap read and write buffer pointers.
     IOBuffer* const dataBuf = mWriteOp.dataBuf;
     if (dataBuf) {
@@ -472,6 +503,11 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
     mWriteOp.numBytes            = numRd;
     mWriteOp.offset              = mOffset;
     mWriteOp.isFromReReplication = true;
+    if (mReadOp.checksum.empty()) {
+        mWriteOp.checksums.clear();
+    } else {
+        mWriteOp.checksums = mReadOp.checksum;
+    }
     mReadOp.dataBuf = dataBuf;
 
     // align the writes to checksum boundaries
@@ -492,6 +528,11 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
             mReadOp.offset     = mOffset + mWriteOp.numBytes;
             mReadOp.numBytesIO = numBytes;
             mReadOp.numBytes   = numBytes;
+            if (! mReadOp.checksum.empty()) {
+                mReadOp.checksum.front() = mReadOp.checksum.back();
+                mReadOp.checksum.resize(1);
+                mWriteOp.checksums.pop_back();
+            }
         }
     }
 
@@ -711,10 +752,11 @@ public:
     virtual void Start()
     {
         assert(mOwner);
-        mChunkMetadataOp.chunkSize    = CHUNKSIZE;
-        mChunkMetadataOp.chunkVersion = mOwner->chunkVersion;
-        mReadOp.status                = 0;
-        mReadOp.numBytes              = 0;
+        mChunkMetadataOp.chunkSize         = CHUNKSIZE;
+        mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
+        mReadOp.status                     = 0;
+        mReadOp.numBytes                   = 0;
+        mReadOp.skipVerifyDiskChecksumFlag = false;
         const bool kSkipHolesFlag                 = true;
         const bool kUseDefaultBufferAllocatorFlag = true;
         mChunkMetadataOp.status = mReader.Open(

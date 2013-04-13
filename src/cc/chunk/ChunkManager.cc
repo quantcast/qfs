@@ -3231,13 +3231,24 @@ ChunkManager::WriteChunk(WriteOp* op)
     int64_t offset     = op->offset;
     ssize_t numBytesIO = op->numBytesIO;
     if ((OffsetToChecksumBlockStart(offset) == offset) &&
-            ((size_t) numBytesIO >= (size_t) CHECKSUM_BLOCKSIZE)) {
+            ((size_t)numBytesIO >= (size_t)CHECKSUM_BLOCKSIZE)) {
         if (numBytesIO % CHECKSUM_BLOCKSIZE != 0) {
             return -EINVAL;
         }
-        if (op->wpop && !op->isFromReReplication &&
-                op->checksums.size() == size_t(numBytesIO / CHECKSUM_BLOCKSIZE)) {
-            assert(op->checksums[0] == op->wpop->checksum || op->checksums.size() > 1);
+        if (op->wpop && ! op->isFromReReplication &&
+                op->checksums.size() ==
+                    (size_t)(numBytesIO / CHECKSUM_BLOCKSIZE)) {
+            if (op->checksums.size() == 1 &&
+                    op->checksums[0] != op->wpop->checksum) {
+                die("invalid write op checksum");
+                return -EFAULT;
+            }
+        } else if (op->isFromReReplication && ! op->checksums.empty()) {
+            if (op->checksums.size() !=
+                    (size_t)(numBytesIO / CHECKSUM_BLOCKSIZE)) {
+                die("invalid replication write op checksum vector");
+                return -EFAULT;
+            }
         } else {
             op->checksums = ComputeChecksums(op->dataBuf, numBytesIO);
         }
