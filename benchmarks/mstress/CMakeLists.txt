@@ -76,8 +76,9 @@ add_custom_target (
 )
 add_dependencies(mstress-tarball mstress-scripts)
 
-get_property (metaserver_location TARGET metaserver PROPERTY LOCATION)
-get_property (chunkserver_location TARGET chunkserver PROPERTY LOCATION)
+get_target_property (metaserver_location metaserver LOCATION)
+get_target_property (chunkserver_location chunkserver LOCATION)
+
 add_custom_target (
     mstress-bootstrap
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin/
