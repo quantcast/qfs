@@ -198,9 +198,12 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
 
 ClientSM::~ClientSM()
 {
-    KfsOp* op;
-
+    if (mInstanceNum <= 0 || sInstanceNum < mInstanceNum) {
+        die("~ClientSM: invalid instance");
+        return;
+    }
     assert(mOps.empty() && mPendingOps.empty() && mPendingSubmitQueue.empty());
+    KfsOp* op;
     while (!mOps.empty()) {
         op = mOps.front().first;
         mOps.pop_front();
@@ -226,6 +229,7 @@ ClientSM::~ClientSM()
         mDevCliMgrAllocator.deallocate(it->second, 1);
     }
     gClientManager.Remove(this);
+    const_cast<uint64_t&>(mInstanceNum) = ~uint64_t(0); // To catch double delete.
 }
 
 ///

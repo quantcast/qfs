@@ -203,7 +203,7 @@ class KfsOp::NullOp : public KfsOp
 {
 protected:
     NullOp()
-        : KfsOp(CMD_UNKNOWN, 0)
+        : KfsOp(CMD_NULL, 0)
         {}
     virtual void Execute()
         {}
@@ -225,9 +225,13 @@ int64_t KfsOp::sOpsCount = 0;
 
 KfsOp::~KfsOp()
 {
+    if (sOpsCount <= 0 || op <= CMD_UNKNOWN || CMD_NCMDS <= op) {
+        die("~KfsOp: invalid instance");
+        return;
+    }
     OpCounters::Update(op, startTime);
-    assert(sOpsCount > 0);
     sOpsCount--;
+    const_cast<KfsOp_t&>(op) = CMD_UNKNOWN; // To catch double delete.
 }
 
 /* static */ uint32_t
