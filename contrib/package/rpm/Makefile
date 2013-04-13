@@ -35,7 +35,8 @@ prepare_source: mkdir
 	   gzip > rpmbuild/SOURCES/qfs-$(VERSION).tar.gz
 
 srpm: version prepare_source
-	rpmbuild --define "_topdir %(pwd)" \
+	rpmbuild $(RPM_OPTS) \
+	  --define "_topdir %(pwd)" \
 	  --define "_builddir %{_topdir}/rpmbuild/BUILD" \
 	  --define "_buildrootdir %{_topdir}/rpmbuild/BUILDROOT" \
 	  --define "_rpmdir %{_topdir}/rpmbuild/RPMS" \
@@ -47,7 +48,8 @@ srpm: version prepare_source
 	  --nodeps -bs qfs.spec
 
 rpm: version prepare_source
-	rpmbuild --define "_topdir %(pwd)" \
+	rpmbuild $(RPM_OPTS) \
+	  --define "_topdir %(pwd)" \
 	  --define "_builddir %{_topdir}/rpmbuild/BUILD" \
           --define "_buildrootdir %{_topdir}/rpmbuild/BUILDROOT" \
 	  --define "_rpmdir %{_topdir}/rpmbuild/RPMS" \
