@@ -1010,6 +1010,6 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         return;
     }
     QCStValueChanger<bool> change(mGrantedFlag, true);
-    HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
+    HandleEvent(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 }
