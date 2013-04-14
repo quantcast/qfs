@@ -437,7 +437,7 @@ ClientSM::HandleRequest(int code, void* data)
         break;
 
     default:
-        assert(!"Unknown event");
+        die("unexpected event");
         break;
     }
 
@@ -468,7 +468,7 @@ ClientSM::HandleRequest(int code, void* data)
             mRecursionCnt--;
             // if there are any disk ops, wait for the ops to finish
             SET_HANDLER(this, &ClientSM::HandleTerminate);
-            HandleTerminate(EVENT_NET_ERROR, NULL);
+            HandleTerminate(EVENT_NET_ERROR, 0);
             // this can be deleted, return now.
             return 0;
         }
@@ -520,7 +520,7 @@ ClientSM::HandleTerminate(int code, void* data)
         break;
 
     default:
-        assert(!"Unknown event");
+        die("unexpected event");
         break;
     }
 
@@ -1006,7 +1006,7 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         " dev. mgr: " << (const void*)mDevBufMgr <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
-    if (! mNetConnection) {
+    if (! mNetConnection || ! mNetConnection->IsGood()) {
         return;
     }
     QCStValueChanger<bool> change(mGrantedFlag, true);
