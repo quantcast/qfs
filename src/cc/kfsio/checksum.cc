@@ -198,41 +198,42 @@ ComputeBlockChecksumAt(
     return res;
 }
 
-vector<uint32_t>
-ComputeChecksums(const IOBuffer* data, size_t len, uint32_t* chksum)
+void
+AppendToChecksumVector(const IOBuffer& data, size_t inlen,
+    uint32_t* chksum, size_t firstBlockLen, vector<uint32_t>& cksums)
 {
-    vector<uint32_t> cksums;
-
-    len = min(len, size_t(max(0, data->BytesConsumable())));
-    if (len <= CHECKSUM_BLOCKSIZE) {
-        const uint32_t cks = ComputeBlockChecksum(data, len);
+    size_t len = min(inlen, size_t(max(0, data.BytesConsumable())));
+    if (len <= firstBlockLen) {
+        const uint32_t cks = ComputeBlockChecksum(&data, len);
         if (chksum) {
             *chksum = cks;
         }
         cksums.push_back(cks);
-        return cksums;
+        return;
     }
     if (chksum) {
         *chksum = kKfsNullChecksum;
     }
-    IOBuffer::iterator iter = data->begin();
-    if (iter == data->end()) {
-        return cksums;
+    IOBuffer::iterator iter = data.begin();
+    if (iter == data.end()) {
+        return;
     }
-    cksums.reserve((len + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE);
-    const char *buf = iter->Consumer();
+    cksums.reserve(cksums.size() + 1 +
+        (len - firstBlockLen + CHECKSUM_BLOCKSIZE - 1) / CHECKSUM_BLOCKSIZE);
+    const char* buf = iter->Consumer();
     /// Compute checksum block by block
-    while (len > 0 && iter != data->end()) {
+    size_t rem = firstBlockLen;
+    while (0 < len && iter != data.end()) {
         size_t   currLen = 0;
         uint32_t res     = kKfsNullChecksum;
-        while (currLen < CHECKSUM_BLOCKSIZE) {
+        while (currLen < rem) {
             size_t navail = min((size_t) (iter->Producer() - buf), len);
-            if (currLen + navail > CHECKSUM_BLOCKSIZE) {
-                navail = CHECKSUM_BLOCKSIZE - currLen;
+            if (currLen + navail > rem) {
+                navail = rem - currLen;
             }
             if (navail == 0) {
                 iter++;
-                if (iter == data->end()) {
+                if (iter == data.end()) {
                     break;
                 }
                 buf = iter->Consumer();
@@ -247,8 +248,9 @@ ComputeChecksums(const IOBuffer* data, size_t len, uint32_t* chksum)
             *chksum = KfsChecksumCombine(*chksum, res, currLen);
         }
         cksums.push_back(res);
+        rem = CHECKSUM_BLOCKSIZE;
     }
-    return cksums;
+    return;
 }
 
 }

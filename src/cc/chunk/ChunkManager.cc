@@ -3233,6 +3233,7 @@ ChunkManager::WriteChunk(WriteOp* op)
     if ((OffsetToChecksumBlockStart(offset) == offset) &&
             ((size_t)numBytesIO >= (size_t)CHECKSUM_BLOCKSIZE)) {
         if (numBytesIO % CHECKSUM_BLOCKSIZE != 0) {
+            op->statusMsg = "invalid request size";
             return -EINVAL;
         }
         if (op->wpop && ! op->isFromReReplication &&
@@ -3243,7 +3244,8 @@ ChunkManager::WriteChunk(WriteOp* op)
                 die("invalid write op checksum");
                 return -EFAULT;
             }
-        } else if (op->isFromReReplication && ! op->checksums.empty()) {
+        } else if ((op->isFromReReplication || op->isFromRecordAppend) &&
+                ! op->checksums.empty()) {
             if (op->checksums.size() !=
                     (size_t)(numBytesIO / CHECKSUM_BLOCKSIZE)) {
                 die("invalid replication write op checksum vector");
@@ -3253,8 +3255,8 @@ ChunkManager::WriteChunk(WriteOp* op)
             op->checksums = ComputeChecksums(op->dataBuf, numBytesIO);
         }
     } else {
-        if ((size_t) numBytesIO >= (size_t) CHECKSUM_BLOCKSIZE) {
-            assert((size_t) numBytesIO < (size_t) CHECKSUM_BLOCKSIZE);
+        if ((size_t)numBytesIO >= (size_t) CHECKSUM_BLOCKSIZE) {
+            op->statusMsg = "invalid request position or size";
             return -EINVAL;
         }
         int            off     = (int)(offset % CHECKSUM_BLOCKSIZE);

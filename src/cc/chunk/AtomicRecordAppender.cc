@@ -401,6 +401,7 @@ private:
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
     WriteIdState            mWriteIdState;
+    vector<uint32_t>        mTmpChecksums;
     Timer                   mTimer;
     const RemoteSyncSMPtr   mPeer;
     RecordAppendOp*         mReplicationList[1];
@@ -644,6 +645,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
       mWriteIdState(),
+      mTmpChecksums(),
       mTimer(
         libkfsio::globalNetManager(),
         *this,
@@ -661,6 +663,8 @@ AtomicRecordAppender::AtomicRecordAppender(
     PendingFlushList::Init(*this);
     AppendReplicationList::Init(mReplicationList);
     mNextOffset = GetChunkSize();
+    // Reserve 2MB of 64K blocks, 1MB is default flus threshold.
+    mTmpChecksums.reserve(32);
     WAPPEND_LOG_STREAM_DEBUG <<
         "ctor" <<
         " chunk: "  << mChunkId <<
@@ -1235,9 +1239,50 @@ AtomicRecordAppender::AppendBegin(
             }
         }
         if (status == 0) {
-            const uint32_t checksum =
-                ComputeBlockChecksum(&op->dataBuf, op->numBytes);
-            if (op->checksum != checksum) {
+            uint32_t     checksum       = kKfsNullChecksum;
+            const size_t lastLen        = mNextOffset % CHECKSUM_BLOCKSIZE;
+            const size_t rem            = min(op->numBytes,
+                CHECKSUM_BLOCKSIZE - lastLen);
+            uint32_t     lastChksum     = 0;
+            const size_t prevSize       = mTmpChecksums.size();
+            const bool   headChksumFlag = 0 < lastLen && 0 < prevSize;
+            if (headChksumFlag) {
+                lastChksum = mTmpChecksums.back();
+                mTmpChecksums.pop_back();
+            }
+            AppendToChecksumVector(op->dataBuf, op->numBytes, &checksum, rem,
+                mTmpChecksums);
+            if (prevSize - (headChksumFlag ? 1 : 0) +
+                    (lastLen + op->numBytes + CHECKSUM_BLOCKSIZE - 1) /
+                        CHECKSUM_BLOCKSIZE != mTmpChecksums.size()) {
+                WAPPEND_LOG_STREAM_FATAL <<
+                    "begin: invalid empty checksum vector" <<
+                    " chunk: "        << mChunkId <<
+                    " chunkVersion: " << mChunkVersion <<
+                    " reserved: "     << mBytesReserved <<
+                    " offset: "       << mNextCommitOffset <<
+                    " nextOffset: "   << mNextOffset <<
+                    " " << op->Show() <<
+                KFS_LOG_EOM;
+                FatalError();
+                op->status = -EFAULT;
+                if (! IsMaster()) {
+                    SetState(kStateReplicationFailed);
+                }
+                return;
+            }
+            if (op->checksum == checksum) {
+                if (headChksumFlag) {
+                    mTmpChecksums[prevSize - 1] = 0 < rem ?
+                        ChecksumBlocksCombine(
+                            lastChksum, mTmpChecksums[prevSize - 1], rem) :
+                        lastChksum;
+                }
+            } else {
+                mTmpChecksums.resize(prevSize);
+                if (headChksumFlag) {
+                    mTmpChecksums[prevSize - 1] = lastChksum;
+                }
                 ostringstream os;
                 os << "checksum mismatch: "
                     " received: " << op->checksum <<
@@ -2426,7 +2471,8 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
             wop->dataBuf->Move(&mBuffer, bytesToFlush);
         } else {
             // Buffer size should always be multiple of checksum block size.
-            assert(mNextWriteOffset % IOBufferData::GetDefaultBufferSize() == 0);
+            assert(mNextWriteOffset %
+                IOBufferData::GetDefaultBufferSize() == 0);
             wop->dataBuf->ReplaceKeepBuffersFull(&mBuffer, 0, bytesToFlush);
         }
         const int newLimit = gAtomicRecordAppendManager.GetFlushLimit(
@@ -2443,7 +2489,58 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
             " in flight:"
             " replicaton: "  << mReplicationsInFlight <<
             " ios: "         << mIoOpsInFlight <<
+            " chksum cnt: "  << mTmpChecksums.size() <<
         KFS_LOG_EOM;
+        // The checksum for partial block is always removed here, in both cases
+        // where this is read modify write, or just last partial block.
+        // The [partial] block checksum is always added in the append begin. In
+        // case of read modify write the checksum is the checksum of the
+        // newly added "tail" of the block, and the beginning of the block was
+        // previously written.
+        const size_t blkCnt = (bytesToFlush + CHECKSUM_BLOCKSIZE - 1) /
+            CHECKSUM_BLOCKSIZE;
+        if (mTmpChecksums.size() < blkCnt) {
+            WAPPEND_LOG_STREAM_FATAL <<
+                "invalid checksum vector"
+                " size: "        << mTmpChecksums.size() <<
+                " less than: "   << blkCnt <<
+                " state: "       << GetStateAsStr() <<
+                " chunk: "       << wop->chunkId <<
+                " offset: "      << wop->offset <<
+                " bytes: "       << wop->numBytes <<
+                " buffered: "    << mBuffer.BytesConsumable() <<
+                " flush limit: " << newLimit <<
+                " in flight:"
+                " replicaton: "  << mReplicationsInFlight <<
+                " ios: "         << mIoOpsInFlight <<
+            KFS_LOG_EOM;
+            FatalError();
+            int res = -EINVAL;
+            wop->status = res;;
+            wop->HandleEvent(EVENT_DISK_ERROR, &res);
+            return;
+        }
+        // Do not assign the checksum tail of RMW block, the checksum
+        // has to be re-computed anyway.
+        bool eraseFlag = true;
+        if (blkOffset <= 0) {
+            if (mTmpChecksums.size() <= max(blkCnt, size_t(24))) {
+                wop->checksums.swap(mTmpChecksums);
+                mTmpChecksums.reserve(
+                    max(size_t(32), wop->checksums.size() - blkCnt));
+                mTmpChecksums.assign(wop->checksums.begin() + blkCnt,
+                    wop->checksums.end());
+                wop->checksums.resize(blkCnt);
+                eraseFlag = false;
+            } else {
+                wop->checksums.assign(
+                    mTmpChecksums.begin(), mTmpChecksums.begin() + blkCnt);
+            }
+        }
+        if (eraseFlag) {
+            mTmpChecksums.erase(
+                mTmpChecksums.begin(), mTmpChecksums.begin() + blkCnt);
+        }
 
         mNextWriteOffset += bytesToFlush;
         mBufFrontPadding = 0;

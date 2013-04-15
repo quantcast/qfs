@@ -40,25 +40,34 @@ using std::vector;
 const uint32_t CHECKSUM_BLOCKSIZE = 65536;
 const uint32_t kKfsNullChecksum   = 1;
 
-extern uint32_t OffsetToChecksumBlockNum(off_t offset);
+uint32_t OffsetToChecksumBlockNum(off_t offset);
+uint32_t OffsetToChecksumBlockStart(off_t offset);
+uint32_t OffsetToChecksumBlockEnd(off_t offset);
+uint32_t ChecksumBlocksCombine(uint32_t chksum1, uint32_t chksum2, size_t len2);
 
-extern uint32_t OffsetToChecksumBlockStart(off_t offset);
-
-extern uint32_t OffsetToChecksumBlockEnd(off_t offset);
-extern uint32_t ChecksumBlocksCombine(uint32_t chksum1, uint32_t chksum2,
-    size_t len2);
-
-/// Call this function if you want checksum computed over CHECKSUM_BLOCKSIZE bytes
-extern uint32_t ComputeBlockChecksum(const IOBuffer* data, size_t len,
+/// Call this function if you want checksum computed over CHECKSUM_BLOCKSIZE
+/// bytes
+uint32_t ComputeBlockChecksum(const IOBuffer* data, size_t len,
     uint32_t chksum = kKfsNullChecksum);
-extern uint32_t ComputeBlockChecksumAt(const IOBuffer* data, int pos, size_t len,
+uint32_t ComputeBlockChecksumAt(const IOBuffer* data, int pos, size_t len,
     uint32_t chksum = kKfsNullChecksum);
-extern uint32_t ComputeBlockChecksum(const char* data, size_t len);
-extern uint32_t ComputeBlockChecksum(uint32_t ckhsum, const char* buf, size_t len);
+uint32_t ComputeBlockChecksum(const char* data, size_t len);
+uint32_t ComputeBlockChecksum(uint32_t ckhsum, const char* buf, size_t len);
 
-/// Call this function if you want a checksums for a sequence of CHECKSUM_BLOCKSIZE bytes
-extern vector<uint32_t> ComputeChecksums(const IOBuffer* data, size_t len, uint32_t* chksum = 0);
-extern vector<uint32_t> ComputeChecksums(const char* data, size_t len, uint32_t* chksum = 0);
+/// Call this function if you want a checksums for a sequence of
+/// CHECKSUM_BLOCKSIZE bytes
+void AppendToChecksumVector(const IOBuffer& data, size_t len,
+    uint32_t* chksum, size_t firstBlockLen, vector<uint32_t>& vec);
+
+inline static vector<uint32_t> ComputeChecksums(const IOBuffer* data, size_t len,
+    uint32_t* chksum = 0, size_t firstBlockLen = CHECKSUM_BLOCKSIZE)
+{
+    vector<uint32_t> ret;
+    AppendToChecksumVector(*data, len, chksum, firstBlockLen, ret);
+    return ret;
+}
+vector<uint32_t> ComputeChecksums(
+    const char* data, size_t len, uint32_t* chksum = 0);
 
 }
 
