@@ -2685,7 +2685,7 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
     if (dir.dirCountSpaceAvailable) {
         ChunkDirInfo& sdir = *dir.dirCountSpaceAvailable;
         if (sdir.availableSpace >= 0) {
-            sdir.availableSpace += nbytes;
+            sdir.availableSpace -= nbytes;
             if (sdir.availableSpace > sdir.totalSpace) {
                 sdir.availableSpace = sdir.totalSpace;
             }
