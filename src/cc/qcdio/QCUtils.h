@@ -48,6 +48,9 @@ struct QCUtils
         const char* inFileNamePtr,
         int         inLineNum);
 
+    static bool IsReserveFileSpaceSupported(
+        int inFd);
+
     static int64_t ReserveFileSpace(
         int     inFd,
         int64_t inSize);

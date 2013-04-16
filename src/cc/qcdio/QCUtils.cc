@@ -144,6 +144,20 @@ QCUtils::AssertionFailure(
     abort();
 }
 
+
+    bool
+QCUtils::IsReserveFileSpaceSupported(
+    int inFd)
+{
+    bool theRetFlag = 0 <= inFd;
+#ifdef QC_USE_XFS_RESVSP
+    if (platform_test_xfs_fd(inFd)) {
+        theRetFlag = true;
+    }
+#endif /* QC_USE_XFS_RESVSP */
+    return theRetFlag;
+}
+
 /* static */ int64_t
 QCUtils::ReserveFileSpace(
     int     inFd,

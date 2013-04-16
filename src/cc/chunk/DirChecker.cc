@@ -445,10 +445,12 @@ private:
                 continue;
             }
             LockFdPtr theLockFdPtr;
+            bool      theSupportsSpaceReservatonFlag = false;
             if (! inLockName.empty()) {
                 const string theLockName = theIt->first + inLockName;
                 const int    theLockFd   = TryLock(
-                    theLockName, inLockToken, theIt->second);
+                    theLockName, inLockToken, theIt->second,
+                    theSupportsSpaceReservatonFlag);
                 if (theLockFd < 0) {
                     KFS_LOG_STREAM_ERROR <<
                         theLockName << ": " <<
@@ -511,8 +513,13 @@ private:
                 ioNextDevId++;
             }
             pair<DirsAvailable::iterator, bool> const theDirRes =
-                outDirsAvailable.insert(make_pair(theIt->first, DirInfo(
-                        theDevRes.first->second, theLockFdPtr, theIt->second)));
+                outDirsAvailable.insert(make_pair(theIt->first,
+                    DirInfo(
+                        theDevRes.first->second,
+                        theLockFdPtr,
+                        theIt->second,
+                        theSupportsSpaceReservatonFlag
+                    )));
             if (! theChunkInfos.IsEmpty() && theDirRes.second) {
                 theChunkInfos.Swap(theDirRes.first->second.mChunkInfos);
             }
@@ -657,7 +664,8 @@ private:
     static int TryLock(
         const string& inFileName,
         const string& inLockToken,
-        bool          inBufferedIoFlag)
+        bool          inBufferedIoFlag,
+        bool&         outSupportsSpaceReservationFlag)
     {
 #ifdef O_DIRECT
         if (! inBufferedIoFlag) {
@@ -681,6 +689,8 @@ private:
                 " enabling FD_CLOEXEC" <<
             KFS_LOG_EOM;
         }
+        outSupportsSpaceReservationFlag =
+            QCUtils::IsReserveFileSpaceSupported(theFd);
 #ifdef KFS_DONT_USE_FLOCK
         struct flock theLock = { 0 };
         theLock.l_type   = F_WRLCK;

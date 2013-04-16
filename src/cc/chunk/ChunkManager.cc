@@ -91,6 +91,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           usedSpace(0),
           availableSpace(-1),
           totalSpace(0),
+          notStableSpace(0),
+          totalNotStableSpace(0),
           pendingReadBytes(0),
           pendingWriteBytes(0),
           corruptedChunksCount(0),
@@ -99,6 +101,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           evacuateStartChunkCount(-1),
           chunkCount(0),
           notStableOpenCount(0),
+          totalNotStableOpenCount(0),
           diskTimeoutCount(0),
           evacuateInFlightCount(0),
           rescheduleEvacuateThreshold(0),
@@ -106,6 +109,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           deviceId(-1),
           dirLock(),
           dirCountSpaceAvailable(0),
+          supportsSpaceReservatonFlag(false),
           fsSpaceAvailInFlightFlag(false),
           checkDirFlightFlag(false),
           checkEvacuateFileInFlightFlag(false),
@@ -218,6 +222,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         if (evacuateDoneFlag) {
             evacuateCompletedCount++;
         }
+        if (notStableSpace > 0) {
+            UpdateNotStableSpace(-notStableSpace);
+        }
         const bool sendUpdateFlag      = availableSpace >= 0;
         availableSpace                 = -1;
         rescheduleEvacuateThreshold    = 0;
@@ -229,6 +236,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         dirCountSpaceAvailable         = 0;
         usedSpace                      = 0;
         totalSpace                     = 0;
+        notStableSpace                 = 0;
+        totalNotStableSpace            = 0;
+        totalNotStableOpenCount        = 0;
         evacuateStartChunkCount        = -1;
         evacuateStartByteCount         = -1;
         notifyAvailableChunksStartFlag = false;
@@ -274,6 +284,57 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     {
         const bool kTimeoutFlag = true;
         NotifyAvailableChunks(kTimeoutFlag);
+    }
+    void UpdateNotStableSpace(int nbytes)
+    {
+        if (availableSpace < 0) {
+            return;
+        }
+        notStableSpace += nbytes;
+        if (notStableSpace > totalSpace) {
+            notStableSpace = totalSpace;
+        }
+        if (notStableSpace < 0) {
+            notStableSpace = 0;
+        }
+        totalNotStableSpace += nbytes;
+        if (totalNotStableSpace < 0) {
+            totalNotStableSpace = 0;
+        }
+        if (dirCountSpaceAvailable && dirCountSpaceAvailable != this) {
+            dirCountSpaceAvailable->totalNotStableSpace += nbytes;
+            if (dirCountSpaceAvailable->totalNotStableSpace < 0) {
+                dirCountSpaceAvailable->totalNotStableSpace = 0;
+            }
+        }
+    }
+    void UpdateAvailableSpace(int nbytes)
+    {
+        if (availableSpace < 0) {
+            return;
+        }
+        availableSpace -= nbytes;
+        if (availableSpace > totalSpace) {
+            availableSpace = totalSpace;
+        }
+        if (availableSpace < 0) {
+            availableSpace = 0;
+        }
+        if (dirCountSpaceAvailable && dirCountSpaceAvailable != this) {
+            dirCountSpaceAvailable->UpdateAvailableSpace(nbytes);
+        }
+    }
+    void UpdateNotStableCounts(int delta, int spaceDelta)
+    {
+        notStableOpenCount      += delta;
+        totalNotStableOpenCount += delta;
+        assert(0 <= notStableOpenCount && 0 <= totalNotStableOpenCount);
+        UpdateNotStableSpace(spaceDelta);
+        if (dirCountSpaceAvailable && dirCountSpaceAvailable != this &&
+                0 < availableSpace) {
+            dirCountSpaceAvailable->totalNotStableOpenCount += delta;
+            assert(0 <= totalNotStableOpenCount);
+        }
     }
 
     class Counters
@@ -513,6 +574,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     int64_t                usedSpace;
     int64_t                availableSpace;
     int64_t                totalSpace;
+    int64_t                notStableSpace;
+    int64_t                totalNotStableSpace;
     int64_t                pendingReadBytes;
     int64_t                pendingWriteBytes;
     int64_t                corruptedChunksCount;
@@ -521,6 +584,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     int32_t                evacuateStartChunkCount;
     int32_t                chunkCount;
     int32_t                notStableOpenCount;
+    int32_t                totalNotStableOpenCount;
     int32_t                diskTimeoutCount;
     int32_t                evacuateInFlightCount;
     int32_t                rescheduleEvacuateThreshold;
@@ -528,6 +592,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     DirChecker::DeviceId   deviceId;
     DirChecker::LockFdPtr  dirLock;
     ChunkDirInfo*          dirCountSpaceAvailable;
+    bool                   supportsSpaceReservatonFlag:1;
     bool                   fsSpaceAvailInFlightFlag:1;
     bool                   checkDirFlightFlag:1;
     bool                   checkEvacuateFileInFlightFlag:1;
@@ -938,10 +1003,9 @@ public:
             return;
         }
         if (! IsStable() && IsFileOpen()) {
-            mChunkDir.notStableOpenCount++;
+            mChunkDir.UpdateNotStableCounts(1, (int)chunkInfo.chunkSize);
         } else {
-            assert(mChunkDir.notStableOpenCount > 0);
-            mChunkDir.notStableOpenCount--;
+            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize);
         }
     }
 
@@ -971,8 +1035,7 @@ private:
             return;
         }
         if (! IsStable() && IsFileOpen()) {
-            assert(mChunkDir.notStableOpenCount > 0);
-            mChunkDir.notStableOpenCount--;
+            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize);
         }
         ChunkDirList::Remove(mChunkDir.chunkLists[mChunkDirList], *this);
         assert(mChunkDir.chunkCount > 0);
@@ -2682,17 +2745,9 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
     if (dir.usedSpace < 0) {
         dir.usedSpace = 0;
     }
-    if (dir.dirCountSpaceAvailable) {
-        ChunkDirInfo& sdir = *dir.dirCountSpaceAvailable;
-        if (sdir.availableSpace >= 0) {
-            sdir.availableSpace -= nbytes;
-            if (sdir.availableSpace > sdir.totalSpace) {
-                sdir.availableSpace = sdir.totalSpace;
-            }
-            if (sdir.availableSpace < 0) {
-                sdir.availableSpace = 0;
-            }
-        }
+    dir.UpdateAvailableSpace(nbytes);
+    if (! cih->IsStable()) {
+        dir.UpdateNotStableSpace(nbytes);
     }
 }
 
@@ -3944,23 +3999,34 @@ ChunkManager::UpdateCountFsSpaceAvailable()
                 (! it->dirCountSpaceAvailable ||
                 it->dirCountSpaceAvailable->evacuateStartedFlag ||
                 it->dirCountSpaceAvailable->availableSpace < 0)) {
-            it->dirCountSpaceAvailable = 0;
-            dirCountSpaceAvailable     = 0;
+            it->dirCountSpaceAvailable  = 0;
+            dirCountSpaceAvailable      = 0;
         } else {
             ret++;
             it->dirCountSpaceAvailable = dirCountSpaceAvailable;
         }
+        it->totalNotStableSpace     = it->notStableSpace;
+        it->totalNotStableOpenCount = it->notStableOpenCount;
         for (ChunkDirs::iterator cit = it; ++cit != mChunkDirs.end(); ) {
-            if (cit->availableSpace >= 0 && cit->deviceId == it->deviceId) {
-                if (dirCountSpaceAvailable) {
-                    cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
-                } else if (cit->evacuateStartedFlag) {
-                    cit->dirCountSpaceAvailable = 0;
-                } else {
-                    dirCountSpaceAvailable = &(*cit);
-                    cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
-                    it->dirCountSpaceAvailable  = dirCountSpaceAvailable;
-                }
+            if (cit->availableSpace < 0 || cit->deviceId != it->deviceId) {
+                continue;
+            }
+            cit->totalNotStableSpace     = cit->notStableSpace;
+            cit->totalNotStableOpenCount = cit->notStableOpenCount;
+            if (dirCountSpaceAvailable) {
+                cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
+                dirCountSpaceAvailable->totalNotStableSpace +=
+                    cit->notStableSpace;
+                dirCountSpaceAvailable->totalNotStableOpenCount +=
+                    cit->notStableOpenCount;
+            } else if (cit->evacuateStartedFlag) {
+                cit->dirCountSpaceAvailable = 0;
+            } else {
+                dirCountSpaceAvailable = &(*cit);
+                cit->dirCountSpaceAvailable = dirCountSpaceAvailable;
+                it->dirCountSpaceAvailable  = dirCountSpaceAvailable;
+                cit->totalNotStableSpace     += it->notStableSpace;
+                cit->totalNotStableOpenCount += it->notStableOpenCount;
             }
         }
     }
@@ -4820,8 +4886,18 @@ ChunkManager::ChunkDirInfo::FsSpaceAvailDone(int code, void* data)
                 " => "              << fsTotal <<
                 " used: "           << usedSpace <<
             KFS_LOG_EOM;
-            availableSpace = max(int64_t(0), fsAvail);
             totalSpace     = max(int64_t(0), fsTotal);
+            availableSpace = min(totalSpace, max(int64_t(0), fsAvail));
+            if (! supportsSpaceReservatonFlag) {
+                // Virtually reserve 64MB + 8K for each not stable chunk.
+                const ChunkDirInfo& dir = dirCountSpaceAvailable ?
+                    *dirCountSpaceAvailable : *this;
+                availableSpace = max(int64_t(0), availableSpace +
+                    dir.totalNotStableSpace -
+                    dir.totalNotStableOpenCount *
+                        (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)
+                );
+            }
         }
         diskTimeoutCount = 0;
     }
@@ -5374,11 +5450,13 @@ ChunkManager::CheckChunkDirs()
                         it->dirname.c_str()))) {
                     die(it->dirname + ": failed to find disk queue");
                 }
-                it->availableSpace             = 0;
-                it->deviceId                   = dit->second.mDeviceId;
-                it->dirLock                    = dit->second.mLockFdPtr;
-                it->corruptedChunksCount       = 0;
-                it->evacuateCheckIoErrorsCount = 0;
+                it->availableSpace              = 0;
+                it->deviceId                    = dit->second.mDeviceId;
+                it->dirLock                     = dit->second.mLockFdPtr;
+                it->supportsSpaceReservatonFlag =
+                    dit->second.mSupportsSpaceReservatonFlag;
+                it->corruptedChunksCount        = 0;
+                it->evacuateCheckIoErrorsCount  = 0;
                 it->availableChunks.Clear();
                 it->availableChunks.Swap(dit->second.mChunkInfos);
                 if (it->dirCountSpaceAvailable) {
@@ -5412,6 +5490,8 @@ ChunkManager::CheckChunkDirs()
                     " used: "            << it->usedSpace <<
                     " countAvail: "      << it->IsCountFsSpaceAvailable() <<
                     " updateCntAvail: "  << updateCountFsSpaceAvailableFlag <<
+                    (it->supportsSpaceReservatonFlag ?
+                        "supports space reservation " : "") <<
                     " chunks: "          << it->availableChunks.GetSize() <<
                 KFS_LOG_EOM;
                 StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];

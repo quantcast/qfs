@@ -93,17 +93,20 @@ public:
     {
     public:
         DirInfo(
-            DeviceId         inDeviceId       = -1,
-            const LockFdPtr& inLockFdPtr      = LockFdPtr(),
-            bool             inBufferedIoFlag = false)
+            DeviceId         inDeviceId                    = -1,
+            const LockFdPtr& inLockFdPtr                   = LockFdPtr(),
+            bool             inBufferedIoFlag              = false,
+            bool             inSupportsSpaceReservatonFlag = false)
             : mDeviceId(inDeviceId),
               mLockFdPtr(inLockFdPtr),
               mBufferedIoFlag(inBufferedIoFlag),
+              mSupportsSpaceReservatonFlag(inSupportsSpaceReservatonFlag),
               mChunkInfos()
             {}
         DeviceId   mDeviceId;
         LockFdPtr  mLockFdPtr;
         bool       mBufferedIoFlag;
+        bool       mSupportsSpaceReservatonFlag;
         ChunkInfos mChunkInfos;
     };
     typedef map<string, DirInfo> DirsAvailable;
