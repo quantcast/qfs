@@ -80,10 +80,7 @@ uint64_t ClientSM::sInstanceNum              = 10000;
 inline string
 ClientSM::GetPeerName()
 {
-    return (mNetConnection ?
-        mNetConnection->GetPeerName() :
-        string("not connected")
-    );
+    return mNetConnection->GetPeerName();
 }
 
 inline /* static */ BufferManager&
@@ -191,6 +188,10 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mGrantedFlag(false),
       mDevCliMgrAllocator()
 {
+    if (! mNetConnection) {
+        die("ClientSM: null connection");
+        return;
+    }
     SET_HANDLER(this, &ClientSM::HandleRequest);
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     mNetConnection->SetInactivityTimeout(gClientManager.GetIdleTimeoutSec());
@@ -198,26 +199,19 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
 
 ClientSM::~ClientSM()
 {
+    if (mRecursionCnt != 0) {
+        die("~ClientSM: invalid recursion count");
+        return;
+    }
     if (mInstanceNum <= 0 || sInstanceNum < mInstanceNum) {
         die("~ClientSM: invalid instance");
         return;
     }
-    assert(mOps.empty() && mPendingOps.empty() && mPendingSubmitQueue.empty());
-    KfsOp* op;
-    while (!mOps.empty()) {
-        op = mOps.front().first;
-        mOps.pop_front();
-        delete op;
-    }
-    while (!mPendingOps.empty()) {
-        op = mPendingOps.front().dependentOp;
-        mPendingOps.pop_front();
-        delete op;
-    }
-    while (!mPendingSubmitQueue.empty()) {
-        op = mPendingSubmitQueue.front().dependentOp;
-        mPendingSubmitQueue.pop_front();
-        delete op;
+    if (! mOps.empty() ||
+            ! mPendingOps.empty() ||
+            ! mPendingSubmitQueue.empty()) {
+        die("~ClientSM: ops queue(s) are not empty");
+        return;
     }
     delete mCurOp;
     mCurOp = 0;
@@ -229,7 +223,8 @@ ClientSM::~ClientSM()
         mDevCliMgrAllocator.deallocate(it->second, 1);
     }
     gClientManager.Remove(this);
-    const_cast<uint64_t&>(mInstanceNum) = ~uint64_t(0); // To catch double delete.
+    // The following is to catch double delete, and use after free.
+    mRecursionCnt = -1;
 }
 
 ///
@@ -280,7 +275,10 @@ ClientSM::SendResponse(KfsOp* op)
 int
 ClientSM::HandleRequest(int code, void* data)
 {
-    assert(mRecursionCnt >= 0 && mNetConnection);
+    if (mRecursionCnt < 0 || ! mNetConnection) {
+        die("ClientSM: invalid recursion count or null connection");
+        return -1;
+    }
     mRecursionCnt++;
 
     switch (code) {
@@ -340,14 +338,13 @@ ClientSM::HandleRequest(int code, void* data)
 
     case EVENT_CMD_DONE: {
         // An op finished execution.  Send response back in FIFO
-        if (! data) {
+        if (! data || mOps.empty()) {
             die("invalid null op completion");
             return -1;
         }
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
         op->done = true;
-        assert(! mOps.empty());
         if (sTraceRequestResponseFlag) {
             IOBuffer::OStream os;
             op->Response(os);
@@ -467,10 +464,9 @@ ClientSM::HandleRequest(int code, void* data)
             ReleaseChunkSpaceReservations();
             mRecursionCnt--;
             // if there are any disk ops, wait for the ops to finish
+            mNetConnection->SetOwningKfsCallbackObj(0);
             SET_HANDLER(this, &ClientSM::HandleTerminate);
-            HandleTerminate(EVENT_NET_ERROR, 0);
-            // this can be deleted, return now.
-            return 0;
+            return HandleTerminate(EVENT_NET_ERROR, 0);
         }
     }
     mRecursionCnt--;
@@ -487,20 +483,33 @@ ClientSM::HandleRequest(int code, void* data)
 int
 ClientSM::HandleTerminate(int code, void* data)
 {
+    if (mRecursionCnt < 0 || ! mNetConnection) {
+        die("ClientSM terminate: invalid recursion count or null connection");
+        return -1;
+    }
+    mRecursionCnt++;
+
     switch (code) {
 
     case EVENT_CMD_DONE: {
-        assert(data);
+        if (! data) {
+            die("ClientSM terminate: invalid op");
+            return -1;
+        }
+        if (mOps.empty()) {
+            die("ClientSM terminate: spurious op completion");
+            return -1;
+        }
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
-        // An op finished execution.  Send a response back
+        // An op finished execution.
         op->done = true;
         if (op != mOps.front().first) {
             break;
         }
-        while (!mOps.empty()) {
+        while (! mOps.empty()) {
             op = mOps.front().first;
-            if (!op->done) {
+            if (! op->done) {
                 break;
             }
             const ByteCount opBytes = mOps.front().second;
@@ -524,12 +533,11 @@ ClientSM::HandleTerminate(int code, void* data)
         break;
     }
 
-    if (mOps.empty()) {
+    assert(0 < mRecursionCnt);
+    mRecursionCnt--;
+    if (mRecursionCnt <= 0 && mOps.empty()) {
         // all ops are done...so, now, we can nuke ourself.
         assert(mPendingOps.empty());
-        if (mNetConnection) {
-            mNetConnection->SetOwningKfsCallbackObj(0);
-        }
         delete this;
         return 1;
     }
@@ -1006,7 +1014,7 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         " dev. mgr: " << (const void*)mDevBufMgr <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
-    if (! mNetConnection || ! mNetConnection->IsGood()) {
+    if (! mNetConnection->IsGood()) {
         return;
     }
     QCStValueChanger<bool> change(mGrantedFlag, true);

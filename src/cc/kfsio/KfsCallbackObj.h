@@ -44,23 +44,11 @@ namespace KFS
 /// KfsCallbackObj class defined here is only a base class.
 ///
 
-//
-// For KfsCallbackObj object, we want the virtual function table to be the
-// first element of the object.  This will debugging easier on
-// optimized builds---from the virtual table, we can tell what type of
-// object we are looking at.
-//
-struct _force_vfp_to_top {
-    virtual ~_force_vfp_to_top() { };
-};
-
-
 // abstract base class for ObjectMethod template
 class ObjectMethodBase {
 public:
     virtual ~ObjectMethodBase() {}
-    virtual int execute(int code, void *data) = 0;
-
+    virtual int execute(int code, void* data) const = 0;
 };
 
 //
@@ -75,22 +63,24 @@ public:
 // that object.  By doing this with templates, we preserve type-safety
 // and work the magic without using any type-casting.
 //
-template<class T>
-class ObjectMethod : public ObjectMethodBase {
-
+template<typename T>
+class ObjectMethod : public ObjectMethodBase
+{
 public:
-    typedef int (T::*MethodPtr)(int code, void *data);
+    typedef int (T::*MethodPtr)(int code, void* data);
 
     // save pointer to object and method
-    ObjectMethod( T* optr, MethodPtr mptr )
-        : mOptr(optr), mMptr(mptr) {}
-    int execute(int code, void *data) {
-        return (mOptr->*mMptr)(code, data);  // execute the method
-    }
-
+    ObjectMethod(T* optr, MethodPtr mptr)
+        : mOptr(optr), mMptr(mptr)
+        {}
+    virtual int execute(int code, void* data) const
+        { return (mOptr->*mMptr)(code, data); }
 private:
-    T*        mOptr;    // pointer to the object
-    MethodPtr mMptr;    // pointer to the method
+    T*        const mOptr;    // pointer to the object
+    MethodPtr const mMptr;    // pointer to the method
+private:
+    ObjectMethod(const ObjectMethod&);
+    ObjectMethod& operator=(const ObjectMethod&);
 };
 
 ///
@@ -98,7 +88,7 @@ private:
 /// @param pobj Pointer to the KfsCallback object
 /// @param meth Pointer to the handler method in the KfsCallbackObj
 ///
-template<class T>
+template<typename T>
 void SET_HANDLER( T* pobj, typename ObjectMethod<T>::MethodPtr meth )
 {
    pobj->SetHandler(pobj, meth);
@@ -109,28 +99,24 @@ void SET_HANDLER( T* pobj, typename ObjectMethod<T>::MethodPtr meth )
 /// A callback object has state and an event handler that will be invoked
 /// whenever an event occurs for this callback object.
 ///
-class KfsCallbackObj : public _force_vfp_to_top {
+class KfsCallbackObj
+{
 public:
-    KfsCallbackObj() : mObjMeth(0) {
-    }
-
-    virtual ~KfsCallbackObj() {
-        if (mObjMeth) {
-            mObjMeth->~ObjectMethodBase();
-        }
-    }
-
+    KfsCallbackObj()
+        : mObjMeth(0)
+        {}
+    virtual ~KfsCallbackObj();
     ///
     /// Signature for an event handler:
     /// @param code An integer about the event that occurred
     /// @param data A pointer to the data associated with the event
     ///
-    int HandleEvent(int code, void *data) {
-        return mObjMeth->execute(code, data);
-    }
+    int HandleEvent(int code, void *data)
+        { return mObjMeth->execute(code, data); }
 
-    template<class T>
-    void SetHandler(T* pobj, typename ObjectMethod<T>::MethodPtr meth) {
+    template<typename T>
+    void SetHandler(T* pobj, typename ObjectMethod<T>::MethodPtr meth)
+    {
         BOOST_STATIC_ASSERT(sizeof(ObjectMethod<T>) <= sizeof(mObjMethodStorage));
         if (mObjMeth) {
             mObjMeth->~ObjectMethodBase();
@@ -139,9 +125,15 @@ public:
     }
 private:
     struct {
-        char mStorage[sizeof(ObjectMethod<ObjectMethodBase>)];
+        size_t mStorage[
+            (sizeof(ObjectMethod<ObjectMethodBase>) + sizeof(size_t) - 1) /
+            sizeof(size_t)
+        ];
     } mObjMethodStorage;
-    ObjectMethodBase *mObjMeth;
+    const ObjectMethodBase* mObjMeth;
+private:
+    KfsCallbackObj(const KfsCallbackObj&);
+    KfsCallbackObj& operator=(const KfsCallbackObj&);
 };
 
 }

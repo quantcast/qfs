@@ -183,7 +183,7 @@ private:
     > DevBufferManagerClients;
     typedef StdFastAllocator<DevBufferManagerClient> DevClientMgrAllocator;
 
-    NetConnectionPtr           mNetConnection;
+    NetConnectionPtr const     mNetConnection;
     KfsOp*                     mCurOp;
     /// Queue of outstanding ops from the client.  We reply to ops in FIFO
     OpsQueue                   mOps;
@@ -192,8 +192,8 @@ private:
     ChunkSpaceResMap           mReservations;
 
     /// Queue of pending ops: ops that depend on other ops to finish before we can execute them.
-    PendingOpsList            mPendingOps;
-    PendingOpsList            mPendingSubmitQueue;
+    PendingOpsList             mPendingOps;
+    PendingOpsList             mPendingSubmitQueue;
 
     /// for writes, we daisy-chain the chunkservers in the forwarding path.  this list
     /// maintains the set of servers to which we have a connection.

@@ -1893,6 +1893,9 @@ DiskIo::Write(
     }
     const size_t kBlockAlignMask = (4 << 10) - 1;
     size_t       theNWr          = inNumBytes;
+    const size_t theBufferCnt    =
+        (theNWr + (size_t)theBlockSize - 1) / (size_t)theBlockSize;
+    mIoBuffers.reserve(theBufferCnt);
     for (IOBuffer::iterator
             theIt = inBufferPtr->begin();
             theIt != inBufferPtr->end() && theNWr > 0;

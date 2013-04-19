@@ -1142,7 +1142,7 @@ Replicator::GetCounters(Replicator::Counters& counters)
 }
 
 void
-Replicator::Run(ReplicateChunkOp *op)
+Replicator::Run(ReplicateChunkOp* op)
 {
     assert(op);
     KFS_LOG_STREAM_DEBUG << op->Show() << KFS_LOG_EOM;
