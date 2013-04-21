@@ -300,7 +300,7 @@ ClientSM::HandleRequest(int code, void* data)
         IOBuffer& iobuf  = mNetConnection->GetInBuffer();
         assert(&iobuf == data);
         while ((mCurOp || IsMsgAvail(&iobuf, &cmdLen)) &&
-                (gotCmd = HandleClientCmd(&iobuf, cmdLen))) {
+                (gotCmd = HandleClientCmd(iobuf, cmdLen))) {
             cmdLen = 0;
             gotCmd = false;
         }
@@ -569,9 +569,9 @@ GetQuota(const BufferManager& bufMgr, const BufferManager* devBufMgr)
 
 bool
 ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
-    IOBuffer* iobuf, IOBuffer*& ioOpBuf, bool forwardFlag)
+    IOBuffer& iobuf, IOBuffer& ioOpBuf, bool forwardFlag)
 {
-    const int nAvail = iobuf->BytesConsumable();
+    const int nAvail = iobuf.BytesConsumable();
     if (! mCurOp || mDevBufMgr) {
         mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(op);
         Client* const   mgrCli      = GetDevBufMgrClient(mDevBufMgr);
@@ -604,11 +604,11 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
             const int off(align % IOBufferData::GetDefaultBufferSize());
             if (off > 0) {
                 IOBuffer buf;
-                buf.ReplaceKeepBuffersFull(iobuf, off, nAvail);
-                iobuf->Move(&buf);
-                iobuf->Consume(off);
+                buf.ReplaceKeepBuffersFull(&iobuf, off, nAvail);
+                iobuf.Move(&buf);
+                iobuf.Consume(off);
             } else {
-                iobuf->MakeBuffersFull();
+                iobuf.MakeBuffersFull();
             }
         }
         mDiscardByteCnt = 0;
@@ -640,7 +640,7 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         }
     }
     if (mDiscardByteCnt > 0) {
-        const int discardedCnt = iobuf->Consume(mDiscardByteCnt);
+        const int discardedCnt = iobuf.Consume(mDiscardByteCnt);
         gClientManager.Discarded(discardedCnt);
         mDiscardByteCnt -= discardedCnt;
         if (mDiscardByteCnt > 0) {
@@ -663,20 +663,16 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         // we couldn't process the command...so, wait
         return false;
     }
-    if (ioOpBuf) {
-        ioOpBuf->Clear();
-    } else {
-        ioOpBuf = new IOBuffer();
-    }
+    ioOpBuf.Clear();
     if (nAvail != numBytes) {
         assert(nAvail > numBytes);
         const int off(align % IOBufferData::GetDefaultBufferSize());
-        ioOpBuf->ReplaceKeepBuffersFull(iobuf, off, numBytes);
+        ioOpBuf.ReplaceKeepBuffersFull(&iobuf, off, numBytes);
         if (off > 0) {
-            ioOpBuf->Consume(off);
+            ioOpBuf.Consume(off);
         }
     } else {
-        ioOpBuf->Move(iobuf);
+        ioOpBuf.Move(&iobuf);
     }
     mCurOp = 0;
     return true;
@@ -724,14 +720,14 @@ ClientSM::FailIfExceedsWait(
 /// out the command and if we have everything execute it.
 ///
 bool
-ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
+ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 {
     KfsOp* op = mCurOp;
 
     assert(op ? cmdLen == 0 : cmdLen > 0);
     if (! op) {
         if (sTraceRequestResponseFlag) {
-            IOBuffer::IStream is(*iobuf, cmdLen);
+            IOBuffer::IStream is(iobuf, cmdLen);
             string line;
             while (getline(is, line)) {
                 CLIENT_SM_LOG_STREAM_DEBUG <<
@@ -739,9 +735,9 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 KFS_LOG_EOM;
             }
         }
-        if (ParseCommand(*iobuf, cmdLen, &op) != 0) {
+        if (ParseCommand(iobuf, cmdLen, &op) != 0) {
             assert(! op);
-            IOBuffer::IStream is(*iobuf, cmdLen);
+            IOBuffer::IStream is(iobuf, cmdLen);
             string line;
             int    maxLines = 64;
             while (--maxLines >= 0 && getline(is, line)) {
@@ -749,7 +745,7 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                     "invalid request: " << line <<
                 KFS_LOG_EOM;
             }
-            iobuf->Consume(cmdLen);
+            iobuf.Consume(cmdLen);
             // got a bogus command
             return false;
         }
@@ -758,11 +754,10 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         KFS_LOG_EOM;
     }
 
-    iobuf->Consume(cmdLen);
+    iobuf.Consume(cmdLen);
     ByteCount bufferBytes = -1;
     if (op->op == CMD_WRITE_PREPARE) {
         WritePrepareOp* const wop = static_cast<WritePrepareOp*>(op);
-        assert(! wop->dataBuf);
         const bool kForwardFlag = false; // The forward always share the buffers.
         if (! GetWriteOp(*wop, wop->offset, (int)wop->numBytes,
                 iobuf, wop->dataBuf, kForwardFlag)) {
@@ -771,7 +766,6 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
         bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
     } else if (op->op == CMD_RECORD_APPEND) {
         RecordAppendOp* const waop = static_cast<RecordAppendOp*>(op);
-        IOBuffer*  opBuf       = &waop->dataBuf;
         bool       forwardFlag = false;
         const int  align       = mCurOp ? 0 :
             gAtomicRecordAppendManager.GetAlignmentAndFwdFlag(
@@ -781,12 +775,11 @@ ClientSM::HandleClientCmd(IOBuffer* iobuf, int cmdLen)
                 align,
                 (int)waop->numBytes,
                 iobuf,
-                opBuf,
+                waop->dataBuf,
                 forwardFlag
             )) {
             return false;
         }
-        assert(opBuf == &waop->dataBuf);
         bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<

@@ -217,15 +217,15 @@ private:
     /// Given a (possibly) complete op in a buffer, run it.
     /// @retval True if the command was handled (i.e., we have all the
     /// data and we could execute it); false otherwise.
-    bool HandleClientCmd(IOBuffer *iobuf, int cmdLen);
+    bool HandleClientCmd(IOBuffer& iobuf, int cmdLen);
 
     /// Op has finished execution.  Send a response to the client.
     void SendResponse(KfsOp *op);
 
     /// Submit ops that have been held waiting for doneOp to finish.
     void OpFinished(KfsOp* doneOp);
-    bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer* iobuf,
-        IOBuffer*& ioOpBuf, bool forwardFlag);
+    bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
+        IOBuffer& ioOpBuf, bool forwardFlag);
     std::string GetPeerName();
     inline void SendResponse(KfsOp* op, ByteCount opBytes);
     inline static BufferManager& GetBufferManager();

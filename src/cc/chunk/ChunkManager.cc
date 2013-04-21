@@ -3307,7 +3307,7 @@ ChunkManager::WriteChunk(WriteOp* op)
                 return -EFAULT;
             }
         } else {
-            op->checksums = ComputeChecksums(op->dataBuf, numBytesIO);
+            op->checksums = ComputeChecksums(&op->dataBuf, numBytesIO);
         }
     } else {
         if ((size_t)numBytesIO >= (size_t) CHECKSUM_BLOCKSIZE) {
@@ -3323,9 +3323,9 @@ ChunkManager::WriteChunk(WriteOp* op)
         // end-of-chunk.  So, treat that as a 0-block and splice in.
         if (offset - off >= cih->chunkInfo.chunkSize) {
             IOBuffer data;
-            data.ReplaceKeepBuffersFull(op->dataBuf, off, numBytesIO);
+            data.ReplaceKeepBuffersFull(&op->dataBuf, off, numBytesIO);
             data.ZeroFill(blkSize - (off + numBytesIO));
-            op->dataBuf->Move(&data);
+            op->dataBuf.Move(&data);
         } else {
             // Need to read the data block over which the checksum is
             // computed.
@@ -3353,28 +3353,26 @@ ChunkManager::WriteChunk(WriteOp* op)
                 op->rop = 0;
                 return op->HandleDone(EVENT_DISK_ERROR, 0);
             }
-
             // All is good.  So, get on with checksumming
-            op->rop->dataBuf->ReplaceKeepBuffersFull(op->dataBuf, off, numBytesIO);
-
-            delete op->dataBuf;
-            op->dataBuf = op->rop->dataBuf;
-            op->rop->dataBuf = 0;
+            op->rop->dataBuf.ReplaceKeepBuffersFull(
+                &op->dataBuf, off, numBytesIO);
+            op->dataBuf.Clear();
+            op->dataBuf.Move(&op->rop->dataBuf);
             // If the buffer doesn't have a full CHECKSUM_BLOCKSIZE worth
             // of data, zero-pad the end.  We don't need to zero-pad the
             // front because the underlying filesystem will zero-fill when
             // we read a hole.
-            ZeroPad(op->dataBuf);
+            ZeroPad(&op->dataBuf);
         }
 
-        assert(op->dataBuf->BytesConsumable() == (int) blkSize);
-        op->checksums = ComputeChecksums(op->dataBuf, blkSize);
+        assert(op->dataBuf.BytesConsumable() == (int) blkSize);
+        op->checksums = ComputeChecksums(&op->dataBuf, blkSize);
 
         // Trim data at the buffer boundary from the beginning, to make write
         // offset close to where we were asked from.
         int numBytes(numBytesIO);
         offset -= off;
-        op->dataBuf->TrimAtBufferBoundaryLeaveOnly(off, numBytes);
+        op->dataBuf.TrimAtBufferBoundaryLeaveOnly(off, numBytes);
         offset += off;
         numBytesIO = numBytes;
     }
@@ -3394,7 +3392,7 @@ ChunkManager::WriteChunk(WriteOp* op)
 
     op->diskIOTime = microseconds();
     int res = op->diskIo->Write(
-        offset + KFS_CHUNK_HEADER_SIZE, numBytesIO, op->dataBuf);
+        offset + KFS_CHUNK_HEADER_SIZE, numBytesIO, &op->dataBuf);
     if (res >= 0) {
         UpdateChecksums(cih, op);
         assert(res <= numBytesIO);
@@ -3462,9 +3460,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     if ((GetChunkInfoHandle(op->chunkId, &cih) < 0) ||
             (op->chunkVersion != cih->chunkInfo.chunkVersion) ||
             (staleRead = ! cih->IsFileEquals(op->diskIo))) {
-        if (op->dataBuf) {
-            op->dataBuf->Clear();
-        }
+        op->dataBuf.Clear();
         if (cih) {
             KFS_LOG_STREAM_INFO << "Version # mismatch (have=" <<
                 cih->chunkInfo.chunkVersion <<
@@ -3477,7 +3473,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     }
 
     op->diskIOTime = max(int64_t(1), microseconds() - op->diskIOTime);
-    const int readLen = op->dataBuf->BytesConsumable();
+    const int readLen = op->dataBuf.BytesConsumable();
     if (readLen <= 0) {
         KFS_LOG_STREAM_ERROR << "Short read for" <<
             " chunk: "  << cih->chunkInfo.chunkId  <<
@@ -3517,10 +3513,10 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         op->skipVerifyDiskChecksumFlag = false;
     }
 
-    ZeroPad(op->dataBuf);
+    ZeroPad(&op->dataBuf);
     // figure out the block we are starting from and grab all the checksums
     size_t checksumBlock = OffsetToChecksumBlockNum(op->offset);
-    const int bufSize    = op->dataBuf->BytesConsumable();
+    const int bufSize    = op->dataBuf.BytesConsumable();
     int       blockCount = bufSize / (int)CHECKSUM_BLOCKSIZE;
     if (blockCount < 1 || blockCount * (int)CHECKSUM_BLOCKSIZE != bufSize ||
             MAX_CHUNK_CHECKSUM_BLOCKS < checksumBlock + blockCount) {
@@ -3540,8 +3536,8 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         if (len > 0) {
             mCounters.mReadSkipDiskVerifyChecksumByteCount +=
                 CHECKSUM_BLOCKSIZE;
-            IOBuffer::iterator const eit = op->dataBuf->end();
-            IOBuffer::iterator       it  = op->dataBuf->begin();
+            IOBuffer::iterator const eit = op->dataBuf.end();
+            IOBuffer::iterator       it  = op->dataBuf.begin();
             int                      el  = (int)CHECKSUM_BLOCKSIZE - len;
             int                      nb  = 0;
             int32_t                  bcs = kKfsNullChecksum;
@@ -3639,8 +3635,8 @@ ChunkManager::ReadChunkDone(ReadOp* op)
                     (int)CHECKSUM_BLOCKSIZE) > 0) {
             mCounters.mReadSkipDiskVerifyChecksumByteCount +=
                 CHECKSUM_BLOCKSIZE;
-            IOBuffer::iterator const eit = op->dataBuf->end();
-            IOBuffer::iterator const bit = op->dataBuf->begin();
+            IOBuffer::iterator const eit = op->dataBuf.end();
+            IOBuffer::iterator const bit = op->dataBuf.begin();
             IOBuffer::iterator       it  = eit;
             int rem = (int)CHECKSUM_BLOCKSIZE;
             int nb  = 0;
@@ -3727,7 +3723,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     } else {
         mCounters.mReadChecksumCount++;
         mCounters.mReadChecksumByteCount += bufSize;
-        op->checksum = ComputeChecksums(op->dataBuf, bufSize);
+        op->checksum = ComputeChecksums(&op->dataBuf, bufSize);
         if ((size_t)blockCount != op->checksum.size()) {
             die("read verify: invalid checksum vector size");
             op->status = -EFAULT;
@@ -3781,7 +3777,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     const string str = os.str();
     KFS_LOG_STREAM_ERROR << str << KFS_LOG_EOM;
     if (retry) {
-        op->dataBuf->Clear();
+        op->dataBuf.Clear();
         if (ReadChunk(op) == 0) {
             return false;
         }
@@ -3790,7 +3786,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
         die(str);
     }
     op->checksum.clear();
-    op->dataBuf->Clear();
+    op->dataBuf.Clear();
 
     // Notify the metaserver that the chunk we have is "bad"; the
     // metaserver will re-replicate this chunk.
@@ -4051,9 +4047,9 @@ ChunkManager::ZeroPad(IOBuffer *buffer)
 void
 ChunkManager::AdjustDataRead(ReadOp *op)
 {
-    op->dataBuf->Consume(
+    op->dataBuf.Consume(
         op->offset - OffsetToChecksumBlockStart(op->offset));
-    op->dataBuf->Trim(op->numBytesIO);
+    op->dataBuf.Trim(op->numBytesIO);
 }
 
 uint32_t
@@ -4322,7 +4318,7 @@ ChunkManager::AllocateWriteId(
         } else {
             WriteOp* const op = new WriteOp(
                 wi->seq, wi->chunkId, wi->chunkVersion,
-                wi->offset, wi->numBytes, 0, mWriteId
+                wi->offset, wi->numBytes, mWriteId
             );
             op->enqueueTime     = globalNetManager().Now();
             op->isWriteIdHolder = true;
@@ -4366,7 +4362,7 @@ ChunkManager::CloneWriteOp(int64_t writeId)
     other->enqueueTime = globalNetManager().Now();
     // offset/size/buffer are to be filled in
     return new WriteOp(other->seq, other->chunkId, other->chunkVersion,
-                     0, 0, 0, other->writeId);
+                     0, 0, other->writeId);
 }
 
 void

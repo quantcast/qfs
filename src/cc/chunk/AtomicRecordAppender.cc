@@ -129,6 +129,7 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
+#include "common/RequestParser.h"
 #include "kfsio/Globals.h"
 #include "qcdio/QCDLList.h"
 #include "AtomicRecordAppender.h"
@@ -248,13 +249,13 @@ public:
         kErrNotFound          = -ENOENT,
         kErrReplicationFailed = -EHOSTUNREACH
     };
-
+    template<typename T>
     AtomicRecordAppender(
         const DiskIo::FilePtr& chunkFileHandle,
         kfsChunkId_t           chunkId,
         int64_t                chunkVersion,
         uint32_t               numServers,
-        const string&          servers,
+        const T&               servers,
         ServerLocation         peerLoc,
         int                    replicationPos,
         int64_t                chunkSize);
@@ -305,8 +306,9 @@ public:
     int  EventHandler(int code, void *data);
     void DeleteChunk();
     bool Delete();
+    template<typename T>
     int  CheckParameters(
-        int64_t chunkVersion, uint32_t numServers, const string& servers,
+        int64_t chunkVersion, uint32_t numServers, const T& servers,
         int replicationPos, ServerLocation peerLoc,
         const DiskIo::FilePtr& fileHandle, string& msg);
     static bool ComputeChecksum(
@@ -358,7 +360,7 @@ private:
     // Bump file ref. count to prevent chunk manager from closing the file and
     // unloading checksums.
     DiskIo::FilePtr         mChunkFileHandle;
-    const string            mCommitAckServers;
+    const StringBufT<256>   mCommitAckServers;
     const ServerLocation    mPeerLocation;
     // Protocol state.
     State                   mState;
@@ -501,17 +503,18 @@ private:
             listTail = op;
         }
     }
-    static string MakeCommitAckServers(
-        uint32_t numServers, string servers)
+    template<typename T>
+    static StringBufT<256> MakeCommitAckServers(
+        uint32_t numServers, const T& servers)
     {
-        string        ret;
-        istringstream is(servers);
+        StringBufT<256>   ret;
+        BufferInputStream is(servers.data(), servers.size());
+        string token;
         for (uint32_t i = 0; is && i < numServers; ) {
-            string token;
             is >> ws >> token; // Host
-            ret += token + " ";
+            ret.Append(token).Append(" ");
             is >> ws >> token; // Port
-            ret += token + (++i < numServers ? " -1 " : " -1"); // Write id.
+            ret.Append(token).Append(++i < numServers ? " -1 " : " -1"); // Write id.
         }
         return ret;
     }
@@ -599,12 +602,13 @@ AtomicRecordAppender::SetCanDoLowOnBuffersFlushFlag(bool flag)
     }
 }
 
+template<typename T>
 AtomicRecordAppender::AtomicRecordAppender(
     const DiskIo::FilePtr& chunkFileHandle,
     kfsChunkId_t           chunkId,
     int64_t                chunkVersion,
     uint32_t               numServers,
-    const string&          servers,
+    const T&               servers,
     ServerLocation         peerLoc,
     int                    replicationPos,
     int64_t                chunkSize)
@@ -773,9 +777,9 @@ AtomicRecordAppender::Delete()
     return true;
 }
 
-int
+template<typename T> int
 AtomicRecordAppender::CheckParameters(
-    int64_t chunkVersion, uint32_t numServers, const string& servers,
+    int64_t chunkVersion, uint32_t numServers, const T& servers,
     int replicationPos, ServerLocation peerLoc,
     const DiskIo::FilePtr& fileHandle, string& msg)
 {
@@ -2199,11 +2203,11 @@ AtomicRecordAppender::OpDone(ReadOp* op)
                 SetState(kStateChunkLost);
             } else {
                 if (newSize > 0) {
-                    op->dataBuf->ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
+                    op->dataBuf.ZeroFill(CHECKSUM_BLOCKSIZE - op->numBytes);
                     info->chunkBlockChecksum[
                         OffsetToChecksumBlockNum(newSize)] =
-                    ComputeBlockChecksum(op->dataBuf,
-                        op->dataBuf->BytesConsumable());
+                    ComputeBlockChecksum(&op->dataBuf,
+                        op->dataBuf.BytesConsumable());
                 }
                 // Truncation done, set the new size.
                 gChunkManager.SetChunkSize(*info, newSize);
@@ -2325,7 +2329,6 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
                     newSize / CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE;
                 rop->numBytes     = newSize - rop->offset;
                 rop->clnt         = this;
-                rop->dataBuf      = new IOBuffer;
                 mIoOpsInFlight++;
                 const int res = gChunkManager.ReadChunk(rop);
                 if (res < 0) {
@@ -2468,12 +2471,12 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
             // Buffer don't have to be full and aligned, chunk manager will have
             // to do partial checksum block write, and invoke
             // ReplaceKeepBuffersFull() anyway.
-            wop->dataBuf->Move(&mBuffer, bytesToFlush);
+            wop->dataBuf.Move(&mBuffer, bytesToFlush);
         } else {
             // Buffer size should always be multiple of checksum block size.
             assert(mNextWriteOffset %
                 IOBufferData::GetDefaultBufferSize() == 0);
-            wop->dataBuf->ReplaceKeepBuffersFull(&mBuffer, 0, bytesToFlush);
+            wop->dataBuf.ReplaceKeepBuffersFull(&mBuffer, 0, bytesToFlush);
         }
         const int newLimit = gAtomicRecordAppendManager.GetFlushLimit(
             *this, mBuffer.BytesConsumable() - nBytes);

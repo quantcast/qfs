@@ -445,7 +445,7 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
 {
     assert(code == EVENT_CMD_DONE && data == &mReadOp);
 
-    const int numRd = mReadOp.dataBuf ? mReadOp.dataBuf->BytesConsumable() : 0;
+    const int numRd = mReadOp.dataBuf.BytesConsumable();
     if (mReadOp.status < 0) {
         KFS_LOG_STREAM_INFO << "replication:"
             " chunk: " << mChunkId <<
@@ -493,24 +493,19 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
         Terminate(-EFAULT);
         return 0;
     }
-    // Swap read and write buffer pointers.
-    IOBuffer* const dataBuf = mWriteOp.dataBuf;
-    if (dataBuf) {
-        dataBuf->Clear();
-    }
     mWriteOp.Reset();
-    mWriteOp.dataBuf             = mReadOp.dataBuf;
     mWriteOp.numBytes            = numRd;
     mWriteOp.offset              = mOffset;
     mWriteOp.isFromReReplication = true;
+    mWriteOp.dataBuf.Clear();
     if (mReadOp.checksum.empty()) {
         mWriteOp.checksums.clear();
     } else {
         mWriteOp.checksums = mReadOp.checksum;
     }
-    mReadOp.dataBuf = dataBuf;
 
     // align the writes to checksum boundaries
+    bool moveDataFlag = true;
     if (numRd > kChecksumBlockSize) {
         // Chunk manager only handles checksum block aligned writes.
         const int     numBytes = numRd % kChecksumBlockSize;
@@ -518,13 +513,9 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
         assert(numBytes == 0 || endPos == mChunkSize);
         mWriteOp.numBytes = numRd - numBytes;
         if (numBytes > 0 && endPos == mChunkSize) {
-            // Swap buffers back, and move the tail back into the read buffer.
-            IOBuffer* const dataBuf =
-                mReadOp.dataBuf ? mReadOp.dataBuf : new IOBuffer();
-            mReadOp.dataBuf  = mWriteOp.dataBuf;
-            mWriteOp.dataBuf = dataBuf;
-            mWriteOp.dataBuf->Move(mReadOp.dataBuf, mWriteOp.numBytes);
-            mReadOp.dataBuf->MakeBuffersFull();
+            moveDataFlag = false;
+            mWriteOp.dataBuf.Move(&mReadOp.dataBuf, mWriteOp.numBytes);
+            mReadOp.dataBuf.MakeBuffersFull();
             mReadOp.offset     = mOffset + mWriteOp.numBytes;
             mReadOp.numBytesIO = numBytes;
             mReadOp.numBytes   = numBytes;
@@ -534,6 +525,9 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
                 mWriteOp.checksums.pop_back();
             }
         }
+    }
+    if (moveDataFlag) {
+        mWriteOp.dataBuf.Move(&mReadOp.dataBuf);
     }
 
     SET_HANDLER(this, &ReplicatorImpl::HandleWriteDone);
@@ -568,9 +562,8 @@ ReplicatorImpl::HandleWriteDone(int code, void* data)
         return 0;
     }
     mOffset += mWriteOp.numBytesIO;
-    if (mReadOp.offset == mOffset &&
-            mReadOp.dataBuf && ! mReadOp.dataBuf->IsEmpty()) {
-        assert(mReadOp.dataBuf->BytesConsumable() < (int)CHECKSUM_BLOCKSIZE);
+    if (mReadOp.offset == mOffset && ! mReadOp.dataBuf.IsEmpty()) {
+        assert(mReadOp.dataBuf.BytesConsumable() < (int)CHECKSUM_BLOCKSIZE);
         // Write the remaining tail.
         HandleReadDone(EVENT_CMD_DONE, &mReadOp);
         return 0;
@@ -816,13 +809,12 @@ public:
         if (mReadOp.status != 0 || (! inBufferPtr && inStatusCode == 0)) {
             return;
         }
-        assert(mReadOp.dataBuf);
         mReadOp.status = inStatusCode;
         if (mReadOp.status == 0 && inBufferPtr) {
             const bool endOfChunk =
                 mReadSize > inBufferPtr->BytesConsumable() ||
                 mOffset + mReadSize >= mChunkSize;
-            IOBuffer& buf = *mReadOp.dataBuf;
+            IOBuffer& buf = mReadOp.dataBuf;
             buf.Clear();
             if (endOfChunk) {
                 buf.Move(&mReadTail);
@@ -930,15 +922,11 @@ private:
         }
 
         StRef ref(*this);
-
-        if (! mReadOp.dataBuf) {
-            mReadOp.dataBuf = new IOBuffer();
-        }
         mReadOp.status     = 0;
         mReadOp.numBytes   = mReadSize;
         mReadOp.numBytesIO = 0;
         mReadOp.offset     = mOffset;
-        mReadOp.dataBuf->Clear();
+        mReadOp.dataBuf.Clear();
         Reader::RequestId reqId = Reader::RequestId();
         reqId.mPtr = this;
         mReadInFlightFlag = true;

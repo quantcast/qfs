@@ -207,8 +207,8 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         // send the data as well
         WritePrepareFwdOp* const wpfo = static_cast<WritePrepareFwdOp*>(op);
         op->status = 0;
-        mNetConnection->WriteCopy(wpfo->owner.dataBuf,
-            wpfo->owner.dataBuf->BytesConsumable());
+        mNetConnection->WriteCopy(&wpfo->owner.dataBuf,
+            wpfo->owner.dataBuf.BytesConsumable());
         if (wpfo->owner.replyRequestedFlag) {
             if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
                 die("duplicate seq. number");
@@ -402,18 +402,12 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         mDispatchedOps.erase(i);
         if (op->op == CMD_READ) {
             ReadOp* const rop = static_cast<ReadOp*>(op);
-            if (! rop->dataBuf) {
-                rop->dataBuf = new IOBuffer();
-            }
-            rop->dataBuf->Move(iobuf, mReplyNumBytes);
+            rop->dataBuf.Move(iobuf, mReplyNumBytes);
             rop->numBytesIO = mReplyNumBytes;
         } else if (op->op == CMD_GET_CHUNK_METADATA) {
             GetChunkMetadataOp* const gcm =
                 static_cast<GetChunkMetadataOp*>(op);
-            if (! gcm->dataBuf) {
-                gcm->dataBuf = new IOBuffer();
-            }
-            gcm->dataBuf->Move(iobuf, mReplyNumBytes);
+            gcm->dataBuf.Move(iobuf, mReplyNumBytes);
         }
         mReplyNumBytes = 0;
         // op->HandleEvent(EVENT_DONE, op);

@@ -173,10 +173,48 @@ private:
     }
 }* OpCounters::sInstance(OpCounters::MakeInstance());
 
-static bool
-needToForwardToPeer(string &serverInfo, uint32_t numServers, int &myPos,
-                    ServerLocation &peerLoc,
-                    bool isWriteIdPresent, int64_t &writeId);
+template <typename T> inline static bool
+needToForwardToPeer(
+    T&              serverInfo,
+    uint32_t        numServers,
+    int&            myPos,
+    ServerLocation& peerLoc,
+    bool            isWriteIdPresent,
+    int64_t&        writeId)
+{
+    BufferInputStream ist(serverInfo.data(), serverInfo.size());
+    ServerLocation    loc;
+    int64_t           id;
+    bool              foundLocal    = false;
+    bool              needToForward = false;
+
+    // the list of servers is ordered: we forward to the next one
+    // in the list.
+    for (uint32_t i = 0; i < numServers; i++) {
+        ist >> loc.hostname;
+        ist >> loc.port;
+        if (isWriteIdPresent) {
+            ist >> id;
+        }
+        if (gChunkServer.IsLocalServer(loc)) {
+            // return the position of where this server is present in the list
+            myPos = i;
+            foundLocal = true;
+            if (isWriteIdPresent) {
+                writeId = id;
+            }
+            continue;
+        }
+        // forward if we are not the last in the list
+        if (foundLocal) {
+            needToForward = true;
+            break;
+        }
+    }
+    peerLoc = loc;
+    return needToForward;
+}
+
 
 static inline RemoteSyncSMPtr
 FindPeer(KfsOp& op, const ServerLocation& loc)
@@ -435,18 +473,16 @@ ReadOp::HandleDone(int code, void *data)
             gChunkManager.ChunkIOFailed(chunkId, status, diskIo.get());
         }
     } else if (code == EVENT_DISK_READ) {
-        if (! dataBuf) {
-            dataBuf = new IOBuffer();
-        }
+        assert(data);
         IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
         // Order matters...when we append b, we take the data from b
         // and put it into our buffer.
-        dataBuf->Append(b);
+        dataBuf.Move(b);
         // verify checksum
         if (! gChunkManager.ReadChunkDone(this)) {
             return 0; // Retry.
         }
-        numBytesIO = dataBuf->BytesConsumable();
+        numBytesIO = dataBuf.BytesConsumable();
         if (status == 0) {
             // checksum verified
             status = numBytesIO;
@@ -463,12 +499,12 @@ ReadOp::HandleDone(int code, void *data)
             checksum.clear();
         } else if (! skipVerifyDiskChecksumFlag) {
             if (offset % CHECKSUM_BLOCKSIZE != 0) {
-                checksum = ComputeChecksums(dataBuf, numBytesIO);
+                checksum = ComputeChecksums(&dataBuf, numBytesIO);
             } else {
                 const int len = (int)(numBytesIO % CHECKSUM_BLOCKSIZE);
                 if (len > 0) {
                     checksum.back() = ComputeBlockChecksumAt(
-                        dataBuf, numBytesIO - len, (size_t)len);
+                        &dataBuf, numBytesIO - len, (size_t)len);
                 }
             }
             assert((size_t)((numBytesIO + CHECKSUM_BLOCKSIZE - 1) /
@@ -508,7 +544,7 @@ ReadOp::HandleReplicatorDone(int code, void *data)
 {
     if (status >= 0) {
         vector<uint32_t> datacksums = ComputeChecksums(
-            dataBuf, numBytesIO);
+            &dataBuf, numBytesIO);
         if (datacksums.size() > checksum.size()) {
             KFS_LOG_STREAM_INFO <<
                 "Checksum number of entries mismatch in re-replication: "
@@ -545,7 +581,7 @@ WriteOp::HandleRecordAppendDone(int code, void *data)
     gChunkManager.WriteDone(this);
     if (code == EVENT_DISK_ERROR) {
         // eat up everything that was sent
-        dataBuf->Consume(numBytes);
+        dataBuf.Consume(numBytes);
         status = -1;
         if (data) {
             status = *(int *) data;
@@ -556,7 +592,7 @@ WriteOp::HandleRecordAppendDone(int code, void *data)
     } else if (code == EVENT_DISK_WROTE) {
         status = *(int *) data;
         numBytesIO = status;
-        dataBuf->Consume(numBytesIO);
+        dataBuf.Consume(numBytesIO);
     } else {
         die("unexpected event code");
     }
@@ -602,7 +638,7 @@ WriteOp::HandleWriteDone(int code, void *data)
 
     if (code == EVENT_DISK_ERROR) {
         // eat up everything that was sent
-        dataBuf->Consume(max(int(numBytesIO), int(numBytes)));
+        dataBuf.Consume(max(int(numBytesIO), int(numBytes)));
         status = -1;
         if (data) {
             status = *(int *) data;
@@ -630,7 +666,7 @@ WriteOp::HandleWriteDone(int code, void *data)
         } else {
             status = numBytes; // reply back the same # of bytes as in request.
         }
-        if (numBytesIO > ssize_t(numBytes) && dataBuf) {
+        if (numBytesIO > ssize_t(numBytes)) {
             const int off(offset % IOBufferData::GetDefaultBufferSize());
             KFS_LOG_STREAM_DEBUG <<
                 "chunk write: asked " << numBytes << "/" << numBytesIO <<
@@ -638,14 +674,12 @@ WriteOp::HandleWriteDone(int code, void *data)
             KFS_LOG_EOM;
             // restore original data in the buffer.
             assert(ssize_t(numBytes) <= numBytesIO - off);
-            dataBuf->Consume(off);
-            dataBuf->Trim(int(numBytes));
+            dataBuf.Consume(off);
+            dataBuf.Trim(int(numBytes));
         }
         numBytesIO = numBytes;
-        if (dataBuf) {
-            // eat up everything that was sent
-            dataBuf->Consume(numBytes);
-        }
+        // eat up everything that was sent
+        dataBuf.Consume(numBytes);
         if (status >= 0) {
             SET_HANDLER(this, &WriteOp::HandleLoggingDone);
             gLogger.Submit(this);
@@ -1452,43 +1486,6 @@ ReadOp::HandleChunkMetaReadDone(int code, void *data)
 // status from individual servers and how much got written on each.
 //
 
-static bool
-needToForwardToPeer(string &serverInfo, uint32_t numServers, int &myPos,
-                    ServerLocation &peerLoc,
-                    bool isWriteIdPresent, int64_t &writeId)
-{
-    istringstream ist(serverInfo);
-    ServerLocation loc;
-    bool foundLocal = false;
-    int64_t id;
-    bool needToForward = false;
-
-    // the list of servers is ordered: we forward to the next one
-    // in the list.
-    for (uint32_t i = 0; i < numServers; i++) {
-        ist >> loc.hostname;
-        ist >> loc.port;
-        if (isWriteIdPresent)
-            ist >> id;
-
-        if (gChunkServer.IsLocalServer(loc)) {
-            // return the position of where this server is present in the list
-            myPos = i;
-            foundLocal = true;
-            if (isWriteIdPresent)
-                writeId = id;
-            continue;
-        }
-        // forward if we are not the last in the list
-        if (foundLocal) {
-            needToForward = true;
-            break;
-        }
-    }
-    peerLoc = loc;
-    return needToForward;
-}
-
 void
 WriteIdAllocOp::Execute()
 {
@@ -1676,7 +1673,7 @@ WritePrepareOp::Execute()
     }
 
     uint32_t         val       = 0;
-    vector<uint32_t> checksums = ComputeChecksums(dataBuf, numBytes, &val);
+    vector<uint32_t> checksums = ComputeChecksums(&dataBuf, numBytes, &val);
     if (val != checksum) {
         statusMsg = "checksum mismatch";
         KFS_LOG_STREAM_ERROR <<
@@ -1712,10 +1709,9 @@ WritePrepareOp::Execute()
 
     writeOp->offset = offset;
     writeOp->numBytes = numBytes;
-    writeOp->dataBuf = dataBuf;
+    writeOp->dataBuf.Move(&dataBuf);
     writeOp->wpop = this;
     writeOp->checksums.swap(checksums);
-    dataBuf = 0;
 
     writeOp->enqueueTime = globalNetManager().Now();
 
@@ -2116,10 +2112,9 @@ GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void *data)
             chunkVersion = info->chunkVersion;
             chunkSize    = info->chunkSize;
             if (info->chunkBlockChecksum) {
-                dataBuf = new IOBuffer();
-                dataBuf->CopyIn((const char *)info->chunkBlockChecksum,
+                dataBuf.CopyIn((const char *)info->chunkBlockChecksum,
                     MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
-                numBytesIO = dataBuf->BytesConsumable();
+                numBytesIO = dataBuf.BytesConsumable();
             }
         } else {
             assert(! "no checksums");
@@ -2166,17 +2161,16 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
         gLogger.Submit(this);
         return 0;
     } else if (code == EVENT_DISK_READ) {
-        if (! readOp.dataBuf) {
-            readOp.dataBuf = new IOBuffer();
-        }
-        IOBuffer *b = (IOBuffer *) data;
+        IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
         // Order matters...when we append b, we take the data from b
         // and put it into our buffer.
-        readOp.dataBuf->Append(b);
-        if (((size_t) (readOp.offset + readOp.dataBuf->BytesConsumable()) > (size_t) chunkSize) &&
-            ((size_t) readOp.dataBuf->BytesConsumable() > (size_t) readOp.numBytes)) {
+        readOp.dataBuf.Move(b);
+        if (((size_t)(readOp.offset + readOp.dataBuf.BytesConsumable()) >
+                (size_t)chunkSize) &&
+            ((size_t)readOp.dataBuf.BytesConsumable() >
+                (size_t)readOp.numBytes)) {
             // trim the extra stuff off the end.
-            readOp.dataBuf->Trim(readOp.numBytes);
+            readOp.dataBuf.Trim(readOp.numBytes);
         }
         // verify checksum
         gChunkManager.ReadChunkDone(&readOp);
@@ -2187,11 +2181,11 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
                 " offset: " << readOp.offset <<
             KFS_LOG_EOM;
             // checksum verified; setup the next read
-            numBytesScrubbed += readOp.dataBuf->BytesConsumable();
-            readOp.offset += readOp.dataBuf->BytesConsumable();
+            numBytesScrubbed += readOp.dataBuf.BytesConsumable();
+            readOp.offset += readOp.dataBuf.BytesConsumable();
             readOp.numBytes = min((int64_t)kChunkReadSize, chunkSize - numBytesScrubbed);
             // throw away the data
-            readOp.dataBuf->Consume(readOp.dataBuf->BytesConsumable());
+            readOp.dataBuf.Consume(readOp.dataBuf.BytesConsumable());
             if (numBytesScrubbed >= chunkSize) {
                 KFS_LOG_STREAM_DEBUG << "scrub succeeded"
                     " chunk: "      << chunkId <<
@@ -2697,8 +2691,6 @@ WriteOp::~WriteOp()
         startTime = microseconds();
         OpCounters::WriteDuration(timeSpent);
     }
-
-    delete dataBuf;
     if (rop) {
         rop->wop = 0;
         // rop->dataBuf can be non null when read completes but WriteChunk
@@ -2716,9 +2708,8 @@ WriteIdAllocOp::~WriteIdAllocOp()
 WritePrepareOp::~WritePrepareOp()
 {
     // on a successful prepare, dataBuf should be moved to a write op.
-    assert(status != 0 || ! dataBuf);
+    assert(status != 0);
 
-    delete dataBuf;
     delete writeFwdOp;
     delete writeOp;
 }
