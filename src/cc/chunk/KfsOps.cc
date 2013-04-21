@@ -2707,9 +2707,6 @@ WriteIdAllocOp::~WriteIdAllocOp()
 
 WritePrepareOp::~WritePrepareOp()
 {
-    // on a successful prepare, dataBuf should be moved to a write op.
-    assert(status != 0);
-
     delete writeFwdOp;
     delete writeOp;
 }
