@@ -4,7 +4,10 @@ GIT_VERSION := $(shell git describe $(GIT_COMMIT))
 GIT_VERSION := $(subst -, ,$(GIT_VERSION))
 
 VERSION ?= $(word 1,$(GIT_VERSION))
-RELEASE ?= $(word 2,$(GIT_VERSION))
+RELEASE ?= $(word 2,$(GIT_VERSION)).$(word 3,$(GIT_VERSION))
+ifeq (.,$(RELEASE))
+RELEASE := 0
+endif
 
 .PHONY: all version clean mkdir prepare_source srpm rpm
 
