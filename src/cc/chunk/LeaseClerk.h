@@ -33,14 +33,17 @@
 #ifndef CHUNKSERVER_LEASECLERK_H
 #define CHUNKSERVER_LEASECLERK_H
 
-#include <tr1/unordered_map>
-
 #include "kfsio/event.h"
 #include "common/kfstypes.h"
+#include "common/LinearHash.h"
 #include "Chunk.h"
+
+#include <vector>
 
 namespace KFS
 {
+
+using std::vector;
 
 // mapping from a chunk id to its lease
 
@@ -80,7 +83,8 @@ public:
     void Timeout();
 
 private:
-    struct LeaseInfo_t {
+    struct LeaseInfo_t
+    {
         int64_t leaseId;
         time_t  expires;
         time_t  lastWriteTime;
@@ -88,11 +92,21 @@ private:
         bool    appendFlag:1;
         bool    invalidFlag:1;
     };
-    typedef std::tr1::unordered_map <kfsChunkId_t, LeaseInfo_t> LeaseMap;
+    typedef KVPair<kfsChunkId_t, LeaseInfo_t> LeaseMapEntry;
+    typedef LinearHash<
+        LeaseMapEntry,
+        KeyCompare<kfsChunkId_t>,
+        DynamicArray<
+            SingleLinkedList<LeaseMapEntry>*,
+            8 // start from 256 entries
+        >,
+        StdFastAllocator<LeaseMapEntry>
+    > LeaseMap;
 
     /// All the leases registered with the clerk
-    LeaseMap mLeases;
-    time_t   mLastLeaseCheckTime;
+    LeaseMap          mLeases;
+    time_t            mLastLeaseCheckTime;
+    vector<chunkId_t> mTmpExpireQueue;
 
     void LeaseRenewed(kfsChunkId_t chunkId);
     void LeaseExpired(kfsChunkId_t chunkId);
