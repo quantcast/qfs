@@ -29,6 +29,7 @@
 #include <openssl/rand.h>
 
 #include "utils.h"
+#include "common/config.h"
 #include "common/MsgLogger.h"
 #include "kfsio/IOBuffer.h"
 
@@ -57,7 +58,7 @@ void die(const string &msg)
     string lm = "panic: " + msg;
     KFS_LOG_STREAM_FATAL << lm << KFS_LOG_EOM;
     lm += "\n";
-    write(2, msg.data(), msg.size());
+    const ssize_t UNUSED_ATTR r = write(2, msg.data(), msg.size());
     MsgLogger::Stop();
     abort();
 }
