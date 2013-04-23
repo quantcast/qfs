@@ -38,6 +38,8 @@ using KFS::libkfsio::globalNetManager;
 
 LeaseClerk gLeaseClerk;
 
+static const string kWriteLease("WRITE_LEASE");
+
 inline time_t
 LeaseClerk::Now()
 {
@@ -234,7 +236,7 @@ LeaseClerk::Timeout()
         }
         // The metaserverSM will fill seq#.
         LeaseRenewOp* const op = new LeaseRenewOp(
-            -1, chunkId, lease.leaseId, "WRITE_LEASE");
+            -1, chunkId, lease.leaseId, kWriteLease);
         KFS_LOG_STREAM_INFO <<
             "sending lease renew for:"
             " chunk: "      << chunkId <<
@@ -266,7 +268,7 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t size,
     // in flight, then delete the lease.
     const LeaseInfo_t& lease = it->second;
     LeaseRelinquishOp *op = new LeaseRelinquishOp(
-        -1, chunkId, lease.leaseId, "WRITE_LEASE");
+        -1, chunkId, lease.leaseId, kWriteLease);
     KFS_LOG_STREAM_INFO <<
         "sending lease relinquish for:"
         " chunk: "      << chunkId <<

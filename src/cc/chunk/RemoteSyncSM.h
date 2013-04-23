@@ -122,11 +122,15 @@ private:
 };
 
 typedef boost::shared_ptr<RemoteSyncSM> RemoteSyncSMPtr;
+typedef list<
+    RemoteSyncSMPtr,
+    StdFastAllocator<RemoteSyncSMPtr>
+> RemoteSyncSMList;
 
-RemoteSyncSMPtr FindServer(list<RemoteSyncSMPtr>& remoteSyncers,
+RemoteSyncSMPtr FindServer(RemoteSyncSMList& remoteSyncers,
     const ServerLocation &location, bool connect);
-void RemoveServer(list<RemoteSyncSMPtr>& remoteSyncers, RemoteSyncSM* target);
-void ReleaseAllServers(list<RemoteSyncSMPtr> &remoteSyncers);
+void RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target);
+void ReleaseAllServers(RemoteSyncSMList& remoteSyncers);
 
 }
 

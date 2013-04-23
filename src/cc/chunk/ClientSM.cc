@@ -103,12 +103,14 @@ ClientSM::GetDevBufMgrClient(const BufferManager* bufMgr)
     if (! bufMgr) {
         return 0;
     }
-    DevBufferManagerClient*& cli = mDevBufMgrClients[bufMgr];
-    if (! cli) {
-        cli = new (mDevCliMgrAllocator.allocate(1))
+    bool insertedFlag = false;
+    DevBufferManagerClient** const cli =
+        mDevBufMgrClients.Insert(bufMgr, 0, insertedFlag);
+    if (! *cli) {
+        *cli = new (mDevCliMgrAllocator.allocate(1))
             DevBufferManagerClient(*this);
     }
-    return cli;
+    return *cli;
 }
 
 inline void
@@ -215,12 +217,13 @@ ClientSM::~ClientSM()
     }
     delete mCurOp;
     mCurOp = 0;
-    for (DevBufferManagerClients::iterator it = mDevBufMgrClients.begin();
-            it != mDevBufMgrClients.end();
-            ++it) {
-        assert(it->second);
-        mDevCliMgrAllocator.destroy(it->second);
-        mDevCliMgrAllocator.deallocate(it->second, 1);
+    mDevBufMgrClients.First();
+    const DevBufMsrEntry* entry;
+    while ((entry = mDevBufMgrClients.Next())) {
+        DevBufferManagerClient* const ent = entry->GetVal();
+        assert(ent);
+        mDevCliMgrAllocator.destroy(ent);
+        mDevCliMgrAllocator.deallocate(ent, 1);
     }
     gClientManager.Remove(this);
     // The following is to catch double delete, and use after free.
@@ -454,7 +457,7 @@ ClientSM::HandleRequest(int code, void* data)
                 mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
             }
         } else {
-            list<RemoteSyncSMPtr> serversToRelease;
+            RemoteSyncSMList serversToRelease;
 
             mRemoteSyncers.swap(serversToRelease);
             // get rid of the connection to all the peers in daisy chain;
@@ -983,11 +986,16 @@ ClientSM::OpFinished(KfsOp* doneOp)
 void
 ClientSM::ReleaseChunkSpaceReservations()
 {
-    for (ChunkSpaceResMap::iterator iter = mReservations.begin();
-         iter != mReservations.end(); iter++) {
+    mReservations.First();
+    const SpaceResEntry* entry;
+    while ((entry = mReservations.Next())) {
         gAtomicRecordAppendManager.ChunkSpaceRelease(
-            iter->first.chunkId, iter->first.transactionId, iter->second);
+            entry->GetKey().chunkId,
+            entry->GetKey().transactionId,
+            entry->GetVal()
+        );
     }
+    mReservations.Clear();
 }
 
 RemoteSyncSMPtr

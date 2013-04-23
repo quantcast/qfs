@@ -110,7 +110,7 @@ ChunkServer::MainLoop()
 
     globalNetManager().MainLoop();
 
-    list<RemoteSyncSMPtr> serversToRelease;
+    RemoteSyncSMList serversToRelease;
     mRemoteSyncers.swap(serversToRelease);
     ReleaseAllServers(serversToRelease);
 

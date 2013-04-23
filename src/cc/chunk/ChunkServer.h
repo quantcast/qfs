@@ -82,10 +82,10 @@ public:
     inline void SetLocation(const ServerLocation& loc);
 private:
     // # of ops in the system
-    int                   mOpCount;
-    bool                  mUpdateServerIpFlag;
-    ServerLocation        mLocation;
-    list<RemoteSyncSMPtr> mRemoteSyncers;
+    int              mOpCount;
+    bool             mUpdateServerIpFlag;
+    ServerLocation   mLocation;
+    RemoteSyncSMList mRemoteSyncers;
 private:
     // No copy.
     ChunkServer(const ChunkServer&);

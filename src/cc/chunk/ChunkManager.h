@@ -648,7 +648,14 @@ private:
         ChunkDirs& operator=(const ChunkDirs&);
     };
 
-    typedef map<kfsSTier_t, vector<ChunkDirs::iterator> > StorageTiers;
+    typedef map<
+        kfsSTier_t,
+        vector<ChunkDirs::iterator, StdAllocator<ChunkDirs::iterator> >,
+        less<kfsSTier_t>,
+        StdFastAllocator<
+            pair<const kfsSTier_t, vector<ChunkDirs::iterator> >
+        >
+    > StorageTiers;
 
     struct StaleChunkCompletion : public KfsCallbackObj
     {

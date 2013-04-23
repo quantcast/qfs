@@ -669,6 +669,10 @@ MetaServerSM::SendResponse(KfsOp* op)
     }
     op->Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
     mWOStream.Reset();
+    IOBuffer* iobuf = 0;
+    int       len   = 0;
+    op->ResponseContent(iobuf, len);
+    mNetConnection->Write(iobuf, len);
     globalNetManager().Wakeup();
 }
 

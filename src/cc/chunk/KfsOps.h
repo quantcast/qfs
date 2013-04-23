@@ -49,7 +49,6 @@
 #include <istream>
 #include <sstream>
 #include <vector>
-#include <set>
 #include <list>
 
 namespace KFS
@@ -57,7 +56,6 @@ namespace KFS
 
 using std::string;
 using std::vector;
-using std::set;
 using std::list;
 using std::ostream;
 using std::istream;
@@ -614,21 +612,27 @@ struct ReplicateChunkOp : public KfsOp {
 };
 
 struct HeartbeatOp : public KfsOp {
-    int64_t       metaEvacuateCount; // input
-    ostringstream response;
-    ostringstream cmdShow;
+    int64_t  metaEvacuateCount; // input
+    IOBuffer response;
+    string   cmdShow;
     HeartbeatOp(kfsSeq_t s = 0)
         : KfsOp(CMD_HEARTBEAT, s),
           metaEvacuateCount(-1),
           response(),
           cmdShow()
-        { cmdShow << "meta-heartbeat:"; }
+        {}
     void Execute();
     void Response(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const {
-        return os << cmdShow.str();
+        if (cmdShow.empty()) {
+            return os << "heartbeat";
+        }
+        return os << cmdShow;
     }
-    template<typename T> void Append(const char* key1, const char* key2, T val);
+    virtual void ResponseContent(IOBuffer*& buf, int& size) {
+        buf  = status >= 0 ? &response : 0;
+        size = buf ? response.BytesConsumable() : 0;
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
@@ -916,7 +920,7 @@ struct WriteIdAllocOp : public KfsOp {
     int64_t         offset;            /* input */
     size_t          numBytes;          /* input */
     int64_t         writeId;           /* output */
-    string          writeIdStr;        /* output */
+    StringBufT<256> writeIdStr;        /* output */
     uint32_t        numServers;        /* input */
     StringBufT<256> servers;           /* input: set of servers on which to write */
     WriteIdAllocOp* fwdedOp;           /* if we did any fwd'ing, this is the op that tracks it */
@@ -1276,7 +1280,7 @@ struct ReadChunkMetaOp : public KfsOp {
 
     // others ops that are also waiting for this particular meta-data
     // read to finish; they'll get notified when the read is done
-    list<KfsOp *> waiters;
+    list<KfsOp*, StdFastAllocator<KfsOp*> > waiters;
     ReadChunkMetaOp(kfsChunkId_t c, KfsCallbackObj *o)
         : KfsOp(CMD_READ_CHUNKMETA, 0, o),
           chunkId(c),
@@ -1691,8 +1695,8 @@ struct StatsOp : public KfsOp {
 struct LeaseRenewOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      leaseId;
-    string       leaseType;
-    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, string t)
+    const string leaseType;
+    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
           leaseId(l),
@@ -1721,11 +1725,11 @@ struct LeaseRenewOp : public KfsOp {
 struct LeaseRelinquishOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      leaseId;
-    string       leaseType;
+    const string leaseType;
     int64_t      chunkSize;
     uint32_t     chunkChecksum;
     bool         hasChecksum;
-    LeaseRelinquishOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, string t)
+    LeaseRelinquishOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
         : KfsOp(CMD_LEASE_RELINQUISH, s),
           chunkId(c),
           leaseId(l),
@@ -1803,7 +1807,7 @@ struct HelloMetaOp : public KfsOp {
         return os <<
             "meta-hello:"
             " seq: "         << seq <<
-            " mylocation: "  << myLocation.ToString() <<
+            " mylocation: "  << myLocation <<
             " cluster-key: " << clusterKey <<
             " md5sum: "      << md5sum <<
             " rackId: "      << rackId <<

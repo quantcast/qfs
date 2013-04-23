@@ -487,12 +487,12 @@ public:
 };
 
 RemoteSyncSMPtr
-FindServer(list<RemoteSyncSMPtr> &remoteSyncers, const ServerLocation &location,
+FindServer(RemoteSyncSMList &remoteSyncers, const ServerLocation &location,
                 bool connect)
 {
     RemoteSyncSMPtr peer;
 
-    list<RemoteSyncSMPtr>::iterator const i = find_if(
+    RemoteSyncSMList::iterator const i = find_if(
         remoteSyncers.begin(), remoteSyncers.end(),
         RemoteSyncSMMatcher(location));
     if (i != remoteSyncers.end()) {
@@ -513,12 +513,12 @@ FindServer(list<RemoteSyncSMPtr> &remoteSyncers, const ServerLocation &location,
 }
 
 void
-RemoveServer(list<RemoteSyncSMPtr>& remoteSyncers, RemoteSyncSM* target)
+RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target)
 {
     if (! target) {
         return;
     }
-    list<RemoteSyncSMPtr>::iterator const i = find(
+    RemoteSyncSMList::iterator const i = find(
         remoteSyncers.begin(), remoteSyncers.end(), target->shared_from_this());
     if (i != remoteSyncers.end()) {
         remoteSyncers.erase(i);
@@ -526,7 +526,7 @@ RemoveServer(list<RemoteSyncSMPtr>& remoteSyncers, RemoteSyncSM* target)
 }
 
 void
-ReleaseAllServers(list<RemoteSyncSMPtr>& remoteSyncers)
+ReleaseAllServers(RemoteSyncSMList& remoteSyncers)
 {
     while (! remoteSyncers.empty()) {
         RemoteSyncSMPtr const r = remoteSyncers.front();

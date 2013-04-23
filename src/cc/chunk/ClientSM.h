@@ -31,9 +31,8 @@
 #include <list>
 #include <map>
 #include <algorithm>
-#include <boost/functional/hash.hpp>
-#include <tr1/unordered_map>
 
+#include "common/LinearHash.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/IOBuffer.h"
@@ -46,40 +45,11 @@
 namespace KFS
 {
 
-// There is a dependency in waiting for a write-op to finish
-// before we can execute a write-sync op. Use this struct to track
-// such dependencies.
-struct OpPair
-{
-    // once op is finished, we can then execute dependent op.
-    OpPair(KfsOp* o, KfsOp* d)
-        : op(0),
-          dependentOp(d)
-        {}
-    KfsOp* op;
-    KfsOp* dependentOp;
-};
-
-// For record appends when client reserves space within a chunk,
-// we use a hash table to track the various reservation requests
-// for a single client.  The hash table is keyed by <chunkId, transactionId>
-struct ChunkSpaceReservationKey_t {
-    ChunkSpaceReservationKey_t(kfsChunkId_t c, int64_t t) : 
-        chunkId(c), transactionId(t) { }
-    kfsChunkId_t chunkId;
-    int64_t transactionId; // unique for each chunkserver
-    bool operator==(const ChunkSpaceReservationKey_t &other) const {
-        return chunkId == other.chunkId && transactionId == other.transactionId;
-    }
-};
-static inline std::size_t hash_value(ChunkSpaceReservationKey_t const &csr) {
-    boost::hash<int> h;
-    return h(csr.transactionId);
-}
-
-typedef std::tr1::unordered_map<
-    ChunkSpaceReservationKey_t, size_t, boost::hash<ChunkSpaceReservationKey_t>
-> ChunkSpaceResMap;
+using std::min;
+using std::deque;
+using std::pair;
+using std::list;
+using std::string;
 
 class Properties;
 
@@ -117,42 +87,51 @@ public:
     //
     RemoteSyncSMPtr FindServer(const ServerLocation &loc, bool connect = true);
 
-    void ChunkSpaceReserve(kfsChunkId_t chunkId, int64_t writeId, int nbytes);
-
-    void ReleaseChunkSpaceReservations();
-
-    void ReleaseReservedSpace(kfsChunkId_t chunkId, int64_t writeId) {
-        mReservations.erase(ChunkSpaceReservationKey_t(chunkId, writeId));
-    }
-
-    size_t UseReservedSpace(kfsChunkId_t chunkId, int64_t writeId, size_t nbytes) {
-        ChunkSpaceResMap::iterator const iter = mReservations.find(
-            ChunkSpaceReservationKey_t(chunkId, writeId));
-        size_t ret = 0;
-        if (iter != mReservations.end()) {
-            ret = std::min(iter->second, nbytes);
-            iter->second -= ret;
+    void ReleaseReservedSpace(kfsChunkId_t chunkId, int64_t writeId)
+        { mReservations.Erase(SpaceResKey(chunkId, writeId)); }
+    size_t UseReservedSpace(kfsChunkId_t chunkId, int64_t writeId, size_t nbytes)
+    {
+        size_t* const val = mReservations.Find(SpaceResKey(chunkId, writeId));
+        size_t        ret = 0;
+        if (val) {
+            ret = min(*val, nbytes);
+            *val -= ret;
         }
         return ret;
     }
-    size_t GetReservedSpace(kfsChunkId_t chunkId, int64_t writeId) const {
-        // Cast until mac std::tr1::unordered_map gets "find() const"
-        ChunkSpaceResMap::const_iterator const iter =
-            const_cast<ChunkSpaceResMap&>(mReservations).find(
-            ChunkSpaceReservationKey_t(chunkId, writeId));
-        return (iter == mReservations.end() ? 0 : iter->second);
+    size_t GetReservedSpace(kfsChunkId_t chunkId, int64_t writeId) const
+    {
+        size_t* const val = mReservations.Find(SpaceResKey(chunkId, writeId));
+        return (val ? *val : size_t(0));
     }
-    void ChunkSpaceReserve(kfsChunkId_t chunkId, int64_t writeId, size_t nbytes) {
-        mReservations.insert(
-            std::make_pair(ChunkSpaceReservationKey_t(chunkId, writeId), 0)
-        ).first->second += nbytes;
+    void ChunkSpaceReserve(kfsChunkId_t chunkId, int64_t writeId, size_t nbytes)
+    {
+        bool insertedFlag = false;
+        *mReservations.Insert(
+            SpaceResKey(chunkId, writeId), size_t(0), insertedFlag
+        ) += nbytes;
     }
     virtual void Granted(ByteCount byteCount)
         { GrantedSelf(byteCount, false); }
 private:
-    typedef std::deque<std::pair<KfsOp*, ByteCount> > OpsQueue;
-    typedef std::list<OpPair,
-        StdFastAllocator<OpPair> > PendingOpsList;
+    typedef deque<pair<KfsOp*, ByteCount> > OpsQueue;
+    // There is a dependency in waiting for a write-op to finish
+    // before we can execute a write-sync op. Use this struct to track
+    // such dependencies.
+    struct OpPair
+    {
+        // once op is finished, we can then execute dependent op.
+        OpPair(KfsOp* o, KfsOp* d)
+            : op(0),
+              dependentOp(d)
+            {}
+        KfsOp* op;
+        KfsOp* dependentOp;
+    };
+    typedef list<
+        OpPair,
+        StdFastAllocator<OpPair>
+    > PendingOpsList;
 
     class DevBufferManagerClient : public BufferManager::Client
     {
@@ -171,15 +150,64 @@ private:
         DevBufferManagerClient(const DevBufferManagerClient&);
         DevBufferManagerClient& operator=(const DevBufferManagerClient&);
     };
+    // For record appends when client reserves space within a chunk,
+    // we use a hash table to track the various reservation requests
+    // for a single client.  The hash table is keyed by <chunkId, transactionId>
+    struct SpaceResKey
+    {
+        SpaceResKey(kfsChunkId_t c, int64_t t)
+            : chunkId(c),
+              transactionId(t)
+            {}
+        kfsChunkId_t chunkId;
+        int64_t      transactionId; // unique for each chunkserver
+    };
+    struct SpaceResKeyCompare
+    {
+        static bool Equals(
+            const SpaceResKey& inLhs,
+            const SpaceResKey& inRhs)
+        {
+            return (inLhs.chunkId == inRhs.chunkId &&
+                inLhs.transactionId == inRhs.transactionId);
+        }
+        static bool Less(
+            const SpaceResKey& inLhs,
+            const SpaceResKey& inRhs)
+        {
+            return (
+                inLhs.chunkId < inRhs.chunkId || (
+                    inLhs.chunkId == inRhs.chunkId &&
+                    inLhs.transactionId < inRhs.transactionId)
+            );
+        }
+        static size_t Hash(
+            const SpaceResKey& inVal)
+            { return (size_t)inVal.transactionId; }
+    };
+    typedef KVPair<SpaceResKey, size_t> SpaceResEntry;
+    typedef LinearHash<
+        SpaceResEntry,
+        SpaceResKeyCompare,
+        DynamicArray<
+            SingleLinkedList<SpaceResEntry>*,
+            5 // 32 entries to start with
+        >,
+        StdFastAllocator<SpaceResEntry>
+    > ChunkSpaceResMap;
     friend class DevBufferManagerClient;
-    typedef std::map<
+    typedef KVPair<
         const BufferManager*,
-        DevBufferManagerClient*,
-        std::less<const BufferManager*>,
-        StdFastAllocator<pair<
-            const BufferManager* const,
-            DevBufferManagerClient*
-        > >
+        DevBufferManagerClient*
+    > DevBufMsrEntry;
+    typedef LinearHash<
+        DevBufMsrEntry,
+        KeyCompare<const BufferManager*>,
+        DynamicArray<
+            SingleLinkedList<DevBufMsrEntry>*,
+            5 // 32 entries to start with
+        >,
+        StdFastAllocator<DevBufMsrEntry>
     > DevBufferManagerClients;
     typedef StdFastAllocator<DevBufferManagerClient> DevClientMgrAllocator;
 
@@ -197,7 +225,7 @@ private:
 
     /// for writes, we daisy-chain the chunkservers in the forwarding path.  this list
     /// maintains the set of servers to which we have a connection.
-    std::list<RemoteSyncSMPtr> mRemoteSyncers;
+    RemoteSyncSMList           mRemoteSyncers;
     ByteCount                  mPrevNumToWrite;
     int                        mRecursionCnt;
     int                        mDiscardByteCnt;
@@ -214,6 +242,7 @@ private:
     static size_t              sMaxAppendRequestSize;
     static uint64_t            sInstanceNum;
 
+    void ReleaseChunkSpaceReservations();
     /// Given a (possibly) complete op in a buffer, run it.
     /// @retval True if the command was handled (i.e., we have all the
     /// data and we could execute it); false otherwise.
@@ -226,7 +255,7 @@ private:
     void OpFinished(KfsOp* doneOp);
     bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
         IOBuffer& ioOpBuf, bool forwardFlag);
-    std::string GetPeerName();
+    string GetPeerName();
     inline void SendResponse(KfsOp* op, ByteCount opBytes);
     inline static BufferManager& GetBufferManager();
     inline static BufferManager* FindDevBufferManager(KfsOp& op);
