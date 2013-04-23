@@ -509,7 +509,7 @@ private:
     {
         StringBufT<256>   ret;
         BufferInputStream is(servers.data(), servers.size());
-        string token;
+        string            token;
         for (uint32_t i = 0; is && i < numServers; ) {
             is >> ws >> token; // Host
             ret.Append(token).Append(" ");
@@ -572,12 +572,12 @@ AtomicRecordAppendManager::UpdatePendingFlush(AtomicRecordAppender& appender)
 inline void
 AtomicRecordAppendManager::Detach(AtomicRecordAppender& appender)
 {
-    const size_t cnt = mAppenders.erase(appender.GetChunkId());
+    const size_t cnt = mAppenders.Erase(appender.GetChunkId());
     if (cnt != 1) {
         WAPPEND_LOG_STREAM_FATAL <<
             "appender detach: "  << (const void*)&appender <<
             " chunkId: "         << appender.GetChunkId() <<
-            " appenders count: " << mAppenders.size() <<
+            " appenders count: " << mAppenders.GetSize() <<
         KFS_LOG_EOM;
         appender.FatalError();
     }
@@ -2747,6 +2747,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mMaxWriteIdsPerChunk(16 << 10),
       mCloseOutOfSpaceThreshold(4),
       mCloseOutOfSpaceSec(5),
+      mRecursionCount(0),
       mCurUpdateFlush(0),
       mCurUpdateLowBufFlush(0),
       mInstanceNum(0),
@@ -2758,7 +2759,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
 
 AtomicRecordAppendManager::~AtomicRecordAppendManager()
 {
-    assert(mAppenders.empty());
+    assert(mAppenders.IsEmpty() && mRecursionCount == 0);
 }
 
 void
@@ -2792,7 +2793,7 @@ AtomicRecordAppendManager::SetParameters(const Properties& props)
     mCloseOutOfSpaceSec     = props.getValue(
         "chunkServer.recAppender.closeOutOfSpaceSec", mCloseOutOfSpaceSec);
     mTotalBuffersBytes       = 0;
-    if (! mAppenders.empty()) {
+    if (! mAppenders.IsEmpty()) {
         UpdateAppenderFlushLimit();
     }
 }
@@ -2819,7 +2820,7 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
             assert(mActiveAppendersCount > 0);
             mActiveAppendersCount--;
         } else {
-            assert((size_t)mActiveAppendersCount < mAppenders.size());
+            assert((size_t)mActiveAppendersCount < mAppenders.GetSize());
             mActiveAppendersCount++;
         }
     }
@@ -2836,7 +2837,9 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
         (mTotalBuffersBytes + mTotalPendingBytes) /
         max(int64_t(1), mActiveAppendersCount)
     );
-    if (! mCurUpdateFlush && prevLimit * 15 / 16 > mMaxAppenderBytes) {
+    if (mRecursionCount <= 0 &&
+            ! mCurUpdateFlush && prevLimit * 15 / 16 > mMaxAppenderBytes) {
+        mRecursionCount++;
         mCurUpdateFlush = PendingFlushList::Front(mPendingFlushList);
         while (mCurUpdateFlush) {
             AtomicRecordAppender& cur = *mCurUpdateFlush;
@@ -2846,6 +2849,8 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
             }
             cur.UpdateFlushLimit(mMaxAppenderBytes);
         }
+        mRecursionCount--;
+        assert(0 <= mRecursionCount);
     }
 }
 
@@ -2857,10 +2862,11 @@ AtomicRecordAppendManager::AllocateChunk(
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
-    pair<ARAMap::iterator, bool> const res = mAppenders.insert(
-        make_pair(op->chunkId, (AtomicRecordAppender*)0));
-    if (res.second) {
-        assert(! res.first->second);
+    bool insertedFlag = false;
+    AtomicRecordAppender** const res = mAppenders.Insert(
+        op->chunkId, (AtomicRecordAppender*)0, insertedFlag);
+    assert(insertedFlag == (! *res));
+    if (insertedFlag) {
         const ChunkInfo_t* info = 0;
         if (! chunkFileHandle ||
                 ! chunkFileHandle->IsOpen() ||
@@ -2877,7 +2883,7 @@ AtomicRecordAppendManager::AllocateChunk(
             "allocate chunk: creating new appender: " <<
                 op->statusMsg <<
             " status: "         << op->status  <<
-            " appender count: " << mAppenders.size() <<
+            " appender count: " << mAppenders.GetSize() <<
             " chunk: "          << op->chunkId <<
             " checksums: "      <<
                 (const void*)(info ? info->chunkBlockChecksum : 0) <<
@@ -2888,17 +2894,17 @@ AtomicRecordAppendManager::AllocateChunk(
             " " << op->Show() <<
         KFS_LOG_EOM;
         if (op->status != 0) {
-            mAppenders.erase(res.first);
+            mAppenders.Erase(op->chunkId);
         } else {
-            res.first->second = new AtomicRecordAppender(
+            *res = new AtomicRecordAppender(
                 chunkFileHandle, op->chunkId, op->chunkVersion, op->numServers,
                 op->servers, peerLoc, replicationPos, info->chunkSize
             );
             mOpenAppendersCount++;
-            UpdateAppenderFlushLimit(res.first->second);
+            UpdateAppenderFlushLimit(*res);
         }
-    } else if (res.first->second->IsOpen()) {
-        op->status = res.first->second->CheckParameters(
+    } else if ((*res)->IsOpen()) {
+        op->status = (*res)->CheckParameters(
             op->chunkVersion, op->numServers,
             op->servers, replicationPos, peerLoc, chunkFileHandle, op->statusMsg);
         WAPPEND_LOG_STREAM(op->status == 0 ?
@@ -2906,7 +2912,7 @@ AtomicRecordAppendManager::AllocateChunk(
             "allocate chunk: appender exists: " <<
             " chunk: "          << op->chunkId <<
             " status: "         << op->status  <<
-            " appender count: " << mAppenders.size() <<
+            " appender count: " << mAppenders.GetSize() <<
             " " << op->Show() <<
         KFS_LOG_EOM;
     } else {
@@ -2914,7 +2920,7 @@ AtomicRecordAppendManager::AllocateChunk(
         // server restarts with partially (or completely) lost meta data, and
         // meta server re-uses the same chunk id.
         // Cleanup lingering appedner and retry.
-        res.first->second->Delete();
+        (*res)->Delete();
         AllocateChunk(op, replicationPos, peerLoc, chunkFileHandle);
         return; // Tail recursion.
     }
@@ -2935,13 +2941,13 @@ AtomicRecordAppendManager::AllocateWriteId(
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (! appender) {
         op->statusMsg = "not open for append; no appender";
         op->status    = AtomicRecordAppender::kErrParameters;
         mCounters.mWriteIdAllocNoAppenderCount++;
     } else {
-        it->second->AllocateWriteId(
+        (*appender)->AllocateWriteId(
             op, replicationPos, peerLoc, chunkFileHandle);
     }
     mCounters.mWriteIdAllocCount++;
@@ -2959,12 +2965,13 @@ AtomicRecordAppendManager::Timeout()
 void
 AtomicRecordAppendManager::FlushIfLowOnBuffers()
 {
-    if (mCurUpdateLowBufFlush) {
+    if (0 < mRecursionCount || mCurUpdateLowBufFlush) {
         return; // Prevent recursion.
     }
     if (! DiskIo::GetBufferManager().IsLowOnBuffers()) {
         return;
     }
+    mRecursionCount++;
     mCurUpdateLowBufFlush = PendingFlushList::Front(mPendingFlushList);
     while (mCurUpdateLowBufFlush) {
         AtomicRecordAppender& cur = *mCurUpdateLowBufFlush;
@@ -2975,37 +2982,38 @@ AtomicRecordAppendManager::FlushIfLowOnBuffers()
         }
         cur.LowOnBuffersFlush();
     }
+    mRecursionCount--;
+    assert(0 <= mRecursionCount);
 }
 
 bool
 AtomicRecordAppendManager::IsChunkStable(kfsChunkId_t chunkId) const
 {
     // Cast until mac std::tr1::unordered_map gets "find() const"
-    ARAMap::const_iterator const it =
-        const_cast<ARAMap&>(mAppenders).find(chunkId);
-    return (it == mAppenders.end() || it->second->IsChunkStable());
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    return (! appender || (*appender)->IsChunkStable());
 }
 
 bool
 AtomicRecordAppendManager::IsSpaceReservedInChunk(kfsChunkId_t chunkId)
 {
-    ARAMap::const_iterator const it = mAppenders.find(chunkId);
-    return (it != mAppenders.end() && it->second->SpaceReserved() > 0);
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    return (appender && (*appender)->SpaceReserved() > 0);
 }
 
 int
 AtomicRecordAppendManager::ChunkSpaceReserve(
     kfsChunkId_t chunkId, int64_t writeId, size_t nBytes, string* errMsg /* = 0 */)
 {
-    ARAMap::iterator const it = mAppenders.find(chunkId);
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
     int status;
-    if (it == mAppenders.end()) {
+    if (! appender) {
         if (errMsg) {
             (*errMsg) += "chunk does not exist or not open for append";
         }
         status = AtomicRecordAppender::kErrParameters;
     } else {
-        status = it->second->ChangeChunkSpaceReservaton(
+        status = (*appender)->ChangeChunkSpaceReservaton(
             writeId, nBytes, false, errMsg);
     }
     mCounters.mSpaceReserveCount++;
@@ -3024,14 +3032,14 @@ int
 AtomicRecordAppendManager::ChunkSpaceRelease(
     kfsChunkId_t chunkId, int64_t writeId, size_t nBytes, string* errMsg /* = 0 */)
 {
-    ARAMap::iterator const it = mAppenders.find(chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    if (! appender) {
         if (errMsg) {
             (*errMsg) += "chunk does not exist or not open for append";
         }
         return AtomicRecordAppender::kErrParameters;
     }
-    return it->second->ChangeChunkSpaceReservaton(
+    return (*appender)->ChangeChunkSpaceReservaton(
         writeId, nBytes, true, errMsg);
 }
 
@@ -3039,9 +3047,9 @@ int
 AtomicRecordAppendManager::InvalidateWriteId(
     kfsChunkId_t chunkId, int64_t writeId, bool declareFailureFlag)
 {
-    ARAMap::const_iterator const it = mAppenders.find(chunkId);
-    return (it == mAppenders.end() ? 0 :
-        it->second->InvalidateWriteId(writeId, declareFailureFlag));
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    return (appender ?
+        (*appender)->InvalidateWriteId(writeId, declareFailureFlag) : 0);
 }
 
 int
@@ -3049,17 +3057,17 @@ AtomicRecordAppendManager::GetAlignmentAndFwdFlag(kfsChunkId_t chunkId,
     bool& forwardFlag) const
 {
     forwardFlag = false;
-    ARAMap::const_iterator const it = mAppenders.find(chunkId);
-    return (it == mAppenders.end() ? 0 :
-        it->second->GetAlignmentAndFwdFlag(forwardFlag));
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    return (appender ?
+        (*appender)->GetAlignmentAndFwdFlag(forwardFlag) : 0);
 }
 
 bool
 AtomicRecordAppendManager::BeginMakeChunkStable(BeginMakeChunkStableOp* op)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (! appender) {
         op->statusMsg = "chunk does not exist or not open for append";
         op->status    = AtomicRecordAppender::kErrParameters;
         WAPPEND_LOG_STREAM_ERROR <<
@@ -3073,7 +3081,7 @@ AtomicRecordAppendManager::BeginMakeChunkStable(BeginMakeChunkStableOp* op)
         mCounters.mBeginMakeStableErrorCount++;
         return false; // Submit response now.
     }
-    it->second->BeginMakeStable(op);
+    (*appender)->BeginMakeStable(op);
     // Completion handler is already invoked or will be invoked later.
     return true;
 }
@@ -3083,11 +3091,11 @@ AtomicRecordAppendManager::CloseChunk(
     CloseOp* op, int64_t writeId, bool& forwardFlag)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (! appender) {
         return false; // let chunk manager handle it
     }
-    it->second->CloseChunk(op, writeId, forwardFlag);
+    (*appender)->CloseChunk(op, writeId, forwardFlag);
     return true;
 }
 
@@ -3095,9 +3103,9 @@ bool
 AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it != mAppenders.end()) {
-        it->second->MakeChunkStable(op);
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (appender) {
+        (*appender)->MakeChunkStable(op);
         // Completion handler is already invoked or will be invoked later.
         return true;
     }
@@ -3160,15 +3168,15 @@ AtomicRecordAppendManager::AppendBegin(
     const ServerLocation& peerLoc)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (! appender) {
         op->status    = AtomicRecordAppender::kErrParameters;
         op->statusMsg = "chunk does not exist or not open for append";
         mCounters.mAppendCount++;
         mCounters.mAppendErrorCount++;
         KFS::SubmitOpResponse(op);
     } else {
-        it->second->AppendBegin(op, replicationPos, peerLoc);
+        (*appender)->AppendBegin(op, replicationPos, peerLoc);
     }
 }
 
@@ -3176,12 +3184,12 @@ void
 AtomicRecordAppendManager::GetOpStatus(GetRecordAppendOpStatus* op)
 {
     assert(op);
-    ARAMap::iterator const it = mAppenders.find(op->chunkId);
-    if (it == mAppenders.end()) {
+    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    if (! appender) {
         op->status    = AtomicRecordAppender::kErrParameters;
         op->statusMsg = "chunk does not exist or not open for append";
     } else {
-        it->second->GetOpStatus(op);
+        (*appender)->GetOpStatus(op);
     }
     mCounters.mGetOpStatusCount++;
     if (op->status != 0) {
@@ -3194,24 +3202,27 @@ AtomicRecordAppendManager::GetOpStatus(GetRecordAppendOpStatus* op)
 bool
 AtomicRecordAppendManager::WantsToKeepLease(kfsChunkId_t chunkId) const
 {
-    ARAMap::const_iterator const it = mAppenders.find(chunkId);
-    return (it != mAppenders.end() && it->second->WantsToKeepLease());
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    return (appender && (*appender)->WantsToKeepLease());
 }
 
 void
 AtomicRecordAppendManager:: DeleteChunk(kfsChunkId_t chunkId)
 {
-    ARAMap::const_iterator const it = mAppenders.find(chunkId);
-    if (it != mAppenders.end()) {
-        it->second->DeleteChunk();
+    AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
+    if (appender) {
+        (*appender)->DeleteChunk();
     }
 }
 
 void
 AtomicRecordAppendManager::Shutdown()
 {
-    while (! mAppenders.empty()) {
-        mAppenders.begin()->second->Delete();
+    const ARAMapEntry* entry;
+    mAppenders.First();
+    while ((entry = mAppenders.Next())) {
+        entry->GetVal()->Delete();
+        mAppenders.First();
     }
 }
 

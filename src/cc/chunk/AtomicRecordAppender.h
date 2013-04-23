@@ -26,12 +26,12 @@
 #ifndef CHUNK_ATOMICRECORDAPPENDER_H
 #define CHUNK_ATOMICRECORDAPPENDER_H
 
-#include <tr1/unordered_map>
 #include <string>
 
 #include "DiskIo.h"
 #include "KfsOps.h"
 #include "common/kfsdecls.h"
+#include "common/LinearHash.h"
 
 namespace KFS
 {
@@ -164,7 +164,7 @@ public:
     void   DeleteChunk(kfsChunkId_t chunkId);
     void   Shutdown();
     size_t GetAppendersCount() const
-        { return mAppenders.size(); }
+        { return mAppenders.GetSize(); }
     void   GetCounters(Counters& outCounters)
         { outCounters = mCounters; }
 
@@ -178,7 +178,16 @@ public:
     inline Counters& Cntrs();
 
 private:
-    typedef std::tr1::unordered_map<kfsChunkId_t, AtomicRecordAppender*> ARAMap;
+    typedef KVPair<kfsChunkId_t, AtomicRecordAppender*> ARAMapEntry;
+    typedef LinearHash<
+        ARAMapEntry,
+        KeyCompare<kfsChunkId_t>,
+        DynamicArray<
+            SingleLinkedList<ARAMapEntry>*,
+            8 // 256 entries
+        >,
+        StdFastAllocator<ARAMapEntry>
+    > ARAMap;
 
     ARAMap                mAppenders;
     int                   mCleanUpSec;
@@ -198,6 +207,7 @@ private:
     int                   mMaxWriteIdsPerChunk;
     int                   mCloseOutOfSpaceThreshold;
     int                   mCloseOutOfSpaceSec;
+    int                   mRecursionCount;
     AtomicRecordAppender* mPendingFlushList[1];
     AtomicRecordAppender* mCurUpdateFlush;
     AtomicRecordAppender* mCurUpdateLowBufFlush;
