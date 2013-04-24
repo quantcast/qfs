@@ -30,7 +30,8 @@ ELSE (USE_STATIC_LIB_LINKAGE)
 ENDIF (USE_STATIC_LIB_LINKAGE)
 
 IF (NOT APPLE)
-    target_link_libraries (rt)
+    #target_link_libraries (rt)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lrt")
 ENDIF (NOT APPLE)
 
 add_custom_command (
