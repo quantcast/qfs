@@ -66,7 +66,6 @@ NetErrorSimulatorConfigure(
 #include <string>
 #include <sstream>
 #include <boost/regex.hpp>
-#include <boost/pool/pool_alloc.hpp>
 #include <boost/random/mersenne_twister.hpp>
 
 namespace KFS

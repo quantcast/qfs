@@ -24,7 +24,7 @@
 //
 //----------------------------------------------------------------------------
 
-#include <boost/pool/pool_alloc.hpp>
+#include "common/StdAllocator.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -40,7 +40,7 @@ typedef int64_t MyKey;
 typedef std::set<
     MyKey,
     std::less<MyKey>,
-    boost::fast_pool_allocator<MyKey>
+    KFS::StdFastAllocator<MyKey>
 > MySet;
 
 using namespace std;
