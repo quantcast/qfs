@@ -38,7 +38,6 @@
 #include "kfsio/Globals.h"
 #include "kfsio/NetManager.h"
 #include "qcdio/QCUtils.h"
-#include "qcdio/qcstutils.h"
 
 #include <algorithm>
 #include <string>
@@ -296,6 +295,7 @@ ClientSM::HandleRequest(int code, void* data)
             KFS_LOG_EOM;
             break;
         }
+        mGrantedFlag = false;
         // We read something from the network.  Run the RPC that
         // came in.
         int       cmdLen = 0;
@@ -1018,7 +1018,7 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
     if (! mNetConnection->IsGood()) {
         return;
     }
-    QCStValueChanger<bool> change(mGrantedFlag, true);
+    mGrantedFlag = true;
     HandleEvent(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 }
