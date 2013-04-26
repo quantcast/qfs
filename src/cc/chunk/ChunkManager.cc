@@ -552,6 +552,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 "\r\n"
             "Buffered-io: "           << (mChunkDir.bufferedIoFlag ? 1 : 0) <<
                 "\r\n"
+            "Space-reservation: "     <<
+                (mChunkDir.supportsSpaceReservatonFlag ? 1 : 0) <<  "\r\n"
             "Wait-avg-usec: "         <<
                 (bufMgr ? bufMgr->GetWaitingAvgUsecs() : int64_t(0)) << "\r\n"
             "Wait-avg-bytes: "        <<
