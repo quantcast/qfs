@@ -149,9 +149,9 @@ QCUtils::AssertionFailure(
 QCUtils::IsReserveFileSpaceSupported(
     int inFd)
 {
-    bool theRetFlag = 0 <= inFd;
+    bool theRetFlag = false;
 #ifdef QC_USE_XFS_RESVSP
-    if (platform_test_xfs_fd(inFd)) {
+    if (0 <= inFd && platform_test_xfs_fd(inFd)) {
         theRetFlag = true;
     }
 #endif /* QC_USE_XFS_RESVSP */

@@ -4636,11 +4636,13 @@ ChunkManager::StartDiskIo()
             continue;
         }
         // UpdateCountFsSpaceAvailable() below will set the following.
-        it->dirCountSpaceAvailable = 0;
-        it->deviceId               = dit->second.mDeviceId;
-        it->dirLock                = dit->second.mLockFdPtr;
-        it->availableSpace         = 0;
-        it->totalSpace             = it->usedSpace;
+        it->dirCountSpaceAvailable      = 0;
+        it->deviceId                    = dit->second.mDeviceId;
+        it->dirLock                     = dit->second.mLockFdPtr;
+        it->availableSpace              = 0;
+        it->totalSpace                  = it->usedSpace;
+        it->supportsSpaceReservatonFlag =
+            dit->second.mSupportsSpaceReservatonFlag;
         it->availableChunks.Clear();
         it->availableChunks.Swap(dit->second.mChunkInfos);
         string errMsg;
@@ -4668,6 +4670,7 @@ ChunkManager::StartDiskIo()
             " space:"
             " available: "      << it->availableSpace <<
             " used: "           << it->usedSpace <<
+            " sprsrv: "         << it->supportsSpaceReservatonFlag <<
         KFS_LOG_EOM;
         StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
         assert(find(tier.begin(), tier.end(), it) == tier.end());
@@ -5486,8 +5489,7 @@ ChunkManager::CheckChunkDirs()
                     " used: "            << it->usedSpace <<
                     " countAvail: "      << it->IsCountFsSpaceAvailable() <<
                     " updateCntAvail: "  << updateCountFsSpaceAvailableFlag <<
-                    (it->supportsSpaceReservatonFlag ?
-                        "supports space reservation " : "") <<
+                    " sprsrv: "          << it->supportsSpaceReservatonFlag <<
                     " chunks: "          << it->availableChunks.GetSize() <<
                 KFS_LOG_EOM;
                 StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
