@@ -290,21 +290,52 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         if (availableSpace < 0) {
             return;
         }
-        notStableSpace += nbytes;
-        if (notStableSpace > totalSpace) {
-            notStableSpace = totalSpace;
-        }
-        if (notStableSpace < 0) {
+        if (notStableOpenCount <= 0) {
             notStableSpace = 0;
+        } else {
+            notStableSpace += nbytes;
+            if (totalSpace < notStableSpace) {
+                notStableSpace = totalSpace;
+            }
+            if (notStableSpace < 0) {
+                notStableSpace = 0;
+            } else {
+                notStableSpace = min(notStableSpace,
+                    notStableOpenCount *
+                        (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE));
+            }
         }
-        totalNotStableSpace += nbytes;
-        if (totalNotStableSpace < 0) {
-            totalNotStableSpace = 0;
+        if (totalNotStableOpenCount <= 0) {
+            totalNotStableOpenCount = 0;
+        } else {
+            totalNotStableSpace += nbytes;
+            if (totalSpace < totalNotStableSpace) {
+                totalNotStableSpace = totalSpace;
+            }
+            if (totalNotStableSpace < 0) {
+                totalNotStableSpace = 0;
+            } else {
+                totalNotStableSpace = min(totalNotStableSpace,
+                    totalNotStableOpenCount *
+                        (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE));
+            }
         }
         if (dirCountSpaceAvailable && dirCountSpaceAvailable != this) {
-            dirCountSpaceAvailable->totalNotStableSpace += nbytes;
-            if (dirCountSpaceAvailable->totalNotStableSpace < 0) {
-                dirCountSpaceAvailable->totalNotStableSpace = 0;
+            ChunkDirInfo& di = *dirCountSpaceAvailable;
+            if (di.totalNotStableOpenCount <= 0) {
+                di.totalNotStableSpace = 0;
+            } else {
+                di.totalNotStableSpace += nbytes;
+                if (di.totalSpace < di.totalNotStableSpace) {
+                    di.totalNotStableSpace = di.totalSpace;
+                }
+                if (di.totalNotStableSpace < 0) {
+                    di.totalNotStableSpace = 0;
+                } else {
+                    di.totalNotStableSpace = min(di.totalNotStableSpace,
+                        di.totalNotStableOpenCount *
+                        (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE));
+                }
             }
         }
     }
@@ -4891,10 +4922,11 @@ ChunkManager::ChunkDirInfo::FsSpaceAvailDone(int code, void* data)
                 // Virtually reserve 64MB + 8K for each not stable chunk.
                 const ChunkDirInfo& dir = dirCountSpaceAvailable ?
                     *dirCountSpaceAvailable : *this;
-                availableSpace = max(int64_t(0), availableSpace +
-                    dir.totalNotStableSpace -
-                    dir.totalNotStableOpenCount *
-                        (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)
+                availableSpace = min(totalSpace,
+                    max(int64_t(0), availableSpace +
+                        dir.totalNotStableSpace -
+                        dir.totalNotStableOpenCount *
+                            (int64_t)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE))
                 );
             }
         }

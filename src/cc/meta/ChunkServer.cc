@@ -1861,7 +1861,7 @@ ChunkServer::UpdateStorageTiersSelf(
                 deviceCount,
                 notStableOpenCount,
                 chunkCount,
-                spaceAvailable,
+                min(totalSpace, spaceAvailable),
                 totalSpace
             );
             clearFlags[tier] = false;
