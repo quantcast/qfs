@@ -2837,7 +2837,7 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
         (mTotalBuffersBytes + mTotalPendingBytes) /
         max(int64_t(1), mActiveAppendersCount)
     );
-    if (mRecursionCount <= 0 &&
+    if (mRecursionCount <= 1 &&
             ! mCurUpdateFlush && prevLimit * 15 / 16 > mMaxAppenderBytes) {
         mRecursionCount++;
         mCurUpdateFlush = PendingFlushList::Front(mPendingFlushList);
@@ -2965,7 +2965,7 @@ AtomicRecordAppendManager::Timeout()
 void
 AtomicRecordAppendManager::FlushIfLowOnBuffers()
 {
-    if (0 < mRecursionCount || mCurUpdateLowBufFlush) {
+    if (1 < mRecursionCount || mCurUpdateLowBufFlush) {
         return; // Prevent recursion.
     }
     if (! DiskIo::GetBufferManager().IsLowOnBuffers()) {
