@@ -110,7 +110,7 @@ public:
         ReadLease& operator=(const ReadLease& lease)
         {
             Mutable(leaseId) = lease.leaseId;
-            expires = leaseId;
+            expires = lease.expires;
             return *this;
         }
         const LeaseId leaseId;
