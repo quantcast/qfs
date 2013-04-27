@@ -2073,14 +2073,30 @@ Tree::changeFileReplication(MetaFattr *fa, int16_t numReplicas,
     if (fa->type != KFS_FILE) {
         return -EISDIR;
     }
+    if (((minSTier != kKfsSTierUndef &&
+            (minSTier < kKfsSTierMin || kKfsSTierMax < minSTier)) ||
+            (maxSTier != kKfsSTierUndef &&
+                (maxSTier < kKfsSTierMin || kKfsSTierMax < maxSTier)))) {
+        return -EINVAL;
+    }
     if (minSTier != kKfsSTierUndef) {
         fa->minSTier = minSTier;
+        if (fa->maxSTier < minSTier) {
+            fa->maxSTier = minSTier;
+        }
     }
     if (maxSTier != kKfsSTierUndef) {
         fa->maxSTier = maxSTier;
+        if (maxSTier < fa->minSTier) {
+            fa->minSTier = maxSTier;
+        }
     }
     // For now storage tiers change has no effect on the chunks that were
     // previously allocated.
+    if (numReplicas <= 0) {
+        return ((maxSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) ?
+            0 : -EINVAL);
+    }
     if (fa->numReplicas == numReplicas) {
         return 0;
     }
