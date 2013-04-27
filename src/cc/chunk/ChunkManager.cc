@@ -109,6 +109,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           deviceId(-1),
           dirLock(),
           dirCountSpaceAvailable(0),
+          pendingSpaceReservationSize(0),
           supportsSpaceReservatonFlag(false),
           fsSpaceAvailInFlightFlag(false),
           checkDirFlightFlag(false),
@@ -355,16 +356,33 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             dirCountSpaceAvailable->UpdateAvailableSpace(nbytes);
         }
     }
-    void UpdateNotStableCounts(int delta, int spaceDelta)
+    void UpdateNotStableCounts(int delta, int spaceDelta,
+        int pendingReservationDelta)
     {
         notStableOpenCount      += delta;
         totalNotStableOpenCount += delta;
+        pendingSpaceReservationSize += pendingReservationDelta;
+        if (pendingSpaceReservationSize < 0) {
+            pendingSpaceReservationSize = 0;
+        } else if (totalSpace < pendingSpaceReservationSize) {
+            pendingSpaceReservationSize = totalSpace;
+        }
         assert(0 <= notStableOpenCount && 0 <= totalNotStableOpenCount);
         UpdateNotStableSpace(spaceDelta);
         if (dirCountSpaceAvailable && dirCountSpaceAvailable != this &&
                 0 < availableSpace) {
             dirCountSpaceAvailable->totalNotStableOpenCount += delta;
             assert(0 <= totalNotStableOpenCount);
+            dirCountSpaceAvailable->pendingSpaceReservationSize +=
+                pendingReservationDelta;
+            if (dirCountSpaceAvailable->pendingSpaceReservationSize < 0) {
+                dirCountSpaceAvailable->pendingSpaceReservationSize = 0;
+            }
+            if (totalSpace <
+                    dirCountSpaceAvailable->pendingSpaceReservationSize) {
+                dirCountSpaceAvailable->pendingSpaceReservationSize =
+                    totalSpace;
+            }
         }
     }
 
@@ -554,6 +572,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 "\r\n"
             "Space-reservation: "     <<
                 (mChunkDir.supportsSpaceReservatonFlag ? 1 : 0) <<  "\r\n"
+            "Pending-reservation: "   <<
+                mChunkDir.pendingSpaceReservationSize << "\r\n"
             "Wait-avg-usec: "         <<
                 (bufMgr ? bufMgr->GetWaitingAvgUsecs() : int64_t(0)) << "\r\n"
             "Wait-avg-bytes: "        <<
@@ -625,6 +645,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     DirChecker::DeviceId   deviceId;
     DirChecker::LockFdPtr  dirLock;
     ChunkDirInfo*          dirCountSpaceAvailable;
+    int64_t                pendingSpaceReservationSize;
     bool                   supportsSpaceReservatonFlag:1;
     bool                   fsSpaceAvailInFlightFlag:1;
     bool                   checkDirFlightFlag:1;
@@ -803,6 +824,7 @@ public:
           mChunkDirList(ChunkDirInfo::kChunkDirList),
           mRenamesInFlight(0),
           mWritesInFlight(0),
+          mPendingSpaceReservationSize(0),
           mWriteMetaOpsHead(0),
           mWriteMetaOpsTail(0),
           mChunkDir(chunkdir)
@@ -891,6 +913,13 @@ public:
     void WriteDone(const WriteOp* op = 0) {
         assert(mWritesInFlight > 0);
         mWritesInFlight--;
+        if (mPendingSpaceReservationSize > 0) {
+            const int pendingReservationSizeDelta =
+                -mPendingSpaceReservationSize;
+            mPendingSpaceReservationSize = 0;
+            mChunkDir.UpdateNotStableCounts(
+                0, 0, pendingReservationSizeDelta);
+        }
         if (op) {
             WriteStats(op->status, op->numBytesIO, op->diskIOTime);
         }
@@ -1035,10 +1064,24 @@ public:
         if (mChunkDirList == ChunkDirInfo::kChunkDirListNone) {
             return;
         }
+        int pendingReservationSizeDelta = 0;
         if (! IsStable() && IsFileOpen()) {
-            mChunkDir.UpdateNotStableCounts(1, (int)chunkInfo.chunkSize);
+            if (mChunkDir.supportsSpaceReservatonFlag &&
+                    mPendingSpaceReservationSize <= 0) {
+                mPendingSpaceReservationSize = max(0,
+                    (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE -
+                        chunkInfo.chunkSize));
+                pendingReservationSizeDelta = mPendingSpaceReservationSize;
+            }
+            mChunkDir.UpdateNotStableCounts(1, (int)chunkInfo.chunkSize,
+                pendingReservationSizeDelta);
         } else {
-            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize);
+            if (mPendingSpaceReservationSize > 0) {
+                pendingReservationSizeDelta = -mPendingSpaceReservationSize;
+                mPendingSpaceReservationSize = 0;
+            }
+            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize,
+                pendingReservationSizeDelta);
         }
     }
 
@@ -1057,6 +1100,7 @@ private:
     // Chunk meta data updates need to be executed in order, allow only one
     // write in flight.
     int                         mWritesInFlight;
+    int                         mPendingSpaceReservationSize;
     WriteChunkMetaOp*           mWriteMetaOpsHead;
     WriteChunkMetaOp*           mWriteMetaOpsTail;
     ChunkDirInfo&               mChunkDir;
@@ -1068,7 +1112,13 @@ private:
             return;
         }
         if (! IsStable() && IsFileOpen()) {
-            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize);
+            int pendingReservationSizeDelta = 0;
+            if (0 < mPendingSpaceReservationSize) {
+                pendingReservationSizeDelta = mPendingSpaceReservationSize;
+                mPendingSpaceReservationSize = 0;
+            }
+            mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize,
+                pendingReservationSizeDelta);
         }
         ChunkDirList::Remove(mChunkDir.chunkLists[mChunkDirList], *this);
         assert(mChunkDir.chunkCount > 0);
@@ -4920,7 +4970,10 @@ ChunkManager::ChunkDirInfo::FsSpaceAvailDone(int code, void* data)
             KFS_LOG_EOM;
             totalSpace     = max(int64_t(0), fsTotal);
             availableSpace = min(totalSpace, max(int64_t(0), fsAvail));
-            if (! supportsSpaceReservatonFlag) {
+            if (supportsSpaceReservatonFlag) {
+                availableSpace = max(
+                    int64_t(0), availableSpace - pendingSpaceReservationSize);
+            } else {
                 // Virtually reserve 64MB + 8K for each not stable chunk.
                 const ChunkDirInfo& dir = dirCountSpaceAvailable ?
                     *dirCountSpaceAvailable : *this;
