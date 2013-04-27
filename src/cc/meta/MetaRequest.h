@@ -1122,15 +1122,19 @@ private:
 };
 
 /*!
- * \brief change a file's replication factor
+ * \brief change a file's replication factor, and storage tiers.
  */
 struct MetaChangeFileReplication: public MetaRequest {
-    fid_t   fid;         //!< fid whose replication has to be changed
-    int16_t numReplicas; //!< desired degree of replication
+    fid_t      fid;         //!< fid whose replication has to be changed
+    int16_t    numReplicas; //!< desired degree of replication
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
     MetaChangeFileReplication()
         : MetaRequest(META_CHANGE_FILE_REPLICATION, true),
           fid(-1),
-          numReplicas(1)
+          numReplicas(1),
+          minSTier(kKfsSTierUndef),
+          maxSTier(kKfsSTierUndef)
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1140,7 +1144,9 @@ struct MetaChangeFileReplication: public MetaRequest {
         return os <<
             "change-file-replication:"
             " fid: "      << fid <<
-            " replicas: " << numReplicas
+            " replicas: " << numReplicas <<
+            " minstier: " << minSTier <<
+            " maxstier: " << maxSTier
         ;
     }
     bool Validate()
@@ -1152,6 +1158,8 @@ struct MetaChangeFileReplication: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("File-handle",  &MetaChangeFileReplication::fid,         fid_t(-1))
         .Def("Num-replicas", &MetaChangeFileReplication::numReplicas, int16_t(1))
+        .Def("Min-tier",     &MetaChangeFileReplication::minSTier,    kKfsSTierUndef)
+        .Def("Max-tier",     &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
         ;
     }
 };

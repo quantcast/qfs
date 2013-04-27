@@ -2029,9 +2029,13 @@ MetaChangeFileReplication::handle()
             gLayoutManager.GetMaxReplicasPerRSFile() :
             gLayoutManager.GetMaxReplicasPerFile()
     ));
-    status = metatree.changeFileReplication(fa, numReplicas);
+    status = metatree.changeFileReplication(fa, numReplicas, minSTier, maxSTier);
     if (status == 0) {
         numReplicas = fa->numReplicas; // update for log()
+    }
+    if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
+        minSTier = fa->minSTier;
+        maxSTier = fa->maxSTier;
     }
 }
 
@@ -3221,7 +3225,11 @@ MetaSetMtime::log(ostream &file) const
 int
 MetaChangeFileReplication::log(ostream &file) const
 {
-    file << "setrep/file/" << fid << "/replicas/" << numReplicas << '\n';
+    file << "setrep/file/" << fid << "/replicas/" << numReplicas;
+    if (minSTier != kKfsSTierUndef && maxSTier != kKfsSTierUndef) {
+        file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
+    }
+    file  << '\n';
     return file.fail() ? -EIO : 0;
 }
 

@@ -127,7 +127,8 @@ LogCompactorMain(int argc, char** argv)
         if ((status = replayer.playLogs()) == 0) {
             metatree.recomputeDirSize();
             if (numReplicasPerFile > 0) {
-                metatree.changePathReplication(ROOTFID, numReplicasPerFile);
+                metatree.changePathReplication(ROOTFID, numReplicasPerFile,
+                    kKfsSTierUndef, kKfsSTierUndef);
         }
             if (numReplicasPerFile > 0 || lastcp != oplog.checkpointed()) {
                 status = cp.do_CP();

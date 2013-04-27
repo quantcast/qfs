@@ -618,14 +618,26 @@ replay_size(DETokenizer& c)
 static bool
 replay_setrep(DETokenizer& c)
 {
-    fid_t fid;
-    int16_t numReplicas;
-
     c.pop_front();
+    fid_t fid;
     bool ok = pop_fid(fid, "file", c, true);
+    int16_t numReplicas;
     ok = pop_short(numReplicas, "replicas", c, ok);
+    kfsSTier_t minSTier = kKfsSTierUndef;
+    kfsSTier_t maxSTier = kKfsSTierUndef;
+    if (! c.empty()) {
+        int64_t k;
+        if (! pop_num(k, "minTier", c, ok)) {
+            return false;
+        }
+        minSTier = (kfsSTier_t)k;
+        if (! pop_num(k, "maxTier", c, ok)) {
+            return false;
+        }
+        maxSTier = (kfsSTier_t)k;
+    }
     if (ok) {
-        metatree.changePathReplication(fid, numReplicas);
+        metatree.changePathReplication(fid, numReplicas, minSTier, maxSTier);
     }
     return ok;
 }

@@ -530,9 +530,12 @@ public:
     chunkOff_t getFileSize(const MetaFattr* fa) const {
         return getFileSize(*fa);
     }
-    int changeFileReplication(MetaFattr *fa, int16_t numReplicas);
-    int changeDirReplication(MetaFattr *dirattr, int16_t numReplicas);
-    int changePathReplication(fid_t file, int16_t numReplicas);
+    int changeFileReplication(MetaFattr *fa, int16_t numReplicas,
+        kfsSTier_t minSTier, kfsSTier_t maxSTier);
+    int changeDirReplication(MetaFattr *dirattr, int16_t numReplicas,
+        kfsSTier_t minSTier, kfsSTier_t maxSTier);
+    int changePathReplication(fid_t file, int16_t numReplicas,
+        kfsSTier_t minSTier, kfsSTier_t maxSTier);
 
     int moveToDumpster(fid_t dir, const string& fname, fid_t todumpster);
     void cleanupDumpster();
