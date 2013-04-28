@@ -2229,6 +2229,7 @@ ChunkManager::AllocChunk(
         const int status = op->diskIo ?
             op->diskIo->CheckOpenStatus() : -ESERVERBUSY;
         if (status != 0) {
+            op->diskIo.reset();
             const bool forceDeleteFlag = true;
             StaleChunk(cih, forceDeleteFlag);
             return status;
