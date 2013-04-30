@@ -1,13 +1,18 @@
-%global HADOOP_VERSION 1.0.4
 %if %{?!QFS_VERSION:1}0
 %global QFS_VERSION 1.0.2
 %endif
 %if %{?!QFS_RELEASE:1}0
 %global QFS_RELEASE 0
 %endif
-
+%if %{?!HADOOP_VERSION:1}0
+%global HADOOP_VERSION 1.0.4
+%endif
+%if %{?!HADOOP_HOME:1}0
 %global HADOOP_HOME /usr/lib/hadoop
+%endif
+%if %{?!JDK_LOCATION:1}0
 %global JDK_LOCATION /usr/lib/jvm/java
+%endif
 
 %global QFS_SOURCE_DIR %{_builddir}/qfs-%{QFS_VERSION}
 
