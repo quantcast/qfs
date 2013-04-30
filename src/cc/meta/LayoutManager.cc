@@ -4266,6 +4266,7 @@ LayoutManager::AllocateChunk(
             "allocate chunk no space: tiers: [" <<
                 (int)r->minSTier << "," << (int)r->maxSTier << "] => [" <<
                 (int)minTier << "," << (int)minTier << "]" <<
+                " servers: " << mChunkServers.size() <<
         KFS_LOG_EOM;
         r->statusMsg = "no space available";
         return -ENOSPC;
