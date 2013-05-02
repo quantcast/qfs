@@ -1166,12 +1166,16 @@ struct GetRecordAppendOpStatus : public KfsOp
 
 struct ChangeFileReplicationOp : public KfsOp {
     kfsFileId_t fid; // input
-    int16_t numReplicas; // desired replication
-    ChangeFileReplicationOp(kfsSeq_t s, kfsFileId_t f, int16_t r) :
-        KfsOp(CMD_CHANGE_FILE_REPLICATION, s), fid(f), numReplicas(r)
-    {
-
-    }
+    int16_t     numReplicas; // desired replication
+    kfsSTier_t  minSTier;
+    kfsSTier_t  maxSTier;
+    ChangeFileReplicationOp(kfsSeq_t s, kfsFileId_t f, int16_t r)
+        : KfsOp(CMD_CHANGE_FILE_REPLICATION, s),
+          fid(f),
+          numReplicas(r),
+          minSTier(kKfsSTierUndef),
+          maxSTier(kKfsSTierUndef)
+        {}
 
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);

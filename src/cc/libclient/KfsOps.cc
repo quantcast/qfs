@@ -651,7 +651,14 @@ ChangeFileReplicationOp::Request(ostream &os)
         "CHANGE_FILE_REPLICATION\r\n" << ReqHeaders(*this) <<
         "File-handle: "               << fid         << "\r\n"
         "Num-replicas: "              << numReplicas << "\r\n"
-    "\r\n";
+    ;
+    if (minSTier != kKfsSTierUndef) {
+        os << "Min-tier: " << (int)minSTier << "\r\n";
+    }
+    if (maxSTier != kKfsSTierUndef) {
+        os << "Max-tier: " << (int)maxSTier << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
