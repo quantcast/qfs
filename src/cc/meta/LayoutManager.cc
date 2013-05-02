@@ -1251,6 +1251,7 @@ LayoutManager::LayoutManager() :
     mAllowLocalPlacementForAppendFlag(false),
     mInRackPlacementForAppendFlag(false),
     mInRackPlacementFlag(false),
+    mAppenPlacementIgnoreMasterSlaveFlag(false),
     mAllocateDebugVerifyFlag(false),
     mChunkEntryToChange(0),
     mFattrToChangeTo(0),
@@ -1624,6 +1625,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mInRackPlacementFlag = props.getValue(
         "metaServer.inRackPlacement",
         mInRackPlacementFlag ? 1 : 0) != 0;
+    mAppenPlacementIgnoreMasterSlaveFlag = props.getValue(
+        "metaServer.appenPlacementIgnoreMasterSlave",
+        mAppenPlacementIgnoreMasterSlaveFlag ? 1 : 0) != 0;
     mAllocateDebugVerifyFlag = props.getValue(
         "metaServer.allocateDebugVerify",
         mAllocateDebugVerifyFlag ? 1 : 0) != 0;
@@ -4331,7 +4335,8 @@ LayoutManager::AllocateChunk(
         find_if(mChunkServers.begin(), mChunkServers.end(),
             MatchServerByHost(r->clientIp));
     if (li != mChunkServers.end() &&
-            (! r->appendChunk || (*li)->CanBeChunkMaster()) &&
+            (mAppenPlacementIgnoreMasterSlaveFlag ||
+                ! r->appendChunk || (*li)->CanBeChunkMaster()) &&
             IsCandidateServer(**li, minTier, GetRackWeight(
                 mRacks, (*li)->GetRack(), mMaxLocalPlacementWeight)) &&
             ! placement.IsExcluded(*li)) {
@@ -4379,7 +4384,8 @@ LayoutManager::AllocateChunk(
         }
     }
     // For append always reserve the first slot -- write master.
-    if (r->appendChunk || localserver) {
+    if ((r->appendChunk && ! mAppenPlacementIgnoreMasterSlaveFlag) ||
+            localserver) {
         r->servers.push_back(localserver);
         tiers.push_back(minTier);
     }
@@ -4405,7 +4411,7 @@ LayoutManager::AllocateChunk(
                 continue;
             }
             numCandidates++;
-            if (r->appendChunk) {
+            if (r->appendChunk && ! mAppenPlacementIgnoreMasterSlaveFlag) {
                 // for record appends, to avoid deadlocks for
                 // buffer allocation during atomic record
                 // appends, use hierarchical chunkserver

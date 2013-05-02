@@ -1704,13 +1704,14 @@ protected:
     int64_t mMaxFsckFiles;
     int64_t mFsckAbandonedFileTimeout;
     int64_t mMaxFsckTime;
-        bool    mFullFsckFlag;
+    bool    mFullFsckFlag;
     int64_t mMTimeUpdateResolution;
     int64_t mMaxPendingRecoveryMsgLogInfo;
     bool    mAllowLocalPlacementFlag;
     bool    mAllowLocalPlacementForAppendFlag;
     bool    mInRackPlacementForAppendFlag;
     bool    mInRackPlacementFlag;
+    bool    mAppenPlacementIgnoreMasterSlaveFlag;
     bool    mAllocateDebugVerifyFlag;
 
     CSMap::Entry* mChunkEntryToChange;
