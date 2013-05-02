@@ -2064,12 +2064,9 @@ Tree::changePathReplication(fid_t fid, int16_t numReplicas,
 }
 
 int
-Tree::changeFileReplication(MetaFattr *fa, int16_t numReplicas,
+Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
     kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
-    if (numReplicas <= 0) {
-        return -EINVAL;
-    }
     if (fa->type != KFS_FILE) {
         return -EISDIR;
     }
@@ -2094,7 +2091,7 @@ Tree::changeFileReplication(MetaFattr *fa, int16_t numReplicas,
     // For now storage tiers change has no effect on the chunks that were
     // previously allocated.
     if (numReplicas <= 0) {
-        return ((maxSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) ?
+        return ((minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) ?
             0 : -EINVAL);
     }
     if (fa->numReplicas == numReplicas) {

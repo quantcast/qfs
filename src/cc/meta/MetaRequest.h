@@ -1145,8 +1145,8 @@ struct MetaChangeFileReplication: public MetaRequest {
             "change-file-replication:"
             " fid: "      << fid <<
             " replicas: " << numReplicas <<
-            " minstier: " << minSTier <<
-            " maxstier: " << maxSTier
+            " min-tier: " << (int)minSTier <<
+            " max-tier: " << (int)maxSTier
         ;
     }
     bool Validate()

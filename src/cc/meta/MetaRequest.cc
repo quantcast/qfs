@@ -2029,13 +2029,14 @@ MetaChangeFileReplication::handle()
             gLayoutManager.GetMaxReplicasPerRSFile() :
             gLayoutManager.GetMaxReplicasPerFile()
     ));
-    status = metatree.changeFileReplication(fa, numReplicas, minSTier, maxSTier);
+    status = metatree.changeFileReplication(
+        fa, numReplicas, minSTier, maxSTier);
     if (status == 0) {
         numReplicas = fa->numReplicas; // update for log()
-    }
-    if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
-        minSTier = fa->minSTier;
-        maxSTier = fa->maxSTier;
+        if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
+            minSTier = fa->minSTier;
+            maxSTier = fa->maxSTier;
+        }
     }
 }
 
