@@ -1874,7 +1874,7 @@ ChunkServer::UpdateStorageTiersSelf(
             deviceCount,
             writableChunkCount,
             (int32_t)GetChunkCount(),
-            min(mUsedSpace, totalFsSpace),
+            min(GetFreeFsSpace(), totalFsSpace),
             totalFsSpace
         );
         clearFlags[tier] = false;
