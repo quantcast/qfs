@@ -2032,11 +2032,17 @@ MetaChangeFileReplication::handle()
     status = metatree.changeFileReplication(
         fa, numReplicas, minSTier, maxSTier);
     if (status == 0) {
+        logFlag = numReplicas != fa->numReplicas;
         numReplicas = fa->numReplicas; // update for log()
         if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
+            logFlag = logFlag ||
+                (minSTier != kKfsSTierUndef && minSTier != fa->minSTier) ||
+                (maxSTier != kKfsSTierUndef && maxSTier != fa->maxSTier);
             minSTier = fa->minSTier;
             maxSTier = fa->maxSTier;
         }
+    } else {
+        logFlag = false;
     }
 }
 
@@ -3226,6 +3232,9 @@ MetaSetMtime::log(ostream &file) const
 int
 MetaChangeFileReplication::log(ostream &file) const
 {
+    if (! logFlag) {
+        return 0;
+    }
     file << "setrep/file/" << fid << "/replicas/" << numReplicas;
     if (minSTier != kKfsSTierUndef && maxSTier != kKfsSTierUndef) {
         file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
