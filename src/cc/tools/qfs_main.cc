@@ -569,7 +569,7 @@ private:
         {
             mErrorStream << mFs.GetUri() << inPath << ": " <<
                 mFs.StrError(inStatus) << "\n";
-            if (mStopOnErrorFlag) {
+            if (inStatus != 0) {
                 mStatus = inStatus;
             }
             return (mStopOnErrorFlag ? mStatus : 0);
@@ -1258,10 +1258,12 @@ private:
         {
             ErrorReporter theErrorReporter(inFs, mErrorStream);
             const int     theError = mFunctor(inFs, inPath, theErrorReporter);
-            if (TReportErrorFlag && theError != 0) {
-                theErrorReporter(inPath, theError);
+            if (theError != 0) {
+                if (TReportErrorFlag) {
+                    theErrorReporter(inPath, theError);
+                }
+                mStatus = theError;
             }
-            mStatus = theErrorReporter.GetStatus();
             return (! TStopIfErrorFlag || mStatus == 0);
         }
         int GetStatus() const
