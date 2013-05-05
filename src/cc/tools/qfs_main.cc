@@ -1786,7 +1786,8 @@ private:
             theStatus = inFs.Stat(inPath, theStat);
             if (theStatus != 0) {
                 mDstName.resize(theLen);
-                return inErrorReporter(inPath, theStatus);
+                inErrorReporter(inPath, theStatus);
+                return theStatus;
             }
             if ((theStatus = mDestPtr->SetUMask(0)) != 0 &&
                     (theStatus = theDstErrorReporter(mDstName, theStatus)) != 0) {
