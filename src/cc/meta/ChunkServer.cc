@@ -563,20 +563,21 @@ ChunkServer::HandleRequest(int code, void *data)
         if (mRecursionCount <= 1) {
             const int hbTimeout = Heartbeat();
             const int opTimeout = TimeoutOps();
-            if (! mDown &&
-                    mNetConnection &&
-                    mNetConnection->IsGood()) {
-                mNetConnection->SetInactivityTimeout(
-                    NetManager::Timer::MinTimeout(
-                        hbTimeout, opTimeout));
+            if (! mDown && mNetConnection) {
+                mNetConnection->StartFlush();
             }
-
+            if (! mDown && mNetConnection && mNetConnection->IsGood()) {
+                mNetConnection->SetInactivityTimeout(
+                    NetManager::Timer::MinTimeout(hbTimeout, opTimeout));
+            }
         }
-    } else if (code != EVENT_INACTIVITY_TIMEOUT) {
-        mLastHeartbeatSent = TimeNow();
-    }
-    if (mRecursionCount <= 1 && ! mDown && mNetConnection) {
-        mNetConnection->StartFlush();
+    } else {
+        if (code != EVENT_INACTIVITY_TIMEOUT) {
+            mLastHeartbeatSent = TimeNow();
+        }
+        if (mRecursionCount <= 1 && ! mDown && mNetConnection) {
+            mNetConnection->StartFlush();
+        }
     }
     assert(mRecursionCount > 0);
     mRecursionCount--;
