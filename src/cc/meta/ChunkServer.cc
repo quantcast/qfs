@@ -559,9 +559,6 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(!"Unknown event");
         break;
     }
-    if (mRecursionCount <= 1 && ! mDown && mNetConnection) {
-        mNetConnection->StartFlush();
-    }
     if (mHelloDone) {
         if (mRecursionCount <= 1) {
             const int hbTimeout = Heartbeat();
@@ -577,6 +574,9 @@ ChunkServer::HandleRequest(int code, void *data)
         }
     } else if (code != EVENT_INACTIVITY_TIMEOUT) {
         mLastHeartbeatSent = TimeNow();
+    }
+    if (mRecursionCount <= 1 && ! mDown && mNetConnection) {
+        mNetConnection->StartFlush();
     }
     assert(mRecursionCount > 0);
     mRecursionCount--;
