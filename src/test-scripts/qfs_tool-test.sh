@@ -37,8 +37,9 @@ qfstoolsizes=${qfstoolsizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 6710
 qfstoolumask=${qfstoolumask-0022}
 
 qfstoolchksum=${qfstoolchksum-sha1sum}
-if [  x"`{ cat /dev/null | $chksum ; } 2>/dev/null`" = x ]; then
+if [ x"`{ cat /dev/null | $qfstoolchksum ; } 2>/dev/null`" = x ]; then
     qfstoolchksum='openssl sha1'
+    [ x"`{ cat /dev/null | $qfstoolchksum ; }`" = x ] && exit 1
 fi
 
 if [ -d "${kfstools}" ]; then
