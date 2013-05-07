@@ -331,6 +331,9 @@ public:
         void EnableReadIfOverloaded()     { mEnableReadIfOverloaded  = true; }
         void SetConnectPending(bool flag) { mConnectPending = flag; }
         bool IsConnectPending() const     { return mConnectPending; }
+        bool IsIn() const                 { return mIn; }
+        bool IsOut() const                { return mOut; }
+        bool IsAdded() const              { return mAdded; }
 
     private:
         bool           mIn:1;

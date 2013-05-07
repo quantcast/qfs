@@ -137,6 +137,9 @@ NetConnection::HandleTimeoutEvent()
             " read-ahead: " << maxReadAhead <<
             " in: "  << mInBuffer.BytesConsumable() <<
             " out: " << mOutBuffer.BytesConsumable() <<
+            (mNetManagerEntry.IsIn()    ? " +r" : "") <<
+            (mNetManagerEntry.IsOut()   ? " +w" : "") <<
+            (mNetManagerEntry.IsAdded() ? ""    : " -a") <<
         KFS_LOG_EOM;
         mCallbackObj->HandleEvent(EVENT_INACTIVITY_TIMEOUT, NULL);
     }
