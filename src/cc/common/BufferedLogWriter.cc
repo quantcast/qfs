@@ -152,6 +152,7 @@ public:
           mTimeSec(0),
           mLogTimeStampSec(0),
           mMsgAppendCount(0),
+          mRotateLogsDailyFlag(true),
           mMaxMsgStreamCount(256),
           mMsgStreamCount(0),
           mMsgStreamHeadPtr(0)
@@ -231,6 +232,9 @@ public:
         mMaxMsgStreamCount   = inProps.getValue(
             inPropsPrefix + "maxMsgStreamCount",
             mMaxMsgStreamCount);
+        mRotateLogsDailyFlag = inProps.getValue(
+            inPropsPrefix + "rotateLogsDaily",
+            mRotateLogsDailyFlag ? 1 : 0) != 0;
         string theLogFilePrefixes;
         for (LogFileNames::const_iterator theIt =
                 mLogFileNamePrefixes.begin();
@@ -933,6 +937,7 @@ private:
     int64_t      mMsgAppendCount;
     struct tm    mTimeTm;
     struct tm    mLastLogTm;
+    bool         mRotateLogsDailyFlag;
     int          mMaxMsgStreamCount;
     int          mMsgStreamCount;
     MsgStream*   mMsgStreamHeadPtr;
@@ -1192,7 +1197,8 @@ private:
         int64_t inSec,
         int64_t inMicroSec)
     {
-        if (mFd < 0 || mMaxLogFiles > 0 || ! mNewLogSuffix.empty()) {
+        if (mFd < 0 || mMaxLogFiles > 0 || ! mNewLogSuffix.empty() ||
+                ! mRotateLogsDailyFlag) {
             return;
         }
         UpdateTimeTm(inSec);
