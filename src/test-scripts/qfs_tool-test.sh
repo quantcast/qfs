@@ -23,9 +23,11 @@
 #
 #
 
+qfstooluser=${qfstooluser-`id -un`}
+qfstoolgroup=${qfstoolgroup-`id -gn`}
 qfstoolmeta=${qfstoolmeta-'127.0.0.1:20000'}
 qfstoolopts=${qfstoolopts-}
-udir="/user/$USER"
+udir="/user/$qfstooluser"
 dir="$udir/qfstool/`hostname`/`basename "$0" .sh`${1-}"
 testdir="`basename "$0" .sh`${1-}"
 kfstools=${kfstools-'src/cc/tools'}
@@ -56,7 +58,7 @@ export PATH
 set -e
 umask $qfstoolumask
 $qfstool -D fs.euser=0 -mkdir "$udir"
-$qfstool -D fs.euser=0 -chown "$USER" "$udir"
+$qfstool -D fs.euser=0 -chown "$qfstooluser" "$udir"
 
 # Test move to trash restrictions.
 tdir="$udir/d$$"
@@ -77,6 +79,7 @@ $qfstool -rmr -skipTrash "$udir/.Trash"
 $qfstool -expunge
 $qfstool -lsr "$udir/.Trash" && exit 1
 
+$qfstool -test -e "$dir" && $qfstool -D fs.euser=0 -rmr "$dir"
 $qfstool -mkdir "$dir"
 $qfstool -rmr -skipTrash "$dir"
 $qfstool -test -e "$dir" && exit 1
@@ -261,7 +264,7 @@ BEGIN {
 ' "$tmpout" 
 
 $qfstool -lsr "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts -v usr="$USER" '
+awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts -v usr="$qfstooluser" '
 BEGIN {
     sz = split(s, v)
     t = 0
@@ -307,7 +310,32 @@ awk -v p="$tfile" '
 ' "$tmpout" 
 $qfstool -chmod o-r "$tfile"
 $qfstool -tail "$tfile" > /dev/null
-
+$qfstool -chmod ug-r "$tfile"
+$qfstool -tail "$tfile" > /dev/null && exit 1
+$qfstool -chmod a+r "$tfile"
+$qfstool -tail "$tfile" > /dev/null
+$qfstool -setModTime "$tfile" 3600000
+$qfstool -astat "$tfile" > "$tmpout"
+awk '
+{
+    if ($1 == "Modified:" && $2 != 3600) {
+        print $0
+        exit(1)
+    }
+}
+' "$tmpout"
+$qfstool -chown -R root:root "$tdir" && exit 1
+$qfstool -D fs.euser=0 -chown -R root:0 "$tdir"
+$qfstool -astat "$tdir" > "$tmpout"
+$qfstool -astat "$tdir/*" >> "$tmpout"
+awk '
+{
+    if (($1 == "Owner:" && $2 != 0) || ($1 == "Group:" && $2 != 0)) {
+        print $0
+        exit(1)
+    }
+}
+' "$tmpout"
 
 
 echo "TEST PASSED"
