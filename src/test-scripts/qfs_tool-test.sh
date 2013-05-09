@@ -166,7 +166,7 @@ BEGIN {
             print $0
             exit(1)
         }
-    } else if (index(p, $2) != 0) {
+    } else if (index($2, p) != 1) {
         err = 1
         print $0
         exit(1)
@@ -202,7 +202,7 @@ BEGIN {
             print $0
             exit(1)
         }
-    } else if (index(p, $3) != 0) {
+    } else if (index($3, p) != 1) {
         print $0
         exit(1)
     } else {
@@ -261,7 +261,54 @@ BEGIN {
 ' "$tmpout" 
 
 $qfstool -lsr "$dir/$dstbn" > "$tmpout"
-$qfstool -setrep -R -w 2 "$dir/$dstbn/1"
+awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts -v usr="$USER" '
+BEGIN {
+    sz = split(s, v)
+    t = 0
+    for (i in v) {
+        t += v[i]
+        t += ts
+    }
+    err = 0
+    tt = 0
+}
+{
+    if (index($NF, p) != 1) {
+        err = 1
+        print $0
+        exit(1)
+    }
+    if (substr($1, 1, 1) == "-") {
+        tt += $(NF-3)
+    }
+}
+END {
+    if (tt != t && ! err) {
+        print "total mismatch " t " " tt
+        exit(1)
+    }
+}
+' "$tmpout" 
+
+tdir="$dir/$dstbn/1"
+tfile="$tdir/1.txt"
+$qfstool -setrep -R -w 2 "$tdir"
+$qfstool -chmod -R a-x "$tdir"
+$qfstool -lsr "$tfile" && exit 1
+$qfstool -chmod -R a+X "$tdir"
+$qfstool -lsr "$tfile" > "$tmpout"
+awk -v p="$tfile" '
+{
+    if ($1 != "-rw-r--r--" || $2 != 2 || $NF != p) {
+        print "$0"
+        exit(1)
+    }
+}
+' "$tmpout" 
+$qfstool -chmod o-r "$tfile"
+$qfstool -tail "$tfile" > /dev/null
+
+
 
 echo "TEST PASSED"
 
