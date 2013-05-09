@@ -443,13 +443,18 @@ struct ReaddirPlusOp : public KfsOp {
 // Lookup the attributes of a file in a directory
 struct LookupOp : public KfsOp {
     kfsFileId_t parentFid; // fid of the parent dir
-    const char* filename; // file in the dir
-    FileAttr    fattr; // result
-    LookupOp(kfsSeq_t s, kfsFileId_t p, const char *f) :
-        KfsOp(CMD_LOOKUP, s), parentFid(p), filename(f)
-    {
-
-    }
+    const char* filename;  // file in the dir
+    FileAttr    fattr;     // result
+    kfsUid_t    euser;     // result -- effective user set by the meta server
+    kfsGid_t    egroup;    // result -- effective group set by the meta server
+    LookupOp(kfsSeq_t s, kfsFileId_t p, const char *f,
+        kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
+        : KfsOp(CMD_LOOKUP, s),
+          parentFid(p),
+          filename(f),
+          euser(eu),
+          egroup(eg)
+        {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
@@ -466,17 +471,21 @@ struct LookupPathOp : public KfsOp {
     kfsFileId_t rootFid; // fid of the root dir
     const char* filename; // path relative to root
     FileAttr    fattr; // result
-    LookupPathOp(kfsSeq_t s, kfsFileId_t r, const char *f) :
-        KfsOp(CMD_LOOKUP, s), rootFid(r), filename(f)
-    {
-
-    }
+    kfsUid_t    euser;     // result -- effective user set by the meta server
+    kfsGid_t    egroup;    // result -- effective group set by the meta server
+    LookupPathOp(kfsSeq_t s, kfsFileId_t r, const char *f,
+        kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
+        : KfsOp(CMD_LOOKUP, s),
+          rootFid(r),
+          filename(f),
+          euser(eu),
+          egroup(eg)
+        {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
     string Show() const {
         ostringstream os;
-
         os << "lookup_path: " << filename << " (rootFid = " << rootFid << ")";
         return os.str();
     }
@@ -666,6 +675,7 @@ struct TruncateOp : public KfsOp {
     chunkOff_t  endOffset;
     bool        pruneBlksFromHead;
     bool        setEofHintFlag;
+    bool        checkPermsFlag;
     chunkOff_t  respEndOffset;
     TruncateOp(kfsSeq_t s, const char *p, kfsFileId_t f, chunkOff_t o)
         : KfsOp(CMD_TRUNCATE, s),
@@ -675,6 +685,7 @@ struct TruncateOp : public KfsOp {
           endOffset(-1),
           pruneBlksFromHead(false),
           setEofHintFlag(true),
+          checkPermsFlag(false),
           respEndOffset(-1)
         {}
     virtual void Request(ostream &os);

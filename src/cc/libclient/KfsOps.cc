@@ -369,6 +369,9 @@ TruncateOp::Request(ostream &os)
         // Default is true
         os << "Set-eof: 0\r\n";
     }
+    if (checkPermsFlag) {
+        os << "Check-perms: 1\r\n";
+    }
     if (endOffset >= 0) {
         os << "End-offset: " << endOffset << "\r\n";
     }
@@ -848,12 +851,16 @@ ParseFileAttribute(const Properties &prop, FileAttr &fattr)
 void
 LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 {
+    euser  = prop.getValue("EUserId",  euser);
+    egroup = prop.getValue("EGroupId", kKfsGroupNone);
     ParseFileAttribute(prop, fattr);
 }
 
 void
 LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
 {
+    euser  = prop.getValue("EUserId",  euser);
+    egroup = prop.getValue("EGroupId", kKfsGroupNone);
     ParseFileAttribute(prop, fattr);
 }
 

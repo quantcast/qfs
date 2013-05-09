@@ -2969,6 +2969,18 @@ KfsClientImpl::CacheAttributes(const char *pathname)
         kKfsSTierMax, kKfsSTierMax, kCacheAttributesFlag);
 }
 
+inline bool
+CheckAccess(int openMode, kfsUid_t euser, kfsGid_t egroup, const FileAttr& fattr)
+{
+    return (
+        ! fattr.IsAnyPermissionDefined() ||
+        (((openMode & (O_WRONLY | O_RDWR)) == 0 ||
+            fattr.CanWrite(euser, egroup)) &&
+        ((openMode != O_RDONLY && openMode != O_RDWR) ||
+            fattr.CanRead(euser, egroup)))
+    );
+}
+
 int
 KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
@@ -2989,12 +3001,13 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     if (path) {
         *path = fpath;
     }
-    LookupOp op(0, parentFid, filename.c_str());
+    LookupOp op(0, parentFid, filename.c_str(), mEUser, mEGroup);
     FAttr* const fa    = LookupFAttr(parentFid, filename);
     time_t const faNow = fa ? time(0) : 0;
     if (fa && IsValid(*fa, faNow) &&
             (fa->isDirectory || fa->fileSize > 0 ||
-                (fa->fileSize == 0 && fa->chunkCount() <= 0))) {
+                (fa->fileSize == 0 && fa->chunkCount() <= 0)) &&
+            CheckAccess(openMode, mEUser, mEGroup, *fa)) {
         UpdatePath(fa, fpath);
         op.fattr = *fa;
     } else {
@@ -3016,6 +3029,19 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 return fte;
             }
             return op.status;
+        } else {
+            if (! CheckAccess(openMode, op.euser, op.egroup, op.fattr)) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "permission denied:"
+                    " fileId: "  << op.fattr.fileId <<
+                    " euser: "   << op.euser <<
+                    " egroup: "  << op.egroup <<
+                    " mode: "    << oct << op.fattr.mode << dec <<
+                    " user: "    << op.fattr.user <<
+                    " group: "   << op.fattr.group <<
+                KFS_LOG_EOM;
+                return -EACCES;
+            }
         }
         if (fa) {
             UpdatePath(fa, fpath);
@@ -3231,10 +3257,8 @@ KfsClientImpl::Truncate(const char* pathname, chunkOff_t offset)
     if (attr.isDirectory) {
         return -EISDIR;
     }
-    if (! attr.CanWrite(mEUser, mEGroup)) {
-        return -EACCES;
-    }
-    TruncateOp op(nextSeq(), pathname, attr.fileId, offset);
+    TruncateOp op(nextSeq(), path.c_str(), attr.fileId, offset);
+    op.checkPermsFlag = true;
     op.setEofHintFlag = attr.numStripes > 1;
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {

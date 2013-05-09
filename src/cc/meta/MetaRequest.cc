@@ -598,9 +598,8 @@ MetaCreate::handle()
         }
         dir = fa->id();
         if (user == kKfsUserNone) {
-            user  = euser != kKfsUserNone ? euser : kKfsUserRoot;
-            group = egroup != kKfsGroupNone ?
-                egroup : kKfsGroupRoot;
+            user  = euser  != kKfsUserNone  ? euser  : kKfsUserRoot;
+            group = egroup != kKfsGroupNone ? egroup : kKfsGroupRoot;
         }
         mode         = 0;
         rootUserFlag = true;
@@ -1942,7 +1941,7 @@ MetaTruncate::handle()
     }
     mtime = microseconds();
     kfsUid_t eu;
-    if (gLayoutManager.VerifyAllOpsPermissions()) {
+    if (checkPermsFlag || gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
         eu = euser;
     } else {
@@ -3667,6 +3666,10 @@ MetaLookup::response(ostream& os)
     if (! OkHeader(this, os)) {
         return;
     }
+    os <<
+        "EUserId: "  << euser  << "\r\n"
+        "EGroupId: " << egroup << "\r\n"
+    ;
     FattrReply(os, fattr) << "\r\n";
 }
 
@@ -3676,6 +3679,10 @@ MetaLookupPath::response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
+    os <<
+        "EUserId: "  << euser  << "\r\n"
+        "EGroupId: " << egroup << "\r\n"
+    ;
     FattrReply(os, fattr) << "\r\n";
 }
 

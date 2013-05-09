@@ -987,6 +987,7 @@ struct MetaTruncate: public MetaRequest {
     //!< set if the blks from the beginning of the file to the offset have
     //!< to be deleted.
     bool            pruneBlksFromHead;
+    bool            checkPermsFlag;
     StringBufT<256> pathname; //!< full pathname for file being truncated
     int64_t         mtime;
     MetaTruncate()
@@ -996,6 +997,7 @@ struct MetaTruncate: public MetaRequest {
           endOffset(-1),
           setEofHintFlag(true),
           pruneBlksFromHead(false),
+          checkPermsFlag(false),
           pathname(),
           mtime()
         {}
@@ -1025,6 +1027,7 @@ struct MetaTruncate: public MetaRequest {
         .Def("Prune-from-head", &MetaTruncate::pruneBlksFromHead,        false)
         .Def("End-offset",      &MetaTruncate::endOffset,       chunkOff_t(-1))
         .Def("Set-eof",         &MetaTruncate::setEofHintFlag,            true)
+        .Def("Check-perms",     &MetaTruncate::checkPermsFlag,           false)
         ;
     }
 };
