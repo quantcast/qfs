@@ -310,6 +310,10 @@ awk -v p="$tfile" '
     }
 }
 ' "$tmpout" 
+$qfstool -setrep 1 "$tfile"
+$qfstool -setrep -R 1 "$tdir"
+$qfstool -mv "$tdir" "$tfile" && exit 1
+
 $qfstool -chmod o-r "$tfile"
 $qfstool -tail "$tfile" > /dev/null
 $qfstool -chmod ug-r "$tfile"
@@ -326,14 +330,29 @@ awk '
     }
 }
 ' "$tmpout"
-$qfstool -chown -R root:root "$tdir" && exit 1
-$qfstool -D fs.euser=0 -chown -R root:0 "$tdir"
+$qfstool -chown -R 0:0 "$tdir" && exit 1
+$qfstool -D fs.euser=0 -chown -R 0:0 "$tdir"
 $qfstool -astat "$tdir" > "$tmpout"
-$qfstool -astat "$tdir/*" >> "$tmpout"
+$qfstool -astat "$tdir/*.*" >> "$tmpout"
 awk '
+BEGIN {
+    t = 0
+    d = 0
+}
 {
     if (($1 == "Owner:" && $2 != 0) || ($1 == "Group:" && $2 != 0)) {
         print $0
+        exit(1)
+    }
+    if ($1 == "Uri:") {
+        t++
+    }
+    if ($1 == "Type:" && $2 == "dir") {
+        d++
+    }
+}
+END {
+    if (t != 3 && d != 1) {
         exit(1)
     }
 }
@@ -360,6 +379,8 @@ tfiletxt="$tdir/testtxt"
 echo 'this is a test' | $qfstool -put - "$tfiletxt"
 test x"`$qfstool -text "$tfilegz"`" = x"`echo 'this is a test'`"
 
-echo "TEST PASSED"
+$qfstool -rmr -skipTrash "$dir"
+
+echo "Passed all tests."
 
 exit 0
