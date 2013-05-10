@@ -1263,6 +1263,11 @@ private:
                     theErrorReporter(inPath, theError);
                 }
                 mStatus = theError;
+            } else {
+                const int theStatus = theErrorReporter.GetStatus();
+                if (theStatus != 0) {
+                    mStatus = theStatus;
+                }
             }
             return (! TStopIfErrorFlag || mStatus == 0);
         }

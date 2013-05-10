@@ -23,6 +23,8 @@
 #
 #
 
+# The following assumes that user name, and host name have no spaces.
+
 qfstooluser=${qfstooluser-`id -un`}
 qfstoolgroup=${qfstoolgroup-`id -gn`}
 qfstoolmeta=${qfstoolmeta-'127.0.0.1:20000'}
@@ -336,7 +338,28 @@ awk '
     }
 }
 ' "$tmpout"
+$qfstool -chown -R "${qfstooluser}:${qfstoolgroup}" "$tdir" && exit 1
+$qfstool -D fs.euser=0 -chown -R "${qfstooluser}" "$tdir"
+$qfstool -D fs.euser=0 -chgrp -R "${qfstoolgroup}" "$tdir"
+$qfstool -ls "$tdir/*" > "$tmpout"
+awk -v usr="$qfstooluser" -v grp="$qfstoolgroup" -v p="$tdir/" '
+{
+    if (($1 != "Found" && $2 != "items") &&
+            ($3 != usr || index($0, grp) == 0 || index($NF, p) == 0)) {
+        print $0
+        exit(1)
+    }
+}
+' "$tmpout"
 
+tfilegz="$tdir/testgz"
+echo 'this is a test' | gzip -c | $qfstool -put - "$tfilegz"
+test x"`$qfstool -text "$tfilegz"`" = x"`echo 'this is a test'`"
+
+tfiletxt="$tdir/testtxt"
+echo 'this is a test' | $qfstool -put - "$tfiletxt"
+test x"`$qfstool -text "$tfilegz"`" = x"`echo 'this is a test'`"
 
 echo "TEST PASSED"
 
+exit 0
