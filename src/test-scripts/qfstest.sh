@@ -322,6 +322,11 @@ cppidf="cptest${pidsuf}"
 cppid=$!
 echo "$cppid" > "$cppidf"
 
+qfstoolpidf="qfstooltest${pidsuf}"
+qfstooltrace=on qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
+qfstoolpid=$!
+echo "$qfstoolpid" > "$qfstoolpidf"
+
 if [ $fotest -ne 0 ]; then
     echo "Starting fanout test. Fanout test data size: $fanouttestsize"
     fopidf="kfanout_test${pidsuf}"
@@ -367,6 +372,12 @@ cpstatus=$?
 rm "$cppidf"
 
 cat cptest.out
+
+wait $qfstoolpid
+qfstoolstatus=$?
+rm "$qfstoolpidf"
+
+cat qfs_tool-test.out
 
 if [ $fotest -ne 0 ]; then
     wait $fopid
@@ -439,7 +450,7 @@ done
 
 find "$testdir" -name core\* || status=1
 
-if [ $status -eq 0 -a $cpstatus -eq 0 \
+if [ $status -eq 0 -a $cpstatus -eq 0 -a $qfstoolstatus -eq 0 \
         -a $fostatus -eq 0 -a $smstatus -eq 0 \
         -a $kfsaccessstatus -eq 0 ]; then
     echo "Passed all tests"

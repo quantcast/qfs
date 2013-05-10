@@ -39,6 +39,11 @@ qfstoolrand='rand-sfmt'
 qfstoolrandseed=1234
 qfstoolsizes=${qfstoolsizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 67108864 67108865 100e6 250e6'}
 qfstoolumask=${qfstoolumask-0022}
+qfstooltrace=${$qfstooltrace-no}
+
+if [ x"$qfstooltrace" = x'yes' -o  x"$qfstooltrace" = x'on' ]; then
+    set -x
+fi
 
 qfstoolchksum=${qfstoolchksum-sha1sum}
 if [ x"`{ cat /dev/null | $qfstoolchksum ; } 2>/dev/null`" = x ]; then
