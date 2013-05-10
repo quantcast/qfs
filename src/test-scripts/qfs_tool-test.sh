@@ -379,7 +379,7 @@ tfiletxt="$tdir/testtxt"
 echo 'this is a test' | $qfstool -put - "$tfiletxt"
 test x"`$qfstool -text "$tfilegz"`" = x"`echo 'this is a test'`"
 
-$qfstool -rmr -skipTrash "$dir"
+$qfstool -rmr -skipTrash "$dir" "local://$testdir" "local://$testdircp"
 
 echo "Passed all tests."
 
