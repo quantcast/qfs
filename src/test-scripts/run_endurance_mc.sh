@@ -78,6 +78,7 @@ smtest='yes'
 testonly='no'
 mconly='no'
 cponly='no'
+csvalgrind='no'
 
 kill_all_proc()
 {
@@ -96,7 +97,8 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -mc-only        -- only start / restart meta and chunk servers
  -cp-only        -- only run copy test, do not run fanout test
  -no-sm-test     -- do not run sort master endurance test
- -disk-err-sym   -- enable disk error sumulation'
+ -disk-err-sym   -- enable disk error sumulation
+ -valgrind-cs    -- run chunk servers under valgrind'
     exit 0
 fi
 
@@ -148,6 +150,9 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-cp-only' ]; then
         shift
         cponly='yes'
+    elif [ x"$1" = x'-valgrind-cs' ]; then
+        shift
+        csvalgrind='yes'
     else
         echo "invalid option: $1"
         excode=1
@@ -304,6 +309,12 @@ fi
 
 )
 
+if [ x"$csvalgrind" = x'yes' ]; then
+    cscmdline='valgrind -v --log-file=valgrind.log'
+else
+    cscmdline=''
+fi
+
 i=$chunksrvport
 rack=1
 for n in $chunkrundirs; do
@@ -356,7 +367,8 @@ EOF
         rm -f *.log*
         echo "Starting chunk server $i"
         trap '' HUP INT
-        ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
+        eval $cscmdline \
+            ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
         echo $! > "$chunksrvpid"
         )
         i=`expr $i + 1`
