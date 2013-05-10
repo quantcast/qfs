@@ -30,7 +30,7 @@ ELSE (USE_STATIC_LIB_LINKAGE)
 ENDIF (USE_STATIC_LIB_LINKAGE)
 
 IF (NOT APPLE)
-    target_link_libraries (rt)
+    target_link_libraries (mstress_client rt)
 ENDIF (NOT APPLE)
 
 add_custom_command (
