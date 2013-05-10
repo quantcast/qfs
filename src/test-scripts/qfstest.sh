@@ -323,7 +323,9 @@ cppid=$!
 echo "$cppid" > "$cppidf"
 
 qfstoolpidf="qfstooltest${pidsuf}"
-qfstooltrace=on qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
+qfstoolmeta="$metahost:$metasrvport" \
+qfstooltrace=on \
+qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
 qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"
 
