@@ -3141,7 +3141,6 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
         cih->dataFH.reset(new DiskIo::File());
     }
     string errMsg;
-    const bool kReserveFileSpace = true;
     const string fn = MakeChunkPathname(cih);
     bool tempFailureFlag = false;
     // Set reservation size larger than max chunk size in order to detect files
@@ -3151,7 +3150,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
             fn.c_str(),
             CHUNKSIZE + KFS_CHUNK_HEADER_SIZE + 1,
             (openFlags & (O_WRONLY | O_RDWR)) == 0,
-            kReserveFileSpace,
+            cih->GetDirInfo().supportsSpaceReservatonFlag,
             (openFlags & O_CREAT) != 0,
             &errMsg,
             &tempFailureFlag,

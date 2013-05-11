@@ -661,12 +661,71 @@ private:
         closedir(theDirStream);
         return theErr;
     }
+    static int CheckSpaceReservationSupport(
+        const string& inFileName,
+        int           inFd,
+        bool&         outSupportsSpaceReservationFlag)
+    {
+        outSupportsSpaceReservationFlag =
+            QCUtils::IsReserveFileSpaceSupported(inFd);
+        if (! outSupportsSpaceReservationFlag) {
+            return 0;
+        }
+        const off_t   theSize     = lseek(inFd, 0, SEEK_END);
+        const off_t   kBlkSize    = 8 * (4 << 10);
+        const off_t   theTestSize =
+            (theSize + kBlkSize - 1) / kBlkSize + kBlkSize;
+        const int64_t theRet      = 0 <= theSize ?
+            QCUtils::ReserveFileSpace(inFd, theTestSize) : theTestSize;
+        if (theRet != theTestSize) {
+            KFS_LOG_STREAM_NOTICE <<
+                inFileName <<
+                ": " << QCUtils::SysError((int)-theRet) <<
+                " will not use space reservation" <<
+            KFS_LOG_EOM;
+            outSupportsSpaceReservationFlag = false;
+        } else {
+            struct stat theStat = {0};
+            if (theSize < 0 ||
+                    ftruncate(inFd, theTestSize) ||
+                    fstat(inFd, &theStat) ||
+                    lseek(inFd, 0, SEEK_SET) != 0 ||
+                    ftruncate(inFd, theSize)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    inFileName <<
+                    ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                if (0 <= theSize) {
+                    ftruncate(inFd, theSize);
+                }
+                close(inFd);
+                return (theErr > 0 ? -theErr : -1);
+            }
+            outSupportsSpaceReservationFlag =
+                theStat.st_size == theTestSize &&
+                theTestSize <= (int64_t)theStat.st_blocks *
+                theStat.st_blksize;
+            if (! outSupportsSpaceReservationFlag) {
+                KFS_LOG_STREAM_ERROR <<
+                    inFileName <<
+                    ": "
+                    " considering space reservation not supported: " <<
+                    " size: " << theStat.st_size <<
+                    " disk utilization: " <<
+                        (int64_t)theStat.st_blocks * theStat.st_blksize <<
+                KFS_LOG_EOM;
+            }
+        }
+        return 0;
+    }
     static int TryLock(
         const string& inFileName,
         const string& inLockToken,
         bool          inBufferedIoFlag,
         bool&         outSupportsSpaceReservationFlag)
     {
+        bool theCheckSpaceReservationSupportFlag = true;
 #ifdef O_DIRECT
         if (! inBufferedIoFlag) {
             const int theFd = open(
@@ -674,7 +733,13 @@ private:
             if (theFd < 0) {
                 return (errno > 0 ? -errno : -1);
             }
+            const int theErr = CheckSpaceReservationSupport(
+                inFileName, theFd, outSupportsSpaceReservationFlag);
+            if (theErr) {
+                return theErr;
+            }
             close(theFd);
+            theCheckSpaceReservationSupportFlag = false;
         }
 #endif
         const int theFd = open(inFileName.c_str(), O_CREAT|O_RDWR, 0644);
@@ -689,8 +754,13 @@ private:
                 " enabling FD_CLOEXEC" <<
             KFS_LOG_EOM;
         }
-        outSupportsSpaceReservationFlag =
-            QCUtils::IsReserveFileSpaceSupported(theFd);
+        if (theCheckSpaceReservationSupportFlag) {
+            const int theErr = CheckSpaceReservationSupport(
+                inFileName, theFd, outSupportsSpaceReservationFlag);
+            if (theErr) {
+                return theErr;
+            }
+        }
 #ifdef KFS_DONT_USE_FLOCK
         struct flock theLock = { 0 };
         theLock.l_type   = F_WRLCK;

@@ -37,14 +37,6 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
-#if defined(QC_OS_NAME_LINUX) && ! defined(QC_USE_XFS_RESVSP)
-#define QC_USE_XFS_RESVSP
-#endif
-
-#ifdef QC_USE_XFS_RESVSP
-#include <xfs/xfs.h>
-#endif
-
 static inline void
 StrAppend(
     const char* inStrPtr,
@@ -149,13 +141,11 @@ QCUtils::AssertionFailure(
 QCUtils::IsReserveFileSpaceSupported(
     int inFd)
 {
-    bool theRetFlag = false;
-#ifdef QC_USE_XFS_RESVSP
-    if (0 <= inFd && platform_test_xfs_fd(inFd)) {
-        theRetFlag = true;
-    }
-#endif /* QC_USE_XFS_RESVSP */
-    return theRetFlag;
+#if defined(QC_OS_NAME_LINUX)
+    return (0 <= inFd);
+#else
+    return false;
+#endif /* QC_OS_NAME_LINUX */
 }
 
 /* static */ int64_t
@@ -166,19 +156,15 @@ QCUtils::ReserveFileSpace(
     if (inSize <= 0) {
         return 0;
     }
-#ifdef QC_USE_XFS_RESVSP
-    if (platform_test_xfs_fd(inFd)) {
-        xfs_flock64_t theResv = {0}; // Clear to make valgrind happy.
-        theResv.l_whence = 0;
-        theResv.l_start  = 0;
-        theResv.l_len    = inSize;
-        if (xfsctl(0, inFd, XFS_IOC_RESVSP64, &theResv)) {
-            return (errno > 0 ? -errno : (errno ? errno : -1));
-        }
-        return inSize;
+#if defined(QC_OS_NAME_LINUX)
+    const int theErr = posix_fallocate(inFd, 0, inSize);
+    if (theErr != 0) {
+        return (theErr > 0 ? -theErr : theErr);
     }
-#endif /* QC_USE_XFS_RESVSP */
+    return inSize;
+#else
     return (inFd < 0 ? -EINVAL : 0);
+#endif /* QC_USE_XFS_RESVSP */
 }
 
 /* static */ int
