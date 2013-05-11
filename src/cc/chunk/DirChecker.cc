@@ -781,15 +781,18 @@ private:
             if (theErr == 0) {
                 theErr = -1;
             }
-            if (0 < theTmpFd) {
-                close(theTmpFd);
-            }
         } else {
             theErr = CheckSpaceReservationSupport(
                 theFileName, theTmpFd, outSupportsSpaceReservationFlag);
         }
-        if (0 <= theTmpFd && unlink(theFileName.c_str())) {
-            if (theErr == 0) {
+        if (0 <= theTmpFd) {
+            if (close(theTmpFd) && theErr == 0) {
+                theErr = errno;
+                if (theErr == 0) {
+                    theErr = -1;
+                }
+            }
+            if (unlink(theFileName.c_str()) && theErr == 0) {
                 theErr = errno;
                 if (theErr == 0) {
                     theErr = -1;
@@ -803,7 +806,6 @@ private:
             close(theFd);
             return (theErr > 0 ? -theErr : (theErr < 0 ? theErr : -1));
         }
-        close(theTmpFd);
         return theFd;
     }
     static string Normalize(
