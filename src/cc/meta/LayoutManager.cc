@@ -4117,6 +4117,27 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
             mTierCandidatesCount[i]++;
         } else if (mTierCandidatesCount[i] > 0) {
             mTierCandidatesCount[i]--;
+            KFS_LOG_STREAM_DEBUG <<
+                " not for placement:"
+                " srv: "        << srv.GetServerLocation() <<
+                " tier: "       << i <<
+                " candidate: "  << isPossibleCandidate <<
+                " can: "        << canBeCandidateFlag <<
+                " was: "        << wasPossibleCandidate <<
+                " count: "      << mTierCandidatesCount[i] <<
+                " devs: "       << srv.GetDeviceCount(i) <<
+                " space:"
+                " total: "      << srv.GetTotalSpace(false) <<
+                " avail: "      << srv.GetAvailSpace() <<
+                " min: "        << mChunkAllocMinAvailSpace <<
+                " tier: "       << srv.GetStorageTierAvailSpace(i) <<
+                " util: "       << srv.GetStorageTierSpaceUtilization(i) <<
+                " max: "        << GetMaxTierSpaceUtilization(i) <<
+                " writes: "     << srv.GetNumChunkWrites() <<
+                " responsive: " << srv.IsResponsiveServer() <<
+                " restart: "    << srv.IsRestartScheduled() <<
+                " retiring: "   << srv.IsRetiring() <<
+            KFS_LOG_EOM;
         }
         racksCandidatesDelta[i] = flag ? 1 : -1;
     }

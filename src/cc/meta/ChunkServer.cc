@@ -1252,7 +1252,17 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
             }
             loadAvg = 0;
         }
-        mAllocSpace       = mUsedSpace + mNumChunkWrites * CHUNKSIZE;
+        mAllocSpace = mUsedSpace;
+        if (mNumChunkWrites > 0) {
+            // Overestimate allocated space to approximate the in flight
+            // allocations that are not accounted for in this response.
+            const int kInFlightEst = 16;
+            mAllocSpace +=
+                (mNumChunkWrites >= kInFlightEst * (kInFlightEst + 1)) ?
+                mNumChunkWrites * ((int64_t)CHUNKSIZE / kInFlightEst) :
+                min(kInFlightEst, max(mNumChunkWrites / 8, 1)) *
+                    (int64_t)CHUNKSIZE;
+        }
         mHeartbeatSent    = false;
         mHeartbeatSkipped = mLastHeartbeatSent + sHeartbeatInterval < now;
         mHeartbeatProperties.swap(prop);
@@ -1262,8 +1272,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         const int64_t delta = loadAvg - mLoadAvg;
         mLoadAvg = loadAvg;
         gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
-        if (sHeartbeatLogInterval > 0 &&
-            mLastHeartBeatLoggedTime +
+        if (sHeartbeatLogInterval > 0 && mLastHeartBeatLoggedTime +
                 sHeartbeatLogInterval <= mLastHeard) {
             mLastHeartBeatLoggedTime = mLastHeard;
             string hbp;
@@ -1463,8 +1472,6 @@ void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
     bool evacuatedFlag, bool clearStaleChunksFlag)
 {
-    mAllocSpace = max(int64_t(0),
-        mAllocSpace - (int64_t)(CHUNKSIZE * staleChunkIds.GetSize()));
     MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
         mStaleChunksHexFormatFlag);
@@ -1485,7 +1492,6 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
 void
 ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
-    mAllocSpace = max((int64_t)0, mAllocSpace - (int64_t)CHUNKSIZE);
     MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
         mStaleChunksHexFormatFlag);
