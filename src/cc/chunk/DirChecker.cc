@@ -717,7 +717,6 @@ private:
     {
         KFS_LOG_STREAM_DEBUG <<
             "lock: "   << inFileName <<
-            " token: " << inLockToken <<
             " bufio: " << inBufferedIoFlag <<
         KFS_LOG_EOM;
         const int theFd = open(inFileName.c_str(), O_CREAT|O_RDWR, 0644);
