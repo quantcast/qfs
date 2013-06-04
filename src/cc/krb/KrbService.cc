@@ -15,7 +15,6 @@ public:
     Impl()
         : mCtx(),
           mAuthCtx(),
-          mRCachePtr(0),
           mServer(),
           mKeyTab(),
           mErrCode(0),
@@ -23,6 +22,10 @@ public:
           mServiceName(),
           mErrorMsg()
         {}
+    ~Impl()
+    {
+        Impl::CleanupSelf();
+    }
     const char* Init(
         const char* inServeiceNamePtr)
     {
@@ -43,7 +46,6 @@ private:
     string            mKeyTabFileName;
     krb5_context      mCtx;
     krb5_auth_context mAuthCtx;
-    krb5_rcache       mRCachePtr;
     krb5_principal    mServer;
     krb5_keytab       mKeyTab;
     krb5_error_code   mErrCode;
@@ -63,7 +65,8 @@ private:
             return;
         }
         mInitedFlag = true;
-        mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &mRCachePtr);
+        krb5_rcache theRCachePtr = 0;
+        mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &theRCachePtr);
         if (mErrCode) {
             return;
         }
@@ -72,23 +75,21 @@ private:
         if (mErrCode) {
             return;
         }
-	if (! mRCachePtr)  {
+	if (! theRCachePtr)  {
             mErrCode = krb5_get_server_rcache(
-                mCtx, krb5_princ_component(mCtx, mServer, 0), &mRCachePtr);
+                mCtx, krb5_princ_component(mCtx, mServer, 0), &theRCachePtr);
             if (mErrCode) {
                 return;
             }
         }
-        mErrCode = krb5_auth_con_setrcache(mCtx, mAuthCtx, mRCachePtr);
+        mErrCode = krb5_auth_con_setrcache(mCtx, mAuthCtx, theRCachePtr);
         if (mErrCode) {
             return;
         }
+        mKeyTab = 0;
         mErrCode = mKeyTabFileName.empty() ?
             krb5_kt_default(mCtx, &mKeyTab) :
             krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTab);
-        if (mErrCode) {
-            return;
-        }
     }
     krb5_error_code CleanupSelf()
     {
@@ -96,7 +97,15 @@ private:
             return 0;
         }
         mInitedFlag = false;
-        krb5_error_code theErr = krb5_auth_con_free(mCtx, mAuthCtx);
+        krb5_error_code theErr = 0;
+        if (mKeyTab) {
+            theErr = krb5_kt_close(mCtx, mKeyTab);
+            mKeyTab = 0;
+        }
+        const krb5_error_code theCtxErr = krb5_auth_con_free(mCtx, mAuthCtx);
+        if (! theErr && theCtxErr) {
+            theErr = theCtxErr;
+        }
         krb5_free_context(mCtx);
         return theErr;
     }
