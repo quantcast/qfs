@@ -3,11 +3,13 @@
 #include <krb5/krb5.h>
 
 #include <string>
+#include <algorithm>
 
 namespace KFS
 {
 
 using std::string;
+using std::max;
 
 class KrbService::Impl
 {
@@ -42,6 +44,32 @@ public:
         }
         return mErrorMsg.c_str();
     }
+    const char* ApReq(
+        const char* inDataPtr,
+        int         inDataLen)
+    {
+        krb5_data theData = { 0 };
+        theData.length = max(0, inDataLen);
+        theData.data   = const_cast<char*>(inDataPtr);
+        krb5_flags   theReqOptions = { 0 };
+        krb5_ticket* theTicket     = 0;
+        krb5_error_code theErr = krb5_rd_req(
+            mCtx,
+            &mAuthCtx,
+            &theData,
+            mServer,
+            mKeyTab,
+            &theReqOptions,
+            &theTicket
+        );
+        krb5_free_ticket(mCtx, theTicket);
+        if (! theErr) {
+            return 0;
+        }
+        mErrorMsg = ErrToStr(mErrCode);
+        return mErrorMsg.c_str();
+    }
+
 private:
     string            mKeyTabFileName;
     krb5_context      mCtx;
