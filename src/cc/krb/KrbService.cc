@@ -21,6 +21,7 @@ public:
           mKeyTab(),
           mErrCode(0),
           mInitedFlag(false),
+          mAuthInitedFlag(false),
           mServiceName(),
           mErrorMsg()
         {}
@@ -42,31 +43,37 @@ public:
             mErrorMsg = ErrToStr(mErrCode);
             CleanupSelf();
         }
-        return mErrorMsg.c_str();
+        return (mErrCode ? mErrorMsg.c_str() : 0);
     }
     const char* ApReq(
         const char* inDataPtr,
         int         inDataLen)
     {
-        krb5_data theData = { 0 };
-        theData.length = max(0, inDataLen);
-        theData.data   = const_cast<char*>(inDataPtr);
-        krb5_flags   theReqOptions = { 0 };
-        krb5_ticket* theTicket     = 0;
-        krb5_error_code theErr = krb5_rd_req(
-            mCtx,
-            &mAuthCtx,
-            &theData,
-            mServer,
-            mKeyTab,
-            &theReqOptions,
-            &theTicket
-        );
-        krb5_free_ticket(mCtx, theTicket);
-        if (! theErr) {
-            return 0;
+        CleanupAuth();
+        InitAuth();
+        if (mErrCode) {
+            mErrorMsg = ErrToStr(mErrCode);
+        } else {
+            krb5_data theData = { 0 };
+            theData.length = max(0, inDataLen);
+            theData.data   = const_cast<char*>(inDataPtr);
+            krb5_flags   theReqOptions = { 0 };
+            krb5_ticket* theTicket     = 0;
+            krb5_error_code theErr = krb5_rd_req(
+                mCtx,
+                &mAuthCtx,
+                &theData,
+                mServer,
+                mKeyTab,
+                &theReqOptions,
+                &theTicket
+            );
+            krb5_free_ticket(mCtx, theTicket);
+            if (! theErr) {
+                return 0;
+            }
+            mErrorMsg = ErrToStr(theErr);
         }
-        mErrorMsg = ErrToStr(mErrCode);
         return mErrorMsg.c_str();
     }
 
@@ -78,6 +85,7 @@ private:
     krb5_keytab       mKeyTab;
     krb5_error_code   mErrCode;
     bool              mInitedFlag;
+    bool              mAuthInitedFlag;
     string            mServiceName;
     string            mErrorMsg;
 
@@ -87,19 +95,38 @@ private:
         if (mErrCode) {
             return;
         }
-        mErrCode = krb5_auth_con_init(mCtx, &mAuthCtx);
-        if (mErrCode) {
-            krb5_free_context(mCtx);
-            return;
-        }
-        mInitedFlag = true;
-        krb5_rcache theRCachePtr = 0;
-        mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &theRCachePtr);
-        if (mErrCode) {
-            return;
-        }
 	mErrCode = krb5_sname_to_principal(
             mCtx, 0, mServiceName.c_str(), KRB5_NT_SRV_HST, &mServer);
+        if (mErrCode) {
+            return;
+        }
+        mKeyTab = 0;
+        mErrCode = mKeyTabFileName.empty() ?
+            krb5_kt_default(mCtx, &mKeyTab) :
+            krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTab);
+    }
+    void InitAuth()
+    {
+        InitAuthSelf();
+        if (mErrCode) {
+            CleanupAuth();
+        }
+    }
+    void InitAuthSelf()
+    {
+        if (! mInitedFlag) {
+            if (! mErrCode) {
+                mErrCode = KRB5_CONFIG_BADFORMAT;
+            }
+            return;
+        }
+        mErrCode = krb5_auth_con_init(mCtx, &mAuthCtx);
+        if (mErrCode) {
+            return;
+        }
+        mAuthInitedFlag = true;
+        krb5_rcache theRCachePtr = 0;
+        mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &theRCachePtr);
         if (mErrCode) {
             return;
         }
@@ -114,28 +141,31 @@ private:
         if (mErrCode) {
             return;
         }
-        mKeyTab = 0;
-        mErrCode = mKeyTabFileName.empty() ?
-            krb5_kt_default(mCtx, &mKeyTab) :
-            krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTab);
     }
     krb5_error_code CleanupSelf()
     {
         if (! mInitedFlag) {
             return 0;
         }
+        krb5_error_code theErr = CleanupAuth();
         mInitedFlag = false;
-        krb5_error_code theErr = 0;
         if (mKeyTab) {
-            theErr = krb5_kt_close(mCtx, mKeyTab);
+            krb5_error_code const theCloseErr = krb5_kt_close(mCtx, mKeyTab);
             mKeyTab = 0;
-        }
-        const krb5_error_code theCtxErr = krb5_auth_con_free(mCtx, mAuthCtx);
-        if (! theErr && theCtxErr) {
-            theErr = theCtxErr;
+            if (! theErr && theCloseErr) {
+                theErr = theCloseErr;
+            }
         }
         krb5_free_context(mCtx);
         return theErr;
+    }
+    krb5_error_code CleanupAuth()
+    {
+        if (! mInitedFlag || ! mAuthInitedFlag) {
+            return 0;
+        }
+        mAuthInitedFlag = false;
+        return krb5_auth_con_free(mCtx, mAuthCtx);
     }
     string ErrToStr(
         krb5_error_code inErrCode) const
