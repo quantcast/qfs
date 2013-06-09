@@ -24,6 +24,7 @@
 
 set (sources
 KrbService.cc
+KrbClient.cc
 )
 
 #

@@ -1,7 +1,7 @@
 //---------------------------------------------------------- -*- Mode: C++ -*-
 // $Id$
 //
-// Created 2013/05/19
+// Created 2013/06/08
 // Author: Mike Ovsiannikov
 //
 // Copyright 2013 Quantcast Corp.
@@ -20,42 +20,45 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// Kerberos 5 service side authentication implementation.
+// Kerberos 5 client side authentication implementation.
 //
 //----------------------------------------------------------------------------
 
-#ifndef KFS_KRB_SERVICE_H
-#define KFS_KRB_SERVICE_H
+#ifndef KFS_KRB_CLIENT_H
+#define KFS_KRB_CLIENT_H
 
 namespace KFS
 {
-class KrbService
+
+class KrbClient
 {
 public:
-    KrbService();
-    ~KrbService();
+    KrbClient();
+    ~KrbClient();
     const char* Init(
+        const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr);
     const char* Cleanup();
     const char* Request(
-        const char* inDataPtr,
-        int         inDataLen);
+        const char*& outDataPtr,
+        int&         outDataLen);
     const char* Reply(
-        const char*& outReplyPtr,
-        int&         outReplyLen,
+        const char*  inReplyPtr,
+        int          inReplyLen,
         const char*& outSessionKeyPtr,
         int&         outSessionKeyLen);
     int GetErrorCode() const;
 private:
     class Impl;
     Impl& mImpl;
-    KrbService(
-        const KrbService& inService);
-    KrbService& operator=(
-        const KrbService& inService);
-  
+
+private:
+    KrbClient(
+        const KrbClient& inClient);
+    KrbClient& operator=(
+        const KrbClient& inClient);
 };
 
 }
 
-#endif /* KFS_KRB_SERVICE_H */
+#endif /* KFS_KRB_CLIENT_H */

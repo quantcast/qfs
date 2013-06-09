@@ -1,7 +1,7 @@
 //---------------------------------------------------------- -*- Mode: C++ -*-
 // $Id$
 //
-// Created 2013/05/19
+// Created 2013/06/08
 // Author: Mike Ovsiannikov
 //
 // Copyright 2013 Quantcast Corp.
@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// Kerberos 5 service side authentication implementation.
+// Kerberos 5 client side authentication implementation.
 //
 //----------------------------------------------------------------------------
 
@@ -52,7 +52,10 @@ public:
           mAuthInitedFlag(false),
           mServiceName(),
           mErrorMsg()
-        {}
+    {
+        mOutBuf.data  = 0;
+        mOutBuf.length = 0;
+    }
     ~Impl()
         { Impl::CleanupSelf(); }
     const char* Init(
@@ -138,8 +141,10 @@ public:
             }
             mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr);
             if (! mErrCode) {
-                outReplyPtr = (const char*)mOutBuf.data;
-                outReplyLen = (int)mOutBuf.length;
+                outReplyPtr      = (const char*)mOutBuf.data;
+                outReplyLen      = (int)mOutBuf.length;
+                outSessionKeyPtr = (const char*)mKeyBlockPtr->contents;
+                outSessionKeyLen = (int)mKeyBlockPtr->length;
                 return 0;
             }
         }
