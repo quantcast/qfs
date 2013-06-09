@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// Kerberos 5 client side authentication implementation.
+// Kerberos 5 service side authentication implementation.
 //
 //----------------------------------------------------------------------------
 

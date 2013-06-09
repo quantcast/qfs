@@ -53,7 +53,7 @@ public:
           mServiceName(),
           mErrorMsg()
     {
-        mOutBuf.data = 0;
+        mOutBuf.data   = 0;
         mOutBuf.length = 0;
     }
     ~Impl()
