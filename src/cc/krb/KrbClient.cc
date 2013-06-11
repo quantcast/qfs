@@ -91,7 +91,7 @@ public:
     {
         if (! mInitedFlag) {
             mErrCode  = KRB5_CONFIG_BADFORMAT;
-            mErrorMsg = "not initialized yet, invoke KrbClient::Init() first";
+            mErrorMsg = "not initialized yet, invoke KrbClient::Init";
             return mErrorMsg.c_str();
         }
         CleanupAuth();
