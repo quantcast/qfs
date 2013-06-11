@@ -51,21 +51,20 @@ public:
         int    inArgsCount,
         char** inArgsPtr)
     {
-        if (inArgsCount < 3 || 5 < inArgsCount) {
+        if (inArgsCount < 3 || 6 < inArgsCount) {
             cerr <<
                 "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
                 " <service host> <service name> [<keytab name>]"
-                " [-d|-n<num>|-p<num>|-r<num>]\n"
+                " [-d|-p<num>|-r<num>] [<num>]\n"
             ;
             return 1;
         }
-        const int theCnt =
-            (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-n", 2) == 0) ?
-            atoi(inArgsPtr[4] + 2) : 1;
+        const int theCnt = inArgsCount >= 6 ? atoi(inArgsPtr[5]) : 1;
+        int       theRet = 0;
         for (int i = 0; i < theCnt; i++) {
-            const int theRet = RunSelf(inArgsCount, inArgsPtr);
-            if (theRet) {
-                return theRet;
+            const int theErr = RunSelf(inArgsCount, inArgsPtr);
+            if (theErr && ! theRet) {
+                theRet = theErr;
             }
         }
         return 0;

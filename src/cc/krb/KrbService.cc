@@ -296,7 +296,8 @@ private:
             return string("no kerberos context");
         }
         const char* const theMsgPtr = krb5_get_error_message(mCtx, inErrCode);
-        return string(theMsgPtr);
+        return string((theMsgPtr && *theMsgPtr) ?
+            theMsgPtr : "unspecified kerberos error");
     }
 };
 
