@@ -29,6 +29,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <iostream>
 
 namespace
@@ -45,7 +46,9 @@ class QfsKrbTest
 public:
     QfsKrbTest()
         : mClient(),
-          mService()
+          mService(),
+          mServiceClock(0),
+          mClientClock()
         {}
     int Run(
         int    inArgsCount,
@@ -55,7 +58,7 @@ public:
             cerr <<
                 "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
                 " <service host> <service name> [<keytab name>]"
-                " [-d|-p<num>|-r<num>] [<num>]\n"
+                " [-d|-p|-r<num>] [<num>]\n"
             ;
             return 1;
         }
@@ -67,8 +70,20 @@ public:
                 theRet = theErr;
             }
         }
-        return 0;
+        if (inArgsCount >= 5 && strcmp(inArgsPtr[4], "-p") == 0) {
+            cout <<
+                "client  cpu: " <<  (double)mClientClock / CLOCKS_PER_SEC << "\n"
+                "service cpu: " << (double)mServiceClock / CLOCKS_PER_SEC <<
+            "\n";
+        }
+        return theRet;
     }
+private:
+    KrbClient  mClient;
+    KrbService mService;
+    clock_t    mServiceClock;
+    clock_t    mClientClock;
+
     int RunSelf(
         int    inArgsCount,
         char** inArgsPtr)
@@ -93,11 +108,13 @@ public:
         }
         const char* theDataPtr = 0;
         int         theDataLen = 0;
+        clock_t     theStart = clock();
         if ((theErrMsgPtr = mClient.Request(theDataPtr, theDataLen))) {
             cerr <<
                 "client: request create error: " << theErrMsgPtr << "\n";
             return 1;
         }
+        mClientClock += clock() - theStart;
         if (theDebugFlag) {
             cout <<
                 "client:"
@@ -109,6 +126,7 @@ public:
         int         theSrvKeyLen  = 0;
         const char* theReqDataPtr = theDataPtr;
         int         theReqDataLen = theDataLen;
+        theStart = clock();
         for (int i = 0; i < theReplayCnt; i++) {
             if ((theErrMsgPtr = mService.Request(
                     theReqDataPtr, theReqDataLen))) {
@@ -141,6 +159,9 @@ public:
                 ShowAsHexString(theSrvKeyPtr, theSrvKeyLen, cout) << "\n";
             }
         }
+        const clock_t theEnd = clock();
+        mServiceClock += theEnd - theStart;
+        theStart = theEnd;
         const char* theCliKeyPtr = 0;
         int         theCliKeyLen = 0;
         if ((theErrMsgPtr = mClient.Reply(theDataPtr, theDataLen,
@@ -149,6 +170,7 @@ public:
                 "client: reply: process error: " << theErrMsgPtr << "\n";
             return 1;
         }
+        mClientClock += clock() - theStart;
         if (theDebugFlag) {
             cout <<
                 "client:"
@@ -171,9 +193,6 @@ public:
         }
         return 0;
     }
-private:
-    KrbClient  mClient;
-    KrbService mService;
 
     ostream& ShowAsHexString(
         const char* inDataPtr,

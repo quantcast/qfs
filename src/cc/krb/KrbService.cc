@@ -197,7 +197,6 @@ private:
 
     void InitSelf()
     {
-        mCtx = 0;
         mErrCode = krb5_init_context(&mCtx);
         if (mErrCode) {
             return;

@@ -71,8 +71,7 @@ public:
         mErrorMsg.clear();
         InitSelf();
         if (mErrCode) {
-            mErrorMsg = ErrToStr(mErrCode);
-            return mErrorMsg.c_str();
+            return ErrStr();
         }
         return 0;
     }
