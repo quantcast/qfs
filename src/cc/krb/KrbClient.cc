@@ -29,6 +29,7 @@
 
 #include <krb5/krb5.h>
 
+#include <string.h>
 #include <string>
 #include <algorithm>
 
