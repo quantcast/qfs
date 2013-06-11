@@ -43,14 +43,15 @@ public:
     Impl()
         : mCtx(),
           mAuthCtx(),
-          mServer(),
-          mKeyTab(),
+          mServerPtr(0),
+          mKeyTabPtr(0),
           mErrCode(0),
           mOutBuf(),
           mKeyBlockPtr(0),
           mInitedFlag(false),
           mAuthInitedFlag(false),
           mServiceName(),
+          mServiceHostName(),
           mErrorMsg()
     {
         mOutBuf.data  = 0;
@@ -59,14 +60,24 @@ public:
     ~Impl()
         { Impl::CleanupSelf(); }
     const char* Init(
-        const char* inServeiceNamePtr)
+        const char* inServiceHostNamePtr,
+        const char* inServeiceNamePtr,
+        const char* inKeyTabNamePtr)
     {
         CleanupSelf();
         mErrCode = 0;
         mErrorMsg.clear();
         mServiceName.clear();
+        mKeyTabFileName.clear();
+        mServiceHostName.clear();
         if (inServeiceNamePtr) {
             mServiceName = inServeiceNamePtr;
+        }
+        if (inKeyTabNamePtr) {
+            mKeyTabFileName = inKeyTabNamePtr;
+        }
+        if (inServiceHostNamePtr) {
+            mServiceHostName = inServiceHostNamePtr;
         }
         InitSelf();
         if (mErrCode) {
@@ -87,6 +98,11 @@ public:
         const char* inDataPtr,
         int         inDataLen)
     {
+        if (! mInitedFlag) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not initialized yet, invoke KrbService::Init";
+            return mErrorMsg.c_str();
+        }
         CleanupAuth();
         InitAuth();
         if (mErrCode) {
@@ -101,8 +117,8 @@ public:
                 mCtx,
                 &mAuthCtx,
                 &theData,
-                mServer,
-                mKeyTab,
+                mServerPtr,
+                mKeyTabPtr,
                 &theReqOptions,
                 0 // &theTicket
             );
@@ -125,11 +141,19 @@ public:
         outReplyLen      = 0;
         outSessionKeyPtr = 0;
         outSessionKeyLen = 0;
-        if (! mInitedFlag || ! mAuthInitedFlag) {
-            mErrCode = KRB5_CONFIG_BADFORMAT;
-            if (mErrorMsg.empty()) {
-                mErrorMsg = ErrToStr(mErrCode);
-            }
+        if (! mInitedFlag) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not initialized yet, invoke KrbService::Init";
+            return mErrorMsg.c_str();
+        }
+        if (! mAuthInitedFlag) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not ready to process reply, invoke KrbService::Request";
+            return mErrorMsg.c_str();
+        }
+        if (mOutBuf.data || mKeyBlockPtr) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
             return mErrorMsg.c_str();
         }
         krb5_free_data_contents(mCtx, &mOutBuf);
@@ -158,14 +182,15 @@ private:
     string            mKeyTabFileName;
     krb5_context      mCtx;
     krb5_auth_context mAuthCtx;
-    krb5_principal    mServer;
-    krb5_keytab       mKeyTab;
+    krb5_principal    mServerPtr;
+    krb5_keytab       mKeyTabPtr;
     krb5_error_code   mErrCode;
     krb5_data         mOutBuf;
     krb5_keyblock*    mKeyBlockPtr;
     bool              mInitedFlag;
     bool              mAuthInitedFlag;
     string            mServiceName;
+    string            mServiceHostName;
     string            mErrorMsg;
 
     void InitSelf()
@@ -174,15 +199,21 @@ private:
         if (mErrCode) {
             return;
         }
+        mInitedFlag = true;
+        mServerPtr  = 0;
 	mErrCode = krb5_sname_to_principal(
-            mCtx, 0, mServiceName.c_str(), KRB5_NT_SRV_HST, &mServer);
+            mCtx,
+            mServiceHostName.empty() ? 0 : mServiceHostName.c_str(),
+            mServiceName.c_str(),
+            KRB5_NT_UNKNOWN, // KRB5_NT_SRV_HST,
+            &mServerPtr);
         if (mErrCode) {
             return;
         }
-        mKeyTab = 0;
+        mKeyTabPtr = 0;
         mErrCode = mKeyTabFileName.empty() ?
-            krb5_kt_default(mCtx, &mKeyTab) :
-            krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTab);
+            krb5_kt_default(mCtx, &mKeyTabPtr) :
+            krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTabPtr);
     }
     void InitAuth()
     {
@@ -211,7 +242,7 @@ private:
         }
 	if (! theRCachePtr)  {
             mErrCode = krb5_get_server_rcache(
-                mCtx, krb5_princ_component(mCtx, mServer, 0), &theRCachePtr);
+                mCtx, krb5_princ_component(mCtx, mServerPtr, 0), &theRCachePtr);
             if (mErrCode) {
                 return;
             }
@@ -228,12 +259,16 @@ private:
         }
         krb5_error_code theErr = CleanupAuth();
         mInitedFlag = false;
-        if (mKeyTab) {
-            krb5_error_code const theCloseErr = krb5_kt_close(mCtx, mKeyTab);
-            mKeyTab = 0;
+        if (mKeyTabPtr) {
+            krb5_error_code const theCloseErr = krb5_kt_close(mCtx, mKeyTabPtr);
+            mKeyTabPtr = 0;
             if (! theErr && theCloseErr) {
                 theErr = theCloseErr;
             }
+        }
+	if (mServerPtr) {
+            krb5_free_principal(mCtx, mServerPtr);
+            mServerPtr = 0;
         }
         krb5_free_data_contents(mCtx, &mOutBuf);
         krb5_free_context(mCtx);
@@ -277,9 +312,11 @@ KrbService::~KrbService()
 
     const char*
 KrbService::Init(
-    const char* inServeiceNamePtr)
+    const char* inServiceHostNamePtr,
+    const char* inServeiceNamePtr,
+    const char* inKeyTabNamePtr)
 {
-    return mImpl.Init(inServeiceNamePtr);
+    return mImpl.Init(inServiceHostNamePtr, inServeiceNamePtr, inKeyTabNamePtr);
 }
 
     const char*

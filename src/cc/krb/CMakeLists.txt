@@ -44,6 +44,20 @@ set_target_properties (qfskrb PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfskrb-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 target_link_libraries (qfskrb ${Boost_LIBRARIES} krb5)
 
+add_executable (qfskrbtest krbtest_main.cc)
+
+set (exe_files qfskrbtest)
+
+foreach (exe_file ${exe_files})
+        if (USE_STATIC_LIB_LINKAGE)
+           target_link_libraries (${exe_file} qfskrb krb5)
+           add_dependencies (${exe_file} qfskrb)
+        else (USE_STATIC_LIB_LINKAGE)
+           target_link_libraries (${exe_file} qfskrb)
+           add_dependencies (${exe_file} qfskrb krb5)
+        endif (USE_STATIC_LIB_LINKAGE)
+endforeach (exe_file)
+
 if (NOT Boost_USE_STATIC_LIBS)
     target_link_libraries (qfskrb-shared ${Boost_LIBRARIES} krb5)
 endif (NOT Boost_USE_STATIC_LIBS)

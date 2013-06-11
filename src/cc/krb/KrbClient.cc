@@ -48,6 +48,7 @@ public:
           mErrCode(0),
           mOutBuf(),
           mCreds(),
+          mServerPtr(0),
           mKeyBlockPtr(0),
           mInitedFlag(false),
           mServiceName(),
@@ -88,10 +89,9 @@ public:
         int&         outDataLen)
     {
         if (! mInitedFlag) {
-            if (! mErrCode) {
-                mErrCode = KRB5_CONFIG_BADFORMAT;
-            }
-            return ErrStr();
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not initialized yet, invoke KrbClient::Init() first";
+            return mErrorMsg.c_str();
         }
         CleanupAuth();
         krb5_free_data_contents(mCtx, &mOutBuf);
@@ -99,6 +99,7 @@ public:
 	if ((mErrCode = krb5_cc_default(mCtx, &theCache)) != 0) {
             return ErrStr();
         }
+        mCreds.server = mServerPtr;
 	if ((mErrCode = krb5_cc_get_principal(
                 mCtx, theCache, &mCreds.client)) != 0) {
             return ErrStr();
@@ -131,10 +132,19 @@ public:
         int&         outSessionKeyLen)
     {
         if (! mInitedFlag) {
-            if (! mErrCode) {
-                mErrCode = KRB5_CONFIG_BADFORMAT;
-            }
-            return ErrStr();
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not initialized yet, invoke KrbClient::Init";
+            return mErrorMsg.c_str();
+        }
+        if (mOutBuf.length <= 0 || ! mOutBuf.data) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "not ready to process reply, invoke KrbClient::Request";
+            return mErrorMsg.c_str();
+        }
+        if (mKeyBlockPtr) {
+            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
+            return mErrorMsg.c_str();
         }
         krb5_data theData = { 0 };
         theData.length = max(0, inReplyLen);
@@ -167,6 +177,7 @@ private:
     krb5_error_code   mErrCode;
     krb5_data         mOutBuf;
     krb5_creds        mCreds;
+    krb5_principal    mServerPtr;
     krb5_keyblock*    mKeyBlockPtr;
     bool              mInitedFlag;
     string            mServiceName;
@@ -184,8 +195,8 @@ private:
                 mCtx,
                 mServiceHost.c_str(),
                 mServiceName.c_str(),
-                KRB5_NT_SRV_HST,
-                &mCreds.server
+                KRB5_NT_UNKNOWN, // KRB5_NT_SRV_HST,
+                &mServerPtr
             ))) {
             return;
         }
@@ -198,6 +209,10 @@ private:
         krb5_error_code theErr = CleanupAuth();
         mInitedFlag = false;
         memset(&mCreds, 0, sizeof(mCreds));
+	if (mServerPtr) {
+            krb5_free_principal(mCtx, mServerPtr);
+            mServerPtr = 0;
+        }
         krb5_free_context(mCtx);
         return theErr;
     }
@@ -210,10 +225,6 @@ private:
             krb5_free_principal(mCtx, mCreds.client);
             mCreds.client = 0;
         }
-	if (mCreds.server) {
-            krb5_free_principal(mCtx, mCreds.server);
-            mCreds.server = 0;
-        }
         if (mKeyBlockPtr) {
             krb5_free_keyblock(mCtx, mKeyBlockPtr);
             mKeyBlockPtr = 0;
@@ -223,6 +234,7 @@ private:
             return 0;
         }
         const krb5_error_code theErr = krb5_auth_con_free(mCtx, mAuthCtx);
+        memset(&mCreds, 0, sizeof(mCreds));
         mAuthCtx = 0;
         return theErr;
     }

@@ -27,6 +27,7 @@
 #include "KrbService.h"
 #include "KrbClient.h"
 
+#include <string.h>
 #include <iostream>
 
 namespace
@@ -36,6 +37,7 @@ using KFS::KrbService;
 
 using std::cerr;
 using std::cout;
+using std::ostream;
 
 class QfsKrbTest
 {
@@ -48,24 +50,97 @@ public:
         int    inArgsCount,
         char** inArgsPtr)
     {
-        if (inArgsCount != 4 && inArgsCount != 3) {
+        if (inArgsCount < 3 || 5 < inArgsCount) {
             cerr <<
                 "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
-                " <service host> <service name> [<keytab name>]\n"
+                " <service host> <service name> [<keytab name>] [-d]\n"
             ;
             return 1;
         }
+        const bool theDebugFlag = inArgsCount >= 5 &&
+            strcmp(inArgsPtr[4], "-d") == 0;
         const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2]);
         if (theErrMsgPtr) {
             cerr <<
-                "client init error: " << theErrMsgPtr << "\n";
+                "client: init error: " << theErrMsgPtr << "\n";
             return 1;
         }
-        theErrMsgPtr = mClient.Init(
-            inArgsPtr[2], inArgsCount == 3 ? 0 : inArgsPtr[3]);
-        if (theErrMsgPtr) {
+        if ((theErrMsgPtr = mService.Init(
+                inArgsPtr[1], inArgsPtr[2],
+                inArgsCount <= 3 ? 0 : inArgsPtr[3]))) {
             cerr <<
                 "service init error: " << theErrMsgPtr << "\n";
+            return 1;
+        }
+        const char* theDataPtr = 0;
+        int         theDataLen = 0;
+        if ((theErrMsgPtr = mClient.Request(theDataPtr, theDataLen))) {
+            cerr <<
+                "client: request create error: " << theErrMsgPtr << "\n";
+            return 1;
+        }
+        if (theDebugFlag) {
+            cout <<
+                "client:"
+                " request:"
+                " length: " << theDataLen <<
+            "\n";
+        }
+        if ((theErrMsgPtr = mService.Request(theDataPtr, theDataLen))) {
+            cerr <<
+                "service: request process error: " << theErrMsgPtr << "\n";
+            return 1;
+        }
+        if (theDebugFlag) {
+            cout << "service: request: processed\n";
+        }
+        theDataPtr = 0;
+        theDataLen = 0;
+        const char* theSrvKeyPtr = 0;
+        int         theSrvKeyLen = 0;
+        if ((theErrMsgPtr = mService.Reply(theDataPtr, theDataLen,
+                theSrvKeyPtr, theSrvKeyLen))) {
+            cerr <<
+                "service: reply create error: " << theErrMsgPtr << "\n";
+            return 1;
+        }
+        if (theDebugFlag) {
+            cout <<
+                "service:"
+                " reply:"
+                " length: " << theDataLen <<
+                " key:"
+                " length: " << theSrvKeyLen <<
+                " data: "
+            ;
+            ShowAsHexString(theSrvKeyPtr, theSrvKeyLen, cout) << "\n";
+        }
+        const char* theCliKeyPtr = 0;
+        int         theCliKeyLen = 0;
+        if ((theErrMsgPtr = mClient.Reply(theDataPtr, theDataLen,
+                theCliKeyPtr, theCliKeyLen))) {
+            cerr <<
+                "client: reply: process error: " << theErrMsgPtr << "\n";
+            return 1;
+        }
+        if (theDebugFlag) {
+            cout <<
+                "client:"
+                " reply: processed"
+                " key:"
+                " length: " << theCliKeyLen <<
+                " data: "
+            ;
+            ShowAsHexString(theCliKeyPtr, theCliKeyLen, cout) << "\n";
+        }
+        if (theCliKeyLen != theSrvKeyLen ||
+                memcmp(theCliKeyPtr, theSrvKeyPtr, theCliKeyLen) != 0) {
+            cerr <<
+                "service / client key mismatch:" <<
+                " key length:"
+                " service: " << theSrvKeyLen <<
+                " client: "  << theCliKeyLen <<
+            "\n";
             return 1;
         }
         return 0;
@@ -73,6 +148,23 @@ public:
 private:
     KrbClient  mClient;
     KrbService mService;
+
+    ostream& ShowAsHexString(
+        const char* inDataPtr,
+        int         inLength,
+        ostream&    inOutStream)
+    {
+        const char* const kHexSyms = "0123456789ABCDEF";
+        for (const char* thePtr = inDataPtr,
+                * const theEndPtr = inDataPtr + inLength;
+                thePtr < theEndPtr;
+                ++thePtr) {
+            inOutStream <<
+                kHexSyms[(*thePtr >> 4) & 0xF] <<
+                kHexSyms[*thePtr & 0xF];
+        }
+        return inOutStream;
+    }
 private:
     QfsKrbTest(
         const QfsKrbTest& inTest);
