@@ -96,30 +96,39 @@ public:
         }
         CleanupAuth();
         krb5_free_data_contents(mCtx, &mOutBuf);
-        krb5_ccache theCache = 0;
-	if ((mErrCode = krb5_cc_default(mCtx, &theCache)) != 0) {
+        krb5_ccache theCachePtr = 0;
+	if ((mErrCode = krb5_cc_default(mCtx, &theCachePtr)) != 0) {
             return ErrStr();
         }
         mCreds.server = mServerPtr;
 	if ((mErrCode = krb5_cc_get_principal(
-                mCtx, theCache, &mCreds.client)) != 0) {
+                mCtx, theCachePtr, &mCreds.client)) != 0) {
+            krb5_cc_close(mCtx, theCachePtr);
             return ErrStr();
         }
-        krb5_creds* theCreds = 0;
+        krb5_creds* theCredsPtr = 0;
 	if ((mErrCode = krb5_get_credentials(
-                mCtx, 0, theCache, &mCreds, &theCreds)) != 0) {
+                mCtx, 0, theCachePtr, &mCreds, &theCredsPtr)) != 0) {
+            krb5_cc_close(mCtx, theCachePtr);
+            return ErrStr();
+        }
+        if ((mErrCode = krb5_cc_close(mCtx, theCachePtr))) {
+            krb5_free_creds(mCtx, theCredsPtr);
             return ErrStr();
         }
         krb5_data theAppData = { 0 };
         theAppData.data   = 0;
         theAppData.length = 0;
-        if ((mErrCode = krb5_mk_req_extended(
-                    mCtx,
-                    &mAuthCtx,
-                    AP_OPTS_MUTUAL_REQUIRED,
-                    &theAppData,
-                    theCreds,
-                    &mOutBuf)) != 0) {
+        mErrCode = krb5_mk_req_extended(
+            mCtx,
+            &mAuthCtx,
+            AP_OPTS_MUTUAL_REQUIRED,
+            &theAppData,
+            theCredsPtr,
+            &mOutBuf
+        );
+        krb5_free_creds(mCtx, theCredsPtr);
+        if (mErrCode != 0) {
             return ErrStr();
         }
         outDataPtr = (const char*)mOutBuf.data;
