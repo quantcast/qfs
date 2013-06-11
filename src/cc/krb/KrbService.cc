@@ -197,6 +197,7 @@ private:
 
     void InitSelf()
     {
+        mCtx = 0;
         mErrCode = krb5_init_context(&mCtx);
         if (mErrCode) {
             return;
@@ -296,8 +297,12 @@ private:
             return string("no kerberos context");
         }
         const char* const theMsgPtr = krb5_get_error_message(mCtx, inErrCode);
-        return string((theMsgPtr && *theMsgPtr) ?
+        const string theMsg((theMsgPtr && *theMsgPtr) ?
             theMsgPtr : "unspecified kerberos error");
+        if (theMsgPtr) {
+            krb5_free_error_message(mCtx, theMsgPtr);
+        }
+        return theMsg;
     }
 };
 
