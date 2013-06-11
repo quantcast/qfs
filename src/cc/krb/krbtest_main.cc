@@ -28,6 +28,7 @@
 #include "KrbClient.h"
 
 #include <string.h>
+#include <stdlib.h>
 #include <iostream>
 
 namespace
@@ -53,10 +54,29 @@ public:
         if (inArgsCount < 3 || 5 < inArgsCount) {
             cerr <<
                 "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
-                " <service host> <service name> [<keytab name>] [-d]\n"
+                " <service host> <service name> [<keytab name>]"
+                " [-d|-n<num>|-p<num>|-r<num>]\n"
             ;
             return 1;
         }
+        const int theCnt =
+            (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-n", 2) == 0) ?
+            atoi(inArgsPtr[4] + 2) : 1;
+        for (int i = 0; i < theCnt; i++) {
+            const int theRet = RunSelf(inArgsCount, inArgsPtr);
+            if (theRet) {
+                return theRet;
+            }
+        }
+        return 0;
+    }
+    int RunSelf(
+        int    inArgsCount,
+        char** inArgsPtr)
+    {
+        const int theReplayCnt =
+            (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-r", 2) == 0) ?
+            atoi(inArgsPtr[4] + 2) : 1;
         const bool theDebugFlag = inArgsCount >= 5 &&
             strcmp(inArgsPtr[4], "-d") == 0;
         const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2]);
@@ -86,34 +106,41 @@ public:
                 " length: " << theDataLen <<
             "\n";
         }
-        if ((theErrMsgPtr = mService.Request(theDataPtr, theDataLen))) {
-            cerr <<
-                "service: request process error: " << theErrMsgPtr << "\n";
-            return 1;
-        }
-        if (theDebugFlag) {
-            cout << "service: request: processed\n";
-        }
-        theDataPtr = 0;
-        theDataLen = 0;
-        const char* theSrvKeyPtr = 0;
-        int         theSrvKeyLen = 0;
-        if ((theErrMsgPtr = mService.Reply(theDataPtr, theDataLen,
-                theSrvKeyPtr, theSrvKeyLen))) {
-            cerr <<
-                "service: reply create error: " << theErrMsgPtr << "\n";
-            return 1;
-        }
-        if (theDebugFlag) {
-            cout <<
-                "service:"
-                " reply:"
-                " length: " << theDataLen <<
-                " key:"
-                " length: " << theSrvKeyLen <<
-                " data: "
-            ;
-            ShowAsHexString(theSrvKeyPtr, theSrvKeyLen, cout) << "\n";
+        const char* theSrvKeyPtr  = 0;
+        int         theSrvKeyLen  = 0;
+        const char* theReqDataPtr = theDataPtr;
+        int         theReqDataLen = theDataLen;
+        for (int i = 0; i < theReplayCnt; i++) {
+            if ((theErrMsgPtr = mService.Request(
+                    theReqDataPtr, theReqDataLen))) {
+                cerr <<
+                    "service: request process error: " << theErrMsgPtr << "\n";
+                return 1;
+            }
+            if (theDebugFlag) {
+                cout << "service: request: processed\n";
+            }
+            theDataPtr   = 0;
+            theDataLen   = 0;
+            theSrvKeyPtr = 0;
+            theSrvKeyLen = 0;
+            if ((theErrMsgPtr = mService.Reply(theDataPtr, theDataLen,
+                    theSrvKeyPtr, theSrvKeyLen))) {
+                cerr <<
+                    "service: reply create error: " << theErrMsgPtr << "\n";
+                return 1;
+            }
+            if (theDebugFlag) {
+                cout <<
+                    "service:"
+                    " reply:"
+                    " length: " << theDataLen <<
+                    " key:"
+                    " length: " << theSrvKeyLen <<
+                    " data: "
+                ;
+                ShowAsHexString(theSrvKeyPtr, theSrvKeyLen, cout) << "\n";
+            }
         }
         const char* theCliKeyPtr = 0;
         int         theCliKeyLen = 0;

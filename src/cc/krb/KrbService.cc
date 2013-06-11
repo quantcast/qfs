@@ -148,7 +148,8 @@ public:
         }
         if (! mAuthInitedFlag) {
             mErrCode  = KRB5_CONFIG_BADFORMAT;
-            mErrorMsg = "not ready to process reply, invoke KrbService::Request";
+            mErrorMsg =
+                "not ready to process reply, invoke KrbService::Request";
             return mErrorMsg.c_str();
         }
         if (mOutBuf.data || mKeyBlockPtr) {
@@ -165,9 +166,10 @@ public:
             }
             mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr);
             if (! mErrCode) {
-                outReplyPtr      = (const char*)mOutBuf.data;
+                outReplyPtr      = reinterpret_cast<const char*>(mOutBuf.data);
                 outReplyLen      = (int)mOutBuf.length;
-                outSessionKeyPtr = (const char*)mKeyBlockPtr->contents;
+                outSessionKeyPtr =
+                    reinterpret_cast<const char*>(mKeyBlockPtr->contents);
                 outSessionKeyLen = (int)mKeyBlockPtr->length;
                 return 0;
             }
@@ -225,9 +227,7 @@ private:
     void InitAuthSelf()
     {
         if (! mInitedFlag) {
-            if (! mErrCode) {
-                mErrCode = KRB5_CONFIG_BADFORMAT;
-            }
+            mErrCode = KRB5_CONFIG_BADFORMAT;
             return;
         }
         mErrCode = krb5_auth_con_init(mCtx, &mAuthCtx);

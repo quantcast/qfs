@@ -163,7 +163,8 @@ public:
         }
         krb5_free_ap_rep_enc_part(mCtx, theReplPtr);
         krb5_free_data_contents(mCtx, &mOutBuf);
-        outSessionKeyPtr = (const char*)mKeyBlockPtr->contents;
+        outSessionKeyPtr =
+            reinterpret_cast<const char*>(mKeyBlockPtr->contents);
         outSessionKeyLen = (int)mKeyBlockPtr->length;
         return 0;
     }
