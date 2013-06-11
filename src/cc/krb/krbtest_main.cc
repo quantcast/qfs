@@ -70,10 +70,17 @@ public:
                 theRet = theErr;
             }
         }
-        if (inArgsCount >= 5 && strcmp(inArgsPtr[4], "-p") == 0) {
+        if (inArgsCount >= 5 && strchr(inArgsPtr[4], 'p')) {
             cout <<
-                "client  cpu: " <<  (double)mClientClock / CLOCKS_PER_SEC << "\n"
+                "client  cpu: " <<  (double)mClientClock / CLOCKS_PER_SEC <<
+                    " ops/sec: " << (mClientClock != 0 ?
+                        (double)theCnt * CLOCKS_PER_SEC /  mClientClock
+                        : 0.0) <<
+                "\n"
                 "service cpu: " << (double)mServiceClock / CLOCKS_PER_SEC <<
+                    " ops/sec: " << (mServiceClock != 0 ?
+                        (double)theCnt * CLOCKS_PER_SEC /  mServiceClock
+                        : 0.0) <<
             "\n";
         }
         return theRet;
@@ -92,7 +99,9 @@ private:
             (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-r", 2) == 0) ?
             atoi(inArgsPtr[4] + 2) : 1;
         const bool theDebugFlag = inArgsCount >= 5 &&
-            strcmp(inArgsPtr[4], "-d") == 0;
+            strchr(inArgsPtr[4], 'd');
+        const bool theDetectReplayFlag = inArgsCount >= 5 &&
+            strchr(inArgsPtr[4], 'R');
         const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2]);
         if (theErrMsgPtr) {
             cerr <<
@@ -100,8 +109,10 @@ private:
             return 1;
         }
         if ((theErrMsgPtr = mService.Init(
-                inArgsPtr[1], inArgsPtr[2],
-                inArgsCount <= 3 ? 0 : inArgsPtr[3]))) {
+                inArgsPtr[1],
+                inArgsPtr[2],
+                inArgsCount <= 3 ? 0 : inArgsPtr[3],
+                theDetectReplayFlag))) {
             cerr <<
                 "service init error: " << theErrMsgPtr << "\n";
             return 1;

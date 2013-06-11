@@ -94,7 +94,6 @@ public:
             return mErrorMsg.c_str();
         }
         CleanupAuth();
-        krb5_free_data_contents(mCtx, &mOutBuf);
         krb5_ccache theCachePtr = 0;
 	if ((mErrCode = krb5_cc_default(mCtx, &theCachePtr)) != 0) {
             return ErrStr();
@@ -115,6 +114,20 @@ public:
             krb5_free_creds(mCtx, theCredsPtr);
             return ErrStr();
         }
+#ifdef _KFS_KRB_CLIENT_SET_AUTH_FLAGS
+        krb5_int32 theFlags = 0;
+        if ((mErrCode = krb5_auth_con_init(mCtx, &mAuthCtx)) ||
+               (mErrCode = krb5_auth_con_getflags(mCtx, mAuthCtx, &theFlags))) {
+            krb5_free_creds(mCtx, theCredsPtr);
+            return ErrStr();
+        }
+        theFlags |= KRB5_AUTH_CONTEXT_DO_SEQUENCE;
+        theFlags &= ~(KRB5_AUTH_CONTEXT_DO_TIME | KRB5_AUTH_CONTEXT_RET_TIME);
+        if ((mErrCode = krb5_auth_con_setflags(mCtx, mAuthCtx, theFlags))) {
+            krb5_free_creds(mCtx, theCredsPtr);
+            return ErrStr();
+        }
+#endif
         krb5_data theAppData = { 0 };
         theAppData.data   = 0;
         theAppData.length = 0;

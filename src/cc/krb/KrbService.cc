@@ -50,6 +50,7 @@ public:
           mKeyBlockPtr(0),
           mInitedFlag(false),
           mAuthInitedFlag(false),
+          mDetectReplayFlag(false),
           mServiceName(),
           mServiceHostName(),
           mErrorMsg()
@@ -62,9 +63,11 @@ public:
     const char* Init(
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr,
-        const char* inKeyTabNamePtr)
+        const char* inKeyTabNamePtr,
+        bool        inDetectReplayFlag)
     {
         CleanupSelf();
+        mDetectReplayFlag = inDetectReplayFlag;
         mErrCode = 0;
         mErrorMsg.clear();
         mServiceName.clear();
@@ -103,6 +106,7 @@ public:
             mErrorMsg = "not initialized yet, invoke KrbService::Init";
             return mErrorMsg.c_str();
         }
+        krb5_free_data_contents(mCtx, &mOutBuf);
         CleanupAuth();
         InitAuth();
         if (mErrCode) {
@@ -191,6 +195,7 @@ private:
     krb5_keyblock*    mKeyBlockPtr;
     bool              mInitedFlag;
     bool              mAuthInitedFlag;
+    bool              mDetectReplayFlag;
     string            mServiceName;
     string            mServiceHostName;
     string            mErrorMsg;
@@ -235,19 +240,35 @@ private:
             return;
         }
         mAuthInitedFlag = true;
-        krb5_rcache theRCachePtr = 0;
-        mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &theRCachePtr);
+        krb5_int32 theFlags = 0;
+        mErrCode = krb5_auth_con_getflags(mCtx, mAuthCtx, &theFlags);
         if (mErrCode) {
             return;
         }
-	if (! theRCachePtr)  {
-            mErrCode = krb5_get_server_rcache(
-                mCtx, krb5_princ_component(mCtx, mServerPtr, 0), &theRCachePtr);
+        // theFlags |= KRB5_AUTH_CONTEXT_DO_SEQUENCE;
+        if (! mDetectReplayFlag) {
+            theFlags &=
+                ~(KRB5_AUTH_CONTEXT_DO_TIME | KRB5_AUTH_CONTEXT_RET_TIME);
+        }
+        mErrCode = krb5_auth_con_setflags(mCtx, mAuthCtx, theFlags);
+        if (mDetectReplayFlag) {
+            krb5_rcache theRCachePtr = 0;
+            mErrCode = krb5_auth_con_getrcache(mCtx, mAuthCtx, &theRCachePtr);
             if (mErrCode) {
                 return;
             }
+	    if (! theRCachePtr)  {
+                mErrCode = krb5_get_server_rcache(
+                    mCtx,
+                    krb5_princ_component(mCtx, mServerPtr, 0),
+                    &theRCachePtr
+                );
+                if (mErrCode) {
+                    return;
+                }
+            }
+            mErrCode = krb5_auth_con_setrcache(mCtx, mAuthCtx, theRCachePtr);
         }
-        mErrCode = krb5_auth_con_setrcache(mCtx, mAuthCtx, theRCachePtr);
         if (mErrCode) {
             return;
         }
@@ -319,9 +340,15 @@ KrbService::~KrbService()
 KrbService::Init(
     const char* inServiceHostNamePtr,
     const char* inServeiceNamePtr,
-    const char* inKeyTabNamePtr)
+    const char* inKeyTabNamePtr,
+    bool        inDetectReplayFlag)
 {
-    return mImpl.Init(inServiceHostNamePtr, inServeiceNamePtr, inKeyTabNamePtr);
+    return mImpl.Init(
+        inServiceHostNamePtr,
+        inServeiceNamePtr,
+        inKeyTabNamePtr,
+        inDetectReplayFlag
+    );
 }
 
     const char*

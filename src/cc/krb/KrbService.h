@@ -37,7 +37,8 @@ public:
     const char* Init(
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr,
-        const char* inKeyTabNamePtr);
+        const char* inKeyTabNamePtr,
+        bool        inDetectReplayFlag);
     const char* Cleanup();
     const char* Request(
         const char* inDataPtr,
