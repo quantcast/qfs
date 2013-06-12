@@ -18,21 +18,85 @@
 # permissions and limitations under the License.
 #
 
-The specs directory contains the .spec files needed to build the RPMs for the
-different QFS components.
+This directory contains the RPM specfile and any patches required to build QFS
+against a Red Hat-like distribution such as RHEL or Fedora.  It is recommended
+to use a tool such as mock (https://fedoraproject.org/wiki/Projects/Mock) to
+build, as doing so will ensure cleaner builds and greater flexibility.
 
-Prerequisites: 
-1. Ensure that the $JAVA_HOME variable is set correctly, and the java headers
-   are at $JAVA_HOME/include.
-2. If the java include path is different, then modify the spec file by adding
-   the following flags to the cmake command:
-   -D JAVA_INCLUDE_PATH=/java/path/include -D CMAKE_BUILD_TYPE=RelWithDebInfo .
+To build using mock
+===================
 
-To build the metaserver RPM:
-rpmbuild -v -ba specs/qfs-metaserver.spec
+  Prerequisites:
 
-To build the chunkserver RPM:
-rpmbuild -v -ba specs/qfs-chunkserver.spec
+  1. Install mock:
 
-To build the client RPM:
-rpmbuild -v -ba specs/qfs-clients.spec
+    # yum install -y mock
+
+  2. Find a configuration in /etc/mock/ that suits the distribution you are
+     currently building against.  Currently, QFS has been tested to build
+     against the following distributions:
+
+    - Fedora 17
+    - CentOS/Scientific Linux 6
+
+  3. If building against EL6, add the following Yum repository to your Mock
+     configuration under the config_opts['yum.conf'] section:
+
+    [epel-apache-maven]
+    name=maven from apache foundation.
+    baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-6/x86_64/
+    enabled=1
+    gpgcheck=0
+
+  Building the RPMs:
+
+  1. Make an SRPM from the current git HEAD:
+
+    # make srpm
+
+  2. Using the mock configuration you found, build RPMs from the SRPM:
+
+    # mock -r <name of configuration, without the .cfg> rpmbuild/SRPMS/*.src.rpm
+
+  3. Built RPMs will land in /var/lib/mock/<configuration>/result.
+
+
+To build using rpmbuild/make
+============================
+
+  Prerequisites:
+
+  On Fedora
+  ---------
+
+  1. Install the following RPMs:
+
+    # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel \
+      make openssl-devel python-devel xfsprogs-devel java-devel \
+      jpackage-devel maven
+
+  On EL6
+  ------
+
+  1. Add the following Yum repo to /etc/yum.repos.d:
+
+    [epel-apache-maven]
+    name=maven from apache foundation.
+    baseurl=http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-6/x86_64/
+    enabled=1
+    gpgcheck=0
+
+  2. Install the following RPMs:
+
+    # yum -y install boost-devel cmake fuse-devel gcc-c++ libuuid-devel make \
+      openssl-devel python-devel xfsprogs-devel java-devel jpackage-devel \
+      apache-maven
+
+  Building the RPMs:
+
+  3. Make RPMs from the current git HEAD:
+
+    # make rpm
+
+  4. Built RPMs will land in rpmbuild/RPMS/.
+
