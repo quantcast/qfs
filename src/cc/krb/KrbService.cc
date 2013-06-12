@@ -186,6 +186,16 @@ public:
                 mErrCode = EINVAL;
             }
             if (! mErrCode) {
+#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
+        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
+        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
+                // FIXME: make flags work with older versions.
+                mErrCode = krb5_unparse_name_ext(
+                    mCtx,
+                    &mUserPrincipalStrPtr,
+                    &mUserPrincipalStrLen
+                );
+#else
                 mErrCode = krb5_unparse_name_flags_ext(
                     mCtx,
                     theAuthenticatorPtr->client,
@@ -198,6 +208,7 @@ public:
                     &mUserPrincipalStrPtr,
                     &mUserPrincipalStrLen
                 );
+#endif
                 if (! mErrCode && ! mUserPrincipalStrPtr) {
                     mErrCode = EINVAL;
                 }
@@ -364,7 +375,8 @@ private:
         const string theMsg((theMsgPtr && *theMsgPtr) ?
             theMsgPtr : "unspecified kerberos error");
         if (theMsgPtr) {
-            krb5_free_error_message(mCtx, theMsgPtr);
+            // cast away const to make it compatible with older krb5 releases.
+            krb5_free_error_message(mCtx, const_cast<char*>(theMsgPtr));
         }
         return theMsg;
     }

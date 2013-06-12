@@ -275,7 +275,8 @@ private:
         const string theMsg((theMsgPtr && *theMsgPtr) ?
             theMsgPtr : "unspecified kerberos error");
         if (theMsgPtr) {
-            krb5_free_error_message(mCtx, theMsgPtr);
+            // cast away const to make it compatible with older krb5 releases.
+            krb5_free_error_message(mCtx, const_cast<char*>(theMsgPtr));
         }
         return theMsg;
     }
