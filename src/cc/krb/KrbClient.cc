@@ -60,7 +60,7 @@ public:
         mOutBuf.length = 0;
     }
     ~Impl()
-        {}
+        { Impl::CleanupSelf(); }
     const char* Init(
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr)
