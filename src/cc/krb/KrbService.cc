@@ -202,6 +202,9 @@ public:
                     mErrCode = EINVAL;
                 }
             }
+            if (theAuthenticatorPtr) {
+                krb5_free_authenticator(mCtx, theAuthenticatorPtr);
+            }
             if (! mErrCode) {
                 outReplyPtr      = reinterpret_cast<const char*>(mOutBuf.data);
                 outReplyLen      = (int)mOutBuf.length;
