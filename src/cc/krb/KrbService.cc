@@ -329,7 +329,7 @@ private:
         }
         krb5_free_data_contents(mCtx, &mOutBuf);
         if (mUserPrincipalStrPtr) {
-            krb5_free_string(mCtx, mUserPrincipalStrPtr);
+            krb5_free_unparsed_name(mCtx, mUserPrincipalStrPtr);
             mUserPrincipalStrPtr = 0;
             mUserPrincipalStrLen = 0;
         }
