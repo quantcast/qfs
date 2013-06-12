@@ -27,10 +27,14 @@
 #include "KrbService.h"
 #include "KrbClient.h"
 
+#include "qcdio/QCThread.h"
+
 #include <string.h>
 #include <stdlib.h>
+
 #include <time.h>
 #include <iostream>
+#include <vector>
 
 namespace
 {
@@ -71,7 +75,7 @@ public:
             }
         }
         if (inArgsCount >= 5 && strchr(inArgsPtr[4], 'p')) {
-            cout <<
+            cerr << (void*)this << "\n" <<
                 "client  cpu: " <<  (double)mClientClock / CLOCKS_PER_SEC <<
                     " ops/sec: " << (mClientClock != 0 ?
                         (double)theCnt * CLOCKS_PER_SEC /  mClientClock
@@ -201,7 +205,7 @@ private:
         }
         if (theCliKeyLen != theSrvKeyLen ||
                 memcmp(theCliKeyPtr, theSrvKeyPtr, theCliKeyLen) != 0) {
-            cerr <<
+            cerr << (void*)this << " " <<
                 "service / client key mismatch:" <<
                 " key length:"
                 " service: " << theSrvKeyLen <<
@@ -235,6 +239,42 @@ private:
         const QfsKrbTest& inTest);
 };
 
+class KrbTestThread : public QCThread, private QfsKrbTest
+{
+public:
+    KrbTestThread()
+        : mArgsCount(0),
+          mArgsPtr(0),
+          mStatus(0)
+        {}
+    ~KrbTestThread()
+        {}
+    void Start(
+        int    inArgsCount,
+        char** inArgsPtr)
+    {
+        mArgsCount = inArgsCount;
+        mArgsPtr   = inArgsPtr;
+        QCThread::Start();
+    }
+    virtual void Run()
+    {
+        mStatus = QfsKrbTest::Run(
+            mArgsCount,
+            mArgsPtr
+        );
+    }
+    int Stop()
+    {
+        QCThread::Join();
+        return mStatus;
+    }
+private:
+    int    mArgsCount;
+    char** mArgsPtr;
+    int    mStatus;
+};
+
 }
 
     int
@@ -242,6 +282,25 @@ main(
     int    inArgsCount,
     char** inArgsPtr)
 {
-    QfsKrbTest theTest;
-    return theTest.Run(inArgsCount, inArgsPtr);
+    const char* thePtr       = 0;
+    int         theThreadCnt = 0;
+    if (inArgsCount >= 5 && (thePtr = strchr(inArgsPtr[4], 't')) &&
+            (theThreadCnt = atoi(thePtr + 1)) > 1) {
+        KrbTestThread* const theThreadsPtr = new KrbTestThread[theThreadCnt];
+        for (int i = 0; i < theThreadCnt; i++) {
+            theThreadsPtr[i].Start(inArgsCount, inArgsPtr);
+        }
+        int theRet = 0;
+        for (int i = 0; i < theThreadCnt; i++) {
+            const int theErr = theThreadsPtr[i].Stop();
+            if (theErr) {
+                theRet = theErr;
+            }
+        }
+        delete [] theThreadsPtr;
+        return theRet;
+    } else {
+        QfsKrbTest theTest;
+        return theTest.Run(inArgsCount, inArgsPtr);
+    }
 }
