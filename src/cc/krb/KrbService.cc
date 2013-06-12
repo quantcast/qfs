@@ -192,6 +192,7 @@ public:
                 // FIXME: make flags work with older versions.
                 mErrCode = krb5_unparse_name_ext(
                     mCtx,
+                    theAuthenticatorPtr->client,
                     &mUserPrincipalStrPtr,
                     &mUserPrincipalStrLen
                 );
