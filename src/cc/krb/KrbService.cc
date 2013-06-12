@@ -28,6 +28,8 @@
 
 #include <krb5/krb5.h>
 
+#include <errno.h>
+
 #include <string>
 #include <algorithm>
 
@@ -48,6 +50,8 @@ public:
           mErrCode(0),
           mOutBuf(),
           mKeyBlockPtr(0),
+          mUserPrincipalStrPtr(0),
+          mUserPrincipalStrLen(0),
           mInitedFlag(false),
           mAuthInitedFlag(false),
           mDetectReplayFlag(false),
@@ -102,7 +106,7 @@ public:
         int         inDataLen)
     {
         if (! mInitedFlag) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "not initialized yet, invoke KrbService::Init";
             return mErrorMsg.c_str();
         }
@@ -136,28 +140,31 @@ public:
         return mErrorMsg.c_str();
     }
     const char* Reply(
+        int          inPrincipalUnparseFlags,
         const char*& outReplyPtr,
         int&         outReplyLen,
         const char*& outSessionKeyPtr,
-        int&         outSessionKeyLen)
+        int&         outSessionKeyLen,
+        const char*& outUserPrincipalStrPtr)
     {
-        outReplyPtr      = 0;
-        outReplyLen      = 0;
-        outSessionKeyPtr = 0;
-        outSessionKeyLen = 0;
+        outReplyPtr            = 0;
+        outReplyLen            = 0;
+        outSessionKeyPtr       = 0;
+        outSessionKeyLen       = 0;
+        outUserPrincipalStrPtr = 0;
         if (! mInitedFlag) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "not initialized yet, invoke KrbService::Init";
             return mErrorMsg.c_str();
         }
         if (! mAuthInitedFlag) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg =
                 "not ready to process reply, invoke KrbService::Request";
             return mErrorMsg.c_str();
         }
         if (mOutBuf.data || mKeyBlockPtr) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
             return mErrorMsg.c_str();
         }
@@ -169,12 +176,39 @@ public:
                 mKeyBlockPtr = 0;
             }
             mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr);
+            krb5_authenticator* theAuthenticatorPtr = 0;
+            if (! mErrCode) {
+                mErrCode = krb5_auth_con_getauthenticator(
+                    mCtx, mAuthCtx, &theAuthenticatorPtr);
+            }
+            if (! mErrCode && (! theAuthenticatorPtr ||
+                    ! theAuthenticatorPtr->client)) {
+                mErrCode = EINVAL;
+            }
+            if (! mErrCode) {
+                mErrCode = krb5_unparse_name_flags_ext(
+                    mCtx,
+                    theAuthenticatorPtr->client,
+                    ((inPrincipalUnparseFlags & kPrincipalUnparseShort) != 0 ?
+                        KRB5_PRINCIPAL_UNPARSE_SHORT : 0) |
+                    ((inPrincipalUnparseFlags & kPrincipalUnparseNoRealm) != 0 ?
+                        KRB5_PRINCIPAL_UNPARSE_NO_REALM : 0) |
+                    ((inPrincipalUnparseFlags & kPrincipalUnparseDisplay) != 0 ?
+                        KRB5_PRINCIPAL_UNPARSE_DISPLAY : 0),
+                    &mUserPrincipalStrPtr,
+                    &mUserPrincipalStrLen
+                );
+                if (! mErrCode && ! mUserPrincipalStrPtr) {
+                    mErrCode = EINVAL;
+                }
+            }
             if (! mErrCode) {
                 outReplyPtr      = reinterpret_cast<const char*>(mOutBuf.data);
                 outReplyLen      = (int)mOutBuf.length;
                 outSessionKeyPtr =
                     reinterpret_cast<const char*>(mKeyBlockPtr->contents);
                 outSessionKeyLen = (int)mKeyBlockPtr->length;
+                outUserPrincipalStrPtr = mUserPrincipalStrPtr;
                 return 0;
             }
         }
@@ -193,6 +227,8 @@ private:
     krb5_error_code   mErrCode;
     krb5_data         mOutBuf;
     krb5_keyblock*    mKeyBlockPtr;
+    char*             mUserPrincipalStrPtr;
+    unsigned int      mUserPrincipalStrLen;
     bool              mInitedFlag;
     bool              mAuthInitedFlag;
     bool              mDetectReplayFlag;
@@ -232,7 +268,7 @@ private:
     void InitAuthSelf()
     {
         if (! mInitedFlag) {
-            mErrCode = KRB5_CONFIG_BADFORMAT;
+            mErrCode = EINVAL;
             return;
         }
         mErrCode = krb5_auth_con_init(mCtx, &mAuthCtx);
@@ -292,6 +328,11 @@ private:
             mServerPtr = 0;
         }
         krb5_free_data_contents(mCtx, &mOutBuf);
+        if (mUserPrincipalStrPtr) {
+            krb5_free_string(mCtx, mUserPrincipalStrPtr);
+            mUserPrincipalStrPtr = 0;
+            mUserPrincipalStrLen = 0;
+        }
         krb5_free_context(mCtx);
         return theErr;
     }
@@ -367,13 +408,21 @@ KrbService::Request(
 
     const char*
 KrbService::Reply(
+    int          inPrincipalUnparseFlags,
     const char*& outReplyPtr,
     int&         outReplyLen,
     const char*& outSessionKeyPtr,
-    int&         outSessionKeyLen)
+    int&         outSessionKeyLen,
+    const char*& outUserPrincipalPtr)
 {
     return mImpl.Reply(
-        outReplyPtr, outReplyLen, outSessionKeyPtr, outSessionKeyLen);
+        inPrincipalUnparseFlags,
+        outReplyPtr,
+        outReplyLen,
+        outSessionKeyPtr,
+        outSessionKeyLen,
+        outUserPrincipalPtr
+    );
 }
 
     int

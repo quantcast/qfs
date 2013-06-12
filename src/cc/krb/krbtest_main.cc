@@ -120,7 +120,10 @@ private:
         const char* theDataPtr = 0;
         int         theDataLen = 0;
         clock_t     theStart = clock();
-        if ((theErrMsgPtr = mClient.Request(theDataPtr, theDataLen))) {
+        const char* theCliKeyPtr = 0;
+        int         theCliKeyLen = 0;
+        if ((theErrMsgPtr = mClient.Request(theDataPtr, theDataLen,
+                theCliKeyPtr, theCliKeyLen))) {
             cerr <<
                 "client: request create error: " << theErrMsgPtr << "\n";
             return 1;
@@ -131,7 +134,11 @@ private:
                 "client:"
                 " request:"
                 " length: " << theDataLen <<
-            "\n";
+                " key:"
+                " length: " << theCliKeyLen <<
+                " data: "
+            ;
+            ShowAsHexString(theCliKeyPtr, theCliKeyLen, cout) << "\n";
         }
         const char* theSrvKeyPtr  = 0;
         int         theSrvKeyLen  = 0;
@@ -152,8 +159,14 @@ private:
             theDataLen   = 0;
             theSrvKeyPtr = 0;
             theSrvKeyLen = 0;
-            if ((theErrMsgPtr = mService.Reply(theDataPtr, theDataLen,
-                    theSrvKeyPtr, theSrvKeyLen))) {
+            const char* thePrincipalPtr = 0;
+            if ((theErrMsgPtr = mService.Reply(
+                    KrbService::kPrincipalUnparseShort,
+                    theDataPtr,
+                    theDataLen,
+                    theSrvKeyPtr,
+                    theSrvKeyLen,
+                    thePrincipalPtr))) {
                 cerr <<
                     "service: reply create error: " << theErrMsgPtr << "\n";
                 return 1;
@@ -163,6 +176,7 @@ private:
                     "service:"
                     " reply:"
                     " length: " << theDataLen <<
+                    " principal: " << thePrincipalPtr <<
                     " key:"
                     " length: " << theSrvKeyLen <<
                     " data: "
@@ -173,10 +187,7 @@ private:
         const clock_t theEnd = clock();
         mServiceClock += theEnd - theStart;
         theStart = theEnd;
-        const char* theCliKeyPtr = 0;
-        int         theCliKeyLen = 0;
-        if ((theErrMsgPtr = mClient.Reply(theDataPtr, theDataLen,
-                theCliKeyPtr, theCliKeyLen))) {
+        if ((theErrMsgPtr = mClient.Reply(theDataPtr, theDataLen))) {
             cerr <<
                 "client: reply: process error: " << theErrMsgPtr << "\n";
             return 1;
@@ -186,11 +197,7 @@ private:
             cout <<
                 "client:"
                 " reply: processed"
-                " key:"
-                " length: " << theCliKeyLen <<
-                " data: "
-            ;
-            ShowAsHexString(theCliKeyPtr, theCliKeyLen, cout) << "\n";
+            "\n";
         }
         if (theCliKeyLen != theSrvKeyLen ||
                 memcmp(theCliKeyPtr, theSrvKeyPtr, theCliKeyLen) != 0) {

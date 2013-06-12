@@ -26,10 +26,11 @@
 
 #include "KrbClient.h"
 
-
 #include <krb5/krb5.h>
 
 #include <string.h>
+#include <errno.h>
+
 #include <string>
 #include <algorithm>
 
@@ -86,10 +87,12 @@ public:
     }
     const char* Request(
         const char*& outDataPtr,
-        int&         outDataLen)
+        int&         outDataLen,
+        const char*& outSessionKeyPtr,
+        int&         outSessionKeyLen)
     {
         if (! mInitedFlag) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "not initialized yet, invoke KrbClient::Init";
             return mErrorMsg.c_str();
         }
@@ -143,29 +146,28 @@ public:
         if (mErrCode != 0) {
             return ErrStr();
         }
-        outDataPtr = (const char*)mOutBuf.data;
-        outDataLen = (int)mOutBuf.length;
+        if ((mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr))) {
+            return ErrStr();
+        }
+        outDataPtr       = (const char*)mOutBuf.data;
+        outDataLen       = (int)mOutBuf.length;
+        outSessionKeyPtr =
+            reinterpret_cast<const char*>(mKeyBlockPtr->contents);
+        outSessionKeyLen = (int)mKeyBlockPtr->length;
         return 0;
     }
     const char* Reply(
         const char*  inReplyPtr,
-        int          inReplyLen,
-        const char*& outSessionKeyPtr,
-        int&         outSessionKeyLen)
+        int          inReplyLen)
     {
         if (! mInitedFlag) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "not initialized yet, invoke KrbClient::Init";
             return mErrorMsg.c_str();
         }
         if (mOutBuf.length <= 0 || ! mOutBuf.data) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
+            mErrCode  = EINVAL;
             mErrorMsg = "not ready to process reply, invoke KrbClient::Request";
-            return mErrorMsg.c_str();
-        }
-        if (mKeyBlockPtr) {
-            mErrCode  = KRB5_CONFIG_BADFORMAT;
-            mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
             return mErrorMsg.c_str();
         }
         krb5_data theData = { 0 };
@@ -179,14 +181,8 @@ public:
                 &theReplPtr))) {
             return ErrStr();
         }
-        if ((mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr))) {
-            return ErrStr();
-        }
         krb5_free_ap_rep_enc_part(mCtx, theReplPtr);
         krb5_free_data_contents(mCtx, &mOutBuf);
-        outSessionKeyPtr =
-            reinterpret_cast<const char*>(mKeyBlockPtr->contents);
-        outSessionKeyLen = (int)mKeyBlockPtr->length;
         return 0;
     }
     int GetErrorCode() const
@@ -318,20 +314,21 @@ KrbClient::Cleanup()
     const char*
 KrbClient::Request(
     const char*& outDataPtr,
-    int&         outDataLen)
+    int&         outDataLen,
+    const char*& outSessionKeyPtr,
+    int&         outSessionKeyLen)
 {
-    return mImpl.Request(outDataPtr, outDataLen);
+    return mImpl.Request(
+        outDataPtr, outDataLen, outSessionKeyPtr, outSessionKeyLen);
 }
 
     const char*
 KrbClient::Reply(
-    const char*  inReplyPtr,
-    int          inReplyLen,
-    const char*& outSessionKeyPtr,
-    int&         outSessionKeyLen)
+    const char* inReplyPtr,
+    int         inReplyLen)
 {
     return mImpl.Reply(
-        inReplyPtr, inReplyLen, outSessionKeyPtr, outSessionKeyLen);
+        inReplyPtr, inReplyLen);
 }
 
     int

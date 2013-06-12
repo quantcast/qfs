@@ -32,6 +32,12 @@ namespace KFS
 class KrbService
 {
 public:
+    enum PrincipalUnparseFlags
+    {
+        kPrincipalUnparseShort	 = 0x1,
+        kPrincipalUnparseNoRealm = 0x2,
+        kPrincipalUnparseDisplay = 0x4
+    };
     KrbService();
     ~KrbService();
     const char* Init(
@@ -44,10 +50,35 @@ public:
         const char* inDataPtr,
         int         inDataLen);
     const char* Reply(
+        int          inPrincipalUnparseFlags,
         const char*& outReplyPtr,
         int&         outReplyLen,
         const char*& outSessionKeyPtr,
-        int&         outSessionKeyLen);
+        int&         outSessionKeyLen,
+        const char*& outUserPrincipalPtr);
+    const char* RequestReply(
+        const char*  inDataPtr,
+        int          inDataLen,
+        int          inPrincipalUnparseFlags,
+        const char*& outReplyPtr,
+        int&         outReplyLen,
+        const char*& outSessionKeyPtr,
+        int&         outSessionKeyLen,
+        const char*& outUserPrincipalPtr)
+    {
+        const char* const theErrMsgPtr = Request(inDataPtr, inDataLen);
+        if (theErrMsgPtr) {
+            return theErrMsgPtr;
+        }
+        return Reply(
+            inPrincipalUnparseFlags,
+            outReplyPtr,
+            outReplyLen,
+            outSessionKeyPtr,
+            outSessionKeyLen,
+            outUserPrincipalPtr
+        );
+    }
     int GetErrorCode() const;
 private:
     class Impl;

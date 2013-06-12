@@ -41,12 +41,12 @@ public:
     const char* Cleanup();
     const char* Request(
         const char*& outDataPtr,
-        int&         outDataLen);
-    const char* Reply(
-        const char*  inReplyPtr,
-        int          inReplyLen,
+        int&         outDataLen,
         const char*& outSessionKeyPtr,
         int&         outSessionKeyLen);
+    const char* Reply(
+        const char*  inReplyPtr,
+        int          inReplyLen);
     int GetErrorCode() const;
 private:
     class Impl;
