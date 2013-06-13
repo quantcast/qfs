@@ -43,7 +43,9 @@ class KrbService::Impl
 {
 public:
     Impl()
-        : mCtx(),
+        : mKeyTabFileName(),
+          mMemKeyTabName(),
+          mCtx(),
           mAuthCtx(),
           mServerPtr(0),
           mKeyTabPtr(0),
@@ -68,6 +70,7 @@ public:
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr,
         const char* inKeyTabNamePtr,
+        const char* inMemKeyTabNamePtr,
         bool        inDetectReplayFlag)
     {
         CleanupSelf();
@@ -77,6 +80,7 @@ public:
         mServiceName.clear();
         mKeyTabFileName.clear();
         mServiceHostName.clear();
+        mMemKeyTabName.clear();
         if (inServeiceNamePtr) {
             mServiceName = inServeiceNamePtr;
         }
@@ -85,6 +89,10 @@ public:
         }
         if (inServiceHostNamePtr) {
             mServiceHostName = inServiceHostNamePtr;
+        }
+        if (inMemKeyTabNamePtr && *inMemKeyTabNamePtr) {
+            mMemKeyTabName = "MEMORY:";
+            mMemKeyTabName += inMemKeyTabNamePtr;
         }
         InitSelf();
         if (mErrCode) {
@@ -235,6 +243,7 @@ public:
 
 private:
     string            mKeyTabFileName;
+    string            mMemKeyTabName;
     krb5_context      mCtx;
     krb5_auth_context mAuthCtx;
     krb5_principal    mServerPtr;
@@ -268,10 +277,78 @@ private:
         if (mErrCode) {
             return;
         }
-        mKeyTabPtr = 0;
-        mErrCode = mKeyTabFileName.empty() ?
-            krb5_kt_default(mCtx, &mKeyTabPtr) :
-            krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(), &mKeyTabPtr);
+        if ((mErrCode = mKeyTabFileName.empty() ?
+                krb5_kt_default(mCtx, &mKeyTabPtr) :
+                krb5_kt_resolve(mCtx, mKeyTabFileName.c_str(),
+                &mKeyTabPtr))) {
+            return;
+        }
+        if (mMemKeyTabName.empty()) {
+            return;
+        }
+        // The memory keytab copy assumes that the memory keytab name is
+        // unique per thread, or access to this method serialized.
+        krb5_keytab theKeyTabPtr = 0;
+        if ((mErrCode = krb5_kt_resolve(
+                mCtx, mMemKeyTabName.c_str(), &theKeyTabPtr)) != 0) {
+            return;
+        }
+        krb5_kt_cursor theCursor;
+        if ((mErrCode = krb5_kt_start_seq_get(
+                mCtx, theKeyTabPtr, &theCursor))) {
+            krb5_kt_close(mCtx, theKeyTabPtr);
+            return;
+        }
+        // Remove all entries, if any.
+        // end / start below is to unlock keytab before the removal, and lock
+        // it again / reset the cursor.
+        krb5_error_code   theStatus = 0;
+        krb5_keytab_entry theEntry;
+        while (theStatus == 0 &&
+                (theStatus = krb5_kt_next_entry(
+                    mCtx, theKeyTabPtr, &theEntry, &theCursor)) == 0 &&
+                (theStatus = krb5_kt_end_seq_get(
+                    mCtx, theKeyTabPtr, &theCursor)) == 0 &&
+                (theStatus = krb5_kt_remove_entry(
+                    mCtx, theKeyTabPtr, &theEntry)) == 0 &&
+                (theStatus = krb5_kt_start_seq_get(
+                    mCtx, theKeyTabPtr, &theCursor)) == 0
+                ) {
+            krb5_free_keytab_entry_contents(mCtx, &theEntry);
+        }
+        if ((mErrCode = krb5_kt_end_seq_get(mCtx, theKeyTabPtr, &theCursor))
+                || theStatus != KRB5_KT_END) {
+            if (theStatus != KRB5_KT_END) {
+                mErrCode = theStatus;
+            }
+            krb5_kt_close(mCtx, theKeyTabPtr);
+            return;
+        }
+        // Copy entries.
+        if ((mErrCode = krb5_kt_start_seq_get(mCtx, mKeyTabPtr, &theCursor))) {
+            krb5_kt_close(mCtx, theKeyTabPtr);
+            return;
+        }
+        theStatus = 0;
+        while (theStatus == 0 &&
+                (theStatus = krb5_kt_next_entry(
+                    mCtx, mKeyTabPtr, &theEntry, &theCursor)) == 0) {
+            theStatus = krb5_kt_add_entry(mCtx, theKeyTabPtr, &theEntry);
+            krb5_free_keytab_entry_contents(mCtx, &theEntry);
+        }
+        if ((mErrCode = krb5_kt_end_seq_get(mCtx, mKeyTabPtr, &theCursor)) ||
+                theStatus != KRB5_KT_END) {
+            if (theStatus != KRB5_KT_END) {
+                mErrCode = theStatus;
+            }
+            krb5_kt_close(mCtx, theKeyTabPtr);
+            return;
+        }
+        if ((mErrCode = krb5_kt_close(mCtx, mKeyTabPtr))) {
+            krb5_kt_close(mCtx, theKeyTabPtr);
+            return;
+        }
+        mKeyTabPtr = theKeyTabPtr;
     }
     void InitAuth()
     {
@@ -398,12 +475,14 @@ KrbService::Init(
     const char* inServiceHostNamePtr,
     const char* inServeiceNamePtr,
     const char* inKeyTabNamePtr,
+    const char* inMemKeyTabNamePtr,
     bool        inDetectReplayFlag)
 {
     return mImpl.Init(
         inServiceHostNamePtr,
         inServeiceNamePtr,
         inKeyTabNamePtr,
+        inMemKeyTabNamePtr,
         inDetectReplayFlag
     );
 }

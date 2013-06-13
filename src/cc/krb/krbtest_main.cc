@@ -35,6 +35,7 @@
 #include <time.h>
 #include <iostream>
 #include <vector>
+#include <string>
 
 namespace
 {
@@ -44,6 +45,7 @@ using KFS::KrbService;
 using std::cerr;
 using std::cout;
 using std::ostream;
+using std::string;
 
 class QfsKrbTest
 {
@@ -55,8 +57,9 @@ public:
           mClientClock()
         {}
     int Run(
-        int    inArgsCount,
-        char** inArgsPtr)
+        int         inArgsCount,
+        char**      inArgsPtr,
+        const char* inInMemoryKeyTabNamePtr)
     {
         if (inArgsCount < 3 || 6 < inArgsCount) {
             cerr <<
@@ -69,7 +72,8 @@ public:
         const int theCnt = inArgsCount >= 6 ? atoi(inArgsPtr[5]) : 1;
         int       theRet = 0;
         for (int i = 0; i < theCnt; i++) {
-            const int theErr = RunSelf(inArgsCount, inArgsPtr);
+            const int theErr = RunSelf(inArgsCount, inArgsPtr,
+                inInMemoryKeyTabNamePtr);
             if (theErr && ! theRet) {
                 theRet = theErr;
             }
@@ -96,8 +100,9 @@ private:
     clock_t    mClientClock;
 
     int RunSelf(
-        int    inArgsCount,
-        char** inArgsPtr)
+        int         inArgsCount,
+        char**      inArgsPtr,
+        const char* inInMemoryKeyTabNamePtr)
     {
         const int theReplayCnt =
             (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-r", 2) == 0) ?
@@ -116,6 +121,7 @@ private:
                 inArgsPtr[1],
                 inArgsPtr[2],
                 inArgsCount <= 3 ? 0 : inArgsPtr[3],
+                inInMemoryKeyTabNamePtr,
                 theDetectReplayFlag))) {
             cerr <<
                 "service init error: " << theErrMsgPtr << "\n";
@@ -245,23 +251,27 @@ public:
     KrbTestThread()
         : mArgsCount(0),
           mArgsPtr(0),
+          mInMemoryKeyTabNamePtr(0),
           mStatus(0)
         {}
     ~KrbTestThread()
         {}
     void Start(
-        int    inArgsCount,
-        char** inArgsPtr)
+        int         inArgsCount,
+        char**      inArgsPtr,
+        const char* inInMemoryKeyTabNamePtr)
     {
-        mArgsCount = inArgsCount;
-        mArgsPtr   = inArgsPtr;
+        mArgsCount             = inArgsCount;
+        mArgsPtr               = inArgsPtr;
+        mInMemoryKeyTabNamePtr = inInMemoryKeyTabNamePtr;
         QCThread::Start();
     }
     virtual void Run()
     {
         mStatus = QfsKrbTest::Run(
             mArgsCount,
-            mArgsPtr
+            mArgsPtr,
+            mInMemoryKeyTabNamePtr
         );
     }
     int Stop()
@@ -270,9 +280,10 @@ public:
         return mStatus;
     }
 private:
-    int    mArgsCount;
-    char** mArgsPtr;
-    int    mStatus;
+    int         mArgsCount;
+    char**      mArgsPtr;
+    const char* mInMemoryKeyTabNamePtr;
+    int         mStatus;
 };
 
 }
@@ -284,11 +295,16 @@ main(
 {
     const char* thePtr       = 0;
     int         theThreadCnt = 0;
+    string      theInMemoryKeyTabName("_qfs_keytab");
     if (inArgsCount >= 5 && (thePtr = strchr(inArgsPtr[4], 't')) &&
             (theThreadCnt = atoi(thePtr + 1)) > 1) {
         KrbTestThread* const theThreadsPtr = new KrbTestThread[theThreadCnt];
         for (int i = 0; i < theThreadCnt; i++) {
-            theThreadsPtr[i].Start(inArgsCount, inArgsPtr);
+            theThreadsPtr[i].Start(inArgsCount, inArgsPtr,
+                theInMemoryKeyTabName.c_str());
+             // The key tab names should be unique, each tread.must have its
+             // own.
+            theInMemoryKeyTabName += "X";
         }
         int theRet = 0;
         for (int i = 0; i < theThreadCnt; i++) {
@@ -301,6 +317,7 @@ main(
         return theRet;
     } else {
         QfsKrbTest theTest;
-        return theTest.Run(inArgsCount, inArgsPtr);
+        return theTest.Run(inArgsCount, inArgsPtr,
+            theInMemoryKeyTabName.c_str());
     }
 }
