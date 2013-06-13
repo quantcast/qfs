@@ -268,6 +268,10 @@ public:
         mArgsCount = inArgsCount;
         mArgsPtr   = inArgsPtr;
         mStatus    = Init(mArgsCount, mArgsPtr, inInMemoryKeyTabNamePtr);
+        // Test that the init works and doesn't leak memory.
+        for (int i = 0; i < 5 && ! mStatus; i++) {
+            mStatus = Init(mArgsCount, mArgsPtr, inInMemoryKeyTabNamePtr);
+        }
         QCThread::Start();
     }
     virtual void Run()
@@ -319,8 +323,13 @@ main(
         return theRet;
     } else {
         QfsKrbTest theTest;
-        const int  theStatus = theTest.Init(inArgsCount, inArgsPtr,
+        int        theStatus = theTest.Init(inArgsCount, inArgsPtr,
             theInMemoryKeyTabName.c_str());
+        // Test that the init works and doesn't leak memory.
+        for (int i = 0; i < 5 && ! theStatus; i++) {
+            theStatus = theTest.Init(inArgsCount, inArgsPtr,
+                theInMemoryKeyTabName.c_str());
+        }
         return (theStatus ? theStatus : theTest.Run(inArgsCount, inArgsPtr));
     }
 }
