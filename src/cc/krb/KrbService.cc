@@ -194,6 +194,20 @@ public:
                 mErrCode = EINVAL;
             }
             if (! mErrCode) {
+                if (mUserPrincipalStrPtr) {
+                    // Work around mit krb5 lib, always does malloc() when
+                    // the size matches, instead of doing nothing, resulting in
+                    // memory leak.
+                    // Another way to work around this would be to lie about the
+                    // size/length, by setting the size/length to 0 or
+                    // subtracting one from it. Of course, the danger is that
+                    // doing so might break in non obvious ways with other
+                    // kerberos implementations or releases. For now just always
+                    // free, then allocate the block.
+                    krb5_free_unparsed_name(mCtx, mUserPrincipalStrPtr);
+                    mUserPrincipalStrPtr = 0;
+                    mUserPrincipalStrLen = 0;
+                }
 #if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
         ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
         ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
