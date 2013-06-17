@@ -56,7 +56,7 @@ public:
           mClientPtr(0),
           mKeyBlockPtr(0),
           mCachePtr(0),
-          mOptionsPtr(0),
+          mInitOptionsPtr(0),
           mKeyTabPtr(0),
           mInitedFlag(false),
           mUseKeyTabFlag(false),
@@ -210,7 +210,7 @@ private:
     krb5_principal           mClientPtr;
     krb5_keyblock*           mKeyBlockPtr;
     krb5_ccache              mCachePtr;
-    krb5_get_init_creds_opt* mOptionsPtr;
+    krb5_get_init_creds_opt* mInitOptionsPtr;
     krb5_keytab              mKeyTabPtr;
     bool                     mInitedFlag;
     bool                     mUseKeyTabFlag;
@@ -224,14 +224,17 @@ private:
             mErrCode  = EINVAL;
             return;
         }
-        mOptionsPtr = 0;
-        if ((mErrCode = krb5_get_init_creds_opt_alloc(mCtx, &mOptionsPtr))) {
+        mInitOptionsPtr = 0;
+#ifdef _KFS_KRB_CLIENT_USE_INIT_OPTIONS
+        if ((mErrCode = krb5_get_init_creds_opt_alloc(
+                mCtx, &mInitOptionsPtr))) {
             return;
         }
         if ((mErrCode = krb5_get_init_creds_opt_set_out_ccache(
-                mCtx, mOptionsPtr, mCachePtr))) {
+                mCtx, mInitOptionsPtr, mCachePtr))) {
             return;
         }
+#endif
         mKeyTabPtr = 0;
         if ((mErrCode = mKeyTabFileName.empty() ?
                 krb5_kt_default(mCtx, &mKeyTabPtr) :
@@ -251,7 +254,7 @@ private:
                 mKeyTabPtr,
                 0,
                 0,
-                mOptionsPtr
+                mInitOptionsPtr
         );
         mFreeCredsFlag = mErrCode == 0;
     }
@@ -310,10 +313,12 @@ private:
                 theErr = theCErr;
             }
         }
-        if (mOptionsPtr) {
-            krb5_get_init_creds_opt_free(mCtx, mOptionsPtr);
-            mOptionsPtr = 0;
+#ifdef _KFS_KRB_CLIENT_USE_INIT_OPTIONS
+        if (mInitOptionsPtr) {
+            krb5_get_init_creds_opt_free(mCtx, mInitOptionsPtr);
+            mInitOptionsPtr = 0;
         }
+#endif
         if (mKeyTabPtr) {
             krb5_error_code const theCloseErr = krb5_kt_close(mCtx, mKeyTabPtr);
             mKeyTabPtr = 0;
