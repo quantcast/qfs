@@ -1,0 +1,328 @@
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <strings.h>
+#include <fcntl.h>
+
+#include "qfs.h"
+
+
+// Inspired by minunit
+#define check(test, format, ...) do { if (!(test)) { \
+                                        snprintf(mbuf, sizeof(mbuf), "expect " #test ": " format, ##__VA_ARGS__); \
+                                        return mbuf; } printf(mbuf, sizeof(mbuf), #test ": " format, ##__VA_ARGS__); } while (0)
+#define run(test) do {  char *message = test(); tests_run++; \
+                        if(message) { \
+                          printf("fail\t" #test "\n** %s\n", message); return message; \
+                        } else printf("ok\t" #test "\n"); } while(0)
+#define check_qfs_call(result) do { int r; \
+                                    check(0 <= (r = (result)), "%s\n", qfs_strerror(r)); } while(0); \
+
+// Buffer to format all error messages
+static char mbuf[4096];
+
+static int tests_run;
+
+// Global file system and file descriptor under test.
+QFS qfs;
+int fd;
+
+char* testdata = "qwerasdf1234567890";
+
+static char* test_qfs_connect() {
+  qfs = qfs_connect("localhost", 20000);
+  check(qfs, "qfs should be non null");
+  return 0;
+}
+
+static char* test_get_metaserver_location() {
+  char buf[5];
+  int n = qfs_get_metaserver_location(qfs, buf, sizeof(buf));
+
+  check(n > sizeof(buf), "n should larger than sizeof(buf)");
+  check(strcmp("loca", buf) == 0, "partial string should be written");
+
+  char bbuf[4096];
+  n = qfs_get_metaserver_location(qfs, bbuf, sizeof(bbuf));
+
+  check(n == strlen(bbuf), "full location should have been written out");
+  check(strcmp("localhost:20000", bbuf) == 0,
+    "location should be correct: %s", bbuf);
+
+  return 0;
+}
+
+static char* test_qfs_user_functions() {
+  uint32_t uid = qfs_getuid(qfs);
+
+  check(uid > 0, "uid should be greater than 0"); // or something.
+
+  return 0;
+}
+
+static char* test_qfs_cleanup() {
+  // Really just cleans things up, but runs through several qfs ops doing so.
+
+  if(qfs_exists(qfs, "/unit-test")) {
+    check_qfs_call(qfs_rmdirs(qfs, "/unit-test"));
+  }
+
+  return 0;
+}
+
+static char* test_qfs_release() {
+  qfs_release(qfs);
+  return 0;
+}
+
+static char* test_qfs_mkdir() {
+  check_qfs_call(qfs_mkdir(qfs, "/unit-test", 0755));
+  return 0;
+}
+
+static char* test_qfs_mkdirs() {
+  check_qfs_call(qfs_mkdirs(qfs, "/unit-test/a/b", 0755));
+  return 0;
+}
+
+static char* test_qfs_cd() {
+  check_qfs_call(qfs_cd(qfs, "/unit-test"));
+  return 0;
+}
+
+static char* test_qfs_getcwd() {
+  char cwd[QFS_MAX_FILENAME_LEN];
+  check(qfs_getcwd(qfs, cwd, sizeof(cwd)) == strlen("/unit-test"),
+    "return should match len of current directory");
+  check(strcmp(cwd, "/unit-test") == 0,
+    "unexpected working directory: %s", cwd);
+  return 0;
+}
+
+static char* test_readdir() {
+  struct qfs_readdir_iter iter = {0, 0};
+  struct qfs_attr attr;
+  int res;
+
+  const char* expected[] = {
+    "a",
+    "..",
+    ".",
+  };
+
+  while((res = qfs_readdir(qfs, "/unit-test", &iter, &attr)) > 0) {
+    check(res < sizeof(expected),
+      "value of result should be less that expected length");
+    check(strcmp(attr.filename, expected[res]) == 0,
+      "unexpected directory entry: %s != %s", attr.filename, expected[res]);
+    check(attr.directory, "all files should be directories");
+  }
+
+  check(res >= 0, "%s", qfs_strerror(res));
+
+  return 0;
+}
+
+static char* test_readdirnames() {
+  struct qfs_readdirnames_iter iter = {0, 0};
+  const char* dentry;
+  int res;
+  const char* expected[] = {
+    "a",
+    "..",
+    ".",
+  };
+
+  while((res = qfs_readdirnames(qfs, "/unit-test", &iter, &dentry)) > 0) {
+    check(res < sizeof(expected),
+      "value of result should be less that expected length");
+    check(strcmp(dentry, expected[res]) == 0,
+      "unexpected directory entry: %s != %s", dentry, expected[res]);
+  }
+
+  check(res >= 0, "%s", qfs_strerror(res));
+
+  return 0;
+}
+
+static char* test_qfs_stat() {
+  struct qfs_attr attr;
+  check_qfs_call(qfs_stat(qfs, "/unit-test", &attr));
+
+  check(strcmp(attr.filename, "unit-test") == 0,
+    "attr should have correct path name: %s != %s", attr.filename, "unit-test");
+  check(attr.directory, "file should be a directory");
+  check(attr.mode == 0755, "mode should be 0755");
+
+  return 0;
+}
+
+static char* test_qfs_create() {
+  check_qfs_call(fd = qfs_create(qfs, "/unit-test/file"));
+
+  // Now test qfs_stat_fd
+  struct qfs_attr attr;
+  check_qfs_call(qfs_stat_fd(qfs, fd, &attr));
+
+  check(strcmp(attr.filename, "file") == 0, "filename should be correct");
+  return 0;
+}
+
+static char* test_qfs_write() {
+  check_qfs_call(qfs_write(qfs, fd, testdata, strlen(testdata)));
+  return 0;
+}
+
+static char* test_qfs_close() {
+  check_qfs_call(qfs_close(qfs, fd));
+  return 0;
+}
+
+static char* test_qfs_open() {
+  check_qfs_call(fd = qfs_open(qfs, "/unit-test/file"));
+  return 0;
+}
+
+static char* test_qfs_read() {
+  char buf[4096];
+  check_qfs_call(qfs_read(qfs, fd, buf, sizeof(buf)));
+
+  check(strcmp(buf, testdata) == 0,
+    "all expected data should be read: %s != %s", buf, testdata);
+
+  // Now close the file
+  check_qfs_call(qfs_close(qfs, fd));
+
+  return 0;
+}
+
+static char* test_qfs_open_file() {
+  check_qfs_call(fd = qfs_open_file(qfs, "/unit-test/file", O_TRUNC|O_RDWR, 0, ""));
+  return 0;
+}
+
+static char* test_large_write() {
+  ssize_t len = qfs_get_chunksize(qfs, "/unit-test/file");
+  char* large = malloc(len);
+  // Write the same set of data twice; but xord
+  check_qfs_call(qfs_write(qfs, fd, large, len));
+  check_qfs_call(qfs_sync(qfs, fd));
+
+  char* ptr;
+  for(ptr = large; ptr < large + len; ptr++) {
+    *ptr ^= (char)0xA;
+  }
+  check_qfs_call(qfs_write(qfs, fd, large, len));
+  check_qfs_call(qfs_sync(qfs, fd));
+
+  struct qfs_attr attr;
+  check_qfs_call(qfs_stat(qfs, "/unit-test/file", &attr));
+
+  check(strcmp(attr.filename, "file") == 0,
+    "filename should be correct: %s != %s", attr.filename, "file");
+  check(attr.size == len*2,
+    "file size should be correct: %li != %li", attr.size, len);
+
+  return 0;
+}
+
+static char* test_qfs_pwrite() {
+  // Now, go way passed the data we wrote before and write some more!
+  ssize_t len = qfs_get_chunksize(qfs, "/unit-test/file");
+
+  // Seek to the start
+  check_qfs_call(qfs_seek(qfs, fd, 0, SEEK_SET));
+
+  // Now write to the end, in a third chunk, but small.
+  check_qfs_call(qfs_pwrite(qfs, fd, testdata, sizeof(testdata), len*2));
+  check_qfs_call(qfs_sync(qfs, fd)); // sync the data out
+
+  return 0;
+}
+
+static char* test_qfs_pread() {
+  ssize_t chunksize = qfs_get_chunksize(qfs, "/unit-test/file");
+  off_t res;
+  // Seek to the start
+  check_qfs_call(res = qfs_tell(qfs, fd));
+  check(res == 0, "file position should be at start");
+
+  char buf[4096];
+
+  check_qfs_call(qfs_pread(qfs, fd, buf, sizeof(buf), chunksize*2));
+  check(strcmp(buf, testdata) == 0,
+    "expected data should be read: %s != %s", buf, testdata);
+
+  return 0;
+}
+
+static char* test_qfs_get_data_locations() {
+  check_qfs_call(qfs_close(qfs, fd)); // shut it down
+  struct qfs_locations_iter iter = {0, 0, 0};
+  const char* location = NULL;
+  int64_t chunk = 0;
+  int res;
+
+  struct {
+    int64_t chunk;
+    const char* hostname;
+  } expected[] = {
+    // In reverse order.
+    {1, "127.0.0.1"},
+    {1, "127.0.0.1"},
+    {0, "127.0.0.1"},
+    {0, "127.0.0.1"},
+  };
+
+  while((res = qfs_get_data_locations(qfs, "/unit-test/file", 0, 2*qfs_get_chunksize(qfs, "/unit-test/file"), &iter, &chunk, &location)) > 0) {
+    check(res < sizeof(expected),
+      "result should always be less than the expected number of chunks");
+    check(chunk == expected[res].chunk,
+      "unexpected chunk: %lld != %lld", chunk, expected[res].chunk);
+    check(strcmp(location, expected[res].hostname) == 0,
+      "unexpected location");
+  }
+
+  check_qfs_call(res >= 0);
+
+  return 0;
+}
+
+static char * all_tests() {
+  run(test_qfs_connect);
+  run(test_get_metaserver_location);
+  run(test_qfs_user_functions);
+  run(test_qfs_cleanup);
+  run(test_qfs_mkdir);
+  run(test_qfs_mkdirs);
+  run(test_qfs_cd);
+  run(test_qfs_getcwd);
+  run(test_readdir);
+  run(test_readdirnames);
+  run(test_qfs_stat);
+  run(test_qfs_create);
+  run(test_qfs_write);
+  run(test_qfs_close);
+  run(test_qfs_open);
+  run(test_qfs_read);
+  run(test_qfs_open_file);
+  run(test_large_write);
+  run(test_qfs_pwrite);
+  run(test_qfs_pread);
+  run(test_qfs_get_data_locations);
+  run(test_qfs_cleanup);
+  run(test_qfs_release);
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  char* result = all_tests();
+
+  if (result == 0) {
+    printf("pass\n");
+  } else {
+    printf("fail\n");
+  }
+  printf("%d tests\n", tests_run);
+  return result != 0;
+}
