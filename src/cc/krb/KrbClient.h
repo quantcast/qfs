@@ -37,7 +37,9 @@ public:
     ~KrbClient();
     const char* Init(
         const char* inServiceHostNamePtr,
-        const char* inServeiceNamePtr);
+        const char* inServeiceNamePtr,
+        const char* inKeyTabNamePtr,
+        const char* inClientNamePtr);
     const char* Cleanup();
     const char* Request(
         const char*& outDataPtr,

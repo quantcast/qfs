@@ -63,7 +63,19 @@ public:
     {
         const bool theDetectReplayFlag = inArgsCount >= 5 &&
             strchr(inArgsPtr[4], 'R');
-        const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2]);
+        const bool theClientUseKeytabFlag = inArgsCount >= 5 &&
+            strchr(inArgsPtr[4], 'T');
+        const char* theClientNamePtr = 0;
+        string theClientName;
+        if (theClientUseKeytabFlag) {
+            // Use the same name as server.
+            theClientName = inArgsPtr[2];
+            theClientName += "/";
+            theClientName += inArgsPtr[1];
+            theClientNamePtr = theClientName.c_str();
+        }
+        const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2],
+            theClientUseKeytabFlag ? inArgsPtr[3] : 0, theClientNamePtr);
         if (theErrMsgPtr) {
             cerr <<
                 "client: init error: " << theErrMsgPtr << "\n";
