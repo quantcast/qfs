@@ -218,13 +218,13 @@ private:
                 mCtx, &theInitOptionsPtr))) {
             return;
         }
-#else
-        krb5_get_init_creds_opt theInitOptions;
-        krb5_get_init_creds_opt_init(&theInitOptions);
-        theInitOptionsPtr = &theInitOptions;
-#endif
         if ((mErrCode = krb5_get_init_creds_opt_set_out_ccache(
                 mCtx, theInitOptionsPtr, mCachePtr)) == 0) {
+#else
+            krb5_get_init_creds_opt theInitOptions;
+            krb5_get_init_creds_opt_init(&theInitOptions);
+            theInitOptionsPtr = &theInitOptions;
+#endif
             krb5_keytab theKeyTabPtr = 0;
             if ((mErrCode = mKeyTabFileName.empty() ?
                     krb5_kt_default(mCtx, &theKeyTabPtr) :
@@ -261,8 +261,8 @@ private:
                     mErrCode = theErr;
                 }
             }
-        }
 #ifdef KRB5_GET_INIT_CREDS_OPT_CHG_PWD_PRMPT
+        }
         if (theInitOptionsPtr) {
             krb5_get_init_creds_opt_free(mCtx, theInitOptionsPtr);
         }
