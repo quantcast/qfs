@@ -60,7 +60,7 @@ public:
           mKeyTabPtr(0),
           mInitedFlag(false),
           mUseKeyTabFlag(false),
-          mFreeCredsFlag(false),
+          mCredInitedFlag(false),
           mServiceName(),
           mErrorMsg()
     {
@@ -111,14 +111,12 @@ public:
             return mErrorMsg.c_str();
         }
         CleanupAuth();
-        mCreds.server = mServerPtr;
-        if (mClientPtr && ! mCreds.client) {
-            mCreds.client = mClientPtr;
-        }
-	if (! mClientPtr &&
-                (mErrCode = krb5_cc_get_principal(
+        if (! mCredInitedFlag) {
+            mCreds.server = mServerPtr;
+	    if ((mErrCode = krb5_cc_get_principal(
                     mCtx, mCachePtr, &mCreds.client)) != 0) {
-            return ErrStr();
+                return ErrStr();
+            }
         }
         krb5_creds* theCredsPtr = 0;
 	if ((mErrCode = krb5_get_credentials(
@@ -214,7 +212,7 @@ private:
     krb5_keytab              mKeyTabPtr;
     bool                     mInitedFlag;
     bool                     mUseKeyTabFlag;
-    bool                     mFreeCredsFlag;
+    bool                     mCredInitedFlag;
     string                   mServiceName;
     string                   mErrorMsg;
 
@@ -256,7 +254,7 @@ private:
                 0,
                 mInitOptionsPtr
         );
-        mFreeCredsFlag = mErrCode == 0;
+        mCredInitedFlag = mErrCode == 0;
     }
     void InitSelf()
     {
@@ -290,12 +288,12 @@ private:
         }
         krb5_error_code theErr = CleanupAuth();
         mInitedFlag = false;
-        if (mFreeCredsFlag) {
+        if (mCredInitedFlag) {
             if (mClientPtr && mClientPtr == mCreds.client) {
                 mCreds.client = 0;
             }
             krb5_free_cred_contents(mCtx, &mCreds);
-            mFreeCredsFlag = false;
+            mCredInitedFlag = false;
         }
         memset(&mCreds, 0, sizeof(mCreds));
 	if (mServerPtr) {
