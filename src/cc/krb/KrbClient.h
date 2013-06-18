@@ -50,6 +50,7 @@ public:
         const char*  inReplyPtr,
         int          inReplyLen);
     int GetErrorCode() const;
+    long GetLastCredEndTime() const;
 private:
     class Impl;
     Impl& mImpl;
