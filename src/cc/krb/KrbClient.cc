@@ -30,6 +30,7 @@
 
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
 #include <string>
 #include <algorithm>
@@ -71,7 +72,8 @@ public:
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr,
         const char* inKeyTabNamePtr,
-        const char* inClientNamePtr)
+        const char* inClientNamePtr,
+        bool        inForceCacheInitFlag = false)
     {
         CleanupSelf();
         mServiceHost    = inServiceHostNamePtr ? inServiceHostNamePtr : "";
@@ -81,7 +83,7 @@ public:
         mUseKeyTabFlag  = inKeyTabNamePtr != 0;
         mErrCode     = 0;
         mErrorMsg.clear();
-        InitSelf();
+        InitSelf(inForceCacheInitFlag);
         if (mErrCode) {
             return ErrStr();
         }
@@ -108,6 +110,12 @@ public:
             return mErrorMsg.c_str();
         }
         CleanupAuth();
+        if (mUseKeyTabFlag && mLastCredEndTime <= time(0) + 5) {
+            InitCredCacheKeyTab();
+            if (mErrCode) {
+                return ErrStr();
+            }
+        }
         mCreds.server = mServerPtr;
 	if ((mErrCode = krb5_cc_get_principal(
                 mCtx, mCachePtr, &mCreds.client)) != 0) {
@@ -218,7 +226,7 @@ private:
     void InitCredCacheKeyTab()
     {
         if (! mInitedFlag) {
-            mErrCode  = EINVAL;
+            mErrCode = EINVAL;
             return;
         }
         krb5_get_init_creds_opt* theInitOptionsPtr = 0;
@@ -284,7 +292,22 @@ private:
         }
 #endif
     }
-    void InitSelf()
+    bool ComparePrincipal(
+        const char*    inNamePtr,
+        krb5_principal inPrinPtr)
+    {
+        krb5_principal thePrinPtr = 0;
+        if ((mErrCode = krb5_parse_name(
+                mCtx, inNamePtr, &thePrinPtr)) == 0) {
+            const bool theRet = krb5_principal_compare(
+                mCtx, inPrinPtr, thePrinPtr);
+            krb5_free_principal(mCtx, thePrinPtr);
+            return theRet;
+        }
+        return false;
+    }
+    void InitSelf(
+        bool inForceCacheInitFlag)
     {
         mErrCode = krb5_init_context(&mCtx);
         if (mErrCode) {
@@ -306,7 +329,27 @@ private:
             return;
         }
         if (mUseKeyTabFlag) {
-            InitCredCacheKeyTab();
+            const char*  theDataPtr       = 0;
+            int          theDataLen       = 0;
+            const char*  theSessionKeyPtr = 0;
+            int          theSessionKeyLen = 0;
+            time_t const theNow           = time(0);
+            mLastCredEndTime = theNow + 24 * 3600;
+            if (inForceCacheInitFlag ||
+                    Request(
+                        theDataPtr,
+                        theDataLen,
+                        theSessionKeyPtr,
+                        theSessionKeyLen) ||
+                    ! mCreds.client ||
+                    mLastCredEndTime <= theNow + 10 ||
+                    ! ComparePrincipal(mClientName.c_str(),
+                        mCreds.client)) {
+                CleanupAuth();
+                mErrorMsg.clear();
+                mErrCode = 0;
+                InitCredCacheKeyTab();
+            }
         }
     }
     krb5_error_code CleanupSelf()
