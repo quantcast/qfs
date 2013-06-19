@@ -198,22 +198,22 @@ public:
         return mLastCredEndTime;
     }
 private:
-    string                   mServiceHost;
-    string                   mKeyTabFileName;
-    string                   mClientName;
-    krb5_context             mCtx;
-    krb5_auth_context        mAuthCtx;
-    krb5_error_code          mErrCode;
-    krb5_data                mOutBuf;
-    krb5_creds               mCreds;
-    krb5_principal           mServerPtr;
-    krb5_keyblock*           mKeyBlockPtr;
-    krb5_ccache              mCachePtr;
-    bool                     mInitedFlag;
-    bool                     mUseKeyTabFlag;
-    long                     mLastCredEndTime;
-    string                   mServiceName;
-    string                   mErrorMsg;
+    string            mServiceHost;
+    string            mKeyTabFileName;
+    string            mClientName;
+    krb5_context      mCtx;
+    krb5_auth_context mAuthCtx;
+    krb5_error_code   mErrCode;
+    krb5_data         mOutBuf;
+    krb5_creds        mCreds;
+    krb5_principal    mServerPtr;
+    krb5_keyblock*    mKeyBlockPtr;
+    krb5_ccache       mCachePtr;
+    bool              mInitedFlag;
+    bool              mUseKeyTabFlag;
+    long              mLastCredEndTime;
+    string            mServiceName;
+    string            mErrorMsg;
 
     void InitCredCacheKeyTab()
     {
@@ -251,7 +251,14 @@ private:
                         theKeyTabPtr,
                         0,
                         0,
-                        theInitOptionsPtr))) {
+                        theInitOptionsPtr)) == 0) {
+#ifndef KRB5_GET_INIT_CREDS_OPT_CHG_PWD_PRMPT
+                    if ((mErrCode = krb5_cc_initialize(
+                                mCtx, mCachePtr, mCreds.client)) == 0) {
+                            mErrCode = krb5_cc_store_cred(
+                                mCtx, mCachePtr, &mCreds);
+                    }
+#endif
                     if (theClientPtr && theClientPtr == mCreds.client) {
                         mCreds.client = 0;
                     }

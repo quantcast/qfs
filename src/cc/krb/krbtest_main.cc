@@ -61,6 +61,9 @@ public:
         char**      inArgsPtr,
         const char* inInMemoryKeyTabNamePtr)
     {
+        if (CheckArgs(inArgsCount, inArgsPtr)) {
+            return 1;
+        }
         const bool theDetectReplayFlag = inArgsCount >= 5 &&
             strchr(inArgsPtr[4], 'R');
         const bool theClientUseKeytabFlag = inArgsCount >= 5 &&
@@ -97,12 +100,7 @@ public:
         int    inArgsCount,
         char** inArgsPtr)
     {
-        if (inArgsCount < 3 || 6 < inArgsCount) {
-            cerr <<
-                "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
-                " <service host> <service name> [<keytab name>]"
-                " [-d|-p|-r<num>] [<num>]\n"
-            ;
+        if (CheckArgs(inArgsCount, inArgsPtr)) {
             return 1;
         }
         const int theCnt = inArgsCount >= 6 ? atoi(inArgsPtr[5]) : 1;
@@ -134,13 +132,36 @@ private:
     clock_t    mServiceClock;
     clock_t    mClientClock;
 
+    int CheckArgs(
+        int    inArgsCount,
+        char** inArgsPtr)
+    {
+        if (inArgsCount < 3 || 6 < inArgsCount) {
+            cerr <<
+                "Usage: " << (inArgsCount >= 1 ? inArgsPtr[0] : "") <<
+                " <service host> <service name> [<keytab name>]"
+                " -"
+                "[d -- debug print]"
+                "[t<num> -- thread count]"
+                "[r<num> -- replay count]"
+                "[p -- cpu stats]"
+                "[R -- detect replay, use replay cache]"
+                "[T -- client use the same keytab as server]"
+                "[M -- do NOT use memory key tab]"
+                " [<iteration count>]\n"
+            ;
+            return 1;
+        }
+        return 0;
+    }
     int RunSelf(
         int    inArgsCount,
         char** inArgsPtr)
     {
-        const int theReplayCnt =
-            (inArgsCount >= 5 && strncmp(inArgsPtr[4], "-r", 2) == 0) ?
-            atoi(inArgsPtr[4] + 2) : 1;
+        const char* thePtr       = 0;
+        const int   theReplayCnt =
+            (inArgsCount >= 5 && (thePtr = strchr(inArgsPtr[4], 'r'))) ?
+            atoi(thePtr + 1) : 1;
         const bool theDebugFlag = inArgsCount >= 5 &&
             strchr(inArgsPtr[4], 'd');
         const char* theDataPtr   = 0;
@@ -314,12 +335,14 @@ main(
     const char* thePtr       = 0;
     int         theThreadCnt = 0;
     string      theInMemoryKeyTabName("_qfs_keytab");
+    const bool  theUseMemKeytabFlag = ! (inArgsCount >= 5 &&
+        strchr(inArgsPtr[4], 'M'));
     if (inArgsCount >= 5 && (thePtr = strchr(inArgsPtr[4], 't')) &&
             (theThreadCnt = atoi(thePtr + 1)) > 1) {
         KrbTestThread* const theThreadsPtr = new KrbTestThread[theThreadCnt];
         for (int i = 0; i < theThreadCnt; i++) {
             theThreadsPtr[i].Start(inArgsCount, inArgsPtr,
-                theInMemoryKeyTabName.c_str());
+                theUseMemKeytabFlag ? theInMemoryKeyTabName.c_str() : 0);
              // The key tab names should be unique, each tread.must have its
              // own.
             theInMemoryKeyTabName += "X";
@@ -335,12 +358,11 @@ main(
         return theRet;
     } else {
         QfsKrbTest theTest;
-        int        theStatus = theTest.Init(inArgsCount, inArgsPtr,
-            theInMemoryKeyTabName.c_str());
+        int        theStatus = 0;
         // Test that the init works and doesn't leak memory.
         for (int i = 0; i < 5 && ! theStatus; i++) {
             theStatus = theTest.Init(inArgsCount, inArgsPtr,
-                theInMemoryKeyTabName.c_str());
+                theUseMemKeytabFlag ? theInMemoryKeyTabName.c_str() : 0);
         }
         return (theStatus ? theStatus : theTest.Run(inArgsCount, inArgsPtr));
     }
