@@ -94,6 +94,12 @@ public:
                 "service init error: " << theErrMsgPtr << "\n";
             return 1;
         }
+        if (inInMemoryKeyTabNamePtr && ! mService.IsInMemoryKeytabUsed()) {
+            cerr <<
+                "service init warning:"
+                " in memory key tab is not supported by this kerberos"
+                " revisison\n";
+        }
         return 0;
     }
     int Run(

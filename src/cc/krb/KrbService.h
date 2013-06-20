@@ -81,6 +81,7 @@ public:
         );
     }
     int GetErrorCode() const;
+    bool IsInMemoryKeytabUsed() const;
 private:
     class Impl;
     Impl& mImpl;

@@ -57,6 +57,7 @@ public:
           mInitedFlag(false),
           mAuthInitedFlag(false),
           mDetectReplayFlag(false),
+          mInMemoryKeytabUsedFlag(false),
           mServiceName(),
           mServiceHostName(),
           mErrorMsg()
@@ -254,7 +255,8 @@ public:
     }
     int GetErrorCode() const
         { return mErrCode; }
-
+    bool IsInMemoryKeytabUsed() const
+        { return mInMemoryKeytabUsedFlag; }
 private:
     string            mKeyTabFileName;
     string            mMemKeyTabName;
@@ -270,6 +272,7 @@ private:
     bool              mInitedFlag;
     bool              mAuthInitedFlag;
     bool              mDetectReplayFlag;
+    bool              mInMemoryKeytabUsedFlag;
     string            mServiceName;
     string            mServiceHostName;
     string            mErrorMsg;
@@ -297,7 +300,8 @@ private:
                 &mKeyTabPtr))) {
             return;
         }
-        if (mMemKeyTabName.empty()) {
+        mInMemoryKeytabUsedFlag = ! mMemKeyTabName.empty();
+        if (! mInMemoryKeytabUsedFlag) {
             return;
         }
         // The memory keytab copy assumes that the memory keytab name is
@@ -305,6 +309,10 @@ private:
         krb5_keytab theKeyTabPtr = 0;
         if ((mErrCode = krb5_kt_resolve(
                 mCtx, mMemKeyTabName.c_str(), &theKeyTabPtr)) != 0) {
+            if (mErrCode == KRB5_KT_UNKNOWN_TYPE) {
+                mErrCode = 0;
+                mInMemoryKeytabUsedFlag = false;
+            }
             return;
         }
         krb5_kt_cursor theCursor;
@@ -538,6 +546,12 @@ KrbService::Reply(
 KrbService::GetErrorCode() const
 {
     return mImpl.GetErrorCode();
+}
+
+    bool
+KrbService::IsInMemoryKeytabUsed() const
+{
+    return mImpl.IsInMemoryKeytabUsed();
 }
 
 }
