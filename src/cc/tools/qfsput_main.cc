@@ -116,7 +116,7 @@ doPut(const string &filename)
     char c;
 
 
-    fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_RDWR|O_APPEND);
+    fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_RDWR);
     if (fd < 0) {
         cout << "Create failed: " << endl;
         exit(0);
