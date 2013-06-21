@@ -1,0 +1,30 @@
+diff --git a/conf/MetaServer.prp b/conf/MetaServer.prp
+index 9bec526..c6a9e51 100644
+--- a/conf/MetaServer.prp
++++ b/conf/MetaServer.prp
+@@ -26,10 +26,10 @@ metaServer.clientPort = 20000
+ metaServer.chunkServerPort = 30000
+ 
+ # Meta serve transactions log directory.
+-metaServer.logDir = meta/transaction_logs
++metaServer.logDir = /var/log/qfs
+ 
+ # Meta server checkpoint directory.
+-metaServer.cpDir = meta/checkpoint
++metaServer.cpDir = /var/qfs/metaserver/checkpoint
+ 
+ # Allow to automatically create an empty file system if checkpoint file does
+ # not exist.
+diff --git a/webui/server.conf b/webui/server.conf
+index 42f52ee..e7d8d68 100644
+--- a/webui/server.conf
++++ b/webui/server.conf
+@@ -22,7 +22,7 @@
+ webServer.metaserverPort = 20000
+ webServer.metaserverHost = 127.0.0.1
+ webServer.port = 20050
+-webServer.docRoot = files
++webServer.docRoot = /usr/share/qfs-webui/files
+ webserver.allmachinesfn = /dev/null
+ [chunk]
+ refreshInterval = 5

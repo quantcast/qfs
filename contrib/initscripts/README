@@ -1,0 +1,31 @@
+This directory contains LSB-compatible init scripts which use daemonize
+(http://software.clapper.org/daemonize/) to handle daemonizing the processes
+which provide QFS-related services.
+
+RHEL/CentOS pre-requisites:
+
+  1. Install EPEL, which is needed for the daemonize binary:
+
+    - http://fedoraproject.org/wiki/EPEL
+
+  2. Install dependencies:
+
+    # yum install redhat-lsb daemonize
+
+Debian/Ubuntu pre-requisites:
+
+  1. Install git and GCC:
+
+    # apt-get install git-core gcc lsb
+
+  2. Checkout daemonize source:
+
+    # git clone https://github.com/bmc/daemonize
+
+  3. Build and install daemonize:
+
+    # cd daemonize
+    # sh configure
+    # make
+    # sudo make install
+
