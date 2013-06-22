@@ -50,16 +50,22 @@ set (exe_files qfskrbtest)
 
 foreach (exe_file ${exe_files})
         if (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} qfskrb krb5 qcdio)
+           target_link_libraries (${exe_file} qfskrb qcdio krb5)
            add_dependencies (${exe_file} qfskrb qcdio)
         else (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} qfskrb)
-           add_dependencies (${exe_file} qfskrb krb5 qcdio)
+           target_link_libraries (${exe_file} qfskrb-shared qcdio-shared krb5)
+           add_dependencies (${exe_file} qfskrb-shared qcdio-shared)
         endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
+if (EXISTS "/opt/local/lib/libkrb5.dylib")
+    set (KRB5_SHARED_LINK_LIB /opt/local/lib/libkrb5.dylib)
+else (EXISTS "/opt/local/lib/libkrb5.dylib")
+    set (KRB5_SHARED_LINK_LIB krb5)
+endif (EXISTS "/opt/local/lib/libkrb5.dylib")
+
 if (NOT Boost_USE_STATIC_LIBS)
-    target_link_libraries (qfskrb-shared ${Boost_LIBRARIES} krb5)
+    target_link_libraries (qfskrb-shared ${Boost_LIBRARIES} ${KRB5_SHARED_LINK_LIB})
 endif (NOT Boost_USE_STATIC_LIBS)
 
 install (TARGETS qfskrb qfskrb-shared
