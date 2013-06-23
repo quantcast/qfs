@@ -321,14 +321,21 @@ public:
             inPath.erase(thePrevSize + 1);
             inPath += thePtr->d_name;
             bool theDirFlag;
-#ifdef QC_OS_NAME_CYGWIN
+#if defined(QC_OS_NAME_CYGWIN) || \
+    (defined(QC_OS_NAME_LINUX) && ! defined(_DIRENT_HAVE_D_TYPE))
             // Cygwin has no d_type, all other supported platforms have the file
             // type
             struct stat theStat;
             theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
                 S_ISDIR(theStat.st_mode);
 #else
-            theDirFlag = thePtr->d_type == DT_DIR;
+            if (thePtr->d_type == DT_UNKNOWN) {
+                struct stat theStat;
+                theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
+                    S_ISDIR(theStat.st_mode);
+            } else {
+                theDirFlag = thePtr->d_type == DT_DIR;
+            }
 #endif
             theRet = theDirFlag ?
                 RecursivelyApplySelf(inPath, inFunctor) :
