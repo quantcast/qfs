@@ -65,13 +65,39 @@ class NetConnection
 {
 public:
     typedef boost::shared_ptr<NetConnection> NetConnectionPtr;
+    class Filter
+    {
+    public:
+        virtual bool WantRead(const NetConnection& con) const = 0;
+        virtual bool WantWrite(const NetConnection& con) const = 0;
+        virtual int Read(
+            NetConnection& con,
+            TcpSocket&     sock,
+            IOBuffer&      buffer,
+            int            maxRead) = 0;
+        virtual int Write(
+            NetConnection& con,
+            TcpSocket&     sock,
+            IOBuffer&      buffer) = 0;
+        virtual void Close(NetConnection& con, TcpSocket* sock) = 0;
+        virtual void Attach(NetConnection& con, TcpSocket* sock)
+            {}
+        virtual void Detach(NetConnection& con, TcpSocket* sock)
+            {}
+    protected:
+        Filter()
+            {}
+        virtual ~Filter()
+            {}
+    };
 
     /// @param[in] sock TcpSocket on which I/O can be done
     /// @param[in] c KfsCallbackObj associated with this connection
     /// @param[in] listenOnly boolean that specifies whether this
     /// connection is setup only for accepting new connections.
     NetConnection(TcpSocket* sock, KfsCallbackObj* c,
-        bool listenOnly = false, bool ownsSocket = true)
+        bool listenOnly = false, bool ownsSocket = true,
+        Filter* filter = 0)
         : mNetManagerEntry(),
           mListenOnly(listenOnly),
           mOwnsSocket(ownsSocket),
@@ -82,8 +108,26 @@ public:
           mOutBuffer(),
           mInactivityTimeoutSecs(-1),
           maxReadAhead(-1),
-          mPeerName() {
+          mPeerName(),
+          mFilter(filter) {
         assert(mSock);
+    }
+
+    Filter* GetFilter() const {
+        return mFilter;
+    }
+
+    void SetFilter(Filter* filter) {
+        if (mFilter == filter) {
+            return;
+        }
+        if (mFilter) {
+            mFilter->Detach(*this, mSock);
+        }
+        mFilter = filter;
+        if (mFilter) {
+            mFilter->Attach(*this, mSock);
+        }
     }
 
     ~NetConnection() {
@@ -240,6 +284,10 @@ public:
 
     /// Close the connection.
     void Close(bool clearOutBufferFlag = true) {
+        if (mFilter) {
+            mFilter->Close(*this, mSock);
+            return;
+        }
         if (! mSock) {
             return;
         }
@@ -307,6 +355,14 @@ public:
         if (CanStartFlush()) {
             Update(resetTimerFlag);
         }
+    }
+
+    bool WantRead() const {
+        return (mFilter ? mFilter->WantRead(*this) : IsReadReady());
+    }
+
+    bool WantWrite() const {
+        return (mFilter ? mFilter->WantWrite(*this) : IsWriteReady());
     }
 
     class NetManagerEntry
@@ -382,6 +438,7 @@ private:
     int             mInactivityTimeoutSecs;
     int             maxReadAhead;
     string          mPeerName;
+    Filter*         mFilter;
 
 private:
     // No copies.

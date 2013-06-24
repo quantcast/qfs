@@ -72,8 +72,10 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
                 break;
             }
         } while (++i < maxAcceptsPerRead && IsGood());
-    } else if (IsReadReady()) {
-        const int nread = mInBuffer.Read(mSock->GetFd(), maxReadAhead);
+    } else if (WantRead()) {
+        const int nread = mFilter ?
+            mFilter->Read(*this, *mSock, mInBuffer, maxReadAhead) : 
+            mInBuffer.Read(mSock->GetFd(), maxReadAhead);
         if (nread <= 0 && nread != -EAGAIN && nread != -EINTR) {
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "read: " << (nread == 0 ? "EOF" : QCUtils::SysError(-nread)) <<
@@ -96,7 +98,10 @@ NetConnection::HandleWriteEvent()
     mNetManagerEntry.SetConnectPending(false);
     int nwrote = 0;
     if (IsGood()) {
-        nwrote = IsWriteReady() ? mOutBuffer.Write(mSock->GetFd()) : 0;
+        nwrote = WantWrite() ? (mFilter ?
+            mFilter->Write(*this, *mSock, mOutBuffer) :
+            mOutBuffer.Write(mSock->GetFd())
+        ) : 0;
         if (nwrote < 0 && nwrote != -EAGAIN && nwrote != -EINTR) {
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "write: error: " << QCUtils::SysError(-nwrote) <<

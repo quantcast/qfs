@@ -348,9 +348,9 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     entry.mWriteByteCount = max(0, conn.GetNumBytesToWrite());
     mNumBytesToSend += entry.mWriteByteCount;
     // Update poll set.
-    const bool in  = conn.IsReadReady() &&
+    const bool in  = conn.WantRead() &&
         (! mIsOverloaded || entry.mEnableReadIfOverloaded);
-    const bool out = conn.IsWriteReady() || entry.mConnectPending;
+    const bool out = conn.WantWrite() || entry.mConnectPending;
     if (in != entry.mIn || out != entry.mOut) {
         assert(fd >= 0);
         const int op =
@@ -468,7 +468,7 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */)
                 mPollEventHook->Event(*this, conn, op);
             }
             const bool hupError = op == QCFdPoll::kOpTypeHup &&
-                ! conn.IsReadReady() && ! conn.IsWriteReady();
+                ! conn.WantRead() && ! conn.WantWrite();
             if ((op & (QCFdPoll::kOpTypeIn | QCFdPoll::kOpTypeHup)) != 0 &&
                     conn.IsGood() && (! mIsOverloaded ||
                     conn.GetNetManagerEntry()->mEnableReadIfOverloaded)) {
