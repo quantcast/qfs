@@ -229,6 +229,14 @@ private:
     > BList;
 public:
     typedef BList::const_iterator iterator;
+    class Reader
+    {
+    public:
+        virtual int Read(int fd, void* buf, int numRead) = 0;
+    protected:
+        Reader() {}
+        virtual ~Reader() {}
+    };
 
     IOBuffer();
     ~IOBuffer();
@@ -276,7 +284,9 @@ public:
     int EnsureSpaceAvailable(int numBytes);
 
 
-    int Read(int fd, int maxReadAhead = -1);
+    int Read(int fd, int maxReadAhead, Reader* reader);
+    int Read(int fd, int maxReadAhead = -1)
+        { return Read(fd, maxReadAhead, 0); }
     int Write(int fd);
 
     /// Move data from one buffer to another.  This involves (mostly)

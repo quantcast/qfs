@@ -999,7 +999,7 @@ AllocBuffer(size_t allocSize)
 }
 
 int
-IOBuffer::Read(int fd, int maxReadAhead /* = -1 */)
+IOBuffer::Read(int fd, int maxReadAhead, IOBuffer::Reader* reader)
 {
     DebugVerify();
     if (sIOBufferAllocator && ! sIsIOBufferAllocatorUsed) {
@@ -1016,9 +1016,15 @@ IOBuffer::Read(int fd, int maxReadAhead /* = -1 */)
             it = mBuf.insert(mBuf.end(), IOBufferData());
         }
         if (it->SpaceAvailable() >= size_t(maxReadAhead)) {
-            const int nRd = it->Read(fd, maxReadAhead);
+            const int nRd = reader ?
+                reader->Read(fd, it->Producer(), maxReadAhead) :
+                it->Read(fd, maxReadAhead);
             if (nRd > 0) {
                 mByteCount += nRd;
+                if (reader) {
+                    it->Fill(nRd);
+                    globals().ctrNetBytesRead.Update(nRd);
+                }
             } else if (addBufFlag) {
                 mBuf.erase(it);
             }
@@ -1029,7 +1035,7 @@ IOBuffer::Read(int fd, int maxReadAhead /* = -1 */)
 
     const ssize_t kMaxReadv     = 64 << 10;
     const int     kMaxReadvBufs(kMaxReadv / (4 << 10) + 1);
-    const int     maxReadvBufs  = min(IOV_MAX,
+    const int     maxReadvBufs  = min(reader ? 1 : IOV_MAX,
         min(kMaxReadvBufs, int(kMaxReadv / bufSize + 1)));
     struct iovec  readVec[kMaxReadvBufs];
     ssize_t       totRead = 0;
@@ -1066,7 +1072,9 @@ IOBuffer::Read(int fd, int maxReadAhead /* = -1 */)
             nBytes -= nb;
         }
         numRead -= nBytes;
-        const ssize_t nRd = readv(fd, readVec, nVec);
+        const ssize_t nRd = reader ?
+            reader->Read(fd, readVec[0].iov_base, readVec[0].iov_len) :
+            readv(fd, readVec, nVec);
         if (nRd < numRead) {
             maxRead = 0; // short read, eof, or error: we're done
         } else if (maxRead > 0) {
@@ -1107,7 +1115,8 @@ IOBuffer::Read(int fd, int maxReadAhead /* = -1 */)
             totRead += nRd;
             globals().ctrNetBytesRead.Update(nRd);
         } else if (totRead == 0 && nRd < 0 &&
-                (totRead = -(errno == 0 ? EAGAIN : errno)) > 0) {
+                (totRead = reader ?
+                    (int)nRd : -(errno == 0 ? EAGAIN : errno)) > 0) {
             totRead = -totRead;
         }
     }
