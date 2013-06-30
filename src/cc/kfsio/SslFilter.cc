@@ -73,6 +73,13 @@ public:
         ERR_load_crypto_strings();
         ENGINE_load_builtin_engines();
         SSL_library_init();
+        sOpenSslInitPtr->mExDataIdx =
+            SSL_get_ex_new_index(0, (void*)"SslFilter::Impl", 0, 0, 0);
+        if (sOpenSslInitPtr->mExDataIdx < 0) {
+            const Error theErr = GetAndClearErr();
+            Cleanup();
+            return theErr;
+        }
         return 0;
     }
     static Error Cleanup()
@@ -111,8 +118,15 @@ public:
         Ctx& inCtx)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
-          mError(mSslPtr ? 0 : ERR_get_error())
-        {}
+          mError(mSslPtr ? 0 : GetAndClearErr())
+    {
+        if (mSslPtr &&
+                ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
+            mError = GetAndClearErr();
+            SSL_free(mSslPtr);
+            mSslPtr = 0;
+        }
+    }
     ~Impl()
     {
         if (mSslPtr) {
@@ -251,6 +265,7 @@ private:
         OpenSslInit()
             : mLockCount(max(0, CRYPTO_num_locks())),
               mLocksPtr(mLockCount > 0 ? new QCMutex[mLockCount] : 0),
+              mExDataIdx(-1),
               mErrFileNamePtr(0),
               mErrLine(-1)
             {}
@@ -260,11 +275,18 @@ private:
         }
         int      const mLockCount;
         QCMutex* const mLocksPtr;
+        int            mExDataIdx;
         const char*    mErrFileNamePtr;
         int            mErrLine;
     };
     static OpenSslInit* volatile sOpenSslInitPtr;
 
+    static Error GetAndClearErr()
+    {
+        const Error theRet = ERR_get_error();
+        ClearError();
+        return theRet;
+    }
     static void ClearError()
     {
         while (ERR_get_error())
@@ -329,7 +351,7 @@ private:
             case SSL_ERROR_WANT_X509_LOOKUP:
                 return -EAGAIN;
             case SSL_ERROR_SYSCALL:
-                mError = ERR_get_error();
+                mError = GetAndClearErr();
                 if (mError == 0) {
                     if (inRet < 0) {
                         const int theErr = errno;
@@ -344,7 +366,7 @@ private:
                 }
                 return -EINVAL;
             case SSL_ERROR_SSL:
-                mError = ERR_get_error();
+                mError = GetAndClearErr();
                 return -EINVAL;
             default:
                 return -EINVAL;
