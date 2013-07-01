@@ -50,8 +50,9 @@ using namespace KFS::libkfsio;
 class SslFilter::Impl : private IOBuffer::Reader
 {
 public:
-    typedef SslFilter::Ctx   Ctx;
-    typedef SslFilter::Error Error;
+    typedef SslFilter::Ctx       Ctx;
+    typedef SslFilter::Error     Error;
+    typedef SslFilter::ServerPsk ServerPsk;
 
     static Error Initialize()
     {
@@ -107,18 +108,30 @@ public:
         return string(theBuf);
     }
     static Ctx* CreateCtx(
+        const bool        inServerFlag,
+        int               inSessionCacheSize,
         const char*       inParamsPrefixPtr,
         const Properties& inParams)
     {
-        SSL_CTX* const theRetPtr = SSL_CTX_new(TLSv1_method());
+        SSL_CTX* const theRetPtr = SSL_CTX_new(
+            inServerFlag ? TLSv1_server_method() : TLSv1_client_method());
         SSL_CTX_set_mode(theRetPtr, SSL_MODE_ENABLE_PARTIAL_WRITE);
         return reinterpret_cast<Ctx*>(theRetPtr);
     }
     Impl(
-        Ctx& inCtx)
+        Ctx&        inCtx,
+        const char* inPskDataPtr,
+        size_t      inPskDataLen,
+        const char* inPskCliIdendityPtr,
+        ServerPsk*  inServerPskPtr)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
-          mError(mSslPtr ? 0 : GetAndClearErr())
+          mError(mSslPtr ? 0 : GetAndClearErr()),
+          mPskData(
+            inPskDataPtr ? inPskDataPtr : "",
+            inPskDataPtr ? inPskDataLen : 0),
+          mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
+          mServerPskPtr(inServerPskPtr)
     {
         if (mSslPtr &&
                 ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
@@ -135,6 +148,12 @@ public:
     }
     Error GetError() const
         { return mError; }
+    void SetPsk(
+        const char* inPskDataPtr,
+        size_t      inPskDataLen)
+    {
+        mPskData.assign(inPskDataPtr, inPskDataLen);
+    }
     bool WantRead(
         const NetConnection& inConnection) const
     {
@@ -257,8 +276,11 @@ public:
         return (theEofFlag ? 0 : theErr);
     }
 private:
-    SSL*          mSslPtr;
-    unsigned long mError;
+    SSL*             mSslPtr;
+    unsigned long    mError;
+    string           mPskData;
+    string           mPskCliIdendity;
+    ServerPsk* const mServerPskPtr;
 
     struct OpenSslInit
     {
@@ -316,6 +338,80 @@ private:
     static unsigned long ThreadIdCB()
     {
         return ((unsigned long)&errno);
+    }
+    static unsigned int PskServerCB(
+        SSL*           inSslPtr,
+        const char*    inIdentityPtr,
+	unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen)
+    {
+        if (! inSslPtr || ! inPskBufferPtr || ! sOpenSslInitPtr) {
+            return 0;
+        }
+        Impl* const thePtr = reinterpret_cast<Impl*>(SSL_get_ex_data(
+            inSslPtr, sOpenSslInitPtr->mExDataIdx));
+        if (! thePtr || thePtr->mSslPtr != inSslPtr) {
+            abort();
+            return 0;
+        }
+        return thePtr->PskSetServer(
+            inIdentityPtr, inPskBufferPtr, inPskBufferLen);
+    }
+    static unsigned int PskClientCB(
+        SSL*           inSslPtr,
+        const char*    inHintPtr,
+        char*          inIdentityBufferPtr,
+	unsigned int   inIdentityBufferLen,
+        unsigned char* inPskBufferPtr,
+	unsigned int   inPskBufferLen)
+    {
+        if (! inSslPtr || ! inPskBufferPtr || ! sOpenSslInitPtr) {
+            return 0;
+        }
+        Impl* const thePtr = reinterpret_cast<Impl*>(SSL_get_ex_data(
+            inSslPtr, sOpenSslInitPtr->mExDataIdx));
+        if (! thePtr || thePtr->mSslPtr != inSslPtr) {
+            abort();
+            return 0;
+        }
+        return thePtr->PskSetClient(
+            inHintPtr,
+            inIdentityBufferPtr, inIdentityBufferLen,
+            inPskBufferPtr, inPskBufferLen
+        );
+    }
+    unsigned int PskSetServer(
+        const char*    inIdentityPtr,
+	unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen)
+    {
+        if (mServerPskPtr) {
+            return mServerPskPtr->GetPsk(
+                inIdentityPtr, inPskBufferPtr, inPskBufferLen);
+        }
+        if (inPskBufferLen < mPskData.size()) {
+            return 0;
+        }
+        memcpy(inPskBufferPtr, mPskData.data(), mPskData.size());
+        return (unsigned int)mPskData.size();
+    }
+    unsigned int PskSetClient(
+        const char*    inHintPtr,
+        char*          inIdentityBufferPtr,
+	unsigned int   inIdentityBufferLen,
+        unsigned char* inPskBufferPtr,
+	unsigned int   inPskBufferLen)
+    {
+        if (inPskBufferLen < mPskData.size()) {
+            return 0;
+        }
+        if (inIdentityBufferLen < mPskCliIdendity.size() + 1) {
+            return 0;
+        }
+        memcpy(inIdentityBufferPtr,
+            mPskCliIdendity.c_str(), mPskCliIdendity.size() + 1);
+        memcpy(inPskBufferPtr, mPskData.data(), mPskData.size());
+        return (unsigned int)mPskData.size();
     }
     int DoHandshake()
     {
@@ -396,27 +492,48 @@ SslFilter::GetErrorMsg(
 
     /* static */ SslFilter::Ctx*
 SslFilter::CreateCtx(
+    const bool        inServerFlag,
+    int               inSessionCacheSize,
     const char*       inParamsPrefixPtr,
     const Properties& inParams)
 {
-    return Impl::CreateCtx(inParamsPrefixPtr, inParams);
+    return Impl::CreateCtx(
+        inServerFlag, inSessionCacheSize, inParamsPrefixPtr, inParams);
 }
 
 SslFilter::SslFilter(
-    Ctx& inCtx)
-    : mImpl(*(new Impl(inCtx)))
+    Ctx&                  inCtx,
+    const char*           inPskDataPtr,
+    size_t                inPskDataLen,
+    const char*           inPskCliIdendityPtr,
+    SslFilter::ServerPsk* inServerPskPtr)
+    : mImpl(*(new Impl(
+        inCtx,
+        inPskDataPtr,
+        inPskDataLen,
+        inPskCliIdendityPtr,
+        inServerPskPtr
+    )))
     {}
-
-    SslFilter::Error
-SslFilter::GetError() const
-{
-    return mImpl.GetError();
-}
 
     /* virtual */
 SslFilter::~SslFilter()
 {
     delete &mImpl;
+}
+
+    void
+SslFilter::SetPsk(
+    const char* inPskDataPtr,
+    size_t      inPskDataLen)
+{
+    mImpl.SetPsk(inPskDataPtr, inPskDataLen);
+}
+
+    SslFilter::Error
+SslFilter::GetError() const
+{
+    return mImpl.GetError();
 }
 
     /* virtual */ bool
