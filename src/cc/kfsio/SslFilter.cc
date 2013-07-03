@@ -66,7 +66,7 @@ public:
 #else
         // Ensure that the CRYPTO_THREADID_* is present, and use the default
         // implementation.
-        //CRYPTO_THREADID_get_callback();
+        CRYPTO_THREADID_get_callback();
 #endif
         CRYPTO_set_locking_callback(&LockingCB);
         OpenSSL_add_all_algorithms();
@@ -139,6 +139,7 @@ public:
             SSL_free(mSslPtr);
             mSslPtr = 0;
         }
+        SetPskCB();
     }
     ~Impl()
     {
@@ -153,6 +154,7 @@ public:
         size_t      inPskDataLen)
     {
         mPskData.assign(inPskDataPtr, inPskDataLen);
+        SetPskCB();
     }
     bool WantRead(
         const NetConnection& inConnection) const
@@ -468,6 +470,23 @@ private:
                 return -EINVAL;
         }
         return 0;
+    }
+    void SetPskCB()
+    {
+        if (! mPskData.empty() || mServerPskPtr) {
+#if OPENSSL_VERSION_NUMBER < 0x1000000fL || defined(OPENSSL_NO_PSK)
+            mError = SSL_R_UNSUPPORTED_CIPHER;
+#else
+            SSL_set_psk_server_callback(mSslPtr, &PskServerCB);
+#endif
+        }
+        if (! mPskData.empty() && ! mServerPskPtr) {
+#if OPENSSL_VERSION_NUMBER < 0x1000000fL || defined(OPENSSL_NO_PSK)
+            mError = SSL_R_UNSUPPORTED_CIPHER;
+#else
+            SSL_set_psk_client_callback(mSslPtr, &PskClientCB);
+#endif
+        }
     }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;

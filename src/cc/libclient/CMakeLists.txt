@@ -60,8 +60,8 @@ set_target_properties (kfsClient-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
 add_dependencies (kfsClient kfsCommon kfsIO qcdio kfsrs)
 # get everthing into one
-target_link_libraries (kfsClient kfsCommon kfsIO qcdio crypto kfsrs)
-target_link_libraries (kfsClient-shared kfsCommon-shared kfsIO-shared qcdio-shared kfsrs-shared crypto)
+target_link_libraries (kfsClient kfsCommon kfsIO qcdio ${OPENSSL_LIBRARIES} kfsrs)
+target_link_libraries (kfsClient-shared kfsCommon-shared kfsIO-shared qcdio-shared kfsrs-shared ${OPENSSL_LIBRARIES})
 #
 install (TARGETS kfsClient kfsClient-shared
         LIBRARY DESTINATION lib

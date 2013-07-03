@@ -56,6 +56,11 @@ message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 
 # Locate the path to jni.h
 find_package(JNI)
+find_package(OpenSSL REQUIRED)
+if (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+    message(STATUS "WARNING: Kerberos 5 support requires Open SSL version 1.0 or greater")
+endif (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+
 
 ENABLE_TESTING()
 
@@ -148,7 +153,7 @@ if(COMMAND cmake_policy)
 endif(COMMAND cmake_policy)
 
 # include dirs
-include_directories( ${Boost_INCLUDE_DIRS} ${KFS_DIR_PREFIX}src/cc)
+include_directories( ${Boost_INCLUDE_DIRS} ${OPEN_SSL_INCLUDE_DIR} ${KFS_DIR_PREFIX}src/cc)
 
 # get the subdirs we want
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
