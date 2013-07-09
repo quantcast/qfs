@@ -365,6 +365,19 @@ public:
         mBuf[mSize] = 0;
         mStr = string();
     }
+    StringBufT& Truncate(
+        size_t inSize)
+    {
+        if (mSize < 0) {
+             if (inSize < mStr.size()) {
+                mStr.resize(inSize);
+             }
+        } else if (inSize < mSize) {
+            mSize = inSize;
+            mBuf[mSize] = 0;
+        }
+        return *this;
+    }
     //operator string () const
     //    { return GetStr(); }
 private:

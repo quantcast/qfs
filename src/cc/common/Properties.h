@@ -93,6 +93,8 @@ public:
     template<typename TValue>
     TValue getValue(const String& key, const TValue& def) const
         { return getValueSelf(key, def); }
+    const char* getValue(const String& key, const char* def) const
+        { return getValueSelf(key, def); }
     template<typename TKey, typename TValue>
     TValue getValue(const TKey& key, const TValue& def) const
         { return getValueSelf(String(key), def); }

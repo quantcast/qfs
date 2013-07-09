@@ -63,10 +63,13 @@ public:
 
     static Ctx* CreateCtx(
         const bool        inServerFlag,
+        const bool        inPskOnlyFlag,
         int               inSessionCacheSize,
         const char*       inParamsPrefixPtr,
-        const Properties& inParams);
-
+        const Properties& inParams,
+        string*           inErrMsgPtr);
+    static void FreeCtx(
+        Ctx* inCtxPtr);
     SslFilter(
         Ctx&        inCtx,
         const char* inPskDataPtr        = 0,

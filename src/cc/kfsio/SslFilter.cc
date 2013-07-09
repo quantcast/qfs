@@ -29,6 +29,7 @@
 #include "IOBuffer.h"
 #include "Globals.h"
 #include "qcdio/QCMutex.h"
+#include "common/Properties.h"
 
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
@@ -109,14 +110,46 @@ public:
     }
     static Ctx* CreateCtx(
         const bool        inServerFlag,
+        const bool        inPskOnlyFlag,
         int               inSessionCacheSize,
         const char*       inParamsPrefixPtr,
-        const Properties& inParams)
+        const Properties& inParams,
+        string*           inErrMsgPtr)
     {
         SSL_CTX* const theRetPtr = SSL_CTX_new(
             inServerFlag ? TLSv1_server_method() : TLSv1_client_method());
         SSL_CTX_set_mode(theRetPtr, SSL_MODE_ENABLE_PARTIAL_WRITE);
+        Properties::String theParamName;
+        if (inParamsPrefixPtr) {
+            theParamName.Append(inParamsPrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        if (! SSL_CTX_set_cipher_list(
+            theRetPtr,
+            inParams.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                    inPskOnlyFlag ? "cipherpsk" : "cipher"),
+                inPskOnlyFlag ?
+                    "!ADH:!AECDH:!MD5:HIGH:@STRENGTH" :
+                    "!ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH"
+                ))) {
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
+        SSL_CTX_set_options(
+            theRetPtr,
+            theParamName.Truncate(thePrefLen).Append("options"),
+            (long)SSL_OP_NO_COMPRESSION
+        )
+   );
         return reinterpret_cast<Ctx*>(theRetPtr);
+    }
+    static void FreeCtx(
+        Ctx* inCtxPtr)
+    {
+        if (inCtxPtr) {
+            SSL_CTX_free(reinterpret_cast<SSL_CTX*>(inCtxPtr));
+        }
     }
     Impl(
         Ctx&        inCtx,
@@ -512,12 +545,22 @@ SslFilter::GetErrorMsg(
     /* static */ SslFilter::Ctx*
 SslFilter::CreateCtx(
     const bool        inServerFlag,
+    const bool        inPskOnlyFlag,
     int               inSessionCacheSize,
     const char*       inParamsPrefixPtr,
-    const Properties& inParams)
+    const Properties& inParams,
+    string*           inErrMsgPtr)
 {
     return Impl::CreateCtx(
-        inServerFlag, inSessionCacheSize, inParamsPrefixPtr, inParams);
+        inServerFlag, inPskOnlyFlag,
+        inSessionCacheSize, inParamsPrefixPtr, inParams, inErrMsgPtr);
+}
+
+    /* static */ void
+SslFilter::FreeCtx(
+    SslFilter::Ctx* inCtxPtr)
+{
+    Impl::FreeCtx(inCtxPtr);
 }
 
 SslFilter::SslFilter(
