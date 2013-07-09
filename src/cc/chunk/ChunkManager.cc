@@ -1114,7 +1114,7 @@ private:
         if (! IsStable() && IsFileOpen()) {
             int pendingReservationSizeDelta = 0;
             if (0 < mPendingSpaceReservationSize) {
-                pendingReservationSizeDelta = mPendingSpaceReservationSize;
+                pendingReservationSizeDelta = -mPendingSpaceReservationSize;
                 mPendingSpaceReservationSize = 0;
             }
             mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize,
