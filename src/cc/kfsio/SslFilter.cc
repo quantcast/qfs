@@ -167,6 +167,28 @@ public:
             SSL_CTX_free(theRetPtr);
             return 0;
         }
+        const char* const theX509FileNamePtr = inParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("X509PemFile"),
+            kNullStrPtr);
+        if (theX509FileNamePtr && ! SSL_CTX_use_certificate_file(
+                theRetPtr, theX509FileNamePtr, SSL_FILETYPE_PEM)) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
+        const char* const thePKeyFileNamePtr = inParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("PKeyPemFile"),
+            kNullStrPtr);
+        if (thePKeyFileNamePtr && ! SSL_CTX_use_PrivateKey_file(
+                theRetPtr, thePKeyFileNamePtr, SSL_FILETYPE_PEM)) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
         return reinterpret_cast<Ctx*>(theRetPtr);
     }
     static void FreeCtx(
