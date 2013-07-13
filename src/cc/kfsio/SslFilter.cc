@@ -150,7 +150,7 @@ public:
         }
         if (inParams.getValue(
                 theParamName.Truncate(thePrefLen).Append("verifyPeer"),
-                0) != 0) {
+                1) != 0) {
             SSL_CTX_set_verify(theRetPtr, SSL_VERIFY_PEER, 0);
         }
         const char* const kNullStrPtr  = 0;
