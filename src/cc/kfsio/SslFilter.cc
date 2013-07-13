@@ -133,15 +133,40 @@ public:
                     "!ADH:!AECDH:!MD5:HIGH:@STRENGTH" :
                     "!ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH"
                 ))) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
             SSL_CTX_free(theRetPtr);
             return 0;
         }
         SSL_CTX_set_options(
             theRetPtr,
-            theParamName.Truncate(thePrefLen).Append("options"),
-            (long)SSL_OP_NO_COMPRESSION
-        )
-   );
+            inParams.getValue(
+                theParamName.Truncate(thePrefLen).Append("options"),
+                long(SSL_OP_NO_COMPRESSION))
+        );
+        if (inPskOnlyFlag) {
+            return reinterpret_cast<Ctx*>(theRetPtr);
+        }
+        if (inParams.getValue(
+                theParamName.Truncate(thePrefLen).Append("verifyPeer"),
+                0) != 0) {
+            SSL_CTX_set_verify(theRetPtr, SSL_VERIFY_PEER, 0);
+        }
+        const char* const kNullStrPtr  = 0;
+        const char* const theCAFilePtr = inParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("CAFile"), kNullStrPtr);
+        const char* const theCADirPtr = inParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("CADir"),  kNullStrPtr);
+        if ((theCAFilePtr || theCADirPtr) &&
+                ! SSL_CTX_load_verify_locations(
+                    theRetPtr, theCAFilePtr, theCADirPtr)) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
         return reinterpret_cast<Ctx*>(theRetPtr);
     }
     static void FreeCtx(
