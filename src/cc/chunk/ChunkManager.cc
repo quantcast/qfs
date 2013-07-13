@@ -913,7 +913,7 @@ public:
     void WriteDone(const WriteOp* op = 0) {
         assert(mWritesInFlight > 0);
         mWritesInFlight--;
-        if (mPendingSpaceReservationSize > 0) {
+        if (0 < mPendingSpaceReservationSize) {
             const int pendingReservationSizeDelta =
                 -mPendingSpaceReservationSize;
             mPendingSpaceReservationSize = 0;
@@ -1114,7 +1114,7 @@ private:
         if (! IsStable() && IsFileOpen()) {
             int pendingReservationSizeDelta = 0;
             if (0 < mPendingSpaceReservationSize) {
-                pendingReservationSizeDelta = mPendingSpaceReservationSize;
+                pendingReservationSizeDelta = -mPendingSpaceReservationSize;
                 mPendingSpaceReservationSize = 0;
             }
             mChunkDir.UpdateNotStableCounts(-1, -(int)chunkInfo.chunkSize,
