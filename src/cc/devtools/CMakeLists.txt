@@ -31,6 +31,7 @@ rand-sfmt
 requestparser
 sortedhash
 stlset
+sslfiltertest
 )
 
 #
