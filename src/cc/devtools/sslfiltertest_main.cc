@@ -136,14 +136,16 @@ private:
                     }
                     break;
 
-                case EVENT_INACTIVITY_TIMEOUT:
 	        case EVENT_NET_ERROR:
+                    mConnectionPtr->SetMaxReadAhead(0);
                     if (mConnectionPtr->IsGood() &&
                             mConnectionPtr->IsWriteReady()) {
                         mCloseConnectionFlag = mCloseConnectionFlag ||
                             ! mConnectionPtr->HasPendingRead();
                         break;
                     }
+                    // Fall through
+                case EVENT_INACTIVITY_TIMEOUT:
                     mConnectionPtr->Close();
                     mConnectionPtr->GetInBuffer().Clear();
                     break;
