@@ -75,7 +75,8 @@ public:
         const char* inPskDataPtr        = 0,
         size_t      inPskDataLen        = 0,
         const char* inPskCliIdendityPtr = 0,
-        ServerPsk*  inServerPskPtr      = 0);
+        ServerPsk*  inServerPskPtr      = 0,
+        bool        inDeleteOnCloseFlag = true);
     Error GetError() const;
     void SetPsk(
         const char* inPskDataPtr,

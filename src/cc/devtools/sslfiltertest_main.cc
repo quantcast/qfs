@@ -83,6 +83,8 @@ private:
     SslFilter::Ctx* mSslCtxPtr;
     string          mPskIdentity;
     string          mPskKey;
+    int             mMaxReadAhead;
+    int             mMaxWriteBehind;
 
     class Responder : public KfsCallbackObj
     {
@@ -90,27 +92,108 @@ private:
         Responder(
             SslFilter::Ctx&       inCtx,
             SslFilter::ServerPsk& inServerPsk,
-            NetConnectionPtr&     inConnectionPtr)
+            NetConnectionPtr&     inConnectionPtr,
+            int                   inMaxReadAhead,
+            int                   inMaxWriteBehind)
             : mConnectionPtr(inConnectionPtr),
               mSslFilter(
                 inCtx,
                 0, // inPskDataPtr
                 0, // inPskDataLen
                 0, // inPskCliIdendityPtr
-                &inServerPsk)
+                &inServerPsk,
+                false // inDeleteOnCloseFlag
+              ),
+              mRecursionCount(0),
+              mCloseConnectionFlag(false),
+              mMaxReadAhead(inMaxReadAhead),
+              mMaxWriteBehind(inMaxWriteBehind)
         {
             QCASSERT(inConnectionPtr);
             SET_HANDLER(this, &Responder::EventHandler);
+            mConnectionPtr->SetFilter(&mSslFilter);
+            mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
         }
         int EventHandler(
             int   inEventCode,
             void* inEventDataPtr)
         {
+            mRecursionCount++;
+            QCASSERT(mRecursionCount >= 1);
+
+            switch (inEventCode) {
+	        case EVENT_NET_READ: {
+                    IOBuffer& theIoBuf = mConnectionPtr->GetInBuffer();
+                    QCASSERT(&theIoBuf == inEventDataPtr);
+                    // Simple echo.
+                    mConnectionPtr->Write(&theIoBuf);
+                    break;
+                }
+	        case EVENT_NET_WROTE:
+                    if (mCloseConnectionFlag &&
+                            ! mConnectionPtr->IsWriteReady()) {
+                        mConnectionPtr->Close();
+                    }
+                    break;
+
+                case EVENT_INACTIVITY_TIMEOUT:
+	        case EVENT_NET_ERROR:
+                    if (mConnectionPtr->IsGood() &&
+                            mConnectionPtr->IsWriteReady()) {
+                        mCloseConnectionFlag = mCloseConnectionFlag ||
+                            ! mConnectionPtr->HasPendingRead();
+                        break;
+                    }
+                    mConnectionPtr->Close();
+                    mConnectionPtr->GetInBuffer().Clear();
+                    break;
+
+	        default:
+                    QCASSERT(!"Unexpected event code");
+                    break;
+            }
+
+            QCASSERT(mRecursionCount >= 1);
+            if (mRecursionCount <= 1) {
+                mConnectionPtr->StartFlush();
+                if (mConnectionPtr->IsGood()) {
+                    const int kIoTimeout   = 60;
+                    const int kIdleTimeout = 600;
+                    mConnectionPtr->SetInactivityTimeout(
+                        mConnectionPtr->IsWriteReady() ?
+                            kIoTimeout : kIdleTimeout);
+                    if (mConnectionPtr->IsReadReady()) {
+                        if (IsOverWriteBehindLimit()) {
+                            // Shut down read until client unloads the data.
+                            mConnectionPtr->SetMaxReadAhead(0);
+                        }
+                    } else {
+                        if (! mCloseConnectionFlag &&
+                                ! IsOverWriteBehindLimit()) {
+                            // Set read back again.
+                            mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
+                        }
+                    }
+                } else {
+                    delete this;
+                    return 0;
+                }
+            }
+            mRecursionCount--;
             return 0;
         }
     private:
         NetConnectionPtr const mConnectionPtr;
         SslFilter              mSslFilter;
+        int                    mRecursionCount;
+        bool                   mCloseConnectionFlag;
+        const int              mMaxReadAhead;
+        const int              mMaxWriteBehind;
+
+        bool IsOverWriteBehindLimit() const
+        {
+            return (mConnectionPtr->GetNumBytesToWrite() > mMaxWriteBehind);
+        }
     private:
         Responder(
             const Responder& inResponder);
@@ -126,13 +209,12 @@ private:
           mAcceptorPtr(0),
           mSslCtxPtr(0),
           mPskIdentity(),
-          mPskKey()
-    {
-    }
+          mPskKey(),
+          mMaxReadAhead((8 << 10) - 1),
+          mMaxWriteBehind((8 << 10) - 1)
+        {}
     virtual ~SslFilterTest()
-    {
-        delete mAcceptorPtr;
-    }
+        { delete mAcceptorPtr; }
     int RunSelf(
         int    inArgsCount,
         char** inArgsPtr)
@@ -194,7 +276,13 @@ private:
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnPtr)
     {
-        return (mSslCtxPtr ? 0 : new Responder(*mSslCtxPtr, *this, inConnPtr));
+        return (mSslCtxPtr ? 0 : new Responder(
+            *mSslCtxPtr,
+            *this,
+            inConnPtr,
+            mMaxReadAhead,
+            mMaxWriteBehind
+        ));
     }
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,

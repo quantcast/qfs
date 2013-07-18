@@ -203,7 +203,8 @@ public:
         const char* inPskDataPtr,
         size_t      inPskDataLen,
         const char* inPskCliIdendityPtr,
-        ServerPsk*  inServerPskPtr)
+        ServerPsk*  inServerPskPtr,
+        bool        inDeleteOnCloseFlag)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
           mError(mSslPtr ? 0 : GetAndClearErr()),
@@ -211,7 +212,8 @@ public:
             inPskDataPtr ? inPskDataPtr : "",
             inPskDataPtr ? inPskDataLen : 0),
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
-          mServerPskPtr(inServerPskPtr)
+          mServerPskPtr(inServerPskPtr),
+          mDeleteOnCloseFlag(inDeleteOnCloseFlag)
     {
         if (mSslPtr &&
                 ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
@@ -317,7 +319,9 @@ public:
             SSL_shutdown(mSslPtr);
         }
         inConnection.SetFilter(0);
-        delete this;
+        if (mDeleteOnCloseFlag) {
+            delete this;
+        }
         inConnection.Close();
     }
     void Attach(
@@ -363,6 +367,7 @@ private:
     string           mPskData;
     string           mPskCliIdendity;
     ServerPsk* const mServerPskPtr;
+    const bool       mDeleteOnCloseFlag;
 
     struct OpenSslInit
     {
@@ -615,13 +620,15 @@ SslFilter::SslFilter(
     const char*           inPskDataPtr,
     size_t                inPskDataLen,
     const char*           inPskCliIdendityPtr,
-    SslFilter::ServerPsk* inServerPskPtr)
+    SslFilter::ServerPsk* inServerPskPtr,
+    bool                  inDeleteOnCloseFlag)
     : mImpl(*(new Impl(
         inCtx,
         inPskDataPtr,
         inPskDataLen,
         inPskCliIdendityPtr,
-        inServerPskPtr
+        inServerPskPtr,
+        inDeleteOnCloseFlag
     )))
     {}
 
