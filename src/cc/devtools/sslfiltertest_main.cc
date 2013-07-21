@@ -537,8 +537,8 @@ private:
           mNetManager(),
           mAcceptorPtr(0),
           mSslCtxPtr(0),
-          mPskIdentity(),
-          mPskKey(),
+          mPskIdentity("testid"),
+          mPskKey("test"),
           mMaxReadAhead((8 << 10) - 1),
           mMaxWriteBehind((8 << 10) - 1),
           mUseFilterFlag(true)
