@@ -112,7 +112,7 @@ NetConnection::HandleWriteEvent()
             mCallbackObj->HandleEvent(EVENT_NET_WROTE, &mOutBuffer);
         }
     }
-    mTryWrite = mOutBuffer.IsEmpty();
+    mTryWrite = ! WantWrite();
     Update(nwrote != 0);
 }
 
