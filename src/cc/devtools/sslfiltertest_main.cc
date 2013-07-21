@@ -38,6 +38,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #include <iostream>
 #include <string>
@@ -275,6 +276,16 @@ private:
         {
             QCASSERT(mInputSocket.IsGood());
             QCASSERT(mOutputSocket.IsGood());
+            if (fcntl(inInputFd, F_SETFL, O_NONBLOCK)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR << "input set non block: " <<
+                    QCUtils::SysError(theErr) << KFS_LOG_EOM;
+            }
+            if (fcntl(inOutputFd, F_SETFL, O_NONBLOCK)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR << "output set non block: " <<
+                    QCUtils::SysError(theErr) << KFS_LOG_EOM;
+            }
 
             mInputCB.SetHandler(this, &Initiator::InputHandler);
             mOutputCB.SetHandler(this, &Initiator::OutputHandler);
