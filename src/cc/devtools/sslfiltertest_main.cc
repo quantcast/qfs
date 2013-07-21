@@ -37,6 +37,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 
 #include <iostream>
 #include <string>
@@ -99,6 +100,7 @@ private:
     string          mPskKey;
     int             mMaxReadAhead;
     int             mMaxWriteBehind;
+    bool            mUseFilterFlag;
 
     static SslFilterTest* sInstancePtr;
 
@@ -110,7 +112,8 @@ private:
             SslFilter::ServerPsk& inServerPsk,
             NetConnectionPtr&     inConnectionPtr,
             int                   inMaxReadAhead,
-            int                   inMaxWriteBehind)
+            int                   inMaxWriteBehind,
+            bool                  inUseFilterFlag)
             : mConnectionPtr(inConnectionPtr),
               mPeerName(mConnectionPtr->GetPeerName() + " "),
               mSslFilter(
@@ -128,7 +131,9 @@ private:
         {
             QCASSERT(mConnectionPtr);
             SET_HANDLER(this, &Responder::EventHandler);
-            // mConnectionPtr->SetFilter(&mSslFilter);
+            if (inUseFilterFlag) {
+                mConnectionPtr->SetFilter(&mSslFilter);
+            }
             mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
             KFS_LOG_STREAM_DEBUG << mPeerName << "Responder()" <<
             KFS_LOG_EOM;
@@ -240,6 +245,8 @@ private:
             const ServerLocation& inServerLocation,
             int                   inMaxReadAhead,
             int                   inMaxWriteBehind,
+            bool                  inShutdownFlag,
+            bool                  inUserFilterFlag,
             NetManager&           inNetManager)
             : mConnectionPtr(),
               mSslFilter(
@@ -259,6 +266,8 @@ private:
               mCloseConnectionFlag(false),
               mMaxReadAhead(inMaxReadAhead),
               mMaxWriteBehind(inMaxWriteBehind),
+              mShutdownFlag(inShutdownFlag),
+              mUseFilterFlag(inUserFilterFlag),
               mNetManager(inNetManager),
               mInputCB(),
               mOutputCB(),
@@ -276,11 +285,16 @@ private:
                 &mInputSocket, &mInputCB, kListenOnlyFlag, kOwnsSocketFlag));
             mOutputConnectionPtr.reset(new NetConnection(
                 &mOutputSocket, &mOutputCB, kListenOnlyFlag, kOwnsSocketFlag));
+            mInputConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
+            mOutputConnectionPtr->SetMaxReadAhead(0);
         }
         ~Initiator()
         {
             mInputConnectionPtr->Close();
             mOutputConnectionPtr->Close();
+            if (mShutdownFlag) {
+                mNetManager.Shutdown();
+            }
         }
         bool Connect(
             string* inErrMsgPtr)
@@ -336,11 +350,20 @@ private:
                     KFS_LOG_STREAM_ERROR << "input: " <<
                         (inEventCode == EVENT_INACTIVITY_TIMEOUT  ?
                             string("input timed out") :
-                            QCUtils::SysError(errno, "")) <<
+                            (mInputConnectionPtr->IsGood() ?
+                                string("EOF") : 
+                                QCUtils::SysError(errno, ""))
+                            ) <<
                     KFS_LOG_EOM;
                     mCloseConnectionFlag = true;
                     mInputConnectionPtr->Close();
                     mInputConnectionPtr->GetInBuffer().Clear();
+                    if (! mConnectionPtr->IsWriteReady()) {
+                        mConnectionPtr->Close();
+                    }
+                    if (! mOutputConnectionPtr->IsWriteReady()) {
+                        mOutputConnectionPtr->Close();
+                    }
                     break;
 
 	        default:
@@ -397,8 +420,8 @@ private:
                     break;
                 }
 	        case EVENT_NET_WROTE:
-                    if (! mConnectionPtr->GetFilter()) {
-                        // mConnectionPtr->SetFilter(&mSslFilter);
+                    if (mUseFilterFlag && ! mConnectionPtr->GetFilter()) {
+                        mConnectionPtr->SetFilter(&mSslFilter);
                     }
                     if (mCloseConnectionFlag &&
                             ! mConnectionPtr->IsWriteReady()) {
@@ -438,6 +461,8 @@ private:
         bool                 mCloseConnectionFlag;
         const int            mMaxReadAhead;
         const int            mMaxWriteBehind;
+        const bool           mShutdownFlag;
+        const bool           mUseFilterFlag;
         NetManager&          mNetManager;
         KfsCallbackObj       mInputCB;
         KfsCallbackObj       mOutputCB;
@@ -455,6 +480,7 @@ private:
         int FlowControl()
         {
             if (mRecursionCount > 1) {
+                mRecursionCount--;
                 return 0;
             }
             QCASSERT(mRecursionCount >= 1);
@@ -514,10 +540,14 @@ private:
           mPskIdentity(),
           mPskKey(),
           mMaxReadAhead((8 << 10) - 1),
-          mMaxWriteBehind((8 << 10) - 1)
+          mMaxWriteBehind((8 << 10) - 1),
+          mUseFilterFlag(true)
         {}
     virtual ~SslFilterTest()
-        { delete mAcceptorPtr; }
+    {
+        delete mAcceptorPtr;
+        SslFilter::FreeCtx(mSslCtxPtr);
+    }
     int RunSelf(
         int    inArgsCount,
         char** inArgsPtr)
@@ -564,12 +594,19 @@ private:
             cerr << "messsage logger initialization failure\n";
             return 1;
         }
+        const int kCommPort = 14188;
         const int theAcceptPort = mProperties.getValue(
-            "sslFilterTest.acceptor.port", -1);
+            "sslFilterTest.acceptor.port", kCommPort);
         mPskKey = mProperties.getValue(
             "sslFilterTest.psk.key", mPskKey);
         mPskIdentity = mProperties.getValue(
             "sslFilterTest.psk.id", mPskIdentity);
+        mMaxReadAhead = mProperties.getValue(
+            "sslFilterTest.maxReadAhead", mMaxReadAhead);
+        mMaxWriteBehind = mProperties.getValue(
+            "sslFilterTest.maxWriteBehind", mMaxWriteBehind);
+        mUseFilterFlag = mProperties.getValue(
+            "sslFilterTest.useFilter", mUseFilterFlag ? 0 : 1) != 0;
         int theRet = 0;
         if (0 <= theAcceptPort) {
             const bool kServerFlag  = true;
@@ -580,7 +617,7 @@ private:
                     kPskOnlyFlag,
                     mProperties.getValue(
                         "sslFilterTest.sessionCacheSize", 256),
-                        "sslFilterTest",
+                        "sslFilterTest.",
                         mProperties,
                         &theErrMsg
                     ))) {
@@ -596,11 +633,62 @@ private:
                 theRet = 1;
             }
         }
-        sInstancePtr = this;
+        SslFilter::Ctx* theSslCtxPtr = 0;
         if (theRet == 0) {
-            mNetManager.MainLoop();
+            const ServerLocation theServerLocation(
+                mProperties.getValue("sslFilterTest.connect.host",
+                    string("127.0.0.1")),
+                mProperties.getValue("sslFilterTest.connect.port", kCommPort)
+            );
+            if (theServerLocation.IsValid()) {
+                const bool kServerFlag  = false;
+                const bool kPskOnlyFlag = true;
+                string     theErrMsg;
+                if (! (theSslCtxPtr = SslFilter::CreateCtx(
+                        kServerFlag,
+                        kPskOnlyFlag,
+                        mProperties.getValue(
+                            "sslFilterTest.sessionCacheSize", 256),
+                            "sslFilterTest.",
+                            mProperties,
+                            &theErrMsg
+                        ))) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "create client ssl context error: " <<
+                        theErrMsg <<
+                    KFS_LOG_EOM;
+                    theRet = 1;
+                } else {
+                    Initiator* const theClientPtr = new Initiator(
+                        fileno(stdin),  //inInputFd,
+                        fileno(stdout), // inOutputFd,
+                        *theSslCtxPtr,
+                        mPskKey,
+                        mPskIdentity,
+                        theServerLocation,
+                        mMaxReadAhead,
+                        mMaxWriteBehind,
+                        ! mAcceptorPtr, // Shutdown if no acceptor.
+                        mUseFilterFlag,
+                        mNetManager
+                    );
+                    if (! theClientPtr->Connect(&theErrMsg)) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "connect to server error: " <<
+                            theErrMsg <<
+                        KFS_LOG_EOM;
+                        theRet = 1;
+                        delete theClientPtr;
+                    }
+                }
+            }
         }
-        sInstancePtr = 0;
+        if (theRet == 0) {
+            sInstancePtr = this;
+            mNetManager.MainLoop();
+            sInstancePtr = 0;
+        }
+        SslFilter::FreeCtx(theSslCtxPtr);
         MsgLogger::Stop();
         return 0;
     }
@@ -623,7 +711,8 @@ private:
             *this,
             inConnPtr,
             mMaxReadAhead,
-            mMaxWriteBehind
+            mMaxWriteBehind,
+            mUseFilterFlag
         ) : 0);
     }
     virtual unsigned long GetPsk(
