@@ -372,8 +372,8 @@ public:
              if (inSize < mStr.size()) {
                 mStr.resize(inSize);
              }
-        } else if (inSize < mSize) {
-            mSize = inSize;
+        } else if (inSize < (size_t)mSize) {
+            mSize = (int)inSize;
             mBuf[mSize] = 0;
         }
         return *this;
