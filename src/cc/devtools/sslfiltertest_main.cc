@@ -67,7 +67,7 @@ public:
             theRet = 1;
         } else {
             SslFilterTest theTest;
-            theRet = theTest.Run(inArgsCount, inArgsPtr);
+            theRet = theTest.RunSelf(inArgsCount, inArgsPtr);
         }
         theErr = SslFilter::Cleanup();
         if (theErr) {
@@ -115,7 +115,7 @@ private:
         {
             QCASSERT(inConnectionPtr);
             SET_HANDLER(this, &Responder::EventHandler);
-            mConnectionPtr->SetFilter(&mSslFilter);
+            // mConnectionPtr->SetFilter(&mSslFilter);
             mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
         }
         int EventHandler(
@@ -377,7 +377,7 @@ private:
                 }
 	        case EVENT_NET_WROTE:
                     if (! mConnectionPtr->GetFilter()) {
-                        mConnectionPtr->SetFilter(&mSslFilter);
+                        // mConnectionPtr->SetFilter(&mSslFilter);
                     }
                     if (mCloseConnectionFlag &&
                             ! mConnectionPtr->IsWriteReady()) {
@@ -506,7 +506,7 @@ private:
         string thePropsStr;
         const char kDelim = '=';
         const bool kVerboseFlag = true;
-        for (int i = 1; i < inArgsCount; ) {
+        for (int i = 1; i < inArgsCount; ++i) {
             if (strcmp(inArgsPtr[i], "-c") == 0) {
                 if (inArgsCount <= ++i) {
                     Usage(inArgsPtr[0]);
@@ -538,10 +538,44 @@ private:
                 return 1;
             }
         }
-        MsgLogger::Init(mProperties, "SslFilterTest.");
+        MsgLogger::Init(mProperties, "sslFilterTest.");
         if (! MsgLogger::GetLogger()) {
             cerr << "messsage logger initialization failure\n";
             return 1;
+        }
+        const int theAcceptPort = mProperties.getValue(
+            "sslFilterTest.acceptor.port", -1);
+        mPskKey = mProperties.getValue(
+            "sslFilterTest.psk.key", mPskKey);
+        mPskIdentity = mProperties.getValue(
+            "sslFilterTest.psk.id", mPskIdentity);
+        int theRet = 0;
+        if (0 <= theAcceptPort) {
+            const bool kServerFlag  = true;
+            const bool kPskOnlyFlag = true;
+            string theErrMsg;  
+            if (! (mSslCtxPtr = SslFilter::CreateCtx(
+                    kServerFlag,
+                    kPskOnlyFlag,
+                    mProperties.getValue(
+                        "sslFilterTest.sessionCacheSize", 256),
+                        "sslFilterTest",
+                        mProperties,
+                        &theErrMsg
+                    ))) {
+                KFS_LOG_STREAM_ERROR << "create server ssl context error: " <<
+                    theErrMsg <<
+                KFS_LOG_EOM;
+                theRet = 1;
+            } else if (! (mAcceptorPtr = new Acceptor(theAcceptPort, this))) {
+                KFS_LOG_STREAM_ERROR << "listen: port: " << theAcceptPort <<
+                    " :" << QCUtils::SysError(errno) <<
+                KFS_LOG_EOM;
+                theRet = 1;
+            }
+        }
+        if (theRet == 0) {
+            mNetManager.MainLoop();
         }
         MsgLogger::Stop();
         return 0;
