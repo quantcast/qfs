@@ -82,6 +82,13 @@ public:
             Cleanup();
             return theErr;
         }
+        // Create ssl cts to ensure that all ssl libs static / globals are
+        // properly initialized, to help to avoid any possible races.
+        SSL_CTX* const theCtxPtr = SSL_CTX_new(TLSv1_method());
+        if (theCtxPtr) {
+            SSL_free(SSL_new(theCtxPtr));
+            SSL_CTX_free(theCtxPtr);
+        }
         return 0;
     }
     static Error Cleanup()
@@ -279,7 +286,7 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        const int theRet = DoHandshake();
+        int theRet = DoHandshake();
         if (theRet) {
             return theRet;
         }
@@ -292,8 +299,7 @@ public:
                 ++theIt;
                 continue;
             }
-            const int theRet = SSL_write(mSslPtr, theIt->Consumer(), theNWr);
-            if (theRet <= 0) {
+            if ((theRet = SSL_write(mSslPtr, theIt->Consumer(), theNWr)) <= 0) {
                 break;
             }
             theWrCnt += theRet;
@@ -303,12 +309,11 @@ public:
         if (0 < theWrCnt) {
             globals().ctrNetBytesWritten.Update(theWrCnt);
         }
-        bool theEofFlag = false;
-        const int theErr = SslRetToErr(theRet, theEofFlag);
-        if (theWrCnt <= 0 || (theErr != -EAGAIN && theErr != -EINTR)) {
-            return theErr;
+        if (0 < theWrCnt) {
+            return theWrCnt;
         }
-        return theWrCnt;
+        bool theEofFlag = false;
+        return SslRetToErr(theRet, theEofFlag);
     }
     void Close(
         NetConnection& inConnection,
@@ -328,10 +333,18 @@ public:
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr)
     {
-        if (! inSocketPtr || ! inSocketPtr->IsGood() || mSslPtr) {
+        if (! inSocketPtr || ! inSocketPtr->IsGood() || ! mSslPtr) {
             return;
         }
         SSL_set_fd(mSslPtr, inSocketPtr->GetFd());
+        if (SSL_in_before(mSslPtr)) {
+            const int theRet = SSL_in_connect_init(mSslPtr) ?
+                SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
+            if (theRet <= 0) {
+                bool theEofFlag = false;
+                SslRetToErr(theRet, theEofFlag);
+            }
+        }
     }
     void Detach(
         NetConnection& inConnection,
@@ -354,7 +367,7 @@ public:
             return -EINVAL;
         }
         const int theRet = SSL_read(mSslPtr, inBufPtr, inNumRead);
-        if (theRet > 0) {
+        if (0 < theRet) {
             return theRet;
         }
         bool theEofFlag = false;
