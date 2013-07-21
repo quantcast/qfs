@@ -36,6 +36,7 @@
 #include "qcdio/QCUtils.h"
 
 #include <errno.h>
+#include <signal.h>
 
 #include <iostream>
 #include <string>
@@ -58,6 +59,9 @@ public:
         int    inArgsCount,
         char** inArgsPtr)
     {
+        signal(SIGINT,  &SslFilterTest::Shutdown);
+        signal(SIGQUIT, &SslFilterTest::Shutdown);
+        signal(SIGPIPE, SIG_IGN);
         libkfsio::InitGlobals();
         SslFilter::Error theErr = SslFilter::Initialize();
         int theRet;
@@ -80,6 +84,12 @@ public:
         libkfsio::DestroyGlobals();
         return theRet;
     }
+    static void Shutdown(int /* inSignal */)
+    {
+        if (sInstancePtr) {
+            sInstancePtr->ShutdownSelf();
+        }
+    };
 private:
     Properties      mProperties;
     NetManager      mNetManager;
@@ -89,6 +99,8 @@ private:
     string          mPskKey;
     int             mMaxReadAhead;
     int             mMaxWriteBehind;
+
+    static SslFilterTest* sInstancePtr;
 
     class Responder : public KfsCallbackObj
     {
@@ -100,6 +112,7 @@ private:
             int                   inMaxReadAhead,
             int                   inMaxWriteBehind)
             : mConnectionPtr(inConnectionPtr),
+              mPeerName(mConnectionPtr->GetPeerName() + " "),
               mSslFilter(
                 inCtx,
                 0, // inPskDataPtr
@@ -113,10 +126,17 @@ private:
               mMaxReadAhead(inMaxReadAhead),
               mMaxWriteBehind(inMaxWriteBehind)
         {
-            QCASSERT(inConnectionPtr);
+            QCASSERT(mConnectionPtr);
             SET_HANDLER(this, &Responder::EventHandler);
             // mConnectionPtr->SetFilter(&mSslFilter);
             mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
+            KFS_LOG_STREAM_DEBUG << mPeerName << "Responder()" <<
+            KFS_LOG_EOM;
+        }
+        virtual ~Responder()
+        {
+            KFS_LOG_STREAM_DEBUG << mPeerName << "~Responder()" <<
+            KFS_LOG_EOM;
         }
         int EventHandler(
             int   inEventCode,
@@ -190,6 +210,7 @@ private:
         }
     private:
         NetConnectionPtr const mConnectionPtr;
+        string const           mPeerName;
         SslFilter              mSslFilter;
         int                    mRecursionCount;
         bool                   mCloseConnectionFlag;
@@ -567,19 +588,24 @@ private:
                     theErrMsg <<
                 KFS_LOG_EOM;
                 theRet = 1;
-            } else if (! (mAcceptorPtr = new Acceptor(theAcceptPort, this))) {
+            } else if (! (mAcceptorPtr = new Acceptor(
+                    mNetManager, theAcceptPort, this))) {
                 KFS_LOG_STREAM_ERROR << "listen: port: " << theAcceptPort <<
                     " :" << QCUtils::SysError(errno) <<
                 KFS_LOG_EOM;
                 theRet = 1;
             }
         }
+        sInstancePtr = this;
         if (theRet == 0) {
             mNetManager.MainLoop();
         }
+        sInstancePtr = 0;
         MsgLogger::Stop();
         return 0;
     }
+    void ShutdownSelf()
+        { mNetManager.Shutdown(); }
     void Usage(
         const char* inNamePtr)
     {
@@ -592,13 +618,13 @@ private:
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnPtr)
     {
-        return (mSslCtxPtr ? 0 : new Responder(
+        return (mSslCtxPtr ? new Responder(
             *mSslCtxPtr,
             *this,
             inConnPtr,
             mMaxReadAhead,
             mMaxWriteBehind
-        ));
+        ) : 0);
     }
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,
@@ -626,6 +652,7 @@ private:
     SslFilterTest& operator=(
         const SslFilterTest& inTest);
 };
+SslFilterTest* SslFilterTest::sInstancePtr = 0;
 
 }
 
