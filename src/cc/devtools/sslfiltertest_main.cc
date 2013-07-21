@@ -625,12 +625,14 @@ private:
                     theErrMsg <<
                 KFS_LOG_EOM;
                 theRet = 1;
-            } else if (! (mAcceptorPtr = new Acceptor(
-                    mNetManager, theAcceptPort, this))) {
-                KFS_LOG_STREAM_ERROR << "listen: port: " << theAcceptPort <<
-                    " :" << QCUtils::SysError(errno) <<
-                KFS_LOG_EOM;
-                theRet = 1;
+            } else {
+                mAcceptorPtr = new Acceptor(mNetManager, theAcceptPort, this);
+                if (! mAcceptorPtr->IsAcceptorStarted()) {
+                    KFS_LOG_STREAM_ERROR << "listen: port: " << theAcceptPort <<
+                        ": " << QCUtils::SysError(errno) <<
+                    KFS_LOG_EOM;
+                    theRet = 1;
+                }
             }
         }
         SslFilter::Ctx* theSslCtxPtr = 0;
