@@ -374,6 +374,22 @@ public:
         const int theErr = SslRetToErr(theRet, theEofFlag);
         return (theEofFlag ? 0 : theErr);
     }
+    bool IsHandshakeDone() const
+        { return (mSslPtr && mError == 0 && SSL_is_init_finished(mSslPtr)); }
+    string GetPeerName() const
+    {
+        if (mError != 0 || ! mSslPtr) {
+            return string();
+        }
+        if (SSL_get_verify_result(mSslPtr) != X509_V_OK) {
+            return string();
+        }
+        X509* const theCertPtr = SSL_get_peer_certificate(mSslPtr);
+        if (! theCertPtr) {
+            return string();
+        }
+        return GetCommonName(X509_get_subject_name(theCertPtr));
+    }
 private:
     SSL*             mSslPtr;
     unsigned long    mError;
@@ -512,6 +528,27 @@ private:
             mPskCliIdendity.c_str(), mPskCliIdendity.size() + 1);
         memcpy(inPskBufferPtr, mPskData.data(), mPskData.size());
         return (unsigned int)mPskData.size();
+    }
+    static string GetCommonName(
+       X509_NAME* inNamePtr)
+    {
+        if (! inNamePtr) {
+            return string();
+        }
+        ASN1_STRING* const theStrPtr = X509_NAME_ENTRY_get_data(
+            X509_NAME_get_entry(
+                inNamePtr,
+                X509_NAME_get_index_by_NID(inNamePtr, NID_commonName, -1)
+            )
+        );
+        int theLen;
+        if (! theStrPtr || (theLen = M_ASN1_STRING_length(theStrPtr)) <= 0) {
+            return string();
+        }
+        return string(
+            reinterpret_cast<const char*>(M_ASN1_STRING_data(theStrPtr)),
+            theLen
+        );
     }
     int DoHandshake()
     {
@@ -720,6 +757,18 @@ SslFilter::Detach(
     TcpSocket*     inSocketPtr)
 {
     mImpl.Detach(inConnection, inSocketPtr);
+}
+
+    bool
+SslFilter::IsHandshakeDone() const
+{
+    return mImpl.IsHandshakeDone();
+}
+
+    string
+SslFilter::GetPeerName() const
+{
+    return mImpl.GetPeerName();
 }
 
 }
