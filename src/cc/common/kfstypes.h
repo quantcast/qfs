@@ -117,6 +117,15 @@ const int KFS_STRIPE_ALIGNMENT = 4096;
 const int KFS_MIN_STRIPE_SIZE  = KFS_STRIPE_ALIGNMENT;
 const int KFS_MAX_STRIPE_SIZE  = (int)CHUNKSIZE;
 
+enum AuthenticationType
+{
+    kAuthenticationTypeUndef = 0x0,
+    kAuthenticationTypeNone  = 0x1,
+    kAuthenticationTypeKrb5  = 0x2,
+    kAuthenticationTypeX509  = 0x4
+};
+const int kMaxAuthenticationContentLength = 64 << 10;
+
 }
 
 #endif // COMMON_KFSTYPES_H

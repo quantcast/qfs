@@ -135,6 +135,7 @@ ClientSM::ClientSM(
       mClientProtoVers(KFS_CLIENT_PROTO_VERS),
       mDisconnectFlag(false),
       mLastReadLeft(0),
+      mAuthenticateOp(0),
       mClientThread(thread),
       mNext(0)
 {
@@ -153,6 +154,7 @@ ClientSM::ClientSM(
 
 ClientSM::~ClientSM()
 {
+    delete mAuthenticateOp;
     QCStMutexLocker locker(gNetDispatch.GetClientManagerMutex());
     ClientSMList::Remove(sClientSMPtr, *this);
     sClientCount--;
@@ -228,6 +230,7 @@ ClientSM::HandleRequest(int code, void *data)
             iobuf.Clear(); // Discard
         }
         assert(data == &iobuf);
+        HandleAuthenticate(iobuf);
         // Do not start new op if response does not get unloaded by
         // the client to prevent out of buffers.
         bool overWriteBehindFlag = false;
@@ -438,7 +441,61 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->fromClientSMFlag = true;
     op->clnt             = this;
     mPendingOpsCount++;
-    ClientManager::SubmitRequest(mClientThread, *op);
+    if (op->op == META_AUTHENTICATE) {
+        assert(! mAuthenticateOp);
+        mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
+        HandleAuthenticate(iobuf);
+    } else {
+        ClientManager::SubmitRequest(mClientThread, *op);
+    }
+}
+
+void
+ClientSM::HandleAuthenticate(IOBuffer& iobuf)
+{
+    if (! mAuthenticateOp) {
+        return;
+    }
+    if (mAuthenticateOp->status != 0) {
+    }
+    if (mAuthenticateOp->contentBufPos <= 0) {
+        delete [] mAuthenticateOp->contentBuf;
+        mAuthenticateOp->contentBuf    = 0;
+        mAuthenticateOp->contentBufPos = 0;
+        if (mNetConnection->GetFilter()) {
+            // If filter already exits then do not allow authentication for now,
+            // as this might require changing the filter / ssl on both sides.
+            mAuthenticateOp->status    = -EINVAL;
+            mAuthenticateOp->statusMsg = "re-authentication is not supported";
+        } else if (! mAuthenticateOp->contentBuf) {
+            if (kMaxAuthenticationContentLength <
+                    mAuthenticateOp->contentLength) {
+                mAuthenticateOp->status    = -EINVAL;
+                mAuthenticateOp->statusMsg = "content length exceeds limit";
+            } else if (mAuthenticateOp->contentLength > 0) {
+                mAuthenticateOp->contentBuf =
+                    new char [mAuthenticateOp->contentLength];
+                mAuthenticateOp->contentBuf = 0;
+            }
+        }
+    }
+    if (mAuthenticateOp->contentBuf) {
+        mAuthenticateOp->contentBufPos += iobuf.CopyOut(
+            mAuthenticateOp->contentBuf + mAuthenticateOp->contentBufPos,
+            mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos);
+    } else {
+        mAuthenticateOp->contentBufPos += iobuf.Consume(
+            mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos);
+    }
+    mNetConnection->SetMaxReadAhead(max(sMaxReadAhead,
+        mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos));
+    if (mAuthenticateOp->contentBufPos < mAuthenticateOp->contentLength) {
+        return;
+    }
+    MetaRequest* const op = mAuthenticateOp;
+    mAuthenticateOp = 0;
+    mPendingOpsCount++;
+    HandleRequest(EVENT_CMD_DONE, op);
 }
 
 } // namespace KFS

@@ -136,7 +136,8 @@ using std::oct;
     f(CHOWN) \
     f(CHUNK_AVAILABLE) \
     f(CHUNKDIR_INFO) \
-    f(GET_CHUNK_SERVER_DIRS_COUNTERS)
+    f(GET_CHUNK_SERVER_DIRS_COUNTERS) \
+    f(AUTHENTICATE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -187,6 +188,7 @@ struct MetaRequest {
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
     bool            fromClientSMFlag;
+    bool            secureFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        euser;
@@ -208,6 +210,7 @@ struct MetaRequest {
           suspended(false),
           fromChunkServerFlag(false),
           fromClientSMFlag(false),
+          secureFlag(false),
           clientIp(),
           reqHeaders(),
           euser(kKfsUserNone),
@@ -2396,12 +2399,49 @@ struct MetaDisconnect : public MetaRequest {
     {
         // Suppress warning with requests with no version filed.
         clientProtoVers = KFS_CLIENT_PROTO_VERS;
-        }
+    }
     virtual void handle()                {}
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "disconnect"; }
     virtual int log(ostream &file) const { return 0; }
     bool Validate()                      { return true; }
+};
+
+struct MetaAuthenticate : public MetaRequest {
+    int         authType;
+    int         contentLength;
+    char*       contentBuf;
+    int         contentBufPos;
+    int         responseAuthType;
+    const char* responseContentPtr;
+    int         responseContentLen;
+
+    MetaAuthenticate()
+        : MetaRequest(META_AUTHENTICATE, false),
+          authType(kAuthenticationTypeUndef),
+          contentLength(0),
+          contentBufPos(0),
+          responseAuthType(kAuthenticationTypeUndef),
+          responseContentPtr(0),
+          responseContentLen(0)
+          {}
+    virtual ~MetaAuthenticate()
+    {
+        delete [] contentBuf;
+    }
+    virtual void handle() {}
+    virtual ostream& ShowSelf(ostream& os) const
+        { return os << "authenticate"; }
+    virtual void response(ostream& os);
+    virtual int log(ostream& /* file */) const { return 0; }
+    bool Validate()                            { return true; }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def("Auth-type",       &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
+        .Def("Content-length",  &MetaAuthenticate::contentLength, int(0))
+        ;
+    }
 };
 
 /*!

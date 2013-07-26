@@ -3604,6 +3604,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaGetPathName          >("GETPATHNAME")
     .MakeParser<MetaChown                >("CHOWN")
     .MakeParser<MetaChmod                >("CHMOD")
+    .MakeParser<MetaAuthenticate         >("AUTHENTICATE")
     ;
 }
 static const MetaRequestHandler& sMetaRequestHandler = MakeMetaRequestHandler();
@@ -4143,6 +4144,21 @@ void
 MetaChown::response(ostream& os)
 {
     PutHeader(this, os) << "\r\n";
+}
+
+void
+MetaAuthenticate::response(ostream& os)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    os << "Auth-type: " << responseAuthType << "\r\n";
+    if (responseContentLen <= 0) {
+        return;
+    }
+    os << "Content-length: " << responseContentLen << "\r\n"
+    "\r\n";
+    os.write(responseContentPtr, responseContentLen);
 }
 
 /*!

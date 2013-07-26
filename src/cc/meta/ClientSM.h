@@ -85,6 +85,7 @@ private:
     int                                mClientProtoVers;
     bool                               mDisconnectFlag;
     int                                mLastReadLeft;
+    MetaAuthenticate*                  mAuthenticateOp;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
@@ -100,6 +101,7 @@ private:
     void SendResponse(MetaRequest *op);
     bool IsOverPendingOpsLimit() const
         { return (mPendingOpsCount >= sMaxPendingOps); }
+    void HandleAuthenticate(IOBuffer& iobuf);
 
     static int  sMaxPendingOps;
     static int  sMaxPendingBytes;
