@@ -37,6 +37,7 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/SslFilter.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/time.h"
@@ -689,9 +690,13 @@ public:
           mCliTail(0),
           mReqPendingHead(0),
           mReqPendingTail(0),
-          mFlushQueue(8 << 10)
+          mFlushQueue(8 << 10),
+          mAuthContext(),
+          mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
     {
         mNetManager.RegisterTimeoutHandler(this);
+        gLayoutManager.UpdateClientAuthContext(
+            mAuthCtxUpdateCount, mAuthContext);
     }
     virtual ~ClientThread()
     {
@@ -731,6 +736,11 @@ public:
     virtual void Timeout()
     {
         gNetDispatch.PrepareToFork();
+        if (gLayoutManager.GetAuthCtxUpdateCount() != mAuthCtxUpdateCount) {
+            QCStMutexLocker locker(gNetDispatch.GetMutex());
+            gLayoutManager.UpdateClientAuthContext(
+                mAuthCtxUpdateCount, mAuthContext);
+        }
         MetaRequest* nextReq;
         if (mReqPendingHead) {
             // Dispatch requests.
@@ -867,6 +877,8 @@ public:
     }
     void Wakeup()
         { mNetManager.Wakeup(); }
+    AuthContext& GetAuthContext()
+        { return mAuthContext; }
 private:
     typedef vector<NetConnectionPtr> FlushQueue;
 
@@ -881,6 +893,8 @@ private:
     MetaRequest*       mReqPendingHead;
     MetaRequest*       mReqPendingTail;
     FlushQueue         mFlushQueue;
+    AuthContext        mAuthContext;
+    uint64_t           mAuthCtxUpdateCount;
     char               mParseBuffer[MAX_RPC_HEADER_LEN];
 
     const NetConnectionPtr& GetConnection(MetaRequest& op)
@@ -1075,6 +1089,13 @@ ClientManager::SubmitRequestSelf(ClientManager::ClientThread* thread,
 {
     assert(thread);
     thread->Add(op);
+}
+
+/* static */ AuthContext&
+ClientManager::GetAuthContext(ClientThread* inThread)
+{
+    return (inThread ? inThread->GetAuthContext() :
+        gLayoutManager.GetClientAuthContext());
 }
 
 } // namespace KFS

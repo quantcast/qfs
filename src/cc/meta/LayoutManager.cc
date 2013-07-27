@@ -1291,6 +1291,7 @@ LayoutManager::LayoutManager() :
     mMaxLocalPlacementWeight(1.0),
     mTotalWritableDrivesMult(0.),
     mConfig(),
+    mConfigParameters(),
     mDefaultUser(kKfsUserNone),      // Request defaults
     mDefaultGroup(kKfsGroupNone),
     mDefaultFileMode(0644),
@@ -1305,6 +1306,9 @@ LayoutManager::LayoutManager() :
     mHostUserGroupRemap(),
     mLastUidGidRemap(),
     mIoBufPending(0),
+    mAuthCtxUpdateCount(0),
+    mClientAuthContext(),
+    mCSAuthContext(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
     mServersTmp(),
@@ -1879,9 +1883,20 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             }
         }
     }
+    mConfigParameters = props;
+    mCSAuthContext.SetParameters(
+        "metaServer.CSAuthentication", mConfigParameters);
+    UpdateClientAuth(mClientAuthContext);
+
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
+}
+
+void
+LayoutManager::UpdateClientAuth(AuthContext& ctx)
+{
+    ctx.SetParameters("metaServer.clientAuthentication", mConfigParameters);
 }
 
 void

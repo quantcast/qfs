@@ -42,6 +42,7 @@ NetDispatch.cc
 Replay.cc
 Restorer.cc
 util.cc
+AuthContext.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})

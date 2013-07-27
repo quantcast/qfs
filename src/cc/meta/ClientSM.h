@@ -46,6 +46,7 @@ namespace KFS
 using std::string;
 
 class Properties;
+class AuthContext;
 struct MetaRequest;
 
 class ClientSM : public KfsCallbackObj
@@ -86,6 +87,7 @@ private:
     bool                               mDisconnectFlag;
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
+    string                             mUserName;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
@@ -102,6 +104,7 @@ private:
     bool IsOverPendingOpsLimit() const
         { return (mPendingOpsCount >= sMaxPendingOps); }
     void HandleAuthenticate(IOBuffer& iobuf);
+    inline AuthContext& GetAuthContext();
 
     static int  sMaxPendingOps;
     static int  sMaxPendingBytes;

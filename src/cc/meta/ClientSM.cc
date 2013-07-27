@@ -40,6 +40,7 @@
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "AuditLog.h"
+#include "AuthContext.h"
 
 #include <string>
 #include <sstream>
@@ -71,6 +72,12 @@ PeerIp(const NetConnectionPtr& conn)
         return peer;
     }
     return peer.substr(0, pos);
+}
+
+inline AuthContext&
+ClientSM::GetAuthContext()
+{
+    return (ClientManager::GetAuthContext(mClientThread));
 }
 
 int  ClientSM::sMaxPendingOps             = 1;
@@ -136,6 +143,7 @@ ClientSM::ClientSM(
       mDisconnectFlag(false),
       mLastReadLeft(0),
       mAuthenticateOp(0),
+      mUserName(),
       mClientThread(thread),
       mNext(0)
 {
@@ -459,39 +467,29 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     if (mAuthenticateOp->status != 0) {
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
-        delete [] mAuthenticateOp->contentBuf;
-        mAuthenticateOp->contentBuf    = 0;
-        mAuthenticateOp->contentBufPos = 0;
         if (mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication for now,
             // as this might require changing the filter / ssl on both sides.
             mAuthenticateOp->status    = -EINVAL;
             mAuthenticateOp->statusMsg = "re-authentication is not supported";
-        } else if (! mAuthenticateOp->contentBuf) {
-            if (kMaxAuthenticationContentLength <
-                    mAuthenticateOp->contentLength) {
-                mAuthenticateOp->status    = -EINVAL;
-                mAuthenticateOp->statusMsg = "content length exceeds limit";
-            } else if (mAuthenticateOp->contentLength > 0) {
-                mAuthenticateOp->contentBuf =
-                    new char [mAuthenticateOp->contentLength];
-                mAuthenticateOp->contentBuf = 0;
-            }
+            delete [] mAuthenticateOp->contentBuf;
+            mAuthenticateOp->contentBufPos = 0;
+        } else {
+            GetAuthContext().Validate(*mAuthenticateOp);
         }
     }
+    int rem = mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos;
     if (mAuthenticateOp->contentBuf) {
-        mAuthenticateOp->contentBufPos += iobuf.CopyOut(
-            mAuthenticateOp->contentBuf + mAuthenticateOp->contentBufPos,
-            mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos);
-    } else {
-        mAuthenticateOp->contentBufPos += iobuf.Consume(
-            mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos);
+        rem = iobuf.CopyOut(
+            mAuthenticateOp->contentBuf + mAuthenticateOp->contentBufPos, rem);
     }
+    mAuthenticateOp->contentBufPos += iobuf.Consume(rem);
     mNetConnection->SetMaxReadAhead(max(sMaxReadAhead,
         mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos));
     if (mAuthenticateOp->contentBufPos < mAuthenticateOp->contentLength) {
         return;
     }
+    GetAuthContext().Authenticate(*mAuthenticateOp, mUserName);
     MetaRequest* const op = mAuthenticateOp;
     mAuthenticateOp = 0;
     mPendingOpsCount++;

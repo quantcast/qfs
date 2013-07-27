@@ -50,6 +50,7 @@
 #include "MetaRequest.h"
 #include "CSMap.h"
 #include "ChunkPlacement.h"
+#include "AuthContext.h"
 
 #include <map>
 #include <tr1/unordered_map>
@@ -1166,6 +1167,18 @@ public:
             RackInfoRackIdLess::sUnused, RackInfoRackIdLess(id));
         return ((it == last || it->id() != id) ? last : it);
     }
+    uint64_t GetAuthCtxUpdateCount() const
+        { return mAuthCtxUpdateCount; }
+    void UpdateClientAuthContext(uint64_t& authCtxUpdateCount, AuthContext& authCtx)
+    {
+        if (authCtxUpdateCount == mAuthCtxUpdateCount) {
+            return;
+        }
+        UpdateClientAuth(authCtx);
+        authCtxUpdateCount = mAuthCtxUpdateCount;
+    }
+    AuthContext& GetClientAuthContext()
+        { return mClientAuthContext; }
 protected:
     class RackInfoRackIdLess
     {
@@ -1753,6 +1766,7 @@ protected:
     double  mMaxLocalPlacementWeight;
     double  mTotalWritableDrivesMult;
     string  mConfig;
+    Properties mConfigParameters;
 
     kfsUid_t  mDefaultUser;
     kfsGid_t  mDefaultGroup;
@@ -1800,7 +1814,10 @@ protected:
     };
     LastUidGidRemap mLastUidGidRemap;
 
-    volatile int64_t mIoBufPending;
+    volatile int64_t  mIoBufPending;
+    volatile uint64_t mAuthCtxUpdateCount;
+    AuthContext       mClientAuthContext;
+    AuthContext       mCSAuthContext;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;
@@ -1964,6 +1981,7 @@ protected:
         return FindRackT(mRacks.begin(), mRacks.end(), id);
     }
     bool FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier);
+    void UpdateClientAuth(AuthContext& ctx);
 };
 
 extern LayoutManager& gLayoutManager;

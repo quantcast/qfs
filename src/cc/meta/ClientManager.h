@@ -39,6 +39,7 @@ namespace KFS
 {
 
 class ClientSM;
+class AuthContext;
 
 class ClientManager
 {
@@ -52,6 +53,7 @@ public:
     void Shutdown();
     void ChildAtFork();
     QCMutex& GetMutex();
+    static AuthContext& GetAuthContext(ClientThread* inThread);
     static bool Enqueue(ClientThread* thread, MetaRequest& op)
     {
         if (op.next == &op) {
