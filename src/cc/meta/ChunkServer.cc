@@ -287,6 +287,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mDownReason(),
       mOstream(),
       mRecursionCount(0),
+      mCSName(),
+      mAuthenticateOp(0),
       mHelloOp(0),
       mSelfPtr(),
       mSrvLoadSampler(sSrvLoadSamplerSampleCount, 0, TimeNow()),
@@ -340,6 +342,7 @@ ChunkServer::~ChunkServer()
     }
     RemoveFromPendingHelloList();
     delete mHelloOp;
+    delete mAuthenticateOp;
     ChunkServersList::Remove(sChunkServersPtr, *this);
     sChunkServerCount--;
 }
@@ -496,13 +499,16 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(&iobuf == data);
         bool gotMsgHdr;
         int  msgLen = 0;
-        while ((gotMsgHdr = mHelloOp || IsMsgAvail(&iobuf, &msgLen))) {
+        while ((gotMsgHdr = mAuthenticateOp || mHelloOp ||
+                    IsMsgAvail(&iobuf, &msgLen))) {
             const int retval = HandleMsg(&iobuf, msgLen);
             if (retval < 0) {
                 iobuf.Clear();
                 Error(mHelloDone ?
                     "request or response parse error" :
-                    "failed to parse hello message");
+                    (mAuthenticateOp ?
+                        mAuthenticateOp->statusMsg.c_str() :
+                        "failed to parse hello message"));
                 break;
             }
             if (retval > 0) {
@@ -522,8 +528,8 @@ ChunkServer::HandleRequest(int code, void *data)
     }
 
     case EVENT_CMD_DONE: {
-        assert(mHelloDone && data);
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
+        assert(data && (mHelloDone || op->op == META_AUTHENTICATE));
         if (! mDown) {
             SendResponse(op);
         }
@@ -831,9 +837,18 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
 
     const bool hasHelloOpFlag = mHelloOp != 0;
     if (! hasHelloOpFlag) {
-        MetaRequest * const op = GetOp(*iobuf, msgLen, "invalid hello");
+        MetaRequest * const op = mAuthenticateOp ? mAuthenticateOp :
+            GetOp(*iobuf, msgLen, "invalid hello");
         if (! op) {
             return -1;
+        }
+        if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
+            mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
+        }
+        if (mAuthenticateOp) {
+            iobuf->Consume(msgLen);
+            Authenticate(*iobuf);
+            return 0;
         }
         if (op->op != META_HELLO) {
             ShowLines(MsgLogger::kLogLevelERROR,
@@ -854,8 +869,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
+        if (mCSName.empty() && mNetConnection->GetFilter()) {
+            mCSName = mNetConnection->GetFilter()->GetPeerName();
+        }
         mHelloOp = static_cast<MetaHello*>(op);
-        if (! gLayoutManager.Validate(*mHelloOp)) {
+        if (! gLayoutManager.Validate(*mHelloOp, mCSName)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"
                 " location: " << mHelloOp->ToString() <<
@@ -1099,9 +1117,18 @@ ChunkServer::HandleCmd(IOBuffer *iobuf, int msgLen)
 {
     assert(mHelloDone);
 
-    MetaRequest * const op = GetOp(*iobuf, msgLen, "invalid request");
+    MetaRequest* const op = mAuthenticateOp ? mAuthenticateOp :
+        GetOp(*iobuf, msgLen, "invalid request");
     if (! op) {
         return -1;
+    }
+    if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
+        mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
+    }
+    if (mAuthenticateOp) {
+        iobuf->Consume(msgLen);
+        Authenticate(*iobuf);
+        return 0;
     }
     // Message is ready to be pushed down.  So remove it.
     iobuf->Consume(msgLen);
@@ -1892,6 +1919,42 @@ ChunkServer::UpdateStorageTiersSelf(
         }
         mStorageTiersInfoDelta[i].Delta(mStorageTiersInfo[i]);
     }
+}
+
+void
+ChunkServer::Authenticate(IOBuffer& iobuf)
+{
+    if (! mAuthenticateOp) {
+        return;
+    }
+    if (mAuthenticateOp->contentBufPos <= 0) {
+        mCSName.clear();
+        if (mNetConnection->GetFilter()) {
+            // If filter already exits then do not allow authentication
+            // for now, as this might require changing the filter / ssl
+            // on both sides.
+            mAuthenticateOp->status    = -EINVAL;
+            mAuthenticateOp->statusMsg = "re-authentication is not supported";
+            delete [] mAuthenticateOp->contentBuf;
+            mAuthenticateOp->contentBufPos = 0;
+        } else {
+            gLayoutManager.GetCSAuthContext().Validate(
+                *mAuthenticateOp);
+        }
+    }
+    const int rem = mAuthenticateOp->Read(iobuf);
+    if (0 < rem) {
+        mNetConnection->SetMaxReadAhead(max(kMaxReadAhead, rem));
+        return;
+    }
+    gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp);
+    if (mAuthenticateOp->status == 0) {
+        mCSName = mAuthenticateOp->authUserName;
+    }
+    MetaRequest* const op = mAuthenticateOp;
+    mAuthenticateOp = 0;
+    op->clnt = this;
+    HandleRequest(EVENT_CMD_DONE, op);
 }
 
 } // namespace KFS

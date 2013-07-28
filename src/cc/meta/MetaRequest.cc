@@ -4448,4 +4448,15 @@ MetaChunkServerRestart::request(ostream &os)
     ;
 }
 
+int
+MetaAuthenticate::Read(IOBuffer& iobuf)
+{
+    int rem = contentLength - contentBufPos;
+    if (contentBuf) {
+        rem = iobuf.CopyOut(contentBuf + contentBufPos, rem);
+    }
+    contentBufPos += iobuf.Consume(rem);
+    return (contentLength - contentBufPos);
+}
+
 } /* namespace KFS */

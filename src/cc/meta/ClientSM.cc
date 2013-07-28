@@ -445,9 +445,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
+    if (mUserName.empty() && mNetConnection->GetFilter()) {
+        mUserName = mNetConnection->GetFilter()->GetPeerName();
+    }
     op->clientIp         = mClientIp;
     op->fromClientSMFlag = true;
     op->clnt             = this;
+    op->authUserName     = mUserName;
     mPendingOpsCount++;
     if (op->op == META_AUTHENTICATE) {
         assert(! mAuthenticateOp);
@@ -464,9 +468,8 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     if (! mAuthenticateOp) {
         return;
     }
-    if (mAuthenticateOp->status != 0) {
-    }
     if (mAuthenticateOp->contentBufPos <= 0) {
+        mUserName.clear();
         if (mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication for now,
             // as this might require changing the filter / ssl on both sides.
@@ -478,20 +481,20 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
             GetAuthContext().Validate(*mAuthenticateOp);
         }
     }
-    int rem = mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos;
-    if (mAuthenticateOp->contentBuf) {
-        rem = iobuf.CopyOut(
-            mAuthenticateOp->contentBuf + mAuthenticateOp->contentBufPos, rem);
-    }
-    mAuthenticateOp->contentBufPos += iobuf.Consume(rem);
-    mNetConnection->SetMaxReadAhead(max(sMaxReadAhead,
-        mAuthenticateOp->contentLength - mAuthenticateOp->contentBufPos));
-    if (mAuthenticateOp->contentBufPos < mAuthenticateOp->contentLength) {
+    const int rem = mAuthenticateOp->Read(iobuf);
+    if (0 < rem) {
+        mNetConnection->SetMaxReadAhead(max(sMaxReadAhead, rem));
         return;
     }
-    GetAuthContext().Authenticate(*mAuthenticateOp, mUserName);
+    GetAuthContext().Authenticate(*mAuthenticateOp);
+    if (mAuthenticateOp->status == 0) {
+        mUserName = mAuthenticateOp->authUserName;
+    }
     MetaRequest* const op = mAuthenticateOp;
     mAuthenticateOp = 0;
+    op->clientIp         = mClientIp;
+    op->fromClientSMFlag = true;
+    op->clnt             = this;
     mPendingOpsCount++;
     HandleRequest(EVENT_CMD_DONE, op);
 }

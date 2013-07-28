@@ -94,8 +94,14 @@ AuthContext::Validate(
 
     bool
 AuthContext::Authenticate(
-    MetaAuthenticate& inOp,
-    string&           outUserName)
+    MetaAuthenticate& inOp)
+{
+    return true;
+}
+
+    bool
+AuthContext::Validate(
+    const string& inUserName) const
 {
     return true;
 }

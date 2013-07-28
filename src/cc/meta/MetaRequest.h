@@ -190,6 +190,7 @@ struct MetaRequest {
     bool            fromClientSMFlag;
     bool            secureFlag;
     string          clientIp;
+    string          authUserName;
     IOBuffer        reqHeaders;
     kfsUid_t        euser;
     kfsGid_t        egroup;
@@ -212,6 +213,7 @@ struct MetaRequest {
           fromClientSMFlag(false),
           secureFlag(false),
           clientIp(),
+          authUserName(),
           reqHeaders(),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
@@ -2435,6 +2437,7 @@ struct MetaAuthenticate : public MetaRequest {
     virtual void response(ostream& os);
     virtual int log(ostream& /* file */) const { return 0; }
     bool Validate()                            { return true; }
+    int Read(IOBuffer& iobuf);
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)

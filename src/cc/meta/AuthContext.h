@@ -44,8 +44,9 @@ public:
     bool Validate(
         MetaAuthenticate& inOp);
     bool Authenticate(
-        MetaAuthenticate& inOp,
-        string&           outUserName);
+        MetaAuthenticate& inOp);
+    bool Validate(
+        const string& inUserName) const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters);

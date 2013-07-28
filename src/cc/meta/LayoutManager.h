@@ -1058,7 +1058,7 @@ public:
     int64_t GetFreeIoBufferByteCount() const;
     void Done(MetaChunkVersChange& req);
     virtual void Timeout();
-    bool Validate(MetaHello& r) const;
+    bool Validate(MetaHello& r, const string& authCSName) const;
     void UpdateDelayedRecovery(const MetaFattr& fa, bool forceUpdateFlag = false);
     bool HasWriteAppendLease(chunkId_t chunkId) const;
     void ScheduleRestartChunkServers();
@@ -1179,6 +1179,8 @@ public:
     }
     AuthContext& GetClientAuthContext()
         { return mClientAuthContext; }
+    AuthContext& GetCSAuthContext()
+        { return mCSAuthContext; }
 protected:
     class RackInfoRackIdLess
     {

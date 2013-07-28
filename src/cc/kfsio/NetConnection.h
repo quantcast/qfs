@@ -84,6 +84,8 @@ public:
             {}
         virtual void Detach(NetConnection& con, TcpSocket* sock)
             {}
+        virtual string GetPeerName() const
+            { return string(); }
     protected:
         Filter()
             {}
