@@ -104,7 +104,7 @@ public:
     virtual void Detach(
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr);
-    virtual string GetPeerName() const;
+    virtual string GetAuthName() const;
     bool IsHandshakeDone() const;
 private:
     class Impl;

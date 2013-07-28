@@ -287,7 +287,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mDownReason(),
       mOstream(),
       mRecursionCount(0),
-      mCSName(),
+      mAuthName(),
       mAuthenticateOp(0),
       mHelloOp(0),
       mSelfPtr(),
@@ -514,6 +514,7 @@ ChunkServer::HandleRequest(int code, void *data)
             if (retval > 0) {
                 break; // Need more data
             }
+            msgLen = 0;
         }
         if (! mDown && ! gotMsgHdr && iobuf.BytesConsumable() >
                 kMaxRequestResponseHeader) {
@@ -847,8 +848,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         }
         if (mAuthenticateOp) {
             iobuf->Consume(msgLen);
-            Authenticate(*iobuf);
-            return 0;
+            return Authenticate(*iobuf);
         }
         if (op->op != META_HELLO) {
             ShowLines(MsgLogger::kLogLevelERROR,
@@ -869,11 +869,12 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
-        if (mCSName.empty() && mNetConnection->GetFilter()) {
-            mCSName = mNetConnection->GetFilter()->GetPeerName();
+        if (mAuthName.empty() && mNetConnection->GetFilter()) {
+            mAuthName = mNetConnection->GetFilter()->GetAuthName();
         }
+        op->authName = mAuthName;
         mHelloOp = static_cast<MetaHello*>(op);
-        if (! gLayoutManager.Validate(*mHelloOp, mCSName)) {
+        if (! gLayoutManager.Validate(*mHelloOp)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"
                 " location: " << mHelloOp->ToString() <<
@@ -1122,17 +1123,20 @@ ChunkServer::HandleCmd(IOBuffer *iobuf, int msgLen)
     if (! op) {
         return -1;
     }
+    if (op->op == META_HELLO) {
+        delete op;
+        return -1;
+    }
+    // Message is ready to be pushed down.  So remove it.
+    iobuf->Consume(msgLen);
     if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
         mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
     }
     if (mAuthenticateOp) {
-        iobuf->Consume(msgLen);
-        Authenticate(*iobuf);
-        return 0;
+        return Authenticate(*iobuf);
     }
-    // Message is ready to be pushed down.  So remove it.
-    iobuf->Consume(msgLen);
-    op->clnt = this;
+    op->authName = mAuthName;
+    op->clnt     = this;
     submit_request(op);
     return 0;
 }
@@ -1921,15 +1925,15 @@ ChunkServer::UpdateStorageTiersSelf(
     }
 }
 
-void
+int
 ChunkServer::Authenticate(IOBuffer& iobuf)
 {
     if (! mAuthenticateOp) {
-        return;
+        return 0;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
-        mCSName.clear();
-        if (mNetConnection->GetFilter()) {
+        mAuthName.clear();
+        if (mNetConnection->GetFilter() || mHelloDone) {
             // If filter already exits then do not allow authentication
             // for now, as this might require changing the filter / ssl
             // on both sides.
@@ -1938,23 +1942,23 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
             delete [] mAuthenticateOp->contentBuf;
             mAuthenticateOp->contentBufPos = 0;
         } else {
-            gLayoutManager.GetCSAuthContext().Validate(
-                *mAuthenticateOp);
+            gLayoutManager.GetCSAuthContext().Validate(*mAuthenticateOp);
         }
     }
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
         mNetConnection->SetMaxReadAhead(max(kMaxReadAhead, rem));
-        return;
+        return rem;
     }
     gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp);
     if (mAuthenticateOp->status == 0) {
-        mCSName = mAuthenticateOp->authUserName;
+        mAuthName = mAuthenticateOp->authName;
     }
     MetaRequest* const op = mAuthenticateOp;
     mAuthenticateOp = 0;
     op->clnt = this;
     HandleRequest(EVENT_CMD_DONE, op);
+    return 0;
 }
 
 } // namespace KFS

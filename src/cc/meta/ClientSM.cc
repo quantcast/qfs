@@ -143,7 +143,7 @@ ClientSM::ClientSM(
       mDisconnectFlag(false),
       mLastReadLeft(0),
       mAuthenticateOp(0),
-      mUserName(),
+      mAuthName(),
       mClientThread(thread),
       mNext(0)
 {
@@ -445,13 +445,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
-    if (mUserName.empty() && mNetConnection->GetFilter()) {
-        mUserName = mNetConnection->GetFilter()->GetPeerName();
+    if (mAuthName.empty() && mNetConnection->GetFilter()) {
+        mAuthName = mNetConnection->GetFilter()->GetAuthName();
     }
     op->clientIp         = mClientIp;
     op->fromClientSMFlag = true;
     op->clnt             = this;
-    op->authUserName     = mUserName;
+    op->authName         = mAuthName;
     mPendingOpsCount++;
     if (op->op == META_AUTHENTICATE) {
         assert(! mAuthenticateOp);
@@ -469,7 +469,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         return;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
-        mUserName.clear();
+        mAuthName.clear();
         if (mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication for now,
             // as this might require changing the filter / ssl on both sides.
@@ -488,7 +488,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     }
     GetAuthContext().Authenticate(*mAuthenticateOp);
     if (mAuthenticateOp->status == 0) {
-        mUserName = mAuthenticateOp->authUserName;
+        mAuthName = mAuthenticateOp->authName;
     }
     MetaRequest* const op = mAuthenticateOp;
     mAuthenticateOp = 0;

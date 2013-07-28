@@ -1058,7 +1058,7 @@ public:
     int64_t GetFreeIoBufferByteCount() const;
     void Done(MetaChunkVersChange& req);
     virtual void Timeout();
-    bool Validate(MetaHello& r, const string& authCSName) const;
+    bool Validate(MetaHello& r) const;
     void UpdateDelayedRecovery(const MetaFattr& fa, bool forceUpdateFlag = false);
     bool HasWriteAppendLease(chunkId_t chunkId) const;
     void ScheduleRestartChunkServers();

@@ -1916,7 +1916,7 @@ LayoutManager::UpdateReplicationsThreshold()
  *  matches one of the acceptable md5's.
  */
 bool
-LayoutManager::Validate(MetaHello& r, const string& authCSName) const
+LayoutManager::Validate(MetaHello& r) const
 {
     if (r.clusterKey != mClusterKey) {
         r.statusMsg = "cluster key mismatch:"
@@ -1925,9 +1925,9 @@ LayoutManager::Validate(MetaHello& r, const string& authCSName) const
         r.status = -EBADCLUSTERKEY;
         return false;
     }
-    if (! mCSAuthContext.Validate(authCSName)) {
+    if (! mCSAuthContext.Validate(r.authName)) {
         r.statusMsg = "chunk server authentication required, "
-            " chunk server authenticated name '" + authCSName + "' not valid";
+            " chunk server authenticated name '" + r.authName + "' not valid";
         r.status = -EBADCLUSTERKEY;
     }
     if (mChunkServerMd5sums.empty() || find(

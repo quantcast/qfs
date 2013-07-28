@@ -87,7 +87,7 @@ private:
     bool                               mDisconnectFlag;
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
-    string                             mUserName;
+    string                             mAuthName;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];

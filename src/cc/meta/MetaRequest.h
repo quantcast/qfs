@@ -190,7 +190,7 @@ struct MetaRequest {
     bool            fromClientSMFlag;
     bool            secureFlag;
     string          clientIp;
-    string          authUserName;
+    string          authName;
     IOBuffer        reqHeaders;
     kfsUid_t        euser;
     kfsGid_t        egroup;
@@ -213,7 +213,7 @@ struct MetaRequest {
           fromClientSMFlag(false),
           secureFlag(false),
           clientIp(),
-          authUserName(),
+          authName(),
           reqHeaders(),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),

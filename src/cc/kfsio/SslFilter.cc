@@ -376,7 +376,7 @@ public:
     }
     bool IsHandshakeDone() const
         { return (mSslPtr && mError == 0 && SSL_is_init_finished(mSslPtr)); }
-    string GetPeerName() const
+    string GetAuthName() const
     {
         if (mError != 0 || ! mSslPtr) {
             return string();
@@ -766,9 +766,9 @@ SslFilter::IsHandshakeDone() const
 }
 
     string
-SslFilter::GetPeerName() const
+SslFilter::GetAuthName() const
 {
-    return mImpl.GetPeerName();
+    return mImpl.GetAuthName();
 }
 
 }

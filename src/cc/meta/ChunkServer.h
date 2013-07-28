@@ -949,7 +949,7 @@ protected:
     string             mDownReason;
     IOBuffer::WOStream mOstream;
     int                mRecursionCount;
-    string             mCSName;
+    string             mAuthName;
     MetaAuthenticate*  mAuthenticateOp;
     MetaHello*         mHelloOp;
     ChunkServerPtr     mSelfPtr;
@@ -1091,7 +1091,7 @@ protected:
         { UpdateStorageTiersSelf("", 0, 0, 0); }
     void UpdateStorageTiersSelf(const char* buf, size_t len,
         int deviceCount, int writableChunkCount);
-    void Authenticate(IOBuffer& iobuf);
+    int Authenticate(IOBuffer& iobuf);
 };
 
 } // namespace KFS
