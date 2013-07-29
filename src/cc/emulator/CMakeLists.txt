@@ -52,11 +52,43 @@ set (exe_files rebalanceplanner rebalanceexecutor replicachecker)
 foreach (exe_file ${exe_files})
         add_executable (${exe_file} ${exe_file}_main.cc)
         if (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} kfsEmulator kfsMeta kfsIO kfsCommon qcdio pthread ${OPENSSL_LIBRARIES})
-           add_dependencies (${exe_file} kfsEmulator kfsCommon kfsIO qcdio kfsMeta)
+            target_link_libraries (${exe_file}
+                kfsEmulator
+                kfsMeta
+                kfsIO
+                kfsCommon
+                qcdio
+                qfskrb
+                pthread
+                ${OPENSSL_LIBRARIES}
+            )
+            add_dependencies (${exe_file}
+                kfsEmulator
+                kfsCommon
+                kfsIO
+                qcdio
+                qfskrb
+                kfsMeta
+            )
         else (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} kfsEmulator-shared kfsMeta-shared kfsIO-shared kfsCommon-shared qcdio-shared pthread ${OPENSSL_LIBRARIES})
-           add_dependencies (${exe_file} kfsEmulator-shared kfsCommon-shared kfsIO-shared kfsMeta-shared qcdio-shared)
+            target_link_libraries (${exe_file}
+                kfsEmulator-shared
+                kfsMeta-shared
+                kfsIO-shared
+                kfsCommon-shared
+                qcdio-shared
+                qfskrb-shared
+                pthread
+                ${OPENSSL_LIBRARIES}
+            )
+            add_dependencies (${exe_file}
+                kfsEmulator-shared
+                kfsCommon-shared
+                kfsIO-shared
+                kfsMeta-shared
+                qcdio-shared
+                qfskrb-shared
+            )
         endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 

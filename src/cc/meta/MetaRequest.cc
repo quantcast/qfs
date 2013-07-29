@@ -4152,7 +4152,10 @@ MetaAuthenticate::response(ostream& os)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Auth-type: " << responseAuthType << "\r\n";
+    os <<
+        "Auth-type: " << responseAuthType << "\r\n"
+        "Use-ssl: "   << filter << "\r\n"
+    ;
     if (responseContentLen <= 0) {
         return;
     }

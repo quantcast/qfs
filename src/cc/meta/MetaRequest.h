@@ -39,6 +39,7 @@
 
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/NetConnection.h"
 #include "common/Properties.h"
 #include "common/StBuffer.h"
 #include "common/StdAllocator.h"
@@ -2410,13 +2411,14 @@ struct MetaDisconnect : public MetaRequest {
 };
 
 struct MetaAuthenticate : public MetaRequest {
-    int         authType;
-    int         contentLength;
-    char*       contentBuf;
-    int         contentBufPos;
-    int         responseAuthType;
-    const char* responseContentPtr;
-    int         responseContentLen;
+    int                    authType;
+    int                    contentLength;
+    char*                  contentBuf;
+    int                    contentBufPos;
+    int                    responseAuthType;
+    const char*            responseContentPtr;
+    int                    responseContentLen;
+    NetConnection::Filter* filter;
 
     MetaAuthenticate()
         : MetaRequest(META_AUTHENTICATE, false),
@@ -2425,11 +2427,13 @@ struct MetaAuthenticate : public MetaRequest {
           contentBufPos(0),
           responseAuthType(kAuthenticationTypeUndef),
           responseContentPtr(0),
-          responseContentLen(0)
+          responseContentLen(0),
+          filter(0)
           {}
     virtual ~MetaAuthenticate()
     {
         delete [] contentBuf;
+        delete filter;
     }
     virtual void handle() {}
     virtual ostream& ShowSelf(ostream& os) const

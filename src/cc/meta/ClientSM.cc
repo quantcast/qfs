@@ -239,6 +239,9 @@ ClientSM::HandleRequest(int code, void *data)
         }
         assert(data == &iobuf);
         HandleAuthenticate(iobuf);
+        if (mAuthenticateOp) {
+            break;
+        }
         // Do not start new op if response does not get unloaded by
         // the client to prevent out of buffers.
         bool overWriteBehindFlag = false;
@@ -257,8 +260,11 @@ ClientSM::HandleRequest(int code, void *data)
                 break;
             }
             HandleClientCmd(iobuf, cmdLen);
+            if (mAuthenticateOp) {
+                break;
+            }
         }
-        if (overWriteBehindFlag) {
+        if (overWriteBehindFlag || mAuthenticateOp) {
             break;
         }
         if (! IsOverPendingOpsLimit() && ! mDisconnectFlag) {
@@ -287,16 +293,18 @@ ClientSM::HandleRequest(int code, void *data)
         if (sAuditLoggingFlag && ! op->reqHeaders.IsEmpty()) {
             AuditLog::Log(*op);
         }
+        const bool deleteOpFlag = op != mAuthenticateOp;
         SendResponse(op);
-        delete op;
+        if (deleteOpFlag) {
+            delete op;
+        }
         mPendingOpsCount--;
         if (! mNetConnection) {
             break;
         }
         if (mRecursionCnt <= 1 &&
                 (mPendingOpsCount <= 0 ||
-                ! ClientManager::Flush(
-                    mClientThread, *this))) {
+                ! ClientManager::Flush(mClientThread, *this))) {
             mNetConnection->StartFlush();
         }
     }
@@ -304,17 +312,38 @@ ClientSM::HandleRequest(int code, void *data)
     case EVENT_NET_WROTE:
         // Something went out on the network.
         // Process next command.
+        if (mAuthenticateOp && ! mNetConnection->IsWriteReady()) {
+            if (mAuthenticateOp->status != 0 ||
+                    mNetConnection->HasPendingRead()) {
+                mDisconnectFlag = true;
+                if (mAuthenticateOp->status != 0) {
+                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                        "authentication failure:" <<
+                        " status: " << mAuthenticateOp->status <<
+                        " " << mAuthenticateOp->statusMsg <<
+                    KFS_LOG_EOM;
+                } else {
+                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                        "authentication failure:" <<
+                        " status: " << mAuthenticateOp->status <<
+                        " out of order data received" <<
+                    KFS_LOG_EOM;
+                }
+            } else if (mAuthenticateOp->filter) {
+                mNetConnection->SetFilter(mAuthenticateOp->filter);
+                mAuthenticateOp->filter = 0;
+            }
+            delete mAuthenticateOp;
+            mAuthenticateOp = 0;
+        }
         if (! IsOverPendingOpsLimit() &&
                 mRecursionCnt <= 1 &&
-                (code == EVENT_CMD_DONE ||
-                    ! mNetConnection->IsReadReady()) &&
-                mNetConnection->GetNumBytesToWrite() <
-                    sMaxWriteBehind) {
-            if (mNetConnection->GetNumBytesToRead() >
-                    mLastReadLeft ||
+                ! mAuthenticateOp &&
+                (code == EVENT_CMD_DONE || ! mNetConnection->IsReadReady()) &&
+                mNetConnection->GetNumBytesToWrite() < sMaxWriteBehind) {
+            if (mNetConnection->GetNumBytesToRead() > mLastReadLeft ||
                     mDisconnectFlag) {
-                HandleRequest(EVENT_NET_READ,
-                    &mNetConnection->GetInBuffer());
+                HandleRequest(EVENT_NET_READ, &mNetConnection->GetInBuffer());
             } else if (! mNetConnection->IsReadReady()) {
                 mNetConnection->SetMaxReadAhead(sMaxReadAhead);
             }
@@ -346,14 +375,12 @@ ClientSM::HandleRequest(int code, void *data)
     if (mRecursionCnt <= 1) {
         bool goodFlag = mNetConnection && mNetConnection->IsGood();
         if (goodFlag && (mPendingOpsCount <= 0 ||
-                ! ClientManager::Flush(
-                    mClientThread, *this))) {
+                ! ClientManager::Flush(mClientThread, *this))) {
             mNetConnection->StartFlush();
             goodFlag = mNetConnection && mNetConnection->IsGood();
         }
         if (goodFlag && mDisconnectFlag) {
-            if (mPendingOpsCount <= 0 &&
-                    ! mNetConnection->IsWriteReady()) {
+            if (mPendingOpsCount <= 0 &&  ! mNetConnection->IsWriteReady()) {
                 mNetConnection->Close();
                 goodFlag = false;
             } else {
@@ -363,8 +390,7 @@ ClientSM::HandleRequest(int code, void *data)
         if (goodFlag) {
             IOBuffer& inbuf = mNetConnection->GetInBuffer();
             int numBytes = inbuf.BytesConsumable();
-            if (numBytes <= sBufCompactionThreshold &&
-                    numBytes > 0) {
+            if (numBytes <= sBufCompactionThreshold && numBytes > 0) {
                 inbuf.MakeBuffersFull();
             }
             IOBuffer& outbuf = mNetConnection->GetOutBuffer();
@@ -375,10 +401,8 @@ ClientSM::HandleRequest(int code, void *data)
             }
             if (mNetConnection->IsReadReady() &&
                     (IsOverPendingOpsLimit() ||
-                    mNetConnection->GetNumBytesToWrite() >=
-                        sMaxWriteBehind ||
-                    mNetConnection->GetNumBytesToRead() >=
-                        sMaxPendingBytes)) {
+                    mNetConnection->GetNumBytesToWrite() >= sMaxWriteBehind ||
+                    mNetConnection->GetNumBytesToRead()  >= sMaxPendingBytes)) {
                 mLastReadLeft = 0;
                 mNetConnection->SetMaxReadAhead(0);
             }
@@ -483,20 +507,21 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     }
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
-        mNetConnection->SetMaxReadAhead(max(sMaxReadAhead, rem));
+        mNetConnection->SetMaxReadAhead(rem);
         return;
     }
-    GetAuthContext().Authenticate(*mAuthenticateOp);
-    if (mAuthenticateOp->status == 0) {
-        mAuthName = mAuthenticateOp->authName;
+    if (! iobuf.IsEmpty()) {
+        mAuthenticateOp->status    = -EINVAL;
+        mAuthenticateOp->statusMsg = "out of order data received";
     }
-    MetaRequest* const op = mAuthenticateOp;
-    mAuthenticateOp = 0;
-    op->clientIp         = mClientIp;
-    op->fromClientSMFlag = true;
-    op->clnt             = this;
+    GetAuthContext().Authenticate(*mAuthenticateOp);
+    mDisconnectFlag = mAuthenticateOp->status != 0;
+    mAuthenticateOp->clientIp         = mClientIp;
+    mAuthenticateOp->fromClientSMFlag = true;
+    mAuthenticateOp->clnt             = this;
     mPendingOpsCount++;
-    HandleRequest(EVENT_CMD_DONE, op);
+    HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
+    return;
 }
 
 } // namespace KFS

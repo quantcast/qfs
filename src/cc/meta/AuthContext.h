@@ -46,13 +46,13 @@ public:
     bool Authenticate(
         MetaAuthenticate& inOp);
     bool Validate(
-        const string& inUserName) const;
+        const string& inAuthName) const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters);
 private:
     class Impl;
-    Impl* mImplPtr;
+    Impl& mImpl;
 
 private:
     AuthContext(

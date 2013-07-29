@@ -86,10 +86,10 @@ public:
             {}
         virtual string GetAuthName() const
             { return string(); }
+        virtual ~Filter()
+            {}
     protected:
         Filter()
-            {}
-        virtual ~Filter()
             {}
     };
 
