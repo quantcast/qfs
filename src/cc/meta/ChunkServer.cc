@@ -497,54 +497,81 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(mNetConnection);
         IOBuffer& iobuf = mNetConnection->GetInBuffer();
         assert(&iobuf == data);
+        if (mAuthenticateOp) {
+            Authenticate(iobuf);
+            if (mAuthenticateOp) {
+                break;
+            }
+        }
         bool gotMsgHdr;
         int  msgLen = 0;
-        while ((gotMsgHdr = mAuthenticateOp || mHelloOp ||
-                    IsMsgAvail(&iobuf, &msgLen))) {
+        while ((gotMsgHdr = mHelloOp || IsMsgAvail(&iobuf, &msgLen))) {
             const int retval = HandleMsg(&iobuf, msgLen);
             if (retval < 0) {
                 iobuf.Clear();
                 Error(mHelloDone ?
                     "request or response parse error" :
                     (mAuthenticateOp ?
-                        mAuthenticateOp->statusMsg.c_str() :
+                        (mAuthenticateOp->statusMsg.empty() ?
+                            "invalid authenticate message" :
+                            mAuthenticateOp->statusMsg.c_str()) :
                         "failed to parse hello message"));
                 break;
             }
-            if (retval > 0) {
+            if (retval > 0 || mAuthenticateOp) {
                 break; // Need more data
             }
             msgLen = 0;
         }
-        if (! mDown && ! gotMsgHdr && iobuf.BytesConsumable() >
-                kMaxRequestResponseHeader) {
+        if (! mDown && ! gotMsgHdr &&
+                iobuf.BytesConsumable() > kMaxRequestResponseHeader) {
             iobuf.Clear();
             Error(mHelloDone ?
-                "request or response header length"
-                    " exceeds max allowed" :
-                "hello message header length"
-                    " exceeds max allowed");
+                "request or response header length exceeds max allowed" :
+                "hello message header length exceeds max allowed");
         }
         break;
     }
 
     case EVENT_CMD_DONE: {
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
-        assert(data && (mHelloDone || op->op == META_AUTHENTICATE));
+        assert(data && (mHelloDone || mAuthenticateOp == op));
+        const bool deleteOpFlag = op != mAuthenticateOp;
         if (! mDown) {
             SendResponse(op);
         }
         // nothing left to be done...get rid of it
-        delete op;
+        if (deleteOpFlag) {
+            delete op;
+        }
         break;
     }
 
     case EVENT_NET_WROTE:
+        if (mAuthenticateOp) {
+            if (! mNetConnection || ! mNetConnection->IsWriteReady()) {
+                if (mNetConnection) {
+                    if (mAuthenticateOp->status != 0) {
+                        const string msg = mAuthenticateOp->statusMsg;
+                        delete mAuthenticateOp;
+                        mAuthenticateOp  = 0;
+                        Error(msg.empty() ?
+                            "authentication error" : msg.c_str());
+                        break;
+                    }
+                    if (mAuthenticateOp->filter) {
+                        mNetConnection->SetFilter(mAuthenticateOp->filter);
+                        mAuthenticateOp->filter = 0;
+                    }
+                }
+                delete mAuthenticateOp;
+                mAuthenticateOp  = 0;
+            }
+            break;
+        }
         if (! mHelloDone &&
-                mNetConnection &&
-                ! mNetConnection->IsWriteReady()) {
-            Error("hello error "
-                "cluster key or md5sum mismatch");
+                mNetConnection && ! mNetConnection->IsWriteReady()) {
+            Error("hello error cluster key or md5sum mismatch");
         }
         // Something went out on the network.
         break;
@@ -1933,7 +1960,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
         mAuthName.clear();
-        if (mNetConnection->GetFilter() || mHelloDone) {
+        if (mHelloDone || mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication
             // for now, as this might require changing the filter / ssl
             // on both sides.
@@ -1947,17 +1974,19 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     }
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
-        mNetConnection->SetMaxReadAhead(max(kMaxReadAhead, rem));
+        mNetConnection->SetMaxReadAhead(rem);
         return rem;
+    }
+    if (! iobuf.IsEmpty() && mAuthenticateOp->status == 0) {
+        mAuthenticateOp->status    = -EINVAL;
+        mAuthenticateOp->statusMsg = "out of order data received";
     }
     gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp);
     if (mAuthenticateOp->status == 0) {
         mAuthName = mAuthenticateOp->authName;
     }
-    MetaRequest* const op = mAuthenticateOp;
-    mAuthenticateOp = 0;
-    op->clnt = this;
-    HandleRequest(EVENT_CMD_DONE, op);
+    mAuthenticateOp->clnt = this;
+    HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
 }
 

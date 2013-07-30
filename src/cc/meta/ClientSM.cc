@@ -510,12 +510,12 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mNetConnection->SetMaxReadAhead(rem);
         return;
     }
-    if (! iobuf.IsEmpty()) {
+    if (! iobuf.IsEmpty() && mAuthenticateOp->status == 0) {
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     }
     GetAuthContext().Authenticate(*mAuthenticateOp);
-    mDisconnectFlag = mAuthenticateOp->status != 0;
+    mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->clientIp         = mClientIp;
     mAuthenticateOp->fromClientSMFlag = true;
     mAuthenticateOp->clnt             = this;
