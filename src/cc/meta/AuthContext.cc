@@ -28,33 +28,43 @@
 
 #include "MetaRequest.h"
 #include "common/Properties.h"
+#include "common/MsgLogger.h"
 #include "kfsio/SslFilter.h"
 #include "krb/KrbService.h"
 #include "qcdio/qcdebug.h"
 
 #include <algorithm>
 #include <string>
+#include <sstream>
+#include <iomanip>
+
+#include <boost/scoped_ptr.hpp>
 
 namespace KFS
 {
 using std::string;
 using std::max;
+using std::ostringstream;
+using std::hex;
+using boost::scoped_ptr;
 
 class AuthContext::Impl
 {
 public:
     Impl()
-        : mKrbServicePtr(0),
+        : mServiceName(),
+          mServiceHost(),
+          mKeytab(),
+          mPrincUnparseMode(),
+          mCopyToMemKeytabFlag(false),
+          mKrbServicePtr(),
           mSslCtxPtr(0),
           mX509SslCtxPtr(0),
-          mPrincipalUnparseFlags(0)
+          mPrincipalUnparseFlags(0),
+          mMemKeytabGen(0)
         {}
     ~Impl()
-    {
-        delete mKrbServicePtr;
-        SslFilter::FreeCtx(mSslCtxPtr);
-        SslFilter::FreeCtx(mX509SslCtxPtr);
-    }
+        {}
     bool Validate(
         MetaAuthenticate& inOp)
     {
@@ -69,7 +79,7 @@ public:
             }
             QCASSERT(0 < inOp.contentLength);
         } else if (inOp.authType == kAuthenticationTypeX509) {
-            if (! mX509SslCtxPtr) {
+            if (! mX509SslCtxPtr.Get()) {
                 inOp.status    = -ENOENT;
                 inOp.statusMsg = "authentication type is not configured";
                 return false;
@@ -128,7 +138,7 @@ public:
                 inOp.responseContentLen = 0;
                 return false;
             }
-            if (! mSslCtxPtr) {
+            if (! mSslCtxPtr.Get()) {
                 if (inOp.status == 0) {
                     inOp.authName         = theAuthName;
                     inOp.responseAuthType = inOp.authType;
@@ -143,7 +153,7 @@ public:
             SslFilter::ServerPsk* kServerPskPtr         = 0;
             const bool            kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mSslCtxPtr,
+                *mSslCtxPtr.Get(),
                 theSessionKeyPtr,
                 (size_t)max(0, theSessionKeyLen),
                 kPskClientIdentityPtr,
@@ -166,14 +176,14 @@ public:
             return (inOp.status == 0);
         }
         if (inOp.authType == kAuthenticationTypeX509) {
-            QCASSERT(mX509SslCtxPtr);
+            QCASSERT(mX509SslCtxPtr.Get());
             const char*           kSessionKeyPtr        = 0;
             size_t                kSessionKeyLen        = 0;
             const char*           kPskClientIdentityPtr = 0;
             SslFilter::ServerPsk* kServerPskPtr         = 0;
             const bool            kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mX509SslCtxPtr,
+                *mX509SslCtxPtr.Get(),
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
@@ -200,19 +210,158 @@ public:
     bool Validate(
         const string& inAuthName) const
     {
-        return ((! mKrbServicePtr && ! mX509SslCtxPtr) || ! inAuthName.empty());
+        return ((! mKrbServicePtr &&
+            ! mX509SslCtxPtr.Get()) || ! inAuthName.empty());
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters)
     {
-        return true;
+        bool               theOkFlag = true;
+        KrbServicePtr      theKrbServicePtr;
+        SslCtxPtr          theSslCtxPtr;
+        SslCtxPtr          theX509SslCtxPtr;
+        Properties::String theParamName;
+        if (inParamNamePrefixPtr) {
+            theParamName.Append(inParamNamePrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        const string theServiceName = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.service"),
+            mServiceName
+        );
+        const string theServiceHost = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.host"),
+            mServiceHost
+        );
+        const string theKeytab = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.keytab"),
+            mKeytab
+        );
+        const string thePrincUnparseMode = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.princUnparseMode"),
+            mPrincUnparseMode
+        );
+        const bool theCopyToMemKeytabFlag = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.copyToMemKeytab"),
+            1
+        ) != 0;
+        int thePrincipalUnparseFlags = 0;
+        if (! theServiceName.empty()) {
+            mMemKeytabGen++;
+            ostringstream theStream;
+            theStream << (void*)this << hex << mMemKeytabGen;
+            const string theMemTabName     = theStream.str();
+            const bool   kDetectReplayFlag = false;
+            // No replay detection is needed, as either AP_REP or TLS-PSK are
+            // used. Both these mechanisms are sufficient to protect against
+            // replay attach as both provide mutual authentication.
+            // With no TLS once assume that party other than QFS protects
+            // against man-in-the-middle attacks.
+            theKrbServicePtr.reset(new KrbService());
+            const char* theErrMsgPtr = theKrbServicePtr->Init(
+                theServiceHost.c_str(),
+                theServiceName.c_str(),
+                theKeytab.c_str(),
+                theCopyToMemKeytabFlag ? theMemTabName.c_str() : 0,
+                kDetectReplayFlag
+            );
+            if (theErrMsgPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                        "krb5.* configuration error: " <<
+                    theErrMsgPtr <<
+                KFS_LOG_EOM;
+                theOkFlag = false;
+            } else {
+                int theCnt = 0;
+                if (thePrincUnparseMode.find("short") != string::npos) {
+                    thePrincipalUnparseFlags |=
+                        KrbService::kPrincipalUnparseShort;
+                    theCnt++;
+                }
+                if (thePrincUnparseMode.find("noRealm") != string::npos) {
+                    thePrincipalUnparseFlags |=
+                        KrbService::kPrincipalUnparseNoRealm;
+                    theCnt++;
+                }
+                if (thePrincUnparseMode.find("display") != string::npos) {
+                    thePrincipalUnparseFlags |=
+                        KrbService::kPrincipalUnparseDisplay;
+                    theCnt++;
+                }
+                if (! thePrincUnparseMode.empty() && theCnt <= 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        theParamName.Truncate(thePrefLen) <<
+                        "krb5.* configuration error: "
+                        "invalid principal unparse mode: " <<
+                        thePrincUnparseMode <<
+                    KFS_LOG_EOM;
+                    theOkFlag = false;
+                }
+            }
+        }
+        if (theOkFlag) {
+        }
+        if (theOkFlag) {
+            mServiceHost           = theServiceHost;
+            mServiceName           = theServiceName;
+            mPrincUnparseMode      = thePrincUnparseMode;
+            mCopyToMemKeytabFlag   = theCopyToMemKeytabFlag;
+            mPrincipalUnparseFlags = thePrincipalUnparseFlags;
+            mKrbServicePtr.swap(theKrbServicePtr);
+            mSslCtxPtr.Swap(theSslCtxPtr);
+            mX509SslCtxPtr.Swap(theX509SslCtxPtr);
+        }
+        return theOkFlag;
     }
 private:
-    KrbService*     mKrbServicePtr;
-    SslFilter::Ctx* mSslCtxPtr;
-    SslFilter::Ctx* mX509SslCtxPtr;
-    int             mPrincipalUnparseFlags;
+    typedef scoped_ptr<KrbService> KrbServicePtr;
+
+    class SslCtxPtr
+    {
+    public:
+        SslCtxPtr(
+            SslFilter::Ctx* inCtxPtr = 0)
+            : mCtxPtr(inCtxPtr)
+            {}
+        ~SslCtxPtr()
+            { SslFilter::FreeCtx(mCtxPtr); }
+        void Swap(
+            SslCtxPtr& inCtx)
+        {
+            SslFilter::Ctx* const theTmpPtr = inCtx.mCtxPtr;
+            inCtx.mCtxPtr = mCtxPtr;
+            mCtxPtr = theTmpPtr;
+        }
+        SslFilter::Ctx* Get() const
+            { return mCtxPtr; }
+        void Set(
+            SslFilter::Ctx* inCtxPtr)
+        {
+            SslFilter::FreeCtx(mCtxPtr);
+            mCtxPtr = inCtxPtr;
+        }
+    private:
+        SslFilter::Ctx* mCtxPtr;
+    private:
+        SslCtxPtr(
+            const SslCtxPtr& inCtxPtr);
+        SslCtxPtr& operator=(
+            const SslCtxPtr& inCtxPtr);
+    };
+
+    string        mServiceName;
+    string        mServiceHost;
+    string        mKeytab;
+    string        mPrincUnparseMode;
+    bool          mCopyToMemKeytabFlag;
+    KrbServicePtr mKrbServicePtr;
+    SslCtxPtr     mSslCtxPtr;
+    SslCtxPtr     mX509SslCtxPtr;
+    int           mPrincipalUnparseFlags;
+    unsigned int  mMemKeytabGen;
+
 private:
     Impl(
         const Impl& inImpl);
