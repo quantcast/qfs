@@ -626,11 +626,9 @@ private:
             if (! (mSslCtxPtr = SslFilter::CreateCtx(
                     kServerFlag,
                     kPskOnlyFlag,
-                    mProperties.getValue(
-                        "sslFilterTest.sessionCacheSize", 256),
-                        "sslFilterTest.",
-                        mProperties,
-                        &theErrMsg
+                    "sslFilterTest.",
+                    mProperties,
+                    &theErrMsg
                     ))) {
                 KFS_LOG_STREAM_ERROR << "create server ssl context error: " <<
                     theErrMsg <<
@@ -660,11 +658,9 @@ private:
                 if (! (theSslCtxPtr = SslFilter::CreateCtx(
                         kServerFlag,
                         kPskOnlyFlag,
-                        mProperties.getValue(
-                            "sslFilterTest.sessionCacheSize", 256),
-                            "sslFilterTest.",
-                            mProperties,
-                            &theErrMsg
+                        "sslFilterTest.",
+                        mProperties,
+                        &theErrMsg
                         ))) {
                     KFS_LOG_STREAM_ERROR <<
                         "create client ssl context error: " <<

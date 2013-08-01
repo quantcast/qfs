@@ -132,13 +132,21 @@ public:
     void copyWithPrefix(const string& prefix, Properties& props) const
         { copyWithPrefix(prefix.data(), prefix.size(), props); }
     void swap(Properties& props)
-        { propmap.swap(props.propmap); }
+    {
+        propmap.swap(props.propmap);
+        const int tmp = intbase;
+        intbase = props.intbase;
+        props.intbase = tmp;
+    }
     void setIntBase(int base)
         { intbase = base; }
+    bool operator==(const Properties& p) const
+        { return (intbase == p.intbase && propmap == p.propmap); }
+    bool operator!=(const Properties& p) const
+        { return (! (*this == p)); }
     Properties(int base = 10);
-    Properties(const Properties &p);
+    Properties(const Properties& p);
     ~Properties();
-
 };
 
 }

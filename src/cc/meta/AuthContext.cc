@@ -52,11 +52,9 @@ class AuthContext::Impl
 {
 public:
     Impl()
-        : mServiceName(),
-          mServiceHost(),
-          mKeytab(),
-          mPrincUnparseMode(),
-          mCopyToMemKeytabFlag(false),
+        : mKrbProps(),
+          mKrbSslProps(),
+          mX509SslProps(),
           mKrbServicePtr(),
           mSslCtxPtr(0),
           mX509SslCtxPtr(0),
@@ -217,7 +215,6 @@ public:
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters)
     {
-        bool               theOkFlag = true;
         KrbServicePtr      theKrbServicePtr;
         SslCtxPtr          theSslCtxPtr;
         SslCtxPtr          theX509SslCtxPtr;
@@ -225,95 +222,160 @@ public:
         if (inParamNamePrefixPtr) {
             theParamName.Append(inParamNamePrefixPtr);
         }
+        Properties theKrbProps  = mKrbProps;
         const size_t thePrefLen = theParamName.GetSize();
-        const string theServiceName = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.service"),
-            mServiceName
+        inParameters.copyWithPrefix(
+            theParamName.Truncate(thePrefLen).Append("krb5.").GetPtr(),
+            theKrbProps
         );
-        const string theServiceHost = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.host"),
-            mServiceHost
-        );
-        const string theKeytab = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.keytab"),
-            mKeytab
-        );
-        const string thePrincUnparseMode = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.princUnparseMode"),
-            mPrincUnparseMode
-        );
-        const bool theCopyToMemKeytabFlag = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.copyToMemKeytab"),
-            1
-        ) != 0;
-        int thePrincipalUnparseFlags = 0;
-        if (! theServiceName.empty()) {
-            mMemKeytabGen++;
-            ostringstream theStream;
-            theStream << (void*)this << hex << mMemKeytabGen;
-            const string theMemTabName     = theStream.str();
-            const bool   kDetectReplayFlag = false;
-            // No replay detection is needed, as either AP_REP or TLS-PSK are
-            // used. Both these mechanisms are sufficient to protect against
-            // replay attach as both provide mutual authentication.
-            // With no TLS once assume that party other than QFS protects
-            // against man-in-the-middle attacks.
-            theKrbServicePtr.reset(new KrbService());
-            const char* theErrMsgPtr = theKrbServicePtr->Init(
-                theServiceHost.c_str(),
-                theServiceName.c_str(),
-                theKeytab.c_str(),
-                theCopyToMemKeytabFlag ? theMemTabName.c_str() : 0,
-                kDetectReplayFlag
+        const bool theKrbChangedFlag        = theKrbProps != mKrbProps ||
+            theParamName.Truncate(thePrefLen).Append(
+            "krb5.forceReload", 0) != 0;
+        int        thePrincipalUnparseFlags = 0;
+        if (theKrbChangedFlag) {
+            const char* const theNullStrPtr     = 0;
+            const char* const theServiceNamePtr = inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append("krb5.service"),
+                theNullStrPtr
             );
-            if (theErrMsgPtr) {
-                KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                        "krb5.* configuration error: " <<
-                    theErrMsgPtr <<
-                KFS_LOG_EOM;
-                theOkFlag = false;
-            } else {
-                int theCnt = 0;
-                if (thePrincUnparseMode.find("short") != string::npos) {
-                    thePrincipalUnparseFlags |=
-                        KrbService::kPrincipalUnparseShort;
-                    theCnt++;
-                }
-                if (thePrincUnparseMode.find("noRealm") != string::npos) {
-                    thePrincipalUnparseFlags |=
-                        KrbService::kPrincipalUnparseNoRealm;
-                    theCnt++;
-                }
-                if (thePrincUnparseMode.find("display") != string::npos) {
-                    thePrincipalUnparseFlags |=
-                        KrbService::kPrincipalUnparseDisplay;
-                    theCnt++;
-                }
-                if (! thePrincUnparseMode.empty() && theCnt <= 0) {
+            if (theServiceNamePtr && theServiceNamePtr[0]) {
+                mMemKeytabGen++;
+                ostringstream theStream;
+                theStream << (void*)this << hex << mMemKeytabGen;
+                const string theMemTabName     = theStream.str();
+                const bool   kDetectReplayFlag = false;
+                // No replay detection is needed, as either AP_REP or TLS-PSK are
+                // used. Both these mechanisms are sufficient to protect against
+                // replay attack as both provide mutual authentication.
+                // With no TLS once assume that party other than QFS protects
+                // against replay, man-in-the-middle attacks etc.
+                theKrbServicePtr.reset(new KrbService());
+                const char* theErrMsgPtr = theKrbServicePtr->Init(
+                    inParameters.getValue(
+                        theParamName.Truncate(thePrefLen).Append(
+                            "krb5.host"), theNullStrPtr),
+                    theServiceNamePtr,
+                    inParameters.getValue(
+                        theParamName.Truncate(thePrefLen).Append(
+                            "krb5.keytab"), theNullStrPtr),
+                    inParameters.getValue(
+                        theParamName.Truncate(thePrefLen).Append(
+                            "krb5.copyToMemKeytab"), 1) != 0 ?
+                        theMemTabName.c_str() : theNullStrPtr,
+                    kDetectReplayFlag
+                );
+                if (theErrMsgPtr) {
                     KFS_LOG_STREAM_ERROR <<
                         theParamName.Truncate(thePrefLen) <<
-                        "krb5.* configuration error: "
-                        "invalid principal unparse mode: " <<
-                        thePrincUnparseMode <<
+                            "krb5.* configuration error: " <<
+                        theErrMsgPtr <<
                     KFS_LOG_EOM;
-                    theOkFlag = false;
+                    return false;
+                } else {
+                    const char* thePrincUnparseModePtr = inParameters.getValue(
+                        theParamName.Truncate(thePrefLen).Append(
+                            "krb5.princUnparseMode"), theNullStrPtr
+                    );
+                    if (thePrincUnparseModePtr && thePrincUnparseModePtr[0]) {
+                        int theCnt = 0;
+                        if (strstr(thePrincUnparseModePtr, "short")) {
+                            thePrincipalUnparseFlags |=
+                                KrbService::kPrincipalUnparseShort;
+                            theCnt++;
+                        }
+                        if (strstr(thePrincUnparseModePtr, "noRealm")) {
+                            thePrincipalUnparseFlags |=
+                                KrbService::kPrincipalUnparseNoRealm;
+                            theCnt++;
+                        }
+                        if (strstr(thePrincUnparseModePtr, "display")) {
+                            thePrincipalUnparseFlags |=
+                                KrbService::kPrincipalUnparseDisplay;
+                            theCnt++;
+                        }
+                        if (theCnt <= 0) {
+                            KFS_LOG_STREAM_ERROR <<
+                                theParamName.Truncate(thePrefLen) <<
+                                "krb5.* configuration error: "
+                                "invalid principal unparse mode: " <<
+                                thePrincUnparseModePtr <<
+                            KFS_LOG_EOM;
+                            return false;
+                        }
+                    }
                 }
             }
         }
-        if (theOkFlag) {
+        Properties theKrbSslProps = mKrbSslProps;
+        theParamName.Truncate(thePrefLen).Append("krb5.tls.");
+        inParameters.copyWithPrefix(theParamName.GetPtr(), theKrbSslProps);
+        const bool theKrbSslChangedFlag =
+            (theKrbChangedFlag &&
+                    (mKrbServicePtr.get() != 0) != (theKrbServicePtr.get() != 0)) ||
+            mKrbSslProps != theKrbSslProps ||
+            theParamName.Truncate(thePrefLen).Append(
+            "krb5.tls.forceReload", 0) != 0;
+        if (theKrbSslChangedFlag && theKrbSslProps.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                    "krb5.tls.disable"), 0) == 0 &&
+                mKrbServicePtr) {
+            const bool kServerFlag  = true;
+            const bool kPskOnlyFlag = true;
+            string     theErrMsg;
+            mSslCtxPtr.Set(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(thePrefLen).Append("krb5.tls.").GetPtr(),
+                theKrbSslProps,
+                &theErrMsg
+            ));
+            if (! mSslCtxPtr.Get()) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                    "krb5.* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
         }
-        if (theOkFlag) {
-            mServiceHost           = theServiceHost;
-            mServiceName           = theServiceName;
-            mPrincUnparseMode      = thePrincUnparseMode;
-            mCopyToMemKeytabFlag   = theCopyToMemKeytabFlag;
+        Properties theX509SslProps = mX509SslProps;
+        theParamName.Truncate(thePrefLen).Append("X509.");
+        inParameters.copyWithPrefix(theParamName.GetPtr(), theX509SslProps);
+        const bool theX509ChangedFlag = theX509SslProps != mX509SslProps ||
+            theParamName.Truncate(thePrefLen).Append(
+            "X509.forceReload", 0) != 0;
+        if (theX509ChangedFlag) {
+            const bool kServerFlag  = true;
+            const bool kPskOnlyFlag = false;
+            string     theErrMsg;
+            mSslCtxPtr.Set(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(thePrefLen).Append("X509.").GetPtr(),
+                theKrbSslProps,
+                &theErrMsg
+            ));
+            if (! mSslCtxPtr.Get()) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                    "krb5.* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        if (theKrbChangedFlag) {
             mPrincipalUnparseFlags = thePrincipalUnparseFlags;
             mKrbServicePtr.swap(theKrbServicePtr);
-            mSslCtxPtr.Swap(theSslCtxPtr);
-            mX509SslCtxPtr.Swap(theX509SslCtxPtr);
+            mKrbProps.swap(theKrbProps);
         }
-        return theOkFlag;
+        if (theKrbSslChangedFlag) {
+            mSslCtxPtr.Swap(theSslCtxPtr);
+            mKrbSslProps.swap(theKrbSslProps);
+        }
+        if (theX509ChangedFlag) {
+            mX509SslCtxPtr.Swap(theX509SslCtxPtr);
+            mX509SslProps.swap(theX509SslProps);
+        }
+        return true;
     }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
@@ -351,11 +413,9 @@ private:
             const SslCtxPtr& inCtxPtr);
     };
 
-    string        mServiceName;
-    string        mServiceHost;
-    string        mKeytab;
-    string        mPrincUnparseMode;
-    bool          mCopyToMemKeytabFlag;
+    Properties    mKrbProps;
+    Properties    mKrbSslProps;
+    Properties    mX509SslProps;
     KrbServicePtr mKrbServicePtr;
     SslCtxPtr     mSslCtxPtr;
     SslCtxPtr     mX509SslCtxPtr;
@@ -438,4 +498,3 @@ AuthContext::SetParameters(
 }
 
 }
-

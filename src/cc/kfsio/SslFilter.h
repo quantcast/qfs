@@ -64,7 +64,6 @@ public:
     static Ctx* CreateCtx(
         const bool        inServerFlag,
         const bool        inPskOnlyFlag,
-        int               inSessionCacheSize,
         const char*       inParamsPrefixPtr,
         const Properties& inParams,
         string*           inErrMsgPtr);

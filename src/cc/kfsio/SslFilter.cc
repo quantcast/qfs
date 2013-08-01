@@ -118,7 +118,6 @@ public:
     static Ctx* CreateCtx(
         const bool        inServerFlag,
         const bool        inPskOnlyFlag,
-        int               inSessionCacheSize,
         const char*       inParamsPrefixPtr,
         const Properties& inParams,
         string*           inErrMsgPtr)
@@ -648,14 +647,12 @@ SslFilter::GetErrorMsg(
 SslFilter::CreateCtx(
     const bool        inServerFlag,
     const bool        inPskOnlyFlag,
-    int               inSessionCacheSize,
     const char*       inParamsPrefixPtr,
     const Properties& inParams,
     string*           inErrMsgPtr)
 {
     return Impl::CreateCtx(
-        inServerFlag, inPskOnlyFlag,
-        inSessionCacheSize, inParamsPrefixPtr, inParams, inErrMsgPtr);
+        inServerFlag, inPskOnlyFlag,inParamsPrefixPtr, inParams, inErrMsgPtr);
 }
 
     /* static */ void
