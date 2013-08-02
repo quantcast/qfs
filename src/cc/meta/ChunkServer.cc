@@ -898,6 +898,25 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         }
         if (mAuthName.empty() && mNetConnection->GetFilter()) {
             mAuthName = mNetConnection->GetFilter()->GetAuthName();
+            if (! gLayoutManager.GetCSAuthContext().RemapAndValidate(
+                    mAuthName)) {
+                op->statusMsg = "chunk server authentication required, "
+                    " chunk server authenticated name '" + mAuthName +
+                    "' not valid";
+                op->status = -EBADCLUSTERKEY;
+                KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                    " " << op->statusMsg <<
+                KFS_LOG_EOM;
+                iobuf->Clear();
+                mNetConnection->SetMaxReadAhead(0);
+                mNetConnection->SetInactivityTimeout(sRequestTimeout);
+                mOstream.Set(mNetConnection->GetOutBuffer());
+                op->response(mOstream);
+                mOstream.Reset();
+                delete op;
+                // Do not declare error, reply still pending.
+                return 0;
+            }
         }
         op->authName = mAuthName;
         mHelloOp = static_cast<MetaHello*>(op);
@@ -916,8 +935,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             if (! sRestartCSOnInvalidClusterKeyFlag) {
                 iobuf->Clear();
                 mNetConnection->SetMaxReadAhead(0);
-                mNetConnection->SetInactivityTimeout(
-                    sRequestTimeout);
+                mNetConnection->SetInactivityTimeout(sRequestTimeout);
                 mOstream.Set(mNetConnection->GetOutBuffer());
                 mHelloOp->response(mOstream);
                 mOstream.Reset();

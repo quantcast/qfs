@@ -45,8 +45,8 @@ public:
         MetaAuthenticate& inOp);
     bool Authenticate(
         MetaAuthenticate& inOp);
-    bool Validate(
-        const string& inAuthName) const;
+    bool RemapAndValidate(
+        string& ioAuthName) const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters);

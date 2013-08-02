@@ -1925,11 +1925,6 @@ LayoutManager::Validate(MetaHello& r) const
         r.status = -EBADCLUSTERKEY;
         return false;
     }
-    if (! mCSAuthContext.Validate(r.authName)) {
-        r.statusMsg = "chunk server authentication required, "
-            " chunk server authenticated name '" + r.authName + "' not valid";
-        r.status = -EBADCLUSTERKEY;
-    }
     if (mChunkServerMd5sums.empty() || find(
                 mChunkServerMd5sums.begin(),
                 mChunkServerMd5sums.end(),

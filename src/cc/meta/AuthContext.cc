@@ -29,6 +29,7 @@
 #include "MetaRequest.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
+#include "common/StdAllocator.h"
 #include "kfsio/SslFilter.h"
 #include "krb/KrbService.h"
 #include "qcdio/qcdebug.h"
@@ -37,6 +38,8 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <set>
+#include <map>
 
 #include <boost/scoped_ptr.hpp>
 
@@ -45,7 +48,11 @@ namespace KFS
 using std::string;
 using std::max;
 using std::ostringstream;
+using std::istringstream;
 using std::hex;
+using std::set;
+using std::pair;
+using std::less;
 using boost::scoped_ptr;
 
 class AuthContext::Impl
@@ -58,6 +65,12 @@ public:
           mKrbServicePtr(),
           mSslCtxPtr(0),
           mX509SslCtxPtr(0),
+          mNameRemap(),
+          mBlackList(),
+          mWhiteList(),
+          mNameRemapParam(),
+          mBlackListParam(),
+          mWhiteListParam(),
           mPrincipalUnparseFlags(0),
           mMemKeytabGen(0)
         {}
@@ -127,9 +140,8 @@ public:
                 inOp.statusMsg = theErrPtr;
                 return false;
             }
-            const string theAuthName(
-                thePeerPrincipalPtr ? thePeerPrincipalPtr : "");
-            if (! Validate(theAuthName)) {
+            string theAuthName(thePeerPrincipalPtr ? thePeerPrincipalPtr : "");
+            if (! RemapAndValidate(theAuthName)) {
                 inOp.status    = -EACCES;
                 inOp.statusMsg = "access denied for '" + theAuthName + "'";
                 inOp.responseContentPtr = 0;
@@ -137,10 +149,8 @@ public:
                 return false;
             }
             if (! mSslCtxPtr.Get()) {
-                if (inOp.status == 0) {
-                    inOp.authName         = theAuthName;
-                    inOp.responseAuthType = inOp.authType;
-                }
+                inOp.authName         = theAuthName;
+                inOp.responseAuthType = inOp.authType;
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
@@ -205,33 +215,77 @@ public:
         QCASSERT(inOp.authType == kAuthenticationTypeNone);
         return (inOp.status == 0);
     }
-    bool Validate(
-        const string& inAuthName) const
+    bool RemapAndValidate(
+        string& ioAuthName) const
     {
-        return ((! mKrbServicePtr &&
-            ! mX509SslCtxPtr.Get()) || ! inAuthName.empty());
+        const NameRemap::const_iterator theIt = mNameRemap.find(ioAuthName);
+        if (theIt != mNameRemap.end()) {
+            ioAuthName = theIt->second;
+        }
+        return (
+            mBlackList.find(ioAuthName) == mBlackList.end() &&
+            (mWhiteList.empty() ||
+                mWhiteList.find(ioAuthName) != mWhiteList.end()) &&
+            ((! mKrbServicePtr && ! mX509SslCtxPtr.Get()) ||
+                ! ioAuthName.empty())
+        );
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters)
     {
-        KrbServicePtr      theKrbServicePtr;
-        SslCtxPtr          theSslCtxPtr;
-        SslCtxPtr          theX509SslCtxPtr;
         Properties::String theParamName;
         if (inParamNamePrefixPtr) {
             theParamName.Append(inParamNamePrefixPtr);
         }
-        Properties theKrbProps  = mKrbProps;
         const size_t thePrefLen = theParamName.GetSize();
+        NameRemap theNameRemap;
+        const string theNameRemapParam = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "nameRemap"), mNameRemapParam);
+        if (! theNameRemapParam.empty() &&
+                mNameRemapParam != theNameRemapParam) {
+            istringstream theStream(theNameRemapParam);
+            string theFrom;
+            string theTo;
+            while ((theStream >> theFrom >> theTo)) {
+                theNameRemap[theFrom] = theTo;
+            }
+        }
+        NameList     theBlackList;
+        const string theBlackListParam = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "blackList"), mBlackListParam);
+        if (! theBlackListParam.empty() &&
+                mBlackListParam != theBlackListParam) {
+            istringstream theStream(theBlackListParam);
+            string        theName;
+            while ((theStream >> theName)) {
+                mBlackList.insert(theName);
+            }
+        }
+        NameList     theWhiteList;
+        const string theWhiteListParam = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "whiteList"), mWhiteListParam);
+        if (! theWhiteListParam.empty() &&
+                mWhiteListParam != theWhiteListParam) {
+            istringstream theStream(theWhiteListParam);
+            string        theName;
+            while ((theStream >> theName)) {
+                mWhiteList.insert(theName);
+            }
+        }
+        Properties theKrbProps(mKrbProps);
         inParameters.copyWithPrefix(
             theParamName.Truncate(thePrefLen).Append("krb5.").GetPtr(),
             theKrbProps
         );
-        const bool theKrbChangedFlag        = theKrbProps != mKrbProps ||
+        const bool    theKrbChangedFlag        = theKrbProps != mKrbProps ||
             theParamName.Truncate(thePrefLen).Append(
             "krb5.forceReload", 0) != 0;
-        int        thePrincipalUnparseFlags = 0;
+        int           thePrincipalUnparseFlags = 0;
+        KrbServicePtr theKrbServicePtr;
         if (theKrbChangedFlag) {
             const char* const theNullStrPtr     = 0;
             const char* const theServiceNamePtr = inParameters.getValue(
@@ -244,9 +298,9 @@ public:
                 theStream << (void*)this << hex << mMemKeytabGen;
                 const string theMemTabName     = theStream.str();
                 const bool   kDetectReplayFlag = false;
-                // No replay detection is needed, as either AP_REP or TLS-PSK are
-                // used. Both these mechanisms are sufficient to protect against
-                // replay attack as both provide mutual authentication.
+                // No replay detection is needed, as either AP_REP or TLS-PSK
+                // are used. Both these mechanisms are sufficient to protect
+                // against replay attack as both provide mutual authentication.
                 // With no TLS once assume that party other than QFS protects
                 // against replay, man-in-the-middle attacks etc.
                 theKrbServicePtr.reset(new KrbService());
@@ -306,15 +360,17 @@ public:
                 }
             }
         }
-        Properties theKrbSslProps = mKrbSslProps;
+        Properties theKrbSslProps(mKrbSslProps);
         theParamName.Truncate(thePrefLen).Append("krb5.tls.");
         inParameters.copyWithPrefix(theParamName.GetPtr(), theKrbSslProps);
         const bool theKrbSslChangedFlag =
             (theKrbChangedFlag &&
-                    (mKrbServicePtr.get() != 0) != (theKrbServicePtr.get() != 0)) ||
+                    (mKrbServicePtr.get() != 0) !=
+                    (theKrbServicePtr.get() != 0)) ||
             mKrbSslProps != theKrbSslProps ||
             theParamName.Truncate(thePrefLen).Append(
-            "krb5.tls.forceReload", 0) != 0;
+                "krb5.tls.forceReload", 0) != 0;
+        SslCtxPtr theSslCtxPtr;
         if (theKrbSslChangedFlag && theKrbSslProps.getValue(
                 theParamName.Truncate(thePrefLen).Append(
                     "krb5.tls.disable"), 0) == 0 &&
@@ -337,12 +393,13 @@ public:
                 return false;
             }
         }
-        Properties theX509SslProps = mX509SslProps;
+        Properties theX509SslProps(mX509SslProps);
         theParamName.Truncate(thePrefLen).Append("X509.");
         inParameters.copyWithPrefix(theParamName.GetPtr(), theX509SslProps);
         const bool theX509ChangedFlag = theX509SslProps != mX509SslProps ||
             theParamName.Truncate(thePrefLen).Append(
-            "X509.forceReload", 0) != 0;
+                "X509.forceReload", 0) != 0;
+        SslCtxPtr theX509SslCtxPtr;
         if (theX509ChangedFlag) {
             const bool kServerFlag  = true;
             const bool kPskOnlyFlag = false;
@@ -375,11 +432,33 @@ public:
             mX509SslCtxPtr.Swap(theX509SslCtxPtr);
             mX509SslProps.swap(theX509SslProps);
         }
+        if (mNameRemapParam != theNameRemapParam) {
+            mNameRemap.swap(theNameRemap);
+            mNameRemapParam = theNameRemapParam;
+        }
+        if (mBlackListParam != theBlackListParam) {
+            mBlackList.swap(theBlackList);
+            mBlackListParam = theBlackListParam;
+        }
+        if (mWhiteListParam != theWhiteListParam) {
+            mWhiteList.swap(theWhiteList);
+            mWhiteListParam = theWhiteListParam;
+        }
         return true;
     }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
-
+    typedef map<
+        string,
+        string,
+        less<string>,
+        StdFastAllocator<pair<const string, string> >
+    > NameRemap;
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > NameList;
     class SslCtxPtr
     {
     public:
@@ -419,6 +498,12 @@ private:
     KrbServicePtr mKrbServicePtr;
     SslCtxPtr     mSslCtxPtr;
     SslCtxPtr     mX509SslCtxPtr;
+    NameRemap     mNameRemap;
+    NameList      mBlackList;
+    NameList      mWhiteList;
+    string        mNameRemapParam;
+    string        mBlackListParam;
+    string        mWhiteListParam;
     int           mPrincipalUnparseFlags;
     unsigned int  mMemKeytabGen;
 
@@ -479,14 +564,14 @@ AuthContext::Validate(
 AuthContext::Authenticate(
     MetaAuthenticate& inOp)
 {
-    return mImpl.Validate(inOp);
+    return mImpl.Authenticate(inOp);
 }
 
     bool
-AuthContext::Validate(
-    const string& inAuthName) const
+AuthContext::RemapAndValidate(
+    string& ioAuthName) const
 {
-    return mImpl.Validate(inAuthName);
+    return mImpl.RemapAndValidate(ioAuthName);
 }
 
     bool

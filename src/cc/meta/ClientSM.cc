@@ -282,7 +282,7 @@ ClientSM::HandleRequest(int code, void *data)
             mLastReadLeft = 0;
             iobuf.Clear();
             mNetConnection->Close();
-            HandleRequest(EVENT_NET_ERROR, NULL);
+            HandleRequest(EVENT_NET_ERROR, 0);
         }
         break;
     }
@@ -446,7 +446,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         }
         iobuf.Clear();
         mNetConnection->Close();
-        HandleRequest(EVENT_NET_ERROR, NULL);
+        HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
     if (op->clientProtoVers < mClientProtoVers) {
@@ -471,6 +471,17 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     KFS_LOG_EOM;
     if (mAuthName.empty() && mNetConnection->GetFilter()) {
         mAuthName = mNetConnection->GetFilter()->GetAuthName();
+        if (! GetAuthContext().RemapAndValidate(mAuthName)) {
+            KFS_LOG_STREAM_ERROR << "autentication failure:" <<
+                " name: " << mAuthName <<
+                " is not valid" <<
+            KFS_LOG_EOM;
+            delete op;
+            iobuf.Clear();
+            mNetConnection->Close();
+            HandleRequest(EVENT_NET_ERROR, 0);
+            return;
+        }
     }
     op->clientIp         = mClientIp;
     op->fromClientSMFlag = true;
