@@ -282,8 +282,9 @@ public:
             theKrbProps
         );
         const bool    theKrbChangedFlag        = theKrbProps != mKrbProps ||
-            theParamName.Truncate(thePrefLen).Append(
-            "krb5.forceReload", 0) != 0;
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "krb5.forceReload"), 0) != 0;
         int           thePrincipalUnparseFlags = 0;
         KrbServicePtr theKrbServicePtr;
         if (theKrbChangedFlag) {
@@ -368,8 +369,9 @@ public:
                     (mKrbServicePtr.get() != 0) !=
                     (theKrbServicePtr.get() != 0)) ||
             mKrbSslProps != theKrbSslProps ||
-            theParamName.Truncate(thePrefLen).Append(
-                "krb5.tls.forceReload", 0) != 0;
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "krb5.tls.forceReload"), 0) != 0;
         SslCtxPtr theSslCtxPtr;
         if (theKrbSslChangedFlag && theKrbSslProps.getValue(
                 theParamName.Truncate(thePrefLen).Append(
@@ -397,8 +399,9 @@ public:
         theParamName.Truncate(thePrefLen).Append("X509.");
         inParameters.copyWithPrefix(theParamName.GetPtr(), theX509SslProps);
         const bool theX509ChangedFlag = theX509SslProps != mX509SslProps ||
-            theParamName.Truncate(thePrefLen).Append(
-                "X509.forceReload", 0) != 0;
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "X509.forceReload"), 0) != 0;
         SslCtxPtr theX509SslCtxPtr;
         if (theX509ChangedFlag) {
             const bool kServerFlag  = true;
