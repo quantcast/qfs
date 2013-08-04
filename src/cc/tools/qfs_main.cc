@@ -1201,7 +1201,7 @@ private:
             mOutStream << right <<
                 setw(12) << theEntry.mDirCount       << " " <<
                 setw(12) << theEntry.mFileCount      << " " <<
-                setw(15) << theEntry.mSize           << " " <<
+                setw(18) << theEntry.mSize           << " " <<
                 setw(12) << theEntry.mChunkCount     << " " <<
                 setw(12) << theEntry.mEmptyFileCount << " "
             ;
