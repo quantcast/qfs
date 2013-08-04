@@ -1170,7 +1170,7 @@ private:
                     return;
                 }
                 DirSummaryEntry& theParent = mDirSummaryEntries.back();
-                theParent.mDirCount++;
+                theParent.mDirCount       += theEntry.mDirCount + 1;
                 theParent.mFileCount      += theEntry.mFileCount;
                 theParent.mChunkCount     += theEntry.mChunkCount;
                 theParent.mSize           += theEntry.mSize;
