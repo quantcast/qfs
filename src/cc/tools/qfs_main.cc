@@ -1010,12 +1010,14 @@ private:
                 }
             } else {
                 AddEntry(inFs, inPath, string(), mStat);
-                if (mDirSummaryFlag) {
-                    // Treat a file like directory.
+            }
+            if (mDirSummaryFlag) {
+                if (mRecursionCount == 0) {
                     PrintDirSummary(inFs, inPath, string(), mStat);
                 }
+                return true;
             }
-            if (mRecursionCount == 0 && ! mDirSummaryFlag &&
+            if (mRecursionCount == 0 &&
                     ! mRecursiveFlag && ! mDirListEntries.empty()) {
                 mOutStream <<
                     "Found " << mDirListEntries.size() << " items\n";
