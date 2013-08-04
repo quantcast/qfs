@@ -936,7 +936,8 @@ private:
               mDirSummaryFlag(inDirSummaryFlag),
               mDirSummaryEntries(),
               mNullStat(),
-              mTime(0)
+              mTime(0),
+              mAbandonedModTime(inDirSummaryFlag ? (time(0) - 2 * 60 * 60) : 0)
             { mTmBuf[0] = 0; }
         bool Init(
             int&              /* ioGlobError */,
@@ -1063,22 +1064,67 @@ private:
             }
         };
         typedef deque<DirListEntry> DirListEntries;
-        struct DirSummaryEntry
+        class DirSummaryEntry
         {
         public:
-            DirSummaryEntry(
-                const string& inPath = string())
+            DirSummaryEntry()
                 : mDirCount(0),
                   mFileCount(0),
                   mChunkCount(0),
                   mSize(0),
-                  mEmptyFileCount(0)
+                  mEmptyFileCount(0),
+                  mAbandonedFileCount(0)
                 {}
+            DirSummaryEntry& Add(
+                const DirSummaryEntry& inSubDir)
+            {
+                mDirCount           += inSubDir.mDirCount + 1;
+                mFileCount          += inSubDir.mFileCount;
+                mChunkCount         += inSubDir.mChunkCount;
+                mSize               += inSubDir.mSize;
+                mEmptyFileCount     += inSubDir.mEmptyFileCount;
+                mAbandonedFileCount += inSubDir.mAbandonedFileCount;
+                return *this;
+            }
+            DirSummaryEntry& Add(
+                const FileSystem::StatBuf& inStat,
+                time_t                     inAbandonedModTime)
+            {
+                mFileCount++;
+                if (inStat.st_size > 0) {
+                    mSize += inStat.st_size;
+                }
+                if (inStat.mSubCount1 > 0) {
+                    mChunkCount += inStat.mSubCount1;
+                }
+                if (inStat.st_size == 0) {
+                    if (inStat.mSubCount1 <= 0) {
+                        mEmptyFileCount++;
+                    } else if (GetMTime(inStat) < inAbandonedModTime) {
+                        mAbandonedFileCount++;
+                    }
+                }
+                return *this;
+            }
+            ostream& Display(
+                ostream& inOutStream) const
+            {
+                return (inOutStream << right <<
+                    setw(12) << mDirCount       << " " <<
+                    setw(12) << mFileCount      << " " <<
+                    setw(18) << mSize           << " " <<
+                    setw(12) << mChunkCount     << " " <<
+                    setw(12) << mEmptyFileCount << " " <<
+                    setw(12) << mAbandonedFileCount
+                );
+            }
+        private:
             int64_t mDirCount;
             int64_t mFileCount;
             int64_t mChunkCount;
             int64_t mSize;
             int64_t mEmptyFileCount;
+            int64_t mAbandonedFileCount;
         };
         typedef vector<DirSummaryEntry> DirSummaryEntries;
 
@@ -1086,7 +1132,7 @@ private:
         ostream&                  mOutStream;
         const char* const         mOutStreamNamePtr;
         ostream&                  mErrorStream;
-        const bool                mRecursiveFlag;
+        bool const                mRecursiveFlag;
         bool                      mShowFsUriFlag;
         const string              mEmptyStr;
         FileSystem::StatBuf       mStat;
@@ -1103,10 +1149,11 @@ private:
         int                       mMaxReplicas;
         int64_t                   mMaxFileSize;
         DirListEntries            mDirListEntries;
-        bool                      mDirSummaryFlag;
+        bool const                mDirSummaryFlag;
         DirSummaryEntries         mDirSummaryEntries;
         const FileSystem::StatBuf mNullStat;
         time_t                    mTime;
+        time_t const              mAbandonedModTime;
         char                      mTmBuf[kTmBufLen];
 
         void Reset()
@@ -1162,7 +1209,7 @@ private:
             }
             if (S_ISDIR(inStat.st_mode)) {
                 PrintDirSummary(inFs, inPath, inName, inStat);
-                DirSummaryEntry const theEntry = mDirSummaryEntries.back();
+                DirSummaryEntry const theSubDir = mDirSummaryEntries.back();
                 mDirSummaryEntries.pop_back();
                 if (mDirSummaryEntries.empty()) {
                     cerr << "dir summary internal error directory path: " <<
@@ -1171,24 +1218,9 @@ private:
                     abort();
                     return;
                 }
-                DirSummaryEntry& theParent = mDirSummaryEntries.back();
-                theParent.mDirCount       += theEntry.mDirCount + 1;
-                theParent.mFileCount      += theEntry.mFileCount;
-                theParent.mChunkCount     += theEntry.mChunkCount;
-                theParent.mSize           += theEntry.mSize;
-                theParent.mEmptyFileCount += theEntry.mEmptyFileCount;
+                mDirSummaryEntries.back().Add(theSubDir);
             } else {
-                DirSummaryEntry& theEntry = mDirSummaryEntries.back();
-                theEntry.mFileCount++;
-                if (inStat.st_size > 0) {
-                    theEntry.mSize += inStat.st_size;
-                }
-                if (inStat.mSubCount1 > 0) {
-                    theEntry.mChunkCount += inStat.mSubCount1;
-                }
-                if (inStat.st_size == 0) {
-                    theEntry.mEmptyFileCount++;
-                }
+                mDirSummaryEntries.back().Add(inStat, mAbandonedModTime);
             }
         }
         void PrintDirSummary(
@@ -1197,15 +1229,8 @@ private:
             const string&              inName,
             const FileSystem::StatBuf& /* inStat */)
         {
-            DirSummaryEntry& theEntry = mDirSummaryEntries.back();
-            mOutStream << right <<
-                setw(12) << theEntry.mDirCount       << " " <<
-                setw(12) << theEntry.mFileCount      << " " <<
-                setw(18) << theEntry.mSize           << " " <<
-                setw(12) << theEntry.mChunkCount     << " " <<
-                setw(12) << theEntry.mEmptyFileCount << " "
-            ;
-            mOutStream << left;
+            mDirSummaryEntries.back().Display(mOutStream);
+            mOutStream << " " << left;
             if (mShowFsUriFlag) {
                 mOutStream << inFs.GetUri();
             }
@@ -3962,7 +3987,7 @@ const char* const KfsTool::sHelpStrings[] =
     "Recursively list the contents that match the specified\n\t\t"
     "file pattern, and print summary for each directory in the subtree:\n\t\t"
     "<directory count> <file count> <logical size> <chunk count>"
-    " <empty files count> <path>\n",
+    " <empty file count> <abandoned file count> <path>\n",
 
     "du", "<path>",
     "Show the amount of space, in bytes, used by the files that\n\t\t"
