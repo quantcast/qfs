@@ -30,7 +30,7 @@ import java.util.AbstractQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public final class BufferPool {
-	public static final int BUFFER_SIZE = 1 << 20;
+	public static final int BUFFER_SIZE = Integer.getInteger("qfs.access.buffer.size", 1 << 20);
 
 	private final AbstractQueue<ByteBuffer> buffers = new ConcurrentLinkedQueue<ByteBuffer>();
 

@@ -194,6 +194,8 @@ public:
         } else if (strcmp(theCmdPtr, "lsr") == 0) {
             const bool kRecursiveFlag = true;
             theErr = List(theArgsPtr, theArgCnt, kRecursiveFlag);
+        } else if (strcmp(theCmdPtr, "lss") == 0) {
+            theErr = DirSummary(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "mkdir") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -909,11 +911,12 @@ private:
             ostream&    inOutStream,
             const char* inOutStreamNamePtr,
             ostream&    inErrorStream,
-            bool        inRecursiveFlag)
+            bool        inRecursiveFlag,
+            bool        inDirSummaryFlag = false)
             : mOutStream(inOutStream),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
-              mRecursiveFlag(inRecursiveFlag),
+              mRecursiveFlag(inRecursiveFlag || inDirSummaryFlag),
               mShowFsUriFlag(false),
               mEmptyStr(),
               mStat(),
@@ -930,6 +933,8 @@ private:
               mMaxReplicas(0),
               mMaxFileSize(0),
               mDirListEntries(),
+              mDirSummaryFlag(inDirSummaryFlag),
+              mDirSummaryEntries(),
               mNullStat(),
               mTime(0)
             { mTmBuf[0] = 0; }
@@ -958,6 +963,9 @@ private:
                     return true;
                 }
                 Reset();
+                if (mDirSummaryFlag) {
+                    mDirSummaryEntries.push_back(DirSummaryEntry());
+                }
             }
             const string  kEmpty;
             if (mRecursionCount != 0 || S_ISDIR(mStat.st_mode)) {
@@ -990,6 +998,9 @@ private:
                                 S_ISDIR(theStatPtr->st_mode)) {
                             QCStValueIncrementor<int>
                                 theIncrement(mRecursionCount, 1);
+                            if (mDirSummaryFlag) {
+                                mDirSummaryEntries.push_back(DirSummaryEntry());
+                            }
                             Apply(inFs, thePath + "/" + theName);
                         }
                         AddEntry(inFs, inPath, theName,
@@ -999,8 +1010,12 @@ private:
                 }
             } else {
                 AddEntry(inFs, inPath, string(), mStat);
+                if (mDirSummaryFlag) {
+                    // Treat a file like directory.
+                    PrintDirSummary(inFs, inPath, string(), mStat);
+                }
             }
-            if (mRecursionCount == 0 &&
+            if (mRecursionCount == 0 && ! mDirSummaryFlag &&
                     ! mRecursiveFlag && ! mDirListEntries.empty()) {
                 mOutStream <<
                     "Found " << mDirListEntries.size() << " items\n";
@@ -1046,6 +1061,24 @@ private:
             }
         };
         typedef deque<DirListEntry> DirListEntries;
+        struct DirSummaryEntry
+        {
+        public:
+            DirSummaryEntry(
+                const string& inPath = string())
+                : mDirCount(0),
+                  mFileCount(0),
+                  mChunkCount(0),
+                  mSize(0),
+                  mEmptyFileCount(0)
+                {}
+            int64_t mDirCount;
+            int64_t mFileCount;
+            int64_t mChunkCount;
+            int64_t mSize;
+            int64_t mEmptyFileCount;
+        };
+        typedef vector<DirSummaryEntry> DirSummaryEntries;
 
         enum { kTmBufLen = 128 };
         ostream&                  mOutStream;
@@ -1068,6 +1101,8 @@ private:
         int                       mMaxReplicas;
         int64_t                   mMaxFileSize;
         DirListEntries            mDirListEntries;
+        bool                      mDirSummaryFlag;
+        DirSummaryEntries         mDirSummaryEntries;
         const FileSystem::StatBuf mNullStat;
         time_t                    mTime;
         char                      mTmBuf[kTmBufLen];
@@ -1088,6 +1123,10 @@ private:
             const string&              inName,
             const FileSystem::StatBuf& inStat)
         {
+            if (mDirSummaryFlag) {
+                DirSummary(inFs, inPath, inName, inStat);
+                return;
+            }
             mDirListEntries.push_back(DirListEntry());
             DirListEntry& theEntry = mDirListEntries.back();
             theEntry.Set(inStat);
@@ -1105,6 +1144,77 @@ private:
             mMaxGroupWidth  = max(mMaxGroupWidth, mGroup.length());
             mMaxFileSize    = max(mMaxFileSize,   theEntry.mSize);
             mMaxReplicas    = max(mMaxReplicas,   theEntry.mNumReplicas);
+        }
+        void DirSummary(
+            FileSystem&                inFs,
+            const string&              inPath,
+            const string&              inName,
+            const FileSystem::StatBuf& inStat)
+        {
+            if (mDirSummaryEntries.empty()) {
+                cerr << "dir summary internal error current path: " <<
+                    inFs.GetUri() << inPath << "/" << inName << "\n";
+                cerr.flush();
+                abort();
+                return;
+            }
+            if (S_ISDIR(inStat.st_mode)) {
+                PrintDirSummary(inFs, inPath, inName, inStat);
+                DirSummaryEntry const theEntry = mDirSummaryEntries.back();
+                mDirSummaryEntries.pop_back();
+                if (mDirSummaryEntries.empty()) {
+                    cerr << "dir summary internal error directory path: " <<
+                        inFs.GetUri() << inPath << "/" << inName << "\n";
+                    cerr.flush();
+                    abort();
+                    return;
+                }
+                DirSummaryEntry& theParent = mDirSummaryEntries.back();
+                theParent.mDirCount++;
+                theParent.mFileCount      += theEntry.mFileCount;
+                theParent.mChunkCount     += theEntry.mChunkCount;
+                theParent.mSize           += theEntry.mSize;
+                theParent.mEmptyFileCount += theEntry.mEmptyFileCount;
+            } else {
+                DirSummaryEntry& theEntry = mDirSummaryEntries.back();
+                theEntry.mFileCount++;
+                if (inStat.st_size > 0) {
+                    theEntry.mSize += inStat.st_size;
+                }
+                if (inStat.mSubCount1 > 0) {
+                    theEntry.mChunkCount += inStat.mSubCount1;
+                }
+                if (inStat.st_size == 0) {
+                    theEntry.mEmptyFileCount++;
+                }
+            }
+        }
+        void PrintDirSummary(
+            FileSystem&                inFs,
+            const string&              inPath,
+            const string&              inName,
+            const FileSystem::StatBuf& /* inStat */)
+        {
+            DirSummaryEntry& theEntry = mDirSummaryEntries.back();
+            mOutStream << right <<
+                setw(12) << theEntry.mDirCount       << " " <<
+                setw(12) << theEntry.mFileCount      << " " <<
+                setw(15) << theEntry.mSize           << " " <<
+                setw(12) << theEntry.mChunkCount     << " " <<
+                setw(12) << theEntry.mEmptyFileCount << " "
+            ;
+            mOutStream << left;
+            if (mShowFsUriFlag) {
+                mOutStream << inFs.GetUri();
+            }
+            mOutStream << inPath;
+            if (! inName.empty()) {
+                if (inPath != "/") {
+                    mOutStream << "/";
+                }
+                mOutStream << inName;
+            }
+            mOutStream << "\n";
         }
         bool IsSticky(
             mode_t inMode)
@@ -1199,6 +1309,16 @@ private:
         bool   inRecursiveFlag)
     {
         ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    int DirSummary(
+        char** inArgsPtr,
+        int    inArgCount)
+    {
+        const bool kRecursiveFlag  = true;
+        const bool kDirSummaryFlag = true;
+        ListFunctor theFunc(
+            cout, "stdout", cerr, kRecursiveFlag, kDirSummaryFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     class DefaultInitFunctor
@@ -2220,7 +2340,7 @@ private:
                 }
                 thePtr = IntToDecString(inSrcStat.mNumReplicas, thePtr);
                 if (thePtr < mTmpBuf) {
-                    cerr << "CopyFile() internal error";
+                    cerr << "CopyFile() internal error\n";
                     cerr.flush();
                     abort();
                 }
@@ -3835,6 +3955,12 @@ const char* const KfsTool::sHelpStrings[] =
     "file pattern.  Behaves very similarly to -ls,\n\t\t"
     "except that the data is shown for all the entries in the\n\t\t"
     "subtree.\n",
+
+    "lss", "<path>",
+    "Recursively list the contents that match the specified\n\t\t"
+    "file pattern, and print summary for each directory in the subtree:\n\t\t"
+    "<directory count> <file count> <logical size> <chunk count>"
+    " <empty files count> <path>\n",
 
     "du", "<path>",
     "Show the amount of space, in bytes, used by the files that\n\t\t"
