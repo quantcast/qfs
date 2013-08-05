@@ -1261,7 +1261,7 @@ private:
                     mOutStream << kPerms[(inEntry.mMode >> i--) & 1][k];
                 }
                 if (theNBits < 3) {
-                    mOutStream << "t";
+                    mOutStream << ((inEntry.mMode & 1) != 0 ? "t" : "T");
                 }
             }
             mOutStream << " " << setw((int)mReplicasWidth) << right;
