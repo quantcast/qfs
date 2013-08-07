@@ -151,6 +151,7 @@ struct KfsOp {
     }
     void AttachContentBuf(char* buf, size_t len,
             bool ownsBufferFlag = true) {
+        DeallocContentBuf();
         contentBuf          = buf;
         contentBufLen       = len;
         contentBufOwnerFlag = ownsBufferFlag;

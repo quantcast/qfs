@@ -112,6 +112,7 @@ public:
           mMaxContentLength(inMaxContentLength),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
+          mInFlightRecvBufPtr(0),
           mCurOpIt(),
           mIstream(),
           mOstream(),
@@ -509,6 +510,7 @@ private:
     int                mMaxContentLength;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
+    char*              mInFlightRecvBufPtr;
     OpQueue::iterator  mCurOpIt;
     IOBuffer::IStream  mIstream;
     IOBuffer::WOStream mOstream;
@@ -633,6 +635,11 @@ private:
                     QCVERIFY(mContentLength ==
                         theBuf.MoveSpace(&inBuffer, mContentLength)
                     );
+                    if (mInFlightRecvBufPtr) {
+                        theOp.AttachContentBuf(
+                            mInFlightRecvBufPtr, mContentLength);
+                        mInFlightRecvBufPtr = 0;
+                    }
                 }
                 mContentLength = 0;
             }
@@ -720,11 +727,17 @@ private:
             return true;
         }
         KfsOp& theOp = *mInFlightOpPtr->mOpPtr;
-        theOp.EnsureCapacity(size_t(mContentLength));
+        assert(! mInFlightRecvBufPtr);
+        if (theOp.contentLength <= 0) {
+            theOp.EnsureCapacity(size_t(mContentLength));
+        } else {
+            mInFlightRecvBufPtr = new char [mContentLength + 1];
+            mInFlightRecvBufPtr[mContentLength] = 0;
+        }
         IOBuffer theBuf;
         theBuf.Append(IOBufferData(
             IOBufferData::IOBufferBlockPtr(
-                theOp.contentBuf,
+                mInFlightRecvBufPtr ? mInFlightRecvBufPtr : theOp.contentBuf,
                 DoNotDeallocate()
             ),
             mContentLength,
@@ -745,6 +758,8 @@ private:
             mContentLength -= theBuf.BytesConsumable();
             theBuf.Clear();
         }
+        delete [] mInFlightRecvBufPtr;
+        mInFlightRecvBufPtr = 0;
         mInFlightOpPtr = 0;
     }
     void EnsureConnected(

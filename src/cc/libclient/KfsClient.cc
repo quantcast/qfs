@@ -3854,22 +3854,24 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
     const int contentLen = op->contentLength;
     op->ParseResponseHeader(prop);
     if (op->contentLength == 0) {
-        // restore it back: when a write op is sent out and this
-        // method is invoked with the same op to get the response, the
-        // op's status should get filled in; we shouldn't be stomping
-        // over content length.
-        op->contentLength = contentLen;
         return numIO;
     }
 
-    op->EnsureCapacity(op->contentLength);
+    char* contentBuf;
+    if (contentLen <= 0) {
+        op->EnsureCapacity(op->contentLength);
+        contentBuf = op->contentBuf;
+    } else {
+        contentBuf = new char[op->contentLength + 1];
+        contentBuf[op->contentLength] = 0;
+    }
 
     // len bytes belongs to the RPC reply.  Whatever is left after
     // stripping that data out is the data.
     const ssize_t navail = numIO - len;
     if (navail > 0) {
         assert(navail <= (ssize_t)op->contentLength);
-        memcpy(op->contentBuf, mTmpBuffer + len, navail);
+        memcpy(contentBuf, mTmpBuffer + len, navail);
     }
     ssize_t nleft = op->contentLength - navail;
 
@@ -3879,7 +3881,7 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
     if (nleft > 0) {
         struct timeval timeout = {0};
         timeout.tv_sec = mDefaultOpTimeout;
-        nread = sock->DoSynchRecv(op->contentBuf + navail, nleft, timeout);
+        nread = sock->DoSynchRecv(contentBuf + navail, nleft, timeout);
         if (nread <= 0) {
             KFS_LOG_STREAM_DEBUG <<
                 sock->GetPeerName() << ": read failed: " << nread <<
@@ -3887,10 +3889,17 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
             KFS_LOG_EOM;
             op->status = nread == -ETIMEDOUT ? -ETIMEDOUT : -EHOSTUNREACH;
             sock->Close();
+            // Restore buffer to allow retry.
+            op->contentLength = contentLen;
+            if (contentBuf != op->contentBuf) {
+                delete [] contentBuf;
+            }
             return -1;
         }
     }
-
+    if (contentBuf != op->contentBuf) {
+        op->AttachContentBuf(contentBuf, op->contentLength);
+    }
     return nread + numIO;
 }
 
