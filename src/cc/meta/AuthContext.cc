@@ -72,6 +72,7 @@ public:
           mBlackListParam(),
           mWhiteListParam(),
           mPrincipalUnparseFlags(0),
+          mAuthNoneFlag(false),
           mMemKeytabGen(0)
         {}
     ~Impl()
@@ -82,25 +83,18 @@ public:
         if (inOp.status != 0) {
             return false;
         }
-        if (inOp.authType == kAuthenticationTypeKrb5) {
-            if (! mKrbServicePtr) {
-                inOp.status    = -ENOENT;
-                inOp.statusMsg = "authentication type is not configured";
-                return false;
-            }
-            QCASSERT(0 < inOp.contentLength);
-        } else if (inOp.authType == kAuthenticationTypeX509) {
-            if (! mX509SslCtxPtr.Get()) {
-                inOp.status    = -ENOENT;
-                inOp.statusMsg = "authentication type is not configured";
-                return false;
-            }
-            QCASSERT(0 >= inOp.contentLength);
-        } else {
-            QCASSERT(inOp.authType == kAuthenticationTypeNone &&
-                0 >= inOp.contentLength);
+        const bool theRetFlag =
+            (mKrbServicePtr &&
+                (inOp.authType & kAuthenticationTypeKrb5) != 0) ||
+            (mX509SslCtxPtr.Get() &&
+                (inOp.authType & kAuthenticationTypeX509) != 0) ||
+            (mAuthNoneFlag &&
+                    (inOp.authType & kAuthenticationTypeNone) != 0);
+        if (! theRetFlag) {
+            inOp.status    = -ENOENT;
+            inOp.statusMsg = "authentication type is not configured";
         }
-        return true;
+        return theRetFlag;
     }
     bool Authenticate(
         MetaAuthenticate& inOp)
@@ -120,8 +114,7 @@ public:
             inOp.statusMsg = "partial content read";
             return false;
         }
-        if (inOp.authType == kAuthenticationTypeKrb5) {
-            QCASSERT(mKrbServicePtr);
+        if (mKrbServicePtr && (inOp.authType & kAuthenticationTypeKrb5) != 0) {
             const char* theSessionKeyPtr    = 0;
             int         theSessionKeyLen    = 0;
             const char* thePeerPrincipalPtr = 0;
@@ -181,10 +174,13 @@ public:
                 inOp.responseAuthType = inOp.authType;
                 inOp.authName         = theAuthName;
             }
+            if (inOp.status == 0) {
+                inOp.responseAuthType = kAuthenticationTypeKrb5;
+            }
             return (inOp.status == 0);
         }
-        if (inOp.authType == kAuthenticationTypeX509) {
-            QCASSERT(mX509SslCtxPtr.Get());
+        if (mX509SslCtxPtr.Get() &&
+                (inOp.authType & kAuthenticationTypeX509) != 0) {
             const char*           kSessionKeyPtr        = 0;
             size_t                kSessionKeyLen        = 0;
             const char*           kPskClientIdentityPtr = 0;
@@ -210,9 +206,16 @@ public:
                 inOp.filter           = theFilterPtr;
                 inOp.responseAuthType = inOp.authType;
             }
+            if (inOp.status == 0) {
+                inOp.responseAuthType = kAuthenticationTypeX509;
+            }
             return (inOp.status == 0);
         }
-        QCASSERT(inOp.authType == kAuthenticationTypeNone);
+        QCASSERT((inOp.authType & kAuthenticationTypeNone) != 0 &&
+            mAuthNoneFlag);
+        if (inOp.status == 0) {
+            inOp.responseAuthType = kAuthenticationTypeNone;
+        }
         return (inOp.status == 0);
     }
     bool RemapAndValidate(
@@ -239,6 +242,9 @@ public:
             theParamName.Append(inParamNamePrefixPtr);
         }
         const size_t thePrefLen = theParamName.GetSize();
+        const bool theAuthNoneFlag = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "noAuth"), mAuthNoneFlag ? 1 : 0) != 0;
         NameRemap theNameRemap;
         const string theNameRemapParam = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
@@ -447,6 +453,7 @@ public:
             mWhiteList.swap(theWhiteList);
             mWhiteListParam = theWhiteListParam;
         }
+        mAuthNoneFlag = theAuthNoneFlag;
         return true;
     }
 private:
@@ -508,6 +515,7 @@ private:
     string        mBlackListParam;
     string        mWhiteListParam;
     int           mPrincipalUnparseFlags;
+    bool          mAuthNoneFlag;
     unsigned int  mMemKeytabGen;
 
 private:
@@ -534,9 +542,9 @@ AuthContext::Validate(
     delete [] inOp.contentBuf;
     inOp.contentBuf    = 0;
     inOp.contentBufPos = 0;
-    if (inOp.authType != kAuthenticationTypeKrb5 &&
-            inOp.authType != kAuthenticationTypeX509 &&
-            inOp.authType != kAuthenticationTypeNone) {
+    if ((inOp.authType & kAuthenticationTypeKrb5)== 0 &&
+            (inOp.authType & kAuthenticationTypeX509) == 0 &&
+            (inOp.authType != kAuthenticationTypeNone) == 0) {
         inOp.status    = -EINVAL;
         inOp.statusMsg = "authentication type is not supported";
     } else {
@@ -544,16 +552,16 @@ AuthContext::Validate(
             inOp.status    = -EINVAL;
             inOp.statusMsg = "content length exceeds limit";
         } else if (inOp.contentLength > 0) {
-            if (inOp.authType != kAuthenticationTypeKrb5) {
+            if ((inOp.authType & kAuthenticationTypeKrb5) == 0) {
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "invalid non zero content"
-                    " length with non krb5 authentication";
+                    " length with non kerberos authentication";
             } else {
                 inOp.contentBuf = new char [inOp.contentLength];
                 inOp.contentBuf = 0;
             }
         } else {
-            if (inOp.authType == kAuthenticationTypeKrb5) {
+            if ((inOp.authType & kAuthenticationTypeKrb5) != 0) {
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "invalid zero content"
                     " length with kerberos authentication";
