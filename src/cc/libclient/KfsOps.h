@@ -29,6 +29,7 @@
 
 #include "common/kfstypes.h"
 #include "common/Properties.h"
+#include "kfsio/NetConnection.h"
 #include "KfsAttr.h"
 
 #include <algorithm>
@@ -92,6 +93,7 @@ enum KfsOp_t {
     CMD_GETPATHNAME,
     CMD_CHMOD,
     CMD_CHOWN,
+    CMD_AUTHENTICATE,
 
     CMD_NCMDS,
 };
@@ -116,14 +118,17 @@ struct KfsOp {
           contentLength(0),
           contentBufLen(0),
           contentBuf(0),
-          statusMsg()
+          statusMsg(),
+          contentBufOwnerFlag(true)
         {}
     // to allow dynamic-type-casting, make the destructor virtual
     virtual ~KfsOp() {
-        delete [] contentBuf;
+        KfsOp::DeallocContentBuf();
     }
-    void AttachContentBuf(const char *buf, size_t len) {
-        AttachContentBuf((char *) buf, len);
+    void AttachContentBuf(const char* buf, size_t len,
+            bool ownsBufferFlag = true) {
+        AttachContentBuf(const_cast<char*>(buf), len,
+            ownsBufferFlag);
     }
     void EnsureCapacity(size_t len) {
         if (contentBufLen >= len) {
@@ -133,20 +138,25 @@ struct KfsOp {
         AllocContentBuf(len);
     }
     void AllocContentBuf(size_t len) {
-        contentBuf      = new char[len + 1];
-        contentBuf[len] = 0;
-        contentBufLen   = len;
+        contentBuf          = new char[len + 1];
+        contentBuf[len]     = 0;
+        contentBufLen       = len;
+        contentBufOwnerFlag = true;
     }
     void DeallocContentBuf() {
-        delete [] contentBuf;
+        if (contentBufOwnerFlag) {
+            delete [] contentBuf;
+        }
         ReleaseContentBuf();
     }
-    void AttachContentBuf(char *buf, size_t len) {
-        contentBuf = buf;
-        contentBufLen = len;
+    void AttachContentBuf(char* buf, size_t len,
+            bool ownsBufferFlag = true) {
+        contentBuf          = buf;
+        contentBufLen       = len;
+        contentBufOwnerFlag = ownsBufferFlag;
     }
     void ReleaseContentBuf() {
-        contentBuf = 0;
+        contentBuf    = 0;
         contentBufLen = 0;
     }
     // Build a request RPC that can be sent to the server
@@ -179,6 +189,7 @@ struct KfsOp {
     class ReqHeaders;
     friend class OpsHeaders;
 private:
+    bool          contentBufOwnerFlag;
     static string sExtraHeaders;
 };
 
@@ -1268,6 +1279,30 @@ struct ChownOp : public KfsOp {
             " user: "   << user <<
             " group: "  << group <<
             " status: " << status
+        ;
+        return os.str();
+    }
+};
+
+struct AuthenticateOp : public KfsOp {
+    int  requestedAuthType;
+    int  chosenAuthType;
+    bool useSslFlag;
+
+    AuthenticateOp(kfsSeq_t s, int authType)
+        : KfsOp (CMD_AUTHENTICATE, s),
+          requestedAuthType(authType),
+          chosenAuthType(kAuthenticationTypeUndef),
+          useSslFlag(false)
+        {}
+
+    string Show() const {
+        ostringstream os;
+        os << "authenticate:"
+            " requested: " << requestedAuthType <<
+            " chosen: "    << chosenAuthType <<
+            " ssl: "       << (useSslFlag ? 1 : 0) <<
+            " status: "    << status
         ;
         return os.str();
     }

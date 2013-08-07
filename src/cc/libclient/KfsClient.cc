@@ -3862,13 +3862,7 @@ KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
         return numIO;
     }
 
-    if (! op->contentBuf || op->contentBufLen < op->contentLength + 1) {
-        delete [] op->contentBuf;
-        op->contentBuf = 0;
-        op->contentBuf = new char[op->contentLength + 1];
-        op->contentBuf[op->contentLength] = '\0';
-        op->contentBufLen = op->contentLength + 1;
-    }
+    op->EnsureCapacity(op->contentLength);
 
     // len bytes belongs to the RPC reply.  Whatever is left after
     // stripping that data out is the data.

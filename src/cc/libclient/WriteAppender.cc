@@ -1299,9 +1299,7 @@ private:
         inOp.statusMsg.clear();
         inOp.checksum      = 0;
         inOp.contentLength = 0;
-        inOp.contentBufLen = 0;
-        delete [] inOp.contentBuf;
-        inOp.contentBuf    = 0;
+        inOp.DeallocContentBuf();
     }
     void Reset()
     {
