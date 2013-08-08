@@ -100,7 +100,8 @@ public:
     bool AddLogFileNamePrefix(
         const char* inFileNamePtr);
     void ClearLogFileNamePrefixes();
-    void Flush();
+    void Flush(); // Schedules write of the buffered data.
+    void Sync();  // Waits for write completion of all buffered data.
     void SetMaxLogWaitTime(
         int64_t inMaxLogWaitTimeMicroSec);
     void SetFlushInterval(
