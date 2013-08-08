@@ -406,6 +406,13 @@ public:
         QCStMutexLocker theLocker(mMutex);
         FlushSelf();
     }
+    void Sync()
+    {
+        QCStMutexLocker theLocker(mMutex);
+        while (! FlushSelf() || mWritePtr) {
+            mWriteDoneCond.Wait(mMutex);
+        }
+    }
     void SetMaxLogWaitTime(
         int64_t inMaxLogWaitTimeMicroSec)
     {
@@ -1361,6 +1368,12 @@ void
 BufferedLogWriter::Flush()
 {
     mImpl.Flush();
+}
+
+void
+BufferedLogWriter::Sync()
+{
+    mImpl.Sync();
 }
 
 void
