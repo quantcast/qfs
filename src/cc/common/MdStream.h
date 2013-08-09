@@ -32,7 +32,7 @@
 #include <string>
 #include <algorithm>
 
-#include "openssl/evp.h"
+#include <openssl/evp.h>
 
 namespace KFS
 {
