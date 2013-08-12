@@ -36,6 +36,7 @@
 
 namespace KFS
 {
+class ClientAuthContext;
 namespace client
 {
 using std::pair;
@@ -54,18 +55,19 @@ public:
     typedef KfsNetClient::Stats Stats;
 
     ClientPool(
-        NetManager& inNetManager,
-        int         inMaxRetryCount                  = 0,
-        int         inTimeSecBetweenRetries          = 10,
-        int         inOpTimeoutSec                   = 5  * 60,
-        int         inIdleTimeoutSec                 = 30 * 60,
-        int64_t     inInitialSeqNum                  = 1,
-        const char* inLogPrefixPtr                   = 0,
-        bool        inResetConnectionOnOpTimeoutFlag = true,
-        bool        inRetryConnectOnlyFlag           = true,
-        int         inMaxContentLength               = MAX_RPC_HEADER_LEN,
-        bool        inFailAllOpsOnOpTimeoutFlag      = false,
-        bool        inMaxOneOutstandingOpFlag        = false)
+        NetManager&        inNetManager,
+        int                inMaxRetryCount                  = 0,
+        int                inTimeSecBetweenRetries          = 10,
+        int                inOpTimeoutSec                   = 5  * 60,
+        int                inIdleTimeoutSec                 = 30 * 60,
+        int64_t            inInitialSeqNum                  = 1,
+        const char*        inLogPrefixPtr                   = 0,
+        bool               inResetConnectionOnOpTimeoutFlag = true,
+        bool               inRetryConnectOnlyFlag           = true,
+        int                inMaxContentLength               = MAX_RPC_HEADER_LEN,
+        bool               inFailAllOpsOnOpTimeoutFlag      = false,
+        bool               inMaxOneOutstandingOpFlag        = false,
+        ClientAuthContext* inAuthContextPtr                 = 0)
         : mClients(),
           mNetManager(inNetManager),
           mMaxRetryCount(inMaxRetryCount),
@@ -78,7 +80,8 @@ public:
           mRetryConnectOnlyFlag(inRetryConnectOnlyFlag),
           mMaxContentLength(inMaxContentLength),
           mFailAllOpsOnOpTimeoutFlag(inFailAllOpsOnOpTimeoutFlag),
-          mMaxOneOutstandingOpFlag(inMaxOneOutstandingOpFlag)
+          mMaxOneOutstandingOpFlag(inMaxOneOutstandingOpFlag),
+          mAuthContextPtr(inAuthContextPtr)
         {}
     ~ClientPool()
     {
@@ -112,7 +115,8 @@ public:
                 mResetConnectionOnOpTimeoutFlag,
                 mMaxContentLength,
                 mFailAllOpsOnOpTimeoutFlag,
-                mMaxOneOutstandingOpFlag))).first;
+                mMaxOneOutstandingOpFlag,
+                mAuthContextPtr))).first;
             it->second->SetRetryConnectOnly(mRetryConnectOnlyFlag);
         }
         return *(it->second);
@@ -162,19 +166,20 @@ private:
         less<ServerLocation>,
         StdFastAllocator<pair<const ServerLocation, KfsNetClient*> >
     > Clients;
-    Clients     mClients;
-    NetManager& mNetManager;
-    int         mMaxRetryCount;
-    int         mTimeSecBetweenRetries;
-    int         mOpTimeoutSec;
-    int         mIdleTimeoutSec;
-    int64_t     mInitialSeqNum;
-    const char* mLogPrefixPtr;
-    bool        mResetConnectionOnOpTimeoutFlag;
-    bool        mRetryConnectOnlyFlag;
-    int         mMaxContentLength;
-    bool        mFailAllOpsOnOpTimeoutFlag;
-    bool        mMaxOneOutstandingOpFlag;
+    Clients            mClients;
+    NetManager&        mNetManager;
+    int                mMaxRetryCount;
+    int                mTimeSecBetweenRetries;
+    int                mOpTimeoutSec;
+    int                mIdleTimeoutSec;
+    int64_t            mInitialSeqNum;
+    const char*        mLogPrefixPtr;
+    bool               mResetConnectionOnOpTimeoutFlag;
+    bool               mRetryConnectOnlyFlag;
+    int                mMaxContentLength;
+    bool               mFailAllOpsOnOpTimeoutFlag;
+    bool               mMaxOneOutstandingOpFlag;
+    ClientAuthContext* mAuthContextPtr;
 private:
     ClientPool(
         const ClientPool& inPool);

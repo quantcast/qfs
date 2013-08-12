@@ -23,8 +23,8 @@
 //
 //----------------------------------------------------------------------------
 
-#ifndef FKS_PROTOCOL_WORKER_H
-#define FKS_PROTOCOL_WORKER_H
+#ifndef KFS_PROTOCOL_WORKER_H
+#define KFS_PROTOCOL_WORKER_H
 
 #include "common/kfstypes.h"
 #include "kfsio/checksum.h"
@@ -35,6 +35,7 @@
 
 namespace KFS
 {
+class ClientAuthContext;
 namespace client
 {
 using std::string;
@@ -177,28 +178,29 @@ public:
     {
     public:
         Parameters(
-            int         inMetaMaxRetryCount           = 6,
-            int         inMetaTimeSecBetweenRetries   = 10,
-            int         inMetaOpTimeoutSec            = 3 * 60,
-            int         inMetaIdleTimeoutSec          = 5 * 60,
-            int64_t     inMetaInitialSeqNum           = 0,
-            const char* inMetaLogPrefixPtr            = 0,
-            int         inMaxRetryCount               = 10,
-            int         inWriteAppendThreshold        = KFS::CHECKSUM_BLOCKSIZE,
-            int         inTimeSecBetweenRetries       = 15,
-            int         inDefaultSpaceReservationSize = 1 << 20,
-            int         inPreferredAppendSize         = KFS::CHECKSUM_BLOCKSIZE,
-            int         inOpTimeoutSec                = 120,
-            int         inIdleTimeoutSec              = 5 * 30,
-            const char* inLogPrefixPtr                = 0,
-            int64_t     inChunkServerInitialSeqNum    = 0,
-            bool        inPreAllocateFlag             = false,
-            int         inMaxWriteSize                = 1 << 20,
-            int         inRandomWriteThreshold        = 1 << 20,
-            int         inMaxReadSize                 = 1 << 20,
-            int         inReadLeaseRetryTimeout       = 3,
-            int         inLeaseWaitTimeout            = 900,
-            int         inMaxMetaServerContentLength  = 1 << 20)
+            int                inMetaMaxRetryCount           = 6,
+            int                inMetaTimeSecBetweenRetries   = 10,
+            int                inMetaOpTimeoutSec            = 3 * 60,
+            int                inMetaIdleTimeoutSec          = 5 * 60,
+            int64_t            inMetaInitialSeqNum           = 0,
+            const char*        inMetaLogPrefixPtr            = 0,
+            int                inMaxRetryCount               = 10,
+            int                inWriteAppendThreshold        = KFS::CHECKSUM_BLOCKSIZE,
+            int                inTimeSecBetweenRetries       = 15,
+            int                inDefaultSpaceReservationSize = 1 << 20,
+            int                inPreferredAppendSize         = KFS::CHECKSUM_BLOCKSIZE,
+            int                inOpTimeoutSec                = 120,
+            int                inIdleTimeoutSec              = 5 * 30,
+            const char*        inLogPrefixPtr                = 0,
+            int64_t            inChunkServerInitialSeqNum    = 0,
+            bool               inPreAllocateFlag             = false,
+            int                inMaxWriteSize                = 1 << 20,
+            int                inRandomWriteThreshold        = 1 << 20,
+            int                inMaxReadSize                 = 1 << 20,
+            int                inReadLeaseRetryTimeout       = 3,
+            int                inLeaseWaitTimeout            = 900,
+            int                inMaxMetaServerContentLength  = 1 << 20,
+            ClientAuthContext* inAuthContextPtr = 0)
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -220,30 +222,32 @@ public:
               mMaxReadSize(inMaxReadSize),
               mReadLeaseRetryTimeout(inReadLeaseRetryTimeout),
               mLeaseWaitTimeout(inLeaseWaitTimeout),
-              mMaxMetaServerContentLength(inMaxMetaServerContentLength)
+              mMaxMetaServerContentLength(inMaxMetaServerContentLength),
+              mAuthContextPtr(inAuthContextPtr)
             {}
-            int         mMetaMaxRetryCount;
-            int         mMetaTimeSecBetweenRetries;
-            int         mMetaOpTimeoutSec;
-            int         mMetaIdleTimeoutSec;
-            int64_t     mMetaInitialSeqNum;
-            const char* mMetaLogPrefixPtr;
-            int         mMaxRetryCount;
-            int         mWriteAppendThreshold;
-            int         mTimeSecBetweenRetries;
-            int         mDefaultSpaceReservationSize;
-            int         mPreferredAppendSize;
-            int         mOpTimeoutSec;
-            int         mIdleTimeoutSec;
-            const char* mLogPrefixPtr;
-            int64_t     mChunkServerInitialSeqNum;
-            bool        mPreAllocateFlag;
-            int         mMaxWriteSize;
-            int         mRandomWriteThreshold;
-            int         mMaxReadSize;
-            int         mReadLeaseRetryTimeout;
-            int         mLeaseWaitTimeout;
-            int         mMaxMetaServerContentLength;
+            int                 mMetaMaxRetryCount;
+            int                 mMetaTimeSecBetweenRetries;
+            int                 mMetaOpTimeoutSec;
+            int                 mMetaIdleTimeoutSec;
+            int64_t             mMetaInitialSeqNum;
+            const char*         mMetaLogPrefixPtr;
+            int                 mMaxRetryCount;
+            int                 mWriteAppendThreshold;
+            int                 mTimeSecBetweenRetries;
+            int                 mDefaultSpaceReservationSize;
+            int                 mPreferredAppendSize;
+            int                 mOpTimeoutSec;
+            int                 mIdleTimeoutSec;
+            const char*         mLogPrefixPtr;
+            int64_t             mChunkServerInitialSeqNum;
+            bool                mPreAllocateFlag;
+            int                 mMaxWriteSize;
+            int                 mRandomWriteThreshold;
+            int                 mMaxReadSize;
+            int                 mReadLeaseRetryTimeout;
+            int                 mLeaseWaitTimeout;
+            int                 mMaxMetaServerContentLength;
+            ClientAuthContext*  mAuthContextPtr;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,
@@ -287,4 +291,4 @@ private:
 
 }}
 
-#endif /* FKS_PROTOCOL_WORKER_H */
+#endif /* KFS_PROTOCOL_WORKER_H */

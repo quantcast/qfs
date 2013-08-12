@@ -34,6 +34,7 @@
 #include "common/RequestParser.h"
 #include "kfsio/TcpSocket.h"
 #include "kfsio/checksum.h"
+#include "kfsio/ClientAuthContext.h"
 #include "qcdio/QCDLList.h"
 
 #include "KfsAttr.h"
@@ -753,6 +754,8 @@ private:
     BufferOutpuStream              mTmpOutputStream;
     const size_t                   mNameBufSize;
     char* const                    mNameBuf;
+    ClientAuthContext              mAuthCtx;
+    ClientAuthContext              mProtocolWorkerAuthCtx;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
 

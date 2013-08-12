@@ -38,6 +38,7 @@ set (sources
     ZlibInflate.cc
     KfsCallbackObj.cc
     SslFilter.cc
+    ClientAuthContext.cc
 )
 
 add_library (kfsIO STATIC ${sources})

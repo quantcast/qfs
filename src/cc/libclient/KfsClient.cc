@@ -1191,7 +1191,9 @@ KfsClientImpl::KfsClientImpl()
         sysconf(_SC_GETGR_R_SIZE_MAX)),
         long(8) << 10)
       ),
-      mNameBuf(new char[mNameBufSize])
+      mNameBuf(new char[mNameBufSize]),
+      mAuthCtx(),
+      mProtocolWorkerAuthCtx()
 {
     ClientsList::Insert(*this);
 
@@ -1233,7 +1235,7 @@ KfsClientImpl::Shutdown()
     mProtocolWorker->Stop();
 }
 
-int KfsClientImpl::Init(const string &metaServerHost, int metaServerPort)
+int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort)
 {
     ClientsList::Init(*this);
 
@@ -1253,7 +1255,6 @@ int KfsClientImpl::Init(const string &metaServerHost, int metaServerPort)
         KFS_LOG_EOM;
         return -1;
     }
-
     for (int attempt = 0; ;) {
         if (ConnectToMetaServer()) {
             mIsInitialized = true;
@@ -1279,7 +1280,6 @@ int KfsClientImpl::Init(const string &metaServerHost, int metaServerPort)
         return -1;
     }
 
-    mIsInitialized = true;
     return 0;
 }
 
@@ -3490,8 +3490,15 @@ KfsClientImpl::StartProtocolWorker()
     if (mProtocolWorker) {
         return;
     }
+    KfsProtocolWorker::Parameters params;
+    if (mProtocolWorkerAuthCtx.IsEnabled()) {
+        params.mAuthContextPtr = &mProtocolWorkerAuthCtx;
+    }
     mProtocolWorker = new KfsProtocolWorker(
-        mMetaServerLoc.hostname, mMetaServerLoc.port);
+        mMetaServerLoc.hostname,
+        mMetaServerLoc.port,
+        &params
+    );
     mProtocolWorker->SetOpTimeoutSec(mDefaultOpTimeout);
     mProtocolWorker->SetMetaOpTimeoutSec(mDefaultOpTimeout);
     mProtocolWorker->SetMaxRetryCount(mMaxNumRetriesPerOp);

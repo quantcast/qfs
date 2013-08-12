@@ -38,6 +38,7 @@ namespace KFS
 class IOBuffer;
 class NetManager;
 struct ServerLocation;
+class ClientAuthContext;
 
 namespace client
 {
@@ -152,29 +153,31 @@ public:
     };
 
     KfsNetClient(
-        NetManager& inNetManager,
-        string      inHost                           = string(),
-        int         inPort                           = 0,
-        int         inMaxRetryCount                  = 0,
-        int         inTimeSecBetweenRetries          = 10,
-        int         inOpTimeoutSec                   = 5  * 60,
-        int         inIdleTimeoutSec                 = 30 * 60,
-        int64_t     inInitialSeqNum                  = 1,
-        const char* inLogPrefixPtr                   = 0,
-        bool        inResetConnectionOnOpTimeoutFlag = true,
-        int         inMaxContentLength               = MAX_RPC_HEADER_LEN,
-        bool        inFailAllOpsOnOpTimeoutFlag      = false,
-        bool        inMaxOneOutstandingOpFlag        = false);
+        NetManager&        inNetManager,
+        string             inHost                           = string(),
+        int                inPort                           = 0,
+        int                inMaxRetryCount                  = 0,
+        int                inTimeSecBetweenRetries          = 10,
+        int                inOpTimeoutSec                   = 5  * 60,
+        int                inIdleTimeoutSec                 = 30 * 60,
+        int64_t            inInitialSeqNum                  = 1,
+        const char*        inLogPrefixPtr                   = 0,
+        bool               inResetConnectionOnOpTimeoutFlag = true,
+        int                inMaxContentLength               = MAX_RPC_HEADER_LEN,
+        bool               inFailAllOpsOnOpTimeoutFlag      = false,
+        bool               inMaxOneOutstandingOpFlag        = false,
+        ClientAuthContext* mAuthContextPtr                  = 0);
     virtual ~KfsNetClient();
     bool IsConnected() const;
     bool Start(
-        string  inServerName,
-        int     inServerPort,
-        string* inErrMsgPtr,
-        bool    inRetryPendingOpsFlag,
-        int     inMaxRetryCount,
-        int     inTimeSecBetweenRetries,
-        bool    inRetryConnectOnlyFlag);
+        string             inServerName,
+        int                inServerPort,
+        string*            inErrMsgPtr,
+        bool               inRetryPendingOpsFlag,
+        int                inMaxRetryCount,
+        int                inTimeSecBetweenRetries,
+        bool               inRetryConnectOnlyFlag,
+        ClientAuthContext* inAuthContextPtr);
     bool SetServer(
         const ServerLocation& inLocation,
         bool                  inCancelPendingOpsFlag = true);

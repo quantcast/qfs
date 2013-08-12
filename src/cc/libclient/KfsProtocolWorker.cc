@@ -97,7 +97,10 @@ public:
             inParameters.mMetaLogPrefixPtr ?
                 inParameters.mMetaLogPrefixPtr : "PWM",
             true,    // inResetConnectionOnOpTimeoutFlag
-            inParameters.mMaxMetaServerContentLength
+            inParameters.mMaxMetaServerContentLength,
+            false,  // inFailAllOpsOnOpTimeoutFlag
+            false,  // inMaxOneOutstandingOpFlag
+            inParameters.mAuthContextPtr
           ),
           mWorkers(),
           mMaxRetryCount(inParameters.mMaxRetryCount),

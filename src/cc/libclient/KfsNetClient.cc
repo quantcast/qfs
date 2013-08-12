@@ -71,19 +71,20 @@ public:
     typedef QCRefCountedObj::StRef StRef;
 
     Impl(
-        string      inHost,
-        int         inPort,
-        int         inMaxRetryCount,
-        int         inTimeSecBetweenRetries,
-        int         inOpTimeoutSec,
-        int         inIdleTimeoutSec,
-        kfsSeq_t    inInitialSeqNum,
-        const char* inLogPrefixPtr,
-        NetManager& inNetManager,
-        bool        inResetConnectionOnOpTimeoutFlag,
-        int         inMaxContentLength,
-        bool        inFailAllOpsOnOpTimeoutFlag,
-        bool        inMaxOneOutstandingOpFlag)
+        string             inHost,
+        int                inPort,
+        int                inMaxRetryCount,
+        int                inTimeSecBetweenRetries,
+        int                inOpTimeoutSec,
+        int                inIdleTimeoutSec,
+        kfsSeq_t           inInitialSeqNum,
+        const char*        inLogPrefixPtr,
+        NetManager&        inNetManager,
+        bool               inResetConnectionOnOpTimeoutFlag,
+        int                inMaxContentLength,
+        bool               inFailAllOpsOnOpTimeoutFlag,
+        bool               inMaxOneOutstandingOpFlag,
+        ClientAuthContext* inAuthContextPtr)
         : KfsCallbackObj(),
           QCRefCountedObj(),
           ITimeout(),
@@ -1062,19 +1063,20 @@ private:
 };
 
 KfsNetClient::KfsNetClient(
-        NetManager& inNetManager,
-        string      inHost                           /* = string() */,
-        int         inPort                           /* = 0 */,
-        int         inMaxRetryCount                  /* = 0 */,
-        int         inTimeSecBetweenRetries          /* = 10 */,
-        int         inOpTimeoutSec                   /* = 5  * 60 */,
-        int         inIdleTimeoutSec                 /* = 30 * 60 */,
-        int64_t     inInitialSeqNum                  /* = 1 */,
-        const char* inLogPrefixPtr                   /* = 0 */,
-        bool        inResetConnectionOnOpTimeoutFlag /* = true */,
-        int         inMaxContentLength               /* = MAX_RPC_HEADER_LEN */,
-        bool        inFailAllOpsOnOpTimeoutFlag      /* = false */,
-        bool        inMaxOneOutstandingOpFlag        /* = false */)
+        NetManager&        inNetManager,
+        string             inHost                           /* = string() */,
+        int                inPort                           /* = 0 */,
+        int                inMaxRetryCount                  /* = 0 */,
+        int                inTimeSecBetweenRetries          /* = 10 */,
+        int                inOpTimeoutSec                   /* = 5  * 60 */,
+        int                inIdleTimeoutSec                 /* = 30 * 60 */,
+        int64_t            inInitialSeqNum                  /* = 1 */,
+        const char*        inLogPrefixPtr                   /* = 0 */,
+        bool               inResetConnectionOnOpTimeoutFlag /* = true */,
+        int                inMaxContentLength               /* = MAX_RPC_HEADER_LEN */,
+        bool               inFailAllOpsOnOpTimeoutFlag      /* = false */,
+        bool               inMaxOneOutstandingOpFlag        /* = false */,
+        ClientAuthContext* inAuthContextPtr                 /* = 0 */)
     : mImpl(*new Impl(
         inHost,
         inPort,
@@ -1088,7 +1090,8 @@ KfsNetClient::KfsNetClient(
         inResetConnectionOnOpTimeoutFlag,
         inMaxContentLength,
         inFailAllOpsOnOpTimeoutFlag,
-        inMaxOneOutstandingOpFlag
+        inMaxOneOutstandingOpFlag,
+        inAuthContextPtr
     ))
 {
     mImpl.Ref();
@@ -1110,13 +1113,14 @@ KfsNetClient::IsConnected() const
 
     bool
 KfsNetClient::Start(
-    string  inServerName,
-    int     inServerPort,
-    string* inErrMsgPtr,
-    bool    inRetryPendingOpsFlag,
-    int     inMaxRetryCount,
-    int     inTimeSecBetweenRetries,
-    bool    inRetryConnectOnlyFlag)
+    string             inServerName,
+    int                inServerPort,
+    string*            inErrMsgPtr,
+    bool               inRetryPendingOpsFlag,
+    int                inMaxRetryCount,
+    int                inTimeSecBetweenRetries,
+    bool               inRetryConnectOnlyFlag,
+    ClientAuthContext* inAuthContextPtr)
 {
     return mImpl.Start(
         inServerName,
