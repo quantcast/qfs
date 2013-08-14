@@ -49,7 +49,7 @@ int qfs_setcwd(QFS qfs, const char* path) {
 }
 
 int qfs_getcwd(QFS qfs, char* cwd, size_t len) {
-  return strlcpy(cwd, ((KFS::KfsClient*) qfs)->GetCwd().c_str(), len);
+  return snprintf(cwd, len, "%s", ((KFS::KfsClient*) qfs)->GetCwd().c_str());
 }
 
 int qfs_mkdir(QFS qfs, const char* path, mode_t mode) {
@@ -437,8 +437,8 @@ int qfs_get_userandgroupnames(QFS qfs,
     return res;
   }
 
-  strlcpy(user, user_string.c_str(), ulen);
-  strlcpy(group, group_string.c_str(), glen);
+  snprintf(user, ulen, "%s", user_string.c_str());
+  snprintf(group, glen, "%s", group_string.c_str());
 
   return 0;
 }
@@ -454,7 +454,7 @@ int qfs_set_euserandegroup(QFS qfs,
 }
 
 static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
-  strlcpy((char*) dst->filename, src.filename.c_str(), sizeof(dst->filename));
+  snprintf((char*) dst->filename, sizeof(dst->filename), "%s", src.filename.c_str());
 
   dst->uid = src.user;
   dst->gid = src.group;
