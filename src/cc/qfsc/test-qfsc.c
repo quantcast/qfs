@@ -92,9 +92,9 @@ static char* test_qfs_cd() {
   return 0;
 }
 
-static char* test_qfs_getcwd() {
+static char* test_qfs_getwd() {
   char cwd[QFS_MAX_FILENAME_LEN];
-  check(qfs_getcwd(qfs, cwd, sizeof(cwd)) == strlen("/unit-test"),
+  check(qfs_getwd(qfs, cwd, sizeof(cwd)) == strlen("/unit-test"),
     "return should match len of current directory");
   check(strcmp(cwd, "/unit-test") == 0,
     "unexpected working directory: %s", cwd);
@@ -298,7 +298,7 @@ static char * all_tests() {
   run(test_qfs_mkdir);
   run(test_qfs_mkdirs);
   run(test_qfs_cd);
-  run(test_qfs_getcwd);
+  run(test_qfs_getwd);
   run(test_readdir);
   run(test_readdirnames);
   run(test_qfs_stat);

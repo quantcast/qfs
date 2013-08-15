@@ -90,11 +90,13 @@ extern "C" {
   int qfs_cd(QFS qfs, const char* path);
 
   // qfs_setcwd sets the current working directory for the QFS handle.
-  int qfs_setcwd(QFS qfs, const char* path);
+  int qfs_setwd(QFS qfs, const char* path);
 
-  // qfs_get_cwd writes the working directory into cwd, up to length
-  // characters. The full length is returned.
-  int qfs_getcwd(QFS qfs, char* cwd, size_t len);
+  // qfs_getwd writes the working directory into wd, up to len characters.
+  // The full written length is returned including a trailing null byte. If
+  // the return value is greater than or equal to the len argument, the
+  // working directory was truncated.
+  int qfs_getwd(QFS qfs, char* wd, size_t len);
 
   // qfs_mkdir creates the directory at path, with mode, returning a negative
   // integer on error.

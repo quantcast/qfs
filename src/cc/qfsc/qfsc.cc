@@ -44,11 +44,11 @@ int qfs_cd(QFS qfs, const char* path) {
   return ((KFS::KfsClient*) qfs)->Cd(path);
 }
 
-int qfs_setcwd(QFS qfs, const char* path) {
+int qfs_setwd(QFS qfs, const char* path) {
   return ((KFS::KfsClient*) qfs)->SetCwd(path);
 }
 
-int qfs_getcwd(QFS qfs, char* cwd, size_t len) {
+int qfs_getwd(QFS qfs, char* cwd, size_t len) {
   return snprintf(cwd, len, "%s", ((KFS::KfsClient*) qfs)->GetCwd().c_str());
 }
 
