@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <strings.h>
+#include <string.h>
 #include <fcntl.h>
 
 #include "qfs.h"
@@ -16,12 +16,14 @@
                           printf("fail\t" #test "\n** %s\n", message); return message; \
                         } else printf("ok\t" #test "\n"); } while(0)
 #define check_qfs_call(result) do { int r; \
-                                    check(0 <= (r = (result)), "%s\n", qfs_strerror(r)); } while(0); \
+                                    check(0 <= (r = (result)), "%s\n", qfs_strerror(r)); } while(0);
 
 // Buffer to format all error messages
 static char mbuf[4096];
 
 static int tests_run;
+static char* metaserver_host = "localhost";
+static int metaserver_port = 20000;
 
 // Global file system and file descriptor under test.
 QFS qfs;
@@ -30,7 +32,7 @@ int fd;
 char* testdata = "qwerasdf1234567890";
 
 static char* test_qfs_connect() {
-  qfs = qfs_connect("localhost", 20000);
+  qfs = qfs_connect(metaserver_host, metaserver_port);
   check(qfs, "qfs should be non null");
   return 0;
 }
@@ -169,7 +171,7 @@ static char* test_qfs_create() {
 }
 
 static char* test_qfs_write() {
-  check_qfs_call(qfs_write(qfs, fd, testdata, strlen(testdata)));
+  check_qfs_call(qfs_write(qfs, fd, testdata, strlen(testdata) + 1));
   return 0;
 }
 
@@ -260,11 +262,11 @@ static char* test_qfs_get_data_locations() {
   check_qfs_call(qfs_close(qfs, fd)); // shut it down
   struct qfs_locations_iter iter = {0, 0, 0};
   const char* location = NULL;
-  int64_t chunk = 0;
+  off_t chunk = 0;
   int res;
 
   struct {
-    int64_t chunk;
+    off_t chunk;
     const char* hostname;
   } expected[] = {
     // In reverse order.
@@ -278,7 +280,7 @@ static char* test_qfs_get_data_locations() {
     check(res < sizeof(expected),
       "result should always be less than the expected number of chunks");
     check(chunk == expected[res].chunk,
-      "unexpected chunk: %lld != %lld", chunk, expected[res].chunk);
+      "unexpected chunk: %jd != %jd", (intmax_t)chunk, (intmax_t)expected[res].chunk);
     check(strcmp(location, expected[res].hostname) == 0,
       "unexpected location");
   }
@@ -316,6 +318,29 @@ static char * all_tests() {
 }
 
 int main(int argc, char **argv) {
+  if(argc > 1) {
+    // Override the default values for the metaserver host:port
+
+    char* addr = argv[1];
+    char* sep = strstr(addr, ":");
+
+    if(sep == NULL) {
+      fprintf(stderr, "invalid argument for metaserver addr: %s\n", addr);
+      return EXIT_FAILURE;
+    }
+
+    if(strlen(sep) < 2) {
+      fprintf(stderr, "Port must not be zero length\n");
+      return EXIT_FAILURE;
+    }
+
+    metaserver_host = malloc(sep - addr + 1);
+    memcpy(metaserver_host, addr, sep - addr);
+    metaserver_host[sep-addr] = '\0';
+    metaserver_port = atoi(sep + 1);
+    fprintf(stderr, "running test against %s\n", addr);
+  }
+
   char* result = all_tests();
 
   if (result == 0) {
