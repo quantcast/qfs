@@ -262,7 +262,11 @@ LookupOp::Request(ostream &os)
         "LOOKUP\r\n"           << ReqHeaders(*this) <<
         "Parent File-handle: " << parentFid         << "\r\n"
         "Filename: "           << filename          << "\r\n"
-    "\r\n";
+    ;
+    if (authType != kAuthenticationTypeUndef) {
+        os << "Auth-type: " << authType << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
@@ -851,8 +855,9 @@ ParseFileAttribute(const Properties &prop, FileAttr &fattr)
 void
 LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    euser  = prop.getValue("EUserId",  euser);
-    egroup = prop.getValue("EGroupId", kKfsGroupNone);
+    euser    = prop.getValue("EUserId",   euser);
+    egroup   = prop.getValue("EGroupId",  kKfsGroupNone);
+    authType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
     ParseFileAttribute(prop, fattr);
 }
 
@@ -1109,6 +1114,26 @@ TruncateOp::ParseResponseHeaderSelf(const Properties& prop)
         status    = -EFAULT;
         statusMsg = "range truncate is not supported";
     }
+}
+
+void
+AuthenticateOp::Request(ostream &os)
+{
+    os <<
+        "AUTHENTICATE\r\n" << ReqHeaders(*this) <<
+        "Auth-type: " << requestedAuthType << "\r\n"
+    ;
+    if (0 < contentLength) {
+        os << "Content-length: " << contentLength << "\r\n";
+    }
+    os << "\r\n";
+}
+
+void
+AuthenticateOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    chosenAuthType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
+    useSslFlag     = prop.getValue("Use-ssl", 0) != 0;
 }
 
 } //namespace client

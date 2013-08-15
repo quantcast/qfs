@@ -39,6 +39,7 @@
 #include "kfsio/NetConnection.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/ClientAuthContext.h"
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
@@ -65,7 +66,8 @@ using std::max;
 class KfsNetClient::Impl :
     public KfsCallbackObj,
     public QCRefCountedObj,
-    private ITimeout
+    private ITimeout,
+    private OpOwner
 {
 public:
     typedef QCRefCountedObj::StRef StRef;
@@ -88,12 +90,13 @@ public:
         : KfsCallbackObj(),
           QCRefCountedObj(),
           ITimeout(),
+          OpOwner(),
           mServerLocation(inHost, inPort),
           mPendingOpQueue(),
           mQueueStack(),
           mConnPtr(),
-          mNextSeqNum(
-            (inInitialSeqNum < 0 ? -inInitialSeqNum : inInitialSeqNum) >> 1),
+          mNextSeqNum(max(kfsSeq_t(100), // allow to insert auth op(s) in front
+            (inInitialSeqNum < 0 ? -inInitialSeqNum : inInitialSeqNum) >> 1)),
           mReadHeaderDoneFlag(false),
           mSleepingFlag(false),
           mDataReceivedFlag(false),
@@ -122,7 +125,13 @@ public:
           mEventObserverPtr(0),
           mLogPrefix((inLogPrefixPtr && inLogPrefixPtr[0]) ?
                 (inLogPrefixPtr + string(" ")) : string()),
-          mNetManager(inNetManager)
+          mNetManager(inNetManager),
+          mAuthContextPtr(inAuthContextPtr),
+          mKeyIdPtr(0),
+          mKeyDataPtr(0),
+          mKeyDataSize(0),
+          mLookupOp(-1, ROOTFID, ""),
+          mAuthOp(-1, kAuthenticationTypeUndef)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
     }
@@ -166,6 +175,20 @@ public:
         mNextSeqNum += 100;
         EnsureConnected(inErrMsgPtr);
         return (mSleepingFlag || IsConnected());
+    }
+    void SetAuthContext(
+        ClientAuthContext* inAuthContextPtr)
+    {
+        mAuthContextPtr = inAuthContextPtr;
+    }
+    void SetKey(
+        const char* inKeyIdPtr,
+        const char* inKeyDataPtr,
+        int         inKeyDataSize)
+    {
+        mKeyIdPtr    = inKeyIdPtr;
+        mKeyDataPtr  = inKeyDataPtr;
+        mKeyDataSize = inKeyDataSize;
     }
     void Reset()
     {
@@ -278,6 +301,14 @@ public:
         return true;
     }
     bool Cancel()
+        { return CancelOrFailAll(0, string()); }
+    bool Fail(
+        int           inStatus,
+        const string& inStatusMsg)
+        { return CancelOrFailAll(inStatus, inStatusMsg); }
+    bool CancelOrFailAll(
+        int           inStatus,
+        const string& inStatusMsg)
     {
         CancelInFlightOp();
         const bool thePendingEmptyFlag = mPendingOpQueue.empty();
@@ -299,7 +330,13 @@ public:
                     continue;
                 }
                 mStats.mOpsCancelledCount++;
-                theIt->second.Cancel();
+                if (inStatus == 0) {
+                    theIt->second.Cancel();
+                } else {
+                    theIt->second.mOpPtr->status    = inStatus;
+                    theIt->second.mOpPtr->statusMsg = inStatusMsg;
+                    theIt->second.Done();
+                }
             }
         }
         if (! thePendingEmptyFlag) {
@@ -423,6 +460,77 @@ public:
     {
         mFailAllOpsOnOpTimeoutFlag = inFlag;
     }
+    virtual void OpDone(
+        KfsOp*    inOpPtr,
+        bool      inCanceledFlag,
+        IOBuffer* inBufferPtr)
+    {
+        assert(! inBufferPtr);
+        const kfsSeq_t theSeq = inOpPtr->seq;
+        inOpPtr->seq = -1;
+        if (inCanceledFlag) {
+            return;
+        }
+        if (inOpPtr == &mLookupOp) {
+            if ((mLookupOp.status == 0 || mLookupOp.status == -EACCES) &&
+                    mLookupOp.authType == kAuthenticationTypeUndef) {
+                // Does not support or understand authentication.
+                if (! IsAuthEnabled()) {
+                    return;
+                }
+                // Reset the status -- use auth type.
+                mLookupOp.status = 0;
+            }
+            if (mLookupOp.status != 0 ||
+                    (mAuthContextPtr && (mLookupOp.status =
+                        mAuthContextPtr->CheckAuthType(
+                            mLookupOp.authType,
+                            &mLookupOp.statusMsg)) != 0)) {
+                Fail(mLookupOp.status, mLookupOp.statusMsg);
+                return;
+            }
+            if (mAuthContextPtr) {
+                assert(mAuthOp.seq < 0);
+                const char* theBufPtr = 0;
+                int         theBufLen = 0;
+                if ((mAuthOp.status = mAuthContextPtr->Request(
+                        mLookupOp.authType,
+                        mAuthOp.requestedAuthType,
+                        theBufPtr,
+                        theBufLen,
+                        &mAuthOp.statusMsg)) != 0) {
+                    Fail(mAuthOp.status, mAuthOp.statusMsg);
+                    return;
+                }
+                if (mAuthContextPtr->IsShared()) {
+                    mAuthOp.EnsureCapacity(theBufLen);
+                    if (0 < theBufLen) {
+                        memcpy(mAuthOp.contentBuf, theBufPtr, theBufLen);
+                    }
+                } else {
+                    const bool kOwnsContentBufFlag = false;
+                    mAuthOp.AttachContentBuf(
+                        theBufPtr, theBufLen, kOwnsContentBufFlag);
+                }
+                mAuthOp.contentLength = theBufLen;
+                mAuthOp.seq           = theSeq + 1;
+                pair<OpQueue::iterator, bool> const theRes =
+                    mPendingOpQueue.insert(make_pair(
+                        inOpPtr->seq, OpQueueEntry(&mAuthOp, this, 0)
+                ));
+                assert(theRes.second &&
+                    theRes.first == mPendingOpQueue.begin());
+                // FIXME: implement retry count.
+                const bool kResetTimerFlag = true;
+                Request(theRes.first->second, kResetTimerFlag, 0);
+                return;
+            }
+        }
+        assert(inOpPtr == &mAuthOp);
+        if (inOpPtr != &mAuthOp) {
+            return;
+        }
+    }
 private:
     class DoNotDeallocate
     {
@@ -520,9 +628,17 @@ private:
     EventObserver*     mEventObserverPtr;
     const string       mLogPrefix;
     NetManager&        mNetManager;
+    ClientAuthContext* mAuthContextPtr;
+    const char*        mKeyIdPtr;
+    const char*        mKeyDataPtr;
+    int                mKeyDataSize;
+    LookupOp           mLookupOp;
+    AuthenticateOp     mAuthOp;
 
     virtual ~Impl()
         { Impl::Reset(); }
+    bool AuthInFlight()
+        { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
     bool EnqueueSelf(
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
@@ -541,7 +657,7 @@ private:
             mPendingOpQueue.insert(make_pair(
                 inOpPtr->seq, OpQueueEntry(inOpPtr, inOwnerPtr, inBufferPtr)
             ));
-        if (! theRes.second || ! IsConnected()) {
+        if (! theRes.second || ! IsConnected() || AuthInFlight()) {
             return theRes.second;
         }
         if (mMaxOneOutstandingOpFlag) {
@@ -763,6 +879,8 @@ private:
         mInFlightRecvBufPtr = 0;
         mInFlightOpPtr = 0;
     }
+    bool IsAuthEnabled() const
+        { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
     void EnsureConnected(
         string*      inErrMsgPtr = 0,
         const KfsOp* inLastOpPtr = 0)
@@ -803,6 +921,8 @@ private:
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
         mNetManager.AddConnection(mConnPtr);
+        if (IsAuthEnabled()) {
+        }
         RetryAll(inLastOpPtr);
     }
     void RetryAll(
@@ -1140,6 +1260,24 @@ KfsNetClient::SetServer(
 {
     Impl::StRef theRef(mImpl);
     return mImpl.SetServer(inLocation, inCancelPendingOpsFlag);
+}
+
+    void
+KfsNetClient::SetKey(
+    const char* inKeyIdPtr,
+    const char* inKeyDataPtr,
+    int         inKeyDataSize)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetKey(inKeyIdPtr, inKeyDataPtr, inKeyDataSize);
+}
+
+    void
+KfsNetClient::SetAuthContext(
+    ClientAuthContext* inAuthContextPtr)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetAuthContext(inAuthContextPtr);
 }
 
     void

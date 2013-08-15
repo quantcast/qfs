@@ -26,8 +26,11 @@
 #ifndef KFS_CLIENT_AUTH_CONTEXT_H
 #define KFS_CLIENT_AUTH_CONTEXT_H
 
+#include <string>
+
 namespace KFS
 {
+using std::string;
 
 class Properties;
 class NetConnection;
@@ -38,19 +41,33 @@ public:
     ClientAuthContext();
     ~ClientAuthContext();
     bool IsEnabled() const;
+    bool IsShared() const;
+    void SetShared(
+        bool inFlag);
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters);
+    int CheckAuthType(
+        int     inAuthType,
+        string* outErrMsgPtr);
     int Request(
+        int          inAuthType,
         int&         outAuthType,
         const char*& outBufPtr,
-        int&         outBufLen);
+        int&         outBufLen,
+        string*      outErrMsgPtr);
+    int StartSsl(
+        NetConnection& inNetConnection,
+        const char*    inKeyIdPtr,
+        const char*    inKeyPtr,
+        int            inKeyLength);
     int Response(
         int            inAuthType,
         bool           inUseSslFlag,
         const char*    inBufPtr,
         int            inBufLen,
-        NetConnection& inNetConnection);
+        NetConnection& inNetConnection,
+        string*        outErrMsgPtr);
 private:
     class Impl;
     Impl& mImpl;

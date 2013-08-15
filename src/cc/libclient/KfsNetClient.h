@@ -181,6 +181,12 @@ public:
     bool SetServer(
         const ServerLocation& inLocation,
         bool                  inCancelPendingOpsFlag = true);
+    void SetKey(
+        const char* inKeyIdPtr,
+        const char* inKeyDataPtr,
+        int         inKeyDataSize);
+    void SetAuthContext(
+        ClientAuthContext* inAuthContextPtr);
     void Stop();
     int GetMaxRetryCount() const;
     void SetMaxRetryCount(

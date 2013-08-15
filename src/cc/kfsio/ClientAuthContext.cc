@@ -48,9 +48,19 @@ public:
         return 0;
     }
     int Request(
+        int          inAuthType,
         int&         outAuthType,
         const char*& outBufPtr,
-        int&         outBufLen)
+        int&         outBufLen,
+        string*      outErrMsgPtr)
+    {
+        return 0;
+    }
+    int StartSsl(
+        NetConnection& inNetConnection,
+        const char*    inKeyIdPtr,
+        const char*    inKeyPtr,
+        int            inKeyLength)
     {
         return 0;
     }
@@ -59,13 +69,28 @@ public:
         bool           inUseSslFlag,
         const char*    inBufPtr,
         int            inBufLen,
-        NetConnection& inNetConnection)
+        NetConnection& inNetConnection,
+        string*        outErrMsgPtr)
     {
         return 0;
     }
     bool IsEnabled() const
     {
         return false;
+    }
+    bool IsShared() const
+    {
+        return false;
+    }
+    void SetShared(
+        bool inFlag)
+    {
+    }
+    int CheckAuthType(
+        int     inAuthType,
+        string* outErrMsgPtr)
+    {
+        return 0;
     }
 private:
 };
@@ -79,6 +104,27 @@ ClientAuthContext::~ClientAuthContext()
     delete &mImpl;
 }
 
+    bool
+ClientAuthContext::IsShared() const
+{
+    return mImpl.IsShared();
+}
+
+    void
+ClientAuthContext::SetShared(
+    bool inFlag)
+{
+    return mImpl.SetShared(inFlag);
+}
+
+    int
+ClientAuthContext::CheckAuthType(
+    int     inAuthType,
+    string* outErrMsgPtr)
+{
+    return mImpl.CheckAuthType(inAuthType, outErrMsgPtr);
+}
+
     int
 ClientAuthContext::SetParameters(
     const char*       inParamsPrefixPtr,
@@ -89,11 +135,24 @@ ClientAuthContext::SetParameters(
 
     int
 ClientAuthContext::Request(
+    int          inAuthType,
     int&         outAuthType,
     const char*& outBufPtr,
-    int&         outBufLen)
+    int&         outBufLen,
+    string*      outErrMsgPtr)
 {
-    return mImpl.Request(outAuthType, outBufPtr, outBufLen);
+    return mImpl.Request(
+        inAuthType, outAuthType, outBufPtr, outBufLen, outErrMsgPtr);
+}
+
+    int
+ClientAuthContext::StartSsl(
+    NetConnection& inNetConnection,
+    const char*    inKeyIdPtr,
+    const char*    inKeyPtr,
+    int            inKeyLength)
+{
+    return mImpl.StartSsl(inNetConnection, inKeyIdPtr, inKeyPtr, inKeyLength);
 }
 
     int
@@ -102,10 +161,12 @@ ClientAuthContext::Response(
     bool           inUseSslFlag,
     const char*    inBufPtr,
     int            inBufLen,
-    NetConnection& inNetConnection)
+    NetConnection& inNetConnection,
+    string*        outErrMsgPtr)
 {
     return mImpl.Response(
-        inAuthType, inUseSslFlag, inBufPtr, inBufLen, inNetConnection);
+        inAuthType, inUseSslFlag, inBufPtr, inBufLen, inNetConnection,
+        outErrMsgPtr);
 }
 
     bool

@@ -131,7 +131,7 @@ struct KfsOp {
             ownsBufferFlag);
     }
     void EnsureCapacity(size_t len) {
-        if (contentBufLen >= len) {
+        if (contentBufLen >= len && contentBufOwnerFlag) {
             return;
         }
         DeallocContentBuf();
@@ -459,13 +459,15 @@ struct LookupOp : public KfsOp {
     FileAttr    fattr;     // result
     kfsUid_t    euser;     // result -- effective user set by the meta server
     kfsGid_t    egroup;    // result -- effective group set by the meta server
+    int         authType;  // in / out auth type.
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char *f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
           parentFid(p),
           filename(f),
           euser(eu),
-          egroup(eg)
+          egroup(eg),
+          authType(kAuthenticationTypeUndef)
         {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -1272,8 +1274,8 @@ struct ChownOp : public KfsOp {
           user(u),
           group(g)
         {}
-    void Request(ostream &os);
-    string Show() const {
+    virtual void Request(ostream &os);
+    virtual string Show() const {
         ostringstream os;
         os << "chown:"
             " fid: "    << fid <<
@@ -1296,8 +1298,9 @@ struct AuthenticateOp : public KfsOp {
           chosenAuthType(kAuthenticationTypeUndef),
           useSslFlag(false)
         {}
-
-    string Show() const {
+    virtual void Request(ostream &os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual string Show() const {
         ostringstream os;
         os << "authenticate:"
             " requested: " << requestedAuthType <<
