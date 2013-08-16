@@ -59,8 +59,9 @@ public:
     int StartSsl(
         NetConnection& inNetConnection,
         const char*    inKeyIdPtr,
-        const char*    inKeyPtr,
-        int            inKeyLength);
+        const char*    inKeyDataPtr,
+        int            inKeyDataSize,
+        string*        outErrMsgPtr);
     int Response(
         int            inAuthType,
         bool           inUseSslFlag,

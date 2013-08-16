@@ -59,8 +59,9 @@ public:
     int StartSsl(
         NetConnection& inNetConnection,
         const char*    inKeyIdPtr,
-        const char*    inKeyPtr,
-        int            inKeyLength)
+        const char*    inKeyDataPtr,
+        int            inKeyDataSize,
+        string*        outErrMsgPtr)
     {
         return 0;
     }
@@ -149,10 +150,12 @@ ClientAuthContext::Request(
 ClientAuthContext::StartSsl(
     NetConnection& inNetConnection,
     const char*    inKeyIdPtr,
-    const char*    inKeyPtr,
-    int            inKeyLength)
+    const char*    inKeyDataPtr,
+    int            inKeyDataSize,
+    string*        outErrMsgPtr)
 {
-    return mImpl.StartSsl(inNetConnection, inKeyIdPtr, inKeyPtr, inKeyLength);
+    return mImpl.StartSsl(
+        inNetConnection, inKeyIdPtr, inKeyDataPtr, inKeyDataSize, outErrMsgPtr);
 }
 
     int

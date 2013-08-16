@@ -187,6 +187,19 @@ public:
         int         inKeyDataSize);
     void SetAuthContext(
         ClientAuthContext* inAuthContextPtr);
+    bool SetServer(
+        const ServerLocation& inLocation,
+        ClientAuthContext*    inAuthContextPtr,
+        const char*           inKeyIdPtr,
+        const char*           inKeyDataPtr,
+        int                   inKeyDataSize,
+        bool                  inCancelPendingOpsFlag = true)
+    {
+        SetAuthContext(inAuthContextPtr);
+        SetKey(inKeyIdPtr, inKeyDataPtr, inKeyDataSize);
+        return SetServer(inLocation, inCancelPendingOpsFlag);
+    }
+    ClientAuthContext* GetAuthContext();
     void Stop();
     int GetMaxRetryCount() const;
     void SetMaxRetryCount(

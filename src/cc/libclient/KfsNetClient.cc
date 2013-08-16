@@ -34,6 +34,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <stdlib.h>
 
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetConnection.h"
@@ -127,9 +128,8 @@ public:
                 (inLogPrefixPtr + string(" ")) : string()),
           mNetManager(inNetManager),
           mAuthContextPtr(inAuthContextPtr),
-          mKeyIdPtr(0),
-          mKeyDataPtr(0),
-          mKeyDataSize(0),
+          mKeyId(),
+          mKeyData(),
           mLookupOp(-1, ROOTFID, ""),
           mAuthOp(-1, kAuthenticationTypeUndef)
     {
@@ -178,17 +178,20 @@ public:
     }
     void SetAuthContext(
         ClientAuthContext* inAuthContextPtr)
-    {
-        mAuthContextPtr = inAuthContextPtr;
-    }
+        { mAuthContextPtr = inAuthContextPtr; }
+    ClientAuthContext* GetAuthContext()
+        { return mAuthContextPtr; }
     void SetKey(
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,
         int         inKeyDataSize)
     {
-        mKeyIdPtr    = inKeyIdPtr;
-        mKeyDataPtr  = inKeyDataPtr;
-        mKeyDataSize = inKeyDataSize;
+        mKeyId = inKeyIdPtr ? inKeyIdPtr : "";
+        if (inKeyDataPtr && inKeyDataSize > 0) {
+            mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
+        } else {
+            mKeyData.clear();
+        }
     }
     void Reset()
     {
@@ -493,6 +496,7 @@ public:
                 assert(mAuthOp.seq < 0);
                 const char* theBufPtr = 0;
                 int         theBufLen = 0;
+                mAuthOp.statusMsg.clear();
                 if ((mAuthOp.status = mAuthContextPtr->Request(
                         mLookupOp.authType,
                         mAuthOp.requestedAuthType,
@@ -514,22 +518,32 @@ public:
                 }
                 mAuthOp.contentLength = theBufLen;
                 mAuthOp.seq           = theSeq + 1;
-                pair<OpQueue::iterator, bool> const theRes =
-                    mPendingOpQueue.insert(make_pair(
-                        inOpPtr->seq, OpQueueEntry(&mAuthOp, this, 0)
-                ));
-                assert(theRes.second &&
-                    theRes.first == mPendingOpQueue.begin());
-                // FIXME: implement retry count.
-                const bool kResetTimerFlag = true;
-                Request(theRes.first->second, kResetTimerFlag, 0);
+                EnqueueAuth(mAuthOp);
                 return;
             }
         }
-        assert(inOpPtr == &mAuthOp);
         if (inOpPtr != &mAuthOp) {
+            abort();
             return;
         }
+        if (! IsAuthEnabled() || ! mConnPtr) {
+            Reset();
+            if (! mPendingOpQueue.empty()) {
+                EnsureConnected();
+            }
+            return;
+        }
+        if (mAuthOp.status == 0 &&
+                (mAuthOp.status = mAuthContextPtr->Response(
+                    mAuthOp.chosenAuthType,
+                    mAuthOp.useSslFlag,
+                    mAuthOp.contentBuf,
+                    mAuthOp.contentLength,
+                    *mConnPtr,
+                    &mAuthOp.statusMsg)) == 0) {
+            return;
+        }
+        Fail(mAuthOp.status, mAuthOp.statusMsg);
     }
 private:
     class DoNotDeallocate
@@ -629,16 +643,21 @@ private:
     const string       mLogPrefix;
     NetManager&        mNetManager;
     ClientAuthContext* mAuthContextPtr;
-    const char*        mKeyIdPtr;
-    const char*        mKeyDataPtr;
-    int                mKeyDataSize;
+    string             mKeyId;
+    string             mKeyData;
     LookupOp           mLookupOp;
     AuthenticateOp     mAuthOp;
 
     virtual ~Impl()
         { Impl::Reset(); }
-    bool AuthInFlight()
+    bool IsAuthInFlight()
         { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
+    void SetMaxWaitTime(
+        KfsOp& inOp)
+    {
+        inOp.maxWaitMillisec = mOpTimeoutSec > 0 ?
+            int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
+    }
     bool EnqueueSelf(
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
@@ -649,15 +668,14 @@ private:
             return false;
         }
         mIdleTimeoutFlag = false;
-        inOpPtr->seq             = mNextSeqNum++;
-        inOpPtr->maxWaitMillisec = mOpTimeoutSec > 0 ?
-            int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
+        SetMaxWaitTime(*inOpPtr);
+        inOpPtr->seq = mNextSeqNum++;
         const bool theResetTimerFlag = mPendingOpQueue.empty();
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
                 inOpPtr->seq, OpQueueEntry(inOpPtr, inOwnerPtr, inBufferPtr)
             ));
-        if (! theRes.second || ! IsConnected() || AuthInFlight()) {
+        if (! theRes.second || ! IsConnected() || IsAuthInFlight()) {
             return theRes.second;
         }
         if (mMaxOneOutstandingOpFlag) {
@@ -669,6 +687,20 @@ private:
         Request(mOutstandingOpPtr ? *mOutstandingOpPtr : theRes.first->second,
             theResetTimerFlag || mOutstandingOpPtr, inRetryCount);
         return theRes.second;
+    }
+    void EnqueueAuth(
+        KfsOp& inOp)
+    {
+        SetMaxWaitTime(inOp);
+        pair<OpQueue::iterator, bool> const theRes =
+            mPendingOpQueue.insert(make_pair(
+                inOp.seq, OpQueueEntry(&inOp, this, 0)
+            ));
+        if (! theRes.second || theRes.first != mPendingOpQueue.begin()) {
+            abort();
+        }
+        const bool kResetTimerFlag = true;
+        Request(theRes.first->second, kResetTimerFlag, mRetryCount);
     }
     void Request(
         OpQueueEntry& inEntry,
@@ -881,6 +913,8 @@ private:
     }
     bool IsAuthEnabled() const
         { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
+    bool IsSslAuth() const
+        { return (IsAuthEnabled() && ! mKeyData.empty()); }
     void EnsureConnected(
         string*      inErrMsgPtr = 0,
         const KfsOp* inLastOpPtr = 0)
@@ -921,9 +955,39 @@ private:
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
         mNetManager.AddConnection(mConnPtr);
-        if (IsAuthEnabled()) {
+        if (IsSslAuth()) {
+            string    theErrMsg;
+            const int theStatus = mAuthContextPtr->StartSsl(
+                *mConnPtr,
+                mKeyId.c_str(),
+                mKeyData.data(),
+                (int)mKeyData.size(),
+                &theErrMsg
+            );
+            if (theStatus != 0) {
+                Fail(theStatus, theErrMsg);
+                return;
+            }
+        } else if (IsAuthEnabled()) {
+            if (mLookupOp.seq >= 0) {
+                Cancel(&mLookupOp, this);
+            }
+            if (mAuthOp.seq >= 0) {
+                Cancel(&mAuthOp, this);
+            }
+            assert(! IsAuthInFlight());
+            mLookupOp.DeallocContentBuf();
+            mLookupOp.contentLength = 0;
+            mLookupOp.status        = 0;
+            mLookupOp.statusMsg.clear();
+            mLookupOp.authType      = kAuthenticationTypeUndef;
+            mLookupOp.seq           = mNextSeqNum++;
+            mNextSeqNum++; // Leave one slot for mAuthOp
         }
         RetryAll(inLastOpPtr);
+        if (mLookupOp.seq >= 0) {
+            EnqueueAuth(mLookupOp);
+        }
     }
     void RetryAll(
         const KfsOp* inLastOpPtr = 0)
@@ -1028,7 +1092,8 @@ private:
         }
         CancelInFlightOp();
         if (mRetryCount < mMaxRetryCount && (! mRetryConnectOnlyFlag ||
-                (! mDataSentFlag && ! mDataReceivedFlag))) {
+                (! mDataSentFlag && ! mDataReceivedFlag) ||
+                IsAuthInFlight())) {
             mRetryCount++;
             if (mTimeSecBetweenRetries > 0) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
@@ -1045,6 +1110,17 @@ private:
             } else {
                 Timeout();
             }
+        } else if (IsAuthInFlight()) {
+            OpQueue::iterator const theIt = mPendingOpQueue.begin();
+            assert(
+                theIt != mPendingOpQueue.end() &&
+                theIt->second.mOpPtr ==
+                    (0 <= mLookupOp.seq ?
+                        static_cast<KfsOp*>(&mLookupOp) :
+                        static_cast<KfsOp*>(&mAuthOp))
+            );
+            const bool kAllowRetryFlag = false;
+            HandleSingleOpTimeout(mPendingOpQueue.begin(), kAllowRetryFlag);
         } else if (inOutstandingOpPtr && ! mFailAllOpsOnOpTimeoutFlag &&
                 ! mPendingOpQueue.empty() &&
                 &(mPendingOpQueue.begin()->second) == inOutstandingOpPtr) {
@@ -1067,10 +1143,11 @@ private:
         }
     }
     void HandleSingleOpTimeout(
-        OpQueue::iterator inIt)
+        OpQueue::iterator inIt,
+        bool              inAllowRetryFlag = true)
     {
         OpQueueEntry& theEntry = inIt->second;
-        if (theEntry.mRetryCount < mMaxRetryCount) {
+        if (inAllowRetryFlag && theEntry.mRetryCount < mMaxRetryCount) {
             theEntry.mRetryCount++;
         } else {
             theEntry.mOpPtr->status = kErrorMaxRetryReached;
@@ -1278,6 +1355,13 @@ KfsNetClient::SetAuthContext(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetAuthContext(inAuthContextPtr);
+}
+
+    ClientAuthContext*
+KfsNetClient::GetAuthContext()
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.GetAuthContext();
 }
 
     void
