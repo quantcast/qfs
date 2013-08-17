@@ -73,7 +73,7 @@ public:
         const char* inServeiceNamePtr,
         const char* inKeyTabNamePtr,
         const char* inClientNamePtr,
-        bool        inForceCacheInitFlag = false)
+        bool        inForceCacheInitFlag)
     {
         CleanupSelf();
         mServiceHost    = inServiceHostNamePtr ? inServiceHostNamePtr : "";
@@ -442,13 +442,15 @@ KrbClient::Init(
     const char* inServiceHostNamePtr,
     const char* inServeiceNamePtr,
     const char* inKeyTabNamePtr,
-    const char* inClientNamePtr)
+    const char* inClientNamePtr,
+    bool        inForceCacheInitFlag)
 {
     return mImpl.Init(
         inServiceHostNamePtr,
         inServeiceNamePtr,
         inKeyTabNamePtr,
-        inClientNamePtr
+        inClientNamePtr,
+        inForceCacheInitFlag
     );
 }
 

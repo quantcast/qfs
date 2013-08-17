@@ -77,8 +77,10 @@ public:
             theClientName += inArgsPtr[1];
             theClientNamePtr = theClientName.c_str();
         }
+        const bool kForceClientCacheInitFlag = true;
         const char* theErrMsgPtr = mClient.Init(inArgsPtr[1], inArgsPtr[2],
-            theClientUseKeytabFlag ? inArgsPtr[3] : 0, theClientNamePtr);
+            theClientUseKeytabFlag ? inArgsPtr[3] : 0, theClientNamePtr,
+            kForceClientCacheInitFlag);
         if (theErrMsgPtr) {
             cerr <<
                 "client: init error: " << theErrMsgPtr << "\n";

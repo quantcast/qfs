@@ -39,7 +39,8 @@ public:
         const char* inServiceHostNamePtr,
         const char* inServeiceNamePtr,
         const char* inKeyTabNamePtr,
-        const char* inClientNamePtr);
+        const char* inClientNamePtr,
+        bool        inForceCacheInitFlag);
     const char* Cleanup();
     const char* Request(
         const char*& outDataPtr,
