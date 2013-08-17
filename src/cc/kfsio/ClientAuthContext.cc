@@ -148,7 +148,7 @@ public:
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         SslCtxPtr theX509SslCtxPtr;
         if (theX509ChangedFlag) {
-            const bool kServerFlag  = true;
+            const bool kServerFlag  = false;
             const bool kPskOnlyFlag = false;
             string     theErrMsg;
             mSslCtxPtr.Set(SslFilter::CreateCtx(
