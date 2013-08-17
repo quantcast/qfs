@@ -60,7 +60,7 @@ class AuthContext::Impl
 public:
     Impl()
         : mKrbProps(),
-          mKrbSslProps(),
+          mPskSslProps(),
           mX509SslProps(),
           mKrbServicePtr(),
           mSslCtxPtr(0),
@@ -283,10 +283,9 @@ public:
             }
         }
         Properties theKrbProps(mKrbProps);
+        theParamName.Truncate(thePrefLen).Append("krb5.");
         inParameters.copyWithPrefix(
-            theParamName.Truncate(thePrefLen).Append("krb5.").GetPtr(),
-            theKrbProps
-        );
+            theParamName.GetPtr(), theParamName.GetSize(), theKrbProps);
         const bool    theKrbChangedFlag        = theKrbProps != mKrbProps ||
             inParameters.getValue(
                 theParamName.Truncate(thePrefLen).Append(
@@ -367,43 +366,44 @@ public:
                 }
             }
         }
-        Properties theKrbSslProps(mKrbSslProps);
-        theParamName.Truncate(thePrefLen).Append("krb5.tls.");
-        inParameters.copyWithPrefix(theParamName.GetPtr(), theKrbSslProps);
-        const bool theKrbSslChangedFlag =
+        Properties thePskSslProps(mPskSslProps);
+        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        inParameters.copyWithPrefix(
+            theParamName.GetPtr(), theParamName.GetSize(), thePskSslProps);
+        const bool thePskSslChangedFlag =
             (theKrbChangedFlag &&
                     (mKrbServicePtr.get() != 0) !=
                     (theKrbServicePtr.get() != 0)) ||
-            mKrbSslProps != theKrbSslProps ||
+            mPskSslProps != thePskSslProps ||
             inParameters.getValue(
                 theParamName.Truncate(thePrefLen).Append(
-                "krb5.tls.forceReload"), 0) != 0;
+                "psk.tls.forceReload"), 0) != 0;
         SslCtxPtr theSslCtxPtr;
-        if (theKrbSslChangedFlag && theKrbSslProps.getValue(
+        if (thePskSslChangedFlag && thePskSslProps.getValue(
                 theParamName.Truncate(thePrefLen).Append(
-                    "krb5.tls.disable"), 0) == 0 &&
-                mKrbServicePtr) {
+                    "psk.tls.disable"), 0) == 0) {
             const bool kServerFlag  = true;
             const bool kPskOnlyFlag = true;
             string     theErrMsg;
             mSslCtxPtr.Set(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("krb5.tls.").GetPtr(),
-                theKrbSslProps,
+                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
+                thePskSslProps,
                 &theErrMsg
             ));
             if (! mSslCtxPtr.Get()) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
-                    "krb5.* configuration error: " << theErrMsg <<
+                    "psk.tls.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return false;
             }
         }
         Properties theX509SslProps(mX509SslProps);
         theParamName.Truncate(thePrefLen).Append("X509.");
-        inParameters.copyWithPrefix(theParamName.GetPtr(), theX509SslProps);
+        inParameters.copyWithPrefix(
+            theParamName.GetPtr(), theParamName.GetSize(), theX509SslProps);
         const bool theX509ChangedFlag = theX509SslProps != mX509SslProps ||
             inParameters.getValue(
                 theParamName.Truncate(thePrefLen).Append(
@@ -417,13 +417,13 @@ public:
                 kServerFlag,
                 kPskOnlyFlag,
                 theParamName.Truncate(thePrefLen).Append("X509.").GetPtr(),
-                theKrbSslProps,
+                theX509SslProps,
                 &theErrMsg
             ));
             if (! mSslCtxPtr.Get()) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
-                    "krb5.* configuration error: " << theErrMsg <<
+                    "X509.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return false;
             }
@@ -433,9 +433,9 @@ public:
             mKrbServicePtr.swap(theKrbServicePtr);
             mKrbProps.swap(theKrbProps);
         }
-        if (theKrbSslChangedFlag) {
+        if (thePskSslChangedFlag) {
             mSslCtxPtr.Swap(theSslCtxPtr);
-            mKrbSslProps.swap(theKrbSslProps);
+            mPskSslProps.swap(thePskSslProps);
         }
         if (theX509ChangedFlag) {
             mX509SslCtxPtr.Swap(theX509SslCtxPtr);
@@ -469,41 +469,10 @@ private:
         less<string>,
         StdFastAllocator<string>
     > NameList;
-    class SslCtxPtr
-    {
-    public:
-        SslCtxPtr(
-            SslFilter::Ctx* inCtxPtr = 0)
-            : mCtxPtr(inCtxPtr)
-            {}
-        ~SslCtxPtr()
-            { SslFilter::FreeCtx(mCtxPtr); }
-        void Swap(
-            SslCtxPtr& inCtx)
-        {
-            SslFilter::Ctx* const theTmpPtr = inCtx.mCtxPtr;
-            inCtx.mCtxPtr = mCtxPtr;
-            mCtxPtr = theTmpPtr;
-        }
-        SslFilter::Ctx* Get() const
-            { return mCtxPtr; }
-        void Set(
-            SslFilter::Ctx* inCtxPtr)
-        {
-            SslFilter::FreeCtx(mCtxPtr);
-            mCtxPtr = inCtxPtr;
-        }
-    private:
-        SslFilter::Ctx* mCtxPtr;
-    private:
-        SslCtxPtr(
-            const SslCtxPtr& inCtxPtr);
-        SslCtxPtr& operator=(
-            const SslCtxPtr& inCtxPtr);
-    };
+    typedef class SslFilter::CtxPtr SslCtxPtr;
 
     Properties    mKrbProps;
-    Properties    mKrbSslProps;
+    Properties    mPskSslProps;
     Properties    mX509SslProps;
     KrbServicePtr mKrbServicePtr;
     SslCtxPtr     mSslCtxPtr;
