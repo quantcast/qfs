@@ -27,24 +27,155 @@
 
 #include "common/Properties.h"
 #include "kfsio/NetConnection.h"
+#include "common/Properties.h"
+#include "common/MsgLogger.h"
+#include "kfsio/SslFilter.h"
+#include "krb/KrbClient.h"
+#include "qcdio/qcdebug.h"
+
+#include <boost/scoped_ptr.hpp>
+#include <errno.h>
 
 namespace KFS
 {
 
-class Properties;
-class NetConnection;
+using std::string;
+using boost::scoped_ptr;
 
 class ClientAuthContext::Impl
 {
 public:
     Impl()
+        : mSharedFlag(false),
+          mEnabledFlag(false),
+          mParams(),
+          mKrbClientPtr(),
+          mSslCtxPtr(),
+          mX509SslCtxPtr()
         {}
     ~Impl()
         {}
     int SetParameters(
         const char*       inParamsPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        string*           outErrMsgPtr)
     {
+        Properties::String theParamName;
+        if (inParamsPrefixPtr) {
+            theParamName.Append(inParamsPrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        Properties theParams(mParams);
+        inParameters.copyWithPrefix(
+            theParamName.GetPtr(), theParamName.GetSize(), theParams);
+        const char* theNullStr         = 0;
+        const char* theServeiceNamePtr = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "krb5.serviceName"), theNullStr);
+        theParamName.Truncate(thePrefLen).Append("krb5.");
+        size_t theCurLen = theParamName.GetSize();
+        const bool theKrbChangedFlag =
+            theParams.getValue(theParamName.Append("forceReload"), 0) != 0 ||
+            ! theParams.equalsWithPrefix(
+                theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
+        KrbClientPtr theKrbClientPtr;
+        if (theKrbChangedFlag && theServeiceNamePtr && theServeiceNamePtr[0]) {
+            theKrbClientPtr.reset(new KrbClient());
+            const char* const theErrMsgPtr = theKrbClientPtr->Init(
+                theParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                    "krb5.serviceHost"), theNullStr),
+                theServeiceNamePtr,
+                theParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                    "krb5.keytab"), theNullStr),
+                theParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                    "krb5.clientName"), theNullStr),
+                theParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                    "krb5.initClientCache"), 0) != 0
+            );
+            if (theErrMsgPtr) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = theErrMsgPtr;
+                }
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                    "krb5.* configuration error: " << theErrMsgPtr <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+        }
+        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        theCurLen = theParamName.GetSize();
+        const bool thePskSslChangedFlag =
+            (theKrbChangedFlag &&
+                    (mKrbClientPtr.get() != 0) !=
+                    (theKrbClientPtr.get() != 0)) ||
+            theParams.getValue(
+                theParamName.Append("forceReload"), 0) != 0 ||
+            ! theParams.equalsWithPrefix(
+                theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
+        SslCtxPtr theSslCtxPtr;
+        if (thePskSslChangedFlag && theParams.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                    "psk.tls.disable"), 0) == 0) {
+            const bool kServerFlag  = false;
+            const bool kPskOnlyFlag = true;
+            string     theErrMsg;
+            mSslCtxPtr.Set(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
+                theParams,
+                &theErrMsg
+            ));
+            if (! mSslCtxPtr.Get()) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                    "psk.tls.* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        theParamName.Truncate(thePrefLen).Append("X509.");
+        theCurLen = theParamName.GetSize();
+        const bool theX509ChangedFlag =
+            theParams.getValue(
+                theParamName.Append("forceReload"), 0) != 0 ||
+            ! theParams.equalsWithPrefix(
+                theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
+        SslCtxPtr theX509SslCtxPtr;
+        if (theX509ChangedFlag) {
+            const bool kServerFlag  = true;
+            const bool kPskOnlyFlag = false;
+            string     theErrMsg;
+            mSslCtxPtr.Set(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(thePrefLen).Append("X509.").GetPtr(),
+                theParams,
+                &theErrMsg
+            ));
+            if (! mSslCtxPtr.Get()) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(thePrefLen) <<
+                    "X509.* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        mParams.swap(theParams);
+        if (theKrbChangedFlag) {
+            mKrbClientPtr.swap(theKrbClientPtr);
+        }
+        if (thePskSslChangedFlag) {
+            mSslCtxPtr.Swap(theSslCtxPtr);
+        }
+        if (theX509ChangedFlag) {
+            mX509SslCtxPtr.Swap(theX509SslCtxPtr);
+        }
         return 0;
     }
     int Request(
@@ -76,16 +207,13 @@ public:
         return 0;
     }
     bool IsEnabled() const
-    {
-        return false;
-    }
+        { return mEnabledFlag; }
     bool IsShared() const
-    {
-        return false;
-    }
+        { return mSharedFlag; }
     void SetShared(
         bool inFlag)
     {
+        mSharedFlag = inFlag;
     }
     int CheckAuthType(
         int     inAuthType,
@@ -94,6 +222,15 @@ public:
         return 0;
     }
 private:
+    typedef scoped_ptr<KrbClient> KrbClientPtr;
+    typedef SslFilter::CtxPtr     SslCtxPtr;
+
+    bool         mSharedFlag;
+    bool         mEnabledFlag;
+    Properties   mParams;
+    KrbClientPtr mKrbClientPtr;
+    SslCtxPtr    mSslCtxPtr;
+    SslCtxPtr    mX509SslCtxPtr;
 };
 
 ClientAuthContext::ClientAuthContext()
@@ -129,9 +266,10 @@ ClientAuthContext::CheckAuthType(
     int
 ClientAuthContext::SetParameters(
     const char*       inParamsPrefixPtr,
-    const Properties& inParameters)
+    const Properties& inParameters,
+    string*           outErrMsgPtr)
 {
-    return mImpl.SetParameters(inParamsPrefixPtr, inParameters);
+    return mImpl.SetParameters(inParamsPrefixPtr, inParameters, outErrMsgPtr);
 }
 
     int

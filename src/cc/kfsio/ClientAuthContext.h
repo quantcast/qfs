@@ -46,7 +46,8 @@ public:
         bool inFlag);
     int SetParameters(
         const char*       inParamsPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        string*           outErrMsgPtr);
     int CheckAuthType(
         int     inAuthType,
         string* outErrMsgPtr);

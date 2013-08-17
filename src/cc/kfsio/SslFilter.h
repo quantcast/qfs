@@ -55,6 +55,38 @@ public:
         virtual ~ServerPsk()
             {}
     };
+    class CtxPtr
+    {
+    public:
+        CtxPtr(
+            Ctx* inCtxPtr = 0)
+            : mCtxPtr(inCtxPtr)
+            {}
+        ~CtxPtr()
+            { FreeCtx(mCtxPtr); }
+        void Swap(
+            CtxPtr& inCtx)
+        {
+            Ctx* const theTmpPtr = inCtx.mCtxPtr;
+            inCtx.mCtxPtr = mCtxPtr;
+            mCtxPtr = theTmpPtr;
+        }
+        Ctx* Get() const
+            { return mCtxPtr; }
+        void Set(
+            Ctx* inCtxPtr)
+        {
+            FreeCtx(mCtxPtr);
+            mCtxPtr = inCtxPtr;
+        }
+    private:
+        Ctx* mCtxPtr;
+    private:
+        CtxPtr(
+            const CtxPtr& inCtxPtr);
+        CtxPtr& operator=(
+            const CtxPtr& inCtxPtr);
+    };
 
     static Error Initialize();
     static Error Cleanup();
