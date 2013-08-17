@@ -144,6 +144,8 @@ public:
         { return (intbase == p.intbase && propmap == p.propmap); }
     bool operator!=(const Properties& p) const
         { return (! (*this == p)); }
+    bool equalsWithPrefix(const char* prefix, size_t prefixLen,
+        const Properties& props) const;
     Properties(int base = 10);
     Properties(const Properties& p);
     ~Properties();

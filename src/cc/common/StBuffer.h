@@ -298,12 +298,16 @@ public:
         { return Append(inStr.data(), inStr.size()); }
     template<size_t CAPACITY>
     bool Comapre(
-        const StringBufT<CAPACITY>& inBuf) const
+        const char* inBufPtr,
+        size_t      inBufLen) const
     {
-        const int theRet = memcmp(
-            GetPtr(), inBuf.GetPtr(), min(GetSize(), inBuf.GetSize()));
-        return (theRet == 0 ? GetSize() - inBuf.GetSize() : theRet);
+        const int theRet = memcmp(GetPtr(), inBufPtr, min(GetSize(), inBufLen));
+        return (theRet == 0 ? GetSize() - inBufLen : theRet);
     }
+    template<size_t CAPACITY>
+    bool Comapre(
+        const StringBufT<CAPACITY>& inBuf) const
+        { return Comapre(inBuf.GetPtr(), inBuf.GetSize()); }
     template<size_t CAPACITY>
     bool operator==(
         const StringBufT<CAPACITY>& inBuf) const
@@ -316,11 +320,7 @@ public:
     // The following two aren't necessarily the same as string.compare(),
     int Compare(
         const string& inStr) const
-    {
-        const int theRet = memcmp(
-            GetPtr(), inStr.data(), min(GetSize(), inStr.size()));
-        return (theRet == 0 ? GetSize() - inStr.size() : theRet);
-    }
+        { return Comapre(inStr.data(), inStr.size()); }
     bool operator==(
         const string& inStr) const
     {

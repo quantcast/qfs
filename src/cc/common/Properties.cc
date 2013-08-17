@@ -417,18 +417,87 @@ Properties::copyWithPrefix(const char* prefix, Properties& props) const
     copyWithPrefix(prefix, prefix ? strlen(prefix) : size_t(0), props);
 }
 
+inline static bool
+KeyStartsWith(const Properties::String& key,
+    const char* prefix, size_t prefixLen)
+{
+    return (key.size() >= prefixLen &&
+        memcmp(key.data(), prefix, prefixLen) == 0);
+}
+
 void
 Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
     Properties& props) const
 {
-    PropMap::const_iterator iter;
-    for (iter = propmap.begin(); iter != propmap.end(); iter++) {
-        const String& key = iter->first;
-        if (key.size() >= prefixLen &&
-                (! prefix || memcmp(key.data(), prefix, prefixLen) == 0)) {
+    if (prefixLen <= 0) {
+        props.propmap = propmap;
+        return;
+    }
+    if (prefix) {
+        for (PropMap::const_iterator iter = propmap.lower_bound(
+                    String(prefix, prefixLen));
+                iter != propmap.end(); iter++) {
+            const String& key = iter->first;
+            if (! KeyStartsWith(key, prefix, prefixLen)) {
+                break;
+            }
             props.propmap[key] = iter->second;
         }
+        return;
     }
+    for (PropMap::const_iterator it = propmap.begin();
+            it != propmap.end();
+            ++it) {
+        const String& key = it->first;
+        if (prefixLen <= key.size()) {
+            props.propmap[key] = it->second;
+        }
+    }
+}
+
+bool
+Properties::equalsWithPrefix(const char* prefix, size_t prefixLen,
+    const Properties& props) const
+{
+    if (prefixLen <= 0) {
+        return (propmap == props.propmap);
+    }
+    if (prefix) {
+        const String pref(prefix, prefixLen);
+        for (PropMap::const_iterator
+                it  = propmap.lower_bound(pref),
+                    oit = props.propmap.lower_bound(pref);
+                ;
+                ++it, ++oit) {
+            if (it == propmap.end() ||
+                    ! KeyStartsWith(it->first, prefix, prefixLen)) {
+                return (oit == props.propmap.end() ||
+                    ! KeyStartsWith(oit->first, prefix, prefixLen));
+            }
+            if (oit == props.propmap.end() || *it != *oit) {
+                break;
+            }
+        }
+        return false;
+    }
+    for (PropMap::const_iterator
+            it  = propmap.begin(), oit = props.propmap.begin(); ;) {
+        if (it != propmap.end() && it->first.size() < prefixLen) {
+            ++it;
+            continue;
+        }
+        if (oit != props.propmap.end() && oit->first.size() < prefixLen) {
+            ++oit;
+            continue;
+        }
+        if (it == propmap.end()) {
+            return (oit == props.propmap.end());
+        }
+        if (oit == props.propmap.end() || *it != *oit) {
+            break;
+        }
+    }
+    return false;
 }
 
 } // namespace KFS
