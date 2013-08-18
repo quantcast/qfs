@@ -32,16 +32,17 @@
 #include "common/kfstypes.h"
 #include "common/PoolAllocator.h"
 #include "common/RequestParser.h"
-#include "kfsio/TcpSocket.h"
+#include "kfsio/NetManager.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ClientAuthContext.h"
 #include "qcdio/QCDLList.h"
+#include "qcdio/QCMutex.h"
 
+#include "KfsNetClient.h"
 #include "KfsAttr.h"
 #include "KfsOps.h"
 #include "KfsClient.h"
 #include "Path.h"
-#include "qcdio/QCMutex.h"
 
 #include <string>
 #include <vector>
@@ -241,13 +242,13 @@ class KfsProtocolWorker;
 ///
 /// The kfs client implementation object.
 ///
-class KfsClientImpl
+class KfsClientImpl : private KfsNetClient::OpOwner
 {
 public:
     typedef KfsClient::ErrorHandler ErrorHandler;
 
     KfsClientImpl();
-    ~KfsClientImpl();
+    virtual ~KfsClientImpl();
 
     ///
     /// @param[in] metaServerHost  Machine on meta is running
@@ -615,10 +616,10 @@ private:
     /// where is the meta server located
     ServerLocation mMetaServerLoc;
 
-    /// a tcp socket that holds the connection with the server
-    TcpSocket   mMetaServerSock;
-    /// seq # that we send in each command
-    kfsSeq_t    mCmdSeqNum;
+    /// Meta server communication state machine.
+    NetManager   mNetManager;
+    KfsNetClient mMetaServer;
+    KfsNetClient mChunkServer;
 
     /// The current working directory in KFS
     string      mCwd;
@@ -770,7 +771,6 @@ private:
 
     // Next sequence number for operations.
     // This is called in a thread safe manner.
-    kfsSeq_t nextSeq()      { return mCmdSeqNum++; }
     kfsSeq_t NextCreateId() { return mCreateId++; }
 
 
@@ -865,13 +865,13 @@ private:
     FileTableEntry* FdInfo(int fd) { return mFileTable[fd]; }
     FileAttr* FdAttr(int fd) { return &FdInfo(fd)->fattr; }
 
+    virtual void OpDone(KfsOp* inOpPtr, bool inCanceledFlag,
+        IOBuffer* inBufferPtr);
     /// Do the work for an op with the metaserver; if the metaserver
     /// dies in the middle, retry the op a few times before giving up.
     void DoMetaOpWithRetry(KfsOp *op);
-
-    /// Get a response from the server, where, the response is
-    /// terminated by "\r\n\r\n".
-    int GetResponse(char *buf, int bufSize, int *delims, TcpSocket *sock);
+    void DoChunkServerOp(const ServerLocation& loc, KfsOp& op);
+    void DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op);
 
     /// Validate file or directory name.
     int ValidateName(const string& name);
@@ -924,9 +924,6 @@ private:
     void InitPendingRead(FileTableEntry& entry);
     void CancelPendingRead(FileTableEntry& entry);
     void CleanupPendingRead();
-    int DoOpResponse(KfsOp *op, TcpSocket *sock);
-    int DoOpCommon(KfsOp *op, TcpSocket *sock);
-    int DoOpSend(KfsOp *op, TcpSocket *sock);
     int RmdirsSelf(const string& path, const string& dirname,
         kfsFileId_t parentFid, kfsFileId_t dirFid, ErrorHandler& errHandler);
     void StartProtocolWorker();

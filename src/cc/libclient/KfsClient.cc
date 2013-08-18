@@ -1147,8 +1147,9 @@ KfsClientImpl::KfsClientImpl()
     : mMutex(),
       mIsInitialized(false),
       mMetaServerLoc(),
-      mMetaServerSock(),
-      mCmdSeqNum(0),
+      mNetManager(),
+      mMetaServer(mNetManager),
+      mChunkServer(mNetManager),
       mCwd("/"),
       mFileTable(),
       mFidNameToFAttrMap(),
@@ -1286,7 +1287,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort)
 bool
 KfsClientImpl::ConnectToMetaServer()
 {
-    return mMetaServerSock.Connect(mMetaServerLoc) >= 0;
+    return mMetaServer.SetServer(mMetaServerLoc);
 }
 
 
@@ -1465,7 +1466,7 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
         if (res != -ENOENT) {
             break;
         }
-        MkdirOp op(nextSeq(), mTmpPath.back().first, mTmpDirName.c_str(),
+        MkdirOp op(0, mTmpPath.back().first, mTmpDirName.c_str(),
             Permissions(mEUser, mEGroup,
                 mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
             NextCreateId()
@@ -1519,7 +1520,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     if (res < 0) {
         return res;
     }
-    MkdirOp op(nextSeq(), parentFid, dirname.c_str(),
+    MkdirOp op(0, parentFid, dirname.c_str(),
         Permissions(mEUser, mEGroup,
             mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
         NextCreateId()
@@ -1549,7 +1550,7 @@ KfsClientImpl::Rmdir(const char *pathname)
     if (res < 0) {
         return res;
     }
-    RmdirOp op(nextSeq(), parentFid, dirname.c_str(), path.c_str());
+    RmdirOp op(0, parentFid, dirname.c_str(), path.c_str());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, dirname));
     return op.status;
@@ -1661,7 +1662,7 @@ KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
     if (dirname.empty() || (parentFid == ROOTFID && dirname == "/")) {
         return 0;
     }
-    RmdirOp op(nextSeq(), parentFid, dirname.c_str(), p.c_str());
+    RmdirOp op(0, parentFid, dirname.c_str(), p.c_str());
     DoMetaOpWithRetry(&op);
     return (op.status < 0 ? errHandler(p, op.status) : 0);
 }
@@ -1671,7 +1672,7 @@ KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid,
     const string& filename)
 {
     string pathname = dirname + "/" + filename;
-    RemoveOp op(nextSeq(), dirFid, filename.c_str(), pathname.c_str());
+    RemoveOp op(0, dirFid, filename.c_str(), pathname.c_str());
     DoMetaOpWithRetry(&op);
     return op.status;
 }
@@ -1705,7 +1706,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
 
     ReaddirOp op(0, attr.fileId);
     for (int retryCnt = kMaxReadDirRetries; ;) {
-        op.seq                = nextSeq();
+        op.seq                = 0;
         op.numEntries         = kMaxReaddirEntries;
         op.contentLength      = 0;
         op.hasMoreEntriesFlag = false;
@@ -2125,7 +2126,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     const time_t                     now     = time(0);
     bool                             hasDirs = false;
     for (int retryCnt = kMaxReadDirRetries; ;) {
-        op.seq                = nextSeq();
+        op.seq                = 0;
         op.numEntries         = kMaxReaddirEntries;
         op.contentLength      = 0;
         op.hasMoreEntriesFlag = false;
@@ -2402,7 +2403,7 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
             return 0;
         }
     }
-    LookupOp op(nextSeq(), parentFid, filename.c_str());
+    LookupOp op(0, parentFid, filename.c_str());
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
         Delete(fa);
@@ -2475,7 +2476,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         KFS_LOG_EOM;
         return res;
     }
-    CreateOp op(nextSeq(), parentFid, filename.c_str(), numReplicas, exclusive,
+    CreateOp op(0, parentFid, filename.c_str(), numReplicas, exclusive,
         Permissions(mEUser, mEGroup,
             mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
         exclusive ? NextCreateId() : -1,
@@ -2527,7 +2528,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
             " is not supported " << " got: " << op.metaStriperType <<
         KFS_LOG_EOM;
         // Cleanup the file.
-        RemoveOp rm(nextSeq(), parentFid, filename.c_str(), pathname);
+        RemoveOp rm(0, parentFid, filename.c_str(), pathname);
         DoMetaOpWithRetry(&rm);
         return -ENXIO;
     }
@@ -2592,7 +2593,7 @@ KfsClientImpl::Remove(const char* pathname)
     if (res < 0) {
         return res;
     }
-    RemoveOp op(nextSeq(), parentFid, filename.c_str(), path.c_str());
+    RemoveOp op(0, parentFid, filename.c_str(), path.c_str());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, filename));
     return op.status;
@@ -2633,7 +2634,7 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
     if (srcParentFid == dstParentFid && dstFileName == srcFileName) {
         return 0; // src and dst are the same.
     }
-    RenameOp op(nextSeq(), srcParentFid, srcFileName.c_str(),
+    RenameOp op(0, srcParentFid, srcFileName.c_str(),
                 dstPath.c_str(), srcPath.c_str(), overwrite);
     DoMetaOpWithRetry(&op);
 
@@ -2770,7 +2771,7 @@ KfsClientImpl::CoalesceBlocks(const char* src, const char* dst, chunkOff_t *dstS
     if (srcParentFid == dstParentFid && dstFileName == srcFileName) {
         return 0; // src and dst are the same.
     }
-    CoalesceBlocksOp op(nextSeq(), srcPath.c_str(), dstPath.c_str());
+    CoalesceBlocksOp op(0, srcPath.c_str(), dstPath.c_str());
     DoMetaOpWithRetry(&op);
     if (dstStartOffset) {
         *dstStartOffset = op.dstStartOffset;
@@ -2796,7 +2797,7 @@ KfsClientImpl::SetMtime(const char *pathname, const struct timeval &mtime)
     if (res < 0) {
         return res;
     }
-    SetMtimeOp op(nextSeq(), path.c_str(), mtime);
+    SetMtimeOp op(0, path.c_str(), mtime);
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, fileName));
     return op.status;
@@ -3011,7 +3012,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
         UpdatePath(fa, fpath);
         op.fattr = *fa;
     } else {
-        op.seq = nextSeq();
+        op.seq = 0;
         DoMetaOpWithRetry(&op);
         if (op.status < 0) {
             Delete(fa);
@@ -3257,7 +3258,7 @@ KfsClientImpl::Truncate(const char* pathname, chunkOff_t offset)
     if (attr.isDirectory) {
         return -EISDIR;
     }
-    TruncateOp op(nextSeq(), path.c_str(), attr.fileId, offset);
+    TruncateOp op(0, path.c_str(), attr.fileId, offset);
     op.checkPermsFlag = true;
     op.setEofHintFlag = attr.numStripes > 1;
     DoMetaOpWithRetry(&op);
@@ -3283,7 +3284,7 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
     FdInfo(fd)->buffer.Invalidate();
 
     FileAttr *fa = FdAttr(fd);
-    TruncateOp op(nextSeq(), FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
+    TruncateOp op(0, FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
     op.setEofHintFlag = fa->numStripes > 1;
     DoMetaOpWithRetry(&op);
     int res = op.status;
@@ -3325,7 +3326,7 @@ KfsClientImpl::PruneFromHead(int fd, chunkOff_t offset)
     offset = (offset / CHUNKSIZE) * CHUNKSIZE;
 
     FileAttr *fa = FdAttr(fd);
-    TruncateOp op(nextSeq(), FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
+    TruncateOp op(0, FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
     op.pruneBlksFromHead = true;
     DoMetaOpWithRetry(&op);
     int res = op.status;
@@ -3419,7 +3420,7 @@ KfsClientImpl::SetReplicationFactor(const char *pathname, int16_t numReplicas)
     if (attr.isDirectory) {
         return -EISDIR;
     }
-    ChangeFileReplicationOp op(nextSeq(), attr.fileId, numReplicas);
+    ChangeFileReplicationOp op(0, attr.fileId, numReplicas);
     DoMetaOpWithRetry(&op);
     InvalidateAttributeAndCounts(path);
     return (op.status <= 0 ? op.status : -op.status);
@@ -3610,7 +3611,7 @@ KfsClientImpl::LocateChunk(int fd, chunkOff_t chunkOffset, ChunkAttr& chunk)
     if (chunkOffset < 0) {
         return -EINVAL;
     }
-    GetAllocOp op(nextSeq(), mFileTable[fd]->fattr.fileId, chunkOffset);
+    GetAllocOp op(0, mFileTable[fd]->fattr.fileId, chunkOffset);
     op.filename = mFileTable[fd]->pathname;
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
@@ -3728,219 +3729,6 @@ KfsClientImpl::SetFileAttributeRevalidateTime(int secs)
 }
 
 ///
-/// Helper function that does the work for sending out an op to the
-/// server.
-///
-/// @param[in] op the op to be sent out
-/// @param[in] sock the socket on which we communicate with server
-/// @retval 0 on success; -1 on failure
-/// (On failure, op->status contains error code.)
-///
-int
-KfsClientImpl::DoOpSend(KfsOp *op, TcpSocket *sock)
-{
-    if (! sock || ! sock->IsGood()) {
-        KFS_LOG_STREAM_DEBUG << "op send socket closed" << KFS_LOG_EOM;
-        op->status = -EHOSTUNREACH;
-        return -1;
-    }
-    ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
-    op->maxWaitMillisec = mDefaultOpTimeout > 0 ?
-        mDefaultOpTimeout * 1000 : -1;
-    op->Request(os);
-    const size_t len = mTmpOutputStream.GetLength();
-    mTmpOutputStream.Set();
-    if (len > (size_t)MAX_RPC_HEADER_LEN) {
-        KFS_LOG_STREAM_WARN <<
-            "request haeder exceeds max. allowed size: " <<
-            MAX_RPC_HEADER_LEN <<
-            " op: " << op->Show() <<
-        KFS_LOG_EOM;
-        op->status = -EINVAL;
-        return op->status;
-    }
-    const int ret = SendRequest(mTmpBuffer, len,
-        op->contentBuf, op->contentLength, sock);
-    if (ret <= 0) {
-        op->status = -EHOSTUNREACH;
-    }
-    return ret;
-}
-
-int
-KfsClientImpl::GetResponse(char *buf, int bufSize, int *delims, TcpSocket *sock)
-{
-    return RecvResponseHeader(buf, bufSize, sock, mDefaultOpTimeout, delims);
-}
-
-///
-/// From a response, extract out seq # and content-length.
-///
-static void
-GetSeqContentLen(const char* buf, size_t len,
-    kfsSeq_t *seq, int *contentLength, Properties& prop)
-{
-    const char separator = ':';
-    prop.clear();
-    prop.loadProperties(buf, len, separator);
-    *seq = prop.getValue("Cseq", (kfsSeq_t) -1);
-    *contentLength = prop.getValue("Content-length", 0);
-}
-
-///
-/// Helper function that does the work of getting a response from the
-/// server and parsing it out.
-///
-/// @param[in] op the op for which a response is to be gotten
-/// @param[in] sock the socket on which we communicate with server
-/// @retval 0 on success; -1 on failure
-/// (On failure, op->status contains error code.)
-///
-int
-KfsClientImpl::DoOpResponse(KfsOp *op, TcpSocket *sock)
-{
-    if (! sock || ! sock->IsGood()) {
-        op->status = -EHOSTUNREACH;
-        KFS_LOG_STREAM_DEBUG << "op recv socket closed" << KFS_LOG_EOM;
-        return -1;
-    }
-
-    Properties prop;
-    int        numIO;
-    bool       printMatchingResponse = false;
-    int        len;
-    for (; ;) {
-        len = 0;
-        numIO = GetResponse(mTmpBuffer, kTmpBufferSize, &len, sock);
-        if (numIO <= 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                sock->GetPeerName() << ": read failed: " << numIO <<
-                    " " << QCUtils::SysError(-numIO) <<
-            KFS_LOG_EOM;
-            op->status = numIO == -ETIMEDOUT ? -ETIMEDOUT : -EHOSTUNREACH;
-            sock->Close();
-            return -1;
-        }
-        if (len <= 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                sock->GetPeerName() << ": invalid response length: " << len <<
-            KFS_LOG_EOM;
-            sock->Close();
-            op->status = -EINVAL;
-            return -1;
-        }
-        kfsSeq_t resSeq     = -1;
-        int      contentLen = 0;
-        GetSeqContentLen(mTmpBuffer, len, &resSeq, &contentLen, prop);
-        if (resSeq == op->seq) {
-            if (printMatchingResponse) {
-                KFS_LOG_STREAM_DEBUG <<
-                    sock->GetPeerName() << ": response seq: " << resSeq <<
-                KFS_LOG_EOM;
-            }
-            break;
-        }
-        KFS_LOG_STREAM_DEBUG <<
-            sock->GetPeerName() << ": unexpected response seq:"
-            " expect: " << op->seq <<
-            " got "     << resSeq <<
-        KFS_LOG_EOM;
-        printMatchingResponse = true;
-        if (contentLen > 0) {
-            struct timeval timeout = {0};
-            timeout.tv_sec = mDefaultOpTimeout;
-            int len = sock->DoSynchDiscard(contentLen, timeout);
-            if (len != contentLen) {
-                sock->Close();
-                op->status = -EHOSTUNREACH;
-                return -1;
-            }
-        }
-    }
-
-    const int contentLen = op->contentLength;
-    op->ParseResponseHeader(prop);
-    if (op->contentLength == 0) {
-        return numIO;
-    }
-
-    char* contentBuf;
-    if (contentLen <= 0) {
-        op->EnsureCapacity(op->contentLength);
-        contentBuf = op->contentBuf;
-    } else {
-        contentBuf = new char[op->contentLength + 1];
-        contentBuf[op->contentLength] = 0;
-    }
-
-    // len bytes belongs to the RPC reply.  Whatever is left after
-    // stripping that data out is the data.
-    const ssize_t navail = numIO - len;
-    if (navail > 0) {
-        assert(navail <= (ssize_t)op->contentLength);
-        memcpy(contentBuf, mTmpBuffer + len, navail);
-    }
-    ssize_t nleft = op->contentLength - navail;
-
-    assert(nleft >= 0);
-
-    int nread = 0;
-    if (nleft > 0) {
-        struct timeval timeout = {0};
-        timeout.tv_sec = mDefaultOpTimeout;
-        nread = sock->DoSynchRecv(contentBuf + navail, nleft, timeout);
-        if (nread <= 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                sock->GetPeerName() << ": read failed: " << nread <<
-                    " " << QCUtils::SysError(-nread) <<
-            KFS_LOG_EOM;
-            op->status = nread == -ETIMEDOUT ? -ETIMEDOUT : -EHOSTUNREACH;
-            sock->Close();
-            // Restore buffer to allow retry.
-            op->contentLength = contentLen;
-            if (contentBuf != op->contentBuf) {
-                delete [] contentBuf;
-            }
-            return -1;
-        }
-    }
-    if (contentBuf != op->contentBuf) {
-        op->AttachContentBuf(contentBuf, op->contentLength);
-    }
-    return nread + numIO;
-}
-
-
-///
-/// Common work for each op: build a request; send it to server; get a
-/// response; parse it.
-///
-/// @param[in] op the op to be done
-/// @param[in] sock the socket on which we communicate with server
-///
-/// @retval # of bytes read from the server.
-///
-int
-KfsClientImpl::DoOpCommon(KfsOp *op, TcpSocket *sock)
-{
-    assert(sock);
-    int res = DoOpSend(op, sock);
-    if (res < 0) {
-        return res;
-    }
-    res = DoOpResponse(op, sock);
-    if (res < 0) {
-        return res;
-    }
-    if (op->status < 0) {
-        KFS_LOG_STREAM_DEBUG << op->Show() <<
-            " failed: " << op->status << " " << ErrorCodeToStr(op->status) <<
-        KFS_LOG_EOM;
-    }
-    return res;
-}
-
-///
 /// To compute the size of a file, determine what the last chunk in
 /// the file happens to be (from the meta server); then, for the last
 /// chunk, find its size and then add the size of remaining chunks
@@ -3965,17 +3753,9 @@ struct RespondingServer {
         status = -EIO;
         size   = -1;
 
-        TcpSocket sock;
-        if (sock.Connect(loc) < 0) {
-            size = 0;
-            return false;
-        }
-        SizeOp sop(client.nextSeq(), layout.chunkId, layout.chunkVersion);
+        SizeOp sop(0, layout.chunkId, layout.chunkVersion);
         sop.status = -1;
-        const int numIO = client.DoOpCommon(&sop, &sock);
-        if (numIO < 0 || ! sock.IsGood()) {
-            return false;
-        }
+        client.DoChunkServerOp(loc, sop);
         status = sop.status;
         if (status >= 0) {
             size = sop.size;
@@ -3992,14 +3772,9 @@ struct RespondingServer2 {
         {}
     ssize_t operator() (const ServerLocation& loc)
     {
-        TcpSocket sock;
-        if (sock.Connect(loc) < 0) {
-            return -1;
-        }
-
-        SizeOp sop(client.nextSeq(), layout.chunkId, layout.chunkVersion);
-        int numIO = client.DoOpCommon(&sop, &sock);
-        if ((numIO < 0 && ! sock.IsGood()) || sop.status < 0) {
+        SizeOp sop(0, layout.chunkId, layout.chunkVersion);
+        client.DoChunkServerOp(loc, sop);
+        if (sop.status < 0) {
             return -1;
         }
         return sop.size;
@@ -4022,7 +3797,7 @@ KfsClientImpl::UpdateFilesize(int fd)
     }
     if (entry.fattr.isDirectory ||
             entry.fattr.striperType != KFS_STRIPED_FILE_TYPE_NONE) {
-        LookupOp op(nextSeq(), entry.parentFid, entry.name.c_str());
+        LookupOp op(0, entry.parentFid, entry.name.c_str());
         DoMetaOpWithRetry(&op);
         if (op.status < 0) {
             Delete(fa);
@@ -4057,7 +3832,7 @@ KfsClientImpl::UpdateFilesize(int fd)
 chunkOff_t
 KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
 {
-    GetLayoutOp lop(nextSeq(), kfsfid);
+    GetLayoutOp lop(0, kfsfid);
     lop.lastChunkOnlyFlag = true;
     DoMetaOpWithRetry(&lop);
     if (lop.status < 0) {
@@ -4159,10 +3934,6 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
     const vector<ChunkAttr>& lastChunkInfo, size_t startIdx,
     const ServerLocation& loc)
 {
-    TcpSocket sock;
-    if (sock.Connect(loc) < 0) {
-        return;
-    }
     const size_t cnt = lastChunkInfo.size();
     for (size_t i = startIdx; i < cnt; i++) {
         KfsFileAttr& fa = fattrs[i];
@@ -4182,9 +3953,9 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
         if (iter == cattr.chunkServerLoc.end()) {
             continue;
         }
-        SizeOp sop(nextSeq(), cattr.chunkId, cattr.chunkVersion);
-        const int numIO = DoOpCommon(&sop, &sock);
-        if (numIO < 0 && ! sock.IsGood()) {
+        SizeOp sop(0, cattr.chunkId, cattr.chunkVersion);
+        DoChunkServerOp(loc, sop);
+        if (! mChunkServer.IsConnected()) {
             return;
         }
         fa.fileSize = lastChunkInfo[i].chunkOffset;
@@ -4194,47 +3965,71 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
     }
 }
 
+void
+KfsClientImpl::OpDone(
+    KfsOp*    inOpPtr,
+    bool      inCanceledFlag,
+    IOBuffer* inBufferPtr)
+{
+    assert(inOpPtr && ! inBufferPtr);
+    if (inCanceledFlag && inOpPtr->status == 0) {
+        inOpPtr->status    = -ECANCELED;
+        inOpPtr->statusMsg = "canceled";
+    }
+    KFS_LOG_STREAM_DEBUG <<
+        (inCanceledFlag ? "op completion: " : "op canceled") <<
+        inOpPtr->Show() << " status: " << inOpPtr->status <<
+        " msg: " << inOpPtr->statusMsg <<
+    KFS_LOG_EOM;
+    mNetManager.Shutdown(); // Exit service loop.
+}
+
 ///
 /// Wrapper for retrying ops with the metaserver.
 ///
 void
 KfsClientImpl::DoMetaOpWithRetry(KfsOp *op)
 {
-    time_t start = time(0);
-    for (int attempt = -1; ;) {
-        if (! mMetaServerSock.IsGood()) {
-            ConnectToMetaServer();
-        }
-        op->status = 0;
-        const int res = DoOpCommon(op, &mMetaServerSock);
-        if (res < 0 && op->status == 0) {
-            op->status = res;
-        }
-        if (op->status != -EHOSTUNREACH && op->status != -ETIMEDOUT) {
-            break;
-        }
-        mMetaServerSock.Close();
-        const time_t now = time(0);
-        if (++attempt == 0) {
-            if (now <= start + 1) {
-                continue; // Most likely idle connection timeout.
-            }
-            ++attempt;
-        }
-        if (attempt >= mMaxNumRetriesPerOp) {
-            break;
-        }
-        start += mRetryDelaySec;
-        if (now < start) {
-            Sleep(start - now);
-        } else {
-            start = now;
-        }
-        // re-issue the op with a new sequence #
-        op->seq = nextSeq();
+    if (! op) {
+        KFS_LOG_STREAM_FATAL << "DoMetaOpWithRetry: invalid null oo" <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        abort();
+        return;
     }
+    DoServerOp(mMetaServer, mMetaServerLoc, *op);
+}
+
+void
+KfsClientImpl::DoChunkServerOp(const ServerLocation& loc, KfsOp& op)
+{
+    DoServerOp(mChunkServer, loc, op);
+}
+
+void
+KfsClientImpl::DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op)
+{
+    server.SetOpTimeoutSec(mDefaultOpTimeout);
+    server.SetMaxRetryCount(mMaxNumRetriesPerOp);
+    server.SetTimeSecBetweenRetries(mRetryDelaySec);
+    if (! server.SetServer(loc)) {
+        op.status = -EHOSTUNREACH;
+        return;
+    }
+    if (! server.Enqueue(&op, this)) {
+        KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
+            op.Show() <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        abort();
+        return;
+    }
+    const bool     kWakeupAndCleanupFlag = false;
+    QCMutex* const kNullMutexPtr         = 0;
+    server.GetNetManager().MainLoop(kNullMutexPtr, kWakeupAndCleanupFlag);
+    server.Cancel();
     KFS_LOG_STREAM_DEBUG <<
-        op->Show() << " status: " << op->status <<
+        op.Show() << " status: " << op.status <<
     KFS_LOG_EOM;
 }
 
@@ -4464,7 +4259,7 @@ KfsClientImpl::Lookup(kfsFileId_t parentFid, const string& name,
         UpdatePath(fa, path);
         return 0;
     }
-    LookupOp op(nextSeq(), parentFid, name.c_str());
+    LookupOp op(0, parentFid, name.c_str());
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
         if (fa) {
@@ -4641,7 +4436,7 @@ KfsClientImpl::GetReplication(const char* pathname,
         " file id: " << attr.fileId <<
     KFS_LOG_EOM;
 
-    GetLayoutOp lop(nextSeq(), attr.fileId);
+    GetLayoutOp lop(0, attr.fileId);
     DoMetaOpWithRetry(&lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
@@ -4698,7 +4493,7 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
         " file id: " << attr.fileId <<
     KFS_LOG_EOM;
 
-    GetLayoutOp lop(nextSeq(), attr.fileId);
+    GetLayoutOp lop(0, attr.fileId);
     DoMetaOpWithRetry(&lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
@@ -4748,16 +4543,8 @@ int
 KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
     kfsChunkId_t chunkId, uint32_t *checksums, bool readVerifyFlag)
 {
-    TcpSocket sock;
-    int ret;
-    if ((ret = sock.Connect(loc)) < 0) {
-        return ret;
-    }
-    GetChunkMetadataOp op(nextSeq(), chunkId, readVerifyFlag);
-    const int numIO = DoOpCommon(&op, &sock);
-    if (numIO <= 0) {
-        return (numIO < 0 ? numIO : -EINVAL);
-    }
+    GetChunkMetadataOp op(0, chunkId, readVerifyFlag);
+    DoChunkServerOp(loc, op);
     if (op.status == -EBADCKSUM) {
         KFS_LOG_STREAM_INFO <<
             "Server " << loc <<
@@ -4811,7 +4598,7 @@ KfsClientImpl::VerifyDataChecksums(int fd)
 int
 KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
 {
-    GetLayoutOp lop(nextSeq(), fileId);
+    GetLayoutOp lop(0, fileId);
     DoMetaOpWithRetry(&lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
@@ -4873,7 +4660,7 @@ KfsClientImpl::GetFileOrChunkInfo(kfsFileId_t fileId, kfsChunkId_t chunkId,
     vector<ServerLocation>& servers)
 {
     QCStMutexLocker l(mMutex);
-    GetPathNameOp op(nextSeq(), fileId, chunkId);
+    GetPathNameOp op(0, fileId, chunkId);
     DoMetaOpWithRetry(&op);
     fattr          = op.fattr;
     fattr.filename = op.pathname;
@@ -4901,7 +4688,7 @@ KfsClientImpl::Chmod(const char* pathname, kfsMode_t mode)
     if (! attr.IsAnyPermissionDefined()) {
         return 0; // permissions aren't supported by the meta server.
     }
-    ChmodOp op(nextSeq(), attr.fileId, mode & (attr.isDirectory ?
+    ChmodOp op(0, attr.fileId, mode & (attr.isDirectory ?
         kfsMode_t(Permissions::kDirModeMask) :
         kfsMode_t(Permissions::kFileModeMask)));
     DoMetaOpWithRetry(&op);
@@ -5014,7 +4801,7 @@ KfsClientImpl::Chmod(int fd, kfsMode_t mode)
     if (! entry.fattr.IsAnyPermissionDefined()) {
         return 0; // permissions aren't supported by the meta server.
     }
-    ChmodOp op(nextSeq(), entry.fattr.fileId, mode & (entry.fattr.isDirectory ?
+    ChmodOp op(0, entry.fattr.fileId, mode & (entry.fattr.isDirectory ?
         kfsMode_t(Permissions::kDirModeMask) :
         kfsMode_t(Permissions::kFileModeMask)));
     DoMetaOpWithRetry(&op);
@@ -5048,7 +4835,7 @@ public:
                 return ret;
             }
         }
-        ChmodOp op(mCli.nextSeq(), attr.fileId, mMode & (attr.isDirectory ?
+        ChmodOp op(0, attr.fileId, mMode & (attr.isDirectory ?
             kfsMode_t(Permissions::kDirModeMask) :
             kfsMode_t(Permissions::kFileModeMask)));
         mCli.DoMetaOpWithRetry(&op);
@@ -5111,7 +4898,7 @@ KfsClientImpl::Chown(int fd, kfsUid_t user, kfsGid_t group)
                 mGroups.end()) {
         return -EPERM;
     }
-    ChownOp op(nextSeq(), entry.fattr.fileId, user, group);
+    ChownOp op(0, entry.fattr.fileId, user, group);
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
         return op.status;
@@ -5163,7 +4950,7 @@ KfsClientImpl::Chown(const char* pathname, kfsUid_t user, kfsGid_t group)
                 mGroups.end()) {
         return -EPERM;
     }
-    ChownOp op(nextSeq(), attr.fileId, user, group);
+    ChownOp op(0, attr.fileId, user, group);
     DoMetaOpWithRetry(&op);
     if (op.status != 0 || ! fa) {
         return op.status;
@@ -5214,7 +5001,7 @@ public:
                 return ret;
             }
         }
-        ChownOp op(mCli.nextSeq(), attr.fileId, mUser, mGroup);
+        ChownOp op(0, attr.fileId, mUser, mGroup);
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
             const int ret = mErrHandler(path, op.status);
@@ -5271,7 +5058,7 @@ public:
         if (attr.isDirectory) {
             return 0;
         }
-        ChangeFileReplicationOp op(mCli.nextSeq(), attr.fileId, mReplication);
+        ChangeFileReplicationOp op(0, attr.fileId, mReplication);
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
             const int ret = mErrHandler(path, op.status);
@@ -5343,7 +5130,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         return -EISDIR;
     }
 
-    GetLayoutOp lop(nextSeq(), attr.fileId);
+    GetLayoutOp lop(0, attr.fileId);
     DoMetaOpWithRetry(&lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
@@ -5361,7 +5148,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
          i != lop.chunks.end();
          ++i) {
-        LeaseAcquireOp leaseOp(nextSeq(), i->chunkId, pathname);
+        LeaseAcquireOp leaseOp(0, i->chunkId, pathname);
         DoMetaOpWithRetry(&leaseOp);
         if (leaseOp.status < 0) {
             KFS_LOG_STREAM_ERROR << "failed to acquire lease: " <<
@@ -5423,7 +5210,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                 KFS_LOG_EOM;
             }
         }
-        LeaseRelinquishOp lrelOp(nextSeq(), i->chunkId, leaseOp.leaseId);
+        LeaseRelinquishOp lrelOp(0, i->chunkId, leaseOp.leaseId);
         DoMetaOpWithRetry(&lrelOp);
         if (leaseOp.status < 0) {
             KFS_LOG_STREAM_ERROR << "failed to relinquish lease: " <<
@@ -5440,16 +5227,8 @@ int
 KfsClientImpl::GetChunkFromReplica(const ServerLocation& loc,
     kfsChunkId_t chunkId, int64_t chunkVersion, ostream& os)
 {
-    TcpSocket sock;
-    int res;
-    if ((res = sock.Connect(loc)) < 0) {
-        return res;
-    }
-    SizeOp sizeOp(nextSeq(), chunkId, chunkVersion);
-    res = DoOpCommon(&sizeOp, &sock);
-    if (res < 0) {
-        return res;
-    }
+    SizeOp sizeOp(0, chunkId, chunkVersion);
+    DoChunkServerOp(loc, sizeOp);
     if (sizeOp.status < 0) {
         return sizeOp.status;
     }
@@ -5466,15 +5245,11 @@ KfsClientImpl::GetChunkFromReplica(const ServerLocation& loc,
     chunkOff_t nread = 0;
     ReadOp op(0, chunkId, chunkVersion);
     while (nread < sizeOp.size) {
-        op.seq           = nextSeq();
+        op.seq           = 0;
         op.numBytes      = min(size_t(1) << 20, (size_t)(sizeOp.size - nread));
         op.offset        = nread;
         op.contentLength = 0;
-        const int res = DoOpCommon(&op, &sock);
-        if (res < 0) {
-            nread = res;
-            break;
-        }
+        DoChunkServerOp(loc, op);
         if (op.status < 0) {
             nread = op.status;
             break;

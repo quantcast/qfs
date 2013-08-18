@@ -82,7 +82,7 @@ public:
     /// NetConnection::Close()), then it automatically falls out of
     /// the net manager's list of connections that are polled.
     ///
-    void MainLoop(QCMutex* mutex = 0);
+    void MainLoop(QCMutex* mutex = 0, bool wakeupAndCleanupFlag = true);
     void Wakeup();
 
     void Shutdown()

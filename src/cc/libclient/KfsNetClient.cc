@@ -530,6 +530,10 @@ public:
             }
         }
         if (inOpPtr != &mAuthOp) {
+            KFS_LOG_STREAM_FATAL << "invalid op completion: " <<
+                inOpPtr->Show() <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
             abort();
             return;
         }
@@ -723,6 +727,10 @@ private:
                 inOp.seq, OpQueueEntry(&inOp, this, 0)
             ));
         if (! theRes.second || theRes.first != mPendingOpQueue.begin()) {
+            KFS_LOG_STREAM_FATAL << "invalid auth. enqueue attempt:" <<
+                " duplicate seq. number: " << theRes.second <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
             abort();
         }
         const bool kResetTimerFlag = true;

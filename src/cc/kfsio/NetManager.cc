@@ -391,16 +391,21 @@ NetManager::Wakeup()
 }
 
 void
-NetManager::MainLoop(QCMutex* mutex /* = 0 */)
+NetManager::MainLoop(QCMutex* mutex /* = 0 */,
+    bool wakeupAndCleanupFlag /* = true */)
 {
     QCStMutexLocker locker(mutex);
 
     mNow = time(0);
     time_t lastTimerTime = mNow;
-    CheckFatalPollSysError(
-        mPoll.Add(mWaker.GetFd(), QCFdPoll::kOpTypeIn),
-        "failed to add net waker's fd to the poll set"
-    );
+    if (wakeupAndCleanupFlag) {
+        CheckFatalPollSysError(
+            mPoll.Add(mWaker.GetFd(), QCFdPoll::kOpTypeIn),
+            "failed to add net waker's fd to the poll set"
+        );
+    } else {
+        mRunFlag = true;
+    }
     const int timerOverrunWarningTime(mTimeoutMs / (1000/2));
     while (mRunFlag) {
         const bool wasOverloaded = mIsOverloaded;
@@ -538,11 +543,13 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */)
         lastTimerTime = mNow;
         mTimerWheelBucketItr = mRemove.end();
     }
-    CheckFatalPollSysError(
-        mPoll.Remove(mWaker.GetFd()),
-        "failed to removed net kicker's fd from poll set"
-    );
-    CleanUp();
+    if (wakeupAndCleanupFlag) {
+        CheckFatalPollSysError(
+            mPoll.Remove(mWaker.GetFd()),
+            "failed to removed net kicker's fd from poll set"
+        );
+        CleanUp();
+    }
 }
 
 void
