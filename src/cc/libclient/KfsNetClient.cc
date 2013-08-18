@@ -468,10 +468,17 @@ public:
         bool      inCanceledFlag,
         IOBuffer* inBufferPtr)
     {
-        assert(! inBufferPtr);
+        assert(! inBufferPtr && ! mOutstandingOpPtr &&
+            (inOpPtr == &mLookupOp || inOpPtr == &mAuthOp));
         const kfsSeq_t theSeq = inOpPtr->seq;
         inOpPtr->seq = -1;
         if (inCanceledFlag) {
+            return;
+        }
+        if (inOpPtr->status == 0 && ! IsConnected()) {
+            if (! mPendingOpQueue.empty()) {
+                EnsureConnected();
+            }
             return;
         }
         if (inOpPtr == &mLookupOp) {
@@ -541,6 +548,23 @@ public:
                     mAuthOp.contentLength,
                     *mConnPtr,
                     &mAuthOp.statusMsg)) == 0) {
+            const bool kFlushFlag             = false;
+            bool       theFlushConnectionFlag = false;
+            for (OpQueue::iterator theIt = mPendingOpQueue.begin();
+                    ! mOutstandingOpPtr &&
+                        theIt != mPendingOpQueue.end();
+                    ++theIt) {
+                if (mMaxOneOutstandingOpFlag) {
+                    mOutstandingOpPtr = &(theIt->second);
+                }
+                Request(theIt->second, kFlushFlag,
+                    theIt->second.mRetryCount, kFlushFlag);
+                theFlushConnectionFlag = true;
+            }
+            if (theFlushConnectionFlag) {
+                mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
+                mConnPtr->Flush();
+            }
             return;
         }
         Fail(mAuthOp.status, mAuthOp.statusMsg);
@@ -691,6 +715,8 @@ private:
     void EnqueueAuth(
         KfsOp& inOp)
     {
+        assert(! mOutstandingOpPtr &&
+            (! mConnPtr || ! mConnPtr->IsWriteReady()));
         SetMaxWaitTime(inOp);
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
@@ -705,7 +731,8 @@ private:
     void Request(
         OpQueueEntry& inEntry,
         bool          inResetTimerFlag,
-        int           inRetryCount)
+        int           inRetryCount,
+        bool          inFlushFlag = true)
     {
         KfsOp& theOp = *inEntry.mOpPtr;
         theOp.Request(mOstream.Set(mConnPtr->GetOutBuffer()));
@@ -732,8 +759,10 @@ private:
         // Start the timer.
         inEntry.mTime       = Now();
         inEntry.mRetryCount = inRetryCount;
-        mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
-        mConnPtr->Flush(inResetTimerFlag);
+        if (inFlushFlag) {
+            mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
+            mConnPtr->Flush(inResetTimerFlag);
+        }
     }
     void HandleResponse(
        IOBuffer& inBuffer)
@@ -969,12 +998,6 @@ private:
                 return;
             }
         } else if (IsAuthEnabled()) {
-            if (mLookupOp.seq >= 0) {
-                Cancel(&mLookupOp, this);
-            }
-            if (mAuthOp.seq >= 0) {
-                Cancel(&mAuthOp, this);
-            }
             assert(! IsAuthInFlight());
             mLookupOp.DeallocContentBuf();
             mLookupOp.contentLength = 0;
@@ -1035,6 +1058,12 @@ private:
         mOutstandingOpPtr = 0;
         if (! mConnPtr) {
             return;
+        }
+        if (mLookupOp.seq >= 0) {
+            Cancel(&mLookupOp, this);
+        }
+        if (mAuthOp.seq >= 0) {
+            Cancel(&mAuthOp, this);
         }
         mConnPtr->Close();
         mConnPtr->GetInBuffer().Clear();
