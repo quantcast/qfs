@@ -816,11 +816,6 @@ private:
         return SetReadAheadSize(entry, size, true);
     }
 
-
-    /// Connect to the meta server and return status.
-    /// @retval true if connect succeeds; false otherwise.
-    bool ConnectToMetaServer();
-
     /// Lookup the attributes of a file given its parent file-id
     /// @param[in] parentFid  file-id of the parent directory
     /// @param[in] filename   filename whose attributes are being

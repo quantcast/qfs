@@ -1244,52 +1244,19 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort)
     mMetaServerLoc.port = metaServerPort;
 
     KFS_LOG_STREAM_DEBUG <<
-        "connecting to metaserver at: " <<
+        "will use metaserver at: " <<
         metaServerHost << ":" << metaServerPort <<
     KFS_LOG_EOM;
-
-    if (!mMetaServerLoc.IsValid()) {
-        mIsInitialized = false;
+    mIsInitialized = mMetaServerLoc.IsValid();
+    if (! mIsInitialized) {
         KFS_LOG_STREAM_ERROR <<
             "invalid metaserver location: " <<
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
         return -1;
     }
-    for (int attempt = 0; ;) {
-        if (ConnectToMetaServer()) {
-            mIsInitialized = true;
-            break;
-        }
-        mIsInitialized = false;
-        if (++attempt >= mMaxNumRetriesPerOp) {
-            KFS_LOG_STREAM_ERROR <<
-                "unable to connect to metaserver at: " <<
-                metaServerHost << ":" << metaServerPort <<
-                "; retrying..." <<
-            KFS_LOG_EOM;
-            break;
-        }
-        Sleep(mRetryDelaySec);
-    }
-    if (!mIsInitialized) {
-        KFS_LOG_STREAM_ERROR <<
-            "unable to connect to metaserver at: " <<
-            metaServerHost << ":" << metaServerPort <<
-            "; giving up" <<
-        KFS_LOG_EOM;
-        return -1;
-    }
-
     return 0;
 }
-
-bool
-KfsClientImpl::ConnectToMetaServer()
-{
-    return mMetaServer.SetServer(mMetaServerLoc);
-}
-
 
 /// A notion of "cwd" in KFS.
 ///
