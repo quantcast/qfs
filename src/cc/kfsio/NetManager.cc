@@ -549,6 +549,8 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
             "failed to removed net kicker's fd from poll set"
         );
         CleanUp();
+    } else {
+        mRunFlag = true;
     }
 }
 
