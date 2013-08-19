@@ -15,16 +15,14 @@
 #include <string>
 #include <vector>
 
-using std::string;
-
 extern "C" {
 #endif // __cplusplus
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 // TODO(sday): Add size checks at compile for size of off_t, size_t, ssize_t,
 // uid_t, gid_t and mode_t to ensure they match qfs. We're not going to add a
@@ -167,8 +165,8 @@ extern "C" {
   // qfs_readdirnames_iter should never be accessed.
   struct qfs_readdirnames_iter {
 #ifdef __cplusplus
-    std::vector<string>* _dentries;
-    std::vector<string>::iterator _iter;
+    std::vector<std::string>* _dentries;
+    std::vector<std::string>::iterator _iter;
 #else
     void *_dentries;
     void *_iter;
@@ -327,8 +325,8 @@ extern "C" {
 
   struct qfs_locations_iter {
 #ifdef __cplusplus
-    std::vector< std::vector<string> >* _locations;
-    std::vector< std::vector<string> >::iterator _iter;
+    std::vector< std::vector<std::string> >* _locations;
+    std::vector< std::vector<std::string> >::iterator _iter;
     std::vector<std::string>::iterator _inner;
 #else
     void* _locations;
