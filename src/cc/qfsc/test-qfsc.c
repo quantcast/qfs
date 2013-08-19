@@ -42,14 +42,17 @@ static char* test_get_metaserver_location() {
   int n = qfs_get_metaserver_location(qfs, buf, sizeof(buf));
 
   check(n > sizeof(buf), "n should larger than sizeof(buf)");
-  check(strcmp("loca", buf) == 0, "partial string should be written");
+  check(strncmp(metaserver_host, buf, sizeof(buf) - 1) == 0, "partial string should be written");
+
+  char loc[4096];
+  snprintf(loc, sizeof(loc), "%s:%d", metaserver_host, metaserver_port);
 
   char bbuf[4096];
   n = qfs_get_metaserver_location(qfs, bbuf, sizeof(bbuf));
 
   check(n == strlen(bbuf), "full location should have been written out");
-  check(strcmp("localhost:20000", bbuf) == 0,
-    "location should be correct: %s", bbuf);
+  check(strcmp(loc, bbuf) == 0,
+    "location should be correct: %s, got %s", bbuf, loc);
 
   return 0;
 }
