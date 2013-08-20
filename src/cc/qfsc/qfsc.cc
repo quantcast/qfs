@@ -472,7 +472,7 @@ static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
   dst->replicas = src.numReplicas;
   dst->stripes = src.numStripes;
   dst->recovery_stripes = src.numRecoveryStripes;
-  dst->striper_type = (enum striper_type) src.striperType;
+  dst->striper_type = (enum qfs_striper_type) src.striperType;
   dst->stripe_size = src.stripeSize;
   dst->min_stier = src.minSTier;
   dst->max_stier = src.maxSTier;

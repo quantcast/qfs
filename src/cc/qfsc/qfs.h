@@ -34,7 +34,7 @@ extern "C" {
   // qfs_release.
   typedef void* QFS;
 
-  enum striper_type {
+  enum qfs_striper_type {
       KFS_STRIPED_FILE_TYPE_UNKNOWN = 0,
       KFS_STRIPED_FILE_TYPE_NONE    = 1,
       KFS_STRIPED_FILE_TYPE_RS      = 2
@@ -65,7 +65,7 @@ extern "C" {
     int16_t           replicas;
     int16_t           stripes;
     int16_t           recovery_stripes;
-    enum striper_type striper_type;
+    enum qfs_striper_type striper_type;
     int32_t           stripe_size;
     int8_t            min_stier;
     int8_t            max_stier;
