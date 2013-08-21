@@ -42,3 +42,4 @@ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 install (TARGETS qfs_access
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib-static)
+
