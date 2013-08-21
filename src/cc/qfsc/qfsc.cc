@@ -13,27 +13,40 @@ using std::vector;
 
 using namespace KFS;
 
+struct QFS {
+  KFS::KfsClient client;
+};
+
 static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src);
-static int qfs_get_data_locations_inner_impl(QFS qfs,
+static int qfs_get_data_locations_inner_impl(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   vector< vector <string> > &locations);
-static int qfs_get_data_locations_inner_fd_impl(QFS qfs,
+static int qfs_get_data_locations_inner_fd_impl(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   vector< vector <string> > &locations);
-static int qfs_get_data_locations_inner(QFS qfs,
+static int qfs_get_data_locations_inner(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   struct qfs_iter** iter, off_t* chunk, const char** location,
-  int (*op)(QFS qfs,
+  int (*op)(struct QFS* qfs,
     void* path_or_fd, off_t offset, size_t len,
     vector< vector <string> > &locations));
 
-QFS qfs_connect(const char* host, int port) {
-  return KFS::Connect(host, port);
+struct QFS* qfs_connect(const char* host, int port) {
+  struct QFS* qfs = new QFS;
+
+  qfs->client.Init(host, port);
+
+  if (!qfs->client.IsInitialized()) {
+    delete qfs;
+    return NULL;
+  }
+
+  return qfs;
 }
 
-void qfs_release(QFS qfs) {
+void qfs_release(struct QFS* qfs) {
   if(qfs) {
-    delete (KFS::KfsClient*) qfs;
+    delete qfs;
   }
 }
 
@@ -41,32 +54,32 @@ const char* qfs_strerror(int status) {
   return KFS::ErrorCodeToStr(status).c_str();
 }
 
-int qfs_cd(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Cd(path);
+int qfs_cd(struct QFS* qfs, const char* path) {
+  return qfs->client.Cd(path);
 }
 
-int qfs_setwd(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->SetCwd(path);
+int qfs_setwd(struct QFS* qfs, const char* path) {
+  return qfs->client.SetCwd(path);
 }
 
-int qfs_getwd(QFS qfs, char* cwd, size_t len) {
-  return snprintf(cwd, len, "%s", ((KFS::KfsClient*) qfs)->GetCwd().c_str());
+int qfs_getwd(struct QFS* qfs, char* cwd, size_t len) {
+  return snprintf(cwd, len, "%s", qfs->client.GetCwd().c_str());
 }
 
-int qfs_mkdir(QFS qfs, const char* path, mode_t mode) {
-  return ((KFS::KfsClient*) qfs)->Mkdir(path, mode);
+int qfs_mkdir(struct QFS* qfs, const char* path, mode_t mode) {
+  return qfs->client.Mkdir(path, mode);
 }
 
-int qfs_mkdirs(QFS qfs, const char* path, mode_t mode) {
-  return ((KFS::KfsClient*) qfs)->Mkdirs(path, mode);
+int qfs_mkdirs(struct QFS* qfs, const char* path, mode_t mode) {
+  return qfs->client.Mkdirs(path, mode);
 }
 
-int qfs_rmdir(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Rmdir(path);
+int qfs_rmdir(struct QFS* qfs, const char* path) {
+  return qfs->client.Rmdir(path);
 }
 
-int qfs_rmdirs(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Rmdirs(path);
+int qfs_rmdirs(struct QFS* qfs, const char* path) {
+  return qfs->client.Rmdirs(path);
 }
 
 enum qfs_iter_type {
@@ -140,7 +153,7 @@ void qfs_iter_free(struct qfs_iter** iter) {
   *iter = NULL;
 }
 
-int qfs_readdir(QFS qfs, const char* path, struct qfs_iter** it, struct qfs_attr* attr) {
+int qfs_readdir(struct QFS* qfs, const char* path, struct qfs_iter** it, struct qfs_attr* attr) {
   if(!it) {
     return -EINVAL;
   }
@@ -157,11 +170,10 @@ int qfs_readdir(QFS qfs, const char* path, struct qfs_iter** it, struct qfs_attr
 
   if(!iter) {
     // First call on the given iterator: make the client call initialize iter.
-    KFS::KfsClient* client = (KFS::KfsClient*) qfs;
     iter = new qfs_readdir_iter;
     *it = new qfs_iter(iter);
 
-    int res = client->ReaddirPlus(path, iter->dentries);
+    int res = qfs->client.ReaddirPlus(path, iter->dentries);
 
     if(res != 0) {
       qfs_iter_free(it);
@@ -185,7 +197,7 @@ int qfs_readdir(QFS qfs, const char* path, struct qfs_iter** it, struct qfs_attr
   return 0;
 }
 
-int qfs_readdirnames(QFS qfs, const char* path, struct qfs_iter** it, const char** dentry) {
+int qfs_readdirnames(struct QFS* qfs, const char* path, struct qfs_iter** it, const char** dentry) {
 if(!it) {
     return -EINVAL;
   }
@@ -207,11 +219,10 @@ if(!it) {
 
   if(!iter) {
     // First call on the given iterator: make the client call initialize iter.
-    KFS::KfsClient* client = (KFS::KfsClient*) qfs;
     iter = new qfs_readdirnames_iter;
     *it = new qfs_iter(iter);
 
-    int res = client->Readdir(path, iter->dentries);
+    int res = qfs->client.Readdir(path, iter->dentries);
 
     if(res != 0) {
       qfs_iter_free(it);
@@ -236,11 +247,10 @@ if(!it) {
   return 0;
 }
 
-int qfs_stat(QFS qfs, const char* path, struct qfs_attr* attr) {
-  KFS::KfsClient* client = (KFS::KfsClient*) qfs;
+int qfs_stat(struct QFS* qfs, const char* path, struct qfs_attr* attr) {
   KfsFileAttr kfsAttrs;
 
-  int res = client->Stat(path, kfsAttrs);
+  int res = qfs->client.Stat(path, kfsAttrs);
   if(res < 0) {
     return res;
   }
@@ -249,11 +259,10 @@ int qfs_stat(QFS qfs, const char* path, struct qfs_attr* attr) {
   return res;
 }
 
-int qfs_stat_fd(QFS qfs, int fd, struct qfs_attr* attr) {
-  KFS::KfsClient* client = (KFS::KfsClient*) qfs;
+int qfs_stat_fd(struct QFS* qfs, int fd, struct qfs_attr* attr) {
   KfsFileAttr kfsAttrs;
 
-  int res = client->Stat(fd, kfsAttrs);
+  int res = qfs->client.Stat(fd, kfsAttrs);
   if(res < 0) {
     return res;
   }
@@ -262,154 +271,154 @@ int qfs_stat_fd(QFS qfs, int fd, struct qfs_attr* attr) {
   return res;
 }
 
-ssize_t qfs_get_chunksize(QFS qfs, const char* path) {
+ssize_t qfs_get_chunksize(struct QFS* qfs, const char* path) {
   return KFS::CHUNKSIZE;
 }
 
-bool qfs_exists(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Exists(path);
+bool qfs_exists(struct QFS* qfs, const char* path) {
+  return qfs->client.Exists(path);
 }
 
-bool qfs_isfile(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->IsFile(path);
+bool qfs_isfile(struct QFS* qfs, const char* path) {
+  return qfs->client.IsFile(path);
 }
 
-bool qfs_isdirectory(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->IsDirectory(path);
+bool qfs_isdirectory(struct QFS* qfs, const char* path) {
+  return qfs->client.IsDirectory(path);
 }
 
-int qfs_verify_checksums(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->VerifyDataChecksums(path);
+int qfs_verify_checksums(struct QFS* qfs, const char* path) {
+  return qfs->client.VerifyDataChecksums(path);
 }
 
-int qfs_verify_checksums_fd(QFS qfs, int fd) {
-  return ((KFS::KfsClient*) qfs)->VerifyDataChecksums(fd);
+int qfs_verify_checksums_fd(struct QFS* qfs, int fd) {
+  return qfs->client.VerifyDataChecksums(fd);
 }
 
-int qfs_remove(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Remove(path);
+int qfs_remove(struct QFS* qfs, const char* path) {
+  return qfs->client.Remove(path);
 }
 
-int qfs_rename(QFS qfs, const char* oldpath, const char* newpath) {
-  return ((KFS::KfsClient*) qfs)->Rename(oldpath, newpath);
+int qfs_rename(struct QFS* qfs, const char* oldpath, const char* newpath) {
+  return qfs->client.Rename(oldpath, newpath);
 }
 
-int qfs_set_mtime(QFS qfs, const char* path, struct timeval* mtime) {
-  return ((KFS::KfsClient*) qfs)->SetMtime(path, *mtime);
+int qfs_set_mtime(struct QFS* qfs, const char* path, struct timeval* mtime) {
+  return qfs->client.SetMtime(path, *mtime);
 }
 
-int qfs_create(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Create(path, true, "");
+int qfs_create(struct QFS* qfs, const char* path) {
+  return qfs->client.Create(path, true, "");
 }
 
-int qfs_open(QFS qfs, const char* path) {
-  return ((KFS::KfsClient*) qfs)->Open(path, O_RDONLY, "");
+int qfs_open(struct QFS* qfs, const char* path) {
+  return qfs->client.Open(path, O_RDONLY, "");
 }
 
-int qfs_open_file(QFS qfs, const char* path, int openFlags, uint16_t mode, const char* params) {
-  return ((KFS::KfsClient*) qfs)->Open(path, openFlags, params, mode);
+int qfs_open_file(struct QFS* qfs, const char* path, int openFlags, uint16_t mode, const char* params) {
+  return qfs->client.Open(path, openFlags, params, mode);
 }
 
-int qfs_close(QFS qfs, int fd) {
-    return ((KFS::KfsClient*) qfs)->Close(fd);
+int qfs_close(struct QFS* qfs, int fd) {
+    return qfs->client.Close(fd);
 }
 
-int qfs_record_append(QFS qfs, int fd, const char* buf, size_t len) {
-  return ((KFS::KfsClient*) qfs)->RecordAppend(fd, buf, len);
+int qfs_record_append(struct QFS* qfs, int fd, const char* buf, size_t len) {
+  return qfs->client.RecordAppend(fd, buf, len);
 
 }
-int qfs_atomic_record_append(QFS qfs, int fd, const char* buf, size_t len) {
-  return ((KFS::KfsClient*) qfs)->AtomicRecordAppend(fd, buf, len);
+int qfs_atomic_record_append(struct QFS* qfs, int fd, const char* buf, size_t len) {
+  return qfs->client.AtomicRecordAppend(fd, buf, len);
 }
 
-ssize_t qfs_read(QFS qfs, int fd, void* buf, size_t len) {
-  return ((KFS::KfsClient*) qfs)->Read(fd, (char*) buf, len);
+ssize_t qfs_read(struct QFS* qfs, int fd, void* buf, size_t len) {
+  return qfs->client.Read(fd, (char*) buf, len);
 }
 
-ssize_t qfs_pread(QFS qfs, int fd, void *buf, size_t len, off_t offset) {
-  return ((KFS::KfsClient*) qfs)->PRead(fd, offset, (char*) buf, len);
+ssize_t qfs_pread(struct QFS* qfs, int fd, void *buf, size_t len, off_t offset) {
+  return qfs->client.PRead(fd, offset, (char*) buf, len);
 }
 
 
-ssize_t qfs_write(QFS qfs, int fd, const void* buf, size_t len) {
-    return ((KFS::KfsClient*) qfs)->Write(fd, (char*) buf, len);
+ssize_t qfs_write(struct QFS* qfs, int fd, const void* buf, size_t len) {
+    return qfs->client.Write(fd, (char*) buf, len);
 }
 
-ssize_t qfs_pwrite(QFS qfs, int fd, const void* buf, size_t len, off_t offset) {
-  return ((KFS::KfsClient*) qfs)->PWrite(fd, offset, (char*) buf, len);
+ssize_t qfs_pwrite(struct QFS* qfs, int fd, const void* buf, size_t len, off_t offset) {
+  return qfs->client.PWrite(fd, offset, (char*) buf, len);
 }
 
-void qfs_set_skipholes(QFS qfs, int fd) {
-  ((KFS::KfsClient*) qfs)->SkipHolesInFile(fd);
+void qfs_set_skipholes(struct QFS* qfs, int fd) {
+  qfs->client.SkipHolesInFile(fd);
 }
 
-int qfs_sync(QFS qfs, int fd) {
-  return ((KFS::KfsClient*) qfs)->Sync(fd);
+int qfs_sync(struct QFS* qfs, int fd) {
+  return qfs->client.Sync(fd);
 }
 
-void qfs_set_eofmark(QFS qfs, int fd, int64_t offset) {
-  ((KFS::KfsClient*) qfs)->SetEOFMark(fd, offset);
+void qfs_set_eofmark(struct QFS* qfs, int fd, int64_t offset) {
+  qfs->client.SetEOFMark(fd, offset);
 }
 
-off_t qfs_seek(QFS qfs, int fd, off_t offset, int whence) {
-  return ((KFS::KfsClient*) qfs)->Seek(fd, offset, whence);
+off_t qfs_seek(struct QFS* qfs, int fd, off_t offset, int whence) {
+  return qfs->client.Seek(fd, offset, whence);
 }
 
-off_t qfs_tell(QFS qfs, int fd) {
-  return ((KFS::KfsClient*) qfs)->Tell(fd);
+off_t qfs_tell(struct QFS* qfs, int fd) {
+  return qfs->client.Tell(fd);
 }
 
-int qfs_truncate(QFS qfs, const char* path, off_t offset) {
-  return ((KFS::KfsClient*) qfs)->Truncate(path, offset);
+int qfs_truncate(struct QFS* qfs, const char* path, off_t offset) {
+  return qfs->client.Truncate(path, offset);
 }
 
-int qfs_truncate_fd(QFS qfs, int fd, off_t offset) {
-  return ((KFS::KfsClient*) qfs)->Truncate(fd, offset);
+int qfs_truncate_fd(struct QFS* qfs, int fd, off_t offset) {
+  return qfs->client.Truncate(fd, offset);
 }
 
-int qfs_prune(QFS qfs, int fd, off_t offset) {
-  return ((KFS::KfsClient*) qfs)->PruneFromHead(fd, offset);
+int qfs_prune(struct QFS* qfs, int fd, off_t offset) {
+  return qfs->client.PruneFromHead(fd, offset);
 }
 
-int qfs_chmod(QFS qfs, const char* path, mode_t mode) {
-  return ((KFS::KfsClient*) qfs)->Chmod(path, mode);
+int qfs_chmod(struct QFS* qfs, const char* path, mode_t mode) {
+  return qfs->client.Chmod(path, mode);
 }
 
-int qfs_chmod_fd(QFS qfs, int fd, mode_t mode) {
-  return ((KFS::KfsClient*) qfs)->Chmod(fd, mode);
+int qfs_chmod_fd(struct QFS* qfs, int fd, mode_t mode) {
+  return qfs->client.Chmod(fd, mode);
 }
 
-int qfs_chmod_r(QFS qfs, const char* path, mode_t mode) {
-  return ((KFS::KfsClient*) qfs)->ChmodR(path, mode);
+int qfs_chmod_r(struct QFS* qfs, const char* path, mode_t mode) {
+  return qfs->client.ChmodR(path, mode);
 }
 
-int qfs_chown(QFS qfs, const char* path, uid_t uid, gid_t gid) {
-  return ((KFS::KfsClient*) qfs)->Chown(path, uid, gid);
+int qfs_chown(struct QFS* qfs, const char* path, uid_t uid, gid_t gid) {
+  return qfs->client.Chown(path, uid, gid);
 }
 
-int qfs_chown_fd(QFS qfs, int fd, uid_t uid, gid_t gid) {
-  return ((KFS::KfsClient*) qfs)->Chown(fd, uid, gid);
+int qfs_chown_fd(struct QFS* qfs, int fd, uid_t uid, gid_t gid) {
+  return qfs->client.Chown(fd, uid, gid);
 }
 
-int qfs_chown_r(QFS qfs, const char* path, uid_t uid, gid_t gid) {
-  return ((KFS::KfsClient*) qfs)->Chown(path, uid, gid);
+int qfs_chown_r(struct QFS* qfs, const char* path, uid_t uid, gid_t gid) {
+  return qfs->client.Chown(path, uid, gid);
 }
 
-int qfs_get_metaserver_location(QFS qfs, char* location, size_t len) {
-  ServerLocation loc = ((KFS::KfsClient*) qfs)->GetMetaserverLocation();
+int qfs_get_metaserver_location(struct QFS* qfs, char* location, size_t len) {
+  ServerLocation loc = qfs->client.GetMetaserverLocation();
   return snprintf(location, len, "%s:%d", loc.hostname.c_str(), loc.port);
 }
 
-int16_t qfs_set_replicationfactor(QFS qfs, const char* path, int16_t replicas) {
-  return ((KFS::KfsClient*) qfs)->SetReplicationFactor(path, replicas);
+int16_t qfs_set_replicationfactor(struct QFS* qfs, const char* path, int16_t replicas) {
+  return qfs->client.SetReplicationFactor(path, replicas);
 }
 
-int16_t qfs_set_replicationfactor_r(QFS qfs, const char* path, int16_t replicas) {
+int16_t qfs_set_replicationfactor_r(struct QFS* qfs, const char* path, int16_t replicas) {
   // TODO(sday): Handle recursive errors.
-  return ((KFS::KfsClient*) qfs)->SetReplicationFactorR(path, replicas);
+  return qfs->client.SetReplicationFactorR(path, replicas);
 }
 
-int qfs_get_data_locations(QFS qfs,
+int qfs_get_data_locations(struct QFS* qfs,
   const char* path, off_t offset, size_t len,
   struct qfs_iter** iter, off_t* chunk, const char** locations) {
   return qfs_get_data_locations_inner(qfs,
@@ -418,7 +427,7 @@ int qfs_get_data_locations(QFS qfs,
     qfs_get_data_locations_inner_impl);
 }
 
-int qfs_get_data_locations_fd(QFS qfs,
+int qfs_get_data_locations_fd(struct QFS* qfs,
   int fd, off_t offset, size_t len,
   struct qfs_iter** iter, off_t* chunk, const char** locations) {
   return qfs_get_data_locations_inner(qfs,
@@ -427,93 +436,93 @@ int qfs_get_data_locations_fd(QFS qfs,
     qfs_get_data_locations_inner_fd_impl);
 }
 
-void qfs_set_default_iotimeout(QFS qfs, int nsecs) {
-  ((KFS::KfsClient*) qfs)->SetDefaultIOTimeout(nsecs);
+void qfs_set_default_iotimeout(struct QFS* qfs, int nsecs) {
+  qfs->client.SetDefaultIOTimeout(nsecs);
 }
 
-int qfs_get_default_iotimeout(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetDefaultIOTimeout();
+int qfs_get_default_iotimeout(struct QFS* qfs) {
+  return qfs->client.GetDefaultIOTimeout();
 }
 
-void qfs_set_retrydelay(QFS qfs, int nsecs) {
-  ((KFS::KfsClient*) qfs)->SetRetryDelay(nsecs);
+void qfs_set_retrydelay(struct QFS* qfs, int nsecs) {
+  qfs->client.SetRetryDelay(nsecs);
 }
 
-int qfs_get_retrydelay(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetRetryDelay();
+int qfs_get_retrydelay(struct QFS* qfs) {
+  return qfs->client.GetRetryDelay();
 }
 
-void qfs_set_max_retryperop(QFS qfs, int retries) {
-  ((KFS::KfsClient*) qfs)->SetMaxRetryPerOp(retries);
+void qfs_set_max_retryperop(struct QFS* qfs, int retries) {
+  qfs->client.SetMaxRetryPerOp(retries);
 }
 
-int qfs_get_max_retryperop(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetMaxRetryPerOp();
+int qfs_get_max_retryperop(struct QFS* qfs) {
+  return qfs->client.GetMaxRetryPerOp();
 }
 
-size_t qfs_set_default_iobuffersize(QFS qfs, size_t size) {
-  return ((KFS::KfsClient*) qfs)->SetDefaultIoBufferSize(size);
+size_t qfs_set_default_iobuffersize(struct QFS* qfs, size_t size) {
+  return qfs->client.SetDefaultIoBufferSize(size);
 }
 
-size_t qfs_get_default_iobuffersize(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetDefaultIoBufferSize();
+size_t qfs_get_default_iobuffersize(struct QFS* qfs) {
+  return qfs->client.GetDefaultIoBufferSize();
 }
 
-size_t qfs_set_iobuffersize(QFS qfs, int fd, size_t size) {
-  return ((KFS::KfsClient*) qfs)->SetIoBufferSize(fd, size);
+size_t qfs_set_iobuffersize(struct QFS* qfs, int fd, size_t size) {
+  return qfs->client.SetIoBufferSize(fd, size);
 }
 
-size_t qfs_get_iobuffersize(QFS qfs, int fd) {
-  return ((KFS::KfsClient*) qfs)->GetIoBufferSize(fd);
+size_t qfs_get_iobuffersize(struct QFS* qfs, int fd) {
+  return qfs->client.GetIoBufferSize(fd);
 }
 
-size_t qfs_set_default_readaheadsize(QFS qfs, size_t size) {
-  return ((KFS::KfsClient*) qfs)->SetDefaultReadAheadSize(size);
+size_t qfs_set_default_readaheadsize(struct QFS* qfs, size_t size) {
+  return qfs->client.SetDefaultReadAheadSize(size);
 }
 
-size_t qfs_get_default_readaheadsize(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetDefaultReadAheadSize();
+size_t qfs_get_default_readaheadsize(struct QFS* qfs) {
+  return qfs->client.GetDefaultReadAheadSize();
 }
 
-size_t qfs_set_readaheadsize(QFS qfs, int fd, size_t size) {
-  return ((KFS::KfsClient*) qfs)->SetReadAheadSize(fd, size);
+size_t qfs_set_readaheadsize(struct QFS* qfs, int fd, size_t size) {
+  return qfs->client.SetReadAheadSize(fd, size);
 }
 
-size_t qfs_get_readaheadsize(QFS qfs, int fd) {
-  return ((KFS::KfsClient*) qfs)->GetReadAheadSize(fd);
+size_t qfs_get_readaheadsize(struct QFS* qfs, int fd) {
+  return qfs->client.GetReadAheadSize(fd);
 }
 
-void qfs_set_default_sparsefilesupport(QFS qfs, bool flag) {
-  ((KFS::KfsClient*) qfs)->SetDefaultFullSparseFileSupport(flag);
+void qfs_set_default_sparsefilesupport(struct QFS* qfs, bool flag) {
+  qfs->client.SetDefaultFullSparseFileSupport(flag);
 }
 
-int qfs_set_sparsefilesupport(QFS qfs, int fd, bool flag) {
-  return ((KFS::KfsClient*) qfs)->SetFullSparseFileSupport(fd, flag);
+int qfs_set_sparsefilesupport(struct QFS* qfs, int fd, bool flag) {
+  return qfs->client.SetFullSparseFileSupport(fd, flag);
 }
 
-void qfs_set_fileattributerevalidatetime(QFS qfs, int seconds) {
-  ((KFS::KfsClient*) qfs)->SetFileAttributeRevalidateTime(seconds);
+void qfs_set_fileattributerevalidatetime(struct QFS* qfs, int seconds) {
+  qfs->client.SetFileAttributeRevalidateTime(seconds);
 }
 
-void qfs_set_umask(QFS qfs, mode_t mode) {
-  ((KFS::KfsClient*) qfs)->SetUMask(mode);
+void qfs_set_umask(struct QFS* qfs, mode_t mode) {
+  qfs->client.SetUMask(mode);
 }
 
-mode_t qfs_get_umask(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetUMask();
+mode_t qfs_get_umask(struct QFS* qfs) {
+  return qfs->client.GetUMask();
 }
 
-uint32_t qfs_getuid(QFS qfs) {
-  return ((KFS::KfsClient*) qfs)->GetUserId();
+uint32_t qfs_getuid(struct QFS* qfs) {
+  return qfs->client.GetUserId();
 }
 
-int qfs_get_userandgroupnames(QFS qfs,
+int qfs_get_userandgroupnames(struct QFS* qfs,
   uint32_t uid, uint32_t gid,
   char* user, size_t ulen, char* group, size_t glen) {
   string user_string;
   string group_string;
 
-  int res = ((KFS::KfsClient*) qfs)->GetUserAndGroupNames(uid, gid, user_string, group_string);
+  int res = qfs->client.GetUserAndGroupNames(uid, gid, user_string, group_string);
   if(res < 0) {
     return res;
   }
@@ -524,14 +533,14 @@ int qfs_get_userandgroupnames(QFS qfs,
   return 0;
 }
 
-int qfs_get_userandgroupids(QFS qfs, char* user, char* group, uint32_t* uid, uint32_t* gid) {
-  return ((KFS::KfsClient*) qfs)->GetUserAndGroupIds(user, group, *uid, *gid);
+int qfs_get_userandgroupids(struct QFS* qfs, char* user, char* group, uint32_t* uid, uint32_t* gid) {
+  return qfs->client.GetUserAndGroupIds(user, group, *uid, *gid);
 }
 
-int qfs_set_euserandegroup(QFS qfs,
+int qfs_set_euserandegroup(struct QFS* qfs,
   uint32_t uid, uint32_t gid,
   uint32_t* gids, int ngroups) {
-  return ((KFS::KfsClient*) qfs)->SetEUserAndEGroup(uid, gid, gids, ngroups);
+  return qfs->client.SetEUserAndEGroup(uid, gid, gids, ngroups);
 }
 
 static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
@@ -558,24 +567,24 @@ static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
   dst->max_stier = src.maxSTier;
 }
 
-static int qfs_get_data_locations_inner_impl(QFS qfs,
+static int qfs_get_data_locations_inner_impl(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   vector< vector <string> > &locations) {
   const char* path = (const char*)(path_or_fd);
-  return ((KFS::KfsClient*) qfs)->GetDataLocation(path, offset, len, locations);
+  return qfs->client.GetDataLocation(path, offset, len, locations);
 }
 
-static int qfs_get_data_locations_inner_fd_impl(QFS qfs,
+static int qfs_get_data_locations_inner_fd_impl(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   vector< vector <string> > &locations) {
   int fd = *((int*)path_or_fd);
-  return ((KFS::KfsClient*) qfs)->GetDataLocation(fd, offset, len, locations);
+  return qfs->client.GetDataLocation(fd, offset, len, locations);
 }
 
-static int qfs_get_data_locations_inner(QFS qfs,
+static int qfs_get_data_locations_inner(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   struct qfs_iter** it, off_t* chunk, const char** location,
-  int (*op)(QFS qfs,
+  int (*op)(struct QFS* qfs,
     void* path_or_fd, off_t offset, size_t len,
     vector< vector <string> > &locations) ) {
 

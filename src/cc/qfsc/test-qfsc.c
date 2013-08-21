@@ -26,7 +26,7 @@ static char* metaserver_host = "localhost";
 static int metaserver_port = 20000;
 
 // Global file system and file descriptor under test.
-QFS qfs;
+struct QFS* qfs;
 int fd;
 
 char* testdata = "qwerasdf1234567890";
