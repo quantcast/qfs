@@ -73,6 +73,9 @@ extern "C" {
     int8_t            max_stier;
   };
 
+  // qfs_iter is an opaque, iterator type, used for reentrant iteration.
+  struct qfs_iter;
+
   // qfs_connect connects to the specified metaserver, returning a QFS handle.
   // On error, this function will return NULL.
   QFS qfs_connect(const char* host, int port);
@@ -113,28 +116,15 @@ extern "C" {
   // children.
   int qfs_rmdirs(QFS qfs, const char* path);
 
-  // qfs_readdir_iter provides iteration state for use with qfs_readdir. While
-  // the storage should be provided by the caller (via stack or heap), its
-  // members may need to be freed with qfs_readdir_iter_free. Its members
-  // should never be accessed.
-  struct qfs_readdir_iter {
-#ifdef __cplusplus
-    std::vector<KFS::KfsFileAttr>* _dentries;
-    std::vector<KFS::KfsFileAttr>::iterator _iter;
-#else
-    void *_dentries;
-    void *_iter;
-#endif // __cplusplus
-  };
+  // qfs_iter_free releases any memory allocated by any iterable function,
+  // returning the iterator to a fresh state.
+  void qfs_iter_free(struct qfs_iter** iter);
 
   // qfs_readdir iterates through all directory entries in the given path,
-  // writing the result into attr after each call, returning the number of
-  // entries left in the iterator. If an error occurred, the return value will
-  // be negative and contain an errno. The parameter iter should provide
-  // storage for the iteration state. While storage for iter should be
-  // provided by the caller, the members are allocated by qfs_readdir and need
-  // to be deallocated by either completing iteration until qfs_readdir
-  // returns 0 or calling qfs_readdir_iter_free.
+  // writing the result into attr after each call, returning the 1-based,
+  // reverse index (see below for recommend usage). If an error occurred, the
+  // return value will be negative and contain an errno. The parameter iter
+  // should be freed with qfs_iter_free regardless of the result.
   //
   // If any results in attr need to be used, they must be copied out before
   // the next iteration, as the storage location may be reused or freed.
@@ -145,42 +135,29 @@ extern "C" {
   //
   // Usage:
   //
-  //  struct qfs_readdir_iter iter;
+  //  qfs_iter iter = NULL;
   //  struct qfs_attr attr;
   //  int left;
   //  while((left = qfs_readdir(qfs, "/", &iter, &attr) > 0) {
   //    // ... work with attr
   //    if(some condition) {
   //      // qfs_readdir_iter_free must be called if breaking iteration.
-  //      qfs_readdir_iter_free(iter);
+  //      qfs_iter_free(&iter);
   //      break;
   //    }
   //  }
   //
   //  if(left < 0) { // handle error condition }
   //
-  int qfs_readdir(QFS qfs, const char* path, struct qfs_readdir_iter* iter, struct qfs_attr* attr);
-  void qfs_readdir_iter_free(struct qfs_readdir_iter* iter);
-
-  // qfs_readdirnames_iter provides the iteration state for qfs_readdirnames.
-  // Its semantics are identical to qfs_readdir_iter. Members of
-  // qfs_readdirnames_iter should never be accessed.
-  struct qfs_readdirnames_iter {
-#ifdef __cplusplus
-    std::vector<string>* _dentries;
-    std::vector<string>::iterator _iter;
-#else
-    void *_dentries;
-    void *_iter;
-#endif // __cplusplus
-  };
+  int qfs_readdir(QFS qfs, const char* path, struct qfs_iter** iter, struct qfs_attr* attr);
 
   // qfs_readdirnames iterates through all the file names in the given path if
   // it is a directory, pointing the result at the directing name, returning
-  // the number of directory entries left in the iterator. If iteration is to
-  // end early, qfs_readdirnames_iter_free should be called on iter to free
-  // its members. If value pointed to by dentry is to be used, it should be
-  // copied before continuing to the next iteration.
+  // the reverse, 1-based index of the entry. The iter parameter should be
+  // freed with qfs_iter_free, regardless of the result. If value pointed to
+  // by dentry is to be used after the next following call to
+  // qfs_readdirnames, it should be copied before continuing to the next
+  // iteration.
   //
   // The semantics of this function are similar to qfs_readdir and the same
   // conventions should be followed in its use.
@@ -189,8 +166,7 @@ extern "C" {
   // qfs_readdir to reduce to memory storage requirements. The memory required
   // is still linear in the number of directory entries, but only the file
   // names are stored, rather than the entire attribute structure.
-  int qfs_readdirnames(QFS qfs, const char* path, struct qfs_readdirnames_iter* iter, const char** dentry);
-  void qfs_readdirnames_iter_free(struct qfs_readdirnames_iter* iter);
+  int qfs_readdirnames(QFS qfs, const char* path, struct qfs_iter** iter, const char** dentry);
 
   // Omitted OpenDirectory has been omitted because its similar in
   // functionality to ReaddirPlus, doesn't save on KfsClient/FileTable memory
@@ -325,18 +301,6 @@ extern "C" {
   int16_t qfs_set_replicationfactor(QFS qfs, const char* path, int16_t replicas);
   int16_t qfs_set_replicationfactor_r(QFS qfs, const char* path, int16_t replicas);
 
-  struct qfs_locations_iter {
-#ifdef __cplusplus
-    std::vector< std::vector<string> >* _locations;
-    std::vector< std::vector<string> >::iterator _iter;
-    std::vector<std::string>::iterator _inner;
-#else
-    void* _locations;
-    void* _iter;
-    void* _inner;
-#endif // __cplusplus
-  };
-
   // qfs_get_data_locations/_fd iterates over the inner product of the block
   // and all its locations that make up the region of the file for the
   // specified path or fd. The iteration state is managed via iter, which
@@ -347,18 +311,17 @@ extern "C" {
   //
   // Usage:
   //
-  // struct qfs_locations_iter iter;
+  // qfs_iter iter;
   // char** location;
   // int nentries;
   // int res;
   //
   // while((res = qfs_get_data_locations(qfs,
-  //   "/test", 0, 134217728, &liter, &chunk, &location)) > 0) {
+  //   "/test", 0, 134217728, &iter, &chunk, &location)) > 0) {
   //   printf("chunk: %lli location: %s\n", chunk, location);
   //
   //   if(some condition) {
   //     // Early termination requires a free of iter.
-  //     qfs_locations_iter_free(iter)
   //     break;
   //   }
   // }
@@ -367,13 +330,14 @@ extern "C" {
   //   printf("error getting data locations: %s\n", qfs_strerror(res));
   // }
   //
+  // qfs_iter_free(iter);
+  //
   int qfs_get_data_locations(QFS qfs,
     const char* path, off_t offset, size_t len,
-    struct qfs_locations_iter* iter, off_t* chunk, const char** locations);
+    struct qfs_iter** iter, off_t* chunk, const char** locations);
   int qfs_get_data_locations_fd(QFS qfs,
     int fd, off_t offset, size_t len,
-    struct qfs_locations_iter* iter, off_t* chunk, const char** locations);
-  void qfs_locations_iter_free(struct qfs_locations_iter* iter);
+    struct qfs_iter** iter, off_t* chunk, const char** locations);
 
   // qfs_get_default_iotimeout/qfs_set_default_iotimeout accesses and set the
   // default io timeout used with this instance of qfs.

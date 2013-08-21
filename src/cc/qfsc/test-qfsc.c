@@ -102,7 +102,7 @@ static char* test_qfs_getwd() {
 }
 
 static char* test_readdir() {
-  struct qfs_readdir_iter iter = {0, 0};
+  struct qfs_iter* iter = NULL;
   struct qfs_attr attr;
   int res;
 
@@ -122,6 +122,7 @@ static char* test_readdir() {
     check(attr.directory, "all files should be directories");
     count++;
   }
+  qfs_iter_free(&iter);
 
   check(count == expected_length, "read all entries: %d != %d", count, expected_length);
   check(res <= 0, "%s", qfs_strerror(res));
@@ -131,7 +132,7 @@ static char* test_readdir() {
 }
 
 static char* test_readdirnames() {
-  struct qfs_readdirnames_iter iter = {0, 0};
+  struct qfs_iter* iter = NULL;
   const char* dentry;
   int res;
   const char* expected[] = {
@@ -269,7 +270,7 @@ static char* test_qfs_pread() {
 
 static char* test_qfs_get_data_locations() {
   check_qfs_call(qfs_close(qfs, fd)); // shut it down
-  struct qfs_locations_iter iter = {0, 0, 0};
+  struct qfs_iter* iter = NULL;
   const char* location = NULL;
   off_t chunk = 0;
   int res;

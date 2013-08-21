@@ -22,7 +22,7 @@ static int qfs_get_data_locations_inner_fd_impl(QFS qfs,
   vector< vector <string> > &locations);
 static int qfs_get_data_locations_inner(QFS qfs,
   void* path_or_fd, off_t offset, size_t len,
-  struct qfs_locations_iter* iter, off_t* chunk, const char** location,
+  struct qfs_iter** iter, off_t* chunk, const char** location,
   int (*op)(QFS qfs,
     void* path_or_fd, off_t offset, size_t len,
     vector< vector <string> > &locations));
@@ -69,83 +69,170 @@ int qfs_rmdirs(QFS qfs, const char* path) {
   return ((KFS::KfsClient*) qfs)->Rmdirs(path);
 }
 
-void qfs_readdir_iter_free(struct qfs_readdir_iter* iter) {
-  if(iter && iter->_dentries) {
-    delete iter->_dentries;
+enum qfs_iter_type {
+  QFS_READDIR = 1,
+  QFS_READDIRNAMES = 2,
+  QFS_LOCATIONS = 3
+};
+
+struct qfs_readdir_iter {
+  std::vector<KFS::KfsFileAttr>           dentries;
+  std::vector<KFS::KfsFileAttr>::iterator iter;
+};
+
+struct qfs_readdirnames_iter {
+  std::vector<string>           dentries;
+  std::vector<string>::iterator iter;
+};
+
+struct qfs_locations_iter {
+  std::vector< std::vector<string> >           locations;
+  std::vector< std::vector<string> >::iterator iter;
+  std::vector<std::string>::iterator           inner;
+};
+
+struct qfs_iter {
+  qfs_iter_type type;
+  void*         iter;
+
+  qfs_iter(struct qfs_readdir_iter* it) {
+    type = QFS_READDIR;
+    iter = (void*) it;
   }
+
+  qfs_iter(struct qfs_readdirnames_iter* it) {
+    type = QFS_READDIRNAMES;
+    iter = (void*) it;
+  }
+
+  qfs_iter(struct qfs_locations_iter* it) {
+    type = QFS_LOCATIONS;
+    iter = (void*) it;
+  }
+
+  ~qfs_iter() {
+    switch (type) {
+    case QFS_READDIR: {
+        struct qfs_readdir_iter* readdir_iter = (struct qfs_readdir_iter*) iter;
+        delete readdir_iter;
+      }
+      break;
+    case QFS_READDIRNAMES: {
+        struct qfs_readdirnames_iter* readdirnames_iter = (struct qfs_readdirnames_iter*) iter;
+        delete readdirnames_iter;
+      }
+      break;
+    case QFS_LOCATIONS: {
+        struct qfs_locations_iter* locations_iter = (struct qfs_locations_iter*) iter;
+        delete locations_iter;
+      }
+    }
+  }
+};
+
+void qfs_iter_free(struct qfs_iter** iter) {
+  if(!iter || !(*iter)) {
+    return;
+  }
+
+  delete *iter;
+
+  *iter = NULL;
 }
 
-int qfs_readdir(QFS qfs, const char* path, struct qfs_readdir_iter* iter, struct qfs_attr* attr) {
-  if(!iter) {
+int qfs_readdir(QFS qfs, const char* path, struct qfs_iter** it, struct qfs_attr* attr) {
+  if(!it) {
     return -EINVAL;
   }
 
-  if(!iter->_dentries) {
+  struct qfs_readdir_iter* iter = NULL;
+
+  if((*it)) {
+    if((*it)->type != QFS_READDIR) {
+      return -EINVAL;
+    }
+
+    iter = (struct qfs_readdir_iter*)(*it)->iter;
+  }
+
+  if(!iter) {
     // First call on the given iterator: make the client call initialize iter.
     KFS::KfsClient* client = (KFS::KfsClient*) qfs;
-    iter->_dentries = new vector<KFS::KfsFileAttr>;
+    iter = new qfs_readdir_iter;
+    *it = new qfs_iter(iter);
 
-    int res;
-    if((res = client->ReaddirPlus(path, *(iter->_dentries))) != 0) {
-      qfs_readdir_iter_free(iter);
+    int res = client->ReaddirPlus(path, iter->dentries);
+
+    if(res != 0) {
+      qfs_iter_free(it);
       return res;
     }
 
-    iter->_iter = iter->_dentries->begin();
+    iter->iter = iter->dentries.begin();
   }
 
-  if(iter->_iter != iter->_dentries->end()) {
-    qfs_attr_from_KfsFileAttr(attr, *(iter->_iter));
-    (iter->_iter)++;
+  if(iter->iter < iter->dentries.end()) {
+    int left = iter->dentries.size() - (iter->iter - iter->dentries.begin());
+    qfs_attr_from_KfsFileAttr(attr, *(iter->iter));
+    (iter->iter)++;
 
     // Return the number of items left to iterate
-    return iter->_dentries->size() - (iter->_iter - iter->_dentries->begin());
+    return left;
   }
 
-  // We are done: dealloc and return that there are zero left.
-  qfs_readdir_iter_free(iter);
+  // Zero-out destination parameter.
+  memset(attr, 0, sizeof(struct qfs_attr));
   return 0;
 }
 
-void qfs_readdirnames_iter_free(struct qfs_readdirnames_iter* iter) {
-  if(iter && iter->_dentries) {
-    delete iter->_dentries;
-    iter->_dentries = NULL;
-  }
-}
-
-int qfs_readdirnames(QFS qfs, const char* path, struct qfs_readdirnames_iter* iter, const char** dentry) {
-  if(!iter) {
+int qfs_readdirnames(QFS qfs, const char* path, struct qfs_iter** it, const char** dentry) {
+if(!it) {
     return -EINVAL;
   }
 
-  if(!iter->_dentries) {
+  if((*it) && (*it)->type != QFS_READDIRNAMES) {
+    // Method was passed incorrect type of iterator
+    return -EINVAL;
+  }
+
+  struct qfs_readdirnames_iter* iter = NULL;
+
+  if((*it)) {
+    if((*it)->type != QFS_READDIRNAMES) {
+      return -EINVAL;
+    }
+
+    iter = (struct qfs_readdirnames_iter*)(*it)->iter;
+  }
+
+  if(!iter) {
     // First call on the given iterator: make the client call initialize iter.
     KFS::KfsClient* client = (KFS::KfsClient*) qfs;
-    iter->_dentries = new vector<string>;
+    iter = new qfs_readdirnames_iter;
+    *it = new qfs_iter(iter);
 
-    int res = client->Readdir(path, *(iter->_dentries));
+    int res = client->Readdir(path, iter->dentries);
 
     if(res != 0) {
-      qfs_readdirnames_iter_free(iter);
+      qfs_iter_free(it);
       return res;
     }
 
-    iter->_iter = iter->_dentries->begin();
+    iter->iter = iter->dentries.begin();
   }
 
-  if(iter->_iter != iter->_dentries->end()) {
+  if(iter->iter != iter->dentries.end()) {
+    int left = iter->dentries.size() - (iter->iter - iter->dentries.begin());
     // Entries are still left: set dentry and march the iterator.
-    *dentry = (iter->_iter)->c_str();
-    iter->_iter++;
+    *dentry = (iter->iter)->c_str();
+    iter->iter++;
 
     // Return the number of items left to iterate
-    return iter->_dentries->size() - (iter->_iter - iter->_dentries->begin());
+    return left;
   }
 
   // We are done: dealloc and return that there are zero left.
   *dentry = NULL;
-  qfs_readdirnames_iter_free(iter);
   return 0;
 }
 
@@ -322,16 +409,9 @@ int16_t qfs_set_replicationfactor_r(QFS qfs, const char* path, int16_t replicas)
   return ((KFS::KfsClient*) qfs)->SetReplicationFactorR(path, replicas);
 }
 
-void qfs_locations_iter_free(struct qfs_locations_iter* iter) {
-  if(iter && iter->_locations) {
-    delete iter->_locations;
-    iter->_locations = NULL;
-  }
-}
-
 int qfs_get_data_locations(QFS qfs,
   const char* path, off_t offset, size_t len,
-  struct qfs_locations_iter* iter, off_t* chunk, const char** locations) {
+  struct qfs_iter** iter, off_t* chunk, const char** locations) {
   return qfs_get_data_locations_inner(qfs,
     (void*)path, offset, len,
     iter, chunk, locations,
@@ -340,7 +420,7 @@ int qfs_get_data_locations(QFS qfs,
 
 int qfs_get_data_locations_fd(QFS qfs,
   int fd, off_t offset, size_t len,
-  struct qfs_locations_iter* iter, off_t* chunk, const char** locations) {
+  struct qfs_iter** iter, off_t* chunk, const char** locations) {
   return qfs_get_data_locations_inner(qfs,
     (void*)&fd, offset, len,
     iter, chunk, locations,
@@ -494,45 +574,56 @@ static int qfs_get_data_locations_inner_fd_impl(QFS qfs,
 
 static int qfs_get_data_locations_inner(QFS qfs,
   void* path_or_fd, off_t offset, size_t len,
-  struct qfs_locations_iter* iter, off_t* chunk, const char** location,
+  struct qfs_iter** it, off_t* chunk, const char** location,
   int (*op)(QFS qfs,
     void* path_or_fd, off_t offset, size_t len,
     vector< vector <string> > &locations) ) {
 
-  if(!iter) {
+  if(!it) {
     return -EINVAL;
   }
 
-  if(!iter->_locations) {
-    iter->_locations = new vector< vector<string> >;
+  struct qfs_locations_iter* iter = NULL;
 
-    int res = op(qfs, path_or_fd, offset, len, *(iter->_locations));
+  if(*it) {
+    if((*it)->type != QFS_LOCATIONS) {
+      return -EINVAL;
+    }
+
+    iter = (struct qfs_locations_iter*)((*it)->iter);
+  }
+
+  if(!iter) {
+    iter = new qfs_locations_iter;
+    *it = new qfs_iter(iter);
+
+    int res = op(qfs, path_or_fd, offset, len, iter->locations);
+
     if(res != 0) {
-      qfs_locations_iter_free(iter);
       return res;
     }
 
-    iter->_iter = iter->_locations->begin();
-    iter->_inner = iter->_iter->begin();
+    iter->iter = iter->locations.begin();
+    iter->inner = iter->iter->begin();
     *chunk = 0;
   }
 
-  if(iter->_iter != iter->_locations->end() &&
-     iter->_inner != iter->_iter->end()) {
-    *location = iter->_inner->c_str();
-    (*chunk) = iter->_iter - iter->_locations->begin();
+  if(iter->iter != iter->locations.end() &&
+     iter->inner != iter->iter->end()) {
+    *location = iter->inner->c_str();
+    (*chunk) = iter->iter - iter->locations.begin();
 
     // Take the left over chunk value before moving iter
-    int left = iter->_locations->size() - (iter->_iter - iter->_locations->begin());
+    int left = iter->locations.size() - (iter->iter - iter->locations.begin());
 
-    iter->_inner++;
+    iter->inner++;
     // Detect if we've incremented to the end of inner and move iter
-    if(iter->_inner == iter->_iter->end()) {
-      iter->_iter++;
+    if(iter->inner == iter->iter->end()) {
+      iter->iter++;
 
       // Only set begin on inner if we are not at the end outer.
-      if(iter->_iter != iter->_locations->end()) {
-        iter->_inner = iter->_iter->begin();
+      if(iter->iter != iter->locations.end()) {
+        iter->inner = iter->iter->begin();
       }
     }
 
@@ -541,6 +632,5 @@ static int qfs_get_data_locations_inner(QFS qfs,
   }
 
   // We are done: dealloc and return that there are zero left.
-  qfs_locations_iter_free(iter);
   return 0;
 }
