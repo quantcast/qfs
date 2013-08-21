@@ -37,13 +37,38 @@ class NetConnection;
 
 class ClientAuthContext
 {
+private:
+    class RequestCtxImpl;
+    class Impl;
 public:
+    class RequestCtx
+    {
+    public:
+        RequestCtx()
+            : mImplPtr(0)
+            {}
+        ~RequestCtx()
+        {
+            if (mImplPtr) {
+                Dispose(*mImplPtr);
+            }
+        }
+    protected:
+        RequestCtxImpl* mImplPtr;
+        friend class Impl;
+    private:
+        RequestCtx(
+            const RequestCtx& /* inCtx */)
+            {}
+        RequestCtx& operator=(
+            const RequestCtx& /* inCtx */)
+            { return *this; }
+    };
+    friend class RequestCtx;
+
     ClientAuthContext();
     ~ClientAuthContext();
     bool IsEnabled() const;
-    bool IsShared() const;
-    void SetShared(
-        bool inFlag);
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
@@ -56,23 +81,26 @@ public:
         int&         outAuthType,
         const char*& outBufPtr,
         int&         outBufLen,
+        RequestCtx&  inRequestCtx,
         string*      outErrMsgPtr);
-    int StartSsl(
-        NetConnection& inNetConnection,
-        const char*    inKeyIdPtr,
-        const char*    inKeyDataPtr,
-        int            inKeyDataSize,
-        string*        outErrMsgPtr);
     int Response(
         int            inAuthType,
         bool           inUseSslFlag,
         const char*    inBufPtr,
         int            inBufLen,
         NetConnection& inNetConnection,
+        RequestCtx&    inRequestCtx,
+        string*        outErrMsgPtr);
+    int StartSsl(
+        NetConnection& inNetConnection,
+        const char*    inKeyIdPtr,
+        const char*    inKeyDataPtr,
+        int            inKeyDataSize,
         string*        outErrMsgPtr);
 private:
-    class Impl;
     Impl& mImpl;
+    static void Dispose(
+        RequestCtxImpl& inRequestCtxImpl);
 private:
     ClientAuthContext(
         const ClientAuthContext& inContext);

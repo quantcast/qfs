@@ -509,20 +509,14 @@ public:
                         mAuthOp.requestedAuthType,
                         theBufPtr,
                         theBufLen,
+                        mAuthRequestCtx,
                         &mAuthOp.statusMsg)) != 0) {
                     Fail(mAuthOp.status, mAuthOp.statusMsg);
                     return;
                 }
-                if (mAuthContextPtr->IsShared()) {
-                    mAuthOp.EnsureCapacity(theBufLen);
-                    if (0 < theBufLen) {
-                        memcpy(mAuthOp.contentBuf, theBufPtr, theBufLen);
-                    }
-                } else {
-                    const bool kOwnsContentBufFlag = false;
-                    mAuthOp.AttachContentBuf(
-                        theBufPtr, theBufLen, kOwnsContentBufFlag);
-                }
+                const bool kOwnsContentBufFlag = false;
+                mAuthOp.AttachContentBuf(
+                    theBufPtr, theBufLen, kOwnsContentBufFlag);
                 mAuthOp.contentLength = theBufLen;
                 mAuthOp.seq           = theSeq + 1;
                 EnqueueAuth(mAuthOp);
@@ -544,32 +538,38 @@ public:
             }
             return;
         }
-        if (mAuthOp.status == 0 &&
-                (mAuthOp.status = mAuthContextPtr->Response(
+        if (mAuthOp.status == 0) {
+            if ((mAuthOp.status = mAuthContextPtr->Response(
                     mAuthOp.chosenAuthType,
                     mAuthOp.useSslFlag,
                     mAuthOp.contentBuf,
                     mAuthOp.contentLength,
                     *mConnPtr,
+                    mAuthRequestCtx,
                     &mAuthOp.statusMsg)) == 0) {
-            const bool kFlushFlag             = false;
-            bool       theFlushConnectionFlag = false;
-            for (OpQueue::iterator theIt = mPendingOpQueue.begin();
-                    ! mOutstandingOpPtr &&
-                        theIt != mPendingOpQueue.end();
-                    ++theIt) {
-                if (mMaxOneOutstandingOpFlag) {
-                    mOutstandingOpPtr = &(theIt->second);
+                const bool kFlushFlag             = false;
+                bool       theFlushConnectionFlag = false;
+                for (OpQueue::iterator theIt = mPendingOpQueue.begin();
+                        ! mOutstandingOpPtr &&
+                            theIt != mPendingOpQueue.end();
+                        ++theIt) {
+                    if (mMaxOneOutstandingOpFlag) {
+                        mOutstandingOpPtr = &(theIt->second);
+                    }
+                    Request(theIt->second, kFlushFlag,
+                        theIt->second.mRetryCount, kFlushFlag);
+                    theFlushConnectionFlag = true;
                 }
-                Request(theIt->second, kFlushFlag,
-                    theIt->second.mRetryCount, kFlushFlag);
-                theFlushConnectionFlag = true;
+                if (theFlushConnectionFlag) {
+                    mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
+                    mConnPtr->Flush();
+                }
+                return;
             }
-            if (theFlushConnectionFlag) {
-                mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
-                mConnPtr->Flush();
+            if (mAuthOp.status == -EAGAIN) {
+                EnsureConnected(); // Retry authentication.
+                return;
             }
-            return;
         }
         Fail(mAuthOp.status, mAuthOp.statusMsg);
     }
@@ -636,6 +636,7 @@ private:
         StdFastAllocator<OpQueue>
     > QueueStack;
     enum { kMaxReadAhead = 4 << 10 };
+    typedef ClientAuthContext::RequestCtx AuthRequestCtx;
 
     ServerLocation     mServerLocation;
     OpQueue            mPendingOpQueue;
@@ -673,6 +674,7 @@ private:
     ClientAuthContext* mAuthContextPtr;
     string             mKeyId;
     string             mKeyData;
+    AuthRequestCtx     mAuthRequestCtx;
     LookupOp           mLookupOp;
     AuthenticateOp     mAuthOp;
 

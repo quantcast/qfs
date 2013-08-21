@@ -25,36 +25,66 @@
 
 #include "ClientAuthContext.h"
 
-#include "common/Properties.h"
-#include "kfsio/NetConnection.h"
+#include "common/kfstypes.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
+#include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
 #include "krb/KrbClient.h"
 #include "qcdio/qcdebug.h"
 
-#include <boost/scoped_ptr.hpp>
+#include <boost/shared_ptr.hpp>
 #include <errno.h>
 
 namespace KFS
 {
 
 using std::string;
-using boost::scoped_ptr;
+using boost::shared_ptr;
+
+class ClientAuthContext::RequestCtxImpl
+{
+private:
+    typedef shared_ptr<KrbClient> KrbClientPtr;
+    RequestCtxImpl()
+        : mOuterPtr(0),
+          mKrbClientPtr(),
+          mSessionKeyPtr(0),
+          mSessionKeyLen(0),
+          mAuthType(kAuthenticationTypeUndef),
+          mInvalidFlag(false)
+        {}
+    void Reset()
+        { *this = RequestCtxImpl(); }
+    RequestCtx*  mOuterPtr;
+    KrbClientPtr mKrbClientPtr;
+    const char*  mSessionKeyPtr;
+    int          mSessionKeyLen;
+    int          mAuthType;
+    bool         mInvalidFlag;
+friend class ClientAuthContext::Impl;
+};
 
 class ClientAuthContext::Impl
 {
 public:
     Impl()
-        : mSharedFlag(false),
+        : mCurRequest(),
           mEnabledFlag(false),
+          mAuthNoneEnabledFlag(false),
           mParams(),
           mKrbClientPtr(),
           mSslCtxPtr(),
           mX509SslCtxPtr()
         {}
     ~Impl()
-        {}
+    {
+        if (mCurRequest.mOuterPtr) {
+            mCurRequest.mOuterPtr->mImplPtr = new RequestCtxImpl();
+            mCurRequest.mOuterPtr->mImplPtr->mKrbClientPtr.swap(
+                mCurRequest.mKrbClientPtr);
+        }
+    }
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
@@ -166,6 +196,9 @@ public:
                 return false;
             }
         }
+        mAuthNoneEnabledFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("authNone.enabled"),
+            0) != 0;
         mParams.swap(theParams);
         if (theKrbChangedFlag) {
             mKrbClientPtr.swap(theKrbClientPtr);
@@ -176,6 +209,9 @@ public:
         if (theX509ChangedFlag) {
             mX509SslCtxPtr.Swap(theX509SslCtxPtr);
         }
+        if (theKrbChangedFlag || thePskSslChangedFlag || theX509ChangedFlag) {
+           mCurRequest.mInvalidFlag = true;
+        }
         return 0;
     }
     int Request(
@@ -183,8 +219,93 @@ public:
         int&         outAuthType,
         const char*& outBufPtr,
         int&         outBufLen,
+        RequestCtx&  inRequestCtx,
         string*      outErrMsgPtr)
     {
+        Dispose(inRequestCtx);
+        outAuthType = kAuthenticationTypeUndef;
+        outBufPtr   = 0;
+        outBufLen   = 0;
+        if (mCurRequest.mOuterPtr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr =
+                    "request: invalid client auth. context use / invocation";
+            }
+            return -EINVAL;
+        }
+        if (! mEnabledFlag) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "client auth. disabled";
+            }
+            return -EINVAL;
+        }
+        mCurRequest.Reset();
+        if ((inAuthType & kAuthenticationTypeKrb5) != 0 && mKrbClientPtr) {
+            const char* const theErrMsgPtr = mKrbClientPtr->Request(
+                outBufPtr,
+                outBufLen,
+                mCurRequest.mSessionKeyPtr,
+                mCurRequest.mSessionKeyLen
+            );
+            if (theErrMsgPtr) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = theErrMsgPtr;
+                }
+                return mKrbClientPtr->GetErrorCode();
+            }
+            outAuthType = kAuthenticationTypeKrb5;
+            mCurRequest.mAuthType = kAuthenticationTypeKrb5;
+            mCurRequest.mOuterPtr = &inRequestCtx;
+            inRequestCtx.mImplPtr = &mCurRequest;
+            if (outBufPtr && outBufLen > 0) {
+                mCurRequest.mKrbClientPtr = mKrbClientPtr;
+            }
+            return 0;
+        }
+        if ((inAuthType & kAuthenticationTypeX509) != 0 &&
+                mX509SslCtxPtr.Get()) {
+            outAuthType = kAuthenticationTypeX509;
+            mCurRequest.mAuthType = kAuthenticationTypeX509;
+            mCurRequest.mOuterPtr = &inRequestCtx;
+            inRequestCtx.mImplPtr = &mCurRequest;
+            return 0;
+        }
+        if ((inAuthType & kAuthenticationTypeNone) != 0 &&
+                mAuthNoneEnabledFlag) {
+            outAuthType = kAuthenticationTypeNone;
+            mCurRequest.mAuthType = kAuthenticationTypeNone;
+            mCurRequest.mOuterPtr = &inRequestCtx;
+            inRequestCtx.mImplPtr = &mCurRequest;
+            return 0;
+        }
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "no common auth. method";
+        }
+        return -ENOENT;
+    }
+    int Response(
+        int            inAuthType,
+        bool           inUseSslFlag,
+        const char*    inBufPtr,
+        int            inBufLen,
+        NetConnection& inNetConnection,
+        RequestCtx&    inRequestCtx,
+        string*        outErrMsgPtr)
+    {
+        if (&mCurRequest != inRequestCtx.mImplPtr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr =
+                    "response: invalid client auth. context use / invocation";
+            }
+            return -EINVAL;
+        }
+        if (mCurRequest.mInvalidFlag) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr =
+                    "client auth. configuration has changed, try again";
+            }
+            return -EAGAIN;
+        }
         return 0;
     }
     int StartSsl(
@@ -196,41 +317,45 @@ public:
     {
         return 0;
     }
-    int Response(
-        int            inAuthType,
-        bool           inUseSslFlag,
-        const char*    inBufPtr,
-        int            inBufLen,
-        NetConnection& inNetConnection,
-        string*        outErrMsgPtr)
-    {
-        return 0;
-    }
     bool IsEnabled() const
         { return mEnabledFlag; }
-    bool IsShared() const
-        { return mSharedFlag; }
-    void SetShared(
-        bool inFlag)
-    {
-        mSharedFlag = inFlag;
-    }
     int CheckAuthType(
         int     inAuthType,
         string* outErrMsgPtr)
     {
         return 0;
     }
+    static void Dispose(
+        RequestCtx& inRequestCtx)
+    {
+        if (! inRequestCtx.mImplPtr) {
+            return;
+        }
+        Dispose(*inRequestCtx.mImplPtr);
+        inRequestCtx.mImplPtr = 0;
+    }
+    static void Dispose(
+        RequestCtxImpl& inRequestCtxImpl)
+    {
+        if (inRequestCtxImpl.mOuterPtr) {
+            inRequestCtxImpl.mOuterPtr = 0;
+            inRequestCtxImpl.mKrbClientPtr.reset();
+            return;
+        }
+        delete &inRequestCtxImpl;
+    }
 private:
-    typedef scoped_ptr<KrbClient> KrbClientPtr;
-    typedef SslFilter::CtxPtr     SslCtxPtr;
+    typedef ClientAuthContext::RequestCtxImpl::KrbClientPtr KrbClientPtr;
+    typedef SslFilter::CtxPtr                               SslCtxPtr;
+    typedef ClientAuthContext::RequestCtxImpl               RequestCtxImpl;
 
-    bool         mSharedFlag;
-    bool         mEnabledFlag;
-    Properties   mParams;
-    KrbClientPtr mKrbClientPtr;
-    SslCtxPtr    mSslCtxPtr;
-    SslCtxPtr    mX509SslCtxPtr;
+    RequestCtxImpl  mCurRequest;
+    bool            mEnabledFlag;
+    bool            mAuthNoneEnabledFlag;
+    Properties      mParams;
+    KrbClientPtr    mKrbClientPtr;
+    SslCtxPtr       mSslCtxPtr;
+    SslCtxPtr       mX509SslCtxPtr;
 };
 
 ClientAuthContext::ClientAuthContext()
@@ -240,19 +365,6 @@ ClientAuthContext::ClientAuthContext()
 ClientAuthContext::~ClientAuthContext()
 {
     delete &mImpl;
-}
-
-    bool
-ClientAuthContext::IsShared() const
-{
-    return mImpl.IsShared();
-}
-
-    void
-ClientAuthContext::SetShared(
-    bool inFlag)
-{
-    return mImpl.SetShared(inFlag);
 }
 
     int
@@ -274,14 +386,31 @@ ClientAuthContext::SetParameters(
 
     int
 ClientAuthContext::Request(
-    int          inAuthType,
-    int&         outAuthType,
-    const char*& outBufPtr,
-    int&         outBufLen,
-    string*      outErrMsgPtr)
+    int                            inAuthType,
+    int&                           outAuthType,
+    const char*&                   outBufPtr,
+    int&                           outBufLen,
+    ClientAuthContext::RequestCtx& inRequestCtx,
+    string*                        outErrMsgPtr)
 {
     return mImpl.Request(
-        inAuthType, outAuthType, outBufPtr, outBufLen, outErrMsgPtr);
+        inAuthType, outAuthType, outBufPtr, outBufLen, inRequestCtx,
+        outErrMsgPtr);
+}
+
+    int
+ClientAuthContext::Response(
+    int                            inAuthType,
+    bool                           inUseSslFlag,
+    const char*                    inBufPtr,
+    int                            inBufLen,
+    NetConnection&                 inNetConnection,
+    ClientAuthContext::RequestCtx& inRequestCtx,
+    string*                        outErrMsgPtr)
+{
+    return mImpl.Response(
+        inAuthType, inUseSslFlag, inBufPtr, inBufLen, inNetConnection,
+        inRequestCtx, outErrMsgPtr);
 }
 
     int
@@ -296,24 +425,18 @@ ClientAuthContext::StartSsl(
         inNetConnection, inKeyIdPtr, inKeyDataPtr, inKeyDataSize, outErrMsgPtr);
 }
 
-    int
-ClientAuthContext::Response(
-    int            inAuthType,
-    bool           inUseSslFlag,
-    const char*    inBufPtr,
-    int            inBufLen,
-    NetConnection& inNetConnection,
-    string*        outErrMsgPtr)
-{
-    return mImpl.Response(
-        inAuthType, inUseSslFlag, inBufPtr, inBufLen, inNetConnection,
-        outErrMsgPtr);
-}
-
     bool
 ClientAuthContext::IsEnabled() const
 {
     return mImpl.IsEnabled();
 }
+
+    /* static */ void
+ClientAuthContext::Dispose(
+    ClientAuthContext::RequestCtxImpl& inRequestCtxImpl)
+{
+    Impl::Dispose(inRequestCtxImpl);
+}
+
 
 } // namespace KFS
