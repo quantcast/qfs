@@ -80,9 +80,17 @@ public:
     ~Impl()
     {
         if (mCurRequest.mOuterPtr) {
-            mCurRequest.mOuterPtr->mImplPtr = new RequestCtxImpl();
-            mCurRequest.mOuterPtr->mImplPtr->mKrbClientPtr.swap(
-                mCurRequest.mKrbClientPtr);
+            RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
+            if (theImplPtr->mKrbClientPtr) {
+                // If kerberos request is in flight, keep kerberos client
+                // context around until outer destructor is invoked to ensure
+                // that the request buffers are still valid.
+                theImplPtr = new RequestCtxImpl();
+                theImplPtr->mKrbClientPtr.swap(mCurRequest.mKrbClientPtr);
+            } else {
+                theImplPtr = 0;
+            }
+            mCurRequest.mOuterPtr = 0;
         }
     }
     int SetParameters(
@@ -233,13 +241,13 @@ public:
             }
             return -EINVAL;
         }
+        mCurRequest.Reset();
         if (! mEnabledFlag) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr = "client auth. disabled";
             }
             return -EINVAL;
         }
-        mCurRequest.Reset();
         if ((inAuthType & kAuthenticationTypeKrb5) != 0 && mKrbClientPtr) {
             const char* const theErrMsgPtr = mKrbClientPtr->Request(
                 outBufPtr,
@@ -338,8 +346,7 @@ public:
         RequestCtxImpl& inRequestCtxImpl)
     {
         if (inRequestCtxImpl.mOuterPtr) {
-            inRequestCtxImpl.mOuterPtr = 0;
-            inRequestCtxImpl.mKrbClientPtr.reset();
+            inRequestCtxImpl.Reset();
             return;
         }
         delete &inRequestCtxImpl;
