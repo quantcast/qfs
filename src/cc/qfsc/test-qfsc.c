@@ -111,16 +111,21 @@ static char* test_readdir() {
     "..",
     ".",
   };
+  int expected_length = sizeof(expected)/sizeof(expected[0]);
 
+  int count = 0;
   while((res = qfs_readdir(qfs, "/unit-test", &iter, &attr)) > 0) {
-    check(res < sizeof(expected),
+    check(res <= expected_length,
       "value of result should be less that expected length");
-    check(strcmp(attr.filename, expected[res]) == 0,
-      "unexpected directory entry: %s != %s", attr.filename, expected[res]);
+    check(strcmp(attr.filename, expected[res-1]) == 0,
+      "unexpected directory entry: %s != %s", attr.filename, expected[res-1]);
     check(attr.directory, "all files should be directories");
+    count++;
   }
 
-  check(res >= 0, "%s", qfs_strerror(res));
+  check(count == expected_length, "read all entries: %d != %d", count, expected_length);
+  check(res <= 0, "%s", qfs_strerror(res));
+  check(iter == NULL, "iterator should have been freed");
 
   return 0;
 }
@@ -134,15 +139,19 @@ static char* test_readdirnames() {
     "..",
     ".",
   };
+  int expected_length = sizeof(expected)/sizeof(expected[0]);
 
+  int count = 0;
   while((res = qfs_readdirnames(qfs, "/unit-test", &iter, &dentry)) > 0) {
-    check(res < sizeof(expected),
+    check(res <= expected_length,
       "value of result should be less that expected length");
-    check(strcmp(dentry, expected[res]) == 0,
-      "unexpected directory entry: %s != %s", dentry, expected[res]);
+    check(strcmp(dentry, expected[res - 1]) == 0,
+      "unexpected directory entry: %s != %s", dentry, expected[res - 1]);
+    count++;
   }
 
   check(res >= 0, "%s", qfs_strerror(res));
+  check(count == expected_length, "iterate through all entries");
 
   return 0;
 }
@@ -275,16 +284,21 @@ static char* test_qfs_get_data_locations() {
     {0, "127.0.0.1"},
     {0, "127.0.0.1"},
   };
+  int expected_length = sizeof(expected)/sizeof(expected[0]);
 
+  int count = 0;
   while((res = qfs_get_data_locations(qfs, "/unit-test/file", 0, 2*qfs_get_chunksize(qfs, "/unit-test/file"), &iter, &chunk, &location)) > 0) {
-    check(res < sizeof(expected),
+    check(res <= expected_length,
       "result should always be less than the expected number of chunks");
     check(chunk == expected[res].chunk,
       "unexpected chunk: %jd != %jd", (intmax_t)chunk, (intmax_t)expected[res].chunk);
     check(strcmp(location, expected[res].hostname) == 0,
       "unexpected location");
+    count++;
   }
 
+  check(count == expected_length,
+    "unexpected number of chunk locations: %d != %d", count, expected_length);
   check_qfs_call(res >= 0);
 
   return 0;
