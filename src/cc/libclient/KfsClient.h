@@ -42,6 +42,8 @@ namespace client {
 class KfsClientImpl;
 }
 
+class Properties;
+
 /// Maximum length of a filename
 const size_t MAX_FILENAME_LEN = 256;
 
@@ -81,7 +83,8 @@ public:
     /// @param[in] metaServerPort  Port at which we should connect to
     /// @retval 0 on success; -1 on failure
     ///
-    int Init(const string &metaServerHost, int metaServerPort);
+    int Init(const string &metaServerHost, int metaServerPort,
+        const Properties* props = 0);
 
     /// Set the logging level to control message verbosity
     void SetLogLevel(const string &level);
@@ -673,7 +676,8 @@ KfsClient *Connect(const char *propFile);
 /// @retval if connection to metaserver succeeds, a client object
 /// that is "ready" for use; NULL if there was an error
 ///
-KfsClient *Connect(const string &metaServerHost, int metaServerPort);
+KfsClient *Connect(const string &metaServerHost, int metaServerPort,
+    const Properties* props = 0);
 
 /// Given a error status code, return a string describing the error.
 /// @param[in] status  The status code for an error.

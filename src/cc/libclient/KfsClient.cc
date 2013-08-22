@@ -100,14 +100,16 @@ Connect(const char* propFile)
         return 0;
     }
     return Connect(p.getValue("metaServer.name", ""),
-                   p.getValue("metaServer.port", -1));
+                   p.getValue("metaServer.port", -1),
+                   &p);
 }
 
 KfsClient*
-Connect(const string& metaServerHost, int metaServerPort)
+Connect(const string& metaServerHost, int metaServerPort,
+    const Properties* props)
 {
     KfsClient* const clnt = new KfsClient();
-    clnt->Init(metaServerHost, metaServerPort);
+    clnt->Init(metaServerHost, metaServerPort, props);
     if (clnt->IsInitialized()) {
         return clnt;
     }
@@ -207,9 +209,10 @@ KfsClient::SetLogLevel(const string &logLevel)
 }
 
 int
-KfsClient::Init(const string &metaServerHost, int metaServerPort)
+KfsClient::Init(const string &metaServerHost, int metaServerPort,
+    const Properties* props)
 {
-    return mImpl->Init(metaServerHost, metaServerPort);
+    return mImpl->Init(metaServerHost, metaServerPort, props);
 }
 
 bool
@@ -1236,13 +1239,28 @@ KfsClientImpl::Shutdown()
     mProtocolWorker->Stop();
 }
 
-int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort)
+int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
+    const Properties* props)
 {
     ClientsList::Init(*this);
 
     mMetaServerLoc.hostname = metaServerHost;
     mMetaServerLoc.port = metaServerPort;
-
+    const char* const kAuthParamPrefix = "client.auth.";
+    if (props) {
+        string errMsg;
+        int    err;
+        if ((err = mAuthCtx.SetParameters(
+                kAuthParamPrefix, *props, &errMsg)) != 0 ||
+                (err = mProtocolWorkerAuthCtx.SetParameters(
+                    kAuthParamPrefix, *props, &errMsg)) != 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "authentication context initialization error: " <<
+                errMsg <<
+            KFS_LOG_EOM;
+            return err;
+        }
+    }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
         metaServerHost << ":" << metaServerPort <<

@@ -255,7 +255,8 @@ public:
     /// @param[in] metaServerPort  Port at which we should connect to
     /// @retval 0 on success; -1 on failure
     ///
-    int Init(const string &metaServerHost, int metaServerPort);
+    int Init(const string &metaServerHost, int metaServerPort,
+        const Properties* props);
 
     ServerLocation GetMetaserverLocation() const {
         return mMetaServerLoc;

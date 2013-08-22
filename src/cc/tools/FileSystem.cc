@@ -778,20 +778,21 @@ public:
     virtual ~KfsFileSystem()
         {}
     int Init(
-        const string& theHostPort)
+        const string&     inHostPort,
+        const Properties* inPropertiesPtr)
     {
         int          thePort = 20000;
-        const size_t thePos  = theHostPort.find(':');
+        const size_t thePos  = inHostPort.find(':');
         if (thePos != string::npos) {
             char* theEndPtr = 0;
             thePort = (int)strtol(
-                theHostPort.c_str() + thePos + 1, &theEndPtr, 10);
+                inHostPort.c_str() + thePos + 1, &theEndPtr, 10);
             if (! theEndPtr || *theEndPtr != 0) {
                 return -EINVAL;
             }
         }
         int theRet = KfsClient::Init(
-            theHostPort.substr(0, thePos), thePort);
+            inHostPort.substr(0, thePos), thePort, inPropertiesPtr);
         if (theRet != 0) {
             return theRet;
         }
@@ -1254,7 +1255,7 @@ FileSystem::Get(
     GetKfsClient(inPropertiesPtr);
     if (theScheme == "qfs") {
         KfsFileSystem* const theFsPtr = new KfsFileSystem(theFsUri);
-        if ((theRet = theFsPtr->Init(theAuthority)) == 0) {
+        if ((theRet = theFsPtr->Init(theAuthority, inPropertiesPtr)) == 0) {
             theImplPtr = theFsPtr;
         } else {
             delete theFsPtr;
