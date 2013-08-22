@@ -952,7 +952,7 @@ private:
     }
     bool IsAuthEnabled() const
         { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
-    bool IsSslAuth() const
+    bool IsPskAuth() const
         { return (IsAuthEnabled() && ! mKeyData.empty()); }
     void EnsureConnected(
         string*      inErrMsgPtr = 0,
@@ -994,7 +994,7 @@ private:
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
         mNetManager.AddConnection(mConnPtr);
-        if (IsSslAuth()) {
+        if (IsPskAuth()) {
             string    theErrMsg;
             const int theStatus = mAuthContextPtr->StartSsl(
                 *mConnPtr,

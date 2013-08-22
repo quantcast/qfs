@@ -54,7 +54,7 @@ using std::istringstream;
 
 class SslFilterTest :
     private IAcceptorOwner,
-    private SslFilter::ServerPsk
+    private SslFilterServerPsk
 {
 public:
     static int Run(
@@ -543,7 +543,7 @@ private:
 
     SslFilterTest()
         : IAcceptorOwner(),
-          ServerPsk(),
+          SslFilterServerPsk(),
           mProperties(),
           mNetManager(),
           mAcceptorPtr(0),
@@ -727,7 +727,8 @@ private:
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,
 	unsigned char* inPskBufferPtr,
-        unsigned int   inPskBufferLen)
+        unsigned int   inPskBufferLen,
+        string&        outAuthName)
     {
         KFS_LOG_STREAM_DEBUG << "GetPsk:"
             " identity: " << (inIdentityPtr ? inIdentityPtr : "null") <<
@@ -741,6 +742,7 @@ private:
             return 0;
         }
         memcpy(inPskBufferPtr, mPskKey.data(), mPskKey.size());
+        outAuthName = "test";
         return mPskKey.size();
     }
 

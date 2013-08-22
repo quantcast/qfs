@@ -28,6 +28,7 @@
 #include "common/kfstypes.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
+#include "common/RequestParser.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
 #include "krb/KrbClient.h"
@@ -72,16 +73,20 @@ public:
         : mCurRequest(),
           mEnabledFlag(false),
           mAuthNoneEnabledFlag(false),
+          mKrbAuthRequireSslFlag(false),
           mParams(),
           mKrbClientPtr(),
           mSslCtxPtr(),
-          mX509SslCtxPtr()
+          mX509SslCtxPtr(),
+          mPskKeyId(),
+          mPskKey()
         {}
     ~Impl()
     {
         if (mCurRequest.mOuterPtr) {
             RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
-            if (theImplPtr->mKrbClientPtr) {
+            QCASSERT(theImplPtr);
+            if (theImplPtr && theImplPtr->mKrbClientPtr) {
                 // If kerberos request is in flight, keep kerberos client
                 // context around until outer destructor is invoked to ensure
                 // that the request buffers are still valid.
@@ -145,6 +150,9 @@ public:
                 return -EINVAL;
             }
         }
+        const bool theKrbRequireSslFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("krb5.requireSsl"),
+            0) != 0;
         theParamName.Truncate(thePrefLen).Append("psk.tls.");
         theCurLen = theParamName.GetSize();
         const bool thePskSslChangedFlag =
@@ -170,11 +178,49 @@ public:
                 &theErrMsg
             ));
             if (! mSslCtxPtr.Get()) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = theErrMsg;
+                }
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
                     "psk.tls.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
-                return false;
+                return -EINVAL;
+            }
+        }
+        const string thePskKeyId = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("psk.tls.keyId"),
+            string()
+        );
+        const Properties::String* const theKeyHexPtr = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("psk.tls.key"));
+        int theDigitCnt;
+        string thePskKey;
+        if (theKeyHexPtr && 0 < (theDigitCnt = theKeyHexPtr->GetSize())) {
+            string                     thePskKey;
+            const unsigned char* const theHTPtr = HexIntParser::GetChar2Hex();
+            int                        theByte  = 0;
+            for (const char* thePtr = theKeyHexPtr->GetPtr();
+                    0 < theDigitCnt;
+                    ++thePtr) {
+                const int theDigit = (int)theHTPtr[(int)*thePtr & 0xFF] & 0xFF;
+                if (theDigit > 0xF) {
+                    if (outErrMsgPtr) {
+                        *outErrMsgPtr = "psk.tls.key invalid hex digit";
+                    }
+                    KFS_LOG_STREAM_ERROR <<
+                        theParamName.Truncate(thePrefLen) <<
+                        "psk.tls.key invalid hex digit:"
+                        " code: " << (*thePtr & 0xFF) <<
+                    KFS_LOG_EOM;
+                    return -EINVAL;
+                }
+                if ((theDigitCnt-- & 0x1) == 0) {
+                    theByte = theDigit << 4;
+                } else {
+                    theByte |= theDigit;
+                    thePskKey.push_back((char)theByte);
+                }
             }
         }
         theParamName.Truncate(thePrefLen).Append("X509.");
@@ -197,11 +243,14 @@ public:
                 &theErrMsg
             ));
             if (! mSslCtxPtr.Get()) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = theErrMsg;
+                }
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
                     "X509.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
-                return false;
+                return -EINVAL;
             }
         }
         mAuthNoneEnabledFlag = theParams.getValue(
@@ -217,9 +266,13 @@ public:
         if (theX509ChangedFlag) {
             mX509SslCtxPtr.Swap(theX509SslCtxPtr);
         }
-        if (theKrbChangedFlag || thePskSslChangedFlag || theX509ChangedFlag) {
+        if (theKrbChangedFlag || thePskSslChangedFlag || theX509ChangedFlag ||
+                mPskKeyId != thePskKeyId || thePskKey != mPskKey) {
            mCurRequest.mInvalidFlag = true;
         }
+        mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr.Get() != 0;
+        mPskKeyId = thePskKeyId;
+        mPskKey   = thePskKey;
         return 0;
     }
     int Request(
@@ -248,6 +301,11 @@ public:
             }
             return -EINVAL;
         }
+        if ((inAuthType & kAuthenticationTypePSK) != 0 && ! mPskKey.empty()) {
+            outAuthType = RequestInFlight(
+                kAuthenticationTypePSK, inRequestCtx);
+            return 0;
+        }
         if ((inAuthType & kAuthenticationTypeKrb5) != 0 && mKrbClientPtr) {
             const char* const theErrMsgPtr = mKrbClientPtr->Request(
                 outBufPtr,
@@ -259,12 +317,12 @@ public:
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = theErrMsgPtr;
                 }
-                return mKrbClientPtr->GetErrorCode();
+                const int theErr = mKrbClientPtr->GetErrorCode();
+                return (theErr > 0 ? -theErr :
+                    (theErr == 0 ? -EINVAL : theErr));
             }
-            outAuthType = kAuthenticationTypeKrb5;
-            mCurRequest.mAuthType = kAuthenticationTypeKrb5;
-            mCurRequest.mOuterPtr = &inRequestCtx;
-            inRequestCtx.mImplPtr = &mCurRequest;
+            outAuthType = RequestInFlight(
+                kAuthenticationTypeKrb5, inRequestCtx);
             if (outBufPtr && outBufLen > 0) {
                 mCurRequest.mKrbClientPtr = mKrbClientPtr;
             }
@@ -272,18 +330,14 @@ public:
         }
         if ((inAuthType & kAuthenticationTypeX509) != 0 &&
                 mX509SslCtxPtr.Get()) {
-            outAuthType = kAuthenticationTypeX509;
-            mCurRequest.mAuthType = kAuthenticationTypeX509;
-            mCurRequest.mOuterPtr = &inRequestCtx;
-            inRequestCtx.mImplPtr = &mCurRequest;
+            outAuthType = RequestInFlight(
+                kAuthenticationTypeX509, inRequestCtx);
             return 0;
         }
         if ((inAuthType & kAuthenticationTypeNone) != 0 &&
                 mAuthNoneEnabledFlag) {
-            outAuthType = kAuthenticationTypeNone;
-            mCurRequest.mAuthType = kAuthenticationTypeNone;
-            mCurRequest.mOuterPtr = &inRequestCtx;
-            inRequestCtx.mImplPtr = &mCurRequest;
+            outAuthType = RequestInFlight(
+                kAuthenticationTypeNone, inRequestCtx);
             return 0;
         }
         if (outErrMsgPtr) {
@@ -307,14 +361,17 @@ public:
             }
             return -EINVAL;
         }
-        if (mCurRequest.mInvalidFlag) {
-            if (outErrMsgPtr) {
-                *outErrMsgPtr =
-                    "client auth. configuration has changed, try again";
-            }
-            return -EAGAIN;
-        }
-        return 0;
+        const int theStatus = ResponseSelf(
+            inAuthType,
+            inUseSslFlag,
+            inBufPtr,
+            inBufLen,
+            inNetConnection,
+            inRequestCtx,
+            outErrMsgPtr
+        );
+        Dispose(inRequestCtx);
+        return theStatus;
     }
     int StartSsl(
         NetConnection& inNetConnection,
@@ -323,6 +380,46 @@ public:
         int            inKeyDataSize,
         string*        outErrMsgPtr)
     {
+        if (! mSslCtxPtr.Get()) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "no tls psk configured";
+            }
+            return -EINVAL;
+        }
+        if (! inKeyDataPtr || inKeyDataSize <= 0) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "empty key specified";
+            }
+            return -EINVAL;
+        }
+        if (inNetConnection.GetFilter()) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "connection already has filter";
+            }
+            return -EINVAL;
+        }
+        SslFilter::ServerPsk* kServerPskPtr      = 0;
+        const bool            kDeleteOnCloseFlag = true;
+        SslFilter* const theFilterPtr = new SslFilter(
+            *mSslCtxPtr.Get(),
+            inKeyDataPtr,
+            (size_t)inKeyDataSize,
+            inKeyIdPtr,
+            kServerPskPtr,
+            kDeleteOnCloseFlag
+        );
+        const SslFilter::Error theErr = theFilterPtr->GetError();
+        if (theErr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = SslFilter::GetErrorMsg(theErr);
+                if (outErrMsgPtr->empty()) {
+                    *outErrMsgPtr = "failed to create ssl filter";
+                }
+            }
+            delete theFilterPtr;
+            return -EFAULT;
+        }
+        inNetConnection.SetFilter(theFilterPtr);
         return 0;
     }
     bool IsEnabled() const
@@ -331,7 +428,20 @@ public:
         int     inAuthType,
         string* outErrMsgPtr)
     {
-        return 0;
+        if (((inAuthType & kAuthenticationTypePSK) != 0 && ! mPskKey.empty()) ||
+                ((inAuthType & kAuthenticationTypeNone) != 0 &&
+                    mAuthNoneEnabledFlag) ||
+                ((inAuthType & kAuthenticationTypeKrb5) != 0 &&
+                    mKrbClientPtr) ||
+                ((inAuthType & kAuthenticationTypeX509) != 0 &&
+                    mX509SslCtxPtr.Get())
+                ) {
+            return 0;
+        }
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "no common auth. method found";
+        }
+        return -ENOENT;
     }
     static void Dispose(
         RequestCtx& inRequestCtx)
@@ -359,10 +469,144 @@ private:
     RequestCtxImpl  mCurRequest;
     bool            mEnabledFlag;
     bool            mAuthNoneEnabledFlag;
+    bool            mKrbAuthRequireSslFlag;
     Properties      mParams;
     KrbClientPtr    mKrbClientPtr;
     SslCtxPtr       mSslCtxPtr;
     SslCtxPtr       mX509SslCtxPtr;
+    string          mPskKeyId;
+    string          mPskKey;
+
+    int RequestInFlight(
+        int         inAuthType,
+        RequestCtx& inRequestCtx)
+    {
+        QCASSERT(! inRequestCtx.mImplPtr && ! mCurRequest.mOuterPtr);
+        mCurRequest.mAuthType = inAuthType;
+        mCurRequest.mOuterPtr = &inRequestCtx;
+        inRequestCtx.mImplPtr = &mCurRequest;
+        return inAuthType;
+    }
+    int ResponseSelf(
+        int            inAuthType,
+        bool           inUseSslFlag,
+        const char*    inBufPtr,
+        int            inBufLen,
+        NetConnection& inNetConnection,
+        RequestCtx&    inRequestCtx,
+        string*        outErrMsgPtr)
+    {
+        if (mCurRequest.mInvalidFlag) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr =
+                    "client auth. configuration has changed, try again";
+            }
+            return -EAGAIN;
+        }
+        if (mCurRequest.mAuthType != inAuthType) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "response authentication type mismatch";
+            }
+            return -EINVAL;
+        }
+        if ((! inUseSslFlag &&
+                inAuthType != kAuthenticationTypeKrb5 &&
+                inAuthType != kAuthenticationTypeNone) ||
+                (inAuthType == kAuthenticationTypeNone && inUseSslFlag)) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "response: invalid use ssl flag value";
+            }
+            return -EINVAL;
+        }
+        if (0 < inBufLen &&
+                (inUseSslFlag || inAuthType != kAuthenticationTypeKrb5)) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "response: invalid non empty content";
+            }
+            return -EINVAL;
+        }
+        if (inAuthType == kAuthenticationTypePSK) {
+            return StartSsl(
+                inNetConnection,
+                mPskKeyId.c_str(),
+                mPskKey.data(),
+                (int)mPskKey.size(),
+                outErrMsgPtr
+            );
+        }
+        if (inAuthType == kAuthenticationTypeKrb5) {
+            if (inUseSslFlag) {
+                return StartSsl(
+                    inNetConnection,
+                    0,
+                    mCurRequest.mSessionKeyPtr,
+                    mCurRequest.mSessionKeyLen,
+                    outErrMsgPtr
+                );
+            }
+            if (! mKrbClientPtr) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr =
+                        "response: internal error no krb5 context";
+                }
+                return -EFAULT;
+            }
+            const char* const theErrMsgPtr =
+                mKrbClientPtr->Reply(inBufPtr, inBufLen);
+            if (theErrMsgPtr) {
+                const int theErr = mKrbClientPtr->GetErrorCode();
+                return (theErr > 0 ? -theErr :
+                    (theErr == 0 ? -EINVAL : theErr));
+            }
+        }
+        if (inAuthType == kAuthenticationTypeX509) {
+            if (inNetConnection.GetFilter()) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = "connection already has filter";
+                }
+                return -EINVAL;
+            }
+            if (! mX509SslCtxPtr.Get()) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = "internal error: null x509 ssl context";
+                }
+                return -EFAULT;
+            }
+            SslFilter::ServerPsk* kServerPskPtr      = 0;
+            const char*           kKeyDataPtr        = 0;
+            const int             kKeyDataSize       = 0;
+            const char*           kKeyIdPtr          = 0;
+            const bool            kDeleteOnCloseFlag = true;
+            SslFilter* const theFilterPtr = new SslFilter(
+                *mX509SslCtxPtr.Get(),
+                kKeyDataPtr,
+                kKeyDataSize,
+                kKeyIdPtr,
+                kServerPskPtr,
+                kDeleteOnCloseFlag
+            );
+            const SslFilter::Error theErr = theFilterPtr->GetError();
+            if (theErr) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = SslFilter::GetErrorMsg(theErr);
+                    if (outErrMsgPtr->empty()) {
+                        *outErrMsgPtr = "failed to create ssl filter";
+                    }
+                }
+                delete theFilterPtr;
+                return -EFAULT;
+            }
+            inNetConnection.SetFilter(theFilterPtr);
+            return 0;
+        }
+        if (inAuthType == kAuthenticationTypeNone) {
+            return 0;
+        }
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "internal error: invalid auth. type";
+        }
+        return -EFAULT;
+    }
 };
 
 ClientAuthContext::ClientAuthContext()

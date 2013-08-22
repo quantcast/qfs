@@ -35,11 +35,13 @@ using std::string;
 
 struct MetaAuthenticate;
 class Properties;
+class SslFilterServerPsk;
 
 class AuthContext
 {
 public:
-    AuthContext();
+    AuthContext(
+        SslFilterServerPsk* inServerPskPtr);
     ~AuthContext();
     bool Validate(
         MetaAuthenticate& inOp);

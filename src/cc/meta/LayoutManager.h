@@ -1986,6 +1986,10 @@ protected:
     void UpdateClientAuth(AuthContext& ctx);
 };
 
+// FIXME: stub for now.
+class SslFilterServerPsk;
+inline static SslFilterServerPsk* GetDelegationServerPsk() { return 0; }
+
 extern LayoutManager& gLayoutManager;
 }
 

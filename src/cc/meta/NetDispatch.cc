@@ -691,7 +691,7 @@ public:
           mReqPendingHead(0),
           mReqPendingTail(0),
           mFlushQueue(8 << 10),
-          mAuthContext(),
+          mAuthContext(GetDelegationServerPsk()),
           mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
     {
         mNetManager.RegisterTimeoutHandler(this);

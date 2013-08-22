@@ -122,7 +122,8 @@ enum AuthenticationType
     kAuthenticationTypeUndef = 0x0,
     kAuthenticationTypeNone  = 0x1,
     kAuthenticationTypeKrb5  = 0x2,
-    kAuthenticationTypeX509  = 0x4
+    kAuthenticationTypeX509  = 0x4,
+    kAuthenticationTypePSK   = 0x8
 };
 const int kMaxAuthenticationContentLength = 64 << 10;
 

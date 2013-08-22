@@ -58,13 +58,15 @@ using boost::scoped_ptr;
 class AuthContext::Impl
 {
 public:
-    Impl()
+    Impl(
+        SslFilterServerPsk* inServerPskPtr)
         : mKrbProps(),
           mPskSslProps(),
           mX509SslProps(),
           mKrbServicePtr(),
           mSslCtxPtr(0),
           mX509SslCtxPtr(0),
+          mServerPskPtr(inServerPskPtr),
           mNameRemap(),
           mBlackList(),
           mWhiteList(),
@@ -113,6 +115,37 @@ public:
             inOp.status    = -EINVAL;
             inOp.statusMsg = "partial content read";
             return false;
+        }
+        if (mServerPskPtr && mSslCtxPtr.Get() &&
+                (inOp.authType & kAuthenticationTypePSK) != 0) {
+            inOp.responseContentPtr = 0;
+            inOp.responseContentLen = 0;
+            const char* kPskClientIdentityPtr = "";
+            const bool  kDeleteOnCloseFlag    = true;
+            const char* kSessionKeyPtr        = 0;
+            int         kSessionKeyLen        = 0;
+            SslFilter* const theFilterPtr = new SslFilter(
+                *mSslCtxPtr.Get(),
+                kSessionKeyPtr,
+                kSessionKeyLen,
+                kPskClientIdentityPtr,
+                mServerPskPtr,
+                kDeleteOnCloseFlag
+            );
+            const SslFilter::Error theErr = theFilterPtr->GetError();
+            if (theErr) {
+                inOp.statusMsg = SslFilter::GetErrorMsg(theErr);
+                inOp.status    = -EFAULT;
+                if (inOp.statusMsg.empty()) {
+                    inOp.statusMsg = "failed to create ssl filter";
+                }
+                delete theFilterPtr;
+            } else {
+                inOp.filter           = theFilterPtr;
+                inOp.responseAuthType = kAuthenticationTypePSK;
+                inOp.authName.clear();
+            }
+            return (inOp.status == 0);
         }
         if (mKrbServicePtr && (inOp.authType & kAuthenticationTypeKrb5) != 0) {
             const char* theSessionKeyPtr    = 0;
@@ -164,18 +197,15 @@ public:
             const SslFilter::Error theErr = theFilterPtr->GetError();
             if (theErr) {
                 inOp.statusMsg = SslFilter::GetErrorMsg(theErr);
-                inOp.status    = -EINVAL;
+                inOp.status    = -EFAULT;
                 if (inOp.statusMsg.empty()) {
                     inOp.statusMsg = "failed to create ssl filter";
                 }
                 delete theFilterPtr;
             } else {
                 inOp.filter           = theFilterPtr;
-                inOp.responseAuthType = inOp.authType;
-                inOp.authName         = theAuthName;
-            }
-            if (inOp.status == 0) {
                 inOp.responseAuthType = kAuthenticationTypeKrb5;
+                inOp.authName         = theAuthName;
             }
             return (inOp.status == 0);
         }
@@ -197,7 +227,7 @@ public:
             const SslFilter::Error theErr = theFilterPtr->GetError();
             if (theErr) {
                 inOp.statusMsg = SslFilter::GetErrorMsg(theErr);
-                inOp.status    = -EINVAL;
+                inOp.status    = -EFAULT;
                 if (inOp.statusMsg.empty()) {
                     inOp.statusMsg = "failed to create ssl filter";
                 }
@@ -469,23 +499,25 @@ private:
         less<string>,
         StdFastAllocator<string>
     > NameList;
-    typedef class SslFilter::CtxPtr SslCtxPtr;
+    typedef SslFilter::CtxPtr  SslCtxPtr;
+    typedef SslFilterServerPsk ServerPsk;
 
-    Properties    mKrbProps;
-    Properties    mPskSslProps;
-    Properties    mX509SslProps;
-    KrbServicePtr mKrbServicePtr;
-    SslCtxPtr     mSslCtxPtr;
-    SslCtxPtr     mX509SslCtxPtr;
-    NameRemap     mNameRemap;
-    NameList      mBlackList;
-    NameList      mWhiteList;
-    string        mNameRemapParam;
-    string        mBlackListParam;
-    string        mWhiteListParam;
-    int           mPrincipalUnparseFlags;
-    bool          mAuthNoneFlag;
-    unsigned int  mMemKeytabGen;
+    Properties       mKrbProps;
+    Properties       mPskSslProps;
+    Properties       mX509SslProps;
+    KrbServicePtr    mKrbServicePtr;
+    SslCtxPtr        mSslCtxPtr;
+    SslCtxPtr        mX509SslCtxPtr;
+    ServerPsk* const mServerPskPtr;
+    NameRemap        mNameRemap;
+    NameList         mBlackList;
+    NameList         mWhiteList;
+    string           mNameRemapParam;
+    string           mBlackListParam;
+    string           mWhiteListParam;
+    int              mPrincipalUnparseFlags;
+    bool             mAuthNoneFlag;
+    unsigned int     mMemKeytabGen;
 
 private:
     Impl(
@@ -494,8 +526,9 @@ private:
         const Impl& inImpl);
 };
 
-AuthContext::AuthContext()
-    : mImpl(*(new Impl()))
+AuthContext::AuthContext(
+    SslFilterServerPsk* inServerPskPtr)
+    : mImpl(*(new Impl(inServerPskPtr)))
 {
 }
 

@@ -218,6 +218,7 @@ public:
             inPskDataPtr ? inPskDataPtr : "",
             inPskDataPtr ? inPskDataLen : 0),
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
+          mPskAuthName(),
           mServerPskPtr(inServerPskPtr),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag)
     {
@@ -337,6 +338,7 @@ public:
         }
         SSL_set_fd(mSslPtr, inSocketPtr->GetFd());
         if (SSL_in_before(mSslPtr)) {
+            mPskAuthName.clear();
             const int theRet = SSL_in_connect_init(mSslPtr) ?
                 SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
             if (theRet <= 0) {
@@ -380,6 +382,9 @@ public:
         if (mError != 0 || ! mSslPtr) {
             return string();
         }
+        if (mServerPskPtr) {
+            return (IsHandshakeDone() ? mPskAuthName : string());
+        }
         if (SSL_get_verify_result(mSslPtr) != X509_V_OK) {
             return string();
         }
@@ -394,6 +399,7 @@ private:
     unsigned long    mError;
     string           mPskData;
     string           mPskCliIdendity;
+    string           mPskAuthName;
     ServerPsk* const mServerPskPtr;
     const bool       mDeleteOnCloseFlag;
 
@@ -501,8 +507,10 @@ private:
         unsigned int   inPskBufferLen)
     {
         if (mServerPskPtr) {
+            mPskAuthName.clear();
             return mServerPskPtr->GetPsk(
-                inIdentityPtr, inPskBufferPtr, inPskBufferLen);
+                inIdentityPtr, inPskBufferPtr, inPskBufferLen,
+                mPskAuthName);
         }
         if (inPskBufferLen < mPskData.size()) {
             return 0;

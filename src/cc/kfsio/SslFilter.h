@@ -37,24 +37,27 @@ using std::string;
 class Properties;
 class TcpSocket;
 
+class SslFilterServerPsk
+{
+public:
+    virtual unsigned long GetPsk(
+        const char*    inIdentityPtr,
+	unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen,
+        string&        outAuthName) = 0;
+protected:
+    SslFilterServerPsk()
+        {}
+    virtual ~SslFilterServerPsk()
+        {}
+};
+
 class SslFilter : public NetConnection::Filter
 {
 public:
     class Ctx;
     typedef unsigned long Error;
-    class ServerPsk
-    {
-    public:
-        virtual unsigned long GetPsk(
-            const char*    inIdentityPtr,
-	    unsigned char* inPskBufferPtr,
-            unsigned int   inPskBufferLen) = 0;
-    protected:
-        ServerPsk()
-            {}
-        virtual ~ServerPsk()
-            {}
-    };
+    typedef SslFilterServerPsk ServerPsk;
     class CtxPtr
     {
     public:
