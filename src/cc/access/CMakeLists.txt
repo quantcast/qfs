@@ -31,7 +31,7 @@ if (NOT APPLE)
   target_link_libraries(qfs_access rt)
 endif (NOT APPLE)
 
-IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS") 
+IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
    # On Solaris, cmake uses gcc to link rather than g++.  This
    #  prevents linking with libstdc++ which prevents Java from loading
    #  qfs_access.  To fix, set the compiler to be C++
@@ -42,4 +42,3 @@ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 install (TARGETS qfs_access
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib-static)
-
