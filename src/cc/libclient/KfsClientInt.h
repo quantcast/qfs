@@ -890,8 +890,11 @@ private:
     /// Given a parent fid and name, get the corresponding entry in
     /// the file table.  Note: if needed, attributes will be
     /// downloaded from the server.
-    int Lookup(kfsFileId_t parentFid, const string& name, FAttr*& fa, time_t now,
-        const string& path);
+    int Lookup(kfsFileId_t parentFid, const string& name, FAttr*& fa,
+        time_t now, const string& path);
+    int LookupSelf(LookupOp& op,
+        kfsFileId_t parentFid, const string& name, FAttr*& fa,
+        time_t now, const string& path);
     FAttr* LookupFattr(kfsFileId_t parentFid, const string& name);
 
     // name -- is the last component of the pathname

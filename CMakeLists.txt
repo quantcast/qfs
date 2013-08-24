@@ -169,6 +169,7 @@ add_subdirectory (${KFS_DIR_PREFIX}src/test-scripts src/test-scripts)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/krb src/cc/krb)
+add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)

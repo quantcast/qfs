@@ -63,7 +63,7 @@ clustername='qfs-test-cluster'
 if [ x"$myvalgrind" != x ]; then
     metastartwait='yes' # wait for unit test to finish
 fi
-[ x"`uname`" = x'Darwin' ] && dotusefuser=yes
+[ x"`uname`" = x'Darwin' ] && dontusefuser=yes
 export myvalgrind
 
 # cptest.sh parameters
@@ -190,8 +190,8 @@ done
 PATH="${PATH}:/sbin:/usr/sbin"
 export PATH
 export LD_LIBRARY_PATH
-if [ x"$dotusefuser" != x'yes' ]; then
-    [ -x "`which fuser 2>/dev/null`" ] || dotusefuser=yes
+if [ x"$dontusefuser" != x'yes' ]; then
+    [ -x "`which fuser 2>/dev/null`" ] || dontusefuser=yes
 fi
 
 rm -rf "$testdir"
@@ -201,7 +201,7 @@ mkdir "$chunksrvdir" || exit
 
 ulimit -c unlimited
 # Cleanup handler
-if [ x"$dotusefuser" = x'yes' ]; then
+if [ x"$dontusefuser" = x'yes' ]; then
     trap 'sleep 1; kill -KILL 0' TERM
     trap 'kill -TERM 0' EXIT INT HUP
 else
@@ -329,6 +329,12 @@ qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
 qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"
 
+qfscpidf="qfsctest${pidsuf}"
+../bin/tests/test-qfsc "$metahost:$metasrvport" 1>test-qfsc.out 2>test-qfsc.log &
+qfscpid=$!
+echo "$qfscpid" > "$qfscpidf"
+
+
 if [ $fotest -ne 0 ]; then
     echo "Starting fanout test. Fanout test data size: $fanouttestsize"
     fopidf="kfanout_test${pidsuf}"
@@ -380,6 +386,12 @@ qfstoolstatus=$?
 rm "$qfstoolpidf"
 
 cat qfs_tool-test.out
+
+wait $qfscpid
+qfscstatus=$?
+rm "$qfscpidf"
+
+cat test-qfsc.out
 
 if [ $fotest -ne 0 ]; then
     wait $fopid
@@ -454,14 +466,14 @@ find "$testdir" -name core\* || status=1
 
 if [ $status -eq 0 -a $cpstatus -eq 0 -a $qfstoolstatus -eq 0 \
         -a $fostatus -eq 0 -a $smstatus -eq 0 \
-        -a $kfsaccessstatus -eq 0 ]; then
+        -a $kfsaccessstatus -eq 0 -a $qfscstatus -eq 0 ]; then
     echo "Passed all tests"
 else
     echo "Test failure"
     status=1
 fi
 
-if [ x"$dotusefuser" = x'yes' ]; then
+if [ x"$dontusefuser" = x'yes' ]; then
     trap '' EXIT
 fi
 exit $status

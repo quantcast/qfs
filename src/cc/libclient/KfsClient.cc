@@ -2964,7 +2964,7 @@ CheckAccess(int openMode, kfsUid_t euser, kfsGid_t egroup, const FileAttr& fattr
 {
     return (
         ! fattr.IsAnyPermissionDefined() ||
-        (((openMode & (O_WRONLY | O_RDWR)) == 0 ||
+        (((openMode & (O_WRONLY | O_RDWR | O_APPEND)) == 0 ||
             fattr.CanWrite(euser, egroup)) &&
         ((openMode != O_RDONLY && openMode != O_RDWR) ||
             fattr.CanRead(euser, egroup)))
@@ -2977,7 +2977,8 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     kfsSTier_t minSTier, kfsSTier_t maxSTier,
     bool cacheAttributesFlag, kfsMode_t mode, string* path)
 {
-    if ((openMode & O_TRUNC) != 0 && (openMode & (O_RDWR | O_WRONLY)) == 0) {
+    if ((openMode & O_TRUNC) != 0 &&
+            (openMode & (O_RDWR | O_WRONLY | O_APPEND)) == 0) {
         return -EINVAL;
     }
 
@@ -2988,29 +2989,40 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     if (res < 0) {
         return res;
     }
+    assert(! fpath.empty() && *fpath.begin() == '/' &&
+        filename != "." && filename != "..");
     if (path) {
         *path = fpath;
     }
-    LookupOp op(0, parentFid, filename.c_str(), mEUser, mEGroup);
-    FAttr* const fa    = LookupFAttr(parentFid, filename);
-    time_t const faNow = fa ? time(0) : 0;
-    if (fa && IsValid(*fa, faNow) &&
+    LookupOp     op(0, parentFid, filename.c_str());
+    FAttr*       fa                        = LookupFAttr(parentFid, filename);
+    time_t const now                       = time(0);
+    time_t const kShortenFileRevalidateSec = 8;
+    if (fa && IsValid(*fa, now +
+                (fa->isDirectory ? time_t(0) : kShortenFileRevalidateSec)) &&
             (fa->isDirectory || fa->fileSize > 0 ||
                 (fa->fileSize == 0 && fa->chunkCount() <= 0)) &&
             CheckAccess(openMode, mEUser, mEGroup, *fa)) {
         UpdatePath(fa, fpath);
         op.fattr = *fa;
     } else {
-        op.seq = 0;
-        DoMetaOpWithRetry(&op);
+        if (openMode == O_RDONLY) {
+            op.status = LookupSelf(op, parentFid, filename, fa, now, fpath);
+        } else {
+            if (fa) {
+                Delete(fa);
+                fa = 0;
+            }
+            DoMetaOpWithRetry(&op);
+        }
         if (op.status < 0) {
-            Delete(fa);
             if (! cacheAttributesFlag && (openMode & O_CREAT) != 0 &&
                     op.status == -ENOENT) {
                 // file doesn't exist.  Create it
-                const int fte = CreateSelf(pathname, numReplicas, openMode & O_EXCL,
-                    numStripes, numRecoveryStripes, stripeSize, stripedType, false,
-                    mode, minSTier, maxSTier);
+                const int fte = CreateSelf(pathname, numReplicas,
+                    openMode & O_EXCL,
+                    numStripes, numRecoveryStripes, stripeSize, stripedType,
+                    false, mode, minSTier, maxSTier);
                 if (fte >= 0 && (openMode & O_APPEND) != 0) {
                     FileTableEntry& entry = *mFileTable[fte];
                     assert(! entry.fattr.isDirectory);
@@ -3019,35 +3031,34 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 return fte;
             }
             return op.status;
-        } else {
-            if (! CheckAccess(openMode, op.euser, op.egroup, op.fattr)) {
-                KFS_LOG_STREAM_DEBUG <<
-                    "permission denied:"
-                    " fileId: "  << op.fattr.fileId <<
-                    " euser: "   << op.euser <<
-                    " egroup: "  << op.egroup <<
-                    " mode: "    << oct << op.fattr.mode << dec <<
-                    " user: "    << op.fattr.user <<
-                    " group: "   << op.fattr.group <<
-                KFS_LOG_EOM;
-                return -EACCES;
-            }
         }
-        if (fa) {
-            UpdatePath(fa, fpath);
-            *fa                    = op.fattr;
-            fa->validatedTime      = faNow;
-            fa->generation         = mFAttrCacheGeneration;
-            fa->staleSubCountsFlag = false;
-            FAttrLru::PushBack(mFAttrLru, *fa);
+        if (! CheckAccess(openMode, op.euser, op.egroup, op.fattr)) {
+            KFS_LOG_STREAM_DEBUG <<
+                "permission denied:"
+                " fileId: "  << op.fattr.fileId <<
+                " euser: "   << op.euser <<
+                " egroup: "  << op.egroup <<
+                " mode: "    << oct << op.fattr.mode << dec <<
+                " user: "    << op.fattr.user <<
+                " group: "   << op.fattr.group <<
+            KFS_LOG_EOM;
+            return -EACCES;
+        }
+        if (fa && openMode == O_RDONLY &&
+                ! fa->isDirectory && 0 <= mFileAttributeRevalidateTime) {
+            // Update the validate time in case if the meta server lookup took
+            // non trivial amount of time, to make sure that the attribute is
+            // still valid after open returns.
+            fa->validatedTime = time(0);
         }
     }
+    const FileAttr& fattr = op.fattr;
     // file exists; now fail open if: O_CREAT | O_EXCL
     if ((openMode & (O_CREAT|O_EXCL)) == (O_CREAT|O_EXCL)) {
         return -EEXIST;
     }
-    if (op.fattr.isDirectory && openMode != O_RDONLY) {
-        return -ENOTDIR;
+    if (fattr.isDirectory && openMode != O_RDONLY) {
+        return -EISDIR;
     }
 
     const int fte = AllocFileTableEntry(parentFid, filename, fpath);
@@ -3059,15 +3070,17 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     if (cacheAttributesFlag) {
         entry.openMode = 0;
     } else if ((openMode & O_RDWR) != 0) {
-        entry.openMode = O_RDWR;
+        entry.openMode = openMode & (O_RDWR | O_APPEND);
     } else if ((openMode & O_WRONLY) != 0) {
-        entry.openMode = O_WRONLY;
+        entry.openMode = openMode & (O_WRONLY | O_APPEND);
+    } else if ((openMode & O_APPEND) != 0) {
+        entry.openMode = O_APPEND;
     } else if ((openMode & O_RDONLY) != 0) {
         entry.openMode = O_RDONLY;
     } else {
         entry.openMode = 0;
     }
-    entry.fattr = op.fattr;
+    entry.fattr = fattr;
     const bool truncateFlag =
         ! cacheAttributesFlag && (openMode & O_TRUNC) != 0;
     if (truncateFlag) {
@@ -3075,22 +3088,21 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             const int res = TruncateSelf(fte, 0);
             if (res < 0) {
                 ReleaseFileTableEntry(fte);
+                Delete(fa);
                 return res;
             }
         }
     } else if (entry.fattr.fileSize < 0 &&
             ! entry.fattr.isDirectory && entry.fattr.chunkCount() > 0) {
-        entry.fattr.fileSize = ComputeFilesize(op.fattr.fileId);
+        entry.fattr.fileSize = ComputeFilesize(fattr.fileId);
         if (entry.fattr.fileSize < 0) {
             ReleaseFileTableEntry(fte);
             return -EIO;
         }
-    }
-    if (! cacheAttributesFlag &&
-            (openMode & O_APPEND) != 0  &&
-            ! entry.fattr.isDirectory &&
-            (entry.openMode & (O_RDWR | O_WRONLY)) != 0) {
-        entry.openMode |= O_APPEND;
+        // Update attribute cache file size.
+        if (fa && entry.openMode == O_RDONLY) {
+            fa->fileSize = entry.fattr.fileSize;
+        }
     }
     if (! entry.fattr.isDirectory) {
         SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
@@ -3267,7 +3279,7 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
         return -EBADF;
     }
     // for truncation, file should be opened for writing
-    if ((mFileTable[fd]->openMode & (O_RDWR | O_WRONLY)) == 0) {
+    if ((mFileTable[fd]->openMode & (O_RDWR | O_WRONLY | O_APPEND)) == 0) {
         return -EINVAL;
     }
     FdInfo(fd)->buffer.Invalidate();
@@ -4249,6 +4261,14 @@ KfsClientImpl::Lookup(kfsFileId_t parentFid, const string& name,
         return 0;
     }
     LookupOp op(0, parentFid, name.c_str());
+    return LookupSelf(op, parentFid, name, fa, now, path);
+}
+
+int
+KfsClientImpl::LookupSelf(LookupOp& op,
+    kfsFileId_t parentFid, const string& name,
+    KfsClientImpl::FAttr*& fa, time_t now, const string& path)
+{
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
         if (fa) {
