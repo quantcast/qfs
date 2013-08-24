@@ -1182,6 +1182,7 @@ private:
                 (! mDataSentFlag && ! mDataReceivedFlag) ||
                 IsAuthInFlight())) {
             mRetryCount++;
+            ResetConnection();
             if (mTimeSecBetweenRetries > 0) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
                     "retry attempt " << mRetryCount <<
@@ -1250,7 +1251,21 @@ private:
     }
     void OpsTimeout()
     {
-        if (mOpTimeoutSec <= 0 || ! IsConnected() || IsAuthInFlight()) {
+        if (mOpTimeoutSec <= 0 || ! IsConnected()) {
+            return;
+        }
+        if (IsAuthInFlight()) {
+            OpQueue::iterator const theIt = mPendingOpQueue.begin();
+            assert(
+                theIt != mPendingOpQueue.end() &&
+                theIt->second.mOpPtr ==
+                    (0 <= mLookupOp.seq ?
+                        static_cast<KfsOp*>(&mLookupOp) :
+                        static_cast<KfsOp*>(&mAuthOp))
+            );
+            if (theIt->second.mTime + mOpTimeoutSec < Now()) {
+                RetryConnect();
+            }
             return;
         }
         // Timeout ops waiting for response.
