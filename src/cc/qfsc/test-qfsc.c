@@ -249,7 +249,7 @@ static char* test_qfs_pwrite() {
   check_qfs_call(qfs_seek(qfs, fd, 0, SEEK_SET));
 
   // Now write to the end, in a third chunk, but small.
-  check_qfs_call(qfs_pwrite(qfs, fd, testdata, sizeof(testdata), len*2));
+  check_qfs_call(qfs_pwrite(qfs, fd, testdata, strlen(testdata), len*2));
   check_qfs_call(qfs_sync(qfs, fd)); // sync the data out
 
   return 0;
@@ -263,7 +263,7 @@ static char* test_qfs_pread() {
   check(res == 0, "file position should be at start");
 
   char buf[4096];
-
+  memset(buf, 0, sizeof(buf));
   check_qfs_call(qfs_pread(qfs, fd, buf, sizeof(buf), chunksize*2));
   check(strcmp(buf, testdata) == 0,
     "expected data should be read: %s != %s", buf, testdata);
@@ -328,6 +328,12 @@ static char * all_tests() {
   run(test_qfs_open_file);
   run(test_large_write);
   run(test_qfs_pwrite);
+  /* Always close and open file before issuing read, sync isn't sufficient to
+     relinquish write lease(s) and update logical EOF on the meta server
+     and in the kfs client's file table
+  */
+  run(test_qfs_close);
+  run(test_qfs_open);
   run(test_qfs_pread);
   run(test_qfs_get_data_locations);
   run(test_qfs_cleanup);
