@@ -1254,6 +1254,7 @@ private:
         if (mOpTimeoutSec <= 0 || ! IsConnected()) {
             return;
         }
+        const time_t theNow = Now();
         if (IsAuthInFlight()) {
             OpQueue::iterator const theIt = mPendingOpQueue.begin();
             assert(
@@ -1263,7 +1264,16 @@ private:
                         static_cast<KfsOp*>(&mLookupOp) :
                         static_cast<KfsOp*>(&mAuthOp))
             );
-            if (theIt->second.mTime + mOpTimeoutSec < Now()) {
+            if (theIt->second.mTime + mOpTimeoutSec < theNow) {
+                const OpQueueEntry& theEntry = theIt->second;
+                KFS_LOG_STREAM_INFO << mLogPrefix <<
+                    "auth. op timed out:"
+                    " seq: "               << theEntry.mOpPtr->seq <<
+                    " "                    << theEntry.mOpPtr->Show() <<
+                    " wait time: "         << (theNow - theEntry.mTime) <<
+                    " pending ops: "       << mPendingOpQueue.size() <<
+                    " resetting connecton" <<
+                KFS_LOG_EOM;
                 RetryConnect();
             }
             return;
@@ -1277,7 +1287,6 @@ private:
         // the temporary queue. This is less error prone than dealing with
         // completion changing mPendingOpQueue while iterating.
         QueueStack::iterator theStIt       = mQueueStack.end();
-        const time_t         theNow        = Now();
         time_t               theExpireTime = theNow - mOpTimeoutSec;
         for (OpQueue::iterator theIt = mPendingOpQueue.begin();
                 theIt != mPendingOpQueue.end() &&
