@@ -491,12 +491,17 @@ public:
                 // Reset the status -- use auth type.
                 mLookupOp.status = 0;
             }
+            bool theDoAuthFlag = true;
             if (mLookupOp.status != 0 ||
                     (mAuthContextPtr && (mLookupOp.status =
                         mAuthContextPtr->CheckAuthType(
                             mLookupOp.authType,
+                            theDoAuthFlag,
                             &mLookupOp.statusMsg)) != 0)) {
                 Fail(mLookupOp.status, mLookupOp.statusMsg);
+                return;
+            }
+            if (! theDoAuthFlag) {
                 return;
             }
             if (mAuthContextPtr) {

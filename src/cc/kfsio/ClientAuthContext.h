@@ -75,6 +75,7 @@ public:
         string*           outErrMsgPtr);
     int CheckAuthType(
         int     inAuthType,
+        bool&   outDoAuthFlag,
         string* outErrMsgPtr);
     int Request(
         int          inAuthType,

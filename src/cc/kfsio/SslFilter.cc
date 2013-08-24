@@ -124,6 +124,9 @@ public:
     {
         SSL_CTX* const theRetPtr = SSL_CTX_new(
             inServerFlag ? TLSv1_server_method() : TLSv1_client_method());
+        if (! theRetPtr) {
+            return 0;
+        }
         SSL_CTX_set_mode(theRetPtr, SSL_MODE_ENABLE_PARTIAL_WRITE);
         Properties::String theParamName;
         if (inParamsPrefixPtr) {

@@ -74,6 +74,7 @@ public:
           mEnabledFlag(false),
           mAuthNoneEnabledFlag(false),
           mKrbAuthRequireSslFlag(false),
+          mAuthRequiredFlag(false),
           mParams(),
           mKrbClientPtr(),
           mSslCtxPtr(),
@@ -271,8 +272,13 @@ public:
            mCurRequest.mInvalidFlag = true;
         }
         mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr.Get() != 0;
+        mAuthRequiredFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("authRequired"), 0) != 0;
         mPskKeyId = thePskKeyId;
         mPskKey   = thePskKey;
+        mEnabledFlag = mKrbClientPtr ||
+            (mSslCtxPtr.Get() != 0 && ! mPskKey.empty()) ||
+            mX509SslCtxPtr.Get() != 0;
         return 0;
     }
     int Request(
@@ -426,8 +432,14 @@ public:
         { return mEnabledFlag; }
     int CheckAuthType(
         int     inAuthType,
+        bool&   outDoAuthFlag,
         string* outErrMsgPtr)
     {
+        if (! mAuthRequiredFlag && inAuthType == kAuthenticationTypeUndef) {
+            outDoAuthFlag = false;
+            return 0;
+        }
+        outDoAuthFlag = true;
         if (((inAuthType & kAuthenticationTypePSK) != 0 && ! mPskKey.empty()) ||
                 ((inAuthType & kAuthenticationTypeNone) != 0 &&
                     mAuthNoneEnabledFlag) ||
@@ -470,6 +482,7 @@ private:
     bool            mEnabledFlag;
     bool            mAuthNoneEnabledFlag;
     bool            mKrbAuthRequireSslFlag;
+    bool            mAuthRequiredFlag;
     Properties      mParams;
     KrbClientPtr    mKrbClientPtr;
     SslCtxPtr       mSslCtxPtr;
@@ -621,9 +634,10 @@ ClientAuthContext::~ClientAuthContext()
     int
 ClientAuthContext::CheckAuthType(
     int     inAuthType,
+    bool&   outDoAuthFlag,
     string* outErrMsgPtr)
 {
-    return mImpl.CheckAuthType(inAuthType, outErrMsgPtr);
+    return mImpl.CheckAuthType(inAuthType, outDoAuthFlag, outErrMsgPtr);
 }
 
     int

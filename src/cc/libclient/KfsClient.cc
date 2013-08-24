@@ -40,7 +40,7 @@
 #include "qcdio/QCUtils.h"
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
-#include "kfsio/requestio.h"
+#include "kfsio/SslFilter.h"
 #include "Path.h"
 #include "utils.h"
 #include "KfsProtocolWorker.h"
@@ -959,6 +959,7 @@ private:
         {
             signal(SIGPIPE, SIG_IGN);
             libkfsio::InitGlobals();
+            SslFilter::Initialize();
             const int maxGroups = min((int)sysconf(_SC_NGROUPS_MAX), 1 << 16);
             if (maxGroups > 0) {
                 gid_t* const grs = new gid_t[maxGroups];
@@ -1080,8 +1081,11 @@ private:
         while (! List::IsEmpty(list)) {
             List::PopFront(list)->Shutdown();
         }
-        QCStMutexLocker locker(mMutex);
-        KfsOp::SetExtraRequestHeaders(string());
+        {
+            QCStMutexLocker locker(mMutex);
+            KfsOp::SetExtraRequestHeaders(string());
+        }
+        SslFilter::Cleanup();
     }
     void InitSelf(KfsClientImpl& /* client */)
     {
@@ -3962,7 +3966,7 @@ KfsClientImpl::OpDone(
         inOpPtr->statusMsg = "canceled";
     }
     KFS_LOG_STREAM_DEBUG <<
-        (inCanceledFlag ? "op completion: " : "op canceled") <<
+        (inCanceledFlag ? "op canceled: " : "op completed: ") <<
         inOpPtr->Show() << " status: " << inOpPtr->status <<
         " msg: " << inOpPtr->statusMsg <<
     KFS_LOG_EOM;
