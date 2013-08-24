@@ -25,17 +25,6 @@
 
 #include "KfsNetClient.h"
 
-#include <sstream>
-#include <algorithm>
-#include <map>
-#include <deque>
-#include <string>
-#include <cerrno>
-
-#include <stdint.h>
-#include <time.h>
-#include <stdlib.h>
-
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/NetManager.h"
@@ -51,6 +40,18 @@
 #include "KfsOps.h"
 #include "utils.h"
 
+#include <sstream>
+#include <algorithm>
+#include <map>
+#include <deque>
+#include <string>
+#include <cerrno>
+#include <iomanip>
+
+#include <stdint.h>
+#include <time.h>
+#include <stdlib.h>
+
 namespace KFS
 {
 namespace client
@@ -62,6 +63,8 @@ using std::pair;
 using std::make_pair;
 using std::less;
 using std::max;
+using std::hex;
+using std::showbase;
 
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
@@ -130,7 +133,7 @@ public:
           mAuthContextPtr(inAuthContextPtr),
           mKeyId(),
           mKeyData(),
-          mLookupOp(-1, ROOTFID, ""),
+          mLookupOp(-1, ROOTFID, "/"),
           mAuthOp(-1, kAuthenticationTypeUndef)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
@@ -307,8 +310,14 @@ public:
         { return CancelOrFailAll(0, string()); }
     bool Fail(
         int           inStatus,
-        const string& inStatusMsg)
-        { return CancelOrFailAll(inStatus, inStatusMsg); }
+        const string& inStatusMsg,
+        bool          inDisconnectFlag = true)
+    {
+        if (inDisconnectFlag) {
+            Reset();
+        }
+        return CancelOrFailAll(inStatus, inStatusMsg);
+    }
     bool CancelOrFailAll(
         int           inStatus,
         const string& inStatusMsg)
@@ -364,14 +373,15 @@ public:
             case EVENT_NET_READ: {
                     assert(inDataPtr && mConnPtr);
                     IOBuffer& theBuffer = *reinterpret_cast<IOBuffer*>(inDataPtr);
-                    mDataReceivedFlag = mDataReceivedFlag || ! theBuffer.IsEmpty();
+                    mDataReceivedFlag = mDataReceivedFlag ||
+                        (! theBuffer.IsEmpty() && ! IsAuthInFlight());
                     HandleResponse(theBuffer);
                 }
                 break;
 
             case EVENT_NET_WROTE:
                 assert(inDataPtr && mConnPtr);
-                mDataSentFlag = true;
+                mDataSentFlag = mDataSentFlag || ! IsAuthInFlight();
                 break;
 
             case EVENT_INACTIVITY_TIMEOUT:
@@ -470,6 +480,12 @@ public:
     {
         assert(! inBufferPtr && ! mOutstandingOpPtr &&
             (inOpPtr == &mLookupOp || inOpPtr == &mAuthOp));
+        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+            (inCanceledFlag ? "op canceled: " : "op done: ") <<
+            inOpPtr->Show() <<
+            " status: " << inOpPtr->status <<
+            " msg: "    << inOpPtr->statusMsg <<
+        KFS_LOG_EOM;
         const kfsSeq_t theSeq = inOpPtr->seq;
         inOpPtr->seq = -1;
         if (inCanceledFlag) {
@@ -498,10 +514,19 @@ public:
                             mLookupOp.authType,
                             theDoAuthFlag,
                             &mLookupOp.statusMsg)) != 0)) {
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "authentication negotiation failure: " <<
+                        mLookupOp.statusMsg <<
+                KFS_LOG_EOM;
                 Fail(mLookupOp.status, mLookupOp.statusMsg);
                 return;
             }
             if (! theDoAuthFlag) {
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "no auth. supported and/or required"
+                    " auth. type: " << showbase << hex << mLookupOp.authType <<
+                KFS_LOG_EOM;
+                SubmitPending();
                 return;
             }
             if (mAuthContextPtr) {
@@ -516,6 +541,10 @@ public:
                         theBufLen,
                         mAuthRequestCtx,
                         &mAuthOp.statusMsg)) != 0) {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "authentication request failure: " <<
+                            mAuthOp.status <<
+                    KFS_LOG_EOM;
                     Fail(mAuthOp.status, mAuthOp.statusMsg);
                     return;
                 }
@@ -552,23 +581,7 @@ public:
                     *mConnPtr,
                     mAuthRequestCtx,
                     &mAuthOp.statusMsg)) == 0) {
-                const bool kFlushFlag             = false;
-                bool       theFlushConnectionFlag = false;
-                for (OpQueue::iterator theIt = mPendingOpQueue.begin();
-                        ! mOutstandingOpPtr &&
-                            theIt != mPendingOpQueue.end();
-                        ++theIt) {
-                    if (mMaxOneOutstandingOpFlag) {
-                        mOutstandingOpPtr = &(theIt->second);
-                    }
-                    Request(theIt->second, kFlushFlag,
-                        theIt->second.mRetryCount, kFlushFlag);
-                    theFlushConnectionFlag = true;
-                }
-                if (theFlushConnectionFlag) {
-                    mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
-                    mConnPtr->Flush();
-                }
+                SubmitPending();
                 return;
             }
             if (mAuthOp.status == -EAGAIN) {
@@ -576,6 +589,10 @@ public:
                 return;
             }
         }
+        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+            "authentication response failure: " <<
+                mAuthOp.status <<
+        KFS_LOG_EOM;
         Fail(mAuthOp.status, mAuthOp.statusMsg);
     }
 private:
@@ -777,6 +794,25 @@ private:
         if (inFlushFlag) {
             mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
             mConnPtr->Flush(inResetTimerFlag);
+        }
+    }
+    void SubmitPending()
+    {
+        const bool kFlushFlag             = false;
+        bool       theFlushConnectionFlag = false;
+        for (OpQueue::iterator theIt = mPendingOpQueue.begin();
+                ! mOutstandingOpPtr && theIt != mPendingOpQueue.end();
+                ++theIt) {
+            if (mMaxOneOutstandingOpFlag) {
+                mOutstandingOpPtr = &(theIt->second);
+            }
+            Request(theIt->second, kFlushFlag,
+                theIt->second.mRetryCount, kFlushFlag);
+            theFlushConnectionFlag = true;
+        }
+        if (theFlushConnectionFlag) {
+            mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
+            mConnPtr->Flush();
         }
     }
     void HandleResponse(
@@ -991,6 +1027,8 @@ private:
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "connecting to server: " << mServerLocation.ToString() <<
+            " auth: " << (IsAuthEnabled() ?
+                (IsPskAuth() ? "psk" : "on") : "off") <<
         KFS_LOG_EOM;
         mConnPtr.reset(new NetConnection(&theSocket, this));
         mConnPtr->EnableReadIfOverloaded();
@@ -1000,6 +1038,11 @@ private:
         // Add connection to the poll vector
         mNetManager.AddConnection(mConnPtr);
         if (IsPskAuth()) {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "psk key:"
+                " size: " << mKeyData.size() <<
+                " id: "   << mKeyId <<
+            KFS_LOG_EOM;
             string    theErrMsg;
             const int theStatus = mAuthContextPtr->StartSsl(
                 *mConnPtr,
@@ -1207,7 +1250,7 @@ private:
     }
     void OpsTimeout()
     {
-        if (mOpTimeoutSec <= 0 || ! IsConnected()) {
+        if (mOpTimeoutSec <= 0 || ! IsConnected() || IsAuthInFlight()) {
             return;
         }
         // Timeout ops waiting for response.

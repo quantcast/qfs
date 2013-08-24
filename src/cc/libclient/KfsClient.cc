@@ -1264,6 +1264,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             KFS_LOG_EOM;
             return err;
         }
+        mMetaServer.SetAuthContext(&mAuthCtx);
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<

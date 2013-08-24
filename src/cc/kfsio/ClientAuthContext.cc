@@ -257,6 +257,8 @@ public:
         mAuthNoneEnabledFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("authNone.enabled"),
             0) != 0;
+        mAuthRequiredFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("required"), 0) != 0;
         mParams.swap(theParams);
         if (theKrbChangedFlag) {
             mKrbClientPtr.swap(theKrbClientPtr);
@@ -272,8 +274,6 @@ public:
            mCurRequest.mInvalidFlag = true;
         }
         mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr.Get() != 0;
-        mAuthRequiredFlag = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("authRequired"), 0) != 0;
         mPskKeyId = thePskKeyId;
         mPskKey   = thePskKey;
         mEnabledFlag = mKrbClientPtr ||
@@ -349,7 +349,7 @@ public:
         if (outErrMsgPtr) {
             *outErrMsgPtr = "no common auth. method";
         }
-        return -ENOENT;
+        return -EPERM;
     }
     int Response(
         int            inAuthType,
@@ -453,7 +453,7 @@ public:
         if (outErrMsgPtr) {
             *outErrMsgPtr = "no common auth. method found";
         }
-        return -ENOENT;
+        return -EPERM;
     }
     static void Dispose(
         RequestCtx& inRequestCtx)
