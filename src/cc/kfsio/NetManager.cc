@@ -166,6 +166,7 @@ void
 NetManager::AddConnection(const NetConnectionPtr& conn)
 {
     if (mShutdownFlag) {
+        conn->HandleErrorEvent();
         return;
     }
     NetConnection::NetManagerEntry* const entry =
