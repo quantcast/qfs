@@ -68,7 +68,7 @@ public:
  */
 class Meta: public MetaNode {
 protected:
-    virtual ~Meta() { }
+    ~Meta() { }
 public:
     Meta(MetaType t): MetaNode(t) { }
     bool skip() const { return testflag(META_SKIP); }
@@ -80,7 +80,7 @@ public:
         return file.fail() ? -EIO : 0;
     }
     //!< Compare for equality
-    virtual bool match(const Meta *test) const = 0;
+    bool match(const Meta *test) const;
 private:
     Meta(const Meta&);
     Meta& operator=(const Meta&);
@@ -130,7 +130,7 @@ protected:
           fattr(other->fattr),
           name(other->name)
           {}
-    virtual ~MetaDentry() {}
+    ~MetaDentry() {}
 public:
     static inline KeyData nameHash(const string& name)
     {
@@ -151,14 +151,14 @@ public:
     {
         return new (allocate<MetaDentry>()) MetaDentry(other);
     }
-    virtual void destroy()
+    void destroySelf()
     {
         this->~MetaDentry();
         deallocate(this);
     }
     fid_t id() const { return fid; }    //!< return the owner id
-    virtual const Key key() const { return Key(KFS_DENTRY, dir, hash); }
-    ostream& show(ostream& os) const;
+    Key keySelf() const { return Key(KFS_DENTRY, dir, hash); }
+    inline ostream& showSelf(ostream& os) const;
     //!< accessor that returns the name of this Dentry
     const string& getName() const { return name; }
     fid_t getDir() const { return dir; }
@@ -167,7 +167,7 @@ public:
         return name.compare(test);
     }
     int checkpoint(ostream &file) const;
-    virtual bool match(const Meta *test) const;
+    bool matchSelf(const Meta *test) const;
     MetaFattr* getFattr() const { return fattr; }
     void setFattr(MetaFattr* fa) { fattr = fa; }
 };
@@ -376,7 +376,7 @@ private:
           parent(0)
         {}
 protected:
-    virtual ~MetaFattr() {}
+    ~MetaFattr() {}
 public:
     MetaFattr* parent;
     static MetaFattr* create(FileType t, fid_t id, int16_t n,
@@ -399,19 +399,19 @@ public:
         return new (allocate<MetaFattr>())
             MetaFattr(t, id, mt, ct, crt, c, n, u, g, m);
     }
-    virtual void destroy()
+    void destroySelf()
     {
         this->~MetaFattr();
         deallocate(this);
     }
     fid_t id() const { return fid; }    //!< return the owner id
-    virtual const Key key() const { return Key(KFS_FATTR, id()); }
-    ostream& show(ostream& os) const;
+    Key keySelf() const { return Key(KFS_FATTR, id()); }
+    inline ostream& showSelf(ostream& os) const;
     int checkpoint(ostream &file) const;
     chunkOff_t LastChunkBlkIndex() const {
         return ChunkPosToChunkBlkIndex(nextChunkOffset() - 1);
     }
-    virtual bool match(const Meta *test) const {
+    bool matchSelf(const Meta *test) const {
         return (test->metaType() == KFS_FATTR &&
             id() == refine<MetaFattr>(test)->id());
     }
@@ -429,7 +429,7 @@ protected:
           chunkId(id),
           chunkVersion(v)
         {}
-    virtual ~MetaChunkInfo() {}
+    ~MetaChunkInfo() {}
     MetaFattr* fattr;
 public:
     chunkOff_t offset;      //!< offset of chunk within file
@@ -437,13 +437,13 @@ public:
     seq_t      chunkVersion;    //!< version # for this chunk
     fid_t id() const { return fattr->id(); }    //!< return the owner id
     MetaFattr* getFattr() const { return fattr; }
-    virtual const Key key() const { return Key(KFS_CHUNKINFO, id(), offset); }
+    Key keySelf() const { return Key(KFS_CHUNKINFO, id(), offset); }
 
     void DeleteChunk();
 
-    ostream& show(ostream& os) const;
+    inline ostream& showSelf(ostream& os) const;
     int checkpoint(ostream &file) const;
-    virtual bool match(const Meta *test) const {
+    bool matchSelf(const Meta *test) const {
         return (test->metaType() == KFS_CHUNKINFO &&
             id() == refine<MetaChunkInfo>(test)->id());
     }

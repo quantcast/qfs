@@ -50,7 +50,9 @@ private:
         MetaNode& operator=(const MetaNode&);
         MetaNode(const MetaNode&);
 protected:
-    virtual ~MetaNode() {}
+    MetaNode(MetaType t): nodetype(t), flagbits(0) { }
+    MetaNode(MetaType t, int f): nodetype(t), flagbits(f) { }
+    ~MetaNode() {}
     template <typename T>
     class Allocator
     {
@@ -92,12 +94,10 @@ protected:
         getAllocator(ptr).deallocate(ptr);
     }
 public:
-    virtual void destroy() = 0;
-    MetaNode(MetaType t): nodetype(t), flagbits(0) { }
-    MetaNode(MetaType t, int f): nodetype(t), flagbits(f) { }
+    void destroy();
     MetaType metaType() const { return nodetype; }
-    virtual const Key key() const = 0;  //!< cons up key value for node
-    virtual std::ostream& show(std::ostream& os) const = 0;
+    Key key() const;  //!< cons up key value for node
+    std::ostream& show(std::ostream& os) const;
     int flags() const { return flagbits; }
     void setflag(int bit) { flagbits |= bit; }
     void clearflag(int bit) { flagbits &= ~bit; }

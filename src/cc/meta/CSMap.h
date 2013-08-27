@@ -106,7 +106,7 @@ public:
             }
             fattr = fa;
         }
-        virtual void destroy();
+        void destroySelf();
         MetaChunkInfo* GetChunkInfo() const
             { return const_cast<Entry*>(this); }
         size_t ServerCount(const CSMap& map) const {
@@ -157,6 +157,12 @@ public:
         }
         static Entry* GetCsEntry(MetaChunkInfo* chunkInfo) {
             return static_cast<Entry*>(chunkInfo);
+        }
+        static Entry* GetCsEntry(MetaNode* node) {
+            return static_cast<Entry*>(node);
+        }
+        static const Entry* GetCsEntry(const MetaNode* node) {
+            return static_cast<const Entry*>(node);
         }
     private:
         typedef uint64_t IdxData;

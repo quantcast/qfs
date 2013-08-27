@@ -23,14 +23,14 @@
  * permissions and limitations under the License.
  */
 
+#include "meta.h"
+#include "kfstree.h"
+#include "CSMap.h"
+#include "util.h"
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include "meta.h"
-#include "kfstree.h"
-#include "kfstypes.h"
-#include "util.h"
-#include "LayoutManager.h"
 
 namespace KFS
 {
@@ -42,8 +42,8 @@ using std::ostringstream;
 UniqueID fileID(0, ROOTFID);
 UniqueID chunkID(1, ROOTFID);
 
-ostream&
-MetaDentry::show(ostream& os) const
+inline ostream&
+MetaDentry::showSelf(ostream& os) const
 {
     return (os <<
     "dentry/name/" << name <<
@@ -52,8 +52,8 @@ MetaDentry::show(ostream& os) const
     );
 }
 
-bool
-MetaDentry::match(const Meta *m) const
+inline bool
+MetaDentry::matchSelf(const Meta *m) const
 {
     // Try not to fetch name, save 1 dram miss by comparing hash instead.
     return (m->metaType() == KFS_DENTRY &&
@@ -61,8 +61,8 @@ MetaDentry::match(const Meta *m) const
         refine<MetaDentry>(m)->compareName(name) == 0);
 }
 
-ostream&
-MetaFattr::show(ostream& os) const
+inline ostream&
+MetaFattr::showSelf(ostream& os) const
 {
     static const char* const fname[] = { "empty", "file", "dir" };
 
@@ -105,8 +105,8 @@ MetaChunkInfo::DeleteChunk()
     }
 }
 
-ostream&
-MetaChunkInfo::show(ostream& os) const
+inline ostream&
+MetaChunkInfo::showSelf(ostream& os) const
 {
     return (os <<
     "chunkinfo/fid/" << id() <<
@@ -115,4 +115,78 @@ MetaChunkInfo::show(ostream& os) const
     "/chunkVersion/" << chunkVersion
     );
 }
+
+void
+MetaNode::destroy()
+{
+    switch (nodetype) {
+        case KFS_INTERNAL:
+            static_cast<Node*>(this)->destroySelf();
+            return;
+        case KFS_FATTR:
+            static_cast<MetaFattr*>(this)->destroySelf();
+            return;
+        case KFS_CHUNKINFO:
+            CSMap::Entry::GetCsEntry(this)->destroySelf();
+            return;
+        case KFS_DENTRY:
+            static_cast<MetaDentry*>(this)->destroySelf();
+            return;
+        default:
+            panic("Meta::destroy: invalid node type");
+    }
+}
+
+Key
+MetaNode::key() const
+{
+    switch (nodetype) {
+        case KFS_INTERNAL:
+            return static_cast<const Node*>(this)->keySelf();
+        case KFS_FATTR:
+            return static_cast<const MetaFattr*>(this)->keySelf();
+        case KFS_CHUNKINFO:
+            return static_cast<const MetaChunkInfo*>(this)->keySelf();
+        case KFS_DENTRY:
+            return static_cast<const MetaDentry*>(this)->keySelf();
+        default:
+            panic("Meta::key: invalid node type");
+    }
+    return Key(KFS_UNINIT, -1);
+}
+
+std::ostream&
+MetaNode::show(std::ostream& os) const
+{
+    switch (nodetype) {
+        case KFS_INTERNAL:
+            return static_cast<const Node*>(this)->showSelf(os);
+        case KFS_FATTR:
+            return static_cast<const MetaFattr*>(this)->showSelf(os);
+        case KFS_CHUNKINFO:
+            return static_cast<const MetaChunkInfo*>(this)->showSelf(os);
+        case KFS_DENTRY:
+            return static_cast<const MetaDentry*>(this)->showSelf(os);
+        default:
+            panic("Meta::show: invalid node type");
+    }
+    return os;
+}
+
+bool
+Meta::match(const Meta* test) const
+{
+    switch (metaType()) {
+        case KFS_FATTR:
+            return static_cast<const MetaFattr*>(this)->matchSelf(test);
+        case KFS_CHUNKINFO:
+            return static_cast<const MetaChunkInfo*>(this)->matchSelf(test);
+        case KFS_DENTRY:
+            return static_cast<const MetaDentry*>(this)->matchSelf(test);
+        default:
+            panic("Meta::match: invalid node type");
+    }
+    return false;
+}
+
 } // namespace KFS

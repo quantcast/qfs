@@ -499,7 +499,7 @@ Tree::poproot()
  * \brief print all metadata belonging to this leaf node
  */
 ostream&
-Node::show(ostream& os) const
+Node::showSelf(ostream& os) const
 {
     const ostream::fmtflags f = os.flags();
     os <<

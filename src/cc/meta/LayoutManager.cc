@@ -5610,7 +5610,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
 }
 
 void
-CSMap::Entry::destroy()
+CSMap::Entry::destroySelf()
 {
     gLayoutManager.DeleteChunk(*this);
 }

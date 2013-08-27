@@ -103,10 +103,10 @@ class Node: public MetaNode {
     void shiftRight(Node *dest, int nshift);
 protected:
     Node(int f): MetaNode(KFS_INTERNAL, f), count(0), next(NULL) { }
-    virtual ~Node() {}
+    ~Node() {}
 public:
     static Node* create(int f) { return new (allocate<Node>()) Node(f); }
-    virtual void destroy()
+    void destroySelf()
     {
         this->~Node();
         deallocate(this);
@@ -136,7 +136,7 @@ public:
         return p - childKey;
     }
     //! \brief rightmost (largest) key in node
-    const Key key() const { return childKey[count - 1]; }
+    Key keySelf() const { return childKey[count - 1]; }
     Node *child(int n) const        //! \brief accessor
     {
         return static_cast <Node *> (childNode[n]);
@@ -169,7 +169,7 @@ public:
     {
         return refine<T>(leaf(findplace(k)));
     }
-    ostream& show(ostream& os) const;
+    ostream& showSelf(ostream& os) const;
     void showChildren() const;
 };
 
