@@ -75,7 +75,8 @@ public:
           mWhiteListParam(),
           mPrincipalUnparseFlags(0),
           mAuthNoneFlag(false),
-          mMemKeytabGen(0)
+          mMemKeytabGen(0),
+          mAuthTypes(kAuthenticationTypeUndef)
         {}
     ~Impl()
         {}
@@ -271,8 +272,8 @@ public:
         if (inParamNamePrefixPtr) {
             theParamName.Append(inParamNamePrefixPtr);
         }
-        const size_t thePrefLen = theParamName.GetSize();
-        const bool theAuthNoneFlag = inParameters.getValue(
+        const size_t thePrefLen      = theParamName.GetSize();
+        const bool   theAuthNoneFlag = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "noAuth"), mAuthNoneFlag ? 1 : 0) != 0;
         NameRemap theNameRemap;
@@ -314,18 +315,19 @@ public:
         }
         Properties theKrbProps(mKrbProps);
         theParamName.Truncate(thePrefLen).Append("krb5.");
+        size_t theCurLen = theParamName.GetSize();
         inParameters.copyWithPrefix(
-            theParamName.GetPtr(), theParamName.GetSize(), theKrbProps);
+            theParamName.GetPtr(), theCurLen, theKrbProps);
         const bool    theKrbChangedFlag        = theKrbProps != mKrbProps ||
             inParameters.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                "krb5.forceReload"), 0) != 0;
+                theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0;
         int           thePrincipalUnparseFlags = 0;
         KrbServicePtr theKrbServicePtr;
         if (theKrbChangedFlag) {
             const char* const theNullStrPtr     = 0;
             const char* const theServiceNamePtr = inParameters.getValue(
-                theParamName.Truncate(thePrefLen).Append("krb5.service"),
+                theParamName.Truncate(theCurLen).Append("service"),
                 theNullStrPtr
             );
             if (theServiceNamePtr && theServiceNamePtr[0]) {
@@ -342,29 +344,29 @@ public:
                 theKrbServicePtr.reset(new KrbService());
                 const char* theErrMsgPtr = theKrbServicePtr->Init(
                     inParameters.getValue(
-                        theParamName.Truncate(thePrefLen).Append(
-                            "krb5.host"), theNullStrPtr),
+                        theParamName.Truncate(theCurLen).Append(
+                            "host"), theNullStrPtr),
                     theServiceNamePtr,
                     inParameters.getValue(
-                        theParamName.Truncate(thePrefLen).Append(
-                            "krb5.keytab"), theNullStrPtr),
+                        theParamName.Truncate(theCurLen).Append(
+                            "keytab"), theNullStrPtr),
                     inParameters.getValue(
-                        theParamName.Truncate(thePrefLen).Append(
-                            "krb5.copyToMemKeytab"), 1) != 0 ?
+                        theParamName.Truncate(theCurLen).Append(
+                            "copyToMemKeytab"), 1) != 0 ?
                         theMemTabName.c_str() : theNullStrPtr,
                     kDetectReplayFlag
                 );
                 if (theErrMsgPtr) {
                     KFS_LOG_STREAM_ERROR <<
-                        theParamName.Truncate(thePrefLen) <<
-                            "krb5.* configuration error: " <<
+                        theParamName.Truncate(theCurLen) <<
+                            "* configuration error: " <<
                         theErrMsgPtr <<
                     KFS_LOG_EOM;
                     return false;
                 } else {
                     const char* thePrincUnparseModePtr = inParameters.getValue(
-                        theParamName.Truncate(thePrefLen).Append(
-                            "krb5.princUnparseMode"), theNullStrPtr
+                        theParamName.Truncate(theCurLen).Append(
+                            "princUnparseMode"), theNullStrPtr
                     );
                     if (thePrincUnparseModePtr && thePrincUnparseModePtr[0]) {
                         int theCnt = 0;
@@ -385,8 +387,8 @@ public:
                         }
                         if (theCnt <= 0) {
                             KFS_LOG_STREAM_ERROR <<
-                                theParamName.Truncate(thePrefLen) <<
-                                "krb5.* configuration error: "
+                                theParamName.Truncate(theCurLen) <<
+                                "* configuration error: "
                                 "invalid principal unparse mode: " <<
                                 thePrincUnparseModePtr <<
                             KFS_LOG_EOM;
@@ -396,64 +398,72 @@ public:
                 }
             }
         }
-        Properties thePskSslProps(mPskSslProps);
-        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        Properties theX509SslProps(mX509SslProps);
+        theParamName.Truncate(thePrefLen).Append("X509.");
+        theCurLen = theParamName.GetSize();
         inParameters.copyWithPrefix(
-            theParamName.GetPtr(), theParamName.GetSize(), thePskSslProps);
-        const bool thePskSslChangedFlag =
-            (theKrbChangedFlag &&
-                    (mKrbServicePtr.get() != 0) !=
-                    (theKrbServicePtr.get() != 0)) ||
-            mPskSslProps != thePskSslProps ||
-            inParameters.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                "psk.tls.forceReload"), 0) != 0;
-        SslCtxPtr theSslCtxPtr;
-        if (thePskSslChangedFlag && thePskSslProps.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                    "psk.tls.disable"), 0) == 0) {
+            theParamName.GetPtr(), theCurLen, theX509SslProps);
+        const bool theCreateX509CtxFlag = theX509SslProps.getValue(
+                theParamName.Append("PKeyPemFile")) != 0;
+        const bool theX509ChangedFlag =
+            theCreateX509CtxFlag != (mX509SslCtxPtr.Get() != 0) ||
+            theX509SslProps != mX509SslProps ||
+            theX509SslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0;
+        SslCtxPtr theX509SslCtxPtr;
+        if (theCreateX509CtxFlag && theX509ChangedFlag) {
             const bool kServerFlag  = true;
-            const bool kPskOnlyFlag = true;
+            const bool kPskOnlyFlag = false;
             string     theErrMsg;
-            mSslCtxPtr.Set(SslFilter::CreateCtx(
+            theX509SslCtxPtr.Set(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
-                thePskSslProps,
+                theParamName.Truncate(theCurLen).GetPtr(),
+                theX509SslProps,
                 &theErrMsg
             ));
-            if (! mSslCtxPtr.Get()) {
+            if (! theX509SslCtxPtr.Get()) {
                 KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                    "psk.tls.* configuration error: " << theErrMsg <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return false;
             }
         }
-        Properties theX509SslProps(mX509SslProps);
-        theParamName.Truncate(thePrefLen).Append("X509.");
+        Properties thePskSslProps(mPskSslProps);
+        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        theCurLen = theParamName.GetSize();
         inParameters.copyWithPrefix(
-            theParamName.GetPtr(), theParamName.GetSize(), theX509SslProps);
-        const bool theX509ChangedFlag = theX509SslProps != mX509SslProps ||
-            inParameters.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                "X509.forceReload"), 0) != 0;
-        SslCtxPtr theX509SslCtxPtr;
-        if (theX509ChangedFlag) {
+            theParamName.GetPtr(), theCurLen, thePskSslProps);
+        const bool theCreateSslPskFlag  =
+            mServerPskPtr &&
+            (theKrbServicePtr || theX509SslCtxPtr.Get() != 0) &&
+            thePskSslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "disable"), 0) != 0;
+        const bool thePskSslChangedFlag =
+            theCreateSslPskFlag != (mSslCtxPtr.Get() != 0) ||
+            mPskSslProps != thePskSslProps ||
+            thePskSslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0;
+        SslCtxPtr theSslCtxPtr;
+        if (theCreateSslPskFlag && thePskSslChangedFlag) {
             const bool kServerFlag  = true;
-            const bool kPskOnlyFlag = false;
+            const bool kPskOnlyFlag = true;
             string     theErrMsg;
-            mSslCtxPtr.Set(SslFilter::CreateCtx(
+            theSslCtxPtr.Set(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("X509.").GetPtr(),
-                theX509SslProps,
+                theParamName.Truncate(theCurLen).GetPtr(),
+                thePskSslProps,
                 &theErrMsg
             ));
-            if (! mSslCtxPtr.Get()) {
+            if (! theSslCtxPtr.Get()) {
                 KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                    "X509.* configuration error: " << theErrMsg <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return false;
             }
@@ -484,8 +494,16 @@ public:
             mWhiteListParam = theWhiteListParam;
         }
         mAuthNoneFlag = theAuthNoneFlag;
+        mAuthTypes =
+            (mAuthNoneFlag ? int(kAuthenticationTypeNone) : 0) |
+            (mSslCtxPtr.Get() != 0 ? int(kAuthenticationTypePSK) : 0) |
+            (mX509SslCtxPtr.Get() != 0 ? int(kAuthenticationTypeX509) : 0) |
+            (mKrbServicePtr ? int(kAuthenticationTypeKrb5) : 0)
+        ;
         return true;
     }
+    int GetAuthTypes() const
+        { return mAuthTypes; }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -518,6 +536,7 @@ private:
     int              mPrincipalUnparseFlags;
     bool             mAuthNoneFlag;
     unsigned int     mMemKeytabGen;
+    int              mAuthTypes;
 
 private:
     Impl(
@@ -593,6 +612,12 @@ AuthContext::SetParameters(
     const Properties& inParameters)
 {
     return mImpl.SetParameters(inParamNamePrefixPtr, inParameters);
+}
+
+    int
+AuthContext::GetAuthTypes() const
+{
+    return mImpl.GetAuthTypes();
 }
 
 }

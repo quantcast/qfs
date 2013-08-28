@@ -456,6 +456,7 @@ static ResponseWOStream sWOStream;
 /* virtual */ void
 MetaLookup::handle()
 {
+    authType = kAuthenticationTypeUndef; // always reset if op gets here.
     SetEUserAndEGroup(*this);
     MetaFattr* fa = 0;
     if ((status = metatree.lookup(dir, name, euser, egroup, fa)) == 0) {
@@ -3665,6 +3666,10 @@ void
 MetaLookup::response(ostream& os)
 {
     if (! OkHeader(this, os)) {
+        return;
+    }
+    if (authType != kAuthenticationTypeUndef) {
+        os << "Auth-type: " << authType << "\r\n\r\n";
         return;
     }
     os <<

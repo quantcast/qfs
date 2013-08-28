@@ -30,6 +30,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/SslFilter.h"
 
 #include "NetDispatch.h"
 #include "ChunkServer.h"
@@ -127,6 +128,13 @@ public:
         }
         libkfsio::InitGlobals();
         MdStream::Init();
+        SslFilter::Error sslErr = SslFilter::Initialize();
+        if (sslErr) {
+            cerr << "failed to initialize ssl: " <<
+                " error: " << sslErr <<
+                " " << SslFilter::GetErrorMsg(sslErr) << "\n";
+            return 1;
+        }
         if (argc > 1) {
             MsgLogger::Init(argv[1]);
         } else {
@@ -134,6 +142,13 @@ public:
         }
         const bool okFlag = sInstance.Startup(argv[0], createEmptyFsFlag);
         AuditLog::Stop();
+        sslErr = SslFilter::Cleanup();
+        if (sslErr) {
+            KFS_LOG_STREAM_ERROR << "failed to cleanup ssl: " <<
+                " error: " << sslErr <<
+                " " << SslFilter::GetErrorMsg(sslErr) <<
+            KFS_LOG_EOM;
+        }
         MsgLogger::Stop();
         MdStream::Cleanup();
         return (okFlag ? 0 : 1);
@@ -420,21 +435,27 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     SetParameters(props);
 
     gLayoutManager.SetBufferPool(&GetIoBufAllocator().GetBufferPool());
-    gLayoutManager.SetParameters(props, mClientPort);
-    globalNetManager().RegisterTimeoutHandler(this);
-    bool okFlag = gNetDispatch.Bind(mClientPort, mChunkServerPort);
+    bool okFlag = gLayoutManager.SetParameters(props, mClientPort);
     if (okFlag) {
-        KFS_LOG_STREAM_INFO << "starting metaserver" << KFS_LOG_EOM;
-        if ((okFlag = Startup(createEmptyFsFlag ||
-                props.getValue("metaServer.createEmptyFs", 0) != 0))) {
-            KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
-            // The following only returns after receiving SIGQUIT.
-            okFlag = gNetDispatch.Start();
+        globalNetManager().RegisterTimeoutHandler(this);
+        okFlag = gNetDispatch.Bind(mClientPort, mChunkServerPort);
+        if (okFlag) {
+            KFS_LOG_STREAM_INFO << "starting metaserver" << KFS_LOG_EOM;
+            if ((okFlag = Startup(createEmptyFsFlag ||
+                    props.getValue("metaServer.createEmptyFs", 0) != 0))) {
+                KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
+                // The following only returns after receiving SIGQUIT.
+                okFlag = gNetDispatch.Start();
+            }
+        } else {
+            KFS_LOG_STREAM_FATAL <<
+                "failed to bind to port " <<
+                mClientPort << " or " << mChunkServerPort <<
+            KFS_LOG_EOM;
         }
     } else {
         KFS_LOG_STREAM_FATAL <<
-            "failed to bind to port " <<
-            mClientPort << " or " << mChunkServerPort <<
+            "failed to set parameters " <<
         KFS_LOG_EOM;
     }
     gLayoutManager.Shutdown();

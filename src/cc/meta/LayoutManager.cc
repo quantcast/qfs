@@ -1427,7 +1427,7 @@ struct RackPrefixValidator
     }
 };
 
-void
+bool
 LayoutManager::SetParameters(const Properties& props, int clientPort)
 {
     if (MsgLogger::GetLogger()) {
@@ -1884,19 +1884,21 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         }
     }
     mConfigParameters = props;
-    mCSAuthContext.SetParameters(
-        "metaServer.CSAuthentication", mConfigParameters);
-    UpdateClientAuth(mClientAuthContext);
+    const bool csOk = mCSAuthContext.SetParameters(
+        "metaServer.CSAuthentication.", mConfigParameters);
+    const int cliOk = UpdateClientAuth(mClientAuthContext);
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
+    return (csOk && cliOk);
 }
 
-void
+bool
 LayoutManager::UpdateClientAuth(AuthContext& ctx)
 {
-    ctx.SetParameters("metaServer.clientAuthentication", mConfigParameters);
+    return ctx.SetParameters(
+        "metaServer.clientAuthentication.", mConfigParameters);
 }
 
 void

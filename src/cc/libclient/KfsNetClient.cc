@@ -1061,7 +1061,7 @@ private:
             mLookupOp.contentLength = 0;
             mLookupOp.status        = 0;
             mLookupOp.statusMsg.clear();
-            mLookupOp.authType      = kAuthenticationTypeUndef;
+            mLookupOp.authType      = kAuthenticationTypeNone;
             mLookupOp.seq           = mNextSeqNum++;
             mNextSeqNum++; // Leave one slot for mAuthOp
         }
@@ -1208,7 +1208,7 @@ private:
                         static_cast<KfsOp*>(&mAuthOp))
             );
             const bool kAllowRetryFlag = false;
-            HandleSingleOpTimeout(mPendingOpQueue.begin(), kAllowRetryFlag);
+            HandleSingleOpTimeout(theIt, kAllowRetryFlag);
         } else if (inOutstandingOpPtr && ! mFailAllOpsOnOpTimeoutFlag &&
                 ! mPendingOpQueue.empty() &&
                 &(mPendingOpQueue.begin()->second) == inOutstandingOpPtr) {

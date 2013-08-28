@@ -492,9 +492,17 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         assert(! mAuthenticateOp);
         mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
         HandleAuthenticate(iobuf);
-    } else {
-        ClientManager::SubmitRequest(mClientThread, *op);
+        return;
     }
+    if (op->op == META_LOOKUP) {
+        MetaLookup& lookupOp = *static_cast<MetaLookup*>(op);
+        if (lookupOp.IsAuthNegotiation()) {
+            lookupOp.authType = GetAuthContext().GetAuthTypes();
+        }
+        HandleRequest(EVENT_CMD_DONE, op);
+        return;
+    }
+    ClientManager::SubmitRequest(mClientThread, *op);
 }
 
 void

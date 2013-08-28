@@ -1026,7 +1026,7 @@ public:
         int64_t               maxTime,
         int&                  nextTimeCheck);
 
-    void SetParameters(const Properties& props, int clientPort = -1);
+    bool SetParameters(const Properties& props, int clientPort = -1);
     void SetChunkServersProperties(const Properties& props);
 
     void GetChunkServerCounters(IOBuffer& buf);
@@ -1169,7 +1169,8 @@ public:
     }
     uint64_t GetAuthCtxUpdateCount() const
         { return mAuthCtxUpdateCount; }
-    void UpdateClientAuthContext(uint64_t& authCtxUpdateCount, AuthContext& authCtx)
+    void UpdateClientAuthContext
+        (uint64_t& authCtxUpdateCount, AuthContext& authCtx)
     {
         if (authCtxUpdateCount == mAuthCtxUpdateCount) {
             return;
@@ -1983,7 +1984,7 @@ protected:
         return FindRackT(mRacks.begin(), mRacks.end(), id);
     }
     bool FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier);
-    void UpdateClientAuth(AuthContext& ctx);
+    bool UpdateClientAuth(AuthContext& ctx);
 };
 
 // FIXME: stub for now.

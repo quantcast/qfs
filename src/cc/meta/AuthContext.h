@@ -52,6 +52,7 @@ public:
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters);
+    int GetAuthTypes() const;
 private:
     class Impl;
     Impl& mImpl;

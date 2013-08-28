@@ -298,8 +298,9 @@ void submit_request(MetaRequest *r);
  * \brief look up a file name
  */
 struct MetaLookup: public MetaRequest {
-    fid_t  dir;    //!< parent directory fid
-    string name;   //!< name to look up
+    fid_t  dir;      //!< parent directory fid
+    string name;     //!< name to look up
+    int    authType; //!< io auth type
     MFattr fattr;
     MetaLookup()
         : MetaRequest(META_LOOKUP, false),
@@ -327,7 +328,14 @@ struct MetaLookup: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("Parent File-handle", &MetaLookup::dir, fid_t(-1))
         .Def("Filename",           &MetaLookup::name          )
+        .Def("Auth-type",          &MetaLookup::authType,
+            int(kAuthenticationTypeUndef))
         ;
+    }
+    bool IsAuthNegotiation() const
+    {
+        return (authType != kAuthenticationTypeUndef &&
+            dir == ROOTFID && name == "/");
     }
 };
 

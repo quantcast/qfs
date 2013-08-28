@@ -154,37 +154,35 @@ public:
         const bool theKrbRequireSslFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("krb5.requireSsl"),
             0) != 0;
-        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        theParamName.Truncate(thePrefLen).Append("X509.");
         theCurLen = theParamName.GetSize();
-        const bool thePskSslChangedFlag =
-            (theKrbChangedFlag &&
-                    (mKrbClientPtr.get() != 0) !=
-                    (theKrbClientPtr.get() != 0)) ||
-            theParams.getValue(
+        const bool theCreateX509CtxFlag = theParams.getValue(
+                theParamName.Append("PKeyPemFile")) != 0;
+        const bool theX509ChangedFlag =
+            theCreateX509CtxFlag != (mX509SslCtxPtr.Get() != 0) ||
+             theParams.getValue(
                 theParamName.Append("forceReload"), 0) != 0 ||
-            ! theParams.equalsWithPrefix(
+           ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
-        SslCtxPtr theSslCtxPtr;
-        if (thePskSslChangedFlag && theParams.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                    "psk.tls.disable"), 0) == 0) {
+        SslCtxPtr theX509SslCtxPtr;
+        if (theCreateX509CtxFlag && theX509ChangedFlag) {
             const bool kServerFlag  = false;
-            const bool kPskOnlyFlag = true;
+            const bool kPskOnlyFlag = false;
             string     theErrMsg;
-            mSslCtxPtr.Set(SslFilter::CreateCtx(
+            theX509SslCtxPtr.Set(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
+                theParamName.Truncate(theCurLen).GetPtr(),
                 theParams,
                 &theErrMsg
             ));
-            if (! mSslCtxPtr.Get()) {
+            if (! theX509SslCtxPtr.Get()) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = theErrMsg;
                 }
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
-                    "psk.tls.* configuration error: " << theErrMsg <<
+                    "X509.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
@@ -224,32 +222,39 @@ public:
                 }
             }
         }
-        theParamName.Truncate(thePrefLen).Append("X509.");
+        const bool theCreatSslPskFlag =
+            theParams.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "psk.tls.disable"), 0) == 0 &&
+            (theX509SslCtxPtr.Get() != 0 || mKrbClientPtr ||
+            ! thePskKey.empty());
+        theParamName.Truncate(thePrefLen).Append("psk.tls.");
         theCurLen = theParamName.GetSize();
-        const bool theX509ChangedFlag =
+        const bool thePskSslChangedFlag =
+            (theCreatSslPskFlag != (mSslCtxPtr.Get() != 0)) ||
             theParams.getValue(
                 theParamName.Append("forceReload"), 0) != 0 ||
             ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
-        SslCtxPtr theX509SslCtxPtr;
-        if (theX509ChangedFlag) {
+        SslCtxPtr theSslCtxPtr;
+        if (thePskSslChangedFlag && theCreatSslPskFlag) {
             const bool kServerFlag  = false;
-            const bool kPskOnlyFlag = false;
+            const bool kPskOnlyFlag = true;
             string     theErrMsg;
-            mSslCtxPtr.Set(SslFilter::CreateCtx(
+            theSslCtxPtr.Set(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("X509.").GetPtr(),
+                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
                 theParams,
                 &theErrMsg
             ));
-            if (! mSslCtxPtr.Get()) {
+            if (! theSslCtxPtr.Get()) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = theErrMsg;
                 }
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(thePrefLen) <<
-                    "X509.* configuration error: " << theErrMsg <<
+                    "psk.tls.* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
@@ -258,7 +263,8 @@ public:
             theParamName.Truncate(thePrefLen).Append("authNone.enabled"),
             0) != 0;
         mAuthRequiredFlag = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("required"), 0) != 0;
+            theParamName.Truncate(thePrefLen).Append("required"),
+            0) != 0;
         mParams.swap(theParams);
         if (theKrbChangedFlag) {
             mKrbClientPtr.swap(theKrbClientPtr);
