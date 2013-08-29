@@ -61,6 +61,7 @@ PATH="`pwd`:${PATH}"
 [ -d "${kfstools}" ] && PATH="${kfstools}:${PATH}"
 [ -d "${kfsdevtools}" ] && PATH="${kfsdevtools}:${PATH}"
 export PATH
+trap 'echo "`basename "$0"`: test failed."' EXIT
 
 set -e
 umask $qfstoolumask
@@ -370,7 +371,7 @@ $qfstool -D fs.euser=0 -chgrp -R "${qfstoolgroup}" "$tdir"
 $qfstool -ls "$tdir/*" > "$tmpout"
 awk -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
     -v grp="`echo "${qfstoolgroup}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
-    -v p="$tdir/" '
+    -v p="`echo "${tdir}" | sed -e 's/\\\\/\\\\\\\\/g'`/" '
 {
     if (($1 != "Found" && $2 != "items") &&
             ($3 != usr || index($0, grp) == 0 || index($NF, p) == 0)) {
@@ -390,6 +391,7 @@ test x"`$qfstool -text "$tfilegz"`" = x"`echo 'this is a test'`"
 
 $qfstool -rmr -skipTrash "$dir" "local://$testdir" "local://$testdircp"
 
-echo "Passed all tests."
+echo "`basename "$0"`: passed all tests."
+trap '' EXIT
 
 exit 0
