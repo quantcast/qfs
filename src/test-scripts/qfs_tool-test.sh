@@ -271,7 +271,9 @@ BEGIN {
 ' "$tmpout" 
 
 $qfstool -lsr "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts -v usr="$qfstooluser" '
+awk -v p="$dir/$dstbn/" \
+    -v s="$qfstoolsizes" -v ts=$ts \
+    -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" '
 BEGIN {
     sz = split(s, v)
     t = 0
@@ -366,7 +368,9 @@ $qfstool -chown -R "${qfstooluser}:${qfstoolgroup}" "$tdir" && exit 1
 $qfstool -D fs.euser=0 -chown -R "${qfstooluser}" "$tdir"
 $qfstool -D fs.euser=0 -chgrp -R "${qfstoolgroup}" "$tdir"
 $qfstool -ls "$tdir/*" > "$tmpout"
-awk -v usr="$qfstooluser" -v grp="$qfstoolgroup" -v p="$tdir/" '
+awk -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
+    -v grp="`echo "${qfstoolgroup}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
+    -v p="$tdir/" '
 {
     if (($1 != "Found" && $2 != "items") &&
             ($3 != usr || index($0, grp) == 0 || index($NF, p) == 0)) {
