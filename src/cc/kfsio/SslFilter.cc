@@ -349,13 +349,14 @@ public:
         int theRet = 0;
         if (! SSL_set_fd(mSslPtr, inSocketPtr->GetFd())) {
             theRet = errno;
+            mError = GetAndClearErr();
             if (theRet > 0) {
                 theRet = -theRet;
             } else if (theRet == 0) {
                 theRet = -ENOMEM;
             }
         }
-        if (SSL_in_before(mSslPtr)) {
+        if (theRet == 0 && SSL_in_before(mSslPtr)) {
             mError = 0;
             mPskAuthName.clear();
             const int theSslRet = SSL_in_connect_init(mSslPtr) ?
@@ -383,6 +384,8 @@ public:
         }
         if (theRet == 0) {
             inConnection.Update();
+        } else if (mError == 0) {
+            mError = 1;
         }
         return theRet;
     }

@@ -80,10 +80,11 @@ public:
             TcpSocket&     sock,
             IOBuffer&      buffer) = 0;
         virtual void Close(NetConnection& con, TcpSocket* sock) = 0;
-        virtual int Attach(NetConnection& /* con */, TcpSocket* /* sock */,
-            string* /* outErrMsg */)
+        virtual int Attach(NetConnection& /* con */,
+            TcpSocket* /* sock */, string* /* outErrMsg */)
             { return 0; }
-        virtual void Detach(NetConnection& /* con */, TcpSocket* /* sock */)
+        virtual void Detach(NetConnection& /* con */,
+            TcpSocket* /* sock */)
             {}
         virtual string GetAuthName() const
             { return string(); }

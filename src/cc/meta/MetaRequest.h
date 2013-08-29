@@ -306,6 +306,7 @@ struct MetaLookup: public MetaRequest {
         : MetaRequest(META_LOOKUP, false),
           dir(-1),
           name(),
+          authType(kAuthenticationTypeUndef),
           fattr()
         {}
     virtual void handle();
