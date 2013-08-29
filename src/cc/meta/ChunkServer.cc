@@ -549,23 +549,34 @@ ChunkServer::HandleRequest(int code, void *data)
 
     case EVENT_NET_WROTE:
         if (mAuthenticateOp) {
-            if (! mNetConnection || ! mNetConnection->IsWriteReady()) {
-                if (mNetConnection) {
-                    if (mAuthenticateOp->status != 0) {
-                        const string msg = mAuthenticateOp->statusMsg;
-                        delete mAuthenticateOp;
-                        mAuthenticateOp  = 0;
-                        Error(msg.empty() ?
-                            "authentication error" : msg.c_str());
-                        break;
-                    }
-                    if (mAuthenticateOp->filter) {
-                        mNetConnection->SetFilter(mAuthenticateOp->filter);
-                        mAuthenticateOp->filter = 0;
-                    }
-                }
+            if (! mNetConnection) {
+                delete mAuthenticateOp;
+                mAuthenticateOp = 0;
+                break;
+            }
+            if (mNetConnection->IsWriteReady()) {
+                break;
+            }
+            if (mAuthenticateOp->status != 0) {
+                const string msg = mAuthenticateOp->statusMsg;
                 delete mAuthenticateOp;
                 mAuthenticateOp  = 0;
+                Error(msg.empty() ?  "authentication error" : msg.c_str());
+                break;
+            }
+            if (mAuthenticateOp->filter) {
+                string errMsg;
+                NetConnection::Filter* const filter = mAuthenticateOp->filter;
+                mAuthenticateOp->filter = 0;
+                delete mAuthenticateOp;
+                mAuthenticateOp  = 0;
+                const int err = mNetConnection->SetFilter(filter, &errMsg);
+                if (err) {
+                    if (errMsg.empty()) {
+                        errMsg = QCUtils::SysError(err < 0 ? -err : err);
+                    }
+                    Error(errMsg.c_str());
+                }
             }
             break;
         }

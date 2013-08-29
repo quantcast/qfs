@@ -80,9 +80,10 @@ public:
             TcpSocket&     sock,
             IOBuffer&      buffer) = 0;
         virtual void Close(NetConnection& con, TcpSocket* sock) = 0;
-        virtual void Attach(NetConnection& con, TcpSocket* sock)
-            {}
-        virtual void Detach(NetConnection& con, TcpSocket* sock)
+        virtual int Attach(NetConnection& /* con */, TcpSocket* /* sock */,
+            string* /* outErrMsg */)
+            { return 0; }
+        virtual void Detach(NetConnection& /* con */, TcpSocket* /* sock */)
             {}
         virtual string GetAuthName() const
             { return string(); }
@@ -119,17 +120,15 @@ public:
         return mFilter;
     }
 
-    void SetFilter(Filter* filter) {
+    int SetFilter(Filter* filter, string* outErrMsg) {
         if (mFilter == filter) {
-            return;
+            return 0;
         }
         if (mFilter) {
             mFilter->Detach(*this, mSock);
         }
         mFilter = filter;
-        if (mFilter) {
-            mFilter->Attach(*this, mSock);
-        }
+        return (mFilter ? mFilter->Attach(*this, mSock, outErrMsg) : 0);
     }
 
     ~NetConnection() {

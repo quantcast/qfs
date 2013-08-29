@@ -96,6 +96,7 @@ private:
     friend class QCDLListOp<ClientSM, 0>;
     typedef QCDLList<ClientSM, 0> ClientSMList;
 
+    int HandleRequestSelf(int code, void *data);
     /// Given a (possibly) complete op in a buffer, run it.
     void HandleClientCmd(IOBuffer& iobuf, int cmdLen);
 

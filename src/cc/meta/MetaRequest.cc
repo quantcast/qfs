@@ -4159,9 +4159,10 @@ MetaAuthenticate::response(ostream& os)
     }
     os <<
         "Auth-type: " << responseAuthType << "\r\n"
-        "Use-ssl: "   << filter << "\r\n"
+        "Use-ssl: "   << (filter ? 1 : 0) << "\r\n"
     ;
     if (responseContentLen <= 0) {
+        os << "\r\n";
         return;
     }
     os << "Content-length: " << responseContentLen << "\r\n"

@@ -42,6 +42,12 @@ using namespace KFS::libkfsio;
     KFS_LOG_STREAM_DEBUG << "netconn: " << (mSock ? mSock->GetFd() : -1) << " "
 #endif
 
+inline bool
+IsFatalError(int err)
+{
+    return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
+}
+
 void
 NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
 {
@@ -61,7 +67,7 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
                     conn->Update();
                 }
             } else {
-                if (i == 0 || (err != EAGAIN && err != EWOULDBLOCK)) {
+                if (i == 0 || IsFatalError(err)) {
                     NET_CONNECTION_LOG_STREAM_DEBUG <<
                         " accept failure: " << QCUtils::SysError(err) <<
                         " open fd:"
@@ -76,7 +82,7 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
         const int nread = mFilter ?
             mFilter->Read(*this, *mSock, mInBuffer, maxReadAhead) : 
             mInBuffer.Read(mSock->GetFd(), maxReadAhead);
-        if (nread <= 0 && nread != -EAGAIN && nread != -EINTR) {
+        if (nread <= 0 && IsFatalError(-nread)) {
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "read: " << (nread == 0 ? "EOF" : QCUtils::SysError(-nread)) <<
             KFS_LOG_EOM;
@@ -102,7 +108,7 @@ NetConnection::HandleWriteEvent()
             mFilter->Write(*this, *mSock, mOutBuffer) :
             mOutBuffer.Write(mSock->GetFd())
         ) : 0;
-        if (nwrote < 0 && nwrote != -EAGAIN && nwrote != -EINTR) {
+        if (nwrote < 0 && IsFatalError(-nwrote)) {
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "write: error: " << QCUtils::SysError(-nwrote) <<
             KFS_LOG_EOM;

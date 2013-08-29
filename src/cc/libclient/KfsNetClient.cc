@@ -580,7 +580,8 @@ public:
                     mAuthOp.contentLength,
                     *mConnPtr,
                     mAuthRequestCtx,
-                    &mAuthOp.statusMsg)) == 0) {
+                    &mAuthOp.statusMsg)) == 0 &&
+                    IsConnected()) {
                 SubmitPending();
                 return;
             }
@@ -590,8 +591,8 @@ public:
             }
         }
         KFS_LOG_STREAM_ERROR << mLogPrefix <<
-            "authentication response failure: " <<
-                mAuthOp.status <<
+            "authentication response failure: " << mAuthOp.status <<
+            " " << mAuthOp.statusMsg <<
         KFS_LOG_EOM;
         Fail(mAuthOp.status, mAuthOp.statusMsg);
     }

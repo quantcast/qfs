@@ -431,8 +431,7 @@ public:
             delete theFilterPtr;
             return -EFAULT;
         }
-        inNetConnection.SetFilter(theFilterPtr);
-        return 0;
+        return inNetConnection.SetFilter(theFilterPtr, outErrMsgPtr);
     }
     bool IsEnabled() const
         { return mEnabledFlag; }
@@ -615,8 +614,7 @@ private:
                 delete theFilterPtr;
                 return -EFAULT;
             }
-            inNetConnection.SetFilter(theFilterPtr);
-            return 0;
+            return inNetConnection.SetFilter(theFilterPtr, outErrMsgPtr);
         }
         if (inAuthType == kAuthenticationTypeNone) {
             return 0;

@@ -2432,6 +2432,7 @@ struct MetaAuthenticate : public MetaRequest {
         : MetaRequest(META_AUTHENTICATE, false),
           authType(kAuthenticationTypeUndef),
           contentLength(0),
+          contentBuf(0),
           contentBufPos(0),
           responseAuthType(kAuthenticationTypeUndef),
           responseContentPtr(0),

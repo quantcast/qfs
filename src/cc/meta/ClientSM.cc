@@ -36,6 +36,7 @@
 #include "common/kfstypes.h"
 #include "kfsio/Globals.h"
 #include "qcdio/qcstutils.h"
+#include "qcdio/QCUtils.h"
 #include "kfsio/IOBuffer.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
@@ -223,7 +224,12 @@ ClientSM::HandleRequest(int code, void *data)
             return 0;
         }
     }
+    return HandleRequestSelf(code, data);
+}
 
+int
+ClientSM::HandleRequestSelf(int code, void *data)
+{
     assert(mRecursionCnt >= 0 && (mNetConnection ||
         (code == EVENT_CMD_DONE && data && mPendingOpsCount > 0)));
     mRecursionCnt++;
@@ -324,17 +330,30 @@ ClientSM::HandleRequest(int code, void *data)
                     KFS_LOG_EOM;
                 } else {
                     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
-                        "authentication failure:" <<
+                        " authentication failure:" <<
                         " status: " << mAuthenticateOp->status <<
                         " out of order data received" <<
                     KFS_LOG_EOM;
                 }
             } else if (mAuthenticateOp->filter) {
-                mNetConnection->SetFilter(mAuthenticateOp->filter);
+                NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
+                delete mAuthenticateOp;
+                mAuthenticateOp = 0;
+                string errMsg;
+                const int err = mNetConnection->SetFilter(filter, &errMsg);
+                if (err) {
+                    if (errMsg.empty()) {
+                        errMsg = QCUtils::SysError(err < 0 ? -err : err);
+                    }
+                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                        " failed to set ssl filer:" <<
+                        " status: " << err <<
+                        " " << errMsg <<
+                    KFS_LOG_EOM;
+                    mDisconnectFlag = true;
+                }
             }
-            delete mAuthenticateOp;
-            mAuthenticateOp = 0;
         }
         if (! IsOverPendingOpsLimit() &&
                 mRecursionCnt <= 1 &&
@@ -498,9 +517,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         MetaLookup& lookupOp = *static_cast<MetaLookup*>(op);
         if (lookupOp.IsAuthNegotiation()) {
             lookupOp.authType = GetAuthContext().GetAuthTypes();
+            if (mPendingOpsCount == 1) {
+                HandleRequestSelf(EVENT_CMD_DONE, op);
+            } else {
+                HandleRequest(EVENT_CMD_DONE, op);
+            }
+            return;
         }
-        HandleRequest(EVENT_CMD_DONE, op);
-        return;
     }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
@@ -529,17 +552,20 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mNetConnection->SetMaxReadAhead(rem);
         return;
     }
-    if (! iobuf.IsEmpty() && mAuthenticateOp->status == 0) {
+    if (mAuthenticateOp->status == 0 &&
+            (! iobuf.IsEmpty() || mPendingOpsCount != 1 ||
+                mNetConnection->GetFilter())) {
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
+    } else {
+        GetAuthContext().Authenticate(*mAuthenticateOp);
     }
-    GetAuthContext().Authenticate(*mAuthenticateOp);
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
-    mAuthenticateOp->clientIp         = mClientIp;
-    mAuthenticateOp->fromClientSMFlag = true;
-    mAuthenticateOp->clnt             = this;
-    mPendingOpsCount++;
-    HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
+    if (mPendingOpsCount == 1) {
+        HandleRequestSelf(EVENT_CMD_DONE, mAuthenticateOp);
+    } else {
+        HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
+    }
     return;
 }
 

@@ -89,8 +89,10 @@ public:
         const bool theRetFlag =
             (mKrbServicePtr &&
                 (inOp.authType & kAuthenticationTypeKrb5) != 0) ||
-            (mX509SslCtxPtr.Get() &&
+            (mX509SslCtxPtr.Get() != 0 &&
                 (inOp.authType & kAuthenticationTypeX509) != 0) ||
+            (mSslCtxPtr.Get() != 0 &&
+                (inOp.authType & kAuthenticationTypePSK) != 0) ||
             (mAuthNoneFlag &&
                     (inOp.authType & kAuthenticationTypeNone) != 0);
         if (! theRetFlag) {
@@ -563,9 +565,11 @@ AuthContext::Validate(
     delete [] inOp.contentBuf;
     inOp.contentBuf    = 0;
     inOp.contentBufPos = 0;
-    if ((inOp.authType & kAuthenticationTypeKrb5)== 0 &&
-            (inOp.authType & kAuthenticationTypeX509) == 0 &&
-            (inOp.authType != kAuthenticationTypeNone) == 0) {
+    if ((inOp.authType &
+            (kAuthenticationTypeKrb5 |
+            kAuthenticationTypeX509 |
+            kAuthenticationTypeNone |
+            kAuthenticationTypePSK))== 0) {
         inOp.status    = -EINVAL;
         inOp.statusMsg = "authentication type is not supported";
     } else {
@@ -577,19 +581,18 @@ AuthContext::Validate(
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "invalid non zero content"
                     " length with non kerberos authentication";
-            } else {
-                inOp.contentBuf = new char [inOp.contentLength];
-                inOp.contentBuf = 0;
             }
-        } else {
-            if ((inOp.authType & kAuthenticationTypeKrb5) != 0) {
-                inOp.status    = -EINVAL;
-                inOp.statusMsg = "invalid zero content"
-                    " length with kerberos authentication";
-            }
+        } else if ((inOp.authType & kAuthenticationTypeKrb5) != 0) {
+            inOp.status    = -EINVAL;
+            inOp.statusMsg = "invalid zero content"
+                " length with kerberos authentication";
         }
     }
-    return mImpl.Validate(inOp);
+    const int theRetFlag = mImpl.Validate(inOp);
+    if (theRetFlag && 0 < inOp.contentLength) {
+        inOp.contentBuf = new char [inOp.contentLength];
+    }
+    return theRetFlag;
 }
 
     bool

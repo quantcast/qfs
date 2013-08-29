@@ -133,7 +133,20 @@ private:
             QCASSERT(mConnectionPtr);
             SET_HANDLER(this, &Responder::EventHandler);
             if (inUseFilterFlag) {
-                mConnectionPtr->SetFilter(&mSslFilter);
+                string theErrMsg;
+                const int theErr = mConnectionPtr->SetFilter(
+                    &mSslFilter, &theErrMsg);
+                if (theErr) {
+                    if (theErrMsg.empty()) {
+                        theErrMsg = QCUtils::SysError(
+                            theErr < 0 ? -theErr : theErr);
+                    }
+                    KFS_LOG_STREAM_ERROR << mPeerName << "Responder()" <<
+                        " error: " << theErrMsg <<
+                    KFS_LOG_EOM;
+                    mConnectionPtr->Close();
+                    return;
+                }
             }
             mConnectionPtr->SetMaxReadAhead(mMaxReadAhead);
             KFS_LOG_STREAM_DEBUG << mPeerName << "Responder()" <<
@@ -432,7 +445,21 @@ private:
                 }
 	        case EVENT_NET_WROTE:
                     if (mUseFilterFlag && ! mConnectionPtr->GetFilter()) {
-                        mConnectionPtr->SetFilter(&mSslFilter);
+                        string theErrMsg;
+                        const int theErr = mConnectionPtr->SetFilter(
+                            &mSslFilter, &theErrMsg);
+                        if (theErr) {
+                            if (theErrMsg.empty()) {
+                                theErrMsg = QCUtils::SysError(
+                                    theErr < 0 ? -theErr : theErr);
+                            }
+                            KFS_LOG_STREAM_ERROR <<
+                                mConnectionPtr->GetPeerName() << " Initiator" <<
+                                " error: " << theErrMsg <<
+                            KFS_LOG_EOM;
+                            mConnectionPtr->Close();
+                            break;
+                        }
                     }
                     if (mCloseConnectionFlag &&
                             ! mConnectionPtr->IsWriteReady()) {

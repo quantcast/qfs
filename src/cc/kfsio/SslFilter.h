@@ -132,9 +132,10 @@ public:
     virtual void Close(
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr);
-    virtual void Attach(
+    virtual int Attach(
         NetConnection& inConnection,
-        TcpSocket*     inSocketPtr);
+        TcpSocket*     inSocketPtr,
+        string*        outErrMsgPtr);
     virtual void Detach(
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr);

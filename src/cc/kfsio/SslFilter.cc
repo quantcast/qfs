@@ -29,6 +29,7 @@
 #include "IOBuffer.h"
 #include "Globals.h"
 #include "qcdio/QCMutex.h"
+#include "qcdio/QCUtils.h"
 #include "common/Properties.h"
 
 #include <openssl/ssl.h>
@@ -139,8 +140,8 @@ public:
                 theParamName.Truncate(thePrefLen).Append(
                     inPskOnlyFlag ? "cipherpsk" : "cipher"),
                 inPskOnlyFlag ?
-                    "!ADH:!AECDH:!MD5:HIGH:@STRENGTH" :
-                    "!ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH"
+                    "!ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH" :
+                    "!ADH:!AECDH:!MD5:HIGH:@STRENGTH"
                 ))) {
             if (inErrMsgPtr) {
                 *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
@@ -160,7 +161,8 @@ public:
         if (inParams.getValue(
                 theParamName.Truncate(thePrefLen).Append("verifyPeer"),
                 1) != 0) {
-            SSL_CTX_set_verify(theRetPtr, SSL_VERIFY_PEER, 0);
+            SSL_CTX_set_verify(theRetPtr,
+                SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
         }
         const char* const kNullStrPtr  = 0;
         const char* const theCAFilePtr = inParams.getValue(
@@ -326,29 +328,63 @@ public:
                 SSL_get_fd(mSslPtr) == inSocketPtr->GetFd()) {
             SSL_shutdown(mSslPtr);
         }
-        inConnection.SetFilter(0);
+        inConnection.SetFilter(0, 0);
         if (mDeleteOnCloseFlag) {
             delete this;
         }
         inConnection.Close();
     }
-    void Attach(
+    int Attach(
         NetConnection& inConnection,
-        TcpSocket*     inSocketPtr)
+        TcpSocket*     inSocketPtr,
+        string*        outErrMsgPtr)
     {
         if (! inSocketPtr || ! inSocketPtr->IsGood() || ! mSslPtr) {
-            return;
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "no tcp socket, or ssl context";
+            }
+            return -EINVAL;
         }
-        SSL_set_fd(mSslPtr, inSocketPtr->GetFd());
-        if (SSL_in_before(mSslPtr)) {
-            mPskAuthName.clear();
-            const int theRet = SSL_in_connect_init(mSslPtr) ?
-                SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
-            if (theRet <= 0) {
-                bool theEofFlag = false;
-                SslRetToErr(theRet, theEofFlag);
+        errno = 0;
+        int theRet = 0;
+        if (! SSL_set_fd(mSslPtr, inSocketPtr->GetFd())) {
+            theRet = errno;
+            if (theRet > 0) {
+                theRet = -theRet;
+            } else if (theRet == 0) {
+                theRet = -ENOMEM;
             }
         }
+        if (SSL_in_before(mSslPtr)) {
+            mError = 0;
+            mPskAuthName.clear();
+            const int theSslRet = SSL_in_connect_init(mSslPtr) ?
+                SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
+            if (theSslRet <= 0) {
+                bool theEofFlag = false;
+                theRet = SslRetToErr(theSslRet, theEofFlag);
+                if (mError == 0 && (
+                        theRet == -EAGAIN ||
+                        theRet == -EINTR ||
+                        theRet == -EWOULDBLOCK)) {
+                    theRet = 0;
+                }
+            }
+        }
+        if (mError) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = GetErrorMsg(mError);
+            }
+            if (theRet == 0) {
+                theRet = -EINVAL;
+            }
+        } else if (theRet != 0 && outErrMsgPtr) {
+            *outErrMsgPtr = QCUtils::SysError(theRet < 0 ? -theRet : theRet);
+        }
+        if (theRet == 0) {
+            inConnection.Update();
+        }
+        return theRet;
     }
     void Detach(
         NetConnection& inConnection,
@@ -587,6 +623,7 @@ private:
                 break;
             case SSL_ERROR_ZERO_RETURN:
                 outEofFlag = true;
+                break;
             case SSL_ERROR_WANT_READ:
             case SSL_ERROR_WANT_WRITE:
             case SSL_ERROR_WANT_CONNECT:
@@ -596,16 +633,14 @@ private:
             case SSL_ERROR_SYSCALL:
                 mError = GetAndClearErr();
                 if (mError == 0) {
-                    if (inRet < 0) {
-                        const int theErr = errno;
-                        if (theErr > 0) {
-                            return -theErr;
-                        }
-                        if (theErr == 0) {
-                            return inRet;
-                        }
-                        return theErr;
+                    const int theErr = errno;
+                    if (theErr > 0) {
+                        return -theErr;
                     }
+                    if (theErr == 0) {
+                        return -EINVAL;
+                    }
+                    return theErr;
                 }
                 return -EINVAL;
             case SSL_ERROR_SSL:
@@ -751,12 +786,13 @@ SslFilter::Close(
     mImpl.Close(inConnection, inSocketPtr);
 }
 
-    /* virtual */ void
+    /* virtual */ int
 SslFilter::Attach(
     NetConnection& inConnection,
-    TcpSocket*     inSocketPtr)
+    TcpSocket*     inSocketPtr,
+    string*        outErrMsgPtr)
 {
-    mImpl.Attach(inConnection, inSocketPtr);
+    return mImpl.Attach(inConnection, inSocketPtr, outErrMsgPtr);
 }
 
     /* virtual */ void
