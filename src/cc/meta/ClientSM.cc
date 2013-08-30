@@ -380,7 +380,12 @@ ClientSM::HandleRequestSelf(int code, void *data)
         // Fall through.
     case EVENT_INACTIVITY_TIMEOUT:
         KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
-            " closing connection" <<
+            " closing connection " <<
+            (code == EVENT_INACTIVITY_TIMEOUT ?
+                string(" timed out") :
+                (mNetConnection->IsGood() ?
+                    string("EOF") : mNetConnection->GetErrorMsg())
+            ) <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         mNetConnection->GetInBuffer().Clear();

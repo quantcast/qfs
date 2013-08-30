@@ -98,6 +98,7 @@ public:
         const char*    inKeyDataPtr,
         int            inKeyDataSize,
         string*        outErrMsgPtr);
+    int GetMaxAuthRetryCount() const;
 private:
     Impl& mImpl;
     static void Dispose(

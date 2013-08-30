@@ -689,8 +689,6 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::Error(const char* errorMsg)
 {
-    const int socketErr = (mNetConnection && mNetConnection->IsGood()) ?
-        mNetConnection->GetSocketError() : 0;
     KFS_LOG_STREAM_ERROR <<
         "chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
@@ -698,7 +696,8 @@ ChunkServer::Error(const char* errorMsg)
         " down" <<
         (mRestartQueuedFlag ? " restart" : "") <<
         " reason: " << (errorMsg ? errorMsg : "unspecified") <<
-        " socket error: " << QCUtils::SysError(socketErr) <<
+        " socket error: " << (mNetConnection ?
+            mNetConnection->GetErrorMsg() : string("none")) <<
     KFS_LOG_EOM;
     if (mNetConnection) {
         mNetConnection->Close();

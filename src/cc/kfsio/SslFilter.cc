@@ -225,7 +225,8 @@ public:
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
           mPskAuthName(),
           mServerPskPtr(inServerPskPtr),
-          mDeleteOnCloseFlag(inDeleteOnCloseFlag)
+          mDeleteOnCloseFlag(inDeleteOnCloseFlag),
+          mSslErrorFlag(false)
     {
         if (mSslPtr &&
                 ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
@@ -348,8 +349,9 @@ public:
         errno = 0;
         int theRet = 0;
         if (! SSL_set_fd(mSslPtr, inSocketPtr->GetFd())) {
-            theRet = errno;
-            mError = GetAndClearErr();
+            mSslErrorFlag = false;
+            theRet        = errno;
+            mError        = GetAndClearErr();
             if (theRet > 0) {
                 theRet = -theRet;
             } else if (theRet == 0) {
@@ -357,7 +359,8 @@ public:
             }
         }
         if (theRet == 0 && SSL_in_before(mSslPtr)) {
-            mError = 0;
+            mError        = 0;
+            mSslErrorFlag = false;
             mPskAuthName.clear();
             const int theSslRet = SSL_in_connect_init(mSslPtr) ?
                 SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
@@ -436,6 +439,17 @@ public:
         }
         return GetCommonName(X509_get_subject_name(theCertPtr));
     }
+    bool IsAuthFailure() const
+    {
+        return (
+            mSslErrorFlag && mSslPtr &&
+            ! SSL_is_init_finished(mSslPtr)
+        );
+    }
+    int GetErrorCode() const
+        { return (mError ? -EFAULT : 0); }
+    string GetErrorMsg() const
+        { return (mError ? GetErrorMsg(mError) : string()); }
 private:
     SSL*             mSslPtr;
     unsigned long    mError;
@@ -444,6 +458,7 @@ private:
     string           mPskAuthName;
     ServerPsk* const mServerPskPtr;
     const bool       mDeleteOnCloseFlag;
+    bool             mSslErrorFlag;
 
     struct OpenSslInit
     {
@@ -619,7 +634,8 @@ private:
         int   inRet,
         bool& outEofFlag)
     {
-        outEofFlag = false;
+        outEofFlag    = false;
+        mSslErrorFlag = false;
         switch (SSL_get_error(mSslPtr, inRet))
         {
             case SSL_ERROR_NONE:
@@ -633,21 +649,23 @@ private:
             case SSL_ERROR_WANT_ACCEPT:
             case SSL_ERROR_WANT_X509_LOOKUP:
                 return -EAGAIN;
-            case SSL_ERROR_SYSCALL:
+            case SSL_ERROR_SYSCALL: {
                 mError = GetAndClearErr();
-                if (mError == 0) {
-                    const int theErr = errno;
-                    if (theErr > 0) {
-                        return -theErr;
-                    }
-                    if (theErr == 0) {
-                        return -EINVAL;
-                    }
-                    return theErr;
+                if (mError) {
+                    return -EINVAL;
                 }
-                return -EINVAL;
+                const int theErr = errno;
+                if (theErr > 0) {
+                    return -theErr;
+                }
+                if (theErr == 0) {
+                    return -EINVAL;
+                }
+                return theErr;
+            }
             case SSL_ERROR_SSL:
-                mError = GetAndClearErr();
+                mError        = GetAndClearErr();
+                mSslErrorFlag = true;
                 return -EINVAL;
             default:
                 return -EINVAL;
@@ -816,6 +834,22 @@ SslFilter::IsHandshakeDone() const
 SslFilter::GetAuthName() const
 {
     return mImpl.GetAuthName();
+}
+    bool
+SslFilter::IsAuthFailure() const
+{
+    return mImpl.IsAuthFailure();
+}
+    string
+SslFilter::GetErrorMsg() const
+{
+    return mImpl.GetErrorMsg();
+}
+
+    int
+SslFilter::GetErrorCode() const
+{
+    return mImpl.GetErrorCode();
 }
 
 }

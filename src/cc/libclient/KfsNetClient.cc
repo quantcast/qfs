@@ -118,6 +118,7 @@ public:
           mContentLength(0),
           mMaxRetryCount(inMaxRetryCount),
           mMaxContentLength(inMaxContentLength),
+          mAuthFailureCount(0),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
           mInFlightRecvBufPtr(0),
@@ -173,8 +174,9 @@ public:
         if (mSleepingFlag || IsConnected()) {
             Reset();
         }
-        mServerLocation = inLocation;
-        mRetryCount = 0;
+        mServerLocation   = inLocation;
+        mAuthFailureCount = 0;
+        mRetryCount       = 0;
         mNextSeqNum += 100;
         EnsureConnected(inErrMsgPtr);
         return (mSleepingFlag || IsConnected());
@@ -207,6 +209,7 @@ public:
     void Stop()
     {
         Reset();
+        mAuthFailureCount = 0;
         Cancel();
     }
     int GetMaxRetryCount() const
@@ -395,19 +398,24 @@ public:
                 // Fall through.
             case EVENT_NET_ERROR:
                 if (mConnPtr) {
+                    if (mAuthContextPtr && mConnPtr->IsAuthFailure()) {
+                        mAuthFailureCount++;
+                    } else {
+                        mAuthFailureCount = 0;
+                    }
                     mAllDataSentFlag = ! mConnPtr->IsWriteReady();
                     KFS_LOG_STREAM(mPendingOpQueue.empty() ?
                             MsgLogger::kLogLevelDEBUG :
                             MsgLogger::kLogLevelERROR) << mLogPrefix <<
                         "closing connection: " << mConnPtr->GetSockName() <<
-                        " to: " <<
-                        mServerLocation.ToString() <<
-                        " due to " << theReasonPtr <<
-                        " error: " <<
-                            QCUtils::SysError(mConnPtr->GetSocketError()) <<
-                        " pending read: " << mConnPtr->GetNumBytesToRead() <<
-                        " write: " << mConnPtr->GetNumBytesToWrite() <<
-                        " ops: " << mPendingOpQueue.size() <<
+                        " to: "            << mServerLocation.ToString() <<
+                        " due to "         << theReasonPtr <<
+                        " pending:"
+                        " read: "          << mConnPtr->GetNumBytesToRead() <<
+                        " write: "         << mConnPtr->GetNumBytesToWrite() <<
+                        " ops: "           << mPendingOpQueue.size() <<
+                        " auth failures: " << mAuthFailureCount <<
+                        " error: "         << mConnPtr->GetErrorMsg() <<
                     KFS_LOG_EOM;
                     Reset();
                 }
@@ -673,6 +681,7 @@ private:
     bool               mAllDataSentFlag;
     bool               mRetryConnectOnlyFlag;
     bool               mIdleTimeoutFlag;
+    bool               mPrevAuthFailureFlag;
     bool               mResetConnectionOnOpTimeoutFlag;
     bool               mFailAllOpsOnOpTimeoutFlag;
     bool               mMaxOneOutstandingOpFlag;
@@ -683,6 +692,7 @@ private:
     int                mContentLength;
     int                mMaxRetryCount;
     int                mMaxContentLength;
+    int                mAuthFailureCount;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
     char*              mInFlightRecvBufPtr;
@@ -1179,7 +1189,10 @@ private:
             return;
         }
         CancelInFlightOp();
-        if (mRetryCount < mMaxRetryCount && (! mRetryConnectOnlyFlag ||
+        if (mRetryCount < mMaxRetryCount &&
+                (! mAuthContextPtr ||
+                mAuthFailureCount < mAuthContextPtr->GetMaxAuthRetryCount()) &&
+                (! mRetryConnectOnlyFlag ||
                 (! mDataSentFlag && ! mDataReceivedFlag) ||
                 IsAuthInFlight())) {
             mRetryCount++;
@@ -1213,8 +1226,12 @@ private:
         } else if (inOutstandingOpPtr && ! mFailAllOpsOnOpTimeoutFlag &&
                 ! mPendingOpQueue.empty() &&
                 &(mPendingOpQueue.begin()->second) == inOutstandingOpPtr) {
-            HandleSingleOpTimeout(mPendingOpQueue.begin());
+            const bool kAllowRetryFlag = true;
+            HandleSingleOpTimeout(mPendingOpQueue.begin(), kAllowRetryFlag,
+                mAuthFailureCount ? -EPERM : kErrorMaxRetryReached);
         } else {
+            const int theStatus = 0 < mAuthFailureCount ?
+                -EPERM : kErrorMaxRetryReached;
             QueueStack::iterator const theIt =
                 mQueueStack.insert(mQueueStack.end(), OpQueue());
             OpQueue& theQueue = *theIt;
@@ -1225,7 +1242,7 @@ private:
                 if (! theIt->second.mOpPtr) {
                     continue;
                 }
-                theIt->second.mOpPtr->status = kErrorMaxRetryReached;
+                theIt->second.mOpPtr->status = theStatus;
                 theIt->second.Done();
             }
             mQueueStack.erase(theIt);
@@ -1233,13 +1250,14 @@ private:
     }
     void HandleSingleOpTimeout(
         OpQueue::iterator inIt,
-        bool              inAllowRetryFlag = true)
+        bool              inAllowRetryFlag = true,
+        int               inStatus         = kErrorMaxRetryReached)
     {
         OpQueueEntry& theEntry = inIt->second;
         if (inAllowRetryFlag && theEntry.mRetryCount < mMaxRetryCount) {
             theEntry.mRetryCount++;
         } else {
-            theEntry.mOpPtr->status = kErrorMaxRetryReached;
+            theEntry.mOpPtr->status = inStatus;
             const int thePrefRefCount = GetRefCount();
             HandleOp(inIt);
             if (thePrefRefCount > GetRefCount()) {

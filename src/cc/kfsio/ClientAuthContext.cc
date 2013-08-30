@@ -75,6 +75,7 @@ public:
           mAuthNoneEnabledFlag(false),
           mKrbAuthRequireSslFlag(false),
           mAuthRequiredFlag(false),
+          mMaxAuthRetryCount(3),
           mParams(),
           mKrbClientPtr(),
           mSslCtxPtr(),
@@ -265,6 +266,9 @@ public:
         mAuthRequiredFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("required"),
             0) != 0;
+        mMaxAuthRetryCount = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("maxAuthRetries"),
+            mMaxAuthRetryCount);
         mParams.swap(theParams);
         if (theKrbChangedFlag) {
             mKrbClientPtr.swap(theKrbClientPtr);
@@ -435,6 +439,8 @@ public:
     }
     bool IsEnabled() const
         { return mEnabledFlag; }
+    int GetMaxAuthRetryCount() const
+        { return mMaxAuthRetryCount; }
     int CheckAuthType(
         int     inAuthType,
         bool&   outDoAuthFlag,
@@ -488,6 +494,7 @@ private:
     bool            mAuthNoneEnabledFlag;
     bool            mKrbAuthRequireSslFlag;
     bool            mAuthRequiredFlag;
+    int             mMaxAuthRetryCount;
     Properties      mParams;
     KrbClientPtr    mKrbClientPtr;
     SslCtxPtr       mSslCtxPtr;
@@ -700,6 +707,11 @@ ClientAuthContext::IsEnabled() const
     return mImpl.IsEnabled();
 }
 
+    int
+ClientAuthContext::GetMaxAuthRetryCount() const
+{
+    return mImpl.GetMaxAuthRetryCount();
+}
     /* static */ void
 ClientAuthContext::Dispose(
     ClientAuthContext::RequestCtxImpl& inRequestCtxImpl)

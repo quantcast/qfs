@@ -83,8 +83,14 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
             mFilter->Read(*this, *mSock, mInBuffer, maxReadAhead) : 
             mInBuffer.Read(mSock->GetFd(), maxReadAhead);
         if (nread <= 0 && IsFatalError(-nread)) {
+            if (nread != 0) {
+                GetErrorMsg();
+                IsAuthFailure();
+            }
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "read: " << (nread == 0 ? "EOF" : QCUtils::SysError(-nread)) <<
+                (mAuthFailureFlag ? " auth failure" : "") <<
+                (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
             if (nread != 0) {
                 Close();
@@ -109,8 +115,12 @@ NetConnection::HandleWriteEvent()
             mOutBuffer.Write(mSock->GetFd())
         ) : 0;
         if (nwrote < 0 && IsFatalError(-nwrote)) {
+            GetErrorMsg();
+            IsAuthFailure();
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "write: error: " << QCUtils::SysError(-nwrote) <<
+                (mAuthFailureFlag ? " auth failure" : "") <<
+                (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
             Close();
             mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
@@ -126,7 +136,12 @@ void
 NetConnection::HandleErrorEvent()
 {
     if (IsGood()) {
-        NET_CONNECTION_LOG_STREAM_DEBUG << "connection error, closing" <<
+        GetErrorMsg();
+        IsAuthFailure();
+        NET_CONNECTION_LOG_STREAM_DEBUG <<
+            "closing connection due to error" <<
+            (mAuthFailureFlag ? " auth failure" : "") <<
+            (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
         KFS_LOG_EOM;
         Close();
         mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
@@ -162,6 +177,26 @@ NetConnection::Update(bool resetTimer)
 {
     NetManager::Update(
         mNetManagerEntry, IsGood() ? mSock->GetFd() : -1, resetTimer);
+}
+
+string
+NetConnection::GetErrorMsg() const
+{
+    string msg;
+    if (mFilter) {
+        msg = mFilter->GetErrorMsg();
+    }
+    if (mSock && msg.empty()) {
+        const int err = mSock->GetSocketError();
+        if (err) {
+            msg = QCUtils::SysError(err);
+        }
+    }
+    if (! msg.empty()) {
+        // Mutable
+        const_cast<string&>(mLstErrorMsg) = msg;
+    }
+    return mLstErrorMsg;
 }
 
 }

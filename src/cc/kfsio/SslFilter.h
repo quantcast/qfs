@@ -140,6 +140,9 @@ public:
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr);
     virtual string GetAuthName() const;
+    virtual bool IsAuthFailure() const;
+    virtual string GetErrorMsg() const;
+    virtual int GetErrorCode() const;
     bool IsHandshakeDone() const;
 private:
     class Impl;

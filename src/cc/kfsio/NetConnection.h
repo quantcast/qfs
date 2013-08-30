@@ -88,6 +88,12 @@ public:
             {}
         virtual string GetAuthName() const
             { return string(); }
+        virtual bool IsAuthFailure() const
+            { return false; }
+        virtual string GetErrorMsg() const
+            { return string(); }
+        virtual int GetErrorCode() const
+            { return 0; }
         virtual ~Filter()
             {}
     protected:
@@ -106,6 +112,7 @@ public:
           mListenOnly(listenOnly),
           mOwnsSocket(ownsSocket),
           mTryWrite(false),
+          mAuthFailureFlag(false),
           mCallbackObj(c),
           mSock(sock),
           mInBuffer(),
@@ -113,6 +120,7 @@ public:
           mInactivityTimeoutSecs(-1),
           maxReadAhead(-1),
           mPeerName(),
+          mLstErrorMsg(),
           mFilter(filter) {
         assert(mSock);
     }
@@ -280,6 +288,15 @@ public:
         }
     }
 
+    string GetErrorMsg() const;
+
+    bool IsAuthFailure() const {
+        const_cast<bool&>(mAuthFailureFlag) =
+            mAuthFailureFlag ||
+            (mFilter && mFilter->IsAuthFailure());
+        return mAuthFailureFlag;
+    }
+
     int GetSocketError() const {
         return (mSock ? mSock->GetSocketError() : 0);
     }
@@ -427,6 +444,7 @@ private:
     const bool      mListenOnly:1;
     const bool      mOwnsSocket:1;
     bool            mTryWrite:1;
+    bool            mAuthFailureFlag:1;
     /// KfsCallbackObj that will be notified whenever "events" occur.
     KfsCallbackObj* mCallbackObj;
     /// Socket on which I/O will be done.
@@ -440,6 +458,7 @@ private:
     int             mInactivityTimeoutSecs;
     int             maxReadAhead;
     string          mPeerName;
+    string          mLstErrorMsg;
     Filter*         mFilter;
 
 private:
