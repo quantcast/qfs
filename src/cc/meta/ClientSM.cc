@@ -565,7 +565,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
         // Try to read more, to detect protocol error, as the client
-        // should not send anything else before receiving response.
+        // should not send anything else prior to receiving the response.
         mNetConnection->SetMaxReadAhead(rem + sMaxReadAhead);
         return;
     }
