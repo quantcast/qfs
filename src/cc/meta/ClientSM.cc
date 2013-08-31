@@ -336,6 +336,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                     KFS_LOG_EOM;
                 }
             } else {
+                mAuthName = mAuthenticateOp->authName;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
                 delete mAuthenticateOp;
@@ -354,6 +355,13 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         KFS_LOG_EOM;
                         mDisconnectFlag = true;
                     }
+                }
+                if (! mDisconnectFlag) {
+                    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+                        " auth reply sent:" <<
+                        " ssl: "  << (filter ? 1 : 0) <<
+                        " name: " << mAuthName <<
+                    KFS_LOG_EOM;
                 }
             }
         }

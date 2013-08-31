@@ -223,14 +223,14 @@ public:
                 }
             }
         }
-        const bool theCreatSslPskFlag =
-            theParams.getValue(
-                theParamName.Truncate(thePrefLen).Append(
-                "psk.tls.disable"), 0) == 0 &&
-            (theX509SslCtxPtr.Get() != 0 || mKrbClientPtr ||
-            ! thePskKey.empty());
         theParamName.Truncate(thePrefLen).Append("psk.tls.");
         theCurLen = theParamName.GetSize();
+        const bool theCreatSslPskFlag =
+            theParams.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "disable"), 0) == 0 &&
+            (theX509SslCtxPtr.Get() != 0 || theKrbClientPtr ||
+            ! thePskKey.empty());
         const bool thePskSslChangedFlag =
             (theCreatSslPskFlag != (mSslCtxPtr.Get() != 0)) ||
             theParams.getValue(

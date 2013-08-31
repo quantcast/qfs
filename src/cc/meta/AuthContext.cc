@@ -439,11 +439,11 @@ public:
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theCurLen, thePskSslProps);
         const bool theCreateSslPskFlag  =
-            mServerPskPtr &&
-            (theKrbServicePtr || theX509SslCtxPtr.Get() != 0) &&
+            (theKrbServicePtr ||
+            (mServerPskPtr && theX509SslCtxPtr.Get() != 0)) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
-                "disable"), 0) != 0;
+                "disable"), 0) == 0;
         const bool thePskSslChangedFlag =
             theCreateSslPskFlag != (mSslCtxPtr.Get() != 0) ||
             mPskSslProps != thePskSslProps ||
