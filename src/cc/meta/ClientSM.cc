@@ -324,7 +324,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mDisconnectFlag = true;
                 if (mAuthenticateOp->status != 0) {
                     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
-                        "authentication failure:" <<
+                        " authentication failure:" <<
                         " status: " << mAuthenticateOp->status <<
                         " " << mAuthenticateOp->statusMsg <<
                     KFS_LOG_EOM;
@@ -335,23 +335,25 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         " out of order data received" <<
                     KFS_LOG_EOM;
                 }
-            } else if (mAuthenticateOp->filter) {
+            } else {
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
                 delete mAuthenticateOp;
                 mAuthenticateOp = 0;
-                string errMsg;
-                const int err = mNetConnection->SetFilter(filter, &errMsg);
-                if (err) {
-                    if (errMsg.empty()) {
-                        errMsg = QCUtils::SysError(err < 0 ? -err : err);
+                if (filter) {
+                    string errMsg;
+                    const int err = mNetConnection->SetFilter(filter, &errMsg);
+                    if (err) {
+                        if (errMsg.empty()) {
+                            errMsg = QCUtils::SysError(err < 0 ? -err : err);
+                        }
+                        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                            " failed to set ssl filer:" <<
+                            " status: " << err <<
+                            " " << errMsg <<
+                        KFS_LOG_EOM;
+                        mDisconnectFlag = true;
                     }
-                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
-                        " failed to set ssl filer:" <<
-                        " status: " << err <<
-                        " " << errMsg <<
-                    KFS_LOG_EOM;
-                    mDisconnectFlag = true;
                 }
             }
         }
@@ -554,7 +556,9 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     }
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
-        mNetConnection->SetMaxReadAhead(rem);
+        // Try to read more, to detect protocol error, as the client
+        // should not send anything else before receiving response.
+        mNetConnection->SetMaxReadAhead(rem + sMaxReadAhead);
         return;
     }
     if (mAuthenticateOp->status == 0 &&

@@ -194,7 +194,7 @@ NetConnection::GetErrorMsg() const
     }
     if (! msg.empty()) {
         // Mutable
-        const_cast<string&>(mLstErrorMsg) = msg;
+        const_cast<NetConnection*>(this)->mLstErrorMsg = msg;
     }
     return mLstErrorMsg;
 }

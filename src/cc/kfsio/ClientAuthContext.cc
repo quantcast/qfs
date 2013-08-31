@@ -116,7 +116,7 @@ public:
         const char* theNullStr         = 0;
         const char* theServeiceNamePtr = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append(
-            "krb5.serviceName"), theNullStr);
+            "krb5.service"), theNullStr);
         theParamName.Truncate(thePrefLen).Append("krb5.");
         size_t theCurLen = theParamName.GetSize();
         const bool theKrbChangedFlag =
@@ -129,7 +129,7 @@ public:
             const char* const theErrMsgPtr = theKrbClientPtr->Init(
                 theParams.getValue(
                     theParamName.Truncate(thePrefLen).Append(
-                    "krb5.serviceHost"), theNullStr),
+                    "krb5.host"), theNullStr),
                 theServeiceNamePtr,
                 theParams.getValue(
                     theParamName.Truncate(thePrefLen).Append(
@@ -571,18 +571,19 @@ private:
             }
             if (! mKrbClientPtr) {
                 if (outErrMsgPtr) {
-                    *outErrMsgPtr =
-                        "response: internal error no krb5 context";
+                    *outErrMsgPtr = "response: internal error no krb5 context";
                 }
                 return -EFAULT;
             }
             const char* const theErrMsgPtr =
                 mKrbClientPtr->Reply(inBufPtr, inBufLen);
-            if (theErrMsgPtr) {
-                const int theErr = mKrbClientPtr->GetErrorCode();
-                return (theErr > 0 ? -theErr :
-                    (theErr == 0 ? -EINVAL : theErr));
+            if (! theErrMsgPtr) {
+                return 0;
             }
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = theErrMsgPtr;
+            }
+            return -EPERM;
         }
         if (inAuthType == kAuthenticationTypeX509) {
             if (inNetConnection.GetFilter()) {

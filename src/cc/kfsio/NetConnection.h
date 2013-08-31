@@ -291,7 +291,7 @@ public:
     string GetErrorMsg() const;
 
     bool IsAuthFailure() const {
-        const_cast<bool&>(mAuthFailureFlag) =
+        const_cast<NetConnection*>(this)->mAuthFailureFlag =
             mAuthFailureFlag ||
             (mFilter && mFilter->IsAuthFailure());
         return mAuthFailureFlag;

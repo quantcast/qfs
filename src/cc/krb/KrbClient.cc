@@ -198,13 +198,9 @@ public:
         return 0;
     }
     int GetErrorCode() const
-    {
-        return mErrCode;
-    }
+        { return (int)mErrCode; }
     long GetLastCredEndTime() const
-    {
-        return mLastCredEndTime;
-    }
+        { return mLastCredEndTime; }
 private:
     string            mServiceHost;
     string            mKeyTabFileName;

@@ -96,6 +96,13 @@ public:
             mMemKeyTabName += inMemKeyTabNamePtr;
         }
         InitSelf();
+        if (! mErrCode) {
+            InitAuth();
+            krb5_error_code const theCleanupErr = CleanupAuth();
+            if (! mErrCode) {
+                mErrCode = theCleanupErr;
+            }
+        }
         if (mErrCode) {
             mErrorMsg = ErrToStr(mErrCode);
             CleanupSelf();
