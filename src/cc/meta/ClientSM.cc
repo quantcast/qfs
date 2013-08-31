@@ -546,7 +546,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 void
 ClientSM::HandleAuthenticate(IOBuffer& iobuf)
 {
-    if (! mAuthenticateOp) {
+    if (! mAuthenticateOp || mAuthenticateOp->doneFlag) {
         return;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
@@ -565,7 +565,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
         // Try to read more, to detect protocol error, as the client
-        // should not send anything else prior to receiving the response.
+        // should not send anything else prior to receiving the response.Fi
         mNetConnection->SetMaxReadAhead(rem + sMaxReadAhead);
         return;
     }
@@ -578,6 +578,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         GetAuthContext().Authenticate(*mAuthenticateOp);
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
+    mAuthenticateOp->doneFlag = true;
     if (mPendingOpsCount == 1) {
         HandleRequestSelf(EVENT_CMD_DONE, mAuthenticateOp);
     } else {

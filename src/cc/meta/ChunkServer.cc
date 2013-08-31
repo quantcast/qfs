@@ -557,11 +557,17 @@ ChunkServer::HandleRequest(int code, void *data)
             if (mNetConnection->IsWriteReady()) {
                 break;
             }
-            if (mAuthenticateOp->status != 0) {
+            if (mAuthenticateOp->status != 0 ||
+                    mNetConnection->HasPendingRead()) {
                 const string msg = mAuthenticateOp->statusMsg;
                 delete mAuthenticateOp;
                 mAuthenticateOp  = 0;
-                Error(msg.empty() ?  "authentication error" : msg.c_str());
+                Error(msg.empty() ?
+                    (mNetConnection->HasPendingRead() ?
+                        "out of order data received" :
+                        "authentication error") :
+                        msg.c_str()
+                );
                 break;
             }
             if (mAuthenticateOp->filter) {
@@ -1983,7 +1989,7 @@ ChunkServer::UpdateStorageTiersSelf(
 int
 ChunkServer::Authenticate(IOBuffer& iobuf)
 {
-    if (! mAuthenticateOp) {
+    if (! mAuthenticateOp || mAuthenticateOp->doneFlag) {
         return 0;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
@@ -2013,7 +2019,8 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     if (mAuthenticateOp->status == 0) {
         mAuthName = mAuthenticateOp->authName;
     }
-    mAuthenticateOp->clnt = this;
+    mAuthenticateOp->clnt     = this;
+    mAuthenticateOp->doneFlag = true;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
 }

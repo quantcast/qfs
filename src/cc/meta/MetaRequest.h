@@ -2427,6 +2427,7 @@ struct MetaAuthenticate : public MetaRequest {
     int                    responseAuthType;
     const char*            responseContentPtr;
     int                    responseContentLen;
+    bool                   doneFlag;
     NetConnection::Filter* filter;
 
     MetaAuthenticate()
@@ -2438,6 +2439,7 @@ struct MetaAuthenticate : public MetaRequest {
           responseAuthType(kAuthenticationTypeUndef),
           responseContentPtr(0),
           responseContentLen(0),
+          doneFlag(false),
           filter(0)
           {}
     virtual ~MetaAuthenticate()
