@@ -30,6 +30,7 @@
 #include "Globals.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
 #include "common/Properties.h"
 
 #include <openssl/ssl.h>
@@ -40,6 +41,7 @@
 #include <errno.h>
 
 #include <stdlib.h>
+#include <string.h>
 #include <string>
 #include <algorithm>
 
@@ -51,6 +53,20 @@ using namespace KFS::libkfsio;
 
 class SslFilter::Impl : private IOBuffer::Reader
 {
+private:
+    static void SslCtxSessionFree(
+        void*           /* inSslCtx */,
+        void*           inSessionPtr,
+        CRYPTO_EX_DATA* /* inDataPtr */,
+        int             /* inIdx */,
+        long            /* inArgLong */,
+        void*           /* inArgPtr */)
+    {
+        if (inSessionPtr) {
+            SSL_SESSION_free(reinterpret_cast<SSL_SESSION*>(inSessionPtr));
+        }
+    }
+
 public:
     typedef SslFilter::Ctx       Ctx;
     typedef SslFilter::Error     Error;
@@ -79,6 +95,14 @@ public:
         sOpenSslInitPtr->mExDataIdx =
             SSL_get_ex_new_index(0, (void*)"SslFilter::Impl", 0, 0, 0);
         if (sOpenSslInitPtr->mExDataIdx < 0) {
+            const Error theErr = GetAndClearErr();
+            Cleanup();
+            return theErr;
+        }
+        sOpenSslInitPtr->mExDataSessionIdx =
+            SSL_CTX_get_ex_new_index(0, (void*)"SSL_SESSION", 0, 0,
+                &SslCtxSessionFree);
+        if (sOpenSslInitPtr->mExDataSessionIdx < 0) {
             const Error theErr = GetAndClearErr();
             Cleanup();
             return theErr;
@@ -153,9 +177,25 @@ public:
             theRetPtr,
             inParams.getValue(
                 theParamName.Truncate(thePrefLen).Append("options"),
-                long(SSL_OP_NO_COMPRESSION))
+                long(SSL_OP_NO_COMPRESSION)) |
+                    (inPskOnlyFlag ? long(SSL_OP_NO_TICKET) : long(0))
         );
+        SSL_CTX_set_timeout(
+                theRetPtr,
+                inParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                    "session.timeout"), long(3) * 60 * 60)
+        );
+        const char* const theSessCtxIdPtr = inPskOnlyFlag ?
+            "QFS_SSL_PSK_CACHE" : "QFS_SSL_CACHE";
+        if (! SSL_CTX_set_session_id_context(theRetPtr,
+                reinterpret_cast<const unsigned char*>(theSessCtxIdPtr),
+                strlen(theSessCtxIdPtr))) {
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
         if (inPskOnlyFlag) {
+            SSL_CTX_set_session_cache_mode(theRetPtr, SSL_SESS_CACHE_OFF);
             return reinterpret_cast<Ctx*>(theRetPtr);
         }
         if (inParams.getValue(
@@ -239,6 +279,9 @@ public:
     ~Impl()
     {
         if (mSslPtr) {
+            // Set session to 0 to prevent session invalidation with no graceful
+            // shutdown. Though with session tickets on cache should not matter.
+            SSL_set_session(mSslPtr, 0);
             SSL_free(mSslPtr);
         }
     }
@@ -362,7 +405,11 @@ public:
             mError        = 0;
             mSslErrorFlag = false;
             mPskAuthName.clear();
-            const int theSslRet = SSL_in_connect_init(mSslPtr) ?
+            const bool theConnectFlag = SSL_in_connect_init(mSslPtr);
+            if (theConnectFlag) {
+                SetStoredClientSession();
+            }
+            const int theSslRet = theConnectFlag ?
                 SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
             if (theSslRet <= 0) {
                 bool theEofFlag = false;
@@ -437,7 +484,9 @@ public:
         if (! theCertPtr) {
             return string();
         }
-        return GetCommonName(X509_get_subject_name(theCertPtr));
+        const string theRet = GetCommonName(X509_get_subject_name(theCertPtr));
+        X509_free(theCertPtr);
+        return theRet;
     }
     bool IsAuthFailure() const
     {
@@ -465,7 +514,9 @@ private:
         OpenSslInit()
             : mLockCount(max(0, CRYPTO_num_locks())),
               mLocksPtr(mLockCount > 0 ? new QCMutex[mLockCount] : 0),
+              mSessionUpdateMutex(),
               mExDataIdx(-1),
+              mExDataSessionIdx(-1),
               mErrFileNamePtr(0),
               mErrLine(-1)
             {}
@@ -475,7 +526,9 @@ private:
         }
         int      const mLockCount;
         QCMutex* const mLocksPtr;
+        QCMutex        mSessionUpdateMutex;
         int            mExDataIdx;
+        int            mExDataSessionIdx;
         const char*    mErrFileNamePtr;
         int            mErrLine;
     };
@@ -621,6 +674,7 @@ private:
         }
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
+            StoreSession();
             return 0;
         }
         bool theEofFlag = false;
@@ -671,6 +725,62 @@ private:
                 return -EINVAL;
         }
         return 0;
+    }
+    void StoreSession()
+    {
+        QCASSERT(mSslPtr && sOpenSslInitPtr);
+        if (SSL_get_verify_result(mSslPtr) != X509_V_OK ||
+                SSL_get_ssl_method(mSslPtr) != TLSv1_client_method()) {
+            return;
+        }
+        SSL_SESSION* const theCurSessionPtr = SSL_get_session(mSslPtr);
+        if (! theCurSessionPtr || ! theCurSessionPtr->peer) {
+            return;
+        }
+        SSL_CTX* const theCtxPtr = SSL_get_SSL_CTX(mSslPtr);
+        SSL_SESSION* const theStoredSessionPtr = reinterpret_cast<SSL_SESSION*>(
+            SSL_CTX_get_ex_data(theCtxPtr, sOpenSslInitPtr->mExDataSessionIdx));
+        if (theStoredSessionPtr == theCurSessionPtr) {
+            return;
+        }
+        QCStMutexLocker theLock(sOpenSslInitPtr->mSessionUpdateMutex);
+        {
+            SSL_SESSION* const thePtr = reinterpret_cast<SSL_SESSION*>(
+                SSL_CTX_get_ex_data(
+                    theCtxPtr,
+                    sOpenSslInitPtr->mExDataSessionIdx)
+            );
+            if (thePtr == theCurSessionPtr) {
+                return;
+            }
+            SSL_SESSION* const theCurPtr = SSL_get1_session(mSslPtr);
+            if (SSL_CTX_set_ex_data(
+                    theCtxPtr,
+                    sOpenSslInitPtr->mExDataSessionIdx,
+                    theCurPtr)) {
+                if (thePtr) {
+                    SSL_SESSION_free(thePtr);
+                }
+            } else {
+                if (theCurPtr) {
+                    SSL_SESSION_free(theCurPtr);
+                }
+                ClearError();
+            }
+        }
+    }
+    void SetStoredClientSession()
+    {
+        QCASSERT(mSslPtr && sOpenSslInitPtr);
+        QCStMutexLocker theLock(sOpenSslInitPtr->mSessionUpdateMutex);
+        SSL_SESSION* const thePtr = reinterpret_cast<SSL_SESSION*>(
+            SSL_CTX_get_ex_data(
+                SSL_get_SSL_CTX(mSslPtr),
+                sOpenSslInitPtr->mExDataSessionIdx)
+        );
+        if (thePtr) {
+            SSL_set_session(mSslPtr, thePtr);
+        }
     }
     void SetPskCB()
     {

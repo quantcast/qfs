@@ -70,9 +70,11 @@ public:
     ~ClientAuthContext();
     bool IsEnabled() const;
     int SetParameters(
-        const char*       inParamsPrefixPtr,
-        const Properties& inParameters,
-        string*           outErrMsgPtr);
+        const char*        inParamsPrefixPtr,
+        const Properties&  inParameters,
+        ClientAuthContext* inOtherCtxPtr,
+        string*            outErrMsgPtr,
+        bool               inVerifyFlag = false);
     int CheckAuthType(
         int     inAuthType,
         bool&   outDoAuthFlag,

@@ -552,6 +552,7 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "authentication request failure: " <<
                             mAuthOp.status <<
+                        " " << mAuthOp.statusMsg <<
                     KFS_LOG_EOM;
                     Fail(mAuthOp.status, mAuthOp.statusMsg);
                     return;

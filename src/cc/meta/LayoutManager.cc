@@ -1898,7 +1898,9 @@ bool
 LayoutManager::UpdateClientAuth(AuthContext& ctx)
 {
     return ctx.SetParameters(
-        "metaServer.clientAuthentication.", mConfigParameters);
+        "metaServer.clientAuthentication.", mConfigParameters,
+        &ctx == &mClientAuthContext ? 0 : &mClientAuthContext
+    );
 }
 
 void

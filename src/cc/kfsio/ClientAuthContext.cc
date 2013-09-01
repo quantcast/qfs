@@ -103,7 +103,9 @@ public:
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
-        string*           outErrMsgPtr)
+        Impl*             inOtherCtxPtr,
+        string*           outErrMsgPtr,
+        bool              inVerifyFlag)
     {
         Properties::String theParamName;
         if (inParamsPrefixPtr) {
@@ -151,6 +153,35 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            if (inVerifyFlag) {
+                const char* theBufPtr        = 0;
+                int         theBufLen        = 0;
+                const char* theSessionKeyPtr = 0;
+                int         theSessionKeyLen = 0;
+                const char* const theReqErrMsgPtr = theKrbClientPtr->Request(
+                    theBufPtr,
+                    theBufLen,
+                    theSessionKeyPtr,
+                    theSessionKeyLen);
+                if (theReqErrMsgPtr) {
+                    if (outErrMsgPtr) {
+                        *outErrMsgPtr = "kerberos error: ";
+                        *outErrMsgPtr += theReqErrMsgPtr;
+                    }
+                    KFS_LOG_STREAM_ERROR <<
+                        "krb5 configuration error: " << theReqErrMsgPtr <<
+                    KFS_LOG_EOM;
+                    return -EINVAL;
+                }
+                if (theBufLen <= 0 || theSessionKeyLen <= 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "krb5 request internal error:"
+                        " key size: "     << theSessionKeyLen  <<
+                        " request size: " << theBufLen <<
+                    KFS_LOG_EOM;
+                    return -EFAULT;
+                }
+            }
         }
         const bool theKrbRequireSslFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("krb5.requireSsl"),
@@ -160,32 +191,36 @@ public:
         const bool theCreateX509CtxFlag = theParams.getValue(
                 theParamName.Append("PKeyPemFile")) != 0;
         const bool theX509ChangedFlag =
-            theCreateX509CtxFlag != (mX509SslCtxPtr.Get() != 0) ||
+            theCreateX509CtxFlag != (mX509SslCtxPtr != 0) ||
              theParams.getValue(
                 theParamName.Append("forceReload"), 0) != 0 ||
            ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         SslCtxPtr theX509SslCtxPtr;
         if (theCreateX509CtxFlag && theX509ChangedFlag) {
-            const bool kServerFlag  = false;
-            const bool kPskOnlyFlag = false;
-            string     theErrMsg;
-            theX509SslCtxPtr.Set(SslFilter::CreateCtx(
-                kServerFlag,
-                kPskOnlyFlag,
-                theParamName.Truncate(theCurLen).GetPtr(),
-                theParams,
-                &theErrMsg
-            ));
-            if (! theX509SslCtxPtr.Get()) {
-                if (outErrMsgPtr) {
-                    *outErrMsgPtr = theErrMsg;
+            if (inOtherCtxPtr && inOtherCtxPtr->mX509SslCtxPtr) {
+                theX509SslCtxPtr = inOtherCtxPtr->mX509SslCtxPtr;
+            } else {
+                const bool kServerFlag  = false;
+                const bool kPskOnlyFlag = false;
+                string     theErrMsg;
+                theX509SslCtxPtr = SslFilter::MakeCtxPtr(SslFilter::CreateCtx(
+                    kServerFlag,
+                    kPskOnlyFlag,
+                    theParamName.Truncate(theCurLen).GetPtr(),
+                    theParams,
+                    &theErrMsg
+                ));
+                if (! theX509SslCtxPtr) {
+                    if (outErrMsgPtr) {
+                        *outErrMsgPtr = theErrMsg;
+                    }
+                    KFS_LOG_STREAM_ERROR <<
+                        theParamName.Truncate(thePrefLen) <<
+                        "X509.* configuration error: " << theErrMsg <<
+                    KFS_LOG_EOM;
+                    return -EINVAL;
                 }
-                KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                    "X509.* configuration error: " << theErrMsg <<
-                KFS_LOG_EOM;
-                return -EINVAL;
             }
         }
         const string thePskKeyId = theParams.getValue(
@@ -229,10 +264,10 @@ public:
             theParams.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0 &&
-            (theX509SslCtxPtr.Get() != 0 || theKrbClientPtr ||
+            (theX509SslCtxPtr || theKrbClientPtr ||
             ! thePskKey.empty());
         const bool thePskSslChangedFlag =
-            (theCreatSslPskFlag != (mSslCtxPtr.Get() != 0)) ||
+            (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
             theParams.getValue(
                 theParamName.Append("forceReload"), 0) != 0 ||
             ! theParams.equalsWithPrefix(
@@ -242,14 +277,14 @@ public:
             const bool kServerFlag  = false;
             const bool kPskOnlyFlag = true;
             string     theErrMsg;
-            theSslCtxPtr.Set(SslFilter::CreateCtx(
+            theSslCtxPtr = SslFilter::MakeCtxPtr(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
                 theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
                 theParams,
                 &theErrMsg
             ));
-            if (! theSslCtxPtr.Get()) {
+            if (! theSslCtxPtr) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = theErrMsg;
                 }
@@ -274,21 +309,21 @@ public:
             mKrbClientPtr.swap(theKrbClientPtr);
         }
         if (thePskSslChangedFlag) {
-            mSslCtxPtr.Swap(theSslCtxPtr);
+            mSslCtxPtr.swap(theSslCtxPtr);
         }
         if (theX509ChangedFlag) {
-            mX509SslCtxPtr.Swap(theX509SslCtxPtr);
+            mX509SslCtxPtr.swap(theX509SslCtxPtr);
         }
         if (theKrbChangedFlag || thePskSslChangedFlag || theX509ChangedFlag ||
                 mPskKeyId != thePskKeyId || thePskKey != mPskKey) {
            mCurRequest.mInvalidFlag = true;
         }
-        mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr.Get() != 0;
+        mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr;
         mPskKeyId = thePskKeyId;
         mPskKey   = thePskKey;
         mEnabledFlag = mKrbClientPtr ||
-            (mSslCtxPtr.Get() != 0 && ! mPskKey.empty()) ||
-            mX509SslCtxPtr.Get() != 0;
+            (mSslCtxPtr && ! mPskKey.empty()) ||
+            mX509SslCtxPtr;
         return 0;
     }
     int Request(
@@ -345,7 +380,7 @@ public:
             return 0;
         }
         if ((inAuthType & kAuthenticationTypeX509) != 0 &&
-                mX509SslCtxPtr.Get()) {
+                mX509SslCtxPtr) {
             outAuthType = RequestInFlight(
                 kAuthenticationTypeX509, inRequestCtx);
             return 0;
@@ -396,7 +431,7 @@ public:
         int            inKeyDataSize,
         string*        outErrMsgPtr)
     {
-        if (! mSslCtxPtr.Get()) {
+        if (! mSslCtxPtr) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr = "no tls psk configured";
             }
@@ -417,7 +452,7 @@ public:
         SslFilter::ServerPsk* kServerPskPtr      = 0;
         const bool            kDeleteOnCloseFlag = true;
         SslFilter* const theFilterPtr = new SslFilter(
-            *mSslCtxPtr.Get(),
+            *mSslCtxPtr.get(),
             inKeyDataPtr,
             (size_t)inKeyDataSize,
             inKeyIdPtr,
@@ -457,7 +492,7 @@ public:
                 ((inAuthType & kAuthenticationTypeKrb5) != 0 &&
                     mKrbClientPtr) ||
                 ((inAuthType & kAuthenticationTypeX509) != 0 &&
-                    mX509SslCtxPtr.Get())
+                    mX509SslCtxPtr)
                 ) {
             return 0;
         }
@@ -583,6 +618,14 @@ private:
             if (outErrMsgPtr) {
                 *outErrMsgPtr = theErrMsgPtr;
             }
+            if (mKrbAuthRequireSslFlag) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr =
+                        "ssl with kerberos is required by configuration but not"
+                        " configured on the server";
+                }
+                return -EPERM;
+            }
             return -EPERM;
         }
         if (inAuthType == kAuthenticationTypeX509) {
@@ -592,7 +635,7 @@ private:
                 }
                 return -EINVAL;
             }
-            if (! mX509SslCtxPtr.Get()) {
+            if (! mX509SslCtxPtr) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = "internal error: null x509 ssl context";
                 }
@@ -604,7 +647,7 @@ private:
             const char*           kKeyIdPtr          = 0;
             const bool            kDeleteOnCloseFlag = true;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mX509SslCtxPtr.Get(),
+                *mX509SslCtxPtr.get(),
                 kKeyDataPtr,
                 kKeyDataSize,
                 kKeyIdPtr,
@@ -654,11 +697,14 @@ ClientAuthContext::CheckAuthType(
 
     int
 ClientAuthContext::SetParameters(
-    const char*       inParamsPrefixPtr,
-    const Properties& inParameters,
-    string*           outErrMsgPtr)
+    const char*        inParamsPrefixPtr,
+    const Properties&  inParameters,
+    ClientAuthContext* inOtherCtxPtr,
+    string*            outErrMsgPtr,
+    bool               inVerifyFlag)
 {
-    return mImpl.SetParameters(inParamsPrefixPtr, inParameters, outErrMsgPtr);
+    return mImpl.SetParameters(inParamsPrefixPtr, inParameters,
+        inOtherCtxPtr ? &inOtherCtxPtr->mImpl : 0, outErrMsgPtr, inVerifyFlag);
 }
 
     int

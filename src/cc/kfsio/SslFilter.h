@@ -28,11 +28,14 @@
 #define KFS_IO_SSL_FILTER_H
 
 #include "NetConnection.h"
+
 #include <string>
+#include <boost/shared_ptr.hpp>
 
 namespace KFS
 {
 using std::string;
+using boost::shared_ptr;
 
 class Properties;
 class TcpSocket;
@@ -58,38 +61,17 @@ public:
     class Ctx;
     typedef unsigned long Error;
     typedef SslFilterServerPsk ServerPsk;
-    class CtxPtr
+    class CtxFreeFunctor
     {
     public:
-        CtxPtr(
-            Ctx* inCtxPtr = 0)
-            : mCtxPtr(inCtxPtr)
-            {}
-        ~CtxPtr()
-            { FreeCtx(mCtxPtr); }
-        void Swap(
-            CtxPtr& inCtx)
-        {
-            Ctx* const theTmpPtr = inCtx.mCtxPtr;
-            inCtx.mCtxPtr = mCtxPtr;
-            mCtxPtr = theTmpPtr;
-        }
-        Ctx* Get() const
-            { return mCtxPtr; }
-        void Set(
+        void operator()(
             Ctx* inCtxPtr)
-        {
-            FreeCtx(mCtxPtr);
-            mCtxPtr = inCtxPtr;
-        }
-    private:
-        Ctx* mCtxPtr;
-    private:
-        CtxPtr(
-            const CtxPtr& inCtxPtr);
-        CtxPtr& operator=(
-            const CtxPtr& inCtxPtr);
+            { FreeCtx(inCtxPtr); }
     };
+    typedef shared_ptr<Ctx> CtxPtr;
+    static CtxPtr MakeCtxPtr(
+        Ctx* inCtxPtr)
+        { return CtxPtr(inCtxPtr, CtxFreeFunctor()); }
 
     static Error Initialize();
     static Error Cleanup();

@@ -51,7 +51,8 @@ public:
         string& ioAuthName) const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        AuthContext*      inOtherCtxPtr = 0);
     int GetAuthTypes() const;
 private:
     class Impl;

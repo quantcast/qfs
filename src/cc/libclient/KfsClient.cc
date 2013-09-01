@@ -212,6 +212,9 @@ int
 KfsClient::Init(const string &metaServerHost, int metaServerPort,
     const Properties* props)
 {
+    if (IsInitialized()) {
+        return -EINVAL;
+    }
     return mImpl->Init(metaServerHost, metaServerPort, props);
 }
 
@@ -1246,6 +1249,13 @@ KfsClientImpl::Shutdown()
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     const Properties* props)
 {
+    if (metaServerHost.empty() || metaServerPort <= 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "invalid metaserver location: " <<
+            metaServerHost << ":" << metaServerPort <<
+        KFS_LOG_EOM;
+        return -1;
+    }
     ClientsList::Init(*this);
 
     mMetaServerLoc.hostname = metaServerHost;
@@ -1254,10 +1264,13 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     if (props) {
         string errMsg;
         int    err;
+        const bool kVerifyFlag = true;
         if ((err = mAuthCtx.SetParameters(
-                kAuthParamPrefix, *props, &errMsg)) != 0 ||
+                kAuthParamPrefix, *props, 0, &errMsg,
+                kVerifyFlag)) != 0 ||
                 (err = mProtocolWorkerAuthCtx.SetParameters(
-                    kAuthParamPrefix, *props, &errMsg)) != 0) {
+                    kAuthParamPrefix, *props, &mAuthCtx, &errMsg,
+                    kVerifyFlag)) != 0) {
             KFS_LOG_STREAM_ERROR <<
                 "authentication context initialization error: " <<
                 errMsg <<
