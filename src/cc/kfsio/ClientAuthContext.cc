@@ -520,9 +520,8 @@ public:
         delete &inRequestCtxImpl;
     }
 private:
-    typedef ClientAuthContext::RequestCtxImpl::KrbClientPtr KrbClientPtr;
-    typedef SslFilter::CtxPtr                               SslCtxPtr;
-    typedef ClientAuthContext::RequestCtxImpl               RequestCtxImpl;
+    typedef RequestCtxImpl::KrbClientPtr KrbClientPtr;
+    typedef SslFilter::CtxPtr            SslCtxPtr;
 
     RequestCtxImpl  mCurRequest;
     bool            mEnabledFlag;
