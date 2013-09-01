@@ -179,12 +179,12 @@ public:
                 theParamName.Truncate(thePrefLen).Append("options"),
                 long(0)
 #ifdef SSL_OP_NO_COMPRESSION
-                | long(SSL_OP_NO_COMPRESSION))
+                | long(SSL_OP_NO_COMPRESSION)
 #endif
 #ifdef SSL_OP_NO_TICKET
                 | (inPskOnlyFlag ? long(SSL_OP_NO_TICKET) : long(0))
 #endif
-        );
+        ));
         SSL_CTX_set_timeout(
                 theRetPtr,
                 inParams.getValue(
