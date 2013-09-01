@@ -177,8 +177,13 @@ public:
             theRetPtr,
             inParams.getValue(
                 theParamName.Truncate(thePrefLen).Append("options"),
-                long(SSL_OP_NO_COMPRESSION)) |
-                    (inPskOnlyFlag ? long(SSL_OP_NO_TICKET) : long(0))
+                long(0)
+#ifdef SSL_OP_NO_COMPRESSION
+                | long(SSL_OP_NO_COMPRESSION))
+#endif
+#ifdef SSL_OP_NO_TICKET
+                | (inPskOnlyFlag ? long(SSL_OP_NO_TICKET) : long(0))
+#endif
         );
         SSL_CTX_set_timeout(
                 theRetPtr,
