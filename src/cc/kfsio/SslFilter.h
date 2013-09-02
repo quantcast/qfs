@@ -39,6 +39,7 @@ using boost::shared_ptr;
 
 class Properties;
 class TcpSocket;
+class SslFilter;
 
 class SslFilterServerPsk
 {
@@ -55,12 +56,27 @@ protected:
         {}
 };
 
+class SslFilterVerifyPeer
+{
+public:
+    virtual bool Verify(
+	string&       ioFilterAuthName,
+        bool          inPreverifyOkFlag,
+        const string& inPeerName) = 0;
+protected:
+    SslFilterVerifyPeer()
+        {}
+    virtual ~SslFilterVerifyPeer()
+        {}
+};
+
 class SslFilter : public NetConnection::Filter
 {
 public:
     class Ctx;
     typedef unsigned long Error;
-    typedef SslFilterServerPsk ServerPsk;
+    typedef SslFilterServerPsk  ServerPsk;
+    typedef SslFilterVerifyPeer VerifyPeer;
     class CtxFreeFunctor
     {
     public:
@@ -86,12 +102,23 @@ public:
         string*           inErrMsgPtr);
     static void FreeCtx(
         Ctx* inCtxPtr);
+
+    static SslFilter& Create(
+        Ctx&        inCtx,
+        const char* inPskDataPtr          = 0,
+        size_t      inPskDataLen          = 0,
+        const char* inPskCliIdendityPtr   = 0,
+        ServerPsk*  inServerPskPtr        = 0,
+        VerifyPeer* inVerifyPeerPtr       = 0,
+        const char* inExpectedPeerNamePtr = 0,
+        bool        inDeleteOnCloseFlag   = true);
     SslFilter(
         Ctx&        inCtx,
         const char* inPskDataPtr        = 0,
         size_t      inPskDataLen        = 0,
         const char* inPskCliIdendityPtr = 0,
         ServerPsk*  inServerPskPtr      = 0,
+        VerifyPeer* inVerifyPeerPtr     = 0,
         bool        inDeleteOnCloseFlag = true);
     Error GetError() const;
     void SetPsk(

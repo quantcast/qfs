@@ -200,6 +200,7 @@ public:
             return 0;
         }
         if (inPskOnlyFlag) {
+            SSL_CTX_set_verify(theRetPtr, SSL_VERIFY_NONE, 0);
             SSL_CTX_set_session_cache_mode(theRetPtr, SSL_SESS_CACHE_OFF);
             return reinterpret_cast<Ctx*>(theRetPtr);
         }
@@ -207,7 +208,10 @@ public:
                 theParamName.Truncate(thePrefLen).Append("verifyPeer"),
                 1) != 0) {
             SSL_CTX_set_verify(theRetPtr,
-                SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
+                SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                &VerifyCB);
+        } else {
+            SSL_CTX_set_verify(theRetPtr, SSL_VERIFY_NONE, 0);
         }
         const char* const kNullStrPtr  = 0;
         const char* const theCAFilePtr = inParams.getValue(
@@ -260,6 +264,7 @@ public:
         size_t      inPskDataLen,
         const char* inPskCliIdendityPtr,
         ServerPsk*  inServerPskPtr,
+        VerifyPeer* inVerifyPeerPtr,
         bool        inDeleteOnCloseFlag)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
@@ -268,9 +273,11 @@ public:
             inPskDataPtr ? inPskDataPtr : "",
             inPskDataPtr ? inPskDataLen : 0),
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
-          mPskAuthName(),
+          mAuthName(),
           mServerPskPtr(inServerPskPtr),
+          mVerifyPeerPtr(inVerifyPeerPtr),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
+          mSessionStoredFlag(false),
           mSslErrorFlag(false)
     {
         if (mSslPtr &&
@@ -409,7 +416,7 @@ public:
         if (theRet == 0 && SSL_in_before(mSslPtr)) {
             mError        = 0;
             mSslErrorFlag = false;
-            mPskAuthName.clear();
+            mAuthName.clear();
             const bool theConnectFlag = SSL_in_connect_init(mSslPtr);
             if (theConnectFlag) {
                 SetStoredClientSession();
@@ -476,22 +483,10 @@ public:
         { return (mSslPtr && mError == 0 && SSL_is_init_finished(mSslPtr)); }
     string GetAuthName() const
     {
-        if (mError != 0 || ! mSslPtr) {
-            return string();
-        }
-        if (mServerPskPtr) {
-            return (IsHandshakeDone() ? mPskAuthName : string());
-        }
-        if (SSL_get_verify_result(mSslPtr) != X509_V_OK) {
-            return string();
-        }
-        X509* const theCertPtr = SSL_get_peer_certificate(mSslPtr);
-        if (! theCertPtr) {
-            return string();
-        }
-        const string theRet = GetCommonName(X509_get_subject_name(theCertPtr));
-        X509_free(theCertPtr);
-        return theRet;
+        return (
+            (mError == 0 && mSslPtr && IsHandshakeDone()) ?
+            mAuthName : string()
+        );
     }
     bool IsAuthFailure() const
     {
@@ -505,14 +500,17 @@ public:
     string GetErrorMsg() const
         { return (mError ? GetErrorMsg(mError) : string()); }
 private:
-    SSL*             mSslPtr;
-    unsigned long    mError;
-    string           mPskData;
-    string           mPskCliIdendity;
-    string           mPskAuthName;
-    ServerPsk* const mServerPskPtr;
-    const bool       mDeleteOnCloseFlag;
-    bool             mSslErrorFlag;
+    SSL*              mSslPtr;
+    unsigned long     mError;
+    string            mPskData;
+    string            mPskCliIdendity;
+    string            mAuthName;
+    string            mPeerName;
+    ServerPsk* const  mServerPskPtr;
+    VerifyPeer* const mVerifyPeerPtr;
+    const bool        mDeleteOnCloseFlag;
+    bool              mSessionStoredFlag;
+    bool              mSslErrorFlag;
 
     struct OpenSslInit
     {
@@ -572,9 +570,7 @@ private:
         }
     }
     static unsigned long ThreadIdCB()
-    {
-        return ((unsigned long)&errno);
-    }
+        { return ((unsigned long)&errno); }
     static unsigned int PskServerCB(
         SSL*           inSslPtr,
         const char*    inIdentityPtr,
@@ -622,10 +618,10 @@ private:
         unsigned int   inPskBufferLen)
     {
         if (mServerPskPtr) {
-            mPskAuthName.clear();
+            mAuthName.clear();
             return mServerPskPtr->GetPsk(
                 inIdentityPtr, inPskBufferPtr, inPskBufferLen,
-                mPskAuthName);
+                mAuthName);
         }
         if (inPskBufferLen < mPskData.size()) {
             return 0;
@@ -651,6 +647,47 @@ private:
         memcpy(inPskBufferPtr, mPskData.data(), mPskData.size());
         return (unsigned int)mPskData.size();
     }
+    bool VeifyPeer(
+        bool          inPreverifyOkFlag,
+        const string& inPeerName)
+    {
+        if (mVerifyPeerPtr) {
+            return mVerifyPeerPtr->Verify(
+                mAuthName, inPreverifyOkFlag, inPeerName);
+        }
+        if (! inPreverifyOkFlag) {
+            mAuthName.clear();
+            return false;
+        }
+        if (mServerPskPtr && inPeerName.empty() && ! mAuthName.empty()) {
+            return true;
+        }
+        mAuthName = inPeerName;
+        return true;
+    }
+    static int VerifyCB(
+        int             inPreverifyOkFlag,
+        X509_STORE_CTX* inX509CtxPtr)
+    {
+        if (! sOpenSslInitPtr) {
+            return 0;
+        }
+        SSL* const theSslPtr = reinterpret_cast<SSL*>(
+            X509_STORE_CTX_get_ex_data(
+                inX509CtxPtr, SSL_get_ex_data_X509_STORE_CTX_idx())
+        );
+        Impl* const thePtr = reinterpret_cast<Impl*>(SSL_get_ex_data(
+            theSslPtr, sOpenSslInitPtr->mExDataIdx));
+        if (! thePtr || thePtr->mSslPtr != theSslPtr) {
+            abort();
+            return 0;
+        }
+        X509* const theCertPtr = X509_STORE_CTX_get_current_cert(inX509CtxPtr);
+        return (thePtr->VeifyPeer(
+            inPreverifyOkFlag != 0,
+            GetCommonName(theCertPtr ? X509_get_subject_name(theCertPtr) : 0)
+        ) ? 1 : 0);
+    }
     static string GetCommonName(
        X509_NAME* inNamePtr)
     {
@@ -675,6 +712,9 @@ private:
     int DoHandshake()
     {
         if (SSL_is_init_finished(mSslPtr)) {
+            if (! mSessionStoredFlag) {
+                StoreSession();
+            }
             return 0;
         }
         const int theRet = SSL_do_handshake(mSslPtr);
@@ -734,6 +774,7 @@ private:
     void StoreSession()
     {
         QCASSERT(mSslPtr && sOpenSslInitPtr);
+        mSessionStoredFlag = true;
         if (SSL_get_verify_result(mSslPtr) != X509_V_OK ||
                 SSL_get_ssl_method(mSslPtr) != TLSv1_client_method()) {
             return;
@@ -845,18 +886,20 @@ SslFilter::FreeCtx(
 }
 
 SslFilter::SslFilter(
-    Ctx&                  inCtx,
-    const char*           inPskDataPtr,
-    size_t                inPskDataLen,
-    const char*           inPskCliIdendityPtr,
-    SslFilter::ServerPsk* inServerPskPtr,
-    bool                  inDeleteOnCloseFlag)
+    Ctx&                   inCtx,
+    const char*            inPskDataPtr,
+    size_t                 inPskDataLen,
+    const char*            inPskCliIdendityPtr,
+    SslFilter::ServerPsk*  inServerPskPtr,
+    SslFilter::VerifyPeer* inVerifyPeerPtr,
+    bool                   inDeleteOnCloseFlag)
     : mImpl(*(new Impl(
         inCtx,
         inPskDataPtr,
         inPskDataLen,
         inPskCliIdendityPtr,
         inServerPskPtr,
+        inVerifyPeerPtr,
         inDeleteOnCloseFlag
     )))
     {}
@@ -965,6 +1008,91 @@ SslFilter::GetErrorMsg() const
 SslFilter::GetErrorCode() const
 {
     return mImpl.GetErrorCode();
+}
+
+class SslFilterPeerVerify :
+    private SslFilter::VerifyPeer,
+    public  SslFilter
+{
+public:
+    SslFilterPeerVerify(
+        Ctx&        inCtx,
+        const char* inPskDataPtr,
+        size_t      inPskDataLen,
+        const char* inPskCliIdendityPtr,
+        ServerPsk*  inServerPskPtr,
+        VerifyPeer* inVerifyPeerPtr,
+        const char* inExpectedPeerNamePtr,
+        bool        inDeleteOnCloseFlag)
+        : VerifyPeer(),
+          SslFilter(
+            inCtx,
+            inPskDataPtr,
+            inPskDataLen,
+            inPskCliIdendityPtr,
+            inServerPskPtr,
+            this,
+            inDeleteOnCloseFlag),
+            mVerifyPeerPtr(inVerifyPeerPtr),
+            mExpectedPeerName(
+                inExpectedPeerNamePtr ? inExpectedPeerNamePtr : "")
+        {}
+    virtual bool Verify(
+	string&       ioFilterAuthName,
+        bool          inPreverifyOkFlag,
+        const string& inPeerName)
+    {
+        if (mVerifyPeerPtr) {
+            return mVerifyPeerPtr->Verify(
+                ioFilterAuthName,
+                inPreverifyOkFlag && inPeerName == mExpectedPeerName,
+                inPeerName
+            );
+        }
+        if (! inPreverifyOkFlag || inPeerName != mExpectedPeerName) {
+            ioFilterAuthName.clear();
+            return false;
+        }
+        ioFilterAuthName = inPeerName;
+        return true;
+    }
+private:
+    VerifyPeer* const mVerifyPeerPtr;
+    string const      mExpectedPeerName;
+};
+
+SslFilter&
+SslFilter::Create(
+    SslFilter::Ctx&        inCtx,
+    const char*            inPskDataPtr          /* = 0 */,
+    size_t                 inPskDataLen          /* = 0 */,
+    const char*            inPskCliIdendityPtr   /* = 0 */,
+    SslFilter::ServerPsk*  inServerPskPtr        /* = 0 */,
+    SslFilter::VerifyPeer* inVerifyPeerPtr       /* = 0 */,
+    const char*            inExpectedPeerNamePtr /* = 0 */,
+    bool                   inDeleteOnCloseFlag   /* = true */)
+{
+    if (inExpectedPeerNamePtr) {
+        return *(new SslFilterPeerVerify(
+            inCtx,
+            inPskDataPtr,
+            inPskDataLen,
+            inPskCliIdendityPtr,
+            inServerPskPtr,
+            inVerifyPeerPtr,
+            inExpectedPeerNamePtr,
+            inDeleteOnCloseFlag
+        ));
+    }
+    return *(new SslFilter(
+        inCtx,
+        inPskDataPtr,
+        inPskDataLen,
+        inPskCliIdendityPtr,
+        inServerPskPtr,
+        inVerifyPeerPtr,
+        inDeleteOnCloseFlag
+    ));
 }
 
 }

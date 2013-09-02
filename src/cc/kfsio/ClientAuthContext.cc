@@ -197,6 +197,7 @@ public:
            ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         SslCtxPtr theX509SslCtxPtr;
+        string    theX509ExpectedName;
         if (theCreateX509CtxFlag && theX509ChangedFlag) {
             if (inOtherCtxPtr && inOtherCtxPtr->mX509SslCtxPtr) {
                 theX509SslCtxPtr = inOtherCtxPtr->mX509SslCtxPtr;
@@ -222,9 +223,13 @@ public:
                     return -EINVAL;
                 }
             }
+            theX509ExpectedName = theParams.getValue(
+                theParamName.Truncate(thePrefLen).Append("name"),
+                string()
+            );
         }
         const string thePskKeyId = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("psk.tls.keyId"),
+            theParamName.Truncate(theCurLen).Append("psk.tls.keyId"),
             string()
         );
         const Properties::String* const theKeyHexPtr = theParams.getValue(
@@ -313,6 +318,7 @@ public:
         }
         if (theX509ChangedFlag) {
             mX509SslCtxPtr.swap(theX509SslCtxPtr);
+            mX509ExpectedName = theX509ExpectedName;
         }
         if (theKrbChangedFlag || thePskSslChangedFlag || theX509ChangedFlag ||
                 mPskKeyId != thePskKeyId || thePskKey != mPskKey) {
@@ -449,17 +455,21 @@ public:
             }
             return -EINVAL;
         }
-        SslFilter::ServerPsk* kServerPskPtr      = 0;
-        const bool            kDeleteOnCloseFlag = true;
-        SslFilter* const theFilterPtr = new SslFilter(
+        SslFilter::ServerPsk*  kServerPskPtr          = 0;
+        SslFilter::VerifyPeer* kVerifyPeerPtr         = 0;
+        const char*            kExpectedServerNamePtr = 0;
+        const bool             kDeleteOnCloseFlag     = true;
+        SslFilter& theFilter = SslFilter::Create(
             *mSslCtxPtr.get(),
             inKeyDataPtr,
             (size_t)inKeyDataSize,
             inKeyIdPtr,
             kServerPskPtr,
+            kVerifyPeerPtr,
+            kExpectedServerNamePtr,
             kDeleteOnCloseFlag
         );
-        const SslFilter::Error theErr = theFilterPtr->GetError();
+        const SslFilter::Error theErr = theFilter.GetError();
         if (theErr) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr = SslFilter::GetErrorMsg(theErr);
@@ -467,10 +477,10 @@ public:
                     *outErrMsgPtr = "failed to create ssl filter";
                 }
             }
-            delete theFilterPtr;
+            delete &theFilter;
             return -EFAULT;
         }
-        return inNetConnection.SetFilter(theFilterPtr, outErrMsgPtr);
+        return inNetConnection.SetFilter(&theFilter, outErrMsgPtr);
     }
     bool IsEnabled() const
         { return mEnabledFlag; }
@@ -535,6 +545,7 @@ private:
     SslCtxPtr       mX509SslCtxPtr;
     string          mPskKeyId;
     string          mPskKey;
+    string          mX509ExpectedName;
 
     int RequestInFlight(
         int         inAuthType,
@@ -640,20 +651,25 @@ private:
                 }
                 return -EFAULT;
             }
-            SslFilter::ServerPsk* kServerPskPtr      = 0;
-            const char*           kKeyDataPtr        = 0;
-            const int             kKeyDataSize       = 0;
-            const char*           kKeyIdPtr          = 0;
-            const bool            kDeleteOnCloseFlag = true;
-            SslFilter* const theFilterPtr = new SslFilter(
+            SslFilter::ServerPsk*  const kServerPskPtr      = 0;
+            SslFilter::VerifyPeer* const kVerifyPeerPtr     = 0;
+            const char*                  kKeyDataPtr        = 0;
+            const int                    kKeyDataSize       = 0;
+            const char*                  kKeyIdPtr          = 0;
+            const char*                  kNullStr           = 0;
+            const bool                   kDeleteOnCloseFlag = true;
+            SslFilter& theFilter = SslFilter::Create(
                 *mX509SslCtxPtr.get(),
                 kKeyDataPtr,
                 kKeyDataSize,
                 kKeyIdPtr,
                 kServerPskPtr,
+                kVerifyPeerPtr,
+                mX509ExpectedName.empty() ?
+                    kNullStr : mX509ExpectedName.c_str(),
                 kDeleteOnCloseFlag
             );
-            const SslFilter::Error theErr = theFilterPtr->GetError();
+            const SslFilter::Error theErr = theFilter.GetError();
             if (theErr) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr = SslFilter::GetErrorMsg(theErr);
@@ -661,10 +677,10 @@ private:
                         *outErrMsgPtr = "failed to create ssl filter";
                     }
                 }
-                delete theFilterPtr;
+                delete &theFilter;
                 return -EFAULT;
             }
-            return inNetConnection.SetFilter(theFilterPtr, outErrMsgPtr);
+            return inNetConnection.SetFilter(&theFilter, outErrMsgPtr);
         }
         if (inAuthType == kAuthenticationTypeNone) {
             return 0;

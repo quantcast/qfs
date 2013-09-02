@@ -123,16 +123,18 @@ public:
                 (inOp.authType & kAuthenticationTypePSK) != 0) {
             inOp.responseContentPtr = 0;
             inOp.responseContentLen = 0;
-            const char* kPskClientIdentityPtr = "";
-            const bool  kDeleteOnCloseFlag    = true;
-            const char* kSessionKeyPtr        = 0;
-            int         kSessionKeyLen        = 0;
+            SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
+            const char*                  kPskClientIdentityPtr = "";
+            const bool                   kDeleteOnCloseFlag    = true;
+            const char*                  kSessionKeyPtr        = 0;
+            int                          kSessionKeyLen        = 0;
             SslFilter* const theFilterPtr = new SslFilter(
                 *mSslCtxPtr.get(),
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
                 mServerPskPtr,
+                kVerifyPeerPtr,
                 kDeleteOnCloseFlag
             );
             const SslFilter::Error theErr = theFilterPtr->GetError();
@@ -186,15 +188,17 @@ public:
             // for mutual authentication / replay attack protection.
             inOp.responseContentPtr = 0;
             inOp.responseContentLen = 0;
-            const char*           kPskClientIdentityPtr = "";
-            SslFilter::ServerPsk* kServerPskPtr         = 0;
-            const bool            kDeleteOnCloseFlag    = true;
+            const char*                  kPskClientIdentityPtr = "";
+            SslFilter::ServerPsk* const  kServerPskPtr         = 0;
+            SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
+            const bool                   kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
                 *mSslCtxPtr.get(),
                 theSessionKeyPtr,
                 (size_t)max(0, theSessionKeyLen),
                 kPskClientIdentityPtr,
                 kServerPskPtr,
+                kVerifyPeerPtr,
                 kDeleteOnCloseFlag
             );
             const SslFilter::Error theErr = theFilterPtr->GetError();
@@ -214,17 +218,18 @@ public:
         }
         if (mX509SslCtxPtr &&
                 (inOp.authType & kAuthenticationTypeX509) != 0) {
-            const char*           kSessionKeyPtr        = 0;
-            size_t                kSessionKeyLen        = 0;
-            const char*           kPskClientIdentityPtr = 0;
-            SslFilter::ServerPsk* kServerPskPtr         = 0;
-            const bool            kDeleteOnCloseFlag    = true;
+            const char*                 kSessionKeyPtr        = 0;
+            size_t                      kSessionKeyLen        = 0;
+            const char*                 kPskClientIdentityPtr = 0;
+            SslFilter::ServerPsk* const kServerPskPtr         = 0;
+            const bool                  kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
                 *mX509SslCtxPtr.get(),
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
                 kServerPskPtr,
+                0,
                 kDeleteOnCloseFlag
             );
             const SslFilter::Error theErr = theFilterPtr->GetError();

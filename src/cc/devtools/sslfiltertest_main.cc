@@ -119,10 +119,11 @@ private:
               mPeerName(mConnectionPtr->GetPeerName() + " "),
               mSslFilter(
                 inCtx,
-                0, // inPskDataPtr
-                0, // inPskDataLen
-                0, // inPskCliIdendityPtr
+                0,    // inPskDataPtr
+                0,    // inPskDataLen
+                0,    // inPskCliIdendityPtr
                 &inServerPsk,
+                0,    // inVerifyPeerPtr
                 false // inDeleteOnCloseFlag
               ),
               mRecursionCount(0),
@@ -268,7 +269,8 @@ private:
                 inPsk.data(),
                 inPsk.size(),
                 inIdentity.c_str(),
-                0,
+                0,    // inServerPskPtr
+                0,    // inVerifyPeerPtr
                 false // inDeleteOnCloseFlag
               ),
               mServerLocation(inServerLocation),
