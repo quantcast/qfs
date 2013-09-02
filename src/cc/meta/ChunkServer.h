@@ -40,6 +40,7 @@
 #include "common/LinearHash.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/SslFilter.h"
 #include "qcdio/QCDLList.h"
 #include "common/kfstypes.h"
 #include "common/Properties.h"
@@ -171,7 +172,8 @@ private:
 class ChunkServer :
     public KfsCallbackObj,
     public boost::enable_shared_from_this<ChunkServer>,
-    public CSMapServerInfo {
+    public CSMapServerInfo,
+    private SslFilterVerifyPeer {
 public:
     typedef int RackId;
     class ChunkIdSet
@@ -784,6 +786,10 @@ public:
     static size_t GetChunkDirsCount() {
         return sChunkDirsCount;
     }
+    virtual bool Verify(
+	string&       ioFilterAuthName,
+        bool          inPreverifyOkFlag,
+        const string& inPeerName);
 
 protected:
     /// Enqueue a request to be dispatched to this server

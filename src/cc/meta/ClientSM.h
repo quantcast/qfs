@@ -36,6 +36,7 @@
 #include "ClientManager.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/SslFilter.h"
 #include "kfsio/IOBuffer.h"
 #include "qcdio/QCDLList.h"
 
@@ -49,14 +50,17 @@ class Properties;
 class AuthContext;
 struct MetaRequest;
 
-class ClientSM : public KfsCallbackObj
+class ClientSM :
+    public  KfsCallbackObj,
+    private SslFilterVerifyPeer
 {
 public:
-    ClientSM(const NetConnectionPtr&     conn,
+    ClientSM(
+        const NetConnectionPtr&      conn,
         ClientManager::ClientThread* thread      = 0,
         IOBuffer::WOStream*          wostr       = 0,
         char*                        parseBuffer = 0);
-    ~ClientSM();
+    virtual ~ClientSM();
 
     //
     // Sequence:
@@ -71,6 +75,10 @@ public:
         { return mNext; }
     const NetConnectionPtr& GetConnection() const
         { return mNetConnection; }
+    virtual bool Verify(
+	string&       ioFilterAuthName,
+        bool          inPreverifyOkFlag,
+        const string& inPeerName);
 
     static void SetParameters(const Properties& prop);
     static int GetClientCount() { return sClientCount; }

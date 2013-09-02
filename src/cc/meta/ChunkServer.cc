@@ -243,6 +243,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
       CSMapServerInfo(),
+      SslFilterVerifyPeer(),
       mSeqNo(RandomSeqNo()),
       mNetConnection(conn),
       mHelloDone(false),
@@ -911,28 +912,6 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             KFS_LOG_EOM;
             delete op;
             return -1;
-        }
-        if (mAuthName.empty() && mNetConnection->GetFilter()) {
-            mAuthName = mNetConnection->GetFilter()->GetAuthName();
-            if (! gLayoutManager.GetCSAuthContext().RemapAndValidate(
-                    mAuthName)) {
-                op->statusMsg = "chunk server authentication required, "
-                    " chunk server authenticated name '" + mAuthName +
-                    "' not valid";
-                op->status = -EBADCLUSTERKEY;
-                KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                    " " << op->statusMsg <<
-                KFS_LOG_EOM;
-                iobuf->Clear();
-                mNetConnection->SetMaxReadAhead(0);
-                mNetConnection->SetInactivityTimeout(sRequestTimeout);
-                mOstream.Set(mNetConnection->GetOutBuffer());
-                op->response(mOstream);
-                mOstream.Reset();
-                delete op;
-                // Do not declare error, reply still pending.
-                return 0;
-            }
         }
         op->authName = mAuthName;
         mHelloOp = static_cast<MetaHello*>(op);
@@ -2015,7 +1994,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     }
-    gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp);
+    gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp, this);
     if (mAuthenticateOp->status == 0) {
         mAuthName = mAuthenticateOp->authName;
     }
@@ -2023,6 +2002,39 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     mAuthenticateOp->doneFlag = true;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
+}
+
+    /* virtual */ bool
+ChunkServer::Verify(
+    string&       ioFilterAuthName,
+    bool          inPreverifyOkFlag,
+    const string& inPeerName)
+{
+    KFS_LOG_STREAM_DEBUG << GetPeerName() <<
+        " chunk server auth. verify:" <<
+        " name: "      << inPeerName <<
+        " prev: "      << ioFilterAuthName <<
+        " preverify: " << inPreverifyOkFlag <<
+    KFS_LOG_EOM;
+    // Do no allow to renegotiate and change the name.
+    string authName = inPeerName;
+    if (! inPreverifyOkFlag ||
+            ! gLayoutManager.GetCSAuthContext().RemapAndValidate(authName) ||
+            (! mAuthName.empty() && authName != mAuthName)) {
+        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            " chunk server autentication failure:"
+            " peer: " << inPeerName <<
+            " name: " << authName <<
+            " is not valid" <<
+            (mAuthName.empty() ? "" : "prev name: ") << mAuthName <<
+        KFS_LOG_EOM;
+        mAuthName.clear();
+        ioFilterAuthName.clear();
+        return false;
+    }
+    ioFilterAuthName = inPeerName;
+    mAuthName        = authName;
+    return true;
 }
 
 } // namespace KFS

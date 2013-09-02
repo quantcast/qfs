@@ -36,6 +36,7 @@ using std::string;
 struct MetaAuthenticate;
 class Properties;
 class SslFilterServerPsk;
+class SslFilterVerifyPeer;
 
 class AuthContext
 {
@@ -46,7 +47,8 @@ public:
     bool Validate(
         MetaAuthenticate& inOp);
     bool Authenticate(
-        MetaAuthenticate& inOp);
+        MetaAuthenticate&    inOp,
+        SslFilterVerifyPeer* inVerifyPeerPtr);
     bool RemapAndValidate(
         string& ioAuthName) const;
     bool SetParameters(

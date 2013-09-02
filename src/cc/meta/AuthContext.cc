@@ -102,7 +102,8 @@ public:
         return theRetFlag;
     }
     bool Authenticate(
-        MetaAuthenticate& inOp)
+        MetaAuthenticate&    inOp,
+        SslFilterVerifyPeer* inVerifyPeerPtr)
     {
         if (! Validate(inOp)) {
             return false;
@@ -229,7 +230,7 @@ public:
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
                 kServerPskPtr,
-                0,
+                inVerifyPeerPtr,
                 kDeleteOnCloseFlag
             );
             const SslFilter::Error theErr = theFilterPtr->GetError();
@@ -609,9 +610,10 @@ AuthContext::Validate(
 
     bool
 AuthContext::Authenticate(
-    MetaAuthenticate& inOp)
+    MetaAuthenticate&    inOp,
+    SslFilterVerifyPeer* inVerifyPeerPtr)
 {
-    return mImpl.Authenticate(inOp);
+    return mImpl.Authenticate(inOp, inVerifyPeerPtr);
 }
 
     bool

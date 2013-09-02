@@ -134,7 +134,9 @@ ClientSM::ClientSM(
     ClientManager::ClientThread* thread,
     IOBuffer::WOStream*          wostr,
     char*                        parseBuffer)
-    : mNetConnection(conn),
+    : KfsCallbackObj(),
+      SslFilterVerifyPeer(),
+      mNetConnection(conn),
       mClientIp(PeerIp(conn)),
       mPendingOpsCount(0),
       mOstream(wostr ? *wostr : sWOStream),
@@ -335,6 +337,8 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         " out of order data received" <<
                     KFS_LOG_EOM;
                 }
+                delete mAuthenticateOp;
+                mAuthenticateOp = 0;
             } else {
                 mAuthName = mAuthenticateOp->authName;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
@@ -503,20 +507,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
-    if (mAuthName.empty() && mNetConnection->GetFilter()) {
-        mAuthName = mNetConnection->GetFilter()->GetAuthName();
-        if (! GetAuthContext().RemapAndValidate(mAuthName)) {
-            KFS_LOG_STREAM_ERROR << "autentication failure:" <<
-                " name: " << mAuthName <<
-                " is not valid" <<
-            KFS_LOG_EOM;
-            delete op;
-            iobuf.Clear();
-            mNetConnection->Close();
-            HandleRequest(EVENT_NET_ERROR, 0);
-            return;
-        }
-    }
     op->clientIp         = mClientIp;
     op->fromClientSMFlag = true;
     op->clnt             = this;
@@ -575,7 +565,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     } else {
-        GetAuthContext().Authenticate(*mAuthenticateOp);
+        GetAuthContext().Authenticate(*mAuthenticateOp, this);
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->doneFlag = true;
@@ -585,6 +575,39 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     }
     return;
+}
+
+    /* virtual */ bool
+ClientSM::Verify(
+    string&       ioFilterAuthName,
+    bool          inPreverifyOkFlag,
+    const string& inPeerName)
+{
+    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
+        " auth. verify:" <<
+        " name: "        << inPeerName <<
+        " prev: "        << ioFilterAuthName <<
+        " preverify: "   << inPreverifyOkFlag <<
+    KFS_LOG_EOM;
+    // For now do no allow to renegotiate and change the name.
+    string authName = inPeerName;
+    if (! inPreverifyOkFlag ||
+            ! GetAuthContext().RemapAndValidate(authName) ||
+            (! mAuthName.empty() && authName != mAuthName)) {
+        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+            " autentication failure:"
+            " peer: " << inPeerName <<
+            " name: " << authName <<
+            " is not valid" <<
+            (mAuthName.empty() ? "" : "prev name: ") << mAuthName <<
+        KFS_LOG_EOM;
+        mAuthName.clear();
+        ioFilterAuthName.clear();
+        return false;
+    }
+    ioFilterAuthName = inPeerName;
+    mAuthName        = authName;
+    return true;
 }
 
 } // namespace KFS

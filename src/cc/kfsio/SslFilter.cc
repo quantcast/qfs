@@ -32,6 +32,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "common/Properties.h"
+#include "common/MsgLogger.h"
 
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
@@ -1050,9 +1051,23 @@ public:
             );
         }
         if (! inPreverifyOkFlag || inPeerName != mExpectedPeerName) {
+            KFS_LOG_STREAM_ERROR <<
+                "peer verify failure:"
+                " peer: "      << inPeerName <<
+                " expected: "  << mExpectedPeerName <<
+                " prev name: " << ioFilterAuthName <<
+                " preverify: " << inPreverifyOkFlag <<
+            KFS_LOG_EOM;
             ioFilterAuthName.clear();
             return false;
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "peer verify ok:"
+            " peer: "      << inPeerName <<
+            " expected: "  << mExpectedPeerName <<
+            " prev name: " << ioFilterAuthName <<
+            " preverify: " << inPreverifyOkFlag <<
+        KFS_LOG_EOM;
         ioFilterAuthName = inPeerName;
         return true;
     }
