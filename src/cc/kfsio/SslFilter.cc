@@ -650,11 +650,12 @@ private:
     }
     bool VeifyPeer(
         bool          inPreverifyOkFlag,
+        int           inCurCertDepth,
         const string& inPeerName)
     {
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
-                mAuthName, inPreverifyOkFlag, inPeerName);
+                mAuthName, inPreverifyOkFlag, inCurCertDepth, inPeerName);
         }
         if (! inPreverifyOkFlag) {
             mAuthName.clear();
@@ -686,6 +687,7 @@ private:
         X509* const theCertPtr = X509_STORE_CTX_get_current_cert(inX509CtxPtr);
         return (thePtr->VeifyPeer(
             inPreverifyOkFlag != 0,
+            X509_STORE_CTX_get_error_depth(inX509CtxPtr),
             GetCommonName(theCertPtr ? X509_get_subject_name(theCertPtr) : 0)
         ) ? 1 : 0);
     }
@@ -1041,22 +1043,27 @@ public:
     virtual bool Verify(
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
+        int           inCurCertDepth,
         const string& inPeerName)
     {
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
                 ioFilterAuthName,
-                inPreverifyOkFlag && inPeerName == mExpectedPeerName,
+                inPreverifyOkFlag &&
+                    (inCurCertDepth != 0 || inPeerName == mExpectedPeerName),
+                inCurCertDepth,
                 inPeerName
             );
         }
-        if (! inPreverifyOkFlag || inPeerName != mExpectedPeerName) {
+        if (! inPreverifyOkFlag ||
+                (inCurCertDepth == 0 && inPeerName != mExpectedPeerName)) {
             KFS_LOG_STREAM_ERROR <<
                 "peer verify failure:"
                 " peer: "      << inPeerName <<
                 " expected: "  << mExpectedPeerName <<
                 " prev name: " << ioFilterAuthName <<
                 " preverify: " << inPreverifyOkFlag <<
+                " depth: "     << inCurCertDepth <<
             KFS_LOG_EOM;
             ioFilterAuthName.clear();
             return false;
@@ -1067,8 +1074,11 @@ public:
             " expected: "  << mExpectedPeerName <<
             " prev name: " << ioFilterAuthName <<
             " preverify: " << inPreverifyOkFlag <<
+            " depth: "     << inCurCertDepth <<
         KFS_LOG_EOM;
-        ioFilterAuthName = inPeerName;
+        if (inCurCertDepth == 0) {
+            ioFilterAuthName = inPeerName;
+        }
         return true;
     }
 private:

@@ -2008,6 +2008,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
 ChunkServer::Verify(
     string&       ioFilterAuthName,
     bool          inPreverifyOkFlag,
+    int           inCurCertDepth,
     const string& inPeerName)
 {
     KFS_LOG_STREAM_DEBUG << GetPeerName() <<
@@ -2015,16 +2016,19 @@ ChunkServer::Verify(
         " name: "      << inPeerName <<
         " prev: "      << ioFilterAuthName <<
         " preverify: " << inPreverifyOkFlag <<
+        " depth: "     << inCurCertDepth <<
     KFS_LOG_EOM;
     // Do no allow to renegotiate and change the name.
     string authName = inPeerName;
     if (! inPreverifyOkFlag ||
-            ! gLayoutManager.GetCSAuthContext().RemapAndValidate(authName) ||
-            (! mAuthName.empty() && authName != mAuthName)) {
+            (inCurCertDepth == 0 &&
+            (! gLayoutManager.GetCSAuthContext().RemapAndValidate(authName) ||
+            (! mAuthName.empty() && authName != mAuthName)))) {
         KFS_LOG_STREAM_ERROR << GetPeerName() <<
             " chunk server autentication failure:"
-            " peer: " << inPeerName <<
-            " name: " << authName <<
+            " peer: "  << inPeerName <<
+            " name: "  << authName <<
+            " depth: " << inCurCertDepth <<
             " is not valid" <<
             (mAuthName.empty() ? "" : "prev name: ") << mAuthName <<
         KFS_LOG_EOM;
@@ -2032,8 +2036,10 @@ ChunkServer::Verify(
         ioFilterAuthName.clear();
         return false;
     }
-    ioFilterAuthName = inPeerName;
-    mAuthName        = authName;
+    if (inCurCertDepth == 0) {
+        ioFilterAuthName = inPeerName;
+        mAuthName        = authName;
+    }
     return true;
 }
 

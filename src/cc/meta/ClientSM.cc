@@ -581,6 +581,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
 ClientSM::Verify(
     string&       ioFilterAuthName,
     bool          inPreverifyOkFlag,
+    int           inCurCertDepth,
     const string& inPeerName)
 {
     KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
@@ -588,25 +589,30 @@ ClientSM::Verify(
         " name: "        << inPeerName <<
         " prev: "        << ioFilterAuthName <<
         " preverify: "   << inPreverifyOkFlag <<
+        " depth: "       << inCurCertDepth <<
     KFS_LOG_EOM;
     // For now do no allow to renegotiate and change the name.
     string authName = inPeerName;
     if (! inPreverifyOkFlag ||
-            ! GetAuthContext().RemapAndValidate(authName) ||
-            (! mAuthName.empty() && authName != mAuthName)) {
+            (inCurCertDepth == 0 &&
+            (! GetAuthContext().RemapAndValidate(authName) ||
+            (! mAuthName.empty() && authName != mAuthName)))) {
         KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
             " autentication failure:"
-            " peer: " << inPeerName <<
-            " name: " << authName <<
+            " peer: "  << inPeerName <<
+            " name: "  << authName <<
+            " depth: " << inCurCertDepth <<
             " is not valid" <<
-            (mAuthName.empty() ? "" : "prev name: ") << mAuthName <<
+            (mAuthName.empty() ? "" : " prev name: ") << mAuthName <<
         KFS_LOG_EOM;
         mAuthName.clear();
         ioFilterAuthName.clear();
         return false;
     }
-    ioFilterAuthName = inPeerName;
-    mAuthName        = authName;
+    if (inCurCertDepth == 0) {
+        ioFilterAuthName = inPeerName;
+        mAuthName        = authName;
+    }
     return true;
 }
 

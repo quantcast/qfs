@@ -789,6 +789,7 @@ public:
     virtual bool Verify(
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
+        int           inCurCertDepth,
         const string& inPeerName);
 
 protected:
