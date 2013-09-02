@@ -664,7 +664,9 @@ private:
         if (mServerPskPtr && inPeerName.empty() && ! mAuthName.empty()) {
             return true;
         }
-        mAuthName = inPeerName;
+        if (inCurCertDepth == 0) {
+            mAuthName = inPeerName;
+        }
         return true;
     }
     static int VerifyCB(
