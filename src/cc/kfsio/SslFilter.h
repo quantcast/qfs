@@ -138,10 +138,14 @@ public:
     virtual int Write(
         NetConnection& inConnection,
         TcpSocket&     inSocket,
-        IOBuffer&      inIoBuffer);
+        IOBuffer&      inIoBuffer,
+        bool&          outInvokeErrHandlerFlag);
     virtual void Close(
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr);
+    virtual int Shutdown(
+        NetConnection& inConnection,
+        TcpSocket&     inSocket);
     virtual int Attach(
         NetConnection& inConnection,
         TcpSocket*     inSocketPtr,

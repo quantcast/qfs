@@ -110,8 +110,10 @@ NetConnection::HandleWriteEvent()
     mNetManagerEntry.SetConnectPending(false);
     int nwrote = 0;
     if (IsGood()) {
+        bool forceInvokeErrHandlerFlag = false;
         nwrote = WantWrite() ? (mFilter ?
-            mFilter->Write(*this, *mSock, mOutBuffer) :
+            mFilter->Write(*this, *mSock, mOutBuffer,
+                forceInvokeErrHandlerFlag) :
             mOutBuffer.Write(mSock->GetFd())
         ) : 0;
         if (nwrote < 0 && IsFatalError(-nwrote)) {
@@ -123,6 +125,11 @@ NetConnection::HandleWriteEvent()
                 (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
             Close();
+            mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
+        } else if (forceInvokeErrHandlerFlag) {
+            NET_CONNECTION_LOG_STREAM_DEBUG <<
+                "write: forcing error handler invocation, wrote: " << nwrote <<
+            KFS_LOG_EOM;
             mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
         } else if (nwrote > 0 || wasConnectPending) {
             mCallbackObj->HandleEvent(EVENT_NET_WROTE, &mOutBuffer);
@@ -197,6 +204,18 @@ NetConnection::GetErrorMsg() const
         const_cast<NetConnection*>(this)->mLstErrorMsg = msg;
     }
     return mLstErrorMsg;
+}
+
+int
+NetConnection::Shutdown()
+{
+    if (! mSock) {
+        return -EINVAL;
+    }
+    if (mFilter) {
+        return mFilter->Shutdown(*this, *mSock);
+    }
+    return mSock->Shutdown();
 }
 
 }

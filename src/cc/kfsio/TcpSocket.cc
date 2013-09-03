@@ -352,6 +352,19 @@ TcpSocket::Close()
 }
 
 int
+TcpSocket::Shutdown(bool readFlag, bool writeFlag)
+{
+    if (mSockFd < 0) {
+        return -EINVAL;
+    }
+    const int how = (readFlag ? SHUT_RD : 0) | (writeFlag ? SHUT_WR : 0);
+    if (how == 0) {
+        return 0;
+    }
+    return shutdown(mSockFd, how);
+}
+
+int
 TcpSocket::DoSynchSend(const char *buf, int bufLen)
 {
     int numSent = 0;

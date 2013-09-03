@@ -78,8 +78,10 @@ public:
         virtual int Write(
             NetConnection& con,
             TcpSocket&     sock,
-            IOBuffer&      buffer) = 0;
+            IOBuffer&      buffer,
+            bool&          outForceInvokeErrHandlerFlag) = 0;
         virtual void Close(NetConnection& con, TcpSocket* sock) = 0;
+        virtual int Shutdown(NetConnection& con, TcpSocket& sock) = 0;
         virtual int Attach(NetConnection& /* con */,
             TcpSocket* /* sock */, string* /* outErrMsg */)
             { return 0; }
@@ -324,6 +326,8 @@ public:
             delete sock;
         }
     }
+
+    int Shutdown();
 
     void StartListening(bool nonBlockingAccept = false) {
         if (! mSock) {

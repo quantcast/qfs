@@ -122,6 +122,8 @@ public:
     /// Close the TCP socket.
     void Close();
 
+    int Shutdown(bool readFlag, bool writeFlag);
+    int Shutdown() { return Shutdown(true, true); }
     /// Get and clear pending socket error: getsockopt(SO_ERROR)
     int GetSocketError() const;
     static string ToString(const Address& addr);

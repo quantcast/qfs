@@ -279,6 +279,7 @@ public:
           mVerifyPeerPtr(inVerifyPeerPtr),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
+          mShutdownPendingFlag(false),
           mSslErrorFlag(false)
     {
         if (mSslPtr &&
@@ -338,18 +339,30 @@ public:
         if (theRet) {
             return theRet;
         }
+        if (mShutdownPendingFlag) {
+            return ShutdownSelf();
+        }
         return inIoBuffer.Read(-1, inMaxRead, this);
     }
     int Write(
         NetConnection& inConnection,
         TcpSocket&     inSocket,
-        IOBuffer&      inIoBuffer)
+        IOBuffer&      inIoBuffer,
+        bool&          outForceInvokeErrHandlerFlag)
     {
+        outForceInvokeErrHandlerFlag = false;
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
         int theRet = DoHandshake();
         if (theRet) {
+            return theRet;
+        }
+        if (mShutdownPendingFlag) {
+            const int theRet = ShutdownSelf();
+            // On successful shutdown completion read handler to be invoked in
+            // order to let the caller know that shutdown is now complete.
+            outForceInvokeErrHandlerFlag = theRet == 0;
             return theRet;
         }
         int theWrCnt = 0;
@@ -500,6 +513,18 @@ public:
         { return (mError ? -EFAULT : 0); }
     string GetErrorMsg() const
         { return (mError ? GetErrorMsg(mError) : string()); }
+    int Shutdown(
+        NetConnection& inConnection,
+        TcpSocket&     inSocket)
+    {
+        if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
+            return -EINVAL;
+        }
+        if (mError) {
+            return -EFAULT;
+        }
+        return ShutdownSelf();
+    }
 private:
     SSL*              mSslPtr;
     unsigned long     mError;
@@ -509,9 +534,10 @@ private:
     string            mPeerName;
     ServerPsk* const  mServerPskPtr;
     VerifyPeer* const mVerifyPeerPtr;
-    const bool        mDeleteOnCloseFlag;
-    bool              mSessionStoredFlag;
-    bool              mSslErrorFlag;
+    const bool        mDeleteOnCloseFlag:1;
+    bool              mSessionStoredFlag:1;
+    bool              mShutdownPendingFlag:1;
+    bool              mSslErrorFlag:1;
 
     struct OpenSslInit
     {
@@ -850,6 +876,20 @@ private:
 #endif
         }
     }
+    int ShutdownSelf()
+    {
+        mShutdownPendingFlag = true;
+        if (SSL_in_init(mSslPtr) && ! SSL_in_before(mSslPtr)) {
+            // Wait for handshake to complete, then issue shutdown.
+            return 0;
+        }
+        const int theRet = SSL_shutdown(mSslPtr);
+        if (0 < theRet) {
+            return 0;
+        }
+        bool theEofFlag = false;
+        return SslRetToErr(theRet, theEofFlag);
+    }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;
 
@@ -957,9 +997,11 @@ SslFilter::Read(
 SslFilter::Write(
     NetConnection& inConnection,
     TcpSocket&     inSocket,
-    IOBuffer&      inIoBuffer)
+    IOBuffer&      inIoBuffer,
+    bool&          outForceInvokeErrHandlerFlag)
 {
-    return mImpl.Write(inConnection, inSocket, inIoBuffer);
+    return mImpl.Write(inConnection, inSocket, inIoBuffer,
+        outForceInvokeErrHandlerFlag);
 }
 
     /* virtual */ void
@@ -968,6 +1010,14 @@ SslFilter::Close(
     TcpSocket*     inSocketPtr)
 {
     mImpl.Close(inConnection, inSocketPtr);
+}
+
+    /* virtual */ int
+SslFilter::Shutdown(
+    NetConnection& inConnection,
+    TcpSocket&     inSocket)
+{
+    return mImpl.Shutdown(inConnection, inSocket);
 }
 
     /* virtual */ int
@@ -1088,7 +1138,7 @@ private:
     string const      mExpectedPeerName;
 };
 
-SslFilter&
+    SslFilter&
 SslFilter::Create(
     SslFilter::Ctx&        inCtx,
     const char*            inPskDataPtr          /* = 0 */,
