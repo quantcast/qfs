@@ -37,10 +37,13 @@
 #include <boost/shared_ptr.hpp>
 #include <errno.h>
 
+#include <algorithm>
+
 namespace KFS
 {
 
 using std::string;
+using std::max;
 using boost::shared_ptr;
 
 class ClientAuthContext::RequestCtxImpl
@@ -148,8 +151,8 @@ public:
                     *outErrMsgPtr = theErrMsgPtr;
                 }
                 KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                    "krb5.* configuration error: " << theErrMsgPtr <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsgPtr <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
@@ -234,11 +237,10 @@ public:
             string()
         );
         const Properties::String* const theKeyHexPtr = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("key"));
-        int theDigitCnt;
+            theParamName.Truncate(theCurLen).Append("key"));
         string thePskKey;
+        int    theDigitCnt;
         if (theKeyHexPtr && 0 < (theDigitCnt = theKeyHexPtr->GetSize())) {
-            string                     thePskKey;
             const unsigned char* const theHTPtr = HexIntParser::GetChar2Hex();
             int                        theByte  = 0;
             for (const char* thePtr = theKeyHexPtr->GetPtr();
@@ -250,8 +252,8 @@ public:
                         *outErrMsgPtr = "psk key invalid hex digit";
                     }
                     KFS_LOG_STREAM_ERROR <<
-                        theParamName.Truncate(thePrefLen) <<
-                        "psk key invalid hex digit:"
+                        theParamName <<
+                        ": invalid hex digit:"
                         " code: " << (*thePtr & 0xFF) <<
                     KFS_LOG_EOM;
                     return -EINVAL;
@@ -285,7 +287,7 @@ public:
             theSslCtxPtr = SslFilter::MakeCtxPtr(SslFilter::CreateCtx(
                 kServerFlag,
                 kPskOnlyFlag,
-                theParamName.Truncate(thePrefLen).Append("psk.tls.").GetPtr(),
+                theParamName.Truncate(theCurLen).GetPtr(),
                 theParams,
                 &theErrMsg
             ));
@@ -294,21 +296,43 @@ public:
                     *outErrMsgPtr = theErrMsg;
                 }
                 KFS_LOG_STREAM_ERROR <<
-                    theParamName.Truncate(thePrefLen) <<
-                    "psk.tls.* configuration error: " << theErrMsg <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
         }
-        mAuthNoneEnabledFlag = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("authNone.enabled"),
-            0) != 0;
-        mAuthRequiredFlag = theParams.getValue(
+        const bool theEnabledFlag =
+            (theKrbChangedFlag ? theKrbClientPtr : mKrbClientPtr) ||
+            (thePskSslChangedFlag ?
+                (theSslCtxPtr && ! thePskKey.empty()) :
+                (mSslCtxPtr   && ! mPskKey.empty())) ||
+            (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr)
+        ;
+        const bool theAuthRequiredFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("required"),
             0) != 0;
-        mMaxAuthRetryCount = theParams.getValue(
+        if (theAuthRequiredFlag && ! theEnabledFlag) {
+            KFS_LOG_STREAM_ERROR <<
+                theParamName <<
+                    " is on, but no valid authentication method specified" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        const Properties::String theReqParamName(theParamName);
+        const bool theAuthNoneEnabledFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append("authNone"),
+            0) != 0;
+        if (theAuthRequiredFlag && theAuthNoneEnabledFlag) {
+            KFS_LOG_STREAM_ERROR <<
+                theParamName <<
+                    " is on, conflicts with " << theReqParamName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        mMaxAuthRetryCount = max(1, theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("maxAuthRetries"),
-            mMaxAuthRetryCount);
+            mMaxAuthRetryCount));
         mParams.swap(theParams);
         if (theKrbChangedFlag) {
             mKrbClientPtr.swap(theKrbClientPtr);
@@ -325,11 +349,10 @@ public:
            mCurRequest.mInvalidFlag = true;
         }
         mKrbAuthRequireSslFlag = theKrbRequireSslFlag && mSslCtxPtr;
-        mPskKeyId = thePskKeyId;
-        mPskKey   = thePskKey;
-        mEnabledFlag = mKrbClientPtr ||
-            (mSslCtxPtr && ! mPskKey.empty()) ||
-            mX509SslCtxPtr;
+        mAuthNoneEnabledFlag   = theAuthNoneEnabledFlag;
+        mPskKeyId              = thePskKeyId;
+        mPskKey                = thePskKey;
+        mEnabledFlag           = theEnabledFlag;
         return 0;
     }
     int Request(

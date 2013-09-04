@@ -91,13 +91,13 @@ public:
                 (inOp.authType & kAuthenticationTypeKrb5) != 0) ||
             (mX509SslCtxPtr &&
                 (inOp.authType & kAuthenticationTypeX509) != 0) ||
-            (mSslCtxPtr &&
+            (mServerPskPtr && mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) ||
             (mAuthNoneFlag &&
                     (inOp.authType & kAuthenticationTypeNone) != 0);
         if (! theRetFlag) {
-            inOp.status    = -ENOENT;
-            inOp.statusMsg = "authentication type is not configured";
+            inOp.status    = -EPERM;
+            inOp.statusMsg = "requiest authentication type is not enabled";
         }
         return theRetFlag;
     }
