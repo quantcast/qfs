@@ -203,6 +203,11 @@ TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect
     }
     if (res && nonblockingConnect) {
         res = -errno;
+#ifdef EALREADY
+        if (res == -EALREADY) {
+            res = -EINPROGRESS;
+        }
+#endif
     }
     SetupSocket();
 
