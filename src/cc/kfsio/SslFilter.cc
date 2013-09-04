@@ -280,6 +280,7 @@ public:
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
           mShutdownPendingFlag(false),
+          mServerFlag(false),
           mSslErrorFlag(false)
     {
         if (mSslPtr &&
@@ -289,6 +290,7 @@ public:
             mSslPtr = 0;
         }
         SetPskCB();
+        mServerFlag = ! SSL_in_connect_init(mSslPtr);
     }
     ~Impl()
     {
@@ -431,12 +433,10 @@ public:
             mError        = 0;
             mSslErrorFlag = false;
             mAuthName.clear();
-            const bool theConnectFlag = SSL_in_connect_init(mSslPtr);
-            if (theConnectFlag) {
-                SetStoredClientSession();
-            }
-            const int theSslRet = theConnectFlag ?
-                SSL_connect(mSslPtr) : SSL_accept(mSslPtr);
+            mServerFlag = ! SSL_in_connect_init(mSslPtr);
+            SetStoredClientSession();
+            const int theSslRet = mServerFlag ?
+                SSL_accept(mSslPtr) : SSL_connect(mSslPtr);
             if (theSslRet <= 0) {
                 bool theEofFlag = false;
                 theRet = SslRetToErr(theSslRet, theEofFlag);
@@ -537,6 +537,7 @@ private:
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
     bool              mShutdownPendingFlag:1;
+    bool              mServerFlag:1;
     bool              mSslErrorFlag:1;
 
     struct OpenSslInit
@@ -744,13 +745,14 @@ private:
     {
         if (SSL_is_init_finished(mSslPtr)) {
             if (! mSessionStoredFlag) {
-                StoreSession();
+                StoreClientSession();
             }
             return 0;
         }
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
-            StoreSession();
+            // Try to update in case of renegotiation.
+            StoreClientSession();
             return 0;
         }
         bool theEofFlag = false;
@@ -802,12 +804,14 @@ private:
         }
         return 0;
     }
-    void StoreSession()
+    void StoreClientSession()
     {
+        if (mServerFlag) {
+            return;
+        }
         QCASSERT(mSslPtr && sOpenSslInitPtr);
         mSessionStoredFlag = true;
-        if (SSL_get_verify_result(mSslPtr) != X509_V_OK ||
-                SSL_get_ssl_method(mSslPtr) != TLSv1_client_method()) {
+        if (SSL_get_verify_result(mSslPtr) != X509_V_OK) {
             return;
         }
         SSL_SESSION* const theCurSessionPtr = SSL_get_session(mSslPtr);
@@ -848,6 +852,9 @@ private:
     }
     void SetStoredClientSession()
     {
+        if (mServerFlag) {
+            return;
+        }
         QCASSERT(mSslPtr && sOpenSslInitPtr);
         QCStMutexLocker theLock(sOpenSslInitPtr->mSessionUpdateMutex);
         SSL_SESSION* const thePtr = reinterpret_cast<SSL_SESSION*>(

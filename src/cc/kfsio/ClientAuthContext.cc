@@ -115,14 +115,14 @@ public:
         Properties theParams(mParams);
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theParamName.GetSize(), theParams);
+        size_t theCurLen = theParamName.Truncate(thePrefLen).Append(
+            "krb5.").GetSize();
         const char* theNullStr         = 0;
         const char* theServeiceNamePtr = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append(
-            "krb5.service"), theNullStr);
-        theParamName.Truncate(thePrefLen).Append("krb5.");
-        size_t theCurLen = theParamName.GetSize();
+            theParamName.Append("service"), theNullStr);
         const bool theKrbChangedFlag =
-            theParams.getValue(theParamName.Append("forceReload"), 0) != 0 ||
+            theParams.getValue(theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0 ||
             ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         KrbClientPtr theKrbClientPtr;
@@ -130,18 +130,18 @@ public:
             theKrbClientPtr.reset(new KrbClient());
             const char* const theErrMsgPtr = theKrbClientPtr->Init(
                 theParams.getValue(
-                    theParamName.Truncate(thePrefLen).Append(
-                    "krb5.host"), theNullStr),
+                    theParamName.Truncate(theCurLen).Append(
+                    "host"), theNullStr),
                 theServeiceNamePtr,
                 theParams.getValue(
-                    theParamName.Truncate(thePrefLen).Append(
-                    "krb5.keytab"), theNullStr),
+                    theParamName.Truncate(theCurLen).Append(
+                    "keytab"), theNullStr),
                 theParams.getValue(
-                    theParamName.Truncate(thePrefLen).Append(
-                    "krb5.clientName"), theNullStr),
+                    theParamName.Truncate(theCurLen).Append(
+                    "clientName"), theNullStr),
                 theParams.getValue(
-                    theParamName.Truncate(thePrefLen).Append(
-                    "krb5.initClientCache"), 0) != 0
+                    theParamName.Truncate(theCurLen).Append(
+                    "initClientCache"), 0) != 0
             );
             if (theErrMsgPtr) {
                 if (outErrMsgPtr) {
@@ -184,16 +184,16 @@ public:
             }
         }
         const bool theKrbRequireSslFlag = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("krb5.requireSsl"),
+            theParamName.Truncate(theCurLen).Append("requireSsl"),
             0) != 0;
-        theParamName.Truncate(thePrefLen).Append("X509.");
-        theCurLen = theParamName.GetSize();
+        theCurLen = theParamName.Truncate(thePrefLen).Append("X509.").GetSize();
         const bool theCreateX509CtxFlag = theParams.getValue(
                 theParamName.Append("PKeyPemFile")) != 0;
         const bool theX509ChangedFlag =
             theCreateX509CtxFlag != (mX509SslCtxPtr != 0) ||
              theParams.getValue(
-                theParamName.Append("forceReload"), 0) != 0 ||
+                theParamName.Truncate(theCurLen).Append(
+                    "forceReload"), 0) != 0 ||
            ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         SslCtxPtr theX509SslCtxPtr;
@@ -217,23 +217,24 @@ public:
                         *outErrMsgPtr = theErrMsg;
                     }
                     KFS_LOG_STREAM_ERROR <<
-                        theParamName.Truncate(thePrefLen) <<
-                        "X509.* configuration error: " << theErrMsg <<
+                        theParamName.Truncate(theCurLen) <<
+                        "* configuration error: " << theErrMsg <<
                     KFS_LOG_EOM;
                     return -EINVAL;
                 }
             }
             theX509ExpectedName = theParams.getValue(
-                theParamName.Truncate(thePrefLen).Append("name"),
+                theParamName.Truncate(theCurLen).Append("name"),
                 string()
             );
         }
+        theCurLen = theParamName.Truncate(thePrefLen).Append("psk.").GetSize();
         const string thePskKeyId = theParams.getValue(
-            theParamName.Truncate(theCurLen).Append("psk.tls.keyId"),
+            theParamName.Truncate(theCurLen).Append("keyId"),
             string()
         );
         const Properties::String* const theKeyHexPtr = theParams.getValue(
-            theParamName.Truncate(thePrefLen).Append("psk.tls.key"));
+            theParamName.Truncate(thePrefLen).Append("key"));
         int theDigitCnt;
         string thePskKey;
         if (theKeyHexPtr && 0 < (theDigitCnt = theKeyHexPtr->GetSize())) {
@@ -246,11 +247,11 @@ public:
                 const int theDigit = (int)theHTPtr[(int)*thePtr & 0xFF] & 0xFF;
                 if (theDigit > 0xF) {
                     if (outErrMsgPtr) {
-                        *outErrMsgPtr = "psk.tls.key invalid hex digit";
+                        *outErrMsgPtr = "psk key invalid hex digit";
                     }
                     KFS_LOG_STREAM_ERROR <<
                         theParamName.Truncate(thePrefLen) <<
-                        "psk.tls.key invalid hex digit:"
+                        "psk key invalid hex digit:"
                         " code: " << (*thePtr & 0xFF) <<
                     KFS_LOG_EOM;
                     return -EINVAL;
@@ -263,8 +264,6 @@ public:
                 }
             }
         }
-        theParamName.Truncate(thePrefLen).Append("psk.tls.");
-        theCurLen = theParamName.GetSize();
         const bool theCreatSslPskFlag =
             theParams.getValue(
                 theParamName.Truncate(theCurLen).Append(
@@ -274,7 +273,8 @@ public:
         const bool thePskSslChangedFlag =
             (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
             theParams.getValue(
-                theParamName.Append("forceReload"), 0) != 0 ||
+                theParamName.Truncate(theCurLen).Append(
+                    "forceReload"), 0) != 0 ||
             ! theParams.equalsWithPrefix(
                 theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
         SslCtxPtr theSslCtxPtr;
