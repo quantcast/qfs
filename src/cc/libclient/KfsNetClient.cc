@@ -1044,7 +1044,9 @@ private:
         KFS_LOG_EOM;
         mConnPtr.reset(new NetConnection(&theSocket, this));
         mConnPtr->EnableReadIfOverloaded();
-        mConnPtr->SetDoingNonblockingConnect();
+        if (theErr) {
+            mConnPtr->SetDoingNonblockingConnect();
+        }
         mConnPtr->SetMaxReadAhead(kMaxReadAhead);
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
