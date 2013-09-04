@@ -111,7 +111,8 @@ checkpoint_log(DETokenizer& c)
         if (!c.empty())
             s += "/";
     }
-    return (replayer.openlog(s) == 0);
+    return (replayer.openlog(s) == 0 &&
+        replayer.verifyLogSegmentsPresent());
 }
 
 bool

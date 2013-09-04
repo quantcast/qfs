@@ -987,9 +987,8 @@ Replay::playLogs(bool includeLastLogFlag)
         oplog.setLog(number);
         return 0;
     }
-    int       last   = -1;
-    const int status = getLastLog(last);
-    return (status == 0 ? playLogs(last, includeLastLogFlag) : status);
+    const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
+    return (status == 0 ? playLogs(lastLogNum, includeLastLogFlag) : status);
 }
 
 int
@@ -1074,6 +1073,17 @@ Replay::getLastLog(int& last)
             ": " << QCUtils::SysError(err) <<
         KFS_LOG_EOM;
         return (err > 0 ? -err : (err == 0 ? -1 : err));
+    }
+    if (lastst.st_nlink != 2) {
+        KFS_LOG_STREAM_FATAL <<
+            LASTLOG <<
+            ": invalid link count: " << lastst.st_nlink <<
+            " this must be \"hard\" link to the last complete log"
+            " segment (usually the last log segment with last line starting"
+            " with \"checksum/\" prefix), and therefore must have link"
+            " count 2" <<
+        KFS_LOG_EOM;
+        return -EINVAL;
     }
     if (last > 0 && file_exists(oplog.logfile(last - 1))) {
         // Start search from the previous, as checkpoint might

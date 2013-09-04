@@ -40,11 +40,17 @@ public:
         : file(),
           path(),
           number(-1),
+          lastLogNum(-1),
           lastLogIntBase(-1),
           appendToLastLogFlag(false)
         {}
     ~Replay()
         {}
+    bool verifyLogSegmentsPresent()
+    {
+        lastLogNum = -1;
+        return getLastLog(lastLogNum) == 0;
+    }
     //!< open the log file for replay
     int openlog(const string &p);
     int logno() { return number; }
@@ -59,6 +65,7 @@ private:
     ifstream file;   //!< the log file being replayed
     string   path;   //!< path name for log file
     int      number; //!< sequence number for log file
+    int      lastLogNum;
     int      lastLogIntBase;
     bool     appendToLastLogFlag;
 
