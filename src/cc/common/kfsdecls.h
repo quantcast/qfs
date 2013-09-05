@@ -50,17 +50,21 @@ using std::min;
 /// it is listening for incoming connections
 ///
 struct ServerLocation {
-    ServerLocation(): hostname(""), port(-1) { }
-    ServerLocation(const ServerLocation &other):
-        hostname(other.hostname), port(other.port) { }
-    ServerLocation(const string &h, int p): hostname(h), port(p) { }
-    ServerLocation & operator = (const ServerLocation &other) {
+    ServerLocation(): hostname(), port(-1) {}
+    ServerLocation(const ServerLocation& other):
+        hostname(other.hostname), port(other.port) {}
+    ServerLocation(const string& h, int p): hostname(h), port(p) {}
+    ServerLocation& operator = (const ServerLocation& other) {
         hostname = other.hostname;
         port = other.port;
         return *this;
     }
-    void Reset(const char *h, int p) {
-        hostname = h;
+    void Reset(const char* h, int p) {
+        if (h) {
+            hostname = h;
+        } else {
+            hostname.clear();
+        }
         port = p;
     }
     bool operator == (const ServerLocation &other) const {
@@ -106,8 +110,10 @@ struct ServerLocation {
     }
     void FromString(const string &s) {
         istringstream is(s);
-        is >> hostname;
-        is >> port;
+        if ((is >> hostname >> port)) {
+            return;
+        }
+        Reset(0, -1);
     }
 
     string hostname; //!< Location of the server: machine name/IP addr
@@ -189,9 +195,8 @@ public:
             group != kKfsGroupNone
         );
     }
-    bool IsSticky() const {
-        return (mode != kKfsModeUndef && mode & kStickyBit);
-    }
+    bool IsSticky() const
+        { return (mode != kKfsModeUndef && mode & kStickyBit); }
     void SetSticky(bool flag)
     {
         if (flag) {

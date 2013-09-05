@@ -199,7 +199,7 @@ public:
     void GetStats(
         Stats&               outStats,
         KfsNetClient::Stats& outChunkServersStats);
-    std::string GetServerLocation() const;
+    const ServerLocation& GetServerLocation() const;
     int SetPreAllocation(
         bool inFlag);
     bool GetPreAllocation() const;

@@ -232,7 +232,7 @@ public:
         KfsOp*   inOpPtr,
         OpOwner* inOwnerPtr);
     bool Cancel();
-    std::string GetServerLocation() const;
+    const ServerLocation& GetServerLocation() const;
     NetManager& GetNetManager();
     const NetManager& GetNetManager() const;
     void SetEventObserver(

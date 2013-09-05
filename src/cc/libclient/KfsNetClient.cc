@@ -261,8 +261,8 @@ public:
     void GetStats(
         Stats& outStats) const
         { outStats = mStats; }
-    string GetServerLocation() const
-        { return mServerLocation.ToString(); }
+    const ServerLocation& GetServerLocation() const
+        { return mServerLocation; }
     bool Enqueue(
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
@@ -408,7 +408,7 @@ public:
                             MsgLogger::kLogLevelDEBUG :
                             MsgLogger::kLogLevelERROR) << mLogPrefix <<
                         "closing connection: " << mConnPtr->GetSockName() <<
-                        " to: "            << mServerLocation.ToString() <<
+                        " to: "            << mServerLocation <<
                         " due to "         << theReasonPtr <<
                         " pending:"
                         " read: "          << mConnPtr->GetNumBytesToRead() <<
@@ -895,7 +895,7 @@ private:
         if (theIdx < 0) {
             if (inBuffer.BytesConsumable() > MAX_RPC_HEADER_LEN) {
                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "error: " << mServerLocation.ToString() <<
+                    "error: " << mServerLocation <<
                     ": exceeded max. response header size: " <<
                     MAX_RPC_HEADER_LEN << "; got " <<
                     inBuffer.BytesConsumable() << " resetting connection" <<
@@ -918,7 +918,7 @@ private:
         const kfsSeq_t theOpSeq = mProperties.getValue("Cseq", kfsSeq_t(-1));
         if (mContentLength > mMaxContentLength) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "error: " << mServerLocation.ToString() <<
+                "error: " << mServerLocation <<
                 ": exceeded max. response content length: " << mContentLength <<
                 " > " << mMaxContentLength <<
                 " seq: " << theOpSeq <<
@@ -942,7 +942,7 @@ private:
         }
         if (mOutstandingOpPtr && mOutstandingOpPtr != mInFlightOpPtr) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "error: " << mServerLocation.ToString() <<
+                "error: " << mServerLocation <<
                 " seq: " << theOpSeq <<
                 " op:"
                 " expected: " << static_cast<const void*>(mOutstandingOpPtr) <<
@@ -1029,7 +1029,7 @@ private:
                 *inErrMsgPtr = QCUtils::SysError(-theErr);
             }
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "failed to connect to server " << mServerLocation.ToString() <<
+                "failed to connect to server " << mServerLocation <<
                 " : " << QCUtils::SysError(-theErr) <<
             KFS_LOG_EOM;
             delete &theSocket;
@@ -1038,7 +1038,7 @@ private:
             return;
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "connecting to server: " << mServerLocation.ToString() <<
+            "connecting to server: " << mServerLocation <<
             " auth: " << (IsAuthEnabled() ?
                 (IsPskAuth() ? "psk" : "on") : "off") <<
         KFS_LOG_EOM;
@@ -1647,7 +1647,7 @@ KfsNetClient::Cancel()
     return mImpl.Cancel();
 }
 
-    string
+    const ServerLocation&
 KfsNetClient::GetServerLocation() const
 {
     Impl::StRef theRef(mImpl);

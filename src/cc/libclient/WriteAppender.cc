@@ -337,7 +337,7 @@ public:
         { return (mOpenFlag || mOpeningFlag); }
     int GetPendingSize() const
         { return mBuffer.BytesConsumable(); }
-    string GetServerLocation() const
+    const ServerLocation& GetServerLocation() const
         { return GetChunkServer().GetServerLocation(); }
     int SetWriteThreshold(
         int inThreshold)
@@ -1697,7 +1697,7 @@ WriteAppender::GetStats(
     mImpl.GetStats(outStats, outChunkServersStats);
 }
 
-string
+const ServerLocation&
 WriteAppender::GetServerLocation() const
 {
     return mImpl.GetServerLocation();
