@@ -235,9 +235,11 @@ private:
     BufferManager*             mDevBufMgr;
     bool                       mGrantedFlag;
     DevClientMgrAllocator      mDevCliMgrAllocator;
+    string                     mAuthName;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
+    static bool                sSslPskEnabledFlag;
     static int                 sMaxReqSizeDiscard;
     static size_t              sMaxAppendRequestSize;
     static uint64_t            sInstanceNum;

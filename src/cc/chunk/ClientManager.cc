@@ -2,9 +2,9 @@
 // $Id$
 //
 // Created 2006/03/28
-// Author: Sriram Rao
+// Author: Sriram Rao, Mike Ovsiannikov -- implement PSK authentication.
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2013 Quantcast Corp.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -21,32 +21,101 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
+#include "common/Properties.h"
+#include "common/MsgLogger.h"
+
 #include "ClientManager.h"
+#include "ClientSM.h"
 
 namespace KFS
 {
 
+class ClientManager::Auth
+{
+public:
+    Auth()
+        {}
+    ~Auth()
+        {}
+    bool SetParameters(
+        const Properties& inProps)
+    {
+        return true;
+    }
+    bool Setup(
+        NetConnection& inConn)
+    {
+        return true;
+    }
+private:
+    Auth(
+        const Auth& inAuth);
+    Auth& operator=(
+        const Auth& inAuth);
+};
+
 ClientManager gClientManager;
 
-bool 
-ClientManager::BindAcceptor(int port)
+ClientManager::ClientManager()
+    : mAcceptorPtr(0),
+      mIoTimeoutSec(-1),
+      mIdleTimeoutSec(-1),
+      mCounters(),
+      mAuth(*(new Auth))
 {
-    const bool kBindOnlyFlag = true;
-    mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
-    return mAcceptor->IsAcceptorStarted();
+    mCounters.Clear();
 }
 
-bool 
+ClientManager::~ClientManager()
+{
+    assert(mCounters.mClientCount == 0);
+    delete mAcceptorPtr;
+    delete &mAuth;
+}
+
+    bool
+ClientManager::BindAcceptor(
+    int inPort)
+{
+    delete mAcceptorPtr;
+    mAcceptorPtr = 0;
+    const bool kBindOnlyFlag = true;
+    mAcceptorPtr = new Acceptor(inPort, this, kBindOnlyFlag);
+    return mAcceptorPtr->IsAcceptorStarted();
+}
+
+    bool
 ClientManager::StartListening()
 {
-    if (! mAcceptor) {
+    if (! mAcceptorPtr) {
         return false;
     }
-    mAcceptor->StartListening();
-    return mAcceptor->IsAcceptorStarted();
+    mAcceptorPtr->StartListening();
+    return mAcceptorPtr->IsAcceptorStarted();
+}
+
+    /* virtual */ KfsCallbackObj*
+ClientManager::CreateKfsCallbackObj(
+    NetConnectionPtr& inConnPtr)
+{
+    if (! inConnPtr || ! mAuth.Setup(*inConnPtr)) {
+        return 0;
+    }
+    ClientSM* const clnt = new ClientSM(inConnPtr);
+    assert(mCounters.mClientCount >= 0);
+    mCounters.mAcceptCount++;
+    mCounters.mClientCount++;
+    return clnt;
+}
+
+    bool
+ClientManager::SetParameters(
+    const Properties& inProps)
+{
+    return mAuth.SetParameters(inProps);
 }
 
 }

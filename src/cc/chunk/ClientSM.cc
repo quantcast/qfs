@@ -187,7 +187,8 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mDevBufMgrClients(),
       mDevBufMgr(0),
       mGrantedFlag(false),
-      mDevCliMgrAllocator()
+      mDevCliMgrAllocator(),
+      mAuthName()
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
@@ -283,8 +284,12 @@ ClientSM::HandleRequest(int code, void* data)
     }
     mRecursionCnt++;
 
+    NetConnection::Filter* filter;
     switch (code) {
     case EVENT_NET_READ: {
+        if (mAuthName.empty() && (filter = mNetConnection->GetFilter())) {
+            mAuthName = filter->GetAuthName();
+        }
         if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
@@ -411,17 +416,49 @@ ClientSM::HandleRequest(int code, void* data)
         break;
     }
 
-    case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
+        if (mNetConnection->IsGood() &&
+                (filter = mNetConnection->GetFilter())) {
+            // Do not allow to shutdown filter with ops or data in flight.
+            if (mOps.empty() &&
+                    mNetConnection->GetInBuffer().IsEmpty() &&
+                    mNetConnection->GetOutBuffer().IsEmpty()) {
+                // Ssl shutdown from the other side.
+                const string authName = filter->GetAuthName();
+                if (mNetConnection->Shutdown() == 0) {
+                    if (! mNetConnection->GetFilter()) {
+                        // Filter shutdown is now complete.
+                        mAuthName = authName;
+                    }
+                    CLIENT_SM_LOG_STREAM_INFO <<
+                        "filter shutdown"
+                        " auth name: " << mAuthName <<
+                        " filter: "    << (void*)mNetConnection->GetFilter() <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+            } else {
+                CLIENT_SM_LOG_STREAM_ERROR <<
+                    "invalid filter (ssl) shutdown: "
+                    " error: " << mNetConnection->GetErrorMsg() <<
+                    " name: "  << mAuthName <<
+                    " pending"
+                    " read: "  << mNetConnection->GetNumBytesToRead() <<
+                    " write: " << mNetConnection->GetNumBytesToWrite() <<
+                    " ops: "   << (mOps.empty() ? "pending" : "none") <<
+                KFS_LOG_EOM;
+            }
+        }
+        // Fall through.
+    case EVENT_INACTIVITY_TIMEOUT:
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "closing connection"
             " due to " << (code == EVENT_INACTIVITY_TIMEOUT ?
                 "inactivity timeout" : "network error") <<
-            ", socket error: " <<
-                    QCUtils::SysError(mNetConnection->GetSocketError()) <<
-            ", pending read: " << mNetConnection->GetNumBytesToRead() <<
-            " write: "         << mNetConnection->GetNumBytesToWrite() <<
-            " wants read: "    << mNetConnection->IsReadReady() <<
+            " error: "        << mNetConnection->GetErrorMsg() <<
+            " pending read: " << mNetConnection->GetNumBytesToRead() <<
+            " write: "        << mNetConnection->GetNumBytesToWrite() <<
+            " wants read: "   << mNetConnection->IsReadReady() <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         if (mCurOp) {

@@ -30,10 +30,13 @@
 #include <cassert>
 #include <inttypes.h>
 #include "kfsio/Acceptor.h"
-#include "ClientSM.h"
+#include "KfsOps.h"
 
 namespace KFS
 {
+
+class Properties;
+class ClientSM;
 
 // Client connection listener.
 class ClientManager : public IAcceptorOwner {
@@ -92,63 +95,55 @@ public:
             mDiscardedBytesCount        = 0;
         }
     };
-    ClientManager()
-        : mAcceptor(0), mIoTimeoutSec(-1), mIdleTimeoutSec(-1), mCounters() {
-        mCounters.Clear();
+    ClientManager();
+    virtual ~ClientManager();
+    void SetTimeouts(
+        int inIoTimeoutSec,
+        int inIdleTimeoutSec)
+    {
+        mIoTimeoutSec   = inIoTimeoutSec;
+        mIdleTimeoutSec = inIdleTimeoutSec;
     }
-    void SetTimeouts(int ioTimeoutSec, int idleTimeoutSec)  {
-        mIoTimeoutSec = ioTimeoutSec;
-        mIdleTimeoutSec = idleTimeoutSec;
-    }
-    virtual ~ClientManager() {
-        assert(mCounters.mClientCount == 0);
-        delete mAcceptor;
-    };
-    bool BindAcceptor(int port);
+    bool BindAcceptor(
+        int inPort);
     bool StartListening();
-    KfsCallbackObj *CreateKfsCallbackObj(NetConnectionPtr &conn) {
-        ClientSM *clnt = new ClientSM(conn);
-        assert(mCounters.mClientCount >= 0);
-        mCounters.mAcceptCount++;
-        mCounters.mClientCount++;
-        return clnt;
-    }
-    void Remove(ClientSM * /* clnt */) {
+    virtual KfsCallbackObj* CreateKfsCallbackObj(
+        NetConnectionPtr& inConnPtr);
+    void Remove(
+        ClientSM* /* inClientPtr */)
+    {
         assert(mCounters.mClientCount > 0);
         mCounters.mClientCount--;
     }
-    int GetIdleTimeoutSec() const {
-        return mIdleTimeoutSec;
-    }
-    int GetIoTimeoutSec() const {
-        return mIoTimeoutSec;
-    }
-    void BadRequest() {
-        mCounters.mBadRequestCount++;
-    }
-    void BadRequestHeader() {
-        mCounters.mBadRequestHeaderCount++;
-    }
-    void RequestLengthExceeded() {
-        mCounters.mRequestLengthExceededCount++;
-    }
-    void IdleTimeout() {
-        mCounters.mIdleTimeoutCount++;
-    }
-    void WaitTimeExceeded() {
-        mCounters.mWaitTimeExceededCount++;
-    }
-    void RequestDone(int64_t requestTimeMicroSecs, const KfsOp& op) {
-        const int64_t tm = requestTimeMicroSecs > 0 ? requestTimeMicroSecs : 0;
-        switch (op.op) {
+    int GetIdleTimeoutSec() const
+        { return mIdleTimeoutSec; }
+    int GetIoTimeoutSec() const
+        { return mIoTimeoutSec; }
+    void BadRequest()
+        { mCounters.mBadRequestCount++; }
+    void BadRequestHeader()
+        { mCounters.mBadRequestHeaderCount++; }
+    void RequestLengthExceeded()
+        { mCounters.mRequestLengthExceededCount++; }
+    void IdleTimeout()
+        { mCounters.mIdleTimeoutCount++; }
+    void WaitTimeExceeded()
+        { mCounters.mWaitTimeExceededCount++; }
+    void RequestDone(
+        int64_t      inRequestTimeMicroSecs,
+        const KfsOp& inOp)
+    {
+        const int64_t theTime =
+            inRequestTimeMicroSecs > 0 ? inRequestTimeMicroSecs : 0;
+        switch (inOp.op) {
             case CMD_READ:
                 mCounters.mReadRequestCount++;
-                mCounters.mReadRequestTimeMicroSecs += tm;
-                if (op.status >= 0) {
-                    const int64_t len =
-                        static_cast<const ReadOp&>(op).numBytesIO;
-                    if (len > 0) {
-                        mCounters.mReadRequestBytes += len;
+                mCounters.mReadRequestTimeMicroSecs += theTime;
+                if (inOp.status >= 0) {
+                    const int64_t theLen =
+                        static_cast<const ReadOp&>(inOp).numBytesIO;
+                    if (theLen > 0) {
+                        mCounters.mReadRequestBytes += theLen;
                     }
                 } else {
                     mCounters.mReadRequestErrors++;
@@ -156,12 +151,12 @@ public:
             break;
             case CMD_WRITE_PREPARE:
                 mCounters.mWriteRequestCount++;
-                mCounters.mWriteRequestTimeMicroSecs += tm;
-                if (op.status >= 0) {
-                    const int64_t len =
-                        static_cast<const WritePrepareOp&>(op).numBytes;
-                    if (len > 0) {
-                        mCounters.mWriteRequestBytes += len;
+                mCounters.mWriteRequestTimeMicroSecs += theTime;
+                if (inOp.status >= 0) {
+                    const int64_t theLen =
+                        static_cast<const WritePrepareOp&>(inOp).numBytes;
+                    if (theLen > 0) {
+                        mCounters.mWriteRequestBytes += theLen;
                     }
                 } else {
                     mCounters.mWriteRequestErrors++;
@@ -169,12 +164,12 @@ public:
             break;
             case CMD_RECORD_APPEND:
                 mCounters.mAppendRequestCount++;
-                mCounters.mAppendRequestTimeMicroSecs += tm;
-                if (op.status >= 0) {
-                    const int64_t len =
-                        static_cast<const RecordAppendOp&>(op).numBytes;
-                    if (len > 0) {
-                        mCounters.mAppendRequestBytes += len;
+                mCounters.mAppendRequestTimeMicroSecs += theTime;
+                if (inOp.status >= 0) {
+                    const int64_t theLen =
+                        static_cast<const RecordAppendOp&>(inOp).numBytes;
+                    if (theLen > 0) {
+                        mCounters.mAppendRequestBytes += theLen;
                     }
                 } else {
                     mCounters.mAppendRequestErrors++;
@@ -182,29 +177,36 @@ public:
             break;
             default:
                 mCounters.mOtherRequestCount++;
-                mCounters.mOtherRequestTimeMicroSecs += tm;
-                if (op.status < 0) {
+                mCounters.mOtherRequestTimeMicroSecs += theTime;
+                if (inOp.status < 0) {
                     mCounters.mOtherRequestErrors++;
                 }
             break;
         }
     }
-    void GetCounters(Counters& counters) {
-        counters = mCounters;
-    }
+    void GetCounters(
+        Counters& outCounters)
+        { outCounters = mCounters; }
     int GetPort() const
-        { return (mAcceptor ? mAcceptor->GetPort() : -1); }
-    void Discarded(int byteCount)
+        { return (mAcceptorPtr ? mAcceptorPtr->GetPort() : -1); }
+    void Discarded(
+        int inByteCount)
     {
-        if (byteCount > 0) {
-            mCounters.mDiscardedBytesCount += byteCount;
+        if (inByteCount > 0) {
+            mCounters.mDiscardedBytesCount += inByteCount;
         }
     }
+    bool SetParameters(
+        const Properties& inProps);
 private:
-    Acceptor* mAcceptor;
+    class Auth;
+
+    Acceptor* mAcceptorPtr;
     int       mIoTimeoutSec;
     int       mIdleTimeoutSec;
     Counters  mCounters;
+    Auth&     mAuth;
+
 private:
     // No copy.
     ClientManager(const ClientManager&);

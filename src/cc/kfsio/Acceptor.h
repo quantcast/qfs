@@ -63,7 +63,7 @@ public:
     /// @param conn A smart pointer that encapsulates the connection
     /// that was received.  @see NetConnectionPtr
     ///
-    virtual KfsCallbackObj *CreateKfsCallbackObj(NetConnectionPtr &conn) = 0;
+    virtual KfsCallbackObj* CreateKfsCallbackObj(NetConnectionPtr &conn) = 0;
 };
 
 class NetManager;

@@ -130,7 +130,7 @@ public:
             const char*                  kSessionKeyPtr        = 0;
             int                          kSessionKeyLen        = 0;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mSslCtxPtr.get(),
+                *mSslCtxPtr,
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
@@ -194,7 +194,7 @@ public:
             SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
             const bool                   kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mSslCtxPtr.get(),
+                *mSslCtxPtr,
                 theSessionKeyPtr,
                 (size_t)max(0, theSessionKeyLen),
                 kPskClientIdentityPtr,
@@ -225,7 +225,7 @@ public:
             SslFilter::ServerPsk* const kServerPskPtr         = 0;
             const bool                  kDeleteOnCloseFlag    = true;
             SslFilter* const theFilterPtr = new SslFilter(
-                *mX509SslCtxPtr.get(),
+                *mX509SslCtxPtr,
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,

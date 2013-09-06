@@ -279,9 +279,10 @@ public:
           mVerifyPeerPtr(inVerifyPeerPtr),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
-          mShutdownPendingFlag(false),
+          mShutdownInitiatedFlag(false),
           mServerFlag(false),
-          mSslErrorFlag(false)
+          mSslErrorFlag(false),
+          mShutdownCompleteFlag(false)
     {
         if (mSslPtr &&
                 ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
@@ -316,7 +317,8 @@ public:
         return (
             mSslPtr && mError == 0 &&
             (SSL_want_read(mSslPtr) ||
-            (inConnection.IsReadReady() && SSL_is_init_finished(mSslPtr)))
+            (! mShutdownInitiatedFlag &&
+                inConnection.IsReadReady() && SSL_is_init_finished(mSslPtr)))
         );
     }
     bool WantWrite(
@@ -325,7 +327,8 @@ public:
         return (
             mSslPtr && mError == 0 &&
             (SSL_want_write(mSslPtr) ||
-            (inConnection.IsWriteReady() && SSL_is_init_finished(mSslPtr)))
+            (! mShutdownInitiatedFlag &&
+                inConnection.IsWriteReady() && SSL_is_init_finished(mSslPtr)))
         );
     }
     int Read(
@@ -341,7 +344,7 @@ public:
         if (theRet) {
             return theRet;
         }
-        if (mShutdownPendingFlag) {
+        if (mShutdownInitiatedFlag) {
             return ShutdownSelf();
         }
         return inIoBuffer.Read(-1, inMaxRead, this);
@@ -360,7 +363,7 @@ public:
         if (theRet) {
             return theRet;
         }
-        if (mShutdownPendingFlag) {
+        if (mShutdownInitiatedFlag) {
             const int theRet = ShutdownSelf();
             // On successful shutdown completion read handler to be invoked in
             // order to let the caller know that shutdown is now complete.
@@ -523,7 +526,16 @@ public:
         if (mError) {
             return -EFAULT;
         }
-        return ShutdownSelf();
+        const int theRet = ShutdownSelf();
+        if (theRet != 0 || ! mShutdownCompleteFlag)  {
+            return theRet;
+        }
+        inConnection.SetFilter(0, 0);
+        if (mDeleteOnCloseFlag) {
+            delete this;
+        }
+        inConnection.Update();
+        return theRet;
     }
 private:
     SSL*              mSslPtr;
@@ -536,9 +548,10 @@ private:
     VerifyPeer* const mVerifyPeerPtr;
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
-    bool              mShutdownPendingFlag:1;
+    bool              mShutdownInitiatedFlag:1;
     bool              mServerFlag:1;
     bool              mSslErrorFlag:1;
+    bool              mShutdownCompleteFlag:1;
 
     struct OpenSslInit
     {
@@ -885,13 +898,17 @@ private:
     }
     int ShutdownSelf()
     {
-        mShutdownPendingFlag = true;
+        mShutdownInitiatedFlag = true;
+        if (mShutdownCompleteFlag) {
+            return 0;
+        }
         if (SSL_in_init(mSslPtr) && ! SSL_in_before(mSslPtr)) {
             // Wait for handshake to complete, then issue shutdown.
             return 0;
         }
         const int theRet = SSL_shutdown(mSslPtr);
         if (0 < theRet) {
+            mShutdownCompleteFlag = true;
             return 0;
         }
         bool theEofFlag = false;

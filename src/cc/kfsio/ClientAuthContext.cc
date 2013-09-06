@@ -483,7 +483,7 @@ public:
         const char*            kExpectedServerNamePtr = 0;
         const bool             kDeleteOnCloseFlag     = true;
         SslFilter& theFilter = SslFilter::Create(
-            *mSslCtxPtr.get(),
+            *mSslCtxPtr,
             inKeyDataPtr,
             (size_t)inKeyDataSize,
             inKeyIdPtr,
@@ -682,7 +682,7 @@ private:
             const char*                  kNullStr           = 0;
             const bool                   kDeleteOnCloseFlag = true;
             SslFilter& theFilter = SslFilter::Create(
-                *mX509SslCtxPtr.get(),
+                *mX509SslCtxPtr,
                 kKeyDataPtr,
                 kKeyDataSize,
                 kKeyIdPtr,
