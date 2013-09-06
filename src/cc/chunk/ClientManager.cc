@@ -26,6 +26,7 @@
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
+#include "kfsio/SslFilter.h"
 
 #include "ClientManager.h"
 #include "ClientSM.h"
@@ -33,23 +34,116 @@
 namespace KFS
 {
 
-class ClientManager::Auth
+class ClientManager::Auth : private SslFilterServerPsk
 {
 public:
     Auth()
+        : mSslCtxPtr(),
+          mParams(),
+          mEnabledFlag(false)
         {}
     ~Auth()
         {}
     bool SetParameters(
-        const Properties& inProps)
+        const char*       inParamsPrefixPtr,
+        const Properties& inParameters)
     {
+        Properties::String theParamName;
+        if (inParamsPrefixPtr) {
+            theParamName.Append(inParamsPrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        Properties theParams(mParams);
+        inParameters.copyWithPrefix(
+            theParamName.GetPtr(), theParamName.GetSize(), theParams);
+        const size_t theCurLen = theParamName.Append("psk.").GetSize();
+        const bool theCreatSslPskFlag =
+            theParams.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "disable"), 0) == 0;
+        const bool thePskSslChangedFlag =
+            (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
+            theParams.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0 ||
+            ! theParams.equalsWithPrefix(
+                theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
+        SslCtxPtr theSslCtxPtr;
+        if (thePskSslChangedFlag && theCreatSslPskFlag) {
+            const bool kServerFlag  = true;
+            const bool kPskOnlyFlag = true;
+            string     theErrMsg;
+            theSslCtxPtr = SslFilter::MakeCtxPtr(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(theCurLen).GetPtr(),
+                theParams,
+                &theErrMsg
+            ));
+            if (! theSslCtxPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        if (thePskSslChangedFlag) {
+            mSslCtxPtr = theSslCtxPtr;
+        }
+        mParams.swap(theParams);
+        mEnabledFlag = mSslCtxPtr && mParams.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "enabled"), 0) != 0;
         return true;
     }
     bool Setup(
         NetConnection& inConn)
     {
-        return true;
+        if (! mEnabledFlag) {
+            return true;
+        }
+        SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
+        const char*                  kPskClientIdentityPtr = "";
+        const bool                   kDeleteOnCloseFlag    = true;
+        const char*                  kSessionKeyPtr        = 0;
+        int                          kSessionKeyLen        = 0;
+        SslFilter* const theFilterPtr = new SslFilter(
+            *mSslCtxPtr,
+            kSessionKeyPtr,
+            kSessionKeyLen,
+            kPskClientIdentityPtr,
+            this,
+            kVerifyPeerPtr,
+            kDeleteOnCloseFlag
+        );
+        const SslFilter::Error theErr = theFilterPtr->GetError();
+        if (! theErr) {
+            return true;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            "ssl filter create error: " <<
+                SslFilter::GetErrorMsg(theErr) <<
+            " status: " << theErr <<
+        KFS_LOG_EOM;
+        delete theFilterPtr;
+        return false;
     }
+    virtual unsigned long GetPsk(
+        const char*    inIdentityPtr,
+	unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen,
+        string&        outAuthName)
+    {
+        outAuthName.clear();
+        return 0; // FIXME
+    }
+private:
+    typedef SslFilter::CtxPtr SslCtxPtr;
+
+    SslCtxPtr  mSslCtxPtr;
+    Properties mParams;
+    bool       mEnabledFlag;
 private:
     Auth(
         const Auth& inAuth);
@@ -113,9 +207,10 @@ ClientManager::CreateKfsCallbackObj(
 
     bool
 ClientManager::SetParameters(
+    const char*       inParamsPrefixPtr,
     const Properties& inProps)
 {
-    return mAuth.SetParameters(inProps);
+    return mAuth.SetParameters(inParamsPrefixPtr, inProps);
 }
 
 }

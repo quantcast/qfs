@@ -197,6 +197,7 @@ public:
         }
     }
     bool SetParameters(
+        const char*       inParamsPrefixPtr,
         const Properties& inProps);
 private:
     class Auth;
