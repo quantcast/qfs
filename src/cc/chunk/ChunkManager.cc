@@ -1635,6 +1635,7 @@ ChunkManager::ChunkManager()
       mBufferedIoSetFlag(false),
       mDiskBufferManagerEnabledFlag(true),
       mForceVerifyDiskReadChecksumFlag(false),
+      mWritePrepareReplyFlag(true),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1917,6 +1918,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mForceVerifyDiskReadChecksumFlag = prop.getValue(
         "chunkServer.forceVerifyDiskReadChecksum",
         mForceVerifyDiskReadChecksumFlag ? 1 : 0) != 0,
+    mWritePrepareReplyFlag = prop.getValue(
+        "chunkServer.debugTestWriteSync",
+        mWritePrepareReplyFlag ? 0 : 1) == 0,
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -4413,6 +4417,7 @@ ChunkManager::AllocateWriteId(
             "failed: " << wi->Show() <<
         KFS_LOG_EOM;
     }
+    wi->writePrepareReplyFlag = mWritePrepareReplyFlag;
     return wi->status;
 }
 
