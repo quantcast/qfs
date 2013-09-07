@@ -127,27 +127,28 @@ ClientSM::PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes)
 }
 
 inline void
-ClientSM::SendResponse(KfsOp* op, ClientSM::ByteCount opBytes)
+ClientSM::SendResponse(KfsOp& op)
 {
-    ByteCount respBytes = mNetConnection->GetNumBytesToWrite();
-    SendResponse(op);
+    ByteCount       respBytes = mNetConnection->GetNumBytesToWrite();
+    const ByteCount opBytes   = op.bufferBytes.mCount;
+    SendResponseSelf(op);
     respBytes = max(ByteCount(0),
         mNetConnection->GetNumBytesToWrite() - respBytes);
     mPrevNumToWrite = mNetConnection->GetNumBytesToWrite();
-    PutAndResetDevBufferManager(*op, opBytes);
+    PutAndResetDevBufferManager(op, opBytes);
     GetBufferManager().Put(*this, opBytes - respBytes);
 }
 
 inline static bool
-IsDependingOpType(const KfsOp* op)
+IsDependingOpType(const KfsOp& op)
 {
-    const KfsOp_t type = op->op;
+    const KfsOp_t type = op.op;
     return (
         (type == CMD_WRITE_PREPARE &&
-            ! static_cast<const WritePrepareOp*>(op)->replyRequestedFlag) ||
+            ! static_cast<const WritePrepareOp&>(op).replyRequestedFlag) ||
         (type == CMD_WRITE_PREPARE_FWD &&
-            ! static_cast<const WritePrepareFwdOp*>(
-                op)->owner.replyRequestedFlag) ||
+            ! static_cast<const WritePrepareFwdOp&>(
+                op).owner.replyRequestedFlag) ||
         type == CMD_WRITE
     );
 }
@@ -187,6 +188,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mDevBufMgrClients(),
       mDevBufMgr(0),
       mGrantedFlag(false),
+      mInFlightOpCount(0),
       mDevCliMgrAllocator()
 {
     if (! mNetConnection) {
@@ -208,7 +210,8 @@ ClientSM::~ClientSM()
         die("~ClientSM: invalid instance");
         return;
     }
-    if (! mOps.empty() ||
+    if (mInFlightOpCount != 0 ||
+            ! mOps.empty() ||
             ! mPendingOps.empty() ||
             ! mPendingSubmitQueue.empty()) {
         die("~ClientSM: ops queue(s) are not empty");
@@ -235,35 +238,35 @@ ClientSM::~ClientSM()
 /// @param[in] op The request for which we finished execution.
 ///
 void
-ClientSM::SendResponse(KfsOp* op)
+ClientSM::SendResponseSelf(KfsOp& op)
 {
-    assert(mNetConnection && op);
+    assert(mNetConnection);
 
     const int64_t timespent = max(int64_t(0),
-        (int64_t)globalNetManager().Now() * 1000000 - op->startTime);
+        (int64_t)globalNetManager().Now() * 1000000 - op.startTime);
     const bool    tooLong   = timespent > 5 * 1000000;
     CLIENT_SM_LOG_STREAM(
-            (op->status >= 0 ||
-                (op->op == CMD_SPC_RESERVE && op->status == -ENOSPC)) ?
+            (op.status >= 0 ||
+                (op.op == CMD_SPC_RESERVE && op.status == -ENOSPC)) ?
             (tooLong ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) :
             MsgLogger::kLogLevelERROR) <<
-        "-seq: "       << op->seq <<
-        " status: "    << op->status <<
+        "-seq: "       << op.seq <<
+        " status: "    << op.status <<
         " buffers: "   << GetByteCount() <<
-        " " << op->Show() <<
-        (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
+        " " << op.Show() <<
+        (op.statusMsg.empty() ? "" : " msg: ") << op.statusMsg <<
         (tooLong ? " RPC too long " : " took: ") <<
             timespent << " usec." <<
     KFS_LOG_EOM;
 
-    op->Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    op.Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
     mWOStream.Reset();
 
     IOBuffer* iobuf = 0;
     int       len   = 0;
-    op->ResponseContent(iobuf, len);
+    op.ResponseContent(iobuf, len);
     mNetConnection->Write(iobuf, len);
-    gClientManager.RequestDone(timespent, *op);
+    gClientManager.RequestDone(timespent, op);
 }
 
 ///
@@ -341,7 +344,7 @@ ClientSM::HandleRequest(int code, void* data)
 
     case EVENT_CMD_DONE: {
         // An op finished execution.  Send response back in FIFO
-        if (! data || mOps.empty()) {
+        if (! data || mInFlightOpCount <= 0) {
             die("invalid null op completion");
             return -1;
         }
@@ -359,54 +362,37 @@ ClientSM::HandleRequest(int code, void* data)
                 KFS_LOG_EOM;
             }
         }
+        if (! IsDependingOpType(*op)) {
+            SendResponse(*op);
+            OpFinished(op);
+            delete op;
+            op = 0;
+            break;
+        }
         while (! mOps.empty()) {
-            KfsOp* const qop = mOps.front().first;
+            KfsOp* const qop = mOps.front();
             if (! qop->done) {
                 if (! op) {
                     break;
                 }
-                if (! IsDependingOpType(op)) {
-                    OpsQueue::iterator i;
-                    for (i = mOps.begin(); i != mOps.end() && op != i->first; ++i)
-                        {}
-                    assert(i != mOps.end() && op == i->first);
-                    assert(mPendingOps.empty() || op != mPendingOps.front().op);
-                    if (i != mOps.end()) {
-                        SendResponse(op, i->second);
-                    }
-                    if (i != mOps.end()) {
-                        mOps.erase(i);
-                        OpFinished(op);
-                    }
-                    delete op;
-                    op = 0;
-                } else {
-                    CLIENT_SM_LOG_STREAM_DEBUG <<
-                        "previous op still pending: " <<
-                        qop->Show() << "; deferring reply to: " <<
-                        op->Show() <<
-                    KFS_LOG_EOM;
-                }
+                CLIENT_SM_LOG_STREAM_DEBUG <<
+                    "previous op still pending: " <<
+                    qop->Show() << "; deferring reply to: " <<
+                    op->Show() <<
+                KFS_LOG_EOM;
                 break;
             }
             if (qop == op) {
                 op = 0;
             }
-            SendResponse(qop, mOps.front().second);
+            SendResponse(*qop);
             mOps.pop_front();
             OpFinished(qop);
             delete qop;
         }
         if (op) {
             // Waiting for other op. Disk io done -- put device buffers.
-            OpsQueue::iterator i;
-            for (i = mOps.begin(); i != mOps.end() && op != i->first; ++i)
-                {}
-            if (i == mOps.end()) {
-                die("deferred reply op is not in the queue");
-            } else {
-                PutAndResetDevBufferManager(*op, i->second);
-            }
+            PutAndResetDevBufferManager(*op, op->bufferBytes.mCount);
         }
         break;
     }
@@ -499,7 +485,7 @@ ClientSM::HandleTerminate(int code, void* data)
             die("ClientSM terminate: invalid op");
             return -1;
         }
-        if (mOps.empty()) {
+        if (mInFlightOpCount <= 0) {
             die("ClientSM terminate: spurious op completion");
             return -1;
         }
@@ -507,20 +493,22 @@ ClientSM::HandleTerminate(int code, void* data)
         gChunkServer.OpFinished();
         // An op finished execution.
         op->done = true;
-        if (op != mOps.front().first) {
+        if (! IsDependingOpType(*op)) {
+            PutAndResetDevBufferManager(*op, op->bufferBytes.mCount);
+            GetBufferManager().Put(*this, op->bufferBytes.mCount);
+            OpFinished(op);
+            delete op;
             break;
         }
         while (! mOps.empty()) {
-            op = mOps.front().first;
+            op = mOps.front();
             if (! op->done) {
                 break;
             }
-            const ByteCount opBytes = mOps.front().second;
-            PutAndResetDevBufferManager(*op, opBytes);
-            GetBufferManager().Put(*this, opBytes);
-            OpFinished(op);
-            // we are done with the op
+            PutAndResetDevBufferManager(*op, op->bufferBytes.mCount);
+            GetBufferManager().Put(*this, op->bufferBytes.mCount);
             mOps.pop_front();
+            OpFinished(op);
             delete op;
         }
         break;
@@ -538,9 +526,9 @@ ClientSM::HandleTerminate(int code, void* data)
 
     assert(0 < mRecursionCnt);
     mRecursionCnt--;
-    if (mRecursionCnt <= 0 && mOps.empty()) {
+    if (mRecursionCnt <= 0 && mInFlightOpCount <= 0) {
         // all ops are done...so, now, we can nuke ourself.
-        assert(mPendingOps.empty());
+        assert(mPendingOps.empty() && mOps.empty());
         delete this;
         return 1;
     }
@@ -885,7 +873,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         // available.
         bufferBytes = (op->op == CMD_GET_RECORD_APPEND_STATUS &&
                 ! mCurOp &&
-                mOps.empty() &&
+                mInFlightOpCount <= 0 &&
                 GetByteCount() <= 0 &&
                 ! IsWaiting() &&
                 mNetConnection->GetOutBuffer().IsEmpty() &&
@@ -918,27 +906,24 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->clnt         = this;
     if (op->op == CMD_WRITE_SYNC) {
         // make the write sync depend on a previous write
-        KfsOp* w = 0;
-        for (OpsQueue::iterator i = mOps.begin(); i != mOps.end(); i++) {
-            if (IsDependingOpType(i->first)) {
-                w = i->first;
-            }
-        }
-        if (w) {
-            mPendingOps.push_back(OpPair(w, op));
+        if (! mOps.empty()) {
+            mPendingOps.push_back(OpPair(mOps.back(), op));
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "keeping write-sync seq:" << op->seq <<
-                " pending and depends on seq: " << w->seq <<
+                " pending and depends on seq: " << mOps.back()->seq <<
             KFS_LOG_EOM;
             return true;
-        } else {
-            CLIENT_SM_LOG_STREAM_DEBUG <<
-                "write-sync is being pushed down; no writes left, "
-                << mOps.size() << " ops left" <<
-            KFS_LOG_EOM;
         }
+        CLIENT_SM_LOG_STREAM_DEBUG <<
+            "write-sync is being pushed down; no writes left, "
+            << mInFlightOpCount << " ops left" <<
+        KFS_LOG_EOM;
     }
-    mOps.push_back(make_pair(op, bufferBytes));
+    op->bufferBytes.mCount = bufferBytes;
+    if (IsDependingOpType(*op)) {
+        mOps.push_back(op);
+    }
+    mInFlightOpCount++;
     gChunkServer.OpInserted();
     if (submitResponseFlag) {
         HandleRequest(EVENT_CMD_DONE, op);
@@ -951,6 +936,11 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 void
 ClientSM::OpFinished(KfsOp* doneOp)
 {
+    assert(0 < mInFlightOpCount && doneOp);
+    mInFlightOpCount--;
+    if (! IsDependingOpType(*doneOp)) {
+        return;
+    }
     // Multiple ops could be waiting for a single op to finish.
     //
     // Do not run pending submit queue here, if it is not empty.
@@ -978,7 +968,7 @@ ClientSM::OpFinished(KfsOp* doneOp)
         KfsOp* const op = mPendingSubmitQueue.front().dependentOp;
         mPendingSubmitQueue.pop_front();
         gChunkServer.OpInserted();
-        mOps.push_back(make_pair(op, 0));
+        mInFlightOpCount++;
         SubmitOp(op);
     }
 }

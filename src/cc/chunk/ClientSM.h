@@ -114,7 +114,7 @@ public:
     virtual void Granted(ByteCount byteCount)
         { GrantedSelf(byteCount, false); }
 private:
-    typedef deque<pair<KfsOp*, ByteCount> > OpsQueue;
+    typedef deque<KfsOp*> OpsQueue;
     // There is a dependency in waiting for a write-op to finish
     // before we can execute a write-sync op. Use this struct to track
     // such dependencies.
@@ -213,7 +213,7 @@ private:
 
     NetConnectionPtr const     mNetConnection;
     KfsOp*                     mCurOp;
-    /// Queue of outstanding ops from the client.  We reply to ops in FIFO
+    /// Queue of outstanding ops "depending" (no reply) from the client.
     OpsQueue                   mOps;
 
     /// chunks for which the client has space reserved
@@ -234,6 +234,7 @@ private:
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
     bool                       mGrantedFlag;
+    int                        mInFlightOpCount;
     DevClientMgrAllocator      mDevCliMgrAllocator;
 
     static bool                sTraceRequestResponseFlag;
@@ -249,14 +250,14 @@ private:
     bool HandleClientCmd(IOBuffer& iobuf, int cmdLen);
 
     /// Op has finished execution.  Send a response to the client.
-    void SendResponse(KfsOp *op);
+    void SendResponseSelf(KfsOp& op);
 
     /// Submit ops that have been held waiting for doneOp to finish.
     void OpFinished(KfsOp* doneOp);
     bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
         IOBuffer& ioOpBuf, bool forwardFlag);
     string GetPeerName();
-    inline void SendResponse(KfsOp* op, ByteCount opBytes);
+    inline void SendResponse(KfsOp& op);
     inline static BufferManager& GetBufferManager();
     inline static BufferManager* FindDevBufferManager(KfsOp& op);
     inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
