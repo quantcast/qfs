@@ -122,7 +122,7 @@ private:
     {
         // once op is finished, we can then execute dependent op.
         OpPair(KfsOp* o, KfsOp* d)
-            : op(0),
+            : op(o),
               dependentOp(d)
             {}
         KfsOp* op;

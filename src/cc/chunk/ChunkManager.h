@@ -775,6 +775,7 @@ private:
     bool       mBufferedIoSetFlag;
     bool       mDiskBufferManagerEnabledFlag;
     bool       mForceVerifyDiskReadChecksumFlag;
+    bool       mWritePrepareReplyFlag;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
