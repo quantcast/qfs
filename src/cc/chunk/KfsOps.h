@@ -140,6 +140,17 @@ const char* const KFS_VERSION_STR = "KFS/1.0";
 class ClientSM;
 class BufferManager;
 
+class BufferBytes
+{
+public:
+    BufferBytes()
+        : mCount(0)
+        {}
+private:
+    int64_t mCount;
+    friend class ClientSM;
+};
+
 struct KfsOp : public KfsCallbackObj
 {
     class Display
@@ -171,6 +182,7 @@ struct KfsOp : public KfsCallbackObj
     KfsCallbackObj* clnt;
     // keep statistics
     int64_t         startTime;
+    BufferBytes     bufferBytes;
 
     KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0)
         : op(o),
@@ -185,7 +197,8 @@ struct KfsOp : public KfsCallbackObj
           maxWaitMillisec(-1),
           statusMsg(),
           clnt(c),
-          startTime(microseconds())
+          startTime(microseconds()),
+          bufferBytes()
     {
         SET_HANDLER(this, &KfsOp::HandleDone);
         sOpsCount++;
