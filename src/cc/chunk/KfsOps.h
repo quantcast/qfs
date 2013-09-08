@@ -149,6 +149,9 @@ public:
 private:
     int64_t mCount;
     friend class ClientSM;
+private:
+    BufferBytes(const BufferBytes&);
+    BufferBytes& operator=(const BufferBytes&);
 };
 
 struct KfsOp : public KfsCallbackObj

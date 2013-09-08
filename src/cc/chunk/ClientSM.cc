@@ -950,7 +950,7 @@ ClientSM::OpFinished(KfsOp* doneOp)
     // recursion depth.
     const bool runPendingSubmitQueueFlag = mPendingSubmitQueue.empty();
     while (! mPendingOps.empty()) {
-        OpPair& p = mPendingOps.front();
+        const OpPair& p = mPendingOps.front();
         if (p.op != doneOp) {
             break;
         }
