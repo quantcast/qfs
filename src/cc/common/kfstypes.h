@@ -58,6 +58,7 @@ typedef uint32_t kfsUid_t;
 typedef uint32_t kfsGid_t;
 typedef uint16_t kfsMode_t;
 typedef int8_t   kfsSTier_t;
+typedef uint64_t kfsKeyId_t;
 
 const kfsUid_t   kKfsUserRoot   = 0;
 const kfsUid_t   kKfsUserNone   = ~kfsUid_t(0);
