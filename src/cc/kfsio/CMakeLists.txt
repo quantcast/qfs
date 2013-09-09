@@ -39,6 +39,7 @@ set (sources
     KfsCallbackObj.cc
     SslFilter.cc
     ClientAuthContext.cc
+    DelegationToken.cc
 )
 
 add_library (kfsIO STATIC ${sources})

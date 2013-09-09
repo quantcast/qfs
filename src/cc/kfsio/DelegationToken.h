@@ -35,6 +35,8 @@
 namespace KFS
 {
 using std::string;
+using std::istream;
+using std::ostream;
 
 class DelegationToken
 {
@@ -42,23 +44,23 @@ public:
     DelegationToken()
         : mUid(kKfsUserNone),
           mKeyId(-1),
-          mIssueTime(0),
-          mValidForSec(0),
+          mIssuedTime(0),
+          mValidForSec(0)
         { mSignature[0] = 0; }
     DelegationToken(
         kfsUid_t    inUid,
-        kfsKeyId_T  inKeyId,
+        kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
-        int32_t     inValidTime
+        uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen);
     ~DelegationToken()
         {}
     int Init(
         kfsUid_t    inUid,
-        kfsKeyId_T  inKeyId,
+        kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
-        int32_t     inValidTime
+        uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen);
     string ToString();
@@ -89,6 +91,8 @@ private:
     int64_t    mIssuedTime;
     int32_t    mValidForSec;
     char       mSignature[kSignatureLength];
+
+    class WorkBuf;
 };
 
 ostream& operator << (
@@ -97,8 +101,8 @@ ostream& operator << (
 { return inToken.Display(inStream); }
 
 istream& operator >> (
-    istream&               inStream,
-    const DelegationToken& inToken)
+    istream&         inStream,
+    DelegationToken& inToken)
 { return inToken.Parse(inStream); }
 
 } // namespace KFS
