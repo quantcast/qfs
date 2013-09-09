@@ -410,6 +410,11 @@ ClientSM::HandleRequest(int code, void* data)
             " wants read: "    << mNetConnection->IsReadReady() <<
         KFS_LOG_EOM;
         mNetConnection->Close();
+        assert(mNetConnection->GetNumBytesToWrite() <= 0);
+        if (0 < mPrevNumToWrite) {
+            GetBufferManager().Put(*this, mPrevNumToWrite);
+            mPrevNumToWrite = 0;
+        }
         if (mCurOp) {
             if (mDevBufMgr) {
                 GetDevBufMgrClient(mDevBufMgr)->CancelRequest();
