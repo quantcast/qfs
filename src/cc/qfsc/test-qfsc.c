@@ -219,15 +219,20 @@ static char* test_qfs_open_file() {
 static char* test_large_write() {
   ssize_t len = qfs_get_chunksize(qfs, "/unit-test/file");
   char* large = malloc(len);
+  char* ptr;
+  for(ptr = large; ptr < large + len; ptr++) {
+    *ptr = (char)ptr;
+  }
   // Write the same set of data twice; but xord
   check_qfs_call(qfs_write(qfs, fd, large, len));
   check_qfs_call(qfs_sync(qfs, fd));
 
-  char* ptr;
   for(ptr = large; ptr < large + len; ptr++) {
     *ptr ^= (char)0xA;
   }
   check_qfs_call(qfs_write(qfs, fd, large, len));
+  free(large);
+  large = 0;
   check_qfs_call(qfs_sync(qfs, fd));
 
   struct qfs_attr attr;
