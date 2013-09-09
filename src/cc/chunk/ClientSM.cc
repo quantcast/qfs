@@ -907,8 +907,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         mCurOp = 0;
     }
 
-    op->clientSMFlag = true;
-    op->clnt         = this;
+    op->clientSMFlag       = true;
+    op->clnt               = this;
+    op->bufferBytes.mCount = bufferBytes;
     if (op->op == CMD_WRITE_SYNC) {
         // make the write sync depend on a previous write
         if (! mOps.empty()) {
@@ -924,7 +925,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             << mInFlightOpCount << " ops left" <<
         KFS_LOG_EOM;
     }
-    op->bufferBytes.mCount = bufferBytes;
     if (IsDependingOpType(*op)) {
         mOps.push_back(op);
     }
