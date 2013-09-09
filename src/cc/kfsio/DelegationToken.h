@@ -45,8 +45,22 @@ public:
           mIssueTime(0),
           mValidForSec(0),
         { mSignature[0] = 0; }
+    DelegationToken(
+        kfsUid_t    inUid,
+        kfsKeyId_T  inKeyId,
+        int64_t     inIssueTime,
+        int32_t     inValidTime
+        const char* inKeyPtr,
+        int         inKeyLen);
     ~DelegationToken()
         {}
+    int Init(
+        kfsUid_t    inUid,
+        kfsKeyId_T  inKeyId,
+        int64_t     inIssueTime,
+        int32_t     inValidTime
+        const char* inKeyPtr,
+        int         inKeyLen);
     string ToString();
     bool FromString(
         const string& inString);
@@ -65,6 +79,8 @@ public:
     bool Validate(
         const char* inKeyPtr,
         int         inKeyLen) const;
+    ostream& Show(
+        ostream& inStream);
 private:
     enum { kSignatureLength = 20 };
 
@@ -73,11 +89,6 @@ private:
     int64_t    mIssuedTime;
     int32_t    mValidForSec;
     char       mSignature[kSignatureLength];
-private:
-    DelegationToken(
-        const DelegationToken& inToken);
-    DelegationToken& operator=(
-        const DelegationToken& inToken);
 };
 
 ostream& operator << (
