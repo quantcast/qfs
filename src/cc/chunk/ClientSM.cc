@@ -343,7 +343,6 @@ ClientSM::HandleRequest(int code, void* data)
     }
 
     case EVENT_CMD_DONE: {
-        // An op finished execution.  Send response back in FIFO
         if (! data || mInFlightOpCount <= 0) {
             die("invalid null op completion");
             return -1;
@@ -369,6 +368,7 @@ ClientSM::HandleRequest(int code, void* data)
             op = 0;
             break;
         }
+        // "Depending" op finished execution. Send response back in FIFO
         while (! mOps.empty()) {
             KfsOp* const qop = mOps.front();
             if (! qop->done) {
