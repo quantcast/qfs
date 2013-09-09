@@ -348,7 +348,6 @@ ClientSM::HandleRequest(int code, void* data)
     }
 
     case EVENT_CMD_DONE: {
-        // An op finished execution.  Send response back in FIFO
         if (! data || mInFlightOpCount <= 0) {
             die("invalid null op completion");
             return -1;
@@ -374,6 +373,7 @@ ClientSM::HandleRequest(int code, void* data)
             op = 0;
             break;
         }
+        // "Depending" op finished execution. Send response back in FIFO
         while (! mOps.empty()) {
             KfsOp* const qop = mOps.front();
             if (! qop->done) {
@@ -447,6 +447,11 @@ ClientSM::HandleRequest(int code, void* data)
             " wants read: "   << mNetConnection->IsReadReady() <<
         KFS_LOG_EOM;
         mNetConnection->Close();
+        assert(mNetConnection->GetNumBytesToWrite() <= 0);
+        if (0 < mPrevNumToWrite) {
+            GetBufferManager().Put(*this, mPrevNumToWrite);
+            mPrevNumToWrite = 0;
+        }
         if (mCurOp) {
             if (mDevBufMgr) {
                 GetDevBufMgrClient(mDevBufMgr)->CancelRequest();
@@ -939,8 +944,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         mCurOp = 0;
     }
 
-    op->clientSMFlag = true;
-    op->clnt         = this;
+    op->clientSMFlag       = true;
+    op->clnt               = this;
+    op->bufferBytes.mCount = bufferBytes;
     if (op->op == CMD_WRITE_SYNC) {
         // make the write sync depend on a previous write
         if (! mOps.empty()) {
@@ -956,7 +962,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             << mInFlightOpCount << " ops left" <<
         KFS_LOG_EOM;
     }
-    op->bufferBytes.mCount = bufferBytes;
     if (IsDependingOpType(*op)) {
         mOps.push_back(op);
     }
