@@ -23,10 +23,12 @@
 //
 //----------------------------------------------------------------------------
 
-#ifndef DELEGATION_TOKEN_H
-#define DELEGATION_TOKEN_H
+#ifndef KFSIO_DELEGATION_TOKEN_H
+#define KFSIO_DELEGATION_TOKEN_H
 
 #include "common/kfstypes.h"
+
+#include <stddef.h>
 
 #include <string>
 #include <istream>
@@ -41,14 +43,18 @@ using std::ostream;
 class DelegationToken
 {
 public:
+    enum { kSignatureLength = 20 };
+
     DelegationToken()
         : mUid(kKfsUserNone),
+          mSeq(0),
           mKeyId(-1),
           mIssuedTime(0),
           mValidForSec(0)
         { mSignature[0] = 0; }
     DelegationToken(
         kfsUid_t    inUid,
+        uint32_t    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
         uint32_t    inValidForSec,
@@ -56,8 +62,9 @@ public:
         int         inKeyLen);
     ~DelegationToken()
         {}
-    int Init(
+    bool Init(
         kfsUid_t    inUid,
+        uint32_t    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
         uint32_t    inValidForSec,
@@ -72,6 +79,8 @@ public:
         istream& inStream);
     kfsUid_t GetUid() const
         { return mUid; }
+    kfsUid_t GetSeq() const
+        { return mSeq; }
     kfsKeyId_t GetKeyId() const
         { return mKeyId; }
     int64_t GetIssuedTime() const
@@ -83,13 +92,15 @@ public:
         int         inKeyLen) const;
     ostream& Show(
         ostream& inStream);
+    string CalcSessionKey(
+        const char* inKeyPtr,
+        int         inKeyLen) const;
 private:
-    enum { kSignatureLength = 20 };
-
     kfsUid_t   mUid;
+    uint32_t   mSeq;
     kfsKeyId_t mKeyId;
     int64_t    mIssuedTime;
-    int32_t    mValidForSec;
+    uint32_t   mValidForSec;
     char       mSignature[kSignatureLength];
 
     class WorkBuf;
@@ -107,4 +118,4 @@ istream& operator >> (
 
 } // namespace KFS
 
-#endif /* DELEGATION_TOKEN_H */
+#endif /* KFSIO_DELEGATION_TOKEN_H */
