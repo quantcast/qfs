@@ -99,6 +99,9 @@ public:
     bool Validate(
         const char* inKeyPtr,
         int         inKeyLen) const;
+    string GetSessionKey(
+        const char* inKeyPtr,
+        int         inKeyLen) const;
     ostream& Show(
         ostream& inStream);
     string CalcSessionKey(
