@@ -65,12 +65,24 @@ public:
     {
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
-        if (! HMAC_Init_ex(
-                &theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0)) {
-            return false;
-        }
-        unsigned int theLen   = 0;
-        const int  theRetFlag = HMAC_Update(
+        unsigned int theLen = 0;
+#if OPENSSL_VERSION_NUMBER < 0x1000000fL
+        const bool theRetFlag = true;
+        HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0);
+        HMAC_Update(
+            &theCtx,
+            reinterpret_cast<const unsigned char*>(mBuffer),
+            kTokenFiledsSize
+        );
+        HMAC_Final(
+            &theCtx,
+            reinterpret_cast<unsigned char*>(inSignBufPtr),
+            &theLen
+        );
+#else
+        const bool theRetFlag =
+            HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0) &&
+            HMAC_Update(
                 &theCtx,
                 reinterpret_cast<const unsigned char*>(mBuffer),
                 kTokenFiledsSize
@@ -80,6 +92,7 @@ public:
                 reinterpret_cast<unsigned char*>(inSignBufPtr),
                 &theLen
             );
+#endif
         QCRTASSERT(! theRetFlag || theLen == kSignatureLength);
         HMAC_CTX_cleanup(&theCtx);
         return theRetFlag;
