@@ -220,8 +220,9 @@ static char* test_large_write() {
   ssize_t len = qfs_get_chunksize(qfs, "/unit-test/file");
   char* large = malloc(len);
   char* ptr;
+  char  v = 0;
   for(ptr = large; ptr < large + len; ptr++) {
-    *ptr = (char)ptr;
+    *ptr = v++;
   }
   // Write the same set of data twice; but xord
   check_qfs_call(qfs_write(qfs, fd, large, len));
