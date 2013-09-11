@@ -44,12 +44,15 @@ class DelegationToken
 {
 public:
     enum { kSignatureLength = 20 };
+    enum {
+        kAllowDelegationFlag = 0x1
+    };
 
     DelegationToken()
         : mUid(kKfsUserNone),
           mSeq(0),
           mKeyId(-1),
-          mIssuedTime(0),
+          mIssuedTimeAndFlags(0),
           mValidForSec(0)
         { mSignature[0] = 0; }
     DelegationToken(
@@ -57,6 +60,7 @@ public:
         uint32_t    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
+        uint16_t    inFlags,
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen);
@@ -66,7 +70,8 @@ public:
         kfsUid_t    inUid,
         uint32_t    inSeq,
         kfsKeyId_t  inKeyId,
-        int64_t     inIssueTime,
+        int64_t     inIssuedTime,
+        uint16_t    inFlags,
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen);
@@ -83,8 +88,12 @@ public:
         { return mSeq; }
     kfsKeyId_t GetKeyId() const
         { return mKeyId; }
+    int64_t GetIssuedTimeAndFlags() const
+        { return mIssuedTimeAndFlags; }
     int64_t GetIssuedTime() const
-        { return mIssuedTime; }
+        { return (mIssuedTimeAndFlags >> kIssuedTimeShift); }
+    uint16_t GetFlags() const
+        { return (uint16_t)mIssuedTimeAndFlags; }
     uint32_t GetValidForSec() const
         { return mValidForSec; }
     bool Validate(
@@ -96,10 +105,11 @@ public:
         const char* inKeyPtr,
         int         inKeyLen) const;
 private:
+    enum { kIssuedTimeShift = 16 };
     kfsUid_t   mUid;
     uint32_t   mSeq;
     kfsKeyId_t mKeyId;
-    int64_t    mIssuedTime;
+    int64_t    mIssuedTimeAndFlags;
     uint32_t   mValidForSec;
     char       mSignature[kSignatureLength];
 

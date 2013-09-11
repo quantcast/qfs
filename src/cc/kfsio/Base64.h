@@ -35,6 +35,9 @@ public:
     static int EncodedLength(
         int inLength)
         { return ((inLength + 2) / 3 * 4); }
+    static int GetEncodedMaxBufSize(
+        int inLength)
+        { return EncodedLength(inLength) + 1; }
     static int GetMaxDecodedLength(
         int inLength)
         { return ((inLength + 3) / 4 * 3); }
