@@ -1700,7 +1700,7 @@ public:
             return mNext;
         }
         mBuf   = op.contentBuf;
-        mLen   = op.contentBufLen;
+        mLen   = op.contentLength;
         mCount = op.numEntries;
         op.ReleaseContentBuf();
         op.contentLength = 0;
@@ -1938,7 +1938,13 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
     }
     if (op.status == 0) {
         result.reserve(count);
+        KFS_LOG_STREAM_DEBUG <<
+            "readdir parse: entries:" << count <<
+        KFS_LOG_EOM;
         op.status = opResult.Parse(result);
+        KFS_LOG_STREAM_DEBUG <<
+            "readdir parse: entries:" << result.size() <<
+        KFS_LOG_EOM;
         if (op.status == 0) {
             sort(result.begin(), result.end());
             if (! op.fnameStart.empty()) {
@@ -2477,7 +2483,13 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     }
     if (op.status == 0) {
         result.reserve(count);
+        KFS_LOG_STREAM_DEBUG <<
+            "readdirplus parse: entries:" << count <<
+        KFS_LOG_EOM;
         op.status = opResult.Parse(parser);
+        KFS_LOG_STREAM_DEBUG <<
+            "readdirplus parse done: entries: " << result.size() <<
+        KFS_LOG_EOM;
     }
     if (op.status != 0) {
         result.clear();
