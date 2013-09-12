@@ -1215,6 +1215,11 @@ KfsClientImpl::KfsClientImpl()
     mTmpPath.reserve(32);
     mTmpAbsPathStr.reserve(MAX_PATH_NAME_LENGTH);
     mTmpBuffer[kTmpBufferSize] = 0;
+    // Make content length limit large enough to ensure backward compatibility
+    // with the previous versions of the meta server that don't support
+    // partial readdir and getalloc.
+    mMetaServer.SetMaxContentLength(512 << 20);
+    mChunkServer.SetMaxContentLength(64 << 20);
 }
 
 KfsClientImpl::~KfsClientImpl()
