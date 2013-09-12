@@ -36,6 +36,7 @@
 #include "common/hsieh_hash.h"
 #include "common/kfsatomic.h"
 #include "common/MdStream.h"
+#include "common/StdAllocator.h"
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
 #include "kfsio/checksum.h"
@@ -1680,6 +1681,192 @@ KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid,
     return op.status;
 }
 
+class ReaddirResult
+{
+public:
+    ReaddirResult()
+        : mNext(0),
+          mBuf(0),
+          mLen(0),
+          mCount(0)
+        {}
+    template<typename T>
+    ReaddirResult* Set(
+        T& op)
+    {
+        assert(
+            op.contentBuf &&
+            op.contentBufLen >= op.contentLength &&
+            ! mNext
+        );
+        if (mBuf) {
+            mNext = Create(op);
+            return mNext;
+        }
+        mBuf   = op.contentBuf;
+        mLen   = op.contentBufLen;
+        mCount = op.numEntries;
+        op.ReleaseContentBuf();
+        op.contentLength = 0;
+        return this;
+    }
+    ~ReaddirResult()
+        { Clear(); }
+    void Clear()
+    {
+        delete [] mBuf;
+        mBuf   = 0;
+        mLen   = 0;
+        mCount = 0;
+        DeleteAll();
+    }
+    template<typename T>
+    int Parse(T& result)
+    {
+        ReaddirResult* next = this;
+        int            ret  = 0;
+        do {
+            if (ret == 0) {
+                if ((ret = next->ParseSelf(result)) != 0) {
+                    result.clear();
+                }
+            }
+            ReaddirResult* const ptr = next;
+            next = ptr->mNext;
+            ptr->mNext = 0;
+            if (ptr != this) {
+                ptr->Delete();
+            }
+        } while (next);
+        return ret;
+    }
+    bool GetLast(
+        string& name) const
+    {
+        if (! mBuf || mLen <= 1) {
+            return false;
+        }
+        const char* const end = mBuf + mLen - 1;
+        if ((*end & 0xFF) != '\n') {
+            return false;
+        }
+        const char* ptr = end - 1;
+        while (mBuf < ptr && (*ptr & 0xFF) != '\n') {
+            --ptr;
+        }
+        if ((*ptr & 0xFF) == '\n') {
+            ++ptr;
+        }
+        if (end <= ptr) {
+            return false;
+        }
+        name.assign(ptr, end - ptr);
+        return true;
+    }
+    bool GetLast(
+        const PropertiesTokenizer::Token& inBeginEntry,
+        const PropertiesTokenizer::Token& inName,
+        string&                           name) const
+    {
+        if (! mBuf || mLen <= 1) {
+            return 0;
+        }
+        const char* end = mBuf + mLen - 1;
+        if ((*end & 0xFF) != '\n') {
+            return false;
+        }
+        const char* ptr = end - 1;
+        while (mBuf < ptr) {
+            while (mBuf < ptr && (*ptr & 0xFF) != '\n') {
+                --ptr;
+            }
+            const char* const cur = ptr;
+            if ((*ptr & 0xFF) == '\n') {
+                ++ptr;
+            }
+            if (PropertiesTokenizer::Token(ptr, end) == inBeginEntry) {
+                if (mBuf + mLen <= ++end) {
+                    return false;
+                }
+                PropertiesTokenizer tokenizer(end, mBuf + mLen - end, false);
+                while (tokenizer.Next()) {
+                    if (tokenizer.GetKey() == inName) {
+                        PropertiesTokenizer::Token const&
+                            val = tokenizer.GetValue();
+                        name.assign(val.mPtr, val.mLen);
+                        return (0 < val.mLen);
+                    }
+                }
+                return false;
+            }
+            end = cur;
+            ptr = end - 1;
+        }
+        return false;
+    }
+private:
+    typedef StdFastAllocator<ReaddirResult> Alloc;
+    static Alloc& GetAllocator()
+    {
+        static Alloc sAlloc;
+        return sAlloc;
+    }
+    template<typename T>
+    static ReaddirResult* Create(
+        T& op)
+    {
+        ReaddirResult* const ret = new (GetAllocator().allocate(1))
+            ReaddirResult();
+        return ret->Set(op);
+    }
+    void Delete()
+    {
+        this->~ReaddirResult();
+        GetAllocator().deallocate(this, 1);
+    }
+    void DeleteAll()
+    {
+        ReaddirResult* next = mNext;
+        mNext = 0;
+        while (next) {
+            ReaddirResult* const ptr = next;
+            next = ptr->mNext;
+            ptr->mNext = 0;
+            ptr->Delete();
+        }
+    }
+    int ParseSelf(
+        vector<string>& result)
+    {
+        const char*       ptr = mBuf;
+        const char* const end = ptr + mLen;
+        for (int i = 0; i < mCount; i++) {
+            const char* const ne = reinterpret_cast<const char*>(
+                memchr(ptr, '\n', end - ptr));
+            if (! ne) {
+                return -EIO;
+            }
+            result.push_back(string(ptr, ne - ptr));
+            ptr = ne + (ne < end ? 1 : 0);
+        }
+        return 0;
+    }
+    template<typename T>
+    int ParseSelf(
+        T& result)
+        { return result(mBuf, mLen, mCount); }
+private:
+    ReaddirResult* mNext;
+    const char*    mBuf;
+    int            mLen;
+    int            mCount;
+private:
+    ReaddirResult(
+        const ReaddirResult&);
+    ReaddirResult& operator=(
+        const ReaddirResult&);
+};
+
 ///
 /// Read a directory's contents.  This is analogous to READDIR in
 /// NFS---just reads the directory contents and returns the names;
@@ -1706,8 +1893,10 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
     if (! attr.isDirectory) {
         return -ENOTDIR;
     }
-
-    ReaddirOp op(0, attr.fileId);
+    ReaddirOp      op(0, attr.fileId);
+    ReaddirResult  opResult;
+    ReaddirResult* last  = &opResult;
+    int            count = 0;
     for (int retryCnt = kMaxReadDirRetries; ;) {
         op.seq                = 0;
         op.numEntries         = kMaxReaddirEntries;
@@ -1730,8 +1919,8 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
                 op.status = -EAGAIN;
                 break;
             }
-            result.clear();
             op.fnameStart.clear();
+            opResult.Clear();
             continue;
         }
         if (op.numEntries <= 0) {
@@ -1741,26 +1930,25 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             op.status = -EIO;
             break;
         }
-        assert(op.contentBuf && op.contentBufLen >= op.contentLength);
-        istream& ist = mTmpInputStream.Set(op.contentBuf, op.contentLength);
-        result.reserve(result.size() + op.numEntries);
-        for (int i = 0; i < op.numEntries; i++) {
-            string line;
-            if (! getline(ist, line) || line.empty()) {
-                op.status = -EIO;
-                break;
-            }
-            result.push_back(line);
-        }
-        if (! op.hasMoreEntriesFlag || op.status != 0) {
+        last = last->Set(op);
+        count += op.numEntries;
+        if (! op.hasMoreEntriesFlag) {
             break;
         }
-        op.fnameStart = result.back();
+        if (! last->GetLast(op.fnameStart)) {
+            op.status = -EIO;
+            break;
+        }
     }
     if (op.status == 0) {
-        sort(result.begin(), result.end());
-        if (! op.fnameStart.empty()) {
-            unique(result.begin(), result.end());
+        result.reserve(count);
+        op.status = opResult.Parse(result);
+        if (op.status == 0) {
+            sort(result.begin(), result.end());
+            if (! op.fnameStart.empty()) {
+                result.erase(
+                    unique(result.begin(), result.end()), result.end());
+            }
         }
     } else {
         result.clear();
@@ -1828,8 +2016,8 @@ public:
             return;
         }
         istream& is = mTmpInputStream.Set(
-            mEntry.lastChunkReplicas.GetPtr(),
-            mEntry.lastChunkReplicas.GetSize()
+            mEntry.lastChunkReplicas.mPtr,
+            mEntry.lastChunkReplicas.mLen
         );
         if (mHexParserFlag) {
             is.flags(istream::hex | istream::skipws);
@@ -1840,32 +2028,38 @@ public:
             is >> info.chunkServerLoc[i].port;
         }
     }
-    const KfsFileAttr& GetFattr() const
+    const FileAttr& GetFattr() const
         { return mEntry; }
+    const char* GetNamePtr() const
+        { return mEntry.filename.mPtr; }
+    size_t GetNameLen() const
+        { return mEntry.filename.mLen; }
 private:
-    class Entry : public KfsFileAttr
+    class Entry : public FileAttr
     {
     public:
         enum { kCTimeUndef = 2 * 1000 * 1000 + 1 };
-        chunkOff_t      lastChunkOffset;
-        kfsFileId_t     chunkId;
-        int64_t         chunkVersion;
-        int             lastchunkNumReplicas;
-        StringBufT<128> lastChunkReplicas;
-        StringBufT<32>  type;
+        chunkOff_t  lastChunkOffset;
+        kfsFileId_t chunkId;
+        int64_t     chunkVersion;
+        int         lastchunkNumReplicas;
+        TokenValue  lastChunkReplicas;
+        TokenValue  type;
+        TokenValue  filename;
 
         Entry()
-            : KfsFileAttr(),
+            : FileAttr(),
               lastChunkOffset(0),
               chunkId(-1),
               chunkVersion(-1),
               lastchunkNumReplicas(0),
               lastChunkReplicas(),
-              type()
+              type(),
+              filename()
           {}
         void Reset()
         {
-            Clear();
+            FileAttr::Reset();
             lastChunkOffset      = 0;
             chunkId              = -1;
             chunkVersion         = -1;
@@ -1875,10 +2069,11 @@ private:
             ctime.tv_usec        = kCTimeUndef;
             lastChunkReplicas.clear();
             type.clear();
+            filename.clear();
         }
         bool Validate()
         {
-            isDirectory = type.Compare("dir") == 0;
+            isDirectory = type.mLen == 3 && memcmp(type.mPtr, "dir", 3) == 0;
             if (isDirectory) {
                 if (fileSize < 0) {
                     fileSize = 0;
@@ -2113,21 +2308,118 @@ KfsClientImpl::Cache(time_t now, const string& dirname, kfsFileId_t dirFid,
     return true;
 }
 
+class KfsClientImpl::ReadDirPlusResponseParser
+{
+public:
+    typedef KfsClientImpl::FAttr FAttr;
+
+    ReadDirPlusResponseParser(
+        KfsClientImpl&       inOuter,
+        vector<KfsFileAttr>& inResult,
+        bool                 inComputeFilesize,
+        kfsFileId_t          inDirFid,
+        time_t               inNow)
+        : fileChunkInfo(),
+          beginEntry("Begin-entry"),
+          shortBeginEntry("B"),
+          hasDirs(false),
+          parser(outer.mTmpInputStream),
+          result(inResult),
+          computeFilesize(inComputeFilesize),
+          outer(inOuter),
+          dirFid(inDirFid),
+          now(inNow)
+        { result.clear(); }
+    int operator()(
+        const char* inBuf,
+        size_t      inLen,
+        int         inCount)
+    {
+        PropertiesTokenizer tokenizer(inBuf, inLen, false);
+        tokenizer.Next();
+        const PropertiesTokenizer::Token& beginToken =
+            tokenizer.GetKey() == shortBeginEntry ?
+                shortBeginEntry : beginEntry;
+        if (&beginToken == &shortBeginEntry) {
+            parser.SetUseHexParser();
+        }
+        for (int i = 0; i < inCount; i++) {
+            if (tokenizer.GetKey() != beginToken) {
+                return -EIO;
+            }
+            if (! parser.Parse(tokenizer)) {
+                continue; // Skip empty entries.
+            }
+            result.push_back(KfsFileAttr(
+                parser.GetFattr(), parser.GetNamePtr(), parser.GetNameLen()));
+            KfsFileAttr& attr = result.back();
+            if (attr.filename.empty()) {
+                return -EIO;
+            }
+            if (attr.isDirectory) {
+                if (hasDirs) {
+                    continue;
+                }
+                if (attr.filename != "." && attr.filename != "..") {
+                    hasDirs = true;
+                }
+                continue;
+            }
+            if (! computeFilesize || attr.fileSize >= 0) {
+                continue;
+            }
+            FAttr* const fa = outer.LookupFAttr(dirFid, attr.filename);
+            if (fa && ! fa->isDirectory && fa->fileSize >= 0) {
+                if (outer.IsValid(*fa, now)) {
+                    attr.fileSize = fa->fileSize;
+                    continue;
+                }
+            }
+            fileChunkInfo.resize(result.size());
+            parser.LastChunkInfo(fileChunkInfo.back());
+        }
+        return 0;
+    }
+    void clear()
+        { result.clear(); }
+
+    vector<ChunkAttr>                fileChunkInfo;
+    const PropertiesTokenizer::Token beginEntry;
+    const PropertiesTokenizer::Token shortBeginEntry;
+    bool                             hasDirs;
+private:
+    ReaddirPlusParser                parser;
+    vector<KfsFileAttr>&             result;
+    const bool                       computeFilesize;
+    KfsClientImpl&                   outer;
+    kfsFileId_t const                dirFid;
+    const time_t                     now;
+private:
+    ReadDirPlusResponseParser(
+        const ReadDirPlusResponseParser&);
+    ReadDirPlusResponseParser& operator=(
+        const ReadDirPlusResponseParser&);
+};
+
 int
 KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     vector<KfsFileAttr>& result, bool computeFilesize, bool updateClientCache)
 {
     assert(mMutex.IsOwned());
 
-    vector<ChunkAttr>                fileChunkInfo;
-    ReaddirPlusParser                parser(mTmpInputStream);
-    const PropertiesTokenizer::Token beginEntry("Begin-entry");
-    const PropertiesTokenizer::Token shortBeginEntry("B");
-    const bool                       kGetLastChunkInfoIfSizeUnknown = true;
-    ReaddirPlusOp                    op(
+    time_t const                      now = time(0);
+    ReadDirPlusResponseParser         parser(
+        *this, result, computeFilesize, dirFid, now);
+    const PropertiesTokenizer::Token* beginEntryToken = 0;
+    const PropertiesTokenizer::Token* nameEntryToken  = 0;
+    const PropertiesTokenizer::Token  nameToken("Name");
+    const PropertiesTokenizer::Token  nameTokenShort("N");
+    const bool                        kGetLastChunkInfoIfSizeUnknown = true;
+    ReaddirPlusOp                     op(
         0, dirFid, kGetLastChunkInfoIfSizeUnknown);
-    const time_t                     now     = time(0);
-    bool                             hasDirs = false;
+    ReaddirResult                     opResult;
+    ReaddirResult*                    last  = &opResult;
+    int                               count = 0;
     for (int retryCnt = kMaxReadDirRetries; ;) {
         op.seq                = 0;
         op.numEntries         = kMaxReaddirEntries;
@@ -2151,8 +2443,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
                 op.status = -EAGAIN;
                 break;
             }
-            result.clear();
-            fileChunkInfo.clear();
+            opResult.Clear();
             op.fnameStart.clear();
             continue;
         }
@@ -2163,67 +2454,40 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             op.status = -EIO;
             break;
         }
-        if (op.numEntries <= 0) {
-            break;
-        }
         // The response format:
         // Begin-entry <values> Begin-entry <values>
         // The last entry doesn't have a end-marker.
-        result.reserve(result.size() + op.numEntries);
-        PropertiesTokenizer tokenizer(op.contentBuf, op.contentLength, false);
-        tokenizer.Next();
-        const PropertiesTokenizer::Token& beginToken =
-            tokenizer.GetKey() == shortBeginEntry ?
-                shortBeginEntry : beginEntry;
-        if (&beginToken == &shortBeginEntry) {
-            parser.SetUseHexParser();
+        if (! beginEntryToken && op.hasMoreEntriesFlag) {
+            PropertiesTokenizer tokenizer(
+                op.contentBuf, op.contentLength, false);
+            tokenizer.Next();
+            if (tokenizer.GetKey() == parser.shortBeginEntry) {
+                nameEntryToken  = &nameTokenShort;
+                beginEntryToken = &parser.shortBeginEntry;
+            } else {
+                nameEntryToken  = &nameToken;
+                beginEntryToken = &parser.beginEntry;
+            }
         }
-        for (int i = 0; i < op.numEntries; i++) {
-            if (tokenizer.GetKey() != beginToken) {
-                op.status = -EIO;
-                break;
-            }
-            if (! parser.Parse(tokenizer)) {
-                continue; // Skip empty entries.
-            }
-            result.push_back(parser.GetFattr());
-            KfsFileAttr& attr = result.back();
-            if (attr.filename.empty()) {
-                op.status = -EIO;
-                break;
-            }
-            if (attr.isDirectory) {
-                if (hasDirs) {
-                    continue;
-                }
-                if (attr.filename != "." && attr.filename != "..") {
-                    hasDirs = true;
-                }
-                continue;
-            }
-            if (! computeFilesize || attr.fileSize >= 0) {
-                continue;
-            }
-            FAttr* const fa = LookupFAttr(dirFid, attr.filename);
-            if (fa && ! fa->isDirectory && fa->fileSize >= 0) {
-                if (IsValid(*fa, now)) {
-                    attr.fileSize = fa->fileSize;
-                    continue;
-                }
-            }
-            fileChunkInfo.resize(result.size());
-            parser.LastChunkInfo(fileChunkInfo.back());
-        }
-        if (! op.hasMoreEntriesFlag || op.status != 0) {
+        last = last->Set(op);
+        count += op.numEntries;
+        if (! op.hasMoreEntriesFlag) {
             break;
         }
-        op.fnameStart = result.back().filename;
+        if (! last->GetLast(*beginEntryToken, *nameEntryToken, op.fnameStart)) {
+            op.status = -EIO;
+            break;
+        }
+    }
+    if (op.status == 0) {
+        result.reserve(count);
+        op.status = opResult.Parse(parser);
     }
     if (op.status != 0) {
         result.clear();
         return op.status;
     }
-    ComputeFilesizes(result, fileChunkInfo);
+    ComputeFilesizes(result, parser.fileChunkInfo);
 
     // if there are too many entries in the dir, then the caller is
     // probably scanning the directory.  don't put it in the cache
@@ -2242,7 +2506,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
                 break;
             }
         }
-    } else if (updateClientCache && hasDirs) {
+    } else if (updateClientCache && parser.hasDirs) {
         size_t dirCnt            = 0;
         size_t kMaxDirUpdateSize = 1024;
         for (size_t i = 0; i < result.size(); i++) {
@@ -2267,10 +2531,10 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
         // before the existing entries with the same keys. The name hash is
         // used as part of the b+tree key.
         // Remove duplicate entries, if any.
-        unique(result.begin(), result.end(),
+        result.erase(unique(result.begin(), result.end(),
             bind(&KfsFileAttr::filename, _1) ==
             bind(&KfsFileAttr::filename, _2)
-        );
+        ), result.end());
     }
     return 0;
 }

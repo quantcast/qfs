@@ -185,6 +185,26 @@ private:
     static const unsigned char sChar2Hex[256];
 };
 
+class TokenValue
+{
+public:
+    TokenValue(
+        const char* inPtr = 0,
+        size_t      inLen = 0)
+        : mPtr(inPtr),
+          mLen(inLen)
+        {}
+    void clear()
+    {
+        mPtr = 0;
+        mLen = 0;
+    }
+    bool empty() const
+        { return (mLen <= 0); }
+    const char* mPtr;
+    size_t      mLen;
+};
+
 template<typename INT_PARSER=DecIntParser>
 class ValueParserT
 {
@@ -209,10 +229,23 @@ public:
             }
         }
     }
-    // The following two do not trim whitespace.
+    // The following three do not trim whitespace.
     // This is intentional, and it is up to the caller to handle this
     // appropriately.
     // For example PropertiesTokenizer trims white space.
+    static void SetValue(
+        const char*       inPtr,
+        size_t            inLen,
+        const TokenValue& inDefaultValue,
+        TokenValue&       outValue)
+    {
+        if (inLen <= 0) {
+            outValue = inDefaultValue;
+        } else {
+            outValue.mPtr = inPtr;
+            outValue.mLen = inLen;
+        }
+    }
     static void SetValue(
         const char*   inPtr,
         size_t        inLen,
