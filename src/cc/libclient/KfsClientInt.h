@@ -954,6 +954,8 @@ private:
     friend class ChmodFunc;
     friend class ChownFunc;
     friend class SetReplicationFactorFunc;
+    class ReadDirPlusResponseParser;
+    friend class ReadDirPlusResponseParser;
 };
 
 }}

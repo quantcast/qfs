@@ -136,12 +136,19 @@ struct KfsFileAttr : public client::FileAttr
         : client::FileAttr(),
           filename()
         {}
+    KfsFileAttr(
+        const FileAttr& attr,
+        const char*     name,
+        size_t          nameLen)
+        : client::FileAttr(attr),
+          filename(name, nameLen)
+        {}
     void Clear()
     {
         Reset();
         filename.clear();
     }
-    KfsFileAttr& operator= (const FileAttr &other)
+    KfsFileAttr& operator= (const FileAttr& other)
     {
         FileAttr::operator=(other);
         return *this;
