@@ -24,25 +24,61 @@
 //----------------------------------------------------------------------------
 
 #include "DelegationToken.h"
+
+#include "common/MsgLogger.h"
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCUtils.h"
 
 #include "Base64.h"
 
 #include <openssl/hmac.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+
 #include <string.h>
 
-#include <iostream>
+#include <ostream>
+#include <istream>
 #include <iomanip>
 #include <string>
 
 namespace KFS
 {
 using std::ostream;
+using std::istream;
 using std::hex;
 using std::noshowbase;
 using std::setfill;
 using std::setw;
+
+class EvpError
+{
+public:
+    typedef unsigned long Error;
+    EvpError(
+        Error inErr)
+        : mError(inErr)
+        {}
+    EvpError()
+        : mError(ERR_get_error())
+        {}
+    ostream& Display(
+        ostream& inStream) const
+    {
+        const int kBufSize = 127;
+        char      theBuf[kBufSize + 1];
+        theBuf[0] = 0;
+        theBuf[kBufSize] = 0;
+        ERR_error_string_n(mError, theBuf, kBufSize);
+        return (inStream << theBuf);
+    }
+private:
+    Error mError;
+};
+static inline ostream& operator << (
+    ostream&        inStream,
+    const EvpError& inError)
+{ return inError.Display(inStream); }
 
 class DelegationToken::WorkBuf
 {
@@ -93,6 +129,11 @@ public:
                 &theLen
             );
 #endif
+        if (! theRetFlag) {
+            KFS_LOG_STREAM_ERROR <<
+                "HMAC failure: " << EvpError() <<
+            KFS_LOG_EOM;
+        }
         QCRTASSERT(! theRetFlag || theLen == kSignatureLength);
         HMAC_CTX_cleanup(&theCtx);
         return theRetFlag;
@@ -159,6 +200,49 @@ public:
             return inStream;
         }
         return inStream.write(theBuf, theLen);
+    }
+    string GetSessionKey(
+        const DelegationToken& inToken,
+        const char*            inSignaturePtr,
+        const char*            inKeyPtr,
+        int                    inKeyLen)
+    {
+        if (! inKeyPtr || inKeyLen <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid key: " << (void*)inKeyPtr << " len: " << inKeyLen <<
+            KFS_LOG_EOM;
+            return string();
+        }
+        Serialize(inToken);
+        memcpy(mBuffer + kTokenFiledsSize, inSignaturePtr, kSignatureLength);
+        EVP_MD_CTX theCtx;
+        EVP_MD_CTX_init(&theCtx);
+        if (! EVP_DigestInit_ex(&theCtx, EVP_sha384(), 0)) {
+            KFS_LOG_STREAM_ERROR <<
+                "EVP_DigestInit_ex failure: " << EvpError() <<
+            KFS_LOG_EOM;
+            return string();
+        }
+        if (! EVP_DigestUpdate(&theCtx, mBuffer, kTokenSize) ||
+                ! EVP_DigestUpdate(&theCtx, inKeyPtr, inKeyLen)) {
+            KFS_LOG_STREAM_ERROR <<
+                "EVP_DigestUpdate failure: " << EvpError() <<
+            KFS_LOG_EOM;
+            EVP_MD_CTX_cleanup(&theCtx);
+            return string();
+        }
+        unsigned char theMd[EVP_MAX_MD_SIZE];
+        unsigned int  theLen = 0;
+        if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "EVP_DigestFinal_ex failure: " << EvpError() <<
+            KFS_LOG_EOM;
+            EVP_MD_CTX_cleanup(&theCtx);
+            return string();
+        }
+        QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
+        EVP_MD_CTX_cleanup(&theCtx);
+        return string(reinterpret_cast<const char*>(theMd), theLen);
     }
 private:
     enum {
@@ -277,6 +361,15 @@ DelegationToken::Validate(
     WorkBuf theBuf;
     theBuf.Sign(inKeyPtr, inKeyLen, theSignBuf);
     return (memcmp(mSignature, theSignBuf, kSignatureLength) == 0);
+}
+
+    string
+DelegationToken::CalcSessionKey(
+    const char* inKeyPtr,
+    int         inKeyLen) const
+{
+    WorkBuf theBuf;
+    return theBuf.GetSessionKey(*this, mSignature, inKeyPtr, inKeyLen);
 }
 
     ostream&
