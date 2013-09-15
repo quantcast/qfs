@@ -2449,7 +2449,7 @@ RecordAppendOp::Response(ostream &os)
 }
 
 void
-RecordAppendOp::Request(ostream &os)
+RecordAppendOp::Request(ostream& os)
 {
     os <<
         "RECORD_APPEND \r\n"
@@ -2469,7 +2469,7 @@ RecordAppendOp::Request(ostream &os)
 }
 
 void
-GetRecordAppendOpStatus::Request(ostream &os)
+GetRecordAppendOpStatus::Request(ostream& os)
 {
     os <<
         "GET_RECORD_APPEND_OP_STATUS \r\n"
@@ -2507,7 +2507,7 @@ GetRecordAppendOpStatus::Response(ostream &os)
 }
 
 void
-CloseOp::Request(ostream &os)
+CloseOp::Request(ostream& os)
 {
     os <<
         "CLOSE \r\n"
@@ -2532,7 +2532,7 @@ CloseOp::Request(ostream &os)
 }
 
 void
-SizeOp::Request(ostream &os)
+SizeOp::Request(ostream& os)
 {
     os <<
         "SIZE\r\n"
@@ -2544,7 +2544,7 @@ SizeOp::Request(ostream &os)
 }
 
 void
-GetChunkMetadataOp::Request(ostream &os)
+GetChunkMetadataOp::Request(ostream& os)
 {
     os <<
         "GET_CHUNK_METADATA\r\n"
@@ -2556,7 +2556,7 @@ GetChunkMetadataOp::Request(ostream &os)
 }
 
 void
-ReadOp::Request(ostream &os)
+ReadOp::Request(ostream& os)
 {
     os <<
         "READ\r\n"
@@ -2574,7 +2574,7 @@ ReadOp::Request(ostream &os)
 }
 
 void
-WriteIdAllocOp::Request(ostream &os)
+WriteIdAllocOp::Request(ostream& os)
 {
     os <<
         "WRITE_ID_ALLOC\r\n"
@@ -2592,7 +2592,7 @@ WriteIdAllocOp::Request(ostream &os)
 }
 
 void
-WritePrepareFwdOp::Request(ostream &os)
+WritePrepareFwdOp::Request(ostream& os)
 {
     os <<
     "WRITE_PREPARE\r\n"
@@ -2610,7 +2610,7 @@ WritePrepareFwdOp::Request(ostream &os)
 }
 
 void
-WriteSyncOp::Request(ostream &os)
+WriteSyncOp::Request(ostream& os)
 {
     os << "WRITE_SYNC\r\n";
     os << "Version: " << KFS_VERSION_STR << "\r\n";
@@ -2799,7 +2799,7 @@ WriteSyncOp::~WriteSyncOp()
 }
 
 void
-LeaseRenewOp::Request(ostream &os)
+LeaseRenewOp::Request(ostream& os)
 {
     os << "LEASE_RENEW\r\n";
     os << "Version: " << KFS_VERSION_STR << "\r\n";
@@ -2817,7 +2817,7 @@ LeaseRenewOp::HandleDone(int code, void *data)
 }
 
 void
-LeaseRelinquishOp::Request(ostream &os)
+LeaseRelinquishOp::Request(ostream& os)
 {
     os << "LEASE_RELINQUISH\r\n"
         "Version: "        << KFS_VERSION_STR << "\r\n"
@@ -2846,7 +2846,7 @@ LeaseRelinquishOp::HandleDone(int code, void *data)
 }
 
 void
-CorruptChunkOp::Request(ostream &os)
+CorruptChunkOp::Request(ostream& os)
 {
     os <<
     "CORRUPT_CHUNK\r\n"
@@ -2879,7 +2879,7 @@ CorruptChunkOp::HandleDone(int code, void* data)
 }
 
 void
-EvacuateChunksOp::Request(ostream &os)
+EvacuateChunksOp::Request(ostream& os)
 {
     assert(numChunks <= kMaxChunkIds);
 
@@ -2977,7 +2977,7 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
 }
 
 void
-SetProperties::Request(ostream &os)
+SetProperties::Request(ostream& os)
 {
     string content;
     properties.getList(content, "");
@@ -3057,6 +3057,25 @@ HelloMetaOp::Execute()
     }
     status = 0;
     gLogger.Submit(this);
+}
+
+void
+AuthenticateOp::Request(ostream& os, IOBuffer& buf)
+{
+    os <<
+        "AUTHENTICATE\r\n"
+        "Version: "   << KFS_VERSION_STR   << "\r\n"
+        "Cseq: "      << seq               << "\r\n"
+        "Auth-type: " << requestedAuthType << "\r\n"
+    ;
+    if (0 < contentLength) {
+        os << "Content-length: " << contentLength << "\r\n";
+    }
+    os << "\r\n";
+    if (0 < contentLength) {
+        os.flush();
+        buf.CopyIn(reqBuf, contentLength);
+    }
 }
 
 }

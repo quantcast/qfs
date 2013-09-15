@@ -2034,38 +2034,32 @@ struct RestartChunkServerOp : public KfsOp {
 };
 
 struct AuthenticateOp : public KfsOp {
-    int  requestedAuthType;
-    int  chosenAuthType;
-    bool useSslFlag;
-    int  contentLength;
+    int         requestedAuthType;
+    int         chosenAuthType;
+    bool        useSslFlag;
+    int         contentLength;
+    int         responseContentLength;
+    const char* reqBuf;
 
     AuthenticateOp(kfsSeq_t s = 0, int authType = kAuthenticationTypeUndef)
         : KfsOp (CMD_AUTHENTICATE, s),
           requestedAuthType(authType),
           chosenAuthType(kAuthenticationTypeUndef),
           useSslFlag(false),
-          contentLength(0)
+          contentLength(0),
+          responseContentLength(0),
+          reqBuf(0)
         {}
     virtual void Execute() {
         die("unexpected invocation");
     }
-    virtual int GetContentLength() const { return contentLength; }
-    virtual void Request(ostream &os);
+    virtual void Request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const {
         return os << "authenticate:"
             " requested: " << requestedAuthType <<
             " chosen: "    << chosenAuthType <<
             " ssl: "       << (useSslFlag ? 1 : 0) <<
             " status: "    << status
-        ;
-    }
-    template<typename T> static T& ParserDef(T& parser)
-    {
-        return KfsOp::ParserDef(parser)
-        .Def("Content-length", &AuthenticateOp::contentLength)
-        .Def("Auth-type", &AuthenticateOp::chosenAuthType,
-            int(kAuthenticationTypeUndef))
-        .Def("Use-ssl",   &AuthenticateOp::useSslFlag, false)
         ;
     }
 };

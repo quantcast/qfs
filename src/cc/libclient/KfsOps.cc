@@ -1117,7 +1117,7 @@ TruncateOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
-AuthenticateOp::Request(ostream &os)
+AuthenticateOp::Request(ostream& os)
 {
     os <<
         "AUTHENTICATE\r\n" << ReqHeaders(*this) <<

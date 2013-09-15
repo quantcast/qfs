@@ -325,6 +325,8 @@ MetaServerSM::DispatchHello()
 {
     if (! IsConnected()) {
         // don't have a connection...so, need to start the process again...
+        delete mAuthOp;
+        mAuthOp = 0;
         delete mHelloOp;
         mHelloOp = 0;
         mSentHello = false;
@@ -355,7 +357,10 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_NET_READ: {
             // We read something from the network.  Run the RPC that
             // came in.
-            IOBuffer * const iobuf = (IOBuffer *) data;
+            IOBuffer* const iobuf = &mNetConnection->GetInBuffer();
+            assert(iobuf == data);
+            if (mAuthOp && 0 < mAuthOp->responseContentLength) {
+            }
             bool hasMsg;
             int  cmdLen = 0;
             while ((hasMsg = IsMsgAvail(iobuf, &cmdLen))) {
@@ -392,6 +397,18 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_CMD_DONE: {
             // An op finished execution.  Send a response back
             KfsOp* const op = reinterpret_cast<KfsOp*>(data);
+            if (mAuthOp) {
+                if (mAuthOp != op) {
+                    delete op;
+                    break;
+                }
+                IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+                mHelloOp->Request(mWOStream.Set(ioBuf), ioBuf);
+                mWOStream.Reset();
+                KFS_LOG_STREAM_INFO << op->Show() << KFS_LOG_EOM;
+                mNetConnection->StartFlush();
+                break;
+            }
             if (op->op == CMD_META_HELLO) {
                 DispatchHello();
             } else {
@@ -489,6 +506,28 @@ MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
     int            status = prop.getValue("Status",          -1);
     if (status < 0) {
         status = -KfsToSysErrno(-status);
+    }
+    if (mAuthOp) {
+        if (seq != mAuthOp->seq) {
+            KFS_LOG_STREAM_ERROR << "seq number mismatch: " <<
+                seq << "/" << mAuthOp->seq <<
+                " " << mAuthOp->Show() <<
+            KFS_LOG_EOM;
+            delete mAuthOp;
+            mAuthOp = 0;
+            return false;
+        }
+        mAuthOp->status = status;
+        if (status != 0) {
+            mAuthOp->statusMsg = prop.getValue("Status-message", string());
+        } else {
+            mAuthOp->chosenAuthType        = prop.getValue("Auth-type",
+                int(kAuthenticationTypeUndef));
+            mAuthOp->useSslFlag            = prop.getValue("Use-ssl", 0) != 0;
+            mAuthOp->responseContentLength = prop.getValue("Content-length", -1);
+        }
+        if (0 < mAuthOp->responseContentLength) {
+        }
     }
     if (mHelloOp) {
         if (status == -EBADCLUSTERKEY) {
