@@ -24,12 +24,11 @@
 //----------------------------------------------------------------------------
 
 #include "DelegationToken.h"
+#include "Base64.h"
 
 #include "common/MsgLogger.h"
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCUtils.h"
-
-#include "Base64.h"
 
 #include <openssl/hmac.h>
 #include <openssl/err.h>

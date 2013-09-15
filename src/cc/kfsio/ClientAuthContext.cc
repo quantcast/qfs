@@ -29,8 +29,10 @@
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
+#include "common/StBuffer.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/Base64.h"
 #include "krb/KrbClient.h"
 #include "qcdio/qcdebug.h"
 
@@ -239,32 +241,23 @@ public:
         const Properties::String* const theKeyHexPtr = theParams.getValue(
             theParamName.Truncate(theCurLen).Append("key"));
         string thePskKey;
-        int    theDigitCnt;
-        if (theKeyHexPtr && 0 < (theDigitCnt = theKeyHexPtr->GetSize())) {
-            const unsigned char* const theHTPtr = HexIntParser::GetChar2Hex();
-            int                        theByte  = 0;
-            for (const char* thePtr = theKeyHexPtr->GetPtr();
-                    0 < theDigitCnt;
-                    ++thePtr) {
-                const int theDigit = (int)theHTPtr[(int)*thePtr & 0xFF] & 0xFF;
-                if (theDigit > 0xF) {
-                    if (outErrMsgPtr) {
-                        *outErrMsgPtr = "psk key invalid hex digit";
-                    }
-                    KFS_LOG_STREAM_ERROR <<
-                        theParamName <<
-                        ": invalid hex digit:"
-                        " code: " << (*thePtr & 0xFF) <<
-                    KFS_LOG_EOM;
-                    return -EINVAL;
+        if (theKeyHexPtr) {
+            StBufferT<char, 64> theKeyBuf;
+            char* const thePtr = theKeyBuf.Resize(
+                Base64::GetMaxDecodedLength((int)theKeyHexPtr->GetSize()));
+            const int   theLen = Base64::Decode(
+                theKeyHexPtr->GetPtr(), theKeyHexPtr->GetSize(), thePtr);
+            if (theLen <= 0) {
+                const char* const kMsgPtr = "psk: invalid key encoding";
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = kMsgPtr;
                 }
-                if ((theDigitCnt-- & 0x1) == 0) {
-                    theByte = theDigit << 4;
-                } else {
-                    theByte |= theDigit;
-                    thePskKey.push_back((char)theByte);
-                }
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName << ": " << kMsgPtr <<
+                KFS_LOG_EOM;
+                return -EINVAL;
             }
+            thePskKey.assign(thePtr, theLen);
         }
         const bool theCreatSslPskFlag =
             theParams.getValue(
