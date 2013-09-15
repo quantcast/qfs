@@ -70,6 +70,7 @@ MetaServerSM::MetaServerSM()
       mChunkServerHostname(),
       mSentHello(false),
       mHelloOp(0),
+      mAuthOp(0),
       mPendingOps(),
       mDispatchedNoReplyOps(),
       mDispatchedOps(),
@@ -80,6 +81,7 @@ MetaServerSM::MetaServerSM()
       mLastConnectTime(0),
       mConnectedTime(0),
       mReconnectFlag(false),
+      mAuthContext(),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -96,6 +98,7 @@ MetaServerSM::~MetaServerSM()
     globalNetManager().UnRegisterTimeoutHandler(this);
     FailOps(true);
     delete mHelloOp;
+    delete mAuthOp;
 }
 
 void 
@@ -116,6 +119,9 @@ MetaServerSM::SetParameters(const Properties& prop)
         "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     mMaxReadAhead      = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
+    const bool kVerifyFlag = true;
+    mAuthContext.SetParameters(
+        "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
 }
 
 void

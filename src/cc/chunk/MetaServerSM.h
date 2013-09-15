@@ -36,6 +36,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/ClientAuthContext.h"
 #include "common/StdAllocator.h"
 
 #include <map>
@@ -180,7 +181,8 @@ private:
     /// queues the hello op to the event processor; the event
     /// processor pulls the result and enqueues the op back to us; the
     /// network processor dispatches the op and gets rid of it.
-    HelloMetaOp *mHelloOp;
+    HelloMetaOp*    mHelloOp;
+    AuthenticateOp* mAuthOp;
 
     /// list of ops that need to be dispatched: this is the queue that
     /// is shared between the event processor and the network
@@ -205,6 +207,7 @@ private:
     time_t             mLastConnectTime;
     time_t             mConnectedTime;
     bool               mReconnectFlag;
+    ClientAuthContext  mAuthContext;
     Counters           mCounters;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;

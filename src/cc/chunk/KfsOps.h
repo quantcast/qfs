@@ -40,6 +40,7 @@
 #include "Chunk.h"
 #include "DiskIo.h"
 #include "RemoteSyncSM.h"
+#include "utils.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -126,6 +127,7 @@ enum KfsOp_t {
     CMD_EVACUATE_CHUNKS,
     CMD_AVAILABLE_CHUNKS,
     CMD_CHUNKDIR_INFO,
+    CMD_AUTHENTICATE,
     CMD_NULL,
     CMD_NCMDS
 };
@@ -2027,6 +2029,43 @@ struct RestartChunkServerOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
+        ;
+    }
+};
+
+struct AuthenticateOp : public KfsOp {
+    int  requestedAuthType;
+    int  chosenAuthType;
+    bool useSslFlag;
+    int  contentLength;
+
+    AuthenticateOp(kfsSeq_t s = 0, int authType = kAuthenticationTypeUndef)
+        : KfsOp (CMD_AUTHENTICATE, s),
+          requestedAuthType(authType),
+          chosenAuthType(kAuthenticationTypeUndef),
+          useSslFlag(false),
+          contentLength(0)
+        {}
+    virtual void Execute() {
+        die("unexpected invocation");
+    }
+    virtual int GetContentLength() const { return contentLength; }
+    virtual void Request(ostream &os);
+    virtual ostream& ShowSelf(ostream& os) const {
+        return os << "authenticate:"
+            " requested: " << requestedAuthType <<
+            " chosen: "    << chosenAuthType <<
+            " ssl: "       << (useSslFlag ? 1 : 0) <<
+            " status: "    << status
+        ;
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return KfsOp::ParserDef(parser)
+        .Def("Content-length", &AuthenticateOp::contentLength)
+        .Def("Auth-type", &AuthenticateOp::chosenAuthType,
+            int(kAuthenticationTypeUndef))
+        .Def("Use-ssl",   &AuthenticateOp::useSslFlag, false)
         ;
     }
 };
