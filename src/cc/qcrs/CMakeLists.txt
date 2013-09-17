@@ -119,7 +119,8 @@ if (NOT DEFINED vectormode)
 endif (NOT DEFINED vectormode)
 
 # Vector intrinsics are only available on GCC
-if (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
+if (DEFINED vectormode AND
+        (CMAKE_COMPILER_IS_GNUCC OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang"))
     if (vectormode STREQUAL ssse3)
         message(STATUS "qcrs: enabling ssse3")
         add_definitions(-mssse3 -DLIBRS_USE_SSSE3)
@@ -136,7 +137,8 @@ if (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
             add_definitions(-flax-vector-conversions)
         endif (MY_LAXVEC_CONV)
     endif (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
-endif (DEFINED vectormode AND CMAKE_COMPILER_IS_GNUCC)
+endif (DEFINED vectormode AND
+        (CMAKE_COMPILER_IS_GNUCC OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang"))
 
 set(rstestbin rstest)
 set(rsmktablebin rsmktable)
