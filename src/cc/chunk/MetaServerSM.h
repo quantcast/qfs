@@ -94,9 +94,9 @@ public:
     int SendHello();
 
     /// Generic event handler to handle RPC requests sent by the meta server.
-    int HandleRequest(int code, void *data);
+    int HandleRequest(int code, void* data);
 
-    bool HandleMsg(IOBuffer *iobuf, int msgLen);
+    bool HandleMsg(IOBuffer& iobuf, int msgLen);
 
     void EnqueueOp(KfsOp *op);
 
@@ -139,7 +139,7 @@ public:
         mReconnectFlag = true;
     }
 
-    void SetParameters(const Properties& prop);
+    int SetParameters(const Properties& prop);
 private:
     typedef deque<KfsOp*> OpsQueue;
     typedef std::map<
@@ -201,25 +201,28 @@ private:
     /// server is good; if the connection broke, reconnect and do the
     /// handshake again.  Also, we use the timeout to dispatch pending
     /// messages to the server.
-    int                mInactivityTimeout;
-    int                mMaxReadAhead;
-    time_t             mLastRecvCmdTime;
-    time_t             mLastConnectTime;
-    time_t             mConnectedTime;
-    bool               mReconnectFlag;
-    ClientAuthContext  mAuthContext;
-    Counters           mCounters;
-    IOBuffer::IStream  mIStream;
-    IOBuffer::WOStream mWOStream;
+    int                           mInactivityTimeout;
+    int                           mMaxReadAhead;
+    time_t                        mLastRecvCmdTime;
+    time_t                        mLastConnectTime;
+    time_t                        mConnectedTime;
+    bool                          mReconnectFlag;
+    ClientAuthContext             mAuthContext;
+    ClientAuthContext::RequestCtx mAuthRequestCtx;
+    int                           mAuthType;
+    string                        mAuthTypeStr;
+    Counters                      mCounters;
+    IOBuffer::IStream             mIStream;
+    IOBuffer::WOStream            mWOStream;
 
     /// Connect to the meta server
     /// @retval 0 if connect was successful; -1 otherwise
     int Connect();
 
     /// Given a (possibly) complete op in a buffer, run it.
-    bool HandleCmd(IOBuffer *iobuf, int cmdLen);
+    bool HandleCmd(IOBuffer& iobuf, int cmdLen);
     /// Handle a reply to an RPC we previously sent.
-    bool HandleReply(IOBuffer *iobuf, int msgLen);
+    bool HandleReply(IOBuffer& iobuf, int msgLen);
 
     /// Op has finished execution.  Send a response to the meta
     /// server.
@@ -234,6 +237,7 @@ private:
     /// We reconnected to the metaserver; so, resend all the pending ops.
     void ResubmitOps();
     void FailOps(bool shutdownFlag);
+    void HandleAuthResponse(IOBuffer& ioBuf);
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);

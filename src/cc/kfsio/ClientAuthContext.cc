@@ -471,6 +471,13 @@ public:
             }
             return -EINVAL;
         }
+        if (inNetConnection.HasPendingRead() ||
+                inNetConnection.IsWriteReady()) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "connection has pending read and/or write data";
+            }
+            return -EINVAL;
+        }
         SslFilter::ServerPsk*  kServerPskPtr          = 0;
         SslFilter::VerifyPeer* kVerifyPeerPtr         = 0;
         const char*            kExpectedServerNamePtr = 0;

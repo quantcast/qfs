@@ -2040,6 +2040,7 @@ struct AuthenticateOp : public KfsOp {
     int         contentLength;
     int         responseContentLength;
     const char* reqBuf;
+    char*       responseBuf;
 
     AuthenticateOp(kfsSeq_t s = 0, int authType = kAuthenticationTypeUndef)
         : KfsOp (CMD_AUTHENTICATE, s),
@@ -2048,8 +2049,12 @@ struct AuthenticateOp : public KfsOp {
           useSslFlag(false),
           contentLength(0),
           responseContentLength(0),
-          reqBuf(0)
+          reqBuf(0),
+          responseBuf(0),
+          responseBufPos(0)
         {}
+    virtual ~AuthenticateOp()
+        { delete [] responseBuf; }
     virtual void Execute() {
         die("unexpected invocation");
     }
@@ -2062,6 +2067,9 @@ struct AuthenticateOp : public KfsOp {
             " status: "    << status
         ;
     }
+    int ReadResponseContent(IOBuffer& buf);
+private:
+    int responseBufPos;
 };
 
 extern int ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res);

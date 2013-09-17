@@ -82,6 +82,12 @@ MetaServerSM::MetaServerSM()
       mConnectedTime(0),
       mReconnectFlag(false),
       mAuthContext(),
+      mAuthRequestCtx(),
+      mAuthType(
+        kAuthenticationTypeKrb5 |
+        kAuthenticationTypeX509 |
+        kAuthenticationTypePSK),
+      mAuthTypeStr("Krb5 X509, PSK"),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -112,7 +118,7 @@ MetaServerSM::SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKe
     SetParameters(prop);
 }
 
-void
+int
 MetaServerSM::SetParameters(const Properties& prop)
 {
     mInactivityTimeout = prop.getValue(
@@ -120,8 +126,38 @@ MetaServerSM::SetParameters(const Properties& prop)
     mMaxReadAhead      = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
     const bool kVerifyFlag = true;
-    mAuthContext.SetParameters(
+    int ret = mAuthContext.SetParameters(
         "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
+    const char* const kAuthTypeParamName = "chunkserver.meta.auth.authType";
+    mAuthTypeStr = prop.getValue(kAuthTypeParamName, mAuthTypeStr);
+    istringstream is(mAuthTypeStr);
+    string type;
+    mAuthType = 0;
+    while ((is >> type)) {
+        if (type == "Krb5") {
+            mAuthType |= kAuthenticationTypeKrb5;
+        } else if (type == "X509") {
+            mAuthType |= kAuthenticationTypeX509;
+        } else if (type == "PSK") {
+            mAuthType |= kAuthenticationTypePSK;
+        }
+    }
+    if (mAuthContext.IsEnabled()) {
+        string    errMsg;
+        bool      authRequiredFlag = false;
+        const int err = mAuthContext.CheckAuthType(
+            mAuthType, authRequiredFlag, &errMsg);
+        if (err) {
+            if (ret == 0) {
+                ret = err;
+            }
+            KFS_LOG_STREAM_ERROR <<
+                "invalid " << kAuthTypeParamName <<
+                " " << mAuthType <<
+            KFS_LOG_EOM;
+        }
+    }
+    return ret;
 }
 
 void
@@ -184,6 +220,8 @@ MetaServerSM::Connect()
     if (mHelloOp) {
         return 0;
     }
+    delete mAuthOp;
+    mAuthOp = 0;
     mCounters.mConnectCount++;
     mSentHello = false;
     TcpSocket * const sock = new TcpSocket();
@@ -254,7 +292,7 @@ IsIpHostedAndNotLoopBack(const char* ip)
 int
 MetaServerSM::SendHello()
 {
-    if (mHelloOp) {
+    if (mHelloOp || mAuthOp) {
         return 0;
     }
     if (! IsConnected()) {
@@ -312,17 +350,46 @@ MetaServerSM::SendHello()
             }
         }
     }
-    mHelloOp = new HelloMetaOp(
-        nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
-    mHelloOp->clnt = this;
-    // Send the op and wait for the reply.
-    SubmitOp(mHelloOp);
+    if (mAuthContext.IsEnabled()) {
+        mAuthOp = new AuthenticateOp(nextSeq());
+        string    errMsg;
+        const int err = mAuthContext.Request(
+            mAuthType,
+            mAuthOp->requestedAuthType,
+            mAuthOp->reqBuf,
+            mAuthOp->contentLength,
+            mAuthRequestCtx,
+            &errMsg
+        );
+        if (err) {
+            KFS_LOG_STREAM_ERROR <<
+                "authentication request failure: " <<
+                errMsg <<
+            KFS_LOG_EOM;
+            return HandleRequest(EVENT_NET_ERROR, 0);
+        }
+        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+        mAuthOp->Request(mWOStream.Set(ioBuf), ioBuf);
+        mWOStream.Reset();
+    } else {
+        mHelloOp = new HelloMetaOp(
+            nextSeq(), gChunkServer.GetLocation(),
+            mClusterKey, mMD5Sum, mRackId);
+        mHelloOp->clnt = this;
+        // Send the op and wait for the reply.
+        SubmitOp(mHelloOp);
+    }
     return 0;
 }
 
 void
 MetaServerSM::DispatchHello()
 {
+    if (mSentHello || mAuthOp) {
+        die("dispatch hello: invalid invocation");
+        HandleRequest(EVENT_NET_ERROR, 0);
+        return;
+    }
     if (! IsConnected()) {
         // don't have a connection...so, need to start the process again...
         delete mAuthOp;
@@ -357,13 +424,15 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_NET_READ: {
             // We read something from the network.  Run the RPC that
             // came in.
-            IOBuffer* const iobuf = &mNetConnection->GetInBuffer();
-            assert(iobuf == data);
-            if (mAuthOp && 0 < mAuthOp->responseContentLength) {
+            IOBuffer& iobuf = mNetConnection->GetInBuffer();
+            assert(&iobuf == data);
+            if (mAuthOp) {
+                HandleAuthResponse(iobuf);
+                break;
             }
             bool hasMsg;
             int  cmdLen = 0;
-            while ((hasMsg = IsMsgAvail(iobuf, &cmdLen))) {
+            while ((hasMsg = IsMsgAvail(&iobuf, &cmdLen))) {
                 // if we don't have all the data for the command, bail
                 if (! HandleMsg(iobuf, cmdLen)) {
                     break;
@@ -371,7 +440,7 @@ MetaServerSM::HandleRequest(int code, void* data)
             }
             int hdrsz;
             if (! hasMsg &&
-                    (hdrsz = iobuf->BytesConsumable()) > MAX_RPC_HEADER_LEN) {
+                    (hdrsz = iobuf.BytesConsumable()) > MAX_RPC_HEADER_LEN) {
                 KFS_LOG_STREAM_ERROR <<
                     "exceeded max request header size: " << hdrsz <<
                     ">" << MAX_RPC_HEADER_LEN <<
@@ -379,14 +448,14 @@ MetaServerSM::HandleRequest(int code, void* data)
                         mNetConnection->GetPeerName() :
                         string("not connected")) <<
                 KFS_LOG_EOM;
-                iobuf->Clear();
+                iobuf.Clear();
                 return HandleRequest(EVENT_NET_ERROR, 0);
             }
         }
         break;
 
     case EVENT_NET_WROTE:
-        if (! mSentHello && ! mHelloOp) {
+        if (! mAuthOp && ! mSentHello && ! mHelloOp) {
             SendHello();
         }
         // Something went out on the network.  For now, we don't
@@ -396,30 +465,28 @@ MetaServerSM::HandleRequest(int code, void* data)
 
     case EVENT_CMD_DONE: {
             // An op finished execution.  Send a response back
-            KfsOp* const op = reinterpret_cast<KfsOp*>(data);
-            if (mAuthOp) {
-                if (mAuthOp != op) {
-                    delete op;
-                    break;
-                }
-                IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-                mHelloOp->Request(mWOStream.Set(ioBuf), ioBuf);
-                mWOStream.Reset();
-                KFS_LOG_STREAM_INFO << op->Show() << KFS_LOG_EOM;
-                mNetConnection->StartFlush();
+            if (! data) {
+                die("invalid null op completion");
                 break;
             }
-            if (op->op == CMD_META_HELLO) {
-                DispatchHello();
-            } else {
-                SendResponse(op);
-                delete op;
+            KfsOp* const op = reinterpret_cast<KfsOp*>(data);
+            if (op == mAuthOp) {
+                die("invalid authentication op completion");
+                break;
             }
+            if (op == mHelloOp) {
+                DispatchHello();
+                break;
+            }
+            SendResponse(op);
+            delete op;
         }
         break;
 
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
+        delete mAuthOp;
+        mAuthOp = 0;
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
@@ -480,10 +547,10 @@ MetaServerSM::FailOps(bool shutdownFlag)
 }
 
 bool
-MetaServerSM::HandleMsg(IOBuffer *iobuf, int msgLen)
+MetaServerSM::HandleMsg(IOBuffer& iobuf, int msgLen)
 {
     char buf[3];
-    if (iobuf->CopyOut(buf, 3) == 3 &&
+    if (iobuf.CopyOut(buf, 3) == 3 &&
             buf[0] == 'O' && buf[1] == 'K' && (buf[2] & 0xFF) <= ' ') {
         // This is a response to some op we sent earlier
         return HandleReply(iobuf, msgLen);
@@ -494,13 +561,13 @@ MetaServerSM::HandleMsg(IOBuffer *iobuf, int msgLen)
 }
 
 bool
-MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
+MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 {
     Properties prop;
     const char separator = ':';
-    prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
+    prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
     mIStream.Reset();
-    iobuf->Consume(msgLen);
+    iobuf.Consume(msgLen);
 
     const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);
     int            status = prop.getValue("Status",          -1);
@@ -509,25 +576,27 @@ MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
     }
     if (mAuthOp) {
         if (seq != mAuthOp->seq) {
-            KFS_LOG_STREAM_ERROR << "seq number mismatch: " <<
+            KFS_LOG_STREAM_ERROR <<
+                "authentication response seq number mismatch: " <<
                 seq << "/" << mAuthOp->seq <<
                 " " << mAuthOp->Show() <<
             KFS_LOG_EOM;
-            delete mAuthOp;
-            mAuthOp = 0;
+            HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
         mAuthOp->status = status;
         if (status != 0) {
             mAuthOp->statusMsg = prop.getValue("Status-message", string());
         } else {
-            mAuthOp->chosenAuthType        = prop.getValue("Auth-type",
-                int(kAuthenticationTypeUndef));
-            mAuthOp->useSslFlag            = prop.getValue("Use-ssl", 0) != 0;
-            mAuthOp->responseContentLength = prop.getValue("Content-length", -1);
+            mAuthOp->chosenAuthType        = prop.getValue(
+                "Auth-type", int(kAuthenticationTypeUndef));
+            mAuthOp->useSslFlag            = prop.getValue(
+                "Use-ssl", 0) != 0;
+            mAuthOp->responseContentLength = prop.getValue(
+                "Content-length", -1);
         }
-        if (0 < mAuthOp->responseContentLength) {
-        }
+        HandleAuthResponse(iobuf);
+        return false;
     }
     if (mHelloOp) {
         if (status == -EBADCLUSTERKEY) {
@@ -595,11 +664,11 @@ MetaServerSM::HandleReply(IOBuffer *iobuf, int msgLen)
 /// 
 
 bool
-MetaServerSM::HandleCmd(IOBuffer* iobuf, int cmdLen)
+MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
 {
     KfsOp* op = 0;
-    if (ParseCommand(*iobuf, cmdLen, &op) != 0) {
-        IOBuffer::IStream is(*iobuf, cmdLen);
+    if (ParseCommand(iobuf, cmdLen, &op) != 0) {
+        IOBuffer::IStream is(iobuf, cmdLen);
         const string peer = IsConnected() ?
             mNetConnection->GetPeerName() : string("not connected");
         string line;
@@ -609,14 +678,14 @@ MetaServerSM::HandleCmd(IOBuffer* iobuf, int cmdLen)
                 " invalid meta request: " << line <<
             KFS_LOG_EOM;
         }
-        iobuf->Clear();
+        iobuf.Clear();
         HandleRequest(EVENT_NET_ERROR, 0);
         // got a bogus command
         return false;
     }
 
     const int contentLength = op->GetContentLength();
-    const int remLen = cmdLen + contentLength - iobuf->BytesConsumable();
+    const int remLen = cmdLen + contentLength - iobuf.BytesConsumable();
     if (remLen > 0) {
         // if we don't have all the data wait...
         if (remLen > mMaxReadAhead && mNetConnection) {
@@ -628,9 +697,9 @@ MetaServerSM::HandleCmd(IOBuffer* iobuf, int cmdLen)
     if (mNetConnection) {
         mNetConnection->SetMaxReadAhead(mMaxReadAhead);
     }
-    iobuf->Consume(cmdLen);
+    iobuf.Consume(cmdLen);
     if (contentLength > 0) {
-        IOBuffer::IStream is(*iobuf, contentLength);
+        IOBuffer::IStream is(iobuf, contentLength);
         if (! op->ParseContent(is)) {
             KFS_LOG_STREAM_ERROR <<
                 (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
@@ -641,7 +710,7 @@ MetaServerSM::HandleCmd(IOBuffer* iobuf, int cmdLen)
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
-        iobuf->Consume(contentLength);
+        iobuf.Consume(contentLength);
     }
     mLastRecvCmdTime = globalNetManager().Now();
     op->clnt = this;
@@ -771,6 +840,50 @@ MetaServerSM::ResubmitOps()
         it->second->Request(os, ioBuf);
     }
     mWOStream.Reset();
+}
+
+void
+MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
+{
+    if (! mAuthOp || ! mNetConnection) {
+        die("handle auth response: invalid invocation");
+        return;
+    }
+    const int rem = mAuthOp->ReadResponseContent(ioBuf);
+    if (0 < rem) {
+        // Attempt to read more to detect protocol errors.
+        mNetConnection->SetMaxReadAhead(rem + mMaxReadAhead);
+        return;
+    }
+    string errMsg;
+    int    err = mAuthOp->status;
+    if (err) {
+        mAuthOp->statusMsg.swap(errMsg);
+    } else {
+        err = mAuthContext.Response(
+            mAuthOp->chosenAuthType,
+            mAuthOp->useSslFlag,
+            mAuthOp->responseBuf,
+            mAuthOp->responseContentLength,
+            *mNetConnection,
+            mAuthRequestCtx,
+            &errMsg
+        );
+    }
+    delete mAuthOp;
+    mAuthOp = 0;
+    if (err) {
+        KFS_LOG_STREAM_ERROR <<
+            "authentication respose failure: " << errMsg <<
+        KFS_LOG_EOM;
+        HandleRequest(EVENT_NET_ERROR, 0);
+        return;
+    }
+    mHelloOp = new HelloMetaOp(
+        nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
+    mHelloOp->clnt = this;
+    // Send the op and wait for the reply.
+    SubmitOp(mHelloOp);
 }
 
 } // namespace KFS

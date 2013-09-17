@@ -3072,10 +3072,29 @@ AuthenticateOp::Request(ostream& os, IOBuffer& buf)
         os << "Content-length: " << contentLength << "\r\n";
     }
     os << "\r\n";
+    os.flush();
     if (0 < contentLength) {
-        os.flush();
         buf.CopyIn(reqBuf, contentLength);
     }
+}
+
+int
+AuthenticateOp::ReadResponseContent(IOBuffer& iobuf)
+{
+    if (responseContentLength <= 0) {
+        return 0;
+    }
+    if (! responseBuf) {
+        responseBuf    = new char[responseContentLength];
+        responseBufPos = 0;
+    }
+    const int len = iobuf.CopyOut(responseBuf + responseBufPos,
+        responseContentLength - responseBufPos);
+    if (0 < len) {
+        iobuf.Consume(len);
+        responseBufPos += len;
+    }
+    return (responseContentLength - responseBufPos);
 }
 
 }
