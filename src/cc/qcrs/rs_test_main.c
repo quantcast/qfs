@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         exit(0);
     }
 
-    int i, j, k, n, err;
+    int i, j, k, n, m, err;
     const int N = argc > 1 ? atoi(argv[1]) : RS_LIB_MAX_DATA_BLOCKS;
     const int BLOCKSIZE = argc > 2 ? atoi(argv[2]) : (64 << 10);
 
@@ -93,11 +93,13 @@ int main(int argc, char **argv)
     }
 
     if (argc > 3) {
+        clock_t clk, tclk = 0;
+        double  tbytes = 0;
         // Performance test.
         n = atoi(argv[3]);
         for (i = 0; i < N+3; i++)
             mkrand(data[i], BLOCKSIZE);
-        clock_t clk = clock();
+        clk = clock();
         for (i = 0; i < n; i++)
             rs_encode(N+3, BLOCKSIZE, data);
         clk = clock() - clk;
@@ -105,14 +107,42 @@ int main(int argc, char **argv)
             (double)clk, (double)clk/CLOCKS_PER_SEC,
             BLOCKSIZE * N * (double)CLOCKS_PER_SEC * n /
                 ((double)clk > 0 ? (double)clk : 1e-10));
-        clk = clock();
-        for (i = 0; i < n; i++)
-            rs_decode3(N+3, BLOCKSIZE, 0, 1, 2, data);
-        clk = clock() - clk;
-        printf("decode %.3e clocks %.3e sec %.3e bytes/sec\n",
-            (double)clk, (double)clk/CLOCKS_PER_SEC,
-            BLOCKSIZE * N * (double)CLOCKS_PER_SEC * n /
-                ((double)clk > 0 ? (double)clk : 1e-10));
+        for (i = N - (3 < N ? 3 : 0); i < N; i++) {
+            for (j = i + 1; j < N + 3; j++) {
+                for (k = j + 1; k < N + 3; k++) {
+                    void* const p = data[k];
+                    if (N <= k) {
+                        data[k] = 0; /* do not encode */
+                    }
+                    clk = clock();
+                    for (m = 0; m < n; m++)
+                        rs_decode3(N + 3, BLOCKSIZE, i, j, k, data);
+                    clk = clock() - clk;
+                    data[k] = p;
+                    printf("decode missing: %d,%d,%d"
+                        " %.3e clocks %.3e sec %.3e bytes/sec\n",
+                        i, j, k, (double)clk, (double)clk/CLOCKS_PER_SEC,
+                        BLOCKSIZE * N * (double)CLOCKS_PER_SEC * n /
+                            ((double)clk > 0 ? (double)clk : 1e-10));
+                    tbytes += (double)BLOCKSIZE * N * n;
+                    tclk += clk;
+                    if (k < N) {
+                        break;
+                    }
+                }
+                if (j < N) {
+                    break;
+                }
+            }
+            if (i + 3 < N) {
+                i++;
+            }
+        }
+        printf("decode average:      "
+            " %.3e clocks %.3e sec %.3e bytes/sec\n",
+            (double)tclk, (double)tclk/CLOCKS_PER_SEC,
+            tbytes * (double)CLOCKS_PER_SEC /
+                ((double)tclk > 0 ? (double)tclk : 1e-10));
         return 0;
     }
 

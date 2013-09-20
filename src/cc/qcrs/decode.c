@@ -184,12 +184,28 @@ rs_decode2pq(int n, int blocksize, int x, int y, v16 **data)
     int i;
     v16 pp, qq;
     const uint8_t* const c = rs_r2PQ[rs_r2map[x][y]];
+#ifndef KFS_QCRS_DONT_INLINE
+    v16** pd = data + n - 1;
+#endif
 
     memset(data[x], 0, blocksize);
     memset(data[y], 0, blocksize);
     for (i = 0; i < blocksize/sizeof(v16); i++) {
+#ifndef KFS_QCRS_DONT_INLINE
+        pp = (*pd)[i];
+        qq = pp;
+        while (data <= --pd) {
+            const v16 d = (*pd)[i];
+            pp ^= d;
+            qq = mul2(qq) ^ d;
+        }
+        pd = data + n + 1;
+        qq ^= (*pd--)[i];
+        pp ^= (*pd--)[i];
+#else
         pp = P(data, n, i) ^ data[n][i];
         qq = Q(data, n, i) ^ data[n+1][i];
+#endif
         data[x][i] = mulby(c[0], pp) ^ mulby(c[1], qq);
         data[y][i] = mulby(c[2], pp) ^ mulby(c[3], qq);
     }
@@ -202,12 +218,29 @@ rs_decode2pr(int n, int blocksize, int x, int y, v16 **data)
     int i;
     v16 pp, rr;
     const uint8_t* const c = rs_r2PR[rs_r2map[x][y]];
+#ifndef KFS_QCRS_DONT_INLINE
+    v16** pd = data + n - 1;
+#endif
 
     memset(data[x], 0, blocksize);
     memset(data[y], 0, blocksize);
     for (i = 0; i < blocksize/sizeof(v16); i++) {
+#ifndef KFS_QCRS_DONT_INLINE
+        pp = (*pd)[i];
+        rr = pp;
+        while (data <= --pd) {
+            const v16 d = (*pd)[i];
+            pp ^= d;
+            rr = mul2(mul2(rr)) ^ d;
+        }
+        pd = data + n + 2;
+        rr ^= (*pd--)[i];
+        pd--;
+        pp ^= (*pd--)[i];
+#else
         pp = P(data, n, i) ^ data[n][i];
         rr = R(data, n, i) ^ data[n+2][i];
+#endif
         data[x][i] = mulby(c[0], pp) ^ mulby(c[1], rr);
         data[y][i] = mulby(c[2], pp) ^ mulby(c[3], rr);
     }
@@ -220,12 +253,29 @@ rs_decode2qr(int n, int blocksize, int x, int y, v16 **data)
     int i;
     v16 qq, rr;
     const uint8_t* const c = rs_r2QR[rs_r2map[x][y]];
+#ifndef KFS_QCRS_DONT_INLINE
+    v16** pd = data + n - 1;
+#endif
 
     memset(data[x], 0, blocksize);
     memset(data[y], 0, blocksize);
     for (i = 0; i < blocksize/sizeof(v16); i++) {
+#ifndef KFS_QCRS_DONT_INLINE
+        qq = (*pd)[i];
+        rr = qq;
+        while (data <= --pd) {
+            const v16 d = (*pd)[i];
+            qq = mul2(qq) ^ d;
+            rr = mul2(mul2(rr)) ^ d;
+        }
+        pd = data + n + 2;
+        rr ^= (*pd--)[i];
+        qq ^= (*pd--)[i];
+        pd--;
+#else
         qq = Q(data, n, i) ^ data[n+1][i];
         rr = R(data, n, i) ^ data[n+2][i];
+#endif
         data[x][i] = mulby(c[0], qq) ^ mulby(c[1], rr);
         data[y][i] = mulby(c[2], qq) ^ mulby(c[3], rr);
     }
@@ -274,14 +324,33 @@ rs_decode3pqr(int n, int blocksize, int x, int y, int z, v16 **data)
     int i;
     v16 pp, qq, rr;
     const uint8_t* const c = rs_r3[rs_r3map[x][y][z]];
+#ifndef KFS_QCRS_DONT_INLINE
+    v16** pd = data + n - 1;
+#endif
 
     memset(data[x], 0, blocksize);
     memset(data[y], 0, blocksize);
     memset(data[z], 0, blocksize);
     for (i = 0; i < blocksize/sizeof(v16); i++) {
+#ifndef KFS_QCRS_DONT_INLINE
+        pp = (*pd)[i];
+        qq = pp;
+        rr = pp;
+        while (data <= --pd) {
+            const v16 d = (*pd)[i];
+            pp ^= d;
+            qq = mul2(qq) ^ d;
+            rr = mul2(mul2(rr)) ^ d;
+        }
+        pd = data + n + 2;
+        rr ^= (*pd--)[i];
+        qq ^= (*pd--)[i];
+        pp ^= (*pd--)[i];
+#else
         pp = P(data, n, i) ^ data[n][i];
         qq = Q(data, n, i) ^ data[n+1][i];
         rr = R(data, n, i) ^ data[n+2][i];
+#endif
         data[x][i] = mulby(c[0], pp) ^ mulby(c[1], qq) ^ mulby(c[2], rr);
         data[y][i] = mulby(c[3], pp) ^ mulby(c[4], qq) ^ mulby(c[5], rr);
         data[z][i] = mulby(c[6], pp) ^ mulby(c[7], qq) ^ mulby(c[8], rr);
