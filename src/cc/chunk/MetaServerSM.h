@@ -84,8 +84,8 @@ public:
     /// simple mechanism to identify nodes that didn't receive a
     /// binary update or are running versions that the metaserver
     /// doesn't know about and shouldn't be inlcuded in the system.
-    void SetMetaInfo(const ServerLocation &metaLoc, const string &clusterKey, int rackId,
-                     const string &md5sum, const Properties& prop);
+    int SetMetaInfo(const ServerLocation &metaLoc, const string &clusterKey,
+        int rackId, const string &md5sum, const Properties& prop);
 
     void Init();
 

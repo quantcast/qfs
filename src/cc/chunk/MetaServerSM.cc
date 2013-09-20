@@ -87,7 +87,7 @@ MetaServerSM::MetaServerSM()
         kAuthenticationTypeKrb5 |
         kAuthenticationTypeX509 |
         kAuthenticationTypePSK),
-      mAuthTypeStr("Krb5 X509, PSK"),
+      mAuthTypeStr("Krb5 X509 PSK"),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -107,7 +107,7 @@ MetaServerSM::~MetaServerSM()
     delete mAuthOp;
 }
 
-void 
+int 
 MetaServerSM::SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey, 
     int rackId, const string& md5sum, const Properties& prop)
 {
@@ -115,7 +115,7 @@ MetaServerSM::SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKe
     mClusterKey = clusterKey;
     mRackId     = rackId;
     mMD5Sum     = md5sum;
-    SetParameters(prop);
+    return SetParameters(prop);
 }
 
 int
@@ -154,6 +154,7 @@ MetaServerSM::SetParameters(const Properties& prop)
             KFS_LOG_STREAM_ERROR <<
                 "invalid " << kAuthTypeParamName <<
                 " " << mAuthType <<
+                " " << errMsg <<
             KFS_LOG_EOM;
         }
     }

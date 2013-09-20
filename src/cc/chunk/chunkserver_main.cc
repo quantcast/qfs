@@ -36,6 +36,7 @@
 #include "common/MemLock.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
+#include "kfsio/SslFilter.h"
 #include "kfsio/NetErrorSimulator.h"
 #include "qcdio/QCUtils.h"
 
@@ -489,6 +490,16 @@ ChunkServerMain::Run(int argc, char **argv)
     InitGlobals();
     MdStream::Init();
 
+    SslFilter::Error err = SslFilter::Initialize();
+    if (err != 0) {
+        KFS_LOG_STREAM_ERROR << "ssl initialization failure: " <<
+            SslFilter::GetErrorMsg(err) <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        MdStream::Cleanup();
+        return 1;
+    }
+
     // set the coredump size to unlimited
     struct rlimit rlim;
     rlim.rlim_cur = RLIM_INFINITY;
@@ -522,13 +533,22 @@ ChunkServerMain::Run(int argc, char **argv)
     if (gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname) &&
             gChunkManager.Init(mChunkDirs, mProp)) {
         gLogger.Init(mLogDir);
-        gMetaServerSM.SetMetaInfo(
+        ret = gMetaServerSM.SetMetaInfo(
             mMetaServerLoc, mClusterKey, mChunkServerRackId, mMD5Sum, mProp);
-        ret = gChunkServer.MainLoop() ? 0 : 1;
+        if (ret == 0) {
+            ret = gChunkServer.MainLoop() ? 0 : 1;
+        }
         gChunkManager.Shutdown();
     }
     NetErrorSimulatorConfigure(globalNetManager());
+    err = SslFilter::Cleanup();
+    if (err != 0) {
+        KFS_LOG_STREAM_ERROR << "ssl cleanup failure: " <<
+            SslFilter::GetErrorMsg(err) <<
+        KFS_LOG_EOM;
+    }
     MdStream::Cleanup();
+    MsgLogger::Stop();
 
     return ret;
 }

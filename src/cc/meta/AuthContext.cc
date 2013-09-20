@@ -97,7 +97,7 @@ public:
                     (inOp.authType & kAuthenticationTypeNone) != 0);
         if (! theRetFlag) {
             inOp.status    = -EPERM;
-            inOp.statusMsg = "requiest authentication type is not enabled";
+            inOp.statusMsg = "requested authentication type is not enabled";
         }
         return theRetFlag;
     }
