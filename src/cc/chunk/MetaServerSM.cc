@@ -107,7 +107,7 @@ MetaServerSM::~MetaServerSM()
     delete mAuthOp;
 }
 
-int 
+int
 MetaServerSM::SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey, 
     int rackId, const string& md5sum, const Properties& prop)
 {
@@ -427,7 +427,7 @@ MetaServerSM::HandleRequest(int code, void* data)
             // came in.
             IOBuffer& iobuf = mNetConnection->GetInBuffer();
             assert(&iobuf == data);
-            if (mAuthOp) {
+            if (mAuthOp && 0 < mAuthOp->responseContentLength) {
                 HandleAuthResponse(iobuf);
                 break;
             }
@@ -585,7 +585,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
-        mAuthOp->status = status;
+        mAuthOp->status                = status;
+        mAuthOp->responseContentLength = 0;
         if (status != 0) {
             mAuthOp->statusMsg = prop.getValue("Status-message", string());
         } else {
@@ -594,7 +595,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             mAuthOp->useSslFlag            = prop.getValue(
                 "Use-ssl", 0) != 0;
             mAuthOp->responseContentLength = prop.getValue(
-                "Content-length", -1);
+                "Content-length", 0);
         }
         HandleAuthResponse(iobuf);
         return false;

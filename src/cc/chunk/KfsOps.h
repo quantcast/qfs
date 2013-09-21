@@ -2048,7 +2048,7 @@ struct AuthenticateOp : public KfsOp {
           chosenAuthType(kAuthenticationTypeUndef),
           useSslFlag(false),
           contentLength(0),
-          responseContentLength(0),
+          responseContentLength(-1),
           reqBuf(0),
           responseBuf(0),
           responseBufPos(0)
