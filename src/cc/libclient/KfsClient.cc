@@ -1708,13 +1708,14 @@ public:
     }
     ~ReaddirResult()
         { Clear(); }
-    void Clear()
+    ReaddirResult* Clear()
     {
         delete [] mBuf;
         mBuf   = 0;
         mLen   = 0;
         mCount = 0;
         DeleteAll();
+        return this;
     }
     template<typename T>
     int Parse(T& result)
@@ -1916,7 +1917,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
                 break;
             }
             op.fnameStart.clear();
-            opResult.Clear();
+            last = opResult.Clear();
             continue;
         }
         if (op.numEntries <= 0) {
@@ -2445,7 +2446,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
                 op.status = -EAGAIN;
                 break;
             }
-            opResult.Clear();
+            last = opResult.Clear();
             op.fnameStart.clear();
             continue;
         }
