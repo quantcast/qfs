@@ -97,13 +97,6 @@ public:
     };
     ClientManager();
     virtual ~ClientManager();
-    void SetTimeouts(
-        int inIoTimeoutSec,
-        int inIdleTimeoutSec)
-    {
-        mIoTimeoutSec   = inIoTimeoutSec;
-        mIdleTimeoutSec = inIdleTimeoutSec;
-    }
     bool BindAcceptor(
         int inPort);
     bool StartListening();

@@ -155,8 +155,8 @@ ClientManager gClientManager;
 
 ClientManager::ClientManager()
     : mAcceptorPtr(0),
-      mIoTimeoutSec(-1),
-      mIdleTimeoutSec(-1),
+      mIoTimeoutSec(5 * 60),
+      mIdleTimeoutSec(10 * 60),
       mCounters(),
       mAuth(*(new Auth))
 {
@@ -210,7 +210,17 @@ ClientManager::SetParameters(
     const char*       inParamsPrefixPtr,
     const Properties& inProps)
 {
-    return mAuth.SetParameters(inParamsPrefixPtr, inProps);
+    Properties::String theParamName;
+    if (inParamsPrefixPtr) {
+        theParamName.Append(inParamsPrefixPtr);
+    }
+    const size_t thePrefLen = theParamName.GetSize();
+    mIoTimeoutSec   = inProps.getValue(theParamName.Append(
+        "ioTimeoutSec"), mIoTimeoutSec);
+    mIdleTimeoutSec = inProps.getValue(theParamName.Truncate(thePrefLen).Append(
+        "idleTimeoutSec"), mIdleTimeoutSec);
+    return mAuth.SetParameters(
+        theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(), inProps);
 }
 
 }

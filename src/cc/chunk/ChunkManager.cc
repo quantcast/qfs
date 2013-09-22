@@ -1746,7 +1746,7 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
     return (ci && (*ci)->IsWriteAppenderOwns());
 }
 
-void
+bool
 ChunkManager::SetParameters(const Properties& prop)
 {
     mInactiveFdsCleanupIntervalSecs = max(0, (int)prop.getValue(
@@ -1866,10 +1866,7 @@ ChunkManager::SetParameters(const Properties& prop)
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
 
-    gClientManager.SetTimeouts(
-        prop.getValue("chunkServer.client.ioTimeoutSec",    5 * 60),
-        prop.getValue("chunkServer.client.idleTimeoutSec", 10 * 60)
-    );
+    const bool ret = gClientManager.SetParameters("chunkServer.client.", prop);
     RemoteSyncSM::SetResponseTimeoutSec(
         prop.getValue("chunkServer.remoteSync.responseTimeoutSec",
             RemoteSyncSM::GetResponseTimeoutSec())
@@ -1924,6 +1921,7 @@ ChunkManager::SetParameters(const Properties& prop)
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
+    return ret;
 }
 
 void
@@ -2070,7 +2068,9 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     mStaleChunksDir = AddTrailingPathSeparator(mStaleChunksDir);
     mDirtyChunksDir = AddTrailingPathSeparator(mDirtyChunksDir);
 
-    SetParameters(prop);
+    if (! SetParameters(prop)) {
+        return false;
+    }
 
     // Normalize tailing /, and keep only longest prefixes:
     // only leave leaf directories.

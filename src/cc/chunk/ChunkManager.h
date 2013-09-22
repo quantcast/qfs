@@ -113,7 +113,7 @@ public:
     ChunkManager();
     ~ChunkManager();
 
-    void SetParameters(const Properties& prop);
+    bool SetParameters(const Properties& prop);
     /// Init function to configure the chunk manager object.
     bool Init(const vector<string>& chunkDirs, const Properties& prop);
 
