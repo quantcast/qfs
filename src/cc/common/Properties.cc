@@ -482,13 +482,11 @@ Properties::equalsWithPrefix(const char* prefix, size_t prefixLen,
     }
     for (PropMap::const_iterator
             it  = propmap.begin(), oit = props.propmap.begin(); ;) {
-        if (it != propmap.end() && it->first.size() < prefixLen) {
+        while (it != propmap.end() && it->first.size() < prefixLen) {
             ++it;
-            continue;
         }
-        if (oit != props.propmap.end() && oit->first.size() < prefixLen) {
+        while (oit != props.propmap.end() && oit->first.size() < prefixLen) {
             ++oit;
-            continue;
         }
         if (it == propmap.end()) {
             return (oit == props.propmap.end());
@@ -496,6 +494,8 @@ Properties::equalsWithPrefix(const char* prefix, size_t prefixLen,
         if (oit == props.propmap.end() || *it != *oit) {
             break;
         }
+        ++it;
+        ++oit;
     }
     return false;
 }
