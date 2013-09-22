@@ -1775,7 +1775,7 @@ public:
         string&                           name) const
     {
         if (! mBuf || mLen <= 1) {
-            return 0;
+            return false;
         }
         const char* end = mBuf + mLen - 1;
         if ((*end & 0xFF) != '\n') {
