@@ -75,6 +75,7 @@ public:
           mWhiteListParam(),
           mPrincipalUnparseFlags(0),
           mAuthNoneFlag(false),
+          mKrbUseSslFlag(true),
           mMemKeytabGen(0),
           mAuthTypes(kAuthenticationTypeUndef)
         {}
@@ -180,7 +181,7 @@ public:
                 inOp.responseContentLen = 0;
                 return false;
             }
-            if (! mSslCtxPtr) {
+            if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
                 return true;
@@ -407,6 +408,8 @@ public:
                 }
             }
         }
+        const bool theKrbUseSslFlag = inParameters.getValue(
+            theParamName.Truncate(theCurLen).Append("useSsl"), 1) != 0;
         Properties theX509SslProps(mX509SslProps);
         theParamName.Truncate(thePrefLen).Append("X509.");
         theCurLen = theParamName.GetSize();
@@ -452,7 +455,7 @@ public:
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theCurLen, thePskSslProps);
         const bool theCreateSslPskFlag  =
-            (theKrbServicePtr ||
+            ((theKrbServicePtr && theKrbUseSslFlag) ||
             (mServerPskPtr && theX509SslCtxPtr)) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
@@ -485,6 +488,7 @@ public:
         }
         if (theKrbChangedFlag) {
             mPrincipalUnparseFlags = thePrincipalUnparseFlags;
+            mKrbUseSslFlag         = theKrbUseSslFlag;
             mKrbServicePtr.swap(theKrbServicePtr);
             mKrbProps.swap(theKrbProps);
         }
@@ -550,6 +554,7 @@ private:
     string           mWhiteListParam;
     int              mPrincipalUnparseFlags;
     bool             mAuthNoneFlag;
+    bool             mKrbUseSslFlag;
     unsigned int     mMemKeytabGen;
     int              mAuthTypes;
 

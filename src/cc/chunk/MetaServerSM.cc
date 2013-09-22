@@ -872,15 +872,22 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
             &errMsg
         );
     }
+    const int authType = mAuthOp->chosenAuthType;
     delete mAuthOp;
     mAuthOp = 0;
     if (err) {
         KFS_LOG_STREAM_ERROR <<
-            "authentication respose failure: " << errMsg <<
+            "authentication type: " << authType <<
+            " respose failure: " << errMsg <<
         KFS_LOG_EOM;
         HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
+    KFS_LOG_STREAM_INFO <<
+        "authentication type: " << authType <<
+        " ssl: "                <<
+            reinterpret_cast<void*>(mNetConnection->GetFilter()) <<
+    KFS_LOG_EOM;
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->clnt = this;

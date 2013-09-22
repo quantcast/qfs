@@ -561,8 +561,6 @@ ChunkServer::HandleRequest(int code, void *data)
             if (mAuthenticateOp->status != 0 ||
                     mNetConnection->HasPendingRead()) {
                 const string msg = mAuthenticateOp->statusMsg;
-                delete mAuthenticateOp;
-                mAuthenticateOp  = 0;
                 Error(msg.empty() ?
                     (mNetConnection->HasPendingRead() ?
                         "out of order data received" :
@@ -572,11 +570,9 @@ ChunkServer::HandleRequest(int code, void *data)
                 break;
             }
             if (mAuthenticateOp->filter) {
-                string errMsg;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
-                delete mAuthenticateOp;
-                mAuthenticateOp  = 0;
+                string errMsg;
                 const int err = mNetConnection->SetFilter(filter, &errMsg);
                 if (err) {
                     if (errMsg.empty()) {
@@ -585,6 +581,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     Error(errMsg.c_str());
                 }
             }
+            delete mAuthenticateOp;
+            mAuthenticateOp  = 0;
             break;
         }
         if (! mHelloDone &&
@@ -715,6 +713,8 @@ ChunkServer::Error(const char* errorMsg)
         mDownReason = "restart";
     }
     RemoveFromPendingHelloList();
+    delete mAuthenticateOp;
+    mAuthenticateOp = 0;
     delete mHelloOp;
     mHelloOp      = 0;
     mDown         = true;
@@ -2000,6 +2000,14 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     }
     mAuthenticateOp->clnt     = this;
     mAuthenticateOp->doneFlag = true;
+    KFS_LOG_STREAM(mAuthenticateOp->status == 0 ?
+        MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+        GetPeerName() << " chunk server authentication"
+        " type: " << mAuthenticateOp->responseAuthType <<
+        " name: " << mAuthenticateOp->authName <<
+        " ssl: "  << reinterpret_cast<const void*>(mAuthenticateOp->filter) <<
+        " response length: " << mAuthenticateOp->responseContentLen <<
+    KFS_LOG_EOM;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
 }

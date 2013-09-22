@@ -645,21 +645,21 @@ private:
             }
             const char* const theErrMsgPtr =
                 mKrbClientPtr->Reply(inBufPtr, inBufLen);
-            if (! theErrMsgPtr) {
-                return 0;
-            }
-            if (outErrMsgPtr) {
-                *outErrMsgPtr = theErrMsgPtr;
+            if (theErrMsgPtr) {
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = theErrMsgPtr;
+                }
+                return -EPERM;
             }
             if (mKrbAuthRequireSslFlag) {
                 if (outErrMsgPtr) {
                     *outErrMsgPtr =
-                        "ssl with kerberos is required by configuration but not"
-                        " configured on the server";
+                        "ssl with kerberos is required by configuration but"
+                        " is not enabled on the server";
                 }
                 return -EPERM;
             }
-            return -EPERM;
+            return 0;
         }
         if (inAuthType == kAuthenticationTypeX509) {
             if (inNetConnection.GetFilter()) {
