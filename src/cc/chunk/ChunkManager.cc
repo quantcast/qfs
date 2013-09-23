@@ -1866,14 +1866,8 @@ ChunkManager::SetParameters(const Properties& prop)
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
 
-    const bool ret = gClientManager.SetParameters("chunkServer.client.", prop);
-    RemoteSyncSM::SetResponseTimeoutSec(
-        prop.getValue("chunkServer.remoteSync.responseTimeoutSec",
-            RemoteSyncSM::GetResponseTimeoutSec())
-    );
-    RemoteSyncSM::SetTraceRequestResponse(
-        prop.getValue("chunkServer.remoteSync.traceRequestResponse", false)
-    );
+    bool ret = gClientManager.SetParameters("chunkServer.client.", prop);
+    ret = RemoteSyncSM::SetParameters("chunkServer.remoteSync.", prop) || ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
         "chunkServer.maxEvacuateIoErrors",
         mMaxEvacuateIoErrors

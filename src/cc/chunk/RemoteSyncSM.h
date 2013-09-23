@@ -46,6 +46,7 @@ using std::list;
 using std::less;
 
 class RemoteSyncSMTimeoutImpl;
+class Properties;
 struct KfsOp;
 
 // State machine for communication with other chunk servers: daisy chain rpc
@@ -61,6 +62,12 @@ public:
 
     bool Connect();
 
+    void SetSessionKey(const string& id, const string& key)
+    {
+        mSessionId  = id;
+        mSessionKey = key;
+    }
+
     void Enqueue(KfsOp *op);
 
     void Finish();
@@ -70,12 +77,8 @@ public:
     ServerLocation GetLocation() const {
         return mLocation;
     }
-    static void SetTraceRequestResponse(bool flag) {
-        sTraceRequestResponse = flag;
-    }
-    static void SetResponseTimeoutSec(int timeoutSec) {
-        sOpResponseTimeoutSec = timeoutSec;
-    }
+    static bool SetParameters(const char* prefix, const Properties& props);
+    static void Shutdown();
     static int GetResponseTimeoutSec() {
         return sOpResponseTimeoutSec;
     }
@@ -89,6 +92,7 @@ private:
             std::pair<const kfsSeq_t, KfsOp*>
         >
     > DispatchedOps;
+    class Auth;
 
     NetConnectionPtr   mNetConnection;
     ServerLocation     mLocation;
@@ -100,6 +104,8 @@ private:
     int                mReplyNumBytes;
     int                mRecursionCount;
     time_t             mLastRecvTime;
+    string             mSessionId;
+    string             mSessionKey;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
 
@@ -113,8 +119,10 @@ private:
     int HandleResponse(IOBuffer *iobuf, int cmdLen);
     void FailAllOps();
     inline void UpdateRecvTimeout();
-    static bool sTraceRequestResponse;
-    static int  sOpResponseTimeoutSec;
+
+    static bool  sTraceRequestResponse;
+    static int   sOpResponseTimeoutSec;
+    static Auth* sAuthPtr;
 private:
     // No copy.
     RemoteSyncSM(const RemoteSyncSM&);

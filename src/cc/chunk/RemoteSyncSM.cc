@@ -29,6 +29,7 @@
 #include "ChunkServer.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
+#include "kfsio/SslFilter.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/kfserrno.h"
@@ -51,9 +52,119 @@ using std::make_pair;
 
 using namespace KFS::libkfsio;
 
+class RemoteSyncSM::Auth
+{
+public:
+    Auth()
+        : mSslCtxPtr(),
+          mParams(),
+          mEnabledFlag(false)
+        {}
+    ~Auth()
+        {}
+    bool SetParameters(
+        const char*       inParamsPrefixPtr,
+        const Properties& inParameters)
+    {
+        Properties::String theParamName;
+        if (inParamsPrefixPtr) {
+            theParamName.Append(inParamsPrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        Properties theParams(mParams);
+        inParameters.copyWithPrefix(
+            theParamName.GetPtr(), theParamName.GetSize(), theParams);
+        const size_t theCurLen = theParamName.Append("psk.").GetSize();
+        const bool theCreatSslPskFlag =
+            theParams.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "disable"), 0) == 0;
+        const bool thePskSslChangedFlag =
+            (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
+            theParams.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "forceReload"), 0) != 0 ||
+            ! theParams.equalsWithPrefix(
+                theParamName.Truncate(theCurLen).GetPtr(), theCurLen, mParams);
+        SslCtxPtr theSslCtxPtr;
+        if (thePskSslChangedFlag && theCreatSslPskFlag) {
+            const bool kServerFlag  = false;
+            const bool kPskOnlyFlag = true;
+            string     theErrMsg;
+            theSslCtxPtr = SslFilter::MakeCtxPtr(SslFilter::CreateCtx(
+                kServerFlag,
+                kPskOnlyFlag,
+                theParamName.Truncate(theCurLen).GetPtr(),
+                theParams,
+                &theErrMsg
+            ));
+            if (! theSslCtxPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* configuration error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        if (thePskSslChangedFlag) {
+            mSslCtxPtr = theSslCtxPtr;
+        }
+        mParams.swap(theParams);
+        mEnabledFlag = mSslCtxPtr && mParams.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "enabled"), 0) != 0;
+        return true;
+    }
+    bool Setup(
+        NetConnection& inConn,
+        const string&  inSessionId,
+        const string&  inSessionKey)
+    {
+        if (! mEnabledFlag) {
+            return true;
+        }
+        SslFilter::VerifyPeer* const kVerifyPeerPtr     = 0;
+        SslFilter::ServerPsk* const  kServerPskPtr      = 0;
+        const bool                   kDeleteOnCloseFlag = true;
+        SslFilter* const theFilterPtr = new SslFilter(
+            *mSslCtxPtr,
+            inSessionKey.data(),
+            (int)inSessionKey.size(),
+            inSessionId.c_str(),
+            kServerPskPtr,
+            kVerifyPeerPtr,
+            kDeleteOnCloseFlag
+        );
+        const SslFilter::Error theErr = theFilterPtr->GetError();
+        if (! theErr) {
+            return true;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            "ssl filter create error: " <<
+                SslFilter::GetErrorMsg(theErr) <<
+            " status: " << theErr <<
+        KFS_LOG_EOM;
+        delete theFilterPtr;
+        return false;
+    }
+private:
+    typedef SslFilter::CtxPtr SslCtxPtr;
+
+    SslCtxPtr  mSslCtxPtr;
+    Properties mParams;
+    bool       mEnabledFlag;
+private:
+    Auth(
+        const Auth& inAuth);
+    Auth& operator=(
+        const Auth& inAuth);
+};
+
+RemoteSyncSM::Auth* RemoteSyncSM::sAuthPtr              = 0;
+bool                RemoteSyncSM::sTraceRequestResponse = false;
+int                 RemoteSyncSM::sOpResponseTimeoutSec = 5 * 60;
+
 const int kMaxCmdHeaderLength = 2 << 10;
-bool RemoteSyncSM::sTraceRequestResponse = false;
-int  RemoteSyncSM::sOpResponseTimeoutSec = 5 * 60; // 5 min op response timeout
 
 static kfsSeq_t
 NextSeq()
@@ -73,6 +184,30 @@ RemoteSyncSM::UpdateRecvTimeout()
     mNetConnection->SetInactivityTimeout(end > now ? end - now : 0);
 }
 
+bool
+RemoteSyncSM::SetParameters(const char* prefix, const Properties& props)
+{
+    Properties::String name(prefix);
+    const size_t       len(name.GetSize());
+    sTraceRequestResponse = props.getValue(
+        name.Truncate(len).Append(
+            "traceRequestResponse"), sTraceRequestResponse ? 1 : 0) != 0;
+    sOpResponseTimeoutSec = props.getValue(
+        name.Truncate(len).Append(
+            "traceRequestResponse"), sOpResponseTimeoutSec);
+    if (! sAuthPtr) {
+        sAuthPtr = new Auth();
+    }
+    return sAuthPtr->SetParameters(
+        name.Truncate(len).Append(".auth").GetPtr(), props);
+}
+
+void
+RemoteSyncSM::Shutdown()
+{
+    delete sAuthPtr;
+}
+
 // State machine for communication with other chunk servers.
 RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
     : KfsCallbackObj(),
@@ -84,6 +219,8 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mReplyNumBytes(0),
       mRecursionCount(0),
       mLastRecvTime(0),
+      mSessionId(),
+      mSessionKey(),
       mIStream(),
       mWOStream()
 {
@@ -122,7 +259,7 @@ RemoteSyncSM::Connect()
     TcpSocket* const sock = new TcpSocket();
     // do a non-blocking connect
     const int res = sock->Connect(mLocation, true);
-    if ((res < 0) && (res != -EINPROGRESS)) {
+    if (res < 0 && res != -EINPROGRESS) {
         KFS_LOG_STREAM_INFO <<
             "connection to remote server " << mLocation <<
             " failed: status: " << res <<
@@ -141,6 +278,12 @@ RemoteSyncSM::Connect()
     mNetConnection.reset(new NetConnection(sock, this));
     mNetConnection->SetDoingNonblockingConnect();
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
+    assert(sAuthPtr);
+    if (! mSessionKey.empty() &&
+            ! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey)) {
+        mNetConnection.reset();
+        return false;
+    }
     mLastRecvTime = globalNetManager().Now();
 
     // If there is no activity on this socket, we want
@@ -515,7 +658,7 @@ FindServer(RemoteSyncSMList &remoteSyncers, const ServerLocation &location,
 void
 RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target)
 {
-    if (! target) {
+    if (! target || remoteSyncers.empty()) {
         return;
     }
     RemoteSyncSMList::iterator const i = find(

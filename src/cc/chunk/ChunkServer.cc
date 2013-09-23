@@ -113,6 +113,7 @@ ChunkServer::MainLoop()
     RemoteSyncSMList serversToRelease;
     mRemoteSyncers.swap(serversToRelease);
     ReleaseAllServers(serversToRelease);
+    RemoteSyncSM::Shutdown();
 
     return true;
 }
