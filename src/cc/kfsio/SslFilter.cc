@@ -902,7 +902,11 @@ private:
         if (mShutdownCompleteFlag) {
             return 0;
         }
-        if (SSL_in_init(mSslPtr) && ! SSL_in_before(mSslPtr)) {
+        if (mError) {
+            return -EFAULT;
+        }
+        if (! SSL_is_init_finished(mSslPtr)) {
+            // Always run full handshake.
             // Wait for handshake to complete, then issue shutdown.
             return 0;
         }

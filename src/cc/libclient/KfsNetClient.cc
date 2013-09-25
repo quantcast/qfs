@@ -111,6 +111,8 @@ public:
           mResetConnectionOnOpTimeoutFlag(inResetConnectionOnOpTimeoutFlag),
           mFailAllOpsOnOpTimeoutFlag(inFailAllOpsOnOpTimeoutFlag),
           mMaxOneOutstandingOpFlag(inMaxOneOutstandingOpFlag),
+          mShutdownSslFlag(false),
+          mSslShutdownInProgressFlag(false),
           mTimeSecBetweenRetries(inTimeSecBetweenRetries),
           mOpTimeoutSec(inOpTimeoutSec),
           mIdleTimeoutSec(inIdleTimeoutSec),
@@ -196,6 +198,35 @@ public:
             mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
         } else {
             mKeyData.clear();
+        }
+    }
+    void SetShutdownSsl(
+        bool inFlag)
+    {
+        if (inFlag == mShutdownSslFlag) {
+            return;
+        }
+        mShutdownSslFlag = inFlag;
+        if (mShutdownSslFlag) {
+            if (IsConnected() && mConnPtr->GetFilter()) {
+                mSslShutdownInProgressFlag = true;
+                const int theErr = mConnPtr->Shutdown();
+                if (theErr != 0) {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "ssl shutdown failure: " <<
+                            theErr <<
+                    KFS_LOG_EOM;
+                    Reset();
+                    if (! mPendingOpQueue.empty()) {
+                        EnsureConnected();
+                    }
+                }
+            }
+        } else if (IsConnected()) {
+            Reset();
+            if (! mPendingOpQueue.empty()) {
+                EnsureConnected();
+            }
         }
     }
     void Reset()
@@ -398,6 +429,20 @@ public:
                 // Fall through.
             case EVENT_NET_ERROR:
                 if (mConnPtr) {
+                    if (mSslShutdownInProgressFlag && mConnPtr->IsGood()) {
+                        KFS_LOG_STREAM(mConnPtr->GetFilter() ?
+                                MsgLogger::kLogLevelERROR :
+                                MsgLogger::kLogLevelDEBUG) << mLogPrefix <<
+                            "ssl shutdown completion:"
+                            " filter: " << reinterpret_cast<const void*>(
+                                mConnPtr->GetFilter()) <<
+                        KFS_LOG_EOM;
+                        mSslShutdownInProgressFlag = false;
+                        if (! mConnPtr->GetFilter()) {
+                            mConnPtr->StartFlush();
+                            break;
+                        }
+                    }
                     if (mAuthContextPtr && mConnPtr->IsAuthFailure()) {
                         mAuthFailureCount++;
                     } else {
@@ -686,6 +731,8 @@ private:
     bool               mResetConnectionOnOpTimeoutFlag;
     bool               mFailAllOpsOnOpTimeoutFlag;
     bool               mMaxOneOutstandingOpFlag;
+    bool               mShutdownSslFlag;
+    bool               mSslShutdownInProgressFlag;
     int                mTimeSecBetweenRetries;
     int                mOpTimeoutSec;
     int                mIdleTimeoutSec;
@@ -1051,6 +1098,7 @@ private:
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
         mNetManager.AddConnection(mConnPtr);
+        mSslShutdownInProgressFlag = false;
         if (IsPskAuth()) {
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                 "psk key:"
@@ -1068,6 +1116,21 @@ private:
             if (theStatus != 0) {
                 Fail(theStatus, theErrMsg);
                 return;
+            }
+            if (mShutdownSslFlag && mConnPtr->IsGood()) {
+                mSslShutdownInProgressFlag = true;
+                const int theStatus = mConnPtr->Shutdown();
+                if (theStatus != 0) {
+                    mSslShutdownInProgressFlag = false;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "ssl shutdown failure: " <<
+                            theErr <<
+                    KFS_LOG_EOM;
+                    // Assume communication failure.
+                    mStats.mConnectFailureCount++;
+                    RetryConnect();
+                    return;
+                }
             }
         } else if (IsAuthEnabled()) {
             assert(! IsAuthInFlight());
@@ -1141,8 +1204,9 @@ private:
         mConnPtr->GetInBuffer().Clear();
         mConnPtr->SetOwningKfsCallbackObj(0);
         mConnPtr.reset();
-        mReadHeaderDoneFlag = false;
-        mContentLength      = 0;
+        mReadHeaderDoneFlag        = false;
+        mContentLength             = 0;
+        mSslShutdownInProgressFlag = false;
     }
     void HandleOp(
         OpQueue::iterator inIt,
@@ -1480,6 +1544,14 @@ KfsNetClient::SetKey(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetKey(inKeyIdPtr, inKeyDataPtr, inKeyDataSize);
+}
+
+    void
+KfsNetClient::SetShutdownSsl(
+    bool inFlag)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetShutdownSsl(inFlag);
 }
 
     void
