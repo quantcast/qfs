@@ -68,6 +68,11 @@ public:
         mSessionKey = key;
     }
 
+    void SetShutdownSsl(bool inFlag)
+    {
+        mShutdownSslFlag = inFlag;
+    }
+
     void Enqueue(KfsOp *op);
 
     void Finish();
@@ -106,6 +111,8 @@ private:
     time_t             mLastRecvTime;
     string             mSessionId;
     string             mSessionKey;
+    bool               mShutdownSslFlag;
+    bool               mSslShutdownInProgressFlag;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
 

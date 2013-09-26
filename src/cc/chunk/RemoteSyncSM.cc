@@ -221,6 +221,8 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mLastRecvTime(0),
       mSessionId(),
       mSessionKey(),
+      mShutdownSslFlag(false),
+      mSslShutdownInProgressFlag(false),
       mIStream(),
       mWOStream()
 {
@@ -279,10 +281,20 @@ RemoteSyncSM::Connect()
     mNetConnection->SetDoingNonblockingConnect();
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     assert(sAuthPtr);
-    if (! mSessionKey.empty() &&
-            ! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey)) {
-        mNetConnection.reset();
-        return false;
+    mSslShutdownInProgressFlag = false;
+    if (! mSessionKey.empty()) {
+        int err = 0;
+        if (! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey) ||
+                (mShutdownSslFlag && (err = mNetConnection->Shutdown()) != 0)) {
+            if (err) {
+                KFS_LOG_STREAM_ERROR <<
+                    mLocation << ": ssl shutdown failed status: " << err <<
+                KFS_LOG_EOM;
+            }
+            mNetConnection.reset();
+            return false;
+        }
+        mSslShutdownInProgressFlag = mShutdownSslFlag;
     }
     mLastRecvTime = globalNetManager().Now();
 
@@ -384,7 +396,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     // take a ref to prevent the object from being deleted
     // while we are still in this function.
     RemoteSyncSMPtr self = shared_from_this();
-    const char *reason = "error";
+    const char *reason = "inactivity timeout";
 
     mRecursionCount++;
     assert(mRecursionCount > 0);
@@ -408,9 +420,24 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         break;
 
 
-    case EVENT_INACTIVITY_TIMEOUT:
-        reason = "inactivity timeout";
     case EVENT_NET_ERROR:
+        if (mSslShutdownInProgressFlag &&
+                mNetConnection && mNetConnection->IsGood()) {
+            KFS_LOG_STREAM(mNetConnection->GetFilter() ?
+                    MsgLogger::kLogLevelERROR :
+                    MsgLogger::kLogLevelDEBUG) << mLocation <<
+                " ssl shutdown completion:"
+                " filter: " << reinterpret_cast<const void*>(
+                    mNetConnection->GetFilter()) <<
+            KFS_LOG_EOM;
+            mSslShutdownInProgressFlag = false;
+            if (! mNetConnection->GetFilter()) {
+                mNetConnection->StartFlush();
+                break;
+            }
+        }
+        reason = "error";
+    case EVENT_INACTIVITY_TIMEOUT:
         // If there is an error or there is no activity on the socket
         // for N mins, we close the connection.
         KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
