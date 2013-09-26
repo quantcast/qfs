@@ -41,6 +41,7 @@ set (sources
     ClientAuthContext.cc
     DelegationToken.cc
     Base64.cc
+    CryptoKeys.cc
 )
 
 add_library (kfsIO STATIC ${sources})
