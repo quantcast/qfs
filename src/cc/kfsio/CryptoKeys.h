@@ -28,8 +28,11 @@
 #define KFSIO_CRYPTO_KEYS_H
 
 #include "common/kfstypes.h"
+
 #include <istream>
 #include <ostream>
+#include <string>
+
 #include <string.h>
 
 class QCMutex;
@@ -39,12 +42,15 @@ namespace KFS
 
 using std::istream;
 using std::ostream;
+using std::string;
 
 class Properties;
 class NetManager;
 
 class CryptoKeys
 {
+private:
+    class Impl;
 public:
     typedef kfsKeyId_t KeyId;
     class Key
@@ -77,6 +83,7 @@ public:
     private:
         enum { kLength = 48 };
         char mKey[kLength];
+        friend class Impl;
     };
 
     CryptoKeys(
@@ -85,7 +92,8 @@ public:
     ~CryptoKeys();
     int SetParameters(
         const char* inPrefixNamePtr,
-        Properties& inParameters);
+        Properties& inParameters,
+        string&     outErrMsg);
     const Key* Find(
         KeyId inKeyId) const;
     istream& Read(
@@ -96,7 +104,6 @@ public:
     kfsKeyId_t GetCurrentKey(
         Key& outKey) const;
 private:
-    class Impl;
     Impl& mImpl;
 private:
     CryptoKeys(

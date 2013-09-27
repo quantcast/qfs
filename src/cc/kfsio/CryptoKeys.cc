@@ -32,6 +32,8 @@
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
 
+#include <openssl/rand.h>
+
 #include <istream>
 #include <ostream>
 #include <map>
@@ -60,19 +62,49 @@ public:
           mNetManager(inNetManager),
           mMutexPtr(inMutexPtr),
           mKeys(),
-          mCurrentKeyId(0),
+          mCurrentKeyId(),
           mCurrentKey(),
           mKeyValidTime(2 * 60 * 60),
           mKeyChangePeriod(mKeyValidTime / 2),
           mNextKeyGenTime(mNetManager.Now() -  mKeyValidTime)
-        { mNetManager.RegisterTimeoutHandler(this); }
+    {
+        mNetManager.RegisterTimeoutHandler(this);
+        if (! GenKey(mCurrentKey)) {
+        }
+        if (! GenKeyId(mCurrentKeyId)) {
+        }
+    }
     virtual ~Impl()
         { mNetManager.UnRegisterTimeoutHandler(this); }
     int SetParameters(
-        const char* inPrefixNamePtr,
-        Properties& inParameters)
+        const char* inNamesPrefixPtr,
+        Properties& inParameters,
+        string&     outErrMsg)
     {
         QCStMutexLocker theLocker(mMutexPtr);
+        Properties::String theParamName;
+        if (inNamesPrefixPtr) {
+            theParamName.Append(inNamesPrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        const int theKeyValidTime = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "keyValidTimeSec"), mKeyValidTime);
+        const int k10Min = 60 * 10;
+        if (theKeyValidTime < k10Min) {
+            outErrMsg = theParamName.GetPtr();
+            outErrMsg += ": invalid: less or equal 10 minutes";
+            return -EINVAL;
+        }
+        const int theKeyChangePeriod = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "keyChangePeriodSec"), mKeyChangePeriod);
+        if (theKeyChangePeriod < k10Min / 2 ||
+                 theKeyValidTime < (int64_t)theKeyChangePeriod * (10 << 10)) {
+            outErrMsg = theParamName.GetPtr();
+            outErrMsg += ": invalid: less than keyValidTimeSec / 10240";
+            return -EINVAL;
+        }
         return 0;
     }
     kfsKeyId_t GetCurrentKeyId() const
@@ -112,7 +144,6 @@ public:
         }
     }
 private:
-    
     typedef map<
         KeyId,
         Key,
@@ -130,6 +161,19 @@ private:
     int             mKeyChangePeriod;
     volatile time_t mNextKeyGenTime;
 
+    static bool GenKey(
+        Key& outKey)
+    {
+        return RAND_bytes(
+            reinterpret_cast<unsigned char*>(outKey.mKey), Key::kLength) > 0;
+    }
+    static bool GenKeyId(
+        kfsKeyId_t& outKeyId)
+    {
+        return RAND_pseudo_bytes(
+            reinterpret_cast<unsigned char*>(&outKeyId),
+            (int)sizeof(outKeyId)) > 0;
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -150,10 +194,11 @@ CryptoKeys::~CryptoKeys()
 
     int
 CryptoKeys::SetParameters(
-    const char* inPrefixNamePtr,
-    Properties& inParameters)
+    const char* inNamesPrefixPtr,
+    Properties& inParameters,
+    string&     outErrMsg)
 {
-    return mImpl.SetParameters(inPrefixNamePtr, inParameters);
+    return mImpl.SetParameters(inNamesPrefixPtr, inParameters, outErrMsg);
 }
 
     const CryptoKeys::Key*
