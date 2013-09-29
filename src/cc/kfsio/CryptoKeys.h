@@ -76,7 +76,7 @@ public:
             memcpy(mKey, inKey.mKey, sizeof(mKey));
             return *this;
         }
-        int GetSize() const
+        static int GetSize()
             { return kLength; }
         const char* GetPtr() const
             { return mKey; }
@@ -94,11 +94,12 @@ public:
         const char* inPrefixNamePtr,
         Properties& inParameters,
         string&     outErrMsg);
-    const Key* Find(
-        KeyId inKeyId) const;
-    istream& Read(
+    bool Find(
+        KeyId inKeyId,
+        Key&  outKey) const;
+    int Read(
         istream& inStream);
-    ostream& Write(
+    int Write(
         ostream& inStream) const;
     kfsKeyId_t GetCurrentKeyId() const;
     kfsKeyId_t GetCurrentKey(
