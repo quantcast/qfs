@@ -37,11 +37,15 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
+#include <time.h>
+#include <stdlib.h>
+
 #include <istream>
 #include <ostream>
 #include <map>
 #include <deque>
 #include <utility>
+#include <vector>
 #include <functional>
 
 namespace KFS
@@ -55,6 +59,7 @@ using std::pair;
 using std::make_pair;
 using std::deque;
 using std::min;
+using std::vector;
 
 class OpenSslError
 {
@@ -108,14 +113,19 @@ public:
           mKeysExpirationQueue(),
           mCurrentKeyId(),
           mCurrentKey(),
+          mCurrentKeyTime(mNetManager.Now()),
+          mCurrentKeyValidFlag(false),
           mKeyValidTime(2 * 60 * 60),
           mKeyChangePeriod(mKeyValidTime / 2),
-          mNextKeyGenTime(mNetManager.Now() +  mKeyChangePeriod),
+          mNextKeyGenTime(mCurrentKeyTime +  mKeyChangePeriod),
+          mNextTimerRunTime(mCurrentKeyTime - 3600),
           mError(0)
     {
         mNetManager.RegisterTimeoutHandler(this);
-        GenKey(mCurrentKey);
-        GenKeyId(mCurrentKeyId);
+        mCurrentKeyValidFlag = GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId);
+        if (! mCurrentKeyValidFlag) {
+            mCurrentKeyTime -=  2 * mKeyChangePeriod;
+        }
     }
     virtual ~Impl()
         { mNetManager.UnRegisterTimeoutHandler(this); }
@@ -127,8 +137,9 @@ public:
         QCStMutexLocker theLocker(mMutexPtr);
         if (mError) {
             mError = 0;
-            GenKey(mCurrentKey);
-            GenKeyId(mCurrentKeyId);
+            if (GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId)) {
+                mCurrentKeyTime = time(0);
+            }
         }
         if (mError) {
             outErrMsg = GetErrorMsg(mError);
@@ -161,32 +172,40 @@ public:
         mKeyValidTime = theKeyValidTime;
         if (mKeyChangePeriod != theKeyChangePeriod) {
             mKeyChangePeriod = theKeyChangePeriod;
-            mNextKeyGenTime  = min(
-                time_t(mNextKeyGenTime), time(0) + mKeyChangePeriod);
+            mNextKeyGenTime  = min(mNextKeyGenTime, time(0) + mKeyChangePeriod);
         }
         if (theExpireKeysFlag) {
             ExpireKeys(time(0) - mKeyValidTime);
         }
+        UpdateNextTimerRunTime();
         return 0;
     }
-    kfsKeyId_t GetCurrentKeyId() const
+    bool GetCurrentKeyId(
+        KeyId& outKeyId) const
     {
         QCStMutexLocker theLocker(mMutexPtr);
-        return mCurrentKeyId;
+        if (mCurrentKeyValidFlag) {
+            outKeyId = mCurrentKeyId;
+        }
+        return mCurrentKeyValidFlag;
     }
-    kfsKeyId_t GetCurrentKey(
-         Key& outKey) const
+    bool GetCurrentKey(
+         KeyId& outKeyId,
+         Key&   outKey) const
     {
         QCStMutexLocker theLocker(mMutexPtr);
-        outKey = mCurrentKey;
-        return mCurrentKeyId;
+        if (mCurrentKeyValidFlag) {
+            outKeyId = mCurrentKeyId;
+            outKey   = mCurrentKey;
+        }
+        return mCurrentKeyValidFlag;
     }
     bool Find(
         KeyId inKeyId,
         Key&  outKey) const
     {
         QCStMutexLocker theLocker(mMutexPtr);
-        if (inKeyId == mCurrentKeyId) {
+        if (mCurrentKeyValidFlag && inKeyId == mCurrentKeyId) {
             outKey = mCurrentKey;
             return true;
         }
@@ -214,7 +233,8 @@ public:
         Key                 theKey;
         time_t              theKeyTime = theFirstKeyTime;
         const time_t        theTimeNow = time(0);
-        for (int i = 0; i < theKeyCount; i++) {
+        for (int i = 0; i < theKeyCount;
+                i++, theKeyTime += theKeysTimeInterval) {
             if (! (inStream >> theKeyId >> theKeyStr)) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid [" << i << "] {id,key} tuple" <<
@@ -234,39 +254,140 @@ public:
             }
             if (theKeyTime < theTimeNow) {
                 KFS_LOG_STREAM_INFO <<
-                    "ignoring expired key " << i << " " << theKeyId <<
+                    "ignoring expired key at index: " << i << " " << theKeyId <<
                 KFS_LOG_EOM;
+                continue;
             }
-            pair<Keys::iterator, bool> const theRes = theKeys.insert(
-                make_pair(theKeyId, theKey));
-            if (! theRes.second) {
+            if (! PutKey(theKeys, theExpQueue, theKeyId, theKeyTime, theKey)) {
                 KFS_LOG_STREAM_ERROR <<
                     "duplicate key at index " << i <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
-            theExpQueue.push_back(make_pair(theKeyTime, theRes.first));
         }
         QCStMutexLocker theLocker(mMutexPtr);
         mKeys.swap(theKeys);
         mKeysExpirationQueue.swap(theExpQueue);
         ExpireKeys(theTimeNow - mKeyValidTime);
+        if (mError == 0 && mKeys.erase(mCurrentKeyId) > 0) {
+            KeysExpirationQueue::iterator theIt = mKeysExpirationQueue.begin();
+            while (theIt != mKeysExpirationQueue.end() &&
+                        theIt->second->first != mCurrentKeyId)
+                {}
+            if (theIt == mKeysExpirationQueue.end()) {
+                KFS_LOG_STREAM_FATAL <<
+                    "invalid key expiration queue" <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            } else {
+                mKeysExpirationQueue.erase(theIt);
+            }
+            KFS_LOG_STREAM_INFO <<
+                "ignoring current key: " << mCurrentKeyId <<
+            KFS_LOG_EOM;
+        }
+        UpdateNextTimerRunTime();
         return (int)mKeys.size();
     }
+    typedef vector<pair<KeyId, Key> > OutKeysTmp;
     int Write(
-        ostream& inStream) const
+        ostream&    inStream,
+        const char* inDelimPtr) const
     {
-        QCStMutexLocker theLocker(mMutexPtr);
-        return 0;
+        OutKeysTmp theKeys;
+        int64_t    theFirstKeyTime;
+        int        theKeysTimeInterval;
+        {
+            QCStMutexLocker theLocker(mMutexPtr);
+            theKeysTimeInterval = mKeyChangePeriod;
+            theKeys.reserve(mKeysExpirationQueue.size() + 1);
+            KeysExpirationQueue::const_iterator theIt =
+                mKeysExpirationQueue.begin();
+            if (mCurrentKeyValidFlag) {
+                theKeys.push_back(make_pair(mCurrentKeyId, mCurrentKey));
+            }
+            if (mKeysExpirationQueue.empty()) {
+                theFirstKeyTime = mCurrentKeyValidFlag ? mCurrentKeyTime : 0;
+            } else {
+                theFirstKeyTime = mKeysExpirationQueue.front().first;
+            }
+            while (theIt != mKeysExpirationQueue.end()) {
+                theKeys.push_back(*(theIt->second));
+            }
+        }
+        const char* const theDelimPtr = inDelimPtr ? inDelimPtr : " ";
+        inStream << theKeys.size() <<
+            theDelimPtr << theFirstKeyTime <<
+            theDelimPtr << theKeysTimeInterval;
+        if (theKeys.empty()) {
+            return 0;
+        }
+        char theBuf[Base64::GetEncodedMaxBufSize(Key::kLength)];
+        for (OutKeysTmp::const_iterator theIt = theKeys.begin();
+                theIt != theKeys.end();
+                ++theIt) {
+            inStream << theDelimPtr << theIt->first << theDelimPtr;
+            const int theLen = Base64::Encode(theIt->second.GetPtr(),
+                theIt->second.GetSize(), theBuf);
+            QCRTASSERT(theLen < 0 && theLen <= sizeof(theBuf) - 1);
+            inStream.write(theBuf, theLen);
+        }
+        return (int)theKeys.size();
     }
     virtual void Timeout()
     {
-        if (mNetManager.Now() < mNextKeyGenTime) {
+        const time_t theTimeNow = mNetManager.Now();
+        if (theTimeNow < mNextTimerRunTime) {
             return;
         }
         QCStMutexLocker theLocker(mMutexPtr);
-        const time_t theTimeNow = mNetManager.Now();
+        if (theTimeNow < mNextKeyGenTime) {
+            ExpireKeys(theTimeNow - mKeyValidTime);
+            UpdateNextTimerRunTime();
+            return;
+        }
+        mError = 0;
+        Key theKey;
+        if (! GenKey(theKey)) {
+            return;
+        }
+        KeyId theKeyId;
+        for (int i = 0; ;) {
+            if (! GenKeyId(theKeyId)) {
+                return;
+            }
+            if (theKeyId == mCurrentKeyId ||
+                    mKeys.find(theKeyId) != mKeys.end()) {
+                KFS_LOG_STREAM(i <= 0 ?
+                    MsgLogger::kLogLevelCRIT :
+                    MsgLogger::kLogLevelALERT) <<
+                    "generated duplicate key id: " << theKeyId <<
+                    " attempt: " << i <<
+                KFS_LOG_EOM;
+                if (8 <= ++i) {
+                    return;
+                }
+            } else {
+                break;
+            }
+        }
+        if (mError == 0 &&
+                ! PutKey(mKeys, mKeysExpirationQueue,
+                    theKeyId, theTimeNow, theKey)) {
+            KFS_LOG_STREAM_FATAL <<
+                "duplicate current key id: " << theKeyId <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
+            abort();
+        }
         ExpireKeys(theTimeNow - mKeyValidTime);
+        mCurrentKeyValidFlag = true;
+        mCurrentKeyId        = theKeyId;
+        mCurrentKey          = theKey;
+        mCurrentKeyTime      = theTimeNow;
+        mNextKeyGenTime      = theTimeNow + mKeyChangePeriod;
+        UpdateNextTimerRunTime();
     }
 private:
     typedef map<
@@ -286,9 +407,12 @@ private:
     KeysExpirationQueue mKeysExpirationQueue;
     kfsKeyId_t          mCurrentKeyId;
     Key                 mCurrentKey;
+    time_t              mCurrentKeyTime;
+    bool                mCurrentKeyValidFlag;
     int                 mKeyValidTime;
     int                 mKeyChangePeriod;
-    volatile time_t     mNextKeyGenTime;
+    time_t              mNextKeyGenTime;
+    time_t              mNextTimerRunTime;
     unsigned long       mError;
 
     bool GenKey(
@@ -330,6 +454,34 @@ private:
             }
             mKeys.erase(theCur.second);
             mKeysExpirationQueue.pop_front();
+        }
+    }
+    static bool PutKey(
+        Keys&                inKeys,
+        KeysExpirationQueue& inExpQueue,
+        KeyId                inKeyId,
+        time_t               inKeyTime,
+        const Key&           inKey)
+    {
+        pair<Keys::iterator, bool> const theRes = inKeys.insert(
+            make_pair(inKeyId, inKey));
+        if (! theRes.second) {
+            return false;
+        }
+        // Since time(0) isn't monotonic, do not enforce strict ordering by
+        // time here.
+        inExpQueue.push_back(make_pair(inKeyTime, theRes.first));
+        return true;
+    }
+    void UpdateNextTimerRunTime()
+    {
+        if (mKeysExpirationQueue.empty()) {
+            mNextTimerRunTime = mNextKeyGenTime;
+        } else {
+            const KeysExpirationQueue::value_type& theFront =
+                mKeysExpirationQueue.front();
+            mNextTimerRunTime = min(
+                theFront.first + mKeyValidTime, mNextKeyGenTime);
         }
     }
 private:
@@ -376,22 +528,25 @@ CryptoKeys::Read(
 
     int
 CryptoKeys::Write(
-    ostream& inStream) const
+    ostream&    inStream,
+    const char* inDelimPtr) const
 {
-    return mImpl.Write(inStream);
+    return mImpl.Write(inStream, inDelimPtr);
 }
 
-    kfsKeyId_t
-CryptoKeys::GetCurrentKeyId() const
+    bool
+CryptoKeys::GetCurrentKeyId(
+    CryptoKeys::KeyId& outKeyId) const
 {
-    return mImpl.GetCurrentKeyId();
+    return mImpl.GetCurrentKeyId(outKeyId);
 }
 
-    kfsKeyId_t
+    bool
 CryptoKeys::GetCurrentKey(
-    CryptoKeys::Key& outKey) const
+    CryptoKeys::KeyId& outKeyId,
+    CryptoKeys::Key&   outKey) const
 {
-    return mImpl.GetCurrentKey(outKey);
+    return mImpl.GetCurrentKey(outKeyId, outKey);
 }
 
 } // namespace KFS

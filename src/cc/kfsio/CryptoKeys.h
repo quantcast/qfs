@@ -100,10 +100,18 @@ public:
     int Read(
         istream& inStream);
     int Write(
-        ostream& inStream) const;
-    kfsKeyId_t GetCurrentKeyId() const;
-    kfsKeyId_t GetCurrentKey(
-        Key& outKey) const;
+        ostream&    inStream,
+        const char* inDelimPtr = 0) const;
+    bool GetCurrentKeyId(
+        KeyId& outKeyId) const;
+    bool GetCurrentKey(
+        KeyId& outKeyId,
+        Key&   outKey) const;
+    bool IsCurrentKeyValid() const
+    {
+        KeyId theId;
+        return GetCurrentKeyId(theId);
+    }
 private:
     Impl& mImpl;
 private:
