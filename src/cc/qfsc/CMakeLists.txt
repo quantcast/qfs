@@ -1,7 +1,7 @@
 add_library (qfsc STATIC qfsc.cc)
 add_library (qfsc-shared SHARED qfsc.cc)
-set_target_properties (qfsc PROPERTIES OUTPUT_NAME LINKER_LANGUAGE CXX "qfsc")
-set_target_properties (qfsc-shared PROPERTIES LINKER_LANGUAGE CXX OUTPUT_NAME "qfsc")
+set_target_properties (qfsc PROPERTIES OUTPUT_NAME "qfsc")
+set_target_properties (qfsc-shared PROPERTIES OUTPUT_NAME "qfsc")
 
 add_dependencies (qfsc kfsClient)
 add_dependencies (qfsc-shared kfsClient-shared)
