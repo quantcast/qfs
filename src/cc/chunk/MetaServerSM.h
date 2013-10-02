@@ -211,6 +211,7 @@ private:
     ClientAuthContext::RequestCtx mAuthRequestCtx;
     int                           mAuthType;
     string                        mAuthTypeStr;
+    kfsKeyId_t                    mCurrentKeyId;
     Counters                      mCounters;
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;

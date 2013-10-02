@@ -88,6 +88,7 @@ MetaServerSM::MetaServerSM()
         kAuthenticationTypeX509 |
         kAuthenticationTypePSK),
       mAuthTypeStr("Krb5 X509 PSK"),
+      mCurrentKeyId(),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -890,6 +891,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     KFS_LOG_EOM;
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
+    mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->clnt = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);

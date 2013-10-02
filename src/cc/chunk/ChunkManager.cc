@@ -1636,6 +1636,7 @@ ChunkManager::ChunkManager()
       mDiskBufferManagerEnabledFlag(true),
       mForceVerifyDiskReadChecksumFlag(false),
       mWritePrepareReplyFlag(true),
+      mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1867,7 +1868,7 @@ ChunkManager::SetParameters(const Properties& prop)
     Replicator::SetParameters(prop);
 
     bool ret = gClientManager.SetParameters("chunkServer.client.", prop);
-    ret = RemoteSyncSM::SetParameters("chunkServer.remoteSync.", prop) || ret;
+    ret = RemoteSyncSM::SetParameters("chunkServer.remoteSync.", prop) && ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
         "chunkServer.maxEvacuateIoErrors",
         mMaxEvacuateIoErrors
@@ -1915,6 +1916,23 @@ ChunkManager::SetParameters(const Properties& prop)
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
+    string errMsg;
+    const int err = mCryptoKeys.SetParameters(
+        "chunkServer.cryptoKeys.", prop, errMsg);
+    if (err) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to set crypto keys parameters: status: " << err <<
+            " " << errMsg <<
+        KFS_LOG_EOM;
+    }
+    if (! mCryptoKeys.IsCurrentKeyValid()) {
+        KFS_LOG_STREAM_ERROR <<
+            "no valid current crypto key" <<
+        KFS_LOG_EOM;
+        ret = false;
+    } else {
+        ret = ret && err == 0;
+    }
     return ret;
 }
 

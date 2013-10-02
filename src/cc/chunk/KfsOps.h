@@ -32,6 +32,7 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/event.h"
+#include "kfsio/CryptoKeys.h"
 
 #include "common/Properties.h"
 #include "common/kfsdecls.h"
@@ -1698,7 +1699,7 @@ struct StatsOp : public KfsOp {
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << 
+        return os <<
             "monitoring stats:"
             " seq: " << seq
         ;
@@ -1796,15 +1797,18 @@ struct HelloMetaOp : public KfsOp {
         kChunkListCount           = 3
     };
 
-    ServerLocation myLocation;
-    string         clusterKey;
-    string         md5sum;
-    int            rackId;
-    int64_t        totalSpace;
-    int64_t        totalFsSpace;
-    int64_t        usedSpace;
-    LostChunkDirs  lostChunkDirs;
-    ChunkList      chunkLists[kChunkListCount];
+    ServerLocation    myLocation;
+    string            clusterKey;
+    string            md5sum;
+    int               rackId;
+    int64_t           totalSpace;
+    int64_t           totalFsSpace;
+    int64_t           usedSpace;
+    LostChunkDirs     lostChunkDirs;
+    ChunkList         chunkLists[kChunkListCount];
+    bool              sendCurrentKeyFlag;
+    CryptoKeys::KeyId currentKeyId;
+    CryptoKeys::Key   currentKey;
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
         : KfsOp(CMD_META_HELLO, s),
@@ -1816,7 +1820,10 @@ struct HelloMetaOp : public KfsOp {
           totalFsSpace(0),
           usedSpace(0),
           lostChunkDirs(),
-          chunkLists()
+          chunkLists(),
+          sendCurrentKeyFlag(false),
+          currentKeyId(),
+          currentKey()
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);

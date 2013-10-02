@@ -91,9 +91,9 @@ public:
         QCMutex*    inMutexPtr);
     ~CryptoKeys();
     int SetParameters(
-        const char* inPrefixNamePtr,
-        Properties& inParameters,
-        string&     outErrMsg);
+        const char*       inPrefixNamePtr,
+        const Properties& inParameters,
+        string&           outErrMsg);
     bool Find(
         KeyId inKeyId,
         Key&  outKey) const;

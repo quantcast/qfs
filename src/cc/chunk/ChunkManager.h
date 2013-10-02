@@ -35,6 +35,7 @@
 #include "DirChecker.h"
 
 #include "kfsio/ITimeout.h"
+#include "kfsio/CryptoKeys.h"
 #include "common/LinearHash.h"
 #include "common/StdAllocator.h"
 
@@ -403,6 +404,8 @@ public:
     inline void DeleteSelf(ChunkInfoHandle& cih);
     inline bool Remove(ChunkInfoHandle& cih);
     BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
+    const CryptoKeys& GetCryptoKeys() const
+        { return mCryptoKeys; }
 
 private:
     class PendingWrites
@@ -776,6 +779,8 @@ private:
     bool       mDiskBufferManagerEnabledFlag;
     bool       mForceVerifyDiskReadChecksumFlag;
     bool       mWritePrepareReplyFlag;
+    CryptoKeys mCryptoKeys;
+
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 

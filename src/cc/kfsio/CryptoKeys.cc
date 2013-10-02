@@ -130,9 +130,9 @@ public:
     virtual ~Impl()
         { mNetManager.UnRegisterTimeoutHandler(this); }
     int SetParameters(
-        const char* inNamesPrefixPtr,
-        Properties& inParameters,
-        string&     outErrMsg)
+        const char*       inNamesPrefixPtr,
+        const Properties& inParameters,
+        string&           outErrMsg)
     {
         QCStMutexLocker theLocker(mMutexPtr);
         if (mError) {
@@ -163,9 +163,9 @@ public:
             theParamName.Truncate(thePrefLen).Append(
             "keyChangePeriodSec"), mKeyChangePeriod);
         if (theKeyChangePeriod < k10Min / 2 ||
-                 theKeyValidTime < (int64_t)theKeyChangePeriod * (10 << 10)) {
+                theKeyValidTime * (int64_t(10) << 10) < theKeyChangePeriod) {
             outErrMsg = theParamName.GetPtr();
-            outErrMsg += ": invalid: less than keyValidTimeSec / 10240";
+            outErrMsg += ": invalid: greater than keyValidTimeSec * 10240";
             return -EINVAL;
         }
         const bool theExpireKeysFlag = theKeyValidTime < mKeyValidTime;
@@ -504,9 +504,9 @@ CryptoKeys::~CryptoKeys()
 
     int
 CryptoKeys::SetParameters(
-    const char* inNamesPrefixPtr,
-    Properties& inParameters,
-    string&     outErrMsg)
+    const char*       inNamesPrefixPtr,
+    const Properties& inParameters,
+    string&           outErrMsg)
 {
     return mImpl.SetParameters(inNamesPrefixPtr, inParameters, outErrMsg);
 }

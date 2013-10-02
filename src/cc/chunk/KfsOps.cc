@@ -35,6 +35,8 @@
 #include "common/kfserrno.h"
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
+#include "kfsio/Base64.h"
+#include "kfsio/CryptoKeys.h"
 
 #include "ChunkManager.h"
 #include "Logger.h"
@@ -2959,6 +2961,19 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
         "Stale-chunks-hex-format: 1\r\n"
         "Content-int-base: 16\r\n"
     ;
+    if (sendCurrentKeyFlag) {
+        char buf[Base64::GetEncodedMaxBufSize(CryptoKeys::Key::GetSize())];
+        const int len = Base64::Encode(
+            currentKey.GetPtr(), currentKey.GetSize(), buf);
+        if (len <= 0 || len > (int)sizeof(buf)) {
+            die("internal error: invalid buffer size");
+        } else {
+            os <<
+                "CryptoKeyId: " << currentKeyId  << "\r\n"
+                "CryptoKey: ";    os.write(buf, len) << "\r\n"
+            ;
+        }
+    }
     int64_t contentLength = 0;
     for (int i = 0; i < kChunkListCount; i++) {
         contentLength += chunkLists[i].ioBuf.BytesConsumable();
@@ -3055,6 +3070,8 @@ HelloMetaOp::Execute()
         lists[i].second->flush();
         streams[i].Reset();
     }
+    sendCurrentKeyFlag = sendCurrentKeyFlag &&
+        gChunkManager.GetCryptoKeys().GetCurrentKey(currentKeyId, currentKey);
     status = 0;
     gLogger.Submit(this);
 }
