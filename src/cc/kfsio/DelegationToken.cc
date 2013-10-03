@@ -149,11 +149,13 @@ public:
         QCASSERT(mBuffer + kTokenFiledsSize == thePtr);
     }
     bool FromBase64(
-        const string& inStr)
+        DelegationToken& inToken,
+        const char*      inPtr,
+        int              inLen)
     {
-        const char* thePtr    = inStr.c_str();
-        const char* theEndPtr = thePtr + inStr.size();
-        while ((*thePtr & 0xFF) <= ' ' && *thePtr != 0) {
+        const char* thePtr    = inPtr;
+        const char* theEndPtr = thePtr + inLen;
+        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ' && *thePtr != 0) {
             thePtr++;
         }
         while (thePtr < theEndPtr && (*theEndPtr & 0xFF) <= ' ') {
@@ -164,7 +166,17 @@ public:
             return false;
         }
         theLen = Base64::Decode(thePtr, theLen, mBuffer);
-        return (theLen == kTokenSize);
+        if (theLen != kTokenSize) {
+            return false;
+        }
+        thePtr = mBuffer;
+        Read(thePtr, inToken.mUid);
+        Read(thePtr, inToken.mSeq);
+        Read(thePtr, inToken.mKeyId);
+        Read(thePtr, inToken.mIssuedTimeAndFlags);
+        Read(thePtr, inToken.mValidForSec);
+        memcpy(inToken.mSignature, thePtr, kSignatureLength);
+        return true;
     }
     int ToBase64(
         const DelegationToken& inToken,
@@ -263,9 +275,23 @@ private:
         char* const theStartPtr = ioPtr;
         ioPtr += sizeof(inVal);
         char*       thePtr      = ioPtr;
-        while (theStartPtr <= thePtr) {
-            *thePtr-- = (char)(inVal & 0xFF);
+        while (theStartPtr <= --thePtr) {
+            *thePtr = (char)(inVal & 0xFF);
             inVal >>= 8;
+        }
+    }
+    template<typename T>
+    static void Read(
+        const char*& ioPtr,
+        T&           outVal)
+    {
+        const char*       thePtr    = ioPtr;
+        ioPtr += sizeof(outVal);
+        const char* const theEndPtr = ioPtr;
+        outVal = 0;
+        while (thePtr < theEndPtr) {
+            outVal <<= 8;
+            outVal |= (*thePtr++ & 0xFF);
         }
     }
 };
@@ -326,10 +352,30 @@ DelegationToken::ToString()
 
     bool
 DelegationToken::FromString(
-    const string& inString)
+    const string& inString,
+    const char*   inKeyPtr,
+    int           inKeyLen)
+{
+    return FromString(
+        inString.data(), (int)inString.size(), inKeyPtr, inKeyLen);
+}
+
+    bool
+DelegationToken::FromString(
+    const char* inPtr,
+    int         inLen,
+    const char* inKeyPtr,
+    int         inKeyLen)
 {
     WorkBuf theBuf;
-    return theBuf.FromBase64(inString);
+    if (! theBuf.FromBase64(*this, inPtr, inLen)) {
+        return false;
+    }
+    char theSignature[kSignatureLength];
+    return (! inKeyPtr ||
+        (theBuf.Sign(inKeyPtr, inKeyLen, theSignature) &&
+        memcmp(theSignature, mSignature, kSignatureLength) == 0)
+    );
 }
 
     ostream&
@@ -342,10 +388,12 @@ DelegationToken::Display(
 
     istream&
 DelegationToken::Parse(
-    istream& inStream)
+    istream&    inStream,
+    const char* inKeyPtr,
+    int         inKeyLen)
 {
     string theStr;
-    if ((inStream >> theStr) && ! FromString(theStr)) {
+    if ((inStream >> theStr) && ! FromString(theStr, inKeyPtr, inKeyLen)) {
         inStream.setstate(ostream::failbit);
     }
     return inStream;

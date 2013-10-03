@@ -77,11 +77,20 @@ public:
         int         inKeyLen);
     string ToString();
     bool FromString(
-        const string& inString);
+        const string& inString,
+        const char*   inKeyPtr,
+        int           inKeyLen);
+    bool FromString(
+        const char* inPtr,
+        int         inLen,
+        const char* inKeyPtr,
+        int         inKeyLen);
     ostream& Display(
         ostream& inStream) const;
     istream& Parse(
-        istream& inStream);
+        istream&    inStream,
+        const char* inKeyPtr,
+        int         inKeyLen);
     kfsUid_t GetUid() const
         { return mUid; }
     kfsUid_t GetSeq() const
@@ -117,6 +126,7 @@ private:
     char       mSignature[kSignatureLength];
 
     class WorkBuf;
+    friend class WorkBuf;
 };
 
 ostream& operator << (
@@ -127,7 +137,7 @@ ostream& operator << (
 istream& operator >> (
     istream&         inStream,
     DelegationToken& inToken)
-{ return inToken.Parse(inStream); }
+{ return inToken.Parse(inStream, 0, 0); }
 
 } // namespace KFS
 
