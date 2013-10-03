@@ -129,12 +129,12 @@ private:
     friend class WorkBuf;
 };
 
-ostream& operator << (
+inline static ostream& operator << (
     ostream&               inStream,
     const DelegationToken& inToken)
 { return inToken.Display(inStream); }
 
-istream& operator >> (
+inline static istream& operator >> (
     istream&         inStream,
     DelegationToken& inToken)
 { return inToken.Parse(inStream, 0, 0); }
