@@ -212,6 +212,7 @@ private:
     int                           mAuthType;
     string                        mAuthTypeStr;
     kfsKeyId_t                    mCurrentKeyId;
+    bool                          mUpdateCurrentKeyFlag;
     Counters                      mCounters;
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;

@@ -631,14 +631,20 @@ struct ReplicateChunkOp : public KfsOp {
 };
 
 struct HeartbeatOp : public KfsOp {
-    int64_t  metaEvacuateCount; // input
-    IOBuffer response;
-    string   cmdShow;
+    int64_t           metaEvacuateCount; // input
+    IOBuffer          response;
+    string            cmdShow;
+    bool              sendCurrentKeyFlag;
+    CryptoKeys::KeyId currentKeyId;
+    CryptoKeys::Key   currentKey;
     HeartbeatOp(kfsSeq_t s = 0)
         : KfsOp(CMD_HEARTBEAT, s),
           metaEvacuateCount(-1),
           response(),
-          cmdShow()
+          cmdShow(),
+          sendCurrentKeyFlag(false),
+          currentKeyId(),
+          currentKey()
         {}
     void Execute();
     void Response(ostream &os);

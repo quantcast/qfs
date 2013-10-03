@@ -89,6 +89,7 @@ MetaServerSM::MetaServerSM()
         kAuthenticationTypePSK),
       mAuthTypeStr("Krb5 X509 PSK"),
       mCurrentKeyId(),
+      mUpdateCurrentKeyFlag(false),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -226,6 +227,7 @@ MetaServerSM::Connect()
     mAuthOp = 0;
     mCounters.mConnectCount++;
     mSentHello = false;
+    mUpdateCurrentKeyFlag = false;
     TcpSocket * const sock = new TcpSocket();
     const bool nonBlocking = true;
     const int  ret         = sock->Connect(mLocation, nonBlocking);
@@ -399,6 +401,7 @@ MetaServerSM::DispatchHello()
         delete mHelloOp;
         mHelloOp = 0;
         mSentHello = false;
+        mUpdateCurrentKeyFlag = false;
         return;
     }
     mSentHello = true;
@@ -479,6 +482,15 @@ MetaServerSM::HandleRequest(int code, void* data)
             if (op == mHelloOp) {
                 DispatchHello();
                 break;
+            }
+            if (mUpdateCurrentKeyFlag && op->op == CMD_HEARTBEAT) {
+                HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
+                if ((hb.sendCurrentKeyFlag =
+                        gChunkManager.GetCryptoKeys().GetCurrentKey(
+                            hb.currentKeyId, hb.currentKey) &&
+                        hb.currentKeyId != mCurrentKeyId)) {
+                    mCurrentKeyId = hb.currentKeyId;
+                }
             }
             SendResponse(op);
             delete op;
@@ -621,6 +633,10 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         }
         HelloMetaOp::LostChunkDirs lostDirs;
         lostDirs.swap(mHelloOp->lostChunkDirs);
+        mUpdateCurrentKeyFlag = err == 0 && mHelloOp->sendCurrentKeyFlag;
+        if (mUpdateCurrentKeyFlag) {
+            mCurrentKeyId = mHelloOp->currentKeyId;
+        }
         delete mHelloOp;
         mHelloOp = 0;
         if (err) {
