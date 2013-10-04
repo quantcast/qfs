@@ -40,6 +40,8 @@ using std::string;
 using std::istream;
 using std::ostream;
 
+class CryptoKeys;
+
 class DelegationToken
 {
 public:
@@ -75,6 +77,8 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen);
+    void Clear()
+        { *this = DelegationToken(); }
     string ToString();
     bool FromString(
         const string& inString,
@@ -85,6 +89,14 @@ public:
         int         inLen,
         const char* inKeyPtr,
         int         inKeyLen);
+    int Process(
+        const char*       inPtr,
+        int               inLen,
+        int64_t           inTimeNowSec,
+        const CryptoKeys& inKeys,
+        char*             inSessionKeyPtr,
+        int               ioMaxSessionKeyLength,
+        string*           outErrMsgPtr);
     ostream& Display(
         ostream& inStream) const;
     istream& Parse(

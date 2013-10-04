@@ -27,14 +27,18 @@
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/DelegationToken.h"
 
 #include "ClientManager.h"
 #include "ClientSM.h"
+#include "ChunkManager.h"
+
+#include <string.h>
 
 namespace KFS
 {
 
-class ClientManager::Auth : private SslFilterServerPsk
+class ClientManager::Auth
 {
 public:
     Auth()
@@ -98,7 +102,8 @@ public:
         return true;
     }
     bool Setup(
-        NetConnection& inConn)
+        NetConnection&      inConn,
+        SslFilterServerPsk& inServerPsk)
     {
         if (! mEnabledFlag) {
             return true;
@@ -113,7 +118,7 @@ public:
             kSessionKeyPtr,
             kSessionKeyLen,
             kPskClientIdentityPtr,
-            this,
+            &inServerPsk,
             kVerifyPeerPtr,
             kDeleteOnCloseFlag
         );
@@ -128,15 +133,6 @@ public:
         KFS_LOG_EOM;
         delete theFilterPtr;
         return false;
-    }
-    virtual unsigned long GetPsk(
-        const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
-        unsigned int   inPskBufferLen,
-        string&        outAuthName)
-    {
-        outAuthName.clear();
-        return 0; // FIXME
     }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
@@ -195,14 +191,18 @@ ClientManager::StartListening()
 ClientManager::CreateKfsCallbackObj(
     NetConnectionPtr& inConnPtr)
 {
-    if (! inConnPtr || ! mAuth.Setup(*inConnPtr)) {
+    if (! inConnPtr) {
         return 0;
     }
-    ClientSM* const clnt = new ClientSM(inConnPtr);
+    ClientSM* const theClientPtr = new ClientSM(inConnPtr);
+    if (! mAuth.Setup(*inConnPtr, *theClientPtr)) {
+        delete theClientPtr;
+        return 0;
+    }
     assert(mCounters.mClientCount >= 0);
     mCounters.mAcceptCount++;
     mCounters.mClientCount++;
-    return clnt;
+    return theClientPtr;
 }
 
     bool

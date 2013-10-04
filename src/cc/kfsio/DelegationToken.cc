@@ -25,6 +25,7 @@
 
 #include "DelegationToken.h"
 #include "Base64.h"
+#include "CryptoKeys.h"
 
 #include "common/MsgLogger.h"
 #include "qcdio/qcdebug.h"
@@ -40,6 +41,7 @@
 #include <istream>
 #include <iomanip>
 #include <string>
+#include <algorithm>
 
 namespace KFS
 {
@@ -49,6 +51,7 @@ using std::hex;
 using std::noshowbase;
 using std::setfill;
 using std::setw;
+using std::min;
 
 class EvpError
 {
@@ -74,6 +77,35 @@ public:
 private:
     Error mError;
 };
+
+    void
+EvpErrorStr(
+    const char*   inPrefixPtr,
+    string*       outErrMsgPtr,
+    unsigned long inError)
+{
+    if (! outErrMsgPtr) {
+        return;
+    }
+    const int kBufSize = 127;
+    char      theBuf[kBufSize + 1];
+    theBuf[0] = 0;
+    theBuf[kBufSize] = 0;
+    ERR_error_string_n(inError, theBuf, kBufSize);
+    if (inPrefixPtr) {
+        *outErrMsgPtr += inPrefixPtr;
+    }
+    *outErrMsgPtr += theBuf;
+}
+
+    void
+EvpErrorStr(
+    const char* inPrefixPtr,
+    string*     outErrMsgPtr)
+{
+    return EvpErrorStr(inPrefixPtr, outErrMsgPtr, ERR_get_error());
+}
+
 static inline ostream& operator << (
     ostream&        inStream,
     const EvpError& inError)
@@ -96,7 +128,8 @@ public:
     bool Sign(
         const char* inKeyPtr,
         int         inKeyLen,
-        char*       inSignBufPtr)
+        char*       inSignBufPtr,
+        string*     inErrMsgPtr = 0)
     {
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
@@ -129,9 +162,13 @@ public:
             );
 #endif
         if (! theRetFlag) {
-            KFS_LOG_STREAM_ERROR <<
-                "HMAC failure: " << EvpError() <<
-            KFS_LOG_EOM;
+            if (inErrMsgPtr) {
+                EvpErrorStr("HMAC failure: ", inErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "HMAC failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
         }
         QCRTASSERT(! theRetFlag || theLen == kSignatureLength);
         HMAC_CTX_cleanup(&theCtx);
@@ -212,48 +249,111 @@ public:
         }
         return inStream.write(theBuf, theLen);
     }
+    int MakeSessionKey(
+        const DelegationToken& inToken,
+        const char*            inSignaturePtr,
+        const char*            inKeyPtr,
+        int                    inKeyLen,
+        char*                  inKeyBufferPtr,
+        int                    inMaxKeyLen,
+        string*                outKeyPtr,
+        string*                outErrMsgPtr)
+    {
+        Serialize(inToken);
+        memcpy(mBuffer + kTokenFiledsSize, inSignaturePtr, kSignatureLength);
+        return MakeSessionKey(
+            inKeyPtr,
+            inKeyLen,
+            inKeyBufferPtr,
+            inMaxKeyLen,
+            outKeyPtr,
+            outErrMsgPtr
+        );
+    }
+    int MakeSessionKey(
+        const char* inKeyPtr,
+        int         inKeyLen,
+        char*       inKeyBufferPtr,
+        int         inMaxKeyLen,
+        string*     outKeyPtr,
+        string*     outErrMsgPtr)
+    {
+        if (! inKeyPtr || inKeyLen <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid key: " << (void*)inKeyPtr << " len: " << inKeyLen <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        EVP_MD_CTX theCtx;
+        EVP_MD_CTX_init(&theCtx);
+        if (! EVP_DigestInit_ex(&theCtx, EVP_sha384(), 0)) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_DigestInit_ex failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_DigestInit_ex failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            return -EFAULT;
+        }
+        if (! EVP_DigestUpdate(&theCtx, mBuffer, kTokenSize) ||
+                ! EVP_DigestUpdate(&theCtx, inKeyPtr, inKeyLen)) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_DigestUpdate failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_DigestUpdate failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            EVP_MD_CTX_cleanup(&theCtx);
+            return -EFAULT;
+        }
+        unsigned char theMd[EVP_MAX_MD_SIZE];
+        unsigned int  theLen = 0;
+        if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_DigestFinal_ex failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_DigestFinal_ex failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            EVP_MD_CTX_cleanup(&theCtx);
+            return -EFAULT;
+        }
+        QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
+        EVP_MD_CTX_cleanup(&theCtx);
+        if (theLen <= 0) {
+            return theLen;
+        }
+        if (outKeyPtr) {
+            outKeyPtr->assign(reinterpret_cast<const char*>(theMd), theLen);
+            return theLen;
+        }
+        if (inMaxKeyLen < theLen || ! inKeyBufferPtr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr += "insufficent key buffer size";
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    " insufficent key buffer size: " << inMaxKeyLen <<
+                    " required: "                    << theLen <<
+                KFS_LOG_EOM;
+            }
+            return -EINVAL;
+        }
+        memcpy(inKeyBufferPtr, theMd, theLen);
+        return theLen;
+    }
     string GetSessionKey(
         const DelegationToken& inToken,
         const char*            inSignaturePtr,
         const char*            inKeyPtr,
         int                    inKeyLen)
     {
-        if (! inKeyPtr || inKeyLen <= 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid key: " << (void*)inKeyPtr << " len: " << inKeyLen <<
-            KFS_LOG_EOM;
-            return string();
-        }
-        Serialize(inToken);
-        memcpy(mBuffer + kTokenFiledsSize, inSignaturePtr, kSignatureLength);
-        EVP_MD_CTX theCtx;
-        EVP_MD_CTX_init(&theCtx);
-        if (! EVP_DigestInit_ex(&theCtx, EVP_sha384(), 0)) {
-            KFS_LOG_STREAM_ERROR <<
-                "EVP_DigestInit_ex failure: " << EvpError() <<
-            KFS_LOG_EOM;
-            return string();
-        }
-        if (! EVP_DigestUpdate(&theCtx, mBuffer, kTokenSize) ||
-                ! EVP_DigestUpdate(&theCtx, inKeyPtr, inKeyLen)) {
-            KFS_LOG_STREAM_ERROR <<
-                "EVP_DigestUpdate failure: " << EvpError() <<
-            KFS_LOG_EOM;
-            EVP_MD_CTX_cleanup(&theCtx);
-            return string();
-        }
-        unsigned char theMd[EVP_MAX_MD_SIZE];
-        unsigned int  theLen = 0;
-        if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "EVP_DigestFinal_ex failure: " << EvpError() <<
-            KFS_LOG_EOM;
-            EVP_MD_CTX_cleanup(&theCtx);
-            return string();
-        }
-        QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
-        EVP_MD_CTX_cleanup(&theCtx);
-        return string(reinterpret_cast<const char*>(theMd), theLen);
+        string theRet;
+        MakeSessionKey(
+            inToken, inSignaturePtr, inKeyPtr, inKeyLen, 0, 0, &theRet, 0);
+        return theRet;
     }
 private:
     enum {
@@ -375,6 +475,74 @@ DelegationToken::FromString(
     return (! inKeyPtr ||
         (theBuf.Sign(inKeyPtr, inKeyLen, theSignature) &&
         memcmp(theSignature, mSignature, kSignatureLength) == 0)
+    );
+}
+
+    int
+DelegationToken::Process(
+    const char*       inPtr,
+    int               inLen,
+    int64_t           inTimeNowSec,
+    const CryptoKeys& inKeys,
+    char*             inSessionKeyPtr,
+    int               inMaxSessionKeyLength,
+    string*           outErrMsgPtr)
+{
+    WorkBuf theBuf;
+    if (! theBuf.FromBase64(*this, inPtr, inLen)) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "invalid format";
+        }
+        return false;
+    }
+    const uint32_t theValidForSec = GetValidForSec();
+    if (theValidForSec <= 0) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "expired: 0 valid for time";
+        }
+        return false;
+    }
+    const uint32_t theMaxClockSkewSec = min(uint32_t(5 * 60), theValidForSec);
+    if (inTimeNowSec + theMaxClockSkewSec < GetIssuedTime()) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "issue time is in the future";
+        }
+        return false;
+    }
+    if (GetIssuedTime() + theValidForSec < inTimeNowSec) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "exired";
+        }
+        return false;
+    }
+    CryptoKeys::Key theKey;
+    if (! inKeys.Find(GetKeyId(), theKey)) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "no key found";
+        }
+        return false;
+    }
+    char theSignature[kSignatureLength];
+    if (! theBuf.Sign(
+            theKey.GetPtr(),
+            theKey.GetSize(),
+            theSignature,
+            outErrMsgPtr)) {
+        return false;
+    }
+    if (memcmp(theSignature, mSignature, kSignatureLength) != 0) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "invalid signature";
+        }
+        return false;
+    }
+    return theBuf.MakeSessionKey(
+        theKey.GetPtr(),
+        theKey.GetSize(),
+        inSessionKeyPtr,
+        inMaxSessionKeyLength,
+        0,
+        outErrMsgPtr
     );
 }
 

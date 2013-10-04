@@ -173,6 +173,7 @@ ClientSM::SetParameters(const Properties& prop)
 ClientSM::ClientSM(NetConnectionPtr &conn)
     : KfsCallbackObj(),
       BufferManager::Client(),
+      SslFilterServerPsk(),
       mNetConnection(conn),
       mCurOp(0),
       mOps(),
@@ -190,7 +191,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mGrantedFlag(false),
       mInFlightOpCount(0),
       mDevCliMgrAllocator(),
-      mAuthName()
+      mDelegationToken()
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
@@ -287,12 +288,8 @@ ClientSM::HandleRequest(int code, void* data)
     }
     mRecursionCnt++;
 
-    NetConnection::Filter* filter;
     switch (code) {
     case EVENT_NET_READ: {
-        if (mAuthName.empty() && (filter = mNetConnection->GetFilter())) {
-            mAuthName = filter->GetAuthName();
-        }
         if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
@@ -402,7 +399,8 @@ ClientSM::HandleRequest(int code, void* data)
         break;
     }
 
-    case EVENT_NET_ERROR:
+    case EVENT_NET_ERROR: {
+        NetConnection::Filter* filter;
         if (mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter())) {
             // Do not allow to shutdown filter with ops or data in flight.
@@ -410,32 +408,28 @@ ClientSM::HandleRequest(int code, void* data)
                     mNetConnection->GetInBuffer().IsEmpty() &&
                     mNetConnection->GetOutBuffer().IsEmpty()) {
                 // Ssl shutdown from the other side.
-                const string authName = filter->GetAuthName();
                 if (mNetConnection->Shutdown() == 0) {
-                    if (! mNetConnection->GetFilter()) {
-                        // Filter shutdown is now complete.
-                        mAuthName = authName;
-                    }
                     CLIENT_SM_LOG_STREAM_INFO <<
                         "filter shutdown"
-                        " auth name: " << mAuthName <<
-                        " filter: "    << (void*)mNetConnection->GetFilter() <<
+                        " delegation: " << mDelegationToken <<
+                        " filter: "     << (void*)mNetConnection->GetFilter() <<
                     KFS_LOG_EOM;
                     break;
                 }
             } else {
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     "invalid filter (ssl) shutdown: "
-                    " error: " << mNetConnection->GetErrorMsg() <<
-                    " name: "  << mAuthName <<
+                    " error: "      << mNetConnection->GetErrorMsg() <<
+                    " delegation: " << mDelegationToken <<
                     " pending"
-                    " read: "  << mNetConnection->GetNumBytesToRead() <<
-                    " write: " << mNetConnection->GetNumBytesToWrite() <<
-                    " ops: "   << (mOps.empty() ? "pending" : "none") <<
+                    " read: "       << mNetConnection->GetNumBytesToRead() <<
+                    " write: "      << mNetConnection->GetNumBytesToWrite() <<
+                    " ops: "        << (mOps.empty() ? "pending" : "none") <<
                 KFS_LOG_EOM;
             }
         }
-        // Fall through.
+    }
+    // Fall through.
     case EVENT_INACTIVITY_TIMEOUT:
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "closing connection"
@@ -1053,4 +1047,34 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
     mGrantedFlag = true;
     HandleEvent(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
+
+/* virtual */ unsigned long
+ClientSM::GetPsk(
+    const char*    inIdentityPtr,
+    unsigned char* inPskBufferPtr,
+    unsigned int   inPskBufferLen,
+    string&        outAuthName)
+{
+    outAuthName.clear();
+    string theErrMsg;
+    const int theKeyLen = mDelegationToken.Process(
+        inIdentityPtr,
+        strlen(inIdentityPtr),
+        (int64_t)globalNetManager().Now(),
+        gChunkManager.GetCryptoKeys(),
+        reinterpret_cast<char*>(inPskBufferPtr),
+        (int)min(inPskBufferLen, 0x7FFFFu),
+        &theErrMsg
+    );
+    if (theKeyLen > 0) {
+        return theKeyLen;
+    }
+    CLIENT_SM_LOG_STREAM_DEBUG <<
+        "authentication failure: " << theErrMsg <<
+        " delegation: "            << mDelegationToken <<
+    KFS_LOG_EOM;
+    mDelegationToken.Clear();
+    return 0;
+}
+
 }

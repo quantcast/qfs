@@ -36,6 +36,8 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/SslFilter.h"
+#include "kfsio/DelegationToken.h"
 #include "common/StdAllocator.h"
 #include "Chunk.h"
 #include "RemoteSyncSM.h"
@@ -56,7 +58,8 @@ class Properties;
 // KFS client protocol state machine.
 class ClientSM :
     public KfsCallbackObj,
-    private BufferManager::Client
+    private BufferManager::Client,
+    public SslFilterServerPsk
 {
 public:
     static void SetParameters(const Properties& prop);
@@ -236,7 +239,8 @@ private:
     bool                       mGrantedFlag;
     int                        mInFlightOpCount;
     DevClientMgrAllocator      mDevCliMgrAllocator;
-    string                     mAuthName;
+    bool                       mDelegationTokenValidFlag;
+    DelegationToken            mDelegationToken;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
@@ -268,6 +272,11 @@ private:
         BufferManager&         bufMgr,
         BufferManager::Client* mgrCli);
     void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
+    virtual unsigned long GetPsk(
+        const char*    inIdentityPtr,
+	unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen,
+        string&        outAuthName);
 private:
     // No copy.
     ClientSM(const ClientSM&);
