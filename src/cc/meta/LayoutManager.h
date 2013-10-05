@@ -1711,7 +1711,7 @@ protected:
     bool    mAllowLocalPlacementForAppendFlag;
     bool    mInRackPlacementForAppendFlag;
     bool    mInRackPlacementFlag;
-    bool    mAppenPlacementIgnoreMasterSlaveFlag;
+    bool    mAppendPlacementIgnoreMasterSlaveFlag;
     bool    mAllocateDebugVerifyFlag;
 
     CSMap::Entry* mChunkEntryToChange;
