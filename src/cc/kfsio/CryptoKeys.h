@@ -76,6 +76,14 @@ public:
             memcpy(mKey, inKey.mKey, sizeof(mKey));
             return *this;
         }
+        bool Parse(
+            const char* inStrPtr,
+            int         inStrLen);
+        int ToString(
+            char* inStrPtr,
+            int   inMaxStrLen) const;
+        ostream& Display(
+            ostream& inStream) const;
         static int GetSize()
             { return kLength; }
         const char* GetPtr() const
@@ -120,6 +128,11 @@ private:
     CryptoKeys& operator=(
         const CryptoKeys& inKeys);
 };
+
+inline static ostream& operator<<(
+    ostream&                inStream,
+    const CryptoKeys::Key&  inKey)
+{ return inKey.Display(inStream); }
 
 } // namespace KFS
 

@@ -310,6 +310,9 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mLostChunkDirs(),
       mChunkDirInfos(),
       mPeerName(peerName),
+      mCryptoKeyValidFlag(false),
+      mCryptoKeyId(),
+      mCryptoKey(),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -915,6 +918,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         }
         op->authName = mAuthName;
         mHelloOp = static_cast<MetaHello*>(op);
+        if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKeyId)) {
+            mHelloOp = 0;
+            delete op;
+            return -1;
+        }
         if (! gLayoutManager.Validate(*mHelloOp)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"
@@ -1118,7 +1126,6 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         // should disconnect when it restarts.
         return 0;
     }
-
     mNetConnection->SetMaxReadAhead(kMaxReadAhead);
     // Hello done.
     mHelloOp->peerName        = GetPeerName();
@@ -1276,6 +1283,20 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         UpdateStorageTiers(prop.getValue("Storage-tiers"),
             numWrDrives, numWrChunks);
         UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);
+        const Properties::String* const cryptoKey = prop.getValue("CKey");
+        if (cryptoKey) {
+            const Properties::String* const keyId = prop.getValue("CKeyId");
+            if (! keyId ||
+                    ! ParseCryptoKey(*keyId, *cryptoKey) ||
+                    ! mCryptoKeyValidFlag) {
+                KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+                    " invalid heartbeat: invalid crypto key or id"
+                    " seq:" << cseq <<
+                KFS_LOG_EOM;
+                mCryptoKeyValidFlag = false;
+                return -1;
+            }
+        }
         if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();
         }
@@ -2010,6 +2031,40 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     KFS_LOG_EOM;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
+}
+
+bool
+ChunkServer::ParseCryptoKey(
+    const Properties::String& keyId,
+    const Properties::String& key)
+{
+    mCryptoKeyValidFlag = false;
+    if (keyId.empty() && key.empty()) {
+        // No key.
+        return true;
+    }
+    if (keyId.empty() || key.empty()) {
+        KFS_LOG_STREAM_ERROR << GetPeerName() << " " << GetServerLocation() <<
+            " empty crypto key" << (keyId.empty() ? " id" : "") <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    const char* p = keyId.GetPtr();
+    if (! DecIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId)) {
+        KFS_LOG_STREAM_ERROR << GetPeerName() << " " << GetServerLocation() <<
+            " failed to parse cryto key id: " << keyId <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (! mCryptoKey.Parse(key.GetPtr(), (int)key.GetSize())) {
+        KFS_LOG_STREAM_ERROR << GetPeerName() << " " << GetServerLocation() <<
+            " invalid crypto key"
+            " length: " << key.GetSize() <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    mCryptoKeyValidFlag = true;
+    return true;
 }
 
     /* virtual */ bool

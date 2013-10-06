@@ -41,6 +41,7 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
 #include "qcdio/QCDLList.h"
 #include "common/kfstypes.h"
 #include "common/Properties.h"
@@ -791,6 +792,18 @@ public:
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName);
+    bool GetCryptoKey(
+        CryptoKeys::KeyId&  outKeyId,
+        CryptoKeys::Key&    outKey) const
+    {
+        if (mCryptoKeyValidFlag) {
+            outKeyId = mCryptoKeyId;
+            outKey   = mCryptoKey;
+        }
+        return mCryptoKeyValidFlag;
+    }
+    bool IsCryptoKeyValid() const
+        { return mCryptoKeyValidFlag; }
 
 protected:
     /// Enqueue a request to be dispatched to this server
@@ -978,6 +991,9 @@ protected:
     LostChunkDirs      mLostChunkDirs;
     ChunkDirInfos      mChunkDirInfos;
     const string       mPeerName;
+    bool               mCryptoKeyValidFlag;
+    CryptoKeys::KeyId  mCryptoKeyId;
+    CryptoKeys::Key    mCryptoKey;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1099,6 +1115,9 @@ protected:
     void UpdateStorageTiersSelf(const char* buf, size_t len,
         int deviceCount, int writableChunkCount);
     int Authenticate(IOBuffer& iobuf);
+    bool ParseCryptoKey(
+        const Properties::String& keyId,
+        const Properties::String& key);
 };
 
 } // namespace KFS

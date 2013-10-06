@@ -97,6 +97,41 @@ static string GetErrorMsg(
     return string(theBuf);
 }
 
+    bool
+CryptoKeys::Key::Parse(
+    const char* inStrPtr,
+    int         inStrLen)
+{
+    if (! inStrPtr || inStrLen <= 0) {
+        return false;
+    }
+    const int theLen = Base64::GetMaxDecodedLength(inStrLen);
+    return (theLen <= 0 || kLength < theLen ||
+        Base64::Decode(inStrPtr, inStrLen, mKey) != kLength);
+}
+
+    int
+CryptoKeys::Key::ToString(
+    char* inStrPtr,
+    int   inMaxStrLen) const
+{
+    if (inMaxStrLen < Base64::GetEncodedMaxBufSize(kLength)) {
+        return -EINVAL;
+    }
+    return Base64::Encode(mKey, kLength, inStrPtr);
+}
+
+    ostream&
+CryptoKeys::Key::Display(
+    ostream& inStream) const
+{
+    const int theBufLen = Base64::GetEncodedMaxBufSize(kLength);
+    char      theBuf[theBufLen];
+    const int theLen = Base64::Encode(mKey, kLength, theBuf);
+    QCRTASSERT(0 < theLen && theLen <= theBufLen);
+    return inStream.write(theBuf, theLen);
+}
+
 class CryptoKeys::Impl : public ITimeout
 {
 public:
@@ -323,13 +358,13 @@ public:
         if (theKeys.empty()) {
             return 0;
         }
-        char theBuf[Base64::GetEncodedMaxBufSize(Key::kLength)];
+        const int theBufLen = Base64::GetEncodedMaxBufSize(Key::kLength);
+        char      theBuf[theBufLen];
         for (OutKeysTmp::const_iterator theIt = theKeys.begin();
                 theIt != theKeys.end();
                 ++theIt) {
             inStream << theDelimPtr << theIt->first << theDelimPtr;
-            const int theLen = Base64::Encode(theIt->second.GetPtr(),
-                theIt->second.GetSize(), theBuf);
+            const int theLen = theIt->second.ToString(theBuf, theBufLen);
             QCRTASSERT(theLen < 0 && theLen <= sizeof(theBuf) - 1);
             inStream.write(theBuf, theLen);
         }

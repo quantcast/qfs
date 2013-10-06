@@ -1289,27 +1289,29 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     };
     typedef vector<ChunkInfo, StdAllocator<ChunkInfo> > ChunkInfos;
 
-    ChunkServerPtr  server;                   //!< The chunkserver that sent the hello message
-    ServerLocation& location;                 //<! Location of this server
-    string          peerName;
-    string          clusterKey;
-    string          md5sum;
-    int64_t         totalSpace;               //!< How much storage space does the server have (bytes)
-    int64_t         totalFsSpace;
-    int64_t         usedSpace;                //!< How much storage space is used up (in bytes)
-    int64_t         uptime;                   //!< Chunk server uptime.
-    int             rackId;                   //!< the rack on which the server is located
-    int             numChunks;                //!< # of chunks hosted on this server
-    int             numNotStableAppendChunks; //!< # of not stable append chunks hosted on this server
-    int             numNotStableChunks;       //!< # of not stable chunks hosted on this server
-    int             contentLength;            //!< Length of the message body
-    int64_t         numAppendsWithWid;
-    int             contentIntBase;
-    ChunkInfos      chunks;                   //!< Chunks  hosted on this server
-    ChunkInfos      notStableChunks;
-    ChunkInfos      notStableAppendChunks;
-    int             bytesReceived;
-    bool            staleChunksHexFormatFlag;
+    ChunkServerPtr     server;                   //!< The chunkserver that sent the hello message
+    ServerLocation&    location;                 //<! Location of this server
+    string             peerName;
+    string             clusterKey;
+    string             md5sum;
+    Properties::String cryptoKey;
+    Properties::String cryptoKeyId;
+    int64_t            totalSpace;               //!< How much storage space does the server have (bytes)
+    int64_t            totalFsSpace;
+    int64_t            usedSpace;                //!< How much storage space is used up (in bytes)
+    int64_t            uptime;                   //!< Chunk server uptime.
+    int                rackId;                   //!< the rack on which the server is located
+    int                numChunks;                //!< # of chunks hosted on this server
+    int                numNotStableAppendChunks; //!< # of not stable append chunks hosted on this server
+    int                numNotStableChunks;       //!< # of not stable chunks hosted on this server
+    int                contentLength;            //!< Length of the message body
+    int64_t            numAppendsWithWid;
+    int                contentIntBase;
+    ChunkInfos         chunks;                   //!< Chunks  hosted on this server
+    ChunkInfos         notStableChunks;
+    ChunkInfos         notStableAppendChunks;
+    int                bytesReceived;
+    bool               staleChunksHexFormatFlag;
     MetaHello()
         : MetaRequest(META_HELLO, false),
           ServerLocation(),
@@ -1318,6 +1320,8 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           peerName(),
           clusterKey(),
           md5sum(),
+          cryptoKey(),
+          cryptoKeyId(),
           totalSpace(0),
           usedSpace(0),
           uptime(0),
@@ -1365,6 +1369,8 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("Content-length",               &MetaHello::contentLength,            int(0))
         .Def("Content-int-base",             &MetaHello::contentIntBase,          int(10))
         .Def("Stale-chunks-hex-format",      &MetaHello::staleChunksHexFormatFlag, false)
+        .Def("CKeyId",                       &MetaHello::cryptoKeyId)
+        .Def("CKey",                         &MetaHello::cryptoKey)
         ;
     }
 };
@@ -2680,7 +2686,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     int                leaseTimeout;
     int64_t            leaseId;
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
-    bool               getChunkLocationsFlag; 
+    bool               getChunkLocationsFlag;
     IOBuffer           responseBuf;
     MetaLeaseAcquire()
         : MetaRequest(META_LEASE_ACQUIRE, false),

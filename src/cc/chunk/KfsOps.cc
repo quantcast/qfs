@@ -35,7 +35,6 @@
 #include "common/kfserrno.h"
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
-#include "kfsio/Base64.h"
 #include "kfsio/CryptoKeys.h"
 
 #include "ChunkManager.h"
@@ -2637,16 +2636,10 @@ WriteSyncOp::Request(ostream& os)
 static void
 SendCryptoKey(ostream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key)
 {
-    char buf[Base64::GetEncodedMaxBufSize(CryptoKeys::Key::GetSize())];
-    const int len = Base64::Encode(key.GetPtr(), key.GetSize(), buf);
-    if (len <= 0 || len > (int)sizeof(buf)) {
-        die("internal error: invalid buffer size");
-    } else {
-        os <<
-            "CryptoKeyId: " << keyId  << "\r\n"
-            "CryptoKey: ";    os.write(buf, len) << "\r\n"
-        ;
-    }
+    os <<
+        "CKeyId: " << keyId << "\r\n"
+        "CKey: "   << key   << "\r\n"
+    ;
 }
 
 void
