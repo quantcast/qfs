@@ -1251,7 +1251,7 @@ LayoutManager::LayoutManager() :
     mAllowLocalPlacementForAppendFlag(false),
     mInRackPlacementForAppendFlag(false),
     mInRackPlacementFlag(false),
-    mAppenPlacementIgnoreMasterSlaveFlag(false),
+    mAppendPlacementIgnoreMasterSlaveFlag(false),
     mAllocateDebugVerifyFlag(false),
     mChunkEntryToChange(0),
     mFattrToChangeTo(0),
@@ -1629,9 +1629,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mInRackPlacementFlag = props.getValue(
         "metaServer.inRackPlacement",
         mInRackPlacementFlag ? 1 : 0) != 0;
-    mAppenPlacementIgnoreMasterSlaveFlag = props.getValue(
-        "metaServer.appenPlacementIgnoreMasterSlave",
-        mAppenPlacementIgnoreMasterSlaveFlag ? 1 : 0) != 0;
+    mAppendPlacementIgnoreMasterSlaveFlag = props.getValue(
+        "metaServer.appendPlacementIgnoreMasterSlave",
+        mAppendPlacementIgnoreMasterSlaveFlag ? 1 : 0) != 0;
     mAllocateDebugVerifyFlag = props.getValue(
         "metaServer.allocateDebugVerify",
         mAllocateDebugVerifyFlag ? 1 : 0) != 0;
@@ -4367,15 +4367,14 @@ LayoutManager::AllocateChunk(
     ChunkServerPtr localserver;
     int            replicaCnt = 0;
     Servers::iterator const li = (! (r->appendChunk ?
-        mAllowLocalPlacementForAppendFlag &&
-            ! mInRackPlacementForAppendFlag :
+        (mAllowLocalPlacementForAppendFlag && ! mInRackPlacementForAppendFlag) :
         mAllowLocalPlacementFlag) ||
         r->clientIp.empty()) ?
         mChunkServers.end() :
         find_if(mChunkServers.begin(), mChunkServers.end(),
             MatchServerByHost(r->clientIp));
     if (li != mChunkServers.end() &&
-            (mAppenPlacementIgnoreMasterSlaveFlag ||
+            (mAppendPlacementIgnoreMasterSlaveFlag ||
                 ! r->appendChunk || (*li)->CanBeChunkMaster()) &&
             IsCandidateServer(**li, minTier, GetRackWeight(
                 mRacks, (*li)->GetRack(), mMaxLocalPlacementWeight)) &&
@@ -4424,7 +4423,7 @@ LayoutManager::AllocateChunk(
         }
     }
     // For append always reserve the first slot -- write master.
-    if ((r->appendChunk && ! mAppenPlacementIgnoreMasterSlaveFlag) ||
+    if ((r->appendChunk && ! mAppendPlacementIgnoreMasterSlaveFlag) ||
             localserver) {
         r->servers.push_back(localserver);
         tiers.push_back(minTier);
@@ -4451,7 +4450,7 @@ LayoutManager::AllocateChunk(
                 continue;
             }
             numCandidates++;
-            if (r->appendChunk && ! mAppenPlacementIgnoreMasterSlaveFlag) {
+            if (r->appendChunk && ! mAppendPlacementIgnoreMasterSlaveFlag) {
                 // for record appends, to avoid deadlocks for
                 // buffer allocation during atomic record
                 // appends, use hierarchical chunkserver
@@ -4494,20 +4493,21 @@ LayoutManager::AllocateChunk(
         if (r->numReplicas <= replicaCnt || placement.IsLastAttempt()) {
             break;
         }
-        if (r->appendChunk && mInRackPlacementForAppendFlag &&
-                rackId >= 0 &&
-                (r->numReplicas + 1) *
-                    placement.GetCandidateRackCount() <
-                mChunkServers.size()) {
+        if (r->appendChunk && mInRackPlacementForAppendFlag && rackId >= 0 &&
+                (r->numReplicas + 1) * placement.GetCandidateRackCount() <
+                    mChunkServers.size()) {
             // Reset, try to find another rack where both replicas
             // can be placed.
             // This assumes that the racks are reasonably
             // "balanced".
             replicaCnt = 0;
             r->servers.clear();
-            r->servers.push_back(ChunkServerPtr());
             localserver.reset();
-            tiers.resize(1, minTier);
+            tiers.clear();
+            if (! mAppendPlacementIgnoreMasterSlaveFlag) {
+                r->servers.push_back(localserver);
+                tiers.push_back(minTier);
+            }
         } else if (r->stripedFileFlag && r->numReplicas > 1 &&
                 numServersPerRack == 1 &&
                 psz == 0 && r->servers.size() == size_t(1)) {
