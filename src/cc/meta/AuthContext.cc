@@ -59,14 +59,13 @@ class AuthContext::Impl
 {
 public:
     Impl(
-        SslFilterServerPsk* inServerPskPtr)
+        bool inAllowPskFlag)
         : mKrbProps(),
           mPskSslProps(),
           mX509SslProps(),
           mKrbServicePtr(),
           mSslCtxPtr(),
           mX509SslCtxPtr(),
-          mServerPskPtr(inServerPskPtr),
           mNameRemap(),
           mBlackList(),
           mWhiteList(),
@@ -76,6 +75,7 @@ public:
           mPrincipalUnparseFlags(0),
           mAuthNoneFlag(false),
           mKrbUseSslFlag(true),
+          mAllowPskFlag(inAllowPskFlag),
           mMemKeytabGen(0),
           mAuthTypes(kAuthenticationTypeUndef)
         {}
@@ -92,7 +92,7 @@ public:
                 (inOp.authType & kAuthenticationTypeKrb5) != 0) ||
             (mX509SslCtxPtr &&
                 (inOp.authType & kAuthenticationTypeX509) != 0) ||
-            (mServerPskPtr && mSslCtxPtr &&
+            (mAllowPskFlag && mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) ||
             (mAuthNoneFlag &&
                     (inOp.authType & kAuthenticationTypeNone) != 0);
@@ -104,7 +104,8 @@ public:
     }
     bool Authenticate(
         MetaAuthenticate&    inOp,
-        SslFilterVerifyPeer* inVerifyPeerPtr)
+        SslFilterVerifyPeer* inVerifyPeerPtr,
+        SslFilterServerPsk*  inServerPskPtr)
     {
         if (! Validate(inOp)) {
             return false;
@@ -121,7 +122,7 @@ public:
             inOp.statusMsg = "partial content read";
             return false;
         }
-        if (mServerPskPtr && mSslCtxPtr &&
+        if (mAllowPskFlag && inServerPskPtr && mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) {
             inOp.responseContentPtr = 0;
             inOp.responseContentLen = 0;
@@ -135,7 +136,7 @@ public:
                 kSessionKeyPtr,
                 kSessionKeyLen,
                 kPskClientIdentityPtr,
-                mServerPskPtr,
+                inServerPskPtr,
                 kVerifyPeerPtr,
                 kDeleteOnCloseFlag
             );
@@ -455,8 +456,7 @@ public:
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theCurLen, thePskSslProps);
         const bool theCreateSslPskFlag  =
-            ((theKrbServicePtr && theKrbUseSslFlag) ||
-            (mServerPskPtr && theX509SslCtxPtr)) &&
+            ((theKrbServicePtr && theKrbUseSslFlag) || mAllowPskFlag) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0;
@@ -545,7 +545,6 @@ private:
     KrbServicePtr    mKrbServicePtr;
     SslCtxPtr        mSslCtxPtr;
     SslCtxPtr        mX509SslCtxPtr;
-    ServerPsk* const mServerPskPtr;
     NameRemap        mNameRemap;
     NameList         mBlackList;
     NameList         mWhiteList;
@@ -555,6 +554,7 @@ private:
     int              mPrincipalUnparseFlags;
     bool             mAuthNoneFlag;
     bool             mKrbUseSslFlag;
+    const bool       mAllowPskFlag;
     unsigned int     mMemKeytabGen;
     int              mAuthTypes;
 
@@ -566,8 +566,8 @@ private:
 };
 
 AuthContext::AuthContext(
-    SslFilterServerPsk* inServerPskPtr)
-    : mImpl(*(new Impl(inServerPskPtr)))
+    bool inAllowPskFlag /* = true */)
+    : mImpl(*(new Impl(inAllowPskFlag)))
 {
 }
 
@@ -616,9 +616,10 @@ AuthContext::Validate(
     bool
 AuthContext::Authenticate(
     MetaAuthenticate&    inOp,
-    SslFilterVerifyPeer* inVerifyPeerPtr)
+    SslFilterVerifyPeer* inVerifyPeerPtr,
+    SslFilterServerPsk*  inServerPskPtr)
 {
-    return mImpl.Authenticate(inOp, inVerifyPeerPtr);
+    return mImpl.Authenticate(inOp, inVerifyPeerPtr, inServerPskPtr);
 }
 
     bool

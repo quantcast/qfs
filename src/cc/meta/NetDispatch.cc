@@ -38,6 +38,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/time.h"
@@ -65,6 +66,7 @@ NetDispatch::NetDispatch()
       mChunkServerFactory(),
       mMutex(0),
       mClientManagerMutex(0),
+      mCryptoKeys(0),
       mRunningFlag(false),
       mClientThreadCount(0),
       mClientThreadsStartCpuAffinity(-1)
@@ -89,7 +91,22 @@ NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
 bool
 NetDispatch::Start()
 {
+    assert(! mMutex && ! mCryptoKeys);
     mMutex = mClientThreadCount > 0 ? new QCMutex() : 0;
+    mCryptoKeys = new CryptoKeys(globalNetManager(), mMutex);
+    string errMsg;
+    if (! mCryptoKeys->SetParameters("metaServer.cryptoKeys.",
+            gLayoutManager.GetConfigParameters(), errMsg)) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to set main crypto keys parameters: " <<
+                errMsg <<
+        KFS_LOG_EOM;
+        delete mCryptoKeys;
+        mCryptoKeys = 0;
+        delete mMutex;
+        mMutex = 0;
+        return false;
+    }
     mClientManagerMutex = mClientThreadCount > 0 ?
         &mClientManager.GetMutex() : 0;
     mRunningFlag = true;
@@ -118,6 +135,8 @@ NetDispatch::Start()
     }
     mClientManager.Shutdown();
     mRunningFlag = false;
+    delete mCryptoKeys;
+    mCryptoKeys = 0;
     mClientManagerMutex = 0;
     delete mMutex;
     mMutex = 0;
@@ -502,6 +521,14 @@ void NetDispatch::SetParameters(const Properties& props)
         globalNetManager().GetMaxAcceptsPerRead()));
 
     sReqStatsGatherer.SetParameters(props);
+
+    string errMsg;
+    if (mCryptoKeys && ! mCryptoKeys->SetParameters(
+            "metaServer.cryptoKeys.", props, errMsg)) {
+        KFS_LOG_STREAM_ERROR <<
+            "crypto keys set parameters failure: " << errMsg <<
+        KFS_LOG_EOM;
+    }
 }
 
 void NetDispatch::GetStatsCsv(ostream& os)
@@ -691,7 +718,7 @@ public:
           mReqPendingHead(0),
           mReqPendingTail(0),
           mFlushQueue(8 << 10),
-          mAuthContext(GetDelegationServerPsk()),
+          mAuthContext(),
           mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
     {
         mNetManager.RegisterTimeoutHandler(this);

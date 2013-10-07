@@ -38,6 +38,7 @@
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/DelegationToken.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "AuditLog.h"
@@ -136,6 +137,7 @@ ClientSM::ClientSM(
     char*                        parseBuffer)
     : KfsCallbackObj(),
       SslFilterVerifyPeer(),
+      SslFilterServerPsk(),
       mNetConnection(conn),
       mClientIp(PeerIp(conn)),
       mPendingOpsCount(0),
@@ -147,6 +149,7 @@ ClientSM::ClientSM(
       mLastReadLeft(0),
       mAuthenticateOp(0),
       mAuthName(),
+      mAuthUid(kKfsUserNone),
       mClientThread(thread),
       mNext(0)
 {
@@ -541,6 +544,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
         mAuthName.clear();
+        mAuthUid = kKfsUserNone;
         if (mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication for now,
             // as this might require changing the filter / ssl on both sides.
@@ -565,7 +569,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     } else {
-        GetAuthContext().Authenticate(*mAuthenticateOp, this);
+        GetAuthContext().Authenticate(*mAuthenticateOp, this, this);
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->doneFlag = true;
@@ -577,7 +581,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     return;
 }
 
-    /* virtual */ bool
+/* virtual */ bool
 ClientSM::Verify(
     string&       ioFilterAuthName,
     bool          inPreverifyOkFlag,
@@ -614,6 +618,40 @@ ClientSM::Verify(
         mAuthName        = authName;
     }
     return true;
+}
+
+/* virtual */ unsigned long
+ClientSM::GetPsk(
+    const char*    inIdentityPtr,
+    unsigned char* inPskBufferPtr,
+    unsigned int   inPskBufferLen,
+    string&        outAuthName)
+{
+    outAuthName.clear();
+    string theErrMsg;
+    DelegationToken theDelegationToken;
+    const CryptoKeys* const theKeysPtr = gNetDispatch.GetCryptoKeys();
+    if (! theKeysPtr) {
+        theErrMsg = "no crypto keys";
+    }
+    const int theKeyLen = theKeysPtr ? theDelegationToken.Process(
+        inIdentityPtr,
+        strlen(inIdentityPtr),
+        (int64_t)(mNetConnection ? mNetConnection->TimeNow() : time(0)),
+        *theKeysPtr,
+        reinterpret_cast<char*>(inPskBufferPtr),
+        (int)min(inPskBufferLen, 0x7FFFFu),
+        &theErrMsg
+    ) : 0;
+    if (theKeyLen > 0) {
+        mAuthUid = theDelegationToken.GetUid();
+        return theKeyLen;
+    }
+    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+        " authentication failure: " << theErrMsg <<
+        " delegation: "             << theDelegationToken <<
+    KFS_LOG_EOM;
+    return 0;
 }
 
 } // namespace KFS

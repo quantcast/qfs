@@ -33,6 +33,7 @@
 #include "TcpSocket.h"
 #include "common/StdAllocator.h"
 
+#include <time.h>
 #include <boost/shared_ptr.hpp>
 #include <list>
 
@@ -388,6 +389,9 @@ public:
         return (mFilter ? mFilter->WantWrite(*this) : IsWriteReady());
     }
 
+    time_t TimeNow() const
+        { return mNetManagerEntry.TimeNow(); }
+
     class NetManagerEntry
     {
     public:
@@ -413,6 +417,7 @@ public:
         bool IsIn() const                 { return mIn; }
         bool IsOut() const                { return mOut; }
         bool IsAdded() const              { return mAdded; }
+        time_t TimeNow() const;
 
     private:
         bool           mIn:1;

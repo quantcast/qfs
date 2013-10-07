@@ -2015,7 +2015,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     }
-    gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp, this);
+    gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp, this, 0);
     if (mAuthenticateOp->status == 0) {
         mAuthName = mAuthenticateOp->authName;
     }

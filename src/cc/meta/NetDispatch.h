@@ -41,6 +41,7 @@ namespace KFS
 using std::ostream;
 class Properties;
 class IOBuffer;
+class CryptoKeys;
 
 class NetDispatch
 {
@@ -58,6 +59,7 @@ public:
     int64_t GetSystemCpuMicroSec() const;
     QCMutex* GetMutex() const { return mMutex; }
     QCMutex* GetClientManagerMutex() const { return mClientManagerMutex; }
+    const CryptoKeys* GetCryptoKeys() const { return mCryptoKeys; }
     bool IsRunning() const { return mRunningFlag; }
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
@@ -67,6 +69,7 @@ private:
     ChunkServerFactory mChunkServerFactory; //!< creates chunk servers when they connect
     QCMutex*           mMutex;
     QCMutex*           mClientManagerMutex;
+    CryptoKeys*        mCryptoKeys;
     bool               mRunningFlag;
     int                mClientThreadCount;
     int                mClientThreadsStartCpuAffinity;

@@ -1149,6 +1149,8 @@ LayoutManager::ChunkPlacement::ChunkPlacement()
     Reserve(512);
 }
 
+const bool kAllowPskFlag = false;
+
 LayoutManager::LayoutManager() :
     mNumOngoingReplications(0),
     mIsRebalancingEnabled(true),
@@ -1307,8 +1309,8 @@ LayoutManager::LayoutManager() :
     mLastUidGidRemap(),
     mIoBufPending(0),
     mAuthCtxUpdateCount(0),
-    mClientAuthContext(GetDelegationServerPsk()),
-    mCSAuthContext(GetDelegationServerPsk()),
+    mClientAuthContext(),
+    mCSAuthContext(kAllowPskFlag),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
     mServersTmp(),

@@ -52,7 +52,8 @@ struct MetaRequest;
 
 class ClientSM :
     public  KfsCallbackObj,
-    private SslFilterVerifyPeer
+    private SslFilterVerifyPeer,
+    private SslFilterServerPsk
 {
 public:
     ClientSM(
@@ -80,6 +81,11 @@ public:
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName);
+    virtual unsigned long GetPsk(
+        const char*    inIdentityPtr,
+        unsigned char* inPskBufferPtr,
+        unsigned int   inPskBufferLen,
+        string&        outAuthName);
 
     static void SetParameters(const Properties& prop);
     static int GetClientCount() { return sClientCount; }
@@ -97,6 +103,7 @@ private:
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
     string                             mAuthName;
+    kfsUid_t                           mAuthUid;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];

@@ -42,13 +42,14 @@ class AuthContext
 {
 public:
     AuthContext(
-        SslFilterServerPsk* inServerPskPtr);
+        bool inAllowPskFlag = true);
     ~AuthContext();
     bool Validate(
         MetaAuthenticate& inOp);
     bool Authenticate(
         MetaAuthenticate&    inOp,
-        SslFilterVerifyPeer* inVerifyPeerPtr);
+        SslFilterVerifyPeer* inVerifyPeerPtr,
+        SslFilterServerPsk*  inServerPskPtr);
     bool RemapAndValidate(
         string& ioAuthName) const;
     bool SetParameters(

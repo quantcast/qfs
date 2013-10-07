@@ -31,6 +31,7 @@
 #include "qcdio/QCUtils.h"
 
 #include <cerrno>
+#include <time.h>
 
 namespace KFS
 {
@@ -217,5 +218,12 @@ NetConnection::Shutdown()
     }
     return mSock->Shutdown();
 }
+
+time_t
+NetConnection::NetManagerEntry::TimeNow() const
+{
+    return (mNetManager ? mNetManager->Now() : time(0));
+}
+
 
 }
