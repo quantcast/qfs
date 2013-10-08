@@ -211,24 +211,51 @@ logger_setup_paths(const string& logdir)
     }
 }
 
-class LogRotater : public ITimeout
+class LogRotater : private ITimeout
 {
 public:
-    LogRotater()
-        : ITimeout()
-        {}
+    static LogRotater& Instance()
+    {
+        static LogRotater sInstance;
+        return sInstance;
+    }
+    ~LogRotater()
+    {
+        if (mStartedFlag) {
+            globalNetManager().UnRegisterTimeoutHandler(this);
+        }
+        sInstancePtr = 0;
+    }
+    void Start()
+    {
+        if (mStartedFlag) {
+            return;
+        }
+        mStartedFlag = true;
+        globalNetManager().RegisterTimeoutHandler(this);
+    }
     void SetInterval(int rotateIntervalSec)
         { SetTimeoutInterval(rotateIntervalSec * 1000); };
     virtual void Timeout()
         { oplog.finishLog(); }
+private:
+    LogRotater()
+        : ITimeout(),
+          mStartedFlag(false)
+        { sInstancePtr = this; }
 
+    bool mStartedFlag;
+    static LogRotater* sInstancePtr;
+private:
+    LogRotater(const LogRotater&);
+    LogRotater& operator=(const LogRotater&);
 };
-static LogRotater logRotater;
+LogRotater* LogRotater::sInstancePtr = 0;
 
 void
 logger_set_rotate_interval(int rotateIntervalSec)
 {
-    logRotater.SetInterval(rotateIntervalSec);
+    LogRotater::Instance().SetInterval(rotateIntervalSec);
 }
 
 void
@@ -248,7 +275,7 @@ logger_init(int rotateIntervalSec)
         panic("KFS::logger_init, startLog", true);
     }
     logger_set_rotate_interval(rotateIntervalSec);
-    globalNetManager().RegisterTimeoutHandler(&logRotater);
+    LogRotater::Instance().Start();
 }
 
 } // namespace KFS.

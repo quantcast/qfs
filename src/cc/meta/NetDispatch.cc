@@ -95,11 +95,12 @@ NetDispatch::Start()
     mMutex = mClientThreadCount > 0 ? new QCMutex() : 0;
     mCryptoKeys = new CryptoKeys(globalNetManager(), mMutex);
     string errMsg;
-    if (! mCryptoKeys->SetParameters("metaServer.cryptoKeys.",
-            gLayoutManager.GetConfigParameters(), errMsg)) {
+    int err;
+    if ((err = mCryptoKeys->SetParameters("metaServer.cryptoKeys.",
+            gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to set main crypto keys parameters: " <<
-                errMsg <<
+                " status: " << err << " " << errMsg <<
         KFS_LOG_EOM;
         delete mCryptoKeys;
         mCryptoKeys = 0;
@@ -112,7 +113,6 @@ NetDispatch::Start()
     mRunningFlag = true;
     // Start the acceptors so that it sets up a connection with the net
     // manager for listening.
-    int err = 0;
     if (mClientThreadsStartCpuAffinity >= 0 &&
             (err = QCThread::SetCurrentThreadAffinity(
                 QCThread::CpuAffinity(mClientThreadsStartCpuAffinity)))) {
@@ -523,10 +523,12 @@ void NetDispatch::SetParameters(const Properties& props)
     sReqStatsGatherer.SetParameters(props);
 
     string errMsg;
-    if (mCryptoKeys && ! mCryptoKeys->SetParameters(
-            "metaServer.cryptoKeys.", props, errMsg)) {
+    int    err;
+    if (mCryptoKeys && (err = mCryptoKeys->SetParameters(
+            "metaServer.cryptoKeys.", props, errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
-            "crypto keys set parameters failure: " << errMsg <<
+            "crypto keys set parameters failure: "
+            " status: " << err << " " << errMsg <<
         KFS_LOG_EOM;
     }
 }
