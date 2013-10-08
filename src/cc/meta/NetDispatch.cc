@@ -94,7 +94,7 @@ NetDispatch::Start()
 {
     assert(! mMutex && ! mCryptoKeys);
     mMutex = mClientThreadCount > 0 ? new QCMutex() : 0;
-    mCryptoKeys = new CryptoKeys(globalNetManager(), mMutex);
+    mCryptoKeys = new CryptoKeys(globalNetManager(), GetMutex());
     string errMsg;
     int err;
     if ((err = mCryptoKeys->SetParameters(kCryptoKeysParamsPrefix,
