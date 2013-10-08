@@ -85,6 +85,7 @@ NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
         mChunkServerFactory.Bind(chunkServerAcceptPort));
 }
 
+const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
 //
 // Open up the server for connections.
 //
@@ -96,7 +97,7 @@ NetDispatch::Start()
     mCryptoKeys = new CryptoKeys(globalNetManager(), mMutex);
     string errMsg;
     int err;
-    if ((err = mCryptoKeys->SetParameters("metaServer.cryptoKeys.",
+    if ((err = mCryptoKeys->SetParameters(kCryptoKeysParamsPrefix,
             gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to set main crypto keys parameters: " <<
@@ -525,7 +526,7 @@ void NetDispatch::SetParameters(const Properties& props)
     string errMsg;
     int    err;
     if (mCryptoKeys && (err = mCryptoKeys->SetParameters(
-            "metaServer.cryptoKeys.", props, errMsg)) != 0) {
+            kCryptoKeysParamsPrefix, props, errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "crypto keys set parameters failure: "
             " status: " << err << " " << errMsg <<
