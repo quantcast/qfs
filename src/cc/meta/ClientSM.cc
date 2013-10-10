@@ -649,7 +649,7 @@ ClientSM::GetPsk(
     }
     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
         " authentication failure: " << theErrMsg <<
-        " delegation: "             << theDelegationToken <<
+        " delegation: "             << theDelegationToken.Show() <<
     KFS_LOG_EOM;
     return 0;
 }

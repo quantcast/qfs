@@ -411,7 +411,7 @@ ClientSM::HandleRequest(int code, void* data)
                 if (mNetConnection->Shutdown() == 0) {
                     CLIENT_SM_LOG_STREAM_INFO <<
                         "filter shutdown"
-                        " delegation: " << mDelegationToken <<
+                        " delegation: " << mDelegationToken.Show() <<
                         " filter: "     << (void*)mNetConnection->GetFilter() <<
                     KFS_LOG_EOM;
                     break;
@@ -420,7 +420,7 @@ ClientSM::HandleRequest(int code, void* data)
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     "invalid filter (ssl) shutdown: "
                     " error: "      << mNetConnection->GetErrorMsg() <<
-                    " delegation: " << mDelegationToken <<
+                    " delegation: " << mDelegationToken.Show() <<
                     " pending"
                     " read: "       << mNetConnection->GetNumBytesToRead() <<
                     " write: "      << mNetConnection->GetNumBytesToWrite() <<
@@ -1071,7 +1071,7 @@ ClientSM::GetPsk(
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "authentication failure: " << theErrMsg <<
-        " delegation: "            << mDelegationToken <<
+        " delegation: "            << mDelegationToken.Show() <<
     KFS_LOG_EOM;
     mDelegationToken.Clear();
     return 0;

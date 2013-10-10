@@ -45,6 +45,20 @@ class CryptoKeys;
 class DelegationToken
 {
 public:
+    class ShowToken
+    {
+    public:
+        ShowToken(
+            const DelegationToken& inToken)
+            : mToken(inToken)
+            {}
+        ostream& Display(
+            ostream& inStream) const
+            { return mToken.ShowSelf(inStream); }
+    private:
+        const DelegationToken& mToken;
+    };
+
     enum { kSignatureLength = 20 };
     enum {
         kAllowDelegationFlag = 0x1
@@ -65,7 +79,9 @@ public:
         uint16_t    inFlags,
         uint32_t    inValidForSec,
         const char* inKeyPtr,
-        int         inKeyLen);
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0);
     ~DelegationToken()
         {}
     bool Init(
@@ -76,19 +92,25 @@ public:
         uint16_t    inFlags,
         uint32_t    inValidForSec,
         const char* inKeyPtr,
-        int         inKeyLen);
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0);
     void Clear()
         { *this = DelegationToken(); }
     string ToString();
     bool FromString(
         const string& inString,
         const char*   inKeyPtr,
-        int           inKeyLen);
+        int           inKeyLen,
+        const char*   inSubjectPtr = 0,
+        int           inSubjectLen = 0);
     bool FromString(
         const char* inPtr,
         int         inLen,
         const char* inKeyPtr,
-        int         inKeyLen);
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0);
     int Process(
         const char*       inPtr,
         int               inLen,
@@ -96,13 +118,17 @@ public:
         const CryptoKeys& inKeys,
         char*             inSessionKeyPtr,
         int               ioMaxSessionKeyLength,
-        string*           outErrMsgPtr);
+        string*           outErrMsgPtr,
+        const char*       inSubjectPtr = 0,
+        int               inSubjectLen = 0);
     ostream& Display(
         ostream& inStream) const;
     istream& Parse(
         istream&    inStream,
         const char* inKeyPtr,
-        int         inKeyLen);
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0);
     kfsUid_t GetUid() const
         { return mUid; }
     kfsUid_t GetSeq() const
@@ -119,15 +145,23 @@ public:
         { return mValidForSec; }
     bool Validate(
         const char* inKeyPtr,
-        int         inKeyLen) const;
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0) const;
     string GetSessionKey(
         const char* inKeyPtr,
-        int         inKeyLen) const;
-    ostream& Show(
-        ostream& inStream);
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0) const;
+    ShowToken Show() const
+        { return ShowToken(*this); }
+    ostream& ShowSelf(
+        ostream& inStream) const;
     string CalcSessionKey(
         const char* inKeyPtr,
-        int         inKeyLen) const;
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0) const;
 private:
     enum { kIssuedTimeShift = 16 };
     kfsUid_t   mUid;
@@ -140,6 +174,11 @@ private:
     class WorkBuf;
     friend class WorkBuf;
 };
+
+inline static ostream& operator << (
+    ostream&                          inStream,
+    const DelegationToken::ShowToken& inShowToken)
+{ return inShowToken.Display(inStream); }
 
 inline static ostream& operator << (
     ostream&               inStream,
