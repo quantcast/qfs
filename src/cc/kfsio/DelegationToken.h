@@ -117,7 +117,7 @@ public:
         int64_t           inTimeNowSec,
         const CryptoKeys& inKeys,
         char*             inSessionKeyPtr,
-        int               ioMaxSessionKeyLength,
+        int               inMaxSessionKeyLength,
         string*           outErrMsgPtr,
         const char*       inSubjectPtr = 0,
         int               inSubjectLen = 0);

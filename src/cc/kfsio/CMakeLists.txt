@@ -42,6 +42,7 @@ set (sources
     DelegationToken.cc
     Base64.cc
     CryptoKeys.cc
+    ChunkAccessToken.cc
 )
 
 add_library (kfsIO STATIC ${sources})
