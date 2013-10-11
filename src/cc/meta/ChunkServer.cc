@@ -916,8 +916,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
-        op->authName = mAuthName;
         mHelloOp = static_cast<MetaHello*>(op);
+        mHelloOp->authName = mAuthName;
         if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKeyId)) {
             mHelloOp = 0;
             delete op;
@@ -1161,7 +1161,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
 /// Case #2: Handle an RPC from a chunkserver.
 ///
 int
-ChunkServer::HandleCmd(IOBuffer *iobuf, int msgLen)
+ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
 {
     assert(mHelloDone);
 
@@ -1182,8 +1182,8 @@ ChunkServer::HandleCmd(IOBuffer *iobuf, int msgLen)
     if (mAuthenticateOp) {
         return Authenticate(*iobuf);
     }
-    op->authName = mAuthName;
-    op->clnt     = this;
+    op->fromChunkServerFlag = true;
+    op->clnt                = this;
     submit_request(op);
     return 0;
 }

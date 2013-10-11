@@ -102,7 +102,6 @@ private:
     bool                               mDisconnectFlag;
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
-    string                             mAuthName;
     kfsUid_t                           mAuthUid;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;

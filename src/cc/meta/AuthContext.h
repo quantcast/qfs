@@ -27,6 +27,7 @@
 #ifndef AUTH_CONTEXT_H
 #define AUTH_CONTEXT_H
 
+#include "common/kfstypes.h"
 #include <string>
 
 namespace KFS
@@ -52,6 +53,14 @@ public:
         SslFilterServerPsk*  inServerPskPtr);
     bool RemapAndValidate(
         string& ioAuthName) const;
+    kfsUid_t GetUid(
+        const string& inAuthName) const;
+    void ClearUids();
+    void SetUid(
+        const string& inAuthName,
+        kfsUid_t      inUid);
+    void SetUids(
+        AuthContext& inOtherCtx);
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,

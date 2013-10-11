@@ -42,6 +42,11 @@ class CryptoKeys;
 class ChunkAccessToken
 {
 public:
+    enum {
+        kAllowReadFlag      = 0x2,
+        kAllowWriteFlag     = 0x4,
+        kAllowClearTextFlag = 0x8
+    };
     class ShowToken
     {
     public:

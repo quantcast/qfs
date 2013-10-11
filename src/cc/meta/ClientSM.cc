@@ -148,7 +148,6 @@ ClientSM::ClientSM(
       mDisconnectFlag(false),
       mLastReadLeft(0),
       mAuthenticateOp(0),
-      mAuthName(),
       mAuthUid(kKfsUserNone),
       mClientThread(thread),
       mNext(0)
@@ -343,9 +342,11 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 delete mAuthenticateOp;
                 mAuthenticateOp = 0;
             } else {
-                mAuthName = mAuthenticateOp->authName;
+                mAuthUid = mAuthenticateOp->authUid;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
+                string authName;
+                authName.swap(mAuthenticateOp->authName);
                 delete mAuthenticateOp;
                 mAuthenticateOp = 0;
                 if (filter) {
@@ -367,7 +368,8 @@ ClientSM::HandleRequestSelf(int code, void *data)
                     KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
                         " auth reply sent:" <<
                         " ssl: "  << (filter ? 1 : 0) <<
-                        " name: " << mAuthName <<
+                        " name: " << authName <<
+                        " uid: "  << mAuthUid <<
                     KFS_LOG_EOM;
                 }
             }
@@ -513,7 +515,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->clientIp         = mClientIp;
     op->fromClientSMFlag = true;
     op->clnt             = this;
-    op->authName         = mAuthName;
     mPendingOpsCount++;
     if (op->op == META_AUTHENTICATE) {
         assert(! mAuthenticateOp);
@@ -533,6 +534,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             return;
         }
     }
+    op->authUid = mAuthUid;
     ClientManager::SubmitRequest(mClientThread, *op);
 }
 
@@ -543,7 +545,6 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         return;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
-        mAuthName.clear();
         mAuthUid = kKfsUserNone;
         if (mNetConnection->GetFilter()) {
             // If filter already exits then do not allow authentication for now,
@@ -596,26 +597,25 @@ ClientSM::Verify(
         " depth: "       << inCurCertDepth <<
     KFS_LOG_EOM;
     // For now do no allow to renegotiate and change the name.
-    string authName = inPeerName;
+    kfsUid_t authUid = kKfsUserNone;
     if (! inPreverifyOkFlag ||
             (inCurCertDepth == 0 &&
-            (! GetAuthContext().RemapAndValidate(authName) ||
-            (! mAuthName.empty() && authName != mAuthName)))) {
+            (((authUid = GetAuthContext().GetUid(inPeerName)) == kKfsUserNone) ||
+            (mAuthUid != kKfsUserNone && mAuthUid != authUid)))) {
         KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
             " autentication failure:"
-            " peer: "  << inPeerName <<
-            " name: "  << authName <<
-            " depth: " << inCurCertDepth <<
-            " is not valid" <<
-            (mAuthName.empty() ? "" : " prev name: ") << mAuthName <<
+            " peer: "       << inPeerName <<
+            " depth: "      << inCurCertDepth <<
+            " is not valid"
+            " prev uid: "   << mAuthUid <<
         KFS_LOG_EOM;
-        mAuthName.clear();
+        mAuthUid = kKfsUserNone;
         ioFilterAuthName.clear();
         return false;
     }
     if (inCurCertDepth == 0) {
         ioFilterAuthName = inPeerName;
-        mAuthName        = authName;
+        mAuthUid         = authUid;
     }
     return true;
 }
@@ -643,7 +643,7 @@ ClientSM::GetPsk(
         (int)min(inPskBufferLen, 0x7FFFFu),
         &theErrMsg
     ) : 0;
-    if (theKeyLen > 0) {
+    if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         return theKeyLen;
     }

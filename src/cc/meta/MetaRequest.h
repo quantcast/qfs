@@ -191,8 +191,8 @@ struct MetaRequest {
     bool            fromClientSMFlag;
     bool            secureFlag;
     string          clientIp;
-    string          authName;
     IOBuffer        reqHeaders;
+    kfsUid_t        authUid;
     kfsUid_t        euser;
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
@@ -214,8 +214,8 @@ struct MetaRequest {
           fromClientSMFlag(false),
           secureFlag(false),
           clientIp(),
-          authName(),
           reqHeaders(),
+          authUid(kKfsUserNone),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),
@@ -1294,6 +1294,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     string             peerName;
     string             clusterKey;
     string             md5sum;
+    string             authName;
     Properties::String cryptoKey;
     Properties::String cryptoKeyId;
     int64_t            totalSpace;               //!< How much storage space does the server have (bytes)
@@ -1320,6 +1321,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           peerName(),
           clusterKey(),
           md5sum(),
+          authName(),
           cryptoKey(),
           cryptoKeyId(),
           totalSpace(0),
@@ -2434,6 +2436,7 @@ struct MetaAuthenticate : public MetaRequest {
     const char*            responseContentPtr;
     int                    responseContentLen;
     bool                   doneFlag;
+    string                 authName;
     NetConnection::Filter* filter;
 
     MetaAuthenticate()
@@ -2446,6 +2449,7 @@ struct MetaAuthenticate : public MetaRequest {
           responseContentPtr(0),
           responseContentLen(0),
           doneFlag(false),
+          authName(),
           filter(0)
           {}
     virtual ~MetaAuthenticate()

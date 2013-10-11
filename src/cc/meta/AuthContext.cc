@@ -69,6 +69,7 @@ public:
           mNameRemap(),
           mBlackList(),
           mWhiteList(),
+          mUidMap(),
           mNameRemapParam(),
           mBlackListParam(),
           mWhiteListParam(),
@@ -185,6 +186,7 @@ public:
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
+                inOp.authUid          = GetUidSelf(theAuthName);
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
@@ -216,6 +218,7 @@ public:
                 inOp.filter           = theFilterPtr;
                 inOp.responseAuthType = kAuthenticationTypeKrb5;
                 inOp.authName         = theAuthName;
+                inOp.authUid          = GetUidSelf(theAuthName);
             }
             return (inOp.status == 0);
         }
@@ -273,6 +276,34 @@ public:
             ((! mKrbServicePtr && ! mX509SslCtxPtr) ||
                 ! ioAuthName.empty())
         );
+    }
+    kfsUid_t GetUid(
+        const string& inAuthName) const
+    {
+        string theAuthName = inAuthName;
+        if (! RemapAndValidate(theAuthName)) {
+            return kKfsUserNone;
+        }
+        return GetUidSelf(theAuthName);
+    }
+    void ClearUids()
+    {
+        mUidMap.clear();
+    }
+    void SetUid(
+        const string& inAuthName,
+        kfsUid_t      inUid)
+    {
+        if (inUid == kKfsUserNone) {
+            mUidMap.erase(inAuthName);
+        } else {
+            mUidMap[inAuthName] = inUid;
+        }
+    }
+    void SetUids(
+        Impl& inOtherCtx)
+    {
+        mUidMap = inOtherCtx.mUidMap;
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
@@ -531,6 +562,12 @@ private:
         less<string>,
         StdFastAllocator<pair<const string, string> >
     > NameRemap;
+    typedef map<
+        string,
+        kfsUid_t,
+        less<string>,
+        StdFastAllocator<pair<const string, kfsUid_t> >
+    > UidMap;
     typedef set<
         string,
         less<string>,
@@ -548,6 +585,7 @@ private:
     NameRemap        mNameRemap;
     NameList         mBlackList;
     NameList         mWhiteList;
+    UidMap           mUidMap;
     string           mNameRemapParam;
     string           mBlackListParam;
     string           mWhiteListParam;
@@ -558,6 +596,12 @@ private:
     unsigned int     mMemKeytabGen;
     int              mAuthTypes;
 
+    kfsUid_t GetUidSelf(
+        const string& inAuthName) const
+    {
+        const UidMap::const_iterator const theIt = mUidMap.find(inAuthName);
+        return (theIt != mUidMap.end() ? theIt->second : kKfsUserNone);
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -627,6 +671,34 @@ AuthContext::RemapAndValidate(
     string& ioAuthName) const
 {
     return mImpl.RemapAndValidate(ioAuthName);
+}
+
+    kfsUid_t
+AuthContext::GetUid(
+    const string& inAuthName) const
+{
+    return mImpl.GetUid(inAuthName);
+}
+
+    void
+AuthContext::ClearUids()
+{
+    mImpl.ClearUids();
+}
+
+    void
+AuthContext::SetUid(
+    const string& inAuthName,
+    kfsUid_t      inUid)
+{
+    mImpl.SetUid(inAuthName, inUid);
+}
+
+    void
+AuthContext::SetUids(
+    AuthContext& inOtherCtx)
+{
+    mImpl.SetUids(inOtherCtx.mImpl);
 }
 
     bool
