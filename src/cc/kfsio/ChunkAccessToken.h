@@ -38,6 +38,7 @@ using std::string;
 using std::ostream;
 
 class CryptoKeys;
+class IOBufferWriter;
 
 class ChunkAccessToken
 {
@@ -90,6 +91,17 @@ public:
     ostream& Display(
         ostream& inStream) const
         { return mDelegationToken.Display(inStream); }
+    static bool WriteToken(
+        IOBufferWriter& inWriter,
+        kfsChunkId_t    inChunkId,
+        kfsUid_t        inUid,
+        uint32_t        inSeq,
+        kfsKeyId_t      inKeyId,
+        int64_t         inIssuedTime,
+        uint16_t        inFlags,
+        uint32_t        inValidForSec,
+        const char*     inKeyPtr,
+        int             inKeyLen);
 private:
     kfsChunkId_t    mChunkId;
     DelegationToken mDelegationToken;

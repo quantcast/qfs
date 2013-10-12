@@ -40,6 +40,7 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/CryptoKeys.h"
 #include "common/Properties.h"
 #include "common/StBuffer.h"
 #include "common/StdAllocator.h"
@@ -2683,15 +2684,36 @@ struct MetaChunkDirInfo : public MetaRequest {
  * \brief Op for acquiring a lease on a chunk of a file.
  */
 struct MetaLeaseAcquire: public MetaRequest {
+    struct ChunkAccessInfo
+    {
+        ServerLocation    serverLocation;
+        chunkId_t         chunkId;
+        CryptoKeys::KeyId keyId;
+        CryptoKeys::Key   key;
+        ChunkAccessInfo(
+            const ServerLocation& loc = ServerLocation(),
+            chunkId_t             id  = -1)
+            : serverLocation(loc),
+              chunkId(id),
+              keyId(),
+              key()
+        {}
+    };
+    typedef StBufferT<ChunkAccessInfo, 3> ChunkAccess;
+
     const LeaseType    leaseType;
     StringBufT<128>    pathname; // Optional for debugging.
     chunkId_t          chunkId;
     bool               flushFlag;
     int                leaseTimeout;
     int64_t            leaseId;
+    bool               clientCSAllowClearTextFlag;
+    time_t             issuedTime;
+    int                validForTime;
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
     bool               getChunkLocationsFlag;
     IOBuffer           responseBuf;
+    ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
         : MetaRequest(META_LEASE_ACQUIRE, false),
           leaseType(READ_LEASE),
@@ -2700,9 +2722,13 @@ struct MetaLeaseAcquire: public MetaRequest {
           flushFlag(false),
           leaseTimeout(LEASE_INTERVAL_SECS),
           leaseId(-1),
+          clientCSAllowClearTextFlag(false),
+          issuedTime(0),
+          validForTime(0),
           chunkIds(),
           getChunkLocationsFlag(false),
-          responseBuf()
+          responseBuf(),
+          chunkAccess()
           {}
     virtual void handle();
     virtual int log(ostream& file) const;

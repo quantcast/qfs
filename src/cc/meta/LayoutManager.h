@@ -1823,6 +1823,9 @@ protected:
     volatile uint64_t mAuthCtxUpdateCount;
     AuthContext       mClientAuthContext;
     AuthContext       mCSAuthContext;
+    bool              mClientCSAuthRequiredFlag;
+    bool              mClientCSAllowClearTextFlag;
+    int               mCSAccessValidForTime;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;

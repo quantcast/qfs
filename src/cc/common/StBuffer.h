@@ -121,8 +121,10 @@ public:
     StBufferT& Append(
         const T& inVal)
     {
-        Resize(mSize + 1);
-        mBufPtr[mSize - 1] = inVal;
+        if (mCapacity <= mSize) {
+            EnsureCapacity(mSize <= 0 ? size_t(1) : 2 * mSize);
+        }
+        mBufPtr[mSize++] = inVal;
         return *this;
     }
 protected:

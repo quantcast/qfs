@@ -1311,6 +1311,9 @@ LayoutManager::LayoutManager() :
     mAuthCtxUpdateCount(0),
     mClientAuthContext(),
     mCSAuthContext(kAllowPskFlag),
+    mClientCSAuthRequiredFlag(false),
+    mClientCSAllowClearTextFlag(false),
+    mCSAccessValidForTime(2 * 60 * 60),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
     mServersTmp(),
@@ -1885,6 +1888,15 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             }
         }
     }
+    mClientCSAuthRequiredFlag = props.getValue(
+        "metaServer.clientCSAuthRequired",
+        mClientCSAuthRequiredFlag ? 1 : 0) != 0;
+    mClientCSAllowClearTextFlag = props.getValue(
+        "metaServer.clientCSAllowClearText",
+        mClientCSAllowClearTextFlag ? 1 : 0) != 0;
+    mCSAccessValidForTime = props.getValue(
+        "metaServer.cSAccessValidForTime", mCSAccessValidForTime);
+
     mConfigParameters = props;
     const bool csOk = mCSAuthContext.SetParameters(
         "metaServer.CSAuthentication.", mConfigParameters);
@@ -5179,6 +5191,8 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
     const char*       e            = p + req.chunkIds.GetSize();
     int               ret          = 0;
     IntIOBufferWriter writer(req.responseBuf);
+    const bool        emitCAFlag   = req.authUid != kKfsUserNone &&
+        0 < req.leaseTimeout && mClientCSAuthRequiredFlag;
     while (p < e) {
         chunkId_t chunkId;
         if (! ValueParser::ParseInt(p, e - p, chunkId)) {
@@ -5204,7 +5218,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                 mChunkToServerMap.GetServers(*cs, servers) > 0 &&
                 mChunkLeases.NewReadLease(
                     chunkId,
-                    TimeNow() + min(req.leaseTimeout, LEASE_INTERVAL_SECS),
+                    TimeNow() + req.leaseTimeout,
                     leaseId)))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
@@ -5225,13 +5239,28 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                     it != servers.end();
                     ++it) {
                 const ServerLocation& loc = (*it)->GetServerLocation();
-                if (loc.IsValid()) {
+                if (loc.IsValid() &&
+                        (! emitCAFlag || (*it)->IsCryptoKeyValid())) {
                     writer.Write(" ", 1);
                     writer.Write(loc.hostname);
                     writer.Write(" ", 1);
                     writer.WriteHexInt(loc.port);
+                    if (emitCAFlag) {
+                        MetaLeaseAcquire::ChunkAccessInfo info(loc, chunkId);
+                        if ((*it)->GetCryptoKey(info.keyId, info.key)) {
+                            req.chunkAccess.Append(info);
+                        } else {
+                            panic("invalid crypto key");
+                            req.chunkAccess.Append(
+                                MetaLeaseAcquire::ChunkAccessInfo());
+                        }
+                    }
                 } else {
                     writer.Write(" ? -1", 5);
+                    if (emitCAFlag) {
+                        req.chunkAccess.Append(
+                            MetaLeaseAcquire::ChunkAccessInfo());
+                    }
                 }
             }
         } else {
@@ -5255,6 +5284,15 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     if (req->suspended || req->next) {
         panic("invalid read lease request");
         return -EFAULT;
+    }
+    if (LEASE_INTERVAL_SECS < req->leaseTimeout) {
+        req->leaseTimeout = LEASE_INTERVAL_SECS;
+    }
+    req->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag &&
+        mClientCSAllowClearTextFlag;
+    if (mClientCSAuthRequiredFlag) {
+        req->issuedTime   = TimeNow();
+        req->validForTime = mCSAccessValidForTime;
     }
     const int ret = GetChunkReadLeases(*req);
     if (ret != 0 || req->chunkId < 0) {
@@ -5300,9 +5338,25 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             ! mChunkLeases.HasWriteLease(req->chunkId) :
             mChunkLeases.NewReadLease(
                 req->chunkId,
-                TimeNow() + min(req->leaseTimeout,
-                    LEASE_INTERVAL_SECS),
+                TimeNow() + req->leaseTimeout,
                 req->leaseId))) {
+        if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
+                req->authUid != kKfsUserNone) {
+            StTmp<Servers>    serversTmp(mServers3Tmp);
+            Servers&          servers = serversTmp.Get();
+            mChunkToServerMap.GetServers(*cs, servers);
+            MetaLeaseAcquire::ChunkAccessInfo
+                info(ServerLocation(), req->chunkId);
+            for (Servers::const_iterator it = servers.begin();
+                    it != servers.end();
+                    ++it) {
+                info.serverLocation = (*it)->GetServerLocation();
+                if (info.serverLocation.IsValid() &&
+                        (*it)->GetCryptoKey(info.keyId, info.key)) {
+                    req->chunkAccess.Append(info);
+                }
+            }
+        }
         return 0;
     }
     req->statusMsg = "has write lease";

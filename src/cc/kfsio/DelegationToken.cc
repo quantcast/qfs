@@ -26,6 +26,7 @@
 #include "DelegationToken.h"
 #include "Base64.h"
 #include "CryptoKeys.h"
+#include "IOBufferWriter.h"
 
 #include "common/MsgLogger.h"
 #include "qcdio/qcdebug.h"
@@ -267,6 +268,20 @@ public:
         }
         return inStream.write(theBuf, theLen);
     }
+    bool Write(
+        IOBufferWriter&        inWriter,
+        const DelegationToken& inToken,
+        const char*            inSignaturePtr)
+    {
+        char theBuf[Base64::GetEncodedMaxBufSize(kTokenSize)];
+        const int theLen = ToBase64(inToken, inSignaturePtr, theBuf);
+        QCRTASSERT(0 < theLen);
+        if (theLen <= 0) {
+            return false;
+        }
+        inWriter.Write(theBuf, theLen);
+        return true;
+    }
     int MakeSessionKey(
         const DelegationToken& inToken,
         const char*            inSignaturePtr,
@@ -293,14 +308,15 @@ public:
         );
     }
     int MakeSessionKey(
-        const char* inKeyPtr,
-        int         inKeyLen,
-        const char* inSubjectPtr,
-        int         inSubjectLen,
-        char*       inKeyBufferPtr,
-        int         inMaxKeyLen,
-        string*     outKeyPtr,
-        string*     outErrMsgPtr)
+        const char*     inKeyPtr,
+        int             inKeyLen,
+        const char*     inSubjectPtr,
+        int             inSubjectLen,
+        char*           inKeyBufferPtr,
+        int             inMaxKeyLen,
+        string*         outKeyPtr,
+        string*         outErrMsgPtr,
+        IOBufferWriter* inWriterPtr = 0)
     {
         if (! inKeyPtr || inKeyLen <= 0) {
             KFS_LOG_STREAM_ERROR <<
@@ -358,6 +374,15 @@ public:
         EVP_MD_CTX_cleanup(&theCtx);
         if (theLen <= 0) {
             return theLen;
+        }
+        if (inWriterPtr) {
+            char      theBuf[Base64::GetEncodedMaxBufSize(EVP_MAX_MD_SIZE)];
+            const int theEncLen = Base64::Encode(
+                reinterpret_cast<const char*>(theMd), theLen, theBuf);
+            if (0 < theEncLen) {
+                inWriterPtr->Write(theBuf, theEncLen);
+            }
+            return theEncLen;
         }
         if (outKeyPtr) {
             outKeyPtr->assign(reinterpret_cast<const char*>(theMd), theLen);
@@ -671,6 +696,61 @@ DelegationToken:: ShowSelf(
     }
     inStream.setf(theFlags);
     return inStream;
+}
+
+    /* static */ bool
+DelegationToken::WriteToken(
+    IOBufferWriter& inWriter,
+    kfsUid_t        inUid,
+    uint32_t        inSeq,
+    kfsKeyId_t      inKeyId,
+    int64_t         inIssuedTime,
+    uint16_t        inFlags,
+    uint32_t        inValidForSec,
+    const char*     inKeyPtr,
+    int             inKeyLen,
+    const char*     inSubjectPtr,
+    int             inSubjectLen,
+    bool            inWriteSessionKeyFlag)
+{
+    DelegationToken theToken(
+        inUid,
+        inSeq,
+        inKeyId,
+        inIssuedTime,
+        inFlags,
+        inValidForSec,
+        0,
+        0
+    );
+    if (! inKeyPtr || inKeyLen <= 0) {
+        return false;
+    }
+    WorkBuf theBuf;
+    if (! theBuf.SerializeAndSign(theToken, inKeyPtr, inKeyLen,
+            inSubjectPtr, inSubjectLen, theToken.mSignature)) {
+        theToken.mValidForSec = 0;
+        return false;
+    }
+    if (! theBuf.Write(inWriter, theToken, theToken.mSignature)) {
+        return false;
+    }
+    inWriter.Write(" ", 1);
+    char* const   theKeyBufferPtr = 0;
+    int const     theMaxKeyLen    = 0;
+    string* const theKeyPtr       = 0;
+    string* const theErrMsgPtr    = 0;
+    return (theBuf.MakeSessionKey(
+        inKeyPtr,
+        inKeyLen,
+        inSubjectPtr,
+        inSubjectLen,
+        theKeyBufferPtr,
+        theMaxKeyLen,
+        theKeyPtr,
+        theErrMsgPtr,
+        &inWriter
+    ) > 0);
 }
 
 }

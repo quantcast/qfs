@@ -41,6 +41,7 @@ using std::istream;
 using std::ostream;
 
 class CryptoKeys;
+class IOBufferWriter;
 
 class DelegationToken
 {
@@ -162,6 +163,48 @@ public:
         int         inKeyLen,
         const char* inSubjectPtr = 0,
         int         inSubjectLen = 0) const;
+    static bool WriteToken(
+        IOBufferWriter& inWriter,
+        kfsUid_t        inUid,
+        uint32_t        inSeq,
+        kfsKeyId_t      inKeyId,
+        int64_t         inIssuedTime,
+        uint16_t        inFlags,
+        uint32_t        inValidForSec,
+        const char*     inKeyPtr,
+        int             inKeyLen,
+        const char*     inSubjectPtr          = 0,
+        int             inSubjectLen          = 0,
+        bool            inWriteSessionKeyFlag = false);
+    static bool WriteTokenAndSessionKey(
+        IOBufferWriter& inWriter,
+        kfsUid_t        inUid,
+        uint32_t        inSeq,
+        kfsKeyId_t      inKeyId,
+        int64_t         inIssuedTime,
+        uint16_t        inFlags,
+        uint32_t        inValidForSec,
+        const char*     inKeyPtr,
+        int             inKeyLen,
+        const char*     inSubjectPtr = 0,
+        int             inSubjectLen = 0)
+    {
+        return  WriteToken(
+            inWriter,
+            inUid,
+            inSeq,
+            inKeyId,
+            inIssuedTime,
+            inFlags,
+            inValidForSec,
+            inKeyPtr,
+            inKeyLen,
+            inSubjectPtr,
+            inSubjectLen,
+            true
+        );
+    }
+
 private:
     enum { kIssuedTimeShift = 16 };
     kfsUid_t   mUid;
