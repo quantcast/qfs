@@ -3957,6 +3957,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             );
             tokenSeq++;
         }
+        writer.Close();
     }
     const int len = responseBuf.BytesConsumable();
     if (len <= 0) {
