@@ -250,6 +250,8 @@ public:
     inline bool UpdateReadLeaseReplicationCheck(
         chunkId_t chunkId,
         bool      setScheduleReplicationCheckFlag);
+    inline bool IsReadLease(
+        LeaseId leaseId);
 private:
     typedef list<
         ReadLease,
@@ -306,8 +308,6 @@ private:
         WriteLeases::iterator it);
     inline void Erase(
         ReadLeases::iterator it);
-    inline bool IsReadLease(
-        LeaseId leaseId);
     inline bool IsWriteLease(
         LeaseId leaseId);
     inline LeaseId NewReadLeaseId();
@@ -1990,6 +1990,9 @@ protected:
     }
     bool FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier);
     bool UpdateClientAuth(AuthContext& ctx);
+    void MakeChunkAccess(
+        const CSMap::Entry&            cs,
+        MetaLeaseAcquire::ChunkAccess& chunkAccess);
 };
 
 extern LayoutManager& gLayoutManager;

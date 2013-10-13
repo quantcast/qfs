@@ -2702,7 +2702,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     typedef StBufferT<ChunkAccessInfo, 3> ChunkAccess;
 
     const LeaseType    leaseType;
-    StringBufT<128>    pathname; // Optional for debugging.
+    StringBufT<256>    pathname; // Optional for debugging.
     chunkId_t          chunkId;
     bool               flushFlag;
     int                leaseTimeout;
@@ -2764,16 +2764,20 @@ struct MetaLeaseAcquire: public MetaRequest {
  * \brief Op for renewing a lease on a chunk of a file.
  */
 struct MetaLeaseRenew: public MetaRequest {
-    LeaseType leaseType; //!< input
-    string    pathname;  //!< full pathname of the file that owns chunk
-    chunkId_t chunkId;   //!< input
-    int64_t   leaseId;   //!< input
+    typedef MetaLeaseAcquire::ChunkAccess ChunkAccess;
+
+    LeaseType       leaseType; //!< input
+    StringBufT<256> pathname;  // Optional for debugging;
+    chunkId_t       chunkId;   //!< input
+    int64_t         leaseId;   //!< input
+    ChunkAccess     chunkAccess;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
           leaseId(-1),
+          chunkAccess(),
           leaseTypeStr()
         {}
     virtual void handle();

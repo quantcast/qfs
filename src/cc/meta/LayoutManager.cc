@@ -5275,6 +5275,26 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
     return ret;
 }
 
+void
+LayoutManager::MakeChunkAccess(
+    const CSMap::Entry&            cs,
+    MetaLeaseAcquire::ChunkAccess& chunkAccess)
+{
+    StTmp<Servers>                    serversTmp(mServers3Tmp);
+    Servers&                          servers = serversTmp.Get();
+    MetaLeaseAcquire::ChunkAccessInfo info(ServerLocation(), cs.GetChunkId());
+    mChunkToServerMap.GetServers(cs, servers);
+    for (Servers::const_iterator it = servers.begin();
+            it != servers.end();
+            ++it) {
+        info.serverLocation = (*it)->GetServerLocation();
+        if (info.serverLocation.IsValid() &&
+                (*it)->GetCryptoKey(info.keyId, info.key)) {
+            chunkAccess.Append(info);
+        }
+    }
+}
+
 /*
  * \brief Process a reqeuest for a READ lease.
 */
@@ -5342,20 +5362,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                 req->leaseId))) {
         if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
                 req->authUid != kKfsUserNone) {
-            StTmp<Servers>    serversTmp(mServers3Tmp);
-            Servers&          servers = serversTmp.Get();
-            mChunkToServerMap.GetServers(*cs, servers);
-            MetaLeaseAcquire::ChunkAccessInfo
-                info(ServerLocation(), req->chunkId);
-            for (Servers::const_iterator it = servers.begin();
-                    it != servers.end();
-                    ++it) {
-                info.serverLocation = (*it)->GetServerLocation();
-                if (info.serverLocation.IsValid() &&
-                        (*it)->GetCryptoKey(info.keyId, info.key)) {
-                    req->chunkAccess.Append(info);
-                }
-            }
+            MakeChunkAccess(*cs, req->chunkAccess);
         }
         return 0;
     }
@@ -5402,13 +5409,30 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
 int
 LayoutManager::LeaseRenew(MetaLeaseRenew *req)
 {
-    if (! mChunkToServerMap.Find(req->chunkId)) {
+    const CSMap::Entry* const cs = mChunkToServerMap.Find(req->chunkId);
+    if (! cs) {
         if (InRecovery()) {
             mChunkLeases.SetMaxLeaseId(req->leaseId + 1);
         }
         return -EINVAL;
     }
-    return mChunkLeases.Renew(req->chunkId, req->leaseId);
+    const bool readLeaseFlag = mChunkLeases.IsReadLease(req->leaseId);
+    if (readLeaseFlag != (req->leaseType == READ_LEASE)) {
+        req->statusMsg = "invalid lease type";
+        return -EINVAL;
+    }
+    if (! readLeaseFlag && req->fromClientSMFlag) {
+        req->statusMsg = "only chunk servers are allowed to renew write leases";
+        return -EPERM;
+    }
+    if (readLeaseFlag) {
+        const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
+        if (ret == 0 && mClientCSAuthRequiredFlag &&
+                req->authUid != kKfsUserNone) {
+            MakeChunkAccess(*cs, req->chunkAccess);
+        }
+    }
+    return 0;
 }
 
 ///

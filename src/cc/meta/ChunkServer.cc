@@ -1182,8 +1182,8 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     if (mAuthenticateOp) {
         return Authenticate(*iobuf);
     }
-    op->fromChunkServerFlag = true;
-    op->clnt                = this;
+    op->fromClientSMFlag = false;
+    op->clnt             = this;
     submit_request(op);
     return 0;
 }
