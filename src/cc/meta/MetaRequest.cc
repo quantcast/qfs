@@ -3916,11 +3916,16 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         buf.Move(&responseBuf);
     }
     if (0 < count) {
-        IntIOBufferWriter writer(responseBuf);
+        bool                         nextLineFlag(! responseBuf.IsEmpty());
+        IntIOBufferWriter            writer(responseBuf);
         const ChunkAccessInfo*       ptr = chunkAccess.GetPtr();
         const ChunkAccessInfo* const end = ptr + count;
         while (ptr < end) {
-            writer.Write("\n", 1);
+            if (nextLineFlag) {
+                writer.Write("\n", 1);
+            } else {
+                nextLineFlag = true;
+            }
             writer.WriteHexInt(ptr->chunkId);
             writer.Write(
                 ptr->serverLocation.hostname.data(),
@@ -3964,20 +3969,78 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         buf.CopyIn("\r\n", 2);
         return;
     }
-    buf.CopyIn("Content-length: ", 16);
-    char tbuf[32];
-    char* const       end = tbuf + sizeof(tbuf);
-    const char* const p   = IntToDecString(len, end);
+    char tbuf[48];
+    char* const end = tbuf + sizeof(tbuf);
+    char* const pe  = end - 4;
+    memcpy(pe, "\r\n\r\n", end - pe);
+    char* const pn = IntToDecString(len, pe);
+    char* const p  = pn - 16;
+    memcpy(p, "Content-length: ", pn - p);
     buf.CopyIn(p, end - p);
-    buf.CopyIn("\r\n\r\n", 4);
     buf.Move(&responseBuf);
     return;
 }
 
 void
-MetaLeaseRenew::response(ostream &os)
+MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
 {
-    PutHeader(this, os) << "\r\n";
+    uint32_t     tokenSeq = 0;
+    const size_t count    = chunkAccess.GetSize();
+    if (status == 0 && 0 < count &&
+            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+        status    = -EFAULT;
+        statusMsg = "pseudo random generator failure";
+    }
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    if (clientCSAllowClearTextFlag) {
+        os << "CSClearText: 1\r\n";
+    }
+    if (count <= 0) {
+        os << "\r\n";
+        return;
+    }
+    IOBuffer                     iobuf;
+    IntIOBufferWriter            writer(iobuf);
+    const ChunkAccessInfo*       ptr          = chunkAccess.GetPtr();
+    const ChunkAccessInfo* const end          = ptr + count;
+    bool                         nextLineFlag = false;
+    while (ptr < end) {
+        if (nextLineFlag) {
+            writer.Write("\n", 1);
+        } else {
+            nextLineFlag = true;
+        }
+        writer.Write(
+            ptr->serverLocation.hostname.data(),
+            ptr->serverLocation.hostname.size());
+        writer.Write(" ", 1);
+        writer.WriteHexInt(ptr->serverLocation.port);
+        writer.Write(" ", 1);
+        ChunkAccessToken::WriteToken(
+            writer,
+            ptr->chunkId,
+            authUid,
+            tokenSeq,
+            ptr->keyId,
+            issuedTime,
+            ChunkAccessToken::kAllowReadFlag |
+                (clientCSAllowClearTextFlag ?
+                    ChunkAccessToken::kAllowClearTextFlag : 0),
+            LEASE_INTERVAL_SECS * 2,
+            ptr->key.GetPtr(),
+            ptr->key.GetSize()
+        );
+        tokenSeq++;
+    }
+    writer.Close();
+    os <<
+        "CS-access: "      << count                   << "\r\n"
+        "Content-length: " << iobuf.BytesConsumable() << "\r\n"
+    "\r\n";
+    os.flush();
+    buf.Move(&iobuf);
 }
 
 void

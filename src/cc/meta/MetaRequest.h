@@ -2764,12 +2764,15 @@ struct MetaLeaseAcquire: public MetaRequest {
  * \brief Op for renewing a lease on a chunk of a file.
  */
 struct MetaLeaseRenew: public MetaRequest {
-    typedef MetaLeaseAcquire::ChunkAccess ChunkAccess;
+    typedef MetaLeaseAcquire::ChunkAccessInfo ChunkAccessInfo;
+    typedef MetaLeaseAcquire::ChunkAccess     ChunkAccess;
 
     LeaseType       leaseType; //!< input
     StringBufT<256> pathname;  // Optional for debugging;
     chunkId_t       chunkId;   //!< input
     int64_t         leaseId;   //!< input
+    bool            clientCSAllowClearTextFlag;
+    time_t          issuedTime;
     ChunkAccess     chunkAccess;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
@@ -2777,12 +2780,14 @@ struct MetaLeaseRenew: public MetaRequest {
           pathname(),
           chunkId(-1),
           leaseId(-1),
+          clientCSAllowClearTextFlag(false),
+          issuedTime(),
           chunkAccess(),
           leaseTypeStr()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
-    virtual void response(ostream &os);
+    virtual void response(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
         os << "lease renew: " << pathname << " ";

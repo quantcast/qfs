@@ -5401,13 +5401,13 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
     if (i == c.end()) {
         return false;
     }
-    KFS_LOG_STREAM_DEBUG << "Valid lease issued on chunk: " <<
+    KFS_LOG_STREAM_DEBUG << "valid lease issued on chunk: " <<
             (*i)->chunkId << KFS_LOG_EOM;
     return true;
 }
 
 int
-LayoutManager::LeaseRenew(MetaLeaseRenew *req)
+LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 {
     const CSMap::Entry* const cs = mChunkToServerMap.Find(req->chunkId);
     if (! cs) {
@@ -5425,7 +5425,10 @@ LayoutManager::LeaseRenew(MetaLeaseRenew *req)
         req->statusMsg = "only chunk servers are allowed to renew write leases";
         return -EPERM;
     }
+    req->clientCSAllowClearTextFlag = readLeaseFlag && mClientCSAuthRequiredFlag &&
+        mClientCSAllowClearTextFlag;
     if (readLeaseFlag) {
+        req->issuedTime = TimeNow();
         const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
         if (ret == 0 && mClientCSAuthRequiredFlag &&
                 req->authUid != kKfsUserNone) {
