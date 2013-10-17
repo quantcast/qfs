@@ -1992,7 +1992,8 @@ protected:
     bool UpdateClientAuth(AuthContext& ctx);
     void MakeChunkAccess(
         const CSMap::Entry&            cs,
-        MetaLeaseAcquire::ChunkAccess& chunkAccess);
+        MetaLeaseAcquire::ChunkAccess& chunkAccess,
+        const ChunkServer*             writeMaster);
 };
 
 extern LayoutManager& gLayoutManager;

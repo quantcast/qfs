@@ -5278,7 +5278,8 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 void
 LayoutManager::MakeChunkAccess(
     const CSMap::Entry&            cs,
-    MetaLeaseAcquire::ChunkAccess& chunkAccess)
+    MetaLeaseAcquire::ChunkAccess& chunkAccess,
+    const ChunkServer*             writeMaster)
 {
     StTmp<Servers>                    serversTmp(mServers3Tmp);
     Servers&                          servers = serversTmp.Get();
@@ -5287,6 +5288,9 @@ LayoutManager::MakeChunkAccess(
     for (Servers::const_iterator it = servers.begin();
             it != servers.end();
             ++it) {
+        if (writeMaster == it->get()) {
+            continue;
+        }
         info.serverLocation = (*it)->GetServerLocation();
         if (info.serverLocation.IsValid() &&
                 (*it)->GetCryptoKey(info.keyId, info.key)) {
@@ -5362,7 +5366,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                 req->leaseId))) {
         if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
                 req->authUid != kKfsUserNone) {
-            MakeChunkAccess(*cs, req->chunkAccess);
+            MakeChunkAccess(*cs, req->chunkAccess, 0);
         }
         return 0;
     }
@@ -5427,15 +5431,13 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
     }
     req->clientCSAllowClearTextFlag = readLeaseFlag && mClientCSAuthRequiredFlag &&
         mClientCSAllowClearTextFlag;
-    if (readLeaseFlag) {
+    const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
+    if (ret == 0 && mClientCSAuthRequiredFlag &&
+            req->authUid != kKfsUserNone) {
         req->issuedTime = TimeNow();
-        const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
-        if (ret == 0 && mClientCSAuthRequiredFlag &&
-                req->authUid != kKfsUserNone) {
-            MakeChunkAccess(*cs, req->chunkAccess);
-        }
+        MakeChunkAccess(*cs, req->chunkAccess, req->chunkServer);
     }
-    return 0;
+    return ret;
 }
 
 ///

@@ -925,6 +925,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     kfsSTier_t           minSTier;
     kfsSTier_t           maxSTier;
     string               responseStr; // Cached response
+    CryptoKeys::KeyId    keyId;       // Write master's key id and key.
+    CryptoKeys::Key      key;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
     StringBufT<64>       clientHost;   //!< the host from which request was received
@@ -957,6 +959,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
           responseStr(),
+          keyId(),
+          key(),
           clientHost(),
           pathname()
     {
@@ -2767,13 +2771,14 @@ struct MetaLeaseRenew: public MetaRequest {
     typedef MetaLeaseAcquire::ChunkAccessInfo ChunkAccessInfo;
     typedef MetaLeaseAcquire::ChunkAccess     ChunkAccess;
 
-    LeaseType       leaseType; //!< input
-    StringBufT<256> pathname;  // Optional for debugging;
-    chunkId_t       chunkId;   //!< input
-    int64_t         leaseId;   //!< input
-    bool            clientCSAllowClearTextFlag;
-    time_t          issuedTime;
-    ChunkAccess     chunkAccess;
+    LeaseType          leaseType; //!< input
+    StringBufT<256>    pathname;  // Optional for debugging;
+    chunkId_t          chunkId;   //!< input
+    int64_t            leaseId;   //!< input
+    bool               clientCSAllowClearTextFlag;
+    time_t             issuedTime;
+    ChunkAccess        chunkAccess;
+    const ChunkServer* chunkServer;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
@@ -2783,11 +2788,14 @@ struct MetaLeaseRenew: public MetaRequest {
           clientCSAllowClearTextFlag(false),
           issuedTime(),
           chunkAccess(),
+          chunkServer(0),
           leaseTypeStr()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream& os, IOBuffer& buf);
+    virtual void setChunkServer(const ChunkServerPtr& cs)
+        { chunkServer = cs.get(); }
     virtual ostream& ShowSelf(ostream& os) const
     {
         os << "lease renew: " << pathname << " ";
