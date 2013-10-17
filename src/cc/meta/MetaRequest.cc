@@ -1745,9 +1745,20 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     }
     if (appendChunk) {
         if (status >= 0 && responseStr.empty()) {
-            ostringstream os;
-            responseSelf(os);
-            responseStr = os.str();
+            if (responseAccessStr.empty() && writeMasterKeyValidFlag &&
+                    ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+                status    = -EFAULT;
+                statusMsg = "pseudo random generator failure";
+            } else {
+                ostringstream os;
+                responseSelf(os);
+                responseStr = os.str();
+                if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
+                    ostringstream os;
+                    writeChunkAccess(os);
+                    responseAccessStr = os.str();
+                }
+            }
         }
         gLayoutManager.AllocateChunkForAppendDone(*this);
     }
@@ -1776,10 +1787,17 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     // Update the process time, charged from MetaChunkAllocate.
     const int64_t now = microseconds();
     processTime += now - chunkAllocProcessTime;
+    if (! next) {
+        submit_request(this);
+        return;
+    }
     // Clone status for all ops in the queue.
     // Submit the replies in the same order as requests.
     // "this" might get deleted after submit_request()
-    MetaAllocate* n = this;
+    MetaAllocate*         n     = this;
+    const string          ra    = responseAccessStr;
+    const kfsUid_t        rauid = accessStrUid;
+    const CryptoKeys::Key wmkey = writeMasterKey;
     do {
         MetaAllocate& c = *n;
         n = c.next;
@@ -1804,6 +1822,20 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             if (q.responseStr.empty()) {
                 q.servers = c.servers;
                 q.master  = c.master;
+            }
+            q.writeMasterKeyValidFlag = c.writeMasterKeyValidFlag;
+            if (q.writeMasterKeyValidFlag) {
+                q.tokenSeq                   = c.tokenSeq;
+                q.clientCSAllowClearTextFlag = c.clientCSAllowClearTextFlag;
+                q.issuedTime                 = c.issuedTime;
+                q.validForTime               = c.validForTime;
+                q.writeMasterKeyId           = c.writeMasterKeyId;
+                if (ra.empty() || rauid != c.authUid) {
+                    q.writeMasterKey = wmkey;
+                } else {
+                    q.accessStrUid      = rauid;
+                    q.responseAccessStr = ra;
+                }
             }
         }
         submit_request(&c);
@@ -3851,16 +3883,65 @@ MetaGetlayout::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaAllocate::response(ostream &os)
+MetaAllocate::response(ostream& os)
 {
+    if (responseAccessStr.empty() &&
+            status == 0 && writeMasterKeyValidFlag &&
+            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+        status    = -EFAULT;
+        statusMsg = "pseudo random generator failure";
+    }
     if (! OkHeader(this, os)) {
         return;
     }
+    writeChunkAccess(os);
     responseSelf(os);
 }
 
 void
-MetaAllocate::responseSelf(ostream &os)
+MetaAllocate::writeChunkAccess(ostream& os)
+{
+    if (! responseAccessStr.empty()) {
+        os.write(responseAccessStr.data(), responseAccessStr.size());
+        return;
+    }
+    if (clientCSAllowClearTextFlag) {
+        os << "CSClearText: 1\r\n";
+    }
+    os << "CS-access: ";
+    const int16_t kDelegationFlags = 0;
+    DelegationToken::WriteTokenAndSessionKey(
+        os,
+        authUid,
+        tokenSeq,
+        writeMasterKeyId,
+        issuedTime,
+        kDelegationFlags,
+        validForTime,
+        writeMasterKey.GetPtr(),
+        writeMasterKey.GetSize()
+    );
+    os << "\r\n"
+        "C-access: ";
+    ChunkAccessToken::WriteToken(
+        os,
+        chunkId,
+        authUid,
+        tokenSeq,
+        writeMasterKeyId,
+        issuedTime,
+        ChunkAccessToken::kAllowWriteFlag |
+            (clientCSAllowClearTextFlag ?
+                ChunkAccessToken::kAllowClearTextFlag : 0),
+        LEASE_INTERVAL_SECS * 2,
+        writeMasterKey.GetPtr(),
+        writeMasterKey.GetSize()
+    );
+    os << "\r\n";
+}
+
+void
+MetaAllocate::responseSelf(ostream& os)
 {
     if (status < 0) {
         return;
@@ -3869,8 +3950,9 @@ MetaAllocate::responseSelf(ostream &os)
         os.write(responseStr.data(), responseStr.size());
         return;
     }
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n";
+    os <<
+        "Chunk-handle: "  << chunkId      << "\r\n"
+        "Chunk-version: " << chunkVersion << "\r\n";
     if (appendChunk) {
         os << "Chunk-offset: " << offset << "\r\n";
     }

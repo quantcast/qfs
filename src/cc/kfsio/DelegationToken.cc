@@ -54,6 +54,8 @@ using std::setfill;
 using std::setw;
 using std::min;
 
+namespace {
+
 class EvpError
 {
 public:
@@ -111,6 +113,8 @@ static inline ostream& operator << (
     ostream&        inStream,
     const EvpError& inError)
 { return inError.Display(inStream); }
+
+};
 
 class DelegationToken::WorkBuf
 {
@@ -268,8 +272,9 @@ public:
         }
         return inStream.write(theBuf, theLen);
     }
+    template<typename T>
     bool Write(
-        IOBufferWriter&        inWriter,
+        T&                     inWriter,
         const DelegationToken& inToken,
         const char*            inSignaturePtr)
     {
@@ -308,6 +313,30 @@ public:
         );
     }
     int MakeSessionKey(
+        const char* inKeyPtr,
+        int         inKeyLen,
+        const char* inSubjectPtr,
+        int         inSubjectLen,
+        char*       inKeyBufferPtr,
+        int         inMaxKeyLen,
+        string*     outKeyPtr,
+        string*     outErrMsgPtr)
+    {
+        IOBufferWriter* const theWriterPtr = 0;
+        return MakeSessionKey(
+            inKeyPtr,
+            inKeyLen,
+            inSubjectPtr,
+            inSubjectLen,
+            inKeyBufferPtr,
+            inMaxKeyLen,
+            outKeyPtr,
+            outErrMsgPtr,
+            theWriterPtr
+        );
+    }
+    template<typename T>
+    int MakeSessionKey(
         const char*     inKeyPtr,
         int             inKeyLen,
         const char*     inSubjectPtr,
@@ -316,7 +345,7 @@ public:
         int             inMaxKeyLen,
         string*         outKeyPtr,
         string*         outErrMsgPtr,
-        IOBufferWriter* inWriterPtr = 0)
+        T*              inWriterPtr)
     {
         if (! inKeyPtr || inKeyLen <= 0) {
             KFS_LOG_STREAM_ERROR <<
@@ -698,9 +727,9 @@ DelegationToken:: ShowSelf(
     return inStream;
 }
 
-    /* static */ bool
-DelegationToken::WriteToken(
-    IOBufferWriter& inWriter,
+    /* static */ template<typename T> bool
+DelegationToken::WriteTokenSelf(
+    T&              inWriter,
     kfsUid_t        inUid,
     uint32_t        inSeq,
     kfsKeyId_t      inKeyId,
@@ -735,6 +764,9 @@ DelegationToken::WriteToken(
     if (! theBuf.Write(inWriter, theToken, theToken.mSignature)) {
         return false;
     }
+    if (! inWriteSessionKeyFlag) {
+        return true;
+    }
     inWriter.Write(" ", 1);
     char* const   theKeyBufferPtr = 0;
     int const     theMaxKeyLen    = 0;
@@ -751,6 +783,88 @@ DelegationToken::WriteToken(
         theErrMsgPtr,
         &inWriter
     ) > 0);
+}
+
+    /* static */ bool
+DelegationToken::WriteToken(
+    IOBufferWriter& inWriter,
+    kfsUid_t        inUid,
+    uint32_t        inSeq,
+    kfsKeyId_t      inKeyId,
+    int64_t         inIssuedTime,
+    uint16_t        inFlags,
+    uint32_t        inValidForSec,
+    const char*     inKeyPtr,
+    int             inKeyLen,
+    const char*     inSubjectPtr,
+    int             inSubjectLen,
+    bool            inWriteSessionKeyFlag)
+{
+    return WriteTokenSelf(
+        inWriter,
+        inUid,
+        inSeq,
+        inKeyId,
+        inIssuedTime,
+        inFlags,
+        inValidForSec,
+        inKeyPtr,
+        inKeyLen,
+        inSubjectPtr,
+        inSubjectLen,
+        inWriteSessionKeyFlag
+    );
+}
+
+namespace {
+class OstreamWriter
+{
+public:
+    OstreamWriter(
+        ostream& inStream)
+        : mStream(inStream)
+        {}
+    void Write(
+        const char* inDataPtr,
+        size_t      inLength) const
+    {
+        mStream.write(inDataPtr, inLength);
+    }
+private:
+    ostream& mStream;
+};
+}
+
+    /* static */ bool
+DelegationToken::WriteToken(
+    ostream&    inStream,
+    kfsUid_t    inUid,
+    uint32_t    inSeq,
+    kfsKeyId_t  inKeyId,
+    int64_t     inIssuedTime,
+    uint16_t    inFlags,
+    uint32_t    inValidForSec,
+    const char* inKeyPtr,
+    int         inKeyLen,
+    const char* inSubjectPtr,
+    int         inSubjectLen,
+    bool        inWriteSessionKeyFlag)
+{
+    OstreamWriter theWriter(inStream);
+    return WriteTokenSelf(
+        theWriter,
+        inUid,
+        inSeq,
+        inKeyId,
+        inIssuedTime,
+        inFlags,
+        inValidForSec,
+        inKeyPtr,
+        inKeyLen,
+        inSubjectPtr,
+        inSubjectLen,
+        inWriteSessionKeyFlag
+    );
 }
 
 }

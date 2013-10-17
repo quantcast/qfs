@@ -161,4 +161,32 @@ ChunkAccessToken::WriteToken(
     );
 }
 
+    /* static */ bool
+ChunkAccessToken::WriteToken(
+    ostream&     inStream,
+    kfsChunkId_t inChunkId,
+    kfsUid_t     inUid,
+    uint32_t     inSeq,
+    kfsKeyId_t   inKeyId,
+    int64_t      inIssuedTime,
+    uint16_t     inFlags,
+    uint32_t     inValidForSec,
+    const char*  inKeyPtr,
+    int          inKeyLen)
+{
+    return DelegationToken::WriteToken(
+        inStream,
+        inUid,
+        inSeq,
+        inKeyId,
+        inIssuedTime,
+        inFlags,
+        inValidForSec,
+        inKeyPtr,
+        inKeyLen,
+        Subject(inChunkId),
+        Subject::GetSize()
+    );
+}
+
 }

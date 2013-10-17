@@ -925,8 +925,15 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     kfsSTier_t           minSTier;
     kfsSTier_t           maxSTier;
     string               responseStr; // Cached response
-    CryptoKeys::KeyId    keyId;       // Write master's key id and key.
-    CryptoKeys::Key      key;
+    string               responseAccessStr;
+    bool                 writeMasterKeyValidFlag;
+    bool                 clientCSAllowClearTextFlag;
+    uint32_t             tokenSeq;
+    kfsUid_t             accessStrUid;
+    time_t               issuedTime;
+    int                  validForTime;
+    CryptoKeys::KeyId    writeMasterKeyId;
+    CryptoKeys::Key      writeMasterKey;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
     StringBufT<64>       clientHost;   //!< the host from which request was received
@@ -959,8 +966,15 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
           responseStr(),
-          keyId(),
-          key(),
+          responseAccessStr(),
+          writeMasterKeyValidFlag(false),
+          clientCSAllowClearTextFlag(false),
+          tokenSeq(),
+          accessStrUid(kKfsUserNone),
+          issuedTime(),
+          validForTime(0),
+          writeMasterKeyId(),
+          writeMasterKey(),
           clientHost(),
           pathname()
     {
@@ -977,6 +991,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int logOrLeaseRelinquishDone(int code, void *data);
     int CheckStatus(bool forceFlag = false) const;
     bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
+    void writeChunkAccess(ostream& os);
     bool Validate()
     {
         return (fid >= 0 && (offset >= 0 || appendChunk));

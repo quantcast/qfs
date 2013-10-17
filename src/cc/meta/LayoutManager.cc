@@ -5372,7 +5372,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     }
     req->statusMsg = "has write lease";
     if (req->flushFlag) {
-        const char* errMsg = mChunkLeases.FlushWriteLease(
+        const char* const errMsg = mChunkLeases.FlushWriteLease(
             req->chunkId, mARAChunkCache, mChunkToServerMap);
         req->statusMsg += "; ";
         req->statusMsg += errMsg ? errMsg :

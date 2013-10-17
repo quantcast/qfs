@@ -176,18 +176,32 @@ public:
         const char*     inSubjectPtr          = 0,
         int             inSubjectLen          = 0,
         bool            inWriteSessionKeyFlag = false);
+    static bool WriteToken(
+        ostream&    inStream,
+        kfsUid_t    inUid,
+        uint32_t    inSeq,
+        kfsKeyId_t  inKeyId,
+        int64_t     inIssuedTime,
+        uint16_t    inFlags,
+        uint32_t    inValidForSec,
+        const char* inKeyPtr,
+        int         inKeyLen,
+        const char* inSubjectPtr          = 0,
+        int         inSubjectLen          = 0,
+        bool        inWriteSessionKeyFlag = false);
+    template<typename T>
     static bool WriteTokenAndSessionKey(
-        IOBufferWriter& inWriter,
-        kfsUid_t        inUid,
-        uint32_t        inSeq,
-        kfsKeyId_t      inKeyId,
-        int64_t         inIssuedTime,
-        uint16_t        inFlags,
-        uint32_t        inValidForSec,
-        const char*     inKeyPtr,
-        int             inKeyLen,
-        const char*     inSubjectPtr = 0,
-        int             inSubjectLen = 0)
+        T&          inWriter,
+        kfsUid_t    inUid,
+        uint32_t    inSeq,
+        kfsKeyId_t  inKeyId,
+        int64_t     inIssuedTime,
+        uint16_t    inFlags,
+        uint32_t    inValidForSec,
+        const char* inKeyPtr,
+        int         inKeyLen,
+        const char* inSubjectPtr = 0,
+        int         inSubjectLen = 0)
     {
         return  WriteToken(
             inWriter,
@@ -214,6 +228,20 @@ private:
     uint32_t   mValidForSec;
     char       mSignature[kSignatureLength];
 
+    template<typename T>
+    static bool WriteTokenSelf(
+        T&          inWriter,
+        kfsUid_t    inUid,
+        uint32_t    inSeq,
+        kfsKeyId_t  inKeyId,
+        int64_t     inIssuedTime,
+        uint16_t    inFlags,
+        uint32_t    inValidForSec,
+        const char* inKeyPtr,
+        int         inKeyLen,
+        const char* inSubjectPtr,
+        int         inSubjectLen,
+        bool        inWriteSessionKeyFlag);
     class WorkBuf;
     friend class WorkBuf;
 };
