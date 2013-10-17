@@ -179,7 +179,7 @@ LeaseClerk::HandleEvent(int code, void *data)
             } else if (op->op != CMD_LEASE_RELINQUISH) {
                 // Relinquish op will get here with its default handler, but
                 // no other op should,
-                KFS_LOG_STREAM_DEBUG << "unexpected op: " << op->op <<
+                KFS_LOG_STREAM_ERROR << "unexpected op: " << op->op <<
                 KFS_LOG_EOM;
             }
             delete op;
@@ -277,7 +277,7 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t size,
     // Notify metaserver if the lease exists, even if lease expired or renew is
     // in flight, then delete the lease.
     const LeaseInfo_t& lease = *it;
-    LeaseRelinquishOp *op = new LeaseRelinquishOp(
+    LeaseRelinquishOp* const op = new LeaseRelinquishOp(
         -1, chunkId, lease.leaseId, kWriteLease);
     KFS_LOG_STREAM_INFO <<
         "sending lease relinquish for:"
