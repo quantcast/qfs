@@ -1163,10 +1163,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
 int
 ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
 {
-    assert(mHelloDone);
+    if (! mHelloDone || mAuthenticateOp) {
+        panic("chunk server state machine invalid state"
+            " unfinished hello or authentication request");
+        return -1;
+    }
 
-    MetaRequest* const op = mAuthenticateOp ? mAuthenticateOp :
-        GetOp(*iobuf, msgLen, "invalid request");
+    MetaRequest* const op = GetOp(*iobuf, msgLen, "invalid request");
     if (! op) {
         return -1;
     }
@@ -1176,7 +1179,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     }
     // Message is ready to be pushed down.  So remove it.
     iobuf->Consume(msgLen);
-    if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
+    if (op->op == META_AUTHENTICATE) {
         mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
     }
     if (mAuthenticateOp) {
