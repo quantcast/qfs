@@ -5122,7 +5122,9 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     if (! pending && mClientCSAuthRequiredFlag &&
             (req->responseAccessStr.empty() ||
             (accessExpiredFlag =
-                req->issuedTime + LEASE_INTERVAL_SECS * 2 / 3 < now))) {
+                req->issuedTime +
+                    min(mCSAccessValidForTime / 3,
+                        LEASE_INTERVAL_SECS * 2 / 3) < now))) {
         // 2/3 of the lease time implicitly assumes that the chunk access token
         // life time is double of more of the lease time.
         if (entry->master &&
