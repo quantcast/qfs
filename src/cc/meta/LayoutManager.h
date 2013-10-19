@@ -554,12 +554,20 @@ public:
               numAppendersInChunk(0),
               permissions(perms),
               master(req ? req->master : ChunkServerPtr()),
+              issuedTime(req ? req->issuedTime : time_t(0)),
+              authUid(req ? req->authUid : kKfsUserNone),
               lastPendingRequest(req),
-              responseStr()
+              responseStr(),
+              responseAccessStr()
             {}
         bool AddPending(MetaAllocate& req);
         bool IsAllocationPending() const {
             return (lastPendingRequest != 0);
+        }
+        void SetResponseAccess(const MetaAllocate& req) {
+            responseAccessStr = req.responseAccessStr;
+            authUid           = req.authUid;
+            issuedTime        = req.issuedTime;
         }
         // index into chunk->server map to work out where the block lives
         chunkId_t          chunkId;
@@ -576,8 +584,11 @@ public:
         const Permissions* permissions;
         ChunkServerPtr     master;
     private:
+        time_t        issuedTime;
+        kfsUid_t      authUid;
         MetaAllocate* lastPendingRequest;
         string        responseStr;
+        string        responseAccessStr;
         friend class ARAChunkCache;
     };
     typedef map <fid_t, Entry, less<fid_t>,

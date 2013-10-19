@@ -929,7 +929,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     bool                 writeMasterKeyValidFlag;
     bool                 clientCSAllowClearTextFlag;
     uint32_t             tokenSeq;
-    kfsUid_t             accessStrUid;
     time_t               issuedTime;
     int                  validForTime;
     CryptoKeys::KeyId    writeMasterKeyId;
@@ -970,7 +969,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           writeMasterKeyValidFlag(false),
           clientCSAllowClearTextFlag(false),
           tokenSeq(),
-          accessStrUid(kKfsUserNone),
           issuedTime(),
           validForTime(0),
           writeMasterKeyId(),

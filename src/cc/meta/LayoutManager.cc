@@ -266,6 +266,10 @@ ARAChunkCache::Entry::AddPending(MetaAllocate& req)
     if (! lastPendingRequest || ! req.appendChunk) {
         if (req.appendChunk) {
             req.responseStr = responseStr;
+            if (req.authUid == authUid) {
+                req.responseAccessStr = responseAccessStr;
+                req.issuedTime        = issuedTime;
+            }
         }
         return false;
     }
@@ -309,8 +313,9 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
     if (entry.lastPendingRequest) {
         // Transition from pending to complete.
         // Cache the response. Restart decay timer.
-        entry.responseStr        = req.responseStr;
-        entry.lastDecayTime      = entry.lastAccessedTime;
+        entry.responseStr   = req.responseStr;
+        entry.lastDecayTime = entry.lastAccessedTime;
+        entry.SetResponseAccess(req);
         entry.lastPendingRequest = 0;
     }
 }
@@ -4959,7 +4964,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate *r, bool &isNewLease)
             r->stripedFileFlag,
             r,
             r->leaseId)) {
-        panic("failed to get write lease for a new chunk");
+        panic("failed to get write lease for a chunk");
     }
 
     r->master = r->servers[0];
@@ -5113,6 +5118,46 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         mARAChunkCache.Invalidate(it);
         return -1;
     }
+    bool accessExpiredFlag = false;
+    if (! pending && mClientCSAuthRequiredFlag &&
+            (req->responseAccessStr.empty() ||
+            (accessExpiredFlag =
+                req->issuedTime + LEASE_INTERVAL_SECS * 2 / 3 < now))) {
+        // 2/3 of the lease time implicitly assumes that the chunk access token
+        // life time is double of more of the lease time.
+        if (entry->master &&
+                (req->writeMasterKeyValidFlag = entry->master->GetCryptoKey(
+                        req->writeMasterKeyId, req->writeMasterKey))) {
+            req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
+            req->issuedTime                 = now;
+            req->validForTime               = mCSAccessValidForTime;
+            if (accessExpiredFlag &&
+                    entry->numAppendersInChunk < mMaxAppendersPerChunk) {
+                req->responseAccessStr.clear();
+                if (! CryptoKeys::PseudoRand(
+                        &req->tokenSeq, sizeof(req->tokenSeq))) {
+                    req->status    = -EALLOCFAILED;
+                    req->statusMsg = "pseudo random generator failure";
+                    return 0;
+                }
+                ostringstream os;
+                req->writeChunkAccess(os);
+                req->responseAccessStr = os.str();
+                entry->SetResponseAccess(*req);
+            }
+        } else {
+            KFS_LOG_STREAM_WARN <<
+                "invalid write append cache entry:"
+                " no master or master has no valid crypto key"  <<
+                " file: "   << req->fid <<
+                " chunk: "  << entry->chunkId <<
+                " offset: " << entry->offset <<
+            KFS_LOG_EOM;
+            req->responseAccessStr.clear();
+            mARAChunkCache.Invalidate(it);
+            return -1;
+        }
+    }
     KFS_LOG_STREAM_DEBUG <<
         "Valid write lease exists for " << req->chunkId <<
         " expires in " << (wl->expires - TimeNow()) << " sec" <<
@@ -5122,7 +5167,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         " num appenders: " << entry->numAppendersInChunk <<
         (pending ? " allocation in progress" : "") <<
     KFS_LOG_EOM;
-    if (entry->numAppendersInChunk >= mMaxAppendersPerChunk) {
+    if (mMaxAppendersPerChunk <= entry->numAppendersInChunk) {
         mARAChunkCache.Invalidate(it);
     }
     return 0;
@@ -6342,6 +6387,17 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             panic("no striped file allocation entry");
         }
     }
+    if (mClientCSAuthRequiredFlag && 0 <= r->status) {
+        r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
+        if ((r->writeMasterKeyValidFlag = r->master->GetCryptoKey(
+                r->writeMasterKeyId, r->writeMasterKey))) {
+            r->issuedTime   = TimeNow();
+            r->validForTime = mCSAccessValidForTime;
+        } else {
+            r->status    = -EALLOCFAILED;
+            r->statusMsg = "no write master crypto key";
+        }
+    }
     if (r->status >= 0) {
         // Tree::assignChunkId() succeeded.
         // File and chunk ids are valid and in sync with meta tree.
@@ -6398,13 +6454,13 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             // With checkpoints from forked copy enabled checkpoint
             // can start *before* the corresponding make stable
             // starts
-            pair<PendingMakeStableMap::iterator, bool> const res =
-                mPendingMakeStable.insert(make_pair(
-                    r->chunkId, PendingMakeStableEntry()));
-            if (res.second) {
-                res.first->second.mChunkVersion =
-                    r->chunkVersion;
-            }
+            const chunkOff_t kSize            = -1;
+            const bool       kHasChecksumFlag = false;
+            const uint32_t   kChecksum        = 0;
+            mPendingMakeStable.insert(make_pair(
+                r->chunkId, PendingMakeStableEntry(
+                    kSize, kHasChecksumFlag, kChecksum, r->chunkVersion)
+            ));
         }
         return;
     }

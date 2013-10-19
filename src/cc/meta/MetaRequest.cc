@@ -1744,10 +1744,10 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         gLayoutManager.CommitOrRollBackChunkVersion(this);
     }
     if (appendChunk) {
-        if (status >= 0 && responseStr.empty()) {
+        if (0 <= status && responseStr.empty()) {
             if (responseAccessStr.empty() && writeMasterKeyValidFlag &&
                     ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-                status    = -EFAULT;
+                status    = -EALLOCFAILED;
                 statusMsg = "pseudo random generator failure";
             } else {
                 ostringstream os;
@@ -1796,7 +1796,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     // "this" might get deleted after submit_request()
     MetaAllocate*         n     = this;
     const string          ra    = responseAccessStr;
-    const kfsUid_t        rauid = accessStrUid;
+    const kfsUid_t        rauid = authUid;
     const CryptoKeys::Key wmkey = writeMasterKey;
     do {
         MetaAllocate& c = *n;
@@ -1833,7 +1833,6 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 if (ra.empty() || rauid != c.authUid) {
                     q.writeMasterKey = wmkey;
                 } else {
-                    q.accessStrUid      = rauid;
                     q.responseAccessStr = ra;
                 }
             }
@@ -3888,7 +3887,7 @@ MetaAllocate::response(ostream& os)
     if (responseAccessStr.empty() &&
             status == 0 && writeMasterKeyValidFlag &&
             ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-        status    = -EFAULT;
+        status    = -EALLOCFAILED;
         statusMsg = "pseudo random generator failure";
     }
     if (! OkHeader(this, os)) {
