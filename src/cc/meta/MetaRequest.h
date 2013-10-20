@@ -2819,14 +2819,12 @@ struct MetaLeaseRenew: public MetaRequest {
         { chunkServer = cs.get(); }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "lease renew: " << pathname << " ";
-        if (leaseType == READ_LEASE)
-            os << "read lease ";
-        else
-            os << "write lease ";
-
-        os << " chunkId = " << chunkId;
-        return os;
+        return (os <<
+            (leaseType == READ_LEASE ? "read" : "write") <<
+            " lease renew"
+            " chunkId: " << chunkId <<
+            " " << pathname
+        );
     }
     bool Validate()
     {

@@ -4106,7 +4106,10 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
             tokenSeq,
             ptr->keyId,
             issuedTime,
-            ChunkAccessToken::kAllowReadFlag |
+            (leaseType == WRITE_LEASE ?
+                (DelegationToken::kChunkServerFlag |
+                    ChunkAccessToken::kAllowWriteFlag) :
+                ChunkAccessToken::kAllowReadFlag) |
                 (clientCSAllowClearTextFlag ?
                     ChunkAccessToken::kAllowClearTextFlag : 0),
             LEASE_INTERVAL_SECS * 2,
