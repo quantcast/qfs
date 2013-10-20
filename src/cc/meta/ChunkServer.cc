@@ -30,12 +30,16 @@
 #include "NetDispatch.h"
 #include "util.h"
 #include "kfsio/Globals.h"
+#include "kfsio/DelegationToken.h"
+#include "kfsio/ChunkAccessToken.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 
 #include <openssl/rand.h>
+#include <openssl/evp.h>
+
 #include <boost/bind.hpp>
 
 #include <cassert>
@@ -118,6 +122,15 @@ private:
     HelloBufferQueueRunner(const HelloBufferQueueRunner&);
     HelloBufferQueueRunner& operator=(const HelloBufferQueueRunner&);
 };
+
+static ostringstream&
+GetTmpOStringStream()
+{
+    static ostringstream ret;
+    ret.str(string());
+    resetOStream(ret);
+    return ret;
+}
 
 int ChunkServer::sHeartbeatTimeout     = 60;
 int ChunkServer::sHeartbeatInterval    = 20;
@@ -288,6 +301,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mDownReason(),
       mOstream(),
       mRecursionCount(0),
+      mAuthUid(kKfsUserNone),
       mAuthName(),
       mAuthenticateOp(0),
       mHelloOp(0),
@@ -1151,6 +1165,43 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     KFS_LOG_STREAM_INFO << GetPeerName() <<
         " submit hello" <<
     KFS_LOG_EOM;
+    if (mAuthName.empty()) {
+        mAuthUid = kKfsUserNone;
+    } else {
+        // Ensure that the chunk server "id" doesn't changes and very unlikely
+        // collides with other chunk server "id".
+        // Collisions with "real" user ids are OK, as the chunk server and chunk
+        // access tokens that this id is used for have "chunk server" flag / bit
+        // set.
+        char port[2] = { (mHelloOp->port >> 8) & 0xFF , mHelloOp->port & 0xFF };
+        EVP_MD_CTX ctx;
+        EVP_MD_CTX_init(&ctx);
+        unsigned char md[EVP_MAX_MD_SIZE];
+        unsigned int  len = 0;
+        if (EVP_DigestInit_ex(&ctx, EVP_sha1(), 0) &&
+                EVP_DigestUpdate(&ctx, mAuthName.data(), mAuthName.size()) &&
+                EVP_DigestUpdate(&ctx,
+                    mHelloOp->hostname.data(), mHelloOp->hostname.size()) &&
+                EVP_DigestUpdate(&ctx, port, sizeof(port)) &&
+                EVP_DigestFinal_ex(&ctx, md, &len) &&
+                0 < len) {
+            mAuthUid = 0;
+            for (size_t i = len, k = 0; 0 < i; ) {
+                if (sizeof(mAuthUid) * 8 <= k) {
+                    k = 0;
+                }
+                mAuthUid ^= kfsUid_t(md[--i]) << k;
+                k += 8;
+            }
+            if (mAuthUid == kKfsUserNone) {
+                mAuthUid &= ~kfsUid_t(1);
+            }
+        } else {
+            panic("failed to calculate sha1");
+            mAuthUid = kKfsUserNone;
+        }
+        EVP_MD_CTX_cleanup(&ctx);
+    }
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;
     submit_request(op);
@@ -1487,13 +1538,72 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 }
 
 int
-ChunkServer::AllocateChunk(MetaAllocate *r, int64_t leaseId, kfsSTier_t tier)
+ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 {
     NewChunkInTier(tier);
-    Enqueue(new MetaChunkAllocate(
-            NextSeq(), r, shared_from_this(), leaseId, tier, r->maxSTier),
-        r->initialChunkVersion >= 0 ?
-            sChunkReallocTimeout : sChunkAllocTimeout);
+
+    MetaChunkAllocate* const req = new MetaChunkAllocate(
+        NextSeq(), r, shared_from_this(), leaseId, tier, r->maxSTier
+    );
+    size_t sz;
+    if (0 <= leaseId && 0 < r->validForTime && 1 < (sz = r->servers.size())) {
+        // Create synchronous replication chain access tokens. The write master
+        // uses these tokens to setup synchronous replication chain.
+        DelegationToken::TokenSeq tokenSeq;
+        if (! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+            req->status    = -EFAULT;
+            req->statusMsg = "pseudo random generator failure";
+            req->resume();
+            return -EFAULT;
+        }
+        const int16_t     kDelegationFlags = DelegationToken::kChunkServerFlag;
+        ostringstream&    os               = GetTmpOStringStream();
+        CryptoKeys::KeyId keyId;
+        CryptoKeys::Key   key;
+        for (size_t i = 0; i < sz - 1; i++) {
+            const kfsUid_t authUid = r->servers[i]->GetAuthUid();
+            if (! r->servers[i + 1]->GetCryptoKey(keyId, key)) {
+                req->status    = -EFAULT;
+                req->statusMsg = "no valid crypto key";
+                req->resume();
+                return -EFAULT;
+            }
+            DelegationToken::WriteTokenAndSessionKey(
+                os,
+                authUid,
+                tokenSeq,
+                keyId,
+                r->issuedTime,
+                kDelegationFlags,
+                r->validForTime,
+                key.GetPtr(),
+                key.GetSize()
+            );
+            os << " ";
+            ChunkAccessToken::WriteToken(
+                os,
+                r->chunkId,
+                authUid,
+                tokenSeq,
+                keyId,
+                r->issuedTime,
+                ChunkAccessToken::kAllowWriteFlag |
+                    DelegationToken::kChunkServerFlag |
+                    (r->clientCSAllowClearTextFlag ?
+                        ChunkAccessToken::kAllowClearTextFlag : 0),
+                LEASE_INTERVAL_SECS * 2,
+                key.GetPtr(),
+                key.GetSize()
+            );
+            os << "\n";
+            tokenSeq++;
+        }
+        req->chunkAccessStr = os.str();
+    }
+    Enqueue(
+        req,
+        r->initialChunkVersion >= 0 ? sChunkReallocTimeout : sChunkAllocTimeout
+    );
     return 0;
 }
 
@@ -1652,7 +1762,7 @@ ChunkServer::Heartbeat()
     if (mHeartbeatSent) {
         if (sHeartbeatTimeout >= 0 &&
                 timeSinceSent >= sHeartbeatTimeout) {
-            ostringstream os;
+            ostringstream& os = GetTmpOStringStream();
             os << "heartbeat timed out, sent: " <<
                 timeSinceSent << " sec. ago";
             const string str = os.str();

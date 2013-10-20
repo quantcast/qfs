@@ -2003,6 +2003,7 @@ protected:
     bool UpdateClientAuth(AuthContext& ctx);
     void MakeChunkAccess(
         const CSMap::Entry&            cs,
+        kfsUid_t                       authUid,
         MetaLeaseAcquire::ChunkAccess& chunkAccess,
         const ChunkServer*             writeMaster);
 };

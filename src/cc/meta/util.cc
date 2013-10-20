@@ -29,7 +29,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include <iostream>
+#include <ostream>
 #include <sstream>
 #include <cstdio>
 #include <cstdlib>
@@ -250,6 +250,18 @@ const unsigned char*
 char2HexTable()
 {
     return HexIntParser::GetChar2Hex();
+}
+
+ostream&
+resetOStream(ostream& os)
+{
+    os.clear();
+    os.flags(ostream::dec | ostream::skipws);
+    os.precision(6);
+    os.width(0);
+    os.fill(' ');
+    os.tie(0);
+    return os;
 }
 
 } // namespace KFS

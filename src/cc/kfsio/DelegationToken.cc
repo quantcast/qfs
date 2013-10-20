@@ -449,7 +449,7 @@ private:
     enum {
         kTokenFiledsSize =
             sizeof(kfsUid_t) +
-            sizeof(uint32_t) +
+            sizeof(TokenSeq) +
             sizeof(kfsKeyId_t) +
             sizeof(int64_t) +
             sizeof(uint32_t),
@@ -488,7 +488,7 @@ private:
 
 DelegationToken::DelegationToken(
     kfsUid_t    inUid,
-    uint32_t    inSeq,
+    TokenSeq    inSeq,
     kfsKeyId_t  inKeyId,
     int64_t     inIssuedTime,
     uint16_t    inFlags,
@@ -516,7 +516,7 @@ DelegationToken::DelegationToken(
     bool
 DelegationToken::Init(
     kfsUid_t    inUid,
-    uint32_t    inSeq,
+    TokenSeq    inSeq,
     kfsKeyId_t  inKeyId,
     int64_t     inIssueTime,
     uint16_t    inFlags,
@@ -731,7 +731,7 @@ DelegationToken:: ShowSelf(
 DelegationToken::WriteTokenSelf(
     T&              inWriter,
     kfsUid_t        inUid,
-    uint32_t        inSeq,
+    TokenSeq        inSeq,
     kfsKeyId_t      inKeyId,
     int64_t         inIssuedTime,
     uint16_t        inFlags,
@@ -789,7 +789,7 @@ DelegationToken::WriteTokenSelf(
 DelegationToken::WriteToken(
     IOBufferWriter& inWriter,
     kfsUid_t        inUid,
-    uint32_t        inSeq,
+    TokenSeq        inSeq,
     kfsKeyId_t      inKeyId,
     int64_t         inIssuedTime,
     uint16_t        inFlags,
@@ -839,7 +839,7 @@ private:
 DelegationToken::WriteToken(
     ostream&    inStream,
     kfsUid_t    inUid,
-    uint32_t    inSeq,
+    TokenSeq    inSeq,
     kfsKeyId_t  inKeyId,
     int64_t     inIssuedTime,
     uint16_t    inFlags,

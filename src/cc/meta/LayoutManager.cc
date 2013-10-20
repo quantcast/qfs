@@ -4665,6 +4665,13 @@ LayoutManager::AllocateChunk(
             panic("duplicate in striped file allocation entry");
         }
     }
+    if (mClientCSAuthRequiredFlag) {
+        r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
+        r->issuedTime                 = TimeNow();
+        r->validForTime               = mCSAccessValidForTime;
+    } else {
+        r->validForTime = 0;
+    }
     for (size_t i = r->servers.size(); i-- > 0; ) {
         r->servers[i]->AllocateChunk(r, i == 0 ? r->leaseId : -1, tiers[i]);
     }
@@ -4974,6 +4981,13 @@ LayoutManager::GetChunkWriteLease(MetaAllocate *r, bool &isNewLease)
         " chunk: "   << r->chunkId <<
         " version: " << r->chunkVersion <<
     KFS_LOG_EOM;
+    if (mClientCSAuthRequiredFlag) {
+        r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
+        r->issuedTime                 = TimeNow();
+        r->validForTime               = mCSAccessValidForTime;
+    } else {
+        r->validForTime = 0;
+    }
     submit_request(new MetaLogChunkVersionChange(*r));
     return 0;
 }
@@ -5325,12 +5339,14 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 void
 LayoutManager::MakeChunkAccess(
     const CSMap::Entry&            cs,
+    kfsUid_t                       authUid,
     MetaLeaseAcquire::ChunkAccess& chunkAccess,
     const ChunkServer*             writeMaster)
 {
     StTmp<Servers>                    serversTmp(mServers3Tmp);
     Servers&                          servers = serversTmp.Get();
-    MetaLeaseAcquire::ChunkAccessInfo info(ServerLocation(), cs.GetChunkId());
+    MetaLeaseAcquire::ChunkAccessInfo info(
+        ServerLocation(), cs.GetChunkId(), authUid);
     mChunkToServerMap.GetServers(cs, servers);
     for (Servers::const_iterator it = servers.begin();
             it != servers.end();
@@ -5339,6 +5355,12 @@ LayoutManager::MakeChunkAccess(
             continue;
         }
         info.serverLocation = (*it)->GetServerLocation();
+        if (writeMaster) {
+            info.authUid = (*it)->GetAuthUid();
+            if (++it == servers.end()) {
+                break;
+            }
+        }
         if (info.serverLocation.IsValid() &&
                 (*it)->GetCryptoKey(info.keyId, info.key)) {
             chunkAccess.Append(info);
@@ -5413,7 +5435,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                 req->leaseId))) {
         if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
                 req->authUid != kKfsUserNone) {
-            MakeChunkAccess(*cs, req->chunkAccess, 0);
+            MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
         }
         return 0;
     }
@@ -5482,7 +5504,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
     if (ret == 0 && mClientCSAuthRequiredFlag &&
             req->authUid != kKfsUserNone) {
         req->issuedTime = TimeNow();
-        MakeChunkAccess(*cs, req->chunkAccess, req->chunkServer);
+        MakeChunkAccess(*cs, req->authUid, req->chunkAccess, req->chunkServer);
     }
     return ret;
 }

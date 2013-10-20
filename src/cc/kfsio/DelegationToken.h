@@ -46,6 +46,7 @@ class IOBufferWriter;
 class DelegationToken
 {
 public:
+    typedef uint32_t TokenSeq;
     class ShowToken
     {
     public:
@@ -62,7 +63,8 @@ public:
 
     enum { kSignatureLength = 20 };
     enum {
-        kAllowDelegationFlag = 0x1
+        kAllowDelegationFlag = 0x1,
+        kChunkServerFlag     = 0x2
     };
 
     DelegationToken()
@@ -74,7 +76,7 @@ public:
         { mSignature[0] = 0; }
     DelegationToken(
         kfsUid_t    inUid,
-        uint32_t    inSeq,
+        TokenSeq    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssueTime,
         uint16_t    inFlags,
@@ -87,7 +89,7 @@ public:
         {}
     bool Init(
         kfsUid_t    inUid,
-        uint32_t    inSeq,
+        TokenSeq    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssuedTime,
         uint16_t    inFlags,
@@ -166,7 +168,7 @@ public:
     static bool WriteToken(
         IOBufferWriter& inWriter,
         kfsUid_t        inUid,
-        uint32_t        inSeq,
+        TokenSeq        inSeq,
         kfsKeyId_t      inKeyId,
         int64_t         inIssuedTime,
         uint16_t        inFlags,
@@ -179,7 +181,7 @@ public:
     static bool WriteToken(
         ostream&    inStream,
         kfsUid_t    inUid,
-        uint32_t    inSeq,
+        TokenSeq    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssuedTime,
         uint16_t    inFlags,
@@ -193,7 +195,7 @@ public:
     static bool WriteTokenAndSessionKey(
         T&          inWriter,
         kfsUid_t    inUid,
-        uint32_t    inSeq,
+        TokenSeq    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssuedTime,
         uint16_t    inFlags,
@@ -222,7 +224,7 @@ public:
 private:
     enum { kIssuedTimeShift = 16 };
     kfsUid_t   mUid;
-    uint32_t   mSeq;
+    TokenSeq   mSeq;
     kfsKeyId_t mKeyId;
     int64_t    mIssuedTimeAndFlags;
     uint32_t   mValidForSec;
@@ -232,7 +234,7 @@ private:
     static bool WriteTokenSelf(
         T&          inWriter,
         kfsUid_t    inUid,
-        uint32_t    inSeq,
+        TokenSeq    inSeq,
         kfsKeyId_t  inKeyId,
         int64_t     inIssuedTime,
         uint16_t    inFlags,

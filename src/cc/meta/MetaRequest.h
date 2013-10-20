@@ -41,6 +41,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/DelegationToken.h"
 #include "common/Properties.h"
 #include "common/StBuffer.h"
 #include "common/StdAllocator.h"
@@ -891,6 +892,8 @@ struct MetaChunkAllocate;
  * \brief allocate a chunk for a file
  */
 struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
+    typedef DelegationToken::TokenSeq TokenSeq;
+
     fid_t                fid;          //!< file for which space has to be allocated
     chunkOff_t           offset;       //!< offset of chunk within file
     chunkId_t            chunkId;      //!< Id of the chunk that was allocated
@@ -928,7 +931,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     string               responseAccessStr;
     bool                 writeMasterKeyValidFlag;
     bool                 clientCSAllowClearTextFlag;
-    uint32_t             tokenSeq;
+    TokenSeq             tokenSeq;
     time_t               issuedTime;
     int                  validForTime;
     CryptoKeys::KeyId    writeMasterKeyId;
@@ -1548,6 +1551,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     const int64_t       leaseId;
     kfsSTier_t          minSTier;
     kfsSTier_t          maxSTier;
+    string              chunkAccessStr;
     MetaAllocate* const req;
     MetaChunkAllocate(seq_t n, MetaAllocate *r,
             const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
@@ -1556,6 +1560,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
           leaseId(l),
           minSTier(minTier),
           maxSTier(maxTier),
+          chunkAccessStr(),
           req(r)
           {}
     virtual void handle();
@@ -2705,13 +2710,16 @@ struct MetaLeaseAcquire: public MetaRequest {
     {
         ServerLocation    serverLocation;
         chunkId_t         chunkId;
+        kfsUid_t          authUid;
         CryptoKeys::KeyId keyId;
         CryptoKeys::Key   key;
         ChunkAccessInfo(
             const ServerLocation& loc = ServerLocation(),
-            chunkId_t             id  = -1)
+            chunkId_t             id  = -1,
+            kfsUid_t              uid = kKfsUserNone)
             : serverLocation(loc),
               chunkId(id),
+              authUid(uid),
               keyId(),
               key()
         {}

@@ -43,10 +43,11 @@ class IOBufferWriter;
 class ChunkAccessToken
 {
 public:
+    typedef DelegationToken::TokenSeq TokenSeq;
     enum {
-        kAllowReadFlag      = 0x2,
-        kAllowWriteFlag     = 0x4,
-        kAllowClearTextFlag = 0x8
+        kAllowReadFlag      = 0x100,
+        kAllowWriteFlag     = 0x200,
+        kAllowClearTextFlag = 0x400
     };
     class ShowToken
     {
@@ -69,7 +70,7 @@ public:
     ChunkAccessToken(
         kfsChunkId_t inChunkId,
         kfsUid_t     inUid,
-        uint32_t     inSeq,
+        TokenSeq     inSeq,
         kfsKeyId_t   inKeyId,
         int64_t      inIssueTime,
         uint16_t     inFlags,
@@ -95,7 +96,7 @@ public:
         IOBufferWriter& inWriter,
         kfsChunkId_t    inChunkId,
         kfsUid_t        inUid,
-        uint32_t        inSeq,
+        TokenSeq        inSeq,
         kfsKeyId_t      inKeyId,
         int64_t         inIssuedTime,
         uint16_t        inFlags,
@@ -106,7 +107,7 @@ public:
         ostream&     inSteram,
         kfsChunkId_t inChunkId,
         kfsUid_t     inUid,
-        uint32_t     inSeq,
+        TokenSeq     inSeq,
         kfsKeyId_t   inKeyId,
         int64_t      inIssuedTime,
         uint16_t     inFlags,

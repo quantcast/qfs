@@ -78,6 +78,15 @@ static bool    gWormMode = false;
 static string  gChunkmapDumpDir(".");
 static const char* const ftypes[] = { "empty", "file", "dir" };
 
+static ostringstream&
+GetTmpOStringStream()
+{
+    static ostringstream ret;
+    ret.str(string());
+    resetOStream(ret);
+    return ret;
+}
+
 static bool
 CanAccessFile(const MetaFattr* fa, MetaRequest& op)
 {
@@ -1750,11 +1759,11 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 status    = -EALLOCFAILED;
                 statusMsg = "pseudo random generator failure";
             } else {
-                ostringstream os;
+                ostringstream& os = GetTmpOStringStream();
                 responseSelf(os);
                 responseStr = os.str();
                 if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
-                    ostringstream os;
+                    ostringstream& os = GetTmpOStringStream();
                     writeChunkAccess(os);
                     responseAccessStr = os.str();
                 }
@@ -2221,7 +2230,7 @@ public:
 /* virtual */ void
 MetaGetPathName::handle()
 {
-    ostringstream os;
+    ostringstream& os = GetTmpOStringStream();
     const MetaFattr* fa = 0;
     if (fid < 0) {
         const MetaChunkInfo*   chunkInfo = 0;
@@ -2559,7 +2568,7 @@ MetaDumpChunkToServerMap::handle()
         return;
     }
     // hold on to the request until the child  finishes
-    ostringstream os;
+    ostringstream& os = GetTmpOStringStream();
     os << gChunkmapDumpDir << "/chunkmap.txt";
     chunkmapFile = os.str();
     suspended = true;
@@ -2775,11 +2784,10 @@ MetaCheckLeases::handle()
 /* virtual */ void
 MetaStats::handle()
 {
-    ostringstream os;
+    ostringstream& os = GetTmpOStringStream();
     status = 0;
     globals().counterManager.Show(os);
     stats = os.str();
-
 }
 
 /* virtual */ void
@@ -3971,8 +3979,8 @@ MetaAllocate::responseSelf(ostream& os)
 void
 MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 {
-    uint32_t     tokenSeq = 0;
-    const size_t count    = chunkAccess.GetSize();
+    DelegationToken::TokenSeq tokenSeq = 0;
+    const size_t              count    = chunkAccess.GetSize();
     if (status == 0 && 0 < count &&
             ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
         status    = -EFAULT;
@@ -3997,16 +4005,13 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         buf.Move(&responseBuf);
     }
     if (0 < count) {
-        bool                         nextLineFlag(! responseBuf.IsEmpty());
         IntIOBufferWriter            writer(responseBuf);
         const ChunkAccessInfo*       ptr = chunkAccess.GetPtr();
         const ChunkAccessInfo* const end = ptr + count;
+        if (! responseBuf.IsEmpty() && ptr < end) {
+            writer.Write("\n", 1);
+        }
         while (ptr < end) {
-            if (nextLineFlag) {
-                writer.Write("\n", 1);
-            } else {
-                nextLineFlag = true;
-            }
             writer.WriteHexInt(ptr->chunkId);
             writer.Write(
                 ptr->serverLocation.hostname.data(),
@@ -4017,7 +4022,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             const int16_t kDelegationFlags = 0;
             DelegationToken::WriteTokenAndSessionKey(
                 writer,
-                authUid,
+                ptr->authUid,
                 tokenSeq,
                 ptr->keyId,
                 issuedTime,
@@ -4030,7 +4035,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             ChunkAccessToken::WriteToken(
                 writer,
                 ptr->chunkId,
-                authUid,
+                ptr->authUid,
                 tokenSeq ^ (uint32_t)leaseId,
                 ptr->keyId,
                 issuedTime,
@@ -4042,6 +4047,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
                 ptr->key.GetSize()
             );
             tokenSeq++;
+            writer.Write("\n", 1);
         }
         writer.Close();
     }
@@ -4065,8 +4071,8 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 void
 MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
 {
-    uint32_t     tokenSeq = 0;
-    const size_t count    = chunkAccess.GetSize();
+    DelegationToken::TokenSeq tokenSeq = 0;
+    const size_t              count    = chunkAccess.GetSize();
     if (status == 0 && 0 < count &&
             ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
         status    = -EFAULT;
@@ -4084,15 +4090,9 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     }
     IOBuffer                     iobuf;
     IntIOBufferWriter            writer(iobuf);
-    const ChunkAccessInfo*       ptr          = chunkAccess.GetPtr();
-    const ChunkAccessInfo* const end          = ptr + count;
-    bool                         nextLineFlag = false;
+    const ChunkAccessInfo*       ptr = chunkAccess.GetPtr();
+    const ChunkAccessInfo* const end = ptr + count;
     while (ptr < end) {
-        if (nextLineFlag) {
-            writer.Write("\n", 1);
-        } else {
-            nextLineFlag = true;
-        }
         writer.Write(
             ptr->serverLocation.hostname.data(),
             ptr->serverLocation.hostname.size());
@@ -4102,7 +4102,7 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         ChunkAccessToken::WriteToken(
             writer,
             ptr->chunkId,
-            authUid,
+            ptr->authUid,
             tokenSeq,
             ptr->keyId,
             issuedTime,
@@ -4114,6 +4114,7 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
             ptr->key.GetSize()
         );
         tokenSeq++;
+        writer.Write("\n", 1);
     }
     writer.Close();
     os <<
@@ -4388,29 +4389,40 @@ MetaAuthenticate::response(ostream& os)
 void
 MetaChunkAllocate::request(ostream &os)
 {
-    assert(req);
+    assert(req && ! req->servers.empty());
 
     os << "ALLOCATE \r\n"
-        "Cseq: " << opSeqno << "\r\n"
+        "Cseq: "          << opSeqno           << "\r\n"
         "Version: KFS/1.0\r\n"
-        "File-handle: " << req->fid << "\r\n"
-        "Chunk-handle: " << req->chunkId << "\r\n"
+        "File-handle: "   << req->fid          << "\r\n"
+        "Chunk-handle: "  << req->chunkId      << "\r\n"
         "Chunk-version: " << req->chunkVersion << "\r\n"
-        "Min-tier: " << (int)minSTier << "\r\n"
-        "Max-tier: " << (int)maxSTier << "\r\n"
+        "Min-tier: "      << (int)minSTier     << "\r\n"
+        "Max-tier: "      << (int)maxSTier     << "\r\n"
     ;
-    if (leaseId >= 0) {
+    if (0 <= leaseId) {
         os << "Lease-id: " << leaseId << "\r\n";
+        if (req->clientCSAllowClearTextFlag) {
+            os << "CSClearText: 1\r\n";
+        }
     }
-    os << "Chunk-append: " << (req->appendChunk ? 1 : 0) << "\r\n";
-
-    os << "Num-servers: " << req->servers.size() << "\r\n";
-    assert(req->servers.size() > 0);
-
-    os << "Servers:";
+    os <<
+        "Chunk-append: " << (req->appendChunk ? 1 : 0) << "\r\n"
+        "Num-servers: "  << req->servers.size()        << "\r\n"
+        "Servers:"
+    ;
     for_each(req->servers.begin(), req->servers.end(),
             PrintChunkServerLocations(os));
-    os << "\r\n\r\n";
+    const size_t len = chunkAccessStr.size();
+    if (len <= 0) {
+        os << "\r\n\r\n";
+        return;
+    }
+    os <<
+        "\r\n"
+        "Content-length: " << len << "\r\n"
+        "\r\n";
+    os.write(chunkAccessStr.data(), len);
 }
 
 void
@@ -4550,7 +4562,7 @@ static const string sReplicateCmdName("REPLICATE");
 void
 MetaChunkReplicate::request(ostream& os)
 {
-    ostringstream rs;
+    ostringstream& rs = GetTmpOStringStream();
     rs <<
     "Cseq: "          << opSeqno      << "\r\n"
     "Version: KFS/1.0\r\n"

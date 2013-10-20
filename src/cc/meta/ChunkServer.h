@@ -396,7 +396,7 @@ public:
     /// @param[in] leaseId the id associated with the write lease.
     /// @retval 0 on success; -1 on failure
     ///
-    int AllocateChunk(MetaAllocate *r, int64_t leaseId, kfsSTier_t tier);
+    int AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier);
 
     /// Send an RPC to delete a chunk on this server.
     /// An RPC request is enqueued and the call returns.
@@ -804,6 +804,8 @@ public:
     }
     bool IsCryptoKeyValid() const
         { return mCryptoKeyValidFlag; }
+    kfsUid_t GetAuthUid() const
+        { return mAuthUid; }
 
 protected:
     /// Enqueue a request to be dispatched to this server
@@ -969,6 +971,7 @@ protected:
     string             mDownReason;
     IOBuffer::WOStream mOstream;
     int                mRecursionCount;
+    kfsUid_t           mAuthUid;
     string             mAuthName;
     MetaAuthenticate*  mAuthenticateOp;
     MetaHello*         mHelloOp;

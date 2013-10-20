@@ -54,6 +54,7 @@ extern const unsigned char* char2HexTable();
 
 extern void sendtime(ostream &os, const string &prefix,
              int64_t t, const string &suffix);
+extern ostream& resetOStream(ostream& os);
 
 class DisplayDateTime
 {
