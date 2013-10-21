@@ -1195,6 +1195,12 @@ public:
         { return mCSAuthContext; }
     const Properties& GetConfigParameters() const
         { return mConfigParameters; }
+    bool IsClientCSAuthRequired() const
+        { return mClientCSAuthRequiredFlag; }
+    bool IsClientCSAllowClearText() const
+        { return mClientCSAllowClearTextFlag; }
+    int GetCSAccessValidForTime() const
+        { return mCSAccessValidForTime; }
 protected:
     class RackInfoRackIdLess
     {

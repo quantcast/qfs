@@ -103,6 +103,7 @@ private:
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
     kfsUid_t                           mAuthUid;
+    uint16_t                           mDelegationFlags;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];

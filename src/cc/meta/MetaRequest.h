@@ -1600,6 +1600,7 @@ struct MetaChunkVersChange;
  */
 struct MetaChunkReplicate: public MetaChunkRequest {
     typedef map<int, pair<chunkId_t, seq_t> > InvalidStripes;
+    typedef DelegationToken::TokenSeq         TokenSeq;
 
     fid_t                fid;          //!< input: we tell the chunkserver what it is
     seq_t                chunkVersion; //!< io: the chunkservers tells us what it did
@@ -1615,6 +1616,12 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     InvalidStripes       invalidStripes;
     kfsSTier_t           minSTier;
     kfsSTier_t           maxSTier;
+    TokenSeq             tokenSeq;
+    bool                 clientCSAllowClearTextFlag;
+    time_t               issuedTime;
+    int                  validForTime;
+    CryptoKeys::KeyId    keyId;
+    CryptoKeys::Key      key;
     MetaChunkVersChange* versChange;
     MetaChunkReplicate(seq_t n, const ChunkServerPtr& s,
             fid_t f, chunkId_t c, const ServerLocation& loc,
@@ -1634,6 +1641,12 @@ struct MetaChunkReplicate: public MetaChunkRequest {
           invalidStripes(),
           minSTier(minTier),
           maxSTier(maxTier),
+          tokenSeq(),
+          clientCSAllowClearTextFlag(false),
+          issuedTime(),
+          validForTime(0),
+          keyId(),
+          key(),
           versChange(0)
         {}
     virtual ~MetaChunkReplicate() { assert(! versChange); }

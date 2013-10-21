@@ -7784,10 +7784,10 @@ LayoutManager::ReplicateChunk(
             SetReplicationState(clli,
                 CSMap::Entry::kStatePendingReplication);
         }
-        cs.ReplicateChunk(clli.GetFileId(), clli.GetChunkId(),
-            dataServer, recoveryInfo, tier, maxSTier);
         // Do not count synchronous failures.
-        if (! cs.IsDown()) {
+        if (cs.ReplicateChunk(clli.GetFileId(), clli.GetChunkId(),
+                dataServer, recoveryInfo, tier, maxSTier) == 0 &&
+                ! cs.IsDown()) {
             numDone++;
         }
     }

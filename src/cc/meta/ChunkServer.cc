@@ -32,6 +32,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/DelegationToken.h"
 #include "kfsio/ChunkAccessToken.h"
+#include "kfsio/CryptoKeys.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
@@ -1655,6 +1656,12 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     MetaChunkReplicate* const r = new MetaChunkReplicate(
         NextSeq(), shared_from_this(), fid, chunkId,
         dataServer->GetServerLocation(), dataServer, minSTier, maxSTier);
+    if (! dataServer) {
+        panic("invalid null replication source");
+        r->status = -EINVAL;
+        r->resume();
+        return -EINVAL;
+    }
     if (recoveryInfo.HasRecovery() && r->server == dataServer) {
         r->chunkVersion       = recoveryInfo.version;
         r->chunkOffset        = recoveryInfo.offset;
@@ -1666,6 +1673,44 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         r->dataServer.reset();
         r->srcLocation.hostname.clear();
         r->srcLocation.port = sMetaClientPort;
+    }
+    if (gLayoutManager.IsClientCSAuthRequired()) {
+        r->issuedTime                 = TimeNow();
+        r->validForTime               =
+            gLayoutManager.GetCSAccessValidForTime();
+        r->clientCSAllowClearTextFlag =
+            gLayoutManager.IsClientCSAllowClearText();
+        if (mAuthUid == kKfsUserNone) {
+            r->status    = -EFAULT;
+            r->statusMsg = "destination server has invalid id";
+            r->resume();
+            return -EFAULT;
+        }
+        r->authUid = mAuthUid;
+        if (! CryptoKeys::PseudoRand(&(r->tokenSeq), sizeof(r->tokenSeq))) {
+            r->status    = -EFAULT;
+            r->statusMsg = "pseudo random generator failure";
+            r->resume();
+            return -EFAULT;
+        }
+        if (r->dataServer) {
+            if (! r->dataServer->GetCryptoKey(r->keyId, r->key)) {
+                r->status    = -EFAULT;
+                r->statusMsg = "source has no valid crypto key";
+                r->resume();
+                return -EFAULT;
+            }
+        } else {
+            const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
+            if (! keys || ! keys->GetCurrentKey(r->keyId, r->key)) {
+                r->status    = -EFAULT;
+                r->statusMsg = "has no current valid crypto key";
+                r->resume();
+                return -EFAULT;
+            }
+        }
+    } else {
+        r->validForTime = 0;
     }
     mNumChunkWriteReplications++;
     NewChunkInTier(minSTier);

@@ -149,6 +149,7 @@ ClientSM::ClientSM(
       mLastReadLeft(0),
       mAuthenticateOp(0),
       mAuthUid(kKfsUserNone),
+      mDelegationFlags(0),
       mClientThread(thread),
       mNext(0)
 {
@@ -343,6 +344,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mAuthenticateOp = 0;
             } else {
                 mAuthUid = mAuthenticateOp->authUid;
+                mDelegationFlags = 0;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
                 string authName;
@@ -535,6 +537,10 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         }
     }
     op->authUid = mAuthUid;
+    if (mAuthUid != kKfsUserNone) {
+        op->fromChunkServerFlag =
+            (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
+    }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
 
@@ -616,6 +622,7 @@ ClientSM::Verify(
     if (inCurCertDepth == 0) {
         ioFilterAuthName = inPeerName;
         mAuthUid         = authUid;
+        mDelegationFlags = 0;
     }
     return true;
 }
@@ -645,8 +652,12 @@ ClientSM::GetPsk(
     ) : 0;
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
-        return theKeyLen;
+        if (mAuthUid != kKfsUserNone) {
+            return theKeyLen;
+        }
+        theErrMsg = "invalid user id";
     }
+    mDelegationFlags = theDelegationToken.GetFlags();
     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
         " authentication failure: " << theErrMsg <<
         " delegation: "             << theDelegationToken.Show() <<

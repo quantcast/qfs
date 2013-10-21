@@ -4590,6 +4590,56 @@ MetaChunkReplicate::request(ostream& os)
     } else {
         rs << "Chunk-location: " << srcLocation << "\r\n";
     }
+    if (0 < validForTime) {
+        if (clientCSAllowClearTextFlag) {
+            os << "CSClearText: 1\r\n";
+        }
+        if (dataServer) {
+            os << "CS-access: ";
+            DelegationToken::WriteTokenAndSessionKey(
+                os,
+                authUid,
+                tokenSeq,
+                keyId,
+                issuedTime,
+                DelegationToken::kChunkServerFlag,
+                validForTime,
+                key.GetPtr(),
+                key.GetSize()
+            );
+            os << "\r\n"
+                "C-access: ";
+            ChunkAccessToken::WriteToken(
+                os,
+                chunkId,
+                authUid,
+                tokenSeq,
+                keyId,
+                issuedTime,
+                ChunkAccessToken::kAllowReadFlag |
+                    DelegationToken::kChunkServerFlag |
+                    (clientCSAllowClearTextFlag ?
+                        ChunkAccessToken::kAllowClearTextFlag : 0),
+                LEASE_INTERVAL_SECS * 2,
+                key.GetPtr(),
+                key.GetSize()
+            );
+        } else {
+            os << "CS-access: ";
+            DelegationToken::WriteTokenAndSessionKey(
+                os,
+                authUid,
+                tokenSeq,
+                keyId,
+                issuedTime,
+                DelegationToken::kChunkServerFlag,
+                validForTime,
+                key.GetPtr(),
+                key.GetSize()
+            );
+        }
+        os << "\r\n";
+    }
     rs << "\r\n";
     const string req = rs.str();
     os << sReplicateCmdName << " " << Checksum(
