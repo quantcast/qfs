@@ -1651,11 +1651,12 @@ ChunkServer::MakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
 int
 ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     const ChunkServerPtr& dataServer, const ChunkRecoveryInfo& recoveryInfo,
-    kfsSTier_t minSTier, kfsSTier_t maxSTier)
+    kfsSTier_t minSTier, kfsSTier_t maxSTier,
+    MetaChunkReplicate::FileRecoveryInFlightCount::iterator it)
 {
     MetaChunkReplicate* const r = new MetaChunkReplicate(
         NextSeq(), shared_from_this(), fid, chunkId,
-        dataServer->GetServerLocation(), dataServer, minSTier, maxSTier);
+        dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it);
     if (! dataServer) {
         panic("invalid null replication source");
         r->status = -EINVAL;

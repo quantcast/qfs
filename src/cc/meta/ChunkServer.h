@@ -424,7 +424,8 @@ public:
     int ReplicateChunk(fid_t fid, chunkId_t chunkId,
         const ChunkServerPtr&    dataServer,
         const ChunkRecoveryInfo& recoveryInfo,
-        kfsSTier_t minSTier, kfsSTier_t maxSTier);
+        kfsSTier_t minSTier, kfsSTier_t maxSTier,
+        MetaChunkReplicate::FileRecoveryInFlightCount::iterator it);
     /// Start write append recovery when chunk master is non operational.
     int BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion);
     /// Notify a chunkserver that the writes to a chunk are done;

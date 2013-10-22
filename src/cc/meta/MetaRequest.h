@@ -64,6 +64,7 @@ using std::pair;
 using std::ostringstream;
 using std::dec;
 using std::oct;
+using std::less;
 
 /*!
  * \brief Metadata server operations
@@ -1599,33 +1600,46 @@ struct MetaChunkVersChange;
  * replicate the chunk at its convenieance.
  */
 struct MetaChunkReplicate: public MetaChunkRequest {
-    typedef map<int, pair<chunkId_t, seq_t> > InvalidStripes;
-    typedef DelegationToken::TokenSeq         TokenSeq;
+    typedef DelegationToken::TokenSeq TokenSeq;
+    typedef map<
+        int,
+        pair<chunkId_t, seq_t>,
+        less<int>,
+        StdFastAllocator<pair<const int, pair<chunkId_t, seq_t> > >
+    > InvalidStripes;
+    typedef map<
+        pair<kfsUid_t, fid_t>,
+        unsigned int,
+        less<pair<kfsUid_t, fid_t> >,
+        StdFastAllocator<pair<const pair<kfsUid_t, fid_t>, unsigned int> >
+    > FileRecoveryInFlightCount;
 
-    fid_t                fid;          //!< input: we tell the chunkserver what it is
-    seq_t                chunkVersion; //!< io: the chunkservers tells us what it did
-    chunkOff_t           chunkOffset;  //!< input: chunk recovery parameters
-    int16_t              striperType;
-    int16_t              numStripes;
-    int16_t              numRecoveryStripes;
-    int32_t              stripeSize;
-    ChunkServerPtr       dataServer;  //!< where to get a copy from
-    ServerLocation       srcLocation;
-    string               pathname;
-    int64_t              fileSize;
-    InvalidStripes       invalidStripes;
-    kfsSTier_t           minSTier;
-    kfsSTier_t           maxSTier;
-    TokenSeq             tokenSeq;
-    bool                 clientCSAllowClearTextFlag;
-    time_t               issuedTime;
-    int                  validForTime;
-    CryptoKeys::KeyId    keyId;
-    CryptoKeys::Key      key;
-    MetaChunkVersChange* versChange;
+    fid_t                               fid;          //!< input: we tell the chunkserver what it is
+    seq_t                               chunkVersion; //!< io: the chunkservers tells us what it did
+    chunkOff_t                          chunkOffset;  //!< input: chunk recovery parameters
+    int16_t                             striperType;
+    int16_t                             numStripes;
+    int16_t                             numRecoveryStripes;
+    int32_t                             stripeSize;
+    ChunkServerPtr                      dataServer;  //!< where to get a copy from
+    ServerLocation                      srcLocation;
+    string                              pathname;
+    int64_t                             fileSize;
+    InvalidStripes                      invalidStripes;
+    kfsSTier_t                          minSTier;
+    kfsSTier_t                          maxSTier;
+    TokenSeq                            tokenSeq;
+    bool                                clientCSAllowClearTextFlag;
+    time_t                              issuedTime;
+    int                                 validForTime;
+    CryptoKeys::KeyId                   keyId;
+    CryptoKeys::Key                     key;
+    MetaChunkVersChange*                versChange;
+    FileRecoveryInFlightCount::iterator recovIt;
     MetaChunkReplicate(seq_t n, const ChunkServerPtr& s,
             fid_t f, chunkId_t c, const ServerLocation& loc,
-            const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier)
+            const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier,
+            FileRecoveryInFlightCount::iterator it)
         : MetaChunkRequest(META_CHUNK_REPLICATE, n, false, s, c),
           fid(f),
           chunkVersion(-1),
@@ -1647,7 +1661,8 @@ struct MetaChunkReplicate: public MetaChunkRequest {
           validForTime(0),
           keyId(),
           key(),
-          versChange(0)
+          versChange(0),
+          recovIt(it)
         {}
     virtual ~MetaChunkReplicate() { assert(! versChange); }
     virtual void handle();
@@ -2242,11 +2257,15 @@ private:
 struct MetaOpenFiles: public MetaRequest {
     typedef map<
         fid_t,
-        vector<pair<chunkId_t, size_t> >
+        vector<pair<chunkId_t, size_t> >,
+        less<fid_t>,
+        StdFastAllocator<pair<const fid_t, vector<pair<chunkId_t, size_t> > > >
     > ReadInfo;
     typedef map<
         fid_t,
-        vector<chunkId_t>
+        vector<chunkId_t>,
+        less<fid_t>,
+        StdFastAllocator<pair<const fid_t, vector<chunkId_t> > >
     > WriteInfo;
     size_t   openForReadCnt;  //!< result
     size_t   openForWriteCnt; //!< result

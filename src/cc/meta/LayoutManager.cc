@@ -985,8 +985,7 @@ ChunkLeases::GetOpenFiles(
             }
         }
         if (count > 0) {
-            openForRead[ci->GetFileId()]
-                .push_back(make_pair(ri->first, count));
+            openForRead[ci->GetFileId()].push_back(make_pair(ri->first, count));
         }
     }
     for (WriteLeases::const_iterator wi = mWriteLeases.begin();
@@ -994,8 +993,7 @@ ChunkLeases::GetOpenFiles(
         if (now <= wi->second.expires) {
             const CSMap::Entry* const ci = csmap.Find(wi->first);
             if (ci) {
-                openForWrite[ci->GetFileId()]
-                    .push_back(wi->first);
+                openForWrite[ci->GetFileId()].push_back(wi->first);
             }
         }
     }
@@ -1319,6 +1317,7 @@ LayoutManager::LayoutManager() :
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
     mCSAccessValidForTime(2 * 60 * 60),
+    mFileRecoveryInFlightCount(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
     mServersTmp(),
@@ -5403,7 +5402,14 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         req->statusMsg = cs ? "no replica available" : "no such chunk";
         return (cs ? -EAGAIN : -EINVAL);
     }
-    if (! req->fromChunkServerFlag && mVerifyAllOpsPermissionsFlag &&
+    if (req->fromChunkServerFlag) {
+        if (mClientCSAuthRequiredFlag && mFileRecoveryInFlightCount.find(
+                make_pair(req->authUid, cs->GetFileId())) ==
+                mFileRecoveryInFlightCount.end()) {
+            req->statusMsg = "no chunk recovery is in flight for this file";
+            return -EACCES;
+        }
+    } else if (mVerifyAllOpsPermissionsFlag &&
             ! cs->GetFattr()->CanRead(req->euser, req->egroup)) {
         return -EACCES;
     }
@@ -7761,13 +7767,20 @@ LayoutManager::ReplicateChunk(
             ((reasonMsg && reasonMsg[0]) ? " " : "") <<
                 (reasonMsg ? reasonMsg : "") <<
         KFS_LOG_EOM;
-        // Do not increment replication read load when starting
-        // chunk recovery.
-        // Recovery decides from where to read.
-        // With recovery dataServer == &cs here, and the source
-        // location in the request will only have meta server
-        // port, and empty host name.
-        if (! recoveryInfo.HasRecovery() || dataServer != c) {
+        // Do not increment replication read load when starting chunk recovery.
+        // Chunk server side recovery logic decides from where to read.
+        // With recovery dataServer == &cs here, and the source location in the
+        // request will only have meta server port, and empty host name.
+        FileRecoveryInFlightCount::iterator recovIt =
+            mFileRecoveryInFlightCount.end();
+        if (recoveryInfo.HasRecovery() && dataServer == c) {
+            if (mClientCSAuthRequiredFlag && cs.GetAuthUid() != kKfsUserNone) {
+                recovIt = mFileRecoveryInFlightCount.insert(
+                    make_pair(make_pair(cs.GetAuthUid(), clli.GetFileId()), 0)
+                ).first;
+                recovIt->second++;
+            }
+        } else {
             dataServer->UpdateReplicationReadLoad(1);
         }
         assert(mNumOngoingReplications >= 0);
@@ -7786,7 +7799,7 @@ LayoutManager::ReplicateChunk(
         }
         // Do not count synchronous failures.
         if (cs.ReplicateChunk(clli.GetFileId(), clli.GetChunkId(),
-                dataServer, recoveryInfo, tier, maxSTier) == 0 &&
+                dataServer, recoveryInfo, tier, maxSTier, recovIt) == 0 &&
                 ! cs.IsDown()) {
             numDone++;
         }
@@ -8507,6 +8520,13 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         req->suspended = false;
         req->status    = req->versChange->status;
         req->statusMsg = req->versChange->statusMsg;
+    }
+    if (req->recovIt != mFileRecoveryInFlightCount.end()) {
+        assert(0 < req->recovIt->second);
+        if (--(req->recovIt->second) <= 0) {
+            mFileRecoveryInFlightCount.erase(req->recovIt);
+        }
+        req->recovIt = mFileRecoveryInFlightCount.end();
     }
 
     // In the recovery case the source location's host name is empty.
