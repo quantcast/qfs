@@ -431,7 +431,7 @@ MetaServerSM::HandleRequest(int code, void* data)
             // came in.
             IOBuffer& iobuf = mNetConnection->GetInBuffer();
             assert(&iobuf == data);
-            if (mAuthOp && 0 < mAuthOp->responseContentLength) {
+            if (mAuthOp) {
                 HandleAuthResponse(iobuf);
                 break;
             }
@@ -872,6 +872,15 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     if (0 < rem) {
         // Attempt to read more to detect protocol errors.
         mNetConnection->SetMaxReadAhead(rem + mMaxReadAhead);
+        return;
+    }
+    if (! ioBuf.IsEmpty()) {
+        KFS_LOG_STREAM_ERROR <<
+            "authentication protocol failure:" <<
+            " " << ioBuf.BytesConsumable() <<
+            " bytes past authentication response" <<
+        KFS_LOG_EOM;
+        HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
     string errMsg;
