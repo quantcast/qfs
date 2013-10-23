@@ -6089,12 +6089,12 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
         "\r\n"
         "Retiring Servers: ";
     for_each(pinger.retiring.begin(), pinger.retiring.end(),
-        bind(&ChunkServer::GetRetiringStatus, _1, ref(mWOstream)));
+        bind(&ChunkServer::GetRetiringStatus, _1, boost::ref(mWOstream)));
     mWOstream <<
         "\r\n"
         "Evacuating Servers: ";
     for_each(pinger.evacuating.begin(), pinger.evacuating.end(),
-        bind(&ChunkServer::GetEvacuateStatus, _1, ref(mWOstream)));
+        bind(&ChunkServer::GetEvacuateStatus, _1, boost::ref(mWOstream)));
     mWOstream <<
         "\r\n"
         "Down Servers: ";

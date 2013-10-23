@@ -53,7 +53,6 @@
 #include "AuthContext.h"
 
 #include <map>
-#include <tr1/unordered_map>
 #include <vector>
 #include <set>
 #include <deque>
@@ -64,6 +63,7 @@
 
 #include <boost/random.hpp>
 #include <boost/bind.hpp>
+#include <boost/unordered_map.hpp>
 
 class QCIoBufferPool;
 namespace KFS
@@ -86,6 +86,8 @@ using std::lower_bound;
 using std::min;
 using boost::bind;
 using libkfsio::globalNetManager;
+using boost::unordered_map;
+using boost::hash;
 
 /// Model for leases: metaserver assigns write leases to chunkservers;
 /// clients/chunkservers can grab read lease on a chunk at any time.
@@ -266,19 +268,19 @@ private:
         ChunkReadLeases mLeases;
         bool            mScheduleReplicationCheckFlag;
     };
-    typedef std::tr1::unordered_map <
+    typedef unordered_map <
         chunkId_t,
         ChunkReadLeasesHead,
-        std::tr1::hash<chunkId_t>,
+        hash<chunkId_t>,
         equal_to<chunkId_t>,
         StdFastAllocator<
             pair<const chunkId_t, ChunkReadLeasesHead>
         >
     > ReadLeases;
-    typedef std::tr1::unordered_map <
+    typedef unordered_map <
         chunkId_t,
         WriteLease,
-        std::tr1::hash<chunkId_t>,
+        hash<chunkId_t>,
         equal_to<chunkId_t>,
         StdFastAllocator<
             pair<const chunkId_t, WriteLease>

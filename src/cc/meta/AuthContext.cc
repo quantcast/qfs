@@ -599,7 +599,7 @@ private:
     kfsUid_t GetUidSelf(
         const string& inAuthName) const
     {
-        const UidMap::const_iterator const theIt = mUidMap.find(inAuthName);
+        const UidMap::const_iterator theIt = mUidMap.find(inAuthName);
         return (theIt != mUidMap.end() ? theIt->second : kKfsUserNone);
     }
 private:
