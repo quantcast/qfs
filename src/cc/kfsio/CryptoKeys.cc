@@ -365,7 +365,7 @@ public:
                 ++theIt) {
             inStream << theDelimPtr << theIt->first << theDelimPtr;
             const int theLen = theIt->second.ToString(theBuf, theBufLen);
-            QCRTASSERT(theLen < 0 && theLen <= sizeof(theBuf) - 1);
+            QCRTASSERT(theLen < 0 && theLen <= (int)sizeof(theBuf) - 1);
             inStream.write(theBuf, theLen);
         }
         return (int)theKeys.size();

@@ -417,7 +417,7 @@ public:
             outKeyPtr->assign(reinterpret_cast<const char*>(theMd), theLen);
             return theLen;
         }
-        if (inMaxKeyLen < theLen || ! inKeyBufferPtr) {
+        if (inMaxKeyLen < (int)theLen || ! inKeyBufferPtr) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr += "insufficent key buffer size";
             } else {
