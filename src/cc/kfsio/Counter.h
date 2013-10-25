@@ -34,7 +34,7 @@
 #include <algorithm>
 #include <string>
 #include <ostream>
-#include <boost/unordered_map.hpp>
+#include <map>
 
 #include "common/kfsatomic.h"
 
@@ -43,7 +43,7 @@ namespace KFS
 using std::ostream;
 using std::string;
 using std::for_each;
-using boost::unordered_map;
+using std::map;
 
 /// Counters in KFS are currently setup to track a single "thing".
 /// If we need to track multiple related items (such as, network
@@ -100,10 +100,9 @@ class ShowCounter {
     ostream &os;
 public:
     ShowCounter(ostream &o) : os(o) { }
-    void operator() (unordered_map<string, Counter *>::value_type v) {
-        Counter *c = v.second;
-
-        c->Show(os);
+    template<typename T>
+    void operator() (const T& v) {
+        v.second->Show(os);
     }
 };
 
@@ -112,7 +111,7 @@ public:
 /// manager can be queried for statistics.
 ///
 class CounterManager {
-    typedef unordered_map<string, Counter *> CounterMap;
+    typedef map<string, Counter*> CounterMap;
 public:
     CounterManager()
         : mCounters()

@@ -338,31 +338,66 @@ ChunkLeases::ChunkLeases()
     : mLeaseId(RandomSeqNo()),
       mReadLeases(),
       mWriteLeases(),
-      mCurWrIt(mWriteLeases.end()),
-      mTimerRunningFlag(false)
+      mTimerRunningFlag(false),
+      mRExpirationList(-1, ChunkReadLeasesHead()),
+      mWExpirationList(-1, WriteLease(
+            -1,
+            -1,
+            ChunkServerPtr(),
+            string(),
+            false,
+            false,
+            0,
+            time_t()
+    )),
+    mCurWEntry(&mWExpirationList)
 {}
 
 inline void
 ChunkLeases::Erase(
-    WriteLeases::iterator it)
+    ChunkLeases::WEntry& wl)
 {
-    assert(it != mWriteLeases.end());
-    if (mTimerRunningFlag && it == mCurWrIt) {
-        ++mCurWrIt;
+    if (mCurWEntry == &wl) {
+        mCurWEntry = &WEntry::List::GetNext(wl);
     }
-    mWriteLeases.erase(it);
+    mWriteLeases.Erase(wl.GetKey());
 }
 
 inline void
 ChunkLeases::Erase(
-    ReadLeases::iterator it)
+    ChunkLeases::REntry& rl)
 {
-    assert(it != mReadLeases.end());
-    const bool      updateFlag = it->second.mScheduleReplicationCheckFlag;
-    const chunkId_t chunkId    = it->first;
-    mReadLeases.erase(it);
+    const bool      updateFlag = rl.Get().mScheduleReplicationCheckFlag;
+    const chunkId_t chunkId    = rl.GetKey();
+    mReadLeases.Erase(chunkId);
     if (updateFlag) {
         gLayoutManager.ChangeChunkReplication(chunkId);
+    }
+}
+
+inline void
+ChunkLeases::Renew(
+    WEntry& we,
+    time_t  now)
+{
+    WriteLease& wl = we;
+    const time_t exp = now + LEASE_INTERVAL_SECS;
+    if (wl.expires < exp) {
+        wl.expires = exp;
+        PutInExpirationList(we);
+    }
+}
+
+inline void
+ChunkLeases::Expire(
+    WEntry& we,
+    time_t  now)
+{
+    WriteLease& wl = we;
+    const time_t exp = now - 1;
+    if (exp < wl.expires) {
+        wl.expires = exp;
+        WEntry::List::Insert(we, mWExpirationList);
     }
 }
 
@@ -400,51 +435,54 @@ inline const ChunkLeases::WriteLease*
 ChunkLeases::GetWriteLease(
     chunkId_t chunkId) const
 {
-    WriteLeases::const_iterator const wi = mWriteLeases.find(chunkId);
-    return (wi != mWriteLeases.end() ? &wi->second : 0);
+    const WEntry* const wl = mWriteLeases.Find(chunkId);
+    return (wl ? &wl->Get() : 0);
 }
 
 inline const ChunkLeases::WriteLease*
 ChunkLeases::GetValidWriteLease(
     chunkId_t chunkId) const
 {
-    WriteLeases::const_iterator const wi = mWriteLeases.find(chunkId);
-    return ((wi != mWriteLeases.end() && TimeNow() <= wi->second.expires) ?
-        &wi->second : 0);
+    WEntry* const we = mWriteLeases.Find(chunkId);
+    if (! we) {
+        return 0;
+    }
+    const WriteLease& wl = *we;
+    return (TimeNow() <= wl.expires ? &wl : 0);
 }
 
 inline const ChunkLeases::WriteLease*
 ChunkLeases::RenewValidWriteLease(
     chunkId_t chunkId)
 {
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    if (wi == mWriteLeases.end()) {
+    WEntry* const we = mWriteLeases.Find(chunkId);
+    if (! we) {
         return 0;
     }
+    const WriteLease& wl = *we;
     const time_t now = TimeNow();
-    if (wi->second.expires < now) {
+    if (wl.expires < now) {
         return 0;
     }
-    if (! wi->second.allocInFlight) {
-        wi->second.expires =
-            max(wi->second.expires, now + LEASE_INTERVAL_SECS);
+    if (! wl.allocInFlight) {
+        Renew(*we, now);
     }
-    return (&wi->second);
+    return &wl;
 }
 
 inline bool
 ChunkLeases::HasValidWriteLease(
     chunkId_t chunkId) const
 {
-    WriteLeases::const_iterator const wi = mWriteLeases.find(chunkId);
-    return (wi != mWriteLeases.end() && TimeNow() <= wi->second.expires);
+    const WEntry* const we = mWriteLeases.Find(chunkId);
+    return (we && TimeNow() <= we->Get().expires);
 }
 
 inline bool
 ChunkLeases::HasWriteLease(
     chunkId_t chunkId) const
 {
-    return (mWriteLeases.find(chunkId) != mWriteLeases.end());
+    return (mWriteLeases.Find(chunkId) != 0);
 }
 
 inline bool
@@ -454,29 +492,23 @@ ChunkLeases::HasValidLease(
     if (HasValidWriteLease(chunkId)) {
         return true;
     }
-    ReadLeases::const_iterator const ri = mReadLeases.find(chunkId);
-    if (ri == mReadLeases.end()) {
+    const REntry* const re = mReadLeases.Find(chunkId);
+    if (! re) {
         return false;
     }
-    const time_t now = TimeNow();
-    for (ChunkReadLeases::const_iterator it = ri->second.mLeases.begin();
-            it != ri->second.mLeases.end(); ++it) {
-        if (now <= it->expires) {
-            return true;
-        }
-    }
-    return false;
+    const ChunkReadLeasesHead& rl = *re;
+    return (TimeNow() <= RLEntry::List::GetPrev(rl.mExpirationList).expires);
 }
 
 inline bool
 ChunkLeases::HasLease(
     chunkId_t chunkId) const
 {
-    ReadLeases::const_iterator const ri = mReadLeases.find(chunkId);
-    if (ri != mReadLeases.end() && ! ri->second.mLeases.empty()) {
+    REntry* const rl = mReadLeases.Find(chunkId);
+    if (rl && ! rl->Get().mLeases.IsEmpty()) {
         return true;
     }
-    return (mWriteLeases.find(chunkId) != mWriteLeases.end());
+    return (mWriteLeases.Find(chunkId) != 0);
 }
 
 inline bool
@@ -484,10 +516,10 @@ ChunkLeases::UpdateReadLeaseReplicationCheck(
     chunkId_t chunkId,
     bool      setScheduleReplicationCheckFlag)
 {
-    ReadLeases::iterator const ri = mReadLeases.find(chunkId);
-    if (ri != mReadLeases.end() && ! ri->second.mLeases.empty()) {
+    REntry* const rl = mReadLeases.Find(chunkId);
+    if (rl  && ! rl->Get().mLeases.IsEmpty()) {
         if (setScheduleReplicationCheckFlag) {
-            ri->second.mScheduleReplicationCheckFlag = true;
+            rl->Get().mScheduleReplicationCheckFlag = true;
         }
         return true;
     }
@@ -499,18 +531,19 @@ ChunkLeases::ReplicaLost(
     chunkId_t          chunkId,
     const ChunkServer* chunkServer)
 {
-    WriteLeases::iterator it = mWriteLeases.find(chunkId);
-    if (it == mWriteLeases.end()) {
+    WEntry* const wl = mWriteLeases.Find(chunkId);
+    if (! wl) {
         return -EINVAL;
     }
-    return ReplicaLost(it->second, chunkServer);
+    return ReplicaLost(*wl, chunkServer);
 }
 
 inline int
 ChunkLeases::ReplicaLost(
-    ChunkLeases::WriteLease& wl,
-    const ChunkServer*       chunkServer)
+    ChunkLeases::WEntry& we,
+    const ChunkServer*   chunkServer)
 {
+    WriteLease& wl = we;
     if (wl.chunkServer.get() == chunkServer && ! wl.relinquishedFlag &&
             ! wl.allocInFlight) {
         const time_t now = TimeNow();
@@ -518,13 +551,13 @@ ChunkLeases::ReplicaLost(
             // Keep the valid lease for striped files, instead, to
             // allow lease renewal when/if the next chunk allocation
             // comes in.
-            wl.expires = max(wl.expires, now + LEASE_INTERVAL_SECS);
+            Renew(we, now);
         } else {
-            wl.expires = now - 1;
+            Expire(we, now);
         }
         wl.ownerWasDownFlag = wl.ownerWasDownFlag ||
             (chunkServer && chunkServer->IsDown());
-        WriteLease::Mutable(wl.chunkServer).reset();
+        wl.ResetServer();
     }
     return 0;
 }
@@ -535,65 +568,64 @@ ChunkLeases::ServerDown(
     ARAChunkCache&        arac,
     CSMap&                csmap)
 {
-    for (WriteLeases::iterator it = mWriteLeases.begin();
-            it != mWriteLeases.end();
-            ) {
-        chunkId_t const chunkId = it->first;
-        WriteLease&     wl      = it->second;
-        CSMap::Entry*   ci      = 0;
-        ++it;
+    mWriteLeases.First();
+    const WEntry* entry;
+    while ((entry = mWriteLeases.Next())) {
+        chunkId_t const   chunkId = entry->GetKey();
+        const WriteLease& wl      = *entry;
+        CSMap::Entry*     ci      = 0;
         if (wl.appendFlag &&
                 (ci = csmap.Find(chunkId)) &&
                 csmap.HasServer(chunkServer, *ci)) {
             arac.Invalidate(ci->GetFileId(), chunkId);
         }
-        ReplicaLost(wl, chunkServer.get());
+        ReplicaLost(*const_cast<WEntry*>(entry), chunkServer.get());
     }
 }
 
 inline bool
 ChunkLeases::ExpiredCleanup(
-    ChunkLeases::ReadLeases::iterator ri,
-    time_t                            now)
+    ChunkLeases::REntry& re,
+    time_t               now)
 {
-    const time_t maxLeaseEndTime = now + LEASE_INTERVAL_SECS;
-    for (ChunkReadLeases::iterator it = ri->second.mLeases.begin();
-            it != ri->second.mLeases.end(); ) {
-        if (it->expires < now) {
-            it = ri->second.mLeases.erase(it);
-            continue;
-        }
-        if (it->expires <= maxLeaseEndTime) {
-            // List is ordered by expiration time.
+    bool                 updateFlag = false;
+    ChunkReadLeasesHead& rl         = re;
+    ChunkReadLeases&     leases     = rl.mLeases;
+    RLEntry&             expList    = rl.mExpirationList;
+    for (RLEntry* n = &RLEntry::List::GetNext(expList); ;) {
+        RLEntry& c = *n;
+        if (&c == &expList || now <= c.GetExpiration()) {
             break;
         }
-        // Reset to the max allowed.
-        it->expires = maxLeaseEndTime;
-        ++it;
+        n = &RLEntry::List::GetNext(c);
+        leases.Erase(c.leaseId);
+        updateFlag = true;
     }
-    if (ri->second.mLeases.empty()) {
-        Erase(ri);
+    if (leases.IsEmpty()) {
+        Erase(re);
         return true;
+    }
+    if (updateFlag) {
+        PutInExpirationList(rl.GetExpiration(), re);
     }
     return false;
 }
 
 inline bool
 ChunkLeases::ExpiredCleanup(
-    ChunkLeases::WriteLeases::iterator it,
-    time_t                             now,
-    int                                ownerDownExpireDelay,
-    ARAChunkCache&                     arac,
-    CSMap&                             csmap)
+    ChunkLeases::WEntry& we,
+    time_t               now,
+    int                  ownerDownExpireDelay,
+    ARAChunkCache&       arac,
+    CSMap&               csmap)
 {
-    WriteLease& wl = it->second;
+    const WriteLease& wl = we;
     if (wl.allocInFlight) {
         return false;
     }
-    const chunkId_t     chunkId = it->first;
-    CSMap::Entry* const ci      = csmap.Find(chunkId);
+    CSMap::Entry* const ci = csmap.Find(we.GetKey());
     if (! ci) {
-        Erase(it);
+        Erase(we);
         return true;
     }
     if (now <= wl.expires +
@@ -606,13 +638,13 @@ ChunkLeases::ExpiredCleanup(
     const string pathname         = wl.pathname;
     const bool   appendFlag       = wl.appendFlag;
     const bool   stripedFileFlag  = wl.stripedFileFlag;
-    Erase(it);
+    Erase(we);
     if (relinquishedFlag) {
         UpdateReplicationState(csmap, *ci);
         return true;
     }
     if (appendFlag) {
-        arac.Invalidate(ci->GetFileId(), chunkId);
+        arac.Invalidate(ci->GetFileId(), ci->GetChunkId());
     }
     const bool leaseRelinquishFlag = true;
     gLayoutManager.MakeChunkStableInit(
@@ -638,19 +670,19 @@ ChunkLeases::ExpiredCleanup(
     ARAChunkCache& arac,
     CSMap&         csmap)
 {
-    ReadLeases::iterator const ri = mReadLeases.find(chunkId);
-    if (ri != mReadLeases.end()) {
-        assert(mWriteLeases.find(chunkId) == mWriteLeases.end());
-        const bool ret = ExpiredCleanup(ri, now);
+    REntry* const rl = mReadLeases.Find(chunkId);
+    if (rl) {
+        assert(! mWriteLeases.Find(chunkId));
+        const bool ret = ExpiredCleanup(*rl, now);
         if (! ret && ! csmap.Find(chunkId)) {
-            Erase(ri);
+            Erase(*rl);
             return true;
         }
         return ret;
     }
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    return (wi == mWriteLeases.end() || ExpiredCleanup(
-            wi, now, ownerDownExpireDelay, arac, csmap));
+    WEntry* const wl = mWriteLeases.Find(chunkId);
+    return (! wl || ExpiredCleanup(
+        *wl, now, ownerDownExpireDelay, arac, csmap));
 }
 
 inline const char*
@@ -659,11 +691,11 @@ ChunkLeases::FlushWriteLease(
     ARAChunkCache& arac,
     CSMap&         csmap)
 {
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    if (wi == mWriteLeases.end()) {
+    WEntry* const we = mWriteLeases.Find(chunkId);
+    if (! we) {
         return "no write lease";
     }
-    WriteLease& wl = wi->second;
+    const WriteLease& wl = *we;
     if (! wl.appendFlag) {
         return "not append lease";
     }
@@ -674,8 +706,8 @@ ChunkLeases::FlushWriteLease(
         return "write lease expiration in flight";
     }
     const time_t now = TimeNow();
-    wi->second.expires = min(wi->second.expires, now - 1);
-    if (ExpiredCleanup(wi, now, 0, arac, csmap)) {
+    Expire(*we, now);
+    if (ExpiredCleanup(*we, now, 0, arac, csmap)) {
         return 0;
     }
     return "write lease expiration delayed";
@@ -687,34 +719,38 @@ ChunkLeases::LeaseRelinquish(
     ARAChunkCache&             arac,
     CSMap&                     csmap)
 {
-    ReadLeases::iterator const ri = mReadLeases.find(req.chunkId);
-    if (ri != mReadLeases.end()) {
-        assert(mWriteLeases.find(req.chunkId) == mWriteLeases.end());
-        for (ChunkReadLeases::iterator it = ri->second.mLeases.begin();
-                it != ri->second.mLeases.end(); ++it) {
-            if (it->leaseId == req.leaseId) {
-                const time_t now = TimeNow();
-                const int ret = it->expires < now ?
-                    -ELEASEEXPIRED : 0;
-                ri->second.mLeases.erase(it);
-                if (ri->second.mLeases.empty()) {
-                    Erase(ri);
-                }
-                return ret;
+    REntry* const re = mReadLeases.Find(req.chunkId);
+    if (re) {
+        assert(! mWriteLeases.Find(req.chunkId));
+        ChunkReadLeasesHead& rl     = *re;
+        ChunkReadLeases&     leases = rl.mLeases;
+        ReadLease* const     le     = leases.Find(req.leaseId);
+        if (! le) {
+            return -EINVAL;
+        }
+        const int    ret = le->expires < TimeNow() ? -ELEASEEXPIRED : 0;
+        const time_t exp = rl.GetExpiration();
+        leases.Erase(req.leaseId);
+        if (leases.IsEmpty()) {
+            Erase(*re);
+        } else {
+            const time_t cexp = rl.GetExpiration();
+            if (exp != cexp) {
+                PutInExpirationList(exp, *re);
             }
         }
-        return -EINVAL;
+        return ret;
     }
 
-    WriteLeases::iterator const wi = mWriteLeases.find(req.chunkId);
-    if (wi == mWriteLeases.end() || wi->second.leaseId != req.leaseId) {
+    WEntry* const we = mWriteLeases.Find(req.chunkId);
+    if (! we || we->Get().leaseId != req.leaseId) {
         return -EINVAL;
     }
     const CSMap::Entry* const ci = csmap.Find(req.chunkId);
     if (! ci) {
         return -ELEASEEXPIRED;
     }
-    WriteLease& wl = wi->second;
+    WriteLease& wl = *we;
     if (wl.allocInFlight) {
         // If relinquish comes in before alloc completes, then
         // run completion when / if allocation finishes successfully.
@@ -736,11 +772,11 @@ ChunkLeases::LeaseRelinquish(
     const time_t now = TimeNow();
     const int    ret = wl.expires < now ? -ELEASEEXPIRED : 0;
     const bool   hadLeaseFlag = ! wl.relinquishedFlag;
-    WriteLease::Mutable(wl.chunkServer).reset();
+    wl.ResetServer();
     wl.relinquishedFlag = true;
     // the owner of the lease is giving up the lease; update the expires so
     // that the normal lease cleanup will work out.
-    wl.expires = min(time_t(0), now - 100 * LEASE_INTERVAL_SECS);
+    Expire(*we, now);
     if (hadLeaseFlag) {
         // For write append lease checksum and size always have to be
         // specified for make chunk stable, otherwise run begin make
@@ -780,25 +816,28 @@ ChunkLeases::Timer(
     }
     mTimerRunningFlag = true;
     bool cleanedFlag = false;
-    for (ReadLeases::iterator ri = mReadLeases.begin();
-            ri != mReadLeases.end(); ) {
-        ReadLeases::iterator const it = ri++;
-        if (ExpiredCleanup(it, now)) {
-            cleanedFlag = true;
+    for (REntry* n = &REntry::List::GetNext(mRExpirationList); ;) {
+        REntry& c = *n;
+        if (&c == &mRExpirationList || now <= c.Get().GetExpiration()) {
+            break;
         }
+        n = &REntry::List::GetNext(c);
+        cleanedFlag = ExpiredCleanup(c, now) || cleanedFlag;
     }
-    for (mCurWrIt = mWriteLeases.begin();
-            mCurWrIt != mWriteLeases.end(); ) {
-        WriteLeases::iterator const it = mCurWrIt++;
-        if (ExpiredCleanup(
-                it,
-                now,
-                ownerDownExpireDelay,
-                arac,
-                csmap)) {
-            cleanedFlag = true;
+    for (mCurWEntry = &WEntry::List::GetNext(mWExpirationList); ;) {
+        WEntry& c = *mCurWEntry;
+        if (&c == &mWExpirationList || now <= c.Get().GetExpiration()) {
+            break;
         }
+        mCurWEntry = &WEntry::List::GetNext(c);
+        cleanedFlag = ExpiredCleanup(
+            c,
+            now,
+            ownerDownExpireDelay,
+            arac,
+            csmap) || cleanedFlag;
     }
+    mCurWEntry = &mWExpirationList;
     mTimerRunningFlag = false;
     return cleanedFlag;
 }
@@ -809,23 +848,30 @@ ChunkLeases::NewReadLease(
     time_t                 expires,
     ChunkLeases::LeaseId&  leaseId)
 {
-    if (mWriteLeases.find(chunkId) != mWriteLeases.end()) {
-        assert(mReadLeases.find(chunkId) == mReadLeases.end());
+    if (mWriteLeases.Find(chunkId)) {
+        assert(! mReadLeases.Find(chunkId));
         return false;
     }
     // Keep list sorted by expiration time.
-    const LeaseId id = NewReadLeaseId();
-    ChunkReadLeases& rl = mReadLeases[chunkId].mLeases;
-    ChunkReadLeases::iterator it = rl.end();
-    while (it != rl.begin()) {
-        --it;
-        if (it->expires <= expires) {
-            ++it;
-            break;
-        }
+    const LeaseId id           = NewReadLeaseId();
+    bool          insertedFlag = false;
+    REntry&              re    = *mReadLeases.Insert(
+        chunkId, REntry(chunkId, ChunkReadLeasesHead()), insertedFlag);
+    ChunkReadLeasesHead& h      = re;
+    ChunkReadLeases&     leases = h.mLeases;
+    const time_t         exp    =
+        insertedFlag ? expires + 1 : h.GetExpiration();
+    insertedFlag = false;
+    RLEntry&             rl     = *leases.Insert(
+        id, RLEntry(ReadLease(id, expires)), insertedFlag);
+    if (! insertedFlag) {
+        panic("duplicate read lease id");
     }
-    rl.insert(it, ReadLease(id, expires));
-    leaseId = id;
+    h.PutInExpirationList(rl);
+    if (expires < exp) {
+        PutInExpirationList(expires, re);
+    }
+    leaseId  = id;
     mLeaseId = id + 1;
     return true;
 }
@@ -842,8 +888,8 @@ ChunkLeases::NewWriteLease(
     const MetaAllocate*   allocInFlight,
     ChunkLeases::LeaseId& leaseId)
 {
-    if (mReadLeases.find(chunkId) != mReadLeases.end()) {
-        assert(mWriteLeases.find(chunkId) == mWriteLeases.end());
+    if (mReadLeases.Find(chunkId)) {
+        assert(! mWriteLeases.Find(chunkId));
         return false;
     }
     const LeaseId id = NewWriteLeaseId();
@@ -857,13 +903,15 @@ ChunkLeases::NewWriteLease(
         allocInFlight,
         expires
     );
-    pair<WriteLeases::iterator,bool> const res =
-        mWriteLeases.insert(make_pair(chunkId, wl));
-    leaseId = res.first->second.leaseId;
-    if (res.second) {
+    bool insertedFlag = false;
+    WEntry* const l = mWriteLeases.Insert(
+        chunkId, WEntry(chunkId, wl), insertedFlag);
+    leaseId = l->Get().leaseId;
+    if (insertedFlag) {
         mLeaseId = id + 1;
+        PutInExpirationList(*l);
     }
-    return res.second;
+    return insertedFlag;
 }
 
 inline int
@@ -873,51 +921,54 @@ ChunkLeases::Renew(
     bool                 allocDoneFlag /* = false */)
 {
     if (IsReadLease(leaseId)) {
-        ReadLeases::iterator const ri = mReadLeases.find(chunkId);
-        if (ri == mReadLeases.end()) {
+        REntry* const rl = mReadLeases.Find(chunkId);
+        if (! rl) {
             return -EINVAL;
         }
-        assert(mWriteLeases.find(chunkId) == mWriteLeases.end());
-        for (ChunkReadLeases::iterator it = ri->second.mLeases.begin();
-                it != ri->second.mLeases.end(); ++it) {
-            if (it->leaseId == leaseId) {
-                const time_t now = TimeNow();
-                if (it->expires < now) {
-                    // Don't renew expired leases.
-                    ri->second.mLeases.erase(it);
-                    if (ri->second.mLeases.empty()) {
-                        Erase(ri);
-                    }
-                    return -ELEASEEXPIRED;
-                }
-                it->expires = now + LEASE_INTERVAL_SECS;
-                // Keep the list sorted by expiration time.
-                // Max expiration time is
-                // now + LEASE_INTERVAL_SECS
-                ri->second.mLeases.splice(
-                    ri->second.mLeases.end(),
-                    ri->second.mLeases, it);
-                return 0;
+        assert(! mWriteLeases.Find(chunkId));
+        ChunkReadLeasesHead& h      = *rl;
+        ChunkReadLeases&     leases = h.mLeases;
+        RLEntry* const       cl     = leases.Find(leaseId);
+        if (! cl) {
+            return -EINVAL;
+        }
+        const time_t now = TimeNow();
+        if (cl->expires < now) {
+            leases.Erase(leaseId);
+            if (leases.IsEmpty()) {
+                Erase(*rl);
+            }
+            return -ELEASEEXPIRED;
+        }
+        const time_t exp = now + LEASE_INTERVAL_SECS;
+        if (cl->expires != exp) {
+            cl->expires = exp;
+            if (1 < leases.GetSize()) {
+                h.PutInExpirationList(*cl);
+            }
+            if (&RLEntry::List::GetNext(h.mExpirationList) == cl) {
+                PutInExpirationList(cl->expires, *rl);
             }
         }
+        return 0;
+    }
+    WEntry* const we = mWriteLeases.Find(chunkId);
+    if (! we || we->Get().leaseId != leaseId) {
         return -EINVAL;
     }
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    if (wi == mWriteLeases.end() || wi->second.leaseId != leaseId) {
-        return -EINVAL;
-    }
-    assert(mReadLeases.find(chunkId) == mReadLeases.end());
+    WriteLease& wl = *we;
+    assert(! mReadLeases.Find(chunkId));
     const time_t now = TimeNow();
-    if (wi->second.expires < now && ! wi->second.allocInFlight) {
+    if (wl.expires < now && ! wl.allocInFlight) {
         // Don't renew expired leases, and let the timer to clean it up
         // to avoid posible recursion.
         return -ELEASEEXPIRED;
     }
     if (allocDoneFlag) {
-        wi->second.allocInFlight = 0;
+        wl.allocInFlight = 0;
     }
-    if (! wi->second.allocInFlight) {
-        wi->second.expires = now + LEASE_INTERVAL_SECS;
+    if (! wl.allocInFlight) {
+        Renew(*we, now);
     }
     return 0;
 }
@@ -927,11 +978,11 @@ ChunkLeases::DeleteWriteLease(
     chunkId_t            chunkId,
     ChunkLeases::LeaseId leaseId)
 {
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    if (wi == mWriteLeases.end() || wi->second.leaseId != leaseId) {
+    WEntry* const we = mWriteLeases.Find(chunkId);
+    if (! we || we->Get().leaseId != leaseId) {
         return false;
     }
-    Erase(wi);
+    Erase(*we);
     return true;
 }
 
@@ -948,15 +999,15 @@ inline bool
 ChunkLeases::Delete(
     chunkId_t chunkId)
 {
-    WriteLeases::iterator const wi = mWriteLeases.find(chunkId);
-    const bool hadWr = wi != mWriteLeases.end();
+    WEntry* const wl = mWriteLeases.Find(chunkId);
+    const bool hadWr = wl != 0;
     if (hadWr) {
-        Erase(wi);
+        Erase(*wl);
     }
-    ReadLeases::iterator ri = mReadLeases.find(chunkId);
-    const bool hadRd = ri != mReadLeases.end();
+    REntry* const rl = mReadLeases.Find(chunkId);
+    const bool hadRd = rl != 0;
     if (hadRd) {
-        Erase(ri);
+        Erase(*rl);
     }
     assert(! hadWr || ! hadRd);
     return (hadWr || hadRd);
@@ -968,33 +1019,32 @@ ChunkLeases::GetOpenFiles(
     MetaOpenFiles::WriteInfo& openForWrite,
     const CSMap&              csmap) const
 {
-    const time_t now = TimeNow();
-    for (ReadLeases::const_iterator ri = mReadLeases.begin();
-            ri != mReadLeases.end(); ++ri) {
-        const CSMap::Entry* const ci = csmap.Find(ri->first);
+    const time_t  now = TimeNow();
+    const REntry* re  = &mRExpirationList;
+    while ((re = &REntry::List::GetPrev(*re)) != &mRExpirationList &&
+                now <= re->Get().GetExpiration()) {
+        const CSMap::Entry* const ci = csmap.Find(re->GetKey());
         if (! ci) {
             continue;
         }
-        size_t count = 0;
-        for (ChunkReadLeases::const_iterator
-                it = ri->second.mLeases.begin();
-                it != ri->second.mLeases.end();
-                ++it) {
-            if (now <= it->expires) {
-                count++;
-            }
+        size_t         count = 0;
+        const RLEntry& list  = re->Get().mExpirationList;
+        const RLEntry* rl    = &list;
+        while ((rl = &RLEntry::List::GetPrev(*rl)) != &list &&
+                now <= rl->expires) {
+            count++;
         }
-        if (count > 0) {
-            openForRead[ci->GetFileId()].push_back(make_pair(ri->first, count));
+        if (0 < count) {
+            openForRead[ci->GetFileId()].push_back(
+                make_pair(re->GetKey(), count));
         }
     }
-    for (WriteLeases::const_iterator wi = mWriteLeases.begin();
-            wi != mWriteLeases.end(); ++wi) {
-        if (now <= wi->second.expires) {
-            const CSMap::Entry* const ci = csmap.Find(wi->first);
-            if (ci) {
-                openForWrite[ci->GetFileId()].push_back(wi->first);
-            }
+    const WEntry* we = &mWExpirationList;
+    while((we = &WEntry::List::GetPrev(*we)) != &mWExpirationList &&
+            now <= we->Get().GetExpiration()) {
+        const CSMap::Entry* const ci = csmap.Find(we->GetKey());
+        if (ci) {
+            openForWrite[ci->GetFileId()].push_back(we->GetKey());
         }
     }
 }

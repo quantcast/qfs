@@ -64,7 +64,7 @@ public:
         { return mData; }
     SingleLinkedList*& GetNextPtr()
         { return mNextPtr; }
-    const SingleLinkedList*& GetNextPtr() const
+    SingleLinkedList* const & GetNextPtr() const
         { return mNextPtr; }
     SingleLinkedList& Reverse()
     {

@@ -43,6 +43,8 @@
 #include "common/kfsatomic.h"
 #include "common/StTmp.h"
 #include "common/HostPrefix.h"
+#include "common/LinearHash.h"
+#include "qcdio/QCDLList.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/event.h"
@@ -63,7 +65,6 @@
 
 #include <boost/random.hpp>
 #include <boost/bind.hpp>
-#include <boost/unordered_map.hpp>
 
 class QCIoBufferPool;
 namespace KFS
@@ -86,7 +87,6 @@ using std::lower_bound;
 using std::min;
 using boost::bind;
 using libkfsio::globalNetManager;
-using boost::unordered_map;
 using boost::hash;
 
 /// Model for leases: metaserver assigns write leases to chunkservers;
@@ -110,16 +110,10 @@ public:
             : leaseId(lease.leaseId),
               expires(lease.expires)
             {}
-        ReadLease& operator=(const ReadLease& lease)
-        {
-            Mutable(leaseId) = lease.leaseId;
-            expires = lease.expires;
-            return *this;
-        }
         const LeaseId leaseId;
         time_t        expires;
-        template<typename T> static T& Mutable(const T& val)
-            { return const_cast<T&>(val); }
+        time_t GetExpiration() const
+            { return expires; }
     };
     struct WriteLease : public ReadLease
     {
@@ -153,19 +147,8 @@ public:
               ownerWasDownFlag(lease.ownerWasDownFlag),
               allocInFlight(lease.allocInFlight)
             {}
-        WriteLease& operator=(const WriteLease& lease)
-        {
-            ReadLease::operator=(lease);
-            Mutable(chunkVersion)    = lease.chunkVersion;
-            Mutable(chunkServer)     = lease.chunkServer;
-            Mutable(pathname)        = lease.pathname;
-            Mutable(appendFlag)      = lease.appendFlag;
-            Mutable(stripedFileFlag) = lease.stripedFileFlag;
-            relinquishedFlag         = lease.relinquishedFlag;
-            ownerWasDownFlag         = lease.ownerWasDownFlag;
-            allocInFlight            = lease.allocInFlight;
-            return *this;
-        }
+        void ResetServer()
+            { const_cast<ChunkServerPtr&>(chunkServer).reset(); }
         const seq_t          chunkVersion;
         const ChunkServerPtr chunkServer;
         // record the pathname; we can use the path to traverse
@@ -254,66 +237,218 @@ public:
         bool      setScheduleReplicationCheckFlag);
     inline bool IsReadLease(
         LeaseId leaseId);
+
 private:
-    typedef list<
-        ReadLease,
-        StdFastAllocator<ReadLease>
+    class RLEntry : public ReadLease
+    {
+    public:
+        typedef LeaseId                Key;
+        typedef RLEntry                Val;
+        typedef QCDLListOp<RLEntry, 0> List;
+
+        RLEntry(
+            const LeaseId&   /* leaseId */,
+            const ReadLease& lease)
+            : ReadLease(lease)
+            { List::Init(*this); }
+        RLEntry(
+            const ReadLease& lease)
+            : ReadLease(lease)
+            { List::Init(*this); }
+        RLEntry(
+            const RLEntry& e)
+            : ReadLease(e)
+            { List::Init(*this); }
+        ~RLEntry()
+            { List::Remove(*this); }
+        const Key& GetKey() const
+            { return leaseId; }
+        Val& GetVal()
+            { return *this; }
+        const Val& GetVal() const
+            { return *this; }
+        Val& Get()
+            { return *this; }
+        const Val& Get() const
+            { return *this; }
+    private:
+        RLEntry* mPrevPtr[1];
+        RLEntry* mNextPtr[1];
+        friend class QCDLListOp<RLEntry, 0>;
+
+        RLEntry& operator=(const RLEntry&);
+    };
+    template<typename T>
+    static void PutInExpirationListT(
+        time_t expires,
+        T&     node,
+        T&     head)
+    {
+        for (T* n = &head; ;) {
+            T& c = T::List::GetPrev(*n);
+            if (&c == &head || c.Get().GetExpiration() <= expires) {
+                T::List::Insert(node, c);
+                return;
+            }
+            n = &c;
+        }
+    }
+    typedef LinearHash <
+        RLEntry,
+        KeyCompare<RLEntry::Key>,
+        DynamicArray<SingleLinkedList<RLEntry>*, 7>,
+        StdFastAllocator<RLEntry>
     > ChunkReadLeases;
     struct ChunkReadLeasesHead
     {
         ChunkReadLeasesHead()
             : mLeases(),
+              mExpirationList(ReadLease(-1, 0)),
               mScheduleReplicationCheckFlag(false)
             {}
+        ChunkReadLeasesHead(
+            const ChunkReadLeasesHead& h)
+            : mLeases(h.mLeases),
+              mExpirationList(h.mExpirationList),
+              mScheduleReplicationCheckFlag(h.mScheduleReplicationCheckFlag)
+        {
+            assert(
+                mLeases.IsEmpty() &&
+                ! RLEntry::List::IsInList(mExpirationList)
+            );
+        }
+        time_t GetExpiration() const
+            { return RLEntry::List::GetNext(mExpirationList).expires; }
+        void PutInExpirationList(
+            RLEntry& entry)
+        {
+            PutInExpirationListT(entry.expires, entry, mExpirationList);
+        }
         ChunkReadLeases mLeases;
+        RLEntry         mExpirationList;
         bool            mScheduleReplicationCheckFlag;
+    private:
+        ChunkReadLeasesHead& operator=(
+            const ChunkReadLeasesHead&);
     };
-    typedef unordered_map <
-        chunkId_t,
-        ChunkReadLeasesHead,
-        hash<chunkId_t>,
-        equal_to<chunkId_t>,
-        StdFastAllocator<
-            pair<const chunkId_t, ChunkReadLeasesHead>
-        >
+    template<typename KeyT, typename ValT>
+    class EntryT
+    {
+    public:
+        typedef EntryT<KeyT, ValT>   Entry;
+        typedef QCDLListOp<Entry, 0> List;
+        typedef KeyT                 Key;
+        typedef Entry                Val;
+
+        EntryT(
+            const Key& inKey,
+            const Val& inVal)
+            : mKey(inKey),
+              mVal(inVal.mVal)
+            { List::Init(*this); }
+        EntryT(
+            const Key&  inKey,
+            const ValT& inVal)
+            : mKey(inKey),
+              mVal(inVal)
+            { List::Init(*this); }
+        EntryT(
+            const Entry& e)
+            : mKey(e.mKey),
+              mVal(e.mVal)
+            { List::Init(*this); }
+        ~EntryT()
+            { List::Remove(*this); }
+        const Key& GetKey() const
+            { return mKey; }
+        const Val& GetVal() const
+            { return *this; }
+        Val& GetVal()
+            { return *this; }
+        operator ValT&()
+            { return mVal; }
+        operator const ValT&() const
+            { return mVal; }
+        ValT& Get()
+            { return mVal; }
+        const ValT& Get() const
+            { return mVal; }
+
+    private:
+        Key  const mKey;
+        ValT       mVal;
+        Entry*     mPrevPtr[1];
+        Entry*     mNextPtr[1];
+        friend class QCDLListOp<Entry, 0>;
+
+        EntryT& operator=(const EntryT&);
+    };
+    typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
+    typedef LinearHash <
+        REntry,
+        KeyCompare<REntry::Key>,
+        DynamicArray<SingleLinkedList<REntry>*, 13>,
+        StdFastAllocator<REntry>
     > ReadLeases;
-    typedef unordered_map <
-        chunkId_t,
-        WriteLease,
-        hash<chunkId_t>,
-        equal_to<chunkId_t>,
-        StdFastAllocator<
-            pair<const chunkId_t, WriteLease>
-        >
+    typedef EntryT<chunkId_t, WriteLease> WEntry;
+    typedef LinearHash <
+        WEntry,
+        KeyCompare<WEntry::Key>,
+        DynamicArray<SingleLinkedList<WEntry>*, 13>,
+        StdFastAllocator<WEntry>
     > WriteLeases;
     /// A rolling counter for tracking leases that are issued to
     /// to clients/chunkservers for reading/writing chunks
-    LeaseId               mLeaseId;
-    ReadLeases            mReadLeases;
-    WriteLeases           mWriteLeases;
-    WriteLeases::iterator mCurWrIt;
-    bool                  mTimerRunningFlag;
+    LeaseId     mLeaseId;
+    ReadLeases  mReadLeases;
+    WriteLeases mWriteLeases;
+    bool        mTimerRunningFlag;
+    REntry      mRExpirationList;
+    WEntry      mWExpirationList;
+    WEntry*     mCurWEntry;
 
+    void PutInExpirationList(
+        time_t  expires,
+        REntry& entry)
+    {
+        PutInExpirationListT(expires, entry, mRExpirationList);
+    }
+    void PutInExpirationList(
+        WEntry& entry)
+    {
+        PutInExpirationListT(entry.Get().expires, entry, mWExpirationList);
+    }
+    inline void Renew(
+        WEntry& wl,
+        time_t  now);
+    inline void Expire(
+        WEntry& wl,
+        time_t  now);
     inline bool ExpiredCleanup(
-        ReadLeases::iterator it,
-        time_t               now);
+        REntry& rl,
+        time_t  now);
     inline bool ExpiredCleanup(
-        WriteLeases::iterator it,
-        time_t                now,
-        int                   ownerDownExpireDelay,
-        ARAChunkCache&        arac,
-        CSMap&                csmap);
+        WEntry&        wl,
+        time_t         now,
+        int            ownerDownExpireDelay,
+        ARAChunkCache& arac,
+        CSMap&         csmap);
     inline int ReplicaLost(
-        ChunkLeases::WriteLease& wl,
-        const ChunkServer*       chunkServer);
+        WEntry&            wl,
+        const ChunkServer* chunkServer);
     inline void Erase(
-        WriteLeases::iterator it);
+        WEntry& wl);
     inline void Erase(
-        ReadLeases::iterator it);
+        REntry& readLeaseHead);
     inline bool IsWriteLease(
         LeaseId leaseId);
     inline LeaseId NewReadLeaseId();
     inline LeaseId NewWriteLeaseId();
+private:
+    ChunkLeases(
+        const ChunkLeases&);
+    ChunkLeases& operator=(
+        const ChunkLeases&);
 };
 
 // Chunks are made stable by a message from the metaserver ->

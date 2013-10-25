@@ -2989,7 +2989,6 @@ AtomicRecordAppendManager::FlushIfLowOnBuffers()
 bool
 AtomicRecordAppendManager::IsChunkStable(kfsChunkId_t chunkId) const
 {
-    // Cast until mac std::tr1::unordered_map gets "find() const"
     AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
     return (! appender || (*appender)->IsChunkStable());
 }

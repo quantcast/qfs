@@ -127,8 +127,8 @@ public:
     LinearHash()
         : mSplitIdx(0),
           mMaxSplitIdx(1),
-          mLastBucketIdx(0),
-          mLastEntryPtr(0),
+          mNextBucketIdx(0),
+          mNextEntryPtr(0),
           mBuckets(),
           mKeyId(),
           mAlloc(),
@@ -138,8 +138,8 @@ public:
         const LinearHash& inHash)
         : mSplitIdx(0),
           mMaxSplitIdx(1),
-          mLastBucketIdx(0),
-          mLastEntryPtr(0),
+          mNextBucketIdx(0),
+          mNextEntryPtr(0),
           mBuckets(),
           mKeyId(),
           mAlloc(),
@@ -163,6 +163,7 @@ public:
                 thePtr = thePtr->GetNextPtr();
             }
         }
+        return *this;
     }
     void SetDeleteObserver(
         DeleteObserverT* inObserverPtr)
@@ -175,8 +176,8 @@ public:
         { return mBuckets.IsEmpty(); }
     void Clear()
     {
-        mLastBucketIdx = 0;
-        mLastEntryPtr  = 0;
+        mNextBucketIdx = 0;
+        mNextEntryPtr  = 0;
         while (! mBuckets.IsEmpty()) {
             Entry*& theBackPtr = mBuckets.Back();
             Entry*  thePtr     = theBackPtr;
@@ -278,25 +279,26 @@ public:
     }
     void First()
     {
-        mLastEntryPtr  = 0;
-        mLastBucketIdx = 0;
+        mNextEntryPtr  = 0;
+        mNextBucketIdx = 0;
     }
     const KVPairT* Next()
     {
-        if (mLastEntryPtr) {
-            mLastEntryPtr = mLastEntryPtr->GetNextPtr();
-            if (mLastEntryPtr) {
-                return &(mLastEntryPtr->GetData());
+        if (! mNextEntryPtr) {
+            const size_t theSize = GetSize();
+            while (mNextBucketIdx < theSize &&
+                    ! (mNextEntryPtr = mBuckets[mNextBucketIdx])) {
+                mNextBucketIdx++;
             }
-            mLastBucketIdx++;
-        }
-        while (mLastBucketIdx < GetSize()) {
-            if ((mLastEntryPtr = mBuckets[mLastBucketIdx])) {
-                return &(mLastEntryPtr->GetData());
+            if (! mNextEntryPtr) {
+                return 0;
             }
-            mLastBucketIdx++;
         }
-        return 0;
+        KVPairT& theRet = mNextEntryPtr->GetData();
+        if (! (mNextEntryPtr = mNextEntryPtr->GetNextPtr())) {
+            mNextBucketIdx++;
+        }
+        return &theRet;
     }
     void Swap(LinearHash& inHash)
     {
@@ -306,8 +308,8 @@ public:
         mBuckets.Swap(inHash.mBuckets);
         std::swap(mSplitIdx,       inHash.mSplitIdx);
         std::swap(mMaxSplitIdx,    inHash.mMaxSplitIdx);
-        std::swap(mLastBucketIdx,  inHash.mLastBucketIdx);
-        std::swap(mLastEntryPtr,   inHash.mLastEntryPtr);
+        std::swap(mNextBucketIdx,  inHash.mNextBucketIdx);
+        std::swap(mNextEntryPtr,   inHash.mNextEntryPtr);
         std::swap(mKeyId,          inHash.mKeyId);
         std::swap(mAlloc,          inHash.mAlloc);
         std::swap(mDelObserverPtr, inHash.mDelObserverPtr);
@@ -316,8 +318,8 @@ public:
 private:
     size_t           mSplitIdx;
     size_t           mMaxSplitIdx;   // Split upper bound during this expansion.
-    size_t           mLastBucketIdx; // Cursor.
-    Entry*           mLastEntryPtr;  // Cursor.
+    size_t           mNextBucketIdx; // Cursor.
+    Entry*           mNextEntryPtr;  // Cursor.
     DArrayT          mBuckets;       // Hash table buckets.
     KeyIdT           mKeyId;
     Allocator        mAlloc;
@@ -333,8 +335,9 @@ private:
     void Delete(
         Entry& inEntry)
     {
-        if (&inEntry == mLastEntryPtr) {
-            Next();
+        if (&inEntry == mNextEntryPtr &&
+                ! (mNextEntryPtr = mNextEntryPtr->GetNextPtr())) {
+            mNextBucketIdx++;
         }
         if (mDelObserverPtr) {
             (*mDelObserverPtr)(inEntry.GetData());
