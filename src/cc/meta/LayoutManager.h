@@ -87,7 +87,6 @@ using std::lower_bound;
 using std::min;
 using boost::bind;
 using libkfsio::globalNetManager;
-using boost::hash;
 
 /// Model for leases: metaserver assigns write leases to chunkservers;
 /// clients/chunkservers can grab read lease on a chunk at any time.
