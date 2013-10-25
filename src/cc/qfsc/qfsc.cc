@@ -3,6 +3,7 @@
 #include "qfs.h"
 
 #include <vector>
+#include <algorithm>
 
 #include <stdio.h>
 #include <string.h>
@@ -50,8 +51,16 @@ void qfs_release(struct QFS* qfs) {
   }
 }
 
-const char* qfs_strerror(int status) {
-  return KFS::ErrorCodeToStr(status).c_str();
+const char* qfs_strerror(int status, char* buffer, size_t len) {
+  const string ret = KFS::ErrorCodeToStr(status);
+  if (0 < len) {
+    const size_t sz = std::min(ret.size() + 1, len);
+    memcpy(buffer, ret.data(), sz);
+    if (len == sz) {
+        buffer[sz-1] = 0;
+    }
+  }
+  return buffer;
 }
 
 int qfs_cd(struct QFS* qfs, const char* path) {

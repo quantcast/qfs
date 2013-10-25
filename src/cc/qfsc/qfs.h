@@ -85,7 +85,7 @@ extern "C" {
   // qfs_strerror will return the a human-readable string corresponding to
   // status. This function can be applied safely to the result of most qfs
   // methods.
-  const char* qfs_strerror(int status);
+  const char* qfs_strerror(int status, char* buffer, size_t len);
 
   // qfs_cd changes the current working directory for the provided QFS handle.
   int qfs_cd(struct QFS* qfs, const char* path);

@@ -8,15 +8,25 @@
 
 
 // Inspired by minunit
-#define check(test, format, ...) do { if (!(test)) { \
-                                        snprintf(mbuf, sizeof(mbuf), "expect " #test ": " format, ##__VA_ARGS__); \
-                                        return mbuf; } printf(mbuf, sizeof(mbuf), #test ": " format, ##__VA_ARGS__); } while (0)
-#define run(test) do {  char *message = test(); tests_run++; \
-                        if(message) { \
-                          printf("fail\t" #test "\n** %s\n", message); return message; \
-                        } else printf("ok\t" #test "\n"); } while(0)
-#define check_qfs_call(result) do { int r; \
-                                    check(0 <= (r = (result)), "%s\n", qfs_strerror(r)); } while(0);
+#define check(test, format, ...) \
+    do { \
+        if (!(test)) { \
+        snprintf(mbuf, sizeof(mbuf), "expect " #test ": " format, ##__VA_ARGS__); \
+        return mbuf; } printf(mbuf, sizeof(mbuf), #test ": " format, ##__VA_ARGS__); \
+    } while (0)
+#define run(test) \
+    do { \
+        char *message = test(); tests_run++; \
+        if(message) { \
+            printf("fail\t" #test "\n** %s\n", message); return message; \
+        } else printf("ok\t" #test "\n"); \
+    } while(0)
+#define check_qfs_call(result) \
+    do { \
+        int r; \
+        char msg[128]; \
+        check(0 <= (r = (result)), "%s\n", qfs_strerror(r, msg, sizeof(msg))); \
+    } while(0);
 
 // Buffer to format all error messages
 static char mbuf[4096];
@@ -117,6 +127,7 @@ static char* test_readdir() {
   int expected_length = sizeof(expected)/sizeof(expected[0]);
 
   int count = 0;
+  char msg[128];
   while((res = qfs_readdir(qfs, "/unit-test", &iter, &attr)) > 0) {
     check(res <= expected_length,
       "value of result should be less that expected length");
@@ -128,7 +139,7 @@ static char* test_readdir() {
   qfs_iter_free(&iter);
 
   check(count == expected_length, "read all entries: %d != %d", count, expected_length);
-  check(res <= 0, "%s", qfs_strerror(res));
+  check(res <= 0, "%s", qfs_strerror(res, msg, sizeof(msg)));
   check(iter == NULL, "iterator should have been freed");
 
   return 0;
@@ -143,6 +154,7 @@ static char* test_readdirnames() {
     "..",
     ".",
   };
+  char msg[128];
   int expected_length = sizeof(expected)/sizeof(expected[0]);
 
   int count = 0;
@@ -154,7 +166,7 @@ static char* test_readdirnames() {
     count++;
   }
 
-  check(res >= 0, "%s", qfs_strerror(res));
+  check(res >= 0, "%s", qfs_strerror(res, msg, sizeof(msg)));
   check(count == expected_length, "iterate through all entries");
 
   return 0;
