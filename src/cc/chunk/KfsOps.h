@@ -233,6 +233,7 @@ struct KfsOp : public KfsCallbackObj
     virtual int HandleDone(int code, void *data);
     virtual int GetContentLength() const { return 0; }
     virtual bool ParseContent(istream& is) { return true; }
+    virtual bool ParseResponseContent(istream& is) { return false; }
     virtual bool IsChunkReadOp(
         int64_t& /* numBytes */, kfsChunkId_t& /* chunkId */) { return false; }
     virtual BufferManager* GetDeviceBufferManager(

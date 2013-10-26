@@ -90,6 +90,9 @@ MetaServerSM::MetaServerSM()
       mAuthTypeStr("Krb5 X509 PSK"),
       mCurrentKeyId(),
       mUpdateCurrentKeyFlag(false),
+      mOp(0),
+      mRequestFlag(false),
+      mContentLength(0),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -107,11 +110,16 @@ MetaServerSM::~MetaServerSM()
     FailOps(true);
     delete mHelloOp;
     delete mAuthOp;
+    delete mOp;
 }
 
 int
-MetaServerSM::SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey, 
-    int rackId, const string& md5sum, const Properties& prop)
+MetaServerSM::SetMetaInfo(
+    const ServerLocation& metaLoc,
+    const string&         clusterKey,
+    int                   rackId,
+    const string&         md5sum,
+    const Properties&     prop)
 {
     mLocation   = metaLoc;
     mClusterKey = clusterKey;
@@ -225,6 +233,9 @@ MetaServerSM::Connect()
     }
     delete mAuthOp;
     mAuthOp = 0;
+    delete mOp;
+    mOp = 0;
+    mContentLength = 0;
     mCounters.mConnectCount++;
     mSentHello = false;
     mUpdateCurrentKeyFlag = false;
@@ -431,8 +442,17 @@ MetaServerSM::HandleRequest(int code, void* data)
             // came in.
             IOBuffer& iobuf = mNetConnection->GetInBuffer();
             assert(&iobuf == data);
+            if ((mOp || mAuthOp) &&
+                    iobuf.BytesConsumable() < mContentLength) {
+                break;
+            }
             if (mAuthOp) {
                 HandleAuthResponse(iobuf);
+                break;
+            }
+            if (mOp && ! (mRequestFlag ?
+                    HandleCmd(iobuf, 0) :
+                    HandleReply(iobuf, 0))) {
                 break;
             }
             bool hasMsg;
@@ -501,6 +521,8 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_NET_ERROR:
         delete mAuthOp;
         mAuthOp = 0;
+        delete mOp;
+        mOp = 0;
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
@@ -577,99 +599,128 @@ MetaServerSM::HandleMsg(IOBuffer& iobuf, int msgLen)
 bool
 MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 {
-    Properties prop;
-    const char separator = ':';
-    prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
-    mIStream.Reset();
-    iobuf.Consume(msgLen);
+    KfsOp* op = mOp;
+    if (! op) {
+        Properties prop;
+        const char separator = ':';
+        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
+        mIStream.Reset();
+        iobuf.Consume(msgLen);
 
-    const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);
-    int            status = prop.getValue("Status",          -1);
-    if (status < 0) {
-        status = -KfsToSysErrno(-status);
-    }
-    if (mAuthOp) {
-        if (seq != mAuthOp->seq) {
-            KFS_LOG_STREAM_ERROR <<
-                "authentication response seq number mismatch: " <<
-                seq << "/" << mAuthOp->seq <<
-                " " << mAuthOp->Show() <<
+        const kfsSeq_t seq            = prop.getValue("Cseq",  (kfsSeq_t)-1);
+        int            status         = prop.getValue("Status",          -1);
+        int            mContentLength = prop.getValue("Content-length",  -1);
+        if (status < 0) {
+            status = -KfsToSysErrno(-status);
+        }
+        if (mAuthOp) {
+            if (seq != mAuthOp->seq) {
+                KFS_LOG_STREAM_ERROR <<
+                    "authentication response seq number mismatch: " <<
+                    seq << "/" << mAuthOp->seq <<
+                    " " << mAuthOp->Show() <<
+                KFS_LOG_EOM;
+                HandleRequest(EVENT_NET_ERROR, 0);
+                return false;
+            }
+            mAuthOp->status                = status;
+            mAuthOp->responseContentLength = mContentLength;
+            if (status != 0) {
+                mAuthOp->statusMsg = prop.getValue("Status-message", string());
+            } else {
+                mAuthOp->chosenAuthType        = prop.getValue(
+                    "Auth-type", int(kAuthenticationTypeUndef));
+                mAuthOp->useSslFlag            = prop.getValue(
+                    "Use-ssl", 0) != 0;
+            }
+            HandleAuthResponse(iobuf);
+            return false;
+        }
+        if (mHelloOp) {
+            if (status == -EBADCLUSTERKEY) {
+                KFS_LOG_STREAM_FATAL <<
+                    "exiting due to cluster key mismatch; our key: " << mClusterKey <<
+                KFS_LOG_EOM;
+                globalNetManager().Shutdown();
+                return false;
+            }
+            mCounters.mHelloCount++;
+            const bool err =
+                seq != mHelloOp->seq || status != 0 || 0 < mContentLength;
+            if (err) {
+                KFS_LOG_STREAM_ERROR <<
+                    "bad hello response:"
+                    " seq: "         << seq << "/" << mHelloOp->seq <<
+                    " status: "      << status <<
+                    " content len: " << mContentLength <<
+                KFS_LOG_EOM;
+                mCounters.mHelloErrorCount++;
+            }
+            HelloMetaOp::LostChunkDirs lostDirs;
+            lostDirs.swap(mHelloOp->lostChunkDirs);
+            mUpdateCurrentKeyFlag = err == 0 && mHelloOp->sendCurrentKeyFlag;
+            if (mUpdateCurrentKeyFlag) {
+                mCurrentKeyId = mHelloOp->currentKeyId;
+            }
+            delete mHelloOp;
+            mHelloOp = 0;
+            if (err) {
+                HandleRequest(EVENT_NET_ERROR, 0);
+                return false;
+            }
+            mConnectedTime = globalNetManager().Now();
+            ResubmitOps();
+            for (HelloMetaOp::LostChunkDirs::const_iterator it = lostDirs.begin();
+                    it != lostDirs.end();
+                    ++it) {
+                EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
+            }
+            return true;
+        }
+        DispatchedOps::iterator const iter = mDispatchedOps.find(seq);
+        if (iter == mDispatchedOps.end()) {
+            string reply;
+            prop.getList(reply, string(), string(" "));
+            KFS_LOG_STREAM_ERROR << "meta reply:"
+                " no op found for: " << reply <<
             KFS_LOG_EOM;
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
-        mAuthOp->status                = status;
-        mAuthOp->responseContentLength = 0;
-        if (status != 0) {
-            mAuthOp->statusMsg = prop.getValue("Status-message", string());
-        } else {
-            mAuthOp->chosenAuthType        = prop.getValue(
-                "Auth-type", int(kAuthenticationTypeUndef));
-            mAuthOp->useSslFlag            = prop.getValue(
-                "Use-ssl", 0) != 0;
-            mAuthOp->responseContentLength = prop.getValue(
-                "Content-length", 0);
-        }
-        HandleAuthResponse(iobuf);
+        op = iter->second;
+        mDispatchedOps.erase(iter);
+        op->status = status;
+    }
+    mOp = 0;
+    if (iobuf.BytesConsumable() < mContentLength) {
+        mOp          = op;
+        mRequestFlag = false;
         return false;
     }
-    if (mHelloOp) {
-        if (status == -EBADCLUSTERKEY) {
-            KFS_LOG_STREAM_FATAL <<
-                "exiting due to cluster key mismatch; our key: " << mClusterKey <<
-            KFS_LOG_EOM;
-            globalNetManager().Shutdown();
-            return false;
-        }
-        mCounters.mHelloCount++;
-        const bool err = seq != mHelloOp->seq || status != 0;
-        if (err) {
+    if (0 < mContentLength) {
+        const bool ok = op->ParseResponseContent(
+            mIStream.Set(iobuf, mContentLength));
+        mIStream.Reset();
+        iobuf.Consume(mContentLength);
+        const int len = mContentLength;
+        mContentLength = 0;
+        if (! ok) {
             KFS_LOG_STREAM_ERROR <<
-                " bad hello response:"
-                " seq: "    << seq << "/" << mHelloOp->seq <<
-                " status: " << status <<
+                "invalid meta reply response content:"
+                " seq: "         << op->seq <<
+                " "              << op->Show() <<
+                " content len: " << len <<
             KFS_LOG_EOM;
-            mCounters.mHelloErrorCount++;
-        }
-        HelloMetaOp::LostChunkDirs lostDirs;
-        lostDirs.swap(mHelloOp->lostChunkDirs);
-        mUpdateCurrentKeyFlag = err == 0 && mHelloOp->sendCurrentKeyFlag;
-        if (mUpdateCurrentKeyFlag) {
-            mCurrentKeyId = mHelloOp->currentKeyId;
-        }
-        delete mHelloOp;
-        mHelloOp = 0;
-        if (err) {
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
-        mConnectedTime = globalNetManager().Now();
-        ResubmitOps();
-        for (HelloMetaOp::LostChunkDirs::const_iterator it = lostDirs.begin();
-                it != lostDirs.end();
-                ++it) {
-            EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
-        }
-        return true;
     }
-    DispatchedOps::iterator const iter = mDispatchedOps.find(seq);
-    if (iter == mDispatchedOps.end()) {
-        string reply;
-        prop.getList(reply, string(), string(" "));
-        KFS_LOG_STREAM_DEBUG << "meta reply:"
-            " no op found for: " << reply <<
-        KFS_LOG_EOM;        
-        return true;
-    }
-    KfsOp* const op = iter->second;
-    mDispatchedOps.erase(iter);
-    op->status = status;
     KFS_LOG_STREAM_DEBUG <<
         "recv meta reply:"
-        " seq: "    << seq <<
-        " status: " << status <<
+        " seq: "    << op->seq <<
+        " status: " << op->status <<
         " "         << op->Show() <<
-    KFS_LOG_EOM;        
+    KFS_LOG_EOM;
     // The op will be gotten rid of by this call.
     SubmitOpResponse(op);
     return true;
@@ -680,13 +731,14 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 /// everything we need to execute it (for example, for a stale chunks
 /// RPC, we may not have received all the chunkids).  So, parse
 /// out the command and if we have everything execute it.
-/// 
+///
 
 bool
 MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
 {
-    KfsOp* op = 0;
-    if (ParseCommand(iobuf, cmdLen, &op) != 0) {
+    KfsOp* op = mOp;
+    mOp = 0;
+    if (! op && ParseCommand(iobuf, cmdLen, &op) != 0) {
         IOBuffer::IStream is(iobuf, cmdLen);
         const string peer = IsConnected() ?
             mNetConnection->GetPeerName() : string("not connected");
@@ -702,23 +754,24 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
         // got a bogus command
         return false;
     }
+    iobuf.Consume(cmdLen);
 
-    const int contentLength = op->GetContentLength();
-    const int remLen = cmdLen + contentLength - iobuf.BytesConsumable();
+    mContentLength = op->GetContentLength();
+    const int remLen = mContentLength - iobuf.BytesConsumable();
     if (remLen > 0) {
         // if we don't have all the data wait...
         if (remLen > mMaxReadAhead && mNetConnection) {
             mNetConnection->SetMaxReadAhead(remLen);
         }
-        delete op;
+        mRequestFlag = true;
+        mOp          = op;
         return false;
     }
     if (mNetConnection) {
         mNetConnection->SetMaxReadAhead(mMaxReadAhead);
     }
-    iobuf.Consume(cmdLen);
-    if (contentLength > 0) {
-        IOBuffer::IStream is(iobuf, contentLength);
+    if (mContentLength > 0) {
+        IOBuffer::IStream is(iobuf, mContentLength);
         if (! op->ParseContent(is)) {
             KFS_LOG_STREAM_ERROR <<
                 (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
@@ -729,7 +782,8 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
-        iobuf.Consume(contentLength);
+        iobuf.Consume(mContentLength);
+        mContentLength = 0;
     }
     mLastRecvCmdTime = globalNetManager().Now();
     op->clnt = this;
