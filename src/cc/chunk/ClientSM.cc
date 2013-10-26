@@ -404,7 +404,8 @@ ClientSM::HandleRequest(int code, void* data)
         if (mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter())) {
             // Do not allow to shutdown filter with ops or data in flight.
-            if (mOps.empty() &&
+            if (mInFlightOpCount <= 0 &&
+                    mOps.empty() &&
                     mNetConnection->GetInBuffer().IsEmpty() &&
                     mNetConnection->GetOutBuffer().IsEmpty()) {
                 // Ssl shutdown from the other side.
