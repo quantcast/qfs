@@ -54,6 +54,7 @@ using std::ostringstream;
 using std::istringstream;
 using std::make_pair;
 using std::string;
+using std::max;
 using KFS::libkfsio::globalNetManager;
 
 MetaServerSM gMetaServerSM;
@@ -600,19 +601,21 @@ bool
 MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 {
     KfsOp* op = mOp;
-    if (! op) {
+    if (op) {
+        mOp = 0;
+    } else {
         Properties prop;
         const char separator = ':';
         prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
         mIStream.Reset();
         iobuf.Consume(msgLen);
 
-        const kfsSeq_t seq            = prop.getValue("Cseq",  (kfsSeq_t)-1);
-        int            status         = prop.getValue("Status",          -1);
-        int            mContentLength = prop.getValue("Content-length",  -1);
+        const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);
+        int            status = prop.getValue("Status",          -1);
         if (status < 0) {
             status = -KfsToSysErrno(-status);
         }
+        mContentLength = prop.getValue("Content-length",  -1);
         if (mAuthOp) {
             if (seq != mAuthOp->seq) {
                 KFS_LOG_STREAM_ERROR <<
@@ -639,7 +642,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         if (mHelloOp) {
             if (status == -EBADCLUSTERKEY) {
                 KFS_LOG_STREAM_FATAL <<
-                    "exiting due to cluster key mismatch; our key: " << mClusterKey <<
+                    "exiting due to cluster key mismatch; our key: " <<
+                    mClusterKey <<
                 KFS_LOG_EOM;
                 globalNetManager().Shutdown();
                 return false;
@@ -670,7 +674,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             mConnectedTime = globalNetManager().Now();
             ResubmitOps();
-            for (HelloMetaOp::LostChunkDirs::const_iterator it = lostDirs.begin();
+            for (HelloMetaOp::LostChunkDirs::const_iterator
+                    it = lostDirs.begin();
                     it != lostDirs.end();
                     ++it) {
                 EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
@@ -691,13 +696,17 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         mDispatchedOps.erase(iter);
         op->status = status;
     }
-    mOp = 0;
-    if (iobuf.BytesConsumable() < mContentLength) {
-        mOp          = op;
-        mRequestFlag = false;
-        return false;
-    }
     if (0 < mContentLength) {
+        const int rem = mContentLength - iobuf.BytesConsumable();
+        if (0 < rem) {
+            // if we don't have all the data wait...
+            if (mNetConnection) {
+                mNetConnection->SetMaxReadAhead(max(mMaxReadAhead, rem));
+            }
+            mRequestFlag = false;
+            mOp          = op;
+            return false;
+        }
         const bool ok = op->ParseResponseContent(
             mIStream.Set(iobuf, mContentLength));
         mIStream.Reset();
@@ -757,11 +766,11 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
     iobuf.Consume(cmdLen);
 
     mContentLength = op->GetContentLength();
-    const int remLen = mContentLength - iobuf.BytesConsumable();
-    if (remLen > 0) {
+    const int rem = mContentLength - iobuf.BytesConsumable();
+    if (0 < rem) {
         // if we don't have all the data wait...
-        if (remLen > mMaxReadAhead && mNetConnection) {
-            mNetConnection->SetMaxReadAhead(remLen);
+        if (mNetConnection) {
+            mNetConnection->SetMaxReadAhead(max(mMaxReadAhead, rem));
         }
         mRequestFlag = true;
         mOp          = op;
