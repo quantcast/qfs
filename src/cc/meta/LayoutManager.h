@@ -44,6 +44,7 @@
 #include "common/StTmp.h"
 #include "common/HostPrefix.h"
 #include "common/LinearHash.h"
+#include "common/StBuffer.h"
 #include "qcdio/QCDLList.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
@@ -295,7 +296,7 @@ private:
     typedef LinearHash <
         RLEntry,
         KeyCompare<RLEntry::Key>,
-        DynamicArray<SingleLinkedList<RLEntry>*, 7>,
+        StBufferT<SingleLinkedList<RLEntry>*, 4>,
         StdFastAllocator<RLEntry>
     > ChunkReadLeases;
     struct ChunkReadLeasesHead

@@ -39,6 +39,7 @@ using std::string;
 using std::ostream;
 using std::min;
 using std::copy;
+using std::swap;
 
 // Stack based buffer. The intention is to use buffer mBuf allocated on the
 // stack (or as part of other object) in most cases, and do real buffer
@@ -127,6 +128,70 @@ public:
         mBufPtr[mSize++] = inVal;
         return *this;
     }
+    T& Front()
+        { return mBufPtr[0]; }
+    const T& Front() const
+        { return mBufPtr[0]; }
+    T& Back()
+        { return mBufPtr[mSize-1]; }
+    const T& Back() const
+        { return mBufPtr[mSize-1]; }
+    T& PushBack(
+        const T& inVal)
+        { return Append(inVal).Back(); }
+    size_t PopBack()
+        { return --mSize; }
+    T& operator [](
+        size_t inIndex) const
+        { return mBufPtr[inIndex]; }
+    void Swap(
+        const StBufferT& inBuf)
+    {
+        if (mBufPtr != mBuf) {
+            if (inBuf.mBufPtr != inBuf.mBuf) {
+                swap(mBufPtr, inBuf.mBufPtr);
+            } else {
+                T* thePtr = mBuf;
+                copy(inBuf.mBuf, inBuf.mBuf + inBuf.mSize, thePtr);
+                inBuf.mBufPtr = mBufPtr;
+                mBufPtr = mBuf;
+            }
+        } else {
+            if (inBuf.mBufPtr != inBuf.mBuf) {
+                T* thePtr = inBuf.mBuf;
+                copy(mBuf, mBuf + mSize, thePtr);
+                mBufPtr = inBuf.mBufPtr;
+                inBuf.mBufPtr = inBuf.mBuf;
+            } else {
+                size_t i;
+                for (i = 0; i < min(mSize, inBuf.mSize); i++) {
+                    swap(mBuf[i], inBuf.mBuf[i]);
+                }
+                if (mSize < inBuf.mSize) {
+                    for ( ; i < inBuf.mSize; i++) {
+                        mBuf[i] = inBuf.mBuf[i];
+                    }
+                } else {
+                    for ( ; i < mSize; i++) {
+                        inBuf.mBuf[i] = mBuf[i];
+                    }
+                }
+            }
+        }
+        swap(mCapacity, inBuf.capacity);
+        swap(mSize,     inBuf.mSize);
+    }
+    void Clear()
+    {
+        if (mBufPtr != mBuf) {
+            delete [] mBufPtr;
+            mBufPtr = mBuf;
+        }
+        mSize     = 0;
+        mCapacity = DEFAULT_CAPACITY;
+    }
+    bool IsEmpty() const
+        { return (mSize <= 0); }
 protected:
     T*     mBufPtr;
     size_t mCapacity;
