@@ -294,6 +294,9 @@ KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
 inline bool
 KfsClientChunkOp::Validate()
 {
+    if (! KfsOp::Validate()) {
+        return false;
+    }
     if ((hasChunkAccessTokenFlag = ! chunkAccessVal.empty())) {
         ChunkAccessToken token;
         if ((chunkAccessTokenValidFlag = token.Process(
@@ -447,7 +450,7 @@ WriteIdAllocOp::Validate()
         seq,
         clientSeq
     );
-    return true;
+    return KfsClientChunkOp::Validate();
 }
 
 bool
@@ -459,14 +462,14 @@ RecordAppendOp::Validate()
         seq,
         clientSeq
     );
-    return true;
+    return KfsClientChunkOp::Validate();
 }
 
 bool
 WriteSyncOp::Validate()
 {
     if (checksumsCnt <= 0) {
-        return true;
+        return KfsClientChunkOp::Validate();
     }
     const char*       ptr = checksumsStr.GetPtr();
     const char* const end = ptr + checksumsStr.GetSize();
@@ -482,7 +485,7 @@ WriteSyncOp::Validate()
             ++ptr;
         }
     }
-    return true;
+    return KfsClientChunkOp::Validate();
 }
 
 bool MakeChunkStableOp::Validate()
