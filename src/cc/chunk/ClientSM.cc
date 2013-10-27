@@ -763,7 +763,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 KFS_LOG_EOM;
             }
         }
-        if (ParseCommand(iobuf, cmdLen, &op) != 0) {
+        if (ParseClientCommand(iobuf, cmdLen, &op) != 0) {
             assert(! op);
             IOBuffer::IStream is(iobuf, cmdLen);
             string line;

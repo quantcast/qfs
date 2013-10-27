@@ -2099,7 +2099,8 @@ private:
     int responseBufPos;
 };
 
-extern int ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
+extern int ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
+extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
 

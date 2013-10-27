@@ -291,23 +291,44 @@ KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
 }
 
 typedef RequestHandler<KfsOp> ChunkRequestHandler;
+
+static ChunkRequestHandler&
+MakeCommonRequestHandler(
+    ChunkRequestHandler& handler)
+{
+    return handler
+    .MakeParser<SizeOp>("SIZE")
+    ;
+}
+
 static const ChunkRequestHandler&
-MakeRequestHandler()
+MakeClientRequestHandler()
 {
     static ChunkRequestHandler sHandler;
-    return sHandler
+    return MakeCommonRequestHandler(sHandler)
     .MakeParser<OpenOp                  >("OPEN")
     .MakeParser<CloseOp                 >("CLOSE")
     .MakeParser<ReadOp                  >("READ")
     .MakeParser<WriteIdAllocOp          >("WRITE_ID_ALLOC")
     .MakeParser<WritePrepareOp          >("WRITE_PREPARE")
     .MakeParser<WriteSyncOp             >("WRITE_SYNC")
-    .MakeParser<SizeOp                  >("SIZE")
     .MakeParser<RecordAppendOp          >("RECORD_APPEND")
     .MakeParser<GetRecordAppendOpStatus >("GET_RECORD_APPEND_OP_STATUS")
     .MakeParser<ChunkSpaceReserveOp     >("CHUNK_SPACE_RESERVE")
     .MakeParser<ChunkSpaceReleaseOp     >("CHUNK_SPACE_RELEASE")
     .MakeParser<GetChunkMetadataOp      >("GET_CHUNK_METADATA")
+    .MakeParser<PingOp                  >("PING")
+    .MakeParser<DumpChunkMapOp          >("DUMP_CHUNKMAP")
+    .MakeParser<StatsOp                 >("STATS")
+    ;
+}
+
+
+static const ChunkRequestHandler&
+MakeMetaRequestHandler()
+{
+    static ChunkRequestHandler sHandler;
+    return MakeCommonRequestHandler(sHandler)
     .MakeParser<AllocChunkOp            >("ALLOCATE")
     .MakeParser<DeleteChunkOp           >("DELETE")
     .MakeParser<TruncateChunkOp         >("TRUNCATE")
@@ -318,14 +339,15 @@ MakeRequestHandler()
     .MakeParser<BeginMakeChunkStableOp  >("BEGIN_MAKE_CHUNK_STABLE")
     .MakeParser<MakeChunkStableOp       >("MAKE_CHUNK_STABLE")
     .MakeParser<RetireOp                >("RETIRE")
-    .MakeParser<PingOp                  >("PING")
-    .MakeParser<DumpChunkMapOp          >("DUMP_CHUNKMAP")
-    .MakeParser<StatsOp                 >("STATS")
     .MakeParser<SetProperties           >("CMD_SET_PROPERTIES")
     .MakeParser<RestartChunkServerOp    >("RESTART_CHUNK_SERVER")
     ;
 }
-static const ChunkRequestHandler& sRequestHandler = MakeRequestHandler();
+
+static const ChunkRequestHandler& sClientRequestHandler =
+    MakeClientRequestHandler();
+static const ChunkRequestHandler& sMetaRequestHandler   =
+    MakeMetaRequestHandler();
 
 ///
 /// Given a command in a buffer, parse it out and build a "Command"
@@ -352,8 +374,9 @@ static const ChunkRequestHandler& sRequestHandler = MakeRequestHandler();
 /// responsibility to delete the memory returned in res.
 /// @retval 0 on success;  -1 if there is an error
 ///
-int
-ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
+static int
+ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
+    const ChunkRequestHandler& requestHandlers)
 {
     // Main thread's buffer
     static char tempBuf[MAX_RPC_HEADER_LEN];
@@ -372,8 +395,20 @@ ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
     int               reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(tempBuf, reqLen);
     assert(reqLen == len);
-    *res = reqLen == len ? sRequestHandler.Handle(buf, reqLen) : 0;
+    *res = reqLen == len ? requestHandlers.Handle(buf, reqLen) : 0;
     return (*res ? 0 : -1);
+}
+
+int
+ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
+{
+    return ParseCommand(ioBuf, len, res, sMetaRequestHandler);
+}
+
+int
+ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
+{
+    return ParseCommand(ioBuf, len, res, sClientRequestHandler);
 }
 
 ClientSM*
