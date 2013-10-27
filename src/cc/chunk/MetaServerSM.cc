@@ -708,7 +708,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             return false;
         }
         const bool ok = op->ParseResponseContent(
-            mIStream.Set(iobuf, mContentLength));
+            mIStream.Set(iobuf, mContentLength), mContentLength);
         mIStream.Reset();
         iobuf.Consume(mContentLength);
         const int len = mContentLength;

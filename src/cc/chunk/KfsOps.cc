@@ -768,6 +768,21 @@ CloseOp::HandlePeerReply(int code, void *data)
     return 0;
 }
 
+/* virtual */ bool
+AllocChunkOp::ParseContent(istream& is)
+{
+    if (contentLength <= 0) {
+        return true;
+    }
+    accessTokens = new char[contentLength + 1];
+    accessTokens[contentLength] = 0;
+    is.read(accessTokens, contentLength);
+    if (is.gcount() != (size_t)contentLength) {
+        return false;
+    }
+    return true;
+}
+
 void
 AllocChunkOp::Execute()
 {
@@ -2820,6 +2835,21 @@ LeaseRenewOp::Request(ostream& os)
     os << "Chunk-handle: " << chunkId << "\r\n";
     os << "Lease-id: " << leaseId << "\r\n";
     os << "Lease-type: " << leaseType << "\r\n\r\n";
+}
+
+/* virtual */ bool
+LeaseRenewOp::ParseResponseContent(istream& is, int len)
+{
+    if (len <= 0) {
+        return true;
+    }
+    accessTokens = new char[len + 1];
+    accessTokens[len] = 0;
+    is.read(accessTokens, len);
+    if (is.gcount() != (size_t)len) {
+        return false;
+    }
+    return true;
 }
 
 int

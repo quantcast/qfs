@@ -233,7 +233,7 @@ struct KfsOp : public KfsCallbackObj
     virtual int HandleDone(int code, void *data);
     virtual int GetContentLength() const { return 0; }
     virtual bool ParseContent(istream& is) { return true; }
-    virtual bool ParseResponseContent(istream& is) { return false; }
+    virtual bool ParseResponseContent(istream& is, int len) { return false; }
     virtual bool IsChunkReadOp(
         int64_t& /* numBytes */, kfsChunkId_t& /* chunkId */) { return false; }
     virtual BufferManager* GetDeviceBufferManager(
@@ -307,17 +307,20 @@ inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
 // from the input stream.
 //
 struct AllocChunkOp : public KfsOp {
-    kfsFileId_t     fileId;       // input
-    kfsChunkId_t    chunkId;      // input
-    int64_t         chunkVersion; // input
-    int64_t         leaseId;      // input
-    bool            appendFlag;   // input
-    StringBufT<256> servers;      // input
+    kfsFileId_t     fileId;
+    kfsChunkId_t    chunkId;
+    int64_t         chunkVersion;
+    int64_t         leaseId;
+    bool            appendFlag;
+    StringBufT<256> servers;
     uint32_t        numServers;
     bool            mustExistFlag;
     kfsSTier_t      minStorageTier;
     kfsSTier_t      maxStorageTier;
+    int             contentLength;
+    char*           accessTokens;
     DiskIoPtr       diskIo;
+
     AllocChunkOp(kfsSeq_t s = 0)
         : KfsOp(CMD_ALLOC_CHUNK, s),
           fileId(-1),
@@ -330,12 +333,18 @@ struct AllocChunkOp : public KfsOp {
           mustExistFlag(false),
           minStorageTier(kKfsSTierUndef),
           maxStorageTier(kKfsSTierUndef),
+          contentLength(0),
+          accessTokens(0),
           diskIo()
         {}
+    ~AllocChunkOp()
+        { delete [] accessTokens; }
     void Execute();
     // handlers for reading/writing out the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);
     int HandleChunkAllocDone(int code, void *data);
+    virtual int GetContentLength() const { return contentLength; }
+    virtual bool ParseContent(istream& is);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "alloc-chunk:"
@@ -350,15 +359,16 @@ struct AllocChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",   &AllocChunkOp::fileId,         kfsFileId_t(-1))
-        .Def("Chunk-handle",  &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
-        .Def("Chunk-version", &AllocChunkOp::chunkVersion,   int64_t(-1))
-        .Def("Lease-id",      &AllocChunkOp::leaseId,        int64_t(-1))
-        .Def("Chunk-append",  &AllocChunkOp::appendFlag,     false)
-        .Def("Num-servers",   &AllocChunkOp::numServers)
-        .Def("Servers",       &AllocChunkOp::servers)
-        .Def("Min-tier",      &AllocChunkOp::minStorageTier, kKfsSTierUndef)
-        .Def("Max-tier",      &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def("File-handle",    &AllocChunkOp::fileId,         kfsFileId_t(-1))
+        .Def("Chunk-handle",   &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def("Chunk-version",  &AllocChunkOp::chunkVersion,   int64_t(-1))
+        .Def("Lease-id",       &AllocChunkOp::leaseId,        int64_t(-1))
+        .Def("Chunk-append",   &AllocChunkOp::appendFlag,     false)
+        .Def("Num-servers",    &AllocChunkOp::numServers)
+        .Def("Servers",        &AllocChunkOp::servers)
+        .Def("Min-tier",       &AllocChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def("Max-tier",       &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def("Content-length", &AllocChunkOp::contentLength,  0)
         ;
     }
 };
@@ -1722,14 +1732,17 @@ struct LeaseRenewOp : public KfsOp {
     kfsChunkId_t chunkId;
     int64_t      leaseId;
     const string leaseType;
+    char*        accessTokens;
     LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
           leaseId(l),
-          leaseType(t)
-    {
-        SET_HANDLER(this, &LeaseRenewOp::HandleDone);
-    }
+          leaseType(t),
+          accessTokens(0)
+        { SET_HANDLER(this, &LeaseRenewOp::HandleDone); }
+    ~LeaseRenewOp()
+        { delete [] accessTokens; }
+    virtual bool ParseResponseContent(istream& is, int len);
     void Request(ostream &os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
