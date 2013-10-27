@@ -300,6 +300,25 @@ private:
 inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
 { return disp.Show(os); }
 
+struct KfsClientChunkOp : public KfsOp
+{
+    kfsChunkId_t   chunkId;
+    StringBufT<64> chunkAccessToken;
+
+    KfsClientChunkOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
+        : KfsOp(o, s, c),
+          chunkId(-1),
+          chunkAccessToken()
+        {}
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return KfsOp::ParserDef(parser)
+        .Def("Chunk-handle", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
+        .Def("CS-access",    &KfsClientChunkOp::chunkAccessToken)
+        ;
+    }
+};
+
 //
 // Model used in all the c'tor's of the ops: we do minimal
 // initialization and primarily init the fields that are used for
@@ -730,13 +749,11 @@ struct RetireOp : public KfsOp {
     }
 };
 
-struct OpenOp : public KfsOp {
-    kfsChunkId_t   chunkId;  // input
+struct OpenOp : public KfsClientChunkOp {
     int            openFlags;  // either O_RDONLY, O_WRONLY
     StringBufT<64> intentStr;
     OpenOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_OPEN, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_OPEN, s),
           openFlags(0),
           intentStr()
         {}
@@ -756,29 +773,30 @@ struct OpenOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &OpenOp::chunkId, kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Intent",       &OpenOp::intentStr)
         ;
     }
 };
 
-struct CloseOp : public KfsOp {
-    kfsChunkId_t    chunkId;         // input
+struct CloseOp : public KfsClientChunkOp {
     uint32_t        numServers;      // input
     bool            needAck;         // input: when set, this RPC is ack'ed
     bool            hasWriteId;      // input
     int64_t         masterCommitted; // input
     StringBufT<256> servers;         // input: set of servers on which to chunk is to be closed
     CloseOp(kfsSeq_t s = 0, const CloseOp* op = 0)
-        : KfsOp(CMD_CLOSE, s),
-          chunkId        (op ? op->chunkId         : (kfsChunkId_t)-1),
+        : KfsClientChunkOp(CMD_CLOSE, s),
           numServers     (op ? op->numServers      : 0u),
           needAck        (op ? op->needAck         : true),
           hasWriteId     (op ? op->hasWriteId      : false),
           masterCommitted(op ? op->masterCommitted : (int64_t)-1),
           servers        (op ? op->servers         : StringBufT<256>())
-        {}
+    {
+        if (op) {
+            chunkId = op->chunkId;
+        }
+    }
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -804,8 +822,7 @@ struct CloseOp : public KfsOp {
     int HandlePeerReply(int code, void *data);
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",     &CloseOp::chunkId,         kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Num-servers",      &CloseOp::numServers)
         .Def("Servers",          &CloseOp::servers)
         .Def("Need-ack",         &CloseOp::needAck,         true)
@@ -821,9 +838,8 @@ struct WriteSyncOp;
 struct WritePrepareFwdOp;
 
 // support for record appends
-struct RecordAppendOp : public KfsOp {
+struct RecordAppendOp : public KfsClientChunkOp {
     kfsSeq_t        clientSeq;             /* input */
-    kfsChunkId_t    chunkId;               /* input */
     int64_t         chunkVersion;          /* input */
     size_t          numBytes;              /* input */
     int64_t         writeId;               /* value for the local parsed out of servers string */
@@ -862,8 +878,7 @@ struct RecordAppendOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",     &RecordAppendOp::chunkId,               kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version",    &RecordAppendOp::chunkVersion,          int64_t(-1))
         .Def("Offset",           &RecordAppendOp::offset,                int64_t(-1))
         .Def("File-offset",      &RecordAppendOp::fileOffset,            int64_t(-1))
@@ -877,9 +892,8 @@ struct RecordAppendOp : public KfsOp {
     }
 };
 
-struct GetRecordAppendOpStatus : public KfsOp
+struct GetRecordAppendOpStatus : public KfsClientChunkOp
 {
-    kfsChunkId_t chunkId;          // input
     int64_t      writeId;          // input
     kfsSeq_t     opSeq;            // output
     int64_t      chunkVersion;
@@ -901,8 +915,7 @@ struct GetRecordAppendOpStatus : public KfsOp
     bool         widReadOnlyFlag;
 
     GetRecordAppendOpStatus(kfsSeq_t s = 0)
-        : KfsOp(CMD_GET_RECORD_APPEND_STATUS, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_GET_RECORD_APPEND_STATUS, s),
           writeId(-1),
           opSeq(-1),
           chunkVersion(-1),
@@ -941,17 +954,15 @@ struct GetRecordAppendOpStatus : public KfsOp
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",  &GetRecordAppendOpStatus::chunkId,      kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version", &GetRecordAppendOpStatus::chunkVersion, int64_t(-1))
         .Def("Write-id",      &GetRecordAppendOpStatus::writeId,      int64_t(-1))
         ;
     }
 };
 
-struct WriteIdAllocOp : public KfsOp {
+struct WriteIdAllocOp : public KfsClientChunkOp {
     kfsSeq_t        clientSeq;         /* input */
-    kfsChunkId_t    chunkId;
     int64_t         chunkVersion;
     int64_t         offset;            /* input */
     size_t          numBytes;          /* input */
@@ -966,9 +977,8 @@ struct WriteIdAllocOp : public KfsOp {
     RemoteSyncSMPtr appendPeer;
 
     WriteIdAllocOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_WRITE_ID_ALLOC, s),
+        : KfsClientChunkOp(CMD_WRITE_ID_ALLOC, s),
           clientSeq(-1),
-          chunkId(-1),
           chunkVersion(-1),
           offset(0),
           numBytes(0),
@@ -985,9 +995,8 @@ struct WriteIdAllocOp : public KfsOp {
         SET_HANDLER(this, &WriteIdAllocOp::Done);
     }
     WriteIdAllocOp(kfsSeq_t s, const WriteIdAllocOp& other)
-        : KfsOp(CMD_WRITE_ID_ALLOC, s),
+        : KfsClientChunkOp(CMD_WRITE_ID_ALLOC, s),
           clientSeq(other.clientSeq),
-          chunkId(other.chunkId),
           chunkVersion(other.chunkVersion),
           offset(other.offset),
           numBytes(other.numBytes),
@@ -999,7 +1008,7 @@ struct WriteIdAllocOp : public KfsOp {
           writePrepareReplyFlag(other.writePrepareReplyFlag),
           clientSeqStr(),
           appendPeer()
-        {}
+        { chunkId = other.chunkId; }
     ~WriteIdAllocOp();
 
     void Request(ostream &os);
@@ -1030,8 +1039,7 @@ struct WriteIdAllocOp : public KfsOp {
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",        &WriteIdAllocOp::chunkId,           kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version",       &WriteIdAllocOp::chunkVersion,      int64_t(-1))
         .Def("Offset",              &WriteIdAllocOp::offset)
         .Def("Num-bytes",           &WriteIdAllocOp::numBytes)
@@ -1044,8 +1052,7 @@ struct WriteIdAllocOp : public KfsOp {
     }
 };
 
-struct WritePrepareOp : public KfsOp {
-    kfsChunkId_t       chunkId;
+struct WritePrepareOp : public KfsClientChunkOp {
     int64_t            chunkVersion;
     int64_t            offset;   /* input */
     size_t             numBytes; /* input */
@@ -1063,8 +1070,7 @@ struct WritePrepareOp : public KfsOp {
     BufferManager*     devBufMgr;
 
     WritePrepareOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_WRITE_PREPARE, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_WRITE_PREPARE, s),
           chunkVersion(-1),
           offset(0),
           numBytes(0),
@@ -1106,8 +1112,7 @@ struct WritePrepareOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",  &WritePrepareOp::chunkId,      kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version", &WritePrepareOp::chunkVersion, int64_t(-1))
         .Def("Offset",        &WritePrepareOp::offset)
         .Def("Num-bytes",     &WritePrepareOp::numBytes)
@@ -1238,8 +1243,7 @@ struct WriteOp : public KfsOp {
 };
 
 // sent by the client to force data to disk
-struct WriteSyncOp : public KfsOp {
-    kfsChunkId_t     chunkId;
+struct WriteSyncOp : public KfsClientChunkOp {
     int64_t          chunkVersion;
     // what is the range of data we are sync'ing
     int64_t          offset; /* input */
@@ -1261,8 +1265,7 @@ struct WriteSyncOp : public KfsOp {
 
     WriteSyncOp(kfsSeq_t s = 0, kfsChunkId_t c = -1,
             int64_t v = -1, int64_t o = 0, size_t n = 0)
-        : KfsOp(CMD_WRITE_SYNC, s),
-          chunkId(c),
+        : KfsClientChunkOp(CMD_WRITE_SYNC, s),
           chunkVersion(v),
           offset(o),
           numBytes(n),
@@ -1274,7 +1277,10 @@ struct WriteSyncOp : public KfsOp {
           writeMaster(false),
           checksumsCnt(0),
           checksumsStr()
-        { SET_HANDLER(this, &WriteSyncOp::Done); }
+    {
+        chunkId = c;
+        SET_HANDLER(this, &WriteSyncOp::Done);
+    }
     ~WriteSyncOp();
 
     void Request(ostream &os);
@@ -1297,8 +1303,7 @@ struct WriteSyncOp : public KfsOp {
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",     &WriteSyncOp::chunkId,      kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version",    &WriteSyncOp::chunkVersion, int64_t(-1))
         .Def("Offset",           &WriteSyncOp::offset)
         .Def("Num-bytes",        &WriteSyncOp::numBytes)
@@ -1345,8 +1350,7 @@ struct ReadChunkMetaOp : public KfsOp {
 
 struct GetChunkMetadataOp;
 
-struct ReadOp : public KfsOp {
-    kfsChunkId_t     chunkId;
+struct ReadOp : public KfsClientChunkOp {
     int64_t          chunkVersion;
     int64_t          offset;   /* input */
     size_t           numBytes; /* input */
@@ -1367,8 +1371,7 @@ struct ReadOp : public KfsOp {
     BufferManager*      devBufMgr;
 
     ReadOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_READ, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_READ, s),
           chunkVersion(-1),
           offset(0),
           numBytes(0),
@@ -1384,8 +1387,7 @@ struct ReadOp : public KfsOp {
           devBufMgr(0)
         { SET_HANDLER(this, &ReadOp::HandleDone); }
     ReadOp(WriteOp* w, int64_t o, size_t n)
-        : KfsOp(CMD_READ, w->seq),
-          chunkId(w->chunkId),
+        : KfsClientChunkOp(CMD_READ, w->seq),
           chunkVersion(w->chunkVersion),
           offset(o),
           numBytes(n),
@@ -1400,7 +1402,8 @@ struct ReadOp : public KfsOp {
           scrubOp(0),
           devBufMgr(0)
     {
-        clnt = w;
+        clnt    = w;
+        chunkId = w->chunkId;
         SET_HANDLER(this, &ReadOp::HandleDone);
     }
     ~ReadOp() {
@@ -1444,8 +1447,7 @@ struct ReadOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle",     &ReadOp::chunkId,      kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Chunk-version",    &ReadOp::chunkVersion, int64_t(-1))
         .Def("Offset",           &ReadOp::offset)
         .Def("Num-bytes",        &ReadOp::numBytes)
@@ -1455,9 +1457,8 @@ struct ReadOp : public KfsOp {
 };
 
 // used for retrieving a chunk's size
-struct SizeOp : public KfsOp {
+struct SizeOp : public KfsClientChunkOp {
     kfsFileId_t  fileId; // optional
-    kfsChunkId_t chunkId;
     int64_t      chunkVersion;
     int64_t      size; /* result */
     SizeOp(
@@ -1465,12 +1466,11 @@ struct SizeOp : public KfsOp {
         kfsFileId_t  fid = -1,
         kfsChunkId_t c   = -1,
         int64_t      v   = -1)
-        : KfsOp(CMD_SIZE, s),
+        : KfsClientChunkOp(CMD_SIZE, s),
           fileId(fid),
-          chunkId(c),
           chunkVersion(v),
           size(-1)
-        {}
+        { chunkId = c; }
 
     void Request(ostream &os);
     void Response(ostream &os);
@@ -1488,17 +1488,15 @@ struct SizeOp : public KfsOp {
     int HandleDone(int code, void *data);
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("File-handle",   &SizeOp::fileId,       kfsFileId_t(-1))
-        .Def("Chunk-handle",  &SizeOp::chunkId,      kfsChunkId_t(-1))
         .Def("Chunk-version", &SizeOp::chunkVersion, int64_t(-1))
         ;
     }
 };
 
 // used for reserving space in a chunk
-struct ChunkSpaceReserveOp : public KfsOp {
-    kfsChunkId_t    chunkId;
+struct ChunkSpaceReserveOp : public KfsClientChunkOp {
     int64_t         writeId; /* value for the local server */
     StringBufT<256> servers; /* input: set of servers on which to write */
     uint32_t        numServers; /* input */
@@ -1510,21 +1508,19 @@ struct ChunkSpaceReserveOp : public KfsOp {
     //
     size_t        nbytes;
     ChunkSpaceReserveOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_SPC_RESERVE, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_SPC_RESERVE, s),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(0)
         {}
     ChunkSpaceReserveOp(kfsSeq_t s, kfsChunkId_t c, size_t n)
-        : KfsOp(CMD_SPC_RESERVE, s),
-          chunkId(c),
+        : KfsClientChunkOp(CMD_SPC_RESERVE, s),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(n)
-        {}
+        { chunkId = c; }
 
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
@@ -1538,8 +1534,7 @@ struct ChunkSpaceReserveOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &ChunkSpaceReserveOp::chunkId, kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Num-bytes",    &ChunkSpaceReserveOp::nbytes)
         .Def("Num-servers",  &ChunkSpaceReserveOp::numServers)
         .Def("Servers",      &ChunkSpaceReserveOp::servers)
@@ -1548,28 +1543,25 @@ struct ChunkSpaceReserveOp : public KfsOp {
 };
 
 // used for releasing previously reserved chunk space reservation
-struct ChunkSpaceReleaseOp : public KfsOp {
-    kfsChunkId_t    chunkId;
+struct ChunkSpaceReleaseOp : public KfsClientChunkOp {
     int64_t         writeId; /* value for the local server */
     StringBufT<256> servers; /* input: set of servers on which to write */
     uint32_t        numServers; /* input */
     size_t          nbytes;
     ChunkSpaceReleaseOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_SPC_RELEASE, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_SPC_RELEASE, s),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(0)
         {}
     ChunkSpaceReleaseOp(kfsSeq_t s, kfsChunkId_t c, int n)
-        : KfsOp(CMD_SPC_RELEASE, s),
-          chunkId(c),
+        : KfsClientChunkOp(CMD_SPC_RELEASE, s),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(n)
-        {}
+        { chunkId = c; }
 
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
@@ -1583,8 +1575,7 @@ struct ChunkSpaceReleaseOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &ChunkSpaceReleaseOp::chunkId, kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Num-bytes",    &ChunkSpaceReleaseOp::nbytes)
         .Def("Num-servers",  &ChunkSpaceReleaseOp::numServers)
         .Def("Servers",      &ChunkSpaceReleaseOp::servers)
@@ -1592,8 +1583,7 @@ struct ChunkSpaceReleaseOp : public KfsOp {
     }
 };
 
-struct GetChunkMetadataOp : public KfsOp {
-    kfsChunkId_t chunkId;  // input
+struct GetChunkMetadataOp : public KfsClientChunkOp {
     int64_t      chunkVersion; // output
     bool         readVerifyFlag;
     int64_t      chunkSize; // output
@@ -1604,8 +1594,7 @@ struct GetChunkMetadataOp : public KfsOp {
     enum { kChunkReadSize = 1 << 20, kChunkMetaReadSize = 16 << 10 };
 
     GetChunkMetadataOp(kfsSeq_t s = 0)
-        : KfsOp(CMD_GET_CHUNK_METADATA, s),
-          chunkId(-1),
+        : KfsClientChunkOp(CMD_GET_CHUNK_METADATA, s),
           chunkVersion(0),
           readVerifyFlag(false),
           chunkSize(0),
@@ -1648,8 +1637,7 @@ struct GetChunkMetadataOp : public KfsOp {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &GetChunkMetadataOp::chunkId, kfsChunkId_t(-1))
+        return KfsClientChunkOp::ParserDef(parser)
         .Def("Read-verify",  &GetChunkMetadataOp::readVerifyFlag)
         ;
     }

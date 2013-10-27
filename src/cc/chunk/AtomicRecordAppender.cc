@@ -166,9 +166,8 @@ using std::ws;
 typedef QCDLList<RecordAppendOp> AppendReplicationList;
 
 RecordAppendOp::RecordAppendOp(kfsSeq_t s)
-    : KfsOp(CMD_RECORD_APPEND, s),
+    : KfsClientChunkOp(CMD_RECORD_APPEND, s),
       clientSeq(s),
-      chunkId(-1),
       chunkVersion(-1),
       numBytes(0),
       writeId(-1),

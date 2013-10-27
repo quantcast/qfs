@@ -712,7 +712,7 @@ public:
 };
 
 // Invoke appropriate request parser based on RPC name.
-template <typename ABSTRACT_OBJ>
+template <typename ABSTRACT_OBJ, typename VALUE_PARSER=ValueParser>
 class RequestHandler
 {
 public:
@@ -767,10 +767,10 @@ public:
         );
     }
     template <typename OBJ>
-    RequestParser<ABSTRACT_OBJ, OBJ>& BeginMakeParser(
+    RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER>& BeginMakeParser(
         const OBJ* inNullPtr = 0)
     {
-        static RequestParser<ABSTRACT_OBJ, OBJ> sParser;
+        static RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER> sParser;
         return sParser;
     }
     template <typename T>
