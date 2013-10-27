@@ -87,7 +87,6 @@ ChunkAccessToken::ChunkAccessToken(
     bool
 ChunkAccessToken::Process(
     kfsChunkId_t      inChunkId,
-    kfsUid_t          inUid,
     const char*       inBufPtr,
     int               inBufLen,
     int64_t           inTimeNowSec,
@@ -95,7 +94,7 @@ ChunkAccessToken::Process(
     string*           outErrMsgPtr)
 {
     Subject const theSubject(inChunkId);
-    const bool theValidFlag = mDelegationToken.Process(
+    return mDelegationToken.Process(
         inBufPtr,
         inBufLen,
         inTimeNowSec,
@@ -105,6 +104,27 @@ ChunkAccessToken::Process(
         outErrMsgPtr,
         theSubject.GetPtr(),
         theSubject.GetSize()
+    );
+}
+
+    bool
+ChunkAccessToken::Process(
+    kfsChunkId_t      inChunkId,
+    kfsUid_t          inUid,
+    const char*       inBufPtr,
+    int               inBufLen,
+    int64_t           inTimeNowSec,
+    const CryptoKeys& inKeys,
+    string*           outErrMsgPtr)
+{
+    const bool theValidFlag = Process(
+        inChunkId,
+        inUid,
+        inBufPtr,
+        inBufLen,
+        inTimeNowSec,
+        inKeys,
+        outErrMsgPtr
     );
     if (! theValidFlag) {
         return false;

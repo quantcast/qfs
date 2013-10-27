@@ -79,6 +79,13 @@ public:
         int          inKeyLen);
     bool Process(
         kfsChunkId_t      inChunkId,
+        const char*       inBufPtr,
+        int               inBufLen,
+        int64_t           inTimeNowSec,
+        const CryptoKeys& inKeys,
+        string*           outErrMsgPtr);
+    bool Process(
+        kfsChunkId_t      inChunkId,
         kfsUid_t          inUid,
         const char*       inBufPtr,
         int               inBufLen,
@@ -92,6 +99,8 @@ public:
     ostream& Display(
         ostream& inStream) const
         { return mDelegationToken.Display(inStream); }
+    const DelegationToken& Get() const
+        { return mDelegationToken; }
     static bool WriteToken(
         IOBufferWriter& inWriter,
         kfsChunkId_t    inChunkId,

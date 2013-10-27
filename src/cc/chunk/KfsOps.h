@@ -38,6 +38,7 @@
 #include "common/kfsdecls.h"
 #include "common/time.h"
 #include "common/StBuffer.h"
+#include "common/RequestParser.h"
 #include "Chunk.h"
 #include "DiskIo.h"
 #include "RemoteSyncSM.h"
@@ -302,21 +303,31 @@ inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
 
 struct KfsClientChunkOp : public KfsOp
 {
-    kfsChunkId_t   chunkId;
-    StringBufT<64> chunkAccessToken;
+    kfsChunkId_t chunkId;
+    bool         hasChunkAccessTokenFlag:1;
+    bool         chunkAccessTokenValidFlag:1;
+    uint16_t     chunkAccessFlags;
+    kfsUid_t     chunkAccessUid;
 
     KfsClientChunkOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
         : KfsOp(o, s, c),
           chunkId(-1),
-          chunkAccessToken()
+          hasChunkAccessTokenFlag(false),
+          chunkAccessTokenValidFlag(false),
+          chunkAccessFlags(0),
+          chunkAccessUid(kKfsUserNone),
+          chunkAccessVal()
         {}
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
         .Def("Chunk-handle", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
-        .Def("CS-access",    &KfsClientChunkOp::chunkAccessToken)
+        .Def("C-access",     &KfsClientChunkOp::chunkAccessVal)
         ;
     }
+    inline bool Validate();
+private:
+    TokenValue chunkAccessVal;
 };
 
 //

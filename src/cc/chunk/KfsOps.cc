@@ -36,6 +36,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/ChunkAccessToken.h"
 
 #include "ChunkManager.h"
 #include "Logger.h"
@@ -288,6 +289,26 @@ KfsOp::Checksum(
 KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
 {
     return gChunkManager.FindDeviceBufferManager(chunkId);
+}
+
+inline bool
+KfsClientChunkOp::Validate()
+{
+    if ((hasChunkAccessTokenFlag = ! chunkAccessVal.empty())) {
+        ChunkAccessToken token;
+        if ((chunkAccessTokenValidFlag = token.Process(
+                chunkId,
+                chunkAccessVal.mPtr,
+                chunkAccessVal.mLen,
+                startTime,
+                gChunkManager.GetCryptoKeys(),
+                &statusMsg))) {
+            chunkAccessUid   = token.Get().GetUid();
+            chunkAccessFlags = token.Get().GetFlags();
+        }
+        chunkAccessVal.clear();
+    }
+    return true;
 }
 
 typedef RequestHandler<KfsOp> ChunkRequestHandler;
