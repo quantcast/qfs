@@ -80,7 +80,6 @@ enum KfsOp_t {
     CMD_DUMP_CHUNKTOSERVERMAP,
     CMD_UPSERVERS,
     // Chunkserver RPCs
-    CMD_OPEN,
     CMD_CLOSE,
     CMD_READ,
     CMD_WRITE_ID_ALLOC,
@@ -715,23 +714,6 @@ struct TruncateOp : public KfsOp {
         if (endOffset >= 0) {
             os << " end: " << endOffset;
         }
-        return os.str();
-    }
-};
-
-struct OpenOp : public KfsOp {
-    kfsChunkId_t chunkId;
-    int openFlags;  // either O_RDONLY, O_WRONLY or O_RDWR
-    OpenOp(kfsSeq_t s, kfsChunkId_t c) :
-        KfsOp(CMD_OPEN, s), chunkId(c)
-    {
-
-    }
-    void Request(ostream &os);
-    string Show() const {
-        ostringstream os;
-
-        os << "open: chunkid: " << chunkId;
         return os.str();
     }
 };

@@ -44,6 +44,7 @@
 #include "LeaseClerk.h"
 #include "Replicator.h"
 #include "AtomicRecordAppender.h"
+#include "ClientSM.h"
 #include "utils.h"
 
 #include <algorithm>
@@ -152,7 +153,6 @@ private:
         // ensure that globals constructed first
         globals();
         static OpCounters instance;
-        instance.AddCounter("Open", CMD_OPEN);
         instance.AddCounter("Read", CMD_READ);
         instance.AddCounter("Write Prepare", CMD_WRITE_PREPARE);
         instance.AddCounter("Write Sync", CMD_WRITE_SYNC);
@@ -285,6 +285,12 @@ KfsOp::Checksum(
         ComputeBlockChecksum(name, nameLen), header, headerLen);
 }
 
+/* virtual */ bool
+KfsOp::CheckAccess(ClientSM& sm)
+{
+    return sm.CheckAccess(*this);
+}
+
 /* static */ BufferManager*
 KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
 {
@@ -314,6 +320,12 @@ KfsClientChunkOp::Validate()
     return true;
 }
 
+/* virtual */ bool
+KfsClientChunkOp::CheckAccess(ClientSM& sm)
+{
+    return sm.CheckAccess(*this);
+}
+
 typedef RequestHandler<KfsOp> ChunkRequestHandler;
 
 static ChunkRequestHandler&
@@ -330,7 +342,6 @@ MakeClientRequestHandler()
 {
     static ChunkRequestHandler sHandler;
     return MakeCommonRequestHandler(sHandler)
-    .MakeParser<OpenOp                  >("OPEN")
     .MakeParser<CloseOp                 >("CLOSE")
     .MakeParser<ReadOp                  >("READ")
     .MakeParser<WriteIdAllocOp          >("WRITE_ID_ALLOC")
@@ -755,21 +766,6 @@ WriteOp::HandleLoggingDone(int code, void *data)
 {
     assert(wpop);
     return wpop->HandleEvent(EVENT_CMD_DONE, this);
-}
-
-///
-/// Handlers for executing the various ops.  If the op execution is
-/// "in-line", that is the op doesn't block, then when the execution
-/// is finished, the op is handed off to the logger; the net thread
-/// will drain the logger and then notify the client.  Otherwise, the op is queued
-/// for execution and the client gets notified whenever the op
-/// finishes execution.
-///
-void
-OpenOp::Execute()
-{
-    status = gChunkManager.OpenChunk(chunkId, openFlags);
-    gLogger.Submit(this);
 }
 
 void

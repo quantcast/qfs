@@ -116,6 +116,8 @@ public:
     }
     virtual void Granted(ByteCount byteCount)
         { GrantedSelf(byteCount, false); }
+    bool CheckAccess(KfsOp& op);
+    bool CheckAccess(KfsClientChunkOp& op);
 private:
     typedef deque<KfsOp*> OpsQueue;
     // There is a dependency in waiting for a write-op to finish

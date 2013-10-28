@@ -88,7 +88,6 @@ enum KfsOp_t {
 
     // Client -> Chunkserver ops
     CMD_SYNC,
-    CMD_OPEN,
     CMD_CLOSE,
     CMD_READ,
     CMD_WRITE_ID_ALLOC,
@@ -287,6 +286,7 @@ struct KfsOp : public KfsCallbackObj
     static BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
     inline static Display ShowOp(const KfsOp* op)
         { return (op ? Display(*op) : Display(GetNullOp())); }
+    virtual bool CheckAccess(ClientSM& sm);
 protected:
     virtual void Request(ostream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
@@ -326,6 +326,7 @@ struct KfsClientChunkOp : public KfsOp
         ;
     }
     inline bool Validate();
+    virtual bool CheckAccess(ClientSM& sm);
 private:
     TokenValue chunkAccessVal;
 };
@@ -756,36 +757,6 @@ struct RetireOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        ;
-    }
-};
-
-struct OpenOp : public KfsClientChunkOp {
-    int            openFlags;  // either O_RDONLY, O_WRONLY
-    StringBufT<64> intentStr;
-    OpenOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_OPEN, s),
-          openFlags(0),
-          intentStr()
-        {}
-    void Execute();
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return os <<
-            "open: "
-            " seq: "     << seq <<
-            " chunkId: " << chunkId
-        ;
-    }
-    bool Valudate()
-    {
-        openFlags = O_RDWR;
-        return true;
-    }
-    template<typename T> static T& ParserDef(T& parser)
-    {
-        return KfsClientChunkOp::ParserDef(parser)
-        .Def("Intent",       &OpenOp::intentStr)
         ;
     }
 };

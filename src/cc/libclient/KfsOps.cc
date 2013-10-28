@@ -383,16 +383,6 @@ TruncateOp::Request(ostream &os)
 }
 
 void
-OpenOp::Request(ostream &os)
-{
-    os <<
-        "OPEN\r\n"       << ReqHeaders(*this) <<
-        "Chunk-handle: " << chunkId << "\r\n"
-        "Intent: "       << (openFlags == O_RDONLY ? "READ" : "WRITE") << "\r\n"
-    "\r\n";
-}
-
-void
 CloseOp::Request(ostream &os)
 {
     os <<

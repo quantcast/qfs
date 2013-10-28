@@ -37,6 +37,7 @@
 #include "common/time.h"
 #include "kfsio/Globals.h"
 #include "kfsio/NetManager.h"
+#include "kfsio/ChunkAccessToken.h"
 #include "qcdio/QCUtils.h"
 
 #include <algorithm>
@@ -600,7 +601,11 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     IOBuffer& iobuf, IOBuffer& ioOpBuf, bool forwardFlag)
 {
     const int nAvail = iobuf.BytesConsumable();
-    if (! mCurOp || mDevBufMgr) {
+    if (! mCurOp && op.status < 0) {
+        mCurOp          = &op;
+        mDiscardByteCnt = numBytes;
+        mDevBufMgr      = 0;
+    } else if (! mCurOp || mDevBufMgr) {
         mDevBufMgr = mCurOp ? 0 : FindDevBufferManager(op);
         Client* const   mgrCli      = GetDevBufMgrClient(mDevBufMgr);
         const ByteCount bufferBytes = IoRequestBytes(numBytes, forwardFlag);
@@ -780,6 +785,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "+seq: " << op->seq << " " << op->Show() <<
         KFS_LOG_EOM;
+        // Validate access if authentication is configured.
+        // Presently with authentication configured ssl handshake must complete
+        // successfully in order to get here, as handshake failure will result
+        // in connection error.
+        if (0 < mDelegationToken.GetValidForSec()) {
+            op->CheckAccess(*this);
+        }
     }
 
     iobuf.Consume(cmdLen);
@@ -1068,14 +1080,103 @@ ClientSM::GetPsk(
         &theErrMsg
     );
     if (theKeyLen > 0) {
+        CLIENT_SM_LOG_STREAM_DEBUG <<
+            "authentication succeeded: " <<
+            " delegation: "    << mDelegationToken.Show() <<
+        KFS_LOG_EOM;
         return theKeyLen;
     }
-    CLIENT_SM_LOG_STREAM_DEBUG <<
+    CLIENT_SM_LOG_STREAM_ERROR <<
         "authentication failure: " << theErrMsg <<
         " delegation: "            << mDelegationToken.Show() <<
     KFS_LOG_EOM;
     mDelegationToken.Clear();
     return 0;
+}
+
+bool
+ClientSM::CheckAccess(KfsOp& op)
+{
+    if (mDelegationToken.GetValidForSec() <= 0) {
+        op.statusMsg = "connection is not authenticated";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (! mNetConnection || ! mNetConnection->GetFilter()) {
+        op.statusMsg = "connection is not secure";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (mDelegationToken.GetUid() != kKfsUserRoot) {
+        op.statusMsg = "authenticated user is not root";
+        op.status    = -EPERM;
+        return false;
+    }
+    return true;
+}
+
+bool
+ClientSM::CheckAccess(KfsClientChunkOp& op)
+{
+    if (op.hasChunkAccessTokenFlag) {
+        op.statusMsg = "chunk access: no chunk access token";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (op.chunkAccessTokenValidFlag) {
+        op.statusMsg = "chunk access: chunk access token is not valid";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (mDelegationToken.GetValidForSec() <= 0) {
+        op.statusMsg = "chunk access: connection is not authenticated";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (((op.chunkAccessFlags ^ mDelegationToken.GetFlags()) &
+            DelegationToken::kChunkServerFlag) != 0) {
+        op.statusMsg = "chunk access: chunk server flag mismatch";
+        op.status    = -EPERM;
+        return false;
+    }
+    if (op.chunkAccessUid != mDelegationToken.GetUid()) {
+        op.statusMsg = "chunk access: chunk access uid mismatch";
+        op.status    = -EPERM;
+        return false;
+    }
+    if ((op.chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) == 0 &&
+            (! mNetConnection || ! mNetConnection->GetFilter())) {
+        op.statusMsg = "chunk access: no clear text connection allowed";
+        op.status    = -EPERM;
+        return false;
+    }
+    switch (op.op) {
+        case CMD_READ:
+            if ((op.chunkAccessFlags & ChunkAccessToken::kAllowReadFlag) == 0) {
+                op.statusMsg = "chunk access: no read access";
+                op.status    = -EPERM;
+                return false;
+            }
+            break;
+        case CMD_SIZE:
+        case CMD_CLOSE:
+            if ((op.chunkAccessFlags & (ChunkAccessToken::kAllowReadFlag |
+                    ChunkAccessToken::kAllowWriteFlag)) == 0) {
+                op.statusMsg = "chunk access: no access";
+                op.status    = -EPERM;
+                return false;
+            }
+            break;
+        default:
+            if ((op.chunkAccessFlags &
+                    ChunkAccessToken::kAllowWriteFlag) == 0) {
+                op.statusMsg = "chunk access: no write access";
+                op.status    = -EPERM;
+                return false;
+            }
+            break;
+    }
+    return true;
 }
 
 }
