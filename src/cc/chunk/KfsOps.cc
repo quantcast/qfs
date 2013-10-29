@@ -959,7 +959,8 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
             }
         }
         if (status >= 0 && leaseId >= 0) {
-            gLeaseClerk.RegisterLease(chunkId, leaseId, appendFlag);
+            gLeaseClerk.RegisterLease(
+                chunkId, leaseId, appendFlag, accessTokens);
         }
     }
     diskIo.reset();

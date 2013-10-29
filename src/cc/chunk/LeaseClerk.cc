@@ -56,7 +56,38 @@ LeaseClerk::LeaseClerk()
 }
 
 void
-LeaseClerk::RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag)
+LeaseClerk::LeaseInfo_t::SetAccess(const char* accessTokens)
+{
+    if (! accessTokens || ! *accessTokens) {
+        csToken.clear();
+        csKey.clear();
+        forwardTokens.clear();
+        return;
+    }
+    const char* p = accessTokens;
+    for (int i = 0; i < 2; i++) {
+        while (*p != 0 && (*p & 0xFF) <= ' ') {
+            ++p;
+        }
+        const char* const b = p; 
+        while (' ' < (*p & 0xFF)) {
+            ++p;
+        }
+        if (i == 0) {
+            csToken.assign(b, p - b);
+        } else {
+            csKey.assign(b, p - b);
+        }
+    }
+    while (*p != 0 && (*p & 0xFF) <= ' ') {
+        ++p;
+    }
+    forwardTokens = p;
+}
+
+void
+LeaseClerk::RegisterLease(kfsChunkId_t chunkId, int64_t leaseId,
+    bool appendFlag, const char* accessTokens)
 {
     // Get replace the old lease if there is one
     bool insertedFlag = false;
@@ -67,6 +98,7 @@ LeaseClerk::RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag
     lease.leaseRenewSent = false;
     lease.invalidFlag    = false;
     lease.appendFlag     = appendFlag;
+    lease.SetAccess(accessTokens);
     KFS_LOG_STREAM_DEBUG <<
         "registered lease:"
         " chunk: " << chunkId <<
@@ -142,7 +174,7 @@ LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId) const
 }
 
 void
-LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId)
+LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId, const char* accessTokens)
 {
     LeaseInfo_t* const li = mLeases.Find(chunkId);
     if (! li) {
@@ -151,6 +183,7 @@ LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId)
     LeaseInfo_t& lease = *li;
     lease.expires = Now() + LEASE_INTERVAL_SECS;
     lease.leaseRenewSent = false;
+    lease.SetAccess(accessTokens);
     KFS_LOG_STREAM_INFO <<
         "lease renewed for:"
         " chunk: " << chunkId <<
@@ -172,7 +205,7 @@ LeaseClerk::HandleEvent(int code, void *data)
                 const LeaseRenewOp* const renewOp =
                     static_cast<const LeaseRenewOp*>(op);
                 if (renewOp->status == 0) {
-                    LeaseRenewed(renewOp->chunkId);
+                    LeaseRenewed(renewOp->chunkId, renewOp->accessTokens);
                 } else {
                     UnRegisterLease(renewOp->chunkId);
                 }

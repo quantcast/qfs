@@ -58,7 +58,8 @@ public:
     /// @param[in] chunkId The chunk associated with the lease.
     /// @param[in] leaseId  The lease id to be registered with the clerk
     /// @param[in] appendFlag True if chunk created in write append mode
-    void RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag);
+    void RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag,
+        const char* accessTokens);
     void UnRegisterLease(kfsChunkId_t chunkId);
     void InvalidateLease(kfsChunkId_t chunkId);
 
@@ -91,6 +92,10 @@ private:
         bool    leaseRenewSent:1;
         bool    appendFlag:1;
         bool    invalidFlag:1;
+        string  csToken;
+        string  csKey;
+        string  forwardTokens;
+        void SetAccess(const char* accessTokens);
     };
     typedef KVPair<kfsChunkId_t, LeaseInfo_t> LeaseMapEntry;
     typedef LinearHash<
@@ -108,7 +113,7 @@ private:
     time_t            mLastLeaseCheckTime;
     vector<chunkId_t> mTmpExpireQueue;
 
-    void LeaseRenewed(kfsChunkId_t chunkId);
+    void LeaseRenewed(kfsChunkId_t chunkId, const char* accessTokens);
     void LeaseExpired(kfsChunkId_t chunkId);
 
     inline static time_t Now();

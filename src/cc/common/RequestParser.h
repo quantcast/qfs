@@ -392,7 +392,7 @@ public:
             : mPtr(inPtr),
               mLen(inPtr ? strlen(inPtr) : 0)
             {}
-        Token operator=(
+        Token& operator=(
             const Token& inToken)
         {
             const_cast<const char*&>(mPtr) = inToken.mPtr;
