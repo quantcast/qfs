@@ -177,12 +177,14 @@ RecordAppendOp::RecordAppendOp(kfsSeq_t s)
       checksum(0),
       servers(),
       masterCommittedOffset(-1),
-      clientSeqStr(),
       dataBuf(),
+      syncReplicationAccess(),
+      accessFwdLength(0),
       origClnt(0),
       origSeq(s),
       replicationStartTime(0),
-      devBufMgr(0)
+      devBufMgr(0),
+      clientSeqVal()
 {
     AppendReplicationList::Init(*this);
 }

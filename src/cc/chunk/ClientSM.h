@@ -235,6 +235,7 @@ private:
     int                        mRecursionCnt;
     int                        mDiscardByteCnt;
     const uint64_t             mInstanceNum;
+    IOBuffer::IStream          mIStream;
     IOBuffer::WOStream         mWOStream;
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
@@ -262,6 +263,7 @@ private:
 
     /// Submit ops that have been held waiting for doneOp to finish.
     void OpFinished(KfsOp* doneOp);
+    bool Discard(IOBuffer& iobuf);
     bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
         IOBuffer& ioOpBuf, bool forwardFlag);
     string GetPeerName();

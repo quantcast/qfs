@@ -37,6 +37,7 @@
 #include "common/kfstypes.h"
 #include "common/LinearHash.h"
 #include "Chunk.h"
+#include "KfsOps.h"
 
 #include <vector>
 
@@ -50,6 +51,7 @@ using std::vector;
 class LeaseClerk : public KfsCallbackObj
 {
 public:
+
     LeaseClerk();
     ~LeaseClerk()
         {}
@@ -59,7 +61,7 @@ public:
     /// @param[in] leaseId  The lease id to be registered with the clerk
     /// @param[in] appendFlag True if chunk created in write append mode
     void RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag,
-        const char* accessTokens);
+        const SyncReplicationAccessPtr& syncReplicationAccess);
     void UnRegisterLease(kfsChunkId_t chunkId);
     void InvalidateLease(kfsChunkId_t chunkId);
 
@@ -73,7 +75,8 @@ public:
 
     /// Check if lease is still valid.
     /// @param[in] chunkId  The chunk whose lease we are checking for validity.
-    bool IsLeaseValid(kfsChunkId_t chunkId) const;
+    bool IsLeaseValid(kfsChunkId_t chunkId,
+            SyncReplicationAccessPtr* syncReplicationAccess = 0) const;
 
     // Lease renew op completion handler.
     int HandleEvent(int code, void *data);
@@ -82,20 +85,16 @@ public:
     void UnregisterAllLeases();
 
     void Timeout();
-
 private:
     struct LeaseInfo_t
     {
-        int64_t leaseId;
-        time_t  expires;
-        time_t  lastWriteTime;
-        bool    leaseRenewSent:1;
-        bool    appendFlag:1;
-        bool    invalidFlag:1;
-        string  csToken;
-        string  csKey;
-        string  forwardTokens;
-        void SetAccess(const char* accessTokens);
+        int64_t                  leaseId;
+        time_t                   expires;
+        time_t                   lastWriteTime;
+        bool                     leaseRenewSent:1;
+        bool                     appendFlag:1;
+        bool                     invalidFlag:1;
+        SyncReplicationAccessPtr syncReplicationAccess;
     };
     typedef KVPair<kfsChunkId_t, LeaseInfo_t> LeaseMapEntry;
     typedef LinearHash<
@@ -113,7 +112,8 @@ private:
     time_t            mLastLeaseCheckTime;
     vector<chunkId_t> mTmpExpireQueue;
 
-    void LeaseRenewed(kfsChunkId_t chunkId, const char* accessTokens);
+    void LeaseRenewed(kfsChunkId_t chunkId,
+        const SyncReplicationAccessPtr& syncReplicationAccess);
     void LeaseExpired(kfsChunkId_t chunkId);
 
     inline static time_t Now();

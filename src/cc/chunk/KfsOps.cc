@@ -217,7 +217,6 @@ needToForwardToPeer(
     return needToForward;
 }
 
-
 static inline RemoteSyncSMPtr
 FindPeer(KfsOp& op, const ServerLocation& loc)
 {
@@ -237,6 +236,44 @@ SubmitOpResponse(KfsOp *op)
 {
     op->type = OP_RESPONSE;
     op->HandleEvent(EVENT_CMD_DONE, op);
+}
+
+
+/* static */ SyncReplicationAccess*
+SyncReplicationAccess::Parse(istream& is, int len)
+{
+    if (len <= 0) {
+        return 0;
+    }
+    char* const accessTokens = new char[len + 1];
+    accessTokens[len] = 0;
+    is.read(accessTokens, len);
+    if (is.gcount() != (size_t)len) {
+        delete [] accessTokens;
+        return 0;
+    }
+    accessTokens[len] = 0;
+    Token tokens[4];
+    const char* p = accessTokens;
+    for (int i = 0; ; i++) {
+        while (*p && (*p & 0xFF) <= ' ') {
+            ++p;
+        }
+        if (3 <= i) {
+            tokens[i] = Token(p, accessTokens + len - p);
+            break;
+        }
+        const char* const b = p;
+        while (' ' < (*p & 0xFF)) {
+            ++p;
+        }
+        tokens[i] = Token(b, p - b);
+    }
+    if (tokens[3].mLen <= 0) {
+        delete [] accessTokens;
+        return 0;
+    }
+    return new SyncReplicationAccess(tokens, accessTokens);
 }
 
 class KfsOp::NullOp : public KfsOp
@@ -456,11 +493,12 @@ bool
 WriteIdAllocOp::Validate()
 {
     ValueParser::SetValue(
-        clientSeqStr.GetPtr(),
-        clientSeqStr.GetSize(),
+        clientSeqVal.mPtr,
+        clientSeqVal.mLen,
         seq,
         clientSeq
     );
+    clientSeqVal.clear();
     return KfsClientChunkOp::Validate();
 }
 
@@ -468,11 +506,12 @@ bool
 RecordAppendOp::Validate()
 {
     ValueParser::SetValue(
-        clientSeqStr.GetPtr(),
-        clientSeqStr.GetSize(),
+        clientSeqVal.mPtr,
+        clientSeqVal.mLen,
         seq,
         clientSeq
     );
+    clientSeqVal.clear();
     return KfsClientChunkOp::Validate();
 }
 
@@ -823,21 +862,6 @@ CloseOp::HandlePeerReply(int code, void *data)
     return 0;
 }
 
-/* virtual */ bool
-AllocChunkOp::ParseContent(istream& is)
-{
-    if (contentLength <= 0) {
-        return true;
-    }
-    accessTokens = new char[contentLength + 1];
-    accessTokens[contentLength] = 0;
-    is.read(accessTokens, contentLength);
-    if (is.gcount() != (size_t)contentLength) {
-        return false;
-    }
-    return true;
-}
-
 void
 AllocChunkOp::Execute()
 {
@@ -960,7 +984,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
         }
         if (status >= 0 && leaseId >= 0) {
             gLeaseClerk.RegisterLease(
-                chunkId, leaseId, appendFlag, accessTokens);
+                chunkId, leaseId, appendFlag, syncReplicationAccess);
         }
     }
     diskIo.reset();
@@ -1658,7 +1682,8 @@ WriteIdAllocOp::Execute()
         return;
     }
     const bool writeMaster = myPos == 0;
-    if (writeMaster && ! gLeaseClerk.IsLeaseValid(chunkId)) {
+    if (writeMaster && ! gLeaseClerk.IsLeaseValid(
+            chunkId, &syncReplicationAccess)) {
         status    = -ELEASEEXPIRED;
         statusMsg = "no valid write lease exists";
         Done(EVENT_CMD_DONE, &status);
@@ -2645,6 +2670,28 @@ ReadOp::Request(ostream& os)
     os << "\r\n";
 }
 
+inline static void
+WriteSyncReplicationAccess(
+    const SyncReplicationAccessPtr& syncReplicationAccess,
+    ostream&                        os,
+    const char*                     contentLengthHeader = "Content-length: ")
+{
+    const SyncReplicationAccess::Token* fwd = 0;
+    if (syncReplicationAccess) {
+        const SyncReplicationAccess&        ra = *syncReplicationAccess;
+        const SyncReplicationAccess::Token& ca = ra.chunkAccess;
+        os << "C-access: "; os.write(ca.mPtr, ca.mLen) << "\r\n";
+        fwd = &ra.forwardTokens;
+        if (0 < fwd->mLen) {
+            os << contentLengthHeader << fwd->mLen << "\r\n";
+        }
+    }
+    os << "\r\n";
+    if (fwd) {
+        os.write(fwd->mPtr, fwd->mLen);
+    }
+}
+
 void
 WriteIdAllocOp::Request(ostream& os)
 {
@@ -2660,7 +2707,8 @@ WriteIdAllocOp::Request(ostream& os)
         "Client-cseq: "       << clientSeq                   << "\r\n"
         "Num-servers: "       << numServers                  << "\r\n"
         "Servers: "           << servers                     << "\r\n"
-    "\r\n";
+    ;
+    WriteSyncReplicationAccess(syncReplicationAccess, os);
 }
 
 void
@@ -2678,7 +2726,9 @@ WritePrepareFwdOp::Request(ostream& os)
     "Num-servers: "   << owner.numServers << "\r\n"
     "Reply: "         << (owner.replyRequestedFlag ? 1 : 0) << "\r\n"
     "Servers: "       << owner.servers << "\r\n"
-    "\r\n";
+    ;
+    WriteSyncReplicationAccess(
+        owner.syncReplicationAccess, os, "Access-fwd-length: ");
 }
 
 void
@@ -2701,7 +2751,8 @@ WriteSyncOp::Request(ostream& os)
         os << "\r\n";
     }
     os << "Num-servers: " << numServers << "\r\n";
-    os << "Servers: " << servers << "\r\n\r\n";
+    os << "Servers: " << servers << "\r\n";
+    WriteSyncReplicationAccess(syncReplicationAccess, os);
 }
 
 static void
@@ -2891,21 +2942,6 @@ LeaseRenewOp::Request(ostream& os)
     os << "Chunk-handle: " << chunkId << "\r\n";
     os << "Lease-id: " << leaseId << "\r\n";
     os << "Lease-type: " << leaseType << "\r\n\r\n";
-}
-
-/* virtual */ bool
-LeaseRenewOp::ParseResponseContent(istream& is, int len)
-{
-    if (len <= 0) {
-        return true;
-    }
-    accessTokens = new char[len + 1];
-    accessTokens[len] = 0;
-    is.read(accessTokens, len);
-    if (is.gcount() != (size_t)len) {
-        return false;
-    }
-    return true;
 }
 
 int

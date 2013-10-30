@@ -186,6 +186,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mRecursionCnt(0),
       mDiscardByteCnt(0),
       mInstanceNum(sInstanceNum++),
+      mIStream(),
       mWOStream(),
       mDevBufMgrClients(),
       mDevBufMgr(0),
@@ -597,6 +598,26 @@ GetQuota(const BufferManager& bufMgr, const BufferManager* devBufMgr)
 }
 
 bool
+ClientSM::Discard(IOBuffer& iobuf)
+{
+    if (mDiscardByteCnt <= 0) {
+        return true;
+    }
+    const int discardedCnt = iobuf.Consume(mDiscardByteCnt);
+    gClientManager.Discarded(discardedCnt);
+    mDiscardByteCnt -= discardedCnt;
+    if (mDiscardByteCnt > 0) {
+        mNetConnection->SetMaxReadAhead(
+            (int)min((ByteCount)mDiscardByteCnt, max(ByteCount(1),
+                min(GetBufferManager().GetRemainingByteCount(),
+                ByteCount(8) * IOBufferData::GetDefaultBufferSize())))
+        );
+        return false;
+    }
+    return true;
+}
+
+bool
 ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     IOBuffer& iobuf, IOBuffer& ioOpBuf, bool forwardFlag)
 {
@@ -673,15 +694,7 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
         }
     }
     if (mDiscardByteCnt > 0) {
-        const int discardedCnt = iobuf.Consume(mDiscardByteCnt);
-        gClientManager.Discarded(discardedCnt);
-        mDiscardByteCnt -= discardedCnt;
-        if (mDiscardByteCnt > 0) {
-            mNetConnection->SetMaxReadAhead(
-                (int)min((ByteCount)mDiscardByteCnt, max(ByteCount(1),
-                    min(GetBufferManager().GetRemainingByteCount(),
-                    ByteCount(8) * IOBufferData::GetDefaultBufferSize())))
-            );
+        if (! Discard(iobuf)) {
             return false;
         }
         if (op.status >= 0) {
@@ -760,17 +773,18 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     assert(op ? cmdLen == 0 : cmdLen > 0);
     if (! op) {
         if (sTraceRequestResponseFlag) {
-            IOBuffer::IStream is(iobuf, cmdLen);
+            istream& is = mIStream.Set(iobuf, cmdLen);
             string line;
             while (getline(is, line)) {
                 CLIENT_SM_LOG_STREAM_DEBUG <<
                     "request: " << line <<
                 KFS_LOG_EOM;
             }
+            mIStream.Reset();
         }
         if (ParseClientCommand(iobuf, cmdLen, &op) != 0) {
             assert(! op);
-            IOBuffer::IStream is(iobuf, cmdLen);
+            istream& is = mIStream.Set(iobuf, cmdLen);
             string line;
             int    maxLines = 64;
             while (--maxLines >= 0 && getline(is, line)) {
@@ -778,6 +792,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                     "invalid request: " << line <<
                 KFS_LOG_EOM;
             }
+            mIStream.Reset();
             iobuf.Consume(cmdLen);
             // got a bogus command
             return false;
@@ -793,8 +808,64 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             op->CheckAccess(*this);
         }
     }
-
     iobuf.Consume(cmdLen);
+
+    // Content length here might be just an initial part of the payload length,
+    // the part that could be too large to fit into the normal rpc "header".
+    // Append and write prepare ops has such format where the initial part of
+    // the "content" is used to pass access tokens down to the synchronous
+    // replication chain.
+    const int contentLength = op->GetContentLength();
+    if (0 < contentLength) {
+        if (! mCurOp) {
+            if (iobuf.BytesConsumable() < contentLength) {
+                const ByteCount bufferBytes = contentLength;
+                BufferManager&  bufMgr      = GetBufferManager();
+                if (! bufMgr.Get(*this, bufferBytes)) {
+                    mCurOp = op;
+                    const bool exceedsWaitFlag = FailIfExceedsWait(bufMgr, 0);
+                    CLIENT_SM_LOG_STREAM_DEBUG <<
+                        "request for: " << bufferBytes << " bytes denied" <<
+                        " cur: "   << GetByteCount() <<
+                        " total: " << bufMgr.GetTotalByteCount() <<
+                        " used: "  << bufMgr.GetUsedByteCount() <<
+                        " bufs: "  << bufMgr.GetFreeBufferCount() <<
+                        " op: "    << op->Show() <<
+                        (exceedsWaitFlag ?
+                            "exceeds max wait" : " waiting for buffers") <<
+                    KFS_LOG_EOM;
+                    if (! exceedsWaitFlag) {
+                        return false;
+                    }
+                }
+            }
+            if (op->status < 0) {
+                mDiscardByteCnt = contentLength;
+            }
+        }
+        if (0 < mDiscardByteCnt) {
+            if (! Discard(iobuf)) {
+                return false;
+            }
+        } else if (iobuf.BytesConsumable() < contentLength) {
+            mNetConnection->SetMaxReadAhead(
+                iobuf.BytesConsumable() - contentLength);
+            mCurOp = op;
+            return false;
+        }
+        mCurOp = 0;
+        if (0 < contentLength && 0 <= op->status) {
+            if (! op->ParseContent(mIStream.Set(iobuf, contentLength))) {
+                if (0 < op->status) {
+                    op->status    = -EINVAL;
+                    op->statusMsg = "content parse error";
+                }
+            }
+            mIStream.Reset();
+            iobuf.Consume(contentLength);
+        }
+    }
+
     ByteCount bufferBytes = -1;
     if (op->op == CMD_WRITE_PREPARE) {
         WritePrepareOp* const wop = static_cast<WritePrepareOp*>(op);

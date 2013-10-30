@@ -56,49 +56,19 @@ LeaseClerk::LeaseClerk()
 }
 
 void
-LeaseClerk::LeaseInfo_t::SetAccess(const char* accessTokens)
-{
-    if (! accessTokens || ! *accessTokens) {
-        csToken.clear();
-        csKey.clear();
-        forwardTokens.clear();
-        return;
-    }
-    const char* p = accessTokens;
-    for (int i = 0; i < 2; i++) {
-        while (*p != 0 && (*p & 0xFF) <= ' ') {
-            ++p;
-        }
-        const char* const b = p; 
-        while (' ' < (*p & 0xFF)) {
-            ++p;
-        }
-        if (i == 0) {
-            csToken.assign(b, p - b);
-        } else {
-            csKey.assign(b, p - b);
-        }
-    }
-    while (*p != 0 && (*p & 0xFF) <= ' ') {
-        ++p;
-    }
-    forwardTokens = p;
-}
-
-void
 LeaseClerk::RegisterLease(kfsChunkId_t chunkId, int64_t leaseId,
-    bool appendFlag, const char* accessTokens)
+    bool appendFlag, const SyncReplicationAccessPtr& syncReplicationAccess)
 {
     // Get replace the old lease if there is one
     bool insertedFlag = false;
     LeaseInfo_t& lease = *mLeases.Insert(chunkId, LeaseInfo_t(), insertedFlag);
-    lease.leaseId        = leaseId;
-    lease.lastWriteTime  = Now();
-    lease.expires        = lease.lastWriteTime + LEASE_INTERVAL_SECS;
-    lease.leaseRenewSent = false;
-    lease.invalidFlag    = false;
-    lease.appendFlag     = appendFlag;
-    lease.SetAccess(accessTokens);
+    lease.leaseId               = leaseId;
+    lease.lastWriteTime         = Now();
+    lease.expires               = lease.lastWriteTime + LEASE_INTERVAL_SECS;
+    lease.leaseRenewSent        = false;
+    lease.invalidFlag           = false;
+    lease.appendFlag            = appendFlag;
+    lease.syncReplicationAccess = syncReplicationAccess;
     KFS_LOG_STREAM_DEBUG <<
         "registered lease:"
         " chunk: " << chunkId <<
@@ -157,12 +127,22 @@ LeaseClerk::DoingWrite(kfsChunkId_t chunkId)
 }
 
 bool
-LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId) const
+LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId,
+    SyncReplicationAccessPtr* syncReplicationAccess /* = 0 */) const
 {
     // now <= lease.expires ==> lease hasn't expired and is therefore
     // valid.
     LeaseInfo_t* const lease = mLeases.Find(chunkId);
-    return (lease && ! lease->invalidFlag && Now() <= lease->expires);
+    const bool validFlag =
+        lease && ! lease->invalidFlag && Now() <= lease->expires;
+    if (syncReplicationAccess) {
+        if (validFlag) {
+            *syncReplicationAccess = lease->syncReplicationAccess;
+        } else {
+            syncReplicationAccess->reset();
+        }
+    }
+    return validFlag;
 }
 
 time_t
@@ -174,16 +154,17 @@ LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId) const
 }
 
 void
-LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId, const char* accessTokens)
+LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId,
+    const SyncReplicationAccessPtr& syncReplicationAccess)
 {
     LeaseInfo_t* const li = mLeases.Find(chunkId);
     if (! li) {
         return; // Ignore stale renew reply.
     }
     LeaseInfo_t& lease = *li;
-    lease.expires = Now() + LEASE_INTERVAL_SECS;
-    lease.leaseRenewSent = false;
-    lease.SetAccess(accessTokens);
+    lease.expires               = Now() + LEASE_INTERVAL_SECS;
+    lease.leaseRenewSent        = false;
+    lease.syncReplicationAccess = syncReplicationAccess;
     KFS_LOG_STREAM_INFO <<
         "lease renewed for:"
         " chunk: " << chunkId <<
@@ -205,7 +186,7 @@ LeaseClerk::HandleEvent(int code, void *data)
                 const LeaseRenewOp* const renewOp =
                     static_cast<const LeaseRenewOp*>(op);
                 if (renewOp->status == 0) {
-                    LeaseRenewed(renewOp->chunkId, renewOp->accessTokens);
+                    LeaseRenewed(renewOp->chunkId, renewOp->syncReplicationAccess);
                 } else {
                     UnRegisterLease(renewOp->chunkId);
                 }
