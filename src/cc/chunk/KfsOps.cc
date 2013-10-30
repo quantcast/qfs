@@ -238,6 +238,27 @@ SubmitOpResponse(KfsOp *op)
     op->HandleEvent(EVENT_CMD_DONE, op);
 }
 
+inline static void
+WriteSyncReplicationAccess(
+    const SyncReplicationAccessPtr& syncReplicationAccess,
+    ostream&                        os,
+    const char*                     contentLengthHeader = "Content-length: ")
+{
+    const SyncReplicationAccess::Token* fwd = 0;
+    if (syncReplicationAccess) {
+        const SyncReplicationAccess&        ra = *syncReplicationAccess;
+        const SyncReplicationAccess::Token& ca = ra.chunkAccess;
+        os << "C-access: "; os.write(ca.mPtr, ca.mLen) << "\r\n";
+        fwd = &ra.forwardTokens;
+        if (0 < fwd->mLen) {
+            os << contentLengthHeader << fwd->mLen << "\r\n";
+        }
+    }
+    os << "\r\n";
+    if (fwd) {
+        os.write(fwd->mPtr, fwd->mLen);
+    }
+}
 
 /* static */ SyncReplicationAccess*
 SyncReplicationAccess::Parse(istream& is, int len)
@@ -2562,7 +2583,9 @@ RecordAppendOp::Request(ostream& os)
         "Client-cseq: "      << clientSeq             << "\r\n"
         "Servers: "          << servers               << "\r\n"
         "Master-committed: " << masterCommittedOffset << "\r\n"
-    "\r\n";
+    ;
+    WriteSyncReplicationAccess(
+        syncReplicationAccess, os, "Access-fwd-length: ");
 }
 
 void
@@ -2668,28 +2691,6 @@ ReadOp::Request(ostream& os)
         os << "Skip-Disk-Chksum: 1\r\n";
     }
     os << "\r\n";
-}
-
-inline static void
-WriteSyncReplicationAccess(
-    const SyncReplicationAccessPtr& syncReplicationAccess,
-    ostream&                        os,
-    const char*                     contentLengthHeader = "Content-length: ")
-{
-    const SyncReplicationAccess::Token* fwd = 0;
-    if (syncReplicationAccess) {
-        const SyncReplicationAccess&        ra = *syncReplicationAccess;
-        const SyncReplicationAccess::Token& ca = ra.chunkAccess;
-        os << "C-access: "; os.write(ca.mPtr, ca.mLen) << "\r\n";
-        fwd = &ra.forwardTokens;
-        if (0 < fwd->mLen) {
-            os << contentLengthHeader << fwd->mLen << "\r\n";
-        }
-    }
-    os << "\r\n";
-    if (fwd) {
-        os.write(fwd->mPtr, fwd->mLen);
-    }
 }
 
 void
