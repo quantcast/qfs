@@ -35,6 +35,7 @@
 #include <openssl/hmac.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 
 #include <string.h>
 
@@ -445,6 +446,141 @@ public:
             inSubjectPtr, inSubjectLen, 0, 0, &theRet, 0);
         return theRet;
     }
+    static int MakeIV(
+        char*   inIvPtr,
+        string* outErrMsgPtr)
+    {
+        if (RAND_bytes(
+                reinterpret_cast<unsigned char*>(inIvPtr), kCryptIvLen) <= 0) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("RAND_bytes failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "RAND_bytes failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            return -EFAULT;
+        }
+        return 0;
+    }
+    static int Crypt(
+        const char* inKeyPtr,
+        int         inKeyLen,
+        const char* inIvPtr,
+        const char* inPtr,
+        int         inLen,
+        char        inOutPtr,
+        bool        inEncryptFlag,
+        string*     outErrMsgPtr)
+    {
+        if (inLen <= 0) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "invalid empty or null encryption buffer";
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid empty or null encryption buffer" <<
+                KFS_LOG_EOM;
+            }
+            return -EINVAL;
+        }
+        if (inKeyLen <= 0 || ! inKeyPtr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "invalid empty or null encryption key";
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid empty or null encryption key" <<
+                KFS_LOG_EOM;
+            }
+            return -EINVAL;
+        }
+        const unsigned char* theKeyPtr;
+        unsigned char        theMd[EVP_MAX_MD_SIZE];
+        if (inKeyLen < kCryptKeyLen) {
+            EVP_MD_CTX theCtx;
+            EVP_MD_CTX_init(&theCtx);
+            if (! EVP_DigestInit_ex(&theCtx, EVP_sha256(), 0)) {
+                if (outErrMsgPtr) {
+                    EvpErrorStr("EVP_DigestInit_ex failure: ", outErrMsgPtr);
+                } else {
+                    KFS_LOG_STREAM_ERROR <<
+                        "EVP_DigestInit_ex failure: " << EvpError() <<
+                    KFS_LOG_EOM;
+                }
+                return -EFAULT;
+            }
+            if (! EVP_DigestUpdate(&theCtx, inKeyPtr, inKeyLen)) {
+                if (outErrMsgPtr) {
+                    EvpErrorStr("EVP_DigestUpdate failure: ", outErrMsgPtr);
+                } else {
+                    KFS_LOG_STREAM_ERROR <<
+                        "EVP_DigestUpdate failure: " << EvpError() <<
+                    KFS_LOG_EOM;
+                }
+                EVP_MD_CTX_cleanup(&theCtx);
+                return -EFAULT;
+            }
+            unsigned int theLen = 0;
+            if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
+                if (outErrMsgPtr) {
+                    EvpErrorStr("EVP_DigestFinal_ex failure: ", outErrMsgPtr);
+                } else {
+                    KFS_LOG_STREAM_ERROR <<
+                        "EVP_DigestFinal_ex failure: " << EvpError() <<
+                    KFS_LOG_EOM;
+                }
+                EVP_MD_CTX_cleanup(&theCtx);
+                return -EFAULT;
+            }
+            QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
+            EVP_MD_CTX_cleanup(&theCtx);
+            theKeyPtr = theMd;
+        } else {
+            theKeyPtr = reinterpret_cast<const unsigned char*>(inKeyPtr);
+        }
+        EVP_CIPHER_CTX theCtx;
+        EVP_CIPHER_CTX_init(&theCtx);
+        if (! EVP_CipherInit_ex(&theCtx, EVP_aes_256_cbc(), 0,
+                theKeyPtr,
+                reinterpret_cast<const unsigned char*>(inIvPtr),
+                inEncryptFlag ? 1 : 0)) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_CipherInit_ex failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_CipherInit_ex failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            return -EFAULT;
+        }
+        int theLen = 0;
+        if (! EVP_CipherUpdate(&theCtx,
+                reinterpret_cast<unsigned char*>(inOutPtr), &theLen,
+                reinterpret_cast<const unsigned char*>(inPtr), inLen)) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_CipherUpdate failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_CipherUpdate failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            EVP_CIPHER_CTX_cleanup(&theCtx);
+            return -EFAULT;
+        }
+        if (! EVP_CipherFinal_ex(&theCtx,
+                reinterpret_cast<unsigned char*>(inOutPtr) + theLen, &theLen)) {
+            if (outErrMsgPtr) {
+                EvpErrorStr("EVP_CipherFinal_ex failure: ", outErrMsgPtr);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "EVP_CipherFinal_ex failure: " << EvpError() <<
+                KFS_LOG_EOM;
+            }
+            EVP_CIPHER_CTX_cleanup(&theCtx);
+            return -EFAULT;
+        }
+        EVP_CIPHER_CTX_cleanup(&theCtx);
+        return theLen;
+    }
 private:
     enum {
         kTokenFiledsSize =
@@ -455,6 +591,9 @@ private:
             sizeof(uint32_t),
         kTokenSize = kTokenFiledsSize + kSignatureLength
     };
+    enum { kCryptIvLen  = 128 / 8 };
+    enum { kCryptKeyLen = 256 / 8 };
+
     char mBuffer[kTokenSize + 1];
 
     template<typename T>
