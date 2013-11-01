@@ -475,7 +475,7 @@ public:
     {
         if (inLen <= 0) {
             if (outErrMsgPtr) {
-                *outErrMsgPtr = "invalid empty or null encryption buffer";
+                *outErrMsgPtr = "invalid empty or null input buffer";
             } else {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid empty or null encryption buffer" <<
@@ -489,6 +489,18 @@ public:
             } else {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid empty or null encryption key" <<
+                KFS_LOG_EOM;
+            }
+            return -EINVAL;
+        }
+        if (inEncryptFlag && inLen % kCryptBlockLen != 0) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr =
+                    "input buffer length is not multiple of cipher block size";
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "input buffer length is not multiple of cipher block"
+                    " size" <<
                 KFS_LOG_EOM;
             }
             return -EINVAL;
@@ -566,8 +578,10 @@ public:
             EVP_CIPHER_CTX_cleanup(&theCtx);
             return -EFAULT;
         }
+        int theRemLen = 0;
         if (! EVP_CipherFinal_ex(&theCtx,
-                reinterpret_cast<unsigned char*>(inOutPtr) + theLen, &theLen)) {
+                reinterpret_cast<unsigned char*>(inOutPtr) + theLen,
+                &theRemLen)) {
             if (outErrMsgPtr) {
                 EvpErrorStr("EVP_CipherFinal_ex failure: ", outErrMsgPtr);
             } else {
@@ -576,9 +590,11 @@ public:
                 KFS_LOG_EOM;
             }
             EVP_CIPHER_CTX_cleanup(&theCtx);
-            return -EFAULT;
+            return -EINVAL; // Possible invalid key.
         }
+        theLen += theRemLen;
         EVP_CIPHER_CTX_cleanup(&theCtx);
+        QCASSERT(theLen <= inLen + (inEncryptFlag ? EVP_MAX_BLOCK_LENGTH : 0));
         return theLen;
     }
 private:
@@ -591,8 +607,10 @@ private:
             sizeof(uint32_t),
         kTokenSize = kTokenFiledsSize + kSignatureLength
     };
-    enum { kCryptIvLen  = 128 / 8 };
-    enum { kCryptKeyLen = 256 / 8 };
+    // 256 bit AES with standard 128 bit blocks.
+    enum { kCryptBlockLen  = 128 / 8 };
+    enum { kCryptIvLen     = kCryptBlockLen };
+    enum { kCryptKeyLen    = 256 / 8 };
 
     char mBuffer[kTokenSize + 1];
 
