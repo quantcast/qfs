@@ -214,23 +214,11 @@ public:
         const char*      inPtr,
         int              inLen)
     {
-        const char* thePtr    = inPtr;
-        const char* theEndPtr = thePtr + inLen;
-        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ' && *thePtr != 0) {
-            thePtr++;
-        }
-        while (thePtr < theEndPtr && (*theEndPtr & 0xFF) <= ' ') {
-            theEndPtr--;
-        }
-        int theLen = (int)(theEndPtr - thePtr);
-        if (theLen <= 0 || kTokenSize < Base64::GetMaxDecodedLength(theLen)) {
-            return false;
-        }
-        theLen = Base64::Decode(thePtr, theLen, mBuffer);
+        const int   theLen = DecodeBase64(inPtr, inLen, mBuffer, kTokenSize);
         if (theLen != kTokenSize) {
             return false;
         }
-        thePtr = mBuffer;
+        const char* thePtr = mBuffer;
         Read(thePtr, inToken.mUid);
         Read(thePtr, inToken.mSeq);
         Read(thePtr, inToken.mKeyId);
@@ -416,7 +404,7 @@ public:
         if (0 < inSessionKeyKeyLen) {
             char* thePtr = theBuf;
             Write(thePtr, inSessionKeyKeyId);
-            int theRet = MakeIV(thePtr, outErrMsgPtr);
+            int theRet = MakeIv(thePtr, outErrMsgPtr);
             if (theRet < 0) {
                 return theRet;
             }
@@ -480,7 +468,7 @@ public:
             inSubjectPtr, inSubjectLen, 0, 0, &theRet, 0);
         return theRet;
     }
-    static int MakeIV(
+    static int MakeIv(
         char*   inIvPtr,
         string* outErrMsgPtr)
     {
@@ -517,17 +505,18 @@ public:
             }
             return -EINVAL;
         }
-        if (inKeyLen <= 0 || ! inKeyPtr) {
+        const int kMinKeyLength = 8;
+        if (inKeyLen <= kMinKeyLength || ! inKeyPtr) {
             if (outErrMsgPtr) {
-                *outErrMsgPtr = "invalid empty or null encryption key";
+                *outErrMsgPtr = "invalid or null encryption key";
             } else {
                 KFS_LOG_STREAM_ERROR <<
-                    "invalid empty or null encryption key" <<
+                    "invalid or null encryption key" <<
                 KFS_LOG_EOM;
             }
             return -EINVAL;
         }
-        if (inEncryptFlag && inLen % kCryptBlockLen != 0) {
+        if (! inEncryptFlag && inLen % kCryptBlockLen != 0) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr =
                     "input buffer length is not multiple of cipher block size";
@@ -598,6 +587,19 @@ public:
             }
             return -EFAULT;
         }
+        if (EVP_CIPHER_CTX_block_size(&theCtx) != kCryptBlockLen ||
+                EVP_CIPHER_CTX_key_length(&theCtx) != kCryptKeyLen ||
+                EVP_CIPHER_CTX_iv_length(&theCtx) != kCryptIvLen) {
+            KFS_LOG_STREAM_FATAL <<
+                "invalid cipher parameters:" <<
+                    " block: " << EVP_CIPHER_CTX_block_size(&theCtx) <<
+                    " key: "   << EVP_CIPHER_CTX_key_length(&theCtx) <<
+                    " iv: "    << EVP_CIPHER_CTX_iv_length(&theCtx)  <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
+            abort();
+            return -EFAULT;
+        }
         int theLen = 0;
         if (! EVP_CipherUpdate(&theCtx,
                 reinterpret_cast<unsigned char*>(inOutPtr), &theLen,
@@ -631,6 +633,71 @@ public:
         QCASSERT(theLen <= inLen + (inEncryptFlag ? EVP_MAX_BLOCK_LENGTH : 0));
         return theLen;
     }
+    static int DecryptSessionKeyFromString(
+        const CryptoKeys& inKeys,
+        const char*       inStrPtr,
+        int               inStrLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr)
+    {
+        char theBuf[kMaxEncryptedKeyLen];
+        int  theLen = DecodeBase64(
+            inStrPtr, inStrLen, theBuf, kKeyBufSize, outErrMsgPtr);
+        if (theLen < 0) {
+            if (theLen == -ERANGE) {
+                theLen        = -EINVAL;
+                *outErrMsgPtr = "invalid key string size";
+            }
+            return theLen;
+        }
+        return DecryptSessionKey(inKeys, theBuf, theLen, outKey, outErrMsgPtr);
+    }
+    static int DecryptSessionKey(
+        const CryptoKeys& inKeys,
+        const char*       inKeyPtr,
+        int               inKeyLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr)
+    {
+        if (inKeyLen < kMinEncryptedKeyLen || kMaxEncryptedKeyLen < inKeyLen) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "invalid key buffer size";
+            }
+            return -EINVAL;
+        }
+        const char* thePtr = inKeyPtr;
+        kfsKeyId_t  theId;
+        Read(thePtr, theId);
+        CryptoKeys::Key theKey;
+        if (! inKeys.Find(theId, theKey)) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "no key found";
+            }
+            return -EPERM;
+        }
+        const bool kEncryptFlag = false;
+        const int  theLen       = Crypt(
+            theKey.GetPtr(),
+            theKey.GetSize(),
+            thePtr,
+            thePtr + kCryptIvLen,
+            inKeyLen - kEncryptedKeyPrefixSize,
+            outKey.WritePtr(),
+            kEncryptFlag,
+            outErrMsgPtr
+        );
+        QCRTASSERT(theLen <= theKey.GetSize());
+        if (theLen < 0) {
+            return theLen;
+        }
+        if (CryptoKeys::Key::kLength != theLen) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "decryption failure: invalid result size";
+            }
+            return -EPERM;
+        }
+        return 0;
+    }
 private:
     enum {
         kTokenFiledsSize =
@@ -649,6 +716,9 @@ private:
         kEncryptedKeyPrefixSize = sizeof(kfsKeyId_t) + kCryptIvLen,
         kKeyBufSize             = kEncryptedKeyPrefixSize +
             EVP_MAX_MD_SIZE + kCryptBlockLen,
+        kMinEncryptedKeyLen        =
+            kEncryptedKeyPrefixSize + CryptoKeys::Key::kLength;
+        kMaxEncryptedKeyLen        = kMinEncryptedKeyLen + kCryptBlockLen;
     };
 
     char mBuffer[kTokenSize + 1];
@@ -679,6 +749,38 @@ private:
             outVal <<= 8;
             outVal |= (*thePtr++ & 0xFF);
         }
+    }
+    static int DecodeBase64(
+        const char* inPtr,
+        int         inLen,
+        char*       inOutPtr,
+        int         inOutMaxLen,
+        string*     outErrMsgPtr = 0)
+    {
+        if (! inPtr || inLen <= 0) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "null buffer or length";
+            }
+            return -EINVAL;
+        }
+        const char* thePtr    = inPtr;
+        const char* theEndPtr = thePtr + inLen;
+        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ' && *thePtr != 0) {
+            thePtr++;
+        }
+        while (thePtr < theEndPtr && (*theEndPtr & 0xFF) <= ' ') {
+            theEndPtr--;
+        }
+        int theLen = (int)(theEndPtr - thePtr);
+        if (theLen <= 0 || inOutMaxLen < Base64::GetMaxDecodedLength(theLen)) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "insufficient output buffer space";
+            }
+            return -ERANGE;
+        }
+        theLen = Base64::Decode(thePtr, theLen, inOutPtr);
+        QCRTASSERT(theLen <= inOutMaxLen);
+        return theLen;
     }
 };
 

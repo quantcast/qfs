@@ -88,8 +88,10 @@ public:
             { return kLength; }
         const char* GetPtr() const
             { return mKey; }
-    private:
+        char* WritePtr()
+            { return mKey; }
         enum { kLength = 48 };
+    private:
         char mKey[kLength];
         friend class Impl;
     };
