@@ -1208,7 +1208,7 @@ DelegationToken::DecryptSessionKey(
     CryptoKeys::Key&  outKey,
     string*           outErrMsgPtr)
 {
-    return WorkBuf::DecryptSessionKeyFromString(
+    return WorkBuf::DecryptSessionKey(
         inKeys,
         inKeyPtr,
         inKeyLen,
