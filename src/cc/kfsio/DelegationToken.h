@@ -27,6 +27,7 @@
 #define KFSIO_DELEGATION_TOKEN_H
 
 #include "common/kfstypes.h"
+#include "CryptoKeys.h"
 
 #include <stddef.h>
 
@@ -40,7 +41,6 @@ using std::string;
 using std::istream;
 using std::ostream;
 
-class CryptoKeys;
 class IOBufferWriter;
 
 class DelegationToken
@@ -232,6 +232,18 @@ public:
             inSessionKeyKeyLen
         );
     }
+    static int DecryptSessionKeyFromString(
+        const CryptoKeys& inKeys,
+        const char*       inStrPtr,
+        int               inStrLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr);
+    static int DecryptSessionKey(
+        const CryptoKeys& inKeys,
+        const char*       inKeyPtr,
+        int               inKeyLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr);
 
 private:
     enum { kIssuedTimeShift = 16 };

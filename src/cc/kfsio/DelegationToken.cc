@@ -717,8 +717,8 @@ private:
         kKeyBufSize             = kEncryptedKeyPrefixSize +
             EVP_MAX_MD_SIZE + kCryptBlockLen,
         kMinEncryptedKeyLen        =
-            kEncryptedKeyPrefixSize + CryptoKeys::Key::kLength;
-        kMaxEncryptedKeyLen        = kMinEncryptedKeyLen + kCryptBlockLen;
+            kEncryptedKeyPrefixSize + CryptoKeys::Key::kLength,
+        kMaxEncryptedKeyLen        = kMinEncryptedKeyLen + kCryptBlockLen
     };
 
     char mBuffer[kTokenSize + 1];
@@ -1180,6 +1180,40 @@ DelegationToken::WriteToken(
         inSessionKeyKeyId,
         inSessionKeyKeyPtr,
         inSessionKeyKeyLen
+    );
+}
+
+    /* static */ int
+DelegationToken::DecryptSessionKeyFromString(
+    const CryptoKeys& inKeys,
+    const char*       inStrPtr,
+    int               inStrLen,
+    CryptoKeys::Key&  outKey,
+    string*           outErrMsgPtr)
+{
+    return WorkBuf::DecryptSessionKeyFromString(
+        inKeys,
+        inStrPtr,
+        inStrLen,
+        outKey,
+        outErrMsgPtr
+    );
+}
+
+    /* static */ int
+DelegationToken::DecryptSessionKey(
+    const CryptoKeys& inKeys,
+    const char*       inKeyPtr,
+    int               inKeyLen,
+    CryptoKeys::Key&  outKey,
+    string*           outErrMsgPtr)
+{
+    return WorkBuf::DecryptSessionKeyFromString(
+        inKeys,
+        inKeyPtr,
+        inKeyLen,
+        outKey,
+        outErrMsgPtr
     );
 }
 
