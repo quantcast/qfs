@@ -177,7 +177,10 @@ public:
         int             inKeyLen,
         const char*     inSubjectPtr          = 0,
         int             inSubjectLen          = 0,
-        bool            inWriteSessionKeyFlag = false);
+        bool            inWriteSessionKeyFlag = false,
+        kfsKeyId_t      inSessionKeyKeyId     = kfsKeyId_t(),
+        const char*     inSessionKeyKeyPtr    = 0,
+        int             inSessionKeyKeyLen    = 0);
     static bool WriteToken(
         ostream&    inStream,
         kfsUid_t    inUid,
@@ -190,7 +193,10 @@ public:
         int         inKeyLen,
         const char* inSubjectPtr          = 0,
         int         inSubjectLen          = 0,
-        bool        inWriteSessionKeyFlag = false);
+        bool        inWriteSessionKeyFlag = false,
+        kfsKeyId_t  inSessionKeyKeyId     = kfsKeyId_t(),
+        const char* inSessionKeyKeyPtr    = 0,
+        int         inSessionKeyKeyLen    = 0);
     template<typename T>
     static bool WriteTokenAndSessionKey(
         T&          inWriter,
@@ -202,8 +208,11 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0)
+        const char* inSubjectPtr       = 0,
+        int         inSubjectLen       = 0,
+        kfsKeyId_t  inSessionKeyKeyId  = kfsKeyId_t(),
+        const char* inSessionKeyKeyPtr = 0,
+        int         inSessionKeyKeyLen = 0)
     {
         return  WriteToken(
             inWriter,
@@ -217,7 +226,10 @@ public:
             inKeyLen,
             inSubjectPtr,
             inSubjectLen,
-            true
+            true,
+            inSessionKeyKeyId,
+            inSessionKeyKeyPtr,
+            inSessionKeyKeyLen
         );
     }
 
@@ -243,7 +255,10 @@ private:
         int         inKeyLen,
         const char* inSubjectPtr,
         int         inSubjectLen,
-        bool        inWriteSessionKeyFlag);
+        bool        inWriteSessionKeyFlag,
+        kfsKeyId_t  inSessionKeyKeyId,
+        const char* inSessionKeyKeyPtr,
+        int         inSessionKeyKeyLen);
     class WorkBuf;
     friend class WorkBuf;
 };

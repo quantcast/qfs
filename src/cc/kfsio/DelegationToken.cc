@@ -329,6 +329,9 @@ public:
             inKeyLen,
             inSubjectPtr,
             inSubjectLen,
+            kfsKeyId_t(),
+            0,
+            0,
             inKeyBufferPtr,
             inMaxKeyLen,
             outKeyPtr,
@@ -342,6 +345,9 @@ public:
         int             inKeyLen,
         const char*     inSubjectPtr,
         int             inSubjectLen,
+        kfsKeyId_t      inSessionKeyKeyId,
+        const char*     inSessionKeyKeyPtr,
+        int             inSessionKeyKeyLen,
         char*           inKeyBufferPtr,
         int             inMaxKeyLen,
         string*         outKeyPtr,
@@ -387,8 +393,9 @@ public:
             EVP_MD_CTX_cleanup(&theCtx);
             return -EFAULT;
         }
+        char          theBuf[kKeyBufSize];
         unsigned char theMd[EVP_MAX_MD_SIZE];
-        unsigned int  theLen = 0;
+        unsigned int  theLen   = 0;
         if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
             if (outErrMsgPtr) {
                 EvpErrorStr("EVP_DigestFinal_ex failure: ", outErrMsgPtr);
@@ -405,17 +412,44 @@ public:
         if (theLen <= 0) {
             return theLen;
         }
-        if (inWriterPtr) {
-            char      theBuf[Base64::GetEncodedMaxBufSize(EVP_MAX_MD_SIZE)];
-            const int theEncLen = Base64::Encode(
-                reinterpret_cast<const char*>(theMd), theLen, theBuf);
-            if (0 < theEncLen) {
-                inWriterPtr->Write(theBuf, theEncLen);
+        const char* theKeyPtr;
+        if (0 < inSessionKeyKeyLen) {
+            char* thePtr = theBuf;
+            Write(thePtr, inSessionKeyKeyId);
+            int theRet = MakeIV(thePtr, outErrMsgPtr);
+            if (theRet < 0) {
+                return theRet;
             }
-            return theEncLen;
+            const bool kEncryptFlag = true;
+            theRet = Crypt(
+                inSessionKeyKeyPtr,
+                inSessionKeyKeyLen,
+                thePtr,
+                reinterpret_cast<const char*>(theMd),
+                (int)theLen,
+                &theBuf[kEncryptedKeyPrefixSize],
+                kEncryptFlag,
+                outErrMsgPtr
+            );
+            if (theRet < 0) {
+                return theRet;
+            }
+            theKeyPtr = theBuf;
+            theLen    = kEncryptedKeyPrefixSize + theRet;
+        } else {
+            theKeyPtr = reinterpret_cast<const char*>(theMd);
+        }
+        if (inWriterPtr) {
+            char      theBase64Buf[Base64::GetEncodedMaxBufSize(kKeyBufSize)];
+            const int theBase64Len = Base64::Encode(
+                theKeyPtr, theLen, theBase64Buf);
+            if (0 < theBase64Len) {
+                inWriterPtr->Write(theBase64Buf, theBase64Len);
+            }
+            return theBase64Len;
         }
         if (outKeyPtr) {
-            outKeyPtr->assign(reinterpret_cast<const char*>(theMd), theLen);
+            outKeyPtr->assign(theKeyPtr, theLen);
             return theLen;
         }
         if (inMaxKeyLen < (int)theLen || ! inKeyBufferPtr) {
@@ -429,7 +463,7 @@ public:
             }
             return -EINVAL;
         }
-        memcpy(inKeyBufferPtr, theMd, theLen);
+        memcpy(inKeyBufferPtr, theBuf, theLen);
         return theLen;
     }
     string GetSessionKey(
@@ -469,7 +503,7 @@ public:
         const char* inIvPtr,
         const char* inPtr,
         int         inLen,
-        char        inOutPtr,
+        char*       inOutPtr,
         bool        inEncryptFlag,
         string*     outErrMsgPtr)
     {
@@ -611,6 +645,11 @@ private:
     enum { kCryptBlockLen  = 128 / 8 };
     enum { kCryptIvLen     = kCryptBlockLen };
     enum { kCryptKeyLen    = 256 / 8 };
+    enum {
+        kEncryptedKeyPrefixSize = sizeof(kfsKeyId_t) + kCryptIvLen,
+        kKeyBufSize             = kEncryptedKeyPrefixSize +
+            EVP_MAX_MD_SIZE + kCryptBlockLen,
+    };
 
     char mBuffer[kTokenSize + 1];
 
@@ -897,7 +936,10 @@ DelegationToken::WriteTokenSelf(
     int             inKeyLen,
     const char*     inSubjectPtr,
     int             inSubjectLen,
-    bool            inWriteSessionKeyFlag)
+    bool            inWriteSessionKeyFlag,
+    kfsKeyId_t      inSessionKeyKeyId,
+    const char*     inSessionKeyKeyPtr,
+    int             inSessionKeyKeyLen)
 {
     DelegationToken theToken(
         inUid,
@@ -934,6 +976,9 @@ DelegationToken::WriteTokenSelf(
         inKeyLen,
         inSubjectPtr,
         inSubjectLen,
+        inSessionKeyKeyId,
+        inSessionKeyKeyPtr,
+        inSessionKeyKeyLen,
         theKeyBufferPtr,
         theMaxKeyLen,
         theKeyPtr,
@@ -955,7 +1000,10 @@ DelegationToken::WriteToken(
     int             inKeyLen,
     const char*     inSubjectPtr,
     int             inSubjectLen,
-    bool            inWriteSessionKeyFlag)
+    bool            inWriteSessionKeyFlag,
+    kfsKeyId_t      inSessionKeyKeyId,
+    const char*     inSessionKeyKeyPtr,
+    int             inSessionKeyKeyLen)
 {
     return WriteTokenSelf(
         inWriter,
@@ -969,7 +1017,10 @@ DelegationToken::WriteToken(
         inKeyLen,
         inSubjectPtr,
         inSubjectLen,
-        inWriteSessionKeyFlag
+        inWriteSessionKeyFlag,
+        inSessionKeyKeyId,
+        inSessionKeyKeyPtr,
+        inSessionKeyKeyLen
     );
 }
 
@@ -1005,7 +1056,10 @@ DelegationToken::WriteToken(
     int         inKeyLen,
     const char* inSubjectPtr,
     int         inSubjectLen,
-    bool        inWriteSessionKeyFlag)
+    bool        inWriteSessionKeyFlag,
+    kfsKeyId_t  inSessionKeyKeyId,
+    const char* inSessionKeyKeyPtr,
+    int         inSessionKeyKeyLen)
 {
     OstreamWriter theWriter(inStream);
     return WriteTokenSelf(
@@ -1020,7 +1074,10 @@ DelegationToken::WriteToken(
         inKeyLen,
         inSubjectPtr,
         inSubjectLen,
-        inWriteSessionKeyFlag
+        inWriteSessionKeyFlag,
+        inSessionKeyKeyId,
+        inSessionKeyKeyPtr,
+        inSessionKeyKeyLen
     );
 }
 
