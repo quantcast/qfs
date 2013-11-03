@@ -125,12 +125,19 @@ private:
 };
 
 static ostringstream&
-GetTmpOStringStream()
+GetTmpOStringStream(bool secondFlag = false)
 {
-    static ostringstream ret;
+    static ostringstream os[2];
+    ostringstream& ret = os[secondFlag ? 1 : 0];
     ret.str(string());
     resetOStream(ret);
     return ret;
+}
+
+static ostringstream&
+GetTmpOStringStream1()
+{
+    return GetTmpOStringStream(true);
 }
 
 int ChunkServer::sHeartbeatTimeout     = 60;
@@ -1558,11 +1565,20 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
             return -EFAULT;
         }
         const int16_t     kDelegationFlags = DelegationToken::kChunkServerFlag;
-        ostringstream&    os               = GetTmpOStringStream();
+        ostringstream&    srvAccessOs      = GetTmpOStringStream();
+        ostringstream&    chunkAccessOs    = GetTmpOStringStream1();
         CryptoKeys::KeyId keyId;
         CryptoKeys::Key   key;
+        CryptoKeys::KeyId keyKeyId = 0;
+        CryptoKeys::Key   keyKey;
         for (size_t i = 0; i < sz - 1; i++) {
             const kfsUid_t authUid = r->servers[i]->GetAuthUid();
+            if (0 < i) {
+                // Encrypt the session keys that will be passed via synchronous
+                // replication chain.
+                keyKeyId = keyId;
+                keyKey   = key;
+            }
             if (! r->servers[i + 1]->GetCryptoKey(keyId, key)) {
                 req->status    = -EFAULT;
                 req->statusMsg = "no valid crypto key";
@@ -1570,7 +1586,7 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
                 return -EFAULT;
             }
             DelegationToken::WriteTokenAndSessionKey(
-                os,
+                srvAccessOs,
                 authUid,
                 tokenSeq,
                 keyId,
@@ -1578,11 +1594,16 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
                 kDelegationFlags,
                 r->validForTime,
                 key.GetPtr(),
-                key.GetSize()
+                key.GetSize(),
+                0, // Subject pointer
+                0, // Subject length
+                keyKeyId,
+                0 < i ? keyKey.GetPtr()  : 0,
+                0 < i ? keyKey.GetSize() : 0
             );
-            os << " ";
+            srvAccessOs << "\n";
             ChunkAccessToken::WriteToken(
-                os,
+                chunkAccessOs,
                 r->chunkId,
                 authUid,
                 tokenSeq,
@@ -1596,10 +1617,11 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
                 key.GetPtr(),
                 key.GetSize()
             );
-            os << "\n";
+            chunkAccessOs << "\n";
             tokenSeq++;
         }
-        req->chunkAccessStr = os.str();
+        req->chunkServerAccessStr = srvAccessOs.str();
+        req->chunkAccessStr       = chunkAccessOs.str();
     }
     Enqueue(
         req,

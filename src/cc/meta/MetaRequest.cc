@@ -4048,6 +4048,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             );
             tokenSeq++;
             writer.Write("\n", 1);
+            ptr++;
         }
         writer.Close();
     }
@@ -4093,12 +4094,14 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     const ChunkAccessInfo*       ptr = chunkAccess.GetPtr();
     const ChunkAccessInfo* const end = ptr + count;
     while (ptr < end) {
-        writer.Write(
-            ptr->serverLocation.hostname.data(),
-            ptr->serverLocation.hostname.size());
-        writer.Write(" ", 1);
-        writer.WriteHexInt(ptr->serverLocation.port);
-        writer.Write(" ", 1);
+        if (leaseType != WRITE_LEASE) {
+            writer.Write(
+                ptr->serverLocation.hostname.data(),
+                ptr->serverLocation.hostname.size());
+            writer.Write(" ", 1);
+            writer.WriteHexInt(ptr->serverLocation.port);
+            writer.Write(" ", 1);
+        }
         ChunkAccessToken::WriteToken(
             writer,
             ptr->chunkId,
@@ -4118,10 +4121,37 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         );
         tokenSeq++;
         writer.Write("\n", 1);
+        ptr++;
+    }
+    if (leaseType == WRITE_LEASE && 0 < chunkServerAccessValidForTime &&
+            (ptr = chunkAccess.GetPtr()) < end) {
+        os << "C-access-length: " << writer.GetTotalSize() << "\n";
+        const ChunkAccessInfo* prev = 0;
+        do {
+            DelegationToken::WriteTokenAndSessionKey(
+                writer,
+                ptr->authUid,
+                tokenSeq,
+                ptr->keyId,
+                issuedTime,
+                DelegationToken::kChunkServerFlag,
+                chunkServerAccessValidForTime,
+                ptr->key.GetPtr(),
+                ptr->key.GetSize(),
+                0, // Subject pointer
+                0, // Subject length
+                prev ? prev->keyId            : kfsKeyId_t(),
+                prev ? prev->key.GetPtr()  : 0,
+                prev ? prev->key.GetSize() : 0
+            );
+            writer.Write("\n", 1);
+            prev = ptr++;
+            tokenSeq++;
+        } while (ptr < end);
     }
     writer.Close();
     os <<
-        "CS-access: "      << count                   << "\r\n"
+        "C-access: "       << count                   << "\r\n"
         "Content-length: " << iobuf.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
@@ -4416,16 +4446,21 @@ MetaChunkAllocate::request(ostream &os)
     ;
     for_each(req->servers.begin(), req->servers.end(),
             PrintChunkServerLocations(os));
-    const size_t len = chunkAccessStr.size();
+    const size_t cAccessLen = chunkAccessStr.size();
+    const size_t len        = cAccessLen + chunkServerAccessStr.size();
     if (len <= 0) {
         os << "\r\n\r\n";
         return;
     }
     os <<
         "\r\n"
-        "Content-length: " << len << "\r\n"
-        "\r\n";
-    os.write(chunkAccessStr.data(), len);
+        "Content-length: " << len << "\r\n";
+    if (cAccessLen < len) {
+        os << "C-access-length: " << cAccessLen << "\r\n";
+    }
+    os << "\r\n";
+    os.write(chunkAccessStr.data(),       cAccessLen);
+    os.write(chunkServerAccessStr.data(), chunkServerAccessStr.size());
 }
 
 void

@@ -5394,25 +5394,35 @@ LayoutManager::MakeChunkAccess(
 {
     StTmp<Servers>                    serversTmp(mServers3Tmp);
     Servers&                          servers = serversTmp.Get();
+    if (writeMaster && (servers.empty() ||
+            writeMaster != servers.front().get())) {
+        KFS_LOG_STREAM_ERROR <<
+            (servers.empty() ? "empty" : "") <<
+            "invalid replication chain with write lease renew"
+            " possibly due missing lease invalidation" <<
+        KFS_LOG_EOM;
+        chunkAccess.Clear();
+        return;
+    }
     MetaLeaseAcquire::ChunkAccessInfo info(
         ServerLocation(), cs.GetChunkId(), authUid);
     mChunkToServerMap.GetServers(cs, servers);
-    for (Servers::const_iterator it = servers.begin();
-            it != servers.end();
-            ++it) {
-        if (writeMaster == it->get()) {
-            continue;
-        }
-        info.serverLocation = (*it)->GetServerLocation();
+    for (Servers::const_iterator it = servers.begin(); it != servers.end(); ) {
         if (writeMaster) {
             info.authUid = (*it)->GetAuthUid();
             if (++it == servers.end()) {
                 break;
             }
+        } else {
+            // Location is implicit for write leases.
+            info.serverLocation = (*it)->GetServerLocation();
         }
-        if (info.serverLocation.IsValid() &&
+        if ((writeMaster || info.serverLocation.IsValid()) &&
                 (*it)->GetCryptoKey(info.keyId, info.key)) {
             chunkAccess.Append(info);
+        }
+        if (! writeMaster) {
+            ++it;
         }
     }
 }
@@ -5550,12 +5560,14 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->statusMsg = "invalid lease type";
         return -EINVAL;
     }
-    if (! readLeaseFlag && req->fromClientSMFlag) {
+    if (! readLeaseFlag && (req->fromClientSMFlag || ! req->chunkServer)) {
         req->statusMsg = "only chunk servers are allowed to renew write leases";
         return -EPERM;
     }
-    req->clientCSAllowClearTextFlag = readLeaseFlag && mClientCSAuthRequiredFlag &&
+    req->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag &&
         mClientCSAllowClearTextFlag;
+    req->chunkServerAccessValidForTime =
+        readLeaseFlag ? 0 : mCSAccessValidForTime;
     const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
     if (ret == 0 && mClientCSAuthRequiredFlag &&
             req->authUid != kKfsUserNone) {

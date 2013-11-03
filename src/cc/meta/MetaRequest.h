@@ -1552,6 +1552,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     const int64_t       leaseId;
     kfsSTier_t          minSTier;
     kfsSTier_t          maxSTier;
+    string              chunkServerAccessStr;
     string              chunkAccessStr;
     MetaAllocate* const req;
     MetaChunkAllocate(seq_t n, MetaAllocate *r,
@@ -1561,6 +1562,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
           leaseId(l),
           minSTier(minTier),
           maxSTier(maxTier),
+          chunkServerAccessStr(),
           chunkAccessStr(),
           req(r)
           {}
@@ -2832,6 +2834,7 @@ struct MetaLeaseRenew: public MetaRequest {
     time_t             issuedTime;
     ChunkAccess        chunkAccess;
     const ChunkServer* chunkServer;
+    int                chunkServerAccessValidForTime;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
@@ -2842,6 +2845,7 @@ struct MetaLeaseRenew: public MetaRequest {
           issuedTime(),
           chunkAccess(),
           chunkServer(0),
+          chunkServerAccessValidForTime(0),
           leaseTypeStr()
         {}
     virtual void handle();
