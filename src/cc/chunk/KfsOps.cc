@@ -75,6 +75,7 @@ using std::copy;
 using std::hex;
 using std::dec;
 using std::max;
+using std::streamsize;
 using namespace KFS::libkfsio;
 
 // Counters for the various ops
@@ -269,7 +270,7 @@ SyncReplicationAccess::Parse(istream& is, int len)
     char* const accessTokens = new char[len + 1];
     accessTokens[len] = 0;
     is.read(accessTokens, len);
-    if (is.gcount() != (size_t)len) {
+    if (is.gcount() != (streamsize)len) {
         delete [] accessTokens;
         return 0;
     }
