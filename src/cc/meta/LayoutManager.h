@@ -154,12 +154,12 @@ public:
         // record the pathname; we can use the path to traverse
         // the dir. tree and update space used at each level of
         // the tree
-        const string          pathname;
-        const bool            appendFlag:1;
-        const bool            stripedFileFlag:1;
-        bool                  relinquishedFlag:1;
-        bool                  ownerWasDownFlag:1;
-        const MetaAllocate*   allocInFlight;
+        const string         pathname;
+        const bool           appendFlag:1;
+        const bool           stripedFileFlag:1;
+        bool                 relinquishedFlag:1;
+        bool                 ownerWasDownFlag:1;
+        const MetaAllocate*  allocInFlight;
     };
 
     ChunkLeases();
@@ -199,9 +199,9 @@ public:
         chunkId_t chunkId,
         LeaseId   leaseId);
     inline int Renew(
-        chunkId_t chunkId,
-        LeaseId   leaseId,
-        bool      allocDoneFlag = false);
+        chunkId_t       chunkId,
+        LeaseId         leaseId,
+        bool            allocDoneFlag = false);
     inline bool Delete(chunkId_t chunkId);
     inline bool ExpiredCleanup(
         chunkId_t      chunkId,

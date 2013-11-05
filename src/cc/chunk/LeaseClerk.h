@@ -45,6 +45,8 @@ namespace KFS
 {
 
 using std::vector;
+struct LeaseRenewOp;
+struct AllocChunkOp;
 
 // mapping from a chunk id to its lease
 
@@ -60,8 +62,7 @@ public:
     /// @param[in] chunkId The chunk associated with the lease.
     /// @param[in] leaseId  The lease id to be registered with the clerk
     /// @param[in] appendFlag True if chunk created in write append mode
-    void RegisterLease(kfsChunkId_t chunkId, int64_t leaseId, bool appendFlag,
-        const SyncReplicationAccessPtr& syncReplicationAccess);
+    void RegisterLease(const AllocChunkOp& op);
     void UnRegisterLease(kfsChunkId_t chunkId);
     void InvalidateLease(kfsChunkId_t chunkId);
 
@@ -76,7 +77,7 @@ public:
     /// Check if lease is still valid.
     /// @param[in] chunkId  The chunk whose lease we are checking for validity.
     bool IsLeaseValid(kfsChunkId_t chunkId,
-            SyncReplicationAccessPtr* syncReplicationAccess = 0) const;
+            SyncReplicationAccess* syncReplicationAccess = 0) const;
 
     // Lease renew op completion handler.
     int HandleEvent(int code, void *data);
@@ -88,13 +89,15 @@ public:
 private:
     struct LeaseInfo_t
     {
-        int64_t                  leaseId;
-        time_t                   expires;
-        time_t                   lastWriteTime;
-        bool                     leaseRenewSent:1;
-        bool                     appendFlag:1;
-        bool                     invalidFlag:1;
-        SyncReplicationAccessPtr syncReplicationAccess;
+        int64_t               leaseId;
+        time_t                expires;
+        time_t                lastWriteTime;
+        bool                  leaseRenewSent:1;
+        bool                  appendFlag:1;
+        bool                  invalidFlag:1;
+        bool                  allowCSClearTextFlag:1;
+        time_t                syncReplicationExpirationTime;
+        SyncReplicationAccess syncReplicationAccess;
     };
     typedef KVPair<kfsChunkId_t, LeaseInfo_t> LeaseMapEntry;
     typedef LinearHash<
@@ -112,8 +115,7 @@ private:
     time_t            mLastLeaseCheckTime;
     vector<chunkId_t> mTmpExpireQueue;
 
-    void LeaseRenewed(kfsChunkId_t chunkId,
-        const SyncReplicationAccessPtr& syncReplicationAccess);
+    void LeaseRenewed(LeaseRenewOp& op);
     void LeaseExpired(kfsChunkId_t chunkId);
 
     inline static time_t Now();

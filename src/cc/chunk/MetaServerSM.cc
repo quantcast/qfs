@@ -612,8 +612,10 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 
         const kfsSeq_t seq    = prop.getValue("Cseq",  (kfsSeq_t)-1);
         int            status = prop.getValue("Status",          -1);
+        string         statusMsg;
         if (status < 0) {
             status = -KfsToSysErrno(-status);
+            statusMsg = prop.getValue("Status-message", string());
         }
         mContentLength = prop.getValue("Content-length",  -1);
         if (mAuthOp) {
@@ -628,13 +630,17 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             mAuthOp->status                = status;
             mAuthOp->responseContentLength = mContentLength;
-            if (status != 0) {
-                mAuthOp->statusMsg = prop.getValue("Status-message", string());
-            } else {
-                mAuthOp->chosenAuthType        = prop.getValue(
-                    "Auth-type", int(kAuthenticationTypeUndef));
-                mAuthOp->useSslFlag            = prop.getValue(
-                    "Use-ssl", 0) != 0;
+            if (status < 0) {
+                mAuthOp->statusMsg = statusMsg;
+            }
+            if (! mAuthOp->ParseResponse(prop)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid meta reply response:"
+                    " seq: "         << op->seq <<
+                    " "              << op->Show() <<
+                KFS_LOG_EOM;
+                HandleRequest(EVENT_NET_ERROR, 0);
+                return false;
             }
             HandleAuthResponse(iobuf);
             return false;
@@ -695,6 +701,18 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         op = iter->second;
         mDispatchedOps.erase(iter);
         op->status = status;
+        if (status < 0 && op->statusMsg.empty()) {
+            op->statusMsg.swap(statusMsg);
+        }
+        if (! op->ParseResponse(prop)) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid meta reply response:"
+                " seq: "         << op->seq <<
+                " "              << op->Show() <<
+            KFS_LOG_EOM;
+            HandleRequest(EVENT_NET_ERROR, 0);
+            return false;
+        }
     }
     if (0 < mContentLength) {
         const int rem = mContentLength - iobuf.BytesConsumable();

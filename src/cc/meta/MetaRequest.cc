@@ -3913,7 +3913,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
         return;
     }
     if (clientCSAllowClearTextFlag) {
-        os << "CSClearText: 1\r\n";
+        os << "CS-clear-text: 1\r\n";
     }
     os << "CS-access: ";
     const int16_t kDelegationFlags = 0;
@@ -3993,10 +3993,13 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         os << "Lease-id: " << leaseId << "\r\n";
     }
     if (clientCSAllowClearTextFlag) {
-        os << "CSClearText: 1\r\n";
+        os << "CS-clear-text: 1\r\n";
     }
     if (0 < count) {
         os << "CS-access: " << count << "\r\n";
+    }
+    if (0 < validForTime) {
+        os << "CS-acess-time: " << validForTime << "\r\n";
     }
     if (! getChunkLocationsFlag && ! responseBuf.IsEmpty()) {
         os << "Lease-ids:";
@@ -4020,32 +4023,36 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             writer.WriteHexInt(ptr->serverLocation.port);
             writer.Write(" ", 1);
             const int16_t kDelegationFlags = 0;
-            DelegationToken::WriteTokenAndSessionKey(
-                writer,
-                ptr->authUid,
-                tokenSeq,
-                ptr->keyId,
-                issuedTime,
-                kDelegationFlags,
-                validForTime,
-                ptr->key.GetPtr(),
-                ptr->key.GetSize()
-            );
-            writer.Write(" ", 1);
-            ChunkAccessToken::WriteToken(
-                writer,
-                ptr->chunkId,
-                ptr->authUid,
-                tokenSeq ^ (uint32_t)leaseId,
-                ptr->keyId,
-                issuedTime,
-                ChunkAccessToken::kAllowReadFlag |
-                    (clientCSAllowClearTextFlag ?
-                        ChunkAccessToken::kAllowClearTextFlag : 0),
-                leaseTimeout * 2,
-                ptr->key.GetPtr(),
-                ptr->key.GetSize()
-            );
+            if (ptr->authUid == kKfsUserNone) {
+                writer.Write("? ? ?", 1);
+            } else {
+                DelegationToken::WriteTokenAndSessionKey(
+                    writer,
+                    ptr->authUid,
+                    tokenSeq,
+                    ptr->keyId,
+                    issuedTime,
+                    kDelegationFlags,
+                    validForTime,
+                    ptr->key.GetPtr(),
+                    ptr->key.GetSize()
+                );
+                writer.Write(" ", 1);
+                ChunkAccessToken::WriteToken(
+                    writer,
+                    ptr->chunkId,
+                    ptr->authUid,
+                    tokenSeq ^ (uint32_t)leaseId,
+                    ptr->keyId,
+                    issuedTime,
+                    ChunkAccessToken::kAllowReadFlag |
+                        (clientCSAllowClearTextFlag ?
+                            ChunkAccessToken::kAllowClearTextFlag : 0),
+                    leaseTimeout * 2,
+                    ptr->key.GetPtr(),
+                    ptr->key.GetSize()
+                );
+            }
             tokenSeq++;
             writer.Write("\n", 1);
             ptr++;
@@ -4083,11 +4090,14 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (clientCSAllowClearTextFlag) {
-        os << "CSClearText: 1\r\n";
+        os << "CS-clear-text: 1\r\n";
     }
     if (count <= 0) {
         os << "\r\n";
         return;
+    }
+    if (0 < validForTime) {
+        os << "CS-acess-time: " << validForTime << "\r\n";
     }
     IOBuffer                     iobuf;
     IntIOBufferWriter            writer(iobuf);
@@ -4101,6 +4111,21 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
             writer.Write(" ", 1);
             writer.WriteHexInt(ptr->serverLocation.port);
             writer.Write(" ", 1);
+            if (0 < validForTime) {
+                const int16_t kDelegationFlags = 0;
+                DelegationToken::WriteTokenAndSessionKey(
+                    writer,
+                    ptr->authUid,
+                    tokenSeq,
+                    ptr->keyId,
+                    issuedTime,
+                    kDelegationFlags,
+                    validForTime,
+                    ptr->key.GetPtr(),
+                    ptr->key.GetSize()
+                );
+                writer.Write(" ", 1);
+            }
         }
         ChunkAccessToken::WriteToken(
             writer,
@@ -4123,9 +4148,9 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         writer.Write("\n", 1);
         ptr++;
     }
-    if (leaseType == WRITE_LEASE && 0 < chunkServerAccessValidForTime &&
+    if (leaseType == WRITE_LEASE && 0 < validForTime &&
             (ptr = chunkAccess.GetPtr()) < end) {
-        os << "C-access-length: " << writer.GetTotalSize() << "\n";
+        os << "C-access-length: " << writer.GetTotalSize() << "\r\n";
         const ChunkAccessInfo* prev = 0;
         do {
             DelegationToken::WriteTokenAndSessionKey(
@@ -4135,12 +4160,12 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
                 ptr->keyId,
                 issuedTime,
                 DelegationToken::kChunkServerFlag,
-                chunkServerAccessValidForTime,
+                validForTime,
                 ptr->key.GetPtr(),
                 ptr->key.GetSize(),
                 0, // Subject pointer
                 0, // Subject length
-                prev ? prev->keyId            : kfsKeyId_t(),
+                prev ? prev->keyId         : kfsKeyId_t(),
                 prev ? prev->key.GetPtr()  : 0,
                 prev ? prev->key.GetSize() : 0
             );
@@ -4436,7 +4461,7 @@ MetaChunkAllocate::request(ostream &os)
     if (0 <= leaseId) {
         os << "Lease-id: " << leaseId << "\r\n";
         if (req->clientCSAllowClearTextFlag) {
-            os << "CSClearText: 1\r\n";
+            os << "CS-clear-text: 1\r\n";
         }
     }
     os <<
@@ -4457,6 +4482,9 @@ MetaChunkAllocate::request(ostream &os)
         "Content-length: " << len << "\r\n";
     if (cAccessLen < len) {
         os << "C-access-length: " << cAccessLen << "\r\n";
+        if (0 < req->validForTime) {
+            os << "CS-acess-time: " << req->validForTime << "\r\n";
+        }
     }
     os << "\r\n";
     os.write(chunkAccessStr.data(),       cAccessLen);
@@ -4627,7 +4655,7 @@ MetaChunkReplicate::request(ostream& os)
     }
     if (0 < validForTime) {
         if (clientCSAllowClearTextFlag) {
-            os << "CSClearText: 1\r\n";
+            os << "CS-clear-text: 1\r\n";
         }
         if (dataServer) {
             os << "CS-access: ";

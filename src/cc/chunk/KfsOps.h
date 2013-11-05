@@ -160,34 +160,77 @@ private:
     BufferBytes& operator=(const BufferBytes&);
 };
 
-class SyncReplicationAccess
+template<typename> class FwdAccessParser;
+
+class SRChunkAccess
 {
 public:
+    enum { kTokenCount = 2 };
     typedef PropertiesTokenizer::Token Token;
 
-    static SyncReplicationAccess* Parse(istream& is, int len);
-    ~SyncReplicationAccess()
+    static SRChunkAccess* Parse(istream& is, int len);
+    ~SRChunkAccess()
         { delete [] accessStr; }
-    const Token chunkServerToken;
-    const Token chunkServerKey;
-    const Token chunkAccess;
-    const Token forwardTokens;
+    const Token token;
+    const Token fwd;
 private:
     const char* const accessStr;
 
-    SyncReplicationAccess(
-        const Token tokens[4],
-        const char* aStr)
-        : chunkServerToken(tokens[0]),
-          chunkServerKey  (tokens[1]),
-          chunkAccess     (tokens[2]),
-          forwardTokens   (tokens[3]),
-          accessStr       (aStr)
+    SRChunkAccess(
+        const Token tokens[kTokenCount],
+        const char* str)
+        : token    (tokens[0]),
+          fwd      (tokens[1]),
+          accessStr(str)
         {}
-    SyncReplicationAccess(const SyncReplicationAccess&);
-    SyncReplicationAccess& operator=(const SyncReplicationAccess&);
+    SRChunkAccess(const SRChunkAccess&);
+    SRChunkAccess& operator=(const SRChunkAccess&);
+    friend class FwdAccessParser<SRChunkAccess>;
 };
-typedef boost::shared_ptr<SyncReplicationAccess> SyncReplicationAccessPtr;
+typedef boost::shared_ptr<SRChunkAccess> SRChunkAccessPtr;
+
+class SRChunkServerAccess
+{
+public:
+    enum { kTokenCount = 3 };
+    typedef PropertiesTokenizer::Token Token;
+
+    static SRChunkServerAccess* Parse(istream& is, int len);
+    ~SRChunkServerAccess()
+        { delete [] accessStr; }
+    const Token token;
+    const Token key;
+    const Token fwd;
+private:
+    const char* const accessStr;
+
+    SRChunkServerAccess(
+        const Token tokens[kTokenCount],
+        const char* str)
+        : token(tokens[0]),
+          key  (tokens[1]),
+          fwd  (tokens[2]),
+          accessStr        (str)
+        {}
+    SRChunkServerAccess(const SRChunkServerAccess&);
+    SRChunkServerAccess& operator=(const SRChunkServerAccess&);
+    friend class FwdAccessParser<SRChunkServerAccess>;
+};
+typedef boost::shared_ptr<SRChunkServerAccess> SRChunkServerAccessPtr;
+
+class SyncReplicationAccess
+{
+public:
+    SRChunkAccessPtr       chunkAccess;
+    SRChunkServerAccessPtr chunkServerAccess;
+
+    void Clear()
+    {
+        chunkAccess.reset();
+        chunkServerAccess.reset();
+    }
+    bool Parse(istream& is, int chunkAccessLength, int len);
+};
 
 struct KfsOp : public KfsCallbackObj
 {
@@ -265,6 +308,7 @@ struct KfsOp : public KfsCallbackObj
     virtual int HandleDone(int code, void *data);
     virtual int GetContentLength() const { return 0; }
     virtual bool ParseContent(istream& is) { return true; }
+    virtual bool ParseResponse(const Properties& props) { return true; }
     virtual bool ParseResponseContent(istream& is, int len) { return false; }
     virtual bool IsChunkReadOp(
         int64_t& /* numBytes */, kfsChunkId_t& /* chunkId */) { return false; }
@@ -370,19 +414,22 @@ private:
 // from the input stream.
 //
 struct AllocChunkOp : public KfsOp {
-    kfsFileId_t              fileId;
-    kfsChunkId_t             chunkId;
-    int64_t                  chunkVersion;
-    int64_t                  leaseId;
-    bool                     appendFlag;
-    StringBufT<256>          servers;
-    uint32_t                 numServers;
-    bool                     mustExistFlag;
-    kfsSTier_t               minStorageTier;
-    kfsSTier_t               maxStorageTier;
-    int                      contentLength;
-    SyncReplicationAccessPtr syncReplicationAccess;
-    DiskIoPtr                diskIo;
+    kfsFileId_t           fileId;
+    kfsChunkId_t          chunkId;
+    int64_t               chunkVersion;
+    int64_t               leaseId;
+    bool                  appendFlag;
+    StringBufT<256>       servers;
+    uint32_t              numServers;
+    bool                  mustExistFlag;
+    bool                  allowCSClearTextFlag;
+    kfsSTier_t            minStorageTier;
+    kfsSTier_t            maxStorageTier;
+    time_t                chunkServerAccessValidForTime;
+    int                   contentLength;
+    int                   chunkAccessLength;
+    SyncReplicationAccess syncReplicationAccess;
+    DiskIoPtr             diskIo;
 
     AllocChunkOp(kfsSeq_t s = 0)
         : KfsOp(CMD_ALLOC_CHUNK, s),
@@ -396,7 +443,9 @@ struct AllocChunkOp : public KfsOp {
           mustExistFlag(false),
           minStorageTier(kKfsSTierUndef),
           maxStorageTier(kKfsSTierUndef),
+          chunkServerAccessValidForTime(0),
           contentLength(0),
+          chunkAccessLength(0),
           syncReplicationAccess(),
           diskIo()
         {}
@@ -407,9 +456,8 @@ struct AllocChunkOp : public KfsOp {
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is)
     {
-        syncReplicationAccess.reset(
-            SyncReplicationAccess::Parse(is, contentLength));
-        return (contentLength <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, contentLength);
     }
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
@@ -425,16 +473,19 @@ struct AllocChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",    &AllocChunkOp::fileId,         kfsFileId_t(-1))
-        .Def("Chunk-handle",   &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
-        .Def("Chunk-version",  &AllocChunkOp::chunkVersion,   int64_t(-1))
-        .Def("Lease-id",       &AllocChunkOp::leaseId,        int64_t(-1))
-        .Def("Chunk-append",   &AllocChunkOp::appendFlag,     false)
-        .Def("Num-servers",    &AllocChunkOp::numServers)
-        .Def("Servers",        &AllocChunkOp::servers)
-        .Def("Min-tier",       &AllocChunkOp::minStorageTier, kKfsSTierUndef)
-        .Def("Max-tier",       &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
-        .Def("Content-length", &AllocChunkOp::contentLength,  0)
+        .Def("File-handle",     &AllocChunkOp::fileId,         kfsFileId_t(-1))
+        .Def("Chunk-handle",    &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def("Chunk-version",   &AllocChunkOp::chunkVersion,   int64_t(-1))
+        .Def("Lease-id",        &AllocChunkOp::leaseId,        int64_t(-1))
+        .Def("Chunk-append",    &AllocChunkOp::appendFlag,     false)
+        .Def("Num-servers",     &AllocChunkOp::numServers)
+        .Def("Servers",         &AllocChunkOp::servers)
+        .Def("Min-tier",        &AllocChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def("Max-tier",        &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def("Content-length",  &AllocChunkOp::contentLength,  0)
+        .Def("CS-clear-text",   &AllocChunkOp::allowCSClearTextFlag)
+        .Def("C-access-length", &AllocChunkOp::chunkAccessLength)
+        .Def("CS-acess-time",   &AllocChunkOp::chunkServerAccessValidForTime)
         ;
     }
 };
@@ -856,19 +907,20 @@ struct WritePrepareFwdOp;
 
 // support for record appends
 struct RecordAppendOp : public KfsClientChunkOp {
-    kfsSeq_t                 clientSeq;             /* input */
-    int64_t                  chunkVersion;          /* input */
-    size_t                   numBytes;              /* input */
-    int64_t                  writeId;               /* value for the local parsed out of servers string */
-    int64_t                  offset;                /* input: offset as far as the transaction is concerned */
-    int64_t                  fileOffset;            /* value set by the head of the daisy chain */
-    uint32_t                 numServers;            /* input */
-    uint32_t                 checksum;              /* input: as computed by the sender; 0 means sender didn't send */
-    StringBufT<256>          servers;               /* input: set of servers on which to write */
-    int64_t                  masterCommittedOffset; /* input piggy back master's ack to slave */
-    IOBuffer                 dataBuf;               /* buffer with the data to be written */
-    SyncReplicationAccessPtr syncReplicationAccess;
-    int                      accessFwdLength;
+    kfsSeq_t              clientSeq;             /* input */
+    int64_t               chunkVersion;          /* input */
+    size_t                numBytes;              /* input */
+    int64_t               writeId;               /* value for the local parsed out of servers string */
+    int64_t               offset;                /* input: offset as far as the transaction is concerned */
+    int64_t               fileOffset;            /* value set by the head of the daisy chain */
+    uint32_t              numServers;            /* input */
+    uint32_t              checksum;              /* input: as computed by the sender; 0 means sender didn't send */
+    StringBufT<256>       servers;               /* input: set of servers on which to write */
+    int64_t               masterCommittedOffset; /* input piggy back master's ack to slave */
+    IOBuffer              dataBuf;               /* buffer with the data to be written */
+    int                   chunkAccessLength;
+    int                   accessFwdLength;
+    SyncReplicationAccess syncReplicationAccess;
     /*
      * when a record append is to be fwd'ed along a daisy chain,
      * this field stores the original op client.
@@ -886,9 +938,8 @@ struct RecordAppendOp : public KfsClientChunkOp {
     virtual int GetContentLength() const { return accessFwdLength; }
     virtual bool ParseContent(istream& is)
     {
-        syncReplicationAccess.reset(
-            SyncReplicationAccess::Parse(is, accessFwdLength));
-        return (accessFwdLength <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, accessFwdLength);
     }
     void Request(ostream &os);
     void Response(ostream &os);
@@ -914,6 +965,7 @@ struct RecordAppendOp : public KfsClientChunkOp {
         .Def("Client-cseq",       &RecordAppendOp::clientSeqVal)
         .Def("Master-committed",  &RecordAppendOp::masterCommittedOffset, int64_t(-1))
         .Def("Access-fwd-length", &RecordAppendOp::accessFwdLength, 0)
+        .Def("C-access-length",   &RecordAppendOp::chunkAccessLength)
         ;
     }
 private:
@@ -990,20 +1042,21 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
 };
 
 struct WriteIdAllocOp : public KfsClientChunkOp {
-    kfsSeq_t                 clientSeq;         /* input */
-    int64_t                  chunkVersion;
-    int64_t                  offset;            /* input */
-    size_t                   numBytes;          /* input */
-    int64_t                  writeId;           /* output */
-    StringBufT<256>          writeIdStr;        /* output */
-    uint32_t                 numServers;        /* input */
-    StringBufT<256>          servers;           /* input: set of servers on which to write */
-    WriteIdAllocOp*          fwdedOp;           /* if we did any fwd'ing, this is the op that tracks it */
-    bool                     isForRecordAppend; /* set if the write-id-alloc is for a record append that will follow */
-    bool                     writePrepareReplyFlag; /* write prepare reply supported */
-    int                      contentLength;
-    SyncReplicationAccessPtr syncReplicationAccess;
-    RemoteSyncSMPtr          appendPeer;
+    kfsSeq_t              clientSeq;         /* input */
+    int64_t               chunkVersion;
+    int64_t               offset;            /* input */
+    size_t                numBytes;          /* input */
+    int64_t               writeId;           /* output */
+    StringBufT<256>       writeIdStr;        /* output */
+    uint32_t              numServers;        /* input */
+    StringBufT<256>       servers;           /* input: set of servers on which to write */
+    WriteIdAllocOp*       fwdedOp;           /* if we did any fwd'ing, this is the op that tracks it */
+    bool                  isForRecordAppend; /* set if the write-id-alloc is for a record append that will follow */
+    bool                  writePrepareReplyFlag; /* write prepare reply supported */
+    int                   contentLength;
+    int                   chunkAccessLength;
+    SyncReplicationAccess syncReplicationAccess;
+    RemoteSyncSMPtr       appendPeer;
 
     WriteIdAllocOp(kfsSeq_t s = 0)
         : KfsClientChunkOp(CMD_WRITE_ID_ALLOC, s),
@@ -1019,6 +1072,7 @@ struct WriteIdAllocOp : public KfsClientChunkOp {
           isForRecordAppend(false),
           writePrepareReplyFlag(true),
           contentLength(0),
+          chunkAccessLength(0),
           syncReplicationAccess(),
           appendPeer(),
           clientSeqVal()
@@ -1036,6 +1090,7 @@ struct WriteIdAllocOp : public KfsClientChunkOp {
           isForRecordAppend(other.isForRecordAppend),
           writePrepareReplyFlag(other.writePrepareReplyFlag),
           contentLength(other.contentLength),
+          chunkAccessLength(other.chunkAccessLength),
           syncReplicationAccess(other.syncReplicationAccess),
           appendPeer(),
           clientSeqVal()
@@ -1045,9 +1100,8 @@ struct WriteIdAllocOp : public KfsClientChunkOp {
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is)
     {
-        syncReplicationAccess.reset(
-            SyncReplicationAccess::Parse(is, contentLength));
-        return (contentLength <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, contentLength);
     }
     void Request(ostream &os);
     void Response(ostream &os);
@@ -1087,6 +1141,7 @@ struct WriteIdAllocOp : public KfsClientChunkOp {
         .Def("Client-cseq",         &WriteIdAllocOp::clientSeqVal)
         .Def("Write-prepare-reply", &WriteIdAllocOp::writePrepareReplyFlag)
         .Def("Content-length",      &WriteIdAllocOp::contentLength, 0)
+        .Def("C-access-length",     &WriteIdAllocOp::chunkAccessLength)
         ;
     }
 private:
@@ -1094,20 +1149,21 @@ private:
 };
 
 struct WritePrepareOp : public KfsClientChunkOp {
-    int64_t                  chunkVersion;
-    int64_t                  offset;     /* input */
-    size_t                   numBytes;   /* input */
-    int64_t                  writeId;    /* value for the local server */
-    uint32_t                 numServers; /* input */
-    uint32_t                 checksum;   /* input: as computed by the sender; 0 means sender didn't send */
-    StringBufT<256>          servers;    /* input: set of servers on which to write */
-    bool                     replyRequestedFlag;
-    int                      accessFwdLength;
-    SyncReplicationAccessPtr syncReplicationAccess;
-    IOBuffer                 dataBuf;    /* buffer with the data to be written */
-    WritePrepareFwdOp*       writeFwdOp; /* op that tracks the data we fwd'ed to a peer */
-    WriteOp*                 writeOp;    /* the underlying write that is queued up locally */
-    uint32_t                 numDone;    // if we did forwarding, we wait for
+    int64_t               chunkVersion;
+    int64_t               offset;     /* input */
+    size_t                numBytes;   /* input */
+    int64_t               writeId;    /* value for the local server */
+    uint32_t              numServers; /* input */
+    uint32_t              checksum;   /* input: as computed by the sender; 0 means sender didn't send */
+    StringBufT<256>       servers;    /* input: set of servers on which to write */
+    bool                  replyRequestedFlag;
+    int                   accessFwdLength;
+    int                   chunkAccessLength;
+    SyncReplicationAccess syncReplicationAccess;
+    IOBuffer              dataBuf;    /* buffer with the data to be written */
+    WritePrepareFwdOp*    writeFwdOp; /* op that tracks the data we fwd'ed to a peer */
+    WriteOp*              writeOp;    /* the underlying write that is queued up locally */
+    uint32_t              numDone;    // if we did forwarding, we wait for
                                          // local/remote to be done; otherwise, we only
                                          // wait for local to be done
     BufferManager*           devBufMgr;
@@ -1123,6 +1179,7 @@ struct WritePrepareOp : public KfsClientChunkOp {
           servers(),
           replyRequestedFlag(false),
           accessFwdLength(0),
+          chunkAccessLength(0),
           syncReplicationAccess(),
           dataBuf(),
           writeFwdOp(0),
@@ -1135,9 +1192,8 @@ struct WritePrepareOp : public KfsClientChunkOp {
     virtual int GetContentLength() const { return accessFwdLength; }
     virtual bool ParseContent(istream& is)
     {
-        syncReplicationAccess.reset(
-            SyncReplicationAccess::Parse(is, accessFwdLength));
-        return (accessFwdLength <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, accessFwdLength);
     }
     void Response(ostream &os);
     void Execute();
@@ -1171,6 +1227,7 @@ struct WritePrepareOp : public KfsClientChunkOp {
         .Def("Checksum",          &WritePrepareOp::checksum)
         .Def("Reply",             &WritePrepareOp::replyRequestedFlag)
         .Def("Access-fwd-length", &WritePrepareOp::accessFwdLength, 0)
+        .Def("C-access-length",   &WritePrepareOp::chunkAccessLength)
         ;
     }
 };
@@ -1308,15 +1365,16 @@ struct WriteSyncOp : public KfsClientChunkOp {
     uint32_t                  numServers;
     StringBufT<256>           servers;
     WriteSyncOp*              fwdedOp;
-    WriteOp*                  writeOp;    // the underlying write that needs to be pushed to disk
-    uint32_t                  numDone;    // if we did forwarding, we wait for
-                                          // local/remote to be done; otherwise, we only
-                                          // wait for local to be done
-    bool                     writeMaster; // infer from the server list if we are the "master" for doing the writes
-    int                      checksumsCnt;
-    StringBufT<256>          checksumsStr;
-    int                      contentLength;
-    SyncReplicationAccessPtr syncReplicationAccess;
+    WriteOp*                  writeOp; // the underlying write that needs to be pushed to disk
+    uint32_t                  numDone; // if we did forwarding, we wait for
+                                       // local/remote to be done; otherwise, we only
+                                       // wait for local to be done
+    bool                  writeMaster; // infer from the server list if we are the "master" for doing the writes
+    int                   checksumsCnt;
+    StringBufT<256>       checksumsStr;
+    int                   contentLength;
+    int                   chunkAccessLength;
+    SyncReplicationAccess syncReplicationAccess;
 
     WriteSyncOp(kfsSeq_t s = 0, kfsChunkId_t c = -1,
             int64_t v = -1, int64_t o = 0, size_t n = 0)
@@ -1334,6 +1392,7 @@ struct WriteSyncOp : public KfsClientChunkOp {
           checksumsCnt(0),
           checksumsStr(),
           contentLength(0),
+          chunkAccessLength(0),
           syncReplicationAccess()
     {
         chunkId = c;
@@ -1343,9 +1402,8 @@ struct WriteSyncOp : public KfsClientChunkOp {
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is)
     {
-        syncReplicationAccess.reset(
-            SyncReplicationAccess::Parse(is, contentLength));
-        return (contentLength <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, contentLength);
     }
     void Request(ostream &os);
     void Execute();
@@ -1374,6 +1432,7 @@ struct WriteSyncOp : public KfsClientChunkOp {
         .Def("Checksum-entries", &WriteSyncOp::checksumsCnt)
         .Def("Checksums",        &WriteSyncOp::checksumsStr)
         .Def("Content-length",   &WriteSyncOp::contentLength, 0)
+        .Def("C-access-length",  &WriteSyncOp::chunkAccessLength)
         ;
     }
 };
@@ -1780,21 +1839,36 @@ struct StatsOp : public KfsOp {
 };
 
 struct LeaseRenewOp : public KfsOp {
-    kfsChunkId_t             chunkId;
-    int64_t                  leaseId;
-    const string             leaseType;
-    SyncReplicationAccessPtr syncReplicationAccess;
-    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
+    kfsChunkId_t          chunkId;
+    int64_t               leaseId;
+    const string          leaseType;
+    bool                  emitCSAceessFlag;
+    bool                  allowCSClearTextFlag;
+    int                   chunkServerAccessValidForTime;
+    int                   chunkAccessLength;
+    SyncReplicationAccess syncReplicationAccess;
+    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t, bool a)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
           leaseId(l),
           leaseType(t),
+          emitCSAceessFlag(a),
+          allowCSClearTextFlag(false),
+          chunkServerAccessValidForTime(0),
+          chunkAccessLength(0),
           syncReplicationAccess()
         { SET_HANDLER(this, &LeaseRenewOp::HandleDone); }
+    virtual bool ParseResponse(const Properties& props)
+    {
+        chunkAccessLength             = props.getValue("C-access-length", 0);
+        chunkServerAccessValidForTime = props.getValue("CS-acess-time",   0);
+        allowCSClearTextFlag          = props.getValue("CS-clear-text", 0) != 0;
+        return true;
+    }
     virtual bool ParseResponseContent(istream& is, int len)
     {
-        syncReplicationAccess.reset(SyncReplicationAccess::Parse(is, len));
-        return (len <= 0 || syncReplicationAccess);
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, len);
     }
 
     void Request(ostream &os);
@@ -2138,6 +2212,13 @@ struct AuthenticateOp : public KfsOp {
         { delete [] responseBuf; }
     virtual void Execute() {
         die("unexpected invocation");
+    }
+    virtual bool ParseResponse(const Properties& props)
+    {
+        chosenAuthType = props.getValue("Auth-type",
+            int(kAuthenticationTypeUndef));
+        useSslFlag     = props.getValue("Use-ssl", 0) != 0;
+        return true;
     }
     virtual void Request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const {

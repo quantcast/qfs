@@ -241,61 +241,116 @@ SubmitOpResponse(KfsOp *op)
 
 inline static void
 WriteSyncReplicationAccess(
-    const SyncReplicationAccessPtr& syncReplicationAccess,
-    ostream&                        os,
-    const char*                     contentLengthHeader = "Content-length: ")
+    const SyncReplicationAccess& sra,
+    ostream&                     os,
+    const char*                  contentLengthHeader = "Content-length: ")
 {
-    const SyncReplicationAccess::Token* fwd = 0;
-    if (syncReplicationAccess) {
-        const SyncReplicationAccess&        ra = *syncReplicationAccess;
-        const SyncReplicationAccess::Token& ca = ra.chunkAccess;
-        os << "C-access: "; os.write(ca.mPtr, ca.mLen) << "\r\n";
-        fwd = &ra.forwardTokens;
-        if (0 < fwd->mLen) {
-            os << contentLengthHeader << fwd->mLen << "\r\n";
+    const SRChunkAccess::Token* cFwd = 0;
+    if (sra.chunkAccess) {
+        const SRChunkAccess& ra = *sra.chunkAccess;
+        os << "C-access: "; os.write(ra.token.mPtr, ra.token.mLen) << "\r\n";
+        cFwd = &ra.fwd;
+    }
+    const SRChunkServerAccess::Token* csFwd = sra.chunkServerAccess ?
+        &sra.chunkServerAccess->fwd : 0;
+    int         len = (csFwd && 0 < csFwd->mLen) ? csFwd->mLen : 0;
+    const char* sep = 0;
+    if (cFwd && 0 < cFwd->mLen) {
+        os << "C-access-length: " << cFwd->mLen << "\r\n";
+        if (0 < len &&
+                ' ' < (cFwd->mPtr[cFwd->mLen] & 0xFF) &&
+                ' ' < (csFwd->mPtr[0] & 0xFF)) {
+            sep = "\n";
+            len++;
         }
+        len += cFwd->mLen;
+    }
+    if (0 < len) {
+        os << contentLengthHeader << len << "\r\n";
     }
     os << "\r\n";
-    if (fwd) {
-        os.write(fwd->mPtr, fwd->mLen);
+    if (cFwd && 0 < cFwd->mLen) {
+        os.write(cFwd->mPtr, cFwd->mLen);
+        if (sep) {
+            os << sep;
+        }
+    }
+    if (csFwd && 0 < csFwd->mLen) {
+        os.write(csFwd->mPtr, csFwd->mLen);
     }
 }
 
-/* static */ SyncReplicationAccess*
-SyncReplicationAccess::Parse(istream& is, int len)
+template<typename T>
+class FwdAccessParser
+{
+public:
+    static inline T* Parse(istream& is, int len)
+    {
+        if (len <= 0) {
+            return 0;
+        }
+        char* const tokensStr = new char[len + 1];
+        is.read(tokensStr, (streamsize)len);
+        if (is.gcount() != (streamsize)len) {
+            delete [] tokensStr;
+            return 0;
+        }
+        tokensStr[len] = 0;
+        typename T::Token tokens[T::kTokenCount];
+        const char* p = tokensStr;
+        for (int i = 0; ; i++) {
+            while (*p && (*p & 0xFF) <= ' ') {
+                ++p;
+            }
+            if (T::kTokenCount <= i) {
+                tokens[i] = typename T::Token(p, tokensStr + len - p);
+                break;
+            }
+            const char* const b = p;
+            while (' ' < (*p & 0xFF)) {
+                ++p;
+            }
+            tokens[i] = typename T::Token(b, p - b);
+        }
+        if (tokens[min(0, T::kTokenCount - 2)].mLen <= 0) {
+            delete [] tokensStr;
+            return 0;
+        }
+        return new T(tokens, tokensStr);
+    }
+};
+
+SRChunkAccess*
+SRChunkAccess::Parse(istream& is, int len)
+{
+    return FwdAccessParser<SRChunkAccess>::Parse(is, len);
+}
+
+SRChunkServerAccess*
+SRChunkServerAccess::Parse(istream& is, int len)
+{
+    return FwdAccessParser<SRChunkServerAccess>::Parse(is, len);
+}
+
+bool
+SyncReplicationAccess::Parse(istream& is, int chunkAccessLength, int len)
 {
     if (len <= 0) {
-        return 0;
+        return (chunkAccessLength <= 0);
     }
-    char* const accessTokens = new char[len + 1];
-    accessTokens[len] = 0;
-    is.read(accessTokens, len);
-    if (is.gcount() != (streamsize)len) {
-        delete [] accessTokens;
-        return 0;
+    if (len < chunkAccessLength) {
+        return false;
     }
-    accessTokens[len] = 0;
-    Token tokens[4];
-    const char* p = accessTokens;
-    for (int i = 0; ; i++) {
-        while (*p && (*p & 0xFF) <= ' ') {
-            ++p;
-        }
-        if (3 <= i) {
-            tokens[i] = Token(p, accessTokens + len - p);
-            break;
-        }
-        const char* const b = p;
-        while (' ' < (*p & 0xFF)) {
-            ++p;
-        }
-        tokens[i] = Token(b, p - b);
+    const int caLen = 0 < chunkAccessLength ? chunkAccessLength : len;
+    chunkAccess.reset(SRChunkAccess::Parse(is, caLen));
+    if (! chunkAccess) {
+        return false;
     }
-    if (tokens[3].mLen <= 0) {
-        delete [] accessTokens;
-        return 0;
+    if (len <= caLen) {
+        return true;
     }
-    return new SyncReplicationAccess(tokens, accessTokens);
+    chunkServerAccess.reset(SRChunkServerAccess::Parse(is, len - caLen));
+    return chunkServerAccess;
 }
 
 class KfsOp::NullOp : public KfsOp
@@ -1005,8 +1060,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
             }
         }
         if (status >= 0 && leaseId >= 0) {
-            gLeaseClerk.RegisterLease(
-                chunkId, leaseId, appendFlag, syncReplicationAccess);
+            gLeaseClerk.RegisterLease(*this);
         }
     }
     diskIo.reset();
@@ -2938,16 +2992,22 @@ WriteSyncOp::~WriteSyncOp()
 void
 LeaseRenewOp::Request(ostream& os)
 {
-    os << "LEASE_RENEW\r\n";
-    os << "Version: " << KFS_VERSION_STR << "\r\n";
-    os << "Cseq: " << seq << "\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Lease-id: " << leaseId << "\r\n";
-    os << "Lease-type: " << leaseType << "\r\n\r\n";
+    os <<
+        "LEASE_RENEW\r\n"
+        "Version: "      << KFS_VERSION_STR << "\r\n"
+        "Cseq: "         << seq             << "\r\n"
+        "Chunk-handle: " << chunkId         << "\r\n"
+        "Lease-id: "     << leaseId         << "\r\n"
+        "Lease-type: "   << leaseType       << "\r\n"
+    ;
+    if (emitCSAceessFlag) {
+        os << "CS-access: 1\r\n";
+    }
+    os << "\r\n";
 }
 
 int
-LeaseRenewOp::HandleDone(int code, void *data)
+LeaseRenewOp::HandleDone(int code, void* data)
 {
     assert(data == this && clnt);
     return clnt->HandleEvent(EVENT_CMD_DONE, data);
@@ -2956,7 +3016,8 @@ LeaseRenewOp::HandleDone(int code, void *data)
 void
 LeaseRelinquishOp::Request(ostream& os)
 {
-    os << "LEASE_RELINQUISH\r\n"
+    os <<
+        "LEASE_RELINQUISH\r\n"
         "Version: "        << KFS_VERSION_STR << "\r\n"
         "Cseq: "           << seq             << "\r\n"
         "Chunk-handle: "   << chunkId         << "\r\n"
@@ -2973,7 +3034,7 @@ LeaseRelinquishOp::Request(ostream& os)
 }
 
 int
-LeaseRelinquishOp::HandleDone(int code, void *data)
+LeaseRelinquishOp::HandleDone(int code, void* data)
 {
     if (code != EVENT_CMD_DONE || data != this) {
         die("LeaseRelinquishOp: invalid completion");

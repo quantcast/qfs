@@ -2826,26 +2826,28 @@ struct MetaLeaseRenew: public MetaRequest {
     typedef MetaLeaseAcquire::ChunkAccessInfo ChunkAccessInfo;
     typedef MetaLeaseAcquire::ChunkAccess     ChunkAccess;
 
-    LeaseType          leaseType; //!< input
-    StringBufT<256>    pathname;  // Optional for debugging;
-    chunkId_t          chunkId;   //!< input
-    int64_t            leaseId;   //!< input
+    LeaseType          leaseType;
+    StringBufT<256>    pathname; // Optional for debugging;
+    chunkId_t          chunkId;
+    int64_t            leaseId;
+    bool               emitCSAccessFlag;
     bool               clientCSAllowClearTextFlag;
     time_t             issuedTime;
     ChunkAccess        chunkAccess;
     const ChunkServer* chunkServer;
-    int                chunkServerAccessValidForTime;
+    int                validForTime;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
           leaseId(-1),
+          emitCSAccessFlag(false),
           clientCSAllowClearTextFlag(false),
           issuedTime(),
           chunkAccess(),
           chunkServer(0),
-          chunkServerAccessValidForTime(0),
+          validForTime(0),
           leaseTypeStr()
         {}
     virtual void handle();
@@ -2874,6 +2876,7 @@ struct MetaLeaseRenew: public MetaRequest {
         .Def("Lease-type",   &MetaLeaseRenew::leaseTypeStr          )
         .Def("Lease-id",     &MetaLeaseRenew::leaseId,   int64_t(-1))
         .Def("Chunk-handle", &MetaLeaseRenew::chunkId, chunkId_t(-1))
+        .Def("CS-access",    &MetaLeaseRenew::emitCSAccessFlag)
         ;
     }
 private:

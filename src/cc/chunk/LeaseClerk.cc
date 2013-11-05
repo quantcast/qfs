@@ -27,6 +27,7 @@
 
 #include "LeaseClerk.h"
 #include "kfsio/Globals.h"
+#include "kfsio/DelegationToken.h"
 
 #include "ChunkManager.h"
 #include "MetaServerSM.h"
@@ -56,23 +57,35 @@ LeaseClerk::LeaseClerk()
 }
 
 void
-LeaseClerk::RegisterLease(kfsChunkId_t chunkId, int64_t leaseId,
-    bool appendFlag, const SyncReplicationAccessPtr& syncReplicationAccess)
+LeaseClerk::RegisterLease(const AllocChunkOp& op)
 {
     // Get replace the old lease if there is one
     bool insertedFlag = false;
-    LeaseInfo_t& lease = *mLeases.Insert(chunkId, LeaseInfo_t(), insertedFlag);
-    lease.leaseId               = leaseId;
-    lease.lastWriteTime         = Now();
-    lease.expires               = lease.lastWriteTime + LEASE_INTERVAL_SECS;
-    lease.leaseRenewSent        = false;
-    lease.invalidFlag           = false;
-    lease.appendFlag            = appendFlag;
-    lease.syncReplicationAccess = syncReplicationAccess;
+    LeaseInfo_t& lease = *mLeases.Insert(op.chunkId, LeaseInfo_t(), insertedFlag);
+    lease.leaseId                       = op.leaseId;
+    lease.lastWriteTime                 = Now();
+    lease.expires                       = lease.lastWriteTime + LEASE_INTERVAL_SECS;
+    lease.leaseRenewSent                = false;
+    lease.invalidFlag                   = false;
+    lease.allowCSClearTextFlag          = op.allowCSClearTextFlag;
+    lease.appendFlag                    = op.appendFlag;
+    lease.syncReplicationExpirationTime = lease.lastWriteTime - LEASE_INTERVAL_SECS;
+    lease.syncReplicationAccess         = op.syncReplicationAccess;
+    if (0 < op.chunkServerAccessValidForTime) {
+        lease.syncReplicationExpirationTime += op.chunkServerAccessValidForTime;
+    } else if (lease.syncReplicationAccess.chunkServerAccess) {
+        DelegationToken token;
+        if (token.FromString(
+                lease.syncReplicationAccess.chunkServerAccess->token.mPtr,
+                lease.syncReplicationAccess.chunkServerAccess->token.mLen,
+                0, 0)) {
+            lease.syncReplicationExpirationTime += token.GetValidForSec();
+        }
+    }
     KFS_LOG_STREAM_DEBUG <<
         "registered lease:"
-        " chunk: " << chunkId <<
-        " lease: " << leaseId <<
+        " chunk: " << op.chunkId <<
+        " lease: " << lease.leaseId <<
     KFS_LOG_EOM;
 }
 
@@ -128,7 +141,7 @@ LeaseClerk::DoingWrite(kfsChunkId_t chunkId)
 
 bool
 LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId,
-    SyncReplicationAccessPtr* syncReplicationAccess /* = 0 */) const
+    SyncReplicationAccess* syncReplicationAccess /* = 0 */) const
 {
     // now <= lease.expires ==> lease hasn't expired and is therefore
     // valid.
@@ -139,7 +152,7 @@ LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId,
         if (validFlag) {
             *syncReplicationAccess = lease->syncReplicationAccess;
         } else {
-            syncReplicationAccess->reset();
+            syncReplicationAccess->Clear();
         }
     }
     return validFlag;
@@ -154,39 +167,59 @@ LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId) const
 }
 
 void
-LeaseClerk::LeaseRenewed(kfsChunkId_t chunkId,
-    const SyncReplicationAccessPtr& syncReplicationAccess)
+LeaseClerk::LeaseRenewed(LeaseRenewOp& op)
 {
-    LeaseInfo_t* const li = mLeases.Find(chunkId);
+    LeaseInfo_t* const li = mLeases.Find(op.chunkId);
     if (! li) {
         return; // Ignore stale renew reply.
     }
+    const time_t now   = Now();
     LeaseInfo_t& lease = *li;
-    lease.expires               = Now() + LEASE_INTERVAL_SECS;
+    lease.expires               = now + LEASE_INTERVAL_SECS;
     lease.leaseRenewSent        = false;
-    lease.syncReplicationAccess = syncReplicationAccess;
+    if (op.syncReplicationAccess.chunkServerAccess) {
+        lease.syncReplicationAccess.chunkServerAccess.swap(
+            op.syncReplicationAccess.chunkServerAccess);
+        lease.syncReplicationExpirationTime = now - LEASE_INTERVAL_SECS;
+        if (0 < op.chunkServerAccessValidForTime) {
+            lease.syncReplicationExpirationTime +=
+                op.chunkServerAccessValidForTime;
+        } else {
+            DelegationToken token;
+            if (token.FromString(
+                    lease.syncReplicationAccess.chunkServerAccess->token.mPtr,
+                    lease.syncReplicationAccess.chunkServerAccess->token.mLen,
+                    0, 0)) {
+                lease.syncReplicationExpirationTime += token.GetValidForSec();
+            }
+        }
+    }
+    lease.allowCSClearTextFlag = op.allowCSClearTextFlag;
+    if (op.syncReplicationAccess.chunkAccess) {
+        lease.syncReplicationAccess.chunkAccess.swap(
+            op.syncReplicationAccess.chunkAccess);
+    }
     KFS_LOG_STREAM_INFO <<
         "lease renewed for:"
-        " chunk: " << chunkId <<
+        " chunk: " << op.chunkId <<
         " lease: " << lease.leaseId <<
     KFS_LOG_EOM;
 }
 
 int
-LeaseClerk::HandleEvent(int code, void *data)
+LeaseClerk::HandleEvent(int code, void* data)
 {
     switch(code) {
         case EVENT_CMD_DONE: {
             // we got a reply for a lease renewal
-            const KfsOp* const op = reinterpret_cast<const KfsOp*>(data);
+            KfsOp* const op = reinterpret_cast<KfsOp*>(data);
             if (! op) {
                 break;
             }
             if (op->op == CMD_LEASE_RENEW) {
-                const LeaseRenewOp* const renewOp =
-                    static_cast<const LeaseRenewOp*>(op);
+                LeaseRenewOp* const renewOp = static_cast<LeaseRenewOp*>(op);
                 if (renewOp->status == 0) {
-                    LeaseRenewed(renewOp->chunkId, renewOp->syncReplicationAccess);
+                    LeaseRenewed(*renewOp);
                 } else {
                     UnRegisterLease(renewOp->chunkId);
                 }
@@ -254,7 +287,10 @@ LeaseClerk::Timeout()
         }
         // The metaserverSM will fill seq#.
         LeaseRenewOp* const op = new LeaseRenewOp(
-            -1, chunkId, lease.leaseId, kWriteLease);
+            -1, chunkId, lease.leaseId, kWriteLease,
+            lease.syncReplicationAccess.chunkServerAccess &&
+                lease.syncReplicationExpirationTime <= now
+        );
         KFS_LOG_STREAM_INFO <<
             "sending lease renew for:"
             " chunk: "      << chunkId <<

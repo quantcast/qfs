@@ -5322,23 +5322,28 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
                 ! IsChunkStable(chunkId)) {
             leaseId = -EBUSY;
+        } else if (! (cs = mChunkToServerMap.Find(chunkId))) {
+            leaseId = -EINVAL;
+        } else if (mVerifyAllOpsPermissionsFlag &&
+                ((0 < req.leaseTimeout &&
+                ! cs->GetFattr()->CanRead(req.euser, req.egroup)) ||
+                (req.flushFlag &&
+                ! cs->GetFattr()->CanWrite(req.euser, req.egroup)))) {
+            leaseId = -EACCES;
+        } else if (mChunkToServerMap.GetServers(*cs, servers) <= 0) {
+            // Cannot obtain lease if no replicas exist.
+            leaseId = -EAGAIN;
         } else if ((req.leaseTimeout <= 0 ?
                 mChunkLeases.HasWriteLease(chunkId) :
-                ! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.GetServers(*cs, servers) > 0 &&
-                mChunkLeases.NewReadLease(
+                ! mChunkLeases.NewReadLease(
                     chunkId,
                     TimeNow() + req.leaseTimeout,
-                    leaseId)))) {
+                    leaseId))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
                 mChunkLeases.FlushWriteLease(
                     chunkId, mARAChunkCache, mChunkToServerMap);
             }
-        } else if (! ((cs = mChunkToServerMap.Find(chunkId)) &&
-                mChunkToServerMap.GetServers(*cs, servers) > 0)) {
-            // Cannot obtain lease if no replicas exist.
-            leaseId = cs ? -EAGAIN : -EINVAL;
         }
         writer.Write(" ", 1);
         if (req.getChunkLocationsFlag) {
@@ -5356,7 +5361,8 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                     writer.Write(" ", 1);
                     writer.WriteHexInt(loc.port);
                     if (emitCAFlag) {
-                        MetaLeaseAcquire::ChunkAccessInfo info(loc, chunkId);
+                        MetaLeaseAcquire::ChunkAccessInfo info(
+                            loc, chunkId, req.authUid);
                         if ((*it)->GetCryptoKey(info.keyId, info.key)) {
                             req.chunkAccess.Append(info);
                         } else {
@@ -5470,7 +5476,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             return -EACCES;
         }
     } else if (mVerifyAllOpsPermissionsFlag &&
-            ! cs->GetFattr()->CanRead(req->euser, req->egroup)) {
+            ((0 <= req->leaseTimeout &&
+                ! cs->GetFattr()->CanRead(req->euser, req->egroup)) ||
+            (req->flushFlag &&
+                ! cs->GetFattr()->CanWrite(req->euser, req->egroup)))) {
         return -EACCES;
     }
     //
@@ -5564,14 +5573,20 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->statusMsg = "only chunk servers are allowed to renew write leases";
         return -EPERM;
     }
-    req->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag &&
-        mClientCSAllowClearTextFlag;
-    req->chunkServerAccessValidForTime =
-        readLeaseFlag ? 0 : mCSAccessValidForTime;
+    if (mVerifyAllOpsPermissionsFlag &&
+            ! (readLeaseFlag ?
+                cs->GetFattr()->CanRead(req->euser, req->egroup) :
+                cs->GetFattr()->CanWrite(req->euser, req->egroup))) {
+        req->statusMsg = "access denied";
+        return -EACCES;
+    }
     const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
-    if (ret == 0 && mClientCSAuthRequiredFlag &&
-            req->authUid != kKfsUserNone) {
-        req->issuedTime = TimeNow();
+    if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
+        req->issuedTime                 = TimeNow();
+        req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
+        if (req->emitCSAccessFlag) {
+            req->validForTime = mCSAccessValidForTime;
+        }
         MakeChunkAccess(*cs, req->authUid, req->chunkAccess, req->chunkServer);
     }
     return ret;
@@ -6493,7 +6508,9 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     if (r->status >= 0) {
         // Tree::assignChunkId() succeeded.
         // File and chunk ids are valid and in sync with meta tree.
-        const int ret = mChunkLeases.Renew(r->chunkId, r->leaseId, true);
+        const bool kAllocDoneFlag = true;
+        const int  ret            = mChunkLeases.Renew(
+            r->chunkId, r->leaseId, kAllocDoneFlag);
         if (ret < 0) {
             panic("failed to renew allocation write lease");
             r->status = ret;

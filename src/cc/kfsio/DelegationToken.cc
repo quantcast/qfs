@@ -872,7 +872,7 @@ DelegationToken::FromString(
         return false;
     }
     char theSignature[kSignatureLength];
-    return (! inKeyPtr ||
+    return (! inKeyPtr || inKeyLen <= 0 ||
         (theBuf.Sign(inKeyPtr, inKeyLen,
             inSubjectPtr, inSubjectLen, theSignature) &&
         memcmp(theSignature, mSignature, kSignatureLength) == 0)
