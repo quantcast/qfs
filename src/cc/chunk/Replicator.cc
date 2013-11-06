@@ -238,7 +238,8 @@ ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer
     mReadOp.chunkId = op->chunkId;
     mReadOp.chunkVersion = op->chunkVersion;
     if (! op->chunkAccess.empty()) {
-        mReadOp.requestChunkAccess = op->chunkAccess.c_str();
+        mReadOp.requestChunkAccess          = mOwner->chunkAccess.c_str();
+        mChunkMetadataOp.requestChunkAccess = mReadOp.requestChunkAccess;
     }
     mReadOp.clnt = this;
     mWriteOp.clnt = this;
@@ -648,6 +649,8 @@ ReplicatorImpl::HandleReplicationDone(int code, void* data)
         }
     }
     ReplicateChunkOp* const op = mOwner;
+    mReadOp.requestChunkAccess          = 0;
+    mChunkMetadataOp.requestChunkAccess = 0;
     mOwner = 0;
     UnRef();
     SubmitOpResponse(op);

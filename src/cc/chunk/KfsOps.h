@@ -1756,6 +1756,7 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     size_t       numBytesIO;
     ReadOp       readOp; // internally generated
     int64_t      numBytesScrubbed;
+    const char*  requestChunkAccess;
     enum { kChunkReadSize = 1 << 20, kChunkMetaReadSize = 16 << 10 };
 
     GetChunkMetadataOp(kfsSeq_t s = 0)
@@ -1766,7 +1767,8 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
           dataBuf(),
           numBytesIO(0),
           readOp(0),
-          numBytesScrubbed(0)
+          numBytesScrubbed(0),
+          requestChunkAccess(0)
         {}
     ~GetChunkMetadataOp()
         {}

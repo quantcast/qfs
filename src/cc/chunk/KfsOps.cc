@@ -2616,10 +2616,15 @@ GetChunkMetadataOp::Response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n";
-    os << "Size: " << chunkSize << "\r\n";
-    os << "Content-length: " << numBytesIO << "\r\n\r\n";
+    os <<
+        "Chunk-handle: " << chunkId      << "\r\n"
+        "Chunk-version: "  << chunkVersion << "\r\n"
+        "Size: "           << chunkSize    << "\r\n"
+        "Content-length: " << numBytesIO   << "\r\n";
+    if (requestChunkAccess) {
+        os << "C-access: " << requestChunkAccess << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void

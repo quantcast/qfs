@@ -706,7 +706,7 @@ public:
            mAuthFlag(authFlag),
            mShutdownSslFlag(shutdownSslFlag)
         {}
-    bool operator() (const RemoteSyncSMPtr& other)
+    bool operator() (const RemoteSyncSMPtr& other) const
     {
         const RemoteSyncSM& sm = *other;
         return (
