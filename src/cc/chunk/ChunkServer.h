@@ -54,8 +54,18 @@ public:
     bool IsLocalServer(const ServerLocation& location) const {
         return mLocation == location;
     }
-    RemoteSyncSMPtr FindServer(const ServerLocation& location,
-                               bool connect = true);
+    RemoteSyncSMPtr FindServer(
+        const ServerLocation& location,
+        bool                  connectFlag,
+        const char*           sessionTokenPtr,
+        int                   sessionTokenLen,
+        const char*           sessionKeyPtr,
+        int                   sessionKeyLen,
+        bool                  writeMasterFlag,
+        bool                  shutdownSslFlag,
+        int&                  err,
+        string&               errMsg);
+
     void RemoveServer(RemoteSyncSM* target);
     string GetMyLocation() const {
         return mLocation.ToString();

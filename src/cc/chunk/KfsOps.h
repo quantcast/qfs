@@ -674,22 +674,25 @@ struct TruncateChunkOp : public KfsOp {
 // and then notify the server upon completion.
 //
 struct ReplicateChunkOp : public KfsOp {
-    kfsFileId_t    fid;          // input
-    kfsChunkId_t   chunkId;      // input
-    ServerLocation location;     // input: where to get the chunk from
-    int64_t        chunkVersion; // io: we tell the metaserver what we replicated
-    int64_t        fileSize;
-    int64_t        chunkOffset;
-    int16_t        striperType;
-    int16_t        numStripes;
-    int16_t        numRecoveryStripes;
-    int32_t        stripeSize;
-    kfsSTier_t     minStorageTier;
-    kfsSTier_t     maxStorageTier;
-    string         pathName;
-    string         invalidStripeIdx;
-    int            metaPort;
-    StringBufT<64> locationStr;
+    kfsFileId_t     fid;          // input
+    kfsChunkId_t    chunkId;      // input
+    ServerLocation  location;     // input: where to get the chunk from
+    int64_t         chunkVersion; // io: we tell the metaserver what we replicated
+    int64_t         fileSize;
+    int64_t         chunkOffset;
+    int16_t         striperType;
+    int16_t         numStripes;
+    int16_t         numRecoveryStripes;
+    int32_t         stripeSize;
+    kfsSTier_t      minStorageTier;
+    kfsSTier_t      maxStorageTier;
+    string          pathName;
+    string          invalidStripeIdx;
+    int             metaPort;
+    bool            allowCSClearTextFlag;
+    StringBufT<64>  locationStr;
+    StringBufT<148> chunkServerAccess;
+    StringBufT<64>  chunkAccess;
     ReplicateChunkOp(kfsSeq_t s = 0) :
         KfsOp(CMD_REPLICATE_CHUNK, s),
         fid(-1),
@@ -707,6 +710,7 @@ struct ReplicateChunkOp : public KfsOp {
         pathName(),
         invalidStripeIdx(),
         metaPort(-1),
+        allowCSClearTextFlag(false),
         locationStr()
         {}
     void Execute();
@@ -754,6 +758,9 @@ struct ReplicateChunkOp : public KfsOp {
         .Def("File-size",            &ReplicateChunkOp::fileSize,       int64_t(-1))
         .Def("Min-tier",             &ReplicateChunkOp::minStorageTier, kKfsSTierUndef)
         .Def("Max-tier",             &ReplicateChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def("C-access",             &ReplicateChunkOp::chunkAccess)
+        .Def("CS-access",            &ReplicateChunkOp::chunkServerAccess)
+        .Def("CS-clear-text",        &ReplicateChunkOp::allowCSClearTextFlag)
         ;
     }
 };
@@ -848,22 +855,41 @@ struct RetireOp : public KfsOp {
 };
 
 struct CloseOp : public KfsClientChunkOp {
-    uint32_t        numServers;      // input
-    bool            needAck;         // input: when set, this RPC is ack'ed
-    bool            hasWriteId;      // input
-    int64_t         masterCommitted; // input
-    StringBufT<256> servers;         // input: set of servers on which to chunk is to be closed
+    uint32_t              numServers;      // input
+    bool                  needAck;         // input: when set, this RPC is ack'ed
+    bool                  hasWriteId;      // input
+    int64_t               masterCommitted; // input
+    StringBufT<256>       servers;         // input: set of servers on which to chunk is to be closed
+    int                   chunkAccessLength;
+    int                   contentLength;
+    SyncReplicationAccess syncReplicationAccess;
     CloseOp(kfsSeq_t s = 0, const CloseOp* op = 0)
         : KfsClientChunkOp(CMD_CLOSE, s),
-          numServers     (op ? op->numServers      : 0u),
-          needAck        (op ? op->needAck         : true),
-          hasWriteId     (op ? op->hasWriteId      : false),
-          masterCommitted(op ? op->masterCommitted : (int64_t)-1),
-          servers        (op ? op->servers         : StringBufT<256>())
+          numServers           (0u),
+          needAck              (true),
+          hasWriteId           (false),
+          masterCommitted      ((int64_t)-1),
+          servers              (),
+          chunkAccessLength    (0),
+          contentLength        (0),
+          syncReplicationAccess()
+        {}
+    CloseOp(kfsSeq_t s, const CloseOp& op)
+        : KfsClientChunkOp(CMD_CLOSE, s),
+          numServers           (op.numServers),
+          needAck              (op.needAck),
+          hasWriteId           (op.hasWriteId),
+          masterCommitted      (op.masterCommitted),
+          servers              (op.servers),
+          chunkAccessLength    (op.chunkAccessLength),
+          contentLength        (op.contentLength),
+          syncReplicationAccess(op.syncReplicationAccess)
+        { chunkId = op.chunkId; }
+    virtual int GetContentLength() const { return contentLength; }
+    virtual bool ParseContent(istream& is)
     {
-        if (op) {
-            chunkId = op->chunkId;
-        }
+        return syncReplicationAccess.Parse(
+            is, chunkAccessLength, contentLength);
     }
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
@@ -886,7 +912,10 @@ struct CloseOp : public KfsClientChunkOp {
             KfsOp::Response(os);
         }
     }
-    void ForwardToPeer(const ServerLocation &loc);
+    void ForwardToPeer(
+        const ServerLocation& loc,
+        bool                  wrtieMasterFlag,
+        bool                  allowCSClearTextFlag);
     int HandlePeerReply(int code, void *data);
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -896,6 +925,8 @@ struct CloseOp : public KfsClientChunkOp {
         .Def("Need-ack",         &CloseOp::needAck,         true)
         .Def("Has-write-id",     &CloseOp::hasWriteId,      false)
         .Def("Master-committed", &CloseOp::masterCommitted, int64_t(-1))
+        .Def("C-access-length",  &CloseOp::chunkAccessLength)
+        .Def("Content-length",   &CloseOp::contentLength)
         ;
     }
 };
@@ -1111,7 +1142,10 @@ struct WriteIdAllocOp : public KfsClientChunkOp {
     // are coming.
     void ReadChunkMetadata();
 
-    int ForwardToPeer(const ServerLocation &peer);
+    void ForwardToPeer(
+        const ServerLocation& loc,
+        bool                  wrtieMasterFlag,
+        bool                  allowCSClearTextFlag);
     int HandlePeerReply(int code, void *data);
     int Done(int code, void *data);
 
@@ -1197,7 +1231,10 @@ struct WritePrepareOp : public KfsClientChunkOp {
     }
     void Response(ostream &os);
     void Execute();
-    int ForwardToPeer(const ServerLocation& peer);
+    void ForwardToPeer(
+        const ServerLocation& loc,
+        bool                  wrtieMasterFlag,
+        bool                  allowCSClearTextFlag);
     int Done(int code, void *data);
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
@@ -1407,7 +1444,10 @@ struct WriteSyncOp : public KfsClientChunkOp {
     }
     void Request(ostream &os);
     void Execute();
-    int ForwardToPeer(const ServerLocation &peer);
+    void ForwardToPeer(
+        const ServerLocation& loc,
+        bool                  wrtieMasterFlag,
+        bool                  allowCSClearTextFlag);
     int Done(int code, void *data);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1474,15 +1514,16 @@ struct GetChunkMetadataOp;
 
 struct ReadOp : public KfsClientChunkOp {
     int64_t          chunkVersion;
-    int64_t          offset;   /* input */
-    size_t           numBytes; /* input */
+    int64_t          offset;     /* input */
+    size_t           numBytes;   /* input */
     ssize_t          numBytesIO; /* output: # of bytes actually read */
-    DiskIoPtr        diskIo; /* disk connection used for reading data */
-    IOBuffer         dataBuf; /* buffer with the data read */
-    vector<uint32_t> checksum; /* checksum over the data that is sent back to client */
+    DiskIoPtr        diskIo;     /* disk connection used for reading data */
+    IOBuffer         dataBuf;    /* buffer with the data read */
+    vector<uint32_t> checksum;   /* checksum over the data that is sent back to client */
     int64_t          diskIOTime; /* how long did the AIOs take */
     int              retryCnt;
     bool             skipVerifyDiskChecksumFlag;
+    const char*      requestChunkAccess;
     /*
      * for writes that require the associated checksum block to be
      * read in, store the pointer to the associated write op.
@@ -1504,6 +1545,7 @@ struct ReadOp : public KfsClientChunkOp {
           diskIOTime(0),
           retryCnt(0),
           skipVerifyDiskChecksumFlag(false),
+          requestChunkAccess(0),
           wop(0),
           scrubOp(0),
           devBufMgr(0)
@@ -1520,6 +1562,7 @@ struct ReadOp : public KfsClientChunkOp {
           diskIOTime(0),
           retryCnt(0),
           skipVerifyDiskChecksumFlag(false),
+          requestChunkAccess(0),
           wop(w),
           scrubOp(0),
           devBufMgr(0)

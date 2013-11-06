@@ -260,7 +260,8 @@ public:
         const T&               servers,
         ServerLocation         peerLoc,
         int                    replicationPos,
-        int64_t                chunkSize);
+        int64_t                chunkSize,
+        RemoteSyncSM*          peer);
     void MakeChunkStable(MakeChunkStableOp* op = 0);
     bool IsOpen() const
         { return (mState == kStateOpen); }
@@ -613,7 +614,8 @@ AtomicRecordAppender::AtomicRecordAppender(
     const T&               servers,
     ServerLocation         peerLoc,
     int                    replicationPos,
-    int64_t                chunkSize)
+    int64_t                chunkSize,
+    RemoteSyncSM*          peer)
     : KfsCallbackObj(),
       mReplicationPos(replicationPos),
       mNumServers(numServers),
@@ -657,8 +659,7 @@ AtomicRecordAppender::AtomicRecordAppender(
         *this,
         gAtomicRecordAppendManager.GetCleanUpSec()
       ),
-      mPeer(uint32_t(mReplicationPos + 1) < mNumServers ?
-        new RemoteSyncSM(mPeerLocation) : 0)
+      mPeer(peer)
 {
     assert(
         chunkSize >= 0 &&
@@ -2898,12 +2899,43 @@ AtomicRecordAppendManager::AllocateChunk(
         if (op->status != 0) {
             mAppenders.Erase(op->chunkId);
         } else {
-            *res = new AtomicRecordAppender(
-                chunkFileHandle, op->chunkId, op->chunkVersion, op->numServers,
-                op->servers, peerLoc, replicationPos, info->chunkSize
-            );
-            mOpenAppendersCount++;
-            UpdateAppenderFlushLimit(*res);
+            RemoteSyncSM* peer = 0;
+            if (uint32_t(replicationPos + 1) < op->numServers) {
+                SRChunkServerAccess::Token token;
+                SRChunkServerAccess::Token key;
+                if (op->syncReplicationAccess.chunkServerAccess) {
+                    const SRChunkServerAccess& csa =
+                        *op->syncReplicationAccess.chunkServerAccess;
+                    token = csa.token;
+                    key   = csa.key;
+                }
+                peer = RemoteSyncSM::Create(
+                    peerLoc,
+                    token.mPtr,
+                    token.mLen,
+                    key.mPtr,
+                    key.mLen,
+                    replicationPos == 0,
+                    op->allowCSClearTextFlag,
+                    op->status,
+                    op->statusMsg
+                );
+                if (! peer && 0 <= op->status) {
+                    op->status    = -EFAULT;
+                    op->statusMsg = "failed to create forwarding peer";
+                }
+            }
+            if (op->status != 0) {
+                delete peer;
+                mAppenders.Erase(op->chunkId);
+            } else {
+                *res = new AtomicRecordAppender(
+                    chunkFileHandle, op->chunkId, op->chunkVersion, op->numServers,
+                    op->servers, peerLoc, replicationPos, info->chunkSize, peer
+                );
+                mOpenAppendersCount++;
+                UpdateAppenderFlushLimit(*res);
+            }
         }
     } else if ((*res)->IsOpen()) {
         op->status = (*res)->CheckParameters(

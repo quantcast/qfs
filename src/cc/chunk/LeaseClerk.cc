@@ -140,8 +140,10 @@ LeaseClerk::DoingWrite(kfsChunkId_t chunkId)
 }
 
 bool
-LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId,
-    SyncReplicationAccess* syncReplicationAccess /* = 0 */) const
+LeaseClerk::IsLeaseValid(
+    kfsChunkId_t           chunkId,
+    SyncReplicationAccess* syncReplicationAccess, /* = 0 */
+    bool*                  allowCSClearTextFlag   /* = 0 */) const
 {
     // now <= lease.expires ==> lease hasn't expired and is therefore
     // valid.
@@ -154,6 +156,9 @@ LeaseClerk::IsLeaseValid(kfsChunkId_t chunkId,
         } else {
             syncReplicationAccess->Clear();
         }
+    }
+    if (allowCSClearTextFlag) {
+        *allowCSClearTextFlag = validFlag && lease->allowCSClearTextFlag;
     }
     return validFlag;
 }

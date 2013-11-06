@@ -76,8 +76,10 @@ public:
 
     /// Check if lease is still valid.
     /// @param[in] chunkId  The chunk whose lease we are checking for validity.
-    bool IsLeaseValid(kfsChunkId_t chunkId,
-            SyncReplicationAccess* syncReplicationAccess = 0) const;
+    bool IsLeaseValid(
+        kfsChunkId_t           chunkId,
+        SyncReplicationAccess* syncReplicationAccess = 0,
+        bool*                  allowCSClearTextFlag  = 0) const;
 
     // Lease renew op completion handler.
     int HandleEvent(int code, void *data);

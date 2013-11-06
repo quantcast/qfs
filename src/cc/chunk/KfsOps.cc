@@ -218,11 +218,38 @@ needToForwardToPeer(
     return needToForward;
 }
 
-static inline RemoteSyncSMPtr
-FindPeer(KfsOp& op, const ServerLocation& loc)
+template<typename T> static inline RemoteSyncSMPtr
+FindPeer(
+    T&                    op,
+    const ServerLocation& loc,
+    bool                  writeMasterFlag,
+    bool                  allowCSClearTextFlag)
 {
     ClientSM* const csm = op.GetClientSM();
-    return (csm ? csm->FindServer(loc) : RemoteSyncSMPtr());
+    if (! csm) {
+        return RemoteSyncSMPtr();
+    }
+    SRChunkServerAccess::Token token;
+    SRChunkServerAccess::Token key;
+    if (op.syncReplicationAccess.chunkServerAccess) {
+        const SRChunkServerAccess& csa =
+            *op.syncReplicationAccess.chunkServerAccess;
+        token = csa.token;
+        key   = csa.key;
+    }
+    const bool kConnectFlag = true;
+    return csm->FindServer(
+        loc,
+        kConnectFlag,
+        token.mPtr,
+        token.mLen,
+        key.mPtr,
+        key.mLen,
+        writeMasterFlag,
+        allowCSClearTextFlag,
+        op.status,
+        op.statusMsg
+    );
 }
 
 void
@@ -891,10 +918,10 @@ CloseOp::Execute()
         "Closing chunk: " << chunkId << " and might give up lease" <<
     KFS_LOG_EOM;
 
-    int            myPos   = -1;
-    int64_t        writeId = -1;
     ServerLocation peerLoc;
-    bool needToForward = needToForwardToPeer(
+    int            myPos         = -1;
+    int64_t        writeId       = -1;
+    bool           needToForward = needToForwardToPeer(
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
     if (! gAtomicRecordAppendManager.CloseChunk(
             this, writeId, needToForward)) {
@@ -902,18 +929,27 @@ CloseOp::Execute()
         // manager.  the chunk manager can reject a close if the
         // chunk is being written to by multiple record appenders
         needToForward = gChunkManager.CloseChunk(chunkId) == 0 && needToForward;
-        status = 0;
+        status        = 0;
     }
     if (needToForward) {
-        ForwardToPeer(peerLoc);
+        bool allowCSClearTextFlag = false;
+        if (myPos == 0 && hasWriteId) {
+            gLeaseClerk.IsLeaseValid(
+                chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
+        }
+        ForwardToPeer(peerLoc, myPos == 0, allowCSClearTextFlag);
     }
     gLogger.Submit(this);
 }
 
 void
-CloseOp::ForwardToPeer(const ServerLocation& loc)
+CloseOp::ForwardToPeer(
+    const ServerLocation& loc,
+    bool                  writeMasterFlag,
+    bool                  allowCSClearTextFlag)
 {
-    RemoteSyncSMPtr const peer = FindPeer(*this, loc);
+    RemoteSyncSMPtr const peer = FindPeer(
+        *this, loc, writeMasterFlag, allowCSClearTextFlag);
     if (! peer) {
         KFS_LOG_STREAM_DEBUG <<
             "unable to forward to peer: " << loc.ToString() <<
@@ -921,13 +957,12 @@ CloseOp::ForwardToPeer(const ServerLocation& loc)
         KFS_LOG_EOM;
         return;
     }
-    CloseOp* const fwdedOp = new CloseOp(0, this);
+    CloseOp* const fwdedOp = new CloseOp(0, *this);
     // don't need an ack back
     fwdedOp->needAck = false;
-    // this op goes to the remote-sync SM and after it is sent, comes right back to be nuked
-    // when this op comes, just nuke it
+    // this op goes to the remote-sync SM and after it is sent, comes right back
+    // to be deleted.
     fwdedOp->clnt = fwdedOp;
-
     SET_HANDLER(fwdedOp, &CloseOp::HandlePeerReply);
     peer->Enqueue(fwdedOp);
 }
@@ -945,7 +980,8 @@ AllocChunkOp::Execute()
     int            myPos   = -1;
     int64_t        writeId = -1;
     ServerLocation peerLoc;
-    needToForwardToPeer(servers, numServers, myPos, peerLoc, false, writeId);
+    needToForwardToPeer(
+        servers, numServers, myPos, peerLoc, false, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status    = -EINVAL;
@@ -1757,9 +1793,10 @@ WriteIdAllocOp::Execute()
         gLogger.Submit(this);
         return;
     }
-    const bool writeMaster = myPos == 0;
+    const bool writeMaster          = myPos == 0;
+    bool       allowCSClearTextFlag = false;
     if (writeMaster && ! gLeaseClerk.IsLeaseValid(
-            chunkId, &syncReplicationAccess)) {
+            chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
         status    = -ELEASEEXPIRED;
         statusMsg = "no valid write lease exists";
         Done(EVENT_CMD_DONE, &status);
@@ -1775,7 +1812,8 @@ WriteIdAllocOp::Execute()
     }
     if (writeMaster) {
         // Notify the lease clerk that we are doing write.  This is to
-        // signal the lease clerk to renew the lease for the chunk when appropriate.
+        // signal the lease clerk to renew the lease for the chunk when
+        // appropriate.
         gLeaseClerk.DoingWrite(chunkId);
     }
     ostringstream os;
@@ -1783,23 +1821,30 @@ WriteIdAllocOp::Execute()
     const string str = os.str();
     writeIdStr.Copy(str.data(), str.size());
     if (needToForward) {
-        ForwardToPeer(peerLoc);
+        ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
     } else {
         ReadChunkMetadata();
     }
 }
 
-int
-WriteIdAllocOp::ForwardToPeer(const ServerLocation& loc)
+void
+WriteIdAllocOp::ForwardToPeer(
+    const ServerLocation& loc,
+    bool                  writeMasterFlag,
+    bool                  allowCSClearTextFlag)
 {
     assert(! fwdedOp && status == 0 && (clnt || isForRecordAppend));
 
     RemoteSyncSMPtr const peer = isForRecordAppend ?
-        appendPeer : FindPeer(*this, loc);
+        appendPeer :
+        FindPeer(*this, loc, writeMasterFlag, allowCSClearTextFlag);
     if (! peer) {
-        status    = -EHOSTUNREACH;
-        statusMsg = "unable to find peer " + loc.ToString();
-        return Done(EVENT_CMD_DONE, &status);
+        if (0 <= status) {
+            status    = -EHOSTUNREACH;
+            statusMsg = "unable to find peer " + loc.ToString();
+        }
+        Done(EVENT_CMD_DONE, &status);
+        return;
     }
     fwdedOp = new WriteIdAllocOp(0, *this);
     fwdedOp->writePrepareReplyFlag = false; // set by the next one in the chain.
@@ -1808,7 +1853,6 @@ WriteIdAllocOp::ForwardToPeer(const ServerLocation& loc)
     SET_HANDLER(this, &WriteIdAllocOp::HandlePeerReply);
 
     peer->Enqueue(fwdedOp);
-    return 0;
 }
 
 int
@@ -1881,22 +1925,20 @@ WriteIdAllocOp::Done(int code, void *data)
 void
 WritePrepareOp::Execute()
 {
-    ServerLocation peerLoc;
-    int myPos = -1;
-
     SET_HANDLER(this, &WritePrepareOp::Done);
 
     // check if we need to forward anywhere
-    bool needToForward = false, writeMaster;
-
-    needToForward = needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    ServerLocation peerLoc;
+    int            myPos         = -1;
+    const bool     needToForward = needToForwardToPeer(
+        servers, numServers, myPos, peerLoc, true, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status = -EINVAL;
         gLogger.Submit(this);
         return;
     }
-    writeMaster = (myPos == 0);
+    const bool writeMaster = (myPos == 0);
 
     if (! gChunkManager.IsValidWriteId(writeId)) {
         statusMsg = "invalid write id";
@@ -1911,10 +1953,11 @@ WritePrepareOp::Execute()
         Done(EVENT_CMD_DONE, this);
         return;
     }
-
+    bool allowCSClearTextFlag = false;
     if (writeMaster) {
         // if we are the master, check the lease...
-        if (! gLeaseClerk.IsLeaseValid(chunkId)) {
+        if (! gLeaseClerk.IsLeaseValid(
+                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
             KFS_LOG_STREAM_ERROR <<
                 "Write prepare failed, lease expired for " << chunkId <<
             KFS_LOG_EOM;
@@ -1956,7 +1999,7 @@ WritePrepareOp::Execute()
     }
 
     if (needToForward) {
-        status = ForwardToPeer(peerLoc);
+        ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
         if (status < 0) {
             // can't forward to peer...so fail the write
             Done(EVENT_CMD_DONE, this);
@@ -1985,19 +2028,25 @@ WritePrepareOp::Execute()
     }
 }
 
-int
-WritePrepareOp::ForwardToPeer(const ServerLocation& loc)
+void
+WritePrepareOp::ForwardToPeer(
+    const ServerLocation& loc,
+    bool                  writeMasterFlag,
+    bool                  allowCSClearTextFlag)
 {
     assert(clnt);
-    RemoteSyncSMPtr const peer = FindPeer(*this, loc);
-    if (!peer) {
-        statusMsg = "no such peer " + loc.ToString();
-        return -EHOSTUNREACH;
+    RemoteSyncSMPtr const peer = FindPeer(
+        *this, loc, writeMasterFlag, allowCSClearTextFlag);
+    if (! peer) {
+        if (0 <= status) {
+            statusMsg = "no such peer " + loc.ToString();
+            status    = -EHOSTUNREACH;
+        }
+        return;
     }
     writeFwdOp = new WritePrepareFwdOp(*this);
     writeFwdOp->clnt = this;
     peer->Enqueue(writeFwdOp);
-    return 0;
 }
 
 int
@@ -2038,7 +2087,8 @@ WriteSyncOp::Execute()
 
     KFS_LOG_STREAM_DEBUG << "executing: " << Show() << KFS_LOG_EOM;
     // check if we need to forward anywhere
-    const bool needToForward = needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    const bool needToForward = needToForwardToPeer(
+        servers, numServers, myPos, peerLoc, true, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status = -EINVAL;
@@ -2081,9 +2131,11 @@ WriteSyncOp::Execute()
         return;
     }
 
+    bool allowCSClearTextFlag = false;
     if (writeMaster) {
         // if we are the master, check the lease...
-        if (! gLeaseClerk.IsLeaseValid(chunkId)) {
+        if (! gLeaseClerk.IsLeaseValid(
+                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
             statusMsg = "no valid write lease exists";
             status    = -ELEASEEXPIRED;
             KFS_LOG_STREAM_ERROR <<
@@ -2101,7 +2153,7 @@ WriteSyncOp::Execute()
     SET_HANDLER(this, &WriteSyncOp::Done);
 
     if (needToForward) {
-        status = ForwardToPeer(peerLoc);
+        ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
         if (status < 0) {
             // can't forward to peer...so fail the write
             Done(EVENT_CMD_DONE, this);
@@ -2179,14 +2231,21 @@ WriteSyncOp::Execute()
     Done(EVENT_CMD_DONE, this);
 }
 
-int
-WriteSyncOp::ForwardToPeer(const ServerLocation& loc)
+void
+WriteSyncOp::ForwardToPeer(
+    const ServerLocation& loc,
+    bool                  writeMasterFlag,
+    bool                  allowCSClearTextFlag)
 {
     assert(clnt);
-    RemoteSyncSMPtr const peer = FindPeer(*this, loc);
+    RemoteSyncSMPtr const peer = FindPeer(
+        *this, loc, writeMasterFlag, allowCSClearTextFlag);
     if (! peer) {
-        statusMsg = "no such peer " + loc.ToString();
-        return -EHOSTUNREACH;
+        if (0 <= status) {
+            statusMsg = "no such peer " + loc.ToString();
+            status    = -EHOSTUNREACH;
+        }
+        return;
     }
     fwdedOp = new WriteSyncOp(0, chunkId, chunkVersion, offset, numBytes);
     fwdedOp->numServers = numServers;
@@ -2200,7 +2259,6 @@ WriteSyncOp::ForwardToPeer(const ServerLocation& loc)
         fwdedOp->checksums = this->checksums;
     }
     peer->Enqueue(fwdedOp);
-    return 0;
 }
 
 int
@@ -2703,7 +2761,7 @@ CloseOp::Request(ostream& os)
     if (masterCommitted >= 0) {
         os  << "Master-committed: " << masterCommitted << "\r\n";
     }
-    os << "\r\n";
+    WriteSyncReplicationAccess(syncReplicationAccess, os);
 }
 
 void
@@ -2744,6 +2802,9 @@ ReadOp::Request(ostream& os)
     ;
     if (skipVerifyDiskChecksumFlag) {
         os << "Skip-Disk-Chksum: 1\r\n";
+    }
+    if (requestChunkAccess) {
+        os << "C-access: " << requestChunkAccess << "\r\n";
     }
     os << "\r\n";
 }

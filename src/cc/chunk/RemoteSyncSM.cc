@@ -116,9 +116,9 @@ public:
         return true;
     }
     bool Setup(
-        NetConnection& inConn,
-        const string&  inSessionId,
-        const string&  inSessionKey)
+        NetConnection&         inConn,
+        const string&          inSessionId,
+        const CryptoKeys::Key& inSessionKey)
     {
         if (! mEnabledFlag) {
             return true;
@@ -128,8 +128,8 @@ public:
         const bool                   kDeleteOnCloseFlag = true;
         SslFilter* const theFilterPtr = new SslFilter(
             *mSslCtxPtr,
-            inSessionKey.data(),
-            (int)inSessionKey.size(),
+            inSessionKey.GetPtr(),
+            (int)inSessionKey.GetSize(),
             inSessionId.c_str(),
             kServerPskPtr,
             kVerifyPeerPtr,
@@ -224,7 +224,9 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mShutdownSslFlag(false),
       mSslShutdownInProgressFlag(false),
       mIStream(),
-      mWOStream()
+      mWOStream(),
+      mList(0),
+      mListIt()
 {
 }
 
@@ -282,7 +284,7 @@ RemoteSyncSM::Connect()
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     assert(sAuthPtr);
     mSslShutdownInProgressFlag = false;
-    if (! mSessionKey.empty()) {
+    if (! mSessionId.empty()) {
         int err = 0;
         if (! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey) ||
                 (mShutdownSslFlag && (err = mNetConnection->Shutdown()) != 0)) {
@@ -636,73 +638,138 @@ RemoteSyncSM::Finish()
         mNetConnection->Close();
         mNetConnection.reset();
     }
-    // if the object was owned by the chunkserver, have it release the reference
-    gChunkServer.RemoveServer(this);
+    RemoveFromList();
+}
+
+RemoteSyncSM*
+RemoteSyncSM::Create(
+    const ServerLocation& location,
+    const char*           sessionTokenPtr,
+    int                   sessionTokenLen,
+    const char*           sessionKeyPtr,
+    int                   sessionKeyLen,
+    bool                  writeMasterFlag,
+    bool                  shutdownSslFlag,
+    int&                  err,
+    string&               errMsg)
+{
+    if (sessionKeyLen <= 0) {
+        return new RemoteSyncSM(location);
+    }
+    if (sessionTokenLen <= 0) {
+        err    = -EINVAL;
+        errMsg = "invalid session token length";
+    } else {
+        CryptoKeys::Key key;
+        if (writeMasterFlag) {
+            if (! key.Parse(sessionKeyPtr, sessionKeyLen)) {
+                errMsg = "invalid session key format";
+                err    = -EINVAL;
+            }
+        } else {
+            err = DelegationToken::DecryptSessionKeyFromString(
+                gChunkManager.GetCryptoKeys(),
+                sessionKeyPtr,
+                sessionKeyLen,
+                key,
+                &errMsg
+            );
+        }
+        if (! err) {
+            RemoteSyncSM* const peer = new RemoteSyncSM(location);
+            peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
+            peer->SetShutdownSsl(shutdownSslFlag);
+            return peer;
+        }
+    }
+    KFS_LOG_STREAM_ERROR <<
+        "failed to forward: " << errMsg << " status: " << err <<
+    KFS_LOG_EOM;
+    return 0;
 }
 
 //
 // Utility functions to operate on a list of remotesync servers
 //
 
-class RemoteSyncSMMatcher {
-    const ServerLocation myLoc;
+class RemoteSyncSMMatcher
+{
+    const ServerLocation& mLocation;
+    const bool            mAuthFlag;
+    const bool            mShutdownSslFlag;
 public:
-    RemoteSyncSMMatcher(const ServerLocation &loc)
-        :  myLoc(loc)
+    RemoteSyncSMMatcher(
+        const ServerLocation& loc,
+        bool                  authFlag,
+        bool                  shutdownSslFlag)
+        :  mLocation(loc),
+           mAuthFlag(authFlag),
+           mShutdownSslFlag(shutdownSslFlag)
         {}
     bool operator() (const RemoteSyncSMPtr& other)
     {
-        return other->GetLocation() == myLoc;
+        const RemoteSyncSM& sm = *other;
+        return (
+            sm.GetLocation()       == mLocation &&
+            sm.HasAuthentication() == mAuthFlag &&
+            (! mAuthFlag || sm.GetShutdownSslFlag() == mShutdownSslFlag)
+        );
     }
 };
 
 RemoteSyncSMPtr
-FindServer(RemoteSyncSMList &remoteSyncers, const ServerLocation &location,
-                bool connect)
+FindServer(
+    RemoteSyncSMList&     remoteSyncers,
+    const ServerLocation& location,
+    bool                  connectFlag,
+    const char*           sessionTokenPtr,
+    int                   sessionTokenLen,
+    const char*           sessionKeyPtr,
+    int                   sessionKeyLen,
+    bool                  writeMasterFlag,
+    bool                  shutdownSslFlag,
+    int&                  err,
+    string&               errMsg)
 {
-    RemoteSyncSMPtr peer;
-
-    RemoteSyncSMList::iterator const i = find_if(
-        remoteSyncers.begin(), remoteSyncers.end(),
-        RemoteSyncSMMatcher(location));
-    if (i != remoteSyncers.end()) {
-        peer = *i;
-        return peer;
+    err = 0;
+    errMsg.clear();
+    RemoteSyncSMPtr const res = remoteSyncers.Find(
+        RemoteSyncSMMatcher(
+            location,
+            0 < sessionKeyLen,
+            shutdownSslFlag
+    ));
+    if (res) {
+        return res;
     }
-    if (!connect) {
-        return peer;
+    if (! connectFlag) {
+        errMsg = "no remote peer found";
+        err    = -ENOENT;
+        return res;
     }
-    peer.reset(new RemoteSyncSM(location));
+    RemoteSyncSM* const peer = RemoteSyncSM::Create(
+        location,
+        sessionTokenPtr,
+        sessionTokenLen,
+        sessionKeyPtr,
+        sessionKeyLen,
+        writeMasterFlag,
+        shutdownSslFlag,
+        err,
+        errMsg
+    );
+    if (! peer) {
+        return res;
+    }
     if (peer->Connect()) {
-        remoteSyncers.push_back(peer);
+        return remoteSyncers.PutInList(*peer);
     } else {
-        // we couldn't connect...so, force destruction
-        peer.reset();
+        errMsg = "connection failure";
+        err    = -EHOSTUNREACH;
     }
-    return peer;
-}
-
-void
-RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target)
-{
-    if (! target || remoteSyncers.empty()) {
-        return;
-    }
-    RemoteSyncSMList::iterator const i = find(
-        remoteSyncers.begin(), remoteSyncers.end(), target->shared_from_this());
-    if (i != remoteSyncers.end()) {
-        remoteSyncers.erase(i);
-    }
-}
-
-void
-ReleaseAllServers(RemoteSyncSMList& remoteSyncers)
-{
-    while (! remoteSyncers.empty()) {
-        RemoteSyncSMPtr const r = remoteSyncers.front();
-        remoteSyncers.pop_front();
-        r->Finish();
-    }
+    // we couldn't connect...so, force destruction
+    delete peer;
+    return res;
 }
 
 }

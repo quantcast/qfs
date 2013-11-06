@@ -31,6 +31,7 @@
 #include "common/StdAllocator.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/CryptoKeys.h"
 
 #include <time.h>
 
@@ -38,12 +39,14 @@
 #include <boost/enable_shared_from_this.hpp>
 #include <map>
 #include <list>
+#include <algorithm>
 
 namespace KFS
 {
 using std::map;
 using std::list;
 using std::less;
+using std::find_if;
 
 class RemoteSyncSMTimeoutImpl;
 class Properties;
@@ -55,30 +58,41 @@ class RemoteSyncSM : public KfsCallbackObj,
                      public boost::enable_shared_from_this<RemoteSyncSM>
 {
 public:
+    typedef boost::shared_ptr<RemoteSyncSM> SMPtr;
+    typedef list<
+        SMPtr,
+        StdFastAllocator<SMPtr>
+    > SMList;
 
-    RemoteSyncSM(const ServerLocation &location);
-
+    static RemoteSyncSM* Create(
+        const ServerLocation& location,
+        const char*           sessionTokenPtr,
+        int                   sessionTokenLen,
+        const char*           sessionKeyPtr,
+        int                   sessionKeyLen,
+        bool                  writeMasterFlag,
+        bool                  shutdownSslFlag,
+        int&                  err,
+        string&               errMsg);
     ~RemoteSyncSM();
-
     bool Connect();
-
-    void SetSessionKey(const string& id, const string& key)
+    void SetSessionKey(
+        const char*            inIdPtr,
+        int                    inIdLen,
+        const CryptoKeys::Key& inKey)
     {
-        mSessionId  = id;
-        mSessionKey = key;
+        mSessionId.assign(inIdPtr, inIdLen);
+        mSessionKey = inKey;
     }
-
+    bool HasAuthentication() const
+        { return ! mSessionId.empty(); }
+    bool GetShutdownSslFlag() const
+        { return mShutdownSslFlag; }
     void SetShutdownSsl(bool inFlag)
-    {
-        mShutdownSslFlag = inFlag;
-    }
-
-    void Enqueue(KfsOp *op);
-
+        { mShutdownSslFlag = inFlag; }
+    void Enqueue(KfsOp* op);
     void Finish();
-
     int HandleEvent(int code, void *data);
-
     ServerLocation GetLocation() const {
         return mLocation;
     }
@@ -87,7 +101,6 @@ public:
     static int GetResponseTimeoutSec() {
         return sOpResponseTimeoutSec;
     }
-
 private:
     typedef map<
         kfsSeq_t,
@@ -110,13 +123,39 @@ private:
     int                mRecursionCount;
     time_t             mLastRecvTime;
     string             mSessionId;
-    string             mSessionKey;
+    CryptoKeys::Key    mSessionKey;
     bool               mShutdownSslFlag;
     bool               mSslShutdownInProgressFlag;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
+    SMList*            mList;
+    SMList::iterator   mListIt;
 
-    kfsSeq_t NextSeqnum();
+    RemoteSyncSM(const ServerLocation& location);
+
+    const SMPtr& PutInList(SMList& list)
+    {
+        SMPtr ptr(this);
+        RemoveFromList();
+        mList = &list;
+        mListIt = list.insert(list.end(), SMPtr());
+        mListIt->swap(ptr);
+        return *mListIt;
+    }
+    bool RemoveFromList()
+    {
+        if (! mList) {
+            return false;
+        }
+        SMList& list = *mList;
+        mList = 0;
+        assert(! list.empty());
+        list.erase(mListIt); // Can invoke destructor.
+        return true;
+    }
+    bool RemoveFromList(SMList& list)
+        { return (mList == &list && RemoveFromList()); }
+   kfsSeq_t NextSeqnum();
 
     /// We (may) have got a response from the peer.  If we are doing
     /// re-replication, then we need to wait until we got all the data
@@ -130,22 +169,69 @@ private:
     static bool  sTraceRequestResponse;
     static int   sOpResponseTimeoutSec;
     static Auth* sAuthPtr;
+
+    friend class RemoteSyncSMList;
 private:
     // No copy.
     RemoteSyncSM(const RemoteSyncSM&);
     RemoteSyncSM& operator=(const RemoteSyncSM&);
 };
 
-typedef boost::shared_ptr<RemoteSyncSM> RemoteSyncSMPtr;
-typedef list<
-    RemoteSyncSMPtr,
-    StdFastAllocator<RemoteSyncSMPtr>
-> RemoteSyncSMList;
+typedef RemoteSyncSM::SMPtr RemoteSyncSMPtr;
+class RemoteSyncSMList
+{
+public:
+    RemoteSyncSMList()
+        : mList()
+        {}
+    ~RemoteSyncSMList()
+        { RemoteSyncSMList::ReleaseAllServers(); }
+    bool RemoveServer(RemoteSyncSM* target)
+        { return (target && target->RemoveFromList(mList)); }
+    void ReleaseAllServers()
+    {
+        while (! mList.empty()) {
+            mList.front()->Finish();
+        }
+    }
+    template<typename T>
+    RemoteSyncSMPtr Find(T funct)
+    {
+        RemoteSyncSM::SMList::const_iterator const it = find_if(
+            mList.begin(), mList.end(), funct);
+        return (it == mList.end() ? RemoteSyncSMPtr() : *it);
+    }
+    RemoteSyncSMPtr PutInList(RemoteSyncSM& sm)
+        { return sm.PutInList(mList); }
+private:
+    RemoteSyncSM::SMList mList;
 
-RemoteSyncSMPtr FindServer(RemoteSyncSMList& remoteSyncers,
-    const ServerLocation &location, bool connect);
-void RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target);
-void ReleaseAllServers(RemoteSyncSMList& remoteSyncers);
+    RemoteSyncSMList(const RemoteSyncSMList&);
+    RemoteSyncSMList& operator=(const RemoteSyncSMList&);
+};
+
+RemoteSyncSMPtr FindServer(
+    RemoteSyncSMList&     remoteSyncers,
+    const ServerLocation& location,
+    bool                  connectFlag,
+    const char*           sessionTokenPtr,
+    int                   sessionTokenLen,
+    const char*           sessionKeyPtr,
+    int                   sessionKeyLen,
+    bool                  writeMasterFlag,
+    bool                  shutdownSslFlag,
+    int&                  err,
+    string&               errMsg);
+
+static inline bool RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target)
+{
+    return remoteSyncers.RemoveServer(target);
+}
+
+static inline void ReleaseAllServers(RemoteSyncSMList& remoteSyncers)
+{
+    remoteSyncers.ReleaseAllServers();
+}
 
 }
 

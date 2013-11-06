@@ -482,13 +482,10 @@ ClientSM::HandleRequest(int code, void* data)
                 mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
             }
         } else {
-            RemoteSyncSMList serversToRelease;
-
-            mRemoteSyncers.swap(serversToRelease);
             // get rid of the connection to all the peers in daisy chain;
             // if there were any outstanding ops, they will all come back
             // to this method as EVENT_CMD_DONE and we clean them up above.
-            ReleaseAllServers(serversToRelease);
+            ReleaseAllServers(mRemoteSyncers);
             ReleaseChunkSpaceReservations();
             mRecursionCnt--;
             // if there are any disk ops, wait for the ops to finish
@@ -1109,9 +1106,33 @@ ClientSM::ReleaseChunkSpaceReservations()
 }
 
 RemoteSyncSMPtr
-ClientSM::FindServer(const ServerLocation &loc, bool connect)
+ClientSM::FindServer(
+    const ServerLocation& location,
+    bool                  connectFlag,
+    const char*           sessionTokenPtr,
+    int                   sessionTokenLen,
+    const char*           sessionKeyPtr,
+    int                   sessionKeyLen,
+    bool                  writeMasterFlag,
+    bool                  shutdownSslFlag,
+    int&                  err,
+    string&               errMsg)
 {
-    return KFS::FindServer(mRemoteSyncers, loc, connect);
+    return KFS::FindServer(
+        mRemoteSyncers,
+        location,
+        connectFlag,
+        sessionTokenPtr,
+        sessionTokenLen,
+        sessionKeyPtr,
+        sessionKeyLen,
+        writeMasterFlag,
+        writeMasterFlag ?
+            shutdownSslFlag :
+            mNetConnection && ! mNetConnection->GetFilter(),
+        err,
+        errMsg
+    );
 }
 
 void

@@ -88,7 +88,17 @@ public:
     // For daisy-chain writes, retrieve the server object for the
     // chunkserver running at the specified location.
     //
-    RemoteSyncSMPtr FindServer(const ServerLocation &loc, bool connect = true);
+    RemoteSyncSMPtr FindServer(
+        const ServerLocation& location,
+        bool                  connectFlag,
+        const char*           sessionTokenPtr,
+        int                   sessionTokenLen,
+        const char*           sessionKeyPtr,
+        int                   sessionKeyLen,
+        bool                  writeMasterFlag,
+        bool                  shutdownSslFlag,
+        int&                  err,
+        string&               errMsg);
 
     void ReleaseReservedSpace(kfsChunkId_t chunkId, int64_t writeId)
         { mReservations.Erase(SpaceResKey(chunkId, writeId)); }

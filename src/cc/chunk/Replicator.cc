@@ -237,6 +237,9 @@ ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer
 {
     mReadOp.chunkId = op->chunkId;
     mReadOp.chunkVersion = op->chunkVersion;
+    if (! op->chunkAccess.empty()) {
+        mReadOp.requestChunkAccess = op->chunkAccess.c_str();
+    }
     mReadOp.clnt = this;
     mWriteOp.clnt = this;
     mChunkMetadataOp.clnt = this;
@@ -1136,26 +1139,72 @@ Replicator::Run(ReplicateChunkOp* op)
     KFS_LOG_STREAM_DEBUG << op->Show() << KFS_LOG_EOM;
 
     ReplicatorImpl* impl = 0;
+    const char*       p = op->chunkServerAccess.GetPtr();
+    const char* const e = p + op->chunkServerAccess.GetSize();
+    while (p < e && (*p & 0xFF) <= ' ') {
+        ++p;
+    }
+    const char* const token = p;
+    while (p < e && ' ' <= (*p & 0xFF)) {
+        ++p;
+    }
+    const int tokenLen = (int)(p - token);
+    while (p < e && (*p & 0xFF) <= ' ') {
+        ++p;
+    }
+    const char* const key = p;
+    while (p < e && ' ' <= (*p & 0xFF)) {
+        ++p;
+    }
+    const int keyLen = (int)(p - key);
     if (op->location.IsValid()) {
         ReplicatorImpl::Ctrs().mReplicationCount++;
         RemoteSyncSMPtr peer;
+        const bool kKeyIsNotEncryptedFlag = true;
         if (ReplicatorImpl::GetUseConnectionPoolFlag()) {
-            peer = gChunkServer.FindServer(op->location);
+            const bool kConnectFlag = true;
+            peer = gChunkServer.FindServer(
+                op->location,
+                kConnectFlag,
+                token,
+                tokenLen,
+                key,
+                keyLen,
+                kKeyIsNotEncryptedFlag,
+                op->allowCSClearTextFlag,
+                op->status,
+                op->statusMsg
+            );
+            if (op->status < 0) {
+                peer.reset();
+            }
         } else {
-            peer.reset(new RemoteSyncSM(op->location));
-            if (! peer->Connect()) {
+            peer.reset(RemoteSyncSM::Create(
+                op->location,
+                token,
+                tokenLen,
+                key,
+                keyLen,
+                kKeyIsNotEncryptedFlag,
+                op->allowCSClearTextFlag,
+                op->status,
+                op->statusMsg
+            ));
+            if (peer && (op->status < 0 || ! peer->Connect())) {
                 peer.reset();
             }
         }
-        if (! peer) {
+        if (peer) {
+            impl = new ReplicatorImpl(op, peer);
+        } else {
             KFS_LOG_STREAM_ERROR << "replication:"
                 "unable to find peer: " << op->location.ToString() <<
                 " " << op->Show() <<
             KFS_LOG_EOM;
-            op->status = -1;
+            if (0 <= op->status) {
+                op->status = -EHOSTUNREACH;
+            }
             ReplicatorImpl::Ctrs().mReplicationErrorCount++;
-        } else {
-            impl = new ReplicatorImpl(op, peer);
         }
     } else {
         ReplicatorImpl::Ctrs().mRecoveryCount++;

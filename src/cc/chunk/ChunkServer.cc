@@ -110,9 +110,7 @@ ChunkServer::MainLoop()
 
     globalNetManager().MainLoop();
 
-    RemoteSyncSMList serversToRelease;
-    mRemoteSyncers.swap(serversToRelease);
-    ReleaseAllServers(serversToRelease);
+    ReleaseAllServers(mRemoteSyncers);
     RemoteSyncSM::Shutdown();
 
     return true;
@@ -125,13 +123,35 @@ StopNetProcessor(int /* status */)
 }
 
 RemoteSyncSMPtr
-ChunkServer::FindServer(const ServerLocation &location, bool connect)
+ChunkServer::FindServer(
+    const ServerLocation& location,
+    bool                  connectFlag,
+    const char*           sessionTokenPtr,
+    int                   sessionTokenLen,
+    const char*           sessionKeyPtr,
+    int                   sessionKeyLen,
+    bool                  writeMasterFlag,
+    bool                  shutdownSslFlag,
+    int&                  err,
+    string&               errMsg)
 {
-    return KFS::FindServer(mRemoteSyncers, location, connect);
+    return KFS::FindServer(
+        mRemoteSyncers,
+        location,
+        connectFlag,
+        sessionTokenPtr,
+        sessionTokenLen,
+        sessionKeyPtr,
+        sessionKeyLen,
+        writeMasterFlag,
+        shutdownSslFlag,
+        err,
+        errMsg
+    );
 }
 
 void
-ChunkServer::RemoveServer(RemoteSyncSM *target)
+ChunkServer::RemoveServer(RemoteSyncSM* target)
 {
     KFS::RemoveServer(mRemoteSyncers, target);
 }
