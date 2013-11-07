@@ -223,6 +223,7 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mSessionKey(),
       mShutdownSslFlag(false),
       mSslShutdownInProgressFlag(false),
+      mSessionExpirationTime(0),
       mIStream(),
       mWOStream(),
       mList(0),
@@ -641,7 +642,76 @@ RemoteSyncSM::Finish()
     RemoveFromList();
 }
 
-RemoteSyncSM*
+inline static time_t
+GetExpirationTime(
+    const char* sessionTokenPtr,
+    int         sessionTokenLen,
+    int&        err,
+    string&     errMsg)
+{
+    DelegationToken token;
+    if (! token.FromString(sessionTokenPtr, sessionTokenLen, 0, 0)) {
+        err    = -EINVAL;
+        errMsg = "invalid session token format";
+        return 0;
+    }
+    return (token.GetIssuedTime() + token.GetValidForSec());
+}
+
+bool
+RemoteSyncSM::UpdateSession(
+    const char* sessionTokenPtr,
+    int         sessionTokenLen,
+    const char* sessionKeyPtr,
+    int         sessionKeyLen,
+    bool        writeMasterFlag,
+    int&        err,
+    string&     errMsg)
+{
+    if (sessionTokenLen <= 0 || sessionKeyLen <= 0) {
+        err    = -EINVAL;
+        errMsg = "invalid session and/or key length";
+        return false;
+    }
+    if (mSessionId.empty()) {
+        err    = -EINVAL;
+        errMsg = "no current session";
+        return false;
+    }
+    err = 0;
+    errMsg.clear();
+    const time_t now = globalNetManager().Now();
+    if (now + LEASE_INTERVAL_SECS <= mSessionExpirationTime) {
+        return false;
+    }
+    const time_t expTime = GetExpirationTime(
+        sessionTokenPtr, sessionTokenLen, err, errMsg);
+    if (err || expTime < mSessionExpirationTime) {
+        return false;
+    }
+    CryptoKeys::Key key;
+    if (writeMasterFlag) {
+        if (! key.Parse(sessionKeyPtr, sessionKeyLen)) {
+            errMsg = "invalid session key format";
+            err    = -EINVAL;
+        }
+    } else {
+        err = DelegationToken::DecryptSessionKeyFromString(
+            gChunkManager.GetCryptoKeys(),
+            sessionKeyPtr,
+            sessionKeyLen,
+            key,
+            &errMsg
+        );
+    }
+    if (! err) {
+        SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
+        mSessionExpirationTime = expTime;
+    }
+    return (err == 0);
+}
+
+RemoteSyncSM::SMPtr
 RemoteSyncSM::Create(
     const ServerLocation& location,
     const char*           sessionTokenPtr,
@@ -653,39 +723,51 @@ RemoteSyncSM::Create(
     int&                  err,
     string&               errMsg)
 {
+    err = 0;
+    errMsg.clear();
     if (sessionKeyLen <= 0) {
-        return new RemoteSyncSM(location);
+        return SMPtr(new RemoteSyncSM(location));
     }
     if (sessionTokenLen <= 0) {
         err    = -EINVAL;
         errMsg = "invalid session token length";
     } else {
-        CryptoKeys::Key key;
-        if (writeMasterFlag) {
-            if (! key.Parse(sessionKeyPtr, sessionKeyLen)) {
-                errMsg = "invalid session key format";
-                err    = -EINVAL;
-            }
-        } else {
-            err = DelegationToken::DecryptSessionKeyFromString(
-                gChunkManager.GetCryptoKeys(),
-                sessionKeyPtr,
-                sessionKeyLen,
-                key,
-                &errMsg
-            );
-        }
+        const time_t expTime = GetExpirationTime(
+            sessionTokenPtr, sessionTokenLen, err, errMsg);
         if (! err) {
-            RemoteSyncSM* const peer = new RemoteSyncSM(location);
-            peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
-            peer->SetShutdownSsl(shutdownSslFlag);
-            return peer;
+            if (expTime < globalNetManager().Now()) {
+                errMsg = "session token has expired";
+                err    = -EINVAL;
+            } else  {
+                CryptoKeys::Key key;
+                if (writeMasterFlag) {
+                    if (! key.Parse(sessionKeyPtr, sessionKeyLen)) {
+                        errMsg = "invalid session key format";
+                        err    = -EINVAL;
+                    }
+                } else {
+                    err = DelegationToken::DecryptSessionKeyFromString(
+                        gChunkManager.GetCryptoKeys(),
+                        sessionKeyPtr,
+                        sessionKeyLen,
+                        key,
+                        &errMsg
+                    );
+                }
+                if (! err) {
+                    SMPtr peer(new RemoteSyncSM(location));
+                    peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
+                    peer->SetShutdownSsl(shutdownSslFlag);
+                    peer->mSessionExpirationTime = expTime;
+                    return peer;
+                }
+            }
         }
     }
     KFS_LOG_STREAM_ERROR <<
         "failed to forward: " << errMsg << " status: " << err <<
     KFS_LOG_EOM;
-    return 0;
+    return SMPtr();
 }
 
 //
@@ -740,6 +822,23 @@ FindServer(
             shutdownSslFlag
     ));
     if (res) {
+        if (0 < sessionKeyLen) {
+            if (sessionTokenLen <= 0) {
+                err    = -EINVAL;
+                errMsg = "invalid session token length";
+                return RemoteSyncSMPtr();
+            }
+            if (! res->UpdateSession(
+                    sessionTokenPtr,
+                    sessionTokenLen,
+                    sessionKeyPtr,
+                    sessionKeyLen,
+                    writeMasterFlag,
+                    err,
+                    errMsg) && err) {
+                return RemoteSyncSMPtr();
+            }
+        }
         return res;
     }
     if (! connectFlag) {
@@ -747,7 +846,7 @@ FindServer(
         err    = -ENOENT;
         return res;
     }
-    RemoteSyncSM* const peer = RemoteSyncSM::Create(
+    RemoteSyncSMPtr const peer = RemoteSyncSM::Create(
         location,
         sessionTokenPtr,
         sessionTokenLen,
@@ -767,8 +866,7 @@ FindServer(
         errMsg = "connection failure";
         err    = -EHOSTUNREACH;
     }
-    // we couldn't connect...so, force destruction
-    delete peer;
+    // Failed to connect, return 0
     return res;
 }
 

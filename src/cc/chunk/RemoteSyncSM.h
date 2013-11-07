@@ -64,7 +64,7 @@ public:
         StdFastAllocator<SMPtr>
     > SMList;
 
-    static RemoteSyncSM* Create(
+    static SMPtr Create(
         const ServerLocation& location,
         const char*           sessionTokenPtr,
         int                   sessionTokenLen,
@@ -93,9 +93,17 @@ public:
     void Enqueue(KfsOp* op);
     void Finish();
     int HandleEvent(int code, void *data);
-    ServerLocation GetLocation() const {
+    const ServerLocation& GetLocation() const {
         return mLocation;
     }
+    bool UpdateSession(
+        const char* sessionTokenPtr,
+        int         sessionTokenLen,
+        const char* sessionKeyPtr,
+        int         sessionKeyLen,
+        bool        writeMasterFlag,
+        int&        err,
+        string&     errMsg);
     static bool SetParameters(const char* prefix, const Properties& props);
     static void Shutdown();
     static int GetResponseTimeoutSec() {
@@ -126,6 +134,7 @@ private:
     CryptoKeys::Key    mSessionKey;
     bool               mShutdownSslFlag;
     bool               mSslShutdownInProgressFlag;
+    time_t             mSessionExpirationTime;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
     SMList*            mList;
@@ -135,7 +144,7 @@ private:
 
     const SMPtr& PutInList(SMList& list)
     {
-        SMPtr ptr(this);
+        SMPtr ptr = shared_from_this();
         RemoveFromList();
         mList = &list;
         mListIt = list.insert(list.end(), SMPtr());

@@ -185,6 +185,11 @@ public:
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,
         int         inKeyDataSize);
+    void SetKey(
+        const char* inKeyIdPtr,
+        int         inKeyIdLen,
+        const char* inKeyDataPtr,
+        int         inKeyDataSize);
     void SetShutdownSsl(
         bool inFlag);
     void SetAuthContext(

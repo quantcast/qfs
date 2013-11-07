@@ -724,11 +724,22 @@ public:
             sRSReaderMetaResetConnectionOnOpTimeoutFlag ? 1 : 0
         ) != 0;
     }
-    RSReplicatorImpl(ReplicateChunkOp* op)
+    RSReplicatorImpl(
+        ReplicateChunkOp* op,
+        const char*       sessionToken,
+        int               sessionTokenLen,
+        const char*       sessionKey,
+        int               sessionKeyLen)
         : ReplicatorImpl(op, RemoteSyncSMPtr()),
           Reader::Completion(),
           mReader(
-            GetMetaserver(op->location.port),
+            GetMetaserver(
+                op->location.port,
+                sessionToken,
+                sessionTokenLen,
+                sessionKey,
+                sessionKeyLen
+            ),
             this,
             sRSReaderMaxRetryCount,
             sRSReaderTimeSecBetweenRetries,
@@ -887,7 +898,7 @@ public:
         HandleReadDone(EVENT_CMD_DONE, &mReadOp);
     }
     static void CancelAll()
-        { GetMetaserver(-1); }
+        { StopMetaServer(); }
 
 private:
     Reader    mReader;
@@ -970,7 +981,14 @@ private:
                 kKfsUserRoot, kKfsGroupRoot);
         }
     };
-    static KfsNetClient& GetMetaserver(int port)
+    static void StopMetaServer()
+        { GetMetaserver(-1, 0, 0, 0, 0); }
+    static KfsNetClient& GetMetaserver(
+        int         port,
+        const char* sessionToken,
+        int         sessionTokenLen,
+        const char* sessionKey,
+        int         sessionKeyLen)
     {
         static AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
         static KfsNetClient sMetaServerClient(
@@ -989,17 +1007,25 @@ private:
         if (port <= 0) {
             sMetaPort = -1;
             sMetaServerClient.Stop();
-        } else if (sMetaPort != port) {
-            if (sMetaPort > 0) {
-                KFS_LOG_STREAM_INFO << "recovery:"
-                    " meta server client port has changed"
-                    " from: " << sMetaPort <<
-                    " to: "   << port <<
-                KFS_LOG_EOM;
+        } else {
+            if (sMetaPort != port) {
+                if (sMetaPort > 0) {
+                    KFS_LOG_STREAM_INFO << "recovery:"
+                        " meta server client port has changed"
+                        " from: " << sMetaPort <<
+                        " to: "   << port <<
+                    KFS_LOG_EOM;
+                }
+                sMetaPort = port;
+                sMetaServerClient.SetServer(ServerLocation(
+                    gMetaServerSM.GetLocation().hostname, sMetaPort));
             }
-            sMetaPort = port;
-            sMetaServerClient.SetServer(ServerLocation(
-                gMetaServerSM.GetLocation().hostname, sMetaPort));
+            sMetaServerClient.SetKey(
+                sessionToken,
+                sessionTokenLen,
+                sessionKey,
+                sessionKeyLen
+            );
         }
         return sMetaServerClient;
     }
@@ -1141,14 +1167,13 @@ Replicator::Run(ReplicateChunkOp* op)
     assert(op);
     KFS_LOG_STREAM_DEBUG << op->Show() << KFS_LOG_EOM;
 
-    ReplicatorImpl* impl = 0;
     const char*       p = op->chunkServerAccess.GetPtr();
     const char* const e = p + op->chunkServerAccess.GetSize();
     while (p < e && (*p & 0xFF) <= ' ') {
         ++p;
     }
     const char* const token = p;
-    while (p < e && ' ' <= (*p & 0xFF)) {
+    while (p < e && ' ' < (*p & 0xFF)) {
         ++p;
     }
     const int tokenLen = (int)(p - token);
@@ -1156,10 +1181,27 @@ Replicator::Run(ReplicateChunkOp* op)
         ++p;
     }
     const char* const key = p;
-    while (p < e && ' ' <= (*p & 0xFF)) {
+    while (p < e && ' ' < (*p & 0xFF)) {
         ++p;
     }
     const int keyLen = (int)(p - key);
+    if ((0 < keyLen) != (0 < tokenLen)) {
+        op->status    = -EINVAL;
+        op->statusMsg = "malformed chunk access header value";
+        if (op->location.IsValid()) {
+            ReplicatorImpl::Ctrs().mReplicationErrorCount++;
+        } else {
+            ReplicatorImpl::Ctrs().mRecoveryErrorCount++;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            (op->location.IsValid() ? "replication: " : "recovery: ") <<
+            op->statusMsg <<
+            " " << op->Show() <<
+        KFS_LOG_EOM;
+        SubmitOpResponse(op);
+        return;
+    }
+    ReplicatorImpl* impl = 0;
     if (op->location.IsValid()) {
         ReplicatorImpl::Ctrs().mReplicationCount++;
         RemoteSyncSMPtr peer;
@@ -1182,7 +1224,7 @@ Replicator::Run(ReplicateChunkOp* op)
                 peer.reset();
             }
         } else {
-            peer.reset(RemoteSyncSM::Create(
+            peer = RemoteSyncSM::Create(
                 op->location,
                 token,
                 tokenLen,
@@ -1192,7 +1234,7 @@ Replicator::Run(ReplicateChunkOp* op)
                 op->allowCSClearTextFlag,
                 op->status,
                 op->statusMsg
-            ));
+            );
             if (peer && (op->status < 0 || ! peer->Connect())) {
                 peer.reset();
             }
@@ -1227,7 +1269,7 @@ Replicator::Run(ReplicateChunkOp* op)
             KFS_LOG_EOM;
             ReplicatorImpl::Ctrs().mRecoveryErrorCount++;
         } else {
-            impl = new RSReplicatorImpl(op);
+            impl = new RSReplicatorImpl(op, token, tokenLen, key, keyLen);
         }
     }
     if (impl) {

@@ -261,7 +261,7 @@ public:
         ServerLocation         peerLoc,
         int                    replicationPos,
         int64_t                chunkSize,
-        RemoteSyncSM*          peer);
+        const RemoteSyncSMPtr& peer);
     void MakeChunkStable(MakeChunkStableOp* op = 0);
     bool IsOpen() const
         { return (mState == kStateOpen); }
@@ -481,7 +481,23 @@ private:
         }
         return gAtomicRecordAppendManager.GetCloseEmptyWidStateSec();
     }
-
+    template<typename T> bool UpdateSession(T& op, int& err, string& errMsg)
+    {
+        if (! mPeer || ! op.syncReplicationAccess.chunkServerAccess) {
+            return true;
+        }
+        SRChunkServerAccess& csa = *op.syncReplicationAccess.chunkServerAccess;
+        mPeer->UpdateSession(
+                csa.token.mPtr,
+                csa.token.mLen,
+                csa.key.mPtr,
+                csa.key.mLen,
+                IsMaster(),
+                err,
+                errMsg
+        );
+        return (err == 0);
+    }
     template <typename OpT> void SubmitResponse(OpT*& listHead, OpT*& listTail)
     {
         OpT* op = listHead;
@@ -615,7 +631,7 @@ AtomicRecordAppender::AtomicRecordAppender(
     ServerLocation         peerLoc,
     int                    replicationPos,
     int64_t                chunkSize,
-    RemoteSyncSM*          peer)
+    const RemoteSyncSMPtr& peer)
     : KfsCallbackObj(),
       mReplicationPos(replicationPos),
       mNumServers(numServers),
@@ -948,6 +964,8 @@ AtomicRecordAppender::AllocateWriteId(
     } else if (mNumServers != op->numServers) {
         status = kErrParameters;
         msg    = "invalid replication factor";
+    } else if (! UpdateSession(*op, status, msg)) {
+        // Malformed syncronous replication access.
     } else if (mState != kStateOpen) {
         msg    = GetStateAsStr();
         status = kErrProtocolState;
@@ -1135,7 +1153,7 @@ AtomicRecordAppender::UpdateMasterCommittedOffset(int64_t masterCommittedOffset)
 
 void
 AtomicRecordAppender::AppendBegin(
-    RecordAppendOp *op, int replicationPos, ServerLocation peerLoc)
+    RecordAppendOp* op, int replicationPos, ServerLocation peerLoc)
 {
     if (op->numBytes < size_t(op->dataBuf.BytesConsumable()) ||
             op->origClnt) {
@@ -1180,6 +1198,8 @@ AtomicRecordAppender::AppendBegin(
     } else if (mNextOffset + op->numBytes > int64_t(CHUNKSIZE)) {
         msg    = "out of chunk space";
         status = kErrParameters;
+    } else if (! UpdateSession(*op, status, msg)) {
+        // Malformed syncronous replication access.
     } else if (IsMaster() && op->clnt != this &&
             (client = op->GetClientSM()) &&
             client->GetReservedSpace(mChunkId, op->writeId) < op->numBytes) {
@@ -2899,7 +2919,7 @@ AtomicRecordAppendManager::AllocateChunk(
         if (op->status != 0) {
             mAppenders.Erase(op->chunkId);
         } else {
-            RemoteSyncSM* peer = 0;
+            RemoteSyncSMPtr peer;
             if (uint32_t(replicationPos + 1) < op->numServers) {
                 SRChunkServerAccess::Token token;
                 SRChunkServerAccess::Token key;
@@ -2926,7 +2946,6 @@ AtomicRecordAppendManager::AllocateChunk(
                 }
             }
             if (op->status != 0) {
-                delete peer;
                 mAppenders.Erase(op->chunkId);
             } else {
                 *res = new AtomicRecordAppender(

@@ -200,6 +200,23 @@ public:
             mKeyData.clear();
         }
     }
+    void SetKey(
+        const char* inKeyIdPtr,
+        int         inKeyIdLen,
+        const char* inKeyDataPtr,
+        int         inKeyDataSize)
+    {
+        if (inKeyIdPtr && inKeyIdLen > 0) {
+            mKeyId.assign(inKeyIdPtr, (size_t)inKeyIdLen);
+        } else {
+            mKeyId.clear();
+        }
+        if (inKeyDataPtr && inKeyDataSize > 0) {
+            mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
+        } else {
+            mKeyData.clear();
+        }
+    }
     void SetShutdownSsl(
         bool inFlag)
     {
@@ -1544,6 +1561,17 @@ KfsNetClient::SetKey(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetKey(inKeyIdPtr, inKeyDataPtr, inKeyDataSize);
+}
+
+    void
+KfsNetClient::SetKey(
+    const char* inKeyIdPtr,
+    int         inKeyIdLen,
+    const char* inKeyDataPtr,
+    int         inKeyDataSize)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetKey(inKeyIdPtr, inKeyIdLen, inKeyDataPtr, inKeyDataSize);
 }
 
     void
