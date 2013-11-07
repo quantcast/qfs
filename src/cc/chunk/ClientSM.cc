@@ -1210,12 +1210,12 @@ ClientSM::CheckAccess(KfsOp& op)
 bool
 ClientSM::CheckAccess(KfsClientChunkOp& op)
 {
-    if (op.hasChunkAccessTokenFlag) {
+    if (! op.hasChunkAccessTokenFlag) {
         op.statusMsg = "chunk access: no chunk access token";
         op.status    = -EPERM;
         return false;
     }
-    if (op.chunkAccessTokenValidFlag) {
+    if (! op.chunkAccessTokenValidFlag) {
         op.statusMsg = "chunk access: chunk access token is not valid";
         op.status    = -EPERM;
         return false;
@@ -1244,6 +1244,7 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
     }
     switch (op.op) {
         case CMD_READ:
+        case CMD_GET_CHUNK_METADATA:
             if ((op.chunkAccessFlags & ChunkAccessToken::kAllowReadFlag) == 0) {
                 op.statusMsg = "chunk access: no read access";
                 op.status    = -EPERM;
