@@ -329,7 +329,7 @@ public:
             while (*p && (*p & 0xFF) <= ' ') {
                 ++p;
             }
-            if (T::kTokenCount <= i) {
+            if (T::kTokenCount <= i + 1) {
                 tokens[i] = typename T::Token(p, tokensStr + len - p);
                 break;
             }
@@ -339,7 +339,7 @@ public:
             }
             tokens[i] = typename T::Token(b, p - b);
         }
-        if (tokens[min(0, T::kTokenCount - 2)].mLen <= 0) {
+        if (tokens[max(0, T::kTokenCount - 2)].mLen <= 0) {
             delete [] tokensStr;
             return 0;
         }
