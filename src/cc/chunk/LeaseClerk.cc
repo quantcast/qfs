@@ -69,17 +69,21 @@ LeaseClerk::RegisterLease(const AllocChunkOp& op)
     lease.invalidFlag                   = false;
     lease.allowCSClearTextFlag          = op.allowCSClearTextFlag;
     lease.appendFlag                    = op.appendFlag;
-    lease.syncReplicationExpirationTime = lease.lastWriteTime - LEASE_INTERVAL_SECS;
+    lease.syncReplicationExpirationTime = -LEASE_INTERVAL_SECS;
     lease.syncReplicationAccess         = op.syncReplicationAccess;
     if (0 < op.chunkServerAccessValidForTime) {
-        lease.syncReplicationExpirationTime += op.chunkServerAccessValidForTime;
+        lease.syncReplicationExpirationTime +=
+            lease.lastWriteTime + op.chunkServerAccessValidForTime;
     } else if (lease.syncReplicationAccess.chunkServerAccess) {
         DelegationToken token;
         if (token.FromString(
                 lease.syncReplicationAccess.chunkServerAccess->token.mPtr,
                 lease.syncReplicationAccess.chunkServerAccess->token.mLen,
                 0, 0)) {
-            lease.syncReplicationExpirationTime += token.GetValidForSec();
+            lease.syncReplicationExpirationTime +=
+                token.GetIssuedTime() + token.GetValidForSec();
+        } else {
+            lease.syncReplicationExpirationTime += lease.lastWriteTime;
         }
     }
     KFS_LOG_STREAM_DEBUG <<
@@ -185,9 +189,9 @@ LeaseClerk::LeaseRenewed(LeaseRenewOp& op)
     if (op.syncReplicationAccess.chunkServerAccess) {
         lease.syncReplicationAccess.chunkServerAccess.swap(
             op.syncReplicationAccess.chunkServerAccess);
-        lease.syncReplicationExpirationTime = now - LEASE_INTERVAL_SECS;
+        lease.syncReplicationExpirationTime = -LEASE_INTERVAL_SECS;
         if (0 < op.chunkServerAccessValidForTime) {
-            lease.syncReplicationExpirationTime +=
+            lease.syncReplicationExpirationTime += now +
                 op.chunkServerAccessValidForTime;
         } else {
             DelegationToken token;
@@ -195,7 +199,10 @@ LeaseClerk::LeaseRenewed(LeaseRenewOp& op)
                     lease.syncReplicationAccess.chunkServerAccess->token.mPtr,
                     lease.syncReplicationAccess.chunkServerAccess->token.mLen,
                     0, 0)) {
-                lease.syncReplicationExpirationTime += token.GetValidForSec();
+                lease.syncReplicationExpirationTime +=
+                    token.GetIssuedTime() + token.GetValidForSec();
+            } else {
+                lease.syncReplicationExpirationTime += now;
             }
         }
     }

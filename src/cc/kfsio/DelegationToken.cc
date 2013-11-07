@@ -214,7 +214,7 @@ public:
         const char*      inPtr,
         int              inLen)
     {
-        const int   theLen = DecodeBase64(inPtr, inLen, mBuffer, kTokenSize);
+        const int theLen = DecodeBase64(inPtr, inLen, mBuffer, kTokenSize);
         if (theLen != kTokenSize) {
             return false;
         }
