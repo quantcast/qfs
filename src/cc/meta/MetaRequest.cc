@@ -3908,6 +3908,9 @@ MetaAllocate::response(ostream& os)
 void
 MetaAllocate::writeChunkAccess(ostream& os)
 {
+    if (validForTime <= 0 || authUid == kKfsUserNone) {
+        return;
+    }
     if (! responseAccessStr.empty()) {
         os.write(responseAccessStr.data(), responseAccessStr.size());
         return;
@@ -3915,7 +3918,10 @@ MetaAllocate::writeChunkAccess(ostream& os)
     if (clientCSAllowClearTextFlag) {
         os << "CS-clear-text: 1\r\n";
     }
-    os << "CS-access: ";
+    os <<
+        "CS-acess-issued: " << issuedTime   << "\r\n"
+        "CS-acess-time: "   << validForTime << "\r\n"
+        "CS-access: ";
     const int16_t kDelegationFlags = 0;
     DelegationToken::WriteTokenAndSessionKey(
         os,
@@ -3928,7 +3934,8 @@ MetaAllocate::writeChunkAccess(ostream& os)
         writeMasterKey.GetPtr(),
         writeMasterKey.GetSize()
     );
-    os << "\r\n"
+    os <<
+        "\r\n"
         "C-access: ";
     ChunkAccessToken::WriteToken(
         os,
@@ -3999,7 +4006,9 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         os << "CS-access: " << count << "\r\n";
     }
     if (0 < validForTime) {
-        os << "CS-acess-time: " << validForTime << "\r\n";
+        os <<
+            "CS-acess-issued: " << issuedTime   << "\r\n"
+            "CS-acess-time: "   << validForTime << "\r\n";
     }
     if (! getChunkLocationsFlag && ! responseBuf.IsEmpty()) {
         os << "Lease-ids:";
@@ -4097,7 +4106,9 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (0 < validForTime) {
-        os << "CS-acess-time: " << validForTime << "\r\n";
+        os <<
+            "CS-acess-issued: " << issuedTime   << "\r\n"
+            "CS-acess-time: "   << validForTime << "\r\n";
     }
     IOBuffer                     iobuf;
     IntIOBufferWriter            writer(iobuf);
@@ -4483,7 +4494,9 @@ MetaChunkAllocate::request(ostream &os)
     if (cAccessLen < len) {
         os << "C-access-length: " << cAccessLen << "\r\n";
         if (0 < req->validForTime) {
-            os << "CS-acess-time: " << req->validForTime << "\r\n";
+            os <<
+                "CS-acess-issued: " << req->issuedTime   << "\r\n"
+                "CS-acess-time: "   << req->validForTime << "\r\n";
         }
     }
     os << "\r\n";
