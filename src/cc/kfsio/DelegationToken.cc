@@ -1043,6 +1043,9 @@ DelegationToken::WriteTokenSelf(
     const char*     inSessionKeyKeyPtr,
     int             inSessionKeyKeyLen)
 {
+    if (inValidForSec <= 0 || ! inKeyPtr || inKeyLen <= 0) {
+        return false;
+    }
     DelegationToken theToken(
         inUid,
         inSeq,
@@ -1053,9 +1056,6 @@ DelegationToken::WriteTokenSelf(
         0,
         0
     );
-    if (! inKeyPtr || inKeyLen <= 0) {
-        return false;
-    }
     WorkBuf theBuf;
     if (! theBuf.SerializeAndSign(theToken, inKeyPtr, inKeyLen,
             inSubjectPtr, inSubjectLen, theToken.mSignature)) {
