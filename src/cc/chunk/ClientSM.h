@@ -252,7 +252,7 @@ private:
     bool                       mGrantedFlag;
     int                        mInFlightOpCount;
     DevClientMgrAllocator      mDevCliMgrAllocator;
-    bool                       mDelegationTokenValidFlag;
+    bool                       mDataReceivedFlag;
     DelegationToken            mDelegationToken;
 
     static bool                sTraceRequestResponseFlag;

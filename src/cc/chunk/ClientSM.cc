@@ -193,6 +193,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mGrantedFlag(false),
       mInFlightOpCount(0),
       mDevCliMgrAllocator(),
+      mDataReceivedFlag(false),
       mDelegationToken()
 {
     if (! mNetConnection) {
@@ -292,6 +293,8 @@ ClientSM::HandleRequest(int code, void* data)
 
     switch (code) {
     case EVENT_NET_READ: {
+        mDataReceivedFlag = mDataReceivedFlag ||
+            ! mNetConnection->GetInBuffer().IsEmpty();
         if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
@@ -406,7 +409,8 @@ ClientSM::HandleRequest(int code, void* data)
         if (mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter())) {
             // Do not allow to shutdown filter with ops or data in flight.
-            if (mInFlightOpCount <= 0 &&
+            if (! mDataReceivedFlag &&
+                    mInFlightOpCount <= 0 &&
                     mOps.empty() &&
                     mNetConnection->GetInBuffer().IsEmpty() &&
                     mNetConnection->GetOutBuffer().IsEmpty()) {

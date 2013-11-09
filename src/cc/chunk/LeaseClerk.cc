@@ -72,8 +72,8 @@ LeaseClerk::RegisterLease(const AllocChunkOp& op)
     lease.syncReplicationExpirationTime = -LEASE_INTERVAL_SECS;
     lease.syncReplicationAccess         = op.syncReplicationAccess;
     if (0 < op.chunkServerAccessValidForTime) {
-        lease.syncReplicationExpirationTime +=
-            lease.lastWriteTime + op.chunkServerAccessValidForTime;
+        lease.syncReplicationExpirationTime += (time_t)(
+            op.chunkServerAccessIssuedTime + op.chunkServerAccessValidForTime);
     } else if (lease.syncReplicationAccess.chunkServerAccess) {
         DelegationToken token;
         if (token.FromString(
@@ -191,8 +191,9 @@ LeaseClerk::LeaseRenewed(LeaseRenewOp& op)
             op.syncReplicationAccess.chunkServerAccess);
         lease.syncReplicationExpirationTime = -LEASE_INTERVAL_SECS;
         if (0 < op.chunkServerAccessValidForTime) {
-            lease.syncReplicationExpirationTime += now +
-                op.chunkServerAccessValidForTime;
+            lease.syncReplicationExpirationTime +=
+                (time_t)(op.chunkServerAccessIssuedTime +
+                op.chunkServerAccessValidForTime);
         } else {
             DelegationToken token;
             if (token.FromString(

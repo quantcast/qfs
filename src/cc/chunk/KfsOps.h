@@ -425,7 +425,8 @@ struct AllocChunkOp : public KfsOp {
     bool                  allowCSClearTextFlag;
     kfsSTier_t            minStorageTier;
     kfsSTier_t            maxStorageTier;
-    time_t                chunkServerAccessValidForTime;
+    int64_t               chunkServerAccessValidForTime;
+    int64_t               chunkServerAccessIssuedTime;
     int                   contentLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
@@ -444,6 +445,7 @@ struct AllocChunkOp : public KfsOp {
           minStorageTier(kKfsSTierUndef),
           maxStorageTier(kKfsSTierUndef),
           chunkServerAccessValidForTime(0),
+          chunkServerAccessIssuedTime(0),
           contentLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
@@ -486,6 +488,7 @@ struct AllocChunkOp : public KfsOp {
         .Def("CS-clear-text",   &AllocChunkOp::allowCSClearTextFlag)
         .Def("C-access-length", &AllocChunkOp::chunkAccessLength)
         .Def("CS-acess-time",   &AllocChunkOp::chunkServerAccessValidForTime)
+        .Def("CS-acess-issued", &AllocChunkOp::chunkServerAccessIssuedTime)
         ;
     }
 };
@@ -1889,7 +1892,8 @@ struct LeaseRenewOp : public KfsOp {
     const string          leaseType;
     bool                  emitCSAceessFlag;
     bool                  allowCSClearTextFlag;
-    int                   chunkServerAccessValidForTime;
+    int64_t               chunkServerAccessValidForTime;
+    int64_t               chunkServerAccessIssuedTime;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
     LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t, bool a)
@@ -1900,6 +1904,7 @@ struct LeaseRenewOp : public KfsOp {
           emitCSAceessFlag(a),
           allowCSClearTextFlag(false),
           chunkServerAccessValidForTime(0),
+          chunkServerAccessIssuedTime(0),
           chunkAccessLength(0),
           syncReplicationAccess()
         { SET_HANDLER(this, &LeaseRenewOp::HandleDone); }
@@ -1907,6 +1912,7 @@ struct LeaseRenewOp : public KfsOp {
     {
         chunkAccessLength             = props.getValue("C-access-length", 0);
         chunkServerAccessValidForTime = props.getValue("CS-acess-time",   0);
+        chunkServerAccessIssuedTime   = props.getValue("CS-acess-issued", 0);
         allowCSClearTextFlag          = props.getValue("CS-clear-text", 0) != 0;
         return true;
     }
