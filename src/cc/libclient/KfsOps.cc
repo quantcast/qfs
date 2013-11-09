@@ -862,13 +862,13 @@ LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
 void
 AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    chunkId = prop.getValue("Chunk-handle", (kfsFileId_t) -1);
-    chunkVersion = prop.getValue("Chunk-version", (int64_t) -1);
-    if (append)
+    chunkId      = prop.getValue("Chunk-handle",  (kfsFileId_t) -1);
+    chunkVersion = prop.getValue("Chunk-version", (int64_t)-1);
+    if (append) {
         fileOffset = prop.getValue("Chunk-offset", (chunkOff_t) 0);
-
-    string master = prop.getValue("Master", "");
-    if (master != "") {
+    }
+    const string master = prop.getValue("Master", string());
+    if (! master.empty()) {
         istringstream ist(master);
 
         ist >> masterServer.hostname;
@@ -880,17 +880,65 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
     int numReplicas = prop.getValue("Num-replicas", 0);
     string replicas = prop.getValue("Replicas", "");
 
-    if (replicas != "") {
+    if (! replicas.empty()) {
         istringstream ser(replicas);
         ServerLocation loc;
 
         for (int i = 0; i < numReplicas; ++i) {
-            ser >> loc.hostname;
-            ser >> loc.port;
-            if (loc != masterServer)
+            ser >> loc.hostname >> loc.port;
+            if (loc != masterServer) {
                 chunkServers.push_back(loc);
+            }
         }
     }
+    chunkServerAccessValidForTime = 0;
+    chunkServerAccessIssuedTime   = 0;
+    allowCSClerTextFlag           = false;
+    chunkServerAccessToken.clear();
+    chunkAccess.clear();
+    if (status < 0) {
+        return;
+    }
+    const Properties::String* const csAccess = status < 0 ?
+        0 : prop.getValue("CS-access");
+    if (csAccess) {
+        const char*       cur = csAccess->GetPtr();
+        const char* const end = cur + csAccess->GetSize();
+        while (cur < end && (*cur & 0xFF) <= ' ') {
+            ++cur;
+        }
+        const char* const id = cur;
+        while (cur < end && ' ' < (*cur & 0xFF)) {
+            ++cur;
+        }
+        chunkServerAccessToken.assign(id, cur - id);
+        if (chunkServerAccessToken.empty()) {
+            statusMsg = "invalid chunk server access id";
+            status    = -EINVAL;
+            return;
+        }
+        while (cur < end && (*cur & 0xFF) <= ' ') {
+            ++cur;
+        }
+        const char* const key = cur;
+        while (cur < end && ' ' < (*cur & 0xFF)) {
+            ++cur;
+        }
+        if (chunkServerAccessKey.Parse(key, (int)(cur - key))) {
+            chunkServerAccessValidForTime =
+                prop.getValue("CS-acess-time",   int64_t(0));
+            chunkServerAccessIssuedTime   =
+                prop.getValue("CS-acess-issued", int64_t(0));
+            allowCSClerTextFlag =
+                prop.getValue("CS-clear-text", 0) != 0;
+        } else {
+            chunkServerAccessToken.clear();
+            statusMsg = "invalid chunk server access key";
+            status    = -EINVAL;
+            return;
+        }
+    }
+    chunkAccess = prop.getValue("C-access", string());
 }
 
 void

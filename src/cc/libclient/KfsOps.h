@@ -30,6 +30,7 @@
 #include "common/kfstypes.h"
 #include "common/Properties.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/CryptoKeys.h"
 #include "KfsAttr.h"
 
 #include <algorithm>
@@ -628,22 +629,28 @@ struct GetChunkMetadataOp: public KfsOp {
 };
 
 struct AllocateOp : public KfsOp {
-    kfsFileId_t fid;
-    chunkOff_t  fileOffset;
-    string      pathname; // input: the full pathname corresponding to fid
-    kfsChunkId_t chunkId; // result
-    int64_t chunkVersion; // result---version # for the chunk
+    kfsFileId_t            fid;
+    chunkOff_t             fileOffset;
+    string                 pathname; // input: the full pathname corresponding to fid
+    kfsChunkId_t           chunkId; // result
+    int64_t                chunkVersion; // result---version # for the chunk
     // where is the chunk hosted name/port
-    ServerLocation masterServer; // master for running the write transaction
+    ServerLocation         masterServer; // master for running the write transaction
     vector<ServerLocation> chunkServers;
     // if this is set, then the metaserver will pick the offset in the
     // file at which the chunk was allocated.
-    bool append;
+    bool                   append;
     // the space reservation size that will follow the allocation.
-    int spaceReservationSize;
+    int                    spaceReservationSize;
     // suggested max. # of concurrent appenders per chunk
-    int maxAppendersPerChunk;
-    bool invalidateAllFlag;
+    int                    maxAppendersPerChunk;
+    bool                   invalidateAllFlag;
+    bool                   allowCSClerTextFlag;
+    int64_t                chunkServerAccessValidForTime;
+    int64_t                chunkServerAccessIssuedTime;
+    string                 chunkAccess;
+    string                 chunkServerAccessToken;
+    CryptoKeys::Key        chunkServerAccessKey;
     AllocateOp(kfsSeq_t s, kfsFileId_t f, const string &p) :
         KfsOp(CMD_ALLOCATE, s),
         fid(f),
@@ -656,7 +663,13 @@ struct AllocateOp : public KfsOp {
         append(false),
         spaceReservationSize(1 << 20),
         maxAppendersPerChunk(64),
-        invalidateAllFlag(false)
+        invalidateAllFlag(false),
+        allowCSClerTextFlag(false),
+        chunkServerAccessValidForTime(0),
+        chunkServerAccessIssuedTime(0),
+        chunkAccess(),
+        chunkServerAccessToken(),
+        chunkServerAccessKey()
         {}
     void Request(ostream &os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -960,6 +973,9 @@ struct LeaseAcquireOp : public KfsOp {
     bool          flushFlag;    // input
     int           leaseTimeout; // input
     int64_t       leaseId;      // output
+    int           chunkServerAccessCount;
+    int64_t       chunkServerAccessValidForTime;
+    int64_t       chunkServerAccessIssuedTime;
     kfsChunkId_t* chunkIds;
     int64_t*      leaseIds;
     bool          getChunkLocationsFlag;
@@ -971,6 +987,9 @@ struct LeaseAcquireOp : public KfsOp {
           flushFlag(false),
           leaseTimeout(-1),
           leaseId(-1),
+          chunkServerAccessCount(0),
+          chunkServerAccessValidForTime(0),
+          chunkServerAccessIssuedTime(0),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)
