@@ -29,6 +29,8 @@
 
 #include "common/kfstypes.h"
 #include "common/Properties.h"
+#include "common/StdAllocator.h"
+#include "common/RequestParser.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/CryptoKeys.h"
 #include "KfsAttr.h"
@@ -39,6 +41,7 @@
 #include <sstream>
 #include <vector>
 #include <iomanip>
+#include <map>
 
 #include <boost/static_assert.hpp>
 
@@ -50,6 +53,7 @@ using std::ostream;
 using std::istream;
 using std::oct;
 using std::dec;
+using std::pair;
 
 // KFS client library RPCs.
 enum KfsOp_t {
@@ -688,7 +692,7 @@ struct AllocateOp : public KfsOp {
             ;
             for (size_t i = 0; i < sz; i++) {
                 os << " " << chunkServers[i];
-            } 
+            }
         }
         return os.str();
     }
@@ -963,6 +967,80 @@ struct ChunkLeaseInfo {
 inline static istream& operator>>(istream& is, ChunkLeaseInfo& li) {
     return li.Parse(is);
 }
+
+class ChunkServerAccess
+{
+public:
+    typedef PropertiesTokenizer::Token Token;
+    ChunkServerAccess()
+        : mAccess(),
+          mAccessBuf(0),
+          mOwnsBufferFlag(false)
+        {}
+    ~ChunkServerAccess()
+        { ChunkServerAccess::Clear(); }
+    int Parse(
+        int         count,
+        const char* buf,
+        int         bufPos,
+        int         bufLen,
+        bool        ownsBufferFlag);
+    struct Entry
+    {
+        Token chunkServerAccessId;
+        Token chunkServerKey;
+        Token chunkAccess;
+
+        Entry()
+            : chunkServerAccessId(),
+              chunkServerKey(),
+              chunkAccess()
+            {}
+    };
+    const Token* Get(
+        const ServerLocation& location,
+        CryptoKeys::Key&      outKey)
+    {
+        Access::const_iterator const it = mAccess.find(SLocation(
+            Token(location.hostname.data(), location.hostname.size()),
+            location.port
+        ));
+        const Entry& entry = it->second;
+        if (it == mAccess.end() || ! outKey.Parse(
+                entry.chunkServerKey.mPtr, entry.chunkServerKey.mLen)) {
+            return 0;
+        }
+        return &entry.chunkServerAccessId;
+    }
+    void Clear()
+    {
+        mAccess.clear();
+        if (mOwnsBufferFlag) {
+            delete [] mAccessBuf;
+        }
+        mAccessBuf = 0;
+    }
+private:
+    typedef pair<Token, int> SLocation;
+    typedef map<
+        SLocation,
+        Entry,
+        less<SLocation>,
+        StdFastAllocator<pair<
+            const SLocation,
+            Entry
+        > >
+    > Access;
+
+    Access      mAccess;
+    const char* mAccessBuf;
+    bool        mOwnsBufferFlag;
+
+private:
+    ChunkServerAccess(const ChunkServerAccess&);
+    ChunkServerAccess& operator=(const ChunkServerAccess&);
+};
+
 
 struct LeaseAcquireOp : public KfsOp {
     enum { kMaxChunkIds = 256 };

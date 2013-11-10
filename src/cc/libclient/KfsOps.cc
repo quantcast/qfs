@@ -104,6 +104,57 @@ inline ostream& PutPermissions(ostream& os, const Permissions& permissions)
     return os;
 }
 
+    int
+ChunkServerAccess::Parse(
+    int         count,
+    const char* buf,
+    int         bufPos,
+    int         bufLen,
+    bool        ownsBufferFlag)
+{
+    Clear();
+    mAccessBuf      = buf;
+    mOwnsBufferFlag = ownsBufferFlag;
+    const char*       p           = buf + bufPos;
+    const char* const e           = buf + bufLen;
+    const int         kTokenCount = 5;
+    Token             tokens[kTokenCount];
+    for (int i = 0; i < count; i++) {
+        for (int k = 0; k < kTokenCount; k++) {
+            while (p < e && (*p & 0xFF) <= ' ') {
+                p++;
+            }
+            const char* const s = p;
+            while (p < e && (*p & 0xFF) <= ' ') {
+                p++;
+            }
+            tokens[i] = Token(s, p);
+        }
+        if (tokens[kTokenCount - 1].mLen <= 0) {
+            Clear();
+            return -EINVAL;
+        }
+        const char* ptr  = tokens[1].mPtr;
+        int         port = -1;
+        if (! HexIntParser::Parse(ptr, tokens[1].mLen, port) || port <= 0) {
+            Clear();
+            return -EINVAL;
+        }
+        Entry& entry = mAccess[SLocation(tokens[0], port)];
+        if (entry.chunkAccess.mLen <= 0) {
+            Clear();
+            return -EINVAL;
+        }
+        entry.chunkServerAccessId = tokens[2];
+        entry.chunkServerKey      = tokens[3];
+        entry.chunkAccess         = tokens[4];
+    }
+    while (p < e && (*p & 0xFF) <= ' ') {
+        p++;
+    }
+    return (int)(p - (buf + bufPos));
+}
+
 ///
 /// All Request() methods build a request RPC based on the KFS
 /// protocol and output the request into a ostream.
