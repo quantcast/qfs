@@ -106,21 +106,24 @@ inline ostream& PutPermissions(ostream& os, const Permissions& permissions)
 
     int
 ChunkServerAccess::Parse(
-    int         count,
-    const char* buf,
-    int         bufPos,
-    int         bufLen,
-    bool        ownsBufferFlag)
+    int          count,
+    bool         hasChunkServerAccessFlag,
+    kfsChunkId_t chunkId,
+    const char*  buf,
+    int          bufPos,
+    int          bufLen,
+    bool         ownsBufferFlag)
 {
     Clear();
     mAccessBuf      = buf;
     mOwnsBufferFlag = ownsBufferFlag;
     const char*       p           = buf + bufPos;
     const char* const e           = buf + bufLen;
-    const int         kTokenCount = 6;
-    Token             tokens[kTokenCount];
+    const int         tokenCount = 0 <= chunkId ?
+        (hasChunkServerAccessFlag ? 5 : 4) : 6;
+    Token             tokens[6];
     for (int i = 0; i < count; i++) {
-        for (int k = 0; k < kTokenCount; k++) {
+        for (int k = 0; k < tokenCount; k++) {
             while (p < e && (*p & 0xFF) <= ' ') {
                 p++;
             }
@@ -130,34 +133,42 @@ ChunkServerAccess::Parse(
             }
             tokens[i] = Token(s, p);
         }
-        if (tokens[kTokenCount - 1].mLen <= 0) {
+        if (tokens[tokenCount - 1].mLen <= 0) {
             Clear();
             return -EINVAL;
         }
-        const char*  ptr     = tokens[0].mPtr;
-        kfsChunkId_t chunkId = -1;
-        if (! HexIntParser::Parse(ptr, tokens[0].mLen, chunkId) ||
-                chunkId < 0) {
-            Clear();
-            return -EINVAL;
+        int         n = 0;
+        const char* ptr;
+        if (chunkId < 0) {
+            ptr = tokens[n].mPtr;
+            kfsChunkId_t chunkId = -1;
+            if (! HexIntParser::Parse(ptr, tokens[n].mLen, chunkId) ||
+                    chunkId < 0) {
+                Clear();
+                return -EINVAL;
+            }
+            ++n;
         }
-        ptr = tokens[2].mPtr;
+        ++n;
+        ptr = tokens[n].mPtr;
         int port = -1;
-        if (! HexIntParser::Parse(ptr, tokens[2].mLen, port) ||
+        if (! HexIntParser::Parse(ptr, tokens[n].mLen, port) ||
                 port <= 0) {
             Clear();
             return -EINVAL;
         }
         Entry& entry = mAccess[
-            SCLocation(make_pair(tokens[1], port), chunkId)];
+            SCLocation(make_pair(tokens[n - 1], port), chunkId)];
         if (0 < entry.chunkAccess.mLen) {
             // Duplicate entry.
             Clear();
             return -EINVAL;
         }
-        entry.chunkServerAccessId = tokens[2];
-        entry.chunkServerKey      = tokens[3];
-        entry.chunkAccess         = tokens[4];
+        if (hasChunkServerAccessFlag) {
+            entry.chunkServerAccessId = tokens[++n];
+            entry.chunkServerKey      = tokens[++n];
+        }
+        entry.chunkAccess = tokens[++n];
     }
     while (p < e && (*p & 0xFF) <= ' ') {
         p++;

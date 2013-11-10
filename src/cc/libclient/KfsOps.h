@@ -981,11 +981,13 @@ public:
     ~ChunkServerAccess()
         { ChunkServerAccess::Clear(); }
     int Parse(
-        int         count,
-        const char* buf,
-        int         bufPos,
-        int         bufLen,
-        bool        ownsBufferFlag);
+        int          count,
+        bool         hasChunkServerAccessFlag,
+        kfsChunkId_t chunkId,
+        const char*  buf,
+        int          bufPos,
+        int          bufLen,
+        bool         ownsBufferFlag);
     struct Entry
     {
         Token chunkServerAccessId;
@@ -998,7 +1000,7 @@ public:
               chunkAccess()
             {}
     };
-    const Token* Get(
+    const Entry* Get(
         const ServerLocation& location,
         kfsChunkId_t          chunkId,
         CryptoKeys::Key&      outKey)
@@ -1012,7 +1014,7 @@ public:
                 entry.chunkServerKey.mPtr, entry.chunkServerKey.mLen)) {
             return 0;
         }
-        return &entry.chunkServerAccessId;
+        return &entry;
     }
     void Clear()
     {
