@@ -4025,6 +4025,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         }
         while (ptr < end) {
             writer.WriteHexInt(ptr->chunkId);
+            writer.Write(" ", 1);
             writer.Write(
                 ptr->serverLocation.hostname.data(),
                 ptr->serverLocation.hostname.size());
@@ -4033,7 +4034,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
             writer.Write(" ", 1);
             const int16_t kDelegationFlags = 0;
             if (ptr->authUid == kKfsUserNone) {
-                writer.Write("? ? ?", 1);
+                writer.Write("? ? ?", 5);
             } else {
                 DelegationToken::WriteTokenAndSessionKey(
                     writer,

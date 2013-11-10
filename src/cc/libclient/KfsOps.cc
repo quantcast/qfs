@@ -117,7 +117,7 @@ ChunkServerAccess::Parse(
     mOwnsBufferFlag = ownsBufferFlag;
     const char*       p           = buf + bufPos;
     const char* const e           = buf + bufLen;
-    const int         kTokenCount = 5;
+    const int         kTokenCount = 6;
     Token             tokens[kTokenCount];
     for (int i = 0; i < count; i++) {
         for (int k = 0; k < kTokenCount; k++) {
@@ -134,14 +134,24 @@ ChunkServerAccess::Parse(
             Clear();
             return -EINVAL;
         }
-        const char* ptr  = tokens[1].mPtr;
-        int         port = -1;
-        if (! HexIntParser::Parse(ptr, tokens[1].mLen, port) || port <= 0) {
+        const char*  ptr     = tokens[0].mPtr;
+        kfsChunkId_t chunkId = -1;
+        if (! HexIntParser::Parse(ptr, tokens[0].mLen, chunkId) ||
+                chunkId < 0) {
             Clear();
             return -EINVAL;
         }
-        Entry& entry = mAccess[SLocation(tokens[0], port)];
-        if (entry.chunkAccess.mLen <= 0) {
+        ptr = tokens[2].mPtr;
+        int port = -1;
+        if (! HexIntParser::Parse(ptr, tokens[2].mLen, port) ||
+                port <= 0) {
+            Clear();
+            return -EINVAL;
+        }
+        Entry& entry = mAccess[
+            SCLocation(make_pair(tokens[1], port), chunkId)];
+        if (0 < entry.chunkAccess.mLen) {
+            // Duplicate entry.
             Clear();
             return -EINVAL;
         }

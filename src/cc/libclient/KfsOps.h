@@ -54,6 +54,7 @@ using std::istream;
 using std::oct;
 using std::dec;
 using std::pair;
+using std::make_pair;
 
 // KFS client library RPCs.
 enum KfsOp_t {
@@ -999,11 +1000,12 @@ public:
     };
     const Token* Get(
         const ServerLocation& location,
+        kfsChunkId_t          chunkId,
         CryptoKeys::Key&      outKey)
     {
-        Access::const_iterator const it = mAccess.find(SLocation(
-            Token(location.hostname.data(), location.hostname.size()),
-            location.port
+        Access::const_iterator const it = mAccess.find(SCLocation(
+            make_pair(Token(location.hostname.data(), location.hostname.size()),
+                location.port), chunkId
         ));
         const Entry& entry = it->second;
         if (it == mAccess.end() || ! outKey.Parse(
@@ -1021,13 +1023,13 @@ public:
         mAccessBuf = 0;
     }
 private:
-    typedef pair<Token, int> SLocation;
+    typedef pair<pair<Token, int>, kfsChunkId_t> SCLocation;
     typedef map<
-        SLocation,
+        SCLocation,
         Entry,
-        less<SLocation>,
+        less<SCLocation>,
         StdFastAllocator<pair<
-            const SLocation,
+            const SCLocation,
             Entry
         > >
     > Access;
