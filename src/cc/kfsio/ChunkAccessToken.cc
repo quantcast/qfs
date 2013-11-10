@@ -36,18 +36,18 @@ class ChunkAccessToken::Subject : public DelegationToken::Subject
 public:
     Subject(
         kfsChunkId_t inChunkId,
-        int64_t      inWriteId)
+        int64_t      inId)
     {
         char*             thePtr    = mBuf;
         const char* const theEndPtr = thePtr + kSubjectLength;
         *thePtr++ = 'C';
         *thePtr++ = 'A';
         kfsChunkId_t theId = inChunkId;
-        while (thePtr < theEndPtr - sizeof(inWriteId)) {
+        while (thePtr < theEndPtr - sizeof(inId)) {
             *thePtr++ = (char)(theId & 0xFF);
             theId >>= 8;
         }
-        int64_t theWId = inWriteId;
+        int64_t theWId = inId;
         while (thePtr < theEndPtr) {
             *thePtr++ = (char)(theWId & 0xFF);
             theWId >>= 8;
@@ -58,7 +58,8 @@ public:
         const char*&           outPtr)
     {
         outPtr = mBuf;
-        return (((inToken.GetFlags() & kUsesWriteIdFlag) != 0) ?
+        return (((inToken.GetFlags() &
+            (kUsesWriteIdFlag | kUsesLeaseIdFlag)) != 0) ?
             kSubjectLength : kSubjectLength - (int)sizeof(int64_t));
     }
     operator DelegationToken::Subject* ()
@@ -80,7 +81,7 @@ ChunkAccessToken::ChunkAccessToken(
     uint32_t     inValidForSec,
     const char*  inKeyPtr,
     int          inKeyLen,
-    int64_t      inWriteId)
+    int64_t      inId)
     : mChunkId(inChunkId),
       mDelegationToken(
         inUid,
@@ -91,7 +92,7 @@ ChunkAccessToken::ChunkAccessToken(
         inValidForSec,
         inKeyPtr,
         inKeyLen,
-        Subject(inChunkId, inWriteId)
+        Subject(inChunkId, inId)
     )
 {
 }
@@ -104,9 +105,9 @@ ChunkAccessToken::Process(
     int64_t           inTimeNowSec,
     const CryptoKeys& inKeys,
     string*           outErrMsgPtr,
-    int64_t           inWriteId)
+    int64_t           inId)
 {
-    Subject theSubject(inChunkId, inWriteId);
+    Subject theSubject(inChunkId, inId);
     return mDelegationToken.Process(
         inBufPtr,
         inBufLen,
@@ -128,7 +129,7 @@ ChunkAccessToken::Process(
     int64_t           inTimeNowSec,
     const CryptoKeys& inKeys,
     string*           outErrMsgPtr,
-    int64_t           inWriteId)
+    int64_t           inId)
 {
     if (! Process(
             inChunkId,
@@ -138,7 +139,7 @@ ChunkAccessToken::Process(
             inTimeNowSec,
             inKeys,
             outErrMsgPtr,
-            inWriteId)) {
+            inId)) {
         return false;
     }
     if (inUid != mDelegationToken.GetUid()) {
@@ -177,9 +178,9 @@ ChunkAccessToken::WriteToken(
     uint32_t        inValidForSec,
     const char*     inKeyPtr,
     int             inKeyLen,
-    int64_t         inWriteId)
+    int64_t         inId)
 {
-    Subject theSubject(inChunkId, inWriteId);
+    Subject theSubject(inChunkId, inId);
     return DelegationToken::WriteToken(
         inWriter,
         inUid,
@@ -206,9 +207,9 @@ ChunkAccessToken::WriteToken(
     uint32_t     inValidForSec,
     const char*  inKeyPtr,
     int          inKeyLen,
-    int64_t      inWriteId)
+    int64_t      inId)
 {
-    Subject theSubject(inChunkId, inWriteId);
+    Subject theSubject(inChunkId, inId);
     return DelegationToken::WriteToken(
         inStream,
         inUid,

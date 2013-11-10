@@ -45,10 +45,11 @@ class ChunkAccessToken
 public:
     typedef DelegationToken::TokenSeq TokenSeq;
     enum {
-        kAllowReadFlag      = 0x100,
-        kAllowWriteFlag     = 0x200,
-        kAllowClearTextFlag = 0x400,
-        kUsesWriteIdFlag    = 0x800
+        kAllowReadFlag      = 0x0100,
+        kAllowWriteFlag     = 0x0200,
+        kAllowClearTextFlag = 0x0400,
+        kUsesWriteIdFlag    = 0x0800,
+        kUsesLeaseIdFlag    = 0x1000
     };
     class ShowToken
     {
@@ -78,7 +79,7 @@ public:
         uint32_t     inValidForSec,
         const char*  inKeyPtr,
         int          inKeyLen,
-        int64_t      inWriteId = -1);
+        int64_t      inId = -1);
     bool Process(
         kfsChunkId_t      inChunkId,
         const char*       inBufPtr,
@@ -86,7 +87,7 @@ public:
         int64_t           inTimeNowSec,
         const CryptoKeys& inKeys,
         string*           outErrMsgPtr,
-        int64_t           inWriteId = -1);
+        int64_t           inId = -1);
     bool Process(
         kfsChunkId_t      inChunkId,
         kfsUid_t          inUid,
@@ -95,7 +96,7 @@ public:
         int64_t           inTimeNowSec,
         const CryptoKeys& inKeys,
         string*           outErrMsgPtr,
-        int64_t           inWriteId = -1);
+        int64_t           inId = -1);
     ShowToken Show() const
         { return ShowToken(*this); }
     ostream& ShowSelf(
@@ -116,7 +117,7 @@ public:
         uint32_t        inValidForSec,
         const char*     inKeyPtr,
         int             inKeyLen,
-        int64_t         inWriteId = -1);
+        int64_t         inId = -1);
     static bool WriteToken(
         ostream&     inSteram,
         kfsChunkId_t inChunkId,
@@ -128,7 +129,7 @@ public:
         uint32_t     inValidForSec,
         const char*  inKeyPtr,
         int          inKeyLen,
-        int64_t      inWriteId = -1);
+        int64_t      inId = -1);
 private:
     kfsChunkId_t    mChunkId;
     DelegationToken mDelegationToken;

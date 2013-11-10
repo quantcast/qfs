@@ -452,7 +452,8 @@ KfsClientChunkOp::Validate()
                 chunkAccessVal.mLen,
                 startTime,
                 gChunkManager.GetCryptoKeys(),
-                &statusMsg))) {
+                &statusMsg,
+                subjectId))) {
             chunkAccessUid   = token.Get().GetUid();
             chunkAccessFlags = token.Get().GetFlags();
         }

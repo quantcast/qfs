@@ -380,6 +380,7 @@ inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
 struct KfsClientChunkOp : public KfsOp
 {
     kfsChunkId_t chunkId;
+    int64_t      subjectId;
     bool         hasChunkAccessTokenFlag:1;
     bool         chunkAccessTokenValidFlag:1;
     uint16_t     chunkAccessFlags;
@@ -388,6 +389,7 @@ struct KfsClientChunkOp : public KfsOp
     KfsClientChunkOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
         : KfsOp(o, s, c),
           chunkId(-1),
+          subjectId(-1),
           hasChunkAccessTokenFlag(false),
           chunkAccessTokenValidFlag(false),
           chunkAccessFlags(0),
@@ -399,6 +401,7 @@ struct KfsClientChunkOp : public KfsOp
         return KfsOp::ParserDef(parser)
         .Def("Chunk-handle", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
         .Def("C-access",     &KfsClientChunkOp::chunkAccessVal)
+        .Def("Subject-id",   &KfsClientChunkOp::subjectId, int64_t(-1))
         ;
     }
     inline bool Validate();
