@@ -60,6 +60,13 @@ public:
     private:
         const DelegationToken& mToken;
     };
+    class Subject
+    {
+    public:
+        virtual int Get(
+            const DelegationToken& inToken,
+            const char*&           outPtr) = 0;
+    };
 
     enum { kSignatureLength = 20 };
     enum {
@@ -83,8 +90,7 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0);
+        Subject*    inSubjectPtr = 0);
     ~DelegationToken()
         {}
     bool Init(
@@ -96,8 +102,7 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0);
+        Subject*    inSubjectPtr = 0);
     void Clear()
         { *this = DelegationToken(); }
     string ToString();
@@ -105,15 +110,13 @@ public:
         const string& inString,
         const char*   inKeyPtr,
         int           inKeyLen,
-        const char*   inSubjectPtr = 0,
-        int           inSubjectLen = 0);
+        Subject*      inSubjectPtr = 0);
     bool FromString(
         const char* inPtr,
         int         inLen,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0);
+        Subject*    inSubjectPtr = 0);
     int Process(
         const char*       inPtr,
         int               inLen,
@@ -122,16 +125,14 @@ public:
         char*             inSessionKeyPtr,
         int               inMaxSessionKeyLength,
         string*           outErrMsgPtr,
-        const char*       inSubjectPtr = 0,
-        int               inSubjectLen = 0);
+        Subject*          inSubjectPtr = 0);
     ostream& Display(
         ostream& inStream) const;
     istream& Parse(
         istream&    inStream,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0);
+        Subject*    inSubjectPtr = 0);
     kfsUid_t GetUid() const
         { return mUid; }
     kfsUid_t GetSeq() const
@@ -149,13 +150,11 @@ public:
     bool Validate(
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0) const;
+        Subject*    inSubjectPtr = 0) const;
     string GetSessionKey(
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0) const;
+        Subject*    inSubjectPtr = 0) const;
     ShowToken Show() const
         { return ShowToken(*this); }
     ostream& ShowSelf(
@@ -163,8 +162,7 @@ public:
     string CalcSessionKey(
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr = 0,
-        int         inSubjectLen = 0) const;
+        Subject*    inSubjectPtr = 0) const;
     static bool WriteToken(
         IOBufferWriter& inWriter,
         kfsUid_t        inUid,
@@ -175,8 +173,7 @@ public:
         uint32_t        inValidForSec,
         const char*     inKeyPtr,
         int             inKeyLen,
-        const char*     inSubjectPtr          = 0,
-        int             inSubjectLen          = 0,
+        Subject*        inSubjectPtr          = 0,
         bool            inWriteSessionKeyFlag = false,
         kfsKeyId_t      inSessionKeyKeyId     = kfsKeyId_t(),
         const char*     inSessionKeyKeyPtr    = 0,
@@ -191,8 +188,7 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr          = 0,
-        int         inSubjectLen          = 0,
+        Subject*    inSubjectPtr          = 0,
         bool        inWriteSessionKeyFlag = false,
         kfsKeyId_t  inSessionKeyKeyId     = kfsKeyId_t(),
         const char* inSessionKeyKeyPtr    = 0,
@@ -208,8 +204,7 @@ public:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr       = 0,
-        int         inSubjectLen       = 0,
+        Subject*    inSubjectPtr       = 0,
         kfsKeyId_t  inSessionKeyKeyId  = kfsKeyId_t(),
         const char* inSessionKeyKeyPtr = 0,
         int         inSessionKeyKeyLen = 0)
@@ -225,7 +220,6 @@ public:
             inKeyPtr,
             inKeyLen,
             inSubjectPtr,
-            inSubjectLen,
             true,
             inSessionKeyKeyId,
             inSessionKeyKeyPtr,
@@ -265,8 +259,7 @@ private:
         uint32_t    inValidForSec,
         const char* inKeyPtr,
         int         inKeyLen,
-        const char* inSubjectPtr,
-        int         inSubjectLen,
+        Subject*    inSubjectPtr,
         bool        inWriteSessionKeyFlag,
         kfsKeyId_t  inSessionKeyKeyId,
         const char* inSessionKeyKeyPtr,

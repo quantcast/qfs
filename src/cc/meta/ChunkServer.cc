@@ -1596,7 +1596,6 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
                 key.GetPtr(),
                 key.GetSize(),
                 0, // Subject pointer
-                0, // Subject length
                 keyKeyId,
                 0 < i ? keyKey.GetPtr()  : 0,
                 0 < i ? keyKey.GetSize() : 0

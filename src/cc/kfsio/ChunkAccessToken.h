@@ -47,7 +47,8 @@ public:
     enum {
         kAllowReadFlag      = 0x100,
         kAllowWriteFlag     = 0x200,
-        kAllowClearTextFlag = 0x400
+        kAllowClearTextFlag = 0x400,
+        kUsesWriteIdFlag    = 0x800
     };
     class ShowToken
     {
@@ -76,14 +77,16 @@ public:
         uint16_t     inFlags,
         uint32_t     inValidForSec,
         const char*  inKeyPtr,
-        int          inKeyLen);
+        int          inKeyLen,
+        int64_t      inWriteId = -1);
     bool Process(
         kfsChunkId_t      inChunkId,
         const char*       inBufPtr,
         int               inBufLen,
         int64_t           inTimeNowSec,
         const CryptoKeys& inKeys,
-        string*           outErrMsgPtr);
+        string*           outErrMsgPtr,
+        int64_t           inWriteId = -1);
     bool Process(
         kfsChunkId_t      inChunkId,
         kfsUid_t          inUid,
@@ -91,7 +94,8 @@ public:
         int               inBufLen,
         int64_t           inTimeNowSec,
         const CryptoKeys& inKeys,
-        string*           outErrMsgPtr);
+        string*           outErrMsgPtr,
+        int64_t           inWriteId = -1);
     ShowToken Show() const
         { return ShowToken(*this); }
     ostream& ShowSelf(
@@ -111,7 +115,8 @@ public:
         uint16_t        inFlags,
         uint32_t        inValidForSec,
         const char*     inKeyPtr,
-        int             inKeyLen);
+        int             inKeyLen,
+        int64_t         inWriteId = -1);
     static bool WriteToken(
         ostream&     inSteram,
         kfsChunkId_t inChunkId,
@@ -122,7 +127,8 @@ public:
         uint16_t     inFlags,
         uint32_t     inValidForSec,
         const char*  inKeyPtr,
-        int          inKeyLen);
+        int          inKeyLen,
+        int64_t      inWriteId = -1);
 private:
     kfsChunkId_t    mChunkId;
     DelegationToken mDelegationToken;

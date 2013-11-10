@@ -120,39 +120,41 @@ static inline ostream& operator << (
 class DelegationToken::WorkBuf
 {
 public:
+    typedef DelegationToken::Subject Subject;
     WorkBuf()
         {}
     bool SerializeAndSign(
         const DelegationToken& inToken,
         const char*            inKeyPtr,
         int                    inKeyLen,
-        const char*            inSubjectPtr,
-        int                    inSubjectLen,
+        Subject*               inSubjectPtr,
         char*                  inSignBufPtr)
     {
         Serialize(inToken);
-        return Sign(inKeyPtr, inKeyLen, inSubjectPtr, inSubjectLen,
-            inSignBufPtr);
+        return Sign(inToken, inKeyPtr, inKeyLen, inSubjectPtr, inSignBufPtr);
     }
     bool Sign(
-        const char* inKeyPtr,
-        int         inKeyLen,
-        const char* inSubjectPtr,
-        int         inSubjectLen,
-        char*       inSignBufPtr,
-        string*     inErrMsgPtr = 0)
+        const DelegationToken& inToken,
+        const char*            inKeyPtr,
+        int                    inKeyLen,
+        Subject*               inSubjectPtr,
+        char*                  inSignBufPtr,
+        string*                inErrMsgPtr = 0)
     {
+        const char* theSubjectPtr = 0;
+        const int   theSubjectLen = inSubjectPtr ?
+            inSubjectPtr->Get(inToken, theSubjectPtr) : 0;
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
         unsigned int theLen = 0;
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
         const bool theRetFlag = true;
         HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0);
-        if (0 < inSubjectLen) {
+        if (0 < theSubjectLen) {
             HMAC_Update(
                 &theCtx,
-                reinterpret_cast<const unsigned char*>(inSubjectPtr),
-                inSubjectLen
+                reinterpret_cast<const unsigned char*>(theSubjectPtr),
+                theSubjectLen
             );
         }
         HMAC_Update(
@@ -168,11 +170,11 @@ public:
 #else
         const bool theRetFlag =
             HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0) &&
-            (inSubjectLen <= 0 ||
+            (theSubjectLen <= 0 ||
                 HMAC_Update(
                     &theCtx,
-                    reinterpret_cast<const unsigned char*>(inSubjectPtr),
-                    inSubjectLen
+                    reinterpret_cast<const unsigned char*>(theSubjectPtr),
+                    theSubjectLen
                 )) &&
             HMAC_Update(
                 &theCtx,
@@ -281,8 +283,7 @@ public:
         const char*            inSignaturePtr,
         const char*            inKeyPtr,
         int                    inKeyLen,
-        const char*            inSubjectPtr,
-        int                    inSubjectLen,
+        Subject*               inSubjectPtr,
         char*                  inKeyBufferPtr,
         int                    inMaxKeyLen,
         string*                outKeyPtr,
@@ -291,10 +292,10 @@ public:
         Serialize(inToken);
         memcpy(mBuffer + kTokenFiledsSize, inSignaturePtr, kSignatureLength);
         return MakeSessionKey(
+            inToken,
             inKeyPtr,
             inKeyLen,
             inSubjectPtr,
-            inSubjectLen,
             inKeyBufferPtr,
             inMaxKeyLen,
             outKeyPtr,
@@ -302,21 +303,21 @@ public:
         );
     }
     int MakeSessionKey(
-        const char* inKeyPtr,
-        int         inKeyLen,
-        const char* inSubjectPtr,
-        int         inSubjectLen,
-        char*       inKeyBufferPtr,
-        int         inMaxKeyLen,
-        string*     outKeyPtr,
-        string*     outErrMsgPtr)
+        const DelegationToken& inToken,
+        const char*            inKeyPtr,
+        int                    inKeyLen,
+        Subject*               inSubjectPtr,
+        char*                  inKeyBufferPtr,
+        int                    inMaxKeyLen,
+        string*                outKeyPtr,
+        string*                outErrMsgPtr)
     {
         IOBufferWriter* const theWriterPtr = 0;
         return MakeSessionKey(
+            inToken,
             inKeyPtr,
             inKeyLen,
             inSubjectPtr,
-            inSubjectLen,
             kfsKeyId_t(),
             0,
             0,
@@ -329,29 +330,22 @@ public:
     }
     template<typename T>
     int MakeSessionKey(
-        const char*     inKeyPtr,
-        int             inKeyLen,
-        const char*     inSubjectPtr,
-        int             inSubjectLen,
-        kfsKeyId_t      inSessionKeyKeyId,
-        const char*     inSessionKeyKeyPtr,
-        int             inSessionKeyKeyLen,
-        char*           inKeyBufferPtr,
-        int             inMaxKeyLen,
-        string*         outKeyPtr,
-        string*         outErrMsgPtr,
-        T*              inWriterPtr)
+        const DelegationToken& inToken,
+        const char*            inKeyPtr,
+        int                    inKeyLen,
+        Subject*               inSubjectPtr,
+        kfsKeyId_t             inSessionKeyKeyId,
+        const char*            inSessionKeyKeyPtr,
+        int                    inSessionKeyKeyLen,
+        char*                  inKeyBufferPtr,
+        int                    inMaxKeyLen,
+        string*                outKeyPtr,
+        string*                outErrMsgPtr,
+        T*                     inWriterPtr)
     {
         if (! inKeyPtr || inKeyLen <= 0) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid key: " << (void*)inKeyPtr << " len: " << inKeyLen <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        if (0 < inSubjectLen && ! inSubjectPtr) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid subject: " << (void*)inSubjectPtr <<
-                " len: " << inSubjectLen <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -367,8 +361,11 @@ public:
             }
             return -EFAULT;
         }
-        if ( (0 < inSubjectLen &&
-                ! EVP_DigestUpdate(&theCtx, inSubjectPtr, inSubjectLen)) ||
+        const char* theSubjectPtr = 0;
+        const int   theSubjectLen = inSubjectPtr ? inSubjectPtr->Get(
+            inToken, theSubjectPtr) : 0;
+        if ( (0 < theSubjectLen &&
+                ! EVP_DigestUpdate(&theCtx, theSubjectPtr, theSubjectLen)) ||
                 ! EVP_DigestUpdate(&theCtx, mBuffer, kTokenSize) ||
                 ! EVP_DigestUpdate(&theCtx, inKeyPtr, inKeyLen)) {
             if (outErrMsgPtr) {
@@ -459,13 +456,12 @@ public:
         const char*            inSignaturePtr,
         const char*            inKeyPtr,
         int                    inKeyLen,
-        const char*            inSubjectPtr,
-        int                    inSubjectLen)
+        Subject*               inSubjectPtr)
     {
         string theRet;
         MakeSessionKey(
             inToken, inSignaturePtr, inKeyPtr, inKeyLen,
-            inSubjectPtr, inSubjectLen, 0, 0, &theRet, 0);
+            inSubjectPtr, 0, 0, &theRet, 0);
         return theRet;
     }
     static int MakeIv(
@@ -785,16 +781,15 @@ private:
 };
 
 DelegationToken::DelegationToken(
-    kfsUid_t    inUid,
-    TokenSeq    inSeq,
-    kfsKeyId_t  inKeyId,
-    int64_t     inIssuedTime,
-    uint16_t    inFlags,
-    uint32_t    inValidForSec,
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen)
+    kfsUid_t                  inUid,
+    TokenSeq                  inSeq,
+    kfsKeyId_t                inKeyId,
+    int64_t                   inIssuedTime,
+    uint16_t                  inFlags,
+    uint32_t                  inValidForSec,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr)
     : mUid(inUid),
       mSeq(inSeq),
       mKeyId(inKeyId),
@@ -806,23 +801,22 @@ DelegationToken::DelegationToken(
     }
     WorkBuf theBuf;
     if (! theBuf.SerializeAndSign(*this, inKeyPtr, inKeyLen,
-            inSubjectPtr, inSubjectLen, mSignature)) {
+            inSubjectPtr, mSignature)) {
         mValidForSec = 0;
     }
 }
 
     bool
 DelegationToken::Init(
-    kfsUid_t    inUid,
-    TokenSeq    inSeq,
-    kfsKeyId_t  inKeyId,
-    int64_t     inIssueTime,
-    uint16_t    inFlags,
-    uint32_t    inValidForSec,
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen)
+    kfsUid_t                  inUid,
+    TokenSeq                  inSeq,
+    kfsKeyId_t                inKeyId,
+    int64_t                   inIssueTime,
+    uint16_t                  inFlags,
+    uint32_t                  inValidForSec,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr)
 {
     mUid                = inUid;
     mSeq                = inSeq;
@@ -834,7 +828,7 @@ DelegationToken::Init(
     }
     WorkBuf theBuf;
     return theBuf.SerializeAndSign(*this, inKeyPtr, inKeyLen,
-        inSubjectPtr, inSubjectLen, mSignature);
+        inSubjectPtr, mSignature);
 }
 
     string
@@ -846,26 +840,24 @@ DelegationToken::ToString()
 
     bool
 DelegationToken::FromString(
-    const string& inString,
-    const char*   inKeyPtr,
-    int           inKeyLen,
-    const char*   inSubjectPtr,
-    int           inSubjectLen)
+    const string&             inString,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr)
 {
     return FromString(
         inString.data(), (int)inString.size(), inKeyPtr, inKeyLen,
-        inSubjectPtr, inSubjectLen
+        inSubjectPtr
     );
 }
 
     bool
 DelegationToken::FromString(
-    const char* inPtr,
-    int         inLen,
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen)
+    const char*               inPtr,
+    int                       inLen,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr)
 {
     WorkBuf theBuf;
     if (! theBuf.FromBase64(*this, inPtr, inLen)) {
@@ -873,23 +865,22 @@ DelegationToken::FromString(
     }
     char theSignature[kSignatureLength];
     return (! inKeyPtr || inKeyLen <= 0 ||
-        (theBuf.Sign(inKeyPtr, inKeyLen,
-            inSubjectPtr, inSubjectLen, theSignature) &&
+        (theBuf.Sign(*this, inKeyPtr, inKeyLen,
+            inSubjectPtr, theSignature) &&
         memcmp(theSignature, mSignature, kSignatureLength) == 0)
     );
 }
 
     int
 DelegationToken::Process(
-    const char*       inPtr,
-    int               inLen,
-    int64_t           inTimeNowSec,
-    const CryptoKeys& inKeys,
-    char*             inSessionKeyPtr,
-    int               inMaxSessionKeyLength,
-    string*           outErrMsgPtr,
-    const char*       inSubjectPtr,
-    int               inSubjectLen)
+    const char*               inPtr,
+    int                       inLen,
+    int64_t                   inTimeNowSec,
+    const CryptoKeys&         inKeys,
+    char*                     inSessionKeyPtr,
+    int                       inMaxSessionKeyLength,
+    string*                   outErrMsgPtr,
+    DelegationToken::Subject* inSubjectPtr)
 {
     WorkBuf theBuf;
     if (! theBuf.FromBase64(*this, inPtr, inLen)) {
@@ -927,10 +918,10 @@ DelegationToken::Process(
     }
     char theSignature[kSignatureLength];
     if (! theBuf.Sign(
+            *this,
             theKey.GetPtr(),
             theKey.GetSize(),
             inSubjectPtr,
-            inSubjectLen,
             theSignature,
             outErrMsgPtr)) {
         return false;
@@ -942,10 +933,10 @@ DelegationToken::Process(
         return false;
     }
     return (inMaxSessionKeyLength < 0 || theBuf.MakeSessionKey(
+        *this,
         theKey.GetPtr(),
         theKey.GetSize(),
         inSubjectPtr,
-        inSubjectLen,
         inSessionKeyPtr,
         inMaxSessionKeyLength,
         0,
@@ -963,15 +954,14 @@ DelegationToken::Display(
 
     istream&
 DelegationToken::Parse(
-    istream&    inStream,
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen)
+    istream&                  inStream,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr)
 {
     string theStr;
     if ((inStream >> theStr) && ! FromString(theStr, inKeyPtr, inKeyLen,
-            inSubjectPtr, inSubjectLen)) {
+            inSubjectPtr)) {
         inStream.setstate(ostream::failbit);
     }
     return inStream;
@@ -979,27 +969,25 @@ DelegationToken::Parse(
 
     bool
 DelegationToken::Validate(
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen) const
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr) const
 {
     char theSignBuf[kSignatureLength];
     WorkBuf theBuf;
-    theBuf.Sign(inKeyPtr, inKeyLen, inSubjectPtr, inSubjectLen, theSignBuf);
+    theBuf.Sign(*this, inKeyPtr, inKeyLen, inSubjectPtr, theSignBuf);
     return (memcmp(mSignature, theSignBuf, kSignatureLength) == 0);
 }
 
     string
 DelegationToken::CalcSessionKey(
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen) const
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr) const
 {
     WorkBuf theBuf;
     return theBuf.GetSessionKey(*this, mSignature, inKeyPtr, inKeyLen,
-        inSubjectPtr, inSubjectLen);
+        inSubjectPtr);
 }
 
     ostream&
@@ -1027,21 +1015,20 @@ DelegationToken:: ShowSelf(
 
     /* static */ template<typename T> bool
 DelegationToken::WriteTokenSelf(
-    T&              inWriter,
-    kfsUid_t        inUid,
-    TokenSeq        inSeq,
-    kfsKeyId_t      inKeyId,
-    int64_t         inIssuedTime,
-    uint16_t        inFlags,
-    uint32_t        inValidForSec,
-    const char*     inKeyPtr,
-    int             inKeyLen,
-    const char*     inSubjectPtr,
-    int             inSubjectLen,
-    bool            inWriteSessionKeyFlag,
-    kfsKeyId_t      inSessionKeyKeyId,
-    const char*     inSessionKeyKeyPtr,
-    int             inSessionKeyKeyLen)
+    T&                        inWriter,
+    kfsUid_t                  inUid,
+    TokenSeq                  inSeq,
+    kfsKeyId_t                inKeyId,
+    int64_t                   inIssuedTime,
+    uint16_t                  inFlags,
+    uint32_t                  inValidForSec,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr,
+    bool                      inWriteSessionKeyFlag,
+    kfsKeyId_t                inSessionKeyKeyId,
+    const char*               inSessionKeyKeyPtr,
+    int                       inSessionKeyKeyLen)
 {
     if (inValidForSec <= 0 || ! inKeyPtr || inKeyLen <= 0) {
         return false;
@@ -1058,7 +1045,7 @@ DelegationToken::WriteTokenSelf(
     );
     WorkBuf theBuf;
     if (! theBuf.SerializeAndSign(theToken, inKeyPtr, inKeyLen,
-            inSubjectPtr, inSubjectLen, theToken.mSignature)) {
+            inSubjectPtr, theToken.mSignature)) {
         theToken.mValidForSec = 0;
         return false;
     }
@@ -1074,10 +1061,10 @@ DelegationToken::WriteTokenSelf(
     string* const theKeyPtr       = 0;
     string* const theErrMsgPtr    = 0;
     return (theBuf.MakeSessionKey(
+        theToken,
         inKeyPtr,
         inKeyLen,
         inSubjectPtr,
-        inSubjectLen,
         inSessionKeyKeyId,
         inSessionKeyKeyPtr,
         inSessionKeyKeyLen,
@@ -1091,21 +1078,20 @@ DelegationToken::WriteTokenSelf(
 
     /* static */ bool
 DelegationToken::WriteToken(
-    IOBufferWriter& inWriter,
-    kfsUid_t        inUid,
-    TokenSeq        inSeq,
-    kfsKeyId_t      inKeyId,
-    int64_t         inIssuedTime,
-    uint16_t        inFlags,
-    uint32_t        inValidForSec,
-    const char*     inKeyPtr,
-    int             inKeyLen,
-    const char*     inSubjectPtr,
-    int             inSubjectLen,
-    bool            inWriteSessionKeyFlag,
-    kfsKeyId_t      inSessionKeyKeyId,
-    const char*     inSessionKeyKeyPtr,
-    int             inSessionKeyKeyLen)
+    IOBufferWriter&           inWriter,
+    kfsUid_t                  inUid,
+    TokenSeq                  inSeq,
+    kfsKeyId_t                inKeyId,
+    int64_t                   inIssuedTime,
+    uint16_t                  inFlags,
+    uint32_t                  inValidForSec,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr,
+    bool                      inWriteSessionKeyFlag,
+    kfsKeyId_t                inSessionKeyKeyId,
+    const char*               inSessionKeyKeyPtr,
+    int                       inSessionKeyKeyLen)
 {
     return WriteTokenSelf(
         inWriter,
@@ -1118,7 +1104,6 @@ DelegationToken::WriteToken(
         inKeyPtr,
         inKeyLen,
         inSubjectPtr,
-        inSubjectLen,
         inWriteSessionKeyFlag,
         inSessionKeyKeyId,
         inSessionKeyKeyPtr,
@@ -1147,21 +1132,20 @@ private:
 
     /* static */ bool
 DelegationToken::WriteToken(
-    ostream&    inStream,
-    kfsUid_t    inUid,
-    TokenSeq    inSeq,
-    kfsKeyId_t  inKeyId,
-    int64_t     inIssuedTime,
-    uint16_t    inFlags,
-    uint32_t    inValidForSec,
-    const char* inKeyPtr,
-    int         inKeyLen,
-    const char* inSubjectPtr,
-    int         inSubjectLen,
-    bool        inWriteSessionKeyFlag,
-    kfsKeyId_t  inSessionKeyKeyId,
-    const char* inSessionKeyKeyPtr,
-    int         inSessionKeyKeyLen)
+    ostream&                  inStream,
+    kfsUid_t                  inUid,
+    TokenSeq                  inSeq,
+    kfsKeyId_t                inKeyId,
+    int64_t                   inIssuedTime,
+    uint16_t                  inFlags,
+    uint32_t                  inValidForSec,
+    const char*               inKeyPtr,
+    int                       inKeyLen,
+    DelegationToken::Subject* inSubjectPtr,
+    bool                      inWriteSessionKeyFlag,
+    kfsKeyId_t                inSessionKeyKeyId,
+    const char*               inSessionKeyKeyPtr,
+    int                       inSessionKeyKeyLen)
 {
     OstreamWriter theWriter(inStream);
     return WriteTokenSelf(
@@ -1175,7 +1159,6 @@ DelegationToken::WriteToken(
         inKeyPtr,
         inKeyLen,
         inSubjectPtr,
-        inSubjectLen,
         inWriteSessionKeyFlag,
         inSessionKeyKeyId,
         inSessionKeyKeyPtr,

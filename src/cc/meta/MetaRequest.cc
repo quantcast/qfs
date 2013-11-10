@@ -4176,7 +4176,6 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
                 ptr->key.GetPtr(),
                 ptr->key.GetSize(),
                 0, // Subject pointer
-                0, // Subject length
                 prev ? prev->keyId         : kfsKeyId_t(),
                 prev ? prev->key.GetPtr()  : 0,
                 prev ? prev->key.GetSize() : 0
