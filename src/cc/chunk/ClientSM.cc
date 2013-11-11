@@ -1273,6 +1273,20 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
             }
             break;
     }
+    if ((op.chunkAccessFlags & ChunkAccessToken::kUsesLeaseIdFlag) != 0 ||
+            ((op.chunkAccessFlags &
+                ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            op.op != CMD_WRITE_PREPARE &&
+            op.op != CMD_WRITE_SYNC    &&
+            op.op != CMD_RECORD_APPEND &&
+            op.op != CMD_SPC_RESERVE   &&
+            op.op != CMD_SPC_RELEASE   &&
+            op.op != CMD_GET_RECORD_APPEND_STATUS)) {
+        op.statusMsg = "chunk access:"
+            " no write or lease id subject allowed";
+        op.status    = -EPERM;
+        return false;
+    }
     return true;
 }
 

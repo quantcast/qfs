@@ -924,7 +924,12 @@ CloseOp::Execute()
     int64_t        writeId       = -1;
     bool           needToForward = needToForwardToPeer(
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
-    if (! gAtomicRecordAppendManager.CloseChunk(
+    if (chunkAccessTokenValidFlag && hasWriteId &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+    } else if (! gAtomicRecordAppendManager.CloseChunk(
             this, writeId, needToForward)) {
         // forward the close only if it was accepted by the chunk
         // manager.  the chunk manager can reject a close if the
@@ -1939,8 +1944,16 @@ WritePrepareOp::Execute()
         gLogger.Submit(this);
         return;
     }
-    const bool writeMaster = (myPos == 0);
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+        gLogger.Submit(this);
+        return;
+    }
 
+    const bool writeMaster = (myPos == 0);
     if (! gChunkManager.IsValidWriteId(writeId)) {
         statusMsg = "invalid write id";
         status = -EINVAL;
@@ -2096,8 +2109,16 @@ WriteSyncOp::Execute()
         gLogger.Submit(this);
         return;
     }
-    writeMaster = myPos == 0;
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+        gLogger.Submit(this);
+        return;
+    }
 
+    writeMaster = myPos == 0;
     writeOp = gChunkManager.CloneWriteOp(writeId);
     if (! writeOp) {
         status    = -EINVAL;
@@ -2317,13 +2338,28 @@ RecordAppendOp::Execute()
     int myPos = -1;
 
     needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+        gLogger.Submit(this);
+        return;
+    }
     gAtomicRecordAppendManager.AppendBegin(this, myPos, peerLoc);
 }
 
 void
 GetRecordAppendOpStatus::Execute()
 {
-    gAtomicRecordAppendManager.GetOpStatus(this);
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+    } else {
+        gAtomicRecordAppendManager.GetOpStatus(this);
+    }
     gLogger.Submit(this);
 }
 
@@ -2341,6 +2377,14 @@ ChunkSpaceReserveOp::Execute()
     int myPos = -1;
 
     needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+        gLogger.Submit(this);
+        return;
+    }
     if (myPos == 0) {
         status = gAtomicRecordAppendManager.ChunkSpaceReserve(
                 chunkId, writeId, nbytes, &statusMsg);
@@ -2375,6 +2419,14 @@ ChunkSpaceReleaseOp::Execute()
     int myPos = -1;
 
     needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            subjectId != writeId) {
+        status    = -EPERM;
+        statusMsg = "access token write access mismatch";
+        gLogger.Submit(this);
+        return;
+    }
     size_t rsvd = 0;
     if (myPos == 0) {
         ClientSM* const client = GetClientSM();
