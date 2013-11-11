@@ -125,7 +125,9 @@ public:
             bool                  append,
             bool                  stripedFile,
             const MetaAllocate*   alloc,
-            time_t                exp)
+            time_t                exp,
+            kfsUid_t              euid,
+            kfsGid_t              egid)
             : ReadLease(i, exp),
               chunkVersion(cvers),
               chunkServer(c),
@@ -134,7 +136,9 @@ public:
               stripedFileFlag(stripedFile),
               relinquishedFlag(false),
               ownerWasDownFlag(false),
-              allocInFlight(alloc)
+              allocInFlight(alloc),
+              euser(euid),
+              egroup(egid)
             {}
         WriteLease(const WriteLease& lease)
             : ReadLease(lease),
@@ -145,7 +149,9 @@ public:
               stripedFileFlag(lease.stripedFileFlag),
               relinquishedFlag(lease.relinquishedFlag),
               ownerWasDownFlag(lease.ownerWasDownFlag),
-              allocInFlight(lease.allocInFlight)
+              allocInFlight(lease.allocInFlight),
+              euser(lease.euser),
+              egroup(lease.egroup)
             {}
         void ResetServer()
             { const_cast<ChunkServerPtr&>(chunkServer).reset(); }
@@ -160,6 +166,8 @@ public:
         bool                 relinquishedFlag:1;
         bool                 ownerWasDownFlag:1;
         const MetaAllocate*  allocInFlight;
+        kfsUid_t             euser;
+        kfsGid_t             egroup;
     };
 
     ChunkLeases();
@@ -194,14 +202,17 @@ public:
         bool                  append,
         bool                  stripedFileFlag,
         const MetaAllocate*   allocInFlight,
-        LeaseId&              leaseId);
+        LeaseId&              leaseId,
+        kfsUid_t              euser,
+        kfsGid_t              egroup);
     inline bool DeleteWriteLease(
         chunkId_t chunkId,
         LeaseId   leaseId);
     inline int Renew(
-        chunkId_t       chunkId,
-        LeaseId         leaseId,
-        bool            allocDoneFlag = false);
+        chunkId_t        chunkId,
+        LeaseId          leaseId,
+        bool             allocDoneFlag = false,
+        const MetaFattr* fattr         = 0);
     inline bool Delete(chunkId_t chunkId);
     inline bool ExpiredCleanup(
         chunkId_t      chunkId,

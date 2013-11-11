@@ -348,7 +348,9 @@ ChunkLeases::ChunkLeases()
             false,
             false,
             0,
-            time_t()
+            time_t(),
+            kKfsUserNone,
+            kKfsGroupNone
     )),
     mCurWEntry(&mWExpirationList)
 {}
@@ -886,7 +888,9 @@ ChunkLeases::NewWriteLease(
     bool                  append,
     bool                  stripedFileFlag,
     const MetaAllocate*   allocInFlight,
-    ChunkLeases::LeaseId& leaseId)
+    ChunkLeases::LeaseId& leaseId,
+    kfsUid_t              euser,
+    kfsGid_t              egroup)
 {
     if (mReadLeases.Find(chunkId)) {
         assert(! mWriteLeases.Find(chunkId));
@@ -901,7 +905,9 @@ ChunkLeases::NewWriteLease(
         append,
         stripedFileFlag,
         allocInFlight,
-        expires
+        expires,
+        euser,
+        egroup
     );
     bool insertedFlag = false;
     WEntry* const l = mWriteLeases.Insert(
@@ -918,7 +924,8 @@ inline int
 ChunkLeases::Renew(
     chunkId_t            chunkId,
     ChunkLeases::LeaseId leaseId,
-    bool                 allocDoneFlag /* = false */)
+    bool                 allocDoneFlag /* = false */,
+    const MetaFattr*     fa            /* = 0 */)
 {
     if (IsReadLease(leaseId)) {
         REntry* const rl = mReadLeases.Find(chunkId);
@@ -966,6 +973,10 @@ ChunkLeases::Renew(
     }
     if (allocDoneFlag) {
         wl.allocInFlight = 0;
+    }
+    if (fa && ! fa->CanWrite(wl.euser, wl.egroup)) {
+        Expire(*we, now);
+        return -EPERM;
     }
     if (! wl.allocInFlight) {
         Renew(*we, now);
@@ -4704,7 +4715,9 @@ LayoutManager::AllocateChunk(
             r->appendChunk,
             r->stripedFileFlag,
             r,
-            r->leaseId)) {
+            r->leaseId,
+            r->euser,
+            r->egroup)) {
         panic("failed to get write lease for a new chunk");
     }
 
@@ -5019,7 +5032,9 @@ LayoutManager::GetChunkWriteLease(MetaAllocate *r, bool &isNewLease)
             r->appendChunk,
             r->stripedFileFlag,
             r,
-            r->leaseId)) {
+            r->leaseId,
+            r->euser,
+            r->egroup)) {
         panic("failed to get write lease for a chunk");
     }
 
@@ -5573,14 +5588,17 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->statusMsg = "only chunk servers are allowed to renew write leases";
         return -EPERM;
     }
-    if (mVerifyAllOpsPermissionsFlag &&
-            ! (readLeaseFlag ?
-                cs->GetFattr()->CanRead(req->euser, req->egroup) :
-                cs->GetFattr()->CanWrite(req->euser, req->egroup))) {
+    if (mVerifyAllOpsPermissionsFlag && readLeaseFlag &&
+                ! cs->GetFattr()->CanRead(req->euser, req->egroup)) {
         req->statusMsg = "access denied";
         return -EACCES;
     }
-    const int ret = mChunkLeases.Renew(req->chunkId, req->leaseId);
+    const bool kAllocDoneFlag = false;
+    const int  ret            = mChunkLeases.Renew(req->chunkId, req->leaseId,
+        kAllocDoneFlag,
+        (cs && mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ?
+        cs->GetFattr() : 0
+    );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
         req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
