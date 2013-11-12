@@ -117,6 +117,10 @@ public:
     bool GetCurrentKey(
         KeyId& outKeyId,
         Key&   outKey) const;
+    bool GetCurrentKey(
+        KeyId&    outKeyId,
+        Key&      outKey,
+        uint32_t& outKeyValidForSec) const;
     bool IsCurrentKeyValid() const
     {
         KeyId theId;

@@ -150,7 +150,7 @@ public:
           mCurrentKey(),
           mCurrentKeyTime(mNetManager.Now()),
           mCurrentKeyValidFlag(false),
-          mKeyValidTime(2 * 60 * 60),
+          mKeyValidTime(4 * 60 * 60),
           mKeyChangePeriod(mKeyValidTime / 2),
           mNextKeyGenTime(mCurrentKeyTime +  mKeyChangePeriod),
           mNextTimerRunTime(mCurrentKeyTime - 3600),
@@ -197,6 +197,11 @@ public:
         const int theKeyChangePeriod = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "keyChangePeriodSec"), mKeyChangePeriod);
+        if (theKeyValidTime < 3 * theKeyChangePeriod / 2) {
+            outErrMsg = theParamName.GetPtr();
+            outErrMsg += ": invalid: greater 2/3 of keyValidTimeSec";
+            return -EINVAL;
+        }
         if (theKeyChangePeriod < k10Min / 2 ||
                 theKeyValidTime * (int64_t(10) << 10) < theKeyChangePeriod) {
             outErrMsg = theParamName.GetPtr();
@@ -232,6 +237,19 @@ public:
         if (mCurrentKeyValidFlag) {
             outKeyId = mCurrentKeyId;
             outKey   = mCurrentKey;
+        }
+        return mCurrentKeyValidFlag;
+    }
+    bool GetCurrentKey(
+         KeyId&    outKeyId,
+         Key&      outKey,
+         uint32_t& outKevValidForSec) const
+    {
+        QCStMutexLocker theLocker(mMutexPtr);
+        if (mCurrentKeyValidFlag) {
+            outKeyId          = mCurrentKeyId;
+            outKey            = mCurrentKey;
+            outKevValidForSec = (uint32_t)(mKeyValidTime - mKeyChangePeriod);
         }
         return mCurrentKeyValidFlag;
     }
@@ -582,6 +600,15 @@ CryptoKeys::GetCurrentKey(
     CryptoKeys::Key&   outKey) const
 {
     return mImpl.GetCurrentKey(outKeyId, outKey);
+}
+
+    bool
+CryptoKeys::GetCurrentKey(
+    CryptoKeys::KeyId& outKeyId,
+    CryptoKeys::Key&   outKey,
+    uint32_t&          outKeyValidForSec) const
+{
+    return mImpl.GetCurrentKey(outKeyId, outKey, outKeyValidForSec);
 }
 
     /* static */ bool
