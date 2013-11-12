@@ -194,7 +194,8 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mInFlightOpCount(0),
       mDevCliMgrAllocator(),
       mDataReceivedFlag(false),
-      mDelegationToken()
+      mDelegationToken(),
+      mSessionKey()
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
@@ -293,8 +294,12 @@ ClientSM::HandleRequest(int code, void* data)
 
     switch (code) {
     case EVENT_NET_READ: {
-        mDataReceivedFlag = mDataReceivedFlag ||
-            ! mNetConnection->GetInBuffer().IsEmpty();
+        if (! mDataReceivedFlag && ! mNetConnection->GetInBuffer().IsEmpty()) {
+            mDataReceivedFlag = true;
+            if (mNetConnection->GetFilter()) {
+                mSessionKey.clear(); // Not needed with encrypted connection.
+            }
+        }
         if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
@@ -801,13 +806,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "+seq: " << op->seq << " " << op->Show() <<
         KFS_LOG_EOM;
-        // Validate access if authentication is configured.
-        // Presently with authentication configured ssl handshake must complete
-        // successfully in order to get here, as handshake failure will result
-        // in connection error.
-        if (0 < mDelegationToken.GetValidForSec()) {
-            op->CheckAccess(*this);
-        }
+        op->CheckAccess(*this);
     }
     iobuf.Consume(cmdLen);
 
@@ -1178,8 +1177,10 @@ ClientSM::GetPsk(
     if (theKeyLen > 0) {
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "authentication succeeded: " <<
-            " delegation: "    << mDelegationToken.Show() <<
+            " delegation: " << mDelegationToken.Show() <<
         KFS_LOG_EOM;
+        mSessionKey.assign(
+            reinterpret_cast<const char*>(inPskBufferPtr), theKeyLen);
         return theKeyLen;
     }
     CLIENT_SM_LOG_STREAM_ERROR <<
@@ -1190,9 +1191,22 @@ ClientSM::GetPsk(
     return 0;
 }
 
+inline bool
+ClientSM::IsAccessEnforced() const
+{
+    // Validate access if authentication is configured.
+    // Presently with authentication configured ssl handshake must complete
+    // successfully in order to get here, as handshake failure will result
+    // in connection error.
+    return (0 < mDelegationToken.GetValidForSec());
+}
+
 bool
 ClientSM::CheckAccess(KfsOp& op)
 {
+    if (! IsAccessEnforced()) {
+        return true;
+    }
     if (mDelegationToken.GetValidForSec() <= 0) {
         op.statusMsg = "connection is not authenticated";
         op.status    = -EPERM;
@@ -1214,6 +1228,16 @@ ClientSM::CheckAccess(KfsOp& op)
 bool
 ClientSM::CheckAccess(KfsClientChunkOp& op)
 {
+    if (! IsAccessEnforced()) {
+        return true;
+    }
+    {
+        KfsOp& kfsOp = op;
+        if (! CheckAccess(kfsOp)) {
+            return false;
+        }
+    }
+
     if (! op.hasChunkAccessTokenFlag) {
         op.statusMsg = "chunk access: no chunk access token";
         op.status    = -EPERM;
@@ -1285,6 +1309,29 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
         op.statusMsg = "chunk access:"
             " no write or lease id subject allowed";
         op.status    = -EPERM;
+        return false;
+    }
+    return true;
+}
+
+bool
+ClientSM::CheckAccess(ChunkAccessRequestOp& op)
+{
+    KfsClientChunkOp& chunkOp = op;
+    if (! CheckAccess(chunkOp)) {
+        return false;
+    }
+    if (! op.createChunkAccessFlag && ! op.createChunkServerAccessFlag) {
+        return true;
+    }
+    if (mDelegationToken.GetValidForSec() <= 0) {
+        op.statusMsg = "invalid access request on non authenticated connection";
+        op.status    = -EINVAL;
+        return false;
+    }
+    if ((mDelegationToken.GetFlags() & DelegationToken::kChunkServerFlag) != 0) {
+        op.statusMsg = "invalid access request from chunk server";
+        op.status    = -EINVAL;
         return false;
     }
     return true;

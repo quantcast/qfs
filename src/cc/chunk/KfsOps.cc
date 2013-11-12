@@ -468,6 +468,93 @@ KfsClientChunkOp::CheckAccess(ClientSM& sm)
     return sm.CheckAccess(*this);
 }
 
+/* virtual */ bool
+ChunkAccessRequestOp::CheckAccess(ClientSM& sm)
+{
+    return sm.CheckAccess(*this);
+}
+
+void
+ChunkAccessRequestOp::WriteChunkAccessResponse(
+    ostream& os, int64_t subjectId, int accessTokenFlags)
+{
+    if (status < 0 ||
+            ! hasChunkAccessTokenFlag ||
+            ! chunkAccessTokenValidFlag) {
+        return;
+    }
+    const ClientSM* const csm = GetClientSM();
+    if (! csm) {
+        return;
+    }
+    const DelegationToken& token = csm->GetDelegationToken();
+    if (token.GetValidForSec() <= 0) {
+        return;
+    }
+    DelegationToken::TokenSeq tokenSeq = 0;
+    if (! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+        return;
+    }
+    CryptoKeys::KeyId keyId       = -1;;
+    CryptoKeys::Key   key;
+    uint32_t          validForSec = 0;
+    if (! gChunkManager.GetCryptoKeys().GetCurrentKey(
+            keyId, key, validForSec) || validForSec <= 0) {
+        return;
+    }
+    const time_t now = globalNetManager().Now();
+    os <<
+        "Acess-issued: " << now         << "\r\n"
+        "Aacess-time: "  << validForSec << "\r\n";
+    if (createChunkAccessFlag) {
+        os << "C-access: ";
+        ChunkAccessToken::WriteToken(
+            os,
+            chunkId,
+            token.GetUid(),
+            tokenSeq++,
+            keyId,
+            now,
+            (chunkAccessFlags & (
+                DelegationToken::kChunkServerFlag |
+                ChunkAccessToken::kAllowReadFlag |
+                ChunkAccessToken::kAllowWriteFlag |
+                ChunkAccessToken::kAllowClearTextFlag)) |
+                accessTokenFlags,
+            validForSec,
+            key.GetPtr(),
+            key.GetSize(),
+            subjectId
+        );
+        os << "\r\n";
+    }
+    if (createChunkServerAccessFlag) {
+        os << "CS-access: ";
+        // Session key must not be empty if communication is in clear text, in
+        // order to encrypt the newly issued session key.
+        // The ClientSM saves session key only for clear text sessions.
+        const string& sessionKey = csm->GetSessionKey();
+        DelegationToken::Subject* kSubjectPtr   = 0;
+        kfsKeyId_t                kSessionKeyId = 0;
+        DelegationToken::WriteTokenAndSessionKey(
+            os,
+            token.GetUid(),
+            tokenSeq,
+            keyId,
+            now,
+            (token.GetFlags() &  DelegationToken::kChunkServerFlag),
+            validForSec,
+            key.GetPtr(),
+            key.GetSize(),
+            kSubjectPtr,
+            kSessionKeyId,
+            sessionKey.data(),
+            sessionKey.size()
+        );
+        os << "\r\n";
+    }
+}
+
 typedef RequestHandler<KfsOp> ChunkRequestHandler;
 
 static ChunkRequestHandler&
@@ -2655,6 +2742,16 @@ KfsOp::Response(ostream &os)
 }
 
 void
+ChunkAccessRequestOp::Response(ostream &os)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
+    os << "\r\n";
+}
+
+void
 SizeOp::Response(ostream &os)
 {
     if (! OkHeader(this, os)) {
@@ -2714,6 +2811,7 @@ WriteIdAllocOp::Response(ostream &os)
     if (writePrepareReplyFlag) {
         os << "Write-prepare-reply: 1\r\n";
     }
+    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
     os << "Write-id: " << writeIdStr <<  "\r\n"
     "\r\n";
 }
@@ -2725,7 +2823,7 @@ WritePrepareOp::Response(ostream &os)
         // no reply for a prepare...the reply is covered by sync
         return;
     }
-    PutHeader(this, os) << "\r\n";
+    ChunkAccessRequestOp::Response(os);
 }
 
 void
@@ -2734,6 +2832,7 @@ RecordAppendOp::Response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
+    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
     os << "File-offset: " << fileOffset << "\r\n\r\n";
 }
 

@@ -128,6 +128,11 @@ public:
         { GrantedSelf(byteCount, false); }
     bool CheckAccess(KfsOp& op);
     bool CheckAccess(KfsClientChunkOp& op);
+    bool CheckAccess(ChunkAccessRequestOp& op);
+    const DelegationToken& GetDelegationToken() const
+        { return mDelegationToken; }
+    const string& GetSessionKey() const
+        { return mSessionKey; }
 private:
     typedef deque<KfsOp*> OpsQueue;
     // There is a dependency in waiting for a write-op to finish
@@ -254,6 +259,7 @@ private:
     DevClientMgrAllocator      mDevCliMgrAllocator;
     bool                       mDataReceivedFlag;
     DelegationToken            mDelegationToken;
+    string                     mSessionKey;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
@@ -282,6 +288,7 @@ private:
     inline static BufferManager* FindDevBufferManager(KfsOp& op);
     inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
     inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
+    inline bool IsAccessEnforced() const;
     bool FailIfExceedsWait(
         BufferManager&         bufMgr,
         BufferManager::Client* mgrCli);
