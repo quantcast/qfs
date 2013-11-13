@@ -150,7 +150,7 @@ public:
           mCurrentKey(),
           mCurrentKeyTime(mNetManager.Now()),
           mCurrentKeyValidFlag(false),
-          mKeyValidTime(4 * 60 * 60),
+          mKeyValidTime(4 * 60 * 60 + 2 * 60),
           mKeyChangePeriod(mKeyValidTime / 2),
           mNextKeyGenTime(mCurrentKeyTime +  mKeyChangePeriod),
           mNextTimerRunTime(mCurrentKeyTime - 3600),

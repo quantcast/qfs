@@ -1377,7 +1377,7 @@ LayoutManager::LayoutManager() :
     mCSAuthContext(kAllowPskFlag),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
-    mCSAccessValidForTime(2 * 60 * 60),
+    mCSAccessValidForTime(2 * 60 * 60 - 60),
     mFileRecoveryInFlightCount(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),

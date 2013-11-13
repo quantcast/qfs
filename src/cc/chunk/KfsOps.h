@@ -1220,8 +1220,6 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     uint32_t              checksum;   /* input: as computed by the sender; 0 means sender didn't send */
     StringBufT<256>       servers;    /* input: set of servers on which to write */
     bool                  replyRequestedFlag;
-    bool                  createChunkAccessFlag;
-    bool                  createChunkServerAccessFlag;
     int                   accessFwdLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
@@ -1294,8 +1292,6 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         .Def("Reply",             &WritePrepareOp::replyRequestedFlag)
         .Def("Access-fwd-length", &WritePrepareOp::accessFwdLength, 0)
         .Def("C-access-length",   &WritePrepareOp::chunkAccessLength)
-        .Def("C-access-req",      &WritePrepareOp::createChunkAccessFlag)
-        .Def("CS-access-req",     &WritePrepareOp::createChunkServerAccessFlag)
         ;
     }
 };
