@@ -101,6 +101,7 @@ public:
         int            inKeyDataSize,
         string*        outErrMsgPtr);
     int GetMaxAuthRetryCount() const;
+    bool IsChunkServerClearTextAllowed() const;
 private:
     Impl& mImpl;
     static void Dispose(

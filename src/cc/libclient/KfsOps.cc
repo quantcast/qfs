@@ -668,7 +668,11 @@ LeaseRenewOp::Request(ostream &os)
         "Chunk-handle: "  << chunkId           << "\r\n"
         "Lease-id: "      << leaseId           << "\r\n"
         "Lease-type: "       "READ_LEASE"         "\r\n"
-    "\r\n";
+    ;
+    if (getCSAccessFlag) {
+        os << "CS-access: 1\r\n";
+    }
+    os << "\r\n";
 }
 
 void

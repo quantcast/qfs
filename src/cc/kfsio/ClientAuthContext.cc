@@ -80,6 +80,7 @@ public:
           mAuthNoneEnabledFlag(false),
           mKrbAuthRequireSslFlag(false),
           mAuthRequiredFlag(false),
+          mAllowCSClearTextFlag(true),
           mMaxAuthRetryCount(3),
           mParams(),
           mKrbClientPtr(),
@@ -323,6 +324,17 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
+        const bool theAllowCSClearTextFlag = theParams.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+                "allowChunkServerClearText"), 1) != 0;
+        if (! theAllowCSClearTextFlag && (! theEnabledFlag ||
+                ! theAuthRequiredFlag || theAuthNoneEnabledFlag)) {
+            KFS_LOG_STREAM_ERROR <<
+                theParamName <<
+                    " is off, conflicts with " << theReqParamName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
         mMaxAuthRetryCount = max(1, theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("maxAuthRetries"),
             mMaxAuthRetryCount));
@@ -346,6 +358,8 @@ public:
         mPskKeyId              = thePskKeyId;
         mPskKey                = thePskKey;
         mEnabledFlag           = theEnabledFlag;
+        mAuthRequiredFlag      = theAuthRequiredFlag;
+        mAllowCSClearTextFlag  = theAllowCSClearTextFlag;
         return 0;
     }
     int Request(
@@ -505,6 +519,8 @@ public:
         }
         return inNetConnection.SetFilter(&theFilter, outErrMsgPtr);
     }
+    bool IsChunkServerClearTextAllowed() const
+        { return mAllowCSClearTextFlag; }
     bool IsEnabled() const
         { return mEnabledFlag; }
     int GetMaxAuthRetryCount() const
@@ -561,6 +577,7 @@ private:
     bool            mAuthNoneEnabledFlag;
     bool            mKrbAuthRequireSslFlag;
     bool            mAuthRequiredFlag;
+    bool            mAllowCSClearTextFlag;
     int             mMaxAuthRetryCount;
     Properties      mParams;
     KrbClientPtr    mKrbClientPtr;
@@ -790,6 +807,12 @@ ClientAuthContext::StartSsl(
 ClientAuthContext::IsEnabled() const
 {
     return mImpl.IsEnabled();
+}
+
+    bool
+ClientAuthContext::IsChunkServerClearTextAllowed() const
+{
+    return mImpl.IsChunkServerClearTextAllowed();
 }
 
     int

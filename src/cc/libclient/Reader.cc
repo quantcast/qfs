@@ -36,6 +36,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/ClientAuthContext.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
@@ -967,12 +968,20 @@ private:
             if (inOp.status == 0 && mLeaseExpireTime < Now()) {
                 inOp.status = kErrorLeaseExpired;
             }
+            if (inOp.status == 0 &&
+                    inOp.chunkServerAccessCount <= 0 &&
+                    mOuter.IsChunkServerClearTextAllowed()) {
+                inOp.status    = -EPERM;
+                inOp.statusMsg = "no chunk server access with lease response";
+            }
             if (inOp.status != 0) {
                 mLeaseAcquireOp.leaseId = -1;
                 mLeaseRenewTime  = Now() - 1;
                 mLeaseExpireTime = mLeaseRenewTime;
                 HandleError(inOp);
                 return;
+            }
+            if (0 < inOp.contentLength) {
             }
             StartRead();
         }
@@ -2203,6 +2212,11 @@ private:
             new ReportInvalidChunkOp(inChunkId, inChunkVersion),
             0
         );
+    }
+    bool IsChunkServerClearTextAllowed()
+    {
+        ClientAuthContext* const theCtxPtr = mMetaServer.GetAuthContext();
+        return (! theCtxPtr || theCtxPtr->IsChunkServerClearTextAllowed());
     }
 private:
     Impl(

@@ -1089,21 +1089,25 @@ struct LeaseAcquireOp : public KfsOp {
 };
 
 struct LeaseRenewOp : public KfsOp {
-    kfsChunkId_t chunkId; // input
-    int64_t leaseId; // input
-    const char *pathname; // input
-    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const char *p) :
-        KfsOp(CMD_LEASE_RENEW, s), chunkId(c), leaseId(l), pathname(p)
-    {
-
-    }
-
+    kfsChunkId_t chunkId;  // input
+    int64_t      leaseId;  // input
+    const char*  pathname; // input
+    bool         getCSAccessFlag;
+    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const char* p)
+        : KfsOp(CMD_LEASE_RENEW, s),
+          chunkId(c),
+          leaseId(l),
+          pathname(p),
+          getCSAccessFlag(false)
+        {}
     void Request(ostream &os);
     // default parsing of status is sufficient
-
     string Show() const {
         ostringstream os;
-        os << "lease-renew: chunkid: " << chunkId << " leaseId: " << leaseId;
+        os <<
+            "lease-renew:"
+            " chunkid: " << chunkId <<
+            " leaseId: " << leaseId;
         return os.str();
     }
 };
