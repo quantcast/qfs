@@ -4111,6 +4111,9 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
             "CS-acess-issued: " << issuedTime   << "\r\n"
             "CS-acess-time: "   << validForTime << "\r\n";
     }
+    if (0 < count) {
+        os << "CS-access: " << count << "\r\n";
+    }
     IOBuffer                     iobuf;
     IntIOBufferWriter            writer(iobuf);
     const ChunkAccessInfo*       ptr = chunkAccess.GetPtr();

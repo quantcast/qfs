@@ -410,16 +410,20 @@ private:
               mLeaseRenewOp(0, -1, 0, ""),
               mLeaseRelinquishOp(0, -1, 0),
               mSizeOp(0, -1, 0),
+              mChunkServerAccess(),
+              mChunkAccess(),
               mLastOpPtr(0),
               mLastMetaOpPtr(0),
               mChunkServerIdx(0),
               mLeaseRenewTime(Now() - 1),
               mLeaseExpireTime(mLeaseRenewTime),
               mLeaseWaitStartTime(0),
+              mChunkServerAccessExpires(0),
               mLeaseRetryCount(0),
               mSleepingFlag(false),
               mClosingFlag(false),
               mChunkServerSetFlag(false),
+              mNoCSKeyFlag(false),
               mStartReadRunningFlag(false),
               mRestartStartReadFlag(false),
               mLogPrefix(inLogPrefix),
@@ -749,16 +753,20 @@ private:
         LeaseRenewOp         mLeaseRenewOp;
         LeaseRelinquishOp    mLeaseRelinquishOp;
         SizeOp               mSizeOp;
+        ChunkServerAccess    mChunkServerAccess;
+        ChunkServerAccess    mChunkAccess;
         KfsOp*               mLastOpPtr;
         KfsOp*               mLastMetaOpPtr;
         size_t               mChunkServerIdx;
         time_t               mLeaseRenewTime;
         time_t               mLeaseExpireTime;
         time_t               mLeaseWaitStartTime;
+        time_t               mChunkServerAccessExpires;
         int                  mLeaseRetryCount;
         bool                 mSleepingFlag;
         bool                 mClosingFlag;
         bool                 mChunkServerSetFlag;
+        bool                 mNoCSKeyFlag;
         bool                 mStartReadRunningFlag;
         bool                 mRestartStartReadFlag;
         string const         mLogPrefix;
@@ -881,8 +889,37 @@ private:
             if (! mChunkServerSetFlag) {
                 QCASSERT(mChunkServerIdx < mGetAllocOp.chunkServers.size());
                 mChunkServerSetFlag = true;
-                mChunkServer.SetServer(
-                    mGetAllocOp.chunkServers[mChunkServerIdx]);
+                mNoCSKeyFlag        = false;
+                const ServerLocation& theLocation =
+                    mGetAllocOp.chunkServers[mChunkServerIdx];
+                mChunkServer.SetShutdownSsl(
+                    mLeaseAcquireOp.allowCSClearTextFlag &&
+                    mOuter.IsChunkServerClearTextAllowed()
+                );
+                if (mChunkServerAccess.IsEmpty()) {
+                    mChunkServer.SetKey(0, 0, 0, 0);
+                } else {
+                    CryptoKeys::Key theKey;
+                    const ChunkServerAccess::Entry* const thePtr =
+                        mChunkServerAccess.Get(
+                            theLocation,
+                            mGetAllocOp.chunkId,
+                            theKey
+                        );
+                    if (thePtr) {
+                        mChunkServer.SetKey(
+                            thePtr->chunkServerAccessId.mPtr,
+                            thePtr->chunkServerAccessId.mLen,
+                            theKey.GetPtr(),
+                            theKey.GetSize()
+                        );
+                    } else {
+                        mNoCSKeyFlag = true;
+                    }
+                }
+                if (! mNoCSKeyFlag) {
+                    mChunkServer.SetServer(theLocation);
+                }
             }
             if (mSizeOp.size < 0) {
                 GetChunkSize();
@@ -951,6 +988,10 @@ private:
             mLeaseAcquireOp.chunkId  = mGetAllocOp.chunkId;
             mLeaseAcquireOp.pathname = mGetAllocOp.filename.c_str();
             mLeaseAcquireOp.leaseId  = -1;
+            mLeaseAcquireOp.chunkAccessCount              = 0;
+            mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
+            mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
+            mLeaseAcquireOp.allowCSClearTextFlag          = false;
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
@@ -969,10 +1010,34 @@ private:
                 inOp.status = kErrorLeaseExpired;
             }
             if (inOp.status == 0 &&
-                    inOp.chunkServerAccessCount <= 0 &&
-                    mOuter.IsChunkServerClearTextAllowed()) {
+                    inOp.chunkAccessCount <= 0 &&
+                    ! mOuter.IsChunkServerClearTextAllowed()) {
                 inOp.status    = -EPERM;
                 inOp.statusMsg = "no chunk server access with lease response";
+            }
+            if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
+                const bool kHasChunkServerAccessFlag = true;
+                const int  kBufPos                   = 0;
+                const bool kOwnsBufferFlag           = true;
+                const int  theRet                    = mChunkServerAccess.Parse(
+                    inOp.chunkAccessCount,
+                    kHasChunkServerAccessFlag,
+                    inOp.chunkId,
+                    inOp.contentBuf,
+                    kBufPos,
+                    inOp.contentLength,
+                    kOwnsBufferFlag
+                );
+                inOp.ReleaseContentBuf();
+                if (theRet < 0) {
+                    inOp.status    = theRet;
+                    inOp.statusMsg = "invalid chunk access response";
+                } else if (0 < inOp.chunkServerAccessValidForTime) {
+                    mChunkServerAccessExpires =
+                        inOp.chunkServerAccessIssuedTime +
+                        inOp.chunkServerAccessValidForTime -
+                        LEASE_INTERVAL_SECS;
+                }
             }
             if (inOp.status != 0) {
                 mLeaseAcquireOp.leaseId = -1;
@@ -980,8 +1045,6 @@ private:
                 mLeaseExpireTime = mLeaseRenewTime;
                 HandleError(inOp);
                 return;
-            }
-            if (0 < inOp.contentLength) {
             }
             StartRead();
         }
@@ -996,11 +1059,18 @@ private:
             );
             CancelMetaOps();
             Reset(mLeaseRenewOp);
-            mLeaseRenewOp.chunkId  = mLeaseAcquireOp.chunkId;
-            mLeaseRenewOp.pathname = mGetAllocOp.filename.c_str();
-            mLeaseRenewOp.leaseId  = mLeaseAcquireOp.leaseId;
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
-            mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
+            const time_t theNow = Now();
+            mLeaseRenewOp.chunkId         = mLeaseAcquireOp.chunkId;
+            mLeaseRenewOp.pathname        = mGetAllocOp.filename.c_str();
+            mLeaseRenewOp.leaseId         = mLeaseAcquireOp.leaseId;
+            mLeaseRenewOp.getCSAccessFlag = ! mChunkServerAccess.IsEmpty() &&
+                mChunkServerAccessExpires <= theNow;
+            mLeaseRenewOp.chunkAccessCount              = 0;
+            mLeaseRenewOp.chunkServerAccessValidForTime = 0;
+            mLeaseRenewOp.chunkServerAccessIssuedTime   = 0;
+            mLeaseRenewOp.allowCSClearTextFlag          = false;
+            mLeaseExpireTime = theNow + LEASE_INTERVAL_SECS;
+            mLeaseRenewTime  = theNow + (LEASE_INTERVAL_SECS + 1) / 2;
             EnqueueMeta(mLeaseRenewOp);
         }
         void Done(
@@ -1011,6 +1081,40 @@ private:
             QCASSERT(&inOp == &mLeaseRenewOp && ! inBufferPtr);
             if (inCanceledFlag) {
                 return;
+            }
+            if (inOp.status == 0 &&
+                    inOp.chunkAccessCount <= 0 &&
+                    ! mOuter.IsChunkServerClearTextAllowed()) {
+                inOp.status    = -EPERM;
+                inOp.statusMsg = "no chunk server access with lease response";
+            }
+            if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
+                mChunkAccess.Clear();
+                const bool theHasChunkServerAccessFlag =
+                    0 < inOp.chunkServerAccessValidForTime;
+                const int  kBufPos                     = 0;
+                const bool kOwnsBufferFlag             = true;
+                const int  theRet                      =
+                    (theHasChunkServerAccessFlag ?
+                        mChunkServerAccess : mChunkAccess).Parse(
+                    inOp.chunkAccessCount,
+                    theHasChunkServerAccessFlag,
+                    inOp.chunkId,
+                    inOp.contentBuf,
+                    kBufPos,
+                    inOp.contentLength,
+                    kOwnsBufferFlag
+                );
+                inOp.ReleaseContentBuf();
+                if (theRet < 0) {
+                    inOp.status    = theRet;
+                    inOp.statusMsg = "invalid chunk access response";
+                } else if (theHasChunkServerAccessFlag) {
+                    mChunkServerAccessExpires =
+                        inOp.chunkServerAccessIssuedTime +
+                        inOp.chunkServerAccessValidForTime -
+                        LEASE_INTERVAL_SECS;
+                }
             }
             if (inOp.status != 0) {
                 mLeaseAcquireOp.leaseId = -1;
@@ -1435,7 +1539,15 @@ private:
         void Enqueue(
             KfsOp&    inOp,
             IOBuffer* inBufferPtr = 0)
-            { EnqueueSelf(inOp, inBufferPtr, &mChunkServer); }
+        {
+            if (mNoCSKeyFlag) {
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "no chunk server key";
+                OpDone(&inOp, false, inBufferPtr);
+            } else {
+                EnqueueSelf(inOp, inBufferPtr, &mChunkServer);
+            }
+        }
         void EnqueueMeta(
             KfsOp&    inOp,
             IOBuffer* inBufferPtr = 0)

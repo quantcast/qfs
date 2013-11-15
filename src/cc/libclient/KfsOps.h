@@ -1000,6 +1000,8 @@ public:
               chunkAccess()
             {}
     };
+    bool IsEmpty() const
+        { return mAccess.empty(); }
     const Entry* Get(
         const ServerLocation& location,
         kfsChunkId_t          chunkId,
@@ -1055,9 +1057,10 @@ struct LeaseAcquireOp : public KfsOp {
     bool          flushFlag;    // input
     int           leaseTimeout; // input
     int64_t       leaseId;      // output
-    int           chunkServerAccessCount;
+    int           chunkAccessCount;
     int64_t       chunkServerAccessValidForTime;
     int64_t       chunkServerAccessIssuedTime;
+    bool          allowCSClearTextFlag;
     kfsChunkId_t* chunkIds;
     int64_t*      leaseIds;
     bool          getChunkLocationsFlag;
@@ -1069,9 +1072,10 @@ struct LeaseAcquireOp : public KfsOp {
           flushFlag(false),
           leaseTimeout(-1),
           leaseId(-1),
-          chunkServerAccessCount(0),
+          chunkAccessCount(0),
           chunkServerAccessValidForTime(0),
           chunkServerAccessIssuedTime(0),
+          allowCSClearTextFlag(false),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)
@@ -1093,14 +1097,23 @@ struct LeaseRenewOp : public KfsOp {
     int64_t      leaseId;  // input
     const char*  pathname; // input
     bool         getCSAccessFlag;
+    int          chunkAccessCount;
+    int64_t      chunkServerAccessValidForTime;
+    int64_t      chunkServerAccessIssuedTime;
+    bool         allowCSClearTextFlag;
     LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const char* p)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
           leaseId(l),
           pathname(p),
-          getCSAccessFlag(false)
+          getCSAccessFlag(false),
+          chunkAccessCount(0),
+          chunkServerAccessValidForTime(0),
+          chunkServerAccessIssuedTime(0),
+          allowCSClearTextFlag(false)
         {}
     void Request(ostream &os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
     // default parsing of status is sufficient
     string Show() const {
         ostringstream os;

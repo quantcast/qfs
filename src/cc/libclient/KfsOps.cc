@@ -1149,6 +1149,19 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
             return;
         }
     }
+    chunkAccessCount              = prop.getValue("CS-access",       0);
+    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
+    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
+    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
+}
+
+void
+LeaseRenewOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    chunkAccessCount              = prop.getValue("CS-access", 0);
+    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
+    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
+    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
 }
 
 void
