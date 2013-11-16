@@ -239,15 +239,15 @@ public:
             theParamName.Truncate(theCurLen).Append("keyId"),
             string()
         );
-        const Properties::String* const theKeyHexPtr = theParams.getValue(
+        const Properties::String* const theKeyStrPtr = theParams.getValue(
             theParamName.Truncate(theCurLen).Append("key"));
         string thePskKey;
-        if (theKeyHexPtr) {
+        if (theKeyStrPtr) {
             StBufferT<char, 64> theKeyBuf;
             char* const thePtr = theKeyBuf.Resize(
-                Base64::GetMaxDecodedLength((int)theKeyHexPtr->GetSize()));
+                Base64::GetMaxDecodedLength((int)theKeyStrPtr->GetSize()));
             const int   theLen = Base64::Decode(
-                theKeyHexPtr->GetPtr(), theKeyHexPtr->GetSize(), thePtr);
+                theKeyStrPtr->GetPtr(), theKeyStrPtr->GetSize(), thePtr);
             if (theLen <= 0) {
                 const char* const kMsgPtr = "psk: invalid key encoding";
                 if (outErrMsgPtr) {
