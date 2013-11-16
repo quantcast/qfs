@@ -447,7 +447,7 @@ MetaServerSM::HandleRequest(int code, void* data)
                     iobuf.BytesConsumable() < mContentLength) {
                 break;
             }
-            if (mAuthOp) {
+            if (mAuthOp && 0 < mContentLength) {
                 HandleAuthResponse(iobuf);
                 break;
             }
