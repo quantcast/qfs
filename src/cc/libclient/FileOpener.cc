@@ -194,8 +194,7 @@ protected:
             InternalError("invalid op completion");
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "<- " << (inOpPtr ?
-                string("NULL operation completion?") : inOpPtr->Show()) <<
+            "<- " << (inOpPtr ? inOpPtr->Show() : kKfsNullOp.Show()) <<
             (inCanceledFlag ? " canceled" : "") <<
             " buffer: " << (void*)inBufferPtr <<
             "/" << (inBufferPtr ? inBufferPtr->BytesConsumable() : 0) <<

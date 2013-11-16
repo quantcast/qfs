@@ -411,14 +411,14 @@ private:
                 mWriteSyncOp.Request(inStream);
                 return true;
             }
-            virtual string Show() const
+            virtual ostream& ShowSelf(
+                ostream& inStream) const
             {
-                string theRet = mWritePrepareOp.Show();
+                inStream << mWritePrepareOp.Show();
                 if (! mWritePrepareOp.replyRequestedFlag) {
-                    theRet += " ";
-                    theRet += mWriteSyncOp.Show();
+                    inStream << " " << mWriteSyncOp.Show();
                 }
-                return theRet;
+                return inStream;
             }
             virtual void ParseResponseHeaderSelf(
                 const Properties& inProps)
@@ -1421,7 +1421,7 @@ private:
         IOBuffer* inBufferPtr)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "meta <- " << (inOpPtr ? inOpPtr->Show() : string("null")) <<
+            "meta <- " << (inOpPtr ? inOpPtr->Show() : kKfsNullOp.Show()) <<
             (inCanceledFlag ? " canceled" : "") <<
             " status: " << (inOpPtr ? inOpPtr->status : 0) <<
             " " << (inOpPtr ? inOpPtr->statusMsg : string()) <<

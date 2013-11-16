@@ -423,7 +423,7 @@ private:
               mSleepingFlag(false),
               mClosingFlag(false),
               mChunkServerSetFlag(false),
-              mNoCSKeyFlag(false),
+              mNoCSAccessFlag(false),
               mStartReadRunningFlag(false),
               mRestartStartReadFlag(false),
               mLogPrefix(inLogPrefix),
@@ -766,7 +766,7 @@ private:
         bool                 mSleepingFlag;
         bool                 mClosingFlag;
         bool                 mChunkServerSetFlag;
-        bool                 mNoCSKeyFlag;
+        bool                 mNoCSAccessFlag;
         bool                 mStartReadRunningFlag;
         bool                 mRestartStartReadFlag;
         string const         mLogPrefix;
@@ -889,7 +889,7 @@ private:
             if (! mChunkServerSetFlag) {
                 QCASSERT(mChunkServerIdx < mGetAllocOp.chunkServers.size());
                 mChunkServerSetFlag = true;
-                mNoCSKeyFlag        = false;
+                mNoCSAccessFlag     = false;
                 const ServerLocation& theLocation =
                     mGetAllocOp.chunkServers[mChunkServerIdx];
                 mChunkServer.SetShutdownSsl(
@@ -898,6 +898,7 @@ private:
                 );
                 if (mChunkServerAccess.IsEmpty()) {
                     mChunkServer.SetKey(0, 0, 0, 0);
+                    mSizeOp.access.clear();
                 } else {
                     CryptoKeys::Key theKey;
                     const ChunkServerAccess::Entry* const thePtr =
@@ -913,11 +914,24 @@ private:
                             theKey.GetPtr(),
                             theKey.GetSize()
                         );
+                        if (mChunkAccess.IsEmpty()) {
+                            mSizeOp.access.assign(
+                                thePtr->chunkAccess.mPtr,
+                                thePtr->chunkAccess.mLen
+                            );
+                        } else {
+                            mSizeOp.access = mChunkAccess.GetChunkAccess(
+                                theLocation, mGetAllocOp.chunkId);
+                        }
+                        mNoCSAccessFlag = mSizeOp.access.empty();
                     } else {
-                        mNoCSKeyFlag = true;
+                        mNoCSAccessFlag = true;
                     }
                 }
-                if (! mNoCSKeyFlag) {
+                if (mNoCSAccessFlag) {
+                    mChunkServer.SetKey(0, 0, 0, 0);
+                    mSizeOp.access.clear();
+                } else {
                     mChunkServer.SetServer(theLocation);
                 }
             }
@@ -1090,13 +1104,14 @@ private:
             }
             if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
                 mChunkAccess.Clear();
-                const bool theHasChunkServerAccessFlag =
+                const bool         theHasChunkServerAccessFlag =
                     0 < inOp.chunkServerAccessValidForTime;
-                const int  kBufPos                     = 0;
-                const bool kOwnsBufferFlag             = true;
-                const int  theRet                      =
-                    (theHasChunkServerAccessFlag ?
-                        mChunkServerAccess : mChunkAccess).Parse(
+                const int          kBufPos                     = 0;
+                const bool         kOwnsBufferFlag             = true;
+                ChunkServerAccess& theAccess                   =
+                    theHasChunkServerAccessFlag ?
+                        mChunkServerAccess : mChunkAccess;
+                const int  theRet                              = theAccess.Parse(
                     inOp.chunkAccessCount,
                     theHasChunkServerAccessFlag,
                     inOp.chunkId,
@@ -1114,6 +1129,15 @@ private:
                         inOp.chunkServerAccessIssuedTime +
                         inOp.chunkServerAccessValidForTime -
                         LEASE_INTERVAL_SECS;
+                }
+                if (inOp.status == 0) {
+                    string theChunkAccess = theAccess.GetChunkAccess(
+                        mChunkServer.GetServerLocation(), inOp.chunkId);
+                    // If chunk server disappeared / down let the read to
+                    // to discover that.
+                    if (! theChunkAccess.empty()) {
+                        mSizeOp.access.swap(theChunkAccess);
+                    }
                 }
             }
             if (inOp.status != 0) {
@@ -1151,12 +1175,13 @@ private:
             Queue::PushBack(mInFlightQueue, inReadOp);
             if (inReadOp.offset >= mSizeOp.size) {
                 QCASSERT(inReadOp.offset + inReadOp.numBytes <= CHUNKSIZE);
-                // Read after end of chunk.
+                // Read past end of chunk.
                 inReadOp.status    = 0;
                 inReadOp.statusMsg = "read offset past end of chunk";
                 Done(inReadOp, false, &inReadOp.mTmpBuffer);
                 return;
             }
+            inReadOp.access = mSizeOp.access;
             mOuter.mStats.mOpsReadCount++;
             Enqueue(inReadOp, &inReadOp.mTmpBuffer);
         }
@@ -1540,7 +1565,7 @@ private:
             KfsOp&    inOp,
             IOBuffer* inBufferPtr = 0)
         {
-            if (mNoCSKeyFlag) {
+            if (mNoCSAccessFlag) {
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "no chunk server key";
                 OpDone(&inOp, false, inBufferPtr);

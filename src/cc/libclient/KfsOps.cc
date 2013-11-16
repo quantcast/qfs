@@ -403,6 +403,7 @@ GetChunkMetadataOp::Request(ostream &os)
         "GET_CHUNK_METADATA\r\n" << ReqHeaders(*this)        <<
         "Chunk-handle: "         << chunkId                  << "\r\n"
         "Read-verify: "          << (readVerifyFlag ? 1 : 0) << "\r\n"
+        << Access() <<
     "\r\n";
 }
 
@@ -460,6 +461,7 @@ CloseOp::Request(ostream &os)
     os <<
         "CLOSE\r\n"      << ReqHeaders(*this) <<
         "Chunk-handle: " << chunkId           << "\r\n"
+        << Access()
     ;
     if (! writeInfo.empty()) {
         os <<
@@ -530,6 +532,7 @@ ChunkSpaceReserveOp::Request(ostream &os)
         "Chunk-version: "         << chunkVersion      << "\r\n"
         "Num-bytes: "             << numBytes          << "\r\n"
         "Num-servers: "           << writeInfo.size()  << "\r\n"
+        << Access() <<
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
@@ -548,6 +551,7 @@ ChunkSpaceReleaseOp::Request(ostream &os)
         "Chunk-version: "         << chunkVersion      << "\r\n"
         "Num-bytes: "             << numBytes          << "\r\n"
         "Num-servers: "           << writeInfo.size()  << "\r\n"
+        << Access() <<
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
@@ -569,6 +573,7 @@ WritePrepareOp::Request(ostream &os)
         "Num-bytes: "        << numBytes          << "\r\n"
         "Checksum: "         << checksum          << "\r\n"
         "Checksum-entries: " << checksums.size()  << "\r\n"
+        << Access()
     ;
     if (checksums.size() > 0) {
         os << "Checksums: ";
@@ -601,6 +606,7 @@ WriteSyncOp::Request(ostream &os)
         "Offset: "           << offset            << "\r\n"
         "Num-bytes: "        << numBytes          << "\r\n"
         "Checksum-entries: " << checksums.size()  << "\r\n"
+        << Access()
     ;
     if (checksums.size() > 0) {
         os << "Checksums: ";
@@ -627,6 +633,7 @@ SizeOp::Request(ostream &os)
         "SIZE\r\n"        << ReqHeaders(*this) <<
         "Chunk-handle: "  << chunkId           << "\r\n"
         "Chunk-version: " << chunkVersion      << "\r\n"
+        << Access() <<
     "\r\n";
 }
 
@@ -698,6 +705,7 @@ RecordAppendOp::Request(ostream &os)
         "Offset: "          << offset            << "\r\n"
         "File-offset: "       "-1"                  "\r\n"
         "Num-servers: "     << writeInfo.size()  << "\r\n"
+        << Access() <<
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
@@ -714,6 +722,7 @@ GetRecordAppendOpStatus::Request(ostream &os)
         "GET_RECORD_APPEND_OP_STATUS\r\n" << ReqHeaders(*this) <<
         "Chunk-handle: "                  << chunkId << "\r\n"
         "Write-id: "                      << writeId << "\r\n"
+        << Access() <<
     "\r\n";
 }
 

@@ -1436,7 +1436,7 @@ private:
                 " of " << mMaxRetryCount <<
                 " in " << theTimeToNextRetry << " sec." <<
                 " op: " <<
-                (mCurOpPtr ? mCurOpPtr->Show() : string("NULL")) <<
+                (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp) <<
             KFS_LOG_EOM;
             mErrorCode = 0;
             if (&mGetRecordAppendOpStatusOp != mCurOpPtr) {
@@ -1506,7 +1506,7 @@ private:
             " pending: queue: " << mWriteQueue.size() <<
             " bytes: "          << mBuffer.BytesConsumable() <<
             " cur op: "         <<
-                (mCurOpPtr ? mCurOpPtr->Show() : string("none")) <<
+                (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp.Show()) <<
         KFS_LOG_EOM;
         mSleepingFlag = true;
         mStats.mSleepTimeSec += inSec;
@@ -1523,7 +1523,7 @@ private:
             " pending: queue: " << mWriteQueue.size() <<
             " bytes: "          << mBuffer.BytesConsumable() <<
             " cur op: "         <<
-                (mCurOpPtr ? mCurOpPtr->Show() : string("none")) <<
+                (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp.Show()) <<
         KFS_LOG_EOM;
         if (mSleepingFlag) {
             mNetManager.UnRegisterTimeoutHandler(this);
