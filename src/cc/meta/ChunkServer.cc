@@ -798,15 +798,22 @@ ChunkServer::HandleMsg(IOBuffer *iobuf, int msgLen)
 
 void
 ChunkServer::ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
-    IOBuffer& iobuf, int len, int linesToShow /* = 64 */)
+    IOBuffer& iobuf, int len, int linesToShow /* = 64 */,
+    const char* truncatePrefix /* = "CKey:" */)
 {
-    istream& is       = mIStream.Set(iobuf, len);
-    int      maxLines = linesToShow;
-    string   line;
+    istream&     is       = mIStream.Set(iobuf, len);
+    int          maxLines = linesToShow;
+    string       line;
+    size_t const prefLen  = truncatePrefix ? strlen(truncatePrefix) : 0; 
     while (--maxLines >= 0 && getline(is, line)) {
         string::iterator last = line.end();
         if (last != line.begin() && *--last == '\r') {
             line.erase(last);
+        }
+        if (truncatePrefix &&
+                line.compare(0, prefLen, truncatePrefix, prefLen) == 0) {
+            line.resize(prefLen);
+            line += " xxx";
         }
         KFS_LOG_STREAM(logLevel) <<
             prefix << line <<

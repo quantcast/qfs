@@ -1089,7 +1089,8 @@ protected:
         int  numWritableDrives);
     inline void NewChunkInTier(kfsSTier_t tier);
     void ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
-        IOBuffer& iobuf, int len, int linesToShow = 64);
+        IOBuffer& iobuf, int len, int linesToShow = 64,
+        const char* truncatePrefix = "CKey:");
     string GetPeerName() const {
         return ((! mPeerName.empty() || ! mNetConnection) ?
             mPeerName : mNetConnection->GetPeerName());
