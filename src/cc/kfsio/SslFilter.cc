@@ -285,17 +285,21 @@ public:
           mSessionStoredFlag(false),
           mShutdownInitiatedFlag(false),
           mServerFlag(false),
+          mSslEofFlag(false),
           mSslErrorFlag(false),
           mShutdownCompleteFlag(false)
     {
-        if (mSslPtr &&
-                ! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
+        if (! mSslPtr) {
+            return;
+        }
+        if (! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
             mError = GetAndClearErr();
             SSL_free(mSslPtr);
             mSslPtr = 0;
+        } else {
+            SetPskCB();
+            mServerFlag = ! SSL_in_connect_init(mSslPtr);
         }
-        SetPskCB();
-        mServerFlag = ! SSL_in_connect_init(mSslPtr);
     }
     ~Impl()
     {
@@ -396,8 +400,7 @@ public:
         if (0 < theWrCnt) {
             return theWrCnt;
         }
-        bool theEofFlag = false;
-        return SslRetToErr(theRet, theEofFlag);
+        return SslRetToErr(theRet);
     }
     void Close(
         NetConnection& inConnection,
@@ -438,6 +441,7 @@ public:
         }
         if (theRet == 0 && SSL_in_before(mSslPtr)) {
             mError                     = 0;
+            mSslEofFlag                = false;
             mSslErrorFlag              = false;
             mVerifyOrGetPskInvokedFlag = false;
             mAuthName.clear();
@@ -446,8 +450,7 @@ public:
             const int theSslRet = mServerFlag ?
                 SSL_accept(mSslPtr) : SSL_connect(mSslPtr);
             if (theSslRet <= 0) {
-                bool theEofFlag = false;
-                theRet = SslRetToErr(theSslRet, theEofFlag);
+                theRet = SslRetToErr(theSslRet);
                 if (mError == 0 && (
                         theRet == -EAGAIN ||
                         theRet == -EINTR ||
@@ -477,7 +480,7 @@ public:
         NetConnection& inConnection,
         TcpSocket*     /* inSocketPtr */)
     {
-        if (mSslPtr) {
+        if (! mSslPtr) {
             return;
         }
         SSL_set_fd(mSslPtr, -1);
@@ -487,19 +490,18 @@ public:
         void* inBufPtr,
         int   inNumRead)
     {
-        if (inNumRead <= 0) {
+        if (inNumRead <= 0 || mSslEofFlag) {
             return 0;
         }
-        if (! inBufPtr) {
+        if (! inBufPtr || ! mSslPtr) {
             return -EINVAL;
         }
         const int theRet = SSL_read(mSslPtr, inBufPtr, inNumRead);
         if (0 < theRet) {
             return theRet;
         }
-        bool theEofFlag = false;
-        const int theErr = SslRetToErr(theRet, theEofFlag);
-        return (theEofFlag ? 0 : theErr);
+        const int theErr = SslRetToErr(theRet);
+        return (mSslEofFlag ? 0 : theErr);
     }
     bool IsHandshakeDone() const
         { return (mSslPtr && mError == 0 && SSL_is_init_finished(mSslPtr)); }
@@ -542,6 +544,8 @@ public:
         inConnection.Update();
         return theRet;
     }
+    bool IsShutdownReceived() const
+        { return (mSslEofFlag && mSslPtr != 0); }
 private:
     SSL*              mSslPtr;
     unsigned long     mError;
@@ -555,6 +559,7 @@ private:
     bool              mSessionStoredFlag:1;
     bool              mShutdownInitiatedFlag:1;
     bool              mServerFlag:1;
+    bool              mSslEofFlag:1;
     bool              mSslErrorFlag:1;
     bool              mShutdownCompleteFlag:1;
     bool              mVerifyOrGetPskInvokedFlag:1;
@@ -799,25 +804,22 @@ private:
             StoreClientSession();
             return 0;
         }
-        bool theEofFlag = false;
-        const int theErr = SslRetToErr(theRet, theEofFlag);
+        const int theErr = SslRetToErr(theRet);
         if (theErr) {
             return theErr;
         }
         return theRet;
     }
     int SslRetToErr(
-        int   inRet,
-        bool& outEofFlag)
+        int inRet)
     {
-        outEofFlag    = false;
         mSslErrorFlag = false;
         switch (SSL_get_error(mSslPtr, inRet))
         {
             case SSL_ERROR_NONE:
                 break;
             case SSL_ERROR_ZERO_RETURN:
-                outEofFlag = true;
+                mSslEofFlag = true;
                 break;
             case SSL_ERROR_WANT_READ:
             case SSL_ERROR_WANT_WRITE:
@@ -912,6 +914,9 @@ private:
     }
     void SetPskCB()
     {
+        if (! mSslPtr) {
+            return;
+        }
         if (! mPskData.empty() || mServerPskPtr) {
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL || defined(OPENSSL_NO_PSK)
             mError = SSL_R_UNSUPPORTED_CIPHER;
@@ -946,8 +951,7 @@ private:
             mShutdownCompleteFlag = true;
             return 0;
         }
-        bool theEofFlag = false;
-        return SslRetToErr(theRet, theEofFlag);
+        return SslRetToErr(theRet);
     }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;
@@ -1122,6 +1126,12 @@ SslFilter::GetErrorMsg() const
 SslFilter::GetErrorCode() const
 {
     return mImpl.GetErrorCode();
+}
+
+    bool
+SslFilter::IsShutdownReceived() const
+{
+    return mImpl.IsShutdownReceived();
 }
 
 class SslFilterPeerVerify :

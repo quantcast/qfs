@@ -496,6 +496,7 @@ ReadOp::Request(ostream &os)
         "Chunk-version: " << chunkVersion      << "\r\n"
         "Offset: "        << offset            << "\r\n"
         "Num-bytes: "     << numBytes          << "\r\n"
+        << Access()
     ;
     if (skipVerifyDiskChecksumFlag) {
         os << "Skip-Disk-Chksum: 1\r\n";
@@ -514,6 +515,7 @@ WriteIdAllocOp::Request(ostream &os)
         "Num-bytes: "         << numBytes                    << "\r\n"
         "For-record-append: " << (isForRecordAppend ? 1 : 0) << "\r\n"
         "Num-servers: "       << chunkServerLoc.size()       << "\r\n"
+        << Access() <<
         "Servers:"
     ;
     for (vector<ServerLocation>::size_type i = 0; i < chunkServerLoc.size(); ++i) {

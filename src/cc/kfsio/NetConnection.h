@@ -97,6 +97,8 @@ public:
             { return string(); }
         virtual int GetErrorCode() const
             { return 0; }
+        virtual bool IsShutdownReceived() const
+            { return false; }
         virtual ~Filter()
             {}
     protected:

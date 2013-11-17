@@ -412,7 +412,8 @@ ClientSM::HandleRequest(int code, void* data)
     case EVENT_NET_ERROR: {
         NetConnection::Filter* filter;
         if (mNetConnection->IsGood() &&
-                (filter = mNetConnection->GetFilter())) {
+                (filter = mNetConnection->GetFilter()) &&
+                filter->IsShutdownReceived()) {
             // Do not allow to shutdown filter with ops or data in flight.
             if (! mDataReceivedFlag &&
                     mInFlightOpCount <= 0 &&
@@ -428,7 +429,8 @@ ClientSM::HandleRequest(int code, void* data)
                     KFS_LOG_EOM;
                     break;
                 }
-            } else {
+            } else if (0 < mNetConnection->GetNumBytesToRead() ||
+                     0 < mNetConnection->GetNumBytesToWrite()) {
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     "invalid filter (ssl) shutdown: "
                     " error: "      << mNetConnection->GetErrorMsg() <<
@@ -971,7 +973,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         }
     }
 
-    if (bufferBytes < 0) {
+    if (bufferBytes < 0 && ! submitResponseFlag) {
         assert(
             op->op != CMD_WRITE_PREPARE &&
             op->op != CMD_RECORD_APPEND &&

@@ -157,6 +157,7 @@ public:
     virtual bool IsAuthFailure() const;
     virtual string GetErrorMsg() const;
     virtual int GetErrorCode() const;
+    virtual bool IsShutdownReceived() const;
     bool IsHandshakeDone() const;
 private:
     class Impl;
