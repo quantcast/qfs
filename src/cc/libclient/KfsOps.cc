@@ -128,22 +128,21 @@ ChunkServerAccess::Parse(
                 p++;
             }
             const char* const s = p;
-            while (p < e && (*p & 0xFF) <= ' ') {
+            while (p < e && ' ' < (*p & 0xFF)) {
                 p++;
             }
-            tokens[i] = Token(s, p);
+            tokens[k] = Token(s, p);
         }
         if (tokens[tokenCount - 1].mLen <= 0) {
             Clear();
             return -EINVAL;
         }
-        int         n = 0;
-        const char* ptr;
-        if (chunkId < 0) {
+        int          n = 0;
+        kfsChunkId_t cid = chunkId;
+        const char*  ptr;
+        if (cid < 0) {
             ptr = tokens[n].mPtr;
-            kfsChunkId_t chunkId = -1;
-            if (! HexIntParser::Parse(ptr, tokens[n].mLen, chunkId) ||
-                    chunkId < 0) {
+            if (! HexIntParser::Parse(ptr, tokens[n].mLen, cid) || cid < 0) {
                 Clear();
                 return -EINVAL;
             }
@@ -158,7 +157,7 @@ ChunkServerAccess::Parse(
             return -EINVAL;
         }
         Entry& entry = mAccess[
-            SCLocation(make_pair(tokens[n - 1], port), chunkId)];
+            SCLocation(make_pair(tokens[n - 1], port), cid)];
         if (0 < entry.chunkAccess.mLen) {
             // Duplicate entry.
             Clear();
@@ -1141,6 +1140,10 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
     if (leaseIds) {
         leaseIds[0] = -1;
     }
+    chunkAccessCount              = prop.getValue("CS-access",       0);
+    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
+    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
+    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
     if (! chunkIds || ! leaseIds) {
         return;
     }
@@ -1158,10 +1161,6 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
             return;
         }
     }
-    chunkAccessCount              = prop.getValue("CS-access",       0);
-    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
-    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
-    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
 }
 
 void

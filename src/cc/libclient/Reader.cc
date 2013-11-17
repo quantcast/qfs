@@ -1030,13 +1030,14 @@ private:
                 inOp.statusMsg = "no chunk server access with lease response";
             }
             if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
-                const bool kHasChunkServerAccessFlag = true;
-                const int  kBufPos                   = 0;
-                const bool kOwnsBufferFlag           = true;
-                const int  theRet                    = mChunkServerAccess.Parse(
+                const bool         kHasChunkServerAccessFlag = true;
+                const int          kBufPos                   = 0;
+                const bool         kOwnsBufferFlag           = true;
+                const kfsChunkId_t kChunkId                  = -1;
+                const int          theRet = mChunkServerAccess.Parse(
                     inOp.chunkAccessCount,
                     kHasChunkServerAccessFlag,
-                    inOp.chunkId,
+                    kChunkId,
                     inOp.contentBuf,
                     kBufPos,
                     inOp.contentLength,

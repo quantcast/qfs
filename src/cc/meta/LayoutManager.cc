@@ -1967,6 +1967,18 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.CSAuthentication.", mConfigParameters);
     const int cliOk = UpdateClientAuth(mClientAuthContext);
 
+    // FIXME: for testing only.
+    const string clientNameToUid = props.getValue(
+        "metaServer.clientNameToUidMap", string());
+    if (! clientNameToUid.empty()) {
+        istringstream is(clientNameToUid);
+        string   name;
+        kfsUid_t uid;
+        while ((is >> name >> uid)) {
+            mClientAuthContext.SetUid(name, uid);
+        }
+    }
+
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
@@ -1976,10 +1988,15 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
 bool
 LayoutManager::UpdateClientAuth(AuthContext& ctx)
 {
-    return ctx.SetParameters(
+    const bool ret = ctx.SetParameters(
         "metaServer.clientAuthentication.", mConfigParameters,
         &ctx == &mClientAuthContext ? 0 : &mClientAuthContext
     );
+    // Copy uid map here for now.
+    if (ret && &ctx != &mClientAuthContext) {
+        ctx.SetUids(mClientAuthContext);
+    }
+    return ret;
 }
 
 void

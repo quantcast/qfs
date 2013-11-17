@@ -668,9 +668,13 @@ public:
             make_pair(Token(location.hostname.data(), location.hostname.size()),
                 location.port), chunkId
         ));
+        if (it == mAccess.end()) {
+            return 0;
+        }
         const Entry& entry = it->second;
-        if (it == mAccess.end() || ! outKey.Parse(
-                entry.chunkServerKey.mPtr, entry.chunkServerKey.mLen)) {
+        if (! outKey.Parse(
+                entry.chunkServerKey.mPtr,
+                entry.chunkServerKey.mLen)) {
             return 0;
         }
         return &entry;

@@ -106,8 +106,8 @@ CryptoKeys::Key::Parse(
         return false;
     }
     const int theLen = Base64::GetMaxDecodedLength(inStrLen);
-    return (theLen <= 0 || kLength < theLen ||
-        Base64::Decode(inStrPtr, inStrLen, mKey) != kLength);
+    return (0 < theLen && theLen <= kLength &&
+        Base64::Decode(inStrPtr, inStrLen, mKey) == kLength);
 }
 
     int

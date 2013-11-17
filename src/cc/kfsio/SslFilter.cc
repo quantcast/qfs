@@ -437,8 +437,9 @@ public:
             }
         }
         if (theRet == 0 && SSL_in_before(mSslPtr)) {
-            mError        = 0;
-            mSslErrorFlag = false;
+            mError                     = 0;
+            mSslErrorFlag              = false;
+            mVerifyOrGetPskInvokedFlag = false;
             mAuthName.clear();
             mServerFlag = ! SSL_in_connect_init(mSslPtr);
             SetStoredClientSession();
@@ -556,6 +557,7 @@ private:
     bool              mServerFlag:1;
     bool              mSslErrorFlag:1;
     bool              mShutdownCompleteFlag:1;
+    bool              mVerifyOrGetPskInvokedFlag:1;
 
     struct OpenSslInit
     {
@@ -662,6 +664,7 @@ private:
 	unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen)
     {
+        mVerifyOrGetPskInvokedFlag = true;
         if (mServerPskPtr) {
             mAuthName.clear();
             return mServerPskPtr->GetPsk(
@@ -681,6 +684,7 @@ private:
         unsigned char* inPskBufferPtr,
 	unsigned int   inPskBufferLen)
     {
+        mVerifyOrGetPskInvokedFlag = true;
         if (inPskBufferLen < mPskData.size()) {
             return 0;
         }
@@ -697,6 +701,7 @@ private:
         int           inCurCertDepth,
         const string& inPeerName)
     {
+        mVerifyOrGetPskInvokedFlag = true;
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
                 mAuthName, inPreverifyOkFlag, inCurCertDepth, inPeerName);
@@ -758,9 +763,28 @@ private:
             theLen
         );
     }
+    bool VerifyPeerIfNeeded()
+    {
+        if (mVerifyOrGetPskInvokedFlag) {
+            return true;
+        }
+        // This is invoked in the case of ssl session resume.
+        string      thePeerName;
+        X509* const theCertPtr = SSL_get_peer_certificate(mSslPtr);
+        if (theCertPtr) {
+            thePeerName = GetCommonName(X509_get_subject_name(theCertPtr));
+            X509_free(theCertPtr);
+        }
+        const bool kPreverifyOkFlag = true;
+        const int  kCurCertDepth    = 0;
+        return VeifyPeer(kPreverifyOkFlag, kCurCertDepth, thePeerName);
+    }
     int DoHandshake()
     {
         if (SSL_is_init_finished(mSslPtr)) {
+            if (! VerifyPeerIfNeeded()) {
+                return -EINVAL;
+            }
             if (! mSessionStoredFlag) {
                 StoreClientSession();
             }
@@ -768,6 +792,9 @@ private:
         }
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
+            if (! VerifyPeerIfNeeded()) {
+                return -EINVAL;
+            }
             // Try to update in case of renegotiation.
             StoreClientSession();
             return 0;
