@@ -450,7 +450,7 @@ KfsClientChunkOp::Validate()
                 chunkId,
                 chunkAccessVal.mPtr,
                 chunkAccessVal.mLen,
-                startTime,
+                globalNetManager().Now(),
                 gChunkManager.GetCryptoKeys(),
                 &statusMsg,
                 subjectId))) {

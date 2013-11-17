@@ -108,7 +108,7 @@ ChunkAccessToken::Process(
     int64_t           inId)
 {
     Subject theSubject(inChunkId, inId);
-    return mDelegationToken.Process(
+    return (0 <= mDelegationToken.Process(
         inBufPtr,
         inBufLen,
         inTimeNowSec,
@@ -117,7 +117,7 @@ ChunkAccessToken::Process(
         -1, // inMaxSessionKeyLength
         outErrMsgPtr,
         &theSubject
-    );
+    ));
 }
 
     bool

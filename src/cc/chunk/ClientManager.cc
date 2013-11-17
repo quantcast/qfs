@@ -28,6 +28,7 @@
 #include "common/MsgLogger.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/DelegationToken.h"
+#include "qcdio/QCUtils.h"
 
 #include "ClientManager.h"
 #include "ClientSM.h"
@@ -124,7 +125,16 @@ public:
         );
         const SslFilter::Error theErr = theFilterPtr->GetError();
         if (! theErr) {
-            return true;
+            string theErrMsg;
+            const int theStatus = inConn.SetFilter(theFilterPtr, &theErrMsg);
+            if (theStatus) {
+                KFS_LOG_STREAM_ERROR <<
+                    "set ssl filter error: " << QCUtils::SysError(
+                            theStatus < 0 ? -theStatus : theStatus) <<
+                    " " << theErrMsg <<
+                KFS_LOG_EOM;
+            }
+            return (theStatus == 0);
         }
         KFS_LOG_STREAM_ERROR <<
             "ssl filter create error: " <<
@@ -194,14 +204,14 @@ ClientManager::CreateKfsCallbackObj(
     if (! inConnPtr) {
         return 0;
     }
+    assert(mCounters.mClientCount >= 0);
+    mCounters.mAcceptCount++;
+    mCounters.mClientCount++;
     ClientSM* const theClientPtr = new ClientSM(inConnPtr);
     if (! mAuth.Setup(*inConnPtr, *theClientPtr)) {
         delete theClientPtr;
         return 0;
     }
-    assert(mCounters.mClientCount >= 0);
-    mCounters.mAcceptCount++;
-    mCounters.mClientCount++;
     return theClientPtr;
 }
 

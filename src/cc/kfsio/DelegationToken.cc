@@ -448,7 +448,7 @@ public:
             }
             return -EINVAL;
         }
-        memcpy(inKeyBufferPtr, theBuf, theLen);
+        memcpy(inKeyBufferPtr, theKeyPtr, theLen);
         return theLen;
     }
     string GetSessionKey(
@@ -764,7 +764,7 @@ private:
         while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ' && *thePtr != 0) {
             thePtr++;
         }
-        while (thePtr < theEndPtr && (*theEndPtr & 0xFF) <= ' ') {
+        while (thePtr < theEndPtr && (theEndPtr[-1] & 0xFF) <= ' ') {
             theEndPtr--;
         }
         int theLen = (int)(theEndPtr - thePtr);
@@ -887,34 +887,34 @@ DelegationToken::Process(
         if (outErrMsgPtr) {
             *outErrMsgPtr = "invalid format";
         }
-        return false;
+        return -EINVAL;
     }
     const uint32_t theValidForSec = GetValidForSec();
     if (theValidForSec <= 0) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "expired: 0 valid for time";
         }
-        return false;
+        return -EINVAL;
     }
     const uint32_t theMaxClockSkewSec = min(uint32_t(5 * 60), theValidForSec);
     if (inTimeNowSec + theMaxClockSkewSec < GetIssuedTime()) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "issue time is in the future";
         }
-        return false;
+        return -EINVAL;
     }
     if (GetIssuedTime() + theValidForSec < inTimeNowSec) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "exired";
         }
-        return false;
+        return -EINVAL;
     }
     CryptoKeys::Key theKey;
     if (! inKeys.Find(GetKeyId(), theKey)) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "no key found";
         }
-        return false;
+        return -EINVAL;
     }
     char theSignature[kSignatureLength];
     if (! theBuf.Sign(
@@ -924,15 +924,15 @@ DelegationToken::Process(
             inSubjectPtr,
             theSignature,
             outErrMsgPtr)) {
-        return false;
+        return -EINVAL;
     }
     if (memcmp(theSignature, mSignature, kSignatureLength) != 0) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "invalid signature";
         }
-        return false;
+        return -EINVAL;
     }
-    return (inMaxSessionKeyLength < 0 || theBuf.MakeSessionKey(
+    return (inMaxSessionKeyLength <= 0 ? 0 : theBuf.MakeSessionKey(
         *this,
         theKey.GetPtr(),
         theKey.GetSize(),
@@ -996,10 +996,10 @@ DelegationToken:: ShowSelf(
 {
     const ostream::fmtflags theFlags = inStream.flags();
     inStream <<
-    "uid: "   << mUid <<
-    " seq: "   << mSeq <<
-    " keyId: " << mKeyId <<
-    " time:  " << GetIssuedTime() << "+" << mValidForSec <<
+    "uid: "      << mUid <<
+    " seq: "     << mSeq <<
+    " keyId: "   << mKeyId <<
+    " time: "    << GetIssuedTime() << "+" << mValidForSec <<
     " flags: 0x" << hex << GetFlags() <<
     " sign: ";
     if (0u < mValidForSec) {

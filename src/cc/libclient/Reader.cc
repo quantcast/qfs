@@ -932,6 +932,10 @@ private:
                     mChunkServer.SetKey(0, 0, 0, 0);
                     mSizeOp.access.clear();
                 } else {
+                    if (! mChunkServer.GetAuthContext()) {
+                        mChunkServer.SetAuthContext(
+                            mOuter.mMetaServer.GetAuthContext());
+                    }
                     mChunkServer.SetServer(theLocation);
                 }
             }

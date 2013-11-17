@@ -947,7 +947,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         }
         mHelloOp = static_cast<MetaHello*>(op);
         mHelloOp->authName = mAuthName;
-        if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKeyId)) {
+        if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
             mHelloOp = 0;
             delete op;
             return -1;

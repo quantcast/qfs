@@ -1231,12 +1231,6 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
     if (! IsAccessEnforced()) {
         return true;
     }
-    {
-        KfsOp& kfsOp = op;
-        if (! CheckAccess(kfsOp)) {
-            return false;
-        }
-    }
 
     if (! op.hasChunkAccessTokenFlag) {
         op.statusMsg = "chunk access: no chunk access token";
