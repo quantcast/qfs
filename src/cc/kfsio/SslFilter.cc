@@ -353,7 +353,7 @@ public:
             return theRet;
         }
         if (mShutdownInitiatedFlag) {
-            return ShutdownSelf();
+            return ShutdownSelf(inConnection);
         }
         return inIoBuffer.Read(-1, inMaxRead, this);
     }
@@ -372,7 +372,7 @@ public:
             return theRet;
         }
         if (mShutdownInitiatedFlag) {
-            const int theRet = ShutdownSelf();
+            const int theRet = ShutdownSelf(inConnection);
             // On successful shutdown completion read handler to be invoked in
             // order to let the caller know that shutdown is now complete.
             outForceInvokeErrHandlerFlag = theRet == 0;
@@ -530,17 +530,7 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        if (mError) {
-            return -EFAULT;
-        }
-        const int theRet = ShutdownSelf();
-        if (theRet != 0 || ! mShutdownCompleteFlag)  {
-            return theRet;
-        }
-        inConnection.SetFilter(0, 0);
-        if (mDeleteOnCloseFlag) {
-            delete this;
-        }
+        const int theRet = ShutdownSelf(inConnection);
         inConnection.Update();
         return theRet;
     }
@@ -932,7 +922,8 @@ private:
 #endif
         }
     }
-    int ShutdownSelf()
+    int ShutdownSelf(
+        NetConnection& inConnection)
     {
         mShutdownInitiatedFlag = true;
         if (mShutdownCompleteFlag) {
@@ -946,12 +937,22 @@ private:
             // Wait for handshake to complete, then issue shutdown.
             return 0;
         }
-        const int theRet = SSL_shutdown(mSslPtr);
-        if (0 < theRet) {
-            mShutdownCompleteFlag = true;
-            return 0;
+        int theRet = SSL_shutdown(mSslPtr);
+        if (theRet == 0) {
+            // Call shutdown again to initiate read state, if the shutdown call
+            // above successfully dispatch the ssl shutdown alert.
+            // The second call to ssl shutdown should not return 0.
+            theRet = SSL_shutdown(mSslPtr);
         }
-        return SslRetToErr(theRet);
+        if (theRet <= 0) {
+            return SslRetToErr(theRet);
+        }
+        mShutdownCompleteFlag = true;
+        inConnection.SetFilter(0, 0);
+        if (mDeleteOnCloseFlag) {
+            delete this;
+        }
+        return 0;
     }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;
