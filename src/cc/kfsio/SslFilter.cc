@@ -52,9 +52,6 @@ using std::string;
 using std::max;
 using namespace KFS::libkfsio;
 
-// To simplify tracking down using core file if aes-ni is engaged or not.
-static const EVP_CIPHER* sAES256CbcCypherDebugPtr = 0;
-
 class SslFilter::Impl : private IOBuffer::Reader
 {
 private:
@@ -96,7 +93,7 @@ public:
         ERR_load_crypto_strings();
         ENGINE_load_builtin_engines();
         SSL_library_init();
-        sAES256CbcCypherDebugPtr = EVP_aes_256_cbc();
+        sOpenSslInitPtr->mAES256CbcCypherDebugPtr = EVP_aes_256_cbc();
         sOpenSslInitPtr->mExDataIdx =
             SSL_get_ex_new_index(0, (void*)"SslFilter::Impl", 0, 0, 0);
         if (sOpenSslInitPtr->mExDataIdx < 0) {
@@ -563,19 +560,24 @@ private:
               mExDataIdx(-1),
               mExDataSessionIdx(-1),
               mErrFileNamePtr(0),
-              mErrLine(-1)
+              mErrLine(-1),
+              mAES256CbcCypherDebugPtr(0)
             {}
         ~OpenSslInit()
         {
             delete [] mLocksPtr;
         }
-        int      const mLockCount;
-        QCMutex* const mLocksPtr;
-        QCMutex        mSessionUpdateMutex;
-        int            mExDataIdx;
-        int            mExDataSessionIdx;
-        const char*    mErrFileNamePtr;
-        int            mErrLine;
+        int      const    mLockCount;
+        QCMutex* const    mLocksPtr;
+        QCMutex           mSessionUpdateMutex;
+        int               mExDataIdx;
+        int               mExDataSessionIdx;
+        const char*       mErrFileNamePtr;
+        int               mErrLine;
+        // To simplify tracking down using core file if aes-ni is engaged or
+        // not.
+        const EVP_CIPHER* mAES256CbcCypherDebugPtr;
+
     };
     static OpenSslInit* volatile sOpenSslInitPtr;
 
