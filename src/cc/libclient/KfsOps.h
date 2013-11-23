@@ -721,23 +721,49 @@ struct ChunkAccessOp: public KfsOp {
         const ChunkAccessOp& mOp;
     };
 
-    kfsChunkId_t chunkId;
-    string       access;
+    kfsChunkId_t    chunkId;
+    string          access;
+    bool            createChunkAccessFlag:1;
+    bool            createChunkServerAccessFlag:1;
+    bool            hasSubjectIdFlag:1;
+    int64_t         subjectId;
+    int64_t         accessResponseValidForSec;
+    int64_t         accessResponseIssued;
+    string          chunkAccessResponse;
+    string          chunkServerAccessId;
+    CryptoKeys::Key chunkServerAccessKey;
 
     ChunkAccessOp(KfsOp_t o, kfsSeq_t s, kfsChunkId_t c)
         : KfsOp(o, seq),
           chunkId(c),
-          access()
+          access(),
+          createChunkAccessFlag(false),
+          createChunkServerAccessFlag(false),
+          hasSubjectIdFlag(false),
+          subjectId(-1),
+          accessResponseValidForSec(0),
+          accessResponseIssued(0),
+          chunkAccessResponse(),
+          chunkServerAccessId(),
+          chunkServerAccessKey()
         {}
     AccessReq Access() const
         { return AccessReq(*this); }
     ostream& WriteReq(ostream& os) const
     {
+        if (access.empty()) {
+            return os;
+        }
+        if (hasSubjectIdFlag) {
+            os << "Subject-id: " << subjectId << "\r\n";
+        }
         return (
-            access.empty() ? os :
-            ((os << "C-access: ").write(access.data(), access.size()) << "\r\n")
+            (os << "C-access: ").write(access.data(), access.size()) << "\r\n" <<
+            (createChunkServerAccessFlag ? "CS-access-req: 1\r\n" : "") <<
+            (createChunkAccessFlag       ? "C-access-req: 1\r\n"  : "")
         );
     }
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
 };
 
 inline static ostream&
@@ -775,7 +801,7 @@ struct AllocateOp : public KfsOp {
     // suggested max. # of concurrent appenders per chunk
     int                    maxAppendersPerChunk;
     bool                   invalidateAllFlag;
-    bool                   allowCSClerTextFlag;
+    bool                   allowCSClearTextFlag;
     int64_t                chunkServerAccessValidForTime;
     int64_t                chunkServerAccessIssuedTime;
     string                 chunkAccess;
@@ -794,7 +820,7 @@ struct AllocateOp : public KfsOp {
         spaceReservationSize(1 << 20),
         maxAppendersPerChunk(64),
         invalidateAllFlag(false),
-        allowCSClerTextFlag(false),
+        allowCSClearTextFlag(false),
         chunkServerAccessValidForTime(0),
         chunkServerAccessIssuedTime(0),
         chunkAccess(),
@@ -969,7 +995,7 @@ struct WriteIdAllocOp : public ChunkAccessOp {
     size_t       numBytes;     /* input */
     bool         isForRecordAppend; /* set if this is for a record append that is coming */
     bool         writePrepReplySupportedFlag;
-    string       writeIdStr;  /* output */
+    string       writeIdStr;   /* output */
     vector<ServerLocation> chunkServerLoc;
 
     WriteIdAllocOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, chunkOff_t o, size_t n)

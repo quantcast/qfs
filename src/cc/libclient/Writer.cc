@@ -36,6 +36,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/ClientAuthContext.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
@@ -783,7 +784,12 @@ private:
             mAllocOp.chunkVersion         = -1;
             mAllocOp.spaceReservationSize = 0;
             mAllocOp.maxAppendersPerChunk = 0;
+            mAllocOp.allowCSClearTextFlag = false;
+            mAllocOp.chunkServerAccessValidForTime = 0;
+            mAllocOp.chunkServerAccessIssuedTime   = 0;
             mAllocOp.chunkServers.clear();
+            mAllocOp.chunkAccess.clear();
+            mAllocOp.chunkServerAccessToken.clear();
             mOuter.mStats.mChunkAllocCount++;
             EnqueueMeta(mAllocOp);
         }
@@ -840,7 +846,44 @@ private:
             mWriteIdAllocOp.offset                      = 0;
             mWriteIdAllocOp.numBytes                    = 0;
             mWriteIdAllocOp.writePrepReplySupportedFlag = false;
-            if (mChunkServer.SetServer(mAllocOp.chunkServers[0])) {
+
+            const bool theCSClearTextAllowedFlag =
+                mOuter.IsChunkServerClearTextAllowed();
+            mChunkServer.SetShutdownSsl(
+                mAllocOp.allowCSClearTextFlag &&
+                theCSClearTextAllowedFlag
+            );
+            if (mAllocOp.chunkServerAccessToken.empty() ||
+                    mAllocOp.chunkAccess.empty()) {
+                mChunkServer.SetKey(0, 0, 0, 0);
+                if (! mAllocOp.chunkServerAccessToken.empty()) {
+                    mWriteIdAllocOp.status    = -EINVAL;
+                    mWriteIdAllocOp.statusMsg = "no chunk access";
+                } else if (! theCSClearTextAllowedFlag) {
+                    mWriteIdAllocOp.status    = -EPERM;
+                    mWriteIdAllocOp.statusMsg = "no chunk server access";
+                }
+            } else {
+                mChunkServer.SetKey(
+                    mAllocOp.chunkServerAccessToken.data(),
+                    mAllocOp.chunkServerAccessToken.size(),
+                    mAllocOp.chunkServerAccessKey.GetPtr(),
+                    mAllocOp.chunkServerAccessKey.GetSize()
+                );
+                mWriteIdAllocOp.access = mAllocOp.chunkAccess;
+                mWriteIdAllocOp.createChunkAccessFlag = true;
+                mWriteIdAllocOp.createChunkServerAccessFlag =
+                    mAllocOp.chunkServerAccessIssuedTime +
+                    mAllocOp.chunkServerAccessValidForTime
+                    < LEASE_INTERVAL_SECS + Now();
+            }
+            if (mWriteIdAllocOp.status == 0 &&
+                    ! mChunkServer.GetAuthContext()) {
+                mChunkServer.SetAuthContext(
+                    mOuter.mMetaServer.GetAuthContext());
+            }
+            if (mWriteIdAllocOp.status == 0 &&
+                    mChunkServer.SetServer(mAllocOp.chunkServers[0])) {
                 Enqueue(mWriteIdAllocOp);
             } else {
                 HandleError(mWriteIdAllocOp);
@@ -1116,6 +1159,17 @@ private:
             inOp.checksum      = 0;
             inOp.contentLength = 0;
             inOp.DeallocContentBuf();
+        }
+        static void Reset(
+            ChunkAccessOp& inOp)
+        {
+            KfsOp& theKfsOp = inOp;
+            Reset(theKfsOp);
+            inOp.access.clear();
+            inOp.createChunkAccessFlag       = false;
+            inOp.createChunkServerAccessFlag = false;
+            inOp.chunkAccessResponse.clear();
+            inOp.chunkServerAccessId.clear();
         }
         int GetTimeToNextRetry() const
         {
@@ -1660,6 +1714,11 @@ private:
             }
         }
         return (theRet && thePrevRefCount <= GetRefCount());
+    }
+    bool IsChunkServerClearTextAllowed()
+    {
+        ClientAuthContext* const theCtxPtr = mMetaServer.GetAuthContext();
+        return (! theCtxPtr || theCtxPtr->IsChunkServerClearTextAllowed());
     }
 private:
     Impl(

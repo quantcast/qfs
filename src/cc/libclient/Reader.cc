@@ -888,13 +888,15 @@ private:
             }
             if (! mChunkServerSetFlag) {
                 QCASSERT(mChunkServerIdx < mGetAllocOp.chunkServers.size());
+                const bool theCSClearTextAllowedFlag =
+                    mOuter.IsChunkServerClearTextAllowed();
                 mChunkServerSetFlag = true;
-                mNoCSAccessFlag     = false;
+                mNoCSAccessFlag     = ! theCSClearTextAllowedFlag;
                 const ServerLocation& theLocation =
                     mGetAllocOp.chunkServers[mChunkServerIdx];
                 mChunkServer.SetShutdownSsl(
                     mLeaseAcquireOp.allowCSClearTextFlag &&
-                    mOuter.IsChunkServerClearTextAllowed()
+                    theCSClearTextAllowedFlag
                 );
                 if (mChunkServerAccess.IsEmpty()) {
                     mChunkServer.SetKey(0, 0, 0, 0);
