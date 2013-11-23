@@ -136,6 +136,8 @@ public:
           mAuthContextPtr(inAuthContextPtr),
           mKeyId(),
           mKeyData(),
+          mSessionKeyId(),
+          mSessionKeyData(),
           mLookupOp(-1, ROOTFID, "/"),
           mAuthOp(-1, kAuthenticationTypeUndef)
     {
@@ -217,6 +219,14 @@ public:
             mKeyData.clear();
         }
     }
+    const string& GetKey() const
+        { return mKeyData; }
+    const string& GetKeyId() const
+        { return mKeyId; }
+    const string& GetSessionKey() const
+        { return mSessionKeyData; }
+    const string& GetSessionKeyId() const
+        { return mSessionKeyId; }
     void SetShutdownSsl(
         bool inFlag)
     {
@@ -772,6 +782,8 @@ private:
     ClientAuthContext* mAuthContextPtr;
     string             mKeyId;
     string             mKeyData;
+    string             mSessionKeyId;
+    string             mSessionKeyData;
     AuthRequestCtx     mAuthRequestCtx;
     LookupOp           mLookupOp;
     AuthenticateOp     mAuthOp;
@@ -1149,15 +1161,21 @@ private:
                     return;
                 }
             }
-        } else if (IsAuthEnabled()) {
-            assert(! IsAuthInFlight());
-            mLookupOp.DeallocContentBuf();
-            mLookupOp.contentLength = 0;
-            mLookupOp.status        = 0;
-            mLookupOp.statusMsg.clear();
-            mLookupOp.authType      = kAuthenticationTypeNone;
-            mLookupOp.seq           = mNextSeqNum++;
-            mNextSeqNum++; // Leave one slot for mAuthOp
+            mSessionKeyId   = mKeyId;
+            mSessionKeyData = mKeyData;
+        } else {
+            mSessionKeyId   = string();
+            mSessionKeyData = mSessionKeyId;
+            if (IsAuthEnabled()) {
+                assert(! IsAuthInFlight());
+                mLookupOp.DeallocContentBuf();
+                mLookupOp.contentLength = 0;
+                mLookupOp.status        = 0;
+                mLookupOp.statusMsg.clear();
+                mLookupOp.authType      = kAuthenticationTypeNone;
+                mLookupOp.seq           = mNextSeqNum++;
+                mNextSeqNum++; // Leave one slot for mAuthOp
+            }
         }
         RetryAll(inLastOpPtr);
         if (mLookupOp.seq >= 0) {
@@ -1573,6 +1591,31 @@ KfsNetClient::SetKey(
     Impl::StRef theRef(mImpl);
     mImpl.SetKey(inKeyIdPtr, inKeyIdLen, inKeyDataPtr, inKeyDataSize);
 }
+
+    const string&
+KfsNetClient::GetKey() const
+{
+    return mImpl.GetKey();
+}
+
+    const string&
+KfsNetClient::GetKeyId() const
+{
+    return mImpl.GetKeyId();
+}
+
+    const string&
+KfsNetClient::GetSessionKey() const
+{
+    return mImpl.GetSessionKey();
+}
+
+    const string&
+KfsNetClient::GetSessionKeyId() const
+{
+    return mImpl.GetSessionKeyId();
+}
+
 
     void
 KfsNetClient::SetShutdownSsl(

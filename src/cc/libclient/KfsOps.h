@@ -732,6 +732,7 @@ struct ChunkAccessOp: public KfsOp {
     string          chunkAccessResponse;
     string          chunkServerAccessId;
     CryptoKeys::Key chunkServerAccessKey;
+    const string*   decryptKey;
 
     ChunkAccessOp(KfsOp_t o, kfsSeq_t s, kfsChunkId_t c)
         : KfsOp(o, seq),
@@ -745,7 +746,8 @@ struct ChunkAccessOp: public KfsOp {
           accessResponseIssued(0),
           chunkAccessResponse(),
           chunkServerAccessId(),
-          chunkServerAccessKey()
+          chunkServerAccessKey(),
+          decryptKey(0)
         {}
     AccessReq Access() const
         { return AccessReq(*this); }

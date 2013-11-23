@@ -630,7 +630,9 @@ public:
         return theLen;
     }
     static int DecryptSessionKeyFromString(
-        const CryptoKeys& inKeys,
+        const CryptoKeys* inKeysPtr,
+        const char*       inDecryptKeyPtr,
+        int               inDecryptKeyLen,
         const char*       inStrPtr,
         int               inStrLen,
         CryptoKeys::Key&  outKey,
@@ -646,10 +648,20 @@ public:
             }
             return theLen;
         }
-        return DecryptSessionKey(inKeys, theBuf, theLen, outKey, outErrMsgPtr);
+        return DecryptSessionKey(
+            inKeysPtr,
+            inDecryptKeyPtr,
+            inDecryptKeyLen,
+            theBuf,
+            theLen,
+            outKey,
+            outErrMsgPtr
+        );
     }
     static int DecryptSessionKey(
-        const CryptoKeys& inKeys,
+        const CryptoKeys* inKeysPtr,
+        const char*       inDecryptKeyPtr,
+        int               inDecryptKeyLen,
         const char*       inKeyPtr,
         int               inKeyLen,
         CryptoKeys::Key&  outKey,
@@ -665,7 +677,7 @@ public:
         kfsKeyId_t  theId;
         Read(thePtr, theId);
         CryptoKeys::Key theKey;
-        if (! inKeys.Find(theId, theKey)) {
+        if (inKeysPtr && ! inKeysPtr->Find(theId, theKey)) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr = "no key found";
             }
@@ -673,8 +685,8 @@ public:
         }
         const bool kEncryptFlag = false;
         const int  theLen       = Crypt(
-            theKey.GetPtr(),
-            theKey.GetSize(),
+            inKeysPtr ? theKey.GetPtr()  : inDecryptKeyPtr,
+            inKeysPtr ? theKey.GetSize() : inDecryptKeyLen,
             thePtr,
             thePtr + kCryptIvLen,
             inKeyLen - kEncryptedKeyPrefixSize,
@@ -1175,7 +1187,8 @@ DelegationToken::DecryptSessionKeyFromString(
     string*           outErrMsgPtr)
 {
     return WorkBuf::DecryptSessionKeyFromString(
-        inKeys,
+        &inKeys,
+        0, 0,
         inStrPtr,
         inStrLen,
         outKey,
@@ -1192,7 +1205,48 @@ DelegationToken::DecryptSessionKey(
     string*           outErrMsgPtr)
 {
     return WorkBuf::DecryptSessionKey(
-        inKeys,
+        &inKeys,
+        0, 0,
+        inKeyPtr,
+        inKeyLen,
+        outKey,
+        outErrMsgPtr
+    );
+}
+
+    /* static */ int
+DelegationToken::DecryptSessionKeyFromString(
+    const char*       inDecryptKeyPtr,
+    int               inDecryptKeyLen,
+    const char*       inStrPtr,
+    int               inStrLen,
+    CryptoKeys::Key&  outKey,
+    string*           outErrMsgPtr)
+{
+    return WorkBuf::DecryptSessionKeyFromString(
+        0,
+        inDecryptKeyPtr,
+        inDecryptKeyLen,
+        inStrPtr,
+        inStrLen,
+        outKey,
+        outErrMsgPtr
+    );
+}
+
+    /* static */ int
+DelegationToken::DecryptSessionKey(
+    const char*       inDecryptKeyPtr,
+    int               inDecryptKeyLen,
+    const char*       inKeyPtr,
+    int               inKeyLen,
+    CryptoKeys::Key&  outKey,
+    string*           outErrMsgPtr)
+{
+    return WorkBuf::DecryptSessionKey(
+        0,
+        inDecryptKeyPtr,
+        inDecryptKeyLen,
         inKeyPtr,
         inKeyLen,
         outKey,

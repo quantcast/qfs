@@ -37,6 +37,7 @@
 #include <unistd.h>
 
 #include "kfsio/checksum.h"
+#include "kfsio/DelegationToken.h"
 #include "common/RequestParser.h"
 #include "common/kfserrno.h"
 #include "utils.h"
@@ -946,13 +947,15 @@ LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 static inline bool
-ParseChunkServerAccess(KfsOp& inOp, const Properties::String* csAccess,
-    string& chunkServerAccessToken, CryptoKeys::Key& chunkServerAccessKey)
+ParseChunkServerAccess(
+    KfsOp&                    inOp,
+    const Properties::String* csAccess,
+    string&                   chunkServerAccessToken,
+    CryptoKeys::Key&          chunkServerAccessKey,
+    const char*               decryptKeyPtr = 0,
+    int                       decryptKeyLen = 0)
 {
-    if (inOp.status < 0) {
-        return false;
-    }
-    if (! csAccess) {
+    if (inOp.status < 0 || ! csAccess) {
         return false;
     }
     const char*       cur = csAccess->GetPtr();
@@ -976,6 +979,20 @@ ParseChunkServerAccess(KfsOp& inOp, const Properties::String* csAccess,
     const char* const key = cur;
     while (cur < end && ' ' < (*cur & 0xFF)) {
         ++cur;
+    }
+    if (decryptKeyPtr &&  0 < decryptKeyLen) {
+        const int keyLen = DelegationToken::DecryptSessionKeyFromString(
+            decryptKeyPtr,
+            decryptKeyLen,
+            key,
+            (int)(cur - key),
+            chunkServerAccessKey,
+            &inOp.statusMsg
+        );
+        if (keyLen <= 0) {
+            inOp.status = keyLen < 0 ? keyLen : -EINVAL;
+        }
+        return (0 < keyLen);
     }
     if (chunkServerAccessKey.Parse(key, (int)(cur - key))) {
         return true;
@@ -1065,8 +1082,14 @@ ChunkAccessOp::ParseResponseHeaderSelf(const Properties& prop)
     accessResponseValidForSec = prop.getValue("Acess-time",   0);
     chunkAccessResponse       = prop.getValue("C-access",     string());
     chunkServerAccessId.clear();
-    ParseChunkServerAccess(*this, prop.getValue("CS-access"),
-        chunkServerAccessId, chunkServerAccessKey);
+    ParseChunkServerAccess(
+        *this,
+        prop.getValue("CS-access"),
+        chunkServerAccessId,
+        chunkServerAccessKey,
+        decryptKey ? decryptKey->data()      : 0,
+        decryptKey ? (int)decryptKey->size() : 0
+    );
 }
 
 void

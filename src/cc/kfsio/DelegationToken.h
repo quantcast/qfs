@@ -238,6 +238,20 @@ public:
         int               inKeyLen,
         CryptoKeys::Key&  outKey,
         string*           outErrMsgPtr);
+    static int DecryptSessionKeyFromString(
+        const char*       inDecryptKeyPtr,
+        int               inDecryptKeyLen,
+        const char*       inStrPtr,
+        int               inStrLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr);
+    static int DecryptSessionKey(
+        const char*       inDecryptKeyPtr,
+        int               inDecryptKeyLen,
+        const char*       inKeyPtr,
+        int               inKeyLen,
+        CryptoKeys::Key&  outKey,
+        string*           outErrMsgPtr);
 
 private:
     enum { kIssuedTimeShift = 16 };

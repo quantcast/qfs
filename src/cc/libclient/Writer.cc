@@ -497,7 +497,9 @@ private:
               mClosingFlag(false),
               mLogPrefix(inLogPrefix),
               mOpDoneFlagPtr(0),
-              mInFlightBlocks()
+              mInFlightBlocks(),
+              mChunkAccessExpireTime(0),
+              mCSAccessExpireTime(0)
         {
             Queue::Init(mPendingQueue);
             Queue::Init(mInFlightQueue);
@@ -761,6 +763,8 @@ private:
         string const   mLogPrefix;
         bool*          mOpDoneFlagPtr;
         ChecksumBlocks mInFlightBlocks;
+        time_t         mChunkAccessExpireTime;
+        time_t         mCSAccessExpireTime;
         WriteOp*       mPendingQueue[1];
         WriteOp*       mInFlightQueue[1];
         ChunkWriter*   mPrevPtr[1];
@@ -871,11 +875,17 @@ private:
                     mAllocOp.chunkServerAccessKey.GetSize()
                 );
                 mWriteIdAllocOp.access = mAllocOp.chunkAccess;
-                mWriteIdAllocOp.createChunkAccessFlag = true;
-                mWriteIdAllocOp.createChunkServerAccessFlag =
+                // Always ask for chunk access token here, as the chunk access
+                // token's lifetime returned by alloc is 5 min.
+                // The chunk returns the token with the corresponding key's
+                // lifetime as the token subject includes write id.
+                mWriteIdAllocOp.createChunkAccessFlag       = true;
+                mCSAccessExpireTime =
                     mAllocOp.chunkServerAccessIssuedTime +
-                    mAllocOp.chunkServerAccessValidForTime
-                    < LEASE_INTERVAL_SECS + Now();
+                    mAllocOp.chunkServerAccessValidForTime -
+                    LEASE_INTERVAL_SECS;
+                mWriteIdAllocOp.createChunkServerAccessFlag =
+                    mCSAccessExpireTime <= Now();
             }
             if (mWriteIdAllocOp.status == 0 &&
                     ! mChunkServer.GetAuthContext()) {
@@ -1170,6 +1180,7 @@ private:
             inOp.createChunkServerAccessFlag = false;
             inOp.chunkAccessResponse.clear();
             inOp.chunkServerAccessId.clear();
+            inOp.decryptKey                  = 0;
         }
         int GetTimeToNextRetry() const
         {

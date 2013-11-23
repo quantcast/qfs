@@ -190,6 +190,10 @@ public:
         int         inKeyIdLen,
         const char* inKeyDataPtr,
         int         inKeyDataSize);
+    const string& GetKey() const;          // Key presently set
+    const string& GetKeyId() const;
+    const string& GetSessionKey() const;   // Key used with connection.
+    const string& GetSessionKeyId() const;
     void SetShutdownSsl(
         bool inFlag);
     void SetAuthContext(
