@@ -1063,7 +1063,7 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
     serversOrderedFlag = prop.getValue("Replicas-ordered", 0) != 0;
     int numReplicas = prop.getValue("Num-replicas", 0);
     string replicas = prop.getValue("Replicas", "");
-    if (replicas != "") {
+    if (! replicas.empty()) {
         istringstream ser(replicas);
         ServerLocation loc;
 

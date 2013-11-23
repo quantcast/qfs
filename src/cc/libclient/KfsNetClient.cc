@@ -981,13 +981,19 @@ private:
             }
             return false;
         }
-        const int  theHdrLen = theIdx + 4;
-        const char theSeparator     = ':';
-        const bool theMultiLineFlag = false;
+        const int  theHdrLen    = theIdx + 4;
+        const char theSeparator = ':';
         mProperties.clear();
-        mProperties.loadProperties(
-            mIstream.Set(inBuffer, theHdrLen), theSeparator, theMultiLineFlag);
-        mIstream.Reset();
+        IOBuffer::iterator const theIt = inBuffer.begin();
+        if (theIt != inBuffer.end() && theHdrLen <= theIt->BytesConsumable()) {
+            mProperties.loadProperties(
+                theIt->Consumer(), (size_t)theHdrLen, theSeparator);
+        } else {
+            const bool theVerboseFlag = false;
+            mProperties.loadProperties(
+                mIstream.Set(inBuffer, theHdrLen), theSeparator, theVerboseFlag);
+            mIstream.Reset();
+        }
         inBuffer.Consume(theHdrLen);
         mReadHeaderDoneFlag = true;
         mContentLength = mProperties.getValue("Content-length", 0);
