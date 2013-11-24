@@ -66,6 +66,9 @@ public:
         virtual int Get(
             const DelegationToken& inToken,
             const char*&           outPtr) = 0;
+    protected:
+        virtual ~Subject()
+            {}
     };
 
     enum { kSignatureLength = 20 };
