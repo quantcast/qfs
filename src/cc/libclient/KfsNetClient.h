@@ -196,6 +196,7 @@ public:
     const string& GetSessionKeyId() const;
     void SetShutdownSsl(
         bool inFlag);
+    bool IsShutdownSsl() const;
     void SetAuthContext(
         ClientAuthContext* inAuthContextPtr);
     bool SetServer(

@@ -1174,8 +1174,9 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-WriteIdAllocOp::ParseResponseHeaderSelf(const Properties &prop)
+WriteIdAllocOp::ParseResponseHeaderSelf(const Properties& prop)
 {
+    ChunkAccessOp::ParseResponseHeaderSelf(prop);
     writeIdStr                  = prop.getValue("Write-id", string());
     writePrepReplySupportedFlag = prop.getValue("Write-prepare-reply", 0) != 0;
 }

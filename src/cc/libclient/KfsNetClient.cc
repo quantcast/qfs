@@ -227,6 +227,8 @@ public:
         { return mSessionKeyData; }
     const string& GetSessionKeyId() const
         { return mSessionKeyId; }
+    bool IsShutdownSsl() const
+        { return mShutdownSslFlag; }
     void SetShutdownSsl(
         bool inFlag)
     {
@@ -432,8 +434,9 @@ public:
         OpQueueEntry* const theOutstandingOpPtr = mOutstandingOpPtr;
         switch (inCode) {
             case EVENT_NET_READ: {
-                    assert(inDataPtr && mConnPtr);
-                    IOBuffer& theBuffer = *reinterpret_cast<IOBuffer*>(inDataPtr);
+                    assert(inDataPtr && mConnPtr &&
+                        &mConnPtr->GetInBuffer() == inDataPtr);
+                    IOBuffer& theBuffer = mConnPtr->GetInBuffer();
                     mDataReceivedFlag = mDataReceivedFlag ||
                         (! theBuffer.IsEmpty() && ! IsAuthInFlight());
                     HandleResponse(theBuffer);
@@ -1622,13 +1625,18 @@ KfsNetClient::GetSessionKeyId() const
     return mImpl.GetSessionKeyId();
 }
 
-
     void
 KfsNetClient::SetShutdownSsl(
     bool inFlag)
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetShutdownSsl(inFlag);
+}
+
+    bool
+KfsNetClient::IsShutdownSsl() const
+{
+    return mImpl.IsShutdownSsl();
 }
 
     void

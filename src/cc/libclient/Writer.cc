@@ -498,6 +498,8 @@ private:
               mLogPrefix(inLogPrefix),
               mOpDoneFlagPtr(0),
               mInFlightBlocks(),
+              mHasSubjectIdFlag(),
+              mChunkAccess(),
               mChunkAccessExpireTime(0),
               mCSAccessExpireTime(0)
         {
@@ -763,6 +765,8 @@ private:
         string const   mLogPrefix;
         bool*          mOpDoneFlagPtr;
         ChecksumBlocks mInFlightBlocks;
+        bool           mHasSubjectIdFlag;
+        string         mChunkAccess;
         time_t         mChunkAccessExpireTime;
         time_t         mCSAccessExpireTime;
         WriteOp*       mPendingQueue[1];
@@ -851,6 +855,10 @@ private:
             mWriteIdAllocOp.numBytes                    = 0;
             mWriteIdAllocOp.writePrepReplySupportedFlag = false;
 
+            const time_t theNow = Now();
+            mHasSubjectIdFlag = false;
+            mChunkAccess.clear();
+
             const bool theCSClearTextAllowedFlag =
                 mOuter.IsChunkServerClearTextAllowed();
             mChunkServer.SetShutdownSsl(
@@ -866,6 +874,9 @@ private:
                 } else if (! theCSClearTextAllowedFlag) {
                     mWriteIdAllocOp.status    = -EPERM;
                     mWriteIdAllocOp.statusMsg = "no chunk server access";
+                } else {
+                    mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
+                    mCSAccessExpireTime    = mChunkAccessExpireTime;
                 }
             } else {
                 mChunkServer.SetKey(
@@ -874,18 +885,26 @@ private:
                     mAllocOp.chunkServerAccessKey.GetPtr(),
                     mAllocOp.chunkServerAccessKey.GetSize()
                 );
-                mWriteIdAllocOp.access = mAllocOp.chunkAccess;
+                mChunkAccess           = mAllocOp.chunkAccess;
+                mWriteIdAllocOp.access = mChunkAccess;
                 // Always ask for chunk access token here, as the chunk access
                 // token's lifetime returned by alloc is 5 min.
                 // The chunk returns the token with the corresponding key's
                 // lifetime as the token subject includes write id.
-                mWriteIdAllocOp.createChunkAccessFlag       = true;
-                mCSAccessExpireTime =
-                    mAllocOp.chunkServerAccessIssuedTime +
-                    mAllocOp.chunkServerAccessValidForTime -
-                    LEASE_INTERVAL_SECS;
+                mWriteIdAllocOp.createChunkAccessFlag = true;
+                mChunkAccessExpireTime = theNow - 60 * 60 * 24;
+                mCSAccessExpireTime = GetAccessExpireTime(
+                    theNow,
+                    mAllocOp.chunkServerAccessIssuedTime,
+                    mAllocOp.chunkServerAccessValidForTime
+                );
                 mWriteIdAllocOp.createChunkServerAccessFlag =
-                    mCSAccessExpireTime <= Now();
+                    mCSAccessExpireTime <= theNow;
+                if (mAllocOp.allowCSClearTextFlag &&
+                        theCSClearTextAllowedFlag &&
+                        mWriteIdAllocOp.createChunkServerAccessFlag) {
+                    mWriteIdAllocOp.decryptKey = &mChunkServer.GetSessionKey();
+                }
             }
             if (mWriteIdAllocOp.status == 0 &&
                     ! mChunkServer.GetAuthContext()) {
@@ -897,6 +916,81 @@ private:
                 Enqueue(mWriteIdAllocOp);
             } else {
                 HandleError(mWriteIdAllocOp);
+            }
+        }
+        static int64_t GetAccessExpireTime(
+            time_t  inNow,
+            int64_t inIssedTime,
+            int64_t inValidFor)
+        {
+            // Use current time if the clock difference is large enough.
+            int64_t theDiff = inIssedTime - (int64_t)inNow;
+            if (theDiff < 0) {
+                theDiff = -theDiff;
+            }
+            return (
+                ((LEASE_INTERVAL_SECS * 3 < theDiff) ? inNow : inIssedTime) +
+                inValidFor - LEASE_INTERVAL_SECS
+            );
+        }
+        void UpdateAccess(
+            ChunkAccessOp& inOp)
+        {
+            if (! inOp.chunkAccessResponse.empty()) {
+                mHasSubjectIdFlag      = true;
+                mChunkAccess           = inOp.chunkAccessResponse;
+                mChunkAccessExpireTime = GetAccessExpireTime(
+                    Now(),
+                    inOp.accessResponseIssued,
+                    inOp.accessResponseValidForSec
+                );
+            }
+            if (0 < inOp.accessResponseValidForSec &&
+                    ! inOp.chunkServerAccessId.empty()) {
+                mChunkServer.SetKey(
+                    inOp.chunkServerAccessId.data(),
+                    inOp.chunkServerAccessId.size(),
+                    inOp.chunkServerAccessKey.GetPtr(),
+                    inOp.chunkServerAccessKey.GetSize()
+                );
+                if (inOp.chunkAccessResponse.empty()) {
+                    mCSAccessExpireTime = GetAccessExpireTime(
+                        Now(),
+                        inOp.accessResponseIssued,
+                        inOp.accessResponseValidForSec
+                    );
+                } else {
+                    mCSAccessExpireTime = mChunkAccessExpireTime;
+                }
+            }
+        }
+        void SetAccess(
+            ChunkAccessOp& inOp,
+            bool           inCanRequestAccessFlag = true)
+        {
+            const time_t theNow = Now();
+            inOp.access                      = mChunkAccess;
+            inOp.createChunkAccessFlag       = inCanRequestAccessFlag &&
+                mChunkAccessExpireTime <= theNow;
+            inOp.createChunkServerAccessFlag = inCanRequestAccessFlag &&
+                mCSAccessExpireTime    <= theNow;
+            inOp.hasSubjectIdFlag            =
+                mHasSubjectIdFlag && ! mWriteIds.empty();
+            if (inOp.hasSubjectIdFlag) {
+                inOp.subjectId = mWriteIds.front().writeId;
+            }
+            if (inOp.createChunkServerAccessFlag &&
+                    mChunkServer.IsShutdownSsl()) {
+                inOp.decryptKey = &mChunkServer.GetSessionKey();
+            }
+            // Roll forward access time to indicate the request is in flight.
+            // If op fails or times out, then write restarts from write id
+            // allocation.
+            if (inOp.createChunkAccessFlag) {
+                mChunkAccessExpireTime = theNow + LEASE_INTERVAL_SECS * 3 / 2;
+            }
+            if (inOp.createChunkServerAccessFlag) {
+                mCSAccessExpireTime = theNow + LEASE_INTERVAL_SECS * 3 / 2;
             }
         }
         void Done(
@@ -936,6 +1030,7 @@ private:
                 HandleError(inOp);
                 return;
             }
+            UpdateAccess(inOp);
             StartWrite();
         }
         void Write()
@@ -982,6 +1077,10 @@ private:
                 mWriteIdAllocOp.writePrepReplySupportedFlag;
             // No need to recompute checksums on retry. Presently the buffer
             // remains the unchanged.
+            SetAccess(
+                inWriteOp.mWritePrepareOp,
+                inWriteOp.mWritePrepareOp.replyRequestedFlag
+            );
             if (inWriteOp.mWritePrepareOp.replyRequestedFlag) {
                 if (! inWriteOp.mChecksumValidFlag) {
                     inWriteOp.mWritePrepareOp.checksum = ComputeBlockChecksum(
@@ -1012,6 +1111,7 @@ private:
                     inWriteOp.mWritePrepareOp.writeInfo;
                 inWriteOp.mWriteSyncOp.checksums    =
                     inWriteOp.mWritePrepareOp.checksums;
+                SetAccess(inWriteOp.mWriteSyncOp);
             }
             inWriteOp.mOpStartTime = Now();
             Queue::Remove(mPendingQueue, inWriteOp);
@@ -1048,6 +1148,11 @@ private:
                 mPendingCount >= theDoneCount
             );
             mPendingCount -= theDoneCount;
+            if (inOp.mWritePrepareOp.replyRequestedFlag) {
+                UpdateAccess(inOp.mWritePrepareOp);
+            } else {
+                UpdateAccess(inOp.mWriteSyncOp);
+            }
             inOp.Delete(mInFlightQueue);
             if (! ReportCompletion(theOffset, theDoneCount)) {
                 return;
@@ -1178,6 +1283,10 @@ private:
             inOp.access.clear();
             inOp.createChunkAccessFlag       = false;
             inOp.createChunkServerAccessFlag = false;
+            inOp.hasSubjectIdFlag            = false;
+            inOp.subjectId                   = -1;
+            inOp.accessResponseValidForSec   = 0;
+            inOp.accessResponseIssued        = 0;
             inOp.chunkAccessResponse.clear();
             inOp.chunkServerAccessId.clear();
             inOp.decryptKey                  = 0;
