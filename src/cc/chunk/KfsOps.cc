@@ -1011,26 +1011,35 @@ CloseOp::Execute()
     int64_t        writeId       = -1;
     bool           needToForward = needToForwardToPeer(
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
-    if (chunkAccessTokenValidFlag && hasWriteId &&
+    if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
-            subjectId != writeId) {
+            (subjectId != writeId || ! hasWriteId)) {
         status    = -EPERM;
-        statusMsg = "access token write access mismatch";
-    } else if (! gAtomicRecordAppendManager.CloseChunk(
-            this, writeId, needToForward)) {
-        // forward the close only if it was accepted by the chunk
-        // manager.  the chunk manager can reject a close if the
-        // chunk is being written to by multiple record appenders
-        needToForward = gChunkManager.CloseChunk(chunkId) == 0 && needToForward;
-        status        = 0;
-    }
-    if (needToForward) {
-        bool allowCSClearTextFlag = false;
-        if (myPos == 0 && hasWriteId) {
-            gLeaseClerk.IsLeaseValid(
+        statusMsg = "access token invalid subject";
+    } else {
+        bool allowCSClearTextFlag = chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
+        if (myPos == 0 && hasWriteId && chunkAccessTokenValidFlag) {
+            needToForward = gLeaseClerk.IsLeaseValid(
                 chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
         }
-        ForwardToPeer(peerLoc, myPos == 0, allowCSClearTextFlag);
+        if (! gAtomicRecordAppendManager.CloseChunk(
+                this, writeId, needToForward)) {
+            // forward the close only if it was accepted by the chunk
+            // manager.  the chunk manager can reject a close if the
+            // chunk is being written to by multiple record appenders
+            if (hasWriteId && ! gChunkManager.IsValidWriteId(writeId)) {
+                statusMsg = "invalid write id";
+                status    = -EINVAL;
+            } else {
+                needToForward = gChunkManager.CloseChunk(chunkId) == 0 &&
+                    needToForward;
+                status        = 0;
+            }
+        }
+        if (needToForward) {
+            ForwardToPeer(peerLoc, myPos == 0, allowCSClearTextFlag);
+        }
     }
     gLogger.Submit(this);
 }
