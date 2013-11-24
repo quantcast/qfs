@@ -873,7 +873,7 @@ struct TruncateOp : public KfsOp {
         {}
     virtual void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
-    virtual virtual ostream& ShowSelf(ostream& os) const {
+    virtual ostream& ShowSelf(ostream& os) const {
         os <<
             "truncate:"
             " fid: "    << fid <<
