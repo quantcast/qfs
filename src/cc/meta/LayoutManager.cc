@@ -4922,7 +4922,7 @@ LayoutManager::GetInFlightChunkOpsCount(
 }
 
 int
-LayoutManager::GetChunkWriteLease(MetaAllocate *r, bool &isNewLease)
+LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
 {
     if (InRecovery()) {
         KFS_LOG_STREAM_INFO <<
