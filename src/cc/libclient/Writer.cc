@@ -1172,6 +1172,7 @@ private:
             }
             mWriteIds.clear();
             mAllocOp.chunkId = -1;
+            SetAccess(mCloseOp);
             Enqueue(mCloseOp);
         }
         void Done(

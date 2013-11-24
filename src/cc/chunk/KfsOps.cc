@@ -1019,11 +1019,30 @@ CloseOp::Execute()
     } else {
         bool allowCSClearTextFlag = chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
-        if (myPos == 0 && hasWriteId && chunkAccessTokenValidFlag) {
-            needToForward = gLeaseClerk.IsLeaseValid(
-                chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
+        if (chunkAccessTokenValidFlag) {
+            if (myPos == 0) {
+                const bool hasValidLeaseFlag = gLeaseClerk.IsLeaseValid(
+                    chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
+                if (hasValidLeaseFlag) {
+                    if ((chunkAccessFlags &
+                            ChunkAccessToken::kAllowWriteFlag) == 0) {
+                        status    = -EPERM;
+                        statusMsg = "valid write lease exists";
+                    }
+                } else if (hasWriteId || (chunkAccessFlags &
+                        ChunkAccessToken::kAllowReadFlag) == 0) {
+                    status    = -EPERM;
+                    statusMsg = "no valid write lease exists";
+                }
+            } else if ((chunkAccessFlags &
+                    DelegationToken::kChunkServerFlag) == 0) {
+                status    = -EPERM;
+                statusMsg = "no chunk server access flag set";
+            }
         }
-        if (! gAtomicRecordAppendManager.CloseChunk(
+        if (status < 0) {
+            needToForward = false;
+        } else if (! gAtomicRecordAppendManager.CloseChunk(
                 this, writeId, needToForward)) {
             // forward the close only if it was accepted by the chunk
             // manager.  the chunk manager can reject a close if the
