@@ -412,13 +412,15 @@ private:
 
 struct ChunkAccessRequestOp : public KfsClientChunkOp
 {
-    bool createChunkAccessFlag;
-    bool createChunkServerAccessFlag;
+    bool    createChunkAccessFlag;
+    bool    createChunkServerAccessFlag;
+    int64_t writeId;
 
     ChunkAccessRequestOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
         : KfsClientChunkOp(o, s, c),
           createChunkAccessFlag(false),
-          createChunkServerAccessFlag(false)
+          createChunkServerAccessFlag(false),
+          writeId(-1)
           {}
     void WriteChunkAccessResponse(
         ostream& os, int64_t subjectId, int accessTokenFlags);
@@ -970,7 +972,6 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
     kfsSeq_t              clientSeq;             /* input */
     int64_t               chunkVersion;          /* input */
     size_t                numBytes;              /* input */
-    int64_t               writeId;               /* value for the local parsed out of servers string */
     int64_t               offset;                /* input: offset as far as the transaction is concerned */
     int64_t               fileOffset;            /* value set by the head of the daisy chain */
     uint32_t              numServers;            /* input */
@@ -1106,7 +1107,6 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     int64_t               chunkVersion;
     int64_t               offset;            /* input */
     size_t                numBytes;          /* input */
-    int64_t               writeId;           /* output */
     StringBufT<256>       writeIdStr;        /* output */
     uint32_t              numServers;        /* input */
     StringBufT<256>       servers;           /* input: set of servers on which to write */
@@ -1124,7 +1124,6 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           chunkVersion(-1),
           offset(0),
           numBytes(0),
-          writeId(-1),
           writeIdStr(),
           numServers(0),
           servers(),
@@ -1143,7 +1142,6 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           chunkVersion(other.chunkVersion),
           offset(other.offset),
           numBytes(other.numBytes),
-          writeId(-1),
           numServers(other.numServers),
           servers(other.servers),
           fwdedOp(0),
@@ -1215,7 +1213,6 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     int64_t               chunkVersion;
     int64_t               offset;     /* input */
     size_t                numBytes;   /* input */
-    int64_t               writeId;    /* value for the local server */
     uint32_t              numServers; /* input */
     uint32_t              checksum;   /* input: as computed by the sender; 0 means sender didn't send */
     StringBufT<256>       servers;    /* input: set of servers on which to write */
@@ -1234,7 +1231,6 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
           chunkVersion(-1),
           offset(0),
           numBytes(0),
-          writeId(-1),
           numServers(0),
           checksum(0),
           servers(),
@@ -1425,7 +1421,6 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
     // sent by the chunkmaster to downstream replicas; if there is a
     // mismatch, the sync will fail and the client will retry the write
     vector<uint32_t>          checksums;
-    int64_t                   writeId; /* corresponds to the local write */
     uint32_t                  numServers;
     StringBufT<256>           servers;
     WriteSyncOp*              fwdedOp;
@@ -1447,7 +1442,6 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
           offset(o),
           numBytes(n),
           checksums(),
-          writeId(-1),
           numServers(0),
           fwdedOp(0),
           writeOp(0),

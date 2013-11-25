@@ -2775,7 +2775,7 @@ ChunkAccessRequestOp::Response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
-    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
+    WriteChunkAccessResponse(os, writeId, ChunkAccessToken::kUsesWriteIdFlag);
     os << "\r\n";
 }
 
@@ -2839,7 +2839,7 @@ WriteIdAllocOp::Response(ostream &os)
     if (writePrepareReplyFlag) {
         os << "Write-prepare-reply: 1\r\n";
     }
-    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
+    WriteChunkAccessResponse(os, writeId, ChunkAccessToken::kUsesWriteIdFlag);
     os << "Write-id: " << writeIdStr <<  "\r\n"
     "\r\n";
 }
@@ -2860,7 +2860,7 @@ RecordAppendOp::Response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
-    WriteChunkAccessResponse(os, chunkId, ChunkAccessToken::kUsesWriteIdFlag);
+    WriteChunkAccessResponse(os, writeId, ChunkAccessToken::kUsesWriteIdFlag);
     os << "File-offset: " << fileOffset << "\r\n\r\n";
 }
 

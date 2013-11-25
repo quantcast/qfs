@@ -1240,8 +1240,12 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
         return false;
     }
     if (! op.chunkAccessTokenValidFlag) {
-        op.statusMsg = "chunk access: chunk access token is not valid";
-        op.status    = -EPERM;
+        if (op.statusMsg.empty()) {
+            op.statusMsg = "chunk access: chunk access token is not valid";
+        } else {
+            op.statusMsg = "chunk access: " + op.statusMsg;
+        }
+        op.status = -EPERM;
         return false;
     }
     if (mDelegationToken.GetValidForSec() <= 0) {
@@ -1305,7 +1309,9 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
             op.op != CMD_RECORD_APPEND &&
             op.op != CMD_SPC_RESERVE   &&
             op.op != CMD_SPC_RELEASE   &&
-            op.op != CMD_GET_RECORD_APPEND_STATUS) {
+            op.op != CMD_GET_RECORD_APPEND_STATUS &&
+            (op.op != CMD_CLOSE || (op.chunkAccessFlags &
+                ChunkAccessToken::kAllowWriteFlag) == 0)) {
         op.statusMsg = "chunk access: no id subject allowed";
         op.status    = -EPERM;
         return false;

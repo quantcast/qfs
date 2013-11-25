@@ -170,7 +170,6 @@ RecordAppendOp::RecordAppendOp(kfsSeq_t s)
       clientSeq(s),
       chunkVersion(-1),
       numBytes(0),
-      writeId(-1),
       offset(-1),
       fileOffset(-1),
       numServers(0),

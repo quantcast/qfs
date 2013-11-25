@@ -1170,9 +1170,9 @@ private:
             } else {
                 mCloseOp.chunkServerLoc.clear();
             }
+            SetAccess(mCloseOp);
             mWriteIds.clear();
             mAllocOp.chunkId = -1;
-            SetAccess(mCloseOp);
             Enqueue(mCloseOp);
         }
         void Done(
