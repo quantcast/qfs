@@ -542,7 +542,7 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
             tokenSeq,
             keyId,
             now,
-            (token.GetFlags() &  DelegationToken::kChunkServerFlag),
+            (token.GetFlags() & DelegationToken::kChunkServerFlag),
             validForSec,
             key.GetPtr(),
             key.GetSize(),
