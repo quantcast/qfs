@@ -120,8 +120,8 @@ ChunkServerAccess::Parse(
     mOwnsBufferFlag = ownsBufferFlag;
     const char*       p           = buf + bufPos;
     const char* const e           = buf + bufLen;
-    const int         tokenCount = 0 <= chunkId ?
-        (hasChunkServerAccessFlag ? 5 : 4) : 6;
+    const int         tokenCount  = 0 <= chunkId ?
+        (hasChunkServerAccessFlag ? 5 : 3) : 6;
     Token             tokens[6];
     for (int i = 0; i < count; i++) {
         for (int k = 0; k < tokenCount; k++) {
@@ -1214,7 +1214,7 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
 void
 LeaseRenewOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    chunkAccessCount              = prop.getValue("CS-access", 0);
+    chunkAccessCount              = prop.getValue("C-access", 0);
     chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
     chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
     allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
