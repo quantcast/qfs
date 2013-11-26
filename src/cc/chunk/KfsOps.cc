@@ -2795,14 +2795,11 @@ GetChunkMetadataOp::Response(ostream &os)
         return;
     }
     os <<
-        "Chunk-handle: " << chunkId      << "\r\n"
+        "Chunk-handle: "   << chunkId      << "\r\n"
         "Chunk-version: "  << chunkVersion << "\r\n"
         "Size: "           << chunkSize    << "\r\n"
-        "Content-length: " << numBytesIO   << "\r\n";
-    if (requestChunkAccess) {
-        os << "C-access: " << requestChunkAccess << "\r\n";
-    }
-    os << "\r\n";
+        "Content-length: " << numBytesIO   << "\r\n"
+    "\r\n";
 }
 
 void
@@ -2970,7 +2967,11 @@ GetChunkMetadataOp::Request(ostream& os)
         "Version: "      << KFS_VERSION_STR          << "\r\n"
         "Chunk-handle: " << chunkId                  << "\r\n"
         "Read-verify: "  << (readVerifyFlag ? 1 : 0) << "\r\n"
-    "\r\n";
+    ;
+    if (requestChunkAccess) {
+        os << "C-access: " << requestChunkAccess << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void

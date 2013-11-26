@@ -360,6 +360,15 @@ int
 ReplicatorImpl::HandleStartDone(int code, void* data)
 {
     if (mCancelFlag || mChunkMetadataOp.status < 0) {
+        if (! mCancelFlag) {
+            KFS_LOG_STREAM_INFO << "replication:"
+                " chunk: "  << mChunkId <<
+                " peer: "   << GetPeerName() <<
+                " get chunk meta data failed:"
+                " msg: "    << mChunkMetadataOp.statusMsg <<
+                " status: " << mChunkMetadataOp.status <<
+            KFS_LOG_EOM;
+        }
         Terminate(mCancelFlag ? ECANCELED : mChunkMetadataOp.status);
         return 0;
     }

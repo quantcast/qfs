@@ -4644,6 +4644,8 @@ static const string sReplicateCmdName("REPLICATE");
 void
 MetaChunkReplicate::request(ostream& os)
 {
+    // OK to use global here as chunk server state machine runs in the main
+    // thread.
     ostringstream& rs = GetTmpOStringStream();
     rs <<
     "Cseq: "          << opSeqno      << "\r\n"
@@ -4671,12 +4673,12 @@ MetaChunkReplicate::request(ostream& os)
     }
     if (0 < validForTime) {
         if (clientCSAllowClearTextFlag) {
-            os << "CS-clear-text: 1\r\n";
+            rs << "CS-clear-text: 1\r\n";
         }
         if (dataServer) {
-            os << "CS-access: ";
+            rs << "CS-access: ";
             DelegationToken::WriteTokenAndSessionKey(
-                os,
+                rs,
                 authUid,
                 tokenSeq,
                 keyId,
@@ -4686,10 +4688,10 @@ MetaChunkReplicate::request(ostream& os)
                 key.GetPtr(),
                 key.GetSize()
             );
-            os << "\r\n"
+            rs << "\r\n"
                 "C-access: ";
             ChunkAccessToken::WriteToken(
-                os,
+                rs,
                 chunkId,
                 authUid,
                 tokenSeq,
@@ -4704,9 +4706,9 @@ MetaChunkReplicate::request(ostream& os)
                 key.GetSize()
             );
         } else {
-            os << "CS-access: ";
+            rs << "CS-access: ";
             DelegationToken::WriteTokenAndSessionKey(
-                os,
+                rs,
                 authUid,
                 tokenSeq,
                 keyId,
@@ -4717,7 +4719,7 @@ MetaChunkReplicate::request(ostream& os)
                 key.GetSize()
             );
         }
-        os << "\r\n";
+        rs << "\r\n";
     }
     rs << "\r\n";
     const string req = rs.str();

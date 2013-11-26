@@ -33,6 +33,7 @@
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/kfserrno.h"
+#include "qcdio/QCUtils.h"
 
 #include <cerrno>
 #include <sstream>
@@ -112,7 +113,7 @@ public:
         mParams.swap(theParams);
         mEnabledFlag = mSslCtxPtr && mParams.getValue(
             theParamName.Truncate(thePrefLen).Append(
-            "enabled"), 0) != 0;
+            "disable"), 0) == 0;
         return true;
     }
     bool Setup(
@@ -136,15 +137,24 @@ public:
             kDeleteOnCloseFlag
         );
         const SslFilter::Error theErr = theFilterPtr->GetError();
-        if (! theErr) {
+        if (theErr) {
+            KFS_LOG_STREAM_ERROR <<
+                "ssl filter create error: " <<
+                    SslFilter::GetErrorMsg(theErr) <<
+                " status: " << theErr <<
+            KFS_LOG_EOM;
+            delete theFilterPtr;
+            return false;
+        }
+        string theErrMsg;
+        const int theStatus = inConn.SetFilter(theFilterPtr, &theErrMsg);
+        if (theStatus == 0) {
             return true;
         }
         KFS_LOG_STREAM_ERROR <<
-            "ssl filter create error: " <<
-                SslFilter::GetErrorMsg(theErr) <<
-            " status: " << theErr <<
+            "set ssl filter error: " <<
+                QCUtils::SysError(-theStatus) <<
         KFS_LOG_EOM;
-        delete theFilterPtr;
         return false;
     }
 private:
@@ -199,7 +209,7 @@ RemoteSyncSM::SetParameters(const char* prefix, const Properties& props)
         sAuthPtr = new Auth();
     }
     return sAuthPtr->SetParameters(
-        name.Truncate(len).Append(".auth").GetPtr(), props);
+        name.Truncate(len).Append("auth.").GetPtr(), props);
 }
 
 void
@@ -286,12 +296,18 @@ RemoteSyncSM::Connect()
     assert(sAuthPtr);
     mSslShutdownInProgressFlag = false;
     if (! mSessionId.empty()) {
-        int err = 0;
+        int  err          = 0;
+        bool noFilterFlag = false;
         if (! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey) ||
+                (noFilterFlag = ! mNetConnection->GetFilter()) ||
                 (mShutdownSslFlag && (err = mNetConnection->Shutdown()) != 0)) {
             if (err) {
                 KFS_LOG_STREAM_ERROR <<
                     mLocation << ": ssl shutdown failed status: " << err <<
+                KFS_LOG_EOM;
+            } else if (noFilterFlag) {
+                KFS_LOG_STREAM_ERROR <<
+                    mLocation << ": auth context configuration error" <<
                 KFS_LOG_EOM;
             }
             mNetConnection.reset();
@@ -435,7 +451,6 @@ RemoteSyncSM::HandleEvent(int code, void *data)
             KFS_LOG_EOM;
             mSslShutdownInProgressFlag = false;
             if (! mNetConnection->GetFilter()) {
-                mNetConnection->StartFlush();
                 break;
             }
         }
@@ -509,7 +524,8 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         if (op) {
             op->status = prop.getValue("Status", -1);
             if (op->status < 0) {
-                op->status = -KfsToSysErrno(-op->status);
+                op->status    = -KfsToSysErrno(-op->status);
+                op->statusMsg = prop.getValue("Status-message", string());
             }
             if (op->op == CMD_WRITE_ID_ALLOC) {
                 WriteIdAllocOp* const wiao  = static_cast<WriteIdAllocOp*>(op);
