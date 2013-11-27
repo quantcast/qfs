@@ -48,6 +48,7 @@
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/Globals.h"
+#include "kfsio/ClientAuthContext.h"
 #include "kfsio/checksum.h"
 #include "libclient/KfsNetClient.h"
 #include "libclient/Reader.h"
@@ -672,6 +673,8 @@ ReplicatorImpl::GetPeerName() const
     return (mPeer ? mPeer->GetLocation().ToString() : "none");
 }
 
+const char* const kRsReadMetaAuthPrefix = "chunkServer.rsReader.auth.";
+
 class RSReplicatorImpl :
     public ReplicatorImpl,
     public Reader::Completion
@@ -732,6 +735,7 @@ public:
             "chunkServer.rsReader.meta.idleTimeoutSec",
             sRSReaderMetaResetConnectionOnOpTimeoutFlag ? 1 : 0
         ) != 0;
+        props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams);
     }
     RSReplicatorImpl(
         ReplicateChunkOp* op,
@@ -747,7 +751,8 @@ public:
                 sessionToken,
                 sessionTokenLen,
                 sessionKey,
-                sessionKeyLen
+                sessionKeyLen,
+                op
             ),
             this,
             sRSReaderMaxRetryCount,
@@ -778,18 +783,20 @@ public:
         mReadOp.skipVerifyDiskChecksumFlag = false;
         const bool kSkipHolesFlag                 = true;
         const bool kUseDefaultBufferAllocatorFlag = true;
-        mChunkMetadataOp.status = mReader.Open(
-            mFileId,
-            mOwner->pathName.c_str(),
-            mOwner->fileSize,
-            mOwner->striperType,
-            mOwner->stripeSize,
-            mOwner->numStripes,
-            mOwner->numRecoveryStripes,
-            kSkipHolesFlag,
-            kUseDefaultBufferAllocatorFlag,
-            mOwner->chunkOffset
-        );
+        if (mOwner->status == 0) {
+            mChunkMetadataOp.status = mReader.Open(
+                mFileId,
+                mOwner->pathName.c_str(),
+                mOwner->fileSize,
+                mOwner->striperType,
+                mOwner->stripeSize,
+                mOwner->numStripes,
+                mOwner->numRecoveryStripes,
+                kSkipHolesFlag,
+                kUseDefaultBufferAllocatorFlag,
+                mOwner->chunkOffset
+            );
+        }
         HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
     }
     virtual void Done(
@@ -991,16 +998,17 @@ private:
         }
     };
     static void StopMetaServer()
-        { GetMetaserver(-1, 0, 0, 0, 0); }
+        { GetMetaserver(-1, 0, 0, 0, 0, 0); }
     static KfsNetClient& GetMetaserver(
-        int         port,
-        const char* sessionToken,
-        int         sessionTokenLen,
-        const char* sessionKey,
-        int         sessionKeyLen)
+        int               port,
+        const char*       sessionToken,
+        int               sessionTokenLen,
+        const char*       sessionKey,
+        int               sessionKeyLen,
+        ReplicateChunkOp* op)
     {
         static AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
-        static KfsNetClient sMetaServerClient(
+        static KfsNetClient          sMetaServerClient(
             globalNetManager(),
             string(), // inHost
             0,        // inPort
@@ -1016,6 +1024,7 @@ private:
         if (port <= 0) {
             sMetaPort = -1;
             sMetaServerClient.Stop();
+            sMetaServerClient.SetAuthContext(0);
         } else {
             if (sMetaPort != port) {
                 if (sMetaPort > 0) {
@@ -1029,12 +1038,37 @@ private:
                 sMetaServerClient.SetServer(ServerLocation(
                     gMetaServerSM.GetLocation().hostname, sMetaPort));
             }
-            sMetaServerClient.SetKey(
-                sessionToken,
-                sessionTokenLen,
-                sessionKey,
-                sessionKeyLen
-            );
+            if (sessionTokenLen <= 0) {
+                sMetaServerClient.SetAuthContext(0);
+            } else {
+                static const Properties::String kPskKeyIdParam(
+                    kRsReadMetaAuthPrefix + string("psk.keyId"));
+                static const Properties::String kPskKeyParam(
+                    kRsReadMetaAuthPrefix + string("psk.key"));
+                sAuthParams.setValue(
+                    kPskKeyIdParam,
+                    Properties::String(sessionToken, sessionTokenLen)
+                );
+                sAuthParams.setValue(
+                    kPskKeyParam,
+                    Properties::String(sessionKey, sessionKeyLen)
+                );
+                ClientAuthContext* const kOtherCtx   = 0;
+                const bool               kVerifyFlag = false;
+                static ClientAuthContext sAuthContext;
+                const int status = sAuthContext.SetParameters(
+                    kRsReadMetaAuthPrefix,
+                    sAuthParams,
+                    kOtherCtx,
+                    op ? &op->statusMsg : 0,
+                    kVerifyFlag
+                );
+                if (status == 0) {
+                    sMetaServerClient.SetAuthContext(&sAuthContext);
+                } else {
+                    op->status = status;
+                }
+            }
         }
         return sMetaServerClient;
     }
@@ -1123,6 +1157,7 @@ private:
     static int  sRSReaderMetaOpTimeoutSec;
     static int  sRSReaderMetaIdleTimeoutSec;
     static bool sRSReaderMetaResetConnectionOnOpTimeoutFlag;
+    static Properties sAuthParams;
 private:
     // No copy.
     RSReplicatorImpl(const RSReplicatorImpl&);
@@ -1143,6 +1178,7 @@ int  RSReplicatorImpl::sRSReaderMetaTimeSecBetweenRetries          = 10;
 int  RSReplicatorImpl::sRSReaderMetaOpTimeoutSec                   = 4 * 60;
 int  RSReplicatorImpl::sRSReaderMetaIdleTimeoutSec                 = 5 * 60;
 bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
+Properties RSReplicatorImpl::sAuthParams;
 
 int
 Replicator::GetNumReplications()
