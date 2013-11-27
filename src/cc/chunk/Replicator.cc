@@ -1020,26 +1020,40 @@ private:
             "RSR",
             sRSReaderMetaResetConnectionOnOpTimeoutFlag
         );
-        static int sMetaPort = -1;
+        static KfsNetClient          sMetaServerClientAuth(
+            globalNetManager(),
+            string(), // inHost
+            0,        // inPort
+            sRSReaderMetaMaxRetryCount,
+            sRSReaderMetaTimeSecBetweenRetries,
+            sRSReaderMetaOpTimeoutSec,
+            sRSReaderMetaIdleTimeoutSec,
+            GetRandomSeq(),
+            "RSRA",
+            sRSReaderMetaResetConnectionOnOpTimeoutFlag
+        );
+        static int sMetaPort     = -1;
+        static int sMetaAuthPort = -1;
         if (port <= 0) {
-            sMetaPort = -1;
+            sMetaPort     = -1;
+            sMetaAuthPort = -1;
             sMetaServerClient.Stop();
-            sMetaServerClient.SetAuthContext(0);
+            sMetaServerClientAuth.Stop();
+            sMetaServerClientAuth.SetAuthContext(0);
         } else {
-            if (sMetaPort != port) {
-                if (sMetaPort > 0) {
-                    KFS_LOG_STREAM_INFO << "recovery:"
-                        " meta server client port has changed"
-                        " from: " << sMetaPort <<
-                        " to: "   << port <<
-                    KFS_LOG_EOM;
-                }
-                sMetaPort = port;
-                sMetaServerClient.SetServer(ServerLocation(
-                    gMetaServerSM.GetLocation().hostname, sMetaPort));
-            }
             if (sessionTokenLen <= 0) {
-                sMetaServerClient.SetAuthContext(0);
+                if (sMetaPort != port) {
+                    if (0 < sMetaPort) {
+                        KFS_LOG_STREAM_INFO << "recovery:"
+                            " meta server client port has changed"
+                            " from: " << sMetaPort <<
+                            " to: "   << port <<
+                        KFS_LOG_EOM;
+                    }
+                    sMetaPort = port;
+                    sMetaServerClient.SetServer(ServerLocation(
+                        gMetaServerSM.GetLocation().hostname, sMetaPort));
+                }
             } else {
                 static const Properties::String kPskKeyIdParam(
                     kRsReadMetaAuthPrefix + string("psk.keyId"));
@@ -1056,21 +1070,30 @@ private:
                 ClientAuthContext* const kOtherCtx   = 0;
                 const bool               kVerifyFlag = false;
                 static ClientAuthContext sAuthContext;
-                const int status = sAuthContext.SetParameters(
+                op->status = sAuthContext.SetParameters(
                     kRsReadMetaAuthPrefix,
                     sAuthParams,
                     kOtherCtx,
                     op ? &op->statusMsg : 0,
                     kVerifyFlag
                 );
-                if (status == 0) {
-                    sMetaServerClient.SetAuthContext(&sAuthContext);
-                } else {
-                    op->status = status;
+                sMetaServerClientAuth.SetAuthContext(&sAuthContext);
+                if (sMetaAuthPort != port) {
+                    if (0 < sMetaAuthPort) {
+                        KFS_LOG_STREAM_INFO << "recovery:"
+                            " meta server auth client port has changed"
+                            " from: " << sMetaAuthPort <<
+                            " to: "   << port <<
+                        KFS_LOG_EOM;
+                    }
+                    sMetaAuthPort = port;
+                    sMetaServerClientAuth.SetServer(ServerLocation(
+                        gMetaServerSM.GetLocation().hostname, sMetaAuthPort));
                 }
             }
         }
-        return sMetaServerClient;
+        return (sessionTokenLen <= 0 ?
+            sMetaServerClient : sMetaServerClientAuth);
     }
     static const char* MakeLogPrefix(kfsChunkId_t chunkId)
     {
