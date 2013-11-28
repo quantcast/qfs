@@ -31,14 +31,10 @@
 #include "kfsio/IOBuffer.h"
 #include "common/BufferedLogWriter.h"
 #include "common/kfserrno.h"
-
-#include <ostream>
+#include "common/IntToString.h"
 
 namespace KFS
 {
-
-using std::ostream;
-using std::streambuf;
 
 class AuditLogWriter : public BufferedLogWriter::Writer
 {
@@ -53,80 +49,51 @@ public:
         char* inBufferPtr,
         int   inBufferSize)
     {
-        if (inBufferSize <= 0) {
-            return 0;
+        const int   theBufferSize = inBufferSize - 1;
+        char*       theCurPtr     = inBufferPtr +  max(0,
+            mOp.reqHeaders.CopyOut(inBufferPtr, theBufferSize));
+        char* const theEndPtr     = inBufferPtr + theBufferSize;
+        int theRet =
+            mOp.reqHeaders.BytesConsumable() +
+            Append(theCurPtr, theEndPtr, "Client-ip: ", 11) +
+            Append(theCurPtr, theEndPtr,
+                    mOp.clientIp.data(), (int)mOp.clientIp.size()) +
+            Append(theCurPtr, theEndPtr, "\r\nStatus: ", 10);
+        const int         kBufSize = 32;
+        char              theBuf[kBufSize];
+        const char* const thePtr = IntToDecString(
+            mOp.status < 0 ? -SysToKfsErrno(-mOp.status) : mOp.status,
+            theBuf + kBufSize
+        );
+        theRet += Append(theCurPtr, theEndPtr,
+            thePtr, (int)(theBuf + kBufSize - thePtr));
+        if (0 <= theBufferSize) {
+            *theCurPtr = 0; // Null terminated records.
         }
-        int theNWr = max(0,
-            mOp.reqHeaders.CopyOut(inBufferPtr, inBufferSize));
-        char* const theEndPtr = inBufferPtr + inBufferSize;
-        // This is not re-entrant, and it doesn't have to be re-entrant due to
-        // serialization in BufferedLogWriter::Append().
-        // Creating and destroying output stream on every invocation is
-        // rather cpu expensive most likely due to c++ lib allocations.
-        static OutStream sStream;
-        sStream.Set(inBufferPtr + theNWr, theEndPtr) <<
-             "Client-ip: " << mOp.clientIp << "\r\n"
-             "Status: "    <<
-                (mOp.status < 0 ? -SysToKfsErrno(-mOp.status) : mOp.status)
-        ;
-        // Put terminal 0 -- record separator.
-        char* const thePtr = min(theEndPtr - 1, sStream.GetCurPtr());
-        *thePtr = 0;
-        return (int)(thePtr + 1 - inBufferPtr);
-
+        theRet++;
+        return theRet;
     }
     virtual int GetMsgLength()
     {
         return (mOp.reqHeaders.BytesConsumable() + 256);
     }
 private:
-    class OutStream :
-        private streambuf,
-        public ostream
+    static int Append(
+        char*&      ioPtr,
+        char*       inEndPtr,
+        const char* inPtr,
+        int         inLen)
     {
-    public:
-        OutStream()
-            : streambuf(),
-            ostream(this)
-            {}
-        ostream& Set(
-            char* inBufferPtr,
-            char* inBufferEndPtr)
-        {
-            setp(inBufferPtr, inBufferEndPtr);
-            Clear();
-            return *this;
+        if (inLen <= 0) {
+            return 0;
         }
-        virtual streamsize xsputn(
-            const char* inBufPtr,
-            streamsize  inLength)
-        {
-            char* const theEndPtr = epptr();
-            char* const theCurPtr = pptr();
-            const streamsize theSize(
-                min(max(streamsize(0), inLength),
-                streamsize(theEndPtr - theCurPtr)));
-            memcpy(theCurPtr, inBufPtr, theSize);
-            pbump(theSize);
-            return theSize;
+        if (inEndPtr < ioPtr + inLen) {
+            return inLen;
         }
-        char* GetCurPtr() const
-            { return pptr(); }
-        void Clear()
-        {
-            ostream::clear();
-            ostream::flags(ostream::dec | ostream::skipws);
-            ostream::precision(6);
-            ostream::width(0);
-            ostream::fill(' ');
-            ostream::tie(0);
-        }
-    private:
-        OutStream(
-            const OutStream&);
-        OutStream& operator=(
-            const OutStream&);
-    };
+        memcpy(ioPtr, inPtr, inLen);
+        ioPtr += inLen;
+        return inLen;
+    }
     const MetaRequest& mOp;
 private:
     AuditLogWriter(
