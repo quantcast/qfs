@@ -607,7 +607,7 @@ public:
             }
             RunTimers(theSec, theMicroSec);
         }
-        if (mBufWaitersCount) {
+        if (0 < mBufWaitersCount) {
             mWriteDoneCond.Notify(); // Wake next thread.
         }
     }
