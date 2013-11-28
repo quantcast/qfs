@@ -510,15 +510,16 @@ public:
         const bool   theWasFlushingFlag = IsFlushing();
         const size_t kAvgPrefSize       = 64;
         const int    kAvgMsgSize        = 256;
-        const size_t theBufSize         = min(GetMaxRecordSize(),
+        size_t       theBufSize         = min(GetMaxRecordSize(),
             kAvgPrefSize + (inWriterPtr ? inWriterPtr->GetMsgLength() : 0) +
             (inStrLen >= 0 ? inStrLen : kAvgMsgSize));
         Time       theTimeWaited      = 0;
         for (int i = 0; ; i++) {
-            if ((i > 0 || mCurPtr + theBufSize >= mEndPtr) && ! FlushSelf()) {
+            while (mCurPtr + theBufSize >= mEndPtr && ! FlushSelf()) {
                 if (theTimeWaited >= mMaxLogWaitTime || ! mRunFlag || i >= 4) {
                     mDroppedCount++;
                     mTotalDroppedCount++;
+                    theBufSize = 0;
                     break;
                 }
                 if (theGetTimeFlag) {
@@ -536,6 +537,9 @@ public:
                 theTimeWaited = Now() - (Seconds(theSec) + theMicroSec);
                 mTotalLogWaitedTime += theTimeWaited;
                 mCurLogWatedTime    += theTimeWaited;
+            }
+            if (theBufSize <= 0) {
+                break;
             }
             if (theGetTimeFlag) {
                 Now(theSec, theMicroSec);
@@ -583,6 +587,7 @@ public:
                     mTotalDroppedCount++;
                     break;
                 }
+                theBufSize = theLen + theRet + 32;
             } else {
                 mCurPtr += theLen + theRet;
                 QCASSERT(mCurPtr < mEndPtr);
@@ -601,6 +606,9 @@ public:
                 FlushIfNeeded(theSec, theMicroSec);
             }
             RunTimers(theSec, theMicroSec);
+        }
+        if (mBufWaitersCount) {
+            mWriteDoneCond.Notify(); // Wake next thread.
         }
     }
     void Run()
