@@ -258,6 +258,7 @@ private:
     int                        mInFlightOpCount;
     DevClientMgrAllocator      mDevCliMgrAllocator;
     bool                       mDataReceivedFlag;
+    bool                       mContentReceivedFlag;
     DelegationToken            mDelegationToken;
     string                     mSessionKey;
 

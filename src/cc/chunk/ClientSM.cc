@@ -194,6 +194,7 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mInFlightOpCount(0),
       mDevCliMgrAllocator(),
       mDataReceivedFlag(false),
+      mContentReceivedFlag(false),
       mDelegationToken(),
       mSessionKey()
 {
@@ -777,7 +778,6 @@ bool
 ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 {
     KfsOp* op = mCurOp;
-
     assert(op ? cmdLen == 0 : cmdLen > 0);
     if (! op) {
         if (sTraceRequestResponseFlag) {
@@ -790,6 +790,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             }
             mIStream.Reset();
         }
+        mContentReceivedFlag = false;
         if (ParseClientCommand(iobuf, cmdLen, &op) != 0) {
             assert(! op);
             istream& is = mIStream.Set(iobuf, cmdLen);
@@ -817,7 +818,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     // Append and write prepare ops has such format where the initial part of
     // the "content" is used to pass access tokens down to the synchronous
     // replication chain.
-    const int contentLength = op->GetContentLength();
+    const int contentLength = mContentReceivedFlag ? 0 : op->GetContentLength();
     if (0 < contentLength) {
         if (! mCurOp) {
             if (iobuf.BytesConsumable() < contentLength) {
@@ -867,6 +868,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             iobuf.Consume(contentLength);
         }
     }
+    mContentReceivedFlag = true;
 
     ByteCount bufferBytes = -1;
     if (op->op == CMD_WRITE_PREPARE) {

@@ -207,10 +207,10 @@ private:
     SRChunkServerAccess(
         const Token tokens[kTokenCount],
         const char* str)
-        : token(tokens[0]),
-          key  (tokens[1]),
-          fwd  (tokens[2]),
-          accessStr        (str)
+        : token    (tokens[0]),
+          key      (tokens[1]),
+          fwd      (tokens[2]),
+          accessStr(str)
         {}
     SRChunkServerAccess(const SRChunkServerAccess&);
     SRChunkServerAccess& operator=(const SRChunkServerAccess&);
