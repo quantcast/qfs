@@ -282,7 +282,7 @@ LeaseClerk::Timeout()
         /// request, so that the lease remains valid.  So, back-off a few
         /// secs before the leases and submit the renew
         if (lease.leaseRenewSent ||
-                now + LEASE_INTERVAL_SECS - 6 < lease.expires) {
+                now + LEASE_INTERVAL_SECS - 60 < lease.expires) {
             // If the lease is valid for a while or a lease renew is in flight,
             // move on
             continue;
@@ -301,7 +301,7 @@ LeaseClerk::Timeout()
         // The metaserverSM will fill seq#.
         LeaseRenewOp* const op = new LeaseRenewOp(
             -1, chunkId, lease.leaseId, kWriteLease,
-            true || lease.syncReplicationAccess.chunkServerAccess &&
+            lease.syncReplicationAccess.chunkServerAccess &&
                 lease.syncReplicationExpirationTime <= now
         );
         KFS_LOG_STREAM_INFO <<

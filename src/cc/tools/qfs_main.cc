@@ -3168,12 +3168,10 @@ private:
         if (theFd < 0) {
             theErr = theFd;
         } else {
-            while (inInStream.get(mIoBufferPtr[0])) {
-                cerr << mIoBufferPtr[0] << "\n";
-                inInStream.readsome(mIoBufferPtr + 1, mIoBufferSize - 1);
-                cerr << 2 << " " << mIoBufferPtr[1] << "\n";
+            while (inInStream) {
+                inInStream.read(mIoBufferPtr, mIoBufferSize);
                 for (const char* thePtr = mIoBufferPtr,
-                            * theEndPtr = thePtr + 1 + inInStream.gcount();
+                            * theEndPtr = thePtr + inInStream.gcount();
                         thePtr < theEndPtr;
                         ) {
                     const ssize_t theNWr =
@@ -3187,10 +3185,6 @@ private:
                 if (theErr != 0) {
                     break;
                 }
-                if ((theErr = theFs.Sync(theFd)) < 0) {
-                    break;
-                }
-                theErr = 0;
             }
             if (theErr == 0 && ! inInStream.eof()) {
                 theErr = errno;
