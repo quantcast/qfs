@@ -500,6 +500,7 @@ private:
               mInFlightBlocks(),
               mHasSubjectIdFlag(),
               mChunkAccess(),
+              mLeaseExpireTime(0),
               mChunkAccessExpireTime(0),
               mCSAccessExpireTime(0)
         {
@@ -663,11 +664,11 @@ private:
             if (! CanWrite()) {
                 return;
             }
-            if (mAllocOp.chunkId > 0 && mChunkServer.WasDisconnected()) {
+            if (0 < mAllocOp.chunkId && mLeaseExpireTime < Now()) {
                 // When chunk server disconnects it might clean up write lease.
                 // Start from the beginning -- chunk allocation.
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                    "detected chunk server disconnect: " <<
+                    "write lease expired: " <<
                         mChunkServer.GetServerLocation() <<
                     " starting from chunk allocation, pending:" <<
                     " queue: " << (Queue::IsEmpty(mPendingQueue) ? "" : "not") <<
@@ -767,6 +768,7 @@ private:
         ChecksumBlocks mInFlightBlocks;
         bool           mHasSubjectIdFlag;
         string         mChunkAccess;
+        time_t         mLeaseExpireTime;
         time_t         mChunkAccessExpireTime;
         time_t         mCSAccessExpireTime;
         WriteOp*       mPendingQueue[1];
@@ -834,6 +836,7 @@ private:
                 ReportCompletion(theOffset, theSize);
                 return;
             }
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
             AllocateWriteId();
         }
         bool CanWrite()
@@ -1031,6 +1034,7 @@ private:
                 return;
             }
             UpdateAccess(inOp);
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
             StartWrite();
         }
         void Write()
@@ -1157,6 +1161,7 @@ private:
             if (! ReportCompletion(theOffset, theDoneCount)) {
                 return;
             }
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
             StartWrite();
         }
         void CloseChunk()

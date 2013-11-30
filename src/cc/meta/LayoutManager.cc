@@ -5430,8 +5430,9 @@ LayoutManager::MakeChunkAccess(
     MetaLeaseAcquire::ChunkAccess& chunkAccess,
     const ChunkServer*             writeMaster)
 {
-    StTmp<Servers>                    serversTmp(mServers3Tmp);
-    Servers&                          servers = serversTmp.Get();
+    StTmp<Servers> serversTmp(mServers3Tmp);
+    Servers&       servers = serversTmp.Get();
+    mChunkToServerMap.GetServers(cs, servers);
     if (writeMaster && (servers.empty() ||
             writeMaster != servers.front().get())) {
         KFS_LOG_STREAM_ERROR <<
@@ -5444,7 +5445,6 @@ LayoutManager::MakeChunkAccess(
     }
     MetaLeaseAcquire::ChunkAccessInfo info(
         ServerLocation(), cs.GetChunkId(), authUid);
-    mChunkToServerMap.GetServers(cs, servers);
     for (Servers::const_iterator it = servers.begin(); it != servers.end(); ) {
         if (writeMaster) {
             info.authUid = (*it)->GetAuthUid();

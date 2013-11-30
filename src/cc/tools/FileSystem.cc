@@ -1149,6 +1149,8 @@ GetKfsClient(
         if (theEUser != kKfsUserNone || theEGroup != kKfsGroupNone) {
             sClient.SetEUserAndEGroup(theEUser, theEGroup, 0, 0);
         }
+        sClient.SetDefaultIoBufferSize(inConfigPtr->getValue(
+            "fs.iobufsize", sClient.GetDefaultIoBufferSize()));
     }
     return sClient;
 }

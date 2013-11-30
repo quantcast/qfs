@@ -230,7 +230,6 @@ struct MetaRequest {
     //!< when an op finishes execution, we send a response back to
     //!< the client.  This function should generate the appropriate
     //!< response to be sent back as per the KFS protocol.
-    virtual void response(ostream& /* os */) {}
     virtual void response(ostream& os, IOBuffer& /* buf */) { response(os); }
     virtual int log(ostream &file) const = 0; //!< write request to log
     Display Show() const { return Display(*this); }
@@ -278,6 +277,8 @@ struct MetaRequest {
     {
         return (req ? *req : GetNullReq()).Show();
     }
+protected:
+    virtual void response(ostream& /* os */) {}
 private:
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];

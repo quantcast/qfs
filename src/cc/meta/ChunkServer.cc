@@ -760,7 +760,8 @@ ChunkServer::Error(const char* errorMsg)
     if (mHelloDone) {
         // force the server down thru the main loop to avoid races
         MetaBye* const mb = new MetaBye(0, shared_from_this());
-        mb->clnt = this;
+        mb->authUid = mAuthUid;
+        mb->clnt    = this;
         submit_request(mb);
     }
     mSelfPtr.reset(); // Unref / delete self
@@ -1219,6 +1220,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;
+    op->authUid = mAuthUid;
     submit_request(op);
     return 0;
 }
@@ -1253,6 +1255,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     }
     op->fromClientSMFlag = false;
     op->clnt             = this;
+    op->authUid          = mAuthUid;
     submit_request(op);
     return 0;
 }
@@ -2050,7 +2053,8 @@ ChunkServer::SendResponse(MetaRequest* op)
     if (! mNetConnection) {
         return;
     }
-    op->response(mOstream.Set(mNetConnection->GetOutBuffer()));
+    IOBuffer& buf = mNetConnection->GetOutBuffer();
+    op->response(mOstream.Set(buf), buf);
     mOstream.Reset();
     if (mRecursionCount <= 0) {
         mNetConnection->StartFlush();
