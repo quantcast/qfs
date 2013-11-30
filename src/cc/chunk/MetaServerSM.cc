@@ -108,10 +108,19 @@ MetaServerSM::MetaServerSM()
 MetaServerSM::~MetaServerSM()
 {
     globalNetManager().UnRegisterTimeoutHandler(this);
+    CleanupOpInFlight();
     FailOps(true);
     delete mHelloOp;
     delete mAuthOp;
-    delete mOp;
+}
+
+void
+MetaServerSM::CleanupOpInFlight()
+{
+    if (mRequestFlag) {
+        delete mOp;
+    }
+    mOp = 0;
 }
 
 int
@@ -234,8 +243,7 @@ MetaServerSM::Connect()
     }
     delete mAuthOp;
     mAuthOp = 0;
-    delete mOp;
-    mOp = 0;
+    CleanupOpInFlight();
     mContentLength = 0;
     mCounters.mConnectCount++;
     mSentHello = false;
@@ -522,8 +530,7 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_NET_ERROR:
         delete mAuthOp;
         mAuthOp = 0;
-        delete mOp;
-        mOp = 0;
+        CleanupOpInFlight();
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
@@ -600,6 +607,7 @@ MetaServerSM::HandleMsg(IOBuffer& iobuf, int msgLen)
 bool
 MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
 {
+    DispatchedOps::iterator iter = mDispatchedOps.end();
     KfsOp* op = mOp;
     if (op) {
         mOp = 0;
@@ -688,7 +696,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             return true;
         }
-        DispatchedOps::iterator const iter = mDispatchedOps.find(seq);
+        iter = mDispatchedOps.find(seq);
         if (iter == mDispatchedOps.end()) {
             string reply;
             prop.getList(reply, string(), string(" "));
@@ -699,7 +707,6 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             return false;
         }
         op = iter->second;
-        mDispatchedOps.erase(iter);
         op->status = status;
         if (status < 0 && op->statusMsg.empty()) {
             op->statusMsg.swap(statusMsg);
@@ -741,6 +748,11 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             HandleRequest(EVENT_NET_ERROR, 0);
             return false;
         }
+    }
+    if (iter != mDispatchedOps.end()) {
+        mDispatchedOps.erase(iter);
+    } else {
+        mDispatchedOps.erase(op->seq);
     }
     KFS_LOG_STREAM_DEBUG <<
         "recv meta reply:"

@@ -243,6 +243,7 @@ private:
     void ResubmitOps();
     void FailOps(bool shutdownFlag);
     void HandleAuthResponse(IOBuffer& ioBuf);
+    void CleanupOpInFlight();
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);
