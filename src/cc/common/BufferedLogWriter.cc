@@ -410,7 +410,9 @@ public:
     {
         QCStMutexLocker theLocker(mMutex);
         while (! FlushSelf() || mWritePtr) {
+            mBufWaitersCount++;
             mWriteDoneCond.Wait(mMutex);
+            mBufWaitersCount--;
         }
     }
     void SetMaxLogWaitTime(
@@ -516,7 +518,8 @@ public:
         Time       theTimeWaited      = 0;
         for (int i = 0; ; i++) {
             while (mCurPtr + theBufSize >= mEndPtr && ! FlushSelf()) {
-                if (theTimeWaited >= mMaxLogWaitTime || ! mRunFlag || i >= 4) {
+                if (theTimeWaited >= mMaxLogWaitTime || ! mRunFlag || i >= 4 ||
+                        (size_t)mBufSize < theBufSize + 1) {
                     mDroppedCount++;
                     mTotalDroppedCount++;
                     theBufSize = 0;
@@ -547,11 +550,13 @@ public:
             }
             const size_t theLen = MsgPrefix(theSec, theMicroSec, inLogLevel);
             if (theLen <= 0) {
+                theBufSize = kAvgMsgSize + mEndPtr - mCurPtr;
                 continue;
             }
             const size_t theMaxLen =
                 min(GetMaxRecordSize(), (size_t)(mEndPtr - mCurPtr));
             if (theMaxLen <= theLen + 1) {
+                theBufSize = max(theBufSize, theLen + 1);
                 continue;
             }
             size_t theMaxMsgLen = theMaxLen - theLen; // with \0
