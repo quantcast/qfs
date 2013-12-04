@@ -36,6 +36,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/ClientAuthContext.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
@@ -141,6 +142,10 @@ public:
           mLogPrefix(inLogPrefix),
           mStats(),
           mLastAppendActivityTime(0),
+          mHasSubjectIdFlag(),
+          mChunkAccess(),
+          mChunkAccessExpireTime(0),
+          mCSAccessExpireTime(0),
           mClientPoolPtr(inClientPoolPtr),
           mChunkServerPtr(0),
           mNetManager(mMetaServer.GetNetManager())
@@ -519,6 +524,11 @@ private:
     string const            mLogPrefix;
     Stats                   mStats;
     time_t                  mLastAppendActivityTime;
+    bool                    mHasSubjectIdFlag;
+    string                  mChunkAccess;
+    time_t                  mLeaseExpireTime;
+    time_t                  mChunkAccessExpireTime;
+    time_t                  mCSAccessExpireTime;
     ClientPool*             mClientPoolPtr;
     ChunkServer*            mChunkServerPtr;
     NetManager&             mNetManager;
@@ -865,6 +875,7 @@ private:
         Reset(mCloseOp);
         mCloseOp.chunkId   = mAllocOp.chunkId;
         mCloseOp.writeInfo = mWriteIds;
+        SetAccess(mCloseOp);
         if (mCloseOp.writeInfo.empty()) {
             mCloseOp.chunkServerLoc = mAllocOp.chunkServers;
         } else {
@@ -925,6 +936,7 @@ private:
                 mSpaceAvailable
             );
         mStats.mReserveSpaceCount++;
+        SetAccess(mSpaceReserveOp);
         Enqueue(mSpaceReserveOp);
         return true;
     }
@@ -960,18 +972,159 @@ private:
         mWriteIdAllocOp.chunkServerLoc    = mAllocOp.chunkServers;
         mWriteIdAllocOp.offset            = 0;
         mWriteIdAllocOp.numBytes          = 0;
+
         if (mClientPoolPtr) {
             mChunkServerPtr = &mClientPoolPtr->Get(mAllocOp.chunkServers[0]);
         } else {
             mChunkServerPtr = 0;
-            if (! mChunkServer.SetServer(mAllocOp.chunkServers[0])) {
-                mCurOpPtr = &mWriteIdAllocOp;
-                HandleError();
-                return;
+        }
+
+        const time_t theNow = Now();
+        mHasSubjectIdFlag = false;
+        mChunkAccess.clear();
+
+        const bool theCSClearTextAllowedFlag = IsChunkServerClearTextAllowed();
+        GetChunkServer().SetShutdownSsl(
+            mAllocOp.allowCSClearTextFlag &&
+            theCSClearTextAllowedFlag
+        );
+        if (mAllocOp.chunkServerAccessToken.empty() ||
+                mAllocOp.chunkAccess.empty()) {
+            GetChunkServer().SetKey(0, 0, 0, 0);
+            if (! mAllocOp.chunkServerAccessToken.empty()) {
+                mWriteIdAllocOp.status    = -EINVAL;
+                mWriteIdAllocOp.statusMsg = "no chunk access";
+            } else if (! theCSClearTextAllowedFlag) {
+                mWriteIdAllocOp.status    = -EPERM;
+                mWriteIdAllocOp.statusMsg = "no chunk server access";
+            } else {
+                mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
+                mCSAccessExpireTime    = mChunkAccessExpireTime;
             }
+        } else {
+            GetChunkServer().SetKey(
+                mAllocOp.chunkServerAccessToken.data(),
+                mAllocOp.chunkServerAccessToken.size(),
+                mAllocOp.chunkServerAccessKey.GetPtr(),
+                mAllocOp.chunkServerAccessKey.GetSize()
+            );
+            mChunkAccess           = mAllocOp.chunkAccess;
+            mWriteIdAllocOp.access = mChunkAccess;
+            // Always ask for chunk access token here, as the chunk access
+            // token's lifetime returned by alloc is 5 min.
+            // The chunk returns the token with the corresponding key's
+            // lifetime as the token subject includes write id.
+            mWriteIdAllocOp.createChunkAccessFlag = true;
+            mChunkAccessExpireTime = theNow - 60 * 60 * 24;
+            mCSAccessExpireTime = GetAccessExpireTime(
+                theNow,
+                mAllocOp.chunkServerAccessIssuedTime,
+                mAllocOp.chunkServerAccessValidForTime
+            );
+            mWriteIdAllocOp.createChunkServerAccessFlag =
+                mCSAccessExpireTime <= theNow;
+            if (mAllocOp.allowCSClearTextFlag &&
+                    theCSClearTextAllowedFlag &&
+                    mWriteIdAllocOp.createChunkServerAccessFlag) {
+                mWriteIdAllocOp.decryptKey = &GetChunkServer().GetSessionKey();
+            }
+        }
+        if (mWriteIdAllocOp.status == 0 &&! GetChunkServer().GetAuthContext()) {
+            GetChunkServer().SetAuthContext(mMetaServer.GetAuthContext());
+        }
+
+        if (mWriteIdAllocOp.status != 0 ||
+                (! mChunkServerPtr &&
+                ! mChunkServer.SetServer(mAllocOp.chunkServers[0]))) {
+            mCurOpPtr = &mWriteIdAllocOp;
+            HandleError();
+            return;
         }
         Enqueue(mWriteIdAllocOp);
     }
+    bool IsChunkServerClearTextAllowed()
+    {
+        ClientAuthContext* const theCtxPtr = mMetaServer.GetAuthContext();
+        return (! theCtxPtr || theCtxPtr->IsChunkServerClearTextAllowed());
+    }
+    static int64_t GetAccessExpireTime(
+        time_t  inNow,
+        int64_t inIssedTime,
+        int64_t inValidFor)
+    {
+        // Use current time if the clock difference is large enough.
+        int64_t theDiff = inIssedTime - (int64_t)inNow;
+        if (theDiff < 0) {
+            theDiff = -theDiff;
+        }
+        return (
+            ((LEASE_INTERVAL_SECS * 3 < theDiff) ? inNow : inIssedTime) +
+            inValidFor - LEASE_INTERVAL_SECS
+        );
+    }
+    void UpdateAccess(
+        ChunkAccessOp& inOp)
+    {
+        if (! inOp.chunkAccessResponse.empty()) {
+            mHasSubjectIdFlag      = true;
+            mChunkAccess           = inOp.chunkAccessResponse;
+            mChunkAccessExpireTime = GetAccessExpireTime(
+                Now(),
+                inOp.accessResponseIssued,
+                inOp.accessResponseValidForSec
+            );
+        }
+        if (0 < inOp.accessResponseValidForSec &&
+                ! inOp.chunkServerAccessId.empty()) {
+            GetChunkServer().SetKey(
+                inOp.chunkServerAccessId.data(),
+                inOp.chunkServerAccessId.size(),
+                inOp.chunkServerAccessKey.GetPtr(),
+                inOp.chunkServerAccessKey.GetSize()
+            );
+            if (inOp.chunkAccessResponse.empty()) {
+                mCSAccessExpireTime = GetAccessExpireTime(
+                    Now(),
+                    inOp.accessResponseIssued,
+                    inOp.accessResponseValidForSec
+                );
+            } else {
+                mCSAccessExpireTime = mChunkAccessExpireTime;
+            }
+        }
+    }
+    void SetAccessAndRequstAccessUpdate(
+        ChunkAccessOp& inOp,
+        bool           inCanRequestAccessFlag = true)
+    {
+        const time_t theNow = Now();
+        inOp.access                      = mChunkAccess;
+        inOp.createChunkAccessFlag       = inCanRequestAccessFlag &&
+            mChunkAccessExpireTime <= theNow;
+        inOp.createChunkServerAccessFlag = inCanRequestAccessFlag &&
+            mCSAccessExpireTime    <= theNow;
+        inOp.hasSubjectIdFlag            =
+            mHasSubjectIdFlag && ! mWriteIds.empty();
+        if (inOp.hasSubjectIdFlag) {
+            inOp.subjectId = mWriteIds.front().writeId;
+        }
+        if (inOp.createChunkServerAccessFlag &&
+                GetChunkServer().IsShutdownSsl()) {
+            inOp.decryptKey = &GetChunkServer().GetSessionKey();
+        }
+        // Roll forward access time to indicate the request is in flight.
+        // If op fails or times out, then write restarts from write id
+        // allocation.
+        if (inOp.createChunkAccessFlag) {
+            mChunkAccessExpireTime = theNow + LEASE_INTERVAL_SECS * 3 / 2;
+        }
+        if (inOp.createChunkServerAccessFlag) {
+            mCSAccessExpireTime = theNow + LEASE_INTERVAL_SECS * 3 / 2;
+        }
+    }
+    void SetAccess(
+        ChunkAccessOp& inOp)
+        { SetAccessAndRequstAccessUpdate(inOp, false); }
     void Done(
         WriteIdAllocOp& inOp,
         IOBuffer*       inBufferPtr)
@@ -1002,6 +1155,7 @@ private:
             HandleError();
             return;
         }
+        UpdateAccess(inOp);
         mPrevRecordAppendOpSeq = inOp.seq;
         if (! ReserveSpace()) {
             StartAppend();
@@ -1057,6 +1211,7 @@ private:
         mRecAppendOp.checksum      =
             ComputeBlockChecksum(&mBuffer, mAppendLength);
         mStats.mOpsRecAppendCount++;
+        SetAccessAndRequstAccessUpdate(mRecAppendOp);
         Enqueue(mRecAppendOp, &mBuffer);
     }
     void Done(
@@ -1077,6 +1232,7 @@ private:
             HandleError();
             return;
         }
+        UpdateAccess(inOp);
         const int theConsumed = mBuffer.Consume(mAppendLength);
         QCRTASSERT(mAppendLength > 0 && theConsumed == mAppendLength &&
                 mSpaceAvailable >= mAppendLength);
@@ -1117,6 +1273,7 @@ private:
         mSpaceReleaseOp.chunkVersion = mAllocOp.chunkVersion,
         mSpaceReleaseOp.writeInfo    = mWriteIds;
         mSpaceReleaseOp.numBytes     = size_t(mSpaceAvailable);
+        SetAccess(mSpaceReleaseOp);
         Enqueue(mSpaceReleaseOp);
     }
     void Done(
@@ -1154,6 +1311,9 @@ private:
         mChunkServer.SetOpTimeoutSec(
             max(int(kGetStatusOpMinTime), mOpTimeoutSec / 8));
         mChunkServer.SetServer(mWriteIds[theIndex].serverLoc);
+        if (theIndex == 0) {
+            SetAccess(mGetRecordAppendOpStatusOp);
+        }
         Enqueue(mGetRecordAppendOpStatusOp);
     }
     void Done(
@@ -1291,7 +1451,7 @@ private:
             HandleEnqueueError();
         }
     }
-    void Reset(
+    static void Reset(
         KfsOp& inOp)
     {
         inOp.seq           = 0;
@@ -1300,6 +1460,22 @@ private:
         inOp.checksum      = 0;
         inOp.contentLength = 0;
         inOp.DeallocContentBuf();
+    }
+    static void Reset(
+        ChunkAccessOp& inOp)
+    {
+        KfsOp& theKfsOp = inOp;
+        Reset(theKfsOp);
+        inOp.access.clear();
+        inOp.createChunkAccessFlag       = false;
+        inOp.createChunkServerAccessFlag = false;
+        inOp.hasSubjectIdFlag            = false;
+        inOp.subjectId                   = -1;
+        inOp.accessResponseValidForSec   = 0;
+        inOp.accessResponseIssued        = 0;
+        inOp.chunkAccessResponse.clear();
+        inOp.chunkServerAccessId.clear();
+        inOp.decryptKey                  = 0;
     }
     void Reset()
     {
