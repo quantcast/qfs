@@ -1252,6 +1252,48 @@ KfsClientImpl::Shutdown()
     mProtocolWorker->Stop();
 }
 
+static int
+LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
+{
+    const char* const pref  = "FILE:";
+    const size_t      len   = strlen(pref);
+    const char        delim = (char)'=';
+    if (strncmp(cfg, pref, len) == 0) {
+        if (props.loadProperties(cfg + len, delim, false) != 0) {
+            KFS_LOG_STREAM_INFO <<
+                "failed to load configuration from file: " << cfg <<
+                " set by environment varialbe:" << configEnvName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "using configuration: " << cfg <<
+            " set by environment varialbe:" << configEnvName <<
+        KFS_LOG_EOM;
+    } else {
+        string val;
+        for (const char* p = cfg; *p; ++p) {
+            int cur = *p & 0xFF;
+            if (cur <= ' ') {
+                cur = '\n';
+            }
+            val.push_back((char)cur);
+        }
+        if (props.loadProperties(val.data(), val.size(), delim) != 0) {
+            KFS_LOG_STREAM_INFO <<
+                "failed to load configuration: " << cfg <<
+                " set by environment varialbe:" << configEnvName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "using configuration: " << cfg <<
+            " set by environment varialbe:" << configEnvName <<
+        KFS_LOG_EOM;
+    }
+    return 0;
+}
+
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     const Properties* props)
 {
@@ -1265,17 +1307,43 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     ClientsList::Init(*this);
 
     mMetaServerLoc.hostname = metaServerHost;
-    mMetaServerLoc.port = metaServerPort;
+    mMetaServerLoc.port     = metaServerPort;
+    const Properties* properties = props;
+    Properties envProps;
+    if (! properties) {
+        ostringstream os;
+        os << "QFS_CLIENT_CONFIG_" <<
+            mMetaServerLoc.hostname << "_" << mMetaServerLoc.port;
+        const string      configEnvName = os.str();
+        const char* const cfg           = getenv(configEnvName.c_str());
+        if (cfg) {
+            const int ret = LoadConfig(configEnvName.c_str(), cfg, envProps);
+            if (ret < 0) {
+                return ret;
+            }
+            properties = &envProps;
+        } else {
+            const char* const envName = "QFS_CLIENT_CONFIG";
+            const char* const cfg = getenv(envName);
+            if (cfg) {
+                const int ret = LoadConfig(envName, cfg, envProps);
+                if (ret < 0) {
+                    return ret;
+                }
+                properties = &envProps;
+            }
+        }
+    }
     const char* const kAuthParamPrefix = "client.auth.";
-    if (props) {
+    if (properties) {
         string errMsg;
         int    err;
         const bool kVerifyFlag = true;
         if ((err = mAuthCtx.SetParameters(
-                kAuthParamPrefix, *props, 0, &errMsg,
+                kAuthParamPrefix, *properties, 0, &errMsg,
                 kVerifyFlag)) != 0 ||
                 (err = mProtocolWorkerAuthCtx.SetParameters(
-                    kAuthParamPrefix, *props, &mAuthCtx, &errMsg,
+                    kAuthParamPrefix, *properties, &mAuthCtx, &errMsg,
                     kVerifyFlag)) != 0) {
             KFS_LOG_STREAM_ERROR <<
                 "authentication context initialization error: " <<
