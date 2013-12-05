@@ -981,7 +981,7 @@ ParseChunkServerAccess(
         ++cur;
     }
     if (decryptKeyPtr &&  0 < decryptKeyLen) {
-        const int keyLen = DelegationToken::DecryptSessionKeyFromString(
+        const int err = DelegationToken::DecryptSessionKeyFromString(
             decryptKeyPtr,
             decryptKeyLen,
             key,
@@ -989,10 +989,14 @@ ParseChunkServerAccess(
             chunkServerAccessKey,
             &inOp.statusMsg
         );
-        if (keyLen <= 0) {
-            inOp.status = keyLen < 0 ? keyLen : -EINVAL;
+        if (err) {
+            inOp.status = err < 0 ? err : -EINVAL;
+            if (inOp.statusMsg.empty()) {
+                inOp.statusMsg = "failed to decrypt key";
+            }
+            chunkServerAccessToken.clear();
         }
-        return (0 < keyLen);
+        return (err == 0);
     }
     if (chunkServerAccessKey.Parse(key, (int)(cur - key))) {
         return true;
@@ -1078,8 +1082,8 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
 void
 ChunkAccessOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    accessResponseIssued      = prop.getValue("Acess-issued", 0);
-    accessResponseValidForSec = prop.getValue("Acess-time",   0);
+    accessResponseIssued      = prop.getValue("Acess-issued", int64_t(0));
+    accessResponseValidForSec = prop.getValue("Acess-time",   int64_t(0));
     chunkAccessResponse       = prop.getValue("C-access",     string());
     chunkServerAccessId.clear();
     ParseChunkServerAccess(
