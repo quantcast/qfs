@@ -1138,7 +1138,7 @@ private:
         const size_t theServerCount = inOp.chunkServerLoc.size();
         mWriteIds.reserve(theServerCount);
         istringstream theStream(inOp.writeIdStr);
-        for (size_t i = 0; i <theServerCount; i++) {
+        for (size_t i = 0; i < theServerCount; i++) {
             WriteInfo theWInfo;
             if (! (theStream >>
                     theWInfo.serverLoc.hostname >>

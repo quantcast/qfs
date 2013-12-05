@@ -689,9 +689,9 @@ RemoteSyncSM::UpdateSession(
         errMsg = "invalid session and/or key length";
         return false;
     }
-    if (mSessionId.empty()) {
+    if (mSessionId.empty() && mNetConnection && mNetConnection->IsGood()) {
         err    = -EINVAL;
-        errMsg = "no current session";
+        errMsg = "sync replication: no current session";
         return false;
     }
     err = 0;
