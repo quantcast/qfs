@@ -1233,6 +1233,8 @@ bool
 ClientSM::CheckAccess(KfsClientChunkOp& op)
 {
     if (! IsAccessEnforced()) {
+        op.hasChunkAccessTokenFlag   = false;
+        op.chunkAccessTokenValidFlag = false;
         return true;
     }
 
@@ -1302,6 +1304,14 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
     if ((op.chunkAccessFlags & ChunkAccessToken::kUsesLeaseIdFlag) != 0) {
         // Lease id isn't used yet.
         op.statusMsg = "chunk access: no lease id subject allowed";
+        op.status    = -EPERM;
+        return false;
+    }
+    if ((op.chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
+            ((op.chunkAccessFlags & ChunkAccessToken::kAllowReadFlag) != 0 ||
+            (op.chunkAccessFlags & ChunkAccessToken::kAllowWriteFlag) == 0)) {
+        // Write id only used with chunk write related rpcs.
+        op.statusMsg = "chunk access: invalid write id subject access";
         op.status    = -EPERM;
         return false;
     }

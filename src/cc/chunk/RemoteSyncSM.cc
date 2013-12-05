@@ -773,7 +773,7 @@ RemoteSyncSM::Create(
                 if (! err) {
                     SMPtr peer(new RemoteSyncSM(location));
                     peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
-                    peer->SetShutdownSsl(shutdownSslFlag);
+                    peer->SetShutdownSslFlag(shutdownSslFlag);
                     peer->mSessionExpirationTime = expTime;
                     return peer;
                 }

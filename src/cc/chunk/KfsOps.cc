@@ -505,7 +505,7 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
     const time_t now = globalNetManager().Now();
     os <<
         "Acess-issued: " << now         << "\r\n"
-        "Aacess-time: "  << validForSec << "\r\n";
+        "Acess-time: "   << validForSec << "\r\n";
     if (createChunkAccessFlag) {
         os << "C-access: ";
         ChunkAccessToken::WriteToken(
@@ -1901,6 +1901,13 @@ ReadOp::HandleChunkMetaReadDone(int code, void *data)
 void
 WriteIdAllocOp::Execute()
 {
+    if (chunkAccessTokenValidFlag &&
+            (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0) {
+        status    = -EPERM;
+        statusMsg = "no write id subject allowed";
+        gLogger.Submit(this);
+        return;
+    }
     // check if we need to forward anywhere
     writeId = -1;
     int64_t        dummyWriteId  = -1;
@@ -1915,7 +1922,8 @@ WriteIdAllocOp::Execute()
         return;
     }
     const bool writeMaster          = myPos == 0;
-    bool       allowCSClearTextFlag = false;
+    bool       allowCSClearTextFlag = chunkAccessTokenValidFlag &&
+        (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (writeMaster && ! gLeaseClerk.IsLeaseValid(
             chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
         status    = -ELEASEEXPIRED;
@@ -2082,7 +2090,8 @@ WritePrepareOp::Execute()
         Done(EVENT_CMD_DONE, this);
         return;
     }
-    bool allowCSClearTextFlag = false;
+    bool allowCSClearTextFlag = chunkAccessTokenValidFlag &&
+        (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
@@ -2268,7 +2277,8 @@ WriteSyncOp::Execute()
         return;
     }
 
-    bool allowCSClearTextFlag = false;
+    bool allowCSClearTextFlag = chunkAccessTokenValidFlag &&
+        (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
@@ -2450,8 +2460,7 @@ void
 RecordAppendOp::Execute()
 {
     ServerLocation peerLoc;
-    int myPos = -1;
-
+    int            myPos = -1;
     needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&

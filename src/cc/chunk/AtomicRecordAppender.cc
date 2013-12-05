@@ -131,6 +131,7 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 #include "common/StdAllocator.h"
 #include "common/RequestParser.h"
 #include "kfsio/Globals.h"
+#include "kfsio/ChunkAccessToken.h"
 #include "qcdio/QCDLList.h"
 #include "AtomicRecordAppender.h"
 #include "ChunkManager.h"
@@ -458,7 +459,8 @@ private:
         }
         return false;
     }
-    void CheckLeaseAndChunk(const char* prefix);
+    template<typename T>
+    void CheckLeaseAndChunk(const char* prefix, T* op);
     void MetaWriteDone(int status);
     void MakeChunkStableDone();
     bool ComputeChecksum();
@@ -901,9 +903,13 @@ AtomicRecordAppender::EventHandler(int code, void* data)
     return 0;
 }
 
-void
-AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix)
+template<typename T> void
+AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
 {
+    const bool hasChunkAccessFlag =
+        op && op->chunkAccessTokenValidFlag && 0 <= op->status;
+    bool allowCSClearTextFlag = hasChunkAccessFlag &&
+        (op->chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (! IsChunkStable() &&
             (! mChunkFileHandle || ! mChunkFileHandle->IsOpen())) {
         WAPPEND_LOG_STREAM_ERROR << (prefix ? prefix : "") <<
@@ -912,7 +918,9 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix)
         KFS_LOG_EOM;
         SetState(kStateChunkLost);
     } else if (mState == kStateOpen && IsMaster() &&
-            ! gLeaseClerk.IsLeaseValid(mChunkId)) {
+            ! gLeaseClerk.IsLeaseValid(mChunkId,
+                hasChunkAccessFlag ? &op->syncReplicationAccess : 0,
+                &allowCSClearTextFlag)) {
         WAPPEND_LOG_STREAM_ERROR << (prefix ? prefix : "") <<
             ": write lease has expired, no further append allowed" <<
             " chunk: " << mChunkId <<
@@ -926,6 +934,14 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix)
         // stable will not be issued until no activity timer goes off.
         Cntrs().mLeaseExpiredCount++;
         SetState(kStateReplicationFailed);
+    } else if (hasChunkAccessFlag && mPeer &&
+            mPeer->GetShutdownSslFlag() != allowCSClearTextFlag) {
+        WAPPEND_LOG_STREAM_WARN <<
+            "chunk: " << mChunkId <<
+            "peer clear text access has changed to: " <<
+            (allowCSClearTextFlag ? "allowed" : "not allowed") <<
+        KFS_LOG_EOM;
+        mPeer->SetShutdownSslFlag(allowCSClearTextFlag);
     }
 }
 
@@ -943,7 +959,7 @@ AtomicRecordAppender::AllocateWriteId(
         KFS_LOG_EOM;
         FatalError();
     }
-    CheckLeaseAndChunk("allocate write id");
+    CheckLeaseAndChunk("allocate write id", op);
 
     int    status = 0;
     string msg;
@@ -1020,7 +1036,9 @@ AtomicRecordAppender::ChangeChunkSpaceReservaton(
     int64_t writeId, size_t nBytes, bool releaseFlag, string* errMsg)
 {
     mLastActivityTime = Now();
-    CheckLeaseAndChunk(releaseFlag ? "space reserve" : "space release");
+    RecordAppendOp* const kNullOp = 0;
+    CheckLeaseAndChunk(
+        releaseFlag ? "space reserve" : "space release", kNullOp);
 
     int                    status       = 0;
     const char*            msg          = "ok";
@@ -1167,7 +1185,7 @@ AtomicRecordAppender::AppendBegin(
         FatalError();
     }
     mLastActivityTime = Now();
-    CheckLeaseAndChunk("begin");
+    CheckLeaseAndChunk("begin", op);
 
     int    status = 0;
     string msg;
@@ -2726,10 +2744,13 @@ AtomicRecordAppender::NotifyChunkClosed()
 void
 AtomicRecordAppender::SendCommitAck()
 {
-    CheckLeaseAndChunk("send commit ack");
+    // Use write offset as seq. # for debugging
+    RecordAppendOp* const op = new RecordAppendOp(mNextWriteOffset);
+    CheckLeaseAndChunk("send commit ack", op);
     if (! IsMaster() || mState != kStateOpen ||
             mNumServers <= 1 || mReplicationsInFlight > 0 ||
             mNextCommitOffset <= mCommitOffsetAckSent) {
+        delete op;
         return;
     }
     WAPPEND_LOG_STREAM_DEBUG <<
@@ -2739,8 +2760,6 @@ AtomicRecordAppender::SendCommitAck()
         " size: "     << mNextCommitOffset <<
         " unacked: "  << (mNextCommitOffset - mCommitOffsetAckSent) <<
     KFS_LOG_EOM;
-    // Use write offset as seq. # for debugging
-    RecordAppendOp* const op = new RecordAppendOp(mNextWriteOffset);
     op->clnt         = this;
     op->chunkId      = mChunkId;
     op->chunkVersion = mChunkVersion;

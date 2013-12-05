@@ -88,7 +88,7 @@ public:
         { return ! mSessionId.empty(); }
     bool GetShutdownSslFlag() const
         { return mShutdownSslFlag; }
-    void SetShutdownSsl(bool inFlag)
+    void SetShutdownSslFlag(bool inFlag)
         { mShutdownSslFlag = inFlag; }
     void Enqueue(KfsOp* op);
     void Finish();
