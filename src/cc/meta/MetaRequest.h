@@ -866,8 +866,10 @@ struct MetaLeaseRelinquish: public MetaRequest {
     }
     bool Validate()
     {
-        leaseType = (leaseTypeStr == "WRITE_LEASE") ?
-            WRITE_LEASE : READ_LEASE;
+        leaseType = (leaseTypeStr == "WRITE_LEASE") ? WRITE_LEASE : READ_LEASE;
+        if (leaseType == READ_LEASE && leaseTypeStr != "READ_LEASE") {
+            return false;
+        }
         hasChunkChecksum = chunkChecksumHdr >= 0;
         chunkChecksum    = hasChunkChecksum ?
             (uint32_t)chunkChecksumHdr : (uint32_t)0;
@@ -2772,6 +2774,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     int                validForTime;
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
     bool               getChunkLocationsFlag;
+    bool               appendRecoveryFlag;
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
@@ -2787,6 +2790,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           validForTime(0),
           chunkIds(),
           getChunkLocationsFlag(false),
+          appendRecoveryFlag(false),
           responseBuf(),
           chunkAccess()
           {}
@@ -2816,6 +2820,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def("Lease-timeout",     &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
         .Def("Chunk-ids",         &MetaLeaseAcquire::chunkIds)
         .Def("Get-locations",     &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def("Append-recovery",   &MetaLeaseAcquire::appendRecoveryFlag,         false)
         ;
     }
 };
@@ -2867,8 +2872,10 @@ struct MetaLeaseRenew: public MetaRequest {
     }
     bool Validate()
     {
-        leaseType = (leaseTypeStr == "WRITE_LEASE") ?
-            WRITE_LEASE : READ_LEASE;
+        leaseType = (leaseTypeStr == "WRITE_LEASE") ? WRITE_LEASE : READ_LEASE;
+        if (leaseType == READ_LEASE && leaseTypeStr != "READ_LEASE") {
+            return false;
+        }
         return true;
     }
     template<typename T> static T& ParserDef(T& parser)

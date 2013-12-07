@@ -5326,6 +5326,10 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
     if (req.chunkIds.empty()) {
         return 0;
     }
+    if (req.appendRecoveryFlag) {
+        req.statusMsg = "no chunk list allowed with append recovery";
+        return -EINVAL;
+    }
     StTmp<Servers>    serversTmp(mServers3Tmp);
     Servers&          servers = serversTmp.Get();
     const bool        recoveryFlag = InRecovery();
@@ -5488,7 +5492,8 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     if (ret != 0 || req->chunkId < 0) {
         return ret;
     }
-    if (InRecovery() && ! req->fromChunkServerFlag) {
+    if ((! req->fromChunkServerFlag && ! req->appendRecoveryFlag) &&
+            InRecovery()) {
         req->statusMsg = "recovery is in progress";
         KFS_LOG_STREAM_INFO << "chunk " << req->chunkId <<
             " " << req->statusMsg << " => EBUSY" <<
@@ -5508,11 +5513,24 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             return -EACCES;
         }
     } else if (mVerifyAllOpsPermissionsFlag &&
-            ((0 <= req->leaseTimeout &&
+            ((0 <= req->leaseTimeout && ! req->appendRecoveryFlag &&
                 ! cs->GetFattr()->CanRead(req->euser, req->egroup)) ||
-            (req->flushFlag &&
+            ((req->flushFlag || req->appendRecoveryFlag) &&
                 ! cs->GetFattr()->CanWrite(req->euser, req->egroup)))) {
         return -EACCES;
+    }
+    if (req->appendRecoveryFlag) {
+        // Leases are irrelevant, the client just need to talk to the
+        // write slaves to recover the its last append rpc status.
+        // To avoid lease lookup, and to handle the case where no write lease
+        // exists return access tokes to all servers. It is possible that on
+        // of the server is or was the write master -- without the corresponding
+        // write lease, or the client explicitly telling this it is not possible,
+        // to determine which one was the master.
+        if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
+            MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
+        }
+        return 0;
     }
     //
     // Even if there is no write lease, wait until the chunk is stable
