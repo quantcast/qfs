@@ -1282,13 +1282,13 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
         if (props.loadProperties(val.data(), val.size(), delim) != 0) {
             KFS_LOG_STREAM_INFO <<
                 "failed to load configuration: " << cfg <<
-                " set by environment varialbe:" << configEnvName <<
+                " set by environment varialbe: " << configEnvName <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
         KFS_LOG_STREAM_INFO <<
             "using configuration: " << cfg <<
-            " set by environment varialbe:" << configEnvName <<
+            " set by environment varialbe: " << configEnvName <<
         KFS_LOG_EOM;
     }
     return 0;

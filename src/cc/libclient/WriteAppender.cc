@@ -40,6 +40,7 @@
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDebug.h"
 #include "KfsOps.h"
 #include "utils.h"
 #include "KfsClient.h"
@@ -136,7 +137,9 @@ public:
           mSpaceReserveOp(0, 0, 0, mWriteIds, 0),
           mRecAppendOp(0, 0, 0, -1, mWriteIds),
           mSpaceReleaseOp(0, 0, 0, mWriteIds, 0),
+          mLeaseAcquireOp(0, -1, 0),
           mGetRecordAppendOpStatusOp(0, 0, 0),
+          mChunkServerAccess(),
           mPrevRecordAppendOpSeq(-1),
           mGetRecordAppendOpStatusIndex(0u),
           mLogPrefix(inLogPrefix),
@@ -197,7 +200,7 @@ public:
         mMakeDirsFlag          = inMakeDirsFlag;
         mMinSTier              = inMinSTier;
         mMaxSTier              = inMaxSTier;
-        assert(! mPathName.empty());
+        QCASSERT(! mPathName.empty());
         LookupPath();
         return mErrorCode;
     }
@@ -234,7 +237,7 @@ public:
         mNumReplicas           = 0; // Do not create if doesn't exist.
         mMinSTier              = inMinSTier;
         mMaxSTier              = inMaxSTier;
-        assert(! mPathName.empty());
+        QCASSERT(! mPathName.empty());
         mLookupOp.parentFid = -1;   // Input, not known, and not needed.
         mLookupOp.status    = 0;
         if (inFileId > 0) {
@@ -443,7 +446,7 @@ protected:
         } else {
             theOpFoundFlag = Dispatch(*this, inOpPtr, inBufferPtr);
         }
-        assert(theOpFoundFlag);
+        QCASSERT(theOpFoundFlag);
         if (! theOpFoundFlag) {
             abort();
         }
@@ -518,7 +521,9 @@ private:
     ChunkSpaceReserveOp     mSpaceReserveOp;
     RecordAppendOp          mRecAppendOp;
     ChunkSpaceReleaseOp     mSpaceReleaseOp;
+    LeaseAcquireOp          mLeaseAcquireOp;
     GetRecordAppendOpStatus mGetRecordAppendOpStatusOp;
+    ChunkServerAccess       mChunkServerAccess;
     int64_t                 mPrevRecordAppendOpSeq;
     unsigned int            mGetRecordAppendOpStatusIndex;
     string const            mLogPrefix;
@@ -558,6 +563,8 @@ private:
             inObj.Done(mAllocOp, inBufferPtr);
         } else if (&mCloseOp == inOpPtr) {
             inObj.Done(mCloseOp, inBufferPtr);
+        } else if (&mLeaseAcquireOp == inOpPtr) {
+            inObj.Done(mLeaseAcquireOp, inBufferPtr);
         } else if (&mGetRecordAppendOpStatusOp == inOpPtr) {
             inObj.Done(mGetRecordAppendOpStatusOp, inBufferPtr);
         } else {
@@ -715,19 +722,19 @@ private:
             return;
         }
         mLookupOp.filename = mFileName.c_str();
-        assert(*mLookupOp.filename);
+        QCASSERT(*mLookupOp.filename);
         EnqueueMeta(mLookupOp);
     }
     void Done(
         LookupOp& inOp,
         IOBuffer* inBufferPtr)
     {
-        assert(&mLookupOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mLookupOp == &inOp && ! inBufferPtr);
         Lookup();
     }
     void Mkdir()
     {
-        assert(mLookupOp.parentFid > 0 && ! mFileName.empty());
+        QCASSERT(mLookupOp.parentFid > 0 && ! mFileName.empty());
         Reset(mMkdirOp);
         mMkdirOp.parentFid = mLookupOp.parentFid;
         mMkdirOp.dirname   = mLookupOp.filename;
@@ -737,10 +744,10 @@ private:
         MkdirOp&  inOp,
         IOBuffer* inBufferPtr)
     {
-        assert(&mMkdirOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mMkdirOp == &inOp && ! inBufferPtr);
         if (inOp.status == -EEXIST) {
             // Just re-queue the lookup op, it should succeed now.
-            assert(mLookupOp.parentFid == mMkdirOp.parentFid &&
+            QCASSERT(mLookupOp.parentFid == mMkdirOp.parentFid &&
                 mMkdirOp.dirname == mLookupOp.filename);
             EnqueueMeta(mLookupOp);
             return;
@@ -750,7 +757,7 @@ private:
             HandleError();
             return;
         }
-        assert(mLookupOp.parentFid == mMkdirOp.parentFid);
+        QCASSERT(mLookupOp.parentFid == mMkdirOp.parentFid);
         mLookupOp.fattr.fileId      = mMkdirOp.fileId;
         mLookupOp.fattr.isDirectory = true;
         mLookupOp.status            = 0;
@@ -758,7 +765,7 @@ private:
     }
     void Create()
     {
-        assert(mLookupOp.parentFid > 0 && ! mFileName.empty());
+        QCASSERT(mLookupOp.parentFid > 0 && ! mFileName.empty());
         Reset(mCreateOp);
         mCreateOp.parentFid   = mLookupOp.parentFid;
         mCreateOp.filename    = mFileName.c_str();
@@ -773,7 +780,7 @@ private:
         CreateOp& inOp,
         IOBuffer* inBufferPtr)
     {
-        assert(&mCreateOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mCreateOp == &inOp && ! inBufferPtr);
         if (inOp.status == -EEXIST) {
             Lookup();
             return;
@@ -796,14 +803,14 @@ private:
         Reset(mLookupPathOp);
         mLookupPathOp.rootFid  = KFS::ROOTFID;
         mLookupPathOp.filename = mPathName.c_str();
-        assert(*mLookupPathOp.filename);
+        QCASSERT(*mLookupPathOp.filename);
         EnqueueMeta(mLookupPathOp);
     }
     void Done(
         LookupPathOp& inOp,
         IOBuffer*     inBufferPtr)
     {
-        assert(&mLookupPathOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mLookupPathOp == &inOp && ! inBufferPtr);
         if (inOp.status == KfsNetClient::kErrorMaxRetryReached) {
             HandleError();
             return;
@@ -833,7 +840,7 @@ private:
     }
     void AllocateChunk()
     {
-        assert(mLookupOp.fattr.fileId > 0);
+        QCASSERT(mLookupOp.fattr.fileId > 0);
         Reset(mAllocOp);
         mSpaceAvailable = 0;
         chunkOff_t theOffset;
@@ -861,7 +868,7 @@ private:
         AllocateOp& inOp,
         IOBuffer*   inBufferPtr)
     {
-        assert(&mAllocOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mAllocOp == &inOp && ! inBufferPtr);
         if (inOp.status != 0 || mAllocOp.chunkServers.empty()) {
             mAllocOp.chunkId = 0;
             HandleError();
@@ -871,7 +878,7 @@ private:
     }
     void CloseChunk()
     {
-        assert(mAllocOp.chunkId > 0);
+        QCASSERT(mAllocOp.chunkId > 0);
         Reset(mCloseOp);
         mCloseOp.chunkId   = mAllocOp.chunkId;
         mCloseOp.writeInfo = mWriteIds;
@@ -887,7 +894,7 @@ private:
         CloseOp&  inOp,
         IOBuffer* inBufferPtr)
     {
-        assert(&mCloseOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mCloseOp == &inOp && ! inBufferPtr);
         if (mCloseOp.status != 0) {
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                 "chunk close failure, status: " << mCloseOp.status <<
@@ -909,7 +916,7 @@ private:
     bool ReserveSpace(
         bool inCheckAppenderFlag = false)
     {
-        assert(mAllocOp.chunkId > 0 && ! mWriteIds.empty());
+        QCASSERT(mAllocOp.chunkId > 0 && ! mWriteIds.empty());
         const int theSpaceNeeded = mWriteQueue.empty() ?
             ((mSpaceAvailable <= 0 && ! mClosingFlag) ?
                 mDefaultSpaceReservationSize : 0) :
@@ -944,7 +951,7 @@ private:
         ChunkSpaceReserveOp& inOp,
         IOBuffer*            inBufferPtr)
     {
-        assert(&mSpaceReserveOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mSpaceReserveOp == &inOp && ! inBufferPtr);
         if (inOp.status != 0) {
             if (inOp.status == -ENOSPC) {
                 mStats.mReserveSpaceDeniedCount++;
@@ -964,7 +971,7 @@ private:
     }
     void AllocateWriteId()
     {
-        assert(mAllocOp.chunkId > 0 && ! mAllocOp.chunkServers.empty());
+        QCASSERT(mAllocOp.chunkId > 0 && ! mAllocOp.chunkServers.empty());
         Reset(mWriteIdAllocOp);
         mWriteIdAllocOp.chunkId           = mAllocOp.chunkId;
         mWriteIdAllocOp.chunkVersion      = mAllocOp.chunkVersion;
@@ -972,6 +979,7 @@ private:
         mWriteIdAllocOp.chunkServerLoc    = mAllocOp.chunkServers;
         mWriteIdAllocOp.offset            = 0;
         mWriteIdAllocOp.numBytes          = 0;
+        mChunkServerAccess.Clear();
 
         if (mClientPoolPtr) {
             mChunkServerPtr = &mClientPoolPtr->Get(mAllocOp.chunkServers[0]);
@@ -1129,7 +1137,7 @@ private:
         WriteIdAllocOp& inOp,
         IOBuffer*       inBufferPtr)
     {
-        assert(&mWriteIdAllocOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mWriteIdAllocOp == &inOp && ! inBufferPtr);
         mWriteIds.clear();
         if (inOp.status < 0) {
             HandleError();
@@ -1164,11 +1172,11 @@ private:
     void Append()
     {
         while (! mWriteQueue.empty() && mWriteQueue.front() <= 0) {
-            assert(! "invalid write queue");
+            QCASSERT(! "invalid write queue");
             mWriteQueue.pop_front();
         }
         if (mWriteQueue.empty()) {
-            assert(mBuffer.IsEmpty());
+            QCASSERT(mBuffer.IsEmpty());
             StartAppend(); // Nothing to append yet.
             return;
         }
@@ -1201,7 +1209,7 @@ private:
             " bytes: "          << theTotal <<
             " wthresh: "        << mWriteThreshold <<
         KFS_LOG_EOM;
-        assert(mBuffer.BytesConsumable() >= mAppendLength);
+        QCASSERT(mBuffer.BytesConsumable() >= mAppendLength);
         Reset(mRecAppendOp);
         mRecAppendOp.chunkId       = mAllocOp.chunkId;
         mRecAppendOp.chunkVersion  = mAllocOp.chunkVersion;
@@ -1226,7 +1234,7 @@ private:
             " bytes: "          << mBuffer.BytesConsumable() <<
             " wthresh: "        << mWriteThreshold <<
         KFS_LOG_EOM;
-        assert(&mRecAppendOp == &inOp && inBufferPtr == &mBuffer &&
+        QCASSERT(&mRecAppendOp == &inOp && inBufferPtr == &mBuffer &&
             ! mWriteQueue.empty());
         if (inOp.status != 0 || mWriteQueue.empty()) {
             HandleError();
@@ -1241,7 +1249,7 @@ private:
         // append started, and then the next record arrived and the two
         // (short) records were coalesced into one.
         while (mAppendLength > 0) {
-            assert(! mWriteQueue.empty());
+            QCASSERT(! mWriteQueue.empty());
             int& theLen = mWriteQueue.front();
             if (mAppendLength >= theLen) {
                 mAppendLength -= theLen;
@@ -1280,7 +1288,7 @@ private:
         ChunkSpaceReleaseOp& inOp,
         IOBuffer*            inBufferPtr)
     {
-        assert(&mSpaceReleaseOp == &inOp && ! inBufferPtr);
+        QCASSERT(&mSpaceReleaseOp == &inOp && ! inBufferPtr);
         if (inOp.status != 0) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "space release error: " << inOp.status <<
@@ -1292,35 +1300,138 @@ private:
             // HandleError();
             // return;
         } else {
-            assert(size_t(mSpaceAvailable) == mSpaceReleaseOp.numBytes);
+            QCASSERT(size_t(mSpaceAvailable) == mSpaceReleaseOp.numBytes);
             mSpaceAvailable = 0;
         }
         StartAppend();
     }
+    void GetRecoveryAccess()
+    {
+        Reset(mLeaseAcquireOp);
+        mLeaseAcquireOp.chunkId  = mAllocOp.chunkId;
+        mLeaseAcquireOp.pathname = mAllocOp.pathname.c_str();
+        mLeaseAcquireOp.leaseId  = -1;
+        mLeaseAcquireOp.chunkAccessCount              = 0;
+        mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
+        mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
+        mLeaseAcquireOp.allowCSClearTextFlag          = false;
+        mChunkServerAccess.Clear();
+        EnqueueMeta(mLeaseAcquireOp);
+    }
+    void Done(
+        LeaseAcquireOp& inOp,
+        IOBuffer*       inBufferPtr)
+    {
+        QCASSERT(&inOp == &mLeaseAcquireOp && ! inBufferPtr);
+        if (inOp.status == 0 && inOp.chunkAccessCount <= 0) {
+            inOp.status    = -EPERM;
+            inOp.statusMsg = "no chunk server access in lease aquire response";
+        }
+        if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
+            const bool         kHasChunkServerAccessFlag = true;
+            const int          kBufPos                   = 0;
+            const bool         kOwnsBufferFlag           = true;
+            const kfsChunkId_t kChunkId                  = -1;
+            const int          theRet = mChunkServerAccess.Parse(
+                inOp.chunkAccessCount,
+                kHasChunkServerAccessFlag,
+                kChunkId,
+                inOp.contentBuf,
+                kBufPos,
+                inOp.contentLength,
+                kOwnsBufferFlag
+            );
+            inOp.ReleaseContentBuf();
+            if (theRet < 0) {
+                inOp.status    = theRet;
+                inOp.statusMsg = "invalid chunk access response";
+            }
+        }
+        if (inOp.status != 0) {
+            mLeaseAcquireOp.leaseId = -1;
+            // Handle the failure as recovery failure.
+            mGetRecordAppendOpStatusOp.status    = inOp.status;
+            mGetRecordAppendOpStatusOp.statusMsg =
+                "get chunk server acccess: " + inOp.statusMsg;
+            mCurOpPtr = &mGetRecordAppendOpStatusOp;
+            HandleError();
+        } else {
+            GetLastRecordAppendOpStatus();
+        }
+    }
     void GetLastRecordAppendOpStatus()
     {
         const unsigned int theIndex = mGetRecordAppendOpStatusIndex;
-        assert(theIndex >= 0 && theIndex < mWriteIds.size());
+        QCASSERT(theIndex >= 0 && theIndex < mWriteIds.size());
         Reset(mGetRecordAppendOpStatusOp);
         mGetRecordAppendOpStatusOp.chunkId = mAllocOp.chunkId;
         mGetRecordAppendOpStatusOp.writeId = mWriteIds[theIndex].writeId;
-        assert(mChunkServer.GetMaxRetryCount() <= 1);
+        QCASSERT(mChunkServer.GetMaxRetryCount() <= 1);
         // <= 0 -- infinite timeout
         // For record append status always use separate / dedicated connection.
         mChunkServerPtr = 0;
         mChunkServer.SetOpTimeoutSec(
             max(int(kGetStatusOpMinTime), mOpTimeoutSec / 8));
-        mChunkServer.SetServer(mWriteIds[theIndex].serverLoc);
+        const ServerLocation& theLocation = mWriteIds[theIndex].serverLoc;
+        if (0 != theIndex && theLocation == mWriteIds[0].serverLoc) {
+            // This could happen only due to the meta server bug;
+            mGetRecordAppendOpStatusOp.status    = -EINVAL;
+            mGetRecordAppendOpStatusOp.statusMsg =
+                "duplicate entry in the synchronous replication chain";
+            mCurOpPtr = &mGetRecordAppendOpStatusOp;
+            HandleError();
+            return;
+        }
         if (theIndex == 0) {
             SetAccess(mGetRecordAppendOpStatusOp);
+        } else if (mChunkAccess.empty()) {
+            if (! mChunkServer.GetKey().empty()) {
+                mChunkServer.Stop();
+                mChunkServer.SetKey(0, 0, 0, 0);
+            }
+            mGetRecordAppendOpStatusOp.access.clear();
+        } else {
+            if (! mChunkServerAccess.IsEmpty() && theIndex == 1) {
+                GetRecoveryAccess();
+                return;
+            }
+            CryptoKeys::Key theKey;
+            const ChunkServerAccess::Entry* const thePtr =
+                mChunkServerAccess.Get(theLocation, mAllocOp.chunkId, theKey);
+            if (! thePtr) {
+                mGetRecordAppendOpStatusOp.status    = -EPERM;
+                mGetRecordAppendOpStatusOp.statusMsg =
+                    "recovery access has no such chunk server";
+                mCurOpPtr = &mGetRecordAppendOpStatusOp;
+                HandleError();
+                return;
+            }
+            // Stop chunk server to avoid possible spurious connects due to
+            // possible connection configuration changes that follows.
+            mChunkServer.Stop();
+            // Shutting down ssl isn't worth it in this case, as it results
+            // in extra round trip to the chunk server, and the request /
+            // response payload is negligibly small.
+            mChunkServer.SetShutdownSsl(false);
+            mChunkServer.SetKey(
+                thePtr->chunkServerAccessId.mPtr,
+                thePtr->chunkServerAccessId.mLen,
+                theKey.GetPtr(),
+                theKey.GetSize()
+            );
+            mGetRecordAppendOpStatusOp.access.assign(
+                thePtr->chunkAccess.mPtr,
+                thePtr->chunkAccess.mLen
+            );
         }
+        mChunkServer.SetServer(theLocation);
         Enqueue(mGetRecordAppendOpStatusOp);
     }
     void Done(
         GetRecordAppendOpStatus& inOp,
         IOBuffer*                inBufferPtr)
     {
-        assert(
+        QCASSERT(
             &mGetRecordAppendOpStatusOp == &inOp &&
             ! inBufferPtr &&
             mGetRecordAppendOpStatusIndex < mWriteIds.size()
@@ -1485,7 +1596,7 @@ private:
         }
         Reset(mAllocOp);
         mWriteIds.clear();
-        assert(mSpaceAvailable >= 0);
+        QCASSERT(mSpaceAvailable >= 0);
         mSpaceAvailable  = 0;
         mAllocOp.chunkId = 0;
         mCurOpPtr        = 0;

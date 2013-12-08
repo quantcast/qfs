@@ -1117,11 +1117,12 @@ struct LeaseAcquireOp : public KfsOp {
     int64_t       chunkServerAccessValidForTime;
     int64_t       chunkServerAccessIssuedTime;
     bool          allowCSClearTextFlag;
+    bool          appendRecoveryFlag;
     kfsChunkId_t* chunkIds;
     int64_t*      leaseIds;
     bool          getChunkLocationsFlag;
 
-    LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char *p)
+    LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char* p)
         : KfsOp(CMD_LEASE_ACQUIRE, s),
           chunkId(c),
           pathname(p),
@@ -1132,6 +1133,7 @@ struct LeaseAcquireOp : public KfsOp {
           chunkServerAccessValidForTime(0),
           chunkServerAccessIssuedTime(0),
           allowCSClearTextFlag(false),
+          appendRecoveryFlag(false),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)

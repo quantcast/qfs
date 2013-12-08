@@ -655,6 +655,9 @@ LeaseAcquireOp::Request(ostream &os)
     if (leaseTimeout >= 0) {
         os << "Lease-timeout: " << leaseTimeout << "\r\n";
     }
+    if (appendRecoveryFlag) {
+        os << "Append-recovery: 1\r\n";
+    }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << "Chunk-ids:";
         for (int i = 0; i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
