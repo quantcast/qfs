@@ -1394,48 +1394,52 @@ private:
             mGetRecordAppendOpStatusOp.statusMsg =
                 "duplicate entry in the synchronous replication chain";
             mCurOpPtr = &mGetRecordAppendOpStatusOp;
-            HandleError();
+            Done(mGetRecordAppendOpStatusOp, 0);
             return;
         }
         if (mChunkAccess.empty()) {
             mChunkServer.SetKey(0, 0, 0, 0);
             mGetRecordAppendOpStatusOp.access.clear();
-        } else if (theIndex == 0 &&
-                mChunkServerAccess.IsEmpty() &&
-                Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
-            SetAccess(mGetRecordAppendOpStatusOp);
         } else {
-            if (&mLeaseAcquireOp != mCurOpPtr &&
-                    (mChunkServerAccess.IsEmpty() ||
-                    min(mChunkAccessExpireTime, mCSAccessExpireTime) < Now())) {
-                GetRecoveryAccess();
-                return;
-            }
-            CryptoKeys::Key theKey;
-            const ChunkServerAccess::Entry* const thePtr =
-                mChunkServerAccess.Get(theLocation, mAllocOp.chunkId, theKey);
-            if (! thePtr) {
-                mGetRecordAppendOpStatusOp.status    = -EPERM;
-                mGetRecordAppendOpStatusOp.statusMsg =
-                    "recovery access has no such chunk server";
-                mCurOpPtr = &mGetRecordAppendOpStatusOp;
-                Done(mGetRecordAppendOpStatusOp, 0);
-                return;
+            if (theIndex == 0 &&
+                    mChunkServerAccess.IsEmpty() &&
+                    Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
+                SetAccess(mGetRecordAppendOpStatusOp);
+            } else {
+                if (&mLeaseAcquireOp != mCurOpPtr &&
+                        (mChunkServerAccess.IsEmpty() ||
+                        min(mChunkAccessExpireTime, mCSAccessExpireTime) <
+                            Now())) {
+                    GetRecoveryAccess();
+                    return;
+                }
+                CryptoKeys::Key theKey;
+                const ChunkServerAccess::Entry* const thePtr =
+                    mChunkServerAccess.Get(
+                        theLocation, mAllocOp.chunkId, theKey);
+                if (! thePtr) {
+                    mGetRecordAppendOpStatusOp.status    = -EPERM;
+                    mGetRecordAppendOpStatusOp.statusMsg =
+                        "recovery access has no such chunk server";
+                    mCurOpPtr = &mGetRecordAppendOpStatusOp;
+                    Done(mGetRecordAppendOpStatusOp, 0);
+                    return;
+                }
+                mChunkServer.SetKey(
+                    thePtr->chunkServerAccessId.mPtr,
+                    thePtr->chunkServerAccessId.mLen,
+                    theKey.GetPtr(),
+                    theKey.GetSize()
+                );
+                mGetRecordAppendOpStatusOp.access.assign(
+                    thePtr->chunkAccess.mPtr,
+                    thePtr->chunkAccess.mLen
+                );
             }
             // Shutting down ssl isn't worth it in this case, as it results
             // in extra round trip to the chunk server, and the request /
             // response payload is negligibly small.
             mChunkServer.SetShutdownSsl(false);
-            mChunkServer.SetKey(
-                thePtr->chunkServerAccessId.mPtr,
-                thePtr->chunkServerAccessId.mLen,
-                theKey.GetPtr(),
-                theKey.GetSize()
-            );
-            mGetRecordAppendOpStatusOp.access.assign(
-                thePtr->chunkAccess.mPtr,
-                thePtr->chunkAccess.mLen
-            );
         }
         mChunkServer.SetServer(theLocation);
         Enqueue(mGetRecordAppendOpStatusOp);
