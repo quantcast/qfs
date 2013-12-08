@@ -1418,7 +1418,7 @@ private:
                 mGetRecordAppendOpStatusOp.statusMsg =
                     "recovery access has no such chunk server";
                 mCurOpPtr = &mGetRecordAppendOpStatusOp;
-                HandleError();
+                Done(mGetRecordAppendOpStatusOp, 0);
                 return;
             }
             // Stop chunk server to avoid possible spurious connects due to
