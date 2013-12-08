@@ -5520,13 +5520,13 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return -EACCES;
     }
     if (req->appendRecoveryFlag) {
-        // Leases are irrelevant, the client just need to talk to the
-        // write slaves to recover the its last append rpc status.
+        // Leases are irrelevant, the client just need to talk to the write
+        // slaves to recover the its last append rpc status.
         // To avoid lease lookup, and to handle the case where no write lease
-        // exists return access tokes to all servers. It is possible that on
-        // of the server is or was the write master -- without the corresponding
-        // write lease, or the client explicitly telling this it is not possible,
-        // to determine which one was the master.
+        // exists return access tokes to all servers. It is possible that on of
+        // the server is or was the write master -- without the corresponding
+        // write lease, or the client explicitly telling this it is not
+        // possible, to determine which one was the master.
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
         }
