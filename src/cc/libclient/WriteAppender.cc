@@ -1315,6 +1315,7 @@ private:
         mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
         mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
         mLeaseAcquireOp.allowCSClearTextFlag          = false;
+        mLeaseAcquireOp.appendRecoveryFlag            = true;
         mChunkServerAccess.Clear();
         EnqueueMeta(mLeaseAcquireOp);
     }
@@ -1345,16 +1346,26 @@ private:
             if (theRet < 0) {
                 inOp.status    = theRet;
                 inOp.statusMsg = "invalid chunk access response";
+            } else {
+                const time_t theNow = Now();
+                mChunkAccessExpireTime = theNow + LEASE_INTERVAL_SECS;
+                mCSAccessExpireTime    =
+                    theNow + mLeaseAcquireOp.chunkServerAccessValidForTime;
             }
         }
         if (inOp.status != 0) {
-            mLeaseAcquireOp.leaseId = -1;
             // Handle the failure as recovery failure.
+            // Reset the index to the last server, to skip all servers in the
+            // current recovery round.
+            const size_t theSize = mWriteIds.size();
+            if (0 < theSize) {
+                mGetRecordAppendOpStatusIndex = (unsigned int)(theSize - 1);
+            }
             mGetRecordAppendOpStatusOp.status    = inOp.status;
             mGetRecordAppendOpStatusOp.statusMsg =
                 "get chunk server acccess: " + inOp.statusMsg;
             mCurOpPtr = &mGetRecordAppendOpStatusOp;
-            HandleError();
+            Done(mGetRecordAppendOpStatusOp, 0);
         } else {
             GetLastRecordAppendOpStatus();
         }
@@ -1382,16 +1393,19 @@ private:
             HandleError();
             return;
         }
-        if (theIndex == 0) {
-            SetAccess(mGetRecordAppendOpStatusOp);
-        } else if (mChunkAccess.empty()) {
+        if (mChunkAccess.empty()) {
             if (! mChunkServer.GetKey().empty()) {
                 mChunkServer.Stop();
                 mChunkServer.SetKey(0, 0, 0, 0);
             }
             mGetRecordAppendOpStatusOp.access.clear();
+        } else if (theIndex == 0 &&
+                mChunkServerAccess.IsEmpty() &&
+                Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
+            SetAccess(mGetRecordAppendOpStatusOp);
         } else {
-            if (! mChunkServerAccess.IsEmpty() && theIndex == 1) {
+            if (mChunkServerAccess.IsEmpty() ||
+                    Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
                 GetRecoveryAccess();
                 return;
             }
