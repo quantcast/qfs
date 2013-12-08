@@ -1381,6 +1381,10 @@ private:
         // <= 0 -- infinite timeout
         // For record append status always use separate / dedicated connection.
         mChunkServerPtr = 0;
+        // Stop chunk server to avoid possible spurious connects due to
+        // possible connection configuration changes that follows, and force
+        // connection reset.
+        mChunkServer.Stop();
         mChunkServer.SetOpTimeoutSec(
             max(int(kGetStatusOpMinTime), mOpTimeoutSec / 8));
         const ServerLocation& theLocation = mWriteIds[theIndex].serverLoc;
@@ -1394,10 +1398,7 @@ private:
             return;
         }
         if (mChunkAccess.empty()) {
-            if (! mChunkServer.GetKey().empty()) {
-                mChunkServer.Stop();
-                mChunkServer.SetKey(0, 0, 0, 0);
-            }
+            mChunkServer.SetKey(0, 0, 0, 0);
             mGetRecordAppendOpStatusOp.access.clear();
         } else if (theIndex == 0 &&
                 mChunkServerAccess.IsEmpty() &&
@@ -1421,9 +1422,6 @@ private:
                 Done(mGetRecordAppendOpStatusOp, 0);
                 return;
             }
-            // Stop chunk server to avoid possible spurious connects due to
-            // possible connection configuration changes that follows.
-            mChunkServer.Stop();
             // Shutting down ssl isn't worth it in this case, as it results
             // in extra round trip to the chunk server, and the request /
             // response payload is negligibly small.
