@@ -1404,8 +1404,9 @@ private:
                 Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
             SetAccess(mGetRecordAppendOpStatusOp);
         } else {
-            if (mChunkServerAccess.IsEmpty() ||
-                    Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
+            if (&mLeaseAcquireOp != mCurOpPtr &&
+                    (mChunkServerAccess.IsEmpty() ||
+                    min(mChunkAccessExpireTime, mCSAccessExpireTime) < Now())) {
                 GetRecoveryAccess();
                 return;
             }
