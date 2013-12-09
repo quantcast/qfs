@@ -981,10 +981,15 @@ private:
         mWriteIdAllocOp.numBytes          = 0;
         mChunkServerAccess.Clear();
 
+        const ServerLocation& theMaster = mAllocOp.chunkServers.front();
         if (mClientPoolPtr) {
-            mChunkServerPtr = &mClientPoolPtr->Get(mAllocOp.chunkServers[0]);
+            mChunkServerPtr = &mClientPoolPtr->Get(theMaster);
         } else {
             mChunkServerPtr = 0;
+            const ServerLocation theCurLoc = mChunkServer.GetServerLocation();
+            if (theCurLoc.IsValid() && theCurLoc != theMaster) {
+                mChunkServer.Stop();
+            }
         }
 
         const time_t theNow = Now();
@@ -1037,13 +1042,14 @@ private:
                 mWriteIdAllocOp.decryptKey = &GetChunkServer().GetSessionKey();
             }
         }
-        if (mWriteIdAllocOp.status == 0 &&! GetChunkServer().GetAuthContext()) {
+        if (mWriteIdAllocOp.status == 0 &&
+                ! GetChunkServer().GetAuthContext()) {
             GetChunkServer().SetAuthContext(mMetaServer.GetAuthContext());
         }
 
         if (mWriteIdAllocOp.status != 0 ||
                 (! mChunkServerPtr &&
-                ! mChunkServer.SetServer(mAllocOp.chunkServers[0]))) {
+                ! mChunkServer.SetServer(theMaster))) {
             mCurOpPtr = &mWriteIdAllocOp;
             HandleError();
             return;
@@ -1354,18 +1360,7 @@ private:
             }
         }
         if (inOp.status != 0) {
-            // Handle the failure as recovery failure.
-            // Reset the index to the last server, to skip all servers in the
-            // current recovery round.
-            const size_t theSize = mWriteIds.size();
-            if (0 < theSize) {
-                mGetRecordAppendOpStatusIndex = (unsigned int)(theSize - 1);
-            }
-            mGetRecordAppendOpStatusOp.status    = inOp.status;
-            mGetRecordAppendOpStatusOp.statusMsg =
-                "get chunk server acccess: " + inOp.statusMsg;
-            mCurOpPtr = &mGetRecordAppendOpStatusOp;
-            Done(mGetRecordAppendOpStatusOp, 0);
+            HandleError();
         } else {
             GetLastRecordAppendOpStatus();
         }
@@ -1440,6 +1435,9 @@ private:
             // in extra round trip to the chunk server, and the request /
             // response payload is negligibly small.
             mChunkServer.SetShutdownSsl(false);
+            if (! mChunkServer.GetAuthContext()) {
+                mChunkServer.SetAuthContext(mMetaServer.GetAuthContext());
+            }
         }
         mChunkServer.SetServer(theLocation);
         Enqueue(mGetRecordAppendOpStatusOp);
@@ -1656,7 +1654,8 @@ private:
         // Meta operations are automatically retried by MetaServer.
         // Declare fatal error in the case of meta op failure.
         if (&mLookupOp == mCurOpPtr || &mCreateOp == mCurOpPtr ||
-                &mMkdirOp == mCurOpPtr || &mLookupPathOp == mCurOpPtr) {
+                &mMkdirOp == mCurOpPtr || &mLookupPathOp == mCurOpPtr ||
+                &mLeaseAcquireOp == mCurOpPtr) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "meta operation failed, giving up" <<
             KFS_LOG_EOM;
