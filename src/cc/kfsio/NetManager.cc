@@ -349,9 +349,9 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     entry.mWriteByteCount = max(0, conn.GetNumBytesToWrite());
     mNumBytesToSend += entry.mWriteByteCount;
     // Update poll set.
-    const bool in  = conn.WantRead() &&
-        (! mIsOverloaded || entry.mEnableReadIfOverloaded);
-    const bool out = conn.WantWrite() || entry.mConnectPending;
+    const bool in  = (! mIsOverloaded || entry.mEnableReadIfOverloaded) &&
+        conn.WantRead();
+    const bool out = entry.mConnectPending || conn.WantWrite();
     if (in != entry.mIn || out != entry.mOut) {
         assert(fd >= 0);
         const int op =
