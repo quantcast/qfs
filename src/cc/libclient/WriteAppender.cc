@@ -1359,11 +1359,38 @@ private:
                     theNow + mLeaseAcquireOp.chunkServerAccessValidForTime;
             }
         }
-        if (inOp.status != 0) {
-            HandleError();
-        } else {
+        if (inOp.status == 0) {
             GetLastRecordAppendOpStatus();
+            return;
         }
+        if (inOp.status != -EAGAIN) {
+            HandleError();
+            return;
+        }
+        // No servers hosting replicas at the moment. If access from the
+        // previous round exists, and still valid, then try to use it.
+        if (! mChunkServerAccess.IsEmpty() &&
+                Now() < min(mChunkAccessExpireTime, mCSAccessExpireTime)) {
+            GetLastRecordAppendOpStatus();
+            return;
+        }
+        // Handle the failure as recovery failure.
+        // Reset the index to the last server, to skip all servers in the
+        // current recovery round.
+        const size_t theSize = mWriteIds.size();
+        if (0 < theSize) {
+            mGetRecordAppendOpStatusIndex = (unsigned int)(theSize - 1);
+        }
+        mGetRecordAppendOpStatusOp.status    = inOp.status;
+        mGetRecordAppendOpStatusOp.statusMsg =
+            "get chunk server acccess: " + inOp.statusMsg;
+        mCurOpPtr = &mGetRecordAppendOpStatusOp;
+        Done(mGetRecordAppendOpStatusOp, 0);
+    }
+    int GetMinAccessCount()
+    {
+        const int theSize = (int)mWriteIds.size();
+        return (theSize <= 2 ? theSize : theSize * 3 / 4);
     }
     void GetLastRecordAppendOpStatus()
     {
@@ -1404,7 +1431,9 @@ private:
                 if (&mLeaseAcquireOp != mCurOpPtr &&
                         (mChunkServerAccess.IsEmpty() ||
                         min(mChunkAccessExpireTime, mCSAccessExpireTime) <
-                            Now())) {
+                            Now() ||
+                        (theIndex == 0 && mLeaseAcquireOp.chunkAccessCount <
+                            GetMinAccessCount()))) {
                     GetRecoveryAccess();
                     return;
                 }
