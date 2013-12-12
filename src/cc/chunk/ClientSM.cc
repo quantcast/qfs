@@ -1346,7 +1346,8 @@ ClientSM::CheckAccess(ChunkAccessRequestOp& op)
         op.status    = -EINVAL;
         return false;
     }
-    if ((mDelegationToken.GetFlags() & DelegationToken::kChunkServerFlag) != 0) {
+    if ((mDelegationToken.GetFlags() &
+            DelegationToken::kChunkServerFlag) != 0) {
         op.statusMsg = "invalid access request from chunk server";
         op.status    = -EINVAL;
         return false;
