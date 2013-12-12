@@ -99,11 +99,14 @@ private:
     int                                mRecursionCnt;
     /// used to print message about old protocol version once
     int                                mClientProtoVers;
-    bool                               mDisconnectFlag;
+    bool                               mDisconnectFlag:1;
+    bool                               mDelegationValidFlag:1;
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
     kfsUid_t                           mAuthUid;
     uint16_t                           mDelegationFlags;
+    uint32_t                           mDelegationValidForTime;
+    uint64_t                           mDelegationIssuedTime;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
@@ -121,6 +124,7 @@ private:
     bool IsOverPendingOpsLimit() const
         { return (mPendingOpsCount >= sMaxPendingOps); }
     void HandleAuthenticate(IOBuffer& iobuf);
+    void HandleDelegation(MetaDelegate& op);
     inline AuthContext& GetAuthContext();
 
     static int  sMaxPendingOps;

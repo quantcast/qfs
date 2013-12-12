@@ -146,10 +146,13 @@ ClientSM::ClientSM(
       mRecursionCnt(0),
       mClientProtoVers(KFS_CLIENT_PROTO_VERS),
       mDisconnectFlag(false),
+      mDelegationValidFlag(false),
       mLastReadLeft(0),
       mAuthenticateOp(0),
       mAuthUid(kKfsUserNone),
       mDelegationFlags(0),
+      mDelegationValidForTime(0),
+      mDelegationIssuedTime(0),
       mClientThread(thread),
       mNext(0)
 {
@@ -345,6 +348,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
             } else {
                 mAuthUid = mAuthenticateOp->authUid;
                 mDelegationFlags = 0;
+                mDelegationValidFlag = false;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
                 mAuthenticateOp->filter = 0;
                 string authName;
@@ -535,6 +539,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             }
             return;
         }
+    } else if (op->op == META_DELEGATE) {
+        HandleDelegation(*static_cast<MetaDelegate*>(op));
+        return;
     }
     op->authUid = mAuthUid;
     if (mAuthUid != kKfsUserNone) {
@@ -542,6 +549,44 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
     }
     ClientManager::SubmitRequest(mClientThread, *op);
+}
+
+void
+ClientSM::HandleDelegation(MetaDelegate& op)
+{
+    if (mAuthUid != kKfsUserNone) {
+        const time_t now       = mNetConnection ? mNetConnection->TimeNow() : 0;
+        bool         renewFlag = mDelegationValidFlag;
+        if (mDelegationValidFlag) {
+            if (mDelegationIssuedTime + mDelegationValidForTime < now) {
+                op.status    = -EPERM;
+                op.statusMsg = "delegation token has expired";
+            } else if ((mDelegationFlags &
+                    DelegationToken::kAllowDelegationFlag) == 0) {
+                op.issuedTime      = mDelegationIssuedTime;
+                op.validForTime    = mDelegationValidForTime;
+                op.delegationFlags = mDelegationFlags;
+            } else {
+                renewFlag = false;
+            }
+        }
+        if (op.status == 0 && ! renewFlag) {
+            op.issuedTime      = now;
+            op.validForTime    = 0;
+            op.delegationFlags =
+                (mDelegationValidFlag ? mDelegationFlags : 0) |
+                (op.allowDelegationFlag ?
+                    DelegationToken::kAllowDelegationFlag : 0);
+        }
+        if (op.status == 0) {
+            op.validForTime = min(
+                GetAuthContext().GetMaxDelegationValidForTime(),
+                op.validForTime
+            );
+        }
+    }
+    op.authUid = mAuthUid;
+    HandleRequestSelf(EVENT_CMD_DONE, &op);
 }
 
 void
@@ -653,11 +698,14 @@ ClientSM::GetPsk(
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         if (mAuthUid != kKfsUserNone) {
+            mDelegationFlags        = theDelegationToken.GetFlags();
+            mDelegationValidForTime = theDelegationToken.GetValidForSec();
+            mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
+            mDelegationValidFlag    = true;
             return theKeyLen;
         }
         theErrMsg = "invalid user id";
     }
-    mDelegationFlags = theDelegationToken.GetFlags();
     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
         " authentication failure: " << theErrMsg <<
         " delegation: "             << theDelegationToken.Show() <<

@@ -3649,6 +3649,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaChown                >("CHOWN")
     .MakeParser<MetaChmod                >("CHMOD")
     .MakeParser<MetaAuthenticate         >("AUTHENTICATE")
+    .MakeParser<MetaDelegate             >("DELEGATE")
     ;
 }
 static const MetaRequestHandler& sMetaRequestHandler = MakeMetaRequestHandler();
@@ -4449,6 +4450,63 @@ MetaAuthenticate::response(ostream& os)
     os << "Content-length: " << responseContentLen << "\r\n"
     "\r\n";
     os.write(responseContentPtr, responseContentLen);
+}
+
+void
+MetaDelegate::response(ostream& os)
+{
+    if (status == 0 && (! fromClientSMFlag || ! clnt)) {
+        status    = -EPERM;
+        statusMsg = "no client authentication";
+    }
+    if (status == 0 && authUid == kKfsUserNone) {
+        status    = -EPERM;
+        statusMsg = "not authenticated";
+    }
+    const CryptoKeys* const keys =
+        status == 0 ? gNetDispatch.GetCryptoKeys() : 0;
+    if (status == 0 && ! keys) {
+        status    = -EFAULT;
+        statusMsg = "no crypto keys";
+    }
+    CryptoKeys::KeyId keyId;
+    CryptoKeys::Key   key;
+    uint32_t          keyValidForSec = 0;
+    if (status == 0 && ! keys->GetCurrentKey(keyId, key, keyValidForSec)) {
+        status    = -EAGAIN;
+        statusMsg = "no valid key exists";
+    }
+    DelegationToken::TokenSeq tokenSeq = 0;
+    if (status == 0 && authUid != kKfsUserNone && 0 < validForTime &&
+            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
+        status    = -EAGAIN;
+        statusMsg = "pseudo random generator failure";
+    }
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    if (validForTime <= 0) {
+        return;
+    }
+    os <<
+        "Issued-time: "    << issuedTime   << "\r\n"
+        "Valid-for-time: " << validForTime << "\r\n";
+    if (keyValidForSec < validForTime) {
+        os << "Token-valid-for-time: " << keyValidForSec << "\r\n";
+    }
+    os << "Access: ";
+    DelegationToken::WriteTokenAndSessionKey(
+        os,
+        authUid,
+        tokenSeq,
+        keyId,
+        issuedTime,
+        delegationFlags,
+        validForTime,
+        key.GetPtr(),
+        key.GetSize()
+    );
+    os << "\r\n";
 }
 
 /*!

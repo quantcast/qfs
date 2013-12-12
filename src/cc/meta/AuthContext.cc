@@ -78,6 +78,7 @@ public:
           mKrbUseSslFlag(true),
           mAllowPskFlag(inAllowPskFlag),
           mMemKeytabGen(0),
+          mMaxDelegationValidForTime(60 * 60 * 24),
           mAuthTypes(kAuthenticationTypeUndef)
         {}
     ~Impl()
@@ -543,6 +544,10 @@ public:
             mWhiteList.swap(theWhiteList);
             mWhiteListParam = theWhiteListParam;
         }
+        theParamName.Truncate(thePrefLen).Append(
+            "maxDelegationValidForTimeSec");
+        mMaxDelegationValidForTime = inParameters.getValue(
+            theParamName, mMaxDelegationValidForTime);
         mAuthNoneFlag = theAuthNoneFlag;
         mAuthTypes =
             (mAuthNoneFlag ? int(kAuthenticationTypeNone) : 0) |
@@ -554,6 +559,8 @@ public:
     }
     int GetAuthTypes() const
         { return mAuthTypes; }
+    uint32_t GetMaxDelegationValidForTime() const
+        { return mMaxDelegationValidForTime; }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -594,6 +601,7 @@ private:
     bool             mKrbUseSslFlag;
     const bool       mAllowPskFlag;
     unsigned int     mMemKeytabGen;
+    uint32_t         mMaxDelegationValidForTime;
     int              mAuthTypes;
 
     kfsUid_t GetUidSelf(
@@ -715,6 +723,12 @@ AuthContext::SetParameters(
 AuthContext::GetAuthTypes() const
 {
     return mImpl.GetAuthTypes();
+}
+
+    uint32_t
+AuthContext::GetMaxDelegationValidForTime() const
+{
+    return mImpl.GetMaxDelegationValidForTime();
 }
 
 }

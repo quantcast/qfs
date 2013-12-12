@@ -141,7 +141,8 @@ using std::less;
     f(CHUNK_AVAILABLE) \
     f(CHUNKDIR_INFO) \
     f(GET_CHUNK_SERVER_DIRS_COUNTERS) \
-    f(AUTHENTICATE)
+    f(AUTHENTICATE) \
+    f(DELEGATE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -2529,6 +2530,33 @@ struct MetaAuthenticate : public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("Auth-type",       &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
         .Def("Content-length",  &MetaAuthenticate::contentLength, int(0))
+        ;
+    }
+};
+
+struct MetaDelegate : public MetaRequest {
+    uint16_t delegationFlags;
+    uint32_t validForTime;
+    uint64_t issuedTime;
+    bool     allowDelegationFlag;
+
+    MetaDelegate()
+        : MetaRequest(META_DELEGATE, false),
+          delegationFlags(0),
+          validForTime(-1),
+          issuedTime(0)
+          {}
+    virtual void handle() {}
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "delegate: " << " uid: " << authUid); }
+    virtual void response(ostream& os);
+    virtual int log(ostream& /* file */) const { return 0; }
+    bool Validate()                            { return true; }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def("Valid-for-time",   &MetaDelegate::validForTime, uint32_t(0))
+        .Def("Allow-delegation", &MetaDelegate::allowDelegationFlag, false)
         ;
     }
 };

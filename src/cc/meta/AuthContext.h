@@ -66,6 +66,7 @@ public:
         const Properties& inParameters,
         AuthContext*      inOtherCtxPtr = 0);
     int GetAuthTypes() const;
+    uint32_t GetMaxDelegationValidForTime() const;
 private:
     class Impl;
     Impl& mImpl;
