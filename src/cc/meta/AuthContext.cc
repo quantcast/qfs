@@ -79,6 +79,7 @@ public:
           mAllowPskFlag(inAllowPskFlag),
           mMemKeytabGen(0),
           mMaxDelegationValidForTime(60 * 60 * 24),
+          mReDelegationAllowedFlag(false),
           mAuthTypes(kAuthenticationTypeUndef)
         {}
     ~Impl()
@@ -544,10 +545,12 @@ public:
             mWhiteList.swap(theWhiteList);
             mWhiteListParam = theWhiteListParam;
         }
-        theParamName.Truncate(thePrefLen).Append(
-            "maxDelegationValidForTimeSec");
         mMaxDelegationValidForTime = inParameters.getValue(
-            theParamName, mMaxDelegationValidForTime);
+            theParamName.Truncate(thePrefLen).Append(
+            "maxDelegationValidForTimeSec"), mMaxDelegationValidForTime);
+        mReDelegationAllowedFlag   = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "reDelegationAllowedFlag"), mReDelegationAllowedFlag ? 1 : 0) != 0;
         mAuthNoneFlag = theAuthNoneFlag;
         mAuthTypes =
             (mAuthNoneFlag ? int(kAuthenticationTypeNone) : 0) |
@@ -561,6 +564,8 @@ public:
         { return mAuthTypes; }
     uint32_t GetMaxDelegationValidForTime() const
         { return mMaxDelegationValidForTime; }
+    bool IsReDelegationAllowed() const
+        { return mReDelegationAllowedFlag; }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -602,6 +607,7 @@ private:
     const bool       mAllowPskFlag;
     unsigned int     mMemKeytabGen;
     uint32_t         mMaxDelegationValidForTime;
+    bool             mReDelegationAllowedFlag;
     int              mAuthTypes;
 
     kfsUid_t GetUidSelf(
@@ -731,4 +737,9 @@ AuthContext::GetMaxDelegationValidForTime() const
     return mImpl.GetMaxDelegationValidForTime();
 }
 
+    bool
+AuthContext::IsReDelegationAllowed() const
+{
+    return mImpl.IsReDelegationAllowed();
+}
 }

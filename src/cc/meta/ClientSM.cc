@@ -575,7 +575,8 @@ ClientSM::HandleDelegation(MetaDelegate& op)
             op.validForTime    = 0;
             op.delegationFlags =
                 (mDelegationValidFlag ? mDelegationFlags : 0) |
-                (op.allowDelegationFlag ?
+                ((op.allowDelegationFlag &&
+                        GetAuthContext().IsReDelegationAllowed()) ?
                     DelegationToken::kAllowDelegationFlag : 0);
         }
         if (op.status == 0) {

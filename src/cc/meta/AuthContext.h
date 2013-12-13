@@ -67,6 +67,7 @@ public:
         AuthContext*      inOtherCtxPtr = 0);
     int GetAuthTypes() const;
     uint32_t GetMaxDelegationValidForTime() const;
+    bool IsReDelegationAllowed() const;
 private:
     class Impl;
     Impl& mImpl;
