@@ -350,6 +350,31 @@ KfsClient::GetReplication(const char* pathname,
         minChunkReplication, maxChunkReplication);
 }
 
+    int
+KfsClient::CreateDelegationToken(
+    bool      allowDelegationFlag,
+    uint32_t  maxValidForSec,
+    bool&     outDelegationAllowedFlag,
+    uint64_t& outIssuedTime,
+    uint32_t& outTokenValidForSec,
+    uint32_t& outDelegationValidForSec,
+    string&   outToken,
+    string&   outKey,
+    string*   outErrMsg)
+{
+    return mImpl->CreateDelegationToken(
+        allowDelegationFlag,
+        maxValidForSec,
+        outDelegationAllowedFlag,
+        outIssuedTime,
+        outTokenValidForSec,
+        outDelegationValidForSec,
+        outToken,
+        outKey,
+        outErrMsg
+    );
+}
+
 int
 KfsClient::CompareChunkReplicas(const char *pathname, string &md5sum)
 {
@@ -4841,6 +4866,67 @@ KfsClientImpl::GetReplication(const char* pathname,
     }
     if (attr.subCount1 < (int64_t)lop.chunks.size()) {
         attr.subCount1 = (int64_t)lop.chunks.size();
+    }
+    return 0;
+}
+
+    int
+KfsClientImpl::CreateDelegationToken(
+    bool      allowDelegationFlag,
+    uint32_t  maxValidForSec,
+    bool&     outDelegationAllowedFlag,
+    uint64_t& outIssuedTime,
+    uint32_t& outTokenValidForSec,
+    uint32_t& outDelegationValidForSec,
+    string&   outToken,
+    string&   outKey,
+    string*   outErrMsg)
+{
+    QCStMutexLocker l(mMutex);
+
+    DelegateOp delegateOp(0);
+    DoMetaOpWithRetry(&delegateOp);
+    if (delegateOp.status != 0) {
+        KFS_LOG_STREAM_ERROR << delegateOp.Show() << ": " <<
+            ErrorCodeToStr(delegateOp.status) <<
+            " " << delegateOp.statusMsg <<
+        KFS_LOG_EOM;
+        if (outErrMsg) {
+            *outErrMsg = delegateOp.statusMsg;
+        }
+        return delegateOp.status;
+    }
+    if (delegateOp.access.empty()) {
+        const char* const msg = "invalid empty response access token";
+        KFS_LOG_STREAM_ERROR <<
+            delegateOp.Show() << ": " << msg <<
+        KFS_LOG_EOM;
+        if (outErrMsg) {
+            *outErrMsg = msg;
+        }
+        return -EINVAL;
+    }
+    const char*       p = delegateOp.access.data();
+    const char* const e = p + delegateOp.access.size();
+    for (int i = 0; i < 2; i++) {
+        while (p < e && (*p & 0xFF) <= ' ') {
+            ++p;
+        }
+        const char* const b = p;
+        while (p < e && ' ' < (*p & 0xFF)) {
+            ++p;
+        }
+        (i == 0 ? outToken : outKey).assign(b, p - b);
+    }
+    if (outToken.empty() || outKey.empty()) {
+        const char* const msg = "invalid response access format";
+        KFS_LOG_STREAM_ERROR <<
+            delegateOp.Show() << ": " << msg <<
+        KFS_LOG_EOM;
+        if (outErrMsg) {
+            *outErrMsg = msg;
+        }
+        return -EINVAL;
     }
     return 0;
 }

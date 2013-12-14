@@ -605,6 +605,16 @@ public:
     kfsUid_t GetUserId();
     int GetReplication(const char* pathname,
         KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
+    int CreateDelegationToken(
+            bool      allowDelegationFlag,
+            uint32_t  maxValidForSec,
+            bool&     outDelegationAllowedFlag,
+            uint64_t& outIssuedTime,
+            uint32_t& outTokenValidForSec,
+            uint32_t& outDelegationValidForSec,
+            string&   outToken,
+            string&   outKey,
+            string*   outErrMsg);
 
 private:
      /// Maximum # of files a client can have open.

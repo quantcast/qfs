@@ -658,6 +658,21 @@ public:
     kfsUid_t GetUserId();
     int GetReplication(const char* pathname,
         KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
+    // Create delegation token and the corresponding session key.
+    // This method can be used for both: creating a new token, and updating,
+    // the "existing" token that was used to authenticate with the meta server,
+    // as long as the current token remains valid.
+    // The token and the session key are base 64 encoded strings.
+    int CreateDelegationToken(
+            bool      allowDelegationFlag,
+            uint32_t  maxValidForSec,
+            bool&     outDelegationAllowedFlag,
+            uint64_t& outIssuedTime,
+            uint32_t& outTokenValidForSec,
+            uint32_t& outDelegationValidForSec,
+            string&   outToken,
+            string&   outKey,
+            string*   outErrMsg);
 private:
     KfsClientImpl* const mImpl;
 };
