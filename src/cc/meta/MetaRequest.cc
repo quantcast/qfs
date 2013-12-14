@@ -4506,7 +4506,10 @@ MetaDelegate::response(ostream& os)
         key.GetPtr(),
         key.GetSize()
     );
-    os << "\r\n";
+    os <<
+        "\r\n"
+        "\r\n"
+    ;
 }
 
 /*!
