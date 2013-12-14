@@ -99,6 +99,7 @@ enum KfsOp_t {
     CMD_CHMOD,
     CMD_CHOWN,
     CMD_AUTHENTICATE,
+    CMD_DELEGATE,
 
     CMD_NCMDS,
 };
@@ -1453,6 +1454,36 @@ struct AuthenticateOp : public KfsOp {
             " chosen: "    << chosenAuthType <<
             " ssl: "       << (useSslFlag ? 1 : 0) <<
             " status: "    << status
+        ;
+        return os;
+    }
+};
+
+struct DelegateOp : public KfsOp {
+    bool     allowDelegationFlag;
+    uint32_t requestedValidForTime;
+    uint32_t validForTime;
+    uint32_t tokenValidForTime;
+    uint64_t issuedTime;
+    string   access;
+
+    DelegateOp(kfsSeq_t s)
+        : KfsOp (CMD_DELEGATE, s),
+          allowDelegationFlag(false),
+          requestedValidForTime(0),
+          validForTime(0),
+          tokenValidForTime(0),
+          issuedTime(0),
+          access()
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "delegate:"
+            " delegationbit: " << allowDelegationFlag <<
+            " time: "          << requestedValidForTime <<
+            " / "              << validForTime <<
+            " status: "        << status
         ;
         return os;
     }

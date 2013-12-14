@@ -1326,5 +1326,28 @@ AuthenticateOp::ParseResponseHeaderSelf(const Properties& prop)
     useSslFlag     = prop.getValue("Use-ssl", 0) != 0;
 }
 
+
+void
+DelegateOp::Request(ostream& os)
+{
+    os <<
+        "DELEGATE\r\n" << ReqHeaders(*this);
+    if (0 < requestedValidForTime) {
+        os << "Valid-for-time: " << requestedValidForTime << "\r\n";
+    }
+    if (allowDelegationFlag) {
+        os << "Allow-delegation: 1\r\n";
+    }
+    os << "\r\n";
+}
+
+void
+DelegateOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    validForTime      = prop.getValue("Valid-for-time", uint32_t(0));
+    tokenValidForTime = prop.getValue("Token-valid-for-time", validForTime);
+    access            = prop.getValue("Access", string());
+}
+
 } //namespace client
 } //namespace KFS
