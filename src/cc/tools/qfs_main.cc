@@ -467,7 +467,8 @@ public:
                     (strcmp(theArgsPtr[0], "yes") ||
                         strtol(theArgsPtr[0], 0, 0) != 0);
                 const uint32_t theMaxValidForSec        = 1 < theArgCnt ?
-                    (uint32_t)strtoul(theArgsPtr[1], 0, 0) : uint32_t(0);
+                    (uint32_t)strtoul(theArgsPtr[1], 0, 0) :
+                    uint32_t(60 * 60 * 10);
                 FileSystem*    theFsPtr                 = 0;
                 bool           theDelegationAllowedFlag = false;
                 uint64_t       theIssuedTime            = 0;
@@ -494,11 +495,11 @@ public:
                     cerr << theErrMsg << "\n";
                 } else {
                     cout <<
-                        "Token:         " << theToken                 << "\n"
-                        "Key:           " << theKey                   << "\n"
-                        "Valid From:    " << theIssuedTime            << "\n"
-                        "Valid For:    +" << theDelegationValidForSec << "\n"
-                        "Renew Before: +" << theTokenValidForSec      << "\n"
+                        "Token:              " << theToken                 << "\n"
+                        "Key:                " << theKey                   << "\n"
+                        "Valid From:         " << theIssuedTime            << "\n"
+                        "Valid For:          +" << theDelegationValidForSec << "\n"
+                        "Renew Before:       +" << theTokenValidForSec      << "\n"
                         "Delegation Allowed: " <<
                             (theDelegationAllowedFlag ? "yes" : "no") << "\n"
                     ;
