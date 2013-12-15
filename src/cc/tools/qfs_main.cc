@@ -4199,6 +4199,10 @@ const char* const KfsTool::sHelpStrings[] =
     "runEmptier", "[interval in seconds]",
     "run trash emptier forever",
 
+    "delegate",
+        "[<allow re-delegation>] [<max delegation validity time seconds>]",
+    "create delegation token",
+
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"
     "is specified.\n",
