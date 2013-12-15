@@ -205,6 +205,16 @@ public:
     virtual string StrError(
         int inError) const = 0;
     virtual const string& GetUri() const = 0;
+    virtual int CreateDelegationToken(
+        bool      inAllowDelegationFlag,
+        uint32_t  inMaxValidForSec,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string&   outToken,
+        string&   outKey,
+        string*   outErrMsgPtr) = 0;
     virtual bool operator==(
         const FileSystem& inFs) const = 0;
     bool operator!=(

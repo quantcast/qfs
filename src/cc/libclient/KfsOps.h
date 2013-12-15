@@ -1480,10 +1480,10 @@ struct DelegateOp : public KfsOp {
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "delegate:"
-            " delegationbit: " << allowDelegationFlag <<
-            " time: "          << requestedValidForTime <<
-            " / "              << validForTime <<
-            " status: "        << status
+            " delegation bit: " << allowDelegationFlag <<
+            " time: "           << requestedValidForTime <<
+            " / "               << validForTime <<
+            " status: "         << status
         ;
         return os;
     }

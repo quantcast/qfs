@@ -682,6 +682,28 @@ public:
         outHomeDir = thePwdPtr->pw_dir;
         return 0;
     }
+    virtual int CreateDelegationToken(
+        bool      /* inAllowDelegationFlag */,
+        uint32_t  /* inMaxValidForSec */,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string&   outToken,
+        string&   outKey,
+        string*   outErrMsgPtr)
+    {
+        outDelegationAllowedFlag = false;
+        outIssuedTime            = 0;
+        outTokenValidForSec      = 0;
+        outDelegationValidForSec = 0;
+        outToken.clear();
+        outKey.clear();
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "operation is not supported";
+        }
+        return -ENODEV;
+    }
 private:
     static int RetErrno(
         int inErrno)
@@ -1110,6 +1132,29 @@ public:
         }
         outHomeDir = "/user/" + theUserName;
         return theStatus;
+    }
+    virtual int CreateDelegationToken(
+        bool      inAllowDelegationFlag,
+        uint32_t  inMaxValidForSec,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string&   outToken,
+        string&   outKey,
+        string*   outErrMsgPtr)
+    {
+        return KfsClient::CreateDelegationToken(
+            inAllowDelegationFlag,
+            inMaxValidForSec,
+            outDelegationAllowedFlag,
+            outIssuedTime,
+            outTokenValidForSec,
+            outDelegationValidForSec,
+            outToken,
+            outKey,
+            outErrMsgPtr
+        );
     }
 private:
     KfsFileSystem(

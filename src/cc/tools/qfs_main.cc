@@ -458,6 +458,52 @@ public:
             }
         } else if (strcmp(theCmdPtr, "text") == 0) {
             theErr = Unzip(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "delegate") == 0) {
+            if (2 < theArgCnt) {
+                theErr = EINVAL;
+                ShortHelp(cerr);
+            } else {
+                const bool     theAllowDelegationFlag   = 0 < theArgCnt &&
+                    (strcmp(theArgsPtr[0], "yes") ||
+                        strtol(theArgsPtr[0], 0, 0) != 0);
+                const uint32_t theMaxValidForSec        = 1 < theArgCnt ?
+                    (uint32_t)strtoul(theArgsPtr[1], 0, 0) : uint32_t(0);
+                FileSystem*    theFsPtr                 = 0;
+                bool           theDelegationAllowedFlag = false;
+                uint64_t       theIssuedTime            = 0;
+                uint32_t       theTokenValidForSec      = 0;
+                uint32_t       theDelegationValidForSec = 0;
+                string         theToken;
+                string         theKey;
+                string         theErrMsg;
+                if ((theErr = FileSystem::Get(string(), theFsPtr)) != 0 ||
+                        (theErr = theFsPtr->CreateDelegationToken(
+                            theAllowDelegationFlag,
+                            theMaxValidForSec,
+                            theDelegationAllowedFlag,
+                            theIssuedTime,
+                            theTokenValidForSec,
+                            theDelegationValidForSec,
+                            theToken,
+                            theKey,
+                            &theErrMsg
+                        )) != 0) {
+                    if (theErrMsg.empty()) {
+                        theErrMsg = FileSystem::GetStrError(theErr, theFsPtr);
+                    }
+                    cerr << theErrMsg << "\n";
+                } else {
+                    cout <<
+                        "Token:         " << theToken                 << "\n"
+                        "Key:           " << theKey                   << "\n"
+                        "Valid From:    " << theIssuedTime            << "\n"
+                        "Valid For:    +" << theDelegationValidForSec << "\n"
+                        "Renew Before: +" << theTokenValidForSec      << "\n"
+                        "Delegation Allowed: " <<
+                            (theDelegationAllowedFlag ? "yes" : "no") << "\n"
+                    ;
+                }
+            }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
