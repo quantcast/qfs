@@ -572,7 +572,6 @@ ClientSM::HandleDelegation(MetaDelegate& op)
         }
         if (op.status == 0 && ! renewFlag) {
             op.issuedTime      = now;
-            op.validForTime    = 0;
             op.delegationFlags =
                 (mDelegationValidFlag ? mDelegationFlags : 0) |
                 ((op.allowDelegationFlag &&
@@ -580,10 +579,14 @@ ClientSM::HandleDelegation(MetaDelegate& op)
                     DelegationToken::kAllowDelegationFlag : 0);
         }
         if (op.status == 0) {
-            op.validForTime = min(
-                GetAuthContext().GetMaxDelegationValidForTime(),
-                op.validForTime
-            );
+            const uint32_t maxTime =
+                GetAuthContext().GetMaxDelegationValidForTime();
+            if (maxTime <= 0) {
+                op.status    = -EPERM;
+                op.statusMsg = "delegation is not allowed";
+            } else {
+                op.validForTime = min(maxTime, op.validForTime);
+            }
         }
     }
     op.authUid = mAuthUid;

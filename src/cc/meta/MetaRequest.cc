@@ -4455,6 +4455,10 @@ MetaAuthenticate::response(ostream& os)
 void
 MetaDelegate::response(ostream& os)
 {
+    if (status == 0 && validForTime <= 0) {
+        status    = -EINVAL;
+        statusMsg = "invalid 0 delegation expiration time";
+    }
     if (status == 0 && (! fromClientSMFlag || ! clnt)) {
         status    = -EPERM;
         statusMsg = "no client authentication";
@@ -4483,9 +4487,6 @@ MetaDelegate::response(ostream& os)
         statusMsg = "pseudo random generator failure";
     }
     if (! OkHeader(this, os)) {
-        return;
-    }
-    if (validForTime <= 0) {
         return;
     }
     os <<
