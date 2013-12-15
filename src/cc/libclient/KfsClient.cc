@@ -42,6 +42,7 @@
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/DelegationToken.h"
 #include "Path.h"
 #include "utils.h"
 #include "KfsProtocolWorker.h"
@@ -4885,6 +4886,8 @@ KfsClientImpl::CreateDelegationToken(
     QCStMutexLocker l(mMutex);
 
     DelegateOp delegateOp(0);
+    delegateOp.allowDelegationFlag   = allowDelegationFlag;
+    delegateOp.requestedValidForTime = maxValidForSec;
     DoMetaOpWithRetry(&delegateOp);
     if (delegateOp.status != 0) {
         KFS_LOG_STREAM_ERROR << delegateOp.Show() << ": " <<
@@ -4918,7 +4921,9 @@ KfsClientImpl::CreateDelegationToken(
         }
         (i == 0 ? outToken : outKey).assign(b, p - b);
     }
-    if (outToken.empty() || outKey.empty()) {
+    DelegationToken token;
+    if (outToken.empty() || outKey.empty() ||
+            ! token.FromString(outToken, 0, 0, 0)) {
         const char* const msg = "invalid response access format";
         KFS_LOG_STREAM_ERROR <<
             delegateOp.Show() << ": " << msg <<
@@ -4928,6 +4933,14 @@ KfsClientImpl::CreateDelegationToken(
         }
         return -EINVAL;
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "token: " << DelegationToken::ShowToken(token) <<
+    KFS_LOG_EOM;
+    outDelegationValidForSec = delegateOp.validForTime;
+    outTokenValidForSec      = delegateOp.tokenValidForTime;
+    outIssuedTime            = delegateOp.issuedTime;
+    outDelegationAllowedFlag =
+        (token.GetFlags() & DelegationToken::kAllowDelegationFlag) != 0;
     return 0;
 }
 
