@@ -202,6 +202,10 @@ extern "C" {
     jint Java_com_quantcast_qfs_access_KfsAccess_setUMask(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint umask);
 
+    jstring Java_com_quantcast_qfs_access_KfsAccess_createDelegationToken(
+        JNIEnv *jenv, jclass jcls, jlong jptr,
+        jboolean allowDelegationFlag, jlong validTime, jobject result);
+
    /* Input channel methods */
     jint Java_com_quantcast_qfs_access_KfsInputChannel_read(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
@@ -1147,6 +1151,92 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setUMask(
     }
     KfsClient* const clnt = (KfsClient*)jptr;
     clnt->SetUMask((kfsMode_t)umask);
+    return 0;
+}
+
+jstring Java_com_quantcast_qfs_access_KfsAccess_createDelegationToken(
+    JNIEnv *jenv, jclass jcls, jlong jptr,
+    jboolean allowDelegationFlag, jlong validTime, jobject result)
+{
+    if (! jptr) {
+        return jenv->NewStringUTF("null kfs client pointer");
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    if (! result) {
+        return jenv->NewStringUTF("null result argument");
+    }
+
+    jclass const rcls = jenv->GetObjectClass(result);
+    if (! rcls) {
+        return jenv->NewStringUTF("GetObjectClass failure");
+    }
+
+    bool      outDelegationAllowedFlag = false;
+    uint64_t  outIssuedTime            = 0;
+    uint32_t  outTokenValidForSec      = 0;
+    uint32_t  outDelegationValidForSec = 0;
+    string    outTokenAndKey[2];
+    string    outErrMsg;
+
+    const int err = clnt->CreateDelegationToken(
+        allowDelegationFlag,
+        validTime,
+        outDelegationAllowedFlag,
+        outIssuedTime,
+        outTokenValidForSec,
+        outDelegationValidForSec,
+        outTokenAndKey[0],
+        outTokenAndKey[1],
+        &outErrMsg
+    );
+    if (err != 0) {
+        if (outErrMsg.empty()) {
+            outErrMsg = KFS::ErrorCodeToStr(err);
+        }
+        if (outErrMsg.empty()) {
+            outErrMsg = "unspecified error";
+        }
+        return jenv->NewStringUTF(outErrMsg.c_str());
+    }
+
+    jfieldID fid = jenv->GetFieldID(rcls, "delegationAllowedFlag", "Z");
+    if (! fid) {
+        return jenv->NewStringUTF("no field: delegationAllowedFlag");
+    }
+    jenv->SetBooleanField(result, fid, (jboolean)outDelegationAllowedFlag);
+
+    fid = jenv->GetFieldID(rcls, "issuedTime", "J");
+    if (! fid) {
+        return jenv->NewStringUTF("no field: issuedTime");
+    }
+    jenv->SetLongField(result, fid, (jlong)outIssuedTime);
+
+    fid = jenv->GetFieldID(rcls, "tokenValidForSec", "J");
+    if (! fid) {
+        return jenv->NewStringUTF("no field: tokenValidForSec");
+    }
+    jenv->SetIntField(result, fid, (jlong)outTokenValidForSec);
+
+    fid = jenv->GetFieldID(rcls, "delegationValidForSec", "J");
+    if (! fid) {
+        return jenv->NewStringUTF("no field: delegationValidForSec");
+    }
+    jenv->SetIntField(result, fid, (jlong)outDelegationValidForSec);
+
+    const char* const fieldNames[2] = {"token", "key"};
+    for (int i = 0; i < 2; i++) {
+        jstring const nm = jenv->NewStringUTF(outTokenAndKey[i].c_str());
+        if (! nm) {
+            return jenv->NewStringUTF("NewStringUTF failure");
+        }
+        fid = jenv->GetFieldID(rcls, fieldNames[i], "Ljava/lang/String;");
+        if (! fid) {
+            return jenv->NewStringUTF(
+                (string("no field: ") + fieldNames[i]).c_str());
+        }
+        jenv->SetObjectField(result, fid, nm);
+    }
     return 0;
 }
 

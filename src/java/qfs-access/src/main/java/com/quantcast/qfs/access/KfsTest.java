@@ -55,6 +55,28 @@ public class KfsTest
                 kfsAccess.kfs_retToIOException(
                     kfsAccess.kfs_setEUserAndEGroup(euid, egid, null));
             }
+
+            try {
+                final boolean       allowDelegationFlag   = true;
+                final long          delegationValidForSec = 24 * 60 * 60;
+                final KfsDelegation result                =
+                    kfsAccess.kfs_createDelegationToken(
+                        allowDelegationFlag, delegationValidForSec);
+                System.out.println("create delegation token: ");
+                System.out.println("delegation:  " + result.delegationAllowedFlag);
+                System.out.println("issued:      " + result.issuedTime);
+                System.out.println("token valid: " + result.tokenValidForSec);
+                System.out.println("valid:       " + result.delegationValidForSec);
+                System.out.println("token:       " + result.token);
+                System.out.println("key:         " + result.key);
+            } catch (IOException ex) {
+                String msg = ex.getMessage();
+                if (msg == null) {
+                    msg = "null";
+                }
+                System.out.println("create delegation token error: " + msg);
+            }
+
             if (! kfsAccess.kfs_exists(basedir)) {
                 if (kfsAccess.kfs_mkdirs(basedir) != 0) {
                     System.out.println("Unable to mkdir");
@@ -250,6 +272,7 @@ public class KfsTest
                 System.out.println("unable to remove: " + basedir);
                 System.exit(1);
             }
+                
             System.out.println("All done...Test passed!");
 
         } catch (Exception e) {

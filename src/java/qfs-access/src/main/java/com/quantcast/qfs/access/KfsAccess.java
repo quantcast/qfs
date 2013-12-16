@@ -204,6 +204,10 @@ final public class KfsAccess
     private final static native
     int getUMask(long ptr);
 
+    private final static native
+    String createDelegationToken(long ptr, boolean allowDelegationFlag,
+        long validTime, KfsDelegation result);
+
     static {
         try {
             System.loadLibrary("qfs_access");
@@ -840,6 +844,21 @@ final public class KfsAccess
             kfs_retToIOException((int)ret);
         }
         return ret;
+    }
+
+    public KfsDelegation kfs_createDelegationToken(
+        boolean allowDelegationFlag, long validTime) throws IOException
+    {
+        final KfsDelegation result = new KfsDelegation();
+        final String error =
+            createDelegationToken(cPtr, allowDelegationFlag, validTime, result);
+        if (error != null) {
+            throw new IOException(error);
+        }
+        if (result.key == null || result.token == null) {
+            throw new OutOfMemoryError();
+        }
+        return result;
     }
 
     protected void finalize() throws Throwable
