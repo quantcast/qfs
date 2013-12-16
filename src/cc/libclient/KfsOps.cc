@@ -1344,9 +1344,10 @@ DelegateOp::Request(ostream& os)
 void
 DelegateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    validForTime      = prop.getValue("Valid-for-time", uint32_t(0));
+    issuedTime        = prop.getValue("Issued-time",          int64_t(0));
+    validForTime      = prop.getValue("Valid-for-time",       uint32_t(0));
     tokenValidForTime = prop.getValue("Token-valid-for-time", validForTime);
-    access            = prop.getValue("Access", string());
+    access            = prop.getValue("Access",               string());
 }
 
 } //namespace client
