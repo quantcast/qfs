@@ -43,6 +43,7 @@ Replay.cc
 Restorer.cc
 util.cc
 AuthContext.cc
+UserAndGroup.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})
