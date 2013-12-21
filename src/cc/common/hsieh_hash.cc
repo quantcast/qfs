@@ -43,14 +43,14 @@ using std::string;
 
 using namespace KFS;
 
-uint32_t SuperFastHash (const char *data, int len)
+uint32_t SuperFastHash (const char *data, size_t len)
 {
-    uint32_t hash = len, tmp;
+    uint32_t hash = (uint32_t)len, tmp;
     int rem;
 
     if (len <= 0 || data == NULL) return 0;
 
-    rem = len & 3;
+    rem = (int)(len & 3);
     len >>= 2;
 
     /* Main loop */
@@ -90,7 +90,7 @@ uint32_t SuperFastHash (const char *data, int len)
 }
 
 // the wrappers we need
-size_t Hsieh_hash_fcn::operator() (const char * data, int len) const
+size_t Hsieh_hash_fcn::operator() (const char* data, size_t len) const
 {
     return SuperFastHash(data, len);
 }
@@ -98,4 +98,9 @@ size_t Hsieh_hash_fcn::operator() (const char * data, int len) const
 size_t Hsieh_hash_fcn::operator() (const string &data) const
 {
     return SuperFastHash(data.c_str(), data.size());
+}
+
+size_t HsiehHash(const char* data, size_t len)
+{
+    return SuperFastHash(data, len);
 }

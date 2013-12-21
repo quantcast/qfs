@@ -42,6 +42,16 @@ namespace KFS
 {
 
 template<typename T>
+struct IntegerHash
+{
+    typedef std::size_t size_t;
+
+    static size_t Hash(
+        const T& inVal)
+        { return size_t(inVal); }
+};
+
+template<typename T, typename H = IntegerHash<T> >
 struct KeyCompare
 {
     typedef std::size_t size_t;
@@ -56,7 +66,7 @@ struct KeyCompare
         { return inLhs < inRhs; }
     static size_t Hash(
         const T& inVal)
-        { return size_t(inVal); }
+        { return H::Hash(inVal); }
 };
 
 template <typename KeyT, typename ValT>

@@ -32,8 +32,9 @@
 #include <string>
 namespace KFS
 {
+    std::size_t HsiehHash(const char * data, std::size_t len);
     struct Hsieh_hash_fcn {
-        std::size_t operator()(const char *data, int len) const;
+        std::size_t operator()(const char *data, std::size_t len) const;
         std::size_t operator()(const std::string &data) const;
     };
 }
