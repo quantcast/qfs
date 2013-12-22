@@ -450,6 +450,7 @@ ReplicatorImpl::Read()
     mReadOp.numBytesIO = 0;
     mReadOp.numBytes   = (int)min(
         mChunkSize - mOffset, int64_t(kDefaultReplicationReadSize));
+    mReadOp.dataBuf.Clear();
     mPeer->Enqueue(&mReadOp);
 }
 
