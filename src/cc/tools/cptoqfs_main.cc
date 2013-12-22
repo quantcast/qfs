@@ -69,7 +69,8 @@ public:
           mNumStripes(0),
           mNumRecoveryStripes(0),
           mMinSTier(kKfsSTierMax),
-          mMaxSTier(kKfsSTierMax)
+          mMaxSTier(kKfsSTierMax),
+          mStartPos(0)
     {}
     ~CpToKfs()
     {
@@ -98,6 +99,7 @@ private:
     int        mNumRecoveryStripes;
     kfsSTier_t mMinSTier;
     kfsSTier_t mMaxSTier;
+    int64_t    mStartPos;
 
     bool Mkdirs(string path);
 
@@ -145,7 +147,7 @@ CpToKfs::Run(int argc, char **argv)
     int                 optchar;
 
     while ((optchar = getopt(argc, argv,
-            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:")) != -1) {
+            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:")) != -1) {
         switch (optchar) {
             case 'd':
                 sourcePath = optarg;
@@ -225,6 +227,9 @@ CpToKfs::Run(int argc, char **argv)
             case 'l':
                 mMaxSTier = (kfsSTier_t)atol(optarg);
                 break;
+            case 'B':
+                mStartPos = (int64_t)strtoll(optarg, 0, 0);
+                break;
             default:
                 help = true;
                 break;
@@ -259,6 +264,7 @@ CpToKfs::Run(int argc, char **argv)
             " [-X] -- create exclusive\n"
             " [-m] -- min storage tier\n"
             " [-l] -- max storage tier\n"
+            " [-B] -- write from this position\n"
         ;
         return(-1);
     }
@@ -476,6 +482,15 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
         kfsfilename << ": write behind: " << mKfsBufSize <<
         " => " << mKfsClient->GetIoBufferSize(kfsfd) <<
     KFS_LOG_EOM;
+
+    if (0 < mStartPos) {
+        const int64_t pos = mKfsClient->Seek(kfsfd, mStartPos);
+        if (pos != mStartPos) {
+            ReportError("seek", kfsfilename, (int)pos);
+            close(srcFd);
+            return(-1);
+        }
+    }
 
     ssize_t nRead;
     while ((nRead = read(srcFd, mReadBuf, mBufSize)) > 0) {
