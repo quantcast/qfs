@@ -844,7 +844,12 @@ ReadOp::HandleDone(int code, void *data)
 int
 ReadOp::HandleReplicatorDone(int code, void *data)
 {
+    if (0 <= status && numBytes < numBytesIO) {
+        status    = -EINVAL;
+        statusMsg = "invalid read: return size exceeds requited";
+    }
     if (status >= 0) {
+        assert(numBytesIO == dataBuf.BytesConsumable());
         vector<uint32_t> datacksums = ComputeChecksums(
             &dataBuf, numBytesIO);
         if (datacksums.size() > checksum.size()) {
