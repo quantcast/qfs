@@ -1423,18 +1423,25 @@ private:
             if (inOp.status < 0) {
                 return false;
             }
-            const bool theShortReadExpectedFlag =
-                inOp.offset + (Offset)inOp.numBytes > mSizeOp.size;
-            if ((! inOp.mFailShortReadFlag && theShortReadExpectedFlag) ||
-                    inOp.contentLength >= inOp.numBytes) {
-                return true;
+            QCRTASSERT(inOp.mTmpBuffer.BytesConsumable() == inOp.contentLength);
+            if (inOp.numBytes < inOp.contentLength) {
+                inOp.status    = kErrorParameters;
+                inOp.statusMsg = "read returned more than requested";
             }
-            if (theShortReadExpectedFlag) {
-                inOp.status    = kErrorInvalChunkSize;
-                inOp.statusMsg = "short read detected";
-            } else {
-                inOp.status    = kErrorIO;
-                inOp.statusMsg = "incomplete read detected";
+            const bool theShortReadExpectedFlag = 0 <= inOp.status &&
+                inOp.offset + (Offset)inOp.numBytes > mSizeOp.size;
+            if (0 <= inOp.status) {
+                if ((! inOp.mFailShortReadFlag && theShortReadExpectedFlag) ||
+                        inOp.contentLength >= inOp.numBytes) {
+                    return true;
+                }
+                if (theShortReadExpectedFlag) {
+                    inOp.status    = kErrorInvalChunkSize;
+                    inOp.statusMsg = "short read detected";
+                } else {
+                    inOp.status    = kErrorIO;
+                    inOp.statusMsg = "incomplete read detected";
+                }
             }
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 inOp.statusMsg << ":"
