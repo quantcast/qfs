@@ -52,6 +52,7 @@ public:
     UserAndGroup();
     ~UserAndGroup();
     int SetParameters(
+        const char*       inPrefixPtr,
         const Properties& inProperties);
     int Start();
     void Shutdown();
@@ -75,30 +76,79 @@ using std::less;
 
 class UserAndGroup::Impl : public QCRunnable, public ITimeout
 {
+private:
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > UserExcludes;
+    typedef UserExcludes GroupExcludes;
 public:
     Impl(
         volatile uint64_t& inUpdateCount)
         : QCRunnable(),
           ITimeout(),
           mUpdateCount(inUpdateCount),
-          mThread()
+          mCurUpdateCount(0),
+          mThread(),
+          mMutex(),
+          mCond(),
+          mStopFlag(),
+          mUpdateFlag(),
+          mUpdatePeriodNanoSec(QCMutex::Time(2) * 1000 * 1000 * 1000),
+          mMinUserId(0),
+          mMaxUserId(~kfsUid_t(0)),
+          mMinGroupId(0),
+          mMaxGroupId(~kfsGid_t(0)),
+          mUserExcludes(),
+          mGroupExcludes(),
+          mParametersReadCount(0),
+          mUidNameMap(),
+          mGidNameMap(),
+          mNameUidMap(),
+          mNameGidMap(),
+          mGroupUsersMap(),
+          mPendingUidNameMap(),
+          mPendingGidNameMap(),
+          mPendingNameUidMap(),
+          mPendingNameGidMap(),
+          mPendingGroupUsersMap(),
+          mTmpUidNameMap(),
+          mTmpGidNameMap(),
+          mTmpNameUidMap(),
+          mTmpNameGidMap(),
+          mTmpGroupUsersMap(),
+          mTmpGroupUserNamesMap()
         {}
     ~Impl()
-        {}
+        { Impl::Shutdown(); }
     int Start()
     {
-        if (! mStopFlag) {
-            return 0;
+        QCStMutexLocker theLock(mMutex);
+        if (mThread.IsStarted()) {
+            return -EINVAL;
         }
+        const int theError = Update();
+        if (theError != 0) {
+            return theError;
+        }
+        mUpdateCount++;
         mStopFlag   = false;
-        mUpdateFlag = true;
+        mUpdateFlag = false;
+        const int kStackSize = 32 << 10;
+        mThread.Start(this, kStackSize, "UpdateUserAndGroup");
         return 0;
     }
     void Shutdown()
     {
         QCStMutexLocker theLock(mMutex);
+        if (mStopFlag) {
+            return;
+        }
         mStopFlag = true;
         mCond.Notify();
+        theLock.Unlock();
+        mThread.Join();
     }
     void ScheduleUpdate()
     {
@@ -113,6 +163,59 @@ public:
         const UsersSet* const theUsersPtr = mGroupUsersMap.Find(inGroup);
         return (theUsersPtr && theUsersPtr->find(inUser) != theUsersPtr->end());
     }
+    int SetParameters(
+        const char*       inPrefixPtr,
+        const Properties& inProperties)
+    {
+        Properties::String theParamName;
+        if (inPrefixPtr) {
+            theParamName.Append(inPrefixPtr);
+        }
+        QCStMutexLocker theLock(mMutex);
+        const size_t thePrefixLen = theParamName.GetSize();
+        mMinUserId = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "minUserId"), mMinUserId);
+        mMaxUserId = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "maxUserId"), mMaxUserId);
+        mMinGroupId = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "minGroupId"), mMinGroupId);
+        mMaxGroupId = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "maxGroupId"), mMaxGroupId);
+        const Properties::String* theUGEPtr[2];
+        theUGEPtr[0] = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "excludeUser"));
+        theUGEPtr[1] = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "excludeGroup"));
+        for (int i = 0; i < 2; i++) {
+            const Properties::String* const theSPtr = theUGEPtr[i];
+            if (! theSPtr) {
+                continue;
+            }
+            const char* thePtr    = theSPtr->GetPtr();
+            const char* theEndPtr = thePtr + theSPtr->GetSize();
+            while (thePtr < theEndPtr) {
+                while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ')
+                    {}
+                const char* const theTokenPtr = thePtr;
+                while (thePtr < theEndPtr && ' ' < (*thePtr & 0xFF))
+                    {}
+                if (theTokenPtr < thePtr) {
+                    (i == 0 ? mUserExcludes : mGroupExcludes).insert(
+                        string(theTokenPtr, thePtr - theTokenPtr));
+                }
+            }
+        }
+        mUpdateFlag = true;
+        mParametersReadCount++;
+        mCond.Notify();
+        return 0;
+    }
 private:
     virtual void Run()
     {
@@ -125,15 +228,31 @@ private:
                 break;
             }
             mUpdateFlag = false;
-            if (Update()) {
-                mPendingUidNameMap.Swap(mTmpUidNameMap);
-                mPendingGidNameMap.Swap(mTmpGidNameMap);
-                mPendingNameUidMap.Swap(mTmpNameUidMap);
-                mPendingNameGidMap.Swap(mTmpNameGidMap);
-                mPendingGroupUsersMap.Swap(mTmpGroupUsersMap);
-                mUpdateCount++;
-            }
+            Update();
         }
+    }
+    int Update()
+    {
+        UserExcludes theUserExcludes;
+        theUserExcludes.swap(mUserExcludes);
+        GroupExcludes  theGroupExcludes;
+        theGroupExcludes.swap(mUserExcludes);
+        const uint64_t theParametersReadCount = mParametersReadCount;
+        const int theError = UpdateSelf(
+            theUserExcludes,  theGroupExcludes);
+        if (theError == 0) {
+            mPendingUidNameMap.Swap(mTmpUidNameMap);
+            mPendingGidNameMap.Swap(mTmpGidNameMap);
+            mPendingNameUidMap.Swap(mTmpNameUidMap);
+            mPendingNameGidMap.Swap(mTmpNameGidMap);
+            mPendingGroupUsersMap.Swap(mTmpGroupUsersMap);
+            mUpdateCount++;
+        }
+        if (mParametersReadCount == theParametersReadCount) {
+            theUserExcludes.swap(mUserExcludes);
+            theGroupExcludes.swap(mUserExcludes);
+        }
+        return theError;
     }
     virtual void Timeout()
     {
@@ -151,8 +270,14 @@ private:
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
         mUpdateCount = mCurUpdateCount;
     }
-    bool Update()
+    int UpdateSelf(
+        const UserExcludes&  inUserExcludes,
+        const GroupExcludes& inGroupExcludes)
     {
+        kfsUid_t const     theMinUserId  = mMinUserId;
+        kfsUid_t const     theMaxUserId  = mMaxUserId;
+        kfsGid_t const     theMinGroupId = mMinGroupId;
+        kfsGid_t const     theMaxGroupId = mMaxGroupId;
         QCStMutexUnlocker theUnlock(mMutex);
 
         mTmpUidNameMap.Clear();
@@ -177,6 +302,24 @@ private:
             }
             const string   theName = theEntryPtr->gr_name;
             kfsGid_t const theGid  = (kfsGid_t)theEntryPtr->gr_gid;
+            if (theGid < theMinGroupId || theMaxGroupId < theGid) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "ignoring group:"
+                    " id: "   << theGid <<
+                    " name: " << theName <<
+                    " min: "  << theMinGroupId <<
+                    " max: "  << theMaxGroupId <<
+                KFS_LOG_EOM;
+                continue;
+            }
+            if (inGroupExcludes.find(theName) != inGroupExcludes.end()) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "ignoring group:"
+                    " id: "   << theGid <<
+                    " name: " << theName <<
+                KFS_LOG_EOM;
+                continue;
+            }
             bool                theInsertedFlag = false;
             const string* const theNamePtr      = mTmpGidNameMap.Insert(
                 theGid, theName, theInsertedFlag);
@@ -217,7 +360,7 @@ private:
         }
         endgrent();
         if (theError != 0) {
-            return false;
+            return (theError < 0 ? theError : -theError);
         }
         setpwent();
         for (; ;) {
@@ -232,8 +375,26 @@ private:
                 }
                 break;
             }
-            const string        theName         = theEntryPtr->pw_name;
-            kfsUid_t const      theUid          = (kfsUid_t)theEntryPtr->pw_uid;
+            const string        theName = theEntryPtr->pw_name;
+            kfsUid_t const      theUid  = (kfsUid_t)theEntryPtr->pw_uid;
+            if (theUid < theMinUserId || theMaxUserId < theUid) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "ignoring user:"
+                    " id: "   << theUid <<
+                    " name: " << theName <<
+                    " min: "  << theMinUserId <<
+                    " max: "  << theMaxUserId <<
+                KFS_LOG_EOM;
+                continue;
+            }
+            if (inUserExcludes.find(theName) != inUserExcludes.end()) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "ignoring user:"
+                    " id: "   << theUid <<
+                    " name: " << theName <<
+                KFS_LOG_EOM;
+                continue;
+            }
             kfsGid_t const      theGid          = (kfsGid_t)theEntryPtr->pw_gid;
             bool                theInsertedFlag = false;
             const string* const theNamePtr      = mTmpUidNameMap.Insert(
@@ -265,7 +426,7 @@ private:
         }
         endpwent();
         if (theError != 0) {
-            return false;
+            return (theError < 0 ? theError : -theError);
         }
         mTmpGroupUserNamesMap.First();
         const GroupUserNames* thePtr;
@@ -288,7 +449,7 @@ private:
                 }
             }
         }
-        return true;
+        return theError;
     }
 private:
     struct StringHash
@@ -357,6 +518,13 @@ private:
     bool               mStopFlag;
     bool               mUpdateFlag;
     QCMutex::Time      mUpdatePeriodNanoSec;
+    kfsUid_t           mMinUserId;
+    kfsUid_t           mMaxUserId;
+    kfsGid_t           mMinGroupId;
+    kfsGid_t           mMaxGroupId;
+    UserExcludes       mUserExcludes;
+    GroupExcludes      mGroupExcludes;
+    uint64_t           mParametersReadCount;
     UidNameMap         mUidNameMap;
     GidNameMap         mGidNameMap;
     NameUidMap         mNameUidMap;
