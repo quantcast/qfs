@@ -24,12 +24,11 @@
 //
 //----------------------------------------------------------------------------
 
-#include "common/kfstypes.h"
+#include "UserAndGroup.h"
 #include "common/Properties.h"
 #include "common/LinearHash.h"
 #include "common/MsgLogger.h"
 #include "common/hsieh_hash.h"
-
 #include "kfsio/ITimeout.h"
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -46,30 +45,6 @@
 namespace KFS
 {
 
-class UserAndGroup
-{
-public:
-    UserAndGroup();
-    ~UserAndGroup();
-    int SetParameters(
-        const char*       inPrefixPtr,
-        const Properties& inProperties);
-    int Start();
-    void Shutdown();
-    void ScheduleUpdate();
-    const volatile uint64_t& GetUpdateCount() const
-        { return mUpdateCount; }
-private:
-    class Impl;
-    volatile uint64_t mUpdateCount;
-    Impl&             mImpl;
-private:
-    UserAndGroup(
-        const UserAndGroup& inUserAndGroup);
-    UserAndGroup& operator=(
-        const UserAndGroup& inUserAndGroup);
-};
-
 using std::string;
 using std::set;
 using std::less;
@@ -84,11 +59,10 @@ private:
     > UserExcludes;
     typedef UserExcludes GroupExcludes;
 public:
-    Impl(
-        volatile uint64_t& inUpdateCount)
+    Impl()
         : QCRunnable(),
           ITimeout(),
-          mUpdateCount(inUpdateCount),
+          mUpdateCount(0),
           mCurUpdateCount(0),
           mThread(),
           mMutex(),
@@ -156,13 +130,6 @@ public:
         mUpdateFlag = true;
         mCond.Notify();
     }
-    bool IsGroupMamber(
-        kfsUid_t inUser,
-        kfsGid_t inGroup)
-    {
-        const UsersSet* const theUsersPtr = mGroupUsersMap.Find(inGroup);
-        return (theUsersPtr && theUsersPtr->find(inUser) != theUsersPtr->end());
-    }
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inProperties)
@@ -192,6 +159,8 @@ public:
         theUGEPtr[1] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "excludeGroup"));
+        mUserExcludes.clear();
+        mGroupExcludes.clear();
         for (int i = 0; i < 2; i++) {
             const Properties::String* const theSPtr = theUGEPtr[i];
             if (! theSPtr) {
@@ -206,8 +175,12 @@ public:
                 while (thePtr < theEndPtr && ' ' < (*thePtr & 0xFF))
                     {}
                 if (theTokenPtr < thePtr) {
-                    (i == 0 ? mUserExcludes : mGroupExcludes).insert(
-                        string(theTokenPtr, thePtr - theTokenPtr));
+                    const string theName(theTokenPtr, thePtr - theTokenPtr);
+                    if (i == 0) {
+                        mUserExcludes.insert(theName);
+                    } else {
+                        mGroupExcludes.insert(theName);
+                    }
                 }
             }
         }
@@ -238,7 +211,7 @@ private:
         GroupExcludes  theGroupExcludes;
         theGroupExcludes.swap(mUserExcludes);
         const uint64_t theParametersReadCount = mParametersReadCount;
-        const int theError = UpdateSelf(
+        const int      theError               = UpdateSelf(
             theUserExcludes,  theGroupExcludes);
         if (theError == 0) {
             mPendingUidNameMap.Swap(mTmpUidNameMap);
@@ -251,6 +224,9 @@ private:
         if (mParametersReadCount == theParametersReadCount) {
             theUserExcludes.swap(mUserExcludes);
             theGroupExcludes.swap(mUserExcludes);
+        } else {
+            theUserExcludes.clear();
+            theGroupExcludes.clear();
         }
         return theError;
     }
@@ -351,9 +327,13 @@ private:
                 if (! **thePtr) {
                     continue;
                 }
-                if (! theGrMembers.insert(string(*thePtr)).second) {
+                const string theName(*thePtr);
+                if (inUserExcludes.find(theName) != inUserExcludes.end()) {
+                    continue;
+                }
+                if (! theGrMembers.insert(theName).second) {
                     KFS_LOG_STREAM_ERROR <<
-                        "getgrent duplicate user entry: " << *thePtr <<
+                        "getgrent duplicate user entry: " << theName <<
                     KFS_LOG_EOM;
                 }
             }
@@ -363,6 +343,7 @@ private:
             return (theError < 0 ? theError : -theError);
         }
         setpwent();
+        UserExcludes theIdExcludes;
         for (; ;) {
             errno = 0;
             const struct passwd* const theEntryPtr = getpwent();
@@ -385,6 +366,7 @@ private:
                     " min: "  << theMinUserId <<
                     " max: "  << theMaxUserId <<
                 KFS_LOG_EOM;
+                theIdExcludes.insert(theName);
                 continue;
             }
             if (inUserExcludes.find(theName) != inUserExcludes.end()) {
@@ -441,9 +423,9 @@ private:
                 const kfsUid_t* const theUidPtr = mTmpNameUidMap.Find(*theIt);
                 if (theUidPtr) {
                     theUsers.insert(*theUidPtr);
-                } else {
+                } else if (theIdExcludes.find(*theIt) != theIdExcludes.end()) {
                     KFS_LOG_STREAM_ERROR <<
-                        "group id: " << thePtr->GetKey() <<
+                        "group id: "      << thePtr->GetKey() <<
                         " no such user: " << *theIt <<
                     KFS_LOG_EOM;
                 }
@@ -452,51 +434,6 @@ private:
         return theError;
     }
 private:
-    struct StringHash
-    {
-        static size_t Hash(const string& inString)
-            { return HsiehHash(inString.data(), inString.size()); }
-    };
-    typedef KVPair<kfsUid_t, string> UidName;
-    typedef KVPair<kfsGid_t, string> GidName;
-    typedef KVPair<string, kfsUid_t> NameUid;
-    typedef KVPair<string, kfsGid_t> NameGid;
-    typedef LinearHash<
-        UidName,
-        KeyCompare<UidName::Key>,
-        DynamicArray<SingleLinkedList<UidName>*, 9>,
-        StdFastAllocator<UidName>
-    > UidNameMap;
-    typedef LinearHash<
-        GidName,
-        KeyCompare<GidName::Key>,
-        DynamicArray<SingleLinkedList<GidName>*, 9>,
-        StdFastAllocator<GidName>
-    > GidNameMap;
-    typedef LinearHash<
-        NameUid,
-        KeyCompare<NameUid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameUid>*, 9>,
-        StdFastAllocator<NameUid>
-    > NameUidMap;
-    typedef LinearHash<
-        NameGid,
-        KeyCompare<NameGid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameGid>*, 9>,
-        StdFastAllocator<NameGid>
-    > NameGidMap;
-    typedef set<
-        kfsUid_t,
-        less<kfsUid_t>,
-        StdFastAllocator<kfsUid_t>
-    > UsersSet;
-    typedef KVPair<kfsGid_t, UsersSet> GroupUsers;
-    typedef LinearHash<
-        GroupUsers,
-        KeyCompare<GroupUsers::Key>,
-        DynamicArray<SingleLinkedList<GroupUsers>*, 9>,
-        StdFastAllocator<GroupUsers>
-    > GroupUsersMap;
     typedef set<
         string,
         less<string>,
@@ -510,7 +447,7 @@ private:
         StdFastAllocator<GroupUserNames>
     > GroupUsersNamesMap;
 
-    volatile uint64_t& mUpdateCount;
+    volatile uint64_t  mUpdateCount;
     uint64_t           mCurUpdateCount;
     QCThread           mThread;
     QCMutex            mMutex;
@@ -541,11 +478,29 @@ private:
     NameGidMap         mTmpNameGidMap;
     GroupUsersMap      mTmpGroupUsersMap;
     GroupUsersNamesMap mTmpGroupUserNamesMap;
+
+    friend class UserAndGroup;
 private:
     Impl(
         const Impl& inImpl);
     Impl& operator=(
         const Impl& inImpl);
 };
+
+UserAndGroup::UserAndGroup()
+    : mImpl(*(new Impl())),
+      mUpdateCount(mImpl.mUpdateCount),
+      mGroupUsersMap(mImpl.mGroupUsersMap),
+      mNameUidMap(mImpl.mNameUidMap),
+      mUidNameMap(mImpl.mUidNameMap),
+      mGidNameMap(mImpl.mGidNameMap),
+      mNameGidMap(mImpl.mNameGidMap)
+{
+}
+
+UserAndGroup::~UserAndGroup()
+{
+    delete &mImpl;
+}
 
 }
