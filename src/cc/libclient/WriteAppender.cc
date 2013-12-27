@@ -40,7 +40,7 @@
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
-#include "qcdio/QCDebug.h"
+#include "qcdio/qcdebug.h"
 #include "KfsOps.h"
 #include "utils.h"
 #include "KfsClient.h"
