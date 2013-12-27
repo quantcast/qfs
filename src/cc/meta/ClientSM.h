@@ -107,7 +107,7 @@ private:
     kfsGid_t                           mAuthGid;
     uint16_t                           mDelegationFlags;
     uint32_t                           mDelegationValidForTime;
-    uint64_t                           mDelegationIssuedTime;
+    int64_t                            mDelegationIssuedTime;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
