@@ -1375,6 +1375,7 @@ LayoutManager::LayoutManager() :
     mAuthCtxUpdateCount(0),
     mClientAuthContext(),
     mCSAuthContext(kAllowPskFlag),
+    mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
     mCSAccessValidForTime(2 * 60 * 60 - 60),
@@ -1962,27 +1963,18 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mCSAccessValidForTime = props.getValue(
         "metaServer.cSAccessValidForTime", mCSAccessValidForTime);
 
+    const int userAndGroupErr = mUserAndGroup.SetParameters(
+        "metaServer.userAndGroup.", props);
+
     mConfigParameters = props;
     const bool csOk = mCSAuthContext.SetParameters(
         "metaServer.CSAuthentication.", mConfigParameters);
     const int cliOk = UpdateClientAuth(mClientAuthContext);
 
-    // FIXME: for testing only.
-    const string clientNameToUid = props.getValue(
-        "metaServer.clientNameToUidMap", string());
-    if (! clientNameToUid.empty()) {
-        istringstream is(clientNameToUid);
-        string   name;
-        kfsUid_t uid;
-        while ((is >> name >> uid)) {
-            mClientAuthContext.SetUid(name, uid);
-        }
-    }
-
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
-    return (csOk && cliOk);
+    return (csOk && cliOk && userAndGroupErr == 0);
 }
 
 bool
@@ -1992,10 +1984,7 @@ LayoutManager::UpdateClientAuth(AuthContext& ctx)
         "metaServer.clientAuthentication.", mConfigParameters,
         &ctx == &mClientAuthContext ? 0 : &mClientAuthContext
     );
-    // Copy uid map here for now.
-    if (ret && &ctx != &mClientAuthContext) {
-        ctx.SetUids(mClientAuthContext);
-    }
+    ctx.SetUserAndGroup(mUserAndGroup);
     return ret;
 }
 
@@ -2078,6 +2067,7 @@ LayoutManager::Shutdown()
     mCSCountersResponse.Clear();
     mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
+    mUserAndGroup.Shutdown();
 }
 
 template<

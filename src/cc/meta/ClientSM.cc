@@ -150,6 +150,7 @@ ClientSM::ClientSM(
       mLastReadLeft(0),
       mAuthenticateOp(0),
       mAuthUid(kKfsUserNone),
+      mAuthGid(kKfsGroupNone),
       mDelegationFlags(0),
       mDelegationValidForTime(0),
       mDelegationIssuedTime(0),
@@ -347,6 +348,9 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mAuthenticateOp = 0;
             } else {
                 mAuthUid = mAuthenticateOp->authUid;
+                if (mAuthUid != kKfsUserNone) {
+                    mAuthGid = mAuthenticateOp->egroup;
+                }
                 mDelegationFlags = 0;
                 mDelegationValidFlag = false;
                 NetConnection::Filter* const filter = mAuthenticateOp->filter;
@@ -547,6 +551,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag =
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
+        op->egroup = mAuthGid;
     }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
@@ -655,7 +660,8 @@ ClientSM::Verify(
     kfsUid_t authUid = kKfsUserNone;
     if (! inPreverifyOkFlag ||
             (inCurCertDepth == 0 &&
-            (((authUid = GetAuthContext().GetUid(inPeerName)) == kKfsUserNone) ||
+            (((authUid = GetAuthContext().GetUid(
+                inPeerName, mAuthGid)) == kKfsUserNone) ||
             (mAuthUid != kKfsUserNone && mAuthUid != authUid)))) {
         KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
             " autentication failure:"
@@ -699,16 +705,34 @@ ClientSM::GetPsk(
         (int)min(inPskBufferLen, 0x7FFFFu),
         &theErrMsg
     ) : 0;
+    const char* theNamePtr = "";
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         if (mAuthUid != kKfsUserNone) {
-            mDelegationFlags        = theDelegationToken.GetFlags();
-            mDelegationValidForTime = theDelegationToken.GetValidForSec();
-            mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
-            mDelegationValidFlag    = true;
-            return theKeyLen;
+            if ((theDelegationToken.GetFlags() &
+                    DelegationToken::kChunkServerFlag) == 0) {
+                theNamePtr = GetAuthContext().GetUserNameAndGroup(
+                    mAuthUid, mAuthGid);
+                if (! theNamePtr) {
+                    theErrMsg = "invalid user id";
+                    mAuthUid  = kKfsUserNone;
+                }
+            }
+            if (theNamePtr) {
+                mDelegationFlags        = theDelegationToken.GetFlags();
+                mDelegationValidForTime = theDelegationToken.GetValidForSec();
+                mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
+                mDelegationValidFlag    = true;
+                KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+                    " authentication:" <<
+                    " name: "          << theNamePtr <<
+                    " delegation: "    << theDelegationToken.Show() <<
+                KFS_LOG_EOM;
+                return theKeyLen;
+            }
+        } else {
+            theErrMsg = "invalid delegation token";
         }
-        theErrMsg = "invalid user id";
     }
     KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
         " authentication failure: " << theErrMsg <<

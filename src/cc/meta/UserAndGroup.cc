@@ -25,11 +25,15 @@
 //----------------------------------------------------------------------------
 
 #include "UserAndGroup.h"
+
 #include "common/Properties.h"
 #include "common/LinearHash.h"
 #include "common/MsgLogger.h"
 #include "common/hsieh_hash.h"
+
+#include "kfsio/Globals.h"
 #include "kfsio/ITimeout.h"
+
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
@@ -48,6 +52,7 @@ namespace KFS
 using std::string;
 using std::set;
 using std::less;
+using libkfsio::globalNetManager;
 
 class UserAndGroup::Impl : public QCRunnable, public ITimeout
 {
@@ -69,7 +74,8 @@ public:
           mCond(),
           mStopFlag(),
           mUpdateFlag(),
-          mUpdatePeriodNanoSec(QCMutex::Time(2) * 1000 * 1000 * 1000),
+          mUpdatePeriodNanoSec(QCMutex::Time(10) * 365 * 24 * 60 * 60 *
+            1000 * 1000 * 1000),
           mMinUserId(0),
           mMaxUserId(~kfsUid_t(0)),
           mMinGroupId(0),
@@ -77,9 +83,11 @@ public:
           mUserExcludes(),
           mGroupExcludes(),
           mParametersReadCount(0),
-          mUidNameMap(),
+          mUidNameMapPtr(new UidNameMap()),
+          mUidNamePtr(mUidNameMapPtr),
           mGidNameMap(),
-          mNameUidMap(),
+          mNameUidMapPtr(new NameUidMap()),
+          mNameUidPtr(mNameUidMapPtr),
           mNameGidMap(),
           mGroupUsersMap(),
           mPendingUidNameMap(),
@@ -99,19 +107,7 @@ public:
     int Start()
     {
         QCStMutexLocker theLock(mMutex);
-        if (mThread.IsStarted()) {
-            return -EINVAL;
-        }
-        const int theError = Update();
-        if (theError != 0) {
-            return theError;
-        }
-        mUpdateCount++;
-        mStopFlag   = false;
-        mUpdateFlag = false;
-        const int kStackSize = 32 << 10;
-        mThread.Start(this, kStackSize, "UpdateUserAndGroup");
-        return 0;
+        return StartSelf();
     }
     void Shutdown()
     {
@@ -123,6 +119,7 @@ public:
         mCond.Notify();
         theLock.Unlock();
         mThread.Join();
+        globalNetManager().UnRegisterTimeoutHandler(this);
     }
     void ScheduleUpdate()
     {
@@ -159,6 +156,9 @@ public:
         theUGEPtr[1] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "excludeGroup"));
+        mUpdatePeriodNanoSec = (QCMutex::Time)(inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "updatePeriodSec"), (double)mUpdatePeriodNanoSec * 1e-9) * 1e9);
         mUserExcludes.clear();
         mGroupExcludes.clear();
         for (int i = 0; i < 2; i++) {
@@ -184,12 +184,32 @@ public:
                 }
             }
         }
+        if (! mThread.IsStarted()) {
+            return StartSelf();
+        }
         mUpdateFlag = true;
         mParametersReadCount++;
         mCond.Notify();
         return 0;
     }
 private:
+    int StartSelf()
+    {
+        if (mThread.IsStarted()) {
+            return -EINVAL;
+        }
+        const int theError = Update();
+        if (theError != 0) {
+            return theError;
+        }
+        mUpdateCount++;
+        mStopFlag   = false;
+        mUpdateFlag = false;
+        const int kStackSize = 32 << 10;
+        mThread.Start(this, kStackSize, "UpdateUserAndGroup");
+        globalNetManager().RegisterTimeoutHandler(this);
+        return 0;
+    }
     virtual void Run()
     {
         QCStMutexLocker theLock(mMutex);
@@ -239,9 +259,15 @@ private:
         if (mUpdateCount == mCurUpdateCount) {
             return;
         }
-        mUidNameMap.Swap(mPendingUidNameMap);
+        mUidNameMapPtr = new UidNameMap();
+        mUidNameMapPtr->Swap(mPendingUidNameMap);
+        mUidNamePtr.reset(mUidNameMapPtr);
+
+        mNameUidMapPtr = new NameUidMap();
+        mNameUidMapPtr->Swap(mPendingNameUidMap);
+        mNameUidPtr.reset(mNameUidMapPtr);
+
         mGidNameMap.Swap(mPendingGidNameMap);
-        mNameUidMap.Swap(mPendingNameUidMap);
         mNameGidMap.Swap(mPendingNameGidMap);
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
         mUpdateCount = mCurUpdateCount;
@@ -299,41 +325,43 @@ private:
             bool                theInsertedFlag = false;
             const string* const theNamePtr      = mTmpGidNameMap.Insert(
                 theGid, theName, theInsertedFlag);
-            if (! theInsertedFlag) {
+            if (! theInsertedFlag && *theNamePtr != theName) {
                 KFS_LOG_STREAM_ERROR <<
                     "getgrent duplicate id: " << theGid <<
-                    " group name: "           << *theNamePtr <<
+                    " group name: "           << theName <<
+                    " current: "              << *theNamePtr <<
                 KFS_LOG_EOM;
+                continue;
             }
+            const bool theNewGroupFlag = theInsertedFlag;
             theInsertedFlag = false;
             const kfsGid_t* const theGidPtr     = mTmpNameGidMap.Insert(
                 theName, theGid, theInsertedFlag);
-            if (! theInsertedFlag) {
+            if (! theInsertedFlag && *theGidPtr != theGid) {
                 KFS_LOG_STREAM_ERROR <<
                     "getgrent duplicate group name: " << theName <<
+                    " id: " << theGid <<
                     " id: " << *theGidPtr <<
                 KFS_LOG_EOM;
+                continue;
             }
             theInsertedFlag = false;
             UserNamesSet& theGrMembers = *mTmpGroupUserNamesMap.Insert(
                 theGid, UserNamesSet(), theInsertedFlag);
-            if (! theInsertedFlag) {
-                KFS_LOG_STREAM_ERROR <<
-                    "getgrent adding users rom duplicate group entry id: " <<
-                        theGid <<
-                KFS_LOG_EOM;
-            }
-            for (char** thePtr = theEntryPtr->gr_mem; thePtr; ++thePtr) {
+            for (char** thePtr = theEntryPtr->gr_mem;
+                    thePtr && *thePtr;
+                    ++thePtr) {
                 if (! **thePtr) {
                     continue;
                 }
-                const string theName(*thePtr);
-                if (inUserExcludes.find(theName) != inUserExcludes.end()) {
+                const string theUName(*thePtr);
+                if (inUserExcludes.find(theUName) != inUserExcludes.end()) {
                     continue;
                 }
-                if (! theGrMembers.insert(theName).second) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "getgrent duplicate user entry: " << theName <<
+                if (! theGrMembers.insert(theName).second && theNewGroupFlag) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        "getgrent group: " << theName <<
+                            " duplicate user entry: " << theUName <<
                     KFS_LOG_EOM;
                 }
             }
@@ -377,28 +405,44 @@ private:
                 KFS_LOG_EOM;
                 continue;
             }
-            kfsGid_t const      theGid          = (kfsGid_t)theEntryPtr->pw_gid;
-            bool                theInsertedFlag = false;
-            const string* const theNamePtr      = mTmpUidNameMap.Insert(
-                theUid, theName, theInsertedFlag);
-            if (! theInsertedFlag) {
+            kfsGid_t const          theGid           =
+                (kfsGid_t)theEntryPtr->pw_gid;
+            bool                    theInsertedFlag  = false;
+            const NameAndGid* const theNameAndGidPtr = mTmpUidNameMap.Insert(
+                theUid, NameAndGid(theName, theGid), theInsertedFlag);
+            if (! theInsertedFlag &&
+                    (theNameAndGidPtr->mName != theName ||
+                        theNameAndGidPtr->mGid != theGid)) {
                 KFS_LOG_STREAM_ERROR <<
-                    "getpwent duplicate user id: " << theUid <<
-                    " name: " << *theNamePtr <<
+                    "getpwent duplicate user"
+                    " id: "    << theUid <<
+                    " name: "  << theName <<
+                    " cur: "   << theNameAndGidPtr->mName <<
+                    " group: " << theGid <<
+                    " cur: "   << theNameAndGidPtr->mGid <<
                 KFS_LOG_EOM;
+                continue;
             }
+            const bool theNewUserFlag = theInsertedFlag;
             theInsertedFlag = false;
-            const kfsUid_t* const theUidPtr     = mTmpNameUidMap.Insert(
-                theName, theUid, theInsertedFlag);
-            if (! theInsertedFlag) {
+            const UidAndGid* const theUidGidPtr = mTmpNameUidMap.Insert(
+                theName, UidAndGid(theUid, theGid), theInsertedFlag);
+            if (! theInsertedFlag &&
+                    (theUidGidPtr->mUid != theUid ||
+                        theUidGidPtr->mGid != theGid)) {
                 KFS_LOG_STREAM_ERROR <<
                     "getpwent duplicate user name: " << theName <<
-                    " id: " << *theUidPtr <<
+                    " id: "    << theUid <<
+                    " cur: "   << theUidGidPtr->mUid <<
+                    " group: " << theGid <<
+                    " cur: "   << theUidGidPtr->mGid <<
                 KFS_LOG_EOM;
+                continue;
             }
-            if (! mTmpGroupUserNamesMap.Find(theGid)) {
+            if (! mTmpGroupUserNamesMap.Find(theGid) && theNewUserFlag) {
                 KFS_LOG_STREAM_ERROR <<
-                    "no group found in group file gid: " << theGid <<
+                    "getpwent user: "       << theName <<
+                    " no group found gid: " << theGid <<
                 KFS_LOG_EOM;
             }
             theInsertedFlag = false;
@@ -420,9 +464,10 @@ private:
             for (UserNamesSet::const_iterator theIt = theNamesSet.begin();
                     theIt != theNamesSet.end();
                     ++theIt) {
-                const kfsUid_t* const theUidPtr = mTmpNameUidMap.Find(*theIt);
-                if (theUidPtr) {
-                    theUsers.insert(*theUidPtr);
+                const UidAndGid* const theUidGidPtr =
+                    mTmpNameUidMap.Find(*theIt);
+                if (theUidGidPtr) {
+                    theUsers.insert(theUidGidPtr->mUid);
                 } else if (theIdExcludes.find(*theIt) != theIdExcludes.end()) {
                     KFS_LOG_STREAM_ERROR <<
                         "group id: "      << thePtr->GetKey() <<
@@ -462,9 +507,11 @@ private:
     UserExcludes       mUserExcludes;
     GroupExcludes      mGroupExcludes;
     uint64_t           mParametersReadCount;
-    UidNameMap         mUidNameMap;
+    UidNameMap*        mUidNameMapPtr;
+    UidNamePtr         mUidNamePtr;
     GidNameMap         mGidNameMap;
-    NameUidMap         mNameUidMap;
+    NameUidMap*        mNameUidMapPtr;
+    NameUidPtr         mNameUidPtr;
     NameGidMap         mNameGidMap;
     GroupUsersMap      mGroupUsersMap;
     UidNameMap         mPendingUidNameMap;
@@ -491,10 +538,12 @@ UserAndGroup::UserAndGroup()
     : mImpl(*(new Impl())),
       mUpdateCount(mImpl.mUpdateCount),
       mGroupUsersMap(mImpl.mGroupUsersMap),
-      mNameUidMap(mImpl.mNameUidMap),
-      mUidNameMap(mImpl.mUidNameMap),
+      mNameUidMapPtr(mImpl.mNameUidMapPtr),
+      mUidNameMapPtr(mImpl.mUidNameMapPtr),
       mGidNameMap(mImpl.mGidNameMap),
-      mNameGidMap(mImpl.mNameGidMap)
+      mNameGidMap(mImpl.mNameGidMap),
+      mNameUidPtr(mImpl.mNameUidPtr),
+      mUidNamePtr(mImpl.mUidNamePtr)
 {
 }
 
@@ -502,5 +551,34 @@ UserAndGroup::~UserAndGroup()
 {
     delete &mImpl;
 }
+
+    int
+UserAndGroup::Start()
+{
+    return mImpl.Start();
+}
+
+    void
+UserAndGroup::Shutdown()
+{
+    mImpl.Shutdown();
+}
+
+    void
+UserAndGroup::ScheduleUpdate()
+{
+    mImpl.ScheduleUpdate();
+}
+
+    int
+UserAndGroup::SetParameters(
+    const char*       inPrefixPtr,
+    const Properties& inProperties)
+{
+    return mImpl.SetParameters(inPrefixPtr, inProperties);
+}
+
+const string                    UserAndGroup::kEmptyString;
+const UserAndGroup::NameAndGid  UserAndGroup::kNameAndGroupNone;
 
 }

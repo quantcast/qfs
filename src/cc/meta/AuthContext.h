@@ -38,6 +38,7 @@ struct MetaAuthenticate;
 class Properties;
 class SslFilterServerPsk;
 class SslFilterVerifyPeer;
+class UserAndGroup;
 
 class AuthContext
 {
@@ -55,12 +56,11 @@ public:
         string& ioAuthName) const;
     kfsUid_t GetUid(
         const string& inAuthName) const;
-    void ClearUids();
-    void SetUid(
+    kfsUid_t GetUid(
         const string& inAuthName,
-        kfsUid_t      inUid);
-    void SetUids(
-        AuthContext& inOtherCtx);
+        kfsGid_t&     outGid) const;
+    void SetUserAndGroup(
+        const UserAndGroup& inUserAndGroup);
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,
@@ -68,6 +68,9 @@ public:
     int GetAuthTypes() const;
     uint32_t GetMaxDelegationValidForTime() const;
     bool IsReDelegationAllowed() const;
+    const char* GetUserNameAndGroup(
+        kfsUid_t  inUid,
+        kfsGid_t& outGid) const;
 private:
     class Impl;
     Impl& mImpl;

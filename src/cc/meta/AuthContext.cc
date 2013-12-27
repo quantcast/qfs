@@ -25,14 +25,16 @@
 //----------------------------------------------------------------------------
 
 #include "AuthContext.h"
-
 #include "MetaRequest.h"
+#include "UserAndGroup.h"
+
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
 #include "kfsio/SslFilter.h"
 #include "krb/KrbService.h"
 #include "qcdio/qcdebug.h"
+#include "qcdio/qcutils.h"
 
 #include <algorithm>
 #include <string>
@@ -58,6 +60,11 @@ using boost::scoped_ptr;
 class AuthContext::Impl
 {
 public:
+    typedef UserAndGroup::NameUidPtr NameUidPtr;
+    typedef UserAndGroup::UidNamePtr UidNamePtr;
+    typedef UserAndGroup::UidAndGid  UidAndGid;
+    typedef UserAndGroup::NameAndGid NameAndGid;
+
     Impl(
         bool inAllowPskFlag)
         : mKrbProps(),
@@ -69,7 +76,8 @@ public:
           mNameRemap(),
           mBlackList(),
           mWhiteList(),
-          mUidMap(),
+          mNameUidPtr(new UserAndGroup::NameUidMap()),
+          mUidNamePtr(new UserAndGroup::UidNameMap()),
           mNameRemapParam(),
           mBlackListParam(),
           mWhiteListParam(),
@@ -188,7 +196,7 @@ public:
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
-                inOp.authUid          = GetUidSelf(theAuthName);
+                inOp.authUid          = GetUidSelf(theAuthName, inOp.egroup);
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
@@ -220,7 +228,7 @@ public:
                 inOp.filter           = theFilterPtr;
                 inOp.responseAuthType = kAuthenticationTypeKrb5;
                 inOp.authName         = theAuthName;
-                inOp.authUid          = GetUidSelf(theAuthName);
+                inOp.authUid          = GetUidSelf(theAuthName, inOp.egroup);
             }
             return (inOp.status == 0);
         }
@@ -282,30 +290,26 @@ public:
     kfsUid_t GetUid(
         const string& inAuthName) const
     {
+        kfsGid_t theGid = kKfsGroupNone;
+        return GetUid(inAuthName, theGid);
+    }
+    kfsUid_t GetUid(
+        const string& inAuthName,
+        kfsGid_t&     outGid) const
+    {
         string theAuthName = inAuthName;
         if (! RemapAndValidate(theAuthName)) {
             return kKfsUserNone;
         }
-        return GetUidSelf(theAuthName);
+        return GetUidSelf(theAuthName, outGid);
     }
-    void ClearUids()
+    void SetUserAndGroup(
+        const UserAndGroup& inUserAndGroup)
     {
-        mUidMap.clear();
-    }
-    void SetUid(
-        const string& inAuthName,
-        kfsUid_t      inUid)
-    {
-        if (inUid == kKfsUserNone) {
-            mUidMap.erase(inAuthName);
-        } else {
-            mUidMap[inAuthName] = inUid;
-        }
-    }
-    void SetUids(
-        Impl& inOtherCtx)
-    {
-        mUidMap = inOtherCtx.mUidMap;
+        mNameUidPtr = inUserAndGroup.GetNameUidPtr();
+        QCRTASSERT(mNameUidPtr);
+        mUidNamePtr = inUserAndGroup.GetUidNamePtr();
+        QCRTASSERT(mUidNamePtr);
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
@@ -566,6 +570,17 @@ public:
         { return mMaxDelegationValidForTime; }
     bool IsReDelegationAllowed() const
         { return mReDelegationAllowedFlag; }
+    const char* GetUserNameAndGroup(
+        kfsUid_t  inUid,
+        kfsGid_t& outGid) const
+    {
+        const NameAndGid* const thePtr = mUidNamePtr->Find(inUid);
+        if (! thePtr) {
+            return 0;
+        }
+        outGid = thePtr->mGid;
+        return thePtr->mName.c_str();
+    }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -588,33 +603,39 @@ private:
     typedef SslFilter::CtxPtr  SslCtxPtr;
     typedef SslFilterServerPsk ServerPsk;
 
-    Properties       mKrbProps;
-    Properties       mPskSslProps;
-    Properties       mX509SslProps;
-    KrbServicePtr    mKrbServicePtr;
-    SslCtxPtr        mSslCtxPtr;
-    SslCtxPtr        mX509SslCtxPtr;
-    NameRemap        mNameRemap;
-    NameList         mBlackList;
-    NameList         mWhiteList;
-    UidMap           mUidMap;
-    string           mNameRemapParam;
-    string           mBlackListParam;
-    string           mWhiteListParam;
-    int              mPrincipalUnparseFlags;
-    bool             mAuthNoneFlag;
-    bool             mKrbUseSslFlag;
-    const bool       mAllowPskFlag;
-    unsigned int     mMemKeytabGen;
-    uint32_t         mMaxDelegationValidForTime;
-    bool             mReDelegationAllowedFlag;
-    int              mAuthTypes;
+    Properties    mKrbProps;
+    Properties    mPskSslProps;
+    Properties    mX509SslProps;
+    KrbServicePtr mKrbServicePtr;
+    SslCtxPtr     mSslCtxPtr;
+    SslCtxPtr     mX509SslCtxPtr;
+    NameRemap     mNameRemap;
+    NameList      mBlackList;
+    NameList      mWhiteList;
+    NameUidPtr    mNameUidPtr;
+    UidNamePtr    mUidNamePtr;
+    string        mNameRemapParam;
+    string        mBlackListParam;
+    string        mWhiteListParam;
+    int           mPrincipalUnparseFlags;
+    bool          mAuthNoneFlag;
+    bool          mKrbUseSslFlag;
+    const bool    mAllowPskFlag;
+    unsigned int  mMemKeytabGen;
+    uint32_t      mMaxDelegationValidForTime;
+    bool          mReDelegationAllowedFlag;
+    int           mAuthTypes;
 
     kfsUid_t GetUidSelf(
-        const string& inAuthName) const
+        const string& inAuthName,
+        kfsGid_t&     outGid) const
     {
-        const UidMap::const_iterator theIt = mUidMap.find(inAuthName);
-        return (theIt != mUidMap.end() ? theIt->second : kKfsUserNone);
+        const UidAndGid* const thePtr = mNameUidPtr->Find(inAuthName);
+        if (! thePtr) {
+            return kKfsUserNone;
+        }
+        outGid = thePtr->mGid;
+        return thePtr->mUid;
     }
 private:
     Impl(
@@ -694,25 +715,19 @@ AuthContext::GetUid(
     return mImpl.GetUid(inAuthName);
 }
 
-    void
-AuthContext::ClearUids()
-{
-    mImpl.ClearUids();
-}
-
-    void
-AuthContext::SetUid(
+    kfsUid_t
+AuthContext::GetUid(
     const string& inAuthName,
-    kfsUid_t      inUid)
+    kfsGid_t&     outGid) const
 {
-    mImpl.SetUid(inAuthName, inUid);
+    return mImpl.GetUid(inAuthName, outGid);
 }
 
     void
-AuthContext::SetUids(
-    AuthContext& inOtherCtx)
+AuthContext::SetUserAndGroup(
+    const UserAndGroup& inUserAndGroup)
 {
-    mImpl.SetUids(inOtherCtx.mImpl);
+    mImpl.SetUserAndGroup(inUserAndGroup);
 }
 
     bool
@@ -742,4 +757,13 @@ AuthContext::IsReDelegationAllowed() const
 {
     return mImpl.IsReDelegationAllowed();
 }
+
+    const char*
+AuthContext::GetUserNameAndGroup(
+    kfsUid_t  inUid,
+    kfsGid_t& outGid) const
+{
+    return mImpl.GetUserNameAndGroup(inUid, outGid);
+}
+
 }

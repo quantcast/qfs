@@ -36,6 +36,7 @@
 #include "kfstypes.h"
 #include "meta.h"
 #include "ChunkServer.h"
+#include "UserAndGroup.h"
 
 #include "kfsio/Counter.h"
 #include "common/Properties.h"
@@ -1349,6 +1350,8 @@ public:
         { return mClientCSAllowClearTextFlag; }
     int GetCSAccessValidForTime() const
         { return mCSAccessValidForTime; }
+    const UserAndGroup& GetUserAndGroup() const
+        { return mUserAndGroup; }
 protected:
     class RackInfoRackIdLess
     {
@@ -1988,6 +1991,7 @@ protected:
     volatile uint64_t mAuthCtxUpdateCount;
     AuthContext       mClientAuthContext;
     AuthContext       mCSAuthContext;
+    UserAndGroup      mUserAndGroup;
     bool              mClientCSAuthRequiredFlag;
     bool              mClientCSAllowClearTextFlag;
     int               mCSAccessValidForTime;

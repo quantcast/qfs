@@ -39,9 +39,9 @@
                        +(uint32_t)(((const uint8_t *)(d))[0]) )
 #endif
 
+namespace KFS
+{
 using std::string;
-
-using namespace KFS;
 
 uint32_t SuperFastHash (const char *data, size_t len)
 {
@@ -103,4 +103,6 @@ size_t Hsieh_hash_fcn::operator() (const string &data) const
 size_t HsiehHash(const char* data, size_t len)
 {
     return SuperFastHash(data, len);
+}
+
 }

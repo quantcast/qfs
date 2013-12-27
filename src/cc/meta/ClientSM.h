@@ -104,6 +104,7 @@ private:
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
     kfsUid_t                           mAuthUid;
+    kfsGid_t                           mAuthGid;
     uint16_t                           mDelegationFlags;
     uint32_t                           mDelegationValidForTime;
     uint64_t                           mDelegationIssuedTime;
