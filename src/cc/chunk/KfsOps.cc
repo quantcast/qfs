@@ -844,7 +844,7 @@ ReadOp::HandleDone(int code, void *data)
 int
 ReadOp::HandleReplicatorDone(int code, void *data)
 {
-    if (0 <= status && numBytes < numBytesIO) {
+    if (0 <= status && (ssize_t)numBytes < numBytesIO) {
         status    = -EINVAL;
         statusMsg = "invalid read: return size exceeds requited";
     }

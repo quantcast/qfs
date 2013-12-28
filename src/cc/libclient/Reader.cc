@@ -1423,7 +1423,8 @@ private:
             if (inOp.status < 0) {
                 return false;
             }
-            QCRTASSERT(inOp.mTmpBuffer.BytesConsumable() == inOp.contentLength);
+            QCRTASSERT(
+                inOp.mTmpBuffer.BytesConsumable() == (int)inOp.contentLength);
             if (inOp.numBytes < inOp.contentLength) {
                 inOp.status    = kErrorParameters;
                 inOp.statusMsg = "read returned more than requested";
