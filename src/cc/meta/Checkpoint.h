@@ -67,7 +67,7 @@ public:
     const string name() const { return cpname; }
     //!< return true if a CP will be taken
     bool isCPNeeded() { return mutations != 0; }
-    void initial_CP();  //!< schedule a checkpoint on startup if needed
+    int initial_CP();  //!< schedule a checkpoint on startup if needed
     int do_CP();        //!< do the actual work
     void note_mutation() { ++mutations; }
     void resetMutationCount() { mutations = 0; }
@@ -97,7 +97,7 @@ extern string LASTCP;       //!< most recent CP file (link)
 
 extern Checkpoint cp;
 extern void checkpointer_setup_paths(const string &cpdir);
-extern void checkpointer_init();
+extern int checkpointer_init();
 
 }
 

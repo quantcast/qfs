@@ -51,6 +51,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 namespace KFS
 {
@@ -462,19 +463,46 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     return okFlag;
 }
 
+static bool
+CheckDirWritable(
+    const char*   inErrMsgPrefixPtr,
+    const string& inDir)
+{
+    string testFile = inDir + "/.dirtest";
+    int fd;
+    if ((fd = open(testFile.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0644)) < 0 ||
+            write(fd, "0", 1) != 1 ||
+            close(fd) != 0 ||
+            remove(testFile.c_str()) != 0) {
+        const int status = errno;
+        if (0 <= fd) {
+            close(fd);
+            remove(testFile.c_str());
+        }
+        KFS_LOG_STREAM_FATAL << inErrMsgPrefixPtr <<
+            inDir << ": " <<
+            QCUtils::SysError(status) <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    return true;
+}
 bool
 MetaServer::Startup(bool createEmptyFsFlag)
 {
+    if (! CheckDirWritable("log directory: ", mLogDir) ||
+            ! CheckDirWritable("checkpoint directory: ", mCPDir)) {
+        return false;
+    }
+
     metatree.disableFidToPathname();
     const bool updateSpaceUsageFlag =
         metatree.getUpdatePathSpaceUsageFlag();
     metatree.setUpdatePathSpaceUsage(false);
-    // get the paths setup before we get going
     logger_setup_paths(mLogDir);
     checkpointer_setup_paths(mCPDir);
 
     int status;
-    errno = 0;
     if (! createEmptyFsFlag || file_exists(LASTCP)) {
         Restorer r;
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
@@ -520,7 +548,12 @@ MetaServer::Startup(bool createEmptyFsFlag)
     // about chunks we don't know and those will nuked due to staleness
     emptyDumpsterDir();
     logger_init(mLogRotateIntervalSec);
-    checkpointer_init();
+    if ((status = checkpointer_init()) != 0) {
+        KFS_LOG_STREAM_FATAL << "checkpoint initialization failure: " <<
+            QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
+        return false;
+    }
     gLayoutManager.InitRecoveryStartTime();
     return true;
 }

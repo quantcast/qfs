@@ -82,13 +82,13 @@ Checkpoint::write_leaves(ostream& os)
  * At system startup, take a CP if the file that corresponds to the
  * latest CP doesn't exist.
 */
-void
+int
 Checkpoint::initial_CP()
 {
     if (file_exists(LASTCP)) {
-        return;
+        return 0;
     }
-    do_CP();
+    return do_CP();
 }
 
 int
@@ -182,11 +182,11 @@ checkpointer_setup_paths(const string& cpdir)
     }
 }
 
-void
+int
 checkpointer_init()
 {
     // start a CP on restart.
-    cp.initial_CP();
+    return cp.initial_CP();
 }
 
 }
