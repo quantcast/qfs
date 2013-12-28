@@ -34,7 +34,7 @@
 #include "kfsio/SslFilter.h"
 #include "krb/KrbService.h"
 #include "qcdio/qcdebug.h"
-#include "qcdio/qcutils.h"
+#include "qcdio/QCUtils.h"
 
 #include <algorithm>
 #include <string>
