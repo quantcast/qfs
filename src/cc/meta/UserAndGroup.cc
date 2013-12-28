@@ -454,6 +454,21 @@ private:
         if (theError != 0) {
             return (theError < 0 ? theError : -theError);
         }
+        const string kRootUserName("root");
+        if (! mTmpUidNameMap.Find(kKfsUserRoot) &&
+                inUserExcludes.find(kRootUserName) == inUserExcludes.end()) {
+            bool theInsertedFlag = false;
+            mTmpUidNameMap.Insert(
+                kKfsUserRoot, NameAndGid(kRootUserName, kKfsGroupRoot),
+                theInsertedFlag);
+            theInsertedFlag = false;
+            mTmpNameUidMap.Insert(
+                kRootUserName, UidAndGid(kKfsUserRoot, kKfsGroupRoot),
+                theInsertedFlag);
+            KFS_LOG_STREAM_INFO <<
+                "adding root user" <<
+            KFS_LOG_EOM;
+        }
         mTmpGroupUserNamesMap.First();
         const GroupUserNames* thePtr;
         while ((thePtr = mTmpGroupUserNamesMap.Next())) {
