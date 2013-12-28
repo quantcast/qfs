@@ -548,9 +548,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             }
             return;
         }
-    } else if (op->op == META_DELEGATE) {
-        HandleDelegation(*static_cast<MetaDelegate*>(op));
-        return;
     }
     op->authUid = mAuthUid;
     if (mAuthUid != kKfsUserNone) {
@@ -580,6 +577,10 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         op->authGid = mAuthGid;
         op->euser   = mAuthEUid;
         op->egroup  = mAuthEGid;
+    }
+    if (op->op == META_DELEGATE) {
+        HandleDelegation(*static_cast<MetaDelegate*>(op));
+        return;
     }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
