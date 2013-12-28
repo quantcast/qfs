@@ -487,6 +487,7 @@ CheckDirWritable(
     }
     return true;
 }
+
 bool
 MetaServer::Startup(bool createEmptyFsFlag)
 {
