@@ -722,14 +722,11 @@ public:
           mReqPendingTail(0),
           mFlushQueue(8 << 10),
           mAuthContext(),
-          mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1),
-          mUserAndGroupUpdateCount(0)
+          mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
     {
         mNetManager.RegisterTimeoutHandler(this);
         gLayoutManager.UpdateClientAuthContext(
             mAuthCtxUpdateCount, mAuthContext);
-        mUserAndGroupUpdateCount =
-            gLayoutManager.GetUserAndGroup().GetUpdateCount();
     }
     virtual ~ClientThread()
     {
@@ -773,16 +770,13 @@ public:
             QCStMutexLocker locker(gNetDispatch.GetMutex());
             gLayoutManager.UpdateClientAuthContext(
                 mAuthCtxUpdateCount, mAuthContext);
-            mUserAndGroupUpdateCount =
-                gLayoutManager.GetUserAndGroup().GetUpdateCount();
-        } else if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
-                    mUserAndGroupUpdateCount) {
+        }
+        if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
+                mAuthContext.GetUserAndGroupUpdateCount()) {
             QCStMutexLocker locker(gNetDispatch.GetMutex());
-            const uint64_t count =
-                gLayoutManager.GetUserAndGroup().GetUpdateCount();
-            if (count != mUserAndGroupUpdateCount) {
+            if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
+                    mAuthContext.GetUserAndGroupUpdateCount()) {
                 mAuthContext.SetUserAndGroup(gLayoutManager.GetUserAndGroup());
-                mUserAndGroupUpdateCount = count;
             }
         }
         MetaRequest* nextReq;
@@ -939,7 +933,6 @@ private:
     FlushQueue         mFlushQueue;
     AuthContext        mAuthContext;
     uint64_t           mAuthCtxUpdateCount;
-    uint64_t           mUserAndGroupUpdateCount;
     char               mParseBuffer[MAX_RPC_HEADER_LEN];
 
     const NetConnectionPtr& GetConnection(MetaRequest& op)

@@ -58,7 +58,9 @@ public:
         const string& inAuthName) const;
     kfsUid_t GetUid(
         const string& inAuthName,
-        kfsGid_t&     outGid) const;
+        kfsGid_t&     outGid,
+        kfsUid_t&     outEUid,
+        kfsGid_t&     outEGid) const;
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup);
     bool SetParameters(
@@ -70,10 +72,15 @@ public:
     bool IsReDelegationAllowed() const;
     const char* GetUserNameAndGroup(
         kfsUid_t  inUid,
-        kfsGid_t& outGid) const;
+        kfsGid_t& outGid,
+        kfsUid_t& outEUid,
+        kfsGid_t& outEGid) const;
+    uint64_t GetUserAndGroupUpdateCount() const
+        { return mUserAndGroupUpdateCount; }
 private:
     class Impl;
-    Impl& mImpl;
+    Impl&    mImpl;
+    uint64_t mUserAndGroupUpdateCount;
 
 private:
     AuthContext(

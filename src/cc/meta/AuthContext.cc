@@ -196,7 +196,8 @@ public:
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
-                inOp.authUid          = GetUidSelf(theAuthName, inOp.egroup);
+                inOp.authUid          = GetUidSelf(
+                    theAuthName, inOp.authGid, inOp.euser, inOp.egroup);
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
@@ -228,7 +229,8 @@ public:
                 inOp.filter           = theFilterPtr;
                 inOp.responseAuthType = kAuthenticationTypeKrb5;
                 inOp.authName         = theAuthName;
-                inOp.authUid          = GetUidSelf(theAuthName, inOp.egroup);
+                inOp.authUid          = GetUidSelf(
+                    theAuthName, inOp.authGid, inOp.euser, inOp.egroup);
             }
             return (inOp.status == 0);
         }
@@ -290,18 +292,24 @@ public:
     kfsUid_t GetUid(
         const string& inAuthName) const
     {
+        string theAuthName = inAuthName;
+        if (! RemapAndValidate(theAuthName)) {
+            return kKfsUserNone;
+        }
         kfsGid_t theGid = kKfsGroupNone;
-        return GetUid(inAuthName, theGid);
+        return GetUidSelf(theAuthName, theGid);
     }
     kfsUid_t GetUid(
         const string& inAuthName,
-        kfsGid_t&     outGid) const
+        kfsGid_t&     outGid,
+        kfsUid_t&     outEUid,
+        kfsGid_t&     outEGid) const
     {
         string theAuthName = inAuthName;
         if (! RemapAndValidate(theAuthName)) {
             return kKfsUserNone;
         }
-        return GetUidSelf(theAuthName, outGid);
+        return GetUidSelf(theAuthName, outGid, outEUid, outEGid);
     }
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup)
@@ -572,7 +580,9 @@ public:
         { return mReDelegationAllowedFlag; }
     const char* GetUserNameAndGroup(
         kfsUid_t  inUid,
-        kfsGid_t& outGid) const
+        kfsGid_t& outGid,
+        kfsUid_t& outEUid,
+        kfsGid_t& outEGid) const
     {
         const NameAndGid* const thePtr = mUidNamePtr->Find(inUid);
         if (! thePtr) {
@@ -632,10 +642,22 @@ private:
     {
         const UidAndGid* const thePtr = mNameUidPtr->Find(inAuthName);
         if (! thePtr) {
+            outGid = kKfsGroupNone;
             return kKfsUserNone;
         }
         outGid = thePtr->mGid;
         return thePtr->mUid;
+    }
+    kfsUid_t GetUidSelf(
+        const string& inAuthName,
+        kfsGid_t&     outGid,
+        kfsUid_t&     outEUid,
+        kfsGid_t&     outEGid) const
+    {
+        const kfsUid_t theUid = GetUidSelf(inAuthName, outGid);
+        outEUid = theUid;
+        outEGid = outGid;
+        return theUid;
     }
 private:
     Impl(
@@ -646,7 +668,8 @@ private:
 
 AuthContext::AuthContext(
     bool inAllowPskFlag /* = true */)
-    : mImpl(*(new Impl(inAllowPskFlag)))
+    : mImpl(*(new Impl(inAllowPskFlag))),
+      mUserAndGroupUpdateCount(0)
 {
 }
 
@@ -718,9 +741,11 @@ AuthContext::GetUid(
     kfsUid_t
 AuthContext::GetUid(
     const string& inAuthName,
-    kfsGid_t&     outGid) const
+    kfsGid_t&     outGid,
+    kfsUid_t&     outEUid,
+    kfsGid_t&     outEGid) const
 {
-    return mImpl.GetUid(inAuthName, outGid);
+    return mImpl.GetUid(inAuthName, outGid, outEUid, outEGid);
 }
 
     void
@@ -728,6 +753,7 @@ AuthContext::SetUserAndGroup(
     const UserAndGroup& inUserAndGroup)
 {
     mImpl.SetUserAndGroup(inUserAndGroup);
+    mUserAndGroupUpdateCount = inUserAndGroup.GetUpdateCount();
 }
 
     bool
@@ -761,9 +787,11 @@ AuthContext::IsReDelegationAllowed() const
     const char*
 AuthContext::GetUserNameAndGroup(
     kfsUid_t  inUid,
-    kfsGid_t& outGid) const
+    kfsGid_t& outGid,
+    kfsUid_t& outEUid,
+    kfsGid_t& outEGid) const
 {
-    return mImpl.GetUserNameAndGroup(inUid, outGid);
+    return mImpl.GetUserNameAndGroup(inUid, outGid, outEUid, outEGid);
 }
 
 }

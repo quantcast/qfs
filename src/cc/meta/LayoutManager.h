@@ -1295,6 +1295,14 @@ public:
         if (mForceEUserToRootFlag) {
             req.euser = kKfsUserRoot;
         }
+        if (req.authUid != kKfsUserNone) {
+            if (req.fromChunkServerFlag) {
+                req.euser  = kKfsUserNone;
+                req.egroup = kKfsGroupNone;
+            } else {
+                // mUserAndGroup.GetEUserAndGroup(req.euser, req.egroup);
+            }
+        }
         if (req.euser != kKfsUserRoot || mRootHosts.empty()) {
             return;
         }
@@ -1329,14 +1337,15 @@ public:
     }
     uint64_t GetAuthCtxUpdateCount() const
         { return mAuthCtxUpdateCount; }
-    void UpdateClientAuthContext
-        (uint64_t& authCtxUpdateCount, AuthContext& authCtx)
+    bool UpdateClientAuthContext(
+        uint64_t& authCtxUpdateCount, AuthContext& authCtx)
     {
         if (authCtxUpdateCount == mAuthCtxUpdateCount) {
-            return;
+            return false;
         }
         UpdateClientAuth(authCtx);
         authCtxUpdateCount = mAuthCtxUpdateCount;
+        return true;
     }
     AuthContext& GetClientAuthContext()
         { return mClientAuthContext; }

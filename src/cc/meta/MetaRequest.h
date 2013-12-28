@@ -197,6 +197,7 @@ struct MetaRequest {
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
+    kfsGid_t        authGid;
     kfsUid_t        euser;
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
@@ -220,6 +221,7 @@ struct MetaRequest {
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
+          authGid(kKfsGroupNone),
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),

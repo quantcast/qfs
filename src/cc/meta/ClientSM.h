@@ -105,9 +105,12 @@ private:
     MetaAuthenticate*                  mAuthenticateOp;
     kfsUid_t                           mAuthUid;
     kfsGid_t                           mAuthGid;
+    kfsUid_t                           mAuthEUid;
+    kfsGid_t                           mAuthEGid;
     uint16_t                           mDelegationFlags;
     uint32_t                           mDelegationValidForTime;
     int64_t                            mDelegationIssuedTime;
+    uint64_t                           mUserAndGroupUpdateCount;
     ClientManager::ClientThread* const mClientThread;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];

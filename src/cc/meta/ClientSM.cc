@@ -151,9 +151,12 @@ ClientSM::ClientSM(
       mAuthenticateOp(0),
       mAuthUid(kKfsUserNone),
       mAuthGid(kKfsGroupNone),
+      mAuthEUid(kKfsUserNone),
+      mAuthEGid(kKfsGroupNone),
       mDelegationFlags(0),
       mDelegationValidForTime(0),
       mDelegationIssuedTime(0),
+      mUserAndGroupUpdateCount(0),
       mClientThread(thread),
       mNext(0)
 {
@@ -348,8 +351,10 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mAuthenticateOp = 0;
             } else {
                 mAuthUid = mAuthenticateOp->authUid;
+                mAuthGid = mAuthenticateOp->authGid;
                 if (mAuthUid != kKfsUserNone) {
-                    mAuthGid = mAuthenticateOp->egroup;
+                    mAuthEUid = mAuthenticateOp->euser;
+                    mAuthEGid = mAuthenticateOp->egroup;
                 }
                 mDelegationFlags = 0;
                 mDelegationValidFlag = false;
@@ -551,7 +556,30 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag =
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
-        op->egroup = mAuthGid;
+        uint64_t count;
+        if (! op->fromChunkServerFlag &&
+                (count = GetAuthContext().GetUserAndGroupUpdateCount()) !=
+                    mUserAndGroupUpdateCount) {
+            // User and group information has changed, update cached user and
+            // group ids, and re-validate user.
+            mUserAndGroupUpdateCount = count;
+            if (! GetAuthContext().GetUserNameAndGroup(
+                    mAuthUid, mAuthGid, mAuthEUid, mAuthEGid)) {
+                KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
+                    "user id: " << mAuthUid <<
+                    " no longer valid, clossing connection" <<
+                KFS_LOG_EOM;
+                iobuf.Clear();
+                mNetConnection->Close();
+                HandleRequest(EVENT_NET_ERROR, 0);
+                delete op;
+                return;
+            }
+            op->authUid = mAuthUid;
+        }
+        op->authGid = mAuthGid;
+        op->euser   = mAuthEUid;
+        op->egroup  = mAuthEGid;
     }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
@@ -631,6 +659,8 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mAuthenticateOp->statusMsg = "out of order data received";
     } else {
         GetAuthContext().Authenticate(*mAuthenticateOp, this, this);
+        mUserAndGroupUpdateCount =
+            GetAuthContext().GetUserAndGroupUpdateCount();
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->doneFlag = true;
@@ -661,7 +691,7 @@ ClientSM::Verify(
     if (! inPreverifyOkFlag ||
             (inCurCertDepth == 0 &&
             (((authUid = GetAuthContext().GetUid(
-                inPeerName, mAuthGid)) == kKfsUserNone) ||
+                inPeerName, mAuthGid, mAuthEUid, mAuthEGid)) == kKfsUserNone) ||
             (mAuthUid != kKfsUserNone && mAuthUid != authUid)))) {
         KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
             " autentication failure:"
@@ -670,7 +700,10 @@ ClientSM::Verify(
             " is not valid"
             " prev uid: "   << mAuthUid <<
         KFS_LOG_EOM;
-        mAuthUid = kKfsUserNone;
+        mAuthUid  = kKfsUserNone;
+        mAuthGid  = kKfsGroupNone;
+        mAuthEUid = kKfsUserNone;
+        mAuthEGid = kKfsGroupNone;
         ioFilterAuthName.clear();
         return false;
     }
@@ -712,11 +745,15 @@ ClientSM::GetPsk(
             if ((theDelegationToken.GetFlags() &
                     DelegationToken::kChunkServerFlag) == 0) {
                 theNamePtr = GetAuthContext().GetUserNameAndGroup(
-                    mAuthUid, mAuthGid);
+                    mAuthUid, mAuthGid, mAuthEUid, mAuthEGid);
                 if (! theNamePtr) {
                     theErrMsg = "invalid user id";
                     mAuthUid  = kKfsUserNone;
                 }
+            } else {
+                mAuthGid  = kKfsGroupNone;
+                mAuthEUid = kKfsUserNone;
+                mAuthEGid = kKfsGroupNone;
             }
             if (theNamePtr) {
                 mDelegationFlags        = theDelegationToken.GetFlags();
