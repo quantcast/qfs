@@ -68,6 +68,7 @@ private:
         less<string>,
         StdFastAllocator<string>
     > RootGroups;
+    typedef RootGroups RootUserNames;
 public:
     Impl()
         : QCRunnable(),
@@ -109,7 +110,10 @@ public:
           mTmpGroupUsersMap(),
           mTmpGroupUserNamesMap(),
           mTmpRootUsers(),
-          mRootGroups()
+          mRootGroups(),
+          mRootUserNames(),
+          mOmitUserPrefix(),
+          mOmitGroupPrefix()
         {}
     ~Impl()
         { Impl::Shutdown(); }
@@ -158,7 +162,7 @@ public:
         mMaxGroupId = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxGroupId"), mMaxGroupId);
-        const Properties::String* theUGEPtr[3];
+        const Properties::String* theUGEPtr[4];
         theUGEPtr[0] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "excludeUser"));
@@ -168,13 +172,23 @@ public:
         theUGEPtr[2] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "rootGroups"));
+        theUGEPtr[3] = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "rootUsers"));
         mUpdatePeriodNanoSec = (QCMutex::Time)(inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "updatePeriodSec"), (double)mUpdatePeriodNanoSec * 1e-9) * 1e9);
+        mOmitUserPrefix = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "omitUserPrefix"), mOmitUserPrefix);
+        mOmitGroupPrefix = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "omitGroupPrefix"), mOmitGroupPrefix);
         mUserExcludes.clear();
         mGroupExcludes.clear();
         mRootGroups.clear();
-        for (int i = 0; i < 3; i++) {
+        mRootUserNames.clear();
+        for (int i = 0; i < 4; i++) {
             const Properties::String* const theSPtr = theUGEPtr[i];
             if (! theSPtr) {
                 continue;
@@ -195,8 +209,10 @@ public:
                         mUserExcludes.insert(theName);
                     } else if (i == 1) {
                         mGroupExcludes.insert(theName);
-                    } else {
+                    } else if (i == 2) {
                         mRootGroups.insert(theName);
+                    } else {
+                        mRootUserNames.insert(theName);
                     }
                 }
             }
@@ -249,9 +265,15 @@ private:
         theGroupExcludes.swap(mGroupExcludes);
         RootGroups theRootGroups;
         theRootGroups.swap(mRootGroups);
+        RootUserNames theRootUserNames;
+        theRootUserNames.swap(mRootUserNames);
         const uint64_t theParametersReadCount = mParametersReadCount;
         const int      theError               = UpdateSelf(
-            theUserExcludes,  theGroupExcludes, theRootGroups);
+            theUserExcludes,
+            theGroupExcludes,
+            theRootGroups,
+            theRootUserNames
+        );
         if (theError == 0) {
             mPendingUidNameMap.Swap(mTmpUidNameMap);
             mPendingGidNameMap.Swap(mTmpGidNameMap);
@@ -265,6 +287,7 @@ private:
             theUserExcludes.swap(mUserExcludes);
             theGroupExcludes.swap(mUserExcludes);
             theRootGroups.swap(mRootGroups);
+            theRootUserNames.swap(mRootUserNames);
         }
         return theError;
     }
@@ -294,15 +317,29 @@ private:
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
         mUpdateCount = mCurUpdateCount;
     }
+    static bool StartsWith(
+        const string& inString,
+        const string& inPrefix)
+    {
+        const size_t thePrefixSize = inPrefix.size();
+        return (
+            size_t(0) < thePrefixSize &&
+            thePrefixSize <= inString.size() &&
+            inPrefix.compare(0, thePrefixSize, inString, 0, thePrefixSize) == 0
+        );
+    }
     int UpdateSelf(
         const UserExcludes&  inUserExcludes,
         const GroupExcludes& inGroupExcludes,
-        const RootGroups&    inRootGroups)
+        const RootGroups&    inRootGroups,
+        const RootUserNames& inRootUserNames)
     {
-        kfsUid_t const     theMinUserId  = mMinUserId;
-        kfsUid_t const     theMaxUserId  = mMaxUserId;
-        kfsGid_t const     theMinGroupId = mMinGroupId;
-        kfsGid_t const     theMaxGroupId = mMaxGroupId;
+        kfsUid_t const theMinUserId       = mMinUserId;
+        kfsUid_t const theMaxUserId       = mMaxUserId;
+        kfsGid_t const theMinGroupId      = mMinGroupId;
+        kfsGid_t const theMaxGroupId      = mMaxGroupId;
+        string const   theOmitUserPrefix  = mOmitUserPrefix;
+        string const   theOmitGroupPrefix = mOmitGroupPrefix;
         QCStMutexUnlocker theUnlock(mMutex);
 
         mTmpUidNameMap.Clear();
@@ -338,7 +375,8 @@ private:
                 KFS_LOG_EOM;
                 continue;
             }
-            if (inGroupExcludes.find(theName) != inGroupExcludes.end()) {
+            if (inGroupExcludes.find(theName) != inGroupExcludes.end() ||
+                    StartsWith(theName, theOmitGroupPrefix)) {
                 KFS_LOG_STREAM_DEBUG <<
                     "ignoring group:"
                     " id: "   << theGid <<
@@ -386,10 +424,10 @@ private:
                 if (inUserExcludes.find(theUName) != inUserExcludes.end()) {
                     continue;
                 }
-                if (! theGrMembers.insert(theName).second && theNewGroupFlag) {
+                if (! theGrMembers.insert(theUName).second && theNewGroupFlag) {
                     KFS_LOG_STREAM_DEBUG <<
-                        "getgrent group: " << theName <<
-                            " duplicate user entry: " << theUName <<
+                        "getgrent group: "        << theName <<
+                        " duplicate user entry: " << theUName <<
                     KFS_LOG_EOM;
                 }
             }
@@ -426,7 +464,8 @@ private:
                 theIdExcludes.insert(theName);
                 continue;
             }
-            if (inUserExcludes.find(theName) != inUserExcludes.end()) {
+            if (inUserExcludes.find(theName) != inUserExcludes.end() ||
+                    StartsWith(theName, theOmitUserPrefix)) {
                 KFS_LOG_STREAM_DEBUG <<
                     "ignoring user:"
                     " id: "   << theUid <<
@@ -478,6 +517,16 @@ private:
             theInsertedFlag = false;
             UsersSet& theUsers = *mTmpGroupUsersMap.Insert(
                 theGid, UsersSet(), theInsertedFlag);
+            if (inRootUserNames.find(theName) != inRootUserNames.end()) {
+                theInsertedFlag = false;
+                mTmpRootUsers.Insert(theUid, theUid, theInsertedFlag);
+                if (theInsertedFlag) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        "added root user: " << theName <<
+                        " id: "             << theUid <<
+                    KFS_LOG_EOM;
+                }
+            }
             theUsers.insert(theUid);
         }
         endpwent();
@@ -516,6 +565,7 @@ private:
                     const string* const theGroupNamePtr =
                         mTmpGidNameMap.Find(thePtr->GetKey());
                     if (theGroupNamePtr &&
+                            theUidGidPtr->mUid != kKfsUserRoot &&
                             inRootGroups.find(*theGroupNamePtr) !=
                             inRootGroups.end()) {
                         theInsertedFlag = false;
@@ -524,10 +574,12 @@ private:
                             theUidGidPtr->mUid,
                             theInsertedFlag
                         );
-                        KFS_LOG_STREAM_DEBUG <<
-                            "adding root user: " << *theIt <<
-                            " id: "              << theUidGidPtr->mUid <<
-                        KFS_LOG_EOM;
+                        if (theInsertedFlag) {
+                            KFS_LOG_STREAM_DEBUG <<
+                                "added root user: " << *theIt <<
+                                " id: "              << theUidGidPtr->mUid <<
+                            KFS_LOG_EOM;
+                        }
                     }
                 } else if (theIdExcludes.find(*theIt) != theIdExcludes.end()) {
                     KFS_LOG_STREAM_ERROR <<
@@ -590,6 +642,9 @@ private:
     GroupUsersNamesMap mTmpGroupUserNamesMap;
     RootUsers          mTmpRootUsers;
     RootGroups         mRootGroups;
+    RootUserNames      mRootUserNames;
+    string             mOmitUserPrefix;
+    string             mOmitGroupPrefix;
 
     friend class UserAndGroup;
 private:
