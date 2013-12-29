@@ -63,6 +63,11 @@ private:
         StdFastAllocator<string>
     > UserExcludes;
     typedef UserExcludes GroupExcludes;
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > RootGroups;
 public:
     Impl()
         : QCRunnable(),
@@ -89,18 +94,22 @@ public:
           mNameUidMapPtr(new NameUidMap()),
           mNameUidPtr(mNameUidMapPtr),
           mNameGidMap(),
+          mRootUsersPtr(new RootUsers()),
           mGroupUsersMap(),
           mPendingUidNameMap(),
           mPendingGidNameMap(),
           mPendingNameUidMap(),
           mPendingNameGidMap(),
           mPendingGroupUsersMap(),
+          mPendingRootUsers(),
           mTmpUidNameMap(),
           mTmpGidNameMap(),
           mTmpNameUidMap(),
           mTmpNameGidMap(),
           mTmpGroupUsersMap(),
-          mTmpGroupUserNamesMap()
+          mTmpGroupUserNamesMap(),
+          mTmpRootUsers(),
+          mRootGroups()
         {}
     ~Impl()
         { Impl::Shutdown(); }
@@ -149,19 +158,23 @@ public:
         mMaxGroupId = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxGroupId"), mMaxGroupId);
-        const Properties::String* theUGEPtr[2];
+        const Properties::String* theUGEPtr[3];
         theUGEPtr[0] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "excludeUser"));
         theUGEPtr[1] = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "excludeGroup"));
+        theUGEPtr[2] = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "rootGroups"));
         mUpdatePeriodNanoSec = (QCMutex::Time)(inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "updatePeriodSec"), (double)mUpdatePeriodNanoSec * 1e-9) * 1e9);
         mUserExcludes.clear();
         mGroupExcludes.clear();
-        for (int i = 0; i < 2; i++) {
+        mRootGroups.clear();
+        for (int i = 0; i < 3; i++) {
             const Properties::String* const theSPtr = theUGEPtr[i];
             if (! theSPtr) {
                 continue;
@@ -169,17 +182,21 @@ public:
             const char* thePtr    = theSPtr->GetPtr();
             const char* theEndPtr = thePtr + theSPtr->GetSize();
             while (thePtr < theEndPtr) {
-                while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ')
-                    {}
+                while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                    thePtr++;
+                }
                 const char* const theTokenPtr = thePtr;
-                while (thePtr < theEndPtr && ' ' < (*thePtr & 0xFF))
-                    {}
+                while (thePtr < theEndPtr && ' ' < (*thePtr & 0xFF)) {
+                    thePtr++;
+                }
                 if (theTokenPtr < thePtr) {
                     const string theName(theTokenPtr, thePtr - theTokenPtr);
                     if (i == 0) {
                         mUserExcludes.insert(theName);
-                    } else {
+                    } else if (i == 1) {
                         mGroupExcludes.insert(theName);
+                    } else {
+                        mRootGroups.insert(theName);
                     }
                 }
             }
@@ -229,24 +246,25 @@ private:
         UserExcludes theUserExcludes;
         theUserExcludes.swap(mUserExcludes);
         GroupExcludes  theGroupExcludes;
-        theGroupExcludes.swap(mUserExcludes);
+        theGroupExcludes.swap(mGroupExcludes);
+        RootGroups theRootGroups;
+        theRootGroups.swap(mRootGroups);
         const uint64_t theParametersReadCount = mParametersReadCount;
         const int      theError               = UpdateSelf(
-            theUserExcludes,  theGroupExcludes);
+            theUserExcludes,  theGroupExcludes, theRootGroups);
         if (theError == 0) {
             mPendingUidNameMap.Swap(mTmpUidNameMap);
             mPendingGidNameMap.Swap(mTmpGidNameMap);
             mPendingNameUidMap.Swap(mTmpNameUidMap);
             mPendingNameGidMap.Swap(mTmpNameGidMap);
             mPendingGroupUsersMap.Swap(mTmpGroupUsersMap);
+            mPendingRootUsers.Swap(mTmpRootUsers);
             mUpdateCount++;
         }
         if (mParametersReadCount == theParametersReadCount) {
             theUserExcludes.swap(mUserExcludes);
             theGroupExcludes.swap(mUserExcludes);
-        } else {
-            theUserExcludes.clear();
-            theGroupExcludes.clear();
+            theRootGroups.swap(mRootGroups);
         }
         return theError;
     }
@@ -267,6 +285,10 @@ private:
         mNameUidMapPtr->Swap(mPendingNameUidMap);
         mNameUidPtr.reset(mNameUidMapPtr);
 
+        RootUsers* const theRootUsersPtr = new RootUsers();
+        theRootUsersPtr->Swap(mPendingRootUsers);
+        mRootUsersPtr.reset(theRootUsersPtr);
+
         mGidNameMap.Swap(mPendingGidNameMap);
         mNameGidMap.Swap(mPendingNameGidMap);
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
@@ -274,7 +296,8 @@ private:
     }
     int UpdateSelf(
         const UserExcludes&  inUserExcludes,
-        const GroupExcludes& inGroupExcludes)
+        const GroupExcludes& inGroupExcludes,
+        const RootGroups&    inRootGroups)
     {
         kfsUid_t const     theMinUserId  = mMinUserId;
         kfsUid_t const     theMaxUserId  = mMaxUserId;
@@ -288,6 +311,7 @@ private:
         mTmpNameGidMap.Clear();
         mTmpGroupUsersMap.Clear();
         mTmpGroupUserNamesMap.Clear();
+        mTmpRootUsers.Clear();
         int theError = 0;
         setgrent();
         for (; ;) {
@@ -345,6 +369,10 @@ private:
                 KFS_LOG_EOM;
                 continue;
             }
+            if (theGid == kKfsGroupNone) {
+                // "No group" shouldn't have any users.
+                continue;
+            }
             theInsertedFlag = false;
             UserNamesSet& theGrMembers = *mTmpGroupUserNamesMap.Insert(
                 theGid, UserNamesSet(), theInsertedFlag);
@@ -386,7 +414,8 @@ private:
             }
             const string        theName = theEntryPtr->pw_name;
             kfsUid_t const      theUid  = (kfsUid_t)theEntryPtr->pw_uid;
-            if (theUid < theMinUserId || theMaxUserId < theUid) {
+            if (theUid < theMinUserId || theMaxUserId < theUid ||
+                    theUid == kKfsUserNone) {
                 KFS_LOG_STREAM_DEBUG <<
                     "ignoring user:"
                     " id: "   << theUid <<
@@ -439,7 +468,8 @@ private:
                 KFS_LOG_EOM;
                 continue;
             }
-            if (! mTmpGroupUserNamesMap.Find(theGid) && theNewUserFlag) {
+            if (theGid != kKfsGroupNone &&
+                    ! mTmpGroupUserNamesMap.Find(theGid) && theNewUserFlag) {
                 KFS_LOG_STREAM_ERROR <<
                     "getpwent user: "       << theName <<
                     " no group found gid: " << theGid <<
@@ -466,7 +496,7 @@ private:
                 kRootUserName, UidAndGid(kKfsUserRoot, kKfsGroupRoot),
                 theInsertedFlag);
             KFS_LOG_STREAM_INFO <<
-                "adding root user" <<
+                "adding root user entry" <<
             KFS_LOG_EOM;
         }
         mTmpGroupUserNamesMap.First();
@@ -483,6 +513,22 @@ private:
                     mTmpNameUidMap.Find(*theIt);
                 if (theUidGidPtr) {
                     theUsers.insert(theUidGidPtr->mUid);
+                    const string* const theGroupNamePtr =
+                        mTmpGidNameMap.Find(thePtr->GetKey());
+                    if (theGroupNamePtr &&
+                            inRootGroups.find(*theGroupNamePtr) !=
+                            inRootGroups.end()) {
+                        theInsertedFlag = false;
+                        mTmpRootUsers.Insert(
+                            theUidGidPtr->mUid,
+                            theUidGidPtr->mUid,
+                            theInsertedFlag
+                        );
+                        KFS_LOG_STREAM_DEBUG <<
+                            "adding root user: " << *theIt <<
+                            " id: "              << theUidGidPtr->mUid <<
+                        KFS_LOG_EOM;
+                    }
                 } else if (theIdExcludes.find(*theIt) != theIdExcludes.end()) {
                     KFS_LOG_STREAM_ERROR <<
                         "group id: "      << thePtr->GetKey() <<
@@ -528,18 +574,22 @@ private:
     NameUidMap*        mNameUidMapPtr;
     NameUidPtr         mNameUidPtr;
     NameGidMap         mNameGidMap;
+    RootUsersPtr       mRootUsersPtr;
     GroupUsersMap      mGroupUsersMap;
     UidNameMap         mPendingUidNameMap;
     GidNameMap         mPendingGidNameMap;
     NameUidMap         mPendingNameUidMap;
     NameGidMap         mPendingNameGidMap;
     GroupUsersMap      mPendingGroupUsersMap;
+    RootUsers          mPendingRootUsers;
     UidNameMap         mTmpUidNameMap;
     GidNameMap         mTmpGidNameMap;
     NameUidMap         mTmpNameUidMap;
     NameGidMap         mTmpNameGidMap;
     GroupUsersMap      mTmpGroupUsersMap;
     GroupUsersNamesMap mTmpGroupUserNamesMap;
+    RootUsers          mTmpRootUsers;
+    RootGroups         mRootGroups;
 
     friend class UserAndGroup;
 private:
@@ -558,7 +608,8 @@ UserAndGroup::UserAndGroup()
       mGidNameMap(mImpl.mGidNameMap),
       mNameGidMap(mImpl.mNameGidMap),
       mNameUidPtr(mImpl.mNameUidPtr),
-      mUidNamePtr(mImpl.mUidNamePtr)
+      mUidNamePtr(mImpl.mUidNamePtr),
+      mRootUsersPtr(mImpl.mRootUsersPtr)
 {
 }
 

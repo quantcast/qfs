@@ -60,10 +60,11 @@ using boost::scoped_ptr;
 class AuthContext::Impl
 {
 public:
-    typedef UserAndGroup::NameUidPtr NameUidPtr;
-    typedef UserAndGroup::UidNamePtr UidNamePtr;
-    typedef UserAndGroup::UidAndGid  UidAndGid;
-    typedef UserAndGroup::NameAndGid NameAndGid;
+    typedef UserAndGroup::NameUidPtr   NameUidPtr;
+    typedef UserAndGroup::UidNamePtr   UidNamePtr;
+    typedef UserAndGroup::UidAndGid    UidAndGid;
+    typedef UserAndGroup::NameAndGid   NameAndGid;
+    typedef UserAndGroup::RootUsersPtr RootUsersPtr;
 
     Impl(
         bool inAllowPskFlag)
@@ -78,6 +79,7 @@ public:
           mWhiteList(),
           mNameUidPtr(new UserAndGroup::NameUidMap()),
           mUidNamePtr(new UserAndGroup::UidNameMap()),
+          mRootUsersPtr(new UserAndGroup::RootUsers()),
           mNameRemapParam(),
           mBlackListParam(),
           mWhiteListParam(),
@@ -318,6 +320,8 @@ public:
         QCRTASSERT(mNameUidPtr);
         mUidNamePtr = inUserAndGroup.GetUidNamePtr();
         QCRTASSERT(mUidNamePtr);
+        mRootUsersPtr = inUserAndGroup.GetRootUsersPtr();
+        QCRTASSERT(mRootUsersPtr);
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
@@ -624,6 +628,7 @@ private:
     NameList      mWhiteList;
     NameUidPtr    mNameUidPtr;
     UidNamePtr    mUidNamePtr;
+    RootUsersPtr  mRootUsersPtr;
     string        mNameRemapParam;
     string        mBlackListParam;
     string        mWhiteListParam;
@@ -657,6 +662,9 @@ private:
         const kfsUid_t theUid = GetUidSelf(inAuthName, outGid);
         outEUid = theUid;
         outEGid = outGid;
+        if (theUid != kKfsUserRoot && mRootUsersPtr->Find(theUid)) {
+            outEUid = kKfsUserRoot;
+        }
         return theUid;
     }
 private:

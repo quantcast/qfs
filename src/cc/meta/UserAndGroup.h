@@ -83,25 +83,25 @@ public:
     typedef LinearHash<
         UidName,
         KeyCompare<UidName::Key>,
-        DynamicArray<SingleLinkedList<UidName>*, 9>,
+        DynamicArray<SingleLinkedList<UidName>*, 10>,
         StdFastAllocator<UidName>
     > UidNameMap;
     typedef LinearHash<
         GidName,
         KeyCompare<GidName::Key>,
-        DynamicArray<SingleLinkedList<GidName>*, 9>,
+        DynamicArray<SingleLinkedList<GidName>*, 10>,
         StdFastAllocator<GidName>
     > GidNameMap;
     typedef LinearHash<
         NameUid,
         KeyCompare<NameUid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameUid>*, 9>,
+        DynamicArray<SingleLinkedList<NameUid>*, 10>,
         StdFastAllocator<NameUid>
     > NameUidMap;
     typedef LinearHash<
         NameGid,
         KeyCompare<NameGid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameGid>*, 9>,
+        DynamicArray<SingleLinkedList<NameGid>*, 10>,
         StdFastAllocator<NameGid>
     > NameGidMap;
     typedef set<
@@ -113,11 +113,18 @@ public:
     typedef LinearHash<
         GroupUsers,
         KeyCompare<GroupUsers::Key>,
-        DynamicArray<SingleLinkedList<GroupUsers>*, 9>,
+        DynamicArray<SingleLinkedList<GroupUsers>*, 10>,
         StdFastAllocator<GroupUsers>
     > GroupUsersMap;
+    typedef LinearHash<
+        KeyOnly<kfsUid_t>,
+        KeyCompare<kfsUid_t>,
+        DynamicArray<SingleLinkedList<KeyOnly<kfsUid_t> >*, 10>,
+        StdFastAllocator<KeyOnly<kfsUid_t> >
+    > RootUsers;
     typedef shared_ptr<const NameUidMap> NameUidPtr;
     typedef shared_ptr<const UidNameMap> UidNamePtr;
+    typedef shared_ptr<const RootUsers>  RootUsersPtr;
 
     UserAndGroup();
     ~UserAndGroup();
@@ -155,6 +162,8 @@ public:
         { return mNameUidPtr; }
     const UidNamePtr& GetUidNamePtr() const
         { return mUidNamePtr; }
+    const RootUsersPtr& GetRootUsersPtr() const
+        { return mRootUsersPtr; }
 private:
     class Impl;
     Impl&                    mImpl;
@@ -166,6 +175,7 @@ private:
     const NameGidMap&        mNameGidMap;
     const NameUidPtr&        mNameUidPtr;
     const UidNamePtr&        mUidNamePtr;
+    const RootUsersPtr&      mRootUsersPtr;
 
     static const string      kEmptyString;
     static const NameAndGid  kNameAndGroupNone;
