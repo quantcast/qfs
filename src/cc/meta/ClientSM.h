@@ -76,6 +76,8 @@ public:
         { return mNext; }
     const NetConnectionPtr& GetConnection() const
         { return mNetConnection; }
+    const AuthContext& GetAuthContext() const
+        { return mAuthContext; }
     virtual bool Verify(
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
@@ -112,6 +114,7 @@ private:
     int64_t                            mDelegationIssuedTime;
     uint64_t                           mUserAndGroupUpdateCount;
     ClientManager::ClientThread* const mClientThread;
+    AuthContext&                       mAuthContext;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
     ClientSM*                          mNextPtr[1];
@@ -129,7 +132,6 @@ private:
         { return (mPendingOpsCount >= sMaxPendingOps); }
     void HandleAuthenticate(IOBuffer& iobuf);
     void HandleDelegation(MetaDelegate& op);
-    inline AuthContext& GetAuthContext();
 
     static int  sMaxPendingOps;
     static int  sMaxPendingBytes;

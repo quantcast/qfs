@@ -76,12 +76,6 @@ PeerIp(const NetConnectionPtr& conn)
     return peer.substr(0, pos);
 }
 
-inline AuthContext&
-ClientSM::GetAuthContext()
-{
-    return (ClientManager::GetAuthContext(mClientThread));
-}
-
 int  ClientSM::sMaxPendingOps             = 1;
 int  ClientSM::sMaxPendingBytes           = 3 << 10;
 int  ClientSM::sMaxReadAhead              = 3 << 10;
@@ -158,6 +152,7 @@ ClientSM::ClientSM(
       mDelegationIssuedTime(0),
       mUserAndGroupUpdateCount(0),
       mClientThread(thread),
+      mAuthContext(ClientManager::GetAuthContext(mClientThread)),
       mNext(0)
 {
     assert(mNetConnection && mNetConnection->IsGood());
@@ -540,7 +535,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     if (op->op == META_LOOKUP) {
         MetaLookup& lookupOp = *static_cast<MetaLookup*>(op);
         if (lookupOp.IsAuthNegotiation()) {
-            lookupOp.authType = GetAuthContext().GetAuthTypes();
+            lookupOp.authType = mAuthContext.GetAuthTypes();
             if (mPendingOpsCount == 1) {
                 HandleRequestSelf(EVENT_CMD_DONE, op);
             } else {
@@ -555,12 +550,12 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
         uint64_t count;
         if (! op->fromChunkServerFlag &&
-                (count = GetAuthContext().GetUserAndGroupUpdateCount()) !=
+                (count = mAuthContext.GetUserAndGroupUpdateCount()) !=
                     mUserAndGroupUpdateCount) {
             // User and group information has changed, update cached user and
             // group ids, and re-validate user.
             mUserAndGroupUpdateCount = count;
-            if (! GetAuthContext().GetUserNameAndGroup(
+            if (! mAuthContext.GetUserNameAndGroup(
                     mAuthUid, mAuthGid, mAuthEUid, mAuthEGid)) {
                 KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
                     "user id: " << mAuthUid <<
@@ -609,12 +604,12 @@ ClientSM::HandleDelegation(MetaDelegate& op)
             op.delegationFlags =
                 (mDelegationValidFlag ? mDelegationFlags : 0) |
                 ((op.allowDelegationFlag &&
-                        GetAuthContext().IsReDelegationAllowed()) ?
+                        mAuthContext.IsReDelegationAllowed()) ?
                     DelegationToken::kAllowDelegationFlag : 0);
         }
         if (op.status == 0) {
             const uint32_t maxTime =
-                GetAuthContext().GetMaxDelegationValidForTime();
+                mAuthContext.GetMaxDelegationValidForTime();
             if (maxTime <= 0) {
                 op.status    = -EPERM;
                 op.statusMsg = "delegation is not allowed";
@@ -643,7 +638,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
             delete [] mAuthenticateOp->contentBuf;
             mAuthenticateOp->contentBufPos = 0;
         } else {
-            GetAuthContext().Validate(*mAuthenticateOp);
+            mAuthContext.Validate(*mAuthenticateOp);
         }
     }
     const int rem = mAuthenticateOp->Read(iobuf);
@@ -659,9 +654,9 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mAuthenticateOp->status    = -EINVAL;
         mAuthenticateOp->statusMsg = "out of order data received";
     } else {
-        GetAuthContext().Authenticate(*mAuthenticateOp, this, this);
+        mAuthContext.Authenticate(*mAuthenticateOp, this, this);
         mUserAndGroupUpdateCount =
-            GetAuthContext().GetUserAndGroupUpdateCount();
+            mAuthContext.GetUserAndGroupUpdateCount();
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->doneFlag = true;
@@ -691,7 +686,7 @@ ClientSM::Verify(
     kfsUid_t authUid = kKfsUserNone;
     if (! inPreverifyOkFlag ||
             (inCurCertDepth == 0 &&
-            (((authUid = GetAuthContext().GetUid(
+            (((authUid = mAuthContext.GetUid(
                 inPeerName, mAuthGid, mAuthEUid, mAuthEGid)) == kKfsUserNone) ||
             (mAuthUid != kKfsUserNone && mAuthUid != authUid)))) {
         KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
@@ -745,7 +740,7 @@ ClientSM::GetPsk(
         if (mAuthUid != kKfsUserNone) {
             if ((theDelegationToken.GetFlags() &
                     DelegationToken::kChunkServerFlag) == 0) {
-                theNamePtr = GetAuthContext().GetUserNameAndGroup(
+                theNamePtr = mAuthContext.GetUserNameAndGroup(
                     mAuthUid, mAuthGid, mAuthEUid, mAuthEGid);
                 if (! theNamePtr) {
                     theErrMsg = "invalid user id";
