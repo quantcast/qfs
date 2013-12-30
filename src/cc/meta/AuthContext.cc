@@ -62,6 +62,7 @@ class AuthContext::Impl
 public:
     typedef UserAndGroup::NameUidPtr   NameUidPtr;
     typedef UserAndGroup::UidNamePtr   UidNamePtr;
+    typedef UserAndGroup::GidNamePtr   GidNamePtr;
     typedef UserAndGroup::UidAndGid    UidAndGid;
     typedef UserAndGroup::NameAndGid   NameAndGid;
     typedef UserAndGroup::RootUsersPtr RootUsersPtr;
@@ -79,6 +80,7 @@ public:
           mWhiteList(),
           mNameUidPtr(new UserAndGroup::NameUidMap()),
           mUidNamePtr(new UserAndGroup::UidNameMap()),
+          mGidNamePtr(new UserAndGroup::GidNameMap()),
           mRootUsersPtr(new UserAndGroup::RootUsers()),
           mNameRemapParam(),
           mBlackListParam(),
@@ -90,7 +92,8 @@ public:
           mMemKeytabGen(0),
           mMaxDelegationValidForTime(60 * 60 * 24),
           mReDelegationAllowedFlag(false),
-          mAuthTypes(kAuthenticationTypeUndef)
+          mAuthTypes(kAuthenticationTypeUndef),
+          mUserAndGroupNames(*mUidNamePtr, *mGidNamePtr)
         {}
     ~Impl()
         {}
@@ -322,6 +325,9 @@ public:
         QCRTASSERT(mUidNamePtr);
         mRootUsersPtr = inUserAndGroup.GetRootUsersPtr();
         QCRTASSERT(mRootUsersPtr);
+        mGidNamePtr = inUserAndGroup.GetGidNamePtr();
+        QCRTASSERT(mGidNamePtr);
+        mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
     }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
@@ -595,6 +601,8 @@ public:
         outGid = thePtr->mGid;
         return thePtr->mName.c_str();
     }
+    const UserAndGroupNames& GetUserAndGroupNames() const
+        { return mUserAndGroupNames; }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -617,29 +625,31 @@ private:
     typedef SslFilter::CtxPtr  SslCtxPtr;
     typedef SslFilterServerPsk ServerPsk;
 
-    Properties    mKrbProps;
-    Properties    mPskSslProps;
-    Properties    mX509SslProps;
-    KrbServicePtr mKrbServicePtr;
-    SslCtxPtr     mSslCtxPtr;
-    SslCtxPtr     mX509SslCtxPtr;
-    NameRemap     mNameRemap;
-    NameList      mBlackList;
-    NameList      mWhiteList;
-    NameUidPtr    mNameUidPtr;
-    UidNamePtr    mUidNamePtr;
-    RootUsersPtr  mRootUsersPtr;
-    string        mNameRemapParam;
-    string        mBlackListParam;
-    string        mWhiteListParam;
-    int           mPrincipalUnparseFlags;
-    bool          mAuthNoneFlag;
-    bool          mKrbUseSslFlag;
-    const bool    mAllowPskFlag;
-    unsigned int  mMemKeytabGen;
-    uint32_t      mMaxDelegationValidForTime;
-    bool          mReDelegationAllowedFlag;
-    int           mAuthTypes;
+    Properties        mKrbProps;
+    Properties        mPskSslProps;
+    Properties        mX509SslProps;
+    KrbServicePtr     mKrbServicePtr;
+    SslCtxPtr         mSslCtxPtr;
+    SslCtxPtr         mX509SslCtxPtr;
+    NameRemap         mNameRemap;
+    NameList          mBlackList;
+    NameList          mWhiteList;
+    NameUidPtr        mNameUidPtr;
+    UidNamePtr        mUidNamePtr;
+    GidNamePtr        mGidNamePtr;
+    RootUsersPtr      mRootUsersPtr;
+    string            mNameRemapParam;
+    string            mBlackListParam;
+    string            mWhiteListParam;
+    int               mPrincipalUnparseFlags;
+    bool              mAuthNoneFlag;
+    bool              mKrbUseSslFlag;
+    const bool        mAllowPskFlag;
+    unsigned int      mMemKeytabGen;
+    uint32_t          mMaxDelegationValidForTime;
+    bool              mReDelegationAllowedFlag;
+    int               mAuthTypes;
+    UserAndGroupNames mUserAndGroupNames;
 
     kfsUid_t GetUidSelf(
         const string& inAuthName,
@@ -677,7 +687,8 @@ private:
 AuthContext::AuthContext(
     bool inAllowPskFlag /* = true */)
     : mImpl(*(new Impl(inAllowPskFlag))),
-      mUserAndGroupUpdateCount(0)
+      mUserAndGroupUpdateCount(0),
+      mUserAndGroupNames(mImpl.GetUserAndGroupNames())
 {
 }
 

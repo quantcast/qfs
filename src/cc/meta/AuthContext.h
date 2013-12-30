@@ -39,6 +39,7 @@ class Properties;
 class SslFilterServerPsk;
 class SslFilterVerifyPeer;
 class UserAndGroup;
+class UserAndGroupNames;
 
 class AuthContext
 {
@@ -77,10 +78,13 @@ public:
         kfsGid_t& outEGid) const;
     uint64_t GetUserAndGroupUpdateCount() const
         { return mUserAndGroupUpdateCount; }
+    const UserAndGroupNames& GetUserAndGroupNames() const
+        { return mUserAndGroupNames; }
 private:
     class Impl;
-    Impl&    mImpl;
-    uint64_t mUserAndGroupUpdateCount;
+    Impl&                    mImpl;
+    uint64_t                 mUserAndGroupUpdateCount;
+    const UserAndGroupNames& mUserAndGroupNames;
 
 private:
     AuthContext(

@@ -91,10 +91,11 @@ public:
           mParametersReadCount(0),
           mUidNameMapPtr(new UidNameMap()),
           mUidNamePtr(mUidNameMapPtr),
-          mGidNameMap(),
           mNameUidMapPtr(new NameUidMap()),
           mNameUidPtr(mNameUidMapPtr),
           mNameGidMap(),
+          mGidNameMapPtr(new GidNameMap()),
+          mGidNamePtr(mGidNameMapPtr),
           mRootUsersPtr(new RootUsers()),
           mGroupUsersMap(),
           mPendingUidNameMap(),
@@ -308,11 +309,14 @@ private:
         mNameUidMapPtr->Swap(mPendingNameUidMap);
         mNameUidPtr.reset(mNameUidMapPtr);
 
+        mGidNameMapPtr = new GidNameMap();
+        mGidNameMapPtr->Swap(mPendingGidNameMap);
+        mGidNamePtr.reset(mGidNameMapPtr);
+
         RootUsers* const theRootUsersPtr = new RootUsers();
         theRootUsersPtr->Swap(mPendingRootUsers);
         mRootUsersPtr.reset(theRootUsersPtr);
 
-        mGidNameMap.Swap(mPendingGidNameMap);
         mNameGidMap.Swap(mPendingNameGidMap);
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
         mUpdateCount = mCurUpdateCount;
@@ -626,6 +630,8 @@ private:
     NameUidMap*        mNameUidMapPtr;
     NameUidPtr         mNameUidPtr;
     NameGidMap         mNameGidMap;
+    GidNameMap*        mGidNameMapPtr;
+    GidNamePtr         mGidNamePtr;
     RootUsersPtr       mRootUsersPtr;
     GroupUsersMap      mGroupUsersMap;
     UidNameMap         mPendingUidNameMap;
@@ -658,13 +664,14 @@ UserAndGroup::UserAndGroup()
     : mImpl(*(new Impl())),
       mUpdateCount(mImpl.mUpdateCount),
       mGroupUsersMap(mImpl.mGroupUsersMap),
-      mNameUidMapPtr(mImpl.mNameUidMapPtr),
-      mUidNameMapPtr(mImpl.mUidNameMapPtr),
-      mGidNameMap(mImpl.mGidNameMap),
+      mNameUidMapPtr(&mImpl.mNameUidMapPtr),
+      mUidNameMapPtr(&mImpl.mUidNameMapPtr),
+      mGidNameMapPtr(&mImpl.mGidNameMapPtr),
       mNameGidMap(mImpl.mNameGidMap),
       mNameUidPtr(mImpl.mNameUidPtr),
       mUidNamePtr(mImpl.mUidNamePtr),
-      mRootUsersPtr(mImpl.mRootUsersPtr)
+      mRootUsersPtr(mImpl.mRootUsersPtr),
+      mGidNamePtr(mImpl.mGidNamePtr)
 {
 }
 

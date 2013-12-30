@@ -125,6 +125,7 @@ public:
     typedef shared_ptr<const NameUidMap> NameUidPtr;
     typedef shared_ptr<const UidNameMap> UidNamePtr;
     typedef shared_ptr<const RootUsers>  RootUsersPtr;
+    typedef shared_ptr<const GidNameMap> GidNamePtr;
 
     UserAndGroup();
     ~UserAndGroup();
@@ -146,7 +147,7 @@ public:
     const NameAndGid& GetUserNameAndGroup(
         const kfsUid_t inUid) const
     {
-        const NameAndGid* const thePtr = mUidNameMapPtr->Find(inUid);
+        const NameAndGid* const thePtr = (**mUidNameMapPtr).Find(inUid);
         return (thePtr ? *thePtr : kNameAndGroupNone);
     }
     const string& GetUserName(
@@ -155,8 +156,14 @@ public:
     const string& GetGroupName(
         const kfsGid_t inGid) const
     {
-        const string* const thePtr = mGidNameMap.Find(inGid);
+        const string* const thePtr = (**mGidNameMapPtr).Find(inGid);
         return (thePtr ? *thePtr : kEmptyString);
+    }
+    kfsUid_t GetUserId(
+        const string& inUserName) const
+    {
+        const UidAndGid* const thePtr = (**mNameUidMapPtr).Find(inUserName);
+        return (thePtr ? thePtr->mUid : kKfsUserNone);
     }
     const NameUidPtr& GetNameUidPtr() const
         { return mNameUidPtr; }
@@ -164,18 +171,21 @@ public:
         { return mUidNamePtr; }
     const RootUsersPtr& GetRootUsersPtr() const
         { return mRootUsersPtr; }
+    const GidNamePtr& GetGidNamePtr() const
+        { return mGidNamePtr; }
 private:
     class Impl;
-    Impl&                    mImpl;
-    const volatile uint64_t& mUpdateCount;
-    const GroupUsersMap&     mGroupUsersMap;
-    const NameUidMap*        mNameUidMapPtr;
-    const UidNameMap*        mUidNameMapPtr;
-    const GidNameMap&        mGidNameMap;
-    const NameGidMap&        mNameGidMap;
-    const NameUidPtr&        mNameUidPtr;
-    const UidNamePtr&        mUidNamePtr;
-    const RootUsersPtr&      mRootUsersPtr;
+    Impl&                          mImpl;
+    const volatile uint64_t&       mUpdateCount;
+    const GroupUsersMap&           mGroupUsersMap;
+    const NameUidMap* const* const mNameUidMapPtr;
+    const UidNameMap* const* const mUidNameMapPtr;
+    const GidNameMap* const* const mGidNameMapPtr;
+    const NameGidMap&              mNameGidMap;
+    const NameUidPtr&              mNameUidPtr;
+    const UidNamePtr&              mUidNamePtr;
+    const RootUsersPtr&            mRootUsersPtr;
+    const GidNamePtr&              mGidNamePtr;
 
     static const string      kEmptyString;
     static const NameAndGid  kNameAndGroupNone;
@@ -184,6 +194,39 @@ private:
         const UserAndGroup& inUserAndGroup);
     UserAndGroup& operator=(
         const UserAndGroup& inUserAndGroup);
+};
+
+class UserAndGroupNames
+{
+public:
+    typedef UserAndGroup::UidNameMap UidNameMap;
+    typedef UserAndGroup::GidNameMap GidNameMap;
+
+    UserAndGroupNames(
+        const UidNameMap& inUidNameMap,
+        const GidNameMap& inGidNameMap)
+        : mUidNameMapPtr(&inUidNameMap),
+          mGidNameMapPtr(&inGidNameMap)
+        {}
+    const string* GetUserName(
+        kfsGid_t inUid)
+    {
+        const UidNameMap::Val* const thePtr = mUidNameMapPtr->Find(inUid);
+        return (thePtr ? &thePtr->mName : 0);
+    }
+    const string* GetGroupName(
+        kfsGid_t inGid)
+        { return mGidNameMapPtr->Find(inGid); }
+    void Set(
+        const UidNameMap& inUidNameMap,
+        const GidNameMap& inGidNameMap)
+    {
+        mUidNameMapPtr = &inUidNameMap;
+        mGidNameMapPtr = &inGidNameMap;
+    }
+private:
+    const UidNameMap* mUidNameMapPtr;
+    const GidNameMap* mGidNameMapPtr;
 };
 
 }
