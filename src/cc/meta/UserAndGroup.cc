@@ -332,6 +332,25 @@ private:
             inPrefix.compare(0, thePrefixSize, inString, 0, thePrefixSize) == 0
         );
     }
+    static bool IsValidName(
+        const string& inName)
+    {
+        const char* thePtr          = inName.c_str();
+        const char* const theEndPtr = thePtr + inName.size();
+        // Do not allow leading or trailing spaces.
+        if (theEndPtr <= thePtr || (*thePtr & 0xFF) <= ' ' ||
+                (theEndPtr[-1] & 0xFF) <= ' ') {
+            return false;
+        }
+        // Do not allow control characters.
+        while (thePtr < theEndPtr) {
+            if ((*thePtr & 0xFF) < ' ') {
+                return false;
+            }
+            thePtr++;
+        }
+        return true;
+    }
     int UpdateSelf(
         const UserExcludes&  inUserExcludes,
         const GroupExcludes& inGroupExcludes,
@@ -369,6 +388,14 @@ private:
             }
             const string   theName = theEntryPtr->gr_name;
             kfsGid_t const theGid  = (kfsGid_t)theEntryPtr->gr_gid;
+            if (! IsValidName(theName)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "ignoring malformed group"
+                    " name: " << theName <<
+                    " id: "   << theGid <<
+                KFS_LOG_EOM;
+                continue;
+            }
             if (theGid < theMinGroupId || theMaxGroupId < theGid) {
                 KFS_LOG_STREAM_DEBUG <<
                     "ignoring group:"
@@ -454,8 +481,16 @@ private:
                 }
                 break;
             }
-            const string        theName = theEntryPtr->pw_name;
-            kfsUid_t const      theUid  = (kfsUid_t)theEntryPtr->pw_uid;
+            const string   theName = theEntryPtr->pw_name;
+            kfsUid_t const theUid  = (kfsUid_t)theEntryPtr->pw_uid;
+            if (! IsValidName(theName)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "ignoring malformed user"
+                    " name: " << theName <<
+                    " id: "   << theUid <<
+                KFS_LOG_EOM;
+                continue;
+            }
             if (theUid < theMinUserId || theMaxUserId < theUid ||
                     theUid == kKfsUserNone) {
                 KFS_LOG_STREAM_DEBUG <<

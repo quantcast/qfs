@@ -212,6 +212,16 @@ SetEUserAndEGroup(MetaRequest& req)
     gLayoutManager.SetEUserAndEGroup(req);
 }
 
+inline static const UserAndGroupNames*
+GetUserAndGroupNames(const MetaRequest& req)
+{
+    return (
+        (req.authUid != kKfsUserNone && req.fromClientSMFlag && req.clnt) ?
+        &static_cast<const ClientSM*>(req.clnt
+            )->GetAuthContext().GetUserAndGroupNames() : 0
+    );
+}
+
 template<typename T> inline void
 SetUserAndGroup(T& req)
 {
@@ -254,7 +264,27 @@ FattrReply(const MetaFattr* fa, MFattr& ofa)
 }
 
 inline static ostream&
-FattrReply(ostream& os, const MFattr& fa)
+UserAndGroupNamesReply(
+    ostream&                 os,
+    const UserAndGroupNames* ugn,
+    kfsUid_t                 user,
+    kfsGid_t                 group)
+{
+    if (ugn) {
+        const string* name = ugn->GetUserName(user);
+        if (name) {
+            os << "UName: " << name << "\r\n";
+        }
+        name = ugn->GetGroupName(group);
+        if (name) {
+            os << "GName: " << name << "\r\n";
+        }
+    }
+    return os;
+}
+
+inline static ostream&
+FattrReply(ostream& os, const MFattr& fa, const UserAndGroupNames* ugn)
 {
     os <<
     "File-handle: " << fa.id()         << "\r\n"
@@ -287,7 +317,7 @@ FattrReply(ostream& os, const MFattr& fa)
         "Min-tier: " << (int)fa.minSTier << "\r\n"
         "Max-tier: " << (int)fa.maxSTier << "\r\n";
     }
-    return os;
+    return UserAndGroupNamesReply(os, ugn, fa.user, fa.group);
 }
 
 template<typename CondT>
@@ -900,10 +930,23 @@ private:
             {}
     };
 
+    typedef LinearHash<
+        KeyOnly<uint64_t>,
+        KeyCompare<uint64_t>,
+        DynamicArray<SingleLinkedList<KeyOnly<uint64_t> >*, 10>,
+        StdFastAllocator<KeyOnly<uint64_t> >
+    > IdSet;
+
     IOBufferWriter writer;
     const int      maxSize;
     const bool     getLastChunkInfoOnlyIfSizeUnknown;
     char* const    nBufEnd;
+    kfsUid_t       prevUid;
+    kfsGid_t       prevGid;
+    bool           firstEntryFlag;
+    bool           insertPrevGidFlag;
+    bool           insertPrevUidFlag;
+    IdSet          ugids;
     char           nBuf[kNumBufSize];
 
     static const PropName kMtime;
@@ -934,6 +977,8 @@ private:
     static const PropName kMinTier;
     static const PropName kMaxTier;
     static const PropName kSpace;
+    static const PropName kUserName;
+    static const PropName kGroupName;
     static const Token    kFileType[];
 
     template<typename T> static
@@ -974,8 +1019,41 @@ private:
     {
         writer.Write(str);
     }
+    bool IsNewGroup(kfsGid_t gid)
+    {
+        if (prevGid == gid) {
+            return false;
+        }
+        const uint64_t kGroupBit = uint64_t(1) << sizeof(kfsGid_t) * 8;
+        bool           ret       = false;
+        if (insertPrevGidFlag) {
+            const uint64_t id = gid | kGroupBit;
+            ugids.Insert(id, id, ret);
+            ret = false;
+            insertPrevGidFlag = false;
+        }
+        prevGid = gid;
+        const uint64_t id = gid | kGroupBit;
+        ugids.Insert(id, id, ret);
+        return ret;
+    }
+    bool IsNewUser(kfsUid_t uid)
+    {
+        if (prevUid == uid) {
+            return false;
+        }
+        bool ret = false;
+        if (insertPrevUidFlag) {
+            ugids.Insert(prevUid, prevUid, ret);
+            ret = false;
+            insertPrevUidFlag = false;
+        }
+        prevUid = uid;
+        ugids.Insert(uid, uid, ret);
+        return ret;
+    }
     void Write(const DEntry& entry, CInfos::const_iterator& lci,
-            bool noAttrsFlag)
+            bool noAttrsFlag, const UserAndGroupNames* ugn)
     {
         Write(kBeginEntry);
         Write(kName);
@@ -1036,6 +1114,29 @@ private:
             Write(kMaxTier);
             WriteInt(entry.maxSTier);
         }
+        if (ugn) {
+            if (firstEntryFlag || IsNewUser(entry.user)) {
+                const string* const name = ugn->GetUserName(entry.user);
+                if (name) {
+                    Write(kUserName);
+                    Write(*name);
+                }
+            }
+            if (firstEntryFlag || IsNewGroup(entry.group)) {
+                const string* const name = ugn->GetGroupName(entry.group);
+                if (name) {
+                    Write(kGroupName);
+                    Write(*name);
+                }
+            }
+            if (firstEntryFlag) {
+                firstEntryFlag = false;
+                prevUid = entry.user;
+                prevGid = entry.group;
+                insertPrevUidFlag = true;
+                insertPrevGidFlag = true;
+            }
+        }
         if (entry.type == KFS_DIR || entry.IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
                 entry.filesize >= 0)) {
@@ -1077,18 +1178,26 @@ public:
         : writer(b),
           maxSize(ms),
           getLastChunkInfoOnlyIfSizeUnknown(f),
-          nBufEnd(nBuf + kNumBufSize - 1)
+          nBufEnd(nBuf + kNumBufSize - 1),
+          prevUid(kKfsUserNone),
+          prevGid(kKfsGroupNone),
+          firstEntryFlag(true),
+          insertPrevGidFlag(false),
+          insertPrevUidFlag(false),
+          ugids()
         {}
     size_t Write(const DEntries& entries, const CInfos& cinfos,
-            bool noAttrsFlag)
+            bool noAttrsFlag, const UserAndGroupNames* ugn)
     {
+        ugids.Clear();
+        firstEntryFlag = true;
         CInfos::const_iterator   cit = cinfos.begin();
         DEntries::const_iterator it;
         for (it = entries.begin();
                 it != entries.end() &&
                     writer.GetSize() <= maxSize;
                 ++it) {
-            Write(*it, cit, noAttrsFlag);
+            Write(*it, cit, noAttrsFlag, ugn);
         }
         if (cinfos.end() < cit) {
             panic("dentry and last chunk info mismatch", false);
@@ -1182,6 +1291,12 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kSpace(
     " " , " ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kUserName(
+    "\nUN:" , "\r\nUser-name: ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kGroupName(
+    "\nGN:" , "\r\nGroup-name: ");
 template<bool F> const typename ReaddirPlusWriter<F>::Token
     ReaddirPlusWriter<F>::kFileType[] = { "empty", "file", "dir" };
 
@@ -3720,7 +3835,7 @@ MetaLookup::response(ostream& os)
         "EUserId: "  << euser  << "\r\n"
         "EGroupId: " << egroup << "\r\n"
     ;
-    FattrReply(os, fattr) << "\r\n";
+    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
 }
 
 void
@@ -3733,7 +3848,7 @@ MetaLookupPath::response(ostream &os)
         "EUserId: "  << euser  << "\r\n"
         "EGroupId: " << egroup << "\r\n"
     ;
-    FattrReply(os, fattr) << "\r\n";
+    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
 }
 
 void
@@ -3750,6 +3865,8 @@ MetaCreate::response(ostream &os)
     "User: "  << user  <<  "\r\n"
     "Group: " << group <<  "\r\n"
     "Mode: "  << mode  <<  "\r\n"
+    ;
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
     "\r\n";
 }
 
@@ -3808,14 +3925,14 @@ MetaReaddirPlus::response(ostream& os, IOBuffer& buf)
             maxRespSize,
             getLastChunkInfoOnlyIfSizeUnknown);
         entryCount = writer.Write(dentries, lastChunkInfos,
-            noAttrsFlag);
+            noAttrsFlag, GetUserAndGroupNames(*this));
     } else {
         ReaddirPlusWriter<false> writer(
             resp,
             maxRespSize,
             getLastChunkInfoOnlyIfSizeUnknown);
         entryCount = writer.Write(dentries, lastChunkInfos,
-            noAttrsFlag);
+            noAttrsFlag, GetUserAndGroupNames(*this));
     }
     hasMoreEntriesFlag = hasMoreEntriesFlag || entryCount < dentries.size();
     dentries.clear();
@@ -4418,7 +4535,7 @@ MetaGetPathName::response(ostream& os)
         return;
     }
     os << result;
-    FattrReply(os, fattr) << "\r\n";
+    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
 }
 
 void

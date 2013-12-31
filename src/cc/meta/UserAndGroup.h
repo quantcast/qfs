@@ -209,13 +209,13 @@ public:
           mGidNameMapPtr(&inGidNameMap)
         {}
     const string* GetUserName(
-        kfsGid_t inUid)
+        kfsGid_t inUid) const
     {
         const UidNameMap::Val* const thePtr = mUidNameMapPtr->Find(inUid);
         return (thePtr ? &thePtr->mName : 0);
     }
     const string* GetGroupName(
-        kfsGid_t inGid)
+        kfsGid_t inGid) const
         { return mGidNameMapPtr->Find(inGid); }
     void Set(
         const UidNameMap& inUidNameMap,
