@@ -139,7 +139,7 @@ public:
         { return mUpdateCount; }
     bool IsGroupMamber(
         kfsUid_t inUser,
-        kfsGid_t inGroup)
+        kfsGid_t inGroup) const
     {
         const UsersSet* const theUsersPtr = mGroupUsersMap.Find(inGroup);
         return (theUsersPtr && theUsersPtr->find(inUser) != theUsersPtr->end());
@@ -164,6 +164,18 @@ public:
     {
         const UidAndGid* const thePtr = (**mNameUidMapPtr).Find(inUserName);
         return (thePtr ? thePtr->mUid : kKfsUserNone);
+    }
+    bool GetGroupId(
+        const string& inGroupName,
+        kfsGid_t&     outGroupId) const
+    {
+        const kfsGid_t* const thePtr = mNameGidMap.Find(inGroupName);
+        if (thePtr) {
+            outGroupId = *thePtr;
+            return true;
+        }
+        outGroupId = kKfsGroupNone;
+        return false;
     }
     const NameUidPtr& GetNameUidPtr() const
         { return mNameUidPtr; }

@@ -403,7 +403,9 @@ struct MetaCreate: public MetaRequest {
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
     seq_t      reqId;
-    string     name;              //!< name to create
+    string     name;                //!< name to create
+    string     ownerName;
+    string     groupName;
     MetaCreate()
         : MetaRequest(META_CREATE, true),
           dir(-1),
@@ -420,7 +422,9 @@ struct MetaCreate: public MetaRequest {
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
           reqId(-1),
-          name()
+          name(),
+          ownerName(),
+          groupName()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -460,6 +464,8 @@ struct MetaCreate: public MetaRequest {
         .Def("ReqId",                &MetaCreate::reqId,              seq_t(-1))
         .Def("Min-tier",             &MetaCreate::minSTier,           kKfsSTierMax)
         .Def("Max-tier",             &MetaCreate::maxSTier,           kKfsSTierMax)
+        .Def("OName",                &MetaCreate::ownerName)
+        .Def("GName",                &MetaCreate::groupName)
         ;
     }
 };
@@ -475,6 +481,8 @@ struct MetaMkdir: public MetaRequest {
     kfsMode_t mode;
     seq_t     reqId;
     string    name; //!< name to create
+    string    ownerName;
+    string    groupName;
     MetaMkdir()
         : MetaRequest(META_MKDIR, true),
           dir(-1),
@@ -483,7 +491,9 @@ struct MetaMkdir: public MetaRequest {
           group(kKfsGroupNone),
           mode(kKfsModeUndef),
           reqId(-1),
-          name()
+          name(),
+          ownerName(),
+          groupName()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -514,6 +524,8 @@ struct MetaMkdir: public MetaRequest {
         .Def("Group",              &MetaMkdir::group,  kKfsGroupNone)
         .Def("Mode",               &MetaMkdir::mode,   kKfsModeUndef)
         .Def("ReqId",              &MetaMkdir::reqId,  seq_t(-1))
+        .Def("OName",              &MetaMkdir::ownerName)
+        .Def("GName",              &MetaMkdir::groupName)
         ;
     }
 };
@@ -1490,6 +1502,8 @@ struct MetaChown: public MetaRequest {
     fid_t    fid;
     kfsUid_t user;
     kfsGid_t group;
+    string   ownerName;
+    string   groupName;
     MetaChown()
         : MetaRequest(META_CHOWN, true),
           fid(-1),
@@ -1516,9 +1530,11 @@ struct MetaChown: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle", &MetaChown::fid,    fid_t(-1))
-        .Def("Owner",       &MetaChown::user,   kKfsUserNone)
-        .Def("Group",       &MetaChown::group,  kKfsGroupNone)
+        .Def("File-handle", &MetaChown::fid,        fid_t(-1))
+        .Def("Owner",       &MetaChown::user,       kKfsUserNone)
+        .Def("Group",       &MetaChown::group,      kKfsGroupNone)
+        .Def("OName",       &MetaChown::ownerName)
+        .Def("GName",       &MetaChown::groupName)
         ;
     }
 };

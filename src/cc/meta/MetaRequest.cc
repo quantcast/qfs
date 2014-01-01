@@ -222,13 +222,33 @@ GetUserAndGroupNames(const MetaRequest& req)
     );
 }
 
-template<typename T> inline void
+template<typename T> inline bool
 SetUserAndGroup(T& req)
 {
+    if (req.authUid != kKfsUserNone) {
+        if (! req.ownerName.empty()) {
+            req.user = gLayoutManager.GetUserAndGroup().GetUserId(
+                req.ownerName);
+            if (req.user == kKfsUserNone) {
+                req.status    = -EINVAL;
+                req.statusMsg = "no such user";
+                return false;
+            }
+        }
+        if (! req.groupName.empty()) {
+            if (! gLayoutManager.GetUserAndGroup().GetGroupId(
+                    req.groupName, req.group)) {
+                req.status    = -EINVAL;
+                req.statusMsg = "no such group";
+                return false;
+            }
+        }
+    }
     SetEUserAndEGroup(req);
     if (req.user != kKfsUserNone || req.group != kKfsGroupNone) {
         gLayoutManager.SetUserAndGroup(req, req.user, req.group);
     }
+    return true;
 }
 
 inline static void
@@ -537,9 +557,11 @@ CheckUserAndGroup(T& req)
         return false;
     }
     if (req.euser != kKfsUserRoot && req.egroup != req.group &&
-            ! IsGroupMember(req.user, req.group)) {
+            ! (req.authUid != kKfsUserNone ?
+            gLayoutManager.GetUserAndGroup().IsGroupMamber(req.user, req.group) :
+            IsGroupMember(req.user, req.group))) {
         req.status    = -EPERM;
-        req.statusMsg = "user is not in the group";
+        req.statusMsg = "user is not a member of the group";
         return false;
     }
     return true;
@@ -548,17 +570,19 @@ CheckUserAndGroup(T& req)
 template<typename T> inline static bool
 CheckCreatePerms(T& req)
 {
-    if (req.euser == kKfsUserNone) {
-        req.euser = gLayoutManager.GetDefaultUser();
-    }
-    if (req.egroup == kKfsGroupNone) {
-        req.egroup = gLayoutManager.GetDefaultGroup();
-    }
-    if (req.user == kKfsUserNone) {
-        req.user = req.euser;
-    }
-    if (req.group == kKfsGroupNone) {
-        req.group = req.egroup;
+    if (req.authUid == kKfsUserNone) {
+        if (req.euser == kKfsUserNone) {
+            req.euser = gLayoutManager.GetDefaultUser();
+        }
+        if (req.egroup == kKfsGroupNone) {
+            req.egroup = gLayoutManager.GetDefaultGroup();
+        }
+        if (req.user == kKfsUserNone) {
+            req.user = req.euser;
+        }
+        if (req.group == kKfsGroupNone) {
+            req.group = req.egroup;
+        }
     }
     if (req.mode == kKfsModeUndef) {
         req.mode = req.op == META_MKDIR ?
@@ -606,7 +630,9 @@ MetaRequest::GetNullReq()
 /* virtual */ void
 MetaCreate::handle()
 {
-    SetUserAndGroup(*this);
+    if (! SetUserAndGroup(*this)) {
+        return;
+    }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
     bool rootUserFlag = false;
@@ -705,7 +731,9 @@ MetaCreate::handle()
 /* virtual */ void
 MetaMkdir::handle()
 {
-    SetUserAndGroup(*this);
+    if (! SetUserAndGroup(*this)) {
+        return;
+    }
     if (! CheckCreatePerms(*this)) {
         return;
     }
@@ -2422,7 +2450,9 @@ MetaChown::handle()
         return;
     }
     if (group != kKfsGroupNone && euser != kKfsUserRoot &&
-            ! IsGroupMember(euser, group)) {
+            ! (authUid != kKfsUserNone ?
+            gLayoutManager.GetUserAndGroup().IsGroupMamber(user, group) :
+            IsGroupMember(user, group))) {
         statusMsg = "user not a member of a group";
         status    = -EACCES;
         return;

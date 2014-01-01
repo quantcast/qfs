@@ -1295,14 +1295,6 @@ public:
         if (mForceEUserToRootFlag) {
             req.euser = kKfsUserRoot;
         }
-        if (req.authUid != kKfsUserNone) {
-            if (req.fromChunkServerFlag) {
-                req.euser  = kKfsUserNone;
-                req.egroup = kKfsGroupNone;
-            } else {
-                // mUserAndGroup.GetEUserAndGroup(req.euser, req.egroup);
-            }
-        }
         if (req.euser != kKfsUserRoot || mRootHosts.empty()) {
             return;
         }
