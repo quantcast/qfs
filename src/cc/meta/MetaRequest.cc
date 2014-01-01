@@ -556,9 +556,9 @@ CheckUserAndGroup(T& req)
         req.statusMsg = "user different from effective user";
         return false;
     }
-    if (req.euser != kKfsUserRoot && req.egroup != req.group &&
+    if (req.euser != kKfsUserRoot &&
             ! (req.authUid != kKfsUserNone ?
-            gLayoutManager.GetUserAndGroup().IsGroupMamber(req.user, req.group) :
+            gLayoutManager.GetUserAndGroup().IsGroupMember(req.user, req.group) :
             IsGroupMember(req.user, req.group))) {
         req.status    = -EPERM;
         req.statusMsg = "user is not a member of the group";
@@ -582,6 +582,13 @@ CheckCreatePerms(T& req)
         }
         if (req.group == kKfsGroupNone) {
             req.group = req.egroup;
+        }
+    } else {
+        if (req.user == kKfsUserNone) {
+            req.user = req.authUid;
+        }
+        if (req.group == kKfsGroupNone) {
+            req.group = req.authGid;
         }
     }
     if (req.mode == kKfsModeUndef) {
@@ -2449,13 +2456,15 @@ MetaChown::handle()
         status = -EACCES;
         return;
     }
-    if (group != kKfsGroupNone && euser != kKfsUserRoot &&
-            ! (authUid != kKfsUserNone ?
-            gLayoutManager.GetUserAndGroup().IsGroupMamber(user, group) :
-            IsGroupMember(user, group))) {
-        statusMsg = "user not a member of a group";
-        status    = -EACCES;
-        return;
+    if (group != kKfsGroupNone && euser != kKfsUserRoot) {
+        kfsUid_t const owner = user == kKfsUserNone ? euser : user;
+        if (! (authUid != kKfsUserNone ?
+                gLayoutManager.GetUserAndGroup().IsGroupMember(owner, group) :
+                IsGroupMember(owner, group))) {
+            statusMsg = "user not a member of a group";
+            status    = -EACCES;
+            return;
+        }
     }
     status = 0;
     if (user != kKfsUserNone) {

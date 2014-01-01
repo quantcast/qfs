@@ -137,7 +137,7 @@ public:
     void ScheduleUpdate();
     const volatile uint64_t& GetUpdateCount() const
         { return mUpdateCount; }
-    bool IsGroupMamber(
+    bool IsGroupMember(
         kfsUid_t inUser,
         kfsGid_t inGroup) const
     {
