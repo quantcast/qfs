@@ -130,7 +130,8 @@ operator>>(istream& is, ServerLocation& loc) {
 }
 
 // I-node (file / directory) permissions.
-class Permissions
+template<typename UserAndGroupsT>
+class PermissionsT
 {
 public:
     enum PBits
@@ -148,7 +149,7 @@ public:
     kfsGid_t  group;
     kfsMode_t mode;
 
-    Permissions(
+    PermissionsT(
         kfsUid_t  u = kKfsUserNone,
         kfsGid_t  g = kKfsGroupNone,
         kfsMode_t m = kKfsModeUndef)
@@ -161,7 +162,7 @@ public:
         if (user == euser) {
             return ((mode >> 6) & 0x7);
         }
-        if (group == egroup) {
+        if (group == egroup || UserAndGroupsT::IsGroupMember(euser, group)) {
             return ((mode >> 3) & 0x7);
         }
         return (mode & 0x7);
@@ -206,6 +207,15 @@ public:
         }
     }
 };
+
+class UserAndGroupNone
+{
+public:
+    static bool IsGroupMember(kfsUid_t /* user */, kfsGid_t /* group */)
+        { return false; }
+};
+
+typedef PermissionsT<UserAndGroupNone> Permissions;
 
 }
 

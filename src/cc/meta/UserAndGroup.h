@@ -24,6 +24,9 @@
 //
 //----------------------------------------------------------------------------
 
+#ifndef META_USER_AND_GROUP_H
+#define META_USER_AND_GROUP_H
+
 #include "common/kfstypes.h"
 #include "common/LinearHash.h"
 #include "common/hsieh_hash.h"
@@ -242,3 +245,5 @@ private:
 };
 
 }
+
+#endif /* META_USER_AND_GROUP_H */

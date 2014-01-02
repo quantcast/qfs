@@ -27,6 +27,7 @@
 
 #include "Key.h"
 #include "MetaNode.h"
+#include "UserAndGroup.h"
 #include "common/config.h"
 #include "common/time.h"
 #include "common/hsieh_hash.h"
@@ -311,11 +312,22 @@ public:
     const chunkOff_t& dirCount() const        { return subcount2; }
 };
 
+class MetaUserAndGroup
+{
+public:
+    static bool IsGroupMember(kfsUid_t user, kfsGid_t group)
+        { return sUserAndGroup.IsGroupMember(user, group); }
+private:
+    static const UserAndGroup& sUserAndGroup;
+};
+
+typedef PermissionsT<MetaUserAndGroup> FAPermissions;
+
 // Inheritance here used only to keep file attributes (fid in particular) at
 // the beginning (hopefully all fits into a cache line), while avoiding extra
 // method forwarding / wrappers required if permissions was declared an instance
 // variable.
-class MFattr : public BaseFattr, public Permissions {
+class MFattr : public BaseFattr, public PermissionsT<MetaUserAndGroup> {
 public:
     MFattr(
         FileType  t  = KFS_NONE,
@@ -325,7 +337,7 @@ public:
         kfsGid_t  g  = kKfsGroupNone,
         kfsMode_t m  = 0)
         : BaseFattr(t, id, n),
-          Permissions(u, g, m)
+          PermissionsT<MetaUserAndGroup>(u, g, m)
         {}
     MFattr(
         FileType  t,
@@ -339,7 +351,7 @@ public:
         kfsGid_t  g,
         kfsMode_t m)
         : BaseFattr(t, id, mt, ct, crt, c, n),
-          Permissions(u, g, m)
+          PermissionsT<MetaUserAndGroup>(u, g, m)
         {}
 };
 

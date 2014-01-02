@@ -78,8 +78,9 @@ public:
           mThread(),
           mMutex(),
           mCond(),
-          mStopFlag(),
-          mUpdateFlag(),
+          mStopFlag(false),
+          mUpdateFlag(false),
+          mDisabledFlag(false),
           mUpdatePeriodNanoSec(QCMutex::Time(10) * 365 * 24 * 60 * 60 *
             1000 * 1000 * 1000),
           mMinUserId(0),
@@ -185,6 +186,9 @@ public:
         mOmitGroupPrefix = inProperties.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "omitGroupPrefix"), mOmitGroupPrefix);
+        mDisabledFlag = inProperties.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "disable"), mDisabledFlag ? 1 : 0) != 0;
         mUserExcludes.clear();
         mGroupExcludes.clear();
         mRootGroups.clear();
@@ -363,6 +367,7 @@ private:
         kfsGid_t const theMaxGroupId      = mMaxGroupId;
         string const   theOmitUserPrefix  = mOmitUserPrefix;
         string const   theOmitGroupPrefix = mOmitGroupPrefix;
+        bool const     theDisableFlag     = mDisabledFlag;
         QCStMutexUnlocker theUnlock(mMutex);
 
         mTmpUidNameMap.Clear();
@@ -372,7 +377,12 @@ private:
         mTmpGroupUsersMap.Clear();
         mTmpGroupUserNamesMap.Clear();
         mTmpRootUsers.Clear();
+
         int theError = 0;
+        if (theDisableFlag) {
+            return theError;
+        }
+
         setgrent();
         for (; ;) {
             errno = 0;
@@ -651,6 +661,7 @@ private:
     QCCondVar          mCond;
     bool               mStopFlag;
     bool               mUpdateFlag;
+    bool               mDisabledFlag;
     QCMutex::Time      mUpdatePeriodNanoSec;
     kfsUid_t           mMinUserId;
     kfsUid_t           mMaxUserId;

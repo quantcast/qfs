@@ -686,6 +686,7 @@ typedef vector<
 class ARAChunkCache
 {
 public:
+    typedef FAPermissions Permissions;
     struct Entry {
         Entry(
             chunkId_t           cid   = -1,

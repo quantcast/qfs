@@ -939,7 +939,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int                  firstFailedServerIdx;
     bool                 logFlag;
     bool                 invalidateAllFlag;
-    const Permissions*   permissions;
+    const FAPermissions* permissions;
     MetaAllocate*        next;
     int64_t              leaseId;
     chunkOff_t           chunkBlockStart;
