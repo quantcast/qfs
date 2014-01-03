@@ -49,6 +49,11 @@ using boost::shared_ptr;
 class UserAndGroup
 {
 public:
+    enum
+    {
+        kLog2FirstBucketSize      = 10,
+        kLog2MaxUserAndGroupCount = 24
+    };
     class StringHash
     {
     public:
@@ -86,25 +91,29 @@ public:
     typedef LinearHash<
         UidName,
         KeyCompare<UidName::Key>,
-        DynamicArray<SingleLinkedList<UidName>*, 10>,
+        DynamicArray<SingleLinkedList<UidName>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<UidName>
     > UidNameMap;
     typedef LinearHash<
         GidName,
         KeyCompare<GidName::Key>,
-        DynamicArray<SingleLinkedList<GidName>*, 10>,
+        DynamicArray<SingleLinkedList<GidName>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<GidName>
     > GidNameMap;
     typedef LinearHash<
         NameUid,
         KeyCompare<NameUid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameUid>*, 10>,
+        DynamicArray<SingleLinkedList<NameUid>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<NameUid>
     > NameUidMap;
     typedef LinearHash<
         NameGid,
         KeyCompare<NameGid::Key, StringHash>,
-        DynamicArray<SingleLinkedList<NameGid>*, 10>,
+        DynamicArray<SingleLinkedList<NameGid>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<NameGid>
     > NameGidMap;
     typedef set<
@@ -116,13 +125,15 @@ public:
     typedef LinearHash<
         GroupUsers,
         KeyCompare<GroupUsers::Key>,
-        DynamicArray<SingleLinkedList<GroupUsers>*, 10>,
+        DynamicArray<SingleLinkedList<GroupUsers>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<GroupUsers>
     > GroupUsersMap;
     typedef LinearHash<
         KeyOnly<kfsUid_t>,
         KeyCompare<kfsUid_t>,
-        DynamicArray<SingleLinkedList<KeyOnly<kfsUid_t> >*, 10>,
+        DynamicArray<SingleLinkedList<KeyOnly<kfsUid_t> >*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<KeyOnly<kfsUid_t> >
     > RootUsers;
     typedef shared_ptr<const NameUidMap> NameUidPtr;

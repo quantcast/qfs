@@ -81,6 +81,7 @@ public:
           mStopFlag(false),
           mUpdateFlag(false),
           mDisabledFlag(false),
+          mOverflowFlag(false),
           mUpdatePeriodNanoSec(QCMutex::Time(10) * 365 * 24 * 60 * 60 *
             1000 * 1000 * 1000),
           mMinUserId(0),
@@ -237,16 +238,13 @@ private:
             return -EINVAL;
         }
         const int theError = Update();
-        if (theError != 0) {
-            return theError;
-        }
         mUpdateCount++;
         mStopFlag   = false;
         mUpdateFlag = false;
         const int kStackSize = 32 << 10;
         mThread.Start(this, kStackSize, "UpdateUserAndGroup");
         globalNetManager().RegisterTimeoutHandler(this);
-        return 0;
+        return (theError == 0 ? (mOverflowFlag ? -EOVERFLOW : 0) : theError);
     }
     virtual void Run()
     {
@@ -273,11 +271,13 @@ private:
         RootUserNames theRootUserNames;
         theRootUserNames.swap(mRootUserNames);
         const uint64_t theParametersReadCount = mParametersReadCount;
+        bool           theOverflowFlag        = false;
         const int      theError               = UpdateSelf(
             theUserExcludes,
             theGroupExcludes,
             theRootGroups,
-            theRootUserNames
+            theRootUserNames,
+            theOverflowFlag
         );
         if (theError == 0) {
             mPendingUidNameMap.Swap(mTmpUidNameMap);
@@ -286,6 +286,7 @@ private:
             mPendingNameGidMap.Swap(mTmpNameGidMap);
             mPendingGroupUsersMap.Swap(mTmpGroupUsersMap);
             mPendingRootUsers.Swap(mTmpRootUsers);
+            mOverflowFlag = theOverflowFlag;
             mUpdateCount++;
         }
         if (mParametersReadCount == theParametersReadCount) {
@@ -359,7 +360,8 @@ private:
         const UserExcludes&  inUserExcludes,
         const GroupExcludes& inGroupExcludes,
         const RootGroups&    inRootGroups,
-        const RootUserNames& inRootUserNames)
+        const RootUserNames& inRootUserNames,
+        bool&                outOverflowFlag)
     {
         kfsUid_t const theMinUserId       = mMinUserId;
         kfsUid_t const theMaxUserId       = mMaxUserId;
@@ -367,7 +369,7 @@ private:
         kfsGid_t const theMaxGroupId      = mMaxGroupId;
         string const   theOmitUserPrefix  = mOmitUserPrefix;
         string const   theOmitGroupPrefix = mOmitGroupPrefix;
-        bool const     theDisableFlag     = mDisabledFlag;
+        bool const     theDisabledFlag    = mDisabledFlag;
         QCStMutexUnlocker theUnlock(mMutex);
 
         mTmpUidNameMap.Clear();
@@ -379,7 +381,7 @@ private:
         mTmpRootUsers.Clear();
 
         int theError = 0;
-        if (theDisableFlag) {
+        if (theDisabledFlag) {
             return theError;
         }
 
@@ -423,6 +425,17 @@ private:
                     " id: "   << theGid <<
                     " name: " << theName <<
                 KFS_LOG_EOM;
+                continue;
+            }
+            if (mTmpGidNameMap.MaxSize() <= mTmpGidNameMap.GetSize()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "group table size exceed max allowed"
+                    " size: " << mTmpGidNameMap.GetSize() <<
+                    " ignoring group: "
+                    " id: "   << theGid <<
+                    " name: " << theName <<
+                KFS_LOG_EOM;
+                outOverflowFlag = true;;
                 continue;
             }
             bool                theInsertedFlag = false;
@@ -522,6 +535,17 @@ private:
                 KFS_LOG_EOM;
                 continue;
             }
+            if (mTmpUidNameMap.MaxSize() <= mTmpUidNameMap.GetSize()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "user table size exceed max allowed"
+                    " size: " << mTmpGidNameMap.GetSize() <<
+                    " ignoring user: "
+                    " id: "   << theUid <<
+                    " name: " << theName <<
+                KFS_LOG_EOM;
+                outOverflowFlag = true;;
+                continue;
+            }
             kfsGid_t const          theGid           =
                 (kfsGid_t)theEntryPtr->pw_gid;
             bool                    theInsertedFlag  = false;
@@ -600,6 +624,17 @@ private:
         mTmpGroupUserNamesMap.First();
         const GroupUserNames* thePtr;
         while ((thePtr = mTmpGroupUserNamesMap.Next())) {
+            if (mTmpGroupUserNamesMap.MaxSize() <=
+                    mTmpGroupUserNamesMap.GetSize()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "user table size exceed max allowed"
+                    " size: " << mTmpGroupUserNamesMap.GetSize() <<
+                    " ignoring group:"
+                    " id: " << thePtr->GetKey() <<
+                KFS_LOG_EOM;
+                outOverflowFlag = true;;
+                continue;
+            }
             const UserNamesSet& theNamesSet = thePtr->GetVal();
             bool theInsertedFlag = false;
             UsersSet& theUsers = *mTmpGroupUsersMap.Insert(
@@ -650,7 +685,8 @@ private:
     typedef LinearHash<
         GroupUserNames,
         KeyCompare<GroupUserNames::Key>,
-        DynamicArray<SingleLinkedList<GroupUserNames>*, 9>,
+        DynamicArray<SingleLinkedList<GroupUserNames>*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<GroupUserNames>
     > GroupUsersNamesMap;
 
@@ -662,6 +698,7 @@ private:
     bool               mStopFlag;
     bool               mUpdateFlag;
     bool               mDisabledFlag;
+    bool               mOverflowFlag;
     QCMutex::Time      mUpdatePeriodNanoSec;
     kfsUid_t           mMinUserId;
     kfsUid_t           mMaxUserId;
