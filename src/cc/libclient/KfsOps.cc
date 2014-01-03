@@ -850,6 +850,8 @@ CreateOp::ParseResponseHeaderSelf(const Properties &prop)
     permissions.user  = prop.getValue("User",  permissions.user);
     permissions.group = prop.getValue("Group", permissions.group);
     permissions.mode  = prop.getValue("Mode",  permissions.mode);
+    userName          = prop.getValue("UName", string());
+    groupName         = prop.getValue("GName", string());
 }
 
 void
@@ -891,7 +893,8 @@ MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 static void
-ParseFileAttribute(const Properties &prop, FileAttr &fattr)
+ParseFileAttribute(const Properties &prop,
+    FileAttr& fattr, string& outUserName, string& outGroupName)
 {
     const string estr;
 
@@ -930,6 +933,9 @@ ParseFileAttribute(const Properties &prop, FileAttr &fattr)
     fattr.mode               =          prop.getValue("Mode",                 kKfsModeUndef);
     fattr.minSTier           =          prop.getValue("Min-tier",             kKfsSTierMax);
     fattr.maxSTier           =          prop.getValue("Max-tier",             kKfsSTierMax);
+
+    outUserName  = prop.getValue("UName", string());
+    outGroupName = prop.getValue("GName", string());
 }
 
 void
@@ -938,7 +944,7 @@ LookupOp::ParseResponseHeaderSelf(const Properties &prop)
     euser    = prop.getValue("EUserId",   euser);
     egroup   = prop.getValue("EGroupId",  kKfsGroupNone);
     authType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
-    ParseFileAttribute(prop, fattr);
+    ParseFileAttribute(prop, fattr, userName, groupName);
 }
 
 void
@@ -946,7 +952,7 @@ LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     euser  = prop.getValue("EUserId",  euser);
     egroup = prop.getValue("EGroupId", kKfsGroupNone);
-    ParseFileAttribute(prop, fattr);
+    ParseFileAttribute(prop, fattr, userName, groupName);
 }
 
 static inline bool
@@ -1250,7 +1256,7 @@ GetPathNameOp::Request(ostream& os)
 void
 GetPathNameOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    ParseFileAttribute(prop, fattr);
+    ParseFileAttribute(prop, fattr, userName, groupName);
     pathname = prop.getValue("Path-name", string());
 
     offset       = prop.getValue("Chunk-offset", chunkOff_t(-1));

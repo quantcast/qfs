@@ -173,8 +173,11 @@ ValidateCreateParams(
                 (numRecoveryStripes != 0 &&
                     (numRecoveryStripes != RS_LIB_MAX_RECOVERY_BLOCKS ||
                     numStripes > RS_LIB_MAX_DATA_BLOCKS)))) ||
-        (minSTier > maxSTier || maxSTier > kKfsSTierMax || minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin || minSTier < kKfsSTierMin)
+        (minSTier > maxSTier ||
+            maxSTier > kKfsSTierMax ||
+            minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin ||
+            minSTier < kKfsSTierMin)
         ) ? -EINVAL : 0
     );
 }
@@ -2152,6 +2155,8 @@ private:
         TokenValue  lastChunkReplicas;
         TokenValue  type;
         TokenValue  filename;
+        TokenValue  userName;
+        TokenValue  groupName;
 
         Entry()
             : FileAttr(),
@@ -2161,7 +2166,9 @@ private:
               lastchunkNumReplicas(0),
               lastChunkReplicas(),
               type(),
-              filename()
+              filename(),
+              userName(),
+              groupName()
           {}
         void Reset()
         {
@@ -2176,6 +2183,8 @@ private:
             lastChunkReplicas.clear();
             type.clear();
             filename.clear();
+            userName.clear();
+            groupName.clear();
         }
         bool Validate()
         {
@@ -2346,6 +2355,8 @@ private:
             .Def("Dir-count",            &Entry::subCount2,         int64_t(-1))
             .Def("Min-tier",             &Entry::minSTier,         kKfsSTierMax)
             .Def("Max-tier",             &Entry::maxSTier,         kKfsSTierMax)
+            .Def("User-name",            &Entry::userName                      )
+            .Def("Group-name",           &Entry::groupName                     )
             .DefDone()
         ;
     };
@@ -2379,6 +2390,8 @@ private:
             .Def("DC", &Entry::subCount2,           int64_t(-1))
             .Def("FT", &Entry::minSTier,           kKfsSTierMax)
             .Def("LT", &Entry::maxSTier,           kKfsSTierMax)
+            .Def("UN", &Entry::userName                        )
+            .Def("GN", &Entry::groupName                       )
             .DefDone()
         ;
     }

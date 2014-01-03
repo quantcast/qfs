@@ -245,6 +245,8 @@ struct CreateOp : public KfsOp {
     kfsSeq_t    reqId;
     kfsSTier_t  minSTier;
     kfsSTier_t  maxSTier;
+    string      userName;
+    string      groupName;
     CreateOp(kfsSeq_t s,
             kfsFileId_t        p,
             const char*        f,
@@ -267,7 +269,9 @@ struct CreateOp : public KfsOp {
           permissions(perms),
           reqId(id),
           minSTier(minTier),
-          maxSTier(maxTier)
+          maxSTier(maxTier),
+          userName(),
+          groupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -471,6 +475,8 @@ struct LookupOp : public KfsOp {
     kfsUid_t    euser;     // result -- effective user set by the meta server
     kfsGid_t    egroup;    // result -- effective group set by the meta server
     int         authType;  // in / out auth type.
+    string      userName;
+    string      groupName;
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
@@ -478,7 +484,9 @@ struct LookupOp : public KfsOp {
           filename(f),
           euser(eu),
           egroup(eg),
-          authType(kAuthenticationTypeUndef)
+          authType(kAuthenticationTypeUndef),
+          userName(),
+          groupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -496,13 +504,17 @@ struct LookupPathOp : public KfsOp {
     FileAttr    fattr; // result
     kfsUid_t    euser;     // result -- effective user set by the meta server
     kfsGid_t    egroup;    // result -- effective group set by the meta server
+    string      userName;
+    string      groupName;
     LookupPathOp(kfsSeq_t s, kfsFileId_t r, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
           rootFid(r),
           filename(f),
           euser(eu),
-          egroup(eg)
+          egroup(eg),
+          userName(),
+          groupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -1372,6 +1384,8 @@ struct GetPathNameOp : public KfsOp {
     vector<ServerLocation> servers;
     FileAttr               fattr;
     string                 pathname;
+    string                 userName;
+    string                 groupName;
     GetPathNameOp(kfsSeq_t s, kfsFileId_t f, kfsChunkId_t c)
         : KfsOp(CMD_GETPATHNAME, s),
           fid(f),
@@ -1380,7 +1394,9 @@ struct GetPathNameOp : public KfsOp {
           chunkVersion(-1),
           servers(),
           fattr(),
-          pathname()
+          pathname(),
+          userName(),
+          groupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
