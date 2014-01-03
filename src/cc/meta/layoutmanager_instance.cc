@@ -30,4 +30,5 @@ namespace KFS
 {
 static LayoutManager sLayoutManager;
 LayoutManager& gLayoutManager = sLayoutManager;
+const UserAndGroup& MetaUserAndGroup::sUserAndGroup = gLayoutManager.GetUserAndGroup();
 }

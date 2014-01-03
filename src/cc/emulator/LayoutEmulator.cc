@@ -922,5 +922,7 @@ LayoutEmulator::RunFsck(
 
 LayoutEmulator gLayoutEmulator;
 LayoutManager& gLayoutManager = gLayoutEmulator;
+const UserAndGroup& MetaUserAndGroup::sUserAndGroup =
+    gLayoutManager.GetUserAndGroup();
 
 } // namespace KFS

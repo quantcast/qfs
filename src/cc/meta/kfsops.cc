@@ -44,8 +44,6 @@ using std::set;
 using std::max;
 using std::make_pair;
 
-const UserAndGroup& MetaUserAndGroup::sUserAndGroup = gLayoutManager.GetUserAndGroup();
-
 const string kParentDir("..");
 const string kThisDir(".");
 
