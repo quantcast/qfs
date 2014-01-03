@@ -134,6 +134,9 @@ public:
     typedef typename AllocT::template rebind<Entry>::other Allocator;
     typedef std::size_t                                    size_t;
 
+    static inline size_t MaxSize()
+        { return DArrayT::MaxSize(); }
+
     LinearHash()
         : mSplitIdx(0),
           mMaxSplitIdx(1),

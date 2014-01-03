@@ -192,6 +192,11 @@ public:
     }
     bool IsEmpty() const
         { return (mSize <= 0); }
+    static inline size_t MaxSize()
+    {
+        return (size_t)(
+            ~size_t(0) > 0 ? ~size_t(0) : ~(size_t(1) << (sizeof(T) * 8 - 1)));
+    }
 protected:
     T*     mBufPtr;
     size_t mCapacity;
