@@ -4402,10 +4402,11 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
     StartProtocolWorker();
     mProtocolWorker->ExecuteMeta(*op);
     KFS_LOG_STREAM_DEBUG <<
-        "op completed: " <<
-        op->Show() <<
+        "meta op done:" <<
+        " seq: "    << op->seq <<
         " status: " << op->status <<
         " msg: "    << op->statusMsg <<
+        " "         << op->Show() <<
     KFS_LOG_EOM;
 }
 
