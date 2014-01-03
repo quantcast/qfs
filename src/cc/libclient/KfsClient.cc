@@ -1188,7 +1188,6 @@ KfsClientImpl::KfsClientImpl()
       mIsInitialized(false),
       mMetaServerLoc(),
       mNetManager(),
-      mMetaServer(mNetManager),
       mChunkServer(mNetManager),
       mCwd("/"),
       mFileTable(),
@@ -1244,10 +1243,6 @@ KfsClientImpl::KfsClientImpl()
     mTmpPath.reserve(32);
     mTmpAbsPathStr.reserve(MAX_PATH_NAME_LENGTH);
     mTmpBuffer[kTmpBufferSize] = 0;
-    // Make content length limit large enough to ensure backward compatibility
-    // with the previous versions of the meta server that don't support
-    // partial readdir and getalloc.
-    mMetaServer.SetMaxContentLength(512 << 20);
     mChunkServer.SetMaxContentLength(64 << 20);
 }
 
@@ -1380,7 +1375,6 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             KFS_LOG_EOM;
             return err;
         }
-        mMetaServer.SetAuthContext(&mAuthCtx);
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
@@ -3899,6 +3893,10 @@ KfsClientImpl::StartProtocolWorker()
     if (mProtocolWorkerAuthCtx.IsEnabled()) {
         params.mAuthContextPtr = &mProtocolWorkerAuthCtx;
     }
+    // Make content length limit large enough to ensure backward compatibility
+    // with the previous versions of the meta server that don't support
+    // partial readdir and getalloc.
+    params.mMaxMetaServerContentLength = 512 << 20;
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,
@@ -4392,7 +4390,7 @@ KfsClientImpl::OpDone(
 /// Wrapper for retrying ops with the metaserver.
 ///
 void
-KfsClientImpl::DoMetaOpWithRetry(KfsOp *op)
+KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
 {
     if (! op) {
         KFS_LOG_STREAM_FATAL << "DoMetaOpWithRetry: invalid null oo" <<
@@ -4401,7 +4399,14 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp *op)
         abort();
         return;
     }
-    DoServerOp(mMetaServer, mMetaServerLoc, *op);
+    StartProtocolWorker();
+    mProtocolWorker->ExecuteMeta(*op);
+    KFS_LOG_STREAM_DEBUG <<
+        "op completed: " <<
+        op->Show() <<
+        " status: " << op->status <<
+        " msg: "    << op->statusMsg <<
+    KFS_LOG_EOM;
 }
 
 void

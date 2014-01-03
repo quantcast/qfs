@@ -333,7 +333,9 @@ public:
         // The op has to be in the queue in order for cancel to work.
         mStats.mOpsQueuedCount++;
         const bool theOkFlag = EnqueueSelf(inOpPtr, inOwnerPtr, inBufferPtr, 0);
-        EnsureConnected(0, inOpPtr);
+        if (theOkFlag) {
+            EnsureConnected(0, inOpPtr);
+        }
         return theOkFlag;
     }
     bool Cancel(

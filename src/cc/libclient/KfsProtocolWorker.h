@@ -40,6 +40,7 @@ namespace client
 {
 using std::string;
 
+struct KfsOp;
 // KFS client side protocol worker thread runs client side network io state
 // machines.
 class KfsProtocolWorker
@@ -74,7 +75,8 @@ public:
         kRequestTypeRead                         = 27,
         kRequestTypeReadAsync                    = 28,
         kRequestTypeReadClose                    = 29,
-        kRequestTypeReadShutdown                 = 30
+        kRequestTypeReadShutdown                 = 30,
+        kRequestTypeMetaOp                       = 31 // Internal use only
     };
     typedef kfsFileId_t  FileId;
     typedef unsigned int FileInstance;
@@ -168,6 +170,7 @@ public:
         Request* mNextPtr[1];
         friend class QCDLListOp<Request, 0>;
         friend class Impl;
+        friend class KfsProtocolWorker;
     private:
         Request(
             const Request& inReq);
@@ -263,6 +266,8 @@ public:
         int                    inSize       = 0,
         int                    inMaxPending = -1,
         int64_t                inOffset     = -1);
+    void ExecuteMeta(
+        KfsOp& inOp);
     void Enqueue(
         Request& inRequest);
     void Start();

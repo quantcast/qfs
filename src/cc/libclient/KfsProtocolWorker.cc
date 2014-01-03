@@ -24,6 +24,7 @@
 //----------------------------------------------------------------------------
 
 #include "KfsProtocolWorker.h"
+#include "KfsOps.h"
 
 #include <algorithm>
 #include <map>
@@ -187,6 +188,10 @@ public:
             theShutdownFlag = theShutdownFlag || &mStopRequest == theReqPtr;
             if (theShutdownFlag) {
                 Done(theReq, kErrShutdown);
+                continue;
+            }
+            if (theReq.mRequestType == kRequestTypeMetaOp) {
+                MetaRequest(theReq);
                 continue;
             }
             WorkerKey const theKey(theReq.mFileInstance, theReq.mFileId);
@@ -400,6 +405,8 @@ public:
                 return (inRequest.mSize == 0);
             case kRequestTypeWriteSetWriteThreshold:
                 return true;
+            case kRequestTypeMetaOp:
+                return (inRequest.mBufferPtr != 0);
 
             default:
                 break;
@@ -544,7 +551,9 @@ private:
         AsyncRequest& operator=(
             const AsyncRequest& inReq);
     };
-    class SyncRequest : public Request
+    class SyncRequest :
+        public Request,
+        public KfsNetClient::OpOwner
     {
     public:
         SyncRequest(
@@ -565,6 +574,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset),
+              KfsNetClient::OpOwner(),
               mMutex(),
               mCond(),
               mRetStatus(0),
@@ -615,6 +625,18 @@ private:
                 {}
             return mRetStatus;
         }
+        virtual void OpDone(
+            KfsOp*    inOpPtr,
+            bool      inCanceledFlag,
+            IOBuffer* inBufferPtr)
+        {
+            QCRTASSERT(inOpPtr && ! inBufferPtr && inOpPtr == mBufferPtr);
+            if (inCanceledFlag && inOpPtr->status == 0) {
+                inOpPtr->status    = -ECANCELED;
+                inOpPtr->statusMsg = "canceled";
+            }
+            Impl::Done(*this, 0);
+        }
     private:
         QCMutex      mMutex;
         QCCondVar    mCond;
@@ -629,6 +651,20 @@ private:
         SyncRequest& operator=(
             const SyncRequest& inReq);
     };
+    void MetaRequest(
+        Request& inRequest)
+    {
+        KfsOp* const theOpPtr = reinterpret_cast<KfsOp*>(inRequest.mBufferPtr);
+        if (! theOpPtr) {
+            Done(inRequest, kErrParameters);
+            return;
+        }
+        if (! mMetaServer.Enqueue(
+                theOpPtr, static_cast<SyncRequest*>(&inRequest))) {
+            theOpPtr->status    = kErrParameters;
+            theOpPtr->statusMsg = "failed to enqueue op";
+        }
+    }
     typedef QCDLList<SyncRequest, 0> FreeSyncRequests;
     class DoNotDeallocate : public libkfsio::IOBufferAllocator
     {
@@ -1719,9 +1755,36 @@ KfsProtocolWorker::Execute(
 }
 
 void
+KfsProtocolWorker::ExecuteMeta(
+    KfsOp& inOp)
+{
+    const int64_t theRet = mImpl.Execute(
+        kRequestTypeMetaOp,
+        1,
+        1,
+        0,
+        &inOp,
+        0,
+        0,
+        0
+    );
+    if (theRet < 0 && 0 <= inOp.status) {
+        inOp.status = (int)theRet;
+    }
+}
+
+void
 KfsProtocolWorker::Enqueue(
     Request& inRequest)
 {
+    QCRTASSERT(inRequest.mRequestType != kRequestTypeMetaOp);
+    if (inRequest.mRequestType == kRequestTypeMetaOp) {
+        const int theStatus = kErrProtocol;
+        inRequest.mState  = Request::kStateDone;
+        inRequest.mStatus = theStatus;
+        inRequest.Done(theStatus);
+        return;
+    }
     mImpl.Enqueue(inRequest);
 }
 

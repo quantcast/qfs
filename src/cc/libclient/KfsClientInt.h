@@ -627,9 +627,8 @@ private:
     /// where is the meta server located
     ServerLocation mMetaServerLoc;
 
-    /// Meta server communication state machine.
+    /// Chunk server communication state machine.
     NetManager   mNetManager;
-    KfsNetClient mMetaServer;
     KfsNetClient mChunkServer;
 
     /// The current working directory in KFS
