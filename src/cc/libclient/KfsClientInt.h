@@ -757,6 +757,7 @@ private:
     kfsMode_t                      mUMask;
     vector<kfsGid_t>               mGroups;
     kfsSeq_t                       mCreateId;
+    bool                           mUseOsUserAndGroupFlag;
     UserNames                      mUserNames;
     GroupNames                     mGroupNames;
     UserIds                        mUserIds;
@@ -953,6 +954,10 @@ private:
     void UpdatePath(KfsClientImpl::FAttr* fa, const string& path,
         bool copyPathFlag = true);
     const char* GetTmpAbsPath(const char* pathname, size_t& ioLen);
+    void UpdateUserAndGroup(const LookupOp& op, time_t now);
+    void DoNotUseOsUserAndGroup();
+    void UpdateUserId(const string& userName, kfsUid_t uid, time_t now);
+    void UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now);
 
     friend struct RespondingServer;
     friend struct RespondingServer2;

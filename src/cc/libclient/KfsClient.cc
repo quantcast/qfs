@@ -1220,6 +1220,7 @@ KfsClientImpl::KfsClientImpl()
       mUMask(0),
       mGroups(),
       mCreateId(RandomSeqNo()),
+      mUseOsUserAndGroupFlag(true),
       mUserNames(),
       mGroupNames(),
       mUserIds(),
@@ -2137,6 +2138,10 @@ public:
         { return mEntry.filename.mPtr; }
     size_t GetNameLen() const
         { return mEntry.filename.mLen; }
+    const TokenValue& GetUserName() const
+        { return mEntry.userName; }
+    const TokenValue& GetGroupName() const
+        { return mEntry.groupName; }
 private:
     class Entry : public FileAttr
     {
@@ -2469,6 +2474,16 @@ public:
             if (attr.filename.empty()) {
                 return -EIO;
             }
+            const TokenValue& uname = parser.GetUserName();
+            if (0 < uname.mLen) {
+                outer.UpdateUserId(
+                    string(uname.mPtr, uname.mLen), attr.user, now);
+            }
+            const TokenValue& gname = parser.GetGroupName();
+            if (0 < gname.mLen) {
+                outer.UpdateGroupId(
+                    string(gname.mPtr, gname.mLen), attr.group, now);
+            }
             if (attr.isDirectory) {
                 if (hasDirs) {
                     continue;
@@ -2796,6 +2811,8 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
         fa = 0;
         return op.status;
     }
+    const time_t now = time(0);
+    UpdateUserAndGroup(op, now);
     if (! op.fattr.isDirectory && computeFilesize && op.fattr.fileSize < 0) {
         op.fattr.fileSize = ComputeFilesize(op.fattr.fileId);
         if (op.fattr.fileSize < 0) {
@@ -2817,7 +2834,7 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
         }
     }
     *fa                    = op.fattr;
-    fa->validatedTime      = time(0);
+    fa->validatedTime      = now;
     fa->generation         = mFAttrCacheGeneration;
     fa->staleSubCountsFlag = false;
     return 0;
@@ -3411,6 +3428,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 fa = 0;
             }
             DoMetaOpWithRetry(&op);
+            UpdateUserAndGroup(op, now);
         }
         if (op.status < 0) {
             if (! cacheAttributesFlag && (openMode & O_CREAT) != 0 &&
@@ -4205,6 +4223,8 @@ KfsClientImpl::UpdateFilesize(int fd)
             Delete(fa);
             return op.status;
         }
+        const time_t now = time(0);
+        UpdateUserAndGroup(op, now);
         if (op.fattr.fileId != entry.fattr.fileId) {
             Delete(fa);
             return 0; // File doesn't exists anymore, or in the dumpster.
@@ -4212,7 +4232,7 @@ KfsClientImpl::UpdateFilesize(int fd)
         entry.fattr = op.fattr;
         if (fa) {
             *fa                    = op.fattr;
-            fa->validatedTime      = time(0);
+            fa->validatedTime      = now;
             fa->generation         = mFAttrCacheGeneration;
             fa->staleSubCountsFlag = false;
             FAttrLru::PushBack(mFAttrLru, *fa);
@@ -4685,6 +4705,7 @@ KfsClientImpl::LookupSelf(LookupOp& op,
         }
         return op.status;
     }
+    UpdateUserAndGroup(op, now);
     // Update i-node cache.
     // This method presently called only from the path traversal.
     // Force new path string allocation to keep "path" buffer mutable,
@@ -5767,11 +5788,13 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
         return empty;
     }
     UserNames::const_iterator it = mUserNames.find(uid);
-    if (it == mUserNames.end() || it->second.second < now) {
+    if (it == mUserNames.end() ||
+            (mUseOsUserAndGroupFlag && it->second.second < now)) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        const int err = getpwuid_r((uid_t)uid,
-            &pwebuf, mNameBuf, mNameBufSize, &pwe);
+        const int      err    = mUseOsUserAndGroupFlag ?
+            getpwuid_r((uid_t)uid, &pwebuf, mNameBuf, mNameBufSize, &pwe) :
+            ENOENT;
         string name;
         if (err || ! pwe) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5801,11 +5824,13 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
         return empty;
     }
     GroupNames::const_iterator it = mGroupNames.find(gid);
-    if (it == mGroupNames.end() || it->second.second < now) {
+    if (it == mGroupNames.end() ||
+            (mUseOsUserAndGroupFlag && it->second.second < now)) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        const int err = getgrgid_r((gid_t)gid,
-            &gbuf, mNameBuf, mNameBufSize, &pge);
+        const int     err  = mUseOsUserAndGroupFlag ?
+            getgrgid_r((gid_t)gid, &gbuf, mNameBuf, mNameBufSize, &pge) :
+            ENOENT;
         string name;
         if (err || ! pge) {
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
@@ -5832,11 +5857,13 @@ kfsUid_t
 KfsClientImpl::NameToUid(const string& name, time_t now)
 {
     UserIds::const_iterator it = mUserIds.find(name);
-    if (it == mUserIds.end() || it->second.second < now) {
+    if (it == mUserIds.end() ||
+            (mUseOsUserAndGroupFlag && it->second.second < now)) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
-        const int err = getpwnam_r(name.c_str(),
-            &pwebuf, mNameBuf, mNameBufSize, &pwe);
+        const int err = mUseOsUserAndGroupFlag ?
+            getpwnam_r(name.c_str(), &pwebuf, mNameBuf, mNameBufSize, &pwe) :
+            ENOENT;
         kfsUid_t uid;
         if (err || ! pwe) {
             char* end = 0;
@@ -5863,11 +5890,13 @@ kfsGid_t
 KfsClientImpl::NameToGid(const string& name, time_t now)
 {
     GroupIds::const_iterator it = mGroupIds.find(name);
-    if (it == mGroupIds.end() || it->second.second < now) {
+    if (it == mGroupIds.end() ||
+            (mUseOsUserAndGroupFlag && it->second.second < now)) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
-        const int err = getgrnam_r(name.c_str(),
-            &gbuf, mNameBuf, mNameBufSize, &pge);
+        const int     err  = mUseOsUserAndGroupFlag ?
+            getgrnam_r(name.c_str(), &gbuf, mNameBuf, mNameBufSize, &pge) :
+            ENOENT;
         kfsGid_t gid;
         if (err || ! pge) {
             char* end = 0;
@@ -5888,6 +5917,51 @@ KfsClientImpl::NameToGid(const string& name, time_t now)
         it = res.first;
     }
     return it->second.first;
+}
+
+void
+KfsClientImpl::UpdateUserAndGroup(const LookupOp& op, time_t now)
+{
+    if (op.status < 0) {
+        return;
+    }
+    if (! op.userName.empty()) {
+        UpdateUserId(op.userName, op.fattr.user, now);
+    }
+    if (! op.groupName.empty()) {
+        UpdateGroupId(op.groupName, op.fattr.group, now);
+    }
+}
+
+void
+KfsClientImpl::DoNotUseOsUserAndGroup()
+{
+    if (! mUseOsUserAndGroupFlag) {
+        return;
+    }
+    mUseOsUserAndGroupFlag = false;
+    mUserIds.clear();
+    mUserNames.clear();
+    mGroupIds.clear();
+    mGroupNames.clear();
+}
+
+void
+KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
+{
+    DoNotUseOsUserAndGroup();
+    const time_t exp = now + mFileAttributeRevalidateTime;
+    mUserIds  [userName] = make_pair(uid,      exp);
+    mUserNames[uid     ] = make_pair(userName, exp);
+}
+
+void
+KfsClientImpl::UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now)
+{
+    DoNotUseOsUserAndGroup();
+    const time_t exp = now + mFileAttributeRevalidateTime;
+    mGroupIds  [groupName] = make_pair(gid,       exp);
+    mGroupNames[gid      ] = make_pair(groupName, exp);
 }
 
 int
