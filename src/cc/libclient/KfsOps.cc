@@ -1300,6 +1300,12 @@ ChownOp::Request(ostream &os)
     if (group != kKfsGroupNone) {
         os << "Group: " << group << "\r\n";
     }
+    if (userName && *userName) {
+        os << "OName: " << userName << "\r\n";
+    }
+    if (groupName && *groupName) {
+        os << "GName: " << groupName << "\r\n";
+    }
     os << "\r\n";
 }
 

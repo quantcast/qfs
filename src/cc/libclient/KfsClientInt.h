@@ -958,6 +958,38 @@ private:
     void DoNotUseOsUserAndGroup();
     void UpdateUserId(const string& userName, kfsUid_t uid, time_t now);
     void UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now);
+    int ChownSelf(
+        int         fd,
+        const char* userName,
+        const char* groupName,
+        kfsUid_t    user,
+        kfsGid_t    group);
+    int ChownSelf(
+        const char* pathname,
+        const char* userName,
+        const char* groupName,
+        kfsUid_t    user,
+        kfsGid_t    group);
+    int ChownSelf(
+        kfsFileId_t fid,
+        const char* userName,
+        const char* groupName,
+        kfsUid_t    user,
+        kfsGid_t    group,
+        kfsUid_t*   outUser,
+        kfsUid_t*   outGroup);
+    int ChownRSelf(
+        const char*   pathname,
+        const char*   userName,
+        const char*   groupName,
+        kfsUid_t      user,
+        kfsGid_t      group,
+        ErrorHandler* errHandler);
+    int ChownSetParams(
+        const char*& userName,
+        const char*& groupName,
+        kfsUid_t&    user,
+        kfsGid_t&    group);
 
     friend struct RespondingServer;
     friend struct RespondingServer2;

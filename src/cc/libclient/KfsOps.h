@@ -1437,11 +1437,15 @@ struct ChownOp : public KfsOp {
     kfsFileId_t fid;
     kfsUid_t    user;
     kfsGid_t    group;
+    const char* userName;
+    const char* groupName;
     ChownOp(kfsSeq_t s, kfsFileId_t f, kfsUid_t u, kfsGid_t g)
         : KfsOp(CMD_CHOWN, s),
           fid(f),
           user(u),
-          group(g)
+          group(g),
+          userName(0),
+          groupName(0)
         {}
     virtual void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {

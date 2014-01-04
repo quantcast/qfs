@@ -5408,19 +5408,21 @@ KfsClientImpl::ChmodR(const char* pathname, kfsMode_t mode,
 int
 KfsClientImpl::Chown(int fd, const char* user, const char* group)
 {
-    kfsUid_t uid = kKfsUserNone;
-    kfsGid_t gid = kKfsGroupNone;
-    int      ret = GetUserAndGroup(user, group, uid, gid);
-    if (ret != 0) {
-        return ret;
-    }
-    return Chown(fd, uid, gid);
+    return ChownSelf(fd, user, group, kKfsUserNone, kKfsGroupNone);
 }
 
 int
 KfsClientImpl::Chown(int fd, kfsUid_t user, kfsGid_t group)
 {
-    if (user == kKfsUserNone && group == kKfsGroupNone) {
+    return ChownSelf(fd, 0, 0, user, group);
+}
+
+int
+KfsClientImpl::ChownSelf(int fd,
+    const char* userName, const char* groupName, kfsUid_t user, kfsGid_t group)
+{
+    if (user == kKfsUserNone && group == kKfsGroupNone &&
+            (! userName || ! *userName) && (! groupName || ! *groupName)) {
         return -EINVAL;
     }
 
@@ -5433,21 +5435,106 @@ KfsClientImpl::Chown(int fd, kfsUid_t user, kfsGid_t group)
     if (! entry.fattr.IsAnyPermissionDefined()) {
         return 0; // permissions aren't supported by the meta server.
     }
-    if (mEUser != kKfsUserRoot && (user == kKfsUserNone || user == mEUser) &&
-            find(mGroups.begin(), mGroups.end(), group) ==
-                mGroups.end()) {
-        return -EPERM;
+    return ChownSelf(
+        entry.fattr.fileId,
+        userName,
+        groupName,
+        user,
+        group,
+        &entry.fattr.user,
+        &entry.fattr.group
+    );
+}
+
+int
+KfsClientImpl::ChownSetParams(
+    const char*& userName,
+    const char*& groupName,
+    kfsUid_t&    user,
+    kfsGid_t&    group)
+{
+    kfsUid_t    uid = user;
+    kfsGid_t    gid = group;
+    const char* un  = userName;
+    const char* gn  = groupName;
+    if (mUseOsUserAndGroupFlag) {
+        if ((un || gn)) {
+            const time_t now = time(0);
+            if (un && *un) {
+                uid = NameToUid(un, now);
+                if (uid == kKfsUserNone) {
+                    return -EINVAL;
+                }
+            }
+            if (gn && *gn) {
+                gid = NameToGid(gn, now);
+                if (gid == kKfsGroupNone) {
+                    return -EINVAL;
+                }
+            }
+        }
+        if (mEUser != kKfsUserRoot &&
+                (uid == kKfsUserNone || uid == mEUser) &&
+                find(mGroups.begin(), mGroups.end(), gid) == mGroups.end()) {
+            return -EPERM;
+        }
+    } else {
+        un = userName;
+        gn = groupName;
+        if (un && *un) {
+            char* end = 0;
+            unsigned long const id = strtoul(un, &end, 0);
+            if (un < end && *end <= ' ') {
+                uid = (kfsUid_t)id;
+                un = 0;
+            }
+        }
+        if (gn && *gn) {
+            char* end = 0;
+            unsigned long const id = strtoul(gn, &end, 0);
+            if (groupName < end && *end <= ' ') {
+                gid = (kfsGid_t)id;
+                gn = 0;
+            }
+        }
     }
-    ChownOp op(0, entry.fattr.fileId, user, group);
+    userName  = un;
+    groupName = gn;
+    user      = uid;
+    group     = gid;
+    return 0;
+}
+
+int
+KfsClientImpl::ChownSelf(
+    kfsFileId_t fid,
+    const char* userName,
+    const char* groupName,
+    kfsUid_t    user,
+    kfsGid_t    group,
+    kfsUid_t*   outUser,
+    kfsUid_t*   outGroup)
+{
+    const char* un     = userName;
+    const char* gn     = groupName;
+    kfsUid_t    uid    = user;
+    kfsGid_t    gid    = group;
+    const int   status = ChownSetParams(un, gn, uid, gid);
+    if (status != 0) {
+        return status;
+    }
+    ChownOp op(0, fid, uid, gid);
+    op.userName  = un;
+    op.groupName = gn;
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
         return op.status;
     }
-    if (user != kKfsUserNone) {
-        entry.fattr.user = user;
+    if (outUser) {
+        *outUser = op.user;
     }
-    if (group != kKfsGroupNone) {
-        entry.fattr.group = group;
+    if (outGroup) {
+        *outGroup = op.group;
     }
     return 0;
 }
@@ -5455,19 +5542,21 @@ KfsClientImpl::Chown(int fd, kfsUid_t user, kfsGid_t group)
 int
 KfsClientImpl::Chown(const char* pathname, const char* user, const char* group)
 {
-    kfsUid_t uid = kKfsUserNone;
-    kfsGid_t gid = kKfsGroupNone;
-    int      ret = GetUserAndGroup(user, group, uid, gid);
-    if (ret != 0) {
-        return ret;
-    }
-    return Chown(pathname, uid, gid);
+    return ChownSelf(pathname, user, group, kKfsUserNone, kKfsGroupNone);
 }
 
 int
 KfsClientImpl::Chown(const char* pathname, kfsUid_t user, kfsGid_t group)
 {
-    if (user == kKfsUserNone && group == kKfsGroupNone) {
+    return ChownSelf(pathname, 0, 0, user, group);
+}
+
+int
+KfsClientImpl::ChownSelf(const char* pathname,
+    const char* userName, const char* groupName, kfsUid_t user, kfsGid_t group)
+{
+    if (user == kKfsUserNone && group == kKfsGroupNone &&
+            (! userName || ! *userName) && (! groupName || ! *groupName)) {
         return -EINVAL;
     }
 
@@ -5485,21 +5574,17 @@ KfsClientImpl::Chown(const char* pathname, kfsUid_t user, kfsGid_t group)
     if (! attr.IsAnyPermissionDefined()) {
         return 0; // permissions aren't supported by the meta server.
     }
-    if (mEUser != kKfsUserRoot && (user == kKfsUserNone || user == mEUser) &&
-            find(mGroups.begin(), mGroups.end(), group) ==
-                mGroups.end()) {
-        return -EPERM;
-    }
-    ChownOp op(0, attr.fileId, user, group);
-    DoMetaOpWithRetry(&op);
-    if (op.status != 0 || ! fa) {
-        return op.status;
-    }
-    if (user != kKfsUserNone) {
-        fa->user = user;
-    }
-    if (group != kKfsGroupNone) {
-        fa->group = group;
+    const int status = ChownSelf(
+        attr.fileId,
+        userName,
+        groupName,
+        user,
+        group,
+        &fa->user,
+        &fa->group
+    );
+    if (status != 0) {
+        return status;
     }
     if (fa->isDirectory) {
         InvalidateAllCachedAttrs();
@@ -5511,13 +5596,15 @@ int
 KfsClientImpl::ChownR(const char* pathname, const char* user, const char* group,
     KfsClientImpl::ErrorHandler* errHandler)
 {
-    kfsUid_t uid = kKfsUserNone;
-    kfsGid_t gid = kKfsGroupNone;
-    int      ret = GetUserAndGroup(user, group, uid, gid);
-    if (ret != 0) {
-        return ret;
-    }
-    return ChownR(pathname, uid, gid, errHandler);
+    return ChownRSelf(pathname, user, group,
+        kKfsUserNone, kKfsGroupNone, errHandler);
+}
+
+int
+KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+    KfsClientImpl::ErrorHandler* errHandler)
+{
+    return ChownRSelf(pathname, 0, 0, user, group, errHandler);
 }
 
 class ChownFunc
@@ -5525,11 +5612,18 @@ class ChownFunc
 public:
     typedef KfsClient::ErrorHandler ErrorHandler;
 
-    ChownFunc(KfsClientImpl& cli, kfsUid_t user, kfsGid_t group,
-        ErrorHandler& errHandler)
+    ChownFunc(
+        KfsClientImpl& cli,
+        kfsUid_t       user,
+        kfsGid_t       group,
+        const char*    userName,
+        const char*    groupName,
+        ErrorHandler&  errHandler)
         : mCli(cli),
           mUser(user),
           mGroup(group),
+          mUserName(userName),
+          mGroupName(groupName),
           mErrHandler(errHandler)
         {}
     int operator()(const string& path, const KfsFileAttr& attr,
@@ -5542,6 +5636,8 @@ public:
             }
         }
         ChownOp op(0, attr.fileId, mUser, mGroup);
+        op.userName  = mUserName;
+        op.groupName = mGroupName;
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
             const int ret = mErrHandler(path, op.status);
@@ -5552,25 +5648,36 @@ public:
         return 0;
     }
 private:
-    KfsClientImpl& mCli;
-    const kfsUid_t mUser;
-    const kfsGid_t mGroup;
-    ErrorHandler&  mErrHandler;
+    KfsClientImpl&    mCli;
+    const kfsUid_t    mUser;
+    const kfsGid_t    mGroup;
+    const char* const mUserName;
+    const char* const mGroupName;
+    ErrorHandler&     mErrHandler;
 };
 
 int
-KfsClientImpl::ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
+KfsClientImpl::ChownRSelf(
+    const char*                  pathname,
+    const char*                  userName,
+    const char*                  groupName,
+    kfsUid_t                     user,
+    kfsGid_t                     group,
     KfsClientImpl::ErrorHandler* errHandler)
 {
     QCStMutexLocker l(mMutex);
 
-    if (mEUser != kKfsUserRoot && (user == kKfsUserNone || user == mEUser) &&
-            find(mGroups.begin(), mGroups.end(), group) ==
-                mGroups.end()) {
-        return -EPERM;
+    kfsUid_t    uid    = user;
+    kfsGid_t    gid    = group;
+    const char* un     = userName;
+    const char* gn     = groupName;
+    const int   status = ChownSetParams(un, gn, uid, gid);
+    if (status != 0) {
+        return status;
     }
     DefaultErrHandler errorHandler;
-    ChownFunc funct(*this, user, group, errHandler ? *errHandler : errorHandler);
+    ChownFunc funct(*this, uid, gid, un, gn,
+        errHandler ? *errHandler : errorHandler);
     const int ret = RecursivelyApply(pathname, funct);
     return (errHandler ? ret : (ret != 0 ? ret : errorHandler.GetStatus()));
 }
