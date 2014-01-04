@@ -3926,6 +3926,8 @@ MetaMkdir::response(ostream &os)
     "User: "        << user  << "\r\n"
     "Group: "       << group << "\r\n"
     "Mode: "        << mode  << "\r\n"
+    ;
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
     "\r\n";
 }
 
