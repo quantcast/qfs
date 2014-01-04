@@ -890,6 +890,8 @@ MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
     permissions.user  = prop.getValue("User",  permissions.user);
     permissions.group = prop.getValue("Group", permissions.group);
     permissions.mode  = prop.getValue("Mode",  permissions.mode);
+    userName          = prop.getValue("UName", string());
+    groupName         = prop.getValue("GName", string());
 }
 
 static void

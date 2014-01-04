@@ -301,6 +301,8 @@ struct MkdirOp : public KfsOp {
     Permissions permissions;
     kfsSeq_t    reqId;
     kfsFileId_t fileId; // result
+    string      userName;
+    string      groupName;
     MkdirOp(kfsSeq_t s, kfsFileId_t p, const char* d,
             const Permissions& perms = Permissions(), kfsSeq_t id = -1)
         : KfsOp(CMD_MKDIR, s),
@@ -308,7 +310,9 @@ struct MkdirOp : public KfsOp {
           dirname(d),
           permissions(perms),
           reqId(id),
-          fileId(-1)
+          fileId(-1),
+          userName(),
+          groupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);

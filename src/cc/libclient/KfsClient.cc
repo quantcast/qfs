@@ -1579,6 +1579,12 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
                 fa->staleSubCountsFlag = true;
             }
             createdFlag = true;
+            if (! op.userName.empty()) {
+                UpdateUserId(op.userName, op.permissions.user, now);
+            }
+            if (! op.groupName.empty()) {
+                UpdateGroupId(op.groupName, op.permissions.group, now);
+            }
             continue;
         }
         if (res != -EEXIST) {
@@ -1629,6 +1635,17 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
         return op.status;
+    }
+    time_t now;
+    if (! op.userName.empty()) {
+        now = time(0);
+        UpdateUserId(op.userName, op.permissions.user, now);
+    }
+    if (! op.groupName.empty()) {
+        if (op.userName.empty()) {
+            now = time(0);
+        }
+        UpdateGroupId(op.groupName, op.permissions.group, now);
     }
     return 0;
 }
@@ -2964,6 +2981,17 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         fa.stripeSize         = stripeSize;
     }
     static_cast<Permissions&>(fa) = op.permissions;
+    time_t now;
+    if (! op.userName.empty()) {
+        now = time(0);
+        UpdateUserId(op.userName, fa.user, now);
+    }
+    if (! op.groupName.empty()) {
+        if (op.userName.empty()) {
+            now = time(0);
+        }
+        UpdateGroupId(op.groupName, fa.group, now);
+    }
     // Set optimal io size, like open does.
     SetOptimalReadAheadSize(entry, mDefaultReadAheadSize);
     SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
