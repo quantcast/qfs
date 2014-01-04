@@ -293,11 +293,11 @@ UserAndGroupNamesReply(
     if (ugn) {
         const string* name = ugn->GetUserName(user);
         if (name) {
-            os << "UName: " << name << "\r\n";
+            os << "UName: " << *name << "\r\n";
         }
         name = ugn->GetGroupName(group);
         if (name) {
-            os << "GName: " << name << "\r\n";
+            os << "GName: " << *name << "\r\n";
         }
     }
     return os;
