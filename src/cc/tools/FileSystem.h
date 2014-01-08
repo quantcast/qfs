@@ -154,8 +154,8 @@ public:
         ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int Chown(
         const string& inPathName,
-        kfsUid_t      inOwner,
-        kfsGid_t      inGroup,
+        const char*   inOwnerNamePtr,
+        const char*   inGroupNamePtr,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int Rmdir(

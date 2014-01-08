@@ -462,18 +462,30 @@ public:
     };
     virtual int Chown(
         const string& inPathName,
-        kfsUid_t      inOwner,
-        kfsGid_t      inGroup,
+        const char*   inOwnerNamePtr,
+        const char*   inGroupNamePtr,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
+        kfsUid_t  theUserId  = kKfsUserNone;
+        kfsGid_t  theGroupId = kKfsGroupNone;
+        const int theStatus  = GetUserAndGroupIds(
+            string(inOwnerNamePtr ? inOwnerNamePtr : ""),
+            string(inGroupNamePtr ? inGroupNamePtr : ""),
+            theUserId,
+            theGroupId
+        );
+        if (theStatus) {
+            return theStatus;
+        }
         if (inRecursiveFlag) {
-            ChownFunctor           theChownFunc(inOwner, inGroup);
+            ChownFunctor           theChownFunc(theUserId, theGroupId);
             FunctorT<ChownFunctor> theFunc(theChownFunc, inErrorHandlerPtr);
             const int theStatus = RecursivelyApply(inPathName, theFunc);
             return (theStatus == 0 ? theFunc.GetStatus() : theStatus);
         }
-        return Errno(chown(inPathName.c_str(), (uid_t)inOwner, (gid_t)inGroup));
+        return Errno(
+            chown(inPathName.c_str(), (uid_t)theGroupId, (gid_t)theGroupId));
     }
     virtual int Rmdir(
         const string& inPathName)
@@ -973,15 +985,15 @@ public:
     }
     virtual int Chown(
         const string& inPathName,
-        kfsUid_t      inOwner,
-        kfsGid_t      inGroup,
+        const char*   inOwnerNamePtr,
+        const char*   inGroupNamePtr,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
         return (inRecursiveFlag ?
-            KfsClient::ChownR(inPathName.c_str(), inOwner, inGroup,
-                inErrorHandlerPtr) :
-            KfsClient::Chown(inPathName.c_str(), inOwner, inGroup)
+            KfsClient::ChownR(inPathName.c_str(), inOwnerNamePtr,
+                inGroupNamePtr, inErrorHandlerPtr) :
+            KfsClient::Chown(inPathName.c_str(), inOwnerNamePtr, inGroupNamePtr)
         );
     }
     virtual int Rmdir(

@@ -1496,9 +1496,8 @@ private:
             const char* inUserNamePtr,
             const char* inGroupNamePtr,
             bool        inRecursiveFlag)
-            : mUserName (inUserNamePtr  ? inUserNamePtr  : ""),
-              mGroupName(inGroupNamePtr ? inGroupNamePtr : ""),
-              mFsToUGId(),
+            : mUserNamePtr (inUserNamePtr),
+              mGroupNamePtr(inGroupNamePtr),
               mRecursiveFlag(inRecursiveFlag)
             {}
         int operator()(
@@ -1506,45 +1505,15 @@ private:
             const string&  inPath,
             ErrorReporter& inErrorReporter)
         {
-            FsToUGId::const_iterator theIt = mFsToUGId.find(&inFs);
-            if (theIt == mFsToUGId.end()) {
-                kfsUid_t  theUserId  = kKfsUserNone;
-                kfsGid_t  theGroupId = kKfsGroupNone;
-                const int theStatus  = inFs.GetUserAndGroupIds(
-                    mUserName, mGroupName, theUserId, theGroupId);
-                theIt = mFsToUGId.insert(make_pair(&inFs,
-                    UserAndGroup(theUserId, theGroupId, theStatus))).first;
-            }
-            const UserAndGroup& theUG = theIt->second;
             return (
-                theUG.mStatus != 0 ?
-                    theUG.mStatus :
-                    inFs.Chown(inPath, theUG.mUserId, theUG.mGroupId,
-                        mRecursiveFlag, &inErrorReporter)
+                inFs.Chown(inPath, mUserNamePtr, mGroupNamePtr,
+                    mRecursiveFlag, &inErrorReporter)
             );
         }
     private:
-        class UserAndGroup
-        {
-        public:
-            UserAndGroup(
-                kfsUid_t inUserId  = kKfsUserNone,
-                kfsGid_t inGroupId = kKfsGroupNone,
-                int      inStatus  = -EINVAL)
-                : mUserId(inUserId),
-                  mGroupId(inGroupId),
-                  mStatus(inStatus)
-                {}
-            kfsUid_t mUserId;
-            kfsGid_t mGroupId;
-            int      mStatus;
-        };
-        typedef map<const FileSystem*, UserAndGroup> FsToUGId;
-
-        const string mUserName;
-        const string mGroupName;
-        FsToUGId     mFsToUGId;
-        const bool   mRecursiveFlag;
+        const char* const mUserNamePtr;
+        const char* const mGroupNamePtr;
+        const bool        mRecursiveFlag;
 
     private:
         ChownFunctor(
