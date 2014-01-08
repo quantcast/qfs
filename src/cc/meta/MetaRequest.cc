@@ -1062,7 +1062,7 @@ private:
         const uint64_t kGroupBit = uint64_t(1) << sizeof(kfsGid_t) * 8;
         bool           ret       = false;
         if (insertPrevGidFlag) {
-            const uint64_t id = gid | kGroupBit;
+            const uint64_t id = prevGid | kGroupBit;
             ugids.Insert(id, id, ret);
             ret = false;
             insertPrevGidFlag = false;
@@ -1115,6 +1115,29 @@ private:
         WriteInt(entry.group);
         Write(kMode);
         WriteInt(entry.mode);
+        if (ugn) {
+            if (firstEntryFlag || IsNewUser(entry.user)) {
+                const string* const name = ugn->GetUserName(entry.user);
+                if (name) {
+                    Write(kUserName);
+                    Write(*name);
+                }
+            }
+            if (firstEntryFlag || IsNewGroup(entry.group)) {
+                const string* const name = ugn->GetGroupName(entry.group);
+                if (name) {
+                    Write(kGroupName);
+                    Write(*name);
+                }
+            }
+            if (firstEntryFlag) {
+                firstEntryFlag = false;
+                prevUid = entry.user;
+                prevGid = entry.group;
+                insertPrevUidFlag = true;
+                insertPrevGidFlag = true;
+            }
+        }
         if (entry.type == KFS_DIR) {
             if (entry.filesize >= 0) {
                 Write(kFSize);
@@ -1148,29 +1171,6 @@ private:
             WriteInt(entry.minSTier);
             Write(kMaxTier);
             WriteInt(entry.maxSTier);
-        }
-        if (ugn) {
-            if (firstEntryFlag || IsNewUser(entry.user)) {
-                const string* const name = ugn->GetUserName(entry.user);
-                if (name) {
-                    Write(kUserName);
-                    Write(*name);
-                }
-            }
-            if (firstEntryFlag || IsNewGroup(entry.group)) {
-                const string* const name = ugn->GetGroupName(entry.group);
-                if (name) {
-                    Write(kGroupName);
-                    Write(*name);
-                }
-            }
-            if (firstEntryFlag) {
-                firstEntryFlag = false;
-                prevUid = entry.user;
-                prevGid = entry.group;
-                insertPrevUidFlag = true;
-                insertPrevGidFlag = true;
-            }
         }
         if (entry.type == KFS_DIR || entry.IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
