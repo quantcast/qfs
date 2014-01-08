@@ -2447,7 +2447,9 @@ MetaChown::handle()
         status = -ENOENT;
         return;
     }
-    SetUserAndGroup(*this);
+    if (! SetUserAndGroup(*this)) {
+        return;
+    }
     if (fa->user != euser && euser != kKfsUserRoot) {
         status = -EACCES;
         return;
@@ -4588,7 +4590,15 @@ MetaChmod::response(ostream& os)
 void
 MetaChown::response(ostream& os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    os <<
+    "User: "  << user  << "\r\n"
+    "Group: " << group << "\r\n"
+    ;
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
+    "\r\n";
 }
 
 void
