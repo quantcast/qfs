@@ -1225,6 +1225,14 @@ KfsClientImpl::KfsClientImpl()
       mGroupNames(),
       mUserIds(),
       mGroupIds(),
+      mUidIt(mUserIds.end()),
+      mGidIt(mGroupIds.end()),
+      mUserNamesIt(mUserNames.end()),
+      mGroupNamesIt(mGroupNames.end()),
+      mUpdateUidIt(mUserIds.end()),
+      mUpdateGidIt(mGroupIds.end()),
+      mUpdateUserNameIt(mUserNames.end()),
+      mUpdateGroupNameIt(mGroupNames.end()),
       mTmpInputStream(),
       mTmpOutputStream(),
       mNameBufSize((size_t)max(max(
@@ -1579,11 +1587,13 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
                 fa->staleSubCountsFlag = true;
             }
             createdFlag = true;
-            if (! op.userName.empty()) {
-                UpdateUserId(op.userName, op.permissions.user, now);
-            }
-            if (! op.groupName.empty()) {
-                UpdateGroupId(op.groupName, op.permissions.group, now);
+            if (i + 1 == sz) {
+                if (! op.userName.empty()) {
+                    UpdateUserId(op.userName, op.permissions.user, now);
+                }
+                if (! op.groupName.empty()) {
+                    UpdateGroupId(op.groupName, op.permissions.group, now);
+                }
             }
             continue;
         }
@@ -5455,23 +5465,25 @@ KfsClientImpl::ChownSetParams(
 {
     kfsUid_t    uid = user;
     kfsGid_t    gid = group;
-    const char* un  = userName;
-    const char* gn  = groupName;
+    const char* un  = userName  ? userName  : "";
+    const char* gn  = groupName ? groupName : "";
     if (mUseOsUserAndGroupFlag) {
-        if ((un || gn)) {
+        if (*un || *gn) {
             const time_t now = time(0);
-            if (un && *un) {
+            if (*un) {
                 uid = NameToUid(un, now);
                 if (uid == kKfsUserNone) {
                     return -EINVAL;
                 }
             }
-            if (gn && *gn) {
+            if (*gn) {
                 gid = NameToGid(gn, now);
                 if (gid == kKfsGroupNone) {
                     return -EINVAL;
                 }
             }
+            un = "";
+            gn = "";
         }
         if (mEUser != kKfsUserRoot &&
                 (uid == kKfsUserNone || uid == mEUser) &&
@@ -5479,22 +5491,20 @@ KfsClientImpl::ChownSetParams(
             return -EPERM;
         }
     } else {
-        un = userName;
-        gn = groupName;
-        if (un && *un) {
+        if (*un) {
             char* end = 0;
             unsigned long const id = strtoul(un, &end, 0);
-            if (un < end && *end <= ' ') {
+            if (un < end && *end == 0) {
                 uid = (kfsUid_t)id;
-                un = 0;
+                un = "";
             }
         }
-        if (gn && *gn) {
+        if (*gn) {
             char* end = 0;
             unsigned long const id = strtoul(gn, &end, 0);
-            if (groupName < end && *end <= ' ') {
+            if (groupName < end && *end == 0) {
                 gid = (kfsGid_t)id;
-                gn = 0;
+                gn = "";
             }
         }
     }
@@ -5620,6 +5630,8 @@ public:
         const char*    groupName,
         ErrorHandler&  errHandler)
         : mCli(cli),
+          mNow(0),
+          mSetNowFlag(true),
           mUser(user),
           mGroup(group),
           mUserName(userName),
@@ -5645,15 +5657,32 @@ public:
                 return ret;
             }
         }
+        if (! op.userName.empty()) {
+            mCli.UpdateUserId(op.userName, op.user, Now());
+        }
+        if (! op.groupName.empty()) {
+            mCli.UpdateGroupId(op.groupName, op.group, Now());
+        }
         return 0;
     }
 private:
-    KfsClientImpl&    mCli;
-    const kfsUid_t    mUser;
-    const kfsGid_t    mGroup;
-    const char* const mUserName;
-    const char* const mGroupName;
-    ErrorHandler&     mErrHandler;
+    KfsClientImpl& mCli;
+    time_t         mNow;
+    bool           mSetNowFlag;
+    const kfsUid_t mUser;
+    const kfsGid_t mGroup;
+    string const   mUserName;
+    string const   mGroupName;
+    ErrorHandler&  mErrHandler;
+
+    time_t Now() const
+    {
+        if (mSetNowFlag) {
+            const_cast<bool&>(mSetNowFlag) = false;
+            const_cast<time_t&>(mNow)      = time(0);
+        }
+        return mNow;
+    }
 };
 
 int
@@ -5918,13 +5947,11 @@ KfsClientImpl::GetChunkFromReplica(const ServerLocation& loc,
 const string&
 KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
 {
-    if (uid == kKfsUserNone) {
-        static string empty;
-        return empty;
+    if (mUserNamesIt == mUserNames.end() || mUserNamesIt->first != uid) {
+        mUserNamesIt = mUserNames.find(uid);
     }
-    UserNames::const_iterator it = mUserNames.find(uid);
-    if (it == mUserNames.end() ||
-            (mUseOsUserAndGroupFlag && it->second.second < now)) {
+    if (mUserNamesIt == mUserNames.end() ||
+            (mUseOsUserAndGroupFlag && mUserNamesIt->second.second < now)) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
         const int      err    = mUseOsUserAndGroupFlag ?
@@ -5932,6 +5959,10 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
             ENOENT;
         string name;
         if (err || ! pwe) {
+            if (uid == kKfsUserNone) {
+                static string empty;
+                return empty;
+            }
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
             os << uid;
             name.assign(mTmpBuffer, mTmpOutputStream.GetLength());
@@ -5946,21 +5977,19 @@ KfsClientImpl::UidToName(kfsUid_t uid, time_t now)
         if (! res.second) {
             res.first->second = val;
         }
-        it = res.first;
+        mUserNamesIt = res.first;
     }
-    return it->second.first;
+    return mUserNamesIt->second.first;
 }
 
 const string&
 KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
 {
-    if (gid == kKfsGroupNone) {
-        static string empty;
-        return empty;
+    if (mGroupNamesIt == mUserNames.end() || mGroupNamesIt->first != gid) {
+        mGroupNamesIt = mGroupNames.find(gid);
     }
-    GroupNames::const_iterator it = mGroupNames.find(gid);
-    if (it == mGroupNames.end() ||
-            (mUseOsUserAndGroupFlag && it->second.second < now)) {
+    if (mGroupNamesIt == mGroupNames.end() ||
+            (mUseOsUserAndGroupFlag && mGroupNamesIt->second.second < now)) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
         const int     err  = mUseOsUserAndGroupFlag ?
@@ -5968,6 +5997,10 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
             ENOENT;
         string name;
         if (err || ! pge) {
+            if (gid == kKfsGroupNone) {
+                static string empty;
+                return empty;
+            }
             ostream& os = mTmpOutputStream.Set(mTmpBuffer, kTmpBufferSize);
             os << gid;
             name.assign(mTmpBuffer, mTmpOutputStream.GetLength());
@@ -5982,18 +6015,20 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
         if (! res.second) {
             res.first->second = val;
         }
-        it = res.first;
+        mGroupNamesIt = res.first;
     }
-    return it->second.first;
+    return mGroupNamesIt->second.first;
 }
 
 
 kfsUid_t
 KfsClientImpl::NameToUid(const string& name, time_t now)
 {
-    UserIds::const_iterator it = mUserIds.find(name);
-    if (it == mUserIds.end() ||
-            (mUseOsUserAndGroupFlag && it->second.second < now)) {
+    if (mUidIt == mGroupIds.end() || mUidIt->first != name) {
+        mUidIt = mUserIds.find(name);
+    }
+    if (mUidIt == mUserIds.end() ||
+            (mUseOsUserAndGroupFlag && mUidIt->second.second < now)) {
         struct passwd  pwebuf = {0};
         struct passwd* pwe    = 0;
         const int err = mUseOsUserAndGroupFlag ?
@@ -6016,17 +6051,19 @@ KfsClientImpl::NameToUid(const string& name, time_t now)
         if (! res.second) {
             res.first->second = val;
         }
-        it = res.first;
+        mUidIt = res.first;
     }
-    return it->second.first;
+    return mUidIt->second.first;
 }
 
 kfsGid_t
 KfsClientImpl::NameToGid(const string& name, time_t now)
 {
-    GroupIds::const_iterator it = mGroupIds.find(name);
-    if (it == mGroupIds.end() ||
-            (mUseOsUserAndGroupFlag && it->second.second < now)) {
+    if (mGidIt == mGroupIds.end() || mGidIt->first != name) {
+        mGidIt = mGroupIds.find(name);
+    }
+    if (mGidIt == mGroupIds.end() ||
+            (mUseOsUserAndGroupFlag && mGidIt->second.second < now)) {
         struct group  gbuf = {0};
         struct group* pge  = 0;
         const int     err  = mUseOsUserAndGroupFlag ?
@@ -6049,9 +6086,9 @@ KfsClientImpl::NameToGid(const string& name, time_t now)
         if (! res.second) {
             res.first->second = val;
         }
-        it = res.first;
+        mGidIt = res.first;
     }
-    return it->second.first;
+    return mGidIt->second.first;
 }
 
 void
@@ -6079,13 +6116,31 @@ KfsClientImpl::DoNotUseOsUserAndGroup()
     mUserNames.clear();
     mGroupIds.clear();
     mGroupNames.clear();
+    mUidIt             = mUserIds.end();
+    mGidIt             = mGroupIds.end();
+    mUserNamesIt       = mUserNames.end();
+    mGroupNamesIt      = mGroupNames.end();
+    mUpdateUidIt       = mUserIds.end();
+    mUpdateGidIt       = mGroupIds.end();
+    mUpdateUserNameIt  = mUserNames.end();
+    mUpdateGroupNameIt = mGroupNames.end();
 }
 
 void
 KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 {
-    DoNotUseOsUserAndGroup();
+    if (mUseOsUserAndGroupFlag) {
+        DoNotUseOsUserAndGroup();
+    }
     const time_t exp = now + mFileAttributeRevalidateTime;
+    if (mUpdateUserNameIt != mUserNames.end() &&
+            mUpdateUserNameIt->first == uid &&
+            mUpdateUidIt != mUserIds.end() &&
+            mUpdateUidIt->first == userName) {
+        mUpdateUidIt->second.second      = exp;
+        mUpdateUserNameIt->second.second = exp;
+        return;
+    }
     mUserIds  [userName] = make_pair(uid,      exp);
     mUserNames[uid     ] = make_pair(userName, exp);
 }
@@ -6093,8 +6148,18 @@ KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 void
 KfsClientImpl::UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now)
 {
-    DoNotUseOsUserAndGroup();
+    if (mUseOsUserAndGroupFlag) {
+        DoNotUseOsUserAndGroup();
+    }
     const time_t exp = now + mFileAttributeRevalidateTime;
+    if (mUpdateGroupNameIt != mGroupNames.end() &&
+            mUpdateGroupNameIt->first == gid &&
+            mUpdateGidIt != mGroupIds.end() &&
+            mUpdateGidIt->first == groupName) {
+        mUpdateGidIt->second.second       = exp;
+        mUpdateGroupNameIt->second.second = exp;
+        return;
+    }
     mGroupIds  [groupName] = make_pair(gid,       exp);
     mGroupNames[gid      ] = make_pair(groupName, exp);
 }

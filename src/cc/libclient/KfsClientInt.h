@@ -762,6 +762,14 @@ private:
     GroupNames                     mGroupNames;
     UserIds                        mUserIds;
     GroupIds                       mGroupIds;
+    UserIds::const_iterator        mUidIt;
+    GroupIds::const_iterator       mGidIt;
+    UserNames::const_iterator      mUserNamesIt;
+    GroupNames::const_iterator     mGroupNamesIt;
+    UserIds::iterator              mUpdateUidIt;
+    GroupIds::iterator             mUpdateGidIt;
+    UserNames::iterator            mUpdateUserNameIt;
+    GroupNames::iterator           mUpdateGroupNameIt;
     BufferInputStream              mTmpInputStream;
     BufferOutpuStream              mTmpOutputStream;
     const size_t                   mNameBufSize;

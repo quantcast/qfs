@@ -1300,13 +1300,22 @@ ChownOp::Request(ostream &os)
     if (group != kKfsGroupNone) {
         os << "Group: " << group << "\r\n";
     }
-    if (userName && *userName) {
+    if (! userName.empty()) {
         os << "OName: " << userName << "\r\n";
     }
-    if (groupName && *groupName) {
+    if (! groupName.empty()) {
         os << "GName: " << groupName << "\r\n";
     }
     os << "\r\n";
+}
+
+void
+ChownOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    user      = prop.getValue("User",  user);
+    group     = prop.getValue("Group", group);
+    userName  = prop.getValue("UName", userName);
+    groupName = prop.getValue("GName", groupName);
 }
 
 void
