@@ -679,7 +679,7 @@ public:
     const Entry* Get(
         const ServerLocation& location,
         kfsChunkId_t          chunkId,
-        CryptoKeys::Key&      outKey)
+        CryptoKeys::Key&      outKey) const
     {
         Access::const_iterator const it = mAccess.find(SCLocation(
             make_pair(Token(location.hostname.data(), location.hostname.size()),
@@ -1452,8 +1452,10 @@ struct ChownOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chown:"
             " fid: "    << fid <<
-            " user: "   << user <<
-            " group: "  << group <<
+            " uid: "    << user <<
+            " gid: "    << group <<
+            " user: "   << userName <<
+            " group: "  << groupName <<
             " status: " << status
         ;
         return os;

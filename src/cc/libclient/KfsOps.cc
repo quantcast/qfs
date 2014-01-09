@@ -847,11 +847,13 @@ CreateOp::ParseResponseHeaderSelf(const Properties &prop)
     fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
     metaStriperType   = prop.getValue("Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
-    permissions.user  = prop.getValue("User",  permissions.user);
-    permissions.group = prop.getValue("Group", permissions.group);
-    permissions.mode  = prop.getValue("Mode",  permissions.mode);
-    userName          = prop.getValue("UName", string());
-    groupName         = prop.getValue("GName", string());
+    if (0 <= status) {
+        permissions.user  = prop.getValue("User",  permissions.user);
+        permissions.group = prop.getValue("Group", permissions.group);
+        permissions.mode  = prop.getValue("Mode",  permissions.mode);
+        userName          = prop.getValue("UName", string());
+        groupName         = prop.getValue("GName", string());
+    }
 }
 
 void
@@ -886,12 +888,14 @@ ReaddirPlusOp::ParseResponseHeaderSelf(const Properties &prop)
 void
 MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
-    permissions.user  = prop.getValue("User",  permissions.user);
-    permissions.group = prop.getValue("Group", permissions.group);
-    permissions.mode  = prop.getValue("Mode",  permissions.mode);
-    userName          = prop.getValue("UName", string());
-    groupName         = prop.getValue("GName", string());
+    fileId = prop.getValue("File-handle", (kfsFileId_t) -1);
+    if (0 <= status) {
+        permissions.user  = prop.getValue("User",  permissions.user);
+        permissions.group = prop.getValue("Group", permissions.group);
+        permissions.mode  = prop.getValue("Mode",  permissions.mode);
+        userName          = prop.getValue("UName", string());
+        groupName         = prop.getValue("GName", string());
+    }
 }
 
 static void
@@ -1312,10 +1316,12 @@ ChownOp::Request(ostream &os)
 void
 ChownOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    user      = prop.getValue("User",  user);
-    group     = prop.getValue("Group", group);
-    userName  = prop.getValue("UName", userName);
-    groupName = prop.getValue("GName", groupName);
+    if (0 <= status) {
+        user      = prop.getValue("User",  user);
+        group     = prop.getValue("Group", group);
+        userName  = prop.getValue("UName", userName);
+        groupName = prop.getValue("GName", groupName);
+    }
 }
 
 void

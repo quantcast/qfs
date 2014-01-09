@@ -925,8 +925,12 @@ private:
 
     int VerifyDataChecksumsFid(kfsFileId_t fileId);
 
-    int GetChunkFromReplica(const ServerLocation& loc, kfsChunkId_t chunkId,
-            int64_t chunkVersion, ostream& os);
+    int GetChunkFromReplica(
+        const ChunkServerAccess& chunkServerAccess,
+        const ServerLocation&    loc,
+        kfsChunkId_t             chunkId,
+        int64_t                  chunkVersion,
+        ostream&                 os);
 
     int ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
         vector<KfsFileAttr> &result,
@@ -998,6 +1002,26 @@ private:
         const char*& groupName,
         kfsUid_t&    user,
         kfsGid_t&    group);
+    int GetChunkLease(
+        kfsChunkId_t       inChunkId,
+        const char*        inPathNamePtr,
+        int                inLeaseTime,
+        ChunkServerAccess& inChunkServerAccess,
+        int64_t&           outLeaseId);
+    int SetChunkAccess(
+        const ChunkServerAccess& inChunkServerAccess,
+        const ServerLocation&    inLocation,
+        kfsChunkId_t             inChunkId,
+        string&                  outChunkAccess);
+    int GetChunkAccess(
+        const ServerLocation& inLocation,
+        kfsChunkId_t          inChunkId,
+        string&               outAccess,
+        int64_t&              outLeaseId);
+    chunkOff_t GetChunkSize(
+        const ServerLocation& inLocation,
+        kfsChunkId_t          inChunkId,
+        int64_t               inChunkVersion);
 
     friend struct RespondingServer;
     friend struct RespondingServer2;

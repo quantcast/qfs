@@ -1253,6 +1253,7 @@ KfsClientImpl::KfsClientImpl()
     mTmpAbsPathStr.reserve(MAX_PATH_NAME_LENGTH);
     mTmpBuffer[kTmpBufferSize] = 0;
     mChunkServer.SetMaxContentLength(64 << 20);
+    mChunkServer.SetAuthContext(&mAuthCtx);
 }
 
 KfsClientImpl::~KfsClientImpl()
@@ -4208,17 +4209,14 @@ struct RespondingServer {
         {}
     bool operator() (ServerLocation loc)
     {
-        status = -EIO;
-        size   = -1;
-
-        SizeOp sop(0, layout.chunkId, layout.chunkVersion);
-        sop.status = -1;
-        client.DoChunkServerOp(loc, sop);
-        status = sop.status;
-        if (status >= 0) {
-            size = sop.size;
+        size = client.GetChunkSize(loc, layout.chunkId, layout.chunkVersion);
+        if (size < 0) {
+            size = -1;
+            status = (int)size;
+        } else {
+            status = 0;
         }
-        return status >= 0;
+        return (status == 0);
     }
 };
 
@@ -4230,12 +4228,7 @@ struct RespondingServer2 {
         {}
     ssize_t operator() (const ServerLocation& loc)
     {
-        SizeOp sop(0, layout.chunkId, layout.chunkVersion);
-        client.DoChunkServerOp(loc, sop);
-        if (sop.status < 0) {
-            return -1;
-        }
-        return sop.size;
+        return client.GetChunkSize(loc, layout.chunkId, layout.chunkVersion);
     }
 };
 
@@ -4413,15 +4406,12 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
         if (iter == cattr.chunkServerLoc.end()) {
             continue;
         }
-        SizeOp sop(0, cattr.chunkId, cattr.chunkVersion);
-        DoChunkServerOp(loc, sop);
-        if (! mChunkServer.IsConnected()) {
+        chunkOff_t const size = GetChunkSize(
+            loc, cattr.chunkId, cattr.chunkVersion);
+        if (size <= 0) {
             return;
         }
-        fa.fileSize = lastChunkInfo[i].chunkOffset;
-        if (sop.status >= 0) {
-            fa.fileSize += sop.size;
-        }
+        fa.fileSize = lastChunkInfo[i].chunkOffset + size;
     }
 }
 
@@ -5088,13 +5078,21 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     return 0;
 }
 
-
 int
 KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
     kfsChunkId_t chunkId, uint32_t *checksums, bool readVerifyFlag)
 {
     GetChunkMetadataOp op(0, chunkId, readVerifyFlag);
+    int64_t leaseId   = -1;
+    int     theStatus = GetChunkAccess(loc, chunkId, op.access, leaseId);
+    if (theStatus < 0) {
+        return theStatus;
+    }
     DoChunkServerOp(loc, op);
+    if (0 <= leaseId) {
+        LeaseRelinquishOp theLeaseRelinquishOp(0, chunkId, leaseId);
+        DoMetaOpWithRetry(&theLeaseRelinquishOp);
+    }
     if (op.status == -EBADCKSUM) {
         KFS_LOG_STREAM_INFO <<
             "Server " << loc <<
@@ -5502,7 +5500,7 @@ KfsClientImpl::ChownSetParams(
         if (*gn) {
             char* end = 0;
             unsigned long const id = strtoul(gn, &end, 0);
-            if (groupName < end && *end == 0) {
+            if (gn < end && *end == 0) {
                 gid = (kfsGid_t)id;
                 gn = "";
             }
@@ -5824,19 +5822,22 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
          i != lop.chunks.end();
          ++i) {
-        LeaseAcquireOp leaseOp(0, i->chunkId, pathname);
-        DoMetaOpWithRetry(&leaseOp);
-        if (leaseOp.status < 0) {
-            KFS_LOG_STREAM_ERROR << "failed to acquire lease: " <<
-                " chunk: " << i->chunkId <<
-                ErrorCodeToStr(leaseOp.status) <<
-            KFS_LOG_EOM;
-            return leaseOp.status;
+        ChunkServerAccess  chunkServerAccess;
+        int64_t            leaseId = -1;
+        const int status = GetChunkLease(
+            i->chunkId, pathname, -1, chunkServerAccess, leaseId);
+        if (status != 0) {
+            return status;
         }
         mdsAll.flush();
         mds.Reset(&mdsAll);
         const int nbytes = GetChunkFromReplica(
-            i->chunkServers[0], i->chunkId, i->chunkVersion, mds);
+            chunkServerAccess,
+            i->chunkServers[0],
+            i->chunkId,
+            i->chunkVersion,
+            mds
+        );
         if (nbytes < 0) {
             KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                  ": " << ErrorCodeToStr(nbytes) <<
@@ -5855,7 +5856,12 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         for (uint32_t k = 1; k < i->chunkServers.size(); k++) {
             mds.Reset();
             const int n = GetChunkFromReplica(
-                i->chunkServers[k], i->chunkId, i->chunkVersion, mds);
+                chunkServerAccess,
+                i->chunkServers[k],
+                i->chunkId,
+                i->chunkVersion,
+                mds
+            );
             if (n < 0) {
                 KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                      ": " << ErrorCodeToStr(n) <<
@@ -5886,12 +5892,14 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                 KFS_LOG_EOM;
             }
         }
-        LeaseRelinquishOp lrelOp(0, i->chunkId, leaseOp.leaseId);
+        LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
         DoMetaOpWithRetry(&lrelOp);
-        if (leaseOp.status < 0) {
-            KFS_LOG_STREAM_ERROR << "failed to relinquish lease: " <<
+        if (lrelOp.status < 0) {
+            KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
                 " chunk: " << i->chunkId <<
-                ErrorCodeToStr(lrelOp.status) <<
+                " lease: " << leaseId <<
+                " msg: "   << lrelOp.statusMsg <<
+                " "        << ErrorCodeToStr(lrelOp.status) <<
             KFS_LOG_EOM;
         }
     }
@@ -5900,10 +5908,161 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
 }
 
 int
-KfsClientImpl::GetChunkFromReplica(const ServerLocation& loc,
-    kfsChunkId_t chunkId, int64_t chunkVersion, ostream& os)
+KfsClientImpl::GetChunkLease(
+    kfsChunkId_t       inChunkId,
+    const char*        inPathNamePtr,
+    int                inLeaseTime,
+    ChunkServerAccess& inChunkServerAccess,
+    int64_t&           outLeaseId)
+{
+    LeaseAcquireOp theLeaseOp(0, inChunkId, inPathNamePtr);
+    theLeaseOp.leaseTimeout = inLeaseTime;
+    DoMetaOpWithRetry(&theLeaseOp);
+    if (theLeaseOp.status == 0 && 0 < theLeaseOp.chunkAccessCount) {
+        const bool         kHasChunkServerAccessFlag = true;
+        const int          kBufPos                   = 0;
+        const bool         kOwnsBufferFlag           = true;
+        const kfsChunkId_t kChunkId                  = -1;
+        const int          theRet = inChunkServerAccess.Parse(
+            theLeaseOp.chunkAccessCount,
+            kHasChunkServerAccessFlag,
+            kChunkId,
+            theLeaseOp.contentBuf,
+            kBufPos,
+            theLeaseOp.contentLength,
+            kOwnsBufferFlag
+        );
+        theLeaseOp.ReleaseContentBuf();
+        if (theRet < 0) {
+            theLeaseOp.status    = theRet;
+            theLeaseOp.statusMsg = "invalid chunk access response";
+        }
+    } else {
+        inChunkServerAccess.Clear();
+    }
+    if (theLeaseOp.status == 0) {
+        outLeaseId = theLeaseOp.leaseId;
+    } else {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to acquire lease:"
+            " chunk: "  << inChunkId <<
+            " msg: "    << theLeaseOp.statusMsg <<
+            " status: " << ErrorCodeToStr(theLeaseOp.status) <<
+        KFS_LOG_EOM;
+    }
+    return theLeaseOp.status;
+}
+
+int
+KfsClientImpl::SetChunkAccess(
+    const ChunkServerAccess& inChunkServerAccess,
+    const ServerLocation&    inLocation,
+    kfsChunkId_t             inChunkId,
+    string&                  outChunkAccess)
+{
+    if (inChunkServerAccess.IsEmpty()) {
+        mChunkServer.SetKey(0, 0, 0, 0);
+        outChunkAccess.clear();
+        return 0;
+    }
+    CryptoKeys::Key theKey;
+    const ChunkServerAccess::Entry* const thePtr =
+        inChunkServerAccess.Get(inLocation, inChunkId, theKey);
+    if (thePtr) {
+        mChunkServer.SetKey(
+            thePtr->chunkServerAccessId.mPtr,
+            thePtr->chunkServerAccessId.mLen,
+            theKey.GetPtr(),
+            theKey.GetSize()
+        );
+        outChunkAccess.assign(
+            thePtr->chunkAccess.mPtr, thePtr->chunkAccess.mLen);
+        return 0;
+    }
+    KFS_LOG_STREAM_ERROR <<
+        "server: " << inLocation <<
+        " chunk: " << inChunkId <<
+        ": no chunk server access" <<
+    KFS_LOG_EOM;
+    return -EACCES;
+}
+
+int
+KfsClientImpl::GetChunkAccess(
+    const ServerLocation& inLocation,
+    kfsChunkId_t          inChunkId,
+    string&               outAccess,
+    int64_t&              outLeaseId)
+{
+    outLeaseId = -1;
+    ChunkServerAccess theChunkServerAccess;
+    if (! mUseOsUserAndGroupFlag && mAuthCtx.IsEnabled()) {
+        // Get chunk server and chunk access if authenticated.
+        int const         kLeaseTime   = -1;
+        const char* const kPathNamePtr = "";
+        const int theStatus = GetChunkLease(
+            inChunkId,
+            kPathNamePtr,
+            kLeaseTime,
+            theChunkServerAccess,
+            outLeaseId
+        );
+        if (theStatus < 0) {
+            return theStatus;
+        }
+    }
+    return SetChunkAccess(
+        theChunkServerAccess, inLocation, inChunkId, outAccess);
+}
+
+chunkOff_t
+KfsClientImpl::GetChunkSize(
+    const ServerLocation& inLocation,
+    kfsChunkId_t          inChunkId,
+    int64_t               inChunkVersion)
+{
+    SizeOp theSizeOp(0, inChunkId, inChunkVersion);
+    int64_t theLeaseId = -1;
+    int     theStatus  = GetChunkAccess(
+        inLocation, inChunkId, theSizeOp.access, theLeaseId);
+    if (theStatus < 0) {
+        return theStatus;
+    }
+    DoChunkServerOp(inLocation, theSizeOp);
+    if (0 <= theLeaseId) {
+        LeaseRelinquishOp theLeaseRelinquishOp(0, inChunkId, theLeaseId);
+        DoMetaOpWithRetry(&theLeaseRelinquishOp);
+    }
+    if (theSizeOp.status < 0) {
+        return theSizeOp.status;
+    }
+    if (theSizeOp.size <= 0) {
+        return 0;
+    }
+    if ((chunkOff_t)CHUNKSIZE < theSizeOp.size) {
+        KFS_LOG_STREAM_ERROR <<
+            "chunk size: " << theSizeOp.size <<
+            " exceeds max chunk size: " << CHUNKSIZE <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
+    return theSizeOp.size;
+}
+
+int
+KfsClientImpl::GetChunkFromReplica(
+    const ChunkServerAccess& chunkServerAccess,
+    const ServerLocation&    loc,
+    kfsChunkId_t             chunkId,
+    int64_t                  chunkVersion,
+    ostream&                 os)
 {
     SizeOp sizeOp(0, chunkId, chunkVersion);
+    int status = SetChunkAccess(
+        chunkServerAccess, loc, chunkId, sizeOp.access);
+    if (status < 0) {
+        return status;
+    }
     DoChunkServerOp(loc, sizeOp);
     if (sizeOp.status < 0) {
         return sizeOp.status;
@@ -5920,6 +6079,7 @@ KfsClientImpl::GetChunkFromReplica(const ServerLocation& loc,
     }
     chunkOff_t nread = 0;
     ReadOp op(0, chunkId, chunkVersion);
+    op.access = sizeOp.access;
     while (nread < sizeOp.size) {
         op.seq           = 0;
         op.numBytes      = min(size_t(1) << 20, (size_t)(sizeOp.size - nread));
@@ -6126,6 +6286,17 @@ KfsClientImpl::DoNotUseOsUserAndGroup()
     mUpdateGroupNameIt = mGroupNames.end();
 }
 
+template <typename T, typename IT, typename KT, typename VT>
+static inline void
+UpdateMap(T& inMap, IT& inIt, const KT& inKey, const VT& inVal)
+{
+    pair<IT, bool> const res = inMap.insert(make_pair(inKey, inVal));
+    inIt = res.first;
+    if (! res.second) {
+        inIt->second = inVal;
+    }
+}
+
 void
 KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 {
@@ -6137,12 +6308,14 @@ KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
             mUpdateUserNameIt->first == uid &&
             mUpdateUidIt != mUserIds.end() &&
             mUpdateUidIt->first == userName) {
+        mUpdateUidIt->second.first       = uid;
         mUpdateUidIt->second.second      = exp;
+        mUpdateUserNameIt->second.first  = userName;
         mUpdateUserNameIt->second.second = exp;
         return;
     }
-    mUserIds  [userName] = make_pair(uid,      exp);
-    mUserNames[uid     ] = make_pair(userName, exp);
+    UpdateMap(mUserIds, mUpdateUidIt, userName, make_pair(uid, exp));
+    UpdateMap(mUserNames, mUpdateUserNameIt, uid, make_pair(userName, exp));
 }
 
 void
@@ -6156,12 +6329,14 @@ KfsClientImpl::UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now)
             mUpdateGroupNameIt->first == gid &&
             mUpdateGidIt != mGroupIds.end() &&
             mUpdateGidIt->first == groupName) {
+        mUpdateGidIt->second.first        = gid;
         mUpdateGidIt->second.second       = exp;
+        mUpdateGroupNameIt->second.first  = groupName;
         mUpdateGroupNameIt->second.second = exp;
         return;
     }
-    mGroupIds  [groupName] = make_pair(gid,       exp);
-    mGroupNames[gid      ] = make_pair(groupName, exp);
+    UpdateMap(mGroupIds, mUpdateGidIt, groupName, make_pair(gid, exp));
+    UpdateMap(mGroupNames, mUpdateGroupNameIt, gid, make_pair(groupName, exp));
 }
 
 int
