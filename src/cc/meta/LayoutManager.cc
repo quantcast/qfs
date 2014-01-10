@@ -1213,7 +1213,22 @@ LayoutManager::ChunkPlacement::ChunkPlacement()
     Reserve(512);
 }
 
-const bool kAllowPskFlag = false;
+// Chunk servers don't use delegation -- turn off psk.
+const bool kChunkServerAuthAllowPskFlag = false;
+const bool kClientAuthAllowPskFlag      = true;
+// By default allow web ui access from local host without authentication.
+const int kClientDefaultNoAuthMetaOps[] = {
+    META_PING,
+    META_GET_CHUNK_SERVERS_COUNTERS,
+    META_GET_CHUNK_SERVER_DIRS_COUNTERS,
+    META_GET_REQUEST_COUNTERS,
+    META_DISCONNECT,
+    META_NUM_OPS_COUNT // Sentinel
+};
+const char* const kClientDefaultNoAuthMetaOpsHosts[] = {
+    "127.0.0.1",
+    0 // Sentinel
+};
 
 LayoutManager::LayoutManager() :
     mNumOngoingReplications(0),
@@ -1367,14 +1382,18 @@ LayoutManager::LayoutManager() :
     mDefaultLoadFileMode(0666),
     mDefaultLoadDirMode(0777),
     mForceEUserToRootFlag(false),
+    mVerifyAllOpsPermissionsParamFlag(false),
     mVerifyAllOpsPermissionsFlag(false),
     mRootHosts(),
     mHostUserGroupRemap(),
     mLastUidGidRemap(),
     mIoBufPending(0),
     mAuthCtxUpdateCount(0),
-    mClientAuthContext(),
-    mCSAuthContext(kAllowPskFlag),
+    mClientAuthContext(
+        kClientAuthAllowPskFlag,
+        kClientDefaultNoAuthMetaOps,
+        kClientDefaultNoAuthMetaOpsHosts),
+    mCSAuthContext(kChunkServerAuthAllowPskFlag),
     mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
@@ -1888,9 +1907,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mForceEUserToRootFlag = props.getValue(
         "metaServer.forceEUserToRoot",
         mForceEUserToRootFlag ? 1 : 0) != 0;
-    mVerifyAllOpsPermissionsFlag = props.getValue(
+    mVerifyAllOpsPermissionsParamFlag = props.getValue(
         "metaServer.verifyAllOpsPermissions",
-        mVerifyAllOpsPermissionsFlag ? 1 : 0) != 0;
+        mVerifyAllOpsPermissionsParamFlag ? 1 : 0) != 0;
     mRootHosts.clear();
     {
         istringstream is(props.getValue("metaServer.rootHosts", ""));
@@ -1974,6 +1993,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
+    mVerifyAllOpsPermissionsFlag =
+        mVerifyAllOpsPermissionsParamFlag ||
+        mClientAuthContext.IsAuthRequired();
     return (csOk && cliOk && userAndGroupErr == 0);
 }
 

@@ -1952,6 +1952,7 @@ protected:
     kfsMode_t mDefaultLoadFileMode;
     kfsMode_t mDefaultLoadDirMode;
     bool      mForceEUserToRootFlag; // Turns off permission verification.
+    bool      mVerifyAllOpsPermissionsParamFlag;
     bool      mVerifyAllOpsPermissionsFlag; // If true, then the
     // following won't work:
     // write(open("/file", O_RDWR | O_CREAT, 0000), "1", 1);

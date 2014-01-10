@@ -577,6 +577,12 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         HandleDelegation(*static_cast<MetaDelegate*>(op));
         return;
     }
+    if (mAuthUid == kKfsUserNone && mAuthContext.IsAuthRequired(*op)) {
+        op->status    = -EPERM;
+        op->statusMsg = "authentication required";
+        HandleRequest(EVENT_CMD_DONE, op);
+        return;
+    }
     ClientManager::SubmitRequest(mClientThread, *op);
 }
 

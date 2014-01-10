@@ -43,6 +43,8 @@
 #include <set>
 #include <map>
 
+#include <ctype.h>
+
 #include <boost/scoped_ptr.hpp>
 
 namespace KFS
@@ -68,7 +70,10 @@ public:
     typedef UserAndGroup::RootUsersPtr RootUsersPtr;
 
     Impl(
-        bool inAllowPskFlag)
+        bool               inAllowPskFlag,
+        const int*         inDefaultNoAuthMetaOpsPtr,
+        const char* const* inDefaultNoAuthMetaOpsHostsPtr,
+        bool&              inAuthRequiredFlag)
         : mKrbProps(),
           mPskSslProps(),
           mX509SslProps(),
@@ -93,8 +98,24 @@ public:
           mMaxDelegationValidForTime(60 * 60 * 24),
           mReDelegationAllowedFlag(false),
           mAuthTypes(kAuthenticationTypeUndef),
-          mUserAndGroupNames(*mUidNamePtr, *mGidNamePtr)
-        {}
+          mAuthRequiredFlag(inAuthRequiredFlag),
+          mUserAndGroupNames(*mUidNamePtr, *mGidNamePtr),
+          mNoAuthMetaOpHosts(),
+          mNoAuthMetaOps()
+    {
+        if (inDefaultNoAuthMetaOpsPtr) {
+            for (const int* thePtr = inDefaultNoAuthMetaOpsPtr;
+                    0 <= *thePtr && *thePtr < META_NUM_OPS_COUNT; ++thePtr) {
+                mNoAuthMetaOps.insert(MetaOp(*thePtr));
+            }
+        }
+        if (inDefaultNoAuthMetaOpsHostsPtr) {
+            for (const char* const* thePtr = inDefaultNoAuthMetaOpsHostsPtr;
+                    *thePtr; ++thePtr) {
+                mNoAuthMetaOpHosts.insert(string(*thePtr));
+            }
+        }
+    }
     ~Impl()
         {}
     bool Validate(
@@ -338,8 +359,54 @@ public:
         if (inParamNamePrefixPtr) {
             theParamName.Append(inParamNamePrefixPtr);
         }
-        const size_t thePrefLen      = theParamName.GetSize();
-        const bool   theAuthNoneFlag = inParameters.getValue(
+        const size_t thePrefLen = theParamName.GetSize();
+        bool              theNoAuthMetaOpHostsChangedFlag = true;
+        NoAuthMetaOpHosts theNoAuthMetaOpHosts;
+        const Properties::String* const theNoAuthHostIpsPtr =
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "noAuthOpsHostIps"));
+        if (theNoAuthHostIpsPtr) {
+            HostIpsInserter theInserter(theNoAuthMetaOpHosts);
+            if (! Tokenize(
+                    theNoAuthHostIpsPtr->GetPtr(),
+                    theNoAuthHostIpsPtr->GetSize(),
+                    theInserter)) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName << ": invalid confiruation: " <<
+                    theNoAuthHostIpsPtr->GetPtr() <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        } else if (inOtherCtxPtr) {
+            theNoAuthMetaOpHosts = inOtherCtxPtr->mNoAuthMetaOpHosts;
+        } else {
+            theNoAuthMetaOpHostsChangedFlag = false;
+        }
+        bool          theNoAuthMetaOpsChangedFlag = true;
+        NoAuthMetaOps theNoAuthMetaOps;
+        const Properties::String* const theNoAuthOpsPtr =
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "noAuthOps"));
+        if (theNoAuthOpsPtr) {
+            OpNamesInserter theInserter(sOpNamesMap, theNoAuthMetaOps);
+            if (! Tokenize(
+                    theNoAuthOpsPtr->GetPtr(),
+                    theNoAuthOpsPtr->GetSize(),
+                    theInserter)) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName << ": invalid confiruation: " <<
+                    theNoAuthOpsPtr->GetPtr() <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        } else if (inOtherCtxPtr) {
+            theNoAuthMetaOps = inOtherCtxPtr->mNoAuthMetaOps;
+        } else {
+            theNoAuthMetaOpsChangedFlag = false;
+        }
+        const bool theAuthNoneFlag = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "noAuth"), mAuthNoneFlag ? 1 : 0) != 0;
         NameRemap theNameRemap;
@@ -567,6 +634,12 @@ public:
             mWhiteList.swap(theWhiteList);
             mWhiteListParam = theWhiteListParam;
         }
+        if (theNoAuthMetaOpHostsChangedFlag) {
+            mNoAuthMetaOpHosts.swap(theNoAuthMetaOpHosts);
+        }
+        if (theNoAuthMetaOpsChangedFlag) {
+            mNoAuthMetaOps.swap(theNoAuthMetaOps);
+        }
         mMaxDelegationValidForTime = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "maxDelegationValidForTimeSec"), mMaxDelegationValidForTime);
@@ -580,10 +653,10 @@ public:
             (mX509SslCtxPtr ? int(kAuthenticationTypeX509) : 0) |
             (mKrbServicePtr ? int(kAuthenticationTypeKrb5) : 0)
         ;
+        mAuthRequiredFlag = ! mAuthNoneFlag &&
+            (mAuthTypes & ~int(kAuthenticationTypePSK)) != 0;
         return true;
     }
-    int GetAuthTypes() const
-        { return mAuthTypes; }
     uint32_t GetMaxDelegationValidForTime() const
         { return mMaxDelegationValidForTime; }
     bool IsReDelegationAllowed() const
@@ -603,6 +676,16 @@ public:
     }
     const UserAndGroupNames& GetUserAndGroupNames() const
         { return mUserAndGroupNames; }
+    int GetAuthTypes() const
+        { return mAuthTypes; }
+    bool IsAuthRequired(
+        const MetaRequest& inOp) const
+    {
+        return (mAuthRequiredFlag && (
+            mNoAuthMetaOps.find(inOp.op) == mNoAuthMetaOps.end() ||
+            mNoAuthMetaOpHosts.find(inOp.clientIp) == mNoAuthMetaOpHosts.end()
+        ));
+    }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -624,6 +707,74 @@ private:
     > NameList;
     typedef SslFilter::CtxPtr  SslCtxPtr;
     typedef SslFilterServerPsk ServerPsk;
+    typedef map<
+        string,
+        MetaOp
+    > OpNamesMap;
+    typedef set<
+        MetaOp,
+        less<MetaOp>,
+        StdFastAllocator<MetaOp>
+    > NoAuthMetaOps;
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > NoAuthMetaOpHosts;
+    class OpNamesInserter
+    {
+    public:
+        OpNamesInserter(
+            const OpNamesMap& inOpNamesMap,
+            NoAuthMetaOps&    inNoAuthMetaOps)
+            : mOpNamesMap(inOpNamesMap),
+              mNoAuthMetaOps(inNoAuthMetaOps),
+              mCurName()
+            {}
+        bool operator()(
+            const char* inPtr,
+            const char* inEndPtr)
+        {
+            mCurName.clear();
+            mCurName.reserve(inEndPtr - inPtr);
+            for (const char* thePtr = inPtr; thePtr < inEndPtr; ++thePtr) {
+                mCurName.push_back((char)toupper(*thePtr & 0xFF));
+            }
+            OpNamesMap::const_iterator theIt = mOpNamesMap.find(mCurName);
+            if (theIt == mOpNamesMap.end()) {
+                KFS_LOG_STREAM_ERROR <<
+                    mCurName << ": no such meta op" <<
+                KFS_LOG_EOM;
+                return false;
+            }
+            mNoAuthMetaOps.insert(theIt->second);
+            return true;
+        }
+    private:
+        const OpNamesMap& mOpNamesMap;
+        NoAuthMetaOps&    mNoAuthMetaOps;
+        string            mCurName;
+    };
+    class HostIpsInserter
+    {
+    public:
+        HostIpsInserter(
+            NoAuthMetaOpHosts& inNoAuthMetaOpHosts)
+            : mNoAuthMetaOpHosts(inNoAuthMetaOpHosts),
+              mCurName()
+            {}
+        bool operator()(
+            const char* inPtr,
+            const char* inEndPtr)
+        {
+            mCurName.assign(inPtr, inEndPtr - inPtr);
+            mNoAuthMetaOpHosts.insert(mCurName);
+            return true;
+        }
+    private:
+        NoAuthMetaOpHosts& mNoAuthMetaOpHosts;
+        string             mCurName;
+    };
 
     Properties        mKrbProps;
     Properties        mPskSslProps;
@@ -649,7 +800,12 @@ private:
     uint32_t          mMaxDelegationValidForTime;
     bool              mReDelegationAllowedFlag;
     int               mAuthTypes;
+    bool&             mAuthRequiredFlag;
     UserAndGroupNames mUserAndGroupNames;
+    NoAuthMetaOpHosts mNoAuthMetaOpHosts;
+    NoAuthMetaOps     mNoAuthMetaOps;
+
+    static const OpNamesMap& sOpNamesMap;
 
     kfsUid_t GetUidSelf(
         const string& inAuthName,
@@ -677,6 +833,42 @@ private:
         }
         return theUid;
     }
+    static const OpNamesMap& CreateOpNamesMap()
+    {
+        static OpNamesMap sMap;
+        if (sMap.empty()) {
+#           define KfsCreateOpNamesMapEntry(name) \
+                sMap[string(#name)] = META_##name;
+            KfsForEachMetaOpId(KfsCreateOpNamesMapEntry)
+#           undef KfsCreateOpNamesMapEntry
+        }
+        return sMap;
+    }
+    template<typename T>
+    static bool Tokenize(
+        const char* inPtr,
+        size_t      inSize,
+        T&          inFunctor)
+    {
+        const char*       thePtr    = inPtr;
+        const char* const theEndPtr = inPtr + inSize;
+        while (thePtr < theEndPtr) {
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                ++thePtr;
+            }
+            const char* const theStartPtr = thePtr;
+            while (thePtr < theEndPtr && ' ' < (*thePtr & 0xFF)) {
+                ++thePtr;
+            }
+            if (theStartPtr < thePtr) {
+                if (! inFunctor(theStartPtr, thePtr)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
 private:
     Impl(
         const Impl& inImpl);
@@ -684,9 +876,20 @@ private:
         const Impl& inImpl);
 };
 
+AuthContext::Impl::OpNamesMap const& AuthContext::Impl::sOpNamesMap =
+    AuthContext::Impl::CreateOpNamesMap();
+
 AuthContext::AuthContext(
-    bool inAllowPskFlag /* = true */)
-    : mImpl(*(new Impl(inAllowPskFlag))),
+    bool               inAllowPskFlag                 /* = true */,
+    const int*         inDefaultNoAuthMetaOpsPtr      /* = 0 */,
+    const char* const* inDefaultNoAuthMetaOpsHostsPtr /* = 0 */)
+    : mAuthRequiredFlag(false),
+      mImpl(*(new Impl(
+        inAllowPskFlag,
+        inDefaultNoAuthMetaOpsPtr,
+        inDefaultNoAuthMetaOpsHostsPtr,
+        mAuthRequiredFlag
+      ))),
       mUserAndGroupUpdateCount(0),
       mUserAndGroupNames(mImpl.GetUserAndGroupNames())
 {
@@ -785,12 +988,6 @@ AuthContext::SetParameters(
         inOtherCtxPtr ? &inOtherCtxPtr->mImpl : 0);
 }
 
-    int
-AuthContext::GetAuthTypes() const
-{
-    return mImpl.GetAuthTypes();
-}
-
     uint32_t
 AuthContext::GetMaxDelegationValidForTime() const
 {
@@ -811,6 +1008,19 @@ AuthContext::GetUserNameAndGroup(
     kfsGid_t& outEGid) const
 {
     return mImpl.GetUserNameAndGroup(inUid, outGid, outEUid, outEGid);
+}
+
+    int
+AuthContext::GetAuthTypes() const
+{
+    return mImpl.GetAuthTypes();
+}
+
+    bool
+AuthContext::IsAuthRequiredSelf(
+    const MetaRequest& inOp) const
+{
+    return mImpl.IsAuthRequired(inOp);
 }
 
 }

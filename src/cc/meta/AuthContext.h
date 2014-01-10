@@ -40,12 +40,15 @@ class SslFilterServerPsk;
 class SslFilterVerifyPeer;
 class UserAndGroup;
 class UserAndGroupNames;
+struct MetaRequest;
 
 class AuthContext
 {
 public:
     AuthContext(
-        bool inAllowPskFlag = true);
+        bool               inAllowPskFlag                 = true,
+        const int*         inDefaultNoAuthMetaOpsPtr      = 0,
+        const char* const* inDefaultNoAuthMetaOpsHostsPtr = 0);
     ~AuthContext();
     bool Validate(
         MetaAuthenticate& inOp);
@@ -68,7 +71,11 @@ public:
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,
         AuthContext*      inOtherCtxPtr = 0);
-    int GetAuthTypes() const;
+    bool IsAuthRequired() const
+        { return mAuthRequiredFlag; }
+    bool IsAuthRequired(
+        const MetaRequest& inOp) const
+        { return (mAuthRequiredFlag && IsAuthRequiredSelf(inOp)); }
     uint32_t GetMaxDelegationValidForTime() const;
     bool IsReDelegationAllowed() const;
     const char* GetUserNameAndGroup(
@@ -80,12 +87,16 @@ public:
         { return mUserAndGroupUpdateCount; }
     const UserAndGroupNames& GetUserAndGroupNames() const
         { return mUserAndGroupNames; }
+    int GetAuthTypes() const;
 private:
     class Impl;
+    bool                     mAuthRequiredFlag;
     Impl&                    mImpl;
     uint64_t                 mUserAndGroupUpdateCount;
     const UserAndGroupNames& mUserAndGroupNames;
 
+    bool IsAuthRequiredSelf(
+        const MetaRequest& inOp) const;
 private:
     AuthContext(
         const AuthContext& inCtx);

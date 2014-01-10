@@ -612,7 +612,7 @@ ChunkServer::HandleRequest(int code, void *data)
         }
         if (! mHelloDone &&
                 mNetConnection && ! mNetConnection->IsWriteReady()) {
-            Error("hello error cluster key or md5sum mismatch");
+            Error("hello authentication error cluster key or md5sum mismatch");
         }
         // Something went out on the network.
         break;
@@ -946,8 +946,21 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
-        mHelloOp = static_cast<MetaHello*>(op);
+        mHelloOp           = static_cast<MetaHello*>(op);
         mHelloOp->authName = mAuthName;
+        if (mHelloOp->authName.empty() &&
+                gLayoutManager.GetCSAuthContext().IsAuthRequired()) {
+            mHelloOp->status    = -EPERM;
+            mHelloOp->statusMsg = "authentication required";
+            iobuf->Clear();
+            mNetConnection->SetMaxReadAhead(0);
+            mNetConnection->SetInactivityTimeout(sRequestTimeout);
+            SendResponse(mHelloOp);
+            delete mHelloOp;
+            mHelloOp = 0;
+            // Do not declare error, hello reply still pending.
+            return 0;
+        }
         if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
             mHelloOp = 0;
             delete op;
@@ -969,13 +982,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 iobuf->Clear();
                 mNetConnection->SetMaxReadAhead(0);
                 mNetConnection->SetInactivityTimeout(sRequestTimeout);
-                mOstream.Set(mNetConnection->GetOutBuffer());
-                mHelloOp->response(mOstream);
-                mOstream.Reset();
+                SendResponse(mHelloOp);
                 delete mHelloOp;
                 mHelloOp = 0;
-                // Do not declare error, hello reply still
-                // pending.
+                // Do not declare error, hello reply still pending.
                 return 0;
             }
         }
