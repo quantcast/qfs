@@ -1989,6 +1989,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     const bool csOk = mCSAuthContext.SetParameters(
         "metaServer.CSAuthentication.", mConfigParameters);
     const int cliOk = UpdateClientAuth(mClientAuthContext);
+    mAuthCtxUpdateCount++;
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
