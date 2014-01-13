@@ -743,6 +743,10 @@ ChunkLeases::LeaseRelinquish(
         }
         return ret;
     }
+    if (req.fromClientSMFlag) {
+        // only chunk servers are allowed to relinquish write leases;
+        return -EPERM;
+    }
 
     WEntry* const we = mWriteLeases.Find(req.chunkId);
     if (! we || we->Get().leaseId != req.leaseId) {
@@ -1387,6 +1391,15 @@ LayoutManager::LayoutManager() :
     mRootHosts(),
     mHostUserGroupRemap(),
     mLastUidGidRemap(),
+    mMetaServerAdminUsers(),
+    mMetaServerAdminGroups(),
+    mMetaServerStatsUsers(),
+    mMetaServerStatsGroups(),
+    mMetaAdminUsersParam("root"),
+    mMetaAdminGroupsParam(),
+    mMetaServerStatsUsersParam("root"),
+    mMetaServerStatsGroupsParam(),
+    mUpdateAdminAndStatsUserAndGroupsFlag(false),
     mIoBufPending(0),
     mAuthCtxUpdateCount(0),
     mClientAuthContext(
@@ -1516,6 +1529,67 @@ struct RackPrefixValidator
         return true;
     }
 };
+
+template<typename T> static inline int
+SetUserListParameter(
+    const string&       inParam,
+    const UserAndGroup& inUserAndGroup,
+    T&                  outResult)
+{
+    int theErrCount = 0;
+    istringstream theStream(inParam);
+    outResult.clear();
+    string theName;
+    while ((theStream >> theName)) {
+        const kfsUid_t theUserId = inUserAndGroup.GetUserId(theName);
+        if (theUserId == kKfsUserNone) {
+            KFS_LOG_STREAM_ERROR << "no such user: " << theName <<
+            KFS_LOG_EOM;
+            theErrCount++;
+            continue;
+        }
+        outResult.insert(theUserId);
+    }
+    return theErrCount;
+}
+
+template<typename T> static inline int
+SetGroupListParameter(
+    const string&       inParam,
+    const UserAndGroup& inUserAndGroup,
+    T&                  outResult)
+{
+    int theErrCount = 0;
+    istringstream theStream(inParam);
+    outResult.clear();
+    string theName;
+    while ((theStream >> theName)) {
+        kfsGid_t theGroupId = kKfsGroupNone;
+        if (! inUserAndGroup.GetGroupId(theName, theGroupId)) {
+            KFS_LOG_STREAM_ERROR << "no such group: " << theName <<
+            KFS_LOG_EOM;
+            theErrCount++;
+            continue;
+        }
+        outResult.insert(theGroupId);
+    }
+    return theErrCount;
+}
+
+int
+LayoutManager::UpdateAdminAndStatsUsersAndGroups()
+{
+    return(
+        SetUserListParameter(mMetaAdminUsersParam, mUserAndGroup,
+            mMetaServerAdminUsers) +
+        SetGroupListParameter(mMetaAdminGroupsParam, mUserAndGroup,
+            mMetaServerAdminGroups) +
+        SetUserListParameter(mMetaServerStatsUsersParam, mUserAndGroup,
+            mMetaServerStatsUsers) +
+        SetGroupListParameter(mMetaServerStatsGroupsParam, mUserAndGroup,
+            mMetaServerStatsGroups)
+    );
+}
 
 bool
 LayoutManager::SetParameters(const Properties& props, int clientPort)
@@ -1991,13 +2065,35 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     const int cliOk = UpdateClientAuth(mClientAuthContext);
     mAuthCtxUpdateCount++;
 
+    mMetaAdminUsersParam =
+        props.getValue("metaServer.metaServerAdminUsers",
+        mMetaAdminUsersParam);
+    mMetaAdminGroupsParam =
+        props.getValue("metaServer.metaServerAdminGroups",
+        mMetaAdminGroupsParam);
+    mMetaServerStatsUsersParam =
+        props.getValue("metaServer.metaServerStatsUsersParam",
+        mMetaAdminUsersParam);
+    mMetaServerStatsGroupsParam =
+        props.getValue("metaServer.metaServerStatsGroupsParam",
+        mMetaServerStatsGroupsParam);
+    int errCnt = 0;
+    mUpdateAdminAndStatsUserAndGroupsFlag = mUserAndGroup.IsUpdatePending();
+    if (mUpdateAdminAndStatsUserAndGroupsFlag) {
+        // Defer admin user and group update until the user and group becomes
+        // up to date.
+        mChunkReplicator.ScheduleNext();
+    } else {
+        errCnt = UpdateAdminAndStatsUsersAndGroups();
+    }
+
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
-    return (csOk && cliOk && userAndGroupErr == 0);
+    return (csOk && cliOk && userAndGroupErr == 0 && errCnt == 0);
 }
 
 bool
@@ -8608,6 +8704,15 @@ struct EvacuateChunkChecker
 void
 LayoutManager::ChunkReplicationChecker()
 {
+    if (mUpdateAdminAndStatsUserAndGroupsFlag) {
+        mUpdateAdminAndStatsUserAndGroupsFlag = mUserAndGroup.IsUpdatePending();
+        if (mUpdateAdminAndStatsUserAndGroupsFlag) {
+            mChunkReplicator.ScheduleNext();
+        } else {
+            UpdateAdminAndStatsUsersAndGroups();
+        }
+    }
+
     if (! mPendingBeginMakeStable.empty() && ! InRecoveryPeriod()) {
         ProcessPendingBeginMakeStable();
     }

@@ -231,6 +231,11 @@ public:
         mCond.Notify();
         return 0;
     }
+    bool IsUpdatePending() const
+    {
+        QCStMutexLocker theLock(const_cast<Impl*>(this)->mMutex); // Mutable
+        return (mUpdateCount != mCurUpdateCount);
+    }
 private:
     int StartSelf()
     {
@@ -238,7 +243,7 @@ private:
             return -EINVAL;
         }
         const int theError = Update();
-        mUpdateCount++;
+        ApplyPendingUpdate();
         mStopFlag   = false;
         mUpdateFlag = false;
         const int kStackSize = 32 << 10;
@@ -303,6 +308,10 @@ private:
             return;
         }
         QCStMutexLocker theLock(mMutex);
+        ApplyPendingUpdate();
+    }
+    void ApplyPendingUpdate()
+    {
         if (mUpdateCount == mCurUpdateCount) {
             return;
         }
@@ -324,7 +333,7 @@ private:
 
         mNameGidMap.Swap(mPendingNameGidMap);
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
-        mUpdateCount = mCurUpdateCount;
+        mCurUpdateCount = mUpdateCount;
     }
     static bool StartsWith(
         const string& inString,
@@ -787,6 +796,12 @@ UserAndGroup::SetParameters(
     const Properties& inProperties)
 {
     return mImpl.SetParameters(inPrefixPtr, inProperties);
+}
+
+    bool
+UserAndGroup::IsUpdatePending() const
+{
+    return mImpl.IsUpdatePending();
 }
 
 const string                    UserAndGroup::kEmptyString;

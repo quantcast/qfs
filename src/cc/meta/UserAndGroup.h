@@ -199,6 +199,7 @@ public:
         { return mRootUsersPtr; }
     const GidNamePtr& GetGidNamePtr() const
         { return mGidNamePtr; }
+    bool IsUpdatePending() const;
 private:
     class Impl;
     Impl&                          mImpl;

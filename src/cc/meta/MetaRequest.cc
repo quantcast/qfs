@@ -222,6 +222,37 @@ GetUserAndGroupNames(const MetaRequest& req)
     );
 }
 
+inline static void
+SetPermissionDeniedStatus(MetaRequest& op)
+{
+    if (0 <= op.status) {
+        op.status   = -EPERM;
+        if (op.statusMsg.empty()) {
+            op.statusMsg = "permission denied";
+        }
+    }
+}
+
+inline static bool
+HasMetaServerAdminAccess(MetaRequest& op)
+{
+    if (! gLayoutManager.HasMetaServerAdminAccess(op)) {
+        SetPermissionDeniedStatus(op);
+        return false;
+    }
+    return true;
+}
+
+inline static bool
+HasMetaServerStatsAccess(MetaRequest& op)
+{
+    if (! gLayoutManager.HasMetaServerStatsAccess(op)) {
+        SetPermissionDeniedStatus(op);
+        return false;
+    }
+    return true;
+}
+
 template<typename T> inline bool
 SetUserAndGroup(T& req)
 {
@@ -2266,12 +2297,18 @@ MetaCoalesceBlocks::handle()
 /* virtual */ void
 MetaRetireChunkserver::handle()
 {
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     status = gLayoutManager.RetireServer(location, nSecsDown);
 }
 
 /* virtual */ void
 MetaToggleWORM::handle()
 {
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     KFS_LOG_STREAM_INFO << "Toggle WORM: " << value << KFS_LOG_EOM;
     setWORMMode(value);
     status = 0;
@@ -2305,7 +2342,7 @@ MetaLeaseAcquire::handle()
     if (status < 0) {
         return;
     }
-    if (submitCount > 1) {
+    if (1 < submitCount) {
         // Minimize spurious read lease acquisitions, when client timed out, and
         // closed connection. The connection check is racy, but should suffice
         // for the purpose at hands.
@@ -2335,6 +2372,9 @@ MetaLeaseAcquire::handle()
 /* virtual */ void
 MetaLeaseRenew::handle()
 {
+    if (gLayoutManager.VerifyAllOpsPermissions()) {
+        SetEUserAndEGroup(*this);
+    }
     status = gLayoutManager.LeaseRenew(this);
 }
 
@@ -2413,6 +2453,13 @@ MetaGetPathName::handle()
         }
     }
     if (fa) {
+        if (gLayoutManager.VerifyAllOpsPermissions()) {
+            SetEUserAndEGroup(*this);
+            if (! fa->CanRead(euser, egroup)) {
+                status = -EACCES;
+                return;
+            }
+        }
         os << "Path-name: " << metatree.getPathname(fa) << "\r\n";
         FattrReply(fa, fattr);
     }
@@ -2620,6 +2667,9 @@ MetaChunkReplicate::ShowSelf(ostream& os) const
 /* virtual */ void
 MetaPing::handle()
 {
+    if (! HasMetaServerStatsAccess(*this)) {
+        return;
+    }
     status = 0;
     gLayoutManager.Ping(resp, gWormMode);
 
@@ -2629,6 +2679,9 @@ MetaPing::handle()
 MetaUpServers::handle()
 {
     if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    if (! HasMetaServerStatsAccess(*this)) {
         return;
     }
     ostream& os = sWOStream.Set(resp);
@@ -2645,6 +2698,9 @@ MetaUpServers::handle()
 /* virtual */ void
 MetaRecomputeDirsize::handle()
 {
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     status = 0;
     KFS_LOG_STREAM_INFO << "Processing a recompute dir size..." << KFS_LOG_EOM;
     metatree.recomputeDirSize();
@@ -2703,6 +2759,9 @@ MetaDumpChunkToServerMap::handle()
         pid = -1;
         return; // Child finished.
     }
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     if (gChildProcessTracker.GetProcessCount() > 0) {
         statusMsg = "another child process running";
         status    = -EAGAIN;
@@ -2735,6 +2794,9 @@ MetaDumpChunkToServerMap::handle()
 MetaDumpChunkReplicationCandidates::handle()
 {
     if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
     gLayoutManager.DumpChunkReplicationCandidates(this);
@@ -2933,6 +2995,9 @@ int    MetaFsck::sMaxFsckResponseSize(20 << 20);
 /* virtual */ void
 MetaCheckLeases::handle()
 {
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     status = 0;
     gLayoutManager.CheckAllLeases();
 }
@@ -2940,6 +3005,9 @@ MetaCheckLeases::handle()
 /* virtual */ void
 MetaStats::handle()
 {
+    if (! HasMetaServerStatsAccess(*this)) {
+        return;
+    }
     ostringstream& os = GetTmpOStringStream();
     status = 0;
     globals().counterManager.Show(os);
@@ -2950,6 +3018,9 @@ MetaStats::handle()
 MetaOpenFiles::handle()
 {
     if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
     ReadInfo  openForRead;
@@ -3001,6 +3072,9 @@ MetaOpenFiles::handle()
 /* virtual */ void
 MetaSetChunkServersProperties::handle()
 {
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     status = (int)properties.size();
     gLayoutManager.SetChunkServersProperties(properties);
 }
@@ -3009,6 +3083,9 @@ MetaSetChunkServersProperties::handle()
 MetaGetChunkServersCounters::handle()
 {
     if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    if (! HasMetaServerStatsAccess(*this)) {
         return;
     }
     status = 0;
@@ -3021,6 +3098,9 @@ MetaGetChunkServerDirsCounters::handle()
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
+    if (! HasMetaServerStatsAccess(*this)) {
+        return;
+    }
     status = 0;
     gLayoutManager.GetChunkServerDirCounters(resp);
 }
@@ -3029,6 +3109,9 @@ MetaGetChunkServerDirsCounters::handle()
 MetaGetRequestCounters::handle()
 {
     if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+    if (! HasMetaServerStatsAccess(*this)) {
         return;
     }
     status = 0;
