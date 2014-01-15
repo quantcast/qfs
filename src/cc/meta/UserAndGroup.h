@@ -135,13 +135,22 @@ public:
         DynamicArray<SingleLinkedList<KeyOnly<kfsUid_t> >*,
             kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<KeyOnly<kfsUid_t> >
-    > RootUsers;
+    > UserIdsSet;
+    typedef LinearHash<
+        KeyOnly<kfsGid_t>,
+        KeyCompare<kfsGid_t>,
+        DynamicArray<SingleLinkedList<KeyOnly<kfsGid_t> >*,
+            kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
+        StdFastAllocator<KeyOnly<kfsGid_t> >
+    > GroupIdsSet;
+    typedef UserIdsSet RootUsers;
     typedef shared_ptr<const NameUidMap> NameUidPtr;
     typedef shared_ptr<const UidNameMap> UidNamePtr;
     typedef shared_ptr<const RootUsers>  RootUsersPtr;
     typedef shared_ptr<const GidNameMap> GidNamePtr;
 
-    UserAndGroup();
+    UserAndGroup(
+        bool inUseDefaultsFlag = true);
     ~UserAndGroup();
     int SetParameters(
         const char*       inPrefixPtr,
@@ -191,6 +200,12 @@ public:
         outGroupId = kKfsGroupNone;
         return false;
     }
+    bool IsMetaServerAdminUser(
+        kfsUid_t inUid)
+        { return (mMetaServerAdminUsers.Find(inUid) != 0); }
+    bool IsMetaServerStatsUser(
+        kfsUid_t inUid)
+        { return (mMetaServerStatsUsers.Find(inUid) != 0); }
     const NameUidPtr& GetNameUidPtr() const
         { return mNameUidPtr; }
     const UidNamePtr& GetUidNamePtr() const
@@ -213,6 +228,8 @@ private:
     const UidNamePtr&              mUidNamePtr;
     const RootUsersPtr&            mRootUsersPtr;
     const GidNamePtr&              mGidNamePtr;
+    const UserIdsSet&              mMetaServerAdminUsers;
+    const UserIdsSet&              mMetaServerStatsUsers;
 
     static const string      kEmptyString;
     static const NameAndGid  kNameAndGroupNone;

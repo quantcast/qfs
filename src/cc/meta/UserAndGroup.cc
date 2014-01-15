@@ -61,16 +61,18 @@ private:
         string,
         less<string>,
         StdFastAllocator<string>
-    > UserExcludes;
-    typedef UserExcludes GroupExcludes;
-    typedef set<
-        string,
-        less<string>,
-        StdFastAllocator<string>
-    > RootGroups;
-    typedef RootGroups RootUserNames;
+    > NamesSet;
+    typedef NamesSet RootUserNames;
+    typedef NamesSet UserExcludes;
+    typedef NamesSet GroupExcludes;
+    typedef NamesSet RootGroups;
+    typedef NamesSet MetaAdminUserNames;
+    typedef NamesSet MetaAdminGroupNames;
+    typedef NamesSet MetaStatsUserNames;
+    typedef NamesSet MetaStatsGroupNames;
 public:
-    Impl()
+    Impl(
+        bool inUseDefaultsFlag)
         : QCRunnable(),
           ITimeout(),
           mUpdateCount(0),
@@ -106,6 +108,8 @@ public:
           mPendingNameGidMap(),
           mPendingGroupUsersMap(),
           mPendingRootUsers(),
+          mPendingMetaAdminUsers(),
+          mPendingMetaStatsUsers(),
           mTmpUidNameMap(),
           mTmpGidNameMap(),
           mTmpNameUidMap(),
@@ -113,10 +117,20 @@ public:
           mTmpGroupUsersMap(),
           mTmpGroupUserNamesMap(),
           mTmpRootUsers(),
+          mTmpMetaAdminUsers(),
+          mTmpMetaStatsUsers(),
           mRootGroups(),
           mRootUserNames(),
           mOmitUserPrefix(),
-          mOmitGroupPrefix()
+          mOmitGroupPrefix(),
+          mMetaServerAdminUsers(),
+          mMetaServerStatsUsers(),
+          mMetaAdminUserNames(),
+          mMetaAdminGroupNames(),
+          mMetaStatsUserNames(),
+          mMetaStatsGroupNames(),
+          mParameters(),
+          mSetDefaultsFlag(inUseDefaultsFlag)
         {}
     ~Impl()
         { Impl::Shutdown(); }
@@ -151,51 +165,71 @@ public:
         if (inPrefixPtr) {
             theParamName.Append(inPrefixPtr);
         }
+
         QCStMutexLocker theLock(mMutex);
         const size_t thePrefixLen = theParamName.GetSize();
-        mMinUserId = inProperties.getValue(
+        if (mSetDefaultsFlag) {
+            // Set defaults.
+            mSetDefaultsFlag = false;
+            const DefaultParameterEntry kDefaults [] = {
+                { "metaServerAdminUsers", "root" },
+                { "metaServerStatsUsers", "root" },
+                { 0, 0 } // Sentinel
+            };
+            for (const DefaultParameterEntry* thePtr = kDefaults;
+                    thePtr->mNamePtr;
+                    ++thePtr) {
+                mParameters.setValue(theParamName.Truncate(thePrefixLen).Append(
+                    thePtr->mNamePtr), Properties::String(thePtr->mValuePtr));
+            }
+        }
+        inProperties.copyWithPrefix(
+            theParamName.GetPtr(), thePrefixLen, mParameters);
+        mMinUserId = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "minUserId"), mMinUserId);
-        mMaxUserId = inProperties.getValue(
+        mMaxUserId = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxUserId"), mMaxUserId);
-        mMinGroupId = inProperties.getValue(
+        mMinGroupId = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "minGroupId"), mMinGroupId);
-        mMaxGroupId = inProperties.getValue(
+        mMaxGroupId = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxGroupId"), mMaxGroupId);
-        const Properties::String* theUGEPtr[4];
-        theUGEPtr[0] = inProperties.getValue(
-            theParamName.Truncate(thePrefixLen).Append(
-            "excludeUser"));
-        theUGEPtr[1] = inProperties.getValue(
-            theParamName.Truncate(thePrefixLen).Append(
-            "excludeGroup"));
-        theUGEPtr[2] = inProperties.getValue(
-            theParamName.Truncate(thePrefixLen).Append(
-            "rootGroups"));
-        theUGEPtr[3] = inProperties.getValue(
-            theParamName.Truncate(thePrefixLen).Append(
-            "rootUsers"));
-        mUpdatePeriodNanoSec = (QCMutex::Time)(inProperties.getValue(
+        mUpdatePeriodNanoSec = (QCMutex::Time)(mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "updatePeriodSec"), (double)mUpdatePeriodNanoSec * 1e-9) * 1e9);
-        mOmitUserPrefix = inProperties.getValue(
+        mOmitUserPrefix = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "omitUserPrefix"), mOmitUserPrefix);
-        mOmitGroupPrefix = inProperties.getValue(
+        mOmitGroupPrefix = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "omitGroupPrefix"), mOmitGroupPrefix);
-        mDisabledFlag = inProperties.getValue(
+        mDisabledFlag = mParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "disable"), mDisabledFlag ? 1 : 0) != 0;
-        mUserExcludes.clear();
-        mGroupExcludes.clear();
-        mRootGroups.clear();
-        mRootUserNames.clear();
-        for (int i = 0; i < 4; i++) {
-            const Properties::String* const theSPtr = theUGEPtr[i];
+
+        const NamesSetParamEntry kNameSets[] = {
+            { "excludeUser",            &mUserExcludes        },
+            { "excludeGroup",           &mGroupExcludes       },
+            { "rootGroups",             &mRootGroups          },
+            { "rootUsers",              &mRootUserNames       },
+            { "metaServerAdminUsers",   &mMetaAdminUserNames  },
+            { "metaServerAdminGroups",  &mMetaAdminGroupNames },
+            { "metaServerStatsUsers",   &mMetaStatsUserNames  },
+            { "metaSErverStatsGroups",  &mMetaStatsGroupNames },
+            { 0, 0 } // Sentinel
+        };
+        for (const NamesSetParamEntry* theEPtr = kNameSets;
+                theEPtr->mPropNamePtr;
+                ++theEPtr) {
+            NamesSet& theSet = *(theEPtr->mNamesSetPtr);
+            theSet.clear();
+            const Properties::String* const theSPtr = mParameters.getValue(
+                theParamName.Truncate(thePrefixLen).Append(
+                    theEPtr->mPropNamePtr
+            ));
             if (! theSPtr) {
                 continue;
             }
@@ -210,16 +244,7 @@ public:
                     thePtr++;
                 }
                 if (theTokenPtr < thePtr) {
-                    const string theName(theTokenPtr, thePtr - theTokenPtr);
-                    if (i == 0) {
-                        mUserExcludes.insert(theName);
-                    } else if (i == 1) {
-                        mGroupExcludes.insert(theName);
-                    } else if (i == 2) {
-                        mRootGroups.insert(theName);
-                    } else {
-                        mRootUserNames.insert(theName);
-                    }
+                    theSet.insert(string(theTokenPtr, thePtr - theTokenPtr));
                 }
             }
         }
@@ -275,6 +300,15 @@ private:
         theRootGroups.swap(mRootGroups);
         RootUserNames theRootUserNames;
         theRootUserNames.swap(mRootUserNames);
+        MetaAdminUserNames theMetaAdminUserNames;
+        theMetaAdminUserNames.swap(mMetaAdminUserNames);
+        MetaAdminGroupNames theMetaAdminGroupNames;
+        theMetaAdminGroupNames.swap(mMetaAdminGroupNames);
+        MetaStatsUserNames theMetaStatsUserNames;
+        theMetaStatsUserNames.swap(mMetaStatsUserNames);
+        MetaStatsGroupNames theMetaStatsGroupNames;
+        theMetaStatsGroupNames.swap(mMetaStatsGroupNames);
+
         const uint64_t theParametersReadCount = mParametersReadCount;
         bool           theOverflowFlag        = false;
         const int      theError               = UpdateSelf(
@@ -282,6 +316,10 @@ private:
             theGroupExcludes,
             theRootGroups,
             theRootUserNames,
+            theMetaAdminUserNames,
+            theMetaAdminGroupNames,
+            theMetaStatsUserNames,
+            theMetaStatsGroupNames,
             theOverflowFlag
         );
         if (theError == 0) {
@@ -291,6 +329,8 @@ private:
             mPendingNameGidMap.Swap(mTmpNameGidMap);
             mPendingGroupUsersMap.Swap(mTmpGroupUsersMap);
             mPendingRootUsers.Swap(mTmpRootUsers);
+            mPendingMetaAdminUsers.Swap(mTmpMetaAdminUsers);
+            mPendingMetaStatsUsers.Swap(mTmpMetaStatsUsers);
             mOverflowFlag = theOverflowFlag;
             mUpdateCount++;
         }
@@ -299,6 +339,10 @@ private:
             theGroupExcludes.swap(mUserExcludes);
             theRootGroups.swap(mRootGroups);
             theRootUserNames.swap(mRootUserNames);
+            theMetaAdminUserNames.swap(mMetaAdminUserNames);
+            theMetaAdminGroupNames.swap(mMetaAdminGroupNames);
+            theMetaStatsUserNames.swap(mMetaStatsUserNames);
+            theMetaStatsGroupNames.swap(mMetaStatsGroupNames);
         }
         return theError;
     }
@@ -334,6 +378,9 @@ private:
         mNameGidMap.Swap(mPendingNameGidMap);
         mGroupUsersMap.Swap(mPendingGroupUsersMap);
         mCurUpdateCount = mUpdateCount;
+
+        mMetaServerAdminUsers.Swap(mPendingMetaAdminUsers);
+        mMetaServerStatsUsers.Swap(mPendingMetaStatsUsers);
     }
     static bool StartsWith(
         const string& inString,
@@ -366,11 +413,15 @@ private:
         return true;
     }
     int UpdateSelf(
-        const UserExcludes&  inUserExcludes,
-        const GroupExcludes& inGroupExcludes,
-        const RootGroups&    inRootGroups,
-        const RootUserNames& inRootUserNames,
-        bool&                outOverflowFlag)
+        const UserExcludes&        inUserExcludes,
+        const GroupExcludes&       inGroupExcludes,
+        const RootGroups&          inRootGroups,
+        const RootUserNames&       inRootUserNames,
+        const MetaAdminUserNames&  inMetaAdminUserNames,
+        const MetaAdminGroupNames& inMetaAdminGroupNames,
+        const MetaStatsUserNames&  inMetaStatsUserNames,
+        const MetaStatsGroupNames& inMetaStatsGroupNames,
+        bool&                      outOverflowFlag)
     {
         kfsUid_t const theMinUserId       = mMinUserId;
         kfsUid_t const theMaxUserId       = mMaxUserId;
@@ -388,6 +439,8 @@ private:
         mTmpGroupUsersMap.Clear();
         mTmpGroupUserNamesMap.Clear();
         mTmpRootUsers.Clear();
+        mTmpMetaAdminUsers.Clear();
+        mTmpMetaStatsUsers.Clear();
 
         int theError = 0;
         if (theDisabledFlag) {
@@ -633,15 +686,14 @@ private:
         mTmpGroupUserNamesMap.First();
         const GroupUserNames* thePtr;
         while ((thePtr = mTmpGroupUserNamesMap.Next())) {
-            if (mTmpGroupUserNamesMap.MaxSize() <=
-                    mTmpGroupUserNamesMap.GetSize()) {
+            if (mTmpGroupUsersMap.MaxSize() <= mTmpGroupUsersMap.GetSize()) {
                 KFS_LOG_STREAM_ERROR <<
                     "user table size exceed max allowed"
-                    " size: " << mTmpGroupUserNamesMap.GetSize() <<
+                    " size: " << mTmpGroupUsersMap.GetSize() <<
                     " ignoring group:"
                     " id: " << thePtr->GetKey() <<
                 KFS_LOG_EOM;
-                outOverflowFlag = true;;
+                outOverflowFlag = true;
                 continue;
             }
             const UserNamesSet& theNamesSet = thePtr->GetVal();
@@ -682,6 +734,35 @@ private:
                 }
             }
         }
+        int theStatus;
+        if ((theStatus = InsertTmpUsers(
+                inMetaAdminUserNames.begin(),
+                inMetaAdminUserNames.end(),
+                mTmpMetaAdminUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
+        if ((theStatus = InsertTmpUsers(
+                inMetaStatsUserNames.begin(),
+                inMetaStatsUserNames.end(),
+                mTmpMetaStatsUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
+        if ((theStatus = InsertTmpGroupsUsers(
+                inMetaAdminGroupNames.begin(),
+                inMetaAdminGroupNames.end(),
+                mTmpMetaAdminUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
+        if ((theStatus = InsertTmpGroupsUsers(
+                inMetaStatsGroupNames.begin(),
+                inMetaStatsGroupNames.end(),
+                mTmpMetaStatsUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
         return theError;
     }
 private:
@@ -698,53 +779,159 @@ private:
             kLog2FirstBucketSize, kLog2MaxUserAndGroupCount>,
         StdFastAllocator<GroupUserNames>
     > GroupUsersNamesMap;
+    struct NamesSetParamEntry
+    {
+        const char* mPropNamePtr;
+        NamesSet*   mNamesSetPtr;
+    };
+    struct DefaultParameterEntry
+    {
+        const char* mNamePtr;
+        const char* mValuePtr;
+    };
 
-    volatile uint64_t  mUpdateCount;
-    uint64_t           mCurUpdateCount;
-    QCThread           mThread;
-    QCMutex            mMutex;
-    QCCondVar          mCond;
-    bool               mStopFlag;
-    bool               mUpdateFlag;
-    bool               mDisabledFlag;
-    bool               mOverflowFlag;
-    QCMutex::Time      mUpdatePeriodNanoSec;
-    kfsUid_t           mMinUserId;
-    kfsUid_t           mMaxUserId;
-    kfsGid_t           mMinGroupId;
-    kfsGid_t           mMaxGroupId;
-    UserExcludes       mUserExcludes;
-    GroupExcludes      mGroupExcludes;
-    uint64_t           mParametersReadCount;
-    UidNameMap*        mUidNameMapPtr;
-    UidNamePtr         mUidNamePtr;
-    GidNameMap         mGidNameMap;
-    NameUidMap*        mNameUidMapPtr;
-    NameUidPtr         mNameUidPtr;
-    NameGidMap         mNameGidMap;
-    GidNameMap*        mGidNameMapPtr;
-    GidNamePtr         mGidNamePtr;
-    RootUsersPtr       mRootUsersPtr;
-    GroupUsersMap      mGroupUsersMap;
-    UidNameMap         mPendingUidNameMap;
-    GidNameMap         mPendingGidNameMap;
-    NameUidMap         mPendingNameUidMap;
-    NameGidMap         mPendingNameGidMap;
-    GroupUsersMap      mPendingGroupUsersMap;
-    RootUsers          mPendingRootUsers;
-    UidNameMap         mTmpUidNameMap;
-    GidNameMap         mTmpGidNameMap;
-    NameUidMap         mTmpNameUidMap;
-    NameGidMap         mTmpNameGidMap;
-    GroupUsersMap      mTmpGroupUsersMap;
-    GroupUsersNamesMap mTmpGroupUserNamesMap;
-    RootUsers          mTmpRootUsers;
-    RootGroups         mRootGroups;
-    RootUserNames      mRootUserNames;
-    string             mOmitUserPrefix;
-    string             mOmitGroupPrefix;
+    volatile uint64_t   mUpdateCount;
+    uint64_t            mCurUpdateCount;
+    QCThread            mThread;
+    QCMutex             mMutex;
+    QCCondVar           mCond;
+    bool                mStopFlag;
+    bool                mUpdateFlag;
+    bool                mDisabledFlag;
+    bool                mOverflowFlag;
+    QCMutex::Time       mUpdatePeriodNanoSec;
+    kfsUid_t            mMinUserId;
+    kfsUid_t            mMaxUserId;
+    kfsGid_t            mMinGroupId;
+    kfsGid_t            mMaxGroupId;
+    UserExcludes        mUserExcludes;
+    GroupExcludes       mGroupExcludes;
+    uint64_t            mParametersReadCount;
+    UidNameMap*         mUidNameMapPtr;
+    UidNamePtr          mUidNamePtr;
+    GidNameMap          mGidNameMap;
+    NameUidMap*         mNameUidMapPtr;
+    NameUidPtr          mNameUidPtr;
+    NameGidMap          mNameGidMap;
+    GidNameMap*         mGidNameMapPtr;
+    GidNamePtr          mGidNamePtr;
+    RootUsersPtr        mRootUsersPtr;
+    GroupUsersMap       mGroupUsersMap;
+    UidNameMap          mPendingUidNameMap;
+    GidNameMap          mPendingGidNameMap;
+    NameUidMap          mPendingNameUidMap;
+    NameGidMap          mPendingNameGidMap;
+    GroupUsersMap       mPendingGroupUsersMap;
+    RootUsers           mPendingRootUsers;
+    UserIdsSet          mPendingMetaAdminUsers;
+    UserIdsSet          mPendingMetaStatsUsers;
+    UidNameMap          mTmpUidNameMap;
+    GidNameMap          mTmpGidNameMap;
+    NameUidMap          mTmpNameUidMap;
+    NameGidMap          mTmpNameGidMap;
+    GroupUsersMap       mTmpGroupUsersMap;
+    GroupUsersNamesMap  mTmpGroupUserNamesMap;
+    RootUsers           mTmpRootUsers;
+    UserIdsSet          mTmpMetaAdminUsers;
+    UserIdsSet          mTmpMetaStatsUsers;
+    RootGroups          mRootGroups;
+    RootUserNames       mRootUserNames;
+    string              mOmitUserPrefix;
+    string              mOmitGroupPrefix;
+    UserIdsSet          mMetaServerAdminUsers;
+    UserIdsSet          mMetaServerStatsUsers;
+    MetaAdminUserNames  mMetaAdminUserNames;
+    MetaAdminGroupNames mMetaAdminGroupNames;
+    MetaStatsUserNames  mMetaStatsUserNames;
+    MetaStatsGroupNames mMetaStatsGroupNames;
+    Properties          mParameters;
+    bool                mSetDefaultsFlag;
 
     friend class UserAndGroup;
+
+    template<typename IT, typename T>
+    int InsertTmpUsers(
+        IT    inBegin,
+        IT    inEnd,
+        T&    outSet,
+        bool& outOverflowFlag)
+    {
+        int theError = 0;
+        for (IT theIt = inBegin; theIt != inEnd; ++theIt) {
+            const UidAndGid* theUidPtr = mTmpNameUidMap.Find(*theIt);
+            if (! theUidPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    "no such user: " << *theIt <<
+                KFS_LOG_EOM;
+                if (theError == 0) {
+                    theError = -EINVAL;
+                    continue;
+                }
+            }
+            if (outSet.MaxSize() <= outSet.GetSize()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "user table size exceed max allowed"
+                    " size: "         << outSet.GetSize() <<
+                    " ignoring user:" << *theIt <<
+                KFS_LOG_EOM;
+                outOverflowFlag = true;
+                continue;
+            }
+            bool theInsertedFlag = false;
+            outSet.Insert(theUidPtr->mUid, theUidPtr->mUid, theInsertedFlag);
+        }
+        return theError;
+    }
+    template<typename IT, typename T>
+    int InsertTmpGroupsUsers(
+        IT    inBegin,
+        IT    inEnd,
+        T&    outSet,
+        bool& outOverflowFlag)
+    {
+        int theError = 0;
+        for (IT theIt = inBegin; theIt != inEnd; ++theIt) {
+            const kfsGid_t* const theGidPtr = mTmpNameGidMap.Find(*theIt);
+            if (! theGidPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    "no such group: " << *theIt <<
+                KFS_LOG_EOM;
+                if (theError == 0) {
+                    theError = -EINVAL;
+                    continue;
+                }
+                continue;
+            }
+            const UsersSet* const theUsersSetPtr =
+                mTmpGroupUsersMap.Find(*theGidPtr);
+            if (! theUsersSetPtr) {
+                KFS_LOG_STREAM_ERROR <<
+                    "no such group id: " << *theIt <<
+                KFS_LOG_EOM;
+                if (theError == 0) {
+                    theError = -EINVAL;
+                    continue;
+                }
+            }
+            for (UsersSet::const_iterator theIdIt = theUsersSetPtr->begin();
+                    theIdIt != theUsersSetPtr->end();
+                    ++theIdIt) {
+                if (outSet.MaxSize() <= outSet.GetSize()) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "user table size exceed max allowed"
+                        " size: "          << outSet.GetSize() <<
+                        " ignoring group:" << *theIt <<
+                        " user id: "       << *theIdIt <<
+                    KFS_LOG_EOM;
+                    outOverflowFlag = true;
+                    continue;
+                }
+                bool theInsertedFlag = false;
+                outSet.Insert(*theIdIt, *theIdIt, theInsertedFlag);
+            }
+        }
+        return theError;
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -752,8 +939,9 @@ private:
         const Impl& inImpl);
 };
 
-UserAndGroup::UserAndGroup()
-    : mImpl(*(new Impl())),
+UserAndGroup::UserAndGroup(
+    bool inUseDefaultsFlag)
+    : mImpl(*(new Impl(inUseDefaultsFlag))),
       mUpdateCount(mImpl.mUpdateCount),
       mGroupUsersMap(mImpl.mGroupUsersMap),
       mNameUidMapPtr(&mImpl.mNameUidMapPtr),
@@ -763,7 +951,9 @@ UserAndGroup::UserAndGroup()
       mNameUidPtr(mImpl.mNameUidPtr),
       mUidNamePtr(mImpl.mUidNamePtr),
       mRootUsersPtr(mImpl.mRootUsersPtr),
-      mGidNamePtr(mImpl.mGidNamePtr)
+      mGidNamePtr(mImpl.mGidNamePtr),
+      mMetaServerAdminUsers(mImpl.mMetaServerAdminUsers),
+      mMetaServerStatsUsers(mImpl.mMetaServerStatsUsers)
 {
 }
 

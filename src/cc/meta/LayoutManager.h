@@ -1358,20 +1358,14 @@ public:
     {
         return (
             ! IsVerificationOfStatsOrAdminPermissionsRequired(op) ||
-            mMetaServerAdminUsers.find(op.euser) !=
-                mMetaServerAdminUsers.end() ||
-            mMetaServerAdminGroups.find(op.egroup) !=
-                mMetaServerAdminGroups.end()
+            mUserAndGroup.IsMetaServerAdminUser(op.euser)
         );
     }
     bool HasMetaServerStatsAccess(MetaRequest& op)
     {
         return (
             ! IsVerificationOfStatsOrAdminPermissionsRequired(op) ||
-            mMetaServerStatsUsers.find(op.euser) !=
-                mMetaServerStatsUsers.end() ||
-            mMetaServerStatsGroups.find(op.egroup) !=
-                mMetaServerStatsGroups.end()
+            mUserAndGroup.IsMetaServerStatsUser(op.euser)
         );
     }
 protected:
@@ -2009,26 +2003,6 @@ protected:
              {}
     };
     LastUidGidRemap mLastUidGidRemap;
-    typedef set<
-        kfsUid_t,
-        less<kfsUid_t>,
-        StdFastAllocator<kfsUid_t>
-    > UserIdsSet;
-    typedef set<
-        kfsGid_t,
-        less<kfsGid_t>,
-        StdFastAllocator<kfsGid_t>
-    > GroupIdsSet;
-
-    UserIdsSet mMetaServerAdminUsers;
-    UserIdsSet mMetaServerAdminGroups;
-    UserIdsSet mMetaServerStatsUsers;
-    UserIdsSet mMetaServerStatsGroups;
-    string     mMetaAdminUsersParam;
-    string     mMetaAdminGroupsParam;
-    string     mMetaServerStatsUsersParam;
-    string     mMetaServerStatsGroupsParam;
-    bool       mUpdateAdminAndStatsUserAndGroupsFlag;
 
     volatile int64_t  mIoBufPending;
     volatile uint64_t mAuthCtxUpdateCount;
@@ -2211,7 +2185,6 @@ protected:
         kfsUid_t                       authUid,
         MetaLeaseAcquire::ChunkAccess& chunkAccess,
         const ChunkServer*             writeMaster);
-    int UpdateAdminAndStatsUsersAndGroups();
     bool IsVerificationOfStatsOrAdminPermissionsRequired(MetaRequest& op)
     {
         if (! mVerifyAllOpsPermissionsFlag) {
