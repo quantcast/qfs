@@ -409,7 +409,8 @@ public:
         mKeys.swap(theKeys);
         mKeysExpirationQueue.swap(theExpQueue);
         ExpireKeys(theTimeNow - mKeyValidTime);
-        if (mError == 0 && mKeys.erase(mCurrentKeyId) > 0) {
+        if (mCurrentKeyValidFlag && mError == 0 &&
+                mKeys.erase(mCurrentKeyId) > 0) {
             KeysExpirationQueue::iterator theIt = mKeysExpirationQueue.begin();
             while (theIt != mKeysExpirationQueue.end() &&
                         theIt->second->first != mCurrentKeyId)
@@ -427,6 +428,7 @@ public:
                 "ignoring current key: " << mCurrentKeyId <<
             KFS_LOG_EOM;
         }
+        mPendingCurrentKeyFlag = false;
         UpdateNextTimerRunTime();
         return (int)mKeys.size();
     }
@@ -566,6 +568,7 @@ public:
                 mCond.Notify();
                 return;
             }
+            mWriteFlag = false;
         }
         if (mWriteFlag) {
             return; // Wait until the keys are updated / written.
