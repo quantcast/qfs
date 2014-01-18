@@ -260,7 +260,9 @@ public:
                 mFStream.clear();
                 mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
                 if (mFStream) {
-                    theStatus = Read(mFStream);
+                    if (0 < (theStatus = Read(mFStream))) {
+                        theStatus = 0;
+                    }
                     mFStream.close();
                 } else {
                     theStatus = errno;
@@ -369,7 +371,7 @@ public:
         Keys                theKeys;
         KeysExpirationQueue theExpQueue;
         Key                 theKey;
-        time_t              theKeyTime = theFirstKeyTime;
+        time_t              theKeyTime = theFirstKeyTime + theKeysTimeInterval;
         const time_t        theTimeNow = time(0);
         for (int i = 0; i < theKeyCount;
                 i++, theKeyTime += theKeysTimeInterval) {
@@ -589,8 +591,9 @@ public:
     {
         QCStMutexLocker theLocker(mMutexPtr);
         for (; ;) {
-            while (mCond.Wait(*mMutexPtr) && mRunFlag && ! mWriteFlag)
-                {}
+            while (mRunFlag && ! mWriteFlag) {
+                mCond.Wait(*mMutexPtr);
+            }
             if (! mRunFlag) {
                 break;
             }
@@ -602,7 +605,7 @@ public:
             if (theStatus < 0) {
                 KFS_LOG_STREAM_ERROR << "failed to write keys into"
                     " " << theFileName <<
-                    " " << QCUtils::SysError(-theStatus) <<
+                    ": " << QCUtils::SysError(-theStatus) <<
                 KFS_LOG_EOM;
             }
             mWriteFlag = false;
