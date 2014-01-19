@@ -63,7 +63,7 @@ public:
     {
         if (RAND_bytes(
                 reinterpret_cast<unsigned char*>(randrsl),
-                sizeof(randrsl) == 0)) {
+                sizeof(randrsl)) == 0) {
             return false;
         }
         mInitFlag = false;
