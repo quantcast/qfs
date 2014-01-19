@@ -452,7 +452,7 @@ public:
                 theFirstKeyTime = mCurrentKeyValidFlag ?
                     mCurrentKeyTime : time(0);
             } else {
-                theFirstKeyTime = mKeysExpirationQueue.front().first;
+                theFirstKeyTime = theIt->first;
             }
             while (theIt != mKeysExpirationQueue.end()) {
                 theKeys.push_back(*(theIt->second));
@@ -516,8 +516,8 @@ public:
                 return (int)theKeys.size();
             }
         }
-        unlink(theTmpFileName.c_str());
         const int theRet = errno;
+        unlink(theTmpFileName.c_str());
         return (0 < theRet ? -theRet : (theRet == 0 ? -EFAULT : theRet));
     }
     virtual void Timeout()
