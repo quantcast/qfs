@@ -171,6 +171,7 @@ public:
           mCond(),
           mRunFlag(false),
           mWriteFlag(false),
+          mWritingFlag(false),
           mFileName(),
           mFStream()
     {
@@ -564,13 +565,15 @@ public:
             mPendingCurrentKey     = theKey;
             mPendingCurrentKeyFlag = true;
             if (! mFileName.empty() && mRunFlag) {
-                mWriteFlag = true;
+                mWriteFlag   = true;
+                mWritingFlag = true;
                 mCond.Notify();
                 return;
             }
-            mWriteFlag = false;
+            mWritingFlag = false;
+            mWriteFlag   = false;
         }
-        if (mWriteFlag) {
+        if (mWritingFlag) {
             return; // Wait until the keys are updated / written.
         }
         mPendingCurrentKeyFlag = false;
@@ -600,19 +603,22 @@ public:
             if (! mRunFlag) {
                 break;
             }
-            if (mFileName.empty()) {
-                continue;
+            mWritingFlag = true;
+            mWriteFlag   = false;
+            if (! mFileName.empty()) {
+                const string theFileName = mFileName;
+                const int    theStatus   = Write(0, 0);
+                if (theStatus < 0) {
+                    KFS_LOG_STREAM_ERROR << "failed to write keys into"
+                        " " << theFileName <<
+                        ": " << QCUtils::SysError(-theStatus) <<
+                    KFS_LOG_EOM;
+                }
             }
-            const string theFileName = mFileName;
-            const int    theStatus   = Write(0, 0);
-            if (theStatus < 0) {
-                KFS_LOG_STREAM_ERROR << "failed to write keys into"
-                    " " << theFileName <<
-                    ": " << QCUtils::SysError(-theStatus) <<
-                KFS_LOG_EOM;
+            if (! mWriteFlag) {
+                mWritingFlag = false;
+                mNetManager.Wakeup();
             }
-            mWriteFlag = false;
-            mNetManager.Wakeup();
         }
     }
 private:
@@ -648,6 +654,7 @@ private:
     QCCondVar           mCond;
     bool                mRunFlag;
     bool                mWriteFlag;
+    bool                mWritingFlag;
     string              mFileName;
     fstream             mFStream;
 
