@@ -6184,7 +6184,7 @@ KfsClientImpl::GidToName(kfsGid_t gid, time_t now)
 kfsUid_t
 KfsClientImpl::NameToUid(const string& name, time_t now)
 {
-    if (mUidIt == mGroupIds.end() || mUidIt->first != name) {
+    if (mUidIt == mUserIds.end() || mUidIt->first != name) {
         mUidIt = mUserIds.find(name);
     }
     if (mUidIt == mUserIds.end() ||
