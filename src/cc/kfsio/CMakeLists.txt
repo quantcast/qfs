@@ -43,6 +43,7 @@ set (sources
     Base64.cc
     CryptoKeys.cc
     ChunkAccessToken.cc
+    PrngIsaac64.cc
 )
 
 add_library (kfsIO STATIC ${sources})
