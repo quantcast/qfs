@@ -28,6 +28,8 @@
 #define PRNG_ISAAC64_H
 
 #include <inttypes.h>
+#include <stddef.h>
+#include <string.h>
 
 namespace KFS
 {
@@ -44,6 +46,30 @@ public:
             Isaac64();
         }
         return *mPtr++;
+    }
+    void RandBytes(
+        void*  inBufPtr,
+        size_t inSize)
+    {
+        if (inSize <= 0) {
+            return;
+        }
+        char*  thePtr  = reinterpret_cast<char*>(inBufPtr);
+        size_t theRem  = inSize;
+        size_t theSize = mPtr == mEndPtr ? 1 : 0;
+        do {
+            if (0 < theSize) {
+                Isaac64();
+            }
+            theSize = (mEndPtr - mPtr) * sizeof(*mPtr);
+            if (theRem < theSize) {
+                theSize = theRem;
+            }
+            memcpy(thePtr, mPtr, theSize);
+            thePtr += theSize;
+            theRem -= theSize;
+        } while (0 < theRem);
+        mPtr += (theSize + sizeof(*mPtr) - 1) / sizeof(*mPtr);
     }
 private:
     class Impl;
