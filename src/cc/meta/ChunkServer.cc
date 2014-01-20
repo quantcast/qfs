@@ -1577,13 +1577,8 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
     if (0 <= leaseId && 0 < r->validForTime && 1 < (sz = r->servers.size())) {
         // Create synchronous replication chain access tokens. The write master
         // uses these tokens to setup synchronous replication chain.
-        DelegationToken::TokenSeq tokenSeq;
-        if (! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-            req->status    = -EFAULT;
-            req->statusMsg = "pseudo random generator failure";
-            req->resume();
-            return -EFAULT;
-        }
+        DelegationToken::TokenSeq tokenSeq =
+            (DelegationToken::TokenSeq)gLayoutManager.GetRandom().Rand();
         const int16_t     kDelegationFlags = DelegationToken::kChunkServerFlag;
         ostringstream&    srvAccessOs      = GetTmpOStringStream();
         ostringstream&    chunkAccessOs    = GetTmpOStringStream1();
@@ -1728,13 +1723,9 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
             r->resume();
             return -EFAULT;
         }
-        r->authUid = mAuthUid;
-        if (! CryptoKeys::PseudoRand(&(r->tokenSeq), sizeof(r->tokenSeq))) {
-            r->status    = -EFAULT;
-            r->statusMsg = "pseudo random generator failure";
-            r->resume();
-            return -EFAULT;
-        }
+        r->authUid  = mAuthUid;
+        r->tokenSeq =
+            (DelegationToken::TokenSeq)gLayoutManager.GetRandom().Rand();
         if (r->dataServer) {
             if (! r->dataServer->GetCryptoKey(r->keyId, r->key)) {
                 r->status    = -EFAULT;

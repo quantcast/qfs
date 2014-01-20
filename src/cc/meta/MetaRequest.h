@@ -2875,6 +2875,7 @@ struct MetaLeaseAcquire: public MetaRequest {
  * \brief Op for renewing a lease on a chunk of a file.
  */
 struct MetaLeaseRenew: public MetaRequest {
+    typedef DelegationToken::TokenSeq         TokenSeq;
     typedef MetaLeaseAcquire::ChunkAccessInfo ChunkAccessInfo;
     typedef MetaLeaseAcquire::ChunkAccess     ChunkAccess;
 
@@ -2888,6 +2889,7 @@ struct MetaLeaseRenew: public MetaRequest {
     ChunkAccess        chunkAccess;
     const ChunkServer* chunkServer;
     int                validForTime;
+    TokenSeq           tokenSeq;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
@@ -2900,6 +2902,7 @@ struct MetaLeaseRenew: public MetaRequest {
           chunkAccess(),
           chunkServer(0),
           validForTime(0),
+          tokenSeq(0),
           leaseTypeStr()
         {}
     virtual void handle();

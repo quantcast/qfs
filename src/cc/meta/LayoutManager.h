@@ -51,6 +51,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/event.h"
 #include "kfsio/Globals.h"
+#include "kfsio/PrngIsaac64.h"
 #include "MetaRequest.h"
 #include "CSMap.h"
 #include "ChunkPlacement.h"
@@ -65,7 +66,6 @@
 #include <fstream>
 #include <string.h>
 
-#include <boost/random.hpp>
 #include <boost/bind.hpp>
 
 class QCIoBufferPool;
@@ -1265,6 +1265,7 @@ public:
     const RackInfos& GetRacks() const
         { return mRacks; }
     int64_t Rand(int64_t interval);
+    PrngIsaac64& GetRandom() { return mRandom; }
     void UpdateChunkWritesPerDrive(
         ChunkServer&           srv,
         int                    deltaNumChunkWrites,
@@ -2032,16 +2033,13 @@ protected:
     };
     StTmp<ChunkPlacement>::Tmp mChunkPlacementTmp;
 
-    typedef boost::mt19937 Random;
-    Random                    mRandom;
-    const Random::result_type mRandMin;
-    const uint64_t            mRandInterval;
-    StorageTierInfo           mStorageTierInfo[kKfsSTierCount];
-    double                    mTierSpaceUtilizationThreshold[kKfsSTierCount];
-    int                       mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
-    int                       mTiersMaxWritesPerDrive[kKfsSTierCount];
-    double                    mTiersTotalWritableDrivesMult[kKfsSTierCount];
-    int                       mTierCandidatesCount[kKfsSTierCount];
+    PrngIsaac64     mRandom;
+    StorageTierInfo mStorageTierInfo[kKfsSTierCount];
+    double          mTierSpaceUtilizationThreshold[kKfsSTierCount];
+    int             mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
+    int             mTiersMaxWritesPerDrive[kKfsSTierCount];
+    double          mTiersTotalWritableDrivesMult[kKfsSTierCount];
+    int             mTierCandidatesCount[kKfsSTierCount];
 
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk
@@ -2166,8 +2164,6 @@ protected:
         FilesChecker&     fsck,
         const MetaDentry& de,
         const MetaFattr&  fa);
-    static Random::result_type RandSeed();
-    class RandGen;
     template<typename T, typename OT> void LoadIdRemap(
         istream& fs, T OT::* map);
     void SetUserAndGroupSelf(const MetaRequest& req,

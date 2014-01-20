@@ -95,21 +95,6 @@ using libkfsio::globals;
 
 const int64_t kSecs2MicroSecs = 1000 * 1000;
 
-//LayoutManager gLayoutManager;
-
-class LayoutManager::RandGen
-{
-public:
-    RandGen(LayoutManager& m)
-        : mLm(m)
-        {}
-    size_t operator()(size_t interval) {
-        return (size_t)mLm.Rand((int64_t)interval);
-    }
-private:
-    LayoutManager& mLm;
-};
-
 static inline time_t
 TimeNow()
 {
@@ -417,10 +402,19 @@ ChunkLeases::IsWriteLease(
     return (! IsReadLease(leaseId));
 }
 
+static inline ChunkLeases::LeaseId
+GenLeaseId()
+{
+    const ChunkLeases::LeaseId kMask =
+        ~(ChunkLeases::LeaseId(1) << (sizeof(ChunkLeases::LeaseId) * 8 - 1));
+    return ((ChunkLeases::LeaseId)gLayoutManager.GetRandom().Rand() & kMask);
+}
+
 inline ChunkLeases::LeaseId
 ChunkLeases::NewReadLeaseId()
 {
-    const LeaseId id = IsReadLease(mLeaseId) ? mLeaseId : (mLeaseId + 1);
+    const LeaseId kMask = ~LeaseId(1);
+    const LeaseId id = GenLeaseId() & kMask;
     assert(IsReadLease(id));
     return id;
 }
@@ -428,7 +422,7 @@ ChunkLeases::NewReadLeaseId()
 inline ChunkLeases::LeaseId
 ChunkLeases::NewWriteLeaseId()
 {
-    const LeaseId id = IsWriteLease(mLeaseId) ? mLeaseId : (mLeaseId + 1);
+    const LeaseId id = GenLeaseId() | 1;
     assert(IsWriteLease(id));
     return id;
 }
@@ -1185,30 +1179,10 @@ LayoutManager::IncrementChunkVersionRollBack(chunkId_t chunkId)
     return res.first->second;
 }
 
-LayoutManager::Random::result_type
-LayoutManager::RandSeed()
-{
-    Random::result_type theRet = 1;
-    RAND_pseudo_bytes(
-        reinterpret_cast<unsigned char*>(&theRet),
-        int(sizeof(theRet))
-    );
-    return theRet;
-}
-
 int64_t
 LayoutManager::Rand(int64_t interval)
 {
-    // Use this simpler and hopefully faster version instead of
-    // variate_generator<mt19937, uniform_int<int> >
-    // Scaling up and down 32 bit random number should be more than
-    // adequate for now, even though the result will at most 32
-    // random bits.
-
-    // Don't use modulo, low order bits might be "less random".
-    // Though this shouldn't be a problem with Mersenne twister.
-    return min((int64_t)((uint64_t)(mRandom() - mRandMin) * interval /
-        mRandInterval), interval - 1);
+    return (int64_t)(mRandom.Rand() % interval);
 }
 
 LayoutManager::ChunkPlacement::ChunkPlacement()
@@ -1411,9 +1385,7 @@ LayoutManager::LayoutManager() :
     mServers4Tmp(),
     mPlacementTiersTmp(),
     mChunkPlacementTmp(),
-    mRandom(RandSeed()),
-    mRandMin(mRandom.min()),
-    mRandInterval(mRandom.max() - mRandMin)
+    mRandom()
 {
     globals();
     mReplicationTodoStats    = new Counter("Num Replications Todo");
@@ -5248,12 +5220,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
             if (accessExpiredFlag &&
                     entry->numAppendersInChunk < mMaxAppendersPerChunk) {
                 req->responseAccessStr.clear();
-                if (! CryptoKeys::PseudoRand(
-                        &req->tokenSeq, sizeof(req->tokenSeq))) {
-                    req->status    = -EALLOCFAILED;
-                    req->statusMsg = "pseudo random generator failure";
-                    return 0;
-                }
+                req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
                 ostringstream os;
                 req->writeChunkAccess(os);
                 req->responseAccessStr = os.str();
@@ -5657,6 +5624,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         if (req->emitCSAccessFlag) {
             req->validForTime = mCSAccessValidForTime;
         }
+        req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
         MakeChunkAccess(*cs, req->authUid, req->chunkAccess, req->chunkServer);
     }
     return ret;
@@ -6570,6 +6538,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
                 r->writeMasterKeyId, r->writeMasterKey))) {
             r->issuedTime   = TimeNow();
             r->validForTime = mCSAccessValidForTime;
+            r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
         } else {
             r->status    = -EALLOCFAILED;
             r->statusMsg = "no write master crypto key";

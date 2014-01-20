@@ -1935,19 +1935,14 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     }
     if (appendChunk) {
         if (0 <= status && responseStr.empty()) {
-            if (responseAccessStr.empty() && writeMasterKeyValidFlag &&
-                    ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-                status    = -EALLOCFAILED;
-                statusMsg = "pseudo random generator failure";
-            } else {
+            ostringstream& os = GetTmpOStringStream();
+            responseSelf(os);
+            responseStr = os.str();
+            if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
+                tokenSeq = (TokenSeq)gLayoutManager.GetRandom().Rand();
                 ostringstream& os = GetTmpOStringStream();
-                responseSelf(os);
-                responseStr = os.str();
-                if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
-                    ostringstream& os = GetTmpOStringStream();
-                    writeChunkAccess(os);
-                    responseAccessStr = os.str();
-                }
+                writeChunkAccess(os);
+                responseAccessStr = os.str();
             }
         }
         gLayoutManager.AllocateChunkForAppendDone(*this);
@@ -4136,12 +4131,6 @@ MetaGetlayout::response(ostream& os, IOBuffer& buf)
 void
 MetaAllocate::response(ostream& os)
 {
-    if (responseAccessStr.empty() &&
-            status == 0 && writeMasterKeyValidFlag &&
-            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-        status    = -EALLOCFAILED;
-        statusMsg = "pseudo random generator failure";
-    }
     if (! OkHeader(this, os)) {
         return;
     }
@@ -4230,9 +4219,10 @@ MetaAllocate::responseSelf(ostream& os)
 void
 MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 {
-    DelegationToken::TokenSeq tokenSeq = 0;
+    DelegationToken::TokenSeq tokenSeq =
+        (DelegationToken::TokenSeq)(leaseId >> 1);
     const size_t              count    = chunkAccess.GetSize();
-    if (status == 0 && 0 < count &&
+    if (status == 0 && 0 < count && leaseId <= 0 &&
             ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
         status    = -EFAULT;
         statusMsg = "pseudo random generator failure";
@@ -4335,19 +4325,13 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 void
 MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
 {
-    DelegationToken::TokenSeq tokenSeq = 0;
-    const size_t              count    = chunkAccess.GetSize();
-    if (status == 0 && 0 < count &&
-            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-        status    = -EFAULT;
-        statusMsg = "pseudo random generator failure";
-    }
     if (! OkHeader(this, os)) {
         return;
     }
     if (clientCSAllowClearTextFlag) {
         os << "CS-clear-text: 1\r\n";
     }
+    const size_t count = chunkAccess.GetSize();
     if (count <= 0) {
         os << "\r\n";
         return;
