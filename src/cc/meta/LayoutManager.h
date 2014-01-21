@@ -234,8 +234,6 @@ public:
         const MetaLeaseRelinquish& req,
         ARAChunkCache&             arac,
         CSMap&                     csmap);
-    inline void SetMaxLeaseId(
-        LeaseId id);
     inline void GetOpenFiles(
         MetaOpenFiles::ReadInfo&  openForRead,
         MetaOpenFiles::WriteInfo& openForWrite,
@@ -409,9 +407,6 @@ private:
         DynamicArray<SingleLinkedList<WEntry>*, 13>,
         StdFastAllocator<WEntry>
     > WriteLeases;
-    /// A rolling counter for tracking leases that are issued to
-    /// to clients/chunkservers for reading/writing chunks
-    LeaseId     mLeaseId;
     ReadLeases  mReadLeases;
     WriteLeases mWriteLeases;
     bool        mTimerRunningFlag;

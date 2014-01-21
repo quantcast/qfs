@@ -320,8 +320,7 @@ ARAChunkCache::Timeout(time_t minTime)
 }
 
 ChunkLeases::ChunkLeases()
-    : mLeaseId(RandomSeqNo()),
-      mReadLeases(),
+    : mReadLeases(),
       mWriteLeases(),
       mTimerRunningFlag(false),
       mRExpirationList(-1, ChunkReadLeasesHead()),
@@ -872,7 +871,6 @@ ChunkLeases::NewReadLease(
         PutInExpirationList(expires, re);
     }
     leaseId  = id;
-    mLeaseId = id + 1;
     return true;
 }
 
@@ -912,7 +910,6 @@ ChunkLeases::NewWriteLease(
         chunkId, WEntry(chunkId, wl), insertedFlag);
     leaseId = l->Get().leaseId;
     if (insertedFlag) {
-        mLeaseId = id + 1;
         PutInExpirationList(*l);
     }
     return insertedFlag;
@@ -993,15 +990,6 @@ ChunkLeases::DeleteWriteLease(
     }
     Erase(*we);
     return true;
-}
-
-inline void
-ChunkLeases::SetMaxLeaseId(
-    ChunkLeases::LeaseId id)
-{
-    if (id > mLeaseId) {
-        mLeaseId = id;
-    }
 }
 
 inline bool
@@ -5593,9 +5581,6 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 {
     const CSMap::Entry* const cs = mChunkToServerMap.Find(req->chunkId);
     if (! cs) {
-        if (InRecovery()) {
-            mChunkLeases.SetMaxLeaseId(req->leaseId + 1);
-        }
         return -EINVAL;
     }
     const bool readLeaseFlag = mChunkLeases.IsReadLease(req->leaseId);
