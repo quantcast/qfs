@@ -70,8 +70,9 @@ public:
             if (! Init()) {
                 abort();
             }
+        } else {
+            isaac64();
         }
-        isaac64();
     }
     const uint64_t* GetBuf()
         { return randrsl; }
