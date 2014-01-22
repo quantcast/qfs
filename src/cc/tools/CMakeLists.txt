@@ -78,6 +78,7 @@ qfshibernate
 qfscat
 qfsping
 qfs
+qfsadmin
 )
 
 #
