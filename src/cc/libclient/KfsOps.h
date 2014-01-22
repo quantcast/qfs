@@ -101,13 +101,13 @@ enum KfsOp_t {
     CMD_AUTHENTICATE,
     CMD_DELEGATE,
     // Stats and admin ops.
-    CMD_METAPING,
-    CMD_CHUNKPING,
-    CMD_METASTATS,
-    CMD_METATOGGLE_WORM,
-    CMD_CHUNKSTATS,
-    CMD_RETIRE_CHUNKSERVER,
-    CMD_FSCK,
+    CMD_CHUNK_PING,
+    CMD_CHUNK_STATS,
+    CMD_META_PING,
+    CMD_META_STATS,
+    CMD_META_TOGGLE_WORM,
+    CMD_META_RETIRE_CHUNKSERVER,
+    CMD_META_FSCK,
     // Meta server maintenance and debugging.
     CMD_META_CHECK_LEASES,
     CMD_META_RECOMPUTE_DIRSIZE,
@@ -1541,7 +1541,7 @@ struct MetaPingOp : public KfsMonOp {
     vector<string> upServers; /// result
     vector<string> downServers; /// result
     MetaPingOp(kfsSeq_t s)
-        : KfsMonOp(CMD_METAPING, s),
+        : KfsMonOp(CMD_META_PING, s),
           upServers(),
           downServers()
         {}
@@ -1558,7 +1558,7 @@ struct MetaPingOp : public KfsMonOp {
 struct MetaToggleWORMOp : public KfsMonOp {
     int value;
     MetaToggleWORMOp(kfsSeq_t s, int v)
-        : KfsMonOp(CMD_METATOGGLE_WORM, s),
+        : KfsMonOp(CMD_META_TOGGLE_WORM, s),
           value(v)
         {}
     virtual void Request(ostream& os);
@@ -1577,7 +1577,7 @@ struct ChunkPingOp : public KfsMonOp {
     int64_t        totalSpace;
     int64_t        usedSpace;
     ChunkPingOp(kfsSeq_t s)
-        : KfsMonOp(CMD_CHUNKPING, s),
+        : KfsMonOp(CMD_CHUNK_PING, s),
           location(),
           totalSpace(-1),
           usedSpace(-1)
@@ -1596,7 +1596,7 @@ struct ChunkPingOp : public KfsMonOp {
 struct MetaStatsOp : public KfsMonOp {
     Properties stats; // result
     MetaStatsOp(kfsSeq_t s)
-        : KfsMonOp(CMD_METASTATS, s),
+        : KfsMonOp(CMD_META_STATS, s),
           stats()
         {}
     virtual void Request(ostream& os);
@@ -1612,7 +1612,7 @@ struct MetaStatsOp : public KfsMonOp {
 struct ChunkStatsOp : public KfsMonOp {
     Properties stats; // result
     ChunkStatsOp(kfsSeq_t s)
-        : KfsMonOp(CMD_CHUNKSTATS, s),
+        : KfsMonOp(CMD_CHUNK_STATS, s),
           stats()
         {}
     virtual void Request(ostream& os);
@@ -1629,7 +1629,7 @@ struct RetireChunkserverOp : public KfsMonOp {
     ServerLocation chunkLoc;
     int            downtime; // # of seconds of downtime
     RetireChunkserverOp(kfsSeq_t s, const ServerLocation &c, int d)
-        : KfsMonOp(CMD_RETIRE_CHUNKSERVER, s),
+        : KfsMonOp(CMD_META_RETIRE_CHUNKSERVER, s),
           chunkLoc(c),
           downtime(d)
         {}
@@ -1648,7 +1648,7 @@ struct RetireChunkserverOp : public KfsMonOp {
 struct FsckOp : public KfsMonOp {
     bool reportAbandonedFilesFlag;
     FsckOp(kfsSeq_t inSeq, bool inReportAbandonedFilesFlag)
-        : KfsMonOp(CMD_FSCK, inSeq),
+        : KfsMonOp(CMD_META_FSCK, inSeq),
           reportAbandonedFilesFlag(inReportAbandonedFilesFlag)
         {}
     virtual void Request(ostream& os);

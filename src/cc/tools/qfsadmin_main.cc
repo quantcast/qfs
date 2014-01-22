@@ -52,6 +52,8 @@ using std::string;
 using std::cerr;
 using std::cout;
 using std::setw;
+using std::right;
+using std::max;
 
 #define KfsForEachMetaOpId(f) \
     f(CHECK_LEASES,                    "debug: run chunk leases check") \
@@ -69,7 +71,10 @@ using std::setw;
     f(GET_CHUNK_SERVER_DIRS_COUNTERS,  "stats: output chunk directories" \
                                        " counters") \
     f(GET_REQUEST_COUNTERS,            "stats: get meta server request" \
-                                       " counters")
+                                       " counters") \
+    f(PING,                            "stats: list current status counters") \
+    f(STATS,                           "stats: list RPC counters") \
+    f(FSCK,                            "debug: run fsck")
 
     static string
 ToLower(
@@ -119,7 +124,9 @@ CmdHelp(
         MetaAdminOps::const_iterator const theIt =
             sMetaAdminOpsMap.find(ToLower(inNamePtr));
         if (theIt == sMetaAdminOpsMap.end()) {
-            cerr << "no such command: " << inNamePtr << "\n";
+            KFS_LOG_STREAM_ERROR <<
+                "no such command: " << inNamePtr <<
+            KFS_LOG_EOM;
         } else {
             cout << theIt->first << " -- " <<
                 theIt->second.second.second << "\n";
@@ -144,10 +151,11 @@ Main(
     const char* theConfigFileNamePtr  = 0;
     int         thePort               = -1;
     bool        theVerboseLoggingFlag = false;
+    bool        theShowHeadersFlag    = false;
     int         theRetCode            = 0;
 
     int theOptChar;
-    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:")) != -1) {
+    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:a")) != -1) {
         switch (theOptChar) {
             case 'm':
             case 's':
@@ -165,20 +173,24 @@ Main(
             case 'f':
                 theConfigFileNamePtr = optarg;
                 break;
+            case 'a':
+                theShowHeadersFlag = true;
+                break;
             default:
                 theRetCode = 1;
                 break;
         }
     }
 
-    if (theHelpFlag || ! theServerPtr || thePort < 0) {
+    if (theHelpFlag || ! theServerPtr || thePort < 0 || inArgCount <= optind) {
         (theHelpFlag ? cout : cerr) <<
             "Usage: " << inArgsPtr[0] << "\n"
             " -m|-s <meta server host name>\n"
             " -p <port>\n"
-            " -f <config file name>\n"
-            " [-v]\n"
-            " --  <cmd> <cmd> ..."
+            " [-f <config file name>]\n"
+            " [-a -- show headers]\n"
+            " [-v -- verbose]\n"
+            " --  <cmd> <cmd> ...\n"
             "Where cmd is one of the following:\n"
         ;
         CmdHelp(0);
@@ -198,13 +210,17 @@ Main(
         MetaAdminOps::const_iterator const theIt =
             sMetaAdminOpsMap.find(ToLower(inArgsPtr[i]));
         if (theIt == sMetaAdminOpsMap.end()) {
-            cerr << "no such command: " << inArgsPtr[i] << "\n";
+            KFS_LOG_STREAM_ERROR <<
+                "no such command: " << inArgsPtr[i] <<
+            KFS_LOG_EOM;
             theRetCode = 1;
         } else {
             MetaMonOp theOp(
                 theIt->second.second.first,
                 theIt->second.first
             );
+            theClient.SetMaxRpcHeaderLength(
+                theOp.op == CMD_META_PING ? 512 << 20 : MAX_RPC_HEADER_LEN);
             const int theRet = theClient.Execute(theLocation, theOp);
             if (theRet < 0) {
                 KFS_LOG_STREAM_ERROR << theOp.statusMsg <<
@@ -212,9 +228,24 @@ Main(
                 KFS_LOG_EOM;
                 theRetCode = 1;
             } else {
-                if (theOp.contentLength <= 0) {
-                    cout << theIt->first << " OK\n";
-                } else {
+                if (theShowHeadersFlag || theOp.contentLength <= 0) {
+                    Properties::iterator theIt;
+                    size_t               theMaxLen = 0;
+                    for (theIt = theOp.responseProps.begin();
+                            theIt != theOp.responseProps.end();
+                            ++theIt) {
+                        theMaxLen = max(theMaxLen, theIt->first.size());
+                    }
+                    for (theIt = theOp.responseProps.begin();
+                            theIt != theOp.responseProps.end();
+                            ++theIt) {
+                        cout << setw(theMaxLen) << right <<
+                            theIt->first.GetPtr() << ": " <<
+                            theIt->second << "\n";
+                    }
+                    cout << "\n";
+                }
+                if (0 < theOp.contentLength) {
                     cout.write(theOp.contentBuf, theOp.contentLength);
                 }
             }
