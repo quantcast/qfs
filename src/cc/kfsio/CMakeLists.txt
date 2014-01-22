@@ -34,7 +34,6 @@ set (sources
     NetErrorSimulator.cc
     NetManager.cc
     TcpSocket.cc
-    requestio.cc
     ZlibInflate.cc
     KfsCallbackObj.cc
     SslFilter.cc
