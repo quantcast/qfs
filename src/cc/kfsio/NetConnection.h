@@ -436,6 +436,16 @@ public:
         NetManager*    mNetManager;
         List::iterator mListIt;
 
+        void CloseSocket(NetConnection& con)
+        {
+            if (con.mSock) {
+                con.mSock->Close();
+                mAdded = false;
+                mIn    = false;
+                mOut   = false;
+                mFd    = -1;
+            } 
+        }
         friend class NetManager;
 
     private:
@@ -472,6 +482,7 @@ private:
     string          mLstErrorMsg;
     Filter*         mFilter;
 
+    friend class NetManagerEntry;
 private:
     // No copies.
     NetConnection(const NetConnection&);

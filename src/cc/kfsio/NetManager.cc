@@ -595,10 +595,10 @@ NetManager::CleanUp(bool childAtForkFlag, bool onlyCloseFdFlag)
             ++mTimerWheelBucketItr;
             if (conn) {
                 if (childAtForkFlag) {
-                    conn->GetNetManagerEntry()->mAdded = false;
                     if (onlyCloseFdFlag) {
-                        const bool kClearOutBufferFlag = false;
-                        conn->Close(kClearOutBufferFlag);
+                        conn->GetNetManagerEntry()->CloseSocket(*conn);
+                    } else {
+                        conn->GetNetManagerEntry()->mAdded = false;
                     }
                 }
                 if (conn->IsGood()) {
