@@ -121,6 +121,7 @@ public:
           mMaxRetryCount(inMaxRetryCount),
           mMaxContentLength(inMaxContentLength),
           mAuthFailureCount(0),
+          mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
           mInFlightRecvBufPtr(0),
@@ -534,6 +535,9 @@ public:
     void SetMaxContentLength(
         int inMax)
         { mMaxContentLength = inMax; }
+    void SetMaxRpcHeaderLength(
+        int inMaxLength)
+        { mMaxRpcHeaderLength = inMaxLength; }
     void ClearMaxOneOutstandingOpFlag()
     {
         if (! mMaxOneOutstandingOpFlag) {
@@ -773,6 +777,7 @@ private:
     int                mMaxRetryCount;
     int                mMaxContentLength;
     int                mAuthFailureCount;
+    int                mMaxRpcHeaderLength;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
     char*              mInFlightRecvBufPtr;
@@ -974,11 +979,11 @@ private:
     {
         const int theIdx = inBuffer.IndexOf(0, "\r\n\r\n");
         if (theIdx < 0) {
-            if (inBuffer.BytesConsumable() > MAX_RPC_HEADER_LEN) {
+            if (mMaxRpcHeaderLength < inBuffer.BytesConsumable()) {
                KFS_LOG_STREAM_ERROR << mLogPrefix <<
                     "error: " << mServerLocation <<
                     ": exceeded max. response header size: " <<
-                    MAX_RPC_HEADER_LEN << "; got " <<
+                    mMaxRpcHeaderLength << "; got " <<
                     inBuffer.BytesConsumable() << " resetting connection" <<
                 KFS_LOG_EOM;
                 Reset();
@@ -1818,7 +1823,7 @@ KfsNetClient::SetEventObserver(
     KfsNetClient::EventObserver* inEventObserverPtr)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.SetEventObserver(inEventObserverPtr);
+    mImpl.SetEventObserver(inEventObserverPtr);
 }
 
     NetManager&
@@ -1840,14 +1845,14 @@ KfsNetClient::SetMaxContentLength(
     int inMax)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.SetMaxContentLength(inMax);
+    mImpl.SetMaxContentLength(inMax);
 }
 
     void
 KfsNetClient::ClearMaxOneOutstandingOpFlag()
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.ClearMaxOneOutstandingOpFlag();
+    mImpl.ClearMaxOneOutstandingOpFlag();
 }
 
     void
@@ -1855,7 +1860,15 @@ KfsNetClient::SetFailAllOpsOnOpTimeoutFlag(
     bool inFlag)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.SetFailAllOpsOnOpTimeoutFlag(inFlag);
+    mImpl.SetFailAllOpsOnOpTimeoutFlag(inFlag);
+}
+
+    void
+KfsNetClient::SetMaxRpcHeaderLength(
+    int inMaxRpcHeaderLength)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetMaxRpcHeaderLength(inMaxRpcHeaderLength);
 }
 
 }} /* namespace cient KFS */

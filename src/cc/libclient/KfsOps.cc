@@ -1355,7 +1355,6 @@ AuthenticateOp::ParseResponseHeaderSelf(const Properties& prop)
     useSslFlag     = prop.getValue("Use-ssl", 0) != 0;
 }
 
-
 void
 DelegateOp::Request(ostream& os)
 {
@@ -1377,6 +1376,167 @@ DelegateOp::ParseResponseHeaderSelf(const Properties& prop)
     validForTime      = prop.getValue("Valid-for-time",       uint32_t(0));
     tokenValidForTime = prop.getValue("Token-valid-for-time", validForTime);
     access            = prop.getValue("Access",               string());
+}
+
+void
+MetaPingOp::Request(ostream& os)
+{
+    os <<
+    "PING\r\n" << ReqHeaders(*this) <<
+    "\r\n"
+    ;
+}
+
+void
+MetaToggleWORMOp::Request(ostream& os)
+{
+    os <<
+    "TOGGLE_WORM\r\n" << ReqHeaders(*this) <<
+    "Toggle-WORM: "   << value << "\r\n"
+    "\r\n"
+    ;
+}
+
+void
+MetaToggleWORMOp::ParseResponseHeaderSelf(const Properties&)
+{
+}
+
+void
+MetaPingOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    const char delim = '\t';
+    string serv  = prop.getValue("Servers", "");
+    size_t start = serv.find_first_of("s=");
+    if (start == string::npos) {
+        return;
+    }
+
+    string serverInfo;
+    size_t end;
+    while (start != string::npos) {
+        end = serv.find_first_of(delim, start);
+        if (end != string::npos) {
+            serverInfo.assign(serv, start, end - start);
+        } else {
+            serverInfo.assign(serv, start, serv.size() - start);
+        }
+        upServers.push_back(serverInfo);
+        start = serv.find_first_of("s=", end);
+    }
+    serv = prop.getValue("Down Servers", "");
+    start = serv.find_first_of("s=");
+    if (start == string::npos) {
+        return;
+    }
+    while (start != string::npos) {
+        end = serv.find_first_of(delim, start);
+        if (end != string::npos) {
+            serverInfo.assign(serv, start, end - start);
+        } else {
+            serverInfo.assign(serv, start, serv.size() - start);
+        }
+        downServers.push_back(serverInfo);
+        start = serv.find_first_of("s=", end);
+    }
+}
+
+void
+ChunkPingOp::Request(ostream& os)
+{
+    os <<
+    "PING\r\n" << ReqHeaders(*this) <<
+    "\r\n"
+    ;
+}
+
+void
+ChunkPingOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    location.hostname = prop.getValue("Meta-server-host",   string());
+    location.port     = prop.getValue("Meta-server-port",          0);
+    totalSpace        = prop.getValue("Total-space",      int64_t(0));
+    usedSpace         = prop.getValue("Used-space",       int64_t(0));
+}
+
+void
+MetaStatsOp::Request(ostream& os)
+{
+    os <<
+    "STATS\r\n" << ReqHeaders(*this) <<
+    "\r\n"
+    ;
+}
+
+void
+ChunkStatsOp::Request(ostream& os)
+{
+    os <<
+    "STATS\r\n" << ReqHeaders(*this) <<
+    "\r\n"
+    ;
+}
+
+void
+MetaStatsOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    stats = prop;
+}
+
+void
+ChunkStatsOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    stats = prop;
+}
+
+void
+RetireChunkserverOp::Request(ostream& os)
+{
+    os <<
+    "RETIRE_CHUNKSERVER\r\n" << ReqHeaders(*this) <<
+    "Downtime: "             << downtime          << "\r\n"
+    "Chunk-server-name: "    << chunkLoc.hostname << "\r\n"
+    "Chunk-server-port: "    << chunkLoc.port     << "\r\n"
+    "\r\n"
+    ;
+}
+
+void
+RetireChunkserverOp::ParseResponseHeaderSelf(const Properties& /* prop */)
+{
+}
+
+void
+FsckOp::Request(ostream& os)
+{
+    os <<
+   "FSCK\r\n"                 << ReqHeaders(*this)                  <<
+   "Report-Abandoned-Files: " << (reportAbandonedFilesFlag ? 1 : 0) << "\r\n"
+    "\r\n"
+    ;
+}
+
+void
+FsckOp::ParseResponseHeaderSelf(const Properties& /* prop */)
+{
+}
+
+void
+MetaMonOp::Request(ostream& os)
+{
+    os << verb << "\r\n" << ReqHeaders(*this);
+    for (Properties::iterator it = requestProps.begin();
+            it != requestProps.end();
+            ++it) {
+        os << it->first << ": " << it->second << "\r\n";
+    }
+    os << "\r\n";
+}
+
+void
+MetaMonOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    responseProps = prop;
 }
 
 } //namespace client

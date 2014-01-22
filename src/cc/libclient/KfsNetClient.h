@@ -254,6 +254,8 @@ public:
     void ClearMaxOneOutstandingOpFlag();
     void SetFailAllOpsOnOpTimeoutFlag(
         bool inFlag);
+    void SetMaxRpcHeaderLength(
+        int inMaxRpcHeaderLength);
 private:
     Impl& mImpl;
 private:

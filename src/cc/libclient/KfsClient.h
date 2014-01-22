@@ -673,6 +673,12 @@ public:
             string&   outToken,
             string&   outKey,
             string*   outErrMsg);
+    static int LoadProperties(
+        const char*  metaServerHost,
+        int          metaServerPort,
+        const char*  evnVarNamePrefix,
+        Properties&  properties,
+        const char*& configStr);
 private:
     KfsClientImpl* const mImpl;
 };

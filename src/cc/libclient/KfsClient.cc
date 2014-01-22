@@ -908,6 +908,73 @@ KfsClient::GetUserId()
     return mImpl->GetUserId();
 }
 
+static int
+LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
+{
+    const char* const pref  = "FILE:";
+    const size_t      len   = strlen(pref);
+    const char        delim = (char)'=';
+    if (strncmp(cfg, pref, len) == 0) {
+        if (props.loadProperties(cfg + len, delim, false) != 0) {
+            KFS_LOG_STREAM_INFO <<
+                "failed to load configuration from file: " << cfg <<
+                " set by environment varialbe:" << configEnvName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "using configuration: " << cfg <<
+            " set by environment varialbe:" << configEnvName <<
+        KFS_LOG_EOM;
+    } else {
+        string val;
+        for (const char* p = cfg; *p; ++p) {
+            int cur = *p & 0xFF;
+            if (cur <= ' ') {
+                cur = '\n';
+            }
+            val.push_back((char)cur);
+        }
+        if (props.loadProperties(val.data(), val.size(), delim) != 0) {
+            KFS_LOG_STREAM_INFO <<
+                "failed to load configuration: " << cfg <<
+                " set by environment varialbe: " << configEnvName <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "using configuration: " << cfg <<
+            " set by environment varialbe: " << configEnvName <<
+        KFS_LOG_EOM;
+    }
+    return 0;
+}
+
+/* static */ int
+KfsClient::LoadProperties(
+    const char*  metaServerHost,
+    int          metaServerPort,
+    const char*  evnVarNamePrefix,
+    Properties&  properties,
+    const char*& cfg)
+{
+    cfg = 0;
+    const char* prefix =
+        evnVarNamePrefix ? evnVarNamePrefix : "QFS_CLIENT_CONFIG";
+    if (metaServerHost && 0 < metaServerPort) {
+        ostringstream os;
+        os << prefix << "_" << metaServerHost << "_" << metaServerPort;
+        const string  configEnvName = os.str();
+        cfg = getenv(configEnvName.c_str());
+        if (cfg) {
+            return LoadConfig(configEnvName.c_str(), cfg, properties);
+        }
+    }
+    const char* const envName = prefix;
+    cfg = getenv(envName);
+    return (cfg ? LoadConfig(envName, cfg, properties) : 0);
+}
+
 namespace client
 {
 
@@ -1286,48 +1353,6 @@ KfsClientImpl::Shutdown()
     mProtocolWorker->Stop();
 }
 
-static int
-LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
-{
-    const char* const pref  = "FILE:";
-    const size_t      len   = strlen(pref);
-    const char        delim = (char)'=';
-    if (strncmp(cfg, pref, len) == 0) {
-        if (props.loadProperties(cfg + len, delim, false) != 0) {
-            KFS_LOG_STREAM_INFO <<
-                "failed to load configuration from file: " << cfg <<
-                " set by environment varialbe:" << configEnvName <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        KFS_LOG_STREAM_INFO <<
-            "using configuration: " << cfg <<
-            " set by environment varialbe:" << configEnvName <<
-        KFS_LOG_EOM;
-    } else {
-        string val;
-        for (const char* p = cfg; *p; ++p) {
-            int cur = *p & 0xFF;
-            if (cur <= ' ') {
-                cur = '\n';
-            }
-            val.push_back((char)cur);
-        }
-        if (props.loadProperties(val.data(), val.size(), delim) != 0) {
-            KFS_LOG_STREAM_INFO <<
-                "failed to load configuration: " << cfg <<
-                " set by environment varialbe: " << configEnvName <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        KFS_LOG_STREAM_INFO <<
-            "using configuration: " << cfg <<
-            " set by environment varialbe: " << configEnvName <<
-        KFS_LOG_EOM;
-    }
-    return 0;
-}
-
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     const Properties* props)
 {
@@ -1345,27 +1370,14 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     const Properties* properties = props;
     Properties envProps;
     if (! properties) {
-        ostringstream os;
-        os << "QFS_CLIENT_CONFIG_" <<
-            mMetaServerLoc.hostname << "_" << mMetaServerLoc.port;
-        const string      configEnvName = os.str();
-        const char* const cfg           = getenv(configEnvName.c_str());
+        const char* cfg = 0;
+        const int   ret = KfsClient::LoadProperties(
+            metaServerHost.c_str(), metaServerPort, 0, envProps, cfg);
+        if (ret < 0) {
+            return ret;
+        }
         if (cfg) {
-            const int ret = LoadConfig(configEnvName.c_str(), cfg, envProps);
-            if (ret < 0) {
-                return ret;
-            }
             properties = &envProps;
-        } else {
-            const char* const envName = "QFS_CLIENT_CONFIG";
-            const char* const cfg = getenv(envName);
-            if (cfg) {
-                const int ret = LoadConfig(envName, cfg, envProps);
-                if (ret < 0) {
-                    return ret;
-                }
-                properties = &envProps;
-            }
         }
     }
     const char* const kAuthParamPrefix = "client.auth.";

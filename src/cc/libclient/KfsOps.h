@@ -100,8 +100,27 @@ enum KfsOp_t {
     CMD_CHOWN,
     CMD_AUTHENTICATE,
     CMD_DELEGATE,
+    // Stats and admin ops.
+    CMD_METAPING,
+    CMD_CHUNKPING,
+    CMD_METASTATS,
+    CMD_METATOGGLE_WORM,
+    CMD_CHUNKSTATS,
+    CMD_RETIRE_CHUNKSERVER,
+    CMD_FSCK,
+    // Meta server maintenance and debugging.
+    CMD_META_CHECK_LEASES,
+    CMD_META_RECOMPUTE_DIRSIZE,
+    CMD_META_DUMP_CHUNKTOSERVERMAP,
+    CMD_META_DUMP_CHUNKREPLICATIONCANDIDATES,
+    CMD_META_OPEN_FILES,
+    CMD_META_GET_CHUNK_SERVERS_COUNTERS,
+    CMD_META_GET_CHUNK_SERVER_DIRS_COUNTERS,
+    CMD_META_SET_CHUNK_SERVERS_PROPERTIES,
+    CMD_META_GET_REQUEST_COUNTERS,
+    CMD_META_DISCONNECT,
 
-    CMD_NCMDS,
+    CMD_NCMDS
 };
 
 struct KfsOp {
@@ -1514,6 +1533,149 @@ struct DelegateOp : public KfsOp {
         ;
         return os;
     }
+};
+
+typedef KfsOp KfsMonOp;
+
+struct MetaPingOp : public KfsMonOp {
+    vector<string> upServers; /// result
+    vector<string> downServers; /// result
+    MetaPingOp(kfsSeq_t s)
+        : KfsMonOp(CMD_METAPING, s),
+          upServers(),
+          downServers()
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "meta ping:"
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
+struct MetaToggleWORMOp : public KfsMonOp {
+    int value;
+    MetaToggleWORMOp(kfsSeq_t s, int v)
+        : KfsMonOp(CMD_METATOGGLE_WORM, s),
+          value(v)
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "toggle worm:"
+            " value: "  << value <<
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
+struct ChunkPingOp : public KfsMonOp {
+    ServerLocation location;
+    int64_t        totalSpace;
+    int64_t        usedSpace;
+    ChunkPingOp(kfsSeq_t s)
+        : KfsMonOp(CMD_CHUNKPING, s),
+          location(),
+          totalSpace(-1),
+          usedSpace(-1)
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "chunk server ping:"
+            " "         << location <<
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
+struct MetaStatsOp : public KfsMonOp {
+    Properties stats; // result
+    MetaStatsOp(kfsSeq_t s)
+        : KfsMonOp(CMD_METASTATS, s),
+          stats()
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "meta stats:"
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
+struct ChunkStatsOp : public KfsMonOp {
+    Properties stats; // result
+    ChunkStatsOp(kfsSeq_t s)
+        : KfsMonOp(CMD_CHUNKSTATS, s),
+          stats()
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "chunk stats:"
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
+struct RetireChunkserverOp : public KfsMonOp {
+    ServerLocation chunkLoc;
+    int            downtime; // # of seconds of downtime
+    RetireChunkserverOp(kfsSeq_t s, const ServerLocation &c, int d)
+        : KfsMonOp(CMD_RETIRE_CHUNKSERVER, s),
+          chunkLoc(c),
+          downtime(d)
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "retire chunk server:"
+            " " << chunkLoc <<
+            " down time: "  << downtime <<
+            " status: "     << status
+        ;
+        return os;
+    }
+};
+
+struct FsckOp : public KfsMonOp {
+    bool reportAbandonedFilesFlag;
+    FsckOp(kfsSeq_t inSeq, bool inReportAbandonedFilesFlag)
+        : KfsMonOp(CMD_FSCK, inSeq),
+          reportAbandonedFilesFlag(inReportAbandonedFilesFlag)
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "fsck:"
+            " report abandoned files: "  << reportAbandonedFilesFlag <<
+            " status: "                  << status
+        ;
+        return os;
+    }
+};
+
+struct MetaMonOp : public KfsMonOp {
+    Properties requestProps;
+    Properties responseProps;
+    MetaMonOp(KfsOp_t op, const char* inVerb, kfsSeq_t seq = 0)
+        : KfsMonOp(op, seq),
+          verb(inVerb)
+        {}
+    virtual void Request(ostream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        return (os << verb << " status: " << status);
+    }
+private:
+    const char* verb;
 };
 
 } //namespace client
