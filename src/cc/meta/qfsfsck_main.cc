@@ -81,7 +81,7 @@ getFsckInfo(MonClient& client, const ServerLocation& loc,
         0
     };
     for (const char* const* hdr = okHdrs; *hdr; ++hdr) {
-        const int len = (int)strlen(*hdr);
+        const size_t len = strlen(*hdr);
         if (op.contentLength >= len &&
                 memcmp(op.contentBuf, *hdr, len) == 0) {
             cout << "Filesystem is HEALTHY\n";
