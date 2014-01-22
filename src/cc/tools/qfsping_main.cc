@@ -31,6 +31,7 @@
 
 #include <iostream>
 #include <string>
+#include <unistd.h>
 
 using std::string;
 using std::cout;
@@ -91,7 +92,7 @@ PingChunkServer(MonClient& client, const ServerLocation& location)
 
 int main(int argc, char** argv)
 {
-    char optchar;
+    int         optchar;
     bool        help           = false;
     bool        meta           = false;
     bool        chunk          = false;
