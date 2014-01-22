@@ -22,22 +22,27 @@
 // \brief Toggle WORM mode of KFS
 //----------------------------------------------------------------------------
 
-#include <iostream>
-
-#include "kfsio/TcpSocket.h"
+#include "MonClient.h"
 #include "common/MsgLogger.h"
+#include "libclient/KfsOps.h"
+#include "libclient/KfsClient.h"
 
-#include "monutils.h"
+#include <iostream>
 
 using std::cout;
 using namespace KFS;
 using namespace KFS_MON;
+using namespace KFS::client;
 
 static int
-ToggleWORM(const ServerLocation& server, int toggle)
+ToggleWORM(MonClient& client, const ServerLocation& server, int toggle)
 {
     MetaToggleWORMOp op(1, toggle);
-    if (ExecuteOp(server, op) != 0) {
+    const int ret = client.Execute(server, op);
+    if (ret != 0) {
+        KFS_LOG_STREAM_ERROR << op.statusMsg <<
+            " error: " << ErrorCodeToStr(ret) <<
+        KFS_LOG_EOM;
         return 1;
     }
     cout << "MetaServer " << server << " WORM mode " <<
@@ -52,9 +57,10 @@ int main(int argc, char **argv)
     int         port           = -1;
     bool        verboseLogging = false;
     int         toggle         = -1;
+    const char* configFileName = 0;
 
     int optchar;
-    while ((optchar = getopt(argc, argv, "hs:p:t:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hs:p:t:vf:")) != -1) {
         switch (optchar) {
             case 's':
                 server = optarg;
@@ -70,6 +76,9 @@ int main(int argc, char **argv)
                 break;
             case 'v':
                 verboseLogging = true;
+                break;
+            case 'f':
+                configFileName = optarg;
                 break;
             default:
                 help = true;
@@ -92,6 +101,10 @@ int main(int argc, char **argv)
         ;
         return 1;
     }
-    ServerLocation loc(server, port);
-    return ToggleWORM(loc, toggle);
+    MonClient client;
+    const ServerLocation loc(server, port);
+    if (client.SetParameters(loc, configFileName) < 0) {
+        return 1;
+    }
+    return ToggleWORM(client, loc, toggle);
 }

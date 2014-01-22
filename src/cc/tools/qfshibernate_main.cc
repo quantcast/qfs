@@ -30,42 +30,37 @@
 //
 //----------------------------------------------------------------------------
 
-#include "kfsio/TcpSocket.h"
+#include "MonClient.h"
 #include "common/MsgLogger.h"
-
-#include "monutils.h"
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include "libclient/KfsClient.h"
+#include "libclient/KfsOps.h"
 
 #include <iostream>
 #include <string>
 
 using std::string;
 using std::cout;
+
 using namespace KFS;
+using namespace KFS::client;
 using namespace KFS_MON;
 
-// # of secs for which the node is being hibernated
-static int
-RetireChunkserver(const ServerLocation &metaLoc, const ServerLocation &chunkLoc,
-                  int sleepTime)
-{
-    RetireChunkserverOp op(1, chunkLoc, sleepTime);
-    return (ExecuteOp(metaLoc, op) < 0 ? 1 : 0);
-}
-
 int
-main(int argc, char **argv)
+main(
+    int    argc,
+    char** argv)
 {
-    char optchar;
-    bool help = false;
-    const char *metaserver = NULL, *chunkserver = NULL;
-    int metaport = -1, chunkport = -1, sleepTime = -1;
-    bool verboseLogging = false;
+    int         optchar;
+    bool        help           = false;
+    const char* metaserver     = 0;
+    const char* chunkserver    = 0;
+    const char* configFileName = 0;
+    int         metaport       = -1;
+    int         chunkport      = -1;
+    int         sleepTime      = -1;
+    bool        verboseLogging = false;
 
-    while ((optchar = getopt(argc, argv, "hm:p:c:d:s:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hm:p:c:d:s:vf:")) != -1) {
         switch (optchar) {
             case 'm':
                 metaserver = optarg;
@@ -88,29 +83,48 @@ main(int argc, char **argv)
             case 'v':
                 verboseLogging = true;
                 break;
+            case 'f':
+                configFileName = optarg;
+                break;
             default:
                 help = true;
                 break;
         }
     }
-
-    //FIXME: make 'sleeptime' a mandatory parameter until retire is fixed.
-    help = help || !metaserver || !chunkserver || sleepTime <= 0;
-
+    help = help || ! metaserver || ! chunkserver || sleepTime <= 0 ||
+        metaport <= 0 || chunkport <= 0;
     if (help) {
-        cout << "Usage: " << argv[0]
-             << " -m <metaserver> -p <port> -c <chunkserver> -d <port> "
-             << " -s <sleeptime in seconds> [-v]\n"
-             << "Hibernates the chunkserver for 'sleeptime' seconds.\n";
-        return -1;
+        cout <<
+            "Usage: " << argv[0] << "\n"
+            " -m <metaserver>\n"
+            " -p <port>\n"
+            " -c <chunkserver>\n"
+            " -d <port>\n"
+            " -s <sleeptime in seconds>\n"
+            " -f <config file name>\n"
+            " [-v]\n"
+            "Hibernates the chunkserver for 'sleeptime' seconds.\n"
+        ;
+        return 1;
     }
 
     MsgLogger::Init(0, verboseLogging ?
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
-    ServerLocation metaLoc(metaserver, metaport);
-    ServerLocation chunkLoc(chunkserver, chunkport);
-
-    return RetireChunkserver(metaLoc, chunkLoc, sleepTime);
+    const ServerLocation metaLoc (metaserver,  metaport);
+    const ServerLocation chunkLoc(chunkserver, chunkport);
+    RetireChunkserverOp  op(0, chunkLoc, sleepTime);
+    MonClient            client;
+    int                  status = client.SetParameters(metaLoc, configFileName);
+    if (status == 0) {
+        status = client.Execute(metaLoc, op);
+    }
+    if (status < 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "hibernate failure: " << op.statusMsg <<
+            " " << ErrorCodeToStr(status) <<
+        KFS_LOG_EOM;
+    }
+    return (status < 0 ? 1 : 0);
 }
 

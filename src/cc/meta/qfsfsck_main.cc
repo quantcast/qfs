@@ -33,102 +33,48 @@
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
-#include "util.h"
-#include "common/MsgLogger.h"
-#include "kfsio/TcpSocket.h"
-#include "kfsio/requestio.h"
-#include "common/MdStream.h"
-#include "common/kfserrno.h"
-#include "qcdio/QCUtils.h"
 
-#include <sys/time.h>
+#include "tools/MonClient.h"
+#include "common/MsgLogger.h"
+#include "common/MdStream.h"
+#include "qcdio/QCUtils.h"
+#include "libclient/KfsOps.h"
+#include "libclient/KfsClient.h"
 
 #include <iostream>
-#include <iterator>
-#include <sstream>
-#include <cassert>
-#include <boost/scoped_array.hpp>
 
 namespace KFS
 {
+using namespace KFS_MON;
+using namespace KFS::client;
 
 using std::cout;
 using std::cerr;
-using std::ostringstream;
-using std::istringstream;
-
-const string KFS_VERSION_STR = "KFS/1.0";
 
 static bool
-getFsckInfo(string metahost, int metaport,
+getFsckInfo(MonClient& client, const ServerLocation& loc,
     bool reportAbandonedFilesFlag, int timeoutSec)
 {
-    TcpSocket sock;
-    ServerLocation loc(metahost, metaport);
-    int ret, len;
-    Properties prop;
-    boost::scoped_array<char> buf;
+    client.SetMaxContentLength(512 << 20);
+    client.SetOpTimeout(timeoutSec);
 
-    ret = sock.Connect(loc);
-
-    if (ret < 0) {
-        cout << "Unable to connect to metaserver...exiting\n";
+    FsckOp op(0, reportAbandonedFilesFlag);
+    const int ret = client.Execute(loc, op);
+    if (ret != 0) {
+        KFS_LOG_STREAM_ERROR << op.statusMsg <<
+            " error: " << ErrorCodeToStr(ret) <<
+        KFS_LOG_EOM;
         return false;
     }
-
-    ostringstream os;
-    os <<
-        "FSCK\r\n"
-        "Version: " << KFS_VERSION_STR << "\r\n"
-        "Cseq: "    << 1               << "\r\n"
-        "Report-Abandoned-Files: " <<
-            (reportAbandonedFilesFlag ? 1 : 0) << "\r\n"
-    "\r\n";
-    const string str = os.str();
-    ret = sock.DoSynchSend(str.c_str(), str.length());
-    if (ret <= 0) {
-        cout << "Unable to send fsck rpc to metaserver\n";
+    if (op.contentLength <= 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "invalid response content length: " << op.contentLength <<
+        KFS_LOG_EOM;
         return false;
     }
+    QCRTASSERT(op.contentBuf && op.contentLength <= op.contentBufLen);
 
-    // get the response and get the data
-    buf.reset(new char[MAX_RPC_HEADER_LEN]);
-    int nread = RecvResponseHeader(buf.get(), MAX_RPC_HEADER_LEN, &sock,
-        timeoutSec > 0 ? timeoutSec : 1000, &len);
-
-    if (nread <= 0) {
-        cout << "Unable to get fsck rpc reply from metaserver...exiting\n";
-        return false;
-    }
-    istringstream ist(buf.get());
-    const char kSeparator = ':';
-
-    prop.loadProperties(ist, kSeparator, false);
-    int status = prop.getValue("Status", 0);
-    if (status < 0) {
-        status = -KfsToSysErrno(-status);
-        const string msg = prop.getValue("Status-message", string());
-        cout << "fsck failure: " << QCUtils::SysError(status) <<
-            (msg.empty() ? "" : " ") << msg <<
-        "\n";
-        return false;
-    }
-
-    const int contentLength = prop.getValue("Content-length", 0);
-    if (contentLength <= 0) {
-        cout << "invalid meta server fsck reply\n";
-        return false;
-    }
-    // Get the body
-    buf.reset(new char[contentLength + 1]);
-    struct timeval timeout = {timeoutSec > 0 ? timeoutSec : 1000, 0};
-    nread = sock.DoSynchRecv(buf.get(), contentLength, timeout);
-    if (nread < contentLength) {
-        cout << "Unable to get fsck rpc reply from metaserver, status: " <<
-            nread << "\n";
-        return false;
-    }
-    cout.write(buf.get(), contentLength);
+    cout.write(op.contentBuf, op.contentLength);
     const char* const okHdrs[] = {
         "Total lost files: 0\n",
         "Lost files total: 0\n",
@@ -136,8 +82,8 @@ getFsckInfo(string metahost, int metaport,
     };
     for (const char* const* hdr = okHdrs; *hdr; ++hdr) {
         const int len = (int)strlen(*hdr);
-        if (contentLength >= len &&
-                memcmp(buf.get(), *hdr, len) == 0) {
+        if (op.contentLength >= len &&
+                memcmp(op.contentBuf, *hdr, len) == 0) {
             cout << "Filesystem is HEALTHY\n";
             return true;
         }
@@ -163,19 +109,20 @@ static int
 FsckMain(int argc, char** argv)
 {
     // use options: -l for logdir -c for checkpoint dir
-    char   optchar;
-    bool   help = false;
-    string logdir;
-    string cpdir;
-    string metahost;
-    string lockFn;
-    int    metaport = -1;
-    int    status = 0;
-    bool   reportAbandonedFilesFlag = true;
-    bool   allowEmptyCheckpointFlag = false;
-    int    timeoutSec = 60 * 25;
+    int         optchar;
+    string      logdir;
+    string      cpdir;
+    string      metahost;
+    string      lockFn;
+    bool        ok                       = true;
+    const char* configFileName           = 0;
+    int         metaport                 = -1;
+    bool        help                     = false;
+    bool        reportAbandonedFilesFlag = true;
+    bool        allowEmptyCheckpointFlag = false;
+    int         timeoutSec               = 30 * 60;
 
-    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:")) != -1) {
         switch (optchar) {
             case 'L':
                 lockFn = optarg;
@@ -202,17 +149,20 @@ FsckMain(int argc, char** argv)
             case 'e':
                 allowEmptyCheckpointFlag = atoi(optarg) != 0;
                 break;
+            case 'f':
+                configFileName = optarg;
+                break;
             case 'h':
                 help = true;
                 break;
             default:
-                status = 1;
+                ok = false;
                 break;
         }
     }
 
-    if (help || status != 0) {
-        (status ? cerr : cout) <<
+    if (help || ! ok) {
+        (ok ? cout : cerr) <<
             "Usage: " << argv[0] << "\n"
             "[{-s|-m} <metahost>]\n"
             "[-p <metaport>]\n"
@@ -222,28 +172,34 @@ FsckMain(int argc, char** argv)
             "[-a {0|1} report abandoned files (default 1)]\n"
             "[-t <timeout seconds> default 25 min]\n"
             "[-e {0|1} allow empty checkpoint]\n"
+            "[-f <config file>]\n"
         ;
-        return status;
+        return (ok ? 0 : 1);
     }
 
     MdStream::Init();
     KFS::MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    const bool ok = metahost.empty() || metaport < 0 ||
-        getFsckInfo(metahost, metaport, reportAbandonedFilesFlag, timeoutSec);
-    if ((logdir.empty() && cpdir.empty()) || ! ok) {
-        return (ok ? 0 : 1);
+    ok = metahost.empty() || metaport < 0;
+    if (! ok) {
+        MonClient            client;
+        const ServerLocation loc(metahost, metaport);
+        ok =
+            client.SetParameters(loc, configFileName) >= 0 &&
+            getFsckInfo(client, loc, reportAbandonedFilesFlag, timeoutSec);
     }
-
-    metatree.disableFidToPathname();
-    logger_setup_paths(logdir);
-    checkpointer_setup_paths(cpdir);
-    if ((status = restoreCheckpoint(lockFn, allowEmptyCheckpointFlag)) == 0) {
-        status = replayer.playLogs();
+    if (ok && (! logdir.empty() || ! cpdir.empty())) {
+        metatree.disableFidToPathname();
+        logger_setup_paths(logdir);
+        checkpointer_setup_paths(cpdir);
+        ok =
+            restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
+            replayer.playLogs() == 0
+        ;
     }
     MdStream::Cleanup();
 
-    return ((status == 0 && ok) ? 0 : 1);
+    return (ok ? 0 : 1);
 }
 
 }

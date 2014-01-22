@@ -40,7 +40,7 @@ set (lib_srcs
     kfsrm.cc
     kfsrmdir.cc
     kfspwd.cc
-    monutils.cc
+    MonClient.cc
     utils.cc
     FileSystem.cc
     Trash.cc

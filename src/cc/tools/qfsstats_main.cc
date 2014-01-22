@@ -25,13 +25,10 @@
 // the user hits Ctrl-C.  Like iostat, results are refreshed every N secs
 //----------------------------------------------------------------------------
 
-#include "monutils.h"
-#include "kfsio/TcpSocket.h"
+#include "MonClient.h"
 #include "common/MsgLogger.h"
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include "libclient/KfsClient.h"
+#include "libclient/KfsOps.h"
 
 #include <iostream>
 #include <string>
@@ -39,28 +36,34 @@
 
 using namespace KFS;
 using namespace KFS_MON;
+using namespace KFS::client;
 
 using std::string;
 using std::cout;
-using std::endl;
 
-static void
-StatsMetaServer(const ServerLocation &location, bool rpcStats, int numSecs);
+static int
+StatsMetaServer(MonClient& client, const ServerLocation &location,
+    bool rpcStats, int numSecs);
 
-void
-BasicStatsMetaServer(TcpSocket &metaServerSock, int numSecs);
+static int
+BasicStatsMetaServer(MonClient& client, const ServerLocation &location,
+    int numSecs);
 
-void
-RpcStatsMetaServer(TcpSocket &metaServerSock, int numSecs);
+static int
+RpcStatsMetaServer(MonClient& client, const ServerLocation &location,
+    int numSecs);
 
-static void
-StatsChunkServer(const ServerLocation &location, bool rpcStats, int numSecs);
+static int
+StatsChunkServer(MonClient& client, const ServerLocation &location,
+    bool rpcStats, int numSecs);
 
-static void
-BasicStatsChunkServer(TcpSocket &chunkServerSock, int numSecs);
+static int
+BasicStatsChunkServer(MonClient& client, const ServerLocation &location,
+    int numSecs);
 
-static void
-RpcStatsChunkServer(TcpSocket &chunkServerSock, int numSecs);
+static int
+RpcStatsChunkServer(MonClient& client, const ServerLocation &location,
+    int numSecs);
 
 static void
 PrintChunkBasicStatsHeader();
@@ -72,13 +75,18 @@ PrintMetaBasicStatsHeader();
 int
 main(int argc, char **argv)
 {
-    char optchar;
-    bool help = false, meta = false, chunk = false;
-    bool rpcStats = false, verboseLogging = false;
-    const char *server = NULL;
-    int port = -1, numSecs = 10;
+    int         optchar;
+    bool        help           = false;
+    bool        meta           = false;
+    bool        chunk          = false;
+    bool        rpcStats       = false;
+    bool        verboseLogging = false;
+    const char* server         = 0;
+    const char* configFileName = 0;
+    int         port           = -1;
+    int         numSecs        = 10;
 
-    while ((optchar = getopt(argc, argv, "hcmn:p:s:tv")) != -1) {
+    while ((optchar = getopt(argc, argv, "hcmn:p:s:tvf:")) != -1) {
         switch (optchar) {
             case 'm':
                 meta = true;
@@ -104,6 +112,9 @@ main(int argc, char **argv)
             case 'v':
                 verboseLogging = true;
                 break;
+            case 'f':
+                configFileName = optarg;
+                break;
             default:
                 help = true;
                 break;
@@ -113,25 +124,33 @@ main(int argc, char **argv)
     help = help || (!meta && !chunk);
 
     if (help || (server == NULL) || (port < 0)) {
-        cout << "Usage: " << argv[0] << " [-m|-c] -s <server name> -p <port>"
-             << " [-n <secs>] [-t] [-v]" << endl
-             << "Gets the stats from meta/chunk servers at given intervals.\n"
-             << "        Use -m for metaserver, -c for chunk server." << endl
-             << "        Use -t for RPC stats." << endl
-             << "        Use -n <seconds> to specify interval (default 10s)."
-             << endl;
+        cout << "Usage: " << argv[0] <<
+             " [-m|-c] -s <server name> -p <port> [-n <secs>] [-t] [-v]"
+             " [-f <config file>]\n"
+             "Deprecated. Please use qfsadmin instead.\n"
+             "Gets the stats from meta/chunk servers at given intervals.\n"
+             "        Use -m for metaserver, -c for chunk server.\n"
+             "        Use -t for RPC stats.\n"
+             "        Use -n <seconds> to specify interval (default 10s)."
+             "\n";
         return -1;
     }
 
     MsgLogger::Init(0, verboseLogging ?
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
-    ServerLocation location(server, port);
-
-    if (meta)
-        StatsMetaServer(location, rpcStats, numSecs);
-    else if (chunk)
-        StatsChunkServer(location, rpcStats, numSecs);
+    const ServerLocation location(server, port);
+    MonClient            client;
+    if (client.SetParameters(location, configFileName) < 0) {
+        return 1;
+    }
+    client.SetMaxContentLength(128 << 20);
+    if (meta) {
+        return StatsMetaServer(client, location, rpcStats, numSecs);
+    }
+    if (chunk) {
+        return StatsChunkServer(client, location, rpcStats, numSecs);
+    }
     return 0;
 }
 
@@ -139,45 +158,32 @@ static void
 PrintRpcStat(const string &statName, Properties &prop)
 {
     // cout << statName << " = " << prop.getValue(statName, (long
-    // long) 0) << endl;
-    cout << statName << " = " << prop.getValue(statName, "0") << endl;
+    // long) 0) << "\n";
+    cout << statName << " = " << prop.getValue(statName, "0") << "\n";
 }
 
 
-void
-StatsMetaServer(const ServerLocation &location, bool rpcStats, int numSecs)
+int
+StatsMetaServer(MonClient& client, const ServerLocation& loc, bool rpcStats, int numSecs)
 {
-    TcpSocket metaServerSock;
-
-    if (metaServerSock.Connect(location) < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            "Unable to connect to " << location.ToString() <<
-        KFS_LOG_EOM;
-        exit(0);
-    }
-
     if (rpcStats) {
-        RpcStatsMetaServer(metaServerSock, numSecs);
+        return RpcStatsMetaServer(client, loc, numSecs);
     } else {
-        BasicStatsMetaServer(metaServerSock, numSecs);
+        return BasicStatsMetaServer(client, loc, numSecs);
     }
-    metaServerSock.Close();
 }
 
-void
-RpcStatsMetaServer(TcpSocket &metaServerSock, int numSecs)
+int
+RpcStatsMetaServer(MonClient& client, const ServerLocation& loc, int numSecs)
 {
-    int numIO;
-    int cmdSeqNum = 1;
-
-    while (1) {
-        MetaStatsOp op(cmdSeqNum);
-        ++cmdSeqNum;
-        numIO = DoOpCommon(&op, &metaServerSock);
-        if (numIO < 0) {
-            KFS_LOG_STREAM_ERROR << "Server isn't responding to stats" <<
+    for (; ;) {
+        MetaStatsOp op(0);
+        const int ret = client.Execute(loc, op);
+        if (ret < 0) {
+            KFS_LOG_STREAM_ERROR << op.statusMsg <<
+                " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
-            exit(0);
+            return 1;
         }
 
         PrintRpcStat("Get alloc", op.stats);
@@ -208,87 +214,78 @@ RpcStatsMetaServer(TcpSocket &metaServerSock, int numSecs)
         PrintRpcStat("Number of Hits in Path->Fid Cache", op.stats);
         PrintRpcStat("Number of Misses in Path->Fid Cache", op.stats);
 
-        cout << "----------------------------------" << endl;
-        if (numSecs == 0)
+        cout << "----------------------------------" << "\n";
+        if (numSecs == 0) {
             break;
+        }
         sleep(numSecs);
     }
+    return 0;
 }
 
-void
-BasicStatsMetaServer(TcpSocket &metaServerSock, int numSecs)
+int
+BasicStatsMetaServer(MonClient& client, const ServerLocation& loc, int numSecs)
 {
-    int numIO;
-    int cmdSeqNum = 1;
-
     PrintMetaBasicStatsHeader();
-    for (; ;) {
-        MetaStatsOp op(cmdSeqNum);
-        ++cmdSeqNum;
-        numIO = DoOpCommon(&op, &metaServerSock);
-        if (numIO < 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "Server isn't responding to stats" <<
+    for (int i = 1; ; i++) {
+        MetaStatsOp op(0);
+        const int ret = client.Execute(loc, op);
+        if (ret < 0) {
+            KFS_LOG_STREAM_ERROR << op.statusMsg <<
+                " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
-            exit(0);
+            return 1;
         }
         // useful things to have: # of connections handled
-        if (cmdSeqNum % 10 == 0) {
+        if (i % 10 == 0) {
             PrintMetaBasicStatsHeader();
         }
         cout << op.stats.getValue("Open network fds", (long long) 0) << '\t';
         cout << op.stats.getValue("Bytes read from network", (long long) 0) << '\t';
-        cout << op.stats.getValue("Bytes written to network", (long long) 0) << endl;
+        cout << op.stats.getValue("Bytes written to network", (long long) 0) << "\n";
 
         if (numSecs == 0) {
             break;
         }
         sleep(numSecs);
     }
+    return 0;
 }
 
 static void
 PrintMetaBasicStatsHeader()
 {
     cout << "Net Fds" << '\t' << "N/w Bytes In" << '\t'
-         << "N/w Bytes Out" << endl;
+         << "N/w Bytes Out" << "\n";
 }
 
-void
-StatsChunkServer(const ServerLocation &location, bool rpcStats, int numSecs)
+int
+StatsChunkServer(MonClient& client, const ServerLocation& loc, bool rpcStats, int numSecs)
 {
-    TcpSocket chunkServerSock;
-
-    if (chunkServerSock.Connect(location) < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            "Unable to connect to " << location.ToString() <<
+    if (client.GetAuthContext() && client.GetAuthContext()->IsEnabled()) {
+        KFS_LOG_STREAM_WARN <<
+            "Warning: chunk server stats are not supported"
+            " with authentication enabled." <<
         KFS_LOG_EOM;
-        exit(0);
     }
-
     if (rpcStats) {
-        RpcStatsChunkServer(chunkServerSock, numSecs);
+        return RpcStatsChunkServer(client, loc, numSecs);
     } else {
-        BasicStatsChunkServer(chunkServerSock, numSecs);
+        return BasicStatsChunkServer(client, loc, numSecs);
     }
-
-    chunkServerSock.Close();
 }
 
-void
-RpcStatsChunkServer(TcpSocket &chunkServerSock, int numSecs)
+int
+RpcStatsChunkServer(MonClient& client, const ServerLocation& loc, int numSecs)
 {
-    int numIO;
-    int cmdSeqNum = 1;
-
-    while (1) {
-        ChunkStatsOp op(cmdSeqNum);
-        ++cmdSeqNum;
-        numIO = DoOpCommon(&op, &chunkServerSock);
-        if (numIO < 0) {
-            KFS_LOG_STREAM_ERROR << "Server isn't responding to stats" <<
+    for (; ;) {
+        ChunkStatsOp op(0);
+        const int ret = client.Execute(loc, op);
+        if (ret < 0) {
+            KFS_LOG_STREAM_ERROR << op.statusMsg <<
+                " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
-            exit(0);
+            return 1;
         }
 
         PrintRpcStat("Alloc", op.stats);
@@ -305,45 +302,45 @@ RpcStatsChunkServer(TcpSocket &chunkServerSock, int numSecs)
         PrintRpcStat("Heartbeat", op.stats);
         PrintRpcStat("Change Chunk Vers", op.stats);
         PrintRpcStat("Num ops", op.stats);
-        cout << "----------------------------------" << endl;
-        if (numSecs == 0)
+        cout << "----------------------------------" << "\n";
+        if (numSecs == 0) {
             break;
+        }
         sleep(numSecs);
     }
+    return 0;
 }
 
-void
-BasicStatsChunkServer(TcpSocket &chunkServerSock, int numSecs)
+int
+BasicStatsChunkServer(MonClient& client, const ServerLocation& loc, int numSecs)
 {
-    int numIO;
-    int cmdSeqNum = 1;
-
     PrintChunkBasicStatsHeader();
-    while (1) {
-        ChunkStatsOp op(cmdSeqNum);
-        ++cmdSeqNum;
-        numIO = DoOpCommon(&op, &chunkServerSock);
-        if (numIO < 0) {
-            KFS_LOG_STREAM_ERROR << "Server isn't responding to stats" <<
+    for (int i = 0; ; i++) {
+        ChunkStatsOp op(0);
+        const int ret = client.Execute(loc, op);
+        if (ret < 0) {
+            KFS_LOG_STREAM_ERROR << op.statusMsg <<
+                " error: " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
-            exit(0);
+            return 1;
         }
 
-        if (cmdSeqNum % 10 == 0)
+        if (i % 10 == 0) {
             PrintChunkBasicStatsHeader();
-
+        }
         cout << op.stats.getValue("Open network fds", (long long) 0) << '\t';
         cout << op.stats.getValue("Bytes read from network", (long long) 0) << '\t';
         cout << op.stats.getValue("Bytes written to network", (long long) 0) << '\t';
         cout << op.stats.getValue("Open disk fds", (long long) 0) << '\t';
         cout << op.stats.getValue("Bytes read from disk", (long long) 0) << '\t';
-        cout << op.stats.getValue("Bytes written to disk", (long long) 0) << endl;
+        cout << op.stats.getValue("Bytes written to disk", (long long) 0) << "\n";
 
-        if (numSecs == 0)
+        if (numSecs == 0) {
             break;
-
+        }
         sleep(numSecs);
     }
+    return 0;
 }
 
 static void
@@ -352,5 +349,5 @@ PrintChunkBasicStatsHeader()
     cout << "Net Fds" << '\t' << "N/w Bytes In" << '\t'
          << "N/w Bytes Out" << '\t'
          << "Disk Fds" << '\t' << "Disk Bytes In" << '\t'
-         << "Disk Bytes Out" << endl;
+         << "Disk Bytes Out" << "\n";
 }
