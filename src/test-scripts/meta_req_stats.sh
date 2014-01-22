@@ -121,6 +121,8 @@ BEGIN {
     names[i++] = "available_chunk";
     names[i++] = "chunk_dir_info";
     names[i++] = "get_chunk_server_dirs_counters";
+    names[i++] = "authenticate";
+    names[i++] = "delegate";
     names[i++] = "other";
     names[i++] = "alloc_reuse";
     ncnt = i;
