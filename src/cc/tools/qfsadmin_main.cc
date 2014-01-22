@@ -103,14 +103,14 @@ MakeMetaAdminOpsMap()
 #define InsertAdminOpEntry(name, comment) \
         { \
             const string theName = ToLower(#name); \
-            sOps[theName]  = make_pair(#name, \
+            sOps[theName]        = make_pair(#name, \
                 make_pair(CMD_META_##name, comment)); \
-            sMaxCmdNameLen = max(sMaxCmdNameLen, theName.size()); \
+            sMaxCmdNameLen       = max(sMaxCmdNameLen, theName.size()); \
         }
         KfsForEachMetaOpId(InsertAdminOpEntry)
 #undef InsertAdminOpEntry
     }
-    static pair<const MetaAdminOps&, size_t> theRet(sOps, sMaxCmdNameLen);
+    static const pair<const MetaAdminOps&, size_t> theRet(sOps, sMaxCmdNameLen);
     return theRet;
 }
 const MetaAdminOps& sMetaAdminOpsMap   = MakeMetaAdminOpsMap().first;
