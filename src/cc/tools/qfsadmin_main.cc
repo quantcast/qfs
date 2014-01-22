@@ -199,6 +199,7 @@ Main(
             sMetaAdminOpsMap.find(ToLower(inArgsPtr[i]));
         if (theIt == sMetaAdminOpsMap.end()) {
             cerr << "no such command: " << inArgsPtr[i] << "\n";
+            theRetCode = 1;
         } else {
             MetaMonOp theOp(
                 theIt->second.second.first,
