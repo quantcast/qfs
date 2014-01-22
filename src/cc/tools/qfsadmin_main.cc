@@ -241,7 +241,7 @@ Main(
                             ++theIt) {
                         cout << setw(theMaxLen) << right <<
                             theIt->first.GetPtr() << ": " <<
-                            theIt->second << "\n";
+                            theIt->second.GetPtr() << "\n";
                     }
                     cout << "\n";
                 }
