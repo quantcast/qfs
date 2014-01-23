@@ -2717,8 +2717,9 @@ PingOp::Execute()
     totalSpace = gChunkManager.GetTotalSpace(totalFsSpace, chunkDirs,
         evacuateInFlightCount, writableDirs, evacuateChunks, evacuateByteCount);
     usedSpace = gChunkManager.GetUsedSpace();
-    if (usedSpace < 0)
+    if (usedSpace < 0) {
         usedSpace = 0;
+    }
     status = 0;
     // clnt->HandleEvent(EVENT_CMD_DONE, this);
     gLogger.Submit(this);
