@@ -51,6 +51,7 @@
 #include <vector>
 #include <functional>
 #include <fstream>
+#include <iomanip>
 
 namespace KFS
 {
@@ -65,6 +66,8 @@ using std::deque;
 using std::min;
 using std::vector;
 using std::fstream;
+using std::hex;
+using std::ios_base;
 
 class OpenSslError
 {
@@ -261,8 +264,23 @@ public:
                 mFStream.clear();
                 mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
                 if (mFStream) {
-                    if (0 < (theStatus = Read(mFStream))) {
+                    const bool kRemoveIfCurrentKeyFlag = false;
+                    if (0 < (theStatus = Read(
+                            mFStream, kRemoveIfCurrentKeyFlag))) {
                         theStatus = 0;
+                        if (! mKeysExpirationQueue.empty()) {
+                            const KeysExpirationQueue::value_type& theLast =
+                                mKeysExpirationQueue.back();
+                            mCurrentKeyTime      = theLast.first;
+                            mCurrentKeyId        = theLast.second->first;
+                            mCurrentKey          = theLast.second->second;
+                            mCurrentKeyValidFlag = true;
+                            mNextKeyGenTime      =
+                                mCurrentKeyTime + mKeyChangePeriod;
+                            mKeys.erase(theLast.second);
+                            mKeysExpirationQueue.pop_back();
+                            UpdateNextTimerRunTime();
+                        }
                     }
                     mFStream.close();
                 } else {
@@ -290,7 +308,7 @@ public:
             }
             if (! mFileName.empty()) {
                 if (theStatus == 0) {
-                    theStatus = Write(0, 0);
+                    theStatus = Write(0, 0, "\n");
                     if (0 < theStatus) {
                         theStatus = 0;
                     } else {
@@ -357,13 +375,30 @@ public:
         outKey = theIt->second;
         return true;
     }
-    int Read(
-        istream& inStream)
+    class SaveAndRestoreStreamFlags
     {
-        int     theKeyCount         = -1;
-        int64_t theFirstKeyTime     = -1;
-        int     theKeysTimeInterval = -1;
-        if (! (inStream >> theKeyCount >> theFirstKeyTime >> theKeysTimeInterval)
+    public:
+        SaveAndRestoreStreamFlags(
+            ios_base& inStream)
+            : mStream(inStream),
+              mFlags(inStream.flags())
+            {}
+        ~SaveAndRestoreStreamFlags()
+            { mStream.flags(mFlags); }
+    private:
+        ios_base&                mStream;
+        const ios_base::fmtflags mFlags;
+    };
+    int Read(
+        istream& inStream,
+        bool     inRemoveIfCurrentKeyFlag = true)
+    {
+        int                       theKeyCount         = -1;
+        int64_t                   theFirstKeyTime     = -1;
+        int                       theKeysTimeInterval = -1;
+        SaveAndRestoreStreamFlags theSaveRestoreFlags(inStream);
+        if (! (inStream >> hex >>
+                    theKeyCount >> theFirstKeyTime >> theKeysTimeInterval)
                 || theKeysTimeInterval <= 0) {
             return -EINVAL;
         }
@@ -372,7 +407,7 @@ public:
         Keys                theKeys;
         KeysExpirationQueue theExpQueue;
         Key                 theKey;
-        time_t              theKeyTime = theFirstKeyTime + theKeysTimeInterval;
+        time_t              theKeyTime = theFirstKeyTime;
         const time_t        theTimeNow = time(0);
         for (int i = 0; i < theKeyCount;
                 i++, theKeyTime += theKeysTimeInterval) {
@@ -410,8 +445,9 @@ public:
         mKeys.swap(theKeys);
         mKeysExpirationQueue.swap(theExpQueue);
         ExpireKeys(theTimeNow - mKeyValidTime);
-        if (mCurrentKeyValidFlag && mError == 0 &&
-                mKeys.erase(mCurrentKeyId) > 0) {
+        if (inRemoveIfCurrentKeyFlag &&
+                mCurrentKeyValidFlag && mError == 0 &&
+                0 < mKeys.erase(mCurrentKeyId)) {
             KeysExpirationQueue::iterator theIt = mKeysExpirationQueue.begin();
             while (theIt != mKeysExpirationQueue.end() &&
                         theIt->second->first != mCurrentKeyId)
@@ -436,7 +472,8 @@ public:
     typedef vector<pair<KeyId, Key> > OutKeysTmp;
     int Write(
         ostream*    inStreamPtr,
-        const char* inDelimPtr) const
+        const char* inDelimPtr,
+        const char* inKeysDelimPtr) const
     {
         OutKeysTmp theKeys;
         int64_t    theFirstKeyTime;
@@ -490,25 +527,28 @@ public:
             }
         }
         ostream& theStream = inStreamPtr ? *inStreamPtr : theFStream;
-        const char* const theDelimPtr = inDelimPtr ? inDelimPtr : " ";
-        theStream << theKeys.size() <<
+        SaveAndRestoreStreamFlags theSaveRestoreFlags(theStream);
+        const char* const theDelimPtr     = inDelimPtr ? inDelimPtr : " ";
+        const char* const theKeysDelimPtr =
+            inKeysDelimPtr ? inKeysDelimPtr : theDelimPtr;
+        theStream << hex << theKeys.size() <<
             theDelimPtr << theFirstKeyTime <<
             theDelimPtr << theKeysTimeInterval;
-        if (theKeys.empty()) {
-            return 0;
-        }
         const int theBufLen = Base64::GetEncodedMaxBufSize(Key::kLength);
         char      theBuf[theBufLen];
         for (OutKeysTmp::const_iterator theIt = theKeys.begin();
                 theIt != theKeys.end();
                 ++theIt) {
-            theStream << theDelimPtr << theIt->first << theDelimPtr;
+            theStream << theKeysDelimPtr << theIt->first << theDelimPtr;
             const int theLen = theIt->second.ToString(theBuf, theBufLen);
             QCRTASSERT(0 < theLen && theLen <= (int)sizeof(theBuf) - 1);
             theStream.write(theBuf, theLen);
         }
         if (inStreamPtr) {
             return (int)theKeys.size();
+        }
+        if (strcmp(theKeysDelimPtr, "\n") == 0) {
+            theFStream << theKeysDelimPtr;
         }
         theFStream.close();
         if (theFStream) {
@@ -577,8 +617,12 @@ public:
             return; // Wait until the keys are updated / written.
         }
         mPendingCurrentKeyFlag = false;
-        if (! PutKey(mKeys, mKeysExpirationQueue,
-                    mPendingCurrentKeyId, theTimeNow, mPendingCurrentKey)) {
+        if (mCurrentKeyValidFlag && ! PutKey(
+                mKeys,
+                mKeysExpirationQueue,
+                mCurrentKeyId,
+                mCurrentKeyTime,
+                mCurrentKey)) {
             KFS_LOG_STREAM_FATAL <<
                 "duplicate current key id: " << mPendingCurrentKeyId <<
             KFS_LOG_EOM;
@@ -607,7 +651,7 @@ public:
             mWriteFlag   = false;
             if (! mFileName.empty()) {
                 const string theFileName = mFileName;
-                const int    theStatus   = Write(0, 0);
+                const int    theStatus   = Write(0, " ", "\n");
                 if (theStatus < 0) {
                     KFS_LOG_STREAM_ERROR << "failed to write keys into"
                         " " << theFileName <<
@@ -774,7 +818,7 @@ CryptoKeys::Write(
     ostream&    inStream,
     const char* inDelimPtr) const
 {
-    return mImpl.Write(&inStream, inDelimPtr);
+    return mImpl.Write(&inStream, inDelimPtr, 0);
 }
 
     bool
