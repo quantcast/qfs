@@ -825,15 +825,34 @@ public:
                 return -EINVAL;
             }
         }
-        int theRet = KfsClient::Init(
-            inHostPort.substr(0, thePos), thePort, inPropertiesPtr);
-        if (theRet != 0) {
-            return theRet;
+        // Load properties set by env. vars, if any.
+        const string theMetaHost       = inHostPort.substr(0, thePos);
+        const char*  kEnvPrefixPtr     = 0; // use default
+        const char*  theConfigValuePtr = 0;
+        Properties   theProperties;
+        int          theError = KfsClient::LoadProperties(
+            theMetaHost.c_str(),
+            thePort,
+            kEnvPrefixPtr,
+            theProperties,
+            theConfigValuePtr);
+        if (theError != 0) {
+            return theError;
+        }
+        if (theConfigValuePtr && inPropertiesPtr) {
+            // The supplied config, if any, takes precedence.
+            const char* kNullPrefixPtr = 0;
+            inPropertiesPtr->copyWithPrefix(kNullPrefixPtr, 0, theProperties);
+        }
+        theError = KfsClient::Init(theMetaHost, thePort,
+            theConfigValuePtr ? &theProperties : inPropertiesPtr);
+        if (theError != 0) {
+            return theError;
         }
         string theHomeDir;
-        theRet = GetHomeDirectory(theHomeDir);
-        if (theRet != 0) {
-            return theRet;
+        theError = GetHomeDirectory(theHomeDir);
+        if (theError != 0) {
+            return theError;
         }
         return KfsClient::SetCwd(theHomeDir.c_str());
     }

@@ -429,11 +429,7 @@ void
 Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
     Properties& props) const
 {
-    if (prefixLen <= 0) {
-        props.propmap = propmap;
-        return;
-    }
-    if (prefix) {
+    if (prefix && 0 < prefixLen) {
         for (PropMap::const_iterator iter = propmap.lower_bound(
                     String(prefix, prefixLen));
                 iter != propmap.end(); iter++) {
