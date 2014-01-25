@@ -407,8 +407,9 @@ public:
         Keys                theKeys;
         KeysExpirationQueue theExpQueue;
         Key                 theKey;
-        time_t              theKeyTime = theFirstKeyTime;
-        const time_t        theTimeNow = time(0);
+        time_t              theKeyTime        = theFirstKeyTime;
+        const time_t        theTimeNow        = time(0);
+        const time_t        theExpirationTime = theTimeNow - mKeyValidTime;
         for (int i = 0; i < theKeyCount;
                 i++, theKeyTime += theKeysTimeInterval) {
             if (! (inStream >> theKeyId >> theKeyStr)) {
@@ -428,7 +429,7 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
-            if (theKeyTime < theTimeNow) {
+            if (theKeyTime <= theExpirationTime) {
                 KFS_LOG_STREAM_INFO <<
                     "ignoring expired key at index: " << i << " " << theKeyId <<
                 KFS_LOG_EOM;
@@ -444,7 +445,7 @@ public:
         QCStMutexLocker theLocker(mMutexPtr);
         mKeys.swap(theKeys);
         mKeysExpirationQueue.swap(theExpQueue);
-        ExpireKeys(theTimeNow - mKeyValidTime);
+        ExpireKeys(theExpirationTime);
         if (inRemoveIfCurrentKeyFlag &&
                 mCurrentKeyValidFlag && mError == 0 &&
                 0 < mKeys.erase(mCurrentKeyId)) {
@@ -765,10 +766,10 @@ private:
         if (mKeysExpirationQueue.empty()) {
             mNextTimerRunTime = mNextKeyGenTime;
         } else {
-            const KeysExpirationQueue::value_type& theFront =
-                mKeysExpirationQueue.front();
             mNextTimerRunTime = min(
-                theFront.first + mKeyValidTime, mNextKeyGenTime);
+                mNextKeyGenTime,
+                mKeysExpirationQueue.front().first + mKeyValidTime
+            );
         }
     }
 private:
