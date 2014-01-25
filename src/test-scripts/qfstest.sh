@@ -40,6 +40,9 @@ numchunksrv=${numchunksrv-2}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
 
+unset QFS_CLIENT_CONFIG
+unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
+
 # kfanout_test.sh parameters
 fanouttestsize=${fanouttestsize-1e5}
 fanoutpartitions=${fanoutpartitions-3}
