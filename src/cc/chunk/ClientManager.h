@@ -191,7 +191,8 @@ public:
     }
     bool SetParameters(
         const char*       inParamsPrefixPtr,
-        const Properties& inProps);
+        const Properties& inProps,
+        bool              inAuthEnabledFlag);
 private:
     class Auth;
 

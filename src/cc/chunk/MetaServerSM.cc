@@ -997,7 +997,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     if (err) {
         KFS_LOG_STREAM_ERROR <<
             "authentication type: " << authType <<
-            " respose failure: " << errMsg <<
+            " response failure: " << errMsg <<
         KFS_LOG_EOM;
         HandleRequest(EVENT_NET_ERROR, 0);
         return;

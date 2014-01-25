@@ -51,7 +51,8 @@ public:
         {}
     bool SetParameters(
         const char*       inParamsPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        bool              inAuthEnabledFlag)
     {
         Properties::String theParamName;
         if (inParamsPrefixPtr) {
@@ -99,7 +100,7 @@ public:
         mParams.swap(theParams);
         mEnabledFlag = mSslCtxPtr && mParams.getValue(
             theParamName.Truncate(thePrefLen).Append(
-            "enabled"), 0) != 0;
+            "enabled"), inAuthEnabledFlag ? 1 : 0) != 0;
         return true;
     }
     bool Setup(
@@ -218,7 +219,8 @@ ClientManager::CreateKfsCallbackObj(
     bool
 ClientManager::SetParameters(
     const char*       inParamsPrefixPtr,
-    const Properties& inProps)
+    const Properties& inProps,
+    bool              inAuthEnabledFlag)
 {
     Properties::String theParamName;
     if (inParamsPrefixPtr) {
@@ -230,7 +232,10 @@ ClientManager::SetParameters(
     mIdleTimeoutSec = inProps.getValue(theParamName.Truncate(thePrefLen).Append(
         "idleTimeoutSec"), mIdleTimeoutSec);
     return mAuth.SetParameters(
-        theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(), inProps);
+        theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(),
+        inProps,
+        inAuthEnabledFlag
+    );
 }
 
 }

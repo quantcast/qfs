@@ -530,14 +530,16 @@ ChunkServerMain::Run(int argc, char **argv)
     signal(SIGQUIT, &SigQuitHandler);
     signal(SIGHUP,  &SigHupHandler);
     int ret = 1;
-    if (gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname) &&
+    if (gMetaServerSM.SetMetaInfo(
+                mMetaServerLoc,
+                mClusterKey,
+                mChunkServerRackId,
+                mMD5Sum,
+                mProp) == 0 &&
+            gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname) &&
             gChunkManager.Init(mChunkDirs, mProp)) {
         gLogger.Init(mLogDir);
-        ret = gMetaServerSM.SetMetaInfo(
-            mMetaServerLoc, mClusterKey, mChunkServerRackId, mMD5Sum, mProp);
-        if (ret == 0) {
-            ret = gChunkServer.MainLoop() ? 0 : 1;
-        }
+        ret = gChunkServer.MainLoop() ? 0 : 1;
         gChunkManager.Shutdown();
     }
     NetErrorSimulatorConfigure(globalNetManager());

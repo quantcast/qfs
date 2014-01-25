@@ -140,6 +140,10 @@ public:
     }
 
     int SetParameters(const Properties& prop);
+
+    bool IsAuthEnabled() const {
+        return mAuthContext.IsEnabled();
+    }
 private:
     typedef deque<KfsOp*> OpsQueue;
     typedef std::map<

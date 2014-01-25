@@ -1867,7 +1867,8 @@ ChunkManager::SetParameters(const Properties& prop)
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
 
-    bool ret = gClientManager.SetParameters("chunkServer.client.", prop);
+    bool ret = gClientManager.SetParameters(
+        "chunkServer.client.", prop, gMetaServerSM.IsAuthEnabled());
     ret = RemoteSyncSM::SetParameters("chunkServer.remoteSync.", prop) && ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
         "chunkServer.maxEvacuateIoErrors",
