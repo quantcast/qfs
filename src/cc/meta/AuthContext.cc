@@ -406,9 +406,6 @@ public:
         } else {
             theNoAuthMetaOpsChangedFlag = false;
         }
-        const bool theAuthNoneFlag = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append(
-            "noAuth"), mAuthNoneFlag ? 1 : 0) != 0;
         NameRemap theNameRemap;
         const string theNameRemapParam = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
@@ -646,7 +643,9 @@ public:
         mReDelegationAllowedFlag   = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "reDelegationAllowedFlag"), mReDelegationAllowedFlag ? 1 : 0) != 0;
-        mAuthNoneFlag = theAuthNoneFlag;
+        mAuthNoneFlag = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "authNone"), (mX509SslCtxPtr || mKrbServicePtr) ? 0 : 1) != 0;
         mAuthTypes =
             (mAuthNoneFlag ? int(kAuthenticationTypeNone) : 0) |
             (mSslCtxPtr ? int(kAuthenticationTypePSK) : 0) |
