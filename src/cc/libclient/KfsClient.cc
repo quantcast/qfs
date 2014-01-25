@@ -964,7 +964,12 @@ KfsClient::LoadProperties(
     if (metaServerHost && 0 < metaServerPort) {
         ostringstream os;
         os << prefix << "_" << metaServerHost << "_" << metaServerPort;
-        const string  configEnvName = os.str();
+        string configEnvName = os.str();
+        for (size_t i = 0; i < configEnvName.size(); i++) {
+            if (strchr("=.+-", configEnvName[i])) {
+                configEnvName[i] = '_';
+            }
+        }
         cfg = getenv(configEnvName.c_str());
         if (cfg) {
             return LoadConfig(configEnvName.c_str(), cfg, properties);
