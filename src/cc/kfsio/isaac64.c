@@ -49,7 +49,7 @@ ub8 aa, bb, cc;
 void isaac64()
 {
   register ub8 a,b,x,y,*m,*m2,*r,*mend;
-  m=mm; r=randrsl;
+  /* m=mm; */ r=randrsl;
   a = aa; b = bb + (++cc);
   for (m = mm, mend = m2 = m+(RANDSIZ/2); m<mend; )
   {

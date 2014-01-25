@@ -1664,7 +1664,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     if (op.status < 0) {
         return op.status;
     }
-    time_t now;
+    time_t now = 0; // assign to suppress compiler warning.
     if (! op.userName.empty()) {
         now = time(0);
         UpdateUserId(op.userName, op.permissions.user, now);
