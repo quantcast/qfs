@@ -38,24 +38,25 @@
 
 using std::cout;
 using std::cin;
-using std::endl;
 using std::string;
 
 using namespace KFS;
 
-KfsClient *gKfsClient;
+static KfsClient* gKfsClient;
 
 static ssize_t doPut(const string &kfspathname);
 
 int
 main(int argc, char **argv)
 {
-    char optchar;
-    string kfspathname = "";
-    string serverHost = "";
-    int port = -1;
-    bool help = false, verboseLogging = false;
-    ssize_t numBytes;
+    int         optchar;
+    string      kfspathname;
+    string      serverHost;
+    int         port           = -1;
+    bool        help           = false;
+    bool        verboseLogging = false;
+    const char* config         = 0;
+    ssize_t     numBytes;
 
     while ((optchar = getopt(argc, argv, "hs:p:f:v")) != -1) {
         switch (optchar) {
@@ -74,25 +75,27 @@ main(int argc, char **argv)
             case 'v':
                 verboseLogging = true;
                 break;
+            case 'c':
+                config = optarg;
+                break;
             default:
-                cout << "Unrecognized flag : " << optchar << endl;
+                cout << "Unrecognized flag : " << optchar << "\n";
                 help = true;
                 break;
         }
     }
 
-    if (help || (kfspathname == "") || (serverHost == "") || (port < 0)) {
-        cout << "Usage: " << argv[0]
-             << " -s <meta server name> -p <port> -f <Qfsfile> [-v]" << endl
-             << "\tReads from stdin and writes to given qfs file."
-             << endl;
-        exit(0);
+    if (help || kfspathname.empty() || serverHost.empty() || port <= 0) {
+        cout << "Usage: " << argv[0] <<
+            " -s <meta server name> -p <port> -f <Qfsfile> [-v]\n"
+            "Reads from stdin and writes to given qfs file.\n";
+        return 1;
     }
 
-    gKfsClient = Connect(serverHost, port);
+    gKfsClient = KfsClient::Connect(serverHost, port, config);
     if (!gKfsClient) {
-        cout << "qfs client failed to initialize...exiting" << endl;
-        exit(-1);
+        cout << "qfs client failed to initialize...exiting" << "\n";
+        return 1;
     }
 
     if (verboseLogging) {
@@ -102,53 +105,36 @@ main(int argc, char **argv)
     }
 
     numBytes = doPut(kfspathname);
-    cout << "Wrote " << numBytes << " to " << kfspathname << endl;
+    if (numBytes <= 0) {
+        cout << "Wrote " << numBytes << " to " << kfspathname << "\n";
+    }
+    delete gKfsClient;
+
+    return (numBytes < 0 ? 1 : 0);
 }
 
 ssize_t
 doPut(const string &filename)
 {
-    const size_t mByte = 1024 * 1024;
-    char dataBuf[mByte];
-    int res, fd;
-    size_t bytesWritten = 0;
-    size_t pos = 0;
-    char c;
+    static char dataBuf[6 * 1024 * 1024];
+    ssize_t     bytesWritten = 0;
 
-
-    fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_RDWR);
+    const int fd = gKfsClient->Open(filename.c_str(), O_CREAT|O_RDWR);
     if (fd < 0) {
-        cout << "Create failed: " << endl;
-        exit(0);
+        cout << "Create failed: " << ErrorCodeToStr(fd) << "\n";
+        return fd;
     }
-
-    while(cin.get(c)) {
-        dataBuf[pos] = c;
-        pos++;
-        if (pos >= mByte) {
-            res = gKfsClient->Write(fd, dataBuf, mByte);
-            if (res != (int) mByte) {
-                cout << "Write failed...expect to write: " << mByte;
-                cout << " but only wrote: " << res << endl;
-                return res;
-            }
-            bytesWritten += mByte;
-            pos = 0;
+    while(cin.read(dataBuf, sizeof(dataBuf))) {
+        const size_t cnt = cin.gcount();
+        const int    res = gKfsClient->Write(fd, dataBuf, cnt);
+        if (res != (int)cnt) {
+            cout << "Write failed...expect to write: " << cnt <<
+                " but only wrote: " << res << "\n";
+            return -1;
         }
+        bytesWritten += res;
     }
-
-    if (pos > 0) {
-        res = gKfsClient->Write(fd, dataBuf, pos);
-        if (res != (int) pos) {
-            cout << "Write failed...expect to write: " << pos;
-            cout << " but only wrote: " << res << endl;
-            return res;
-        }
-        bytesWritten += pos;
-    }
-
     gKfsClient->Close(fd);
-
     return bytesWritten;
 }
 

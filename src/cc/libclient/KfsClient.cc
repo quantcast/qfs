@@ -119,6 +119,35 @@ Connect(const string& metaServerHost, int metaServerPort,
     return 0;
 }
 
+KfsClient*
+KfsClient::Connect(
+    const string& metaServerHost, int metaServerPort, const char* configFileName)
+{
+    Properties props;
+    const char* const kUseDefaultEnvVarNamePrefix = 0;
+    const char*       cfgName                     = 0;
+    if (KfsClient::LoadProperties(
+            metaServerHost.c_str(),
+            metaServerPort,
+            kUseDefaultEnvVarNamePrefix,
+            props,
+            cfgName)) {
+        return 0;
+    }
+    const bool kVerboseFlag = false;
+    if (configFileName &&
+            props.loadProperties(configFileName, '=', kVerboseFlag) != 0) {
+        return 0;
+    }
+    KfsClient* const clnt = new KfsClient();
+    clnt->Init(metaServerHost, metaServerPort, &props);
+    if (clnt->IsInitialized()) {
+        return clnt;
+    }
+    delete clnt;
+    return 0;
+}
+
 string
 ErrorCodeToStr(int status)
 {

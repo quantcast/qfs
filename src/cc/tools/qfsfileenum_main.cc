@@ -43,14 +43,16 @@ using std::setw;
 int
 main(int argc, char **argv)
 {
-    bool help = false;
-    const char *server = NULL;
-    const char *filename = NULL;
-    int port = -1, retval;
-    char optchar;
-    bool verboseLogging = false;
+    bool        help           = false;
+    const char* server         = 0;
+    const char* filename       = 0;
+    const char* config         = 0;
+    int         port           = -1;
+    bool        verboseLogging = false;
+    int         retval;
+    int         optchar;
 
-    while ((optchar = getopt(argc, argv, "hs:p:f:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hs:p:f:vc:")) != -1) {
         switch (optchar) {
             case 's':
                 server = optarg;
@@ -67,23 +69,26 @@ main(int argc, char **argv)
             case 'v':
                 verboseLogging = true;
                 break;
+            case 'c':
+                config = optarg;
+                break;
             default:
                 help = true;
                 break;
         }
     }
 
-    if (help || (server == NULL) || (port < 0) || (filename == NULL)) {
-        cout << "Usage: " << argv[0]
-             << "\t-s <server name> -p <port> -f <path> [-v]\n"
-             << "\tEnumerate the chunks and sizes of the given file.\n";
-        return -1;
+    if (help || ! server || port < 0 || ! filename) {
+        cout << "Usage: " << argv[0] <<
+            " -s <server name> -p <port> -f <path> [-v]\n"
+            "Enumerate the chunks and sizes of the given file.\n";
+        return 1;
     }
 
     MsgLogger::Init(0, verboseLogging ?
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
-    KfsClient * const kfsClient = Connect(server, port);
+    KfsClient* const kfsClient = KfsClient::Connect(server, port, config);
     if (! kfsClient) {
         cout << "qfs client failed to initialize\n";
         return 1;

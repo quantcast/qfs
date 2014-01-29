@@ -46,15 +46,17 @@ using namespace KFS;
 int
 main(int argc, char **argv)
 {
-    char optchar;
-    bool help = false;
-    int port = -1;
-    const char *metaserver = 0, *kfsFilename = 0;
-    bool checkCksums = false;
-    bool verboseLogging = false;
-    bool checkReplicas = false;
+    int         optchar;
+    bool        help           = false;
+    int         port           = -1;
+    const char* metaserver     = 0;
+    const char* kfsFilename    = 0;
+    bool        checkCksums    = false;
+    bool        verboseLogging = false;
+    bool        checkReplicas  = false;
+    const char* config         = 0;
 
-    while ((optchar = getopt(argc, argv, "s:p:k:chdv")) != -1) {
+    while ((optchar = getopt(argc, argv, "s:p:k:chdvf:")) != -1) {
         switch (optchar) {
             case 's':
                 metaserver = optarg;
@@ -74,6 +76,9 @@ main(int argc, char **argv)
             case 'v':
                 verboseLogging = true;
                 break;
+            case 'f':
+                config = optarg;
+                break;
             case 'h':
             default:
                 help = true;
@@ -84,17 +89,18 @@ main(int argc, char **argv)
     help = help || (!metaserver) || (port < 0) || !kfsFilename;
 
     if (help) {
-        cout << "Usage: " << argv[0]
-             << " -s <metaserver> -p <port> -k <QFSfile> [-c|-d] [-v]\n"
-             << "        -c: compare checksums on the replicas.\n"
-             << "        -d: compare the chunks and return md5 of the file.\n";
+        cout << "Usage: " << argv[0] <<
+            " -s <metaserver> -p <port> -k <QFSfile> [-c|-d] [-v]"
+            " [-c <config file name>]\n"
+            " -c: compare checksums on the replicas.\n"
+            " -d: compare the chunks and return md5 of the file.\n";
         return -1;
     }
 
     MsgLogger::Init(0, verboseLogging ?
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
-    KfsClient* const kfsClient = Connect(metaserver, port);
+    KfsClient* const kfsClient = KfsClient::Connect(metaserver, port, config);
     if (! kfsClient) {
         cout << "qfs client failed to initialize\n";
         return 1;

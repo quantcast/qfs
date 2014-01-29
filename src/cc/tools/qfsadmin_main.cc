@@ -219,6 +219,9 @@ Main(
                 theIt->second.second.first,
                 theIt->second.first
             );
+            if (theOp.op == CMD_META_FSCK) {
+                theOp.requestProps.setValue("Report-Abandoned-Files", "1");
+            }
             theClient.SetMaxRpcHeaderLength(
                 theOp.op == CMD_META_PING ? 512 << 20 : MAX_RPC_HEADER_LEN);
             const int theRet = theClient.Execute(theLocation, theOp);

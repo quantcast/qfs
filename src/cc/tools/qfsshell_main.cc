@@ -69,9 +69,10 @@ kfsshell_main(int argc, char **argv)
     bool                help      = false;
     bool                quietMode = false;
     MsgLogger::LogLevel logLevel  = MsgLogger::kLogLevelINFO;
+    const char*         config    = 0;
 
     int optchar;
-    while ((optchar = getopt(argc, argv, "hqs:p:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hqs:p:vf:")) != -1) {
         switch (optchar) {
             case 's':
                 serverHost = optarg;
@@ -88,6 +89,9 @@ kfsshell_main(int argc, char **argv)
             case 'q':
                 quietMode = true;
                 break;
+            case 'f':
+                config = optarg;
+                break;
             default:
                 cout << "Unrecognized flag : " << char(optchar);
                 help = true;
@@ -97,7 +101,8 @@ kfsshell_main(int argc, char **argv)
 
     if (help || serverHost.empty() || port <= 0) {
         cout << "Usage: " << argv[0] <<
-            " -s <meta server name> -p <port> [-q [cmd]]\n"
+            " -s <meta server name> -p <port> [-q [cmd]]"
+            " [-f <config file name>]\n"
             "Starts an interactive client shell to QFS.\n"
             "  -q: switches to execution in quiet mode.\n"
             " cmd: command to execute, only in quiet mode.\n";

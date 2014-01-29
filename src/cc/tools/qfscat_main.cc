@@ -48,13 +48,14 @@ static ssize_t DoCat(KfsClient *kfsClient, const char *pahtname);
 int
 main(int argc, char **argv)
 {
-    string serverHost = "";
-    int port = -1;
-    bool help = false;
-    bool verboseLogging = false;
-    int optchar;
+    string      serverHost;
+    int         port           = -1;
+    bool        help           = false;
+    bool        verboseLogging = false;
+    const char* config         = 0;
+    int         optchar;
 
-    while ((optchar = getopt(argc, argv, "hs:p:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hs:p:vf:")) != -1) {
         switch (optchar) {
             case 'h':
                 help = true;
@@ -68,23 +69,29 @@ main(int argc, char **argv)
             case 'p':
                 port = atoi(optarg);
                 break;
+            case 'f':
+                config = optarg;
+                break;
             default:
                 help = true;
                 break;
         }
     }
 
-    if (help || (serverHost == "") || (port < 0)) {
-        cerr << "Usage: " << argv[0] << " -s <meta server name> -p <port>"
-             << " [filename1 filename2 ...]" << "\nThis tool outputs the "
-             << "files in the order of appearance to stdout.\n";
+    if (help || serverHost.empty() || port <= 0) {
+        cerr <<
+            "Usage: " << argv[0] << " -s <meta server name> -p <port>"
+            " [-f <config file>]"
+            " [filename1 filename2 ...]\n"
+            "This tool outputs the files in the order of appearance to"
+            " stdout.\n";
         return 1;
     }
 
     MsgLogger::Init(0, verboseLogging ?
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
-    KfsClient * const kfsClient = Connect(serverHost, port);
+    KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
     if (!kfsClient) {
         cerr << "qfs client failed to initialize...exiting" << "\n";
         return 1;

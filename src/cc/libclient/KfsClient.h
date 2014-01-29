@@ -679,6 +679,9 @@ public:
         const char*  evnVarNamePrefix,
         Properties&  properties,
         const char*& configStr);
+    static KfsClient* Connect(const string& metaServerHost,
+        int metaServerPort, const char* configFileName);
+
 private:
     KfsClientImpl* const mImpl;
 };
