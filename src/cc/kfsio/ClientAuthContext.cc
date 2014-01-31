@@ -305,7 +305,7 @@ public:
         ;
         const bool theAuthRequiredFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("required"),
-            0) != 0;
+            theEnabledFlag ? 1 : 0) != 0;
         if (theAuthRequiredFlag && ! theEnabledFlag) {
             KFS_LOG_STREAM_ERROR <<
                 theParamName <<
