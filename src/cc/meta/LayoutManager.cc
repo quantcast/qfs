@@ -1928,14 +1928,6 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             }
         }
     }
-    mClientCSAuthRequiredFlag = props.getValue(
-        "metaServer.clientCSAuthRequired",
-        mClientCSAuthRequiredFlag ? 1 : 0) != 0;
-    mClientCSAllowClearTextFlag = props.getValue(
-        "metaServer.clientCSAllowClearText",
-        mClientCSAllowClearTextFlag ? 1 : 0) != 0;
-    mCSAccessValidForTime = props.getValue(
-        "metaServer.cSAccessValidForTime", mCSAccessValidForTime);
 
     const int userAndGroupErr = mUserAndGroup.SetParameters(
         "metaServer.userAndGroup.", props);
@@ -1945,6 +1937,15 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.CSAuthentication.", mConfigParameters);
     const int cliOk = UpdateClientAuth(mClientAuthContext);
     mAuthCtxUpdateCount++;
+
+    mClientCSAuthRequiredFlag = props.getValue(
+        "metaServer.clientCSAuthRequired",
+        mCSAuthContext.IsAuthRequired() ? 1 : 0) != 0;
+    mClientCSAllowClearTextFlag = props.getValue(
+        "metaServer.clientCSAllowClearText",
+        mClientCSAllowClearTextFlag ? 1 : 0) != 0;
+    mCSAccessValidForTime = props.getValue(
+        "metaServer.CSAccessValidForTime", mCSAccessValidForTime);
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
