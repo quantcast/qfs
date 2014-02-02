@@ -54,7 +54,6 @@
 #include <iomanip>
 #include <boost/mem_fn.hpp>
 #include <boost/bind.hpp>
-#include <openssl/rand.h>
 
 namespace KFS {
 
@@ -102,17 +101,9 @@ TimeNow()
 }
 
 static inline time_t
-GetInitialWriteLeaseExpireTime() {
-    return (TimeNow() + 10 * 365 * 24 * 60 * 60);
-}
-
-static inline seq_t
-RandomSeqNo()
+GetInitialWriteLeaseExpireTime()
 {
-    seq_t ret = 0;
-    RAND_pseudo_bytes(
-        reinterpret_cast<unsigned char*>(&ret), int(sizeof(ret)));
-    return ((ret < 0 ? -ret : ret) >> 1);
+    return (TimeNow() + 10 * 365 * 24 * 60 * 60);
 }
 
 static inline void

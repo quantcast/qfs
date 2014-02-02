@@ -33,13 +33,11 @@
 #include "kfsio/DelegationToken.h"
 #include "kfsio/ChunkAccessToken.h"
 #include "kfsio/CryptoKeys.h"
+#include "common/MdStream.h"
 #include "qcdio/QCUtils.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
-
-#include <openssl/rand.h>
-#include <openssl/evp.h>
 
 #include <boost/bind.hpp>
 
@@ -140,6 +138,50 @@ GetTmpOStringStream1()
     return GetTmpOStringStream(true);
 }
 
+static kfsUid_t
+MakeAuthUid(const MetaHello& op, const string& authName)
+{
+    // Ensure that the chunk server "id" doesn't changes and very unlikely
+    // collides with other chunk server "id".
+    // Collisions with "real" user ids are OK, as the chunk server and chunk
+    // access tokens that this id is used for have "chunk server" flag / bit
+    // set.
+    static MdStream sha1Stream(
+        0,             // inStreamPtr
+        true,          // inSyncFlag
+        string("sha1"),
+        0              // inBufSize
+    );
+    char port[2] = { (op.port >> 8) & 0xFF , op.port & 0xFF };
+    sha1Stream
+        .Reset()
+        .write(authName.data(),    authName.size())
+        .write(op.hostname.data(), op.hostname.size())
+        .write(port, sizeof(port))
+    ;
+    MdStream::MD md;
+    const size_t len = sha1Stream.GetMdBin(md);
+    if (! sha1Stream || len <= 0) {
+        panic("failed to calculate sha1");
+        return kKfsUserNone;
+    }
+    kfsUid_t authUid = 0;
+    for (size_t i = len, k = 0; 0 < i; ) {
+        if (sizeof(authUid) * 8 <= k) {
+            k = 0;
+        }
+        authUid ^= kfsUid_t(md[--i]) << k;
+        k += 8;
+    }
+    if (authUid == kKfsUserNone) {
+        authUid &= ~kfsUid_t(1);
+    }
+    if (authUid == kKfsUserRoot) {
+        authUid = 3333333;
+    }
+    return authUid;
+}
+
 int ChunkServer::sHeartbeatTimeout     = 60;
 int ChunkServer::sHeartbeatInterval    = 20;
 int ChunkServer::sHeartbeatLogInterval = 1000;
@@ -216,8 +258,7 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
 static seq_t RandomSeqNo()
 {
     seq_t ret = 0;
-    RAND_pseudo_bytes(
-        reinterpret_cast<unsigned char*>(&ret), int(sizeof(ret)));
+    CryptoKeys::PseudoRand(&ret, sizeof(ret));
     return ((ret < 0 ? -ret : ret) >> 1);
 }
 
@@ -1194,39 +1235,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     if (mAuthName.empty()) {
         mAuthUid = kKfsUserNone;
     } else {
-        // Ensure that the chunk server "id" doesn't changes and very unlikely
-        // collides with other chunk server "id".
-        // Collisions with "real" user ids are OK, as the chunk server and chunk
-        // access tokens that this id is used for have "chunk server" flag / bit
-        // set.
-        char port[2] = { (mHelloOp->port >> 8) & 0xFF , mHelloOp->port & 0xFF };
-        EVP_MD_CTX ctx;
-        EVP_MD_CTX_init(&ctx);
-        unsigned char md[EVP_MAX_MD_SIZE];
-        unsigned int  len = 0;
-        if (EVP_DigestInit_ex(&ctx, EVP_sha1(), 0) &&
-                EVP_DigestUpdate(&ctx, mAuthName.data(), mAuthName.size()) &&
-                EVP_DigestUpdate(&ctx,
-                    mHelloOp->hostname.data(), mHelloOp->hostname.size()) &&
-                EVP_DigestUpdate(&ctx, port, sizeof(port)) &&
-                EVP_DigestFinal_ex(&ctx, md, &len) &&
-                0 < len) {
-            mAuthUid = 0;
-            for (size_t i = len, k = 0; 0 < i; ) {
-                if (sizeof(mAuthUid) * 8 <= k) {
-                    k = 0;
-                }
-                mAuthUid ^= kfsUid_t(md[--i]) << k;
-                k += 8;
-            }
-            if (mAuthUid == kKfsUserNone) {
-                mAuthUid &= ~kfsUid_t(1);
-            }
-        } else {
-            panic("failed to calculate sha1");
-            mAuthUid = kKfsUserNone;
-        }
-        EVP_MD_CTX_cleanup(&ctx);
+        mAuthUid = MakeAuthUid(*mHelloOp, mAuthName);
     }
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;

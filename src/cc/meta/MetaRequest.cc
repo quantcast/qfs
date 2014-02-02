@@ -49,8 +49,6 @@
 #include "common/time.h"
 #include "common/kfserrno.h"
 
-#include <openssl/rand.h>
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <signal.h>

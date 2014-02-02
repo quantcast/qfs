@@ -48,6 +48,8 @@ class MdStreamT :
     public ostream
 {
 public:
+    typedef unsigned char MD[EVP_MAX_MD_SIZE];
+
     static void Init()
     {
         OpenSSL_add_all_digests();
@@ -64,11 +66,11 @@ public:
         : streambuf(),
           ostream(this),
           mDigestName(inDigestName),
-          mBufferPtr(new char[max(size_t(1), inBufSize)]),
+          mBufferPtr(0 < inBufSize ? new char[inBufSize] : 0),
           mCurPtr(mBufferPtr),
-          mEndPtr(mCurPtr + max(size_t(1), inBufSize)),
+          mEndPtr(mCurPtr + max(size_t(0), inBufSize)),
           mSyncFlag(inSyncFlag),
-          mWriteTroughFlag(false),
+          mWriteTroughFlag(! mBufferPtr),
           mStreamPtr(inStreamPtr)
     {
         EVP_MD_CTX_init(&mCtx);
@@ -79,32 +81,35 @@ public:
         EVP_MD_CTX_cleanup(&mCtx);
         delete [] mBufferPtr;
     }
-    string GetMd()
+    size_t GetMdBin(
+        MD& inMd)
     {
         flush();
         SyncSelf();
-
-        string theRet;
         if (fail()) {
-            return theRet;
+            return 0;
         }
-
         EVP_MD_CTX theCtx;
         EVP_MD_CTX_init(&theCtx);
         if (! EVP_MD_CTX_copy_ex(&theCtx, &mCtx)) {
             setstate(failbit);
-            return theRet;
+            return 0;
         }
-        unsigned char theMd[EVP_MAX_MD_SIZE];
-        unsigned int  theLen = 0;
-        if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen)) {
+        unsigned int theLen = 0;
+        if (! EVP_DigestFinal_ex(&theCtx, inMd, &theLen)) {
             setstate(failbit);
         }
         EVP_MD_CTX_cleanup(&theCtx);
         if (fail()) {
-            return theRet;
+            return 0;
         }
-
+        return theLen;
+    }
+    string GetMd()
+    {
+        MD           theMd;
+        const size_t theLen = GetMdBin(theMd);
+        string       theRet;
         theRet.resize(2 * theLen);
         string::iterator theIt = theRet.begin();
         const char* const kHexDigits = "0123456789abcdef";
@@ -115,19 +120,23 @@ public:
         }
         return theRet;
     }
-    void SetSync(
+    ostream& SetSync(
         bool inFlag)
-        { mSyncFlag = inFlag; }
+    {
+        mSyncFlag = inFlag;
+        return *this;
+    }
     bool IsSync() const
         { return mSyncFlag; }
-    void SetStream(
+    ostream& SetStream(
         OStreamT* inStreamPtr)
     {
         flush();
         SyncSelf();
         mStreamPtr = inStreamPtr;
+        return *this;
     }
-    void Reset(
+    ostream& Reset(
         OStreamT* inStreamPtr = 0)
     {
         flush();
@@ -137,10 +146,14 @@ public:
         clear();
         InitMd();
         mStreamPtr = inStreamPtr;
+        return *this;
     }
-    void SetWriteTrough(
+    ostream& SetWriteTrough(
         bool inWriteTroughFlag)
-        { mWriteTroughFlag = inWriteTroughFlag; }
+    {
+        mWriteTroughFlag = inWriteTroughFlag || ! mBufferPtr;
+        return *this;
+    }
 
 protected:
     virtual int overflow(

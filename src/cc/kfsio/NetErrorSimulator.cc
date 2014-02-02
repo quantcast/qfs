@@ -56,6 +56,7 @@ NetErrorSimulatorConfigure(
 #include "qcdio/QCFdPoll.h"
 #include "NetManager.h"
 #include "Globals.h"
+#include "PrngIsaac64.h"
 
 #include <inttypes.h>
 #include <time.h>
@@ -66,7 +67,6 @@ NetErrorSimulatorConfigure(
 #include <string>
 #include <sstream>
 #include <boost/regex.hpp>
-#include <boost/random/mersenne_twister.hpp>
 
 namespace KFS
 {
@@ -79,8 +79,7 @@ public:
         : NetManager::PollEventHook(),
           mSpecs(),
           mConnMap(),
-          mRandom(/* seed */),
-          mRandMax(mRandom.max()),
+          mRandom(),
           mNetManager(inNetManager)
         {}
     virtual ~NetErrorSimulator()
@@ -370,20 +369,19 @@ private:
         float    mSleepSec;
     };
     typedef std::vector<SimSpec> SimSpecs;
-    typedef boost::mt19937       Random;
     struct ConnEntry
     {
         ConnEntry(
             SimSpecs::const_iterator inSpecIt = SimSpecs::const_iterator(),
             std::string              inConnId = std::string(),
-            Random::result_type      inCount  = 0)
+            uint64_t                 inCount  = 0)
             : mSpecIt(inSpecIt),
               mConnId(inConnId),
               mCount(inCount)
             {}
         SimSpecs::const_iterator mSpecIt;
         std::string              mConnId;
-        Random::result_type      mCount;
+        uint64_t                 mCount;
     };
     typedef std::multimap<
         const NetConnection*,
@@ -394,11 +392,10 @@ private:
         >
     > ConnMap;
 
-    SimSpecs                  mSpecs;
-    ConnMap                   mConnMap;
-    Random                    mRandom;
-    const Random::result_type mRandMax;
-    NetManager&               mNetManager;
+    SimSpecs    mSpecs;
+    ConnMap     mConnMap;
+    PrngIsaac64 mRandom;
+    NetManager& mNetManager;
 
     static void ListAdd(
         std::string& inList,
@@ -431,18 +428,14 @@ private:
         }
         return theRet;
     }
-    Random::result_type GetCount(
+    uint64_t GetCount(
         const SimSpec& inSpec)
     {
-        // Don't use modulo, low order bits might be "less random".
-        // Though this shouldn't be a problem with Mersenne twister.
         const uint64_t theInterval = inSpec.mInterval;
-        return Random::result_type(
-            ((inSpec.mActionFlags ==
-                SimSpec::kActionRandomInterval) != 0 &&
-            theInterval > 0) ?
-                (uint64_t)mRandom() * theInterval / mRandMax  :
-                theInterval
+        return (
+            ((inSpec.mActionFlags == SimSpec::kActionRandomInterval) != 0 &&
+                theInterval > 0) ?
+            mRandom.Rand() % theInterval : theInterval
         );
     }
     void Sleep(
@@ -463,7 +456,10 @@ private:
     }
     void RandomSleep(
         float inSec)
-        { Sleep(mRandom() * inSec / mRandMax); }
+    {
+        double kScale = double(1) / double(~uint64_t(0));
+        Sleep((float)(mRandom.Rand() * inSec * kScale));
+    }
 
 private:
     NetErrorSimulator(

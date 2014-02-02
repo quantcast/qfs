@@ -28,6 +28,7 @@
 
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
+#include "kfsio/PrngIsaac64.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
@@ -44,8 +45,6 @@
 #include <limits>
 #include <set>
 #include <iomanip>
-#include <boost/random/mersenne_twister.hpp>
-#include <openssl/rand.h>
 
 namespace KFS
 {
@@ -182,15 +181,14 @@ public:
         : QCDiskQueue::IoStartObserver(),
           mMutex(),
           mSleepCond(),
-          mRandom(Seed()),
-          mRandMax(mRandom.max()),
+          mRandom(),
           mMinPeriodReq(inConfig.mMinPeriodReq),
           mMaxPeriodReq(inConfig.mMaxPeriodReq),
           mMinTimeMicroSec(inConfig.mMinTimeMicroSec),
           mMaxTimeMicroSec(inConfig.mMaxTimeMicroSec),
           mSleepingFlag(false),
           mReqCount(0)
-        { mReqCount = Rand(mMinPeriodReq, mMaxPeriodReq); }
+        {}
     virtual ~DiskErrorSimulator()
         { DiskErrorSimulator::Shutdown(); }
     void Shutdown()
@@ -212,7 +210,7 @@ public:
         while (mSleepingFlag) {
             mSleepCond.Wait(mMutex);
         }
-        if (--mReqCount > 0) {
+        if (0 < --mReqCount) {
             return;
         }
         mReqCount = Rand(mMinPeriodReq, mMaxPeriodReq);
@@ -236,18 +234,16 @@ public:
         }
     }
 private:
-    typedef boost::mt19937 Random;
-
-    QCMutex                   mMutex;
-    QCCondVar                 mSleepCond;
-    Random                    mRandom;
-    const Random::result_type mRandMax;
-    const int64_t             mMinPeriodReq;
-    const int64_t             mMaxPeriodReq;
-    const int64_t             mMinTimeMicroSec;
-    const int64_t             mMaxTimeMicroSec;
-    bool                      mSleepingFlag;
-    int64_t                   mReqCount;
+    QCMutex       mMutex;
+    QCCondVar     mSleepCond;
+    PrngIsaac64   mRandom;
+    const int64_t mMinPeriodReq;
+    const int64_t mMaxPeriodReq;
+    const int64_t mMinTimeMicroSec;
+    const int64_t mMaxTimeMicroSec;
+    bool          mSleepingFlag;
+    int64_t       mReqCount;
+    PrngIsaac64   mRand;
 
     int64_t Rand(
         int64_t inFrom,
@@ -256,19 +252,8 @@ private:
         if (inFrom >= inTo) {
             return inTo;
         }
-        // Don't use modulo, low order bits might be "less random".
-        // Though this shouldn't be a problem with Mersenne twister.
         const int64_t theInterval = inTo - inFrom;
-        return (inFrom + mRandom() * theInterval / mRandMax);
-    }
-    static Random::result_type Seed()
-    {
-        Random::result_type theRet = 1;
-        RAND_pseudo_bytes(
-            reinterpret_cast<unsigned char*>(&theRet),
-            int(sizeof(theRet))
-        );
-        return theRet;
+        return (inFrom + (int64_t)(mRandom.Rand() % theInterval));
     }
 private:
     DiskErrorSimulator(

@@ -49,7 +49,6 @@
 #include "qcrs/rs.h"
 
 #include <signal.h>
-#include <openssl/rand.h>
 #include <stdlib.h>
 
 #include <cstdio>
@@ -170,9 +169,8 @@ static inline kfsSeq_t
 RandomSeqNo()
 {
     kfsSeq_t ret = 0;
-    if (RAND_pseudo_bytes(
-            reinterpret_cast<unsigned char*>(&ret), int(sizeof(ret))) < 0) {
-        KFS_LOG_STREAM_WARN << "RAND_pseudo_bytes failure" << KFS_LOG_EOM;
+    if (! CryptoKeys::PseudoRand(&ret, sizeof(ret))) {
+        KFS_LOG_STREAM_WARN << "PseudoRand failure" << KFS_LOG_EOM;
         size_t kMaxNameLen = 1024;
         char name[kMaxNameLen + 1];
         gethostname(name, kMaxNameLen);

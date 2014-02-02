@@ -26,18 +26,11 @@
 #include "KfsProtocolWorker.h"
 #include "KfsOps.h"
 
-#include <algorithm>
-#include <map>
-#include <string>
-#include <sstream>
-#include <cerrno>
-
-#include <boost/random/mersenne_twister.hpp>
-
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/CryptoKeys.h"
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/time.h"
@@ -54,6 +47,12 @@
 #include "WriteAppender.h"
 #include "Writer.h"
 #include "Reader.h"
+
+#include <algorithm>
+#include <map>
+#include <string>
+#include <sstream>
+#include <cerrno>
 
 namespace KFS
 {
@@ -123,7 +122,7 @@ public:
           mChunkServerInitialSeqNum(
             inParameters.mChunkServerInitialSeqNum > 0 ?
                 inParameters.mChunkServerInitialSeqNum :
-                GetInitalSeqNum(0x19885a10)),
+                GetInitalSeqNum()),
           mDoNotDeallocate(),
           mStopRequest(),
           mWorker(this, "KfsProtocolWorker"),
@@ -1633,14 +1632,10 @@ private:
         QCStMutexLocker lock(mMutex);
         FreeSyncRequests::PushFront(mFreeSyncRequests, inRequest);
     }
-    static int64_t GetInitalSeqNum(
-        int64_t inSeed = 0)
+    static int64_t GetInitalSeqNum()
     {
-        boost::mt19937 theRandom(boost::mt19937::result_type(
-            microseconds() + inSeed
-        ));
-        const int64_t theRet(
-            (int64_t)theRandom() | ((int64_t)theRandom() << 32));
+        int64_t theRet = 0;
+        CryptoKeys::PseudoRand(&theRet, sizeof(theRet));
         return ((theRet < 0 ? -theRet : theRet) >> 1);
     }
 private:

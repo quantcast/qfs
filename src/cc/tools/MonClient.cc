@@ -29,6 +29,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/Globals.h"
+#include "kfsio/CryptoKeys.h"
 #include "libclient/KfsClient.h"
 #include "libclient/KfsNetClient.h"
 #include "libclient/KfsOps.h"
@@ -72,6 +73,14 @@ MonInit()
     return (sInit.IsInited() ? 0 : -EFAULT);
 }
 
+    static int64_t
+InitialSeq()
+{
+    int64_t theRet = 0;
+    CryptoKeys::PseudoRand(&theRet, sizeof(theRet));
+    return ((theRet < 0 ? -theRet : theRet) >> 1);
+}
+
     static string
 CallMonInit()
 {
@@ -81,8 +90,15 @@ CallMonInit()
 
 MonClient::MonClient()
     : NetManager(),
-      KfsNetClient(*this,
-        CallMonInit() // Kludge to call ssl init before auth context ctor.
+      KfsNetClient(
+        *this,
+        CallMonInit(),// inHost kludge to call ssl init before auth context ctor
+        0,            // inPort
+        3,            // inMaxRetryCount
+        10,           // inTimeSecBetweenRetries
+        5  * 60,      // inOpTimeoutSec
+        30 * 60,      // inIdleTimeoutSec
+        InitialSeq()  // inInitialSeqNum,
       ), 
       KfsNetClient::OpOwner(),
       mAuthContext()

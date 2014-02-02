@@ -26,12 +26,12 @@
 
 #include <sys/time.h>
 #include <unistd.h>
-#include <openssl/rand.h>
 
 #include "utils.h"
 #include "common/config.h"
 #include "common/MsgLogger.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/CryptoKeys.h"
 
 namespace KFS
 {
@@ -66,8 +66,7 @@ void die(const string &msg)
 kfsSeq_t GetRandomSeq()
 {
     kfsSeq_t id = 0;
-    RAND_pseudo_bytes(
-        reinterpret_cast<unsigned char*>(&id), int(sizeof(id)));
+    CryptoKeys::PseudoRand(&id, int(sizeof(id)));
     return ((id < 0 ? -id : id) >> 1);
 }
 
