@@ -248,6 +248,10 @@ static char* test_large_write() {
   large = 0;
   check_qfs_call(qfs_sync(qfs, fd));
 
+  // Close and reopen to make stat work.
+  check_qfs_call(qfs_close(qfs, fd));
+  check_qfs_call(fd = qfs_open_file(qfs, "/unit-test/file", O_RDWR, 0, ""));
+
   struct qfs_attr attr;
   check_qfs_call(qfs_stat(qfs, "/unit-test/file", &attr));
 
