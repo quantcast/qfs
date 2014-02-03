@@ -147,13 +147,14 @@ public:
     bool IsConnected() const
         { return (mConnPtr && mConnPtr->IsGood()); }
     bool Start(
-        string  inServerName,
-        int     inServerPort,
-        string* inErrMsgPtr,
-        bool    inRetryPendingOpsFlag,
-        int     inMaxRetryCount,
-        int     inTimeSecBetweenRetries,
-        bool    inRetryConnectOnlyFlag)
+        string             inServerName,
+        int                inServerPort,
+        string*            inErrMsgPtr,
+        bool               inRetryPendingOpsFlag,
+        int                inMaxRetryCount,
+        int                inTimeSecBetweenRetries,
+        bool               inRetryConnectOnlyFlag,
+        ClientAuthContext* inAuthContextPtr)
     {
         if (! inRetryPendingOpsFlag) {
             Cancel();
@@ -161,6 +162,7 @@ public:
         mRetryConnectOnlyFlag  = inRetryConnectOnlyFlag;
         mMaxRetryCount         = inMaxRetryCount;
         mTimeSecBetweenRetries = inTimeSecBetweenRetries;
+        mAuthContextPtr        = inAuthContextPtr;
         return SetServer(ServerLocation(inServerName, inServerPort),
             false, inErrMsgPtr);
     }
@@ -1574,7 +1576,8 @@ KfsNetClient::Start(
         inRetryPendingOpsFlag,
         inMaxRetryCount,
         inTimeSecBetweenRetries,
-        inRetryConnectOnlyFlag
+        inRetryConnectOnlyFlag,
+        inAuthContextPtr
     );
 }
 

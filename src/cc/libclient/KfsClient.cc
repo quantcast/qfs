@@ -1091,8 +1091,15 @@ private:
         {
             signal(SIGPIPE, SIG_IGN);
             libkfsio::InitGlobals();
-            SslFilter::Initialize();
-            const int maxGroups = min((int)sysconf(_SC_NGROUPS_MAX), 1 << 16);
+            SslFilter::Error const sslErr = SslFilter::Initialize();
+            if (sslErr) {
+                KFS_LOG_STREAM_FATAL << "ssl intialization error: " << sslErr <<
+                    " " << SslFilter::GetErrorMsg(sslErr) <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
+            int const maxGroups = min((int)sysconf(_SC_NGROUPS_MAX), 1 << 16);
             if (maxGroups > 0) {
                 gid_t* const grs = new gid_t[maxGroups];
                 const int    cnt = getgroups(maxGroups, grs);
