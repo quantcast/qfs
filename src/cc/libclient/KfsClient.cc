@@ -3043,7 +3043,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         fa.stripeSize         = stripeSize;
     }
     static_cast<Permissions&>(fa) = op.permissions;
-    time_t now;
+    time_t now = 0;
     if (! op.userName.empty()) {
         now = time(0);
         UpdateUserId(op.userName, fa.user, now);
