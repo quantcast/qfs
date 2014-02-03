@@ -36,6 +36,9 @@ export myvalgrind
 exec </dev/null
 cd ${1-.} || exit
 
+auth=${auth-no}
+clientuser=${clientuser-"`id -un`"}
+
 numchunksrv=${numchunksrv-2}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
@@ -63,6 +66,11 @@ chunksrvpid="chunkserver${pidsuf}"
 chunksrvout='chunkserver.out'
 metahost='127.0.0.1'
 clustername='qfs-test-cluster'
+clientprop="$testdir/client.prp"
+certsdir=${certsdir-"$testdir/certs"}
+mkcerts=`dirname "$0"`
+mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+
 if [ x"$myvalgrind" != x ]; then
     metastartwait='yes' # wait for unit test to finish
 fi
@@ -123,6 +131,8 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
+    smauthconf="$testdir/sortmasterauth.prp"
+    export smauthconf
     for name in \
             "$smsdir/ksortmaster" \
             "$smtest" \
@@ -202,6 +212,17 @@ mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
 
+if [ x"$auth" = x'yes' ]; then
+    "$mkcerts" "$certsdir" meta "$clientuser" || exit
+cat > "$clientprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    QFS_CLIENT_CONFIG="FILE:${clientprop}"
+    export QFS_CLIENT_CONFIG
+fi
+
 ulimit -c unlimited
 # Cleanup handler
 if [ x"$dontusefuser" = x'yes' ]; then
@@ -242,6 +263,17 @@ metaServer.verifyAllOpsPermissions = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
 EOF
 
+if [ x"$auth" = x'yes' ]; then
+    cat >> "$metasrvprop" << EOF
+metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
+metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
+metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
+metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
+metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
+EOF
+fi
+
 myrunprog metaserver -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 metapid=$!
 echo "$metapid" > "$metasrvpid"
@@ -280,7 +312,6 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-# chunkServer.ioBufferPool.partitionBufferCount = 81920
 chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
@@ -288,6 +319,14 @@ chunkServer.storageTierPrefixes = kfschunk-tier0 2
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF
+    if [ x"$auth" = x'yes' ]; then
+        "$mkcerts" "$certsdir" chunk$i || exit
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
+chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
+chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    fi
     cd "$dir" || exit
     echo "Starting chunk server $i"
     myrunprog chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
@@ -359,6 +398,13 @@ if [ $fotest -ne 0 ]; then
 fi
 
 if [ x"$smtest" != x ]; then
+    if [ x"$smauthconf" != x ]; then
+        cat > "$smauthconf" << EOF
+sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    fi
     smpidf="sortmaster_test${pidsuf}"
     echo "Starting sort master test"
     "$smtest" > sortmaster_test.out 2>&1 &

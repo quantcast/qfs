@@ -56,7 +56,7 @@ else
         -nodes \
         -x509 \
         -keyout "$cadir/private/cakey.pem" \
-        -out "$cadir/cacert.pem"
+        -out "$cadir/cacert.pem" || exit
     [ $showcerts -ne 0 ] && openssl x509 -in "$cadir/cacert.pem" -text
     cat > "$caconf" << EOF
     [ ca ]
@@ -110,5 +110,5 @@ for n in ${certs-"$@"}; do
     openssl ca -batch -config "$caconf" -out "$n.crt" -infiles "$n.req"
     rm "$n.req"
     [ $showcerts -ne 0 ] && openssl x509 -in "$n.crt" -text
-    openssl verify -CAfile "$cadir/cacert.pem" "$n.crt"
+    openssl verify -CAfile "$cadir/cacert.pem" "$n.crt" || exit
 done
