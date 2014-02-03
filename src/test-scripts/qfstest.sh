@@ -131,8 +131,10 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
-    smauthconf="$testdir/sortmasterauth.prp"
-    export smauthconf
+    if [ x"$auth" = x'yes' ]; then
+        smauthconf="$testdir/sortmasterauth.prp"
+        export smauthconf
+    fi
     for name in \
             "$smsdir/ksortmaster" \
             "$smtest" \
