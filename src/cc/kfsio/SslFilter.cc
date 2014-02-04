@@ -291,13 +291,14 @@ public:
         if (! mSslPtr) {
             return;
         }
-        if (! SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
+        if (SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
+            SetPskCB();
+            SSL_set_read_ahead(mSslPtr, 1);
+            mServerFlag = ! SSL_in_connect_init(mSslPtr);
+        } else {
             mError = GetAndClearErr();
             SSL_free(mSslPtr);
             mSslPtr = 0;
-        } else {
-            SetPskCB();
-            mServerFlag = ! SSL_in_connect_init(mSslPtr);
         }
     }
     ~Impl()
@@ -348,6 +349,7 @@ public:
             return -EINVAL;
         }
         mReadPendingFlag = false;
+        char theByte;
         int theRet = DoHandshake();
         if (theRet) {
             return theRet;
@@ -356,7 +358,8 @@ public:
             return ShutdownSelf(inConnection);
         }
         theRet = inIoBuffer.Read(-1, inMaxRead, this);
-        mReadPendingFlag = inMaxRead <= theRet && 0 < SSL_pending(mSslPtr);
+        mReadPendingFlag = inMaxRead <= theRet &&
+            0 < SSL_peek(mSslPtr, &theByte, sizeof(theByte));
         return theRet;
     }
     int Write(
@@ -498,9 +501,17 @@ public:
         if (! inBufPtr || ! mSslPtr) {
             return -EINVAL;
         }
-        const int theRet = SSL_read(mSslPtr, inBufPtr, inNumRead);
-        if (0 < theRet) {
-            return theRet;
+        char*       thePtr      = reinterpret_cast<char*>(inBufPtr);
+        char* const theStartPtr = thePtr;
+        char* const theEndPtr   = thePtr + inNumRead;
+        int         theRet      = 0;
+        while (thePtr < theEndPtr &&
+                0 < (theRet = SSL_read(
+                    mSslPtr, thePtr, (int)(theEndPtr - thePtr)))) {
+            thePtr += theRet;
+        }
+        if (theStartPtr < thePtr) {
+            return (int)(thePtr - theStartPtr);
         }
         const int theErr = SslRetToErr(theRet);
         return (mSslEofFlag ? 0 : theErr);
