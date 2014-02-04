@@ -875,7 +875,7 @@ private:
                 if (! mAllocOp.chunkServerAccessToken.empty()) {
                     mWriteIdAllocOp.status    = -EINVAL;
                     mWriteIdAllocOp.statusMsg = "no chunk access";
-                } else if (mAllocOp.chunkAccess.empty()) {
+                } else if (! mAllocOp.chunkAccess.empty()) {
                     mWriteIdAllocOp.status    = -EINVAL;
                     mWriteIdAllocOp.statusMsg = "no chunk server access";
                 } else if (! theCSClearTextAllowedFlag) {
