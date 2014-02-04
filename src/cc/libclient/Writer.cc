@@ -871,12 +871,17 @@ private:
             if (mAllocOp.chunkServerAccessToken.empty() ||
                     mAllocOp.chunkAccess.empty()) {
                 mChunkServer.SetKey(0, 0, 0, 0);
+                mChunkServer.SetAuthContext(0);
                 if (! mAllocOp.chunkServerAccessToken.empty()) {
                     mWriteIdAllocOp.status    = -EINVAL;
                     mWriteIdAllocOp.statusMsg = "no chunk access";
+                } else if (mAllocOp.chunkAccess.empty()) {
+                    mWriteIdAllocOp.status    = -EINVAL;
+                    mWriteIdAllocOp.statusMsg = "no chunk server access";
                 } else if (! theCSClearTextAllowedFlag) {
                     mWriteIdAllocOp.status    = -EPERM;
-                    mWriteIdAllocOp.statusMsg = "no chunk server access";
+                    mWriteIdAllocOp.statusMsg =
+                        "no cleart text chunk server access";
                 } else {
                     mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
                     mCSAccessExpireTime    = mChunkAccessExpireTime;
@@ -908,11 +913,10 @@ private:
                         mWriteIdAllocOp.createChunkServerAccessFlag) {
                     mWriteIdAllocOp.decryptKey = &mChunkServer.GetSessionKey();
                 }
-            }
-            if (mWriteIdAllocOp.status == 0 &&
-                    ! mChunkServer.GetAuthContext()) {
-                mChunkServer.SetAuthContext(
-                    mOuter.mMetaServer.GetAuthContext());
+                if (! mChunkServer.GetAuthContext()) {
+                    mChunkServer.SetAuthContext(
+                        mOuter.mMetaServer.GetAuthContext());
+                }
             }
             if (mWriteIdAllocOp.status == 0 &&
                     mChunkServer.SetServer(mAllocOp.chunkServers[0])) {

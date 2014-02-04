@@ -900,6 +900,7 @@ private:
                 );
                 if (mChunkServerAccess.IsEmpty()) {
                     mChunkServer.SetKey(0, 0, 0, 0);
+                    mChunkServer.SetAuthContext(0);
                     mSizeOp.access.clear();
                 } else {
                     CryptoKeys::Key theKey;
@@ -929,15 +930,16 @@ private:
                     } else {
                         mNoCSAccessFlag = true;
                     }
-                }
-                if (mNoCSAccessFlag) {
-                    mChunkServer.SetKey(0, 0, 0, 0);
-                    mSizeOp.access.clear();
-                } else {
-                    if (! mChunkServer.GetAuthContext()) {
+                    if (! mNoCSAccessFlag && ! mChunkServer.GetAuthContext()) {
                         mChunkServer.SetAuthContext(
                             mOuter.mMetaServer.GetAuthContext());
                     }
+                }
+                if (mNoCSAccessFlag) {
+                    mChunkServer.SetKey(0, 0, 0, 0);
+                    mChunkServer.SetAuthContext(0);
+                    mSizeOp.access.clear();
+                } else {
                     mChunkServer.SetServer(theLocation);
                 }
             }
