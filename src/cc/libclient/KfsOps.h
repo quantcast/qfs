@@ -883,6 +883,10 @@ struct AllocateOp : public KfsOp {
                 os << " " << chunkServers[i];
             }
         }
+        os <<
+            " access:" <<
+            " s: " << chunkServerAccessToken <<
+            " c: " << chunkAccess;
         return os;
     }
 };

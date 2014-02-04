@@ -1003,16 +1003,20 @@ private:
         );
         if (mAllocOp.chunkServerAccessToken.empty() ||
                 mAllocOp.chunkAccess.empty()) {
-            GetChunkServer().SetKey(0, 0, 0, 0);
             if (! mAllocOp.chunkServerAccessToken.empty()) {
                 mWriteIdAllocOp.status    = -EINVAL;
                 mWriteIdAllocOp.statusMsg = "no chunk access";
+            } else if (! mAllocOp.chunkAccess.empty()) {
+                mWriteIdAllocOp.status    = -EINVAL;
+                mWriteIdAllocOp.statusMsg = "no chunk server access";
             } else if (! theCSClearTextAllowedFlag) {
                 mWriteIdAllocOp.status    = -EPERM;
-                mWriteIdAllocOp.statusMsg = "no chunk server access";
+                mWriteIdAllocOp.statusMsg = "no chunk server clear text access";
             } else {
                 mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
                 mCSAccessExpireTime    = mChunkAccessExpireTime;
+                GetChunkServer().SetKey(0, 0, 0, 0);
+                GetChunkServer().SetAuthContext(0);
             }
         } else {
             GetChunkServer().SetKey(
@@ -1041,12 +1045,11 @@ private:
                     mWriteIdAllocOp.createChunkServerAccessFlag) {
                 mWriteIdAllocOp.decryptKey = &GetChunkServer().GetSessionKey();
             }
+            if (mWriteIdAllocOp.status == 0 &&
+                    ! GetChunkServer().GetAuthContext()) {
+                GetChunkServer().SetAuthContext(mMetaServer.GetAuthContext());
+            }
         }
-        if (mWriteIdAllocOp.status == 0 &&
-                ! GetChunkServer().GetAuthContext()) {
-            GetChunkServer().SetAuthContext(mMetaServer.GetAuthContext());
-        }
-
         if (mWriteIdAllocOp.status != 0 ||
                 (! mChunkServerPtr &&
                 ! mChunkServer.SetServer(theMaster))) {
@@ -1421,6 +1424,7 @@ private:
         }
         if (mChunkAccess.empty()) {
             mChunkServer.SetKey(0, 0, 0, 0);
+            mChunkServer.SetAuthContext(0);
             mGetRecordAppendOpStatusOp.access.clear();
         } else {
             if (theIndex == 0 &&
