@@ -412,6 +412,7 @@ private:
     bool        mTimerRunningFlag;
     REntry      mRExpirationList;
     WEntry      mWExpirationList;
+    WEntry      mWAllocationInFlightList;
     WEntry*     mCurWEntry;
 
     void PutInExpirationList(
@@ -423,7 +424,12 @@ private:
     void PutInExpirationList(
         WEntry& entry)
     {
-        PutInExpirationListT(entry.Get().expires, entry, mWExpirationList);
+        PutInExpirationListT(
+            entry.Get().expires,
+            entry,
+            entry.Get().allocInFlight ?
+                mWAllocationInFlightList : mWExpirationList
+        );
     }
     inline void Renew(
         WEntry& wl,

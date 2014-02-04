@@ -1932,10 +1932,12 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         gLayoutManager.CommitOrRollBackChunkVersion(this);
     }
     if (appendChunk) {
-        if (0 <= status && responseStr.empty()) {
-            ostringstream& os = GetTmpOStringStream();
-            responseSelf(os);
-            responseStr = os.str();
+        if (0 <= status) {
+            if (responseStr.empty()) {
+                ostringstream& os = GetTmpOStringStream();
+                responseSelf(os);
+                responseStr = os.str();
+            }
             if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
                 tokenSeq = (TokenSeq)gLayoutManager.GetRandom().Rand();
                 ostringstream& os = GetTmpOStringStream();
@@ -4139,11 +4141,14 @@ MetaAllocate::response(ostream& os)
 void
 MetaAllocate::writeChunkAccess(ostream& os)
 {
-    if (validForTime <= 0 || authUid == kKfsUserNone) {
+    if (authUid == kKfsUserNone) {
         return;
     }
     if (! responseAccessStr.empty()) {
         os.write(responseAccessStr.data(), responseAccessStr.size());
+        return;
+    }
+    if (validForTime <= 0) {
         return;
     }
     if (clientCSAllowClearTextFlag) {

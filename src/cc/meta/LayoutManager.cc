@@ -326,8 +326,20 @@ ChunkLeases::ChunkLeases()
             time_t(),
             kKfsUserNone,
             kKfsGroupNone
-    )),
-    mCurWEntry(&mWExpirationList)
+      )),
+      mWAllocationInFlightList(-1, WriteLease(
+            -1,
+            -1,
+            ChunkServerPtr(),
+            string(),
+            false,
+            false,
+            0,
+            time_t(),
+            kKfsUserNone,
+            kKfsGroupNone
+      )),
+      mCurWEntry(&mWExpirationList)
 {}
 
 inline void
@@ -959,6 +971,7 @@ ChunkLeases::Renew(
     }
     if (allocDoneFlag) {
         wl.allocInFlight = 0;
+        wl.expires       = now - 1; // Force move into expiration list.
     }
     if (fa && ! fa->CanWrite(wl.euser, wl.egroup)) {
         Expire(*we, now);
@@ -1027,12 +1040,19 @@ ChunkLeases::GetOpenFiles(
                 make_pair(re->GetKey(), count));
         }
     }
-    const WEntry* we = &mWExpirationList;
-    while((we = &WEntry::List::GetPrev(*we)) != &mWExpirationList &&
-            now <= we->Get().GetExpiration()) {
-        const CSMap::Entry* const ci = csmap.Find(we->GetKey());
-        if (ci) {
-            openForWrite[ci->GetFileId()].push_back(we->GetKey());
+    const WEntry* const kWLists[] = {
+        &mWExpirationList,
+        &mWAllocationInFlightList,
+        0
+    };
+    for (const WEntry* const* list = kWLists; list; ++list) {
+        const WEntry* we = *list;
+        while((we = &WEntry::List::GetPrev(*we)) != &mWExpirationList &&
+                now <= we->Get().GetExpiration()) {
+            const CSMap::Entry* const ci = csmap.Find(we->GetKey());
+            if (ci) {
+                openForWrite[ci->GetFileId()].push_back(we->GetKey());
+            }
         }
     }
 }
@@ -5182,6 +5202,9 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         mARAChunkCache.Invalidate(it);
         return -1;
     }
+    if (! req->responseAccessStr.empty()) {
+        req->validForTime = mCSAccessValidForTime;
+    }
     bool accessExpiredFlag = false;
     if (! pending && mClientCSAuthRequiredFlag &&
             (req->responseAccessStr.empty() ||
@@ -5220,13 +5243,14 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         }
     }
     KFS_LOG_STREAM_DEBUG <<
-        "Valid write lease exists for " << req->chunkId <<
+        "valid write lease exists for chunk " << req->chunkId <<
         " expires in " << (wl->expires - TimeNow()) << " sec" <<
         " space: " << entry->spaceReservationSize <<
         " (+" << reservationSize <<
         "," << req->spaceReservationSize << ")" <<
-        " num appenders: " << entry->numAppendersInChunk <<
+        " appenders: " << entry->numAppendersInChunk <<
         (pending ? " allocation in progress" : "") <<
+        " access: size: " << req->responseAccessStr.size() <<
     KFS_LOG_EOM;
     if (mMaxAppendersPerChunk <= entry->numAppendersInChunk) {
         mARAChunkCache.Invalidate(it);
