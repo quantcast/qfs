@@ -267,7 +267,8 @@ public:
         const char* inPskCliIdendityPtr,
         ServerPsk*  inServerPskPtr,
         VerifyPeer* inVerifyPeerPtr,
-        bool        inDeleteOnCloseFlag)
+        bool        inDeleteOnCloseFlag,
+        bool&       inReadPendingFlag)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
           mError(mSslPtr ? 0 : GetAndClearErr()),
@@ -278,6 +279,7 @@ public:
           mAuthName(),
           mServerPskPtr(inServerPskPtr),
           mVerifyPeerPtr(inVerifyPeerPtr),
+          mReadPendingFlag(inReadPendingFlag),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
           mShutdownInitiatedFlag(false),
@@ -345,14 +347,17 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        const int theRet = DoHandshake();
+        mReadPendingFlag = false;
+        int theRet = DoHandshake();
         if (theRet) {
             return theRet;
         }
         if (mShutdownInitiatedFlag) {
             return ShutdownSelf(inConnection);
         }
-        return inIoBuffer.Read(-1, inMaxRead, this);
+        theRet = inIoBuffer.Read(-1, inMaxRead, this);
+        mReadPendingFlag = inMaxRead <= theRet && 0 < SSL_pending(mSslPtr);
+        return theRet;
     }
     int Write(
         NetConnection& inConnection,
@@ -542,6 +547,7 @@ private:
     string            mPeerName;
     ServerPsk* const  mServerPskPtr;
     VerifyPeer* const mVerifyPeerPtr;
+    bool&             mReadPendingFlag;
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
     bool              mShutdownInitiatedFlag:1;
@@ -1004,14 +1010,16 @@ SslFilter::SslFilter(
     SslFilter::ServerPsk*  inServerPskPtr,
     SslFilter::VerifyPeer* inVerifyPeerPtr,
     bool                   inDeleteOnCloseFlag)
-    : mImpl(*(new Impl(
+    : NetConnection::Filter(),
+      mImpl(*(new Impl(
         inCtx,
         inPskDataPtr,
         inPskDataLen,
         inPskCliIdendityPtr,
         inServerPskPtr,
         inVerifyPeerPtr,
-        inDeleteOnCloseFlag
+        inDeleteOnCloseFlag,
+        mReadPendingFlag
     )))
     {}
 

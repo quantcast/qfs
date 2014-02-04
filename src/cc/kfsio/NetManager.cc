@@ -149,6 +149,7 @@ NetManager::NetManager(int timeoutMs)
       mPoll(*(new QCFdPoll())),
       mWaker(*(new Waker())),
       mPollEventHook(0),
+      mPendingReadList(),
       mCurTimeoutHandler(0),
       mEpollError()
 {
@@ -158,6 +159,7 @@ NetManager::NetManager(int timeoutMs)
 NetManager::~NetManager()
 {
     NetManager::CleanUp();
+    assert(! PendingReadList::IsInList(mPendingReadList));
     delete &mPoll;
     delete &mWaker;
 }
@@ -301,6 +303,7 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     // Always check if connection has to be removed: this method always
     // called before socket fd gets closed.
     if (! conn.IsGood() || fd < 0 || epollError) {
+        PendingReadList::Remove(entry);
         if (entry.mFd >= 0) {
             PollRemove(entry.mFd);
             entry.mFd = -1;
@@ -383,6 +386,12 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
         entry.mIn  = in  && entry.mFd >= 0;
         entry.mOut = out && entry.mFd >= 0;
     }
+    if (conn.IsReadPending()) {
+        PendingReadList::Insert(
+            entry, PendingReadList::GetPrev(mPendingReadList));
+    } else {
+        PendingReadList::Remove(entry);
+    }
 }
 
 void
@@ -435,7 +444,8 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
             }
         }
         {
-            const int timeout = mWaker.Sleep() ? mTimeoutMs : 0;
+            const int timeout = (! PendingReadList::IsInList(mPendingReadList)
+                && mWaker.Sleep()) ? mTimeoutMs : 0;
             QCStMutexUnlocker unlocker(mutex);
             const int ret = mPoll.Poll(mConnectionsCount + 1, timeout);
             if (ret < 0 && ret != -EINTR && ret != -EAGAIN) {
@@ -456,6 +466,11 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
             }
             cur.TimerExpired(nowMs);
         }
+        // Move pending read list into temporary list, as the pending read might
+        // change as a result of event dispatch.
+        NetManagerEntry pendingRead;
+        PendingReadList::Insert(pendingRead, mPendingReadList);
+        PendingReadList::Remove(mPendingReadList);
         /// Process poll events.
         int   op;
         void* ptr;
@@ -475,7 +490,8 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
             }
             const bool hupError = op == QCFdPoll::kOpTypeHup &&
                 ! conn.WantRead() && ! conn.WantWrite();
-            if ((op & (QCFdPoll::kOpTypeIn | QCFdPoll::kOpTypeHup)) != 0 &&
+            if (((op & (QCFdPoll::kOpTypeIn | QCFdPoll::kOpTypeHup)) != 0 ||
+                    PendingReadList::IsInList(*conn.GetNetManagerEntry())) &&
                     conn.IsGood() && (! mIsOverloaded ||
                     conn.GetNetManagerEntry()->mEnableReadIfOverloaded)) {
                 conn.HandleReadEvent(mMaxAcceptsPerRead);
@@ -494,11 +510,18 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
             mCurConnection = 0;
             conn.Update();
         }
+        // Process connections with pending read (inside filter).
+        while (PendingReadList::IsInList(pendingRead)) {
+            NetManagerEntry& cur = PendingReadList::GetNext(pendingRead);
+            PendingReadList::Remove(cur);
+            NetConnection& conn = **cur.mListIt;
+            conn.HandleReadEvent(mMaxAcceptsPerRead);
+        }
         while (! mEpollError.empty()) {
-                assert(mEpollError.front());
-                NetConnection& conn = *mEpollError.front();
-                assert(conn.IsGood());
-                conn.HandleErrorEvent();
+            assert(mEpollError.front());
+            NetConnection& conn = *mEpollError.front();
+            assert(conn.IsGood());
+            conn.HandleErrorEvent();
         }
         mRemove.clear();
         mNow = time(0);

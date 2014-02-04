@@ -32,6 +32,7 @@
 #include "IOBuffer.h"
 #include "TcpSocket.h"
 #include "common/StdAllocator.h"
+#include "qcdio/QCDLList.h"
 
 #include <time.h>
 #include <boost/shared_ptr.hpp>
@@ -101,9 +102,13 @@ public:
             { return false; }
         virtual ~Filter()
             {}
+        bool IsReadPending() const
+            { return mReadPendingFlag; }
     protected:
         Filter()
+            : mReadPendingFlag(false)
             {}
+        bool mReadPendingFlag;
     };
 
     /// @param[in] sock TcpSocket on which I/O can be done
@@ -259,7 +264,7 @@ public:
 
     /// Enqueue data to be sent out.
     void Write(IOBuffer* ioBuf, int numBytes, bool resetTimerFlag = true) {
-        const bool resetTimer = resetTimerFlag &&mOutBuffer.IsEmpty();
+        const bool resetTimer = resetTimerFlag && mOutBuffer.IsEmpty();
         if (ioBuf && numBytes > 0 && mOutBuffer.Move(ioBuf, numBytes) > 0) {
             Update(resetTimer);
         }
@@ -394,11 +399,15 @@ public:
     time_t TimeNow() const
         { return mNetManagerEntry.TimeNow(); }
 
+    bool IsReadPending() const
+        { return (mFilter && IsReadReady() && mFilter->IsReadPending()); }
+
     class NetManagerEntry
     {
     public:
         typedef list<NetConnectionPtr,
             StdFastAllocator<NetConnectionPtr> > List;
+        typedef QCDLListOp<NetManagerEntry, 0>   PendingReadList;
 
         NetManagerEntry()
             : mIn(false),
@@ -412,7 +421,9 @@ public:
               mExpirationTime(-1),
               mNetManager(0),
               mListIt()
-            {}
+            { PendingReadList::Init(*this); }
+        ~NetManagerEntry()
+            { PendingReadList::Remove(*this); }
         void EnableReadIfOverloaded()     { mEnableReadIfOverloaded  = true; }
         void SetConnectPending(bool flag) { mConnectPending = flag; }
         bool IsConnectPending() const     { return mConnectPending; }
@@ -422,19 +433,21 @@ public:
         time_t TimeNow() const;
 
     private:
-        bool           mIn:1;
-        bool           mOut:1;
-        bool           mAdded:1;
+        bool             mIn:1;
+        bool             mOut:1;
+        bool             mAdded:1;
         /// should we add this connection to the poll vector for reads
         /// even when the system is overloaded?
-        bool           mEnableReadIfOverloaded:1;
-        bool           mConnectPending:1;
-        int            mFd;
-        int            mWriteByteCount;
-        int            mTimerWheelSlot;
-        time_t         mExpirationTime;
-        NetManager*    mNetManager;
-        List::iterator mListIt;
+        bool             mEnableReadIfOverloaded:1;
+        bool             mConnectPending:1;
+        int              mFd;
+        int              mWriteByteCount;
+        int              mTimerWheelSlot;
+        time_t           mExpirationTime;
+        NetManager*      mNetManager;
+        List::iterator   mListIt;
+        NetManagerEntry* mPrevPtr[1];
+        NetManagerEntry* mNextPtr[1];
 
         void CloseSocket(NetConnection& con)
         {
@@ -447,6 +460,7 @@ public:
             } 
         }
         friend class NetManager;
+        friend class QCDLListOp<NetManagerEntry, 0>;
 
     private:
         NetManagerEntry(const NetManagerEntry&);

@@ -58,6 +58,8 @@ using std::list;
 class NetManager
 {
 public:
+    typedef NetConnection::NetManagerEntry NetManagerEntry;
+
     NetManager(int timeoutMs = 1000);
     ~NetManager();
     /// Add a connection to the net manager's list of connections that
@@ -178,53 +180,55 @@ public:
     };
 
     /// Method used by NetConnection only.
-    static void Update(NetConnection::NetManagerEntry& entry, int fd,
+    static void Update(NetManagerEntry& entry, int fd,
         bool resetTimer);
     static inline const NetManager* GetNetManager(const NetConnection& conn);
 private:
     class Waker;
-    typedef NetConnection::NetManagerEntry::List List;
-    typedef QCDLList<ITimeout>                   TimeoutHandlers;
+    typedef NetManagerEntry::List            List;
+    typedef QCDLList<ITimeout>               TimeoutHandlers;
+    typedef NetManagerEntry::PendingReadList PendingReadList;
     enum { kTimerWheelSize = (1 << 8) };
 
-    List           mRemove;
-    List::iterator mTimerWheelBucketItr;
-    NetConnection* mCurConnection;
-    int            mCurTimerWheelSlot;
-    int            mConnectionsCount;
+    List            mRemove;
+    List::iterator  mTimerWheelBucketItr;
+    NetConnection*  mCurConnection;
+    int             mCurTimerWheelSlot;
+    int             mConnectionsCount;
     /// when the system is overloaded--either because of disk or we
     /// have too much network I/O backlogged---we avoid polling fd's for
     /// read.  this causes back-pressure and forces the clients to
     /// slow down
-    bool           mDiskOverloaded;
-    bool           mNetworkOverloaded;
-    bool           mIsOverloaded;
-    volatile bool  mRunFlag;
-    bool           mShutdownFlag;
-    bool           mTimerRunningFlag;
+    bool            mDiskOverloaded;
+    bool            mNetworkOverloaded;
+    bool            mIsOverloaded;
+    volatile bool   mRunFlag;
+    bool            mShutdownFlag;
+    bool            mTimerRunningFlag;
     /// timeout interval specified in the call to select().
-    const int      mTimeoutMs;
-    const time_t   mStartTime;
-    time_t         mNow;
-    int64_t        mMaxOutgoingBacklog;
-    int64_t        mNumBytesToSend;
-    int64_t        mTimerOverrunCount;
-    int64_t        mTimerOverrunSec;
-    int            mMaxAcceptsPerRead;
-    QCFdPoll&      mPoll;
-    Waker&         mWaker;
-    PollEventHook* mPollEventHook;
+    const int       mTimeoutMs;
+    const time_t    mStartTime;
+    time_t          mNow;
+    int64_t         mMaxOutgoingBacklog;
+    int64_t         mNumBytesToSend;
+    int64_t         mTimerOverrunCount;
+    int64_t         mTimerOverrunSec;
+    int             mMaxAcceptsPerRead;
+    QCFdPoll&       mPoll;
+    Waker&          mWaker;
+    PollEventHook*  mPollEventHook;
+    NetManagerEntry mPendingReadList;
     /// Handlers that are notified whenever a call to select()
     /// returns.  To the handlers, the notification is a timeout signal.
-    ITimeout*      mCurTimeoutHandler;
-    ITimeout*      mTimeoutHandlers[1];
-    List           mEpollError;
-    List           mTimerWheel[kTimerWheelSize + 1];
+    ITimeout*       mCurTimeoutHandler;
+    ITimeout*       mTimeoutHandlers[1];
+    List            mEpollError;
+    List            mTimerWheel[kTimerWheelSize + 1];
 
     void CheckIfOverloaded();
     void CleanUp(bool childAtForkFlag = false, bool onlyCloseFdFlag = false);
-    inline void UpdateTimer(NetConnection::NetManagerEntry& entry, int timeOut);
-    void UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
+    inline void UpdateTimer(NetManagerEntry& entry, int timeOut);
+    void UpdateSelf(NetManagerEntry& entry, int fd,
         bool resetTimer, bool epollError);
     void PollRemove(int fd);
 private:
