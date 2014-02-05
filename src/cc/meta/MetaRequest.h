@@ -193,7 +193,6 @@ struct MetaRequest {
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
     bool            fromClientSMFlag;
-    bool            secureFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -217,7 +216,6 @@ struct MetaRequest {
           suspended(false),
           fromChunkServerFlag(false),
           fromClientSMFlag(false),
-          secureFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
