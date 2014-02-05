@@ -894,7 +894,7 @@ struct CloseOp : public KfsClientChunkOp {
     int                   chunkAccessLength;
     int                   contentLength;
     SyncReplicationAccess syncReplicationAccess;
-    CloseOp(kfsSeq_t s = 0, const CloseOp* op = 0)
+    CloseOp(kfsSeq_t s = 0)
         : KfsClientChunkOp(CMD_CLOSE, s),
           numServers           (0u),
           needAck              (true),

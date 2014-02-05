@@ -919,7 +919,7 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
         SetState(kStateChunkLost);
     } else if (mState == kStateOpen && IsMaster() &&
             ! gLeaseClerk.IsLeaseValid(mChunkId,
-                hasChunkAccessFlag ? &op->syncReplicationAccess : 0,
+                op ? &op->syncReplicationAccess : 0,
                 &allowCSClearTextFlag)) {
         WAPPEND_LOG_STREAM_ERROR << (prefix ? prefix : "") <<
             ": write lease has expired, no further append allowed" <<
@@ -934,11 +934,11 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
         // stable will not be issued until no activity timer goes off.
         Cntrs().mLeaseExpiredCount++;
         SetState(kStateReplicationFailed);
-    } else if (hasChunkAccessFlag && mPeer &&
+    } else if (op && mPeer && op->syncReplicationAccess.chunkAccess &&
             mPeer->GetShutdownSslFlag() != allowCSClearTextFlag) {
         WAPPEND_LOG_STREAM_WARN <<
             "chunk: " << mChunkId <<
-            "peer clear text access has changed to: " <<
+            " peer clear text access has changed to: " <<
             (allowCSClearTextFlag ? "allowed" : "not allowed") <<
         KFS_LOG_EOM;
         mPeer->SetShutdownSslFlag(allowCSClearTextFlag);
@@ -1145,7 +1145,7 @@ AtomicRecordAppender::InvalidateWriteId(int64_t writeId, bool declareFailureFlag
 void
 AtomicRecordAppender::UpdateMasterCommittedOffset(int64_t masterCommittedOffset)
 {
-    // Master piggy back its ack on the write append replication.
+    // Master piggies back its ack on the write append replication.
     // The ack can lag because of replication request pipelining. The ack is
     // used to determine op status if / when client has to use slave to perform
     // "get op status" in the case when the client can not communicate with the
@@ -1153,7 +1153,7 @@ AtomicRecordAppender::UpdateMasterCommittedOffset(int64_t masterCommittedOffset)
     // This is needed only to reduce client's failure resolution latency. By
     // comparing append end with this ack value it might be possible to
     // determine the append op status. If the ack value is greater than the
-    // append end, then the append is successfully committed by all replication
+    // append end, then the append was successfully committed by all replication
     // participants.
     if (masterCommittedOffset >= mMasterCommittedOffset &&
             masterCommittedOffset <= mNextCommitOffset) {
@@ -1840,9 +1840,20 @@ AtomicRecordAppender::CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag
     }
     if (forwardFlag && mPeer) {
         forwardFlag = false;
-        CloseOp* const fwdOp = new CloseOp(0, op);
+        CloseOp* const fwdOp = new CloseOp(0, *op);
         fwdOp->needAck = false;
+        const bool allowCSClearTextFlag = fwdOp->chunkAccessTokenValidFlag &&
+            (fwdOp->chunkAccessFlags &
+                ChunkAccessToken::kAllowClearTextFlag) != 0;
         SET_HANDLER(fwdOp, &CloseOp::HandlePeerReply);
+        if (fwdOp->syncReplicationAccess.chunkAccess &&
+                    ! allowCSClearTextFlag && mPeer->GetShutdownSslFlag()) {
+            WAPPEND_LOG_STREAM_WARN <<
+                "chunk: " << mChunkId <<
+                " peer clear text access has changed t not allowed" <<
+            KFS_LOG_EOM;
+            mPeer->SetShutdownSslFlag(allowCSClearTextFlag);
+        }
         mPeer->Enqueue(fwdOp);
     }
     WAPPEND_LOG_STREAM(status == 0 ?
