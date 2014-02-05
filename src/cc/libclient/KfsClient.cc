@@ -1327,6 +1327,7 @@ KfsClientImpl::KfsClientImpl()
       mGroups(),
       mCreateId(RandomSeqNo()),
       mUseOsUserAndGroupFlag(true),
+      mInitLookupRootFlag(true),
       mUserNames(),
       mGroupNames(),
       mUserIds(),
@@ -1628,8 +1629,11 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
             break;
         }
         MkdirOp op(0, mTmpPath.back().first, mTmpDirName.c_str(),
-            Permissions(mEUser, mEGroup,
-                mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
+            Permissions(
+                mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
+                mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
+                mode != kKfsModeUndef ? (mode & ~mUMask) : mode
+            ),
             NextCreateId()
         );
         DoMetaOpWithRetry(&op);
@@ -1690,8 +1694,11 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
         return res;
     }
     MkdirOp op(0, parentFid, dirname.c_str(),
-        Permissions(mEUser, mEGroup,
-            mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
+        Permissions(
+            mUseOsUserAndGroupFlag ? mEUser : kKfsUserNone,
+            mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
+            mode != kKfsModeUndef  ? (mode & ~mUMask) : mode
+        ),
         NextCreateId()
     );
     DoMetaOpWithRetry(&op);
@@ -2959,8 +2966,11 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         return res;
     }
     CreateOp op(0, parentFid, filename.c_str(), numReplicas, exclusive,
-        Permissions(mEUser, mEGroup,
-            mode != kKfsModeUndef ? (mode & ~mUMask) : mode),
+        Permissions(
+            mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
+            mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
+            mode != kKfsModeUndef ? (mode & ~mUMask) : mode
+        ),
         exclusive ? NextCreateId() : -1,
         minSTier, maxSTier
     );
@@ -3506,7 +3516,8 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 (fa->isDirectory ? time_t(0) : kShortenFileRevalidateSec)) &&
             (fa->isDirectory || fa->fileSize > 0 ||
                 (fa->fileSize == 0 && fa->chunkCount() <= 0)) &&
-            CheckAccess(openMode, mEUser, mEGroup, *fa)) {
+            (! mUseOsUserAndGroupFlag ||
+                CheckAccess(openMode, mEUser, mEGroup, *fa))) {
         UpdatePath(fa, fpath);
         op.fattr = *fa;
     } else {
@@ -3537,7 +3548,11 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             }
             return op.status;
         }
-        if (! CheckAccess(openMode, op.euser, op.egroup, op.fattr)) {
+        if (mUseOsUserAndGroupFlag && ! CheckAccess(
+                openMode,
+                op.euser == kKfsUserNone ? mEUser : op.euser,
+                op.egroup,
+                op.fattr)) {
             KFS_LOG_STREAM_DEBUG <<
                 "permission denied:"
                 " fileId: "  << op.fattr.fileId <<
@@ -4499,6 +4514,19 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
         return;
     }
     StartProtocolWorker();
+    if (mInitLookupRootFlag) {
+        // Root directory lookup to determine user and group mode.
+        // If no root directory exists or not searchable, then the results is
+        // doesn't have much effect on subsequent ops.
+        LookupOp lrop(0, ROOTFID, ".");
+        mProtocolWorker->ExecuteMeta(lrop);
+        UpdateUserAndGroup(lrop, time(0));
+        if (0 <= lrop.status && 
+                ! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) {
+            mEUser  = lrop.euser;
+            mEGroup = lrop.egroup;
+        }
+    }
     mProtocolWorker->ExecuteMeta(*op);
     KFS_LOG_STREAM_DEBUG <<
         "meta op done:" <<
@@ -6308,6 +6336,7 @@ KfsClientImpl::UpdateUserAndGroup(const LookupOp& op, time_t now)
     if (op.status < 0) {
         return;
     }
+    mInitLookupRootFlag = false;
     if (! op.userName.empty()) {
         UpdateUserId(op.userName, op.fattr.user, now);
     }
@@ -6323,6 +6352,7 @@ KfsClientImpl::DoNotUseOsUserAndGroup()
         return;
     }
     mUseOsUserAndGroupFlag = false;
+    mInitLookupRootFlag    = false;
     mUserIds.clear();
     mUserNames.clear();
     mGroupIds.clear();

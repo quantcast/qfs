@@ -758,6 +758,7 @@ private:
     vector<kfsGid_t>               mGroups;
     kfsSeq_t                       mCreateId;
     bool                           mUseOsUserAndGroupFlag;
+    bool                           mInitLookupRootFlag;
     UserNames                      mUserNames;
     GroupNames                     mGroupNames;
     UserIds                        mUserIds;
