@@ -671,6 +671,7 @@ public:
             return 0;
         }
         outGid = thePtr->mGid;
+        GetEUGid(inUid, outGid, outEUid, outEGid);
         return thePtr->mName.c_str();
     }
     const UserAndGroupNames& GetUserAndGroupNames() const
@@ -825,12 +826,20 @@ private:
         kfsGid_t&     outEGid) const
     {
         const kfsUid_t theUid = GetUidSelf(inAuthName, outGid);
-        outEUid = theUid;
-        outEGid = outGid;
-        if (theUid != kKfsUserRoot && mRootUsersPtr->Find(theUid)) {
+        GetEUGid(theUid, outGid, outEUid, outEGid);
+        return theUid;
+    }
+    void GetEUGid(
+        kfsUid_t  inUid,
+        kfsGid_t  inGid,
+        kfsUid_t& outEUid,
+        kfsGid_t& outEGid) const
+    {
+        outEUid = inUid;
+        outEGid = inGid;
+        if (inUid != kKfsUserRoot && mRootUsersPtr->Find(inUid)) {
             outEUid = kKfsUserRoot;
         }
-        return theUid;
     }
     static const OpNamesMap& CreateOpNamesMap()
     {
