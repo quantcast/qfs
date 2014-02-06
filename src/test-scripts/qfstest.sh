@@ -36,7 +36,15 @@ export myvalgrind
 exec </dev/null
 cd ${1-.} || exit
 
-auth=${auth-no}
+if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
+    auth=${auth-yes}
+else
+    auth=${auth-no}
+fi
+if [ x"$auth" = x'yes' ]; then
+    echo "Authentication on"
+fi
+
 clientuser=${clientuser-"`id -un`"}
 
 numchunksrv=${numchunksrv-2}
@@ -67,6 +75,7 @@ chunksrvout='chunkserver.out'
 metahost='127.0.0.1'
 clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
+clientrootprop="$testdir/clientroot.prp"
 certsdir=${certsdir-"$testdir/certs"}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
@@ -215,7 +224,7 @@ mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
 
 if [ x"$auth" = x'yes' ]; then
-    "$mkcerts" "$certsdir" meta "$clientuser" || exit
+    "$mkcerts" "$certsdir" meta root "$clientuser" || exit
 cat > "$clientprop" << EOF
 client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
@@ -263,6 +272,7 @@ metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 metaServer.verifyAllOpsPermissions = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
+metaServer.clientCSAllowClearText = 1
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -345,31 +355,51 @@ for pid in `getpids`; do
     kill -0 "$pid" || exit
 done
 
+if [ x"$auth" = x'yes' ]; then
+    clientdelegation=`qfs \
+        -fs "qfs://${metahost}:${metasrvport}" \
+        -cfg "${clientprop}" -delegate | awk '
+    { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
+    END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
+    clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
+else
+    clientenvcfg=
+fi
+
 echo "Starting copy test. Test file sizes: $sizes"
 # Run normal test first, then rs test.
 # Enable read ahead and set buffer size to an odd value.
 # For RS disable read ahead and set odd buffer size.
 cppidf="cptest${pidsuf}"
-{ \
+{
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
-    cptokfsopts='-m 1 -l 15' && \
-    export cptokfsopts && \
-    cpfromkfsopts='-r 1e6 -w 65537' && \
-    export cpfromkfsopts && \
+    QFS_CLIENT_CONFIG=$clientenvcfg \
+    cptokfsopts='-m 1 -l 15' \
+    cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
-    cptokfsopts='-S -m 2 -l 2' && \
-    export cptokfsopts && \
-    cpfromkfsopts='-r 0 -w 65537' && \
-    export cpfromkfsopts && \
+    cptokfsopts='-S -m 2 -l 2' \
+    cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh; \
 } > cptest.out 2>&1 &
 cppid=$!
 echo "$cppid" > "$cppidf"
 
+if [ x"$auth" = x'yes' ]; then
+    cat > "$clientrootprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/root.crt
+client.auth.X509.PKeyPemFile = $certsdir/root.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    qfstoolrootauthcfg=$clientrootprop
+else
+    qfstoolrootauthcfg=
+fi
+
 qfstoolpidf="qfstooltest${pidsuf}"
 qfstoolmeta="$metahost:$metasrvport" \
 qfstooltrace=on \
+qfstoolrootauthcfg=$qfstoolrootauthcfg \
 qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
 qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"

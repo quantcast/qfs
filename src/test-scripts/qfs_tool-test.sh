@@ -39,7 +39,10 @@ qfstoolrand='rand-sfmt'
 qfstoolrandseed=1234
 qfstoolsizes=${qfstoolsizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 67108864 67108865 100e6 250e6'}
 qfstoolumask=${qfstoolumask-0022}
-qfstooltrace=${$qfstooltrace-no}
+qfstooltrace=${qfstooltrace-no}
+if [ x"$qfstoolrootauthcfg" = x ]; then
+    qfstoolrootauthcfg='/dev/null'
+fi
 
 if [ x"$qfstooltrace" = x'yes' -o  x"$qfstooltrace" = x'on' ]; then
     set -x
@@ -65,8 +68,8 @@ trap 'echo "`basename "$0"`: test failed."' EXIT
 
 set -e
 umask $qfstoolumask
-$qfstool -D fs.euser=0 -mkdir "$udir"
-$qfstool -D fs.euser=0 -chown "$qfstooluser" "$udir"
+$qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -mkdir "$udir"
+$qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown "$qfstooluser" "$udir"
 
 # Test move to trash restrictions.
 tdir="$udir/d$$"
@@ -87,7 +90,7 @@ $qfstool -rmr -skipTrash "$udir/.Trash"
 $qfstool -expunge
 $qfstool -lsr "$udir/.Trash" && exit 1
 
-$qfstool -test -e "$dir" && $qfstool -D fs.euser=0 -rmr "$dir"
+$qfstool -test -e "$dir" && $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -rmr "$dir"
 $qfstool -mkdir "$dir"
 $qfstool -rmr -skipTrash "$dir"
 $qfstool -test -e "$dir" && exit 1
@@ -339,7 +342,7 @@ awk '
 }
 ' "$tmpout"
 $qfstool -chown -R 0:0 "$tdir" && exit 1
-$qfstool -D fs.euser=0 -chown -R 0:0 "$tdir"
+$qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R 0:0 "$tdir"
 $qfstool -astat "$tdir" > "$tmpout"
 $qfstool -astat "$tdir/*.*" >> "$tmpout"
 awk '
@@ -366,8 +369,8 @@ END {
 }
 ' "$tmpout"
 $qfstool -chown -R "${qfstooluser}:${qfstoolgroup}" "$tdir" && exit 1
-$qfstool -D fs.euser=0 -chown -R "${qfstooluser}" "$tdir"
-$qfstool -D fs.euser=0 -chgrp -R "${qfstoolgroup}" "$tdir"
+$qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R "${qfstooluser}" "$tdir"
+$qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chgrp -R "${qfstoolgroup}" "$tdir"
 $qfstool -ls "$tdir/*" > "$tmpout"
 awk -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
     -v grp="`echo "${qfstoolgroup}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
