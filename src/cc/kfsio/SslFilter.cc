@@ -80,7 +80,7 @@ public:
         }
         static OpenSslInit sOpenSslInit;
         sOpenSslInitPtr = &sOpenSslInit;
-#if OPENSSL_VERSION_NUMBER < 0x1000000fL
+#if OPENSSL_VERSION_NUMBER < 0x10000000L
         CRYPTO_set_id_callback(&ThreadIdCB);
 #else
         // Ensure that the CRYPTO_THREADID_* is present, and use the default
@@ -135,6 +135,14 @@ public:
     static string GetErrorMsg(
         Error inError)
     {
+#if OPENSSL_VERSION_NUMBER < 0x10000000L || defined(OPENSSL_NO_PSK)
+        if (inError == SSL_R_UNSUPPORTED_CIPHER) {
+            return string(
+                "please re-compile with openssl library version greater than"
+                " 1.0 with PSK enabled"
+            );
+        }
+#endif
         const size_t kBufSize = 127;
         char theBuf[kBufSize + 1];
         theBuf[0] = 0;
@@ -289,7 +297,6 @@ public:
           mShutdownCompleteFlag(false)
     {
         if (! mSslPtr) {
-            mError = GetAndClearErr();
             return;
         }
         if (SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
@@ -928,14 +935,14 @@ private:
             return;
         }
         if (! mPskData.empty() || mServerPskPtr) {
-#if OPENSSL_VERSION_NUMBER < 0x1000000fL || defined(OPENSSL_NO_PSK)
+#if OPENSSL_VERSION_NUMBER < 0x10000000L || defined(OPENSSL_NO_PSK)
             mError = SSL_R_UNSUPPORTED_CIPHER;
 #else
             SSL_set_psk_server_callback(mSslPtr, &PskServerCB);
 #endif
         }
         if (! mPskData.empty() && ! mServerPskPtr) {
-#if OPENSSL_VERSION_NUMBER < 0x1000000fL || defined(OPENSSL_NO_PSK)
+#if OPENSSL_VERSION_NUMBER < 0x10000000L || defined(OPENSSL_NO_PSK)
             mError = SSL_R_UNSUPPORTED_CIPHER;
 #else
             SSL_set_psk_client_callback(mSslPtr, &PskClientCB);
