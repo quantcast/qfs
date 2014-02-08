@@ -138,8 +138,8 @@ public:
 #if OPENSSL_VERSION_NUMBER < 0x10000000L || defined(OPENSSL_NO_PSK)
         if (inError == SSL_R_UNSUPPORTED_CIPHER) {
             return string(
-                "please re-compile with openssl library version greater than"
-                " 1.0 with PSK enabled"
+                "please re-compile with openssl library version 1.0 or greater"
+                " with PSK enabled"
             );
         }
 #endif
