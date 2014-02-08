@@ -99,16 +99,19 @@ fi
 for n in ${certs-"$@"}; do
     cn="$n"
     n="$workdir/$cn"
-    [ -f "$n.key" ] && continue
-    openssl req \
-        -days 3650 \
-        -subj "$subjectprefix/CN=$cn" \
-        -nodes \
-        -newkey rsa:1024 \
-        -keyout "$n.key" \
-        -out "$n.req"
-    openssl ca -batch -config "$caconf" -out "$n.crt" -infiles "$n.req"
-    rm "$n.req"
+    if [ -f "$n.key" ]; then
+        true
+    else
+        openssl req \
+            -days 3650 \
+            -subj "$subjectprefix/CN=$cn" \
+            -nodes \
+            -newkey rsa:1024 \
+            -keyout "$n.key" \
+            -out "$n.req"
+        openssl ca -batch -config "$caconf" -out "$n.crt" -infiles "$n.req"
+        rm "$n.req"
+    fi
     [ $showcerts -ne 0 ] && openssl x509 -in "$n.crt" -text
     openssl verify -CAfile "$cadir/cacert.pem" "$n.crt" || exit
 done
