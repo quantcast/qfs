@@ -1161,7 +1161,15 @@ private:
                 &theErrMsg
             );
             if (theStatus != 0) {
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "failed to start ssl:"
+                    " error: " << theStatus <<
+                    " "        << theErrMsg <<
+                KFS_LOG_EOM;
                 Fail(theStatus, theErrMsg);
+                if (inErrMsgPtr) {
+                    *inErrMsgPtr = theErrMsg;
+                }
                 return;
             }
             if (mShutdownSslFlag && mConnPtr->IsGood()) {
