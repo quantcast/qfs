@@ -843,8 +843,7 @@ private:
     void EnqueueAuth(
         KfsOp& inOp)
     {
-        assert(! mOutstandingOpPtr &&
-            (! mConnPtr || ! mConnPtr->IsWriteReady()));
+        assert(! mOutstandingOpPtr && mConnPtr && ! mConnPtr->IsWriteReady());
         SetMaxWaitTime(inOp);
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
@@ -1108,6 +1107,7 @@ private:
         if (mSleepingFlag || IsConnected()) {
             return;
         }
+        assert(mLookupOp.seq < 0 && mAuthOp.seq < 0);
         mDataReceivedFlag = false;
         mDataSentFlag     = false;
         mAllDataSentFlag  = true;
