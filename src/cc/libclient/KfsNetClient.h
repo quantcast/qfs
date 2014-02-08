@@ -180,7 +180,8 @@ public:
         ClientAuthContext* inAuthContextPtr);
     bool SetServer(
         const ServerLocation& inLocation,
-        bool                  inCancelPendingOpsFlag = true);
+        bool                  inCancelPendingOpsFlag = true,
+        string*               inErrMsgPtr            = 0);
     void SetKey(
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,

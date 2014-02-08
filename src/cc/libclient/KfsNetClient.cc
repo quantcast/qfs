@@ -172,7 +172,7 @@ public:
         string*               inErrMsgPtr            = 0)
     {
         if (inLocation == mServerLocation) {
-            EnsureConnected();
+            EnsureConnected(inErrMsgPtr);
             return (mSleepingFlag || IsConnected());
         }
         if (inCancelPendingOpsFlag) {
@@ -1584,10 +1584,11 @@ KfsNetClient::Start(
     bool
 KfsNetClient::SetServer(
     const ServerLocation& inLocation,
-    bool                  inCancelPendingOpsFlag /* = true */)
+    bool                  inCancelPendingOpsFlag /* = true */,
+    string*               inErrMsgPtr            /* = 0 */)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.SetServer(inLocation, inCancelPendingOpsFlag);
+    return mImpl.SetServer(inLocation, inCancelPendingOpsFlag, inErrMsgPtr);
 }
 
     void

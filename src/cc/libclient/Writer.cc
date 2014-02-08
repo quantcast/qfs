@@ -918,12 +918,18 @@ private:
                         mOuter.mMetaServer.GetAuthContext());
                 }
             }
-            if (mWriteIdAllocOp.status == 0 &&
-                    mChunkServer.SetServer(mAllocOp.chunkServers[0])) {
-                Enqueue(mWriteIdAllocOp);
-            } else {
-                HandleError(mWriteIdAllocOp);
+            if (mWriteIdAllocOp.status == 0) {
+                const bool kCancelPendingOpsFlag = true;
+                if (mChunkServer.SetServer(
+                        mAllocOp.chunkServers[0],
+                        kCancelPendingOpsFlag,
+                        &mWriteIdAllocOp.statusMsg)) {
+                    Enqueue(mWriteIdAllocOp);
+                    return;
+                }
+                mWriteIdAllocOp.status = kErrorFault;
             }
+            HandleError(mWriteIdAllocOp);
         }
         static int64_t GetAccessExpireTime(
             time_t  inNow,
