@@ -683,8 +683,11 @@ public:
             }
         }
         KFS_LOG_STREAM_ERROR << mLogPrefix <<
-            "authentication response failure: " << mAuthOp.status <<
+            "authentication response failure:"
+            " seq: " << mAuthOp.seq <<
+            " " << mAuthOp.status <<
             " " << mAuthOp.statusMsg <<
+            " " << mAuthOp.Show() <<
         KFS_LOG_EOM;
         Fail(mAuthOp.status, mAuthOp.statusMsg);
     }

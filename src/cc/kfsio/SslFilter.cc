@@ -289,6 +289,7 @@ public:
           mShutdownCompleteFlag(false)
     {
         if (! mSslPtr) {
+            mError = GetAndClearErr();
             return;
         }
         if (SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
