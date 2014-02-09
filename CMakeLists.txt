@@ -58,7 +58,8 @@ message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
 if (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
-    message(STATUS "WARNING: Kerberos 5 support requires Open SSL version 1.0 or greater")
+    message(WARNING ": QFS authentication support requires Open SSL version 1.0 or greater")
+    message(WARNING ": QFS authentication will not work")
 endif (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
 
