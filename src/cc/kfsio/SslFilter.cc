@@ -358,7 +358,7 @@ public:
         }
         mReadPendingFlag = false;
         char theByte;
-        int theRet = DoHandshake();
+        int  theRet = DoHandshake();
         if (theRet) {
             return theRet;
         }
@@ -366,7 +366,14 @@ public:
             return ShutdownSelf(inConnection);
         }
         if (inMaxRead == 0) {
-            return -EAGAIN; // Don't want to read, just complete handshake.
+            // Don't want to read, just complete handshake.
+            theRet = mSslEofFlag ? 0 :
+                SSL_peek(mSslPtr, &theByte, sizeof(theByte));
+            mReadPendingFlag = 0 < theRet;
+            if (theRet < 0) {
+                theRet = SslRetToErr(theRet);
+            }
+            return (0 <= theRet ? -EAGAIN : theRet);
         }
         theRet = inIoBuffer.Read(-1, inMaxRead, this);
         mReadPendingFlag = 0 < inMaxRead && inMaxRead <= theRet &&
