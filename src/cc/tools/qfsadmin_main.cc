@@ -27,7 +27,6 @@
 
 #include "tools/MonClient.h"
 #include "common/MsgLogger.h"
-#include "common/MdStream.h"
 #include "qcdio/QCUtils.h"
 #include "libclient/KfsOps.h"
 #include "libclient/KfsClient.h"
@@ -93,7 +92,7 @@ typedef map<
     pair<const char*, pair<KfsOp_t, const char*> >
 > MetaAdminOps;
 
-    static const pair<const MetaAdminOps&, size_t>&
+    static const pair<MetaAdminOps const*, size_t>&
 MakeMetaAdminOpsMap()
 {
     static MetaAdminOps sOps;
@@ -110,10 +109,11 @@ MakeMetaAdminOpsMap()
         KfsForEachMetaOpId(InsertAdminOpEntry)
 #undef InsertAdminOpEntry
     }
-    static const pair<const MetaAdminOps&, size_t> theRet(sOps, sMaxCmdNameLen);
+    static const pair<MetaAdminOps const*, size_t> theRet(
+        &sOps, sMaxCmdNameLen);
     return theRet;
 }
-const MetaAdminOps& sMetaAdminOpsMap   = MakeMetaAdminOpsMap().first;
+const MetaAdminOps& sMetaAdminOpsMap   = *MakeMetaAdminOpsMap().first;
 const size_t        sMetaAdminOpMaxLen = MakeMetaAdminOpsMap().second;
 
     static void
