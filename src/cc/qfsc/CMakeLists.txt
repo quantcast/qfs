@@ -13,11 +13,6 @@ if (NOT APPLE)
   target_link_libraries(qfsc rt)
 endif (NOT APPLE)
 
-install (TARGETS qfsc qfsc-shared
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib/static)
-install (FILES qfs.h DESTINATION include/kfs/c)
-
 add_executable (test-qfsc test-qfsc.c)
 set_target_properties (test-qfsc PROPERTIES LINKER_LANGUAGE CXX)
 if (USE_STATIC_LIB_LINKAGE)
@@ -29,3 +24,8 @@ else (USE_STATIC_LIB_LINKAGE)
 endif (USE_STATIC_LIB_LINKAGE)
 install (TARGETS test-qfsc
         RUNTIME DESTINATION bin/tests)
+install (TARGETS qfsc qfsc-shared
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib/static)
+install (FILES qfs.h DESTINATION include/kfs/c)
+
