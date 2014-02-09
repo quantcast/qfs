@@ -81,7 +81,7 @@ cponly='no'
 csvalgrind='no'
 clientuser=${clientuser-"`id -un`"}
 clientprop="$clitestdir/client.prp"
-certsdir=${certsdir-"$clitestdir/.../certs"}
+certsdir=${certsdir-"`dirname "$clitestdir"`/certs"}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -89,9 +89,6 @@ if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
 else
     auth=${auth-no}
-fi
-if [ x"$auth" = x'yes' ]; then
-    echo "Authentication on"
 fi
 
 unset QFS_CLIENT_CONFIG
@@ -187,17 +184,6 @@ while [ $# -gt 0 ]; do
     fi
 done
 
-if [ x"$auth" = x'yes' ]; then
-    "$mkcerts" "$certsdir" meta root "$clientuser" || exit
-cat > "$clientprop" << EOF
-client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
-client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
-client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-EOF
-    QFS_CLIENT_CONFIG="FILE:${clientprop}"
-    export QFS_CLIENT_CONFIG
-fi
-
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
 fi
@@ -208,6 +194,18 @@ for n in "$chunkbin" "$metabin"; do
         exit 1
     fi
 done
+
+if [ x"$auth" = x'yes' ]; then
+    echo "Authentication on"
+    "$mkcerts" "$certsdir" meta root "$clientuser" || exit
+cat > "$clientprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    QFS_CLIENT_CONFIG="FILE:${clientprop}"
+    export QFS_CLIENT_CONFIG
+fi
 
 if [ x"$errsym" = x'yes' ]; then
     cstimeout=20
@@ -310,6 +308,17 @@ metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 
 EOF
+
+if [ x"$auth" = x'yes' ]; then
+    cat >> "$metasrvprop" << EOF
+metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
+metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
+metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
+metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
+metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
+EOF
+fi
 
 rm -f *.log*
 ./"$metaserverbin" -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
