@@ -365,8 +365,11 @@ public:
         if (mShutdownInitiatedFlag) {
             return ShutdownSelf(inConnection);
         }
+        if (inMaxRead == 0) {
+            return -EAGAIN; // Don't want to read, just complete handshake.
+        }
         theRet = inIoBuffer.Read(-1, inMaxRead, this);
-        mReadPendingFlag = inMaxRead <= theRet &&
+        mReadPendingFlag = 0 < inMaxRead && inMaxRead <= theRet &&
             0 < SSL_peek(mSslPtr, &theByte, sizeof(theByte));
         return theRet;
     }
@@ -391,6 +394,9 @@ public:
             outForceInvokeErrHandlerFlag = theRet == 0;
             return theRet;
         }
+        if (inIoBuffer.IsEmpty()) {
+            return 0;
+        }
         int theWrCnt = 0;
         for (IOBuffer::iterator theIt = inIoBuffer.begin();
                 theIt != inIoBuffer.end();
@@ -409,8 +415,6 @@ public:
         }
         if (0 < theWrCnt) {
             globals().ctrNetBytesWritten.Update(theWrCnt);
-        }
-        if (0 < theWrCnt) {
             return theWrCnt;
         }
         return SslRetToErr(theRet);
