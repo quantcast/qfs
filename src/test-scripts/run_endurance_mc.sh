@@ -79,6 +79,23 @@ testonly='no'
 mconly='no'
 cponly='no'
 csvalgrind='no'
+clientuser=${clientuser-"`id -un`"}
+clientprop="$clitestdir/client.prp"
+certsdir=${certsdir-"$clitestdir/.../certs"}
+mkcerts=`dirname "$0"`
+mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+
+if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
+    auth=${auth-yes}
+else
+    auth=${auth-no}
+fi
+if [ x"$auth" = x'yes' ]; then
+    echo "Authentication on"
+fi
+
+unset QFS_CLIENT_CONFIG
+unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
 
 kill_all_proc()
 {
@@ -98,7 +115,8 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -cp-only        -- only run copy test, do not run fanout test
  -no-sm-test     -- do not run sort master endurance test
  -disk-err-sym   -- enable disk error sumulation
- -valgrind-cs    -- run chunk servers under valgrind'
+ -valgrind-cs    -- run chunk servers under valgrind
+ -auth           -- turn authentication on or off'
     exit 0
 fi
 
@@ -153,12 +171,32 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-valgrind-cs' ]; then
         shift
         csvalgrind='yes'
+    elif [ x"$1" = x'-auth' ]; then
+        shift
+        if [ x"$1" = x'on' -o x"$1" = x'ON' -o \
+                x"$1" = x'yes' -o x"$1" = x'YES' ]; then
+            auth='yes'
+        else
+            auth='no'
+        fi
+        [ $# -gt 0  ] && shift
     else
         echo "invalid option: $1"
         excode=1
         break
     fi
 done
+
+if [ x"$auth" = x'yes' ]; then
+    "$mkcerts" "$certsdir" meta root "$clientuser" || exit
+cat > "$clientprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    QFS_CLIENT_CONFIG="FILE:${clientprop}"
+    export QFS_CLIENT_CONFIG
+fi
 
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
@@ -362,6 +400,14 @@ chunkServer.diskErrorSimulator.minTimeMicroSec = 28000000
 chunkServer.diskErrorSimulator.maxTimeMicroSec = 50000000
 EOF
         fi
+        if [ x"$auth" = x'yes' ]; then
+            "$mkcerts" "$certsdir" chunk$i || exit
+            cat >> "$dir/$chunksrvprop" << EOF
+chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
+chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
+chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+        fi
         (
         cd "$dir" || exit
         rm -f *.log*
@@ -477,6 +523,16 @@ if [ x"$smtest" = x'no' ]; then
 fi
 
 [ -e "$bdir/src/cc/sortmaster/ksortmaster" ] || exit
+
+if [ x"$auth" = x'yes' ]; then
+        smauthconf="$clitestdir/sortmasterauth.prp"
+        export smauthconf
+        cat > "$smauthconf" << EOF
+sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+fi
 
 (
     mydir="$clitestdir/sortmaster"
