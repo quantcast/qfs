@@ -1096,7 +1096,7 @@ jstring Java_com_quantcast_qfs_access_KfsAccess_strerror(
 jboolean Java_com_quantcast_qfs_access_KfsAccess_isnotfound(
     JNIEnv *jenv, jclass jcls, jlong jptr, jint jerr)
 {
-    return (jboolean)(jerr == -ENOENT);
+    return (jboolean)(jerr == -ENOENT || jerr == -ENOTDIR);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_close(
