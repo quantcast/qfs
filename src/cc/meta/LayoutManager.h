@@ -459,7 +459,7 @@ private:
                 List::Insert(mTmpList, mBuckets[mCurBucket]);
                 List::Remove(mBuckets[mCurBucket]);
                 if (BucketCntT <= ++mCurBucket) {
-                    mCurBucket = BucketCntT - 1;
+                    mCurBucket = 0;
                 }
                 while (List::IsInList(mTmpList)) {
                     T& theCur = List::GetNext(mTmpList);
@@ -479,7 +479,7 @@ private:
                     inFuctor(*thePtr);
                 }
                 if (BucketCntT <= ++k) {
-                    k = BucketCntT - 1;
+                    k = 0;
                 }
             }
         }
