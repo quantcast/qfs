@@ -110,13 +110,12 @@ kfsshell_main(int argc, char **argv)
     }
 
     MsgLogger::Init(0, logLevel);
-    KfsClient * const kfsClient = Connect(serverHost, port);
-    if (!kfsClient) {
-        cout << "qfs client failed to initialize...exiting" << endl;
-        return (-1);
+    KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
+    if (! kfsClient) {
+        cout << "qfs client failed to initialize\n";
+        return 1;
     }
     auto_ptr<KfsClient> cleanup(kfsClient);
-
     setupHandlers();
 
     return processCmds(kfsClient, quietMode,
