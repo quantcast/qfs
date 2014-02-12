@@ -100,16 +100,21 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
+    enum { kLeaseTimerResolutionSec = 8 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     struct ReadLease
     {
-        ReadLease(LeaseId id = -1, time_t exp = 0)
+        ReadLease(LeaseId id, time_t exp)
             : leaseId(id),
               expires(exp)
             {}
         ReadLease(const ReadLease& lease)
             : leaseId(lease.leaseId),
               expires(lease.expires)
+            {}
+        ReadLease()
+            : leaseId(-1),
+              expires(0)
             {}
         const LeaseId leaseId;
         time_t        expires;
@@ -153,6 +158,19 @@ public:
               allocInFlight(lease.allocInFlight),
               euser(lease.euser),
               egroup(lease.egroup)
+            {}
+        WriteLease()
+            : ReadLease(),
+              chunkVersion(-1),
+              chunkServer(),
+              pathname(),
+              appendFlag(false),
+              stripedFileFlag(false),
+              relinquishedFlag(false),
+              ownerWasDownFlag(false),
+              allocInFlight(0),
+              euser(kKfsUserNone),
+              egroup(kKfsGroupNone)
             {}
         void ResetServer()
             { const_cast<ChunkServerPtr&>(chunkServer).reset(); }
@@ -225,7 +243,7 @@ public:
         chunkId_t      chunkId,
         ARAChunkCache& arac,
         CSMap&         csmap);
-    inline bool Timer(
+    inline void Timer(
         time_t         now,
         int            ownerDownExpireDelay,
         ARAChunkCache& arac,
@@ -367,6 +385,10 @@ private:
             : mKey(e.mKey),
               mVal(e.mVal)
             { List::Init(*this); }
+        EntryT()
+            : mKey(),
+              mVal()
+            { List::Init(*this); }
         ~EntryT()
             { List::Remove(*this); }
         const Key& GetKey() const
@@ -393,6 +415,86 @@ private:
 
         EntryT& operator=(const EntryT&);
     };
+    template<typename T, size_t BucketCntT, time_t TimerResolutionT>
+    class TimerWheel
+    {
+    public:
+        typedef typename T::List List;
+        TimerWheel()
+            : mCurBucket(0),
+              mNextRunTime(),
+              mFirstRunFlag(true),
+              mTmpList()
+            {}
+        void Schedule(
+            T&     inEntry,
+            time_t inExpires)
+        {
+            const time_t theTimeout = inExpires <= mNextRunTime ?
+                time_t(0) : inExpires - mNextRunTime;
+            size_t       theIdx     = (size_t)(theTimeout / TimerResolutionT);
+            if (BucketCntT <= theIdx) {
+                // Max timeout.
+                theIdx = (mCurBucket == 0 ? BucketCntT : mCurBucket) - 1;
+            } else if (BucketCntT <= (theIdx = mCurBucket + theIdx)) {
+                theIdx -= BucketCntT;
+            }
+            List::Insert(inEntry, mBuckets[theIdx]);
+        }
+        template<typename FT>
+        void Run(
+            time_t inNow,
+            FT&    inFuctor)
+        {
+            if (mFirstRunFlag) {
+                mFirstRunFlag = false;
+                mNextRunTime = inNow;
+            }
+            if (inNow < mNextRunTime) {
+                return;
+            }
+            size_t theBucketCnt = (inNow - mNextRunTime) / TimerResolutionT;
+            mNextRunTime = inNow + TimerResolutionT;
+            do {
+                List::Insert(mTmpList, mBuckets[mCurBucket]);
+                List::Remove(mBuckets[mCurBucket]);
+                if (BucketCntT <= ++mCurBucket) {
+                    mCurBucket = BucketCntT - 1;
+                }
+                while (List::IsInList(mTmpList)) {
+                    T& theCur = List::GetNext(mTmpList);
+                    inFuctor(theCur);
+                    assert(&theCur != &List::GetNext(mTmpList));
+                }
+            } while (0 < theBucketCnt--);
+        }
+        template<typename FT>
+        void Apply(
+            FT& inFuctor) const
+        {
+            for (size_t i = 0, k = mCurBucket; i < BucketCntT; i++) {
+                const T& theList = mBuckets[k];
+                const T* thePtr  = &theList;
+                while (&theList != (thePtr = List::GetNextPtr(thePtr))) {
+                    inFuctor(*thePtr);
+                }
+                if (BucketCntT <= ++k) {
+                    k = BucketCntT - 1;
+                }
+            }
+        }
+    private:
+        size_t mCurBucket;
+        time_t mNextRunTime;
+        bool   mFirstRunFlag;
+        T      mTmpList;
+        T      mBuckets[BucketCntT];
+    private:
+        TimerWheel(
+            const TimerWheel& inTimerWheel);
+        TimerWheel& operator=(
+            const TimerWheel& inTimerWheel);
+    };
     typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
     typedef LinearHash <
         REntry,
@@ -407,29 +509,39 @@ private:
         DynamicArray<SingleLinkedList<WEntry>*, 13>,
         StdFastAllocator<WEntry>
     > WriteLeases;
-    ReadLeases  mReadLeases;
-    WriteLeases mWriteLeases;
-    bool        mTimerRunningFlag;
-    REntry      mRExpirationList;
-    WEntry      mWExpirationList;
-    WEntry      mWAllocationInFlightList;
-    WEntry*     mCurWEntry;
+    typedef TimerWheel<
+        REntry,
+        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+            kLeaseTimerResolutionSec,
+        kLeaseTimerResolutionSec
+    > ReadLeaseTimer;
+    typedef TimerWheel<
+        WEntry,
+        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+            kLeaseTimerResolutionSec,
+        kLeaseTimerResolutionSec
+    > WriteLeaseTimer;
 
-    void PutInExpirationList(
-        time_t  expires,
-        REntry& entry)
-    {
-        PutInExpirationListT(expires, entry, mRExpirationList);
-    }
+    class OpenFileLister;
+    friend class OpenFileLister;
+    class LeaseCleanup;
+    friend class LeaseCleanup;
+
+    ReadLeases      mReadLeases;
+    WriteLeases     mWriteLeases;
+    bool            mTimerRunningFlag;
+    ReadLeaseTimer  mReadLeaseTimer;
+    WriteLeaseTimer mWriteLeaseTimer;
+    WEntry          mWAllocationInFlightList;
+
     void PutInExpirationList(
         WEntry& entry)
     {
-        PutInExpirationListT(
-            entry.Get().expires,
-            entry,
-            entry.Get().allocInFlight ?
-                mWAllocationInFlightList : mWExpirationList
-        );
+        if (entry.Get().allocInFlight) {
+            WEntry::List::Insert(entry, mWAllocationInFlightList);
+        } else {
+            mWriteLeaseTimer.Schedule(entry, entry.Get().expires);
+        }
     }
     inline void Renew(
         WEntry& wl,
@@ -1738,6 +1850,8 @@ protected:
 
     /// Defaults to the width of a lease window
     int mRecoveryIntervalSec;
+    int mLeaseCleanerOtherIntervalSec;
+    time_t mLeaseCleanerOtherNextRunTime;
 
     /// Periodically clean out dead leases
     PeriodicOp<MetaLeaseCleanup> mLeaseCleaner;

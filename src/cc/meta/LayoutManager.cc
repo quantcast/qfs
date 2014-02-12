@@ -314,41 +314,15 @@ ChunkLeases::ChunkLeases()
     : mReadLeases(),
       mWriteLeases(),
       mTimerRunningFlag(false),
-      mRExpirationList(-1, ChunkReadLeasesHead()),
-      mWExpirationList(-1, WriteLease(
-            -1,
-            -1,
-            ChunkServerPtr(),
-            string(),
-            false,
-            false,
-            0,
-            time_t(),
-            kKfsUserNone,
-            kKfsGroupNone
-      )),
-      mWAllocationInFlightList(-1, WriteLease(
-            -1,
-            -1,
-            ChunkServerPtr(),
-            string(),
-            false,
-            false,
-            0,
-            time_t(),
-            kKfsUserNone,
-            kKfsGroupNone
-      )),
-      mCurWEntry(&mWExpirationList)
+      mReadLeaseTimer(),
+      mWriteLeaseTimer(),
+      mWAllocationInFlightList()
 {}
 
 inline void
 ChunkLeases::Erase(
     ChunkLeases::WEntry& wl)
 {
-    if (mCurWEntry == &wl) {
-        mCurWEntry = &WEntry::List::GetNext(wl);
-    }
     mWriteLeases.Erase(wl.GetKey());
 }
 
@@ -386,7 +360,7 @@ ChunkLeases::Expire(
     const time_t exp = now - 1;
     if (exp < wl.expires) {
         wl.expires = exp;
-        WEntry::List::Insert(we, mWExpirationList);
+        PutInExpirationList(we);
     }
 }
 
@@ -586,7 +560,7 @@ ChunkLeases::ExpiredCleanup(
     ChunkLeases::REntry& re,
     time_t               now)
 {
-    bool                 updateFlag = false;
+    bool                 updateFlag = mTimerRunningFlag;
     ChunkReadLeasesHead& rl         = re;
     ChunkReadLeases&     leases     = rl.mLeases;
     RLEntry&             expList    = rl.mExpirationList;
@@ -604,7 +578,7 @@ ChunkLeases::ExpiredCleanup(
         return true;
     }
     if (updateFlag) {
-        PutInExpirationList(rl.GetExpiration(), re);
+        mReadLeaseTimer.Schedule(re, rl.GetExpiration());
     }
     return false;
 }
@@ -626,9 +600,13 @@ ChunkLeases::ExpiredCleanup(
         Erase(we);
         return true;
     }
-    if (now <= wl.expires +
-            ((wl.ownerWasDownFlag && ownerDownExpireDelay > 0) ?
-                ownerDownExpireDelay : 0)) {
+    const time_t exp = wl.expires +
+        ((wl.ownerWasDownFlag && ownerDownExpireDelay > 0) ?
+        ownerDownExpireDelay : 0);
+    if (now <= exp) {
+        if (mTimerRunningFlag) {
+            mWriteLeaseTimer.Schedule(we, exp);
+        }
         return false;
     }
     const bool   relinquishedFlag = wl.relinquishedFlag;
@@ -734,7 +712,7 @@ ChunkLeases::LeaseRelinquish(
         } else {
             const time_t cexp = rl.GetExpiration();
             if (exp != cexp) {
-                PutInExpirationList(exp, *re);
+                mReadLeaseTimer.Schedule(*re, exp);
             }
         }
         return ret;
@@ -806,7 +784,47 @@ ChunkLeases::LeaseRelinquish(
     return ret;
 }
 
-inline bool
+class ChunkLeases::LeaseCleanup
+{
+public:
+    LeaseCleanup(
+        time_t         now,
+        int            ownerDownExpireDelay,
+        ARAChunkCache& arac,
+        CSMap&         csmap,
+        ChunkLeases&   leases)
+        : mNow(now),
+          mOwnerDownExpireDelay(ownerDownExpireDelay),
+          mArac(arac),
+          mCsmap(csmap),
+          mLeases(leases)
+        {}
+    void operator()(
+        ChunkLeases::REntry& inEntry)
+        { mLeases.ExpiredCleanup(inEntry, mNow); }
+    void operator()(
+        ChunkLeases::WEntry& inEntry)
+    {
+        mLeases.ExpiredCleanup(
+            inEntry,
+            mNow,
+            mOwnerDownExpireDelay,
+            mArac,
+            mCsmap
+        );
+    }
+private:
+    time_t const   mNow;
+    int const      mOwnerDownExpireDelay;
+    ARAChunkCache& mArac;
+    CSMap&         mCsmap;
+    ChunkLeases&   mLeases;
+private:
+    LeaseCleanup(const LeaseCleanup&);
+    LeaseCleanup& operator=(const LeaseCleanup&);
+};
+
+inline void
 ChunkLeases::Timer(
     time_t         now,
     int            ownerDownExpireDelay,
@@ -814,34 +832,13 @@ ChunkLeases::Timer(
     CSMap&         csmap)
 {
     if (mTimerRunningFlag) {
-        return false; // Do not allow recursion.
+        return; // Do not allow recursion.
     }
     mTimerRunningFlag = true;
-    bool cleanedFlag = false;
-    for (REntry* n = &REntry::List::GetNext(mRExpirationList); ;) {
-        REntry& c = *n;
-        if (&c == &mRExpirationList || now <= c.Get().GetExpiration()) {
-            break;
-        }
-        n = &REntry::List::GetNext(c);
-        cleanedFlag = ExpiredCleanup(c, now) || cleanedFlag;
-    }
-    for (mCurWEntry = &WEntry::List::GetNext(mWExpirationList); ;) {
-        WEntry& c = *mCurWEntry;
-        if (&c == &mWExpirationList || now <= c.Get().GetExpiration()) {
-            break;
-        }
-        mCurWEntry = &WEntry::List::GetNext(c);
-        cleanedFlag = ExpiredCleanup(
-            c,
-            now,
-            ownerDownExpireDelay,
-            arac,
-            csmap) || cleanedFlag;
-    }
-    mCurWEntry = &mWExpirationList;
+    LeaseCleanup cleanup(now, ownerDownExpireDelay, arac, csmap, *this);
+    mReadLeaseTimer.Run(now, cleanup);
+    mWriteLeaseTimer.Run(now, cleanup);
     mTimerRunningFlag = false;
-    return cleanedFlag;
 }
 
 inline bool
@@ -871,7 +868,7 @@ ChunkLeases::NewReadLease(
     }
     h.PutInExpirationList(rl);
     if (expires < exp) {
-        PutInExpirationList(expires, re);
+        mReadLeaseTimer.Schedule(re, expires);
     }
     leaseId  = id;
     return true;
@@ -952,7 +949,7 @@ ChunkLeases::Renew(
                 h.PutInExpirationList(*cl);
             }
             if (&RLEntry::List::GetNext(h.mExpirationList) == cl) {
-                PutInExpirationList(cl->expires, *rl);
+                mReadLeaseTimer.Schedule(*rl, cl->expires);
             }
         }
         return 0;
@@ -1014,45 +1011,70 @@ ChunkLeases::Delete(
     return (hadWr || hadRd);
 }
 
+class ChunkLeases::OpenFileLister
+{
+public:
+    OpenFileLister(
+        MetaOpenFiles::ReadInfo&  openForRead,
+        MetaOpenFiles::WriteInfo& openForWrite,
+        const CSMap&              csmap,
+        time_t                    now)
+        : mOpenForRead(openForRead),
+          mOpenForWrite(openForWrite),
+          mCsmap(csmap),
+          mNow(now)
+        {}
+    void operator()(
+        const ChunkLeases::REntry& inEntry)
+    {
+        const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey());
+        if (! ci) {
+            return;
+        }
+        size_t         count = 0;
+        const RLEntry& list  = inEntry.Get().mExpirationList;
+        const RLEntry* rl    = &list;
+        while ((rl = &RLEntry::List::GetPrev(*rl)) != &list &&
+                mNow <= rl->expires) {
+            count++;
+        }
+        if (0 < count) {
+            mOpenForRead[ci->GetFileId()].push_back(
+                make_pair(inEntry.GetKey(), count));
+        }
+    }
+    void operator()(
+        const ChunkLeases::WEntry& inEntry)
+    {
+        const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey());
+        if (ci) {
+            mOpenForWrite[ci->GetFileId()].push_back(inEntry.GetKey());
+        }
+    }
+private:
+    MetaOpenFiles::ReadInfo&  mOpenForRead;
+    MetaOpenFiles::WriteInfo& mOpenForWrite;
+    const CSMap&              mCsmap;
+    const time_t              mNow;
+private:
+    OpenFileLister(const OpenFileLister&);
+    OpenFileLister& operator=(const OpenFileLister&);
+};
+
 inline void
 ChunkLeases::GetOpenFiles(
     MetaOpenFiles::ReadInfo&  openForRead,
     MetaOpenFiles::WriteInfo& openForWrite,
     const CSMap&              csmap) const
 {
-    const time_t  now = TimeNow();
-    const REntry* re  = &mRExpirationList;
-    while ((re = &REntry::List::GetPrev(*re)) != &mRExpirationList &&
-                now <= re->Get().GetExpiration()) {
-        const CSMap::Entry* const ci = csmap.Find(re->GetKey());
-        if (! ci) {
-            continue;
-        }
-        size_t         count = 0;
-        const RLEntry& list  = re->Get().mExpirationList;
-        const RLEntry* rl    = &list;
-        while ((rl = &RLEntry::List::GetPrev(*rl)) != &list &&
-                now <= rl->expires) {
-            count++;
-        }
-        if (0 < count) {
-            openForRead[ci->GetFileId()].push_back(
-                make_pair(re->GetKey(), count));
-        }
-    }
-    const WEntry* const kWLists[] = {
-        &mWExpirationList,
-        &mWAllocationInFlightList,
-        0
-    };
-    for (const WEntry* const* list = kWLists; list; ++list) {
-        const WEntry* we = *list;
-        while((we = &WEntry::List::GetPrev(*we)) != &mWExpirationList &&
-                now <= we->Get().GetExpiration()) {
-            const CSMap::Entry* const ci = csmap.Find(we->GetKey());
-            if (ci) {
-                openForWrite[ci->GetFileId()].push_back(we->GetKey());
-            }
+    OpenFileLister lister(openForRead, openForWrite, csmap, TimeNow());
+    mReadLeaseTimer.Apply(lister);
+    mWriteLeaseTimer.Apply(lister);
+    const WEntry* we = &mWAllocationInFlightList;
+    while((we = &WEntry::List::GetPrev(*we)) != &mWAllocationInFlightList) {
+        const CSMap::Entry* const ci = csmap.Find(we->GetKey());
+        if (ci) {
+            openForWrite[ci->GetFileId()].push_back(we->GetKey());
         }
     }
 }
@@ -1216,7 +1238,9 @@ LayoutManager::LayoutManager() :
     mRecoveryStartTime(0),
     mStartTime(time(0)),
     mRecoveryIntervalSec(LEASE_INTERVAL_SECS),
-    mLeaseCleaner(60 * 1000),
+    mLeaseCleanerOtherIntervalSec(60),
+    mLeaseCleanerOtherNextRunTime(TimeNow()),
+    mLeaseCleaner(ChunkLeases::kLeaseTimerResolutionSec * 1000),
     mChunkReplicator(5 * 1000),
     mCheckpoint(5 * 1000),
     mMinChunkserversToExitRecovery(1),
@@ -1598,9 +1622,11 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.wappend.reservationOvercommitFactor",
         mReservationOvercommitFactor));
 
-    mLeaseCleaner.SetTimeoutInterval((int)(props.getValue(
+    mLeaseCleanerOtherIntervalSec = (int)props.getValue(
         "metaServer.leaseCleanupInterval",
-        mLeaseCleaner.GetTimeoutInterval() * 1e-3) * 1e3));
+        (double)mLeaseCleanerOtherIntervalSec);
+    mLeaseCleanerOtherNextRunTime = min(mLeaseCleanerOtherNextRunTime,
+        TimeNow() + mLeaseCleanerOtherIntervalSec);
     mChunkReplicator.SetTimeoutInterval((int)(props.getValue(
         "metaServer.replicationCheckInterval",
         mChunkReplicator.GetTimeoutInterval() * 1e-3) * 1e3));
@@ -6383,6 +6409,10 @@ LayoutManager::LeaseCleanup()
 
     mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap);
+    if (now < mLeaseCleanerOtherNextRunTime) {
+        return;
+    }
+    mLeaseCleanerOtherNextRunTime = now + mLeaseCleanerOtherIntervalSec;
     if (mAppendCacheCleanupInterval >= 0) {
         // Timing out the cache entries should now be redundant,
         // and is disabled by default, as the cache should not have
@@ -6392,8 +6422,7 @@ LayoutManager::LeaseCleanup()
         mARAChunkCache.Timeout(now - mAppendCacheCleanupInterval);
     }
     if (metatree.getUpdatePathSpaceUsageFlag() &&
-            mLastRecomputeDirsizeTime +
-            mRecomputeDirSizesIntervalSec < now) {
+            mLastRecomputeDirsizeTime + mRecomputeDirSizesIntervalSec < now) {
         KFS_LOG_STREAM_INFO << "Doing a recompute dir size..." <<
         KFS_LOG_EOM;
         metatree.recomputeDirSize();
