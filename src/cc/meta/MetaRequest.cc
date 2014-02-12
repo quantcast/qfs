@@ -2895,6 +2895,9 @@ MetaFsck::handle()
         }
         return;
     }
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
     if (gChildProcessTracker.GetProcessCount() > 0) {
         statusMsg = "another child process running";
         status    = -EAGAIN;
