@@ -314,8 +314,8 @@ ChunkLeases::ChunkLeases()
     : mReadLeases(),
       mWriteLeases(),
       mTimerRunningFlag(false),
-      mReadLeaseTimer(),
-      mWriteLeaseTimer(),
+      mReadLeaseTimer(TimeNow()),
+      mWriteLeaseTimer(TimeNow()),
       mWAllocationInFlightList()
 {}
 
@@ -323,7 +323,9 @@ inline void
 ChunkLeases::Erase(
     ChunkLeases::WEntry& wl)
 {
-    mWriteLeases.Erase(wl.GetKey());
+    if (mWriteLeases.Erase(wl.GetKey()) != 1) {
+        panic("internal error: write lease delete failure");
+    }
 }
 
 inline void
@@ -332,7 +334,9 @@ ChunkLeases::Erase(
 {
     const bool      updateFlag = rl.Get().mScheduleReplicationCheckFlag;
     const chunkId_t chunkId    = rl.GetKey();
-    mReadLeases.Erase(chunkId);
+    if (mReadLeases.Erase(chunkId) != 1) {
+        panic("internal error: read lease delete failure");
+    }
     if (updateFlag) {
         gLayoutManager.ChangeChunkReplication(chunkId);
     }
@@ -561,19 +565,17 @@ ChunkLeases::ExpiredCleanup(
     time_t               now)
 {
     bool                 updateFlag = mTimerRunningFlag;
-    ChunkReadLeasesHead& rl         = re;
-    ChunkReadLeases&     leases     = rl.mLeases;
-    RLEntry&             expList    = rl.mExpirationList;
-    for (RLEntry* n = &RLEntry::List::GetNext(expList); ;) {
+    ChunkReadLeasesHead& rl         = re.Get();
+    for (RLEntry* n = &RLEntry::List::GetNext(rl.mExpirationList); ;) {
         RLEntry& c = *n;
-        if (&c == &expList || now <= c.GetExpiration()) {
+        if (&c == &rl.mExpirationList || now <= c.GetExpiration()) {
             break;
         }
         n = &RLEntry::List::GetNext(c);
-        leases.Erase(c.leaseId);
+        rl.mLeases.Erase(c.leaseId);
         updateFlag = true;
     }
-    if (leases.IsEmpty()) {
+    if (rl.mLeases.IsEmpty()) {
         Erase(re);
         return true;
     }

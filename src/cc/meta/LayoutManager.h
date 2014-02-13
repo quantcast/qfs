@@ -46,6 +46,7 @@
 #include "common/HostPrefix.h"
 #include "common/LinearHash.h"
 #include "common/StBuffer.h"
+#include "common/TimerWheel.h"
 #include "qcdio/QCDLList.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
@@ -100,7 +101,7 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
-    enum { kLeaseTimerResolutionSec = 8 }; // Power of two to optimize division.
+    enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     struct ReadLease
     {
@@ -331,19 +332,19 @@ private:
     {
         ChunkReadLeasesHead()
             : mLeases(),
-              mExpirationList(ReadLease(-1, 0)),
+              mExpirationList(ReadLease()),
               mScheduleReplicationCheckFlag(false)
             {}
         ChunkReadLeasesHead(
             const ChunkReadLeasesHead& h)
-            : mLeases(h.mLeases),
-              mExpirationList(h.mExpirationList),
+            : mLeases(),
+              mExpirationList(ReadLease()),
               mScheduleReplicationCheckFlag(h.mScheduleReplicationCheckFlag)
         {
-            assert(
-                mLeases.IsEmpty() &&
-                ! RLEntry::List::IsInList(mExpirationList)
-            );
+            if (! h.mLeases.IsEmpty() ||
+                    RLEntry::List::IsInList(h.mExpirationList)) {
+                panic("ChunkReadLeasesHead: invalid constructor invocation");
+            }
         }
         time_t GetExpiration() const
             { return RLEntry::List::GetNext(mExpirationList).expires; }
@@ -415,86 +416,6 @@ private:
 
         EntryT& operator=(const EntryT&);
     };
-    template<typename T, size_t BucketCntT, time_t TimerResolutionT>
-    class TimerWheel
-    {
-    public:
-        typedef typename T::List List;
-        TimerWheel()
-            : mCurBucket(0),
-              mNextRunTime(),
-              mFirstRunFlag(true),
-              mTmpList()
-            {}
-        void Schedule(
-            T&     inEntry,
-            time_t inExpires)
-        {
-            const time_t theTimeout = inExpires <= mNextRunTime ?
-                time_t(0) : inExpires - mNextRunTime;
-            size_t       theIdx     = (size_t)(theTimeout / TimerResolutionT);
-            if (BucketCntT <= theIdx) {
-                // Max timeout.
-                theIdx = (mCurBucket == 0 ? BucketCntT : mCurBucket) - 1;
-            } else if (BucketCntT <= (theIdx = mCurBucket + theIdx)) {
-                theIdx -= BucketCntT;
-            }
-            List::Insert(inEntry, mBuckets[theIdx]);
-        }
-        template<typename FT>
-        void Run(
-            time_t inNow,
-            FT&    inFuctor)
-        {
-            if (mFirstRunFlag) {
-                mFirstRunFlag = false;
-                mNextRunTime = inNow;
-            }
-            if (inNow < mNextRunTime) {
-                return;
-            }
-            size_t theBucketCnt = (inNow - mNextRunTime) / TimerResolutionT;
-            mNextRunTime = inNow + TimerResolutionT;
-            do {
-                List::Insert(mTmpList, mBuckets[mCurBucket]);
-                List::Remove(mBuckets[mCurBucket]);
-                if (BucketCntT <= ++mCurBucket) {
-                    mCurBucket = 0;
-                }
-                while (List::IsInList(mTmpList)) {
-                    T& theCur = List::GetNext(mTmpList);
-                    inFuctor(theCur);
-                    assert(&theCur != &List::GetNext(mTmpList));
-                }
-            } while (0 < theBucketCnt--);
-        }
-        template<typename FT>
-        void Apply(
-            FT& inFuctor) const
-        {
-            for (size_t i = 0, k = mCurBucket; i < BucketCntT; i++) {
-                const T& theList = mBuckets[k];
-                const T* thePtr  = &theList;
-                while (&theList != (thePtr = List::GetNextPtr(thePtr))) {
-                    inFuctor(*thePtr);
-                }
-                if (BucketCntT <= ++k) {
-                    k = 0;
-                }
-            }
-        }
-    private:
-        size_t mCurBucket;
-        time_t mNextRunTime;
-        bool   mFirstRunFlag;
-        T      mTmpList;
-        T      mBuckets[BucketCntT];
-    private:
-        TimerWheel(
-            const TimerWheel& inTimerWheel);
-        TimerWheel& operator=(
-            const TimerWheel& inTimerWheel);
-    };
     typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
     typedef LinearHash <
         REntry,
@@ -511,12 +432,16 @@ private:
     > WriteLeases;
     typedef TimerWheel<
         REntry,
+        REntry::List,
+        time_t,
         (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > ReadLeaseTimer;
     typedef TimerWheel<
         WEntry,
+        WEntry::List,
+        time_t,
         (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec

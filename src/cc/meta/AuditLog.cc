@@ -57,10 +57,17 @@ public:
             mOp.reqHeaders.BytesConsumable() +
             Append(theCurPtr, theEndPtr, "Client-ip: ", 11) +
             Append(theCurPtr, theEndPtr,
-                    mOp.clientIp.data(), (int)mOp.clientIp.size()) +
-            Append(theCurPtr, theEndPtr, "\r\nStatus: ", 10);
-        const int         kBufSize = 32;
-        char              theBuf[kBufSize];
+                    mOp.clientIp.data(), (int)mOp.clientIp.size());
+        const int kBufSize = 32;
+        char      theBuf[kBufSize];
+        if (mOp.authUid != kKfsUserNone) {
+            theRet += Append(theCurPtr, theEndPtr, "\r\nAuth-uid: ", 12);
+            const char* const thePtr = IntToDecString(
+                mOp.authUid, theBuf + kBufSize);
+            theRet += Append(theCurPtr, theEndPtr,
+                thePtr, (int)(theBuf + kBufSize - thePtr));
+        }
+        theRet += Append(theCurPtr, theEndPtr, "\r\nStatus: ", 10);
         const char* const thePtr = IntToDecString(
             mOp.status < 0 ? -SysToKfsErrno(-mOp.status) : mOp.status,
             theBuf + kBufSize
