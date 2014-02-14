@@ -307,6 +307,7 @@ metaServer.rootDirUser = `id -u`
 metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 
+metaServer.appendPlacementIgnoreMasterSlave = 1
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -317,6 +318,7 @@ metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
 metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
 metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
+metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
 fi
 

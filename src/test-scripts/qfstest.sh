@@ -140,10 +140,11 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
-    if [ x"$auth" = x'yes' ]; then
-        smauthconf="$testdir/sortmasterauth.prp"
-        export smauthconf
-    fi
+# Use QFS_CLIENT_CONFIG for sort master, too.
+#    if [ x"$auth" = x'yes' ]; then
+#        smauthconf="$testdir/sortmasterauth.prp"
+#        export smauthconf
+#    fi
     for name in \
             "$smsdir/ksortmaster" \
             "$smtest" \
@@ -273,6 +274,7 @@ metaServer.rootDirMode = 0777
 metaServer.verifyAllOpsPermissions = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.clientCSAllowClearText = 1
+metaServer.appendPlacementIgnoreMasterSlave = 1
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -280,9 +282,14 @@ if [ x"$auth" = x'yes' ]; then
 metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
 metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+metaServer.clientAuthentication.whiteList        = $clientuser root
+
 metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
 metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
 metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
+metaServer.CSAuthentication.blackList            = none
+
+metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
 fi
 
@@ -430,8 +437,8 @@ if [ $fotest -ne 0 ]; then
 fi
 
 if [ x"$smtest" != x ]; then
-    if [ x"$smauthconf" != x ]; then
-        cat > "$smauthconf" << EOF
+   if [ x"$smauthconf" != x ]; then
+       cat > "$smauthconf" << EOF
 sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
@@ -439,7 +446,7 @@ EOF
     fi
     smpidf="sortmaster_test${pidsuf}"
     echo "Starting sort master test"
-    "$smtest" > sortmaster_test.out 2>&1 &
+    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" > sortmaster_test.out 2>&1 &
     smpid=$!
     echo "$smpid" > "$smpidf"
 fi
