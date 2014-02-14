@@ -221,8 +221,14 @@ public:
                 }
             }
             if (theArgCnt == 2 && strcmp(theArgsPtr[0], "-") == 0) {
-                theErr = CopyFromStream(
-                    theArgsPtr[1], cin, cerr, mDefaultCreateParams);
+                const int theStdinFd = fileno(stdin);
+                if (0 <= theStdinFd) {
+                    theErr = CopyFromFd(
+                        theArgsPtr[1], theStdinFd, cerr, mDefaultCreateParams);
+                } else {
+                    theErr = CopyFromStream(
+                        theArgsPtr[1], cin, cerr, mDefaultCreateParams);
+                }
             } else {
                 if (theArgCnt < 2) {
                     theErr = EINVAL;
@@ -879,8 +885,10 @@ private:
             const char* inOutStreamNamePtr,
             ostream&    inErrorStream,
             size_t      inIoBufferSize,
-            char*       inIoBufferPtr)
+            char*       inIoBufferPtr,
+            int         inFd)
             : mOutStream(inOutStream),
+              mFd(inFd),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
               mIoBufferSize(inIoBufferSize),
@@ -896,7 +904,7 @@ private:
             FileSystem&   inFs,
             const string& inPath)
         {
-            if (! mOutStream) {
+            if (mFd < 0 && ! mOutStream) {
                 return false;
             }
             const int theFd = inFs.Open(inPath, O_RDONLY, 0);
@@ -918,7 +926,7 @@ private:
                         ": " << inFs.StrError(mStatus) << "\n";
                     break;
                 }
-                if (! mOutStream.write(mIoBufferPtr, theNRead)) {
+                if (! Write(mIoBufferPtr, (size_t)theNRead)) {
                     mStatus = errno;
                     mErrorStream << inFs.GetUri() << inPath <<
                         ": " << mOutStreamNamePtr <<
@@ -933,11 +941,31 @@ private:
             { return mStatus; }
     private:
         ostream&          mOutStream;
+        const int         mFd;
         const char* const mOutStreamNamePtr;
         ostream&          mErrorStream;
         const size_t      mIoBufferSize;
         char* const       mIoBufferPtr;
         int               mStatus;
+
+        bool Write(
+            const char* inPtr,
+            size_t      inSize)
+        {
+            if (mFd < 0) {
+                return !!mOutStream.write(inPtr, inSize);
+            }
+            const char*       thePtr    = inPtr;
+            const char* const theEndPtr = thePtr + inSize;
+            while (thePtr < theEndPtr) {
+                const ssize_t theNWr = ::write(mFd, thePtr, theEndPtr - thePtr);
+                if (theNWr <= 0 && errno != EINTR) {
+                    return false;
+                }
+                thePtr += theNWr;
+            }
+            return true;
+        }
     private:
         CatFunctor(
             const CatFunctor& inFunctor);
@@ -948,7 +976,10 @@ private:
         char** inArgsPtr,
         int    inArgCount)
     {
-        CatFunctor theFunc(cout, "stdout", cerr, mIoBufferSize, mIoBufferPtr);
+        cout.flush();
+        fflush(stdout);
+        CatFunctor theFunc(cout, "stdout", cerr, mIoBufferSize, mIoBufferPtr,
+            fileno(stdout));
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     class ListFunctor
@@ -3158,12 +3189,89 @@ private:
             theFs.StrError(theStatus) << "\n";
         return theStatus;
     }
+    class StreamReader
+    {
+    public:
+        StreamReader(
+            istream& inStream)
+            : mStream(inStream)
+            {}
+        int Read(
+            char* inBufPtr,
+            int   inSize)
+        {
+            if (inSize <= 0) {
+                return -EINVAL;
+            }
+            if (mStream) {
+                mStream.read(inBufPtr, inSize);
+                const int theRet = (int)mStream.gcount();
+                if (0 < theRet) {
+                    return theRet;
+                }
+            }
+            if (mStream.eof()) {
+                return 0;
+            }
+            const int theErr = -errno;
+            return (theErr < 0 ? theErr : -EIO);
+        }
+    private:
+        istream& mStream;
+    };
+    class FdReader
+    {
+    public:
+        FdReader(
+            int inFd)
+            : mFd(inFd)
+            {}
+        int Read(
+            char* inBufPtr,
+            int   inSize)
+        {
+            if (inSize <= 0) {
+                return -EINVAL;
+            }
+            const ssize_t theRet = ::read(mFd, inBufPtr, inSize);
+            if (0 <= theRet) {
+                return (int)theRet;
+            }
+            const int theErr = -errno;
+            return (theErr < 0 ? theErr : -EIO);
+        }
+    private:
+        const int mFd;
+    };
+    int CopyFromFd(
+        const string& inUri,
+        int           inFd,
+        ostream&      inErrStream,
+        const string& inCreateParams,
+        int           inOpenFlags    = O_CREAT | O_WRONLY | O_EXCL)
+    {
+        FdReader theReader(inFd);
+        return CopyFromReader(
+            inUri, theReader, inErrStream, inCreateParams, inOpenFlags);
+    }
     int CopyFromStream(
         const string& inUri,
         istream&      inInStream,
         ostream&      inErrStream,
         const string& inCreateParams,
         int           inOpenFlags    = O_CREAT | O_WRONLY | O_EXCL)
+    {
+        StreamReader theReader(inInStream);
+        return CopyFromReader(
+            inUri, theReader, inErrStream, inCreateParams, inOpenFlags);
+    }
+    template<typename ReaderT>
+    int CopyFromReader(
+        const string& inUri,
+        ReaderT&      inReader,
+        ostream&      inErrStream,
+        const string& inCreateParams,
+        int           inOpenFlags)
     {
         FileSystem*  theFsPtr = 0;
         string       thePath;
@@ -3180,14 +3288,13 @@ private:
             0666,
             &inCreateParams
         );
-        bool theReportErrorFlag = true;
         if (theFd < 0) {
             theErr = theFd;
         } else {
-            while (inInStream) {
-                inInStream.read(mIoBufferPtr, mIoBufferSize);
+            int theNRd;
+            while (0 < (theNRd = inReader.Read(mIoBufferPtr, mIoBufferSize))) {
                 for (const char* thePtr = mIoBufferPtr,
-                            * theEndPtr = thePtr + inInStream.gcount();
+                            * const theEndPtr = thePtr + theNRd;
                         thePtr < theEndPtr;
                         ) {
                     const ssize_t theNWr =
@@ -3202,14 +3309,15 @@ private:
                     break;
                 }
             }
-            if (theErr == 0 && ! inInStream.eof()) {
-                theErr = errno;
-                inErrStream << "stdout: " << QCUtils::SysError(theErr) << "\n";
-                theReportErrorFlag = false;
+            if (theErr == 0 && ! theNRd != 0) {
+                theErr = theNRd;
             }
-            theFs.Close(theFd);
+            const int theRet = theFs.Close(theFd);
+            if (theErr == 0) {
+                theErr = theRet;
+            }
         }
-        if (theErr != 0 && theReportErrorFlag) {
+        if (theErr != 0) {
             inErrStream << theFs.GetUri() << thePath << ": " <<
                 theFs.StrError(theErr) << "\n";
         }
