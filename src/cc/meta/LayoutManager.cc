@@ -1847,7 +1847,6 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mReadDirLimit = props.getValue(
         "metaServer.readDirLimit", mReadDirLimit);
 
-    SetChunkServersProperties(props);
     ClientSM::SetParameters(props);
     gNetDispatch.SetParameters(props);
     if (mDownServers.size() > mMaxDownServersHistorySize) {
@@ -2001,6 +2000,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
+    SetChunkServersProperties(props);
     return (csOk && cliOk && userAndGroupErr == 0);
 }
 
@@ -2070,7 +2070,19 @@ LayoutManager::SetChunkServersProperties(const Properties& props)
     if (props.empty()) {
         return;
     }
-    props.copyWithPrefix("chunkServer.", mChunkServersProps);
+    const char* prefix = "chunkServer.";
+    props.copyWithPrefix(prefix, mChunkServersProps);
+    if (0 < mCSAccessValidForTime && mClientAuthContext.IsAuthRequired()) {
+        const int         kBufSize = 32;
+        char              buf[kBufSize];
+        char*             end      = buf + kBufSize;
+        const char* const ptr      = IntToDecString(mCSAccessValidForTime, end);
+        Properties::String name(prefix);
+        mChunkServersProps.setValue(
+            name.Append("cryptoKeys.minKeyValidTimeSec"),
+            Properties::String(ptr, end - ptr)
+        );
+    }
     if (mChunkServersProps.empty()) {
         return;
     }

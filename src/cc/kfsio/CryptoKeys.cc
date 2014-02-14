@@ -68,6 +68,7 @@ using std::vector;
 using std::fstream;
 using std::hex;
 using std::ios_base;
+using std::max;
 
 class OpenSslError
 {
@@ -220,10 +221,15 @@ public:
         if (inNamesPrefixPtr) {
             theParamName.Append(inNamesPrefixPtr);
         }
-        const size_t thePrefLen = theParamName.GetSize();
-        const int theKeyValidTime = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append(
-            "keyValidTimeSec"), mKeyValidTime);
+        const size_t thePrefLen      = theParamName.GetSize();
+        const int    theKeyValidTime = max(
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "keyValidTimeSec"), mKeyValidTime),
+            inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "minKeyValidTimeSec"), -1)
+        );
         const int k10Min = 60 * 10;
         if (theKeyValidTime < k10Min) {
             outErrMsg = theParamName.GetPtr();
