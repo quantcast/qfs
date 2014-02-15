@@ -144,10 +144,11 @@ CpToKfs::Run(int argc, char **argv)
     int                 maxRetry   = -1;
     int                 retryDelay = -1;
     int                 opTimeout  = -1;
+    const char*         config     = 0;
     int                 optchar;
 
     while ((optchar = getopt(argc, argv,
-            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:")) != -1) {
+            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:f:")) != -1) {
         switch (optchar) {
             case 'd':
                 sourcePath = optarg;
@@ -230,6 +231,9 @@ CpToKfs::Run(int argc, char **argv)
             case 'B':
                 mStartPos = (int64_t)strtoll(optarg, 0, 0);
                 break;
+            case 'f':
+                config = optarg;
+                break;
             default:
                 help = true;
                 break;
@@ -265,6 +269,7 @@ CpToKfs::Run(int argc, char **argv)
             " [-m] -- min storage tier\n"
             " [-l] -- max storage tier\n"
             " [-B] -- write from this position\n"
+            " [-f] -- configuration file name\n"
         ;
         return(-1);
     }
@@ -274,7 +279,7 @@ CpToKfs::Run(int argc, char **argv)
     }
 
     MsgLogger::Init(0, logLevel);
-    mKfsClient = Connect(serverHost, port);
+    mKfsClient = KfsClient::Connect(serverHost, port, config);
     if (!mKfsClient) {
         cout << "qfs client failed to initialize" << endl;
         return(-1);

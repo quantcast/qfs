@@ -117,9 +117,10 @@ CpFromKfs::Run(int argc, char **argv)
     int                 maxRetry   = -1;
     int                 retryDelay = -1;
     int                 opTimeout  = -1;
+    const char*         config     = 0;
     int                 optchar;
 
-    while ((optchar = getopt(argc, argv, "d:hp:s:k:a:b:w:r:R:D:T:X:F:Sv")) != -1) {
+    while ((optchar = getopt(argc, argv, "d:hp:s:k:a:b:w:r:R:D:T:X:F:Svf:")) != -1) {
         switch (optchar) {
             case 'd':
                 localPath = optarg;
@@ -169,6 +170,9 @@ CpFromKfs::Run(int argc, char **argv)
             case 'F':
                 mFailShortReadsFlag = atoi(optarg) != 0;
                 break;
+            case 'f':
+                config = optarg;
+                break;
             default:
                 helpFlag = true;
                 break;
@@ -199,12 +203,13 @@ CpFromKfs::Run(int argc, char **argv)
             " [-F {0|1}] -- fail short reads (partial sparse file support),"
                             "default 1\n"
             " [-X n]     -- debugging: call exit(1) after n read calls\n"
+            " [-f file]  -- configuration file name\n"
         ;
         return (1);
     }
 
     MsgLogger::Init(0, logLevel);
-    mKfsClient = Connect(serverHost, port);
+    mKfsClient = KfsClient::Connect(serverHost, port, config);
     if (! mKfsClient) {
         cerr << "qfs client failed to initialize" << "\n";
         return 1;
