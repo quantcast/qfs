@@ -255,7 +255,7 @@ metaServer.logDir = kfslog
 metaServer.recoveryInterval = 1
 metaServer.msgLogWriter.logLevel = DEBUG
 metaServer.msgLogWriter.maxLogFileSize = 1e9
-metaServer.msgLogWriter.maxLogFiles = 20
+metaServer.msgLogWriter.maxLogFiles = 35
 
 metaServer.minChunkservers = 1
 
@@ -391,7 +391,7 @@ chunkServer.recAppender.closeEmptyWidStateSec = 5
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
-chunkServer.msgLogWriter.maxLogFiles = 2
+chunkServer.msgLogWriter.maxLogFiles = 30
 EOF
         if [ x"$errsym" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
