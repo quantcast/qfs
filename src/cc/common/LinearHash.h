@@ -219,7 +219,7 @@ public:
         }
         Entry*& theBucketPtr = GetBucket(inKey);
         Entry*  thePtr       = theBucketPtr;
-        if (! thePtr) {
+        if (! thePtr || mKeyId.Less(inKey, thePtr->GetData().GetKey())) {
             Entry& theEntry = New(Entry(KVPairT(inKey, inVal), thePtr));
             theBucketPtr = &theEntry;
             Split();
