@@ -65,7 +65,8 @@ public:
         {}
     bool SetParameters(
         const char*       inParamsPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        bool              inAuthEnabledFlag)
     {
         Properties::String theParamName;
         if (inParamsPrefixPtr) {
@@ -99,7 +100,7 @@ public:
                 theParams,
                 &theErrMsg
             ));
-            if (! theSslCtxPtr) {
+            if (! theSslCtxPtr && inAuthEnabledFlag) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(theCurLen) <<
                     "* configuration error: " << theErrMsg <<
@@ -195,7 +196,8 @@ RemoteSyncSM::UpdateRecvTimeout()
 }
 
 bool
-RemoteSyncSM::SetParameters(const char* prefix, const Properties& props)
+RemoteSyncSM::SetParameters(
+    const char* prefix, const Properties& props, bool authEnabledFlag)
 {
     Properties::String name(prefix);
     const size_t       len(name.GetSize());
@@ -209,7 +211,7 @@ RemoteSyncSM::SetParameters(const char* prefix, const Properties& props)
         sAuthPtr = new Auth();
     }
     return sAuthPtr->SetParameters(
-        name.Truncate(len).Append("auth.").GetPtr(), props);
+        name.Truncate(len).Append("auth.").GetPtr(), props, authEnabledFlag);
 }
 
 void

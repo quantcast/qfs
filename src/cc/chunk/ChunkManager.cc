@@ -1869,7 +1869,8 @@ ChunkManager::SetParameters(const Properties& prop)
 
     bool ret = gClientManager.SetParameters(
         "chunkServer.client.", prop, gMetaServerSM.IsAuthEnabled());
-    ret = RemoteSyncSM::SetParameters("chunkServer.remoteSync.", prop) && ret;
+    ret = RemoteSyncSM::SetParameters(
+        "chunkServer.remoteSync.", prop, gMetaServerSM.IsAuthEnabled()) && ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
         "chunkServer.maxEvacuateIoErrors",
         mMaxEvacuateIoErrors

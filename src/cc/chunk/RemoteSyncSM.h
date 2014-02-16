@@ -104,7 +104,8 @@ public:
         bool        writeMasterFlag,
         int&        err,
         string&     errMsg);
-    static bool SetParameters(const char* prefix, const Properties& props);
+    static bool SetParameters(
+        const char* prefix, const Properties& props, bool authEnabledFlag);
     static void Shutdown();
     static int GetResponseTimeoutSec() {
         return sOpResponseTimeoutSec;
