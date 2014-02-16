@@ -4723,7 +4723,7 @@ MetaDelegate::response(ostream& os)
         status    = -EFAULT;
         statusMsg = "no crypto keys";
     }
-    CryptoKeys::KeyId keyId;
+    CryptoKeys::KeyId keyId = 0;
     CryptoKeys::Key   key;
     uint32_t          keyValidForSec = 0;
     if (status == 0 && ! keys->GetCurrentKey(keyId, key, keyValidForSec)) {

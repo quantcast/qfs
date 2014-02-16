@@ -771,7 +771,7 @@ struct ChunkAccessOp: public KfsOp {
     const string*   decryptKey;
 
     ChunkAccessOp(KfsOp_t o, kfsSeq_t s, kfsChunkId_t c)
-        : KfsOp(o, seq),
+        : KfsOp(o, s),
           chunkId(c),
           access(),
           createChunkAccessFlag(false),
