@@ -30,6 +30,7 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <algorithm>
 
 namespace KFS
 {
@@ -123,11 +124,11 @@ public:
         DynamicArray& inArray)
     {
         for (size_t i = 0; i < MaxBufferCount(); i++) {
-            SwapT(mBuffersPtr[i], inArray.mBuffersPtr[i]);
+            std::swap(mBuffersPtr[i], inArray.mBuffersPtr[i]);
         }
-        SwapT(mSize,          inArray.mSize);
-        SwapT(mBufferCount,   inArray.mBufferCount);
-        SwapT(mLastBufferIdx, inArray.mLastBufferIdx);
+        std::swap(mSize,          inArray.mSize);
+        std::swap(mBufferCount,   inArray.mBufferCount);
+        std::swap(mLastBufferIdx, inArray.mLastBufferIdx);
     }
     T& PushBack(
         const T& inElem)
@@ -293,14 +294,6 @@ private:
             delete [] mBuffersPtr[--mBufferCount];
             mBuffersPtr[mBufferCount] = 0;
         }
-    }
-    template<typename ST> static inline void SwapT(
-        ST& inL,
-        ST& inR)
-    {
-        const ST theTmp(inL);
-        inL = inR;
-        inR = theTmp;
     }
 };
 
