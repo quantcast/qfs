@@ -125,6 +125,9 @@ public:
         size_t const theCnt = inArray.mBufferCount;
         inArray.mBufferCount = mBufferCount;
         mBufferCount = theCnt;
+        size_t const theIdx = inArray.mLastBufferIdx;
+        inArray.mLastBufferIdx = mLastBufferIdx;
+        mLastBufferIdx = theIdx;
     }
     T& PushBack(
         const T& inElem)
