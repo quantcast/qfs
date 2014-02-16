@@ -1928,6 +1928,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 "assign chunk id: " << chunkId << " failed for"
                 " <" << fid << "," << offset << ">"
                 " status: " << status <<
+                " curChunkId: " << curChunkId <<
             KFS_LOG_EOM;
             if (appendChunk && status == -EEXIST) {
                 panic("append chunk allocation internal error", false);
