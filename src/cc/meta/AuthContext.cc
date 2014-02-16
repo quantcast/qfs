@@ -597,7 +597,9 @@ public:
                 thePskSslProps,
                 &theErrMsg
             ));
-            if (! theSslCtxPtr) {
+            if (! theSslCtxPtr &&
+                    ((theKrbServicePtr && theKrbUseSslFlag) ||
+                    (mAllowPskFlag && theX509SslCtxPtr))) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(theCurLen) <<
                     "* configuration error: " << theErrMsg <<

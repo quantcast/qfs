@@ -62,6 +62,9 @@ public:
         Properties theParams(mParams);
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theParamName.GetSize(), theParams);
+        const bool theEnabledFlag     = mParams.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "enabled"), inAuthEnabledFlag ? 1 : 0) != 0;
         const size_t theCurLen = theParamName.Append("psk.").GetSize();
         const bool theCreatSslPskFlag =
             theParams.getValue(
@@ -86,7 +89,7 @@ public:
                 theParams,
                 &theErrMsg
             ));
-            if (! theSslCtxPtr) {
+            if (! theSslCtxPtr && theEnabledFlag) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(theCurLen) <<
                     "* configuration error: " << theErrMsg <<
@@ -98,9 +101,7 @@ public:
             mSslCtxPtr = theSslCtxPtr;
         }
         mParams.swap(theParams);
-        mEnabledFlag = mSslCtxPtr && mParams.getValue(
-            theParamName.Truncate(thePrefLen).Append(
-            "enabled"), inAuthEnabledFlag ? 1 : 0) != 0;
+        mEnabledFlag = mSslCtxPtr && theEnabledFlag;
         return true;
     }
     bool Setup(
