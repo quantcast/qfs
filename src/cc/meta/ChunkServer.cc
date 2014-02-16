@@ -1591,7 +1591,7 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
         const int16_t     kDelegationFlags = DelegationToken::kChunkServerFlag;
         ostringstream&    srvAccessOs      = GetTmpOStringStream();
         ostringstream&    chunkAccessOs    = GetTmpOStringStream1();
-        CryptoKeys::KeyId keyId;
+        CryptoKeys::KeyId keyId    = 0;
         CryptoKeys::Key   key;
         CryptoKeys::KeyId keyKeyId = 0;
         CryptoKeys::Key   keyKey;
