@@ -57,7 +57,19 @@ message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 # Locate the path to jni.h
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
+
+if (NOT OPENSSL_VERSION)
+    execute_process(
+        COMMAND openssl version
+        ERROR_QUIET
+        OUTPUT_VARIABLE OPENSSL_VERSION
+    )
+    string(REGEX REPLACE "^[^ ]+ +([^ ]+).*$" "\\1"
+        OPENSSL_VERSION "${OPENSSL_VERSION}")
+endif (NOT OPENSSL_VERSION)
+
 if (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+    message(WARNING ": Open SSL version ${OPENSSL_VERSION}")
     message(WARNING ": QFS authentication support requires Open SSL version 1.0 or greater")
     message(WARNING ": QFS authentication will not work")
 endif (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
