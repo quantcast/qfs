@@ -1471,7 +1471,7 @@ ChunkInfoHandle::WriteChunkMetadata(
 }
 
 int
-ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
+ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
 {
     const bool prevInDoneHandlerFlag = mInDoneHandlerFlag;
     mInDoneHandlerFlag = true;
@@ -1496,11 +1496,11 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
                 gChunkManager.ChunkIOFailed(this, status);
             }
         }
-        if (mWriteMetaOpsHead->status >= 0) {
+        if (0 <= mWriteMetaOpsHead->status) {
             mWriteMetaOpsHead->status = status;
         }
         if (mWriteMetaOpsHead->renameFlag) {
-            assert(mRenamesInFlight > 0);
+            assert(0 < mRenamesInFlight);
             mRenamesInFlight--;
             if (mWriteMetaOpsHead->status == 0) {
                 if (code != EVENT_DISK_RENAME_DONE) {
@@ -1547,16 +1547,17 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void *dataIn)
             mWaitForWritesInFlightFlag = true;
             break;
         }
-        if (mWriteMetaOpsHead->renameFlag &&
+        if (mDeleteFlag || IsStale()) {
+            err = -EBADF;
+        } else if (status < 0) {
+            err = status;
+        } else if (mWriteMetaOpsHead->renameFlag &&
                 ! mWriteMetaOpsHead->IsRenameNeeded(this)) {
-            res = 0;
+            res  = 0;
             data = &res;
             code = EVENT_DISK_RENAME_DONE;
             continue;
-        }
-        if (mDeleteFlag || IsStale()) {
-            err = -EBADF;
-        } else if ((err = mWriteMetaOpsHead->Start(this)) >= 0) {
+        } else if (0 <= (err = mWriteMetaOpsHead->Start(this))) {
             break;
         }
         data = &err;
