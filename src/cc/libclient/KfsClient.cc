@@ -957,7 +957,7 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
         string val;
         for (const char* p = cfg; *p; ++p) {
             int cur = *p & 0xFF;
-            if (cur <= ' ') {
+            if (cur <= ' ' || cur == ';') {
                 cur = '\n';
             }
             val.push_back((char)cur);
@@ -972,6 +972,7 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
         KFS_LOG_STREAM_INFO <<
             "using configuration"
             " set by environment varialbe: " << configEnvName <<
+            " length: " << val.size() <<
         KFS_LOG_EOM;
     }
     return 0;
@@ -998,7 +999,7 @@ KfsClient::LoadProperties(
             }
         }
         cfg = getenv(configEnvName.c_str());
-        if (cfg) {
+        if (cfg && *cfg) {
             return LoadConfig(configEnvName.c_str(), cfg, properties);
         }
     }
@@ -1119,7 +1120,10 @@ private:
             const mode_t mask = umask(0);
             umask(mask);
             mUMask = mask & Permissions::kAccessModeMask;
-            const char* p = getenv("KFS_CLIENT_DEFAULT_FATTR_REVALIDATE_TIME");
+            const char* p = getenv("QFS_CLIENT_DEFAULT_FATTR_REVALIDATE_TIME");
+            if (! p) {
+                p = getenv("KFS_CLIENT_DEFAULT_FATTR_REVALIDATE_TIME");
+            }
             if (p) {
                 char* e = 0;
                 const long v = strtol(p, &e, 10);
@@ -1230,7 +1234,11 @@ private:
     {
         QCStMutexLocker locker(mMutex);
         if (! MsgLogger::IsLoggerInited()) {
-            MsgLogger::Init(0, GetLogLevel(getenv("KFS_CLIENT_LOG_LEVEL")));
+            const char* p = getenv("QFS_CLIENT_LOG_LEVEL");
+            if (! p) {
+                getenv("KFS_CLIENT_LOG_LEVEL");
+            }
+            MsgLogger::Init(0, GetLogLevel(p));
         }
     }
     int SetEUserAndEGroupSelf(kfsUid_t user, kfsGid_t group,
