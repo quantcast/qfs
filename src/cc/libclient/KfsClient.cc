@@ -1005,7 +1005,7 @@ KfsClient::LoadProperties(
     }
     const char* const envName = prefix;
     cfg = getenv(envName);
-    return (cfg ? LoadConfig(envName, cfg, properties) : 0);
+    return ((cfg && *cfg) ? LoadConfig(envName, cfg, properties) : 0);
 }
 
 namespace client
