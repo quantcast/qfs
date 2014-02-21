@@ -1095,6 +1095,9 @@ private:
                 inWriteOp.mWritePrepareOp,
                 inWriteOp.mWritePrepareOp.replyRequestedFlag
             );
+            if (! inWriteOp.mWritePrepareOp.replyRequestedFlag) {
+                SetAccess(inWriteOp.mWriteSyncOp);
+            }
             if (inWriteOp.mWritePrepareOp.replyRequestedFlag) {
                 if (! inWriteOp.mChecksumValidFlag) {
                     inWriteOp.mWritePrepareOp.checksum = ComputeBlockChecksum(
