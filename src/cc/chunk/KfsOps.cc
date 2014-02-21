@@ -2301,7 +2301,8 @@ WriteSyncOp::Execute()
             return;
         }
         // Notify the lease clerk that we are doing write.  This is to
-        // signal the lease clerk to renew the lease for the chunk when appropriate.
+        // signal the lease clerk to renew the lease for the chunk when
+        // appropriate.
         gLeaseClerk.DoingWrite(chunkId);
     }
 
@@ -2316,25 +2317,22 @@ WriteSyncOp::Execute()
         }
     }
 
-    // when things aren't aligned, we can't validate the checksums
-    // handed by the client.  In such cases, make sure that the
-    // chunkservers agree on the checksum
-    bool validateChecksums = true;
-    bool mismatch = false;
-    if (writeMaster &&
-        (((offset % CHECKSUM_BLOCKSIZE) != 0) || ((numBytes % CHECKSUM_BLOCKSIZE) != 0))) {
-            validateChecksums = false;
-    }
-    // in the non-writemaster case, our checksums should match what
-    // the write master sent us.
-
-    vector<uint32_t> myChecksums = gChunkManager.GetChecksums(chunkId, offset, numBytes);
-    if (! validateChecksums || checksums.empty()) {
+    // When write is not aligned, we can't validate the checksums handed by
+    // the client. In such cases, make sure that the chunk servers agree on
+    // the checksum.
+    // In the write slave case, the checksums should match the write master
+    // write checksum.
+    bool                   mismatch    = false;
+    const vector<uint32_t> myChecksums =
+        gChunkManager.GetChecksums(chunkId, offset, numBytes);
+    if ((writeMaster && (
+            (offset % CHECKSUM_BLOCKSIZE) != 0 ||
+            (numBytes % CHECKSUM_BLOCKSIZE) != 0)) || checksums.empty()) {
         // Either we can't validate checksums due to alignment OR the
         // client didn't give us checksums.  In either case:
         // The sync covers a certain region for which the client
         // sent data.  The value for that region should be non-zero
-        for (uint32_t i = 0; (i < myChecksums.size()) && !mismatch; i++) {
+        for (uint32_t i = 0; i < myChecksums.size() && ! mismatch; i++) {
             if (myChecksums[i] == 0) {
                 KFS_LOG_STREAM_ERROR <<
                     "sync failed due to 0 checksum:" <<
@@ -2363,7 +2361,7 @@ WriteSyncOp::Execute()
             KFS_LOG_EOM;
             mismatch = true;
         }
-        for (uint32_t i = 0; (i < myChecksums.size()) && !mismatch; i++) {
+        for (uint32_t i = 0; i < myChecksums.size() && ! mismatch; i++) {
             if (myChecksums[i] != checksums[i]) {
                 KFS_LOG_STREAM_ERROR <<
                     "sync failed due to checksum mismatch:" <<
