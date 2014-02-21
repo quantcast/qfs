@@ -2329,7 +2329,7 @@ WriteSyncOp::Execute()
     // the write master sent us.
 
     vector<uint32_t> myChecksums = gChunkManager.GetChecksums(chunkId, offset, numBytes);
-    if ((!validateChecksums) || (checksums.size() == 0)) {
+    if (! validateChecksums || checksums.empty()) {
         // Either we can't validate checksums due to alignment OR the
         // client didn't give us checksums.  In either case:
         // The sync covers a certain region for which the client
@@ -2337,44 +2337,53 @@ WriteSyncOp::Execute()
         for (uint32_t i = 0; (i < myChecksums.size()) && !mismatch; i++) {
             if (myChecksums[i] == 0) {
                 KFS_LOG_STREAM_ERROR <<
-                    "Sync failed due to checksum mismatch: we have 0 in the range " <<
-                    offset << "->" << offset+numBytes << " ; but should be non-zero" << KFS_LOG_EOM;
+                    "sync failed due to 0 checksum:" <<
+                    " chunk: "  << chunkId <<
+                    " offset: " << offset <<
+                    " size: "   << numBytes <<
+                    " index: "  << i <<
+                KFS_LOG_EOM;
                 mismatch = true;
             }
         }
-        if (!mismatch)
-            KFS_LOG_STREAM_DEBUG << "Validated checksums are non-zero for chunk = " << chunkId
-                                 << " offset = " << offset << " numbytes = " << numBytes << KFS_LOG_EOM;
+        if (! mismatch) {
+            KFS_LOG_STREAM_DEBUG <<
+                "validated checksums are non-zero for"
+                " chunk: "  << chunkId <<
+                " offset: " << offset <<
+                " size: "   << numBytes <<
+            KFS_LOG_EOM;
+        }
     } else {
         if (myChecksums.size() != checksums.size()) {
             KFS_LOG_STREAM_ERROR <<
-                "Checksum mismatch: # of entries we have: " << myChecksums.size() <<
-                " # of entries client sent: " << checksums.size() << KFS_LOG_EOM;
+                "sync checksum mismatch: number of entries"
+                " expected: " << myChecksums.size() <<
+                " received: " << checksums.size() <<
+            KFS_LOG_EOM;
             mismatch = true;
         }
         for (uint32_t i = 0; (i < myChecksums.size()) && !mismatch; i++) {
             if (myChecksums[i] != checksums[i]) {
                 KFS_LOG_STREAM_ERROR <<
-                    "Sync failed due to checksum mismatch: we have = " <<
-                    myChecksums[i] << " but the value should be: " << checksums[i] <<
+                    "sync failed due to checksum mismatch:" <<
+                    " expected: " << myChecksums[i] <<
+                    " received: " << checksums[i] <<
                     KFS_LOG_EOM;
                 mismatch = true;
                 break;
             }
-            // KFS_LOG_STREAM_DEBUG << "Got = " << checksums[i] << " and ours: " << myChecksums[i] << KFS_LOG_EOM;
         }
-        // bit of testing code
-        // if ((rand() % 20) == 0) {
-        // if ((offset == 33554432) && (chunkVersion == 1)) {
-        // if ((2097152 <= offset) && (offset <= 4194304) && (chunkVersion == 1)) {
-        // KFS_LOG_STREAM_DEBUG << "Intentionally failing verify for chunk = " << chunkId << " offset = " << offset
-        // << KFS_LOG_EOM;
-        // mismatch = true;
-        //}
-
-        if (!mismatch)
-            KFS_LOG_STREAM_DEBUG << "Checksum verified for chunk = " << chunkId << " offset = " << offset
-                                 << ": " << myChecksums.size() << " and got: " << checksums.size() << KFS_LOG_EOM;
+        if (! mismatch) {
+            KFS_LOG_STREAM_DEBUG <<
+                "sync checksum verified for"
+                " chunk: "  << chunkId <<
+                " offset: " << offset <<
+                " checksum entries:"
+                " expected: " << myChecksums.size() <<
+                " received: " << checksums.size() <<
+            KFS_LOG_EOM;
+        }
     }
     if (mismatch) {
         status = -EAGAIN;
@@ -2403,15 +2412,17 @@ WriteSyncOp::ForwardToPeer(
         return;
     }
     fwdedOp = new WriteSyncOp(0, chunkId, chunkVersion, offset, numBytes);
-    fwdedOp->numServers = numServers;
-    fwdedOp->servers = servers;
-    fwdedOp->clnt = this;
+    fwdedOp->numServers            = numServers;
+    fwdedOp->servers               = servers;
+    fwdedOp->clnt                  = this;
+    fwdedOp->syncReplicationAccess = syncReplicationAccess;
     SET_HANDLER(fwdedOp, &KfsOp::HandleDone);
 
     if (writeMaster) {
-        fwdedOp->checksums = gChunkManager.GetChecksums(chunkId, offset, numBytes);
+        fwdedOp->checksums =
+            gChunkManager.GetChecksums(chunkId, offset, numBytes);
     } else {
-        fwdedOp->checksums = this->checksums;
+        fwdedOp->checksums = checksums;
     }
     peer->Enqueue(fwdedOp);
 }
