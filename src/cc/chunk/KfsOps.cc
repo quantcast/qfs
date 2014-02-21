@@ -2225,10 +2225,13 @@ WritePrepareOp::Done(int code, void *data)
 void
 WriteSyncOp::Execute()
 {
+    KFS_LOG_STREAM_DEBUG << "executing: " << Show() << KFS_LOG_EOM;
+    if (status < 0) {
+        gLogger.Submit(this);
+        return;
+    }
     ServerLocation peerLoc;
     int            myPos = -1;
-
-    KFS_LOG_STREAM_DEBUG << "executing: " << Show() << KFS_LOG_EOM;
     // check if we need to forward anywhere
     const bool needToForward = needToForwardToPeer(
         servers, numServers, myPos, peerLoc, true, writeId);
