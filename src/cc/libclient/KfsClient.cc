@@ -2704,7 +2704,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     if (op.status == 0) {
         result.reserve(count);
         KFS_LOG_STREAM_DEBUG <<
-            "readdirplus parse: entries:" << count <<
+            "readdirplus parse: entries: " << count <<
         KFS_LOG_EOM;
         op.status = opResult.Parse(parser);
         KFS_LOG_STREAM_DEBUG <<
