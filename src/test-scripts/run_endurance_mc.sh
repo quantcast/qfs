@@ -262,7 +262,7 @@ metaServer.minChunkservers = 1
 metaServer.leaseOwnerDownExpireDelay = 60
 metaServer.chunkServer.heartbeatTimeout  = 5
 metaServer.chunkServer.heartbeatInterval = 3
-metaServer.chunkServer.chunkReallocTimeout = 18
+metaServer.chunkServer.chunkReallocTimeout = 60
 metaServer.chunkServer.chunkAllocTimeout = 18
 metaServer.chunkServer.makeStableTimeout = 60
 
