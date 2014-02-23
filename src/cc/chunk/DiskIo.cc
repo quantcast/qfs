@@ -1113,9 +1113,10 @@ private:
     virtual void Timeout() // ITimeout
     {
         const time_t theNow = Now();
-        const int kMaxTimerOverrun = 60;
-        if (theNow > mNextIoTimeout + kMaxTimerOverrun) {
-            mNextIoTimeout = theNow + kMaxTimerOverrun / 8; // Reschedule
+        const int theMaxTimerOverrun = max(16, mMaxIoTime / 8);
+        if (theNow > mNextIoTimeout + theMaxTimerOverrun) {
+            // Reschedule
+            mNextIoTimeout = theNow + max(2, theMaxTimerOverrun / 8);
         }
         if (theNow >= mNextIoTimeout) {
             // Timeout io requests.
