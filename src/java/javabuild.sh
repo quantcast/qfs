@@ -63,19 +63,24 @@ if [ -z "$qfs_source_revision" ]; then
     qfs_source_revision="00000000"
 fi
 
+test_build_data=${test_build_data:-"/tmp"}
+
 echo "qfs_release_version = $qfs_release_version"
 echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
+echo "test_build_data     = $test_build_data"
 
 if [ x"$hadoop_qfs_profile" = x'none' ]; then
     set -x
     exec mvn -Dqfs.release.version="$qfs_release_version" \
         -Dqfs.source.revision="$qfs_source_revision" \
+        -Dtest.build.data="$test_build_data" \
         --projects qfs-access package
 else
     set -x
     exec mvn -P "$hadoop_qfs_profile" \
         -Dqfs.release.version="$qfs_release_version" \
         -Dqfs.source.revision="$qfs_source_revision" \
+        -Dtest.build.data="$test_build_data" \
         -Dhadoop.release.version="$1" package
 fi
