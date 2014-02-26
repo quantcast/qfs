@@ -49,6 +49,12 @@ namespace KFS
 using std::ostringstream;
 using std::atoi;
 
+inline void
+Replay::setRollSeeds(int64_t roll)
+{
+    rollSeeds = roll;
+}
+
 Replay replayer;
 
 /*!
@@ -804,6 +810,7 @@ restore_rollseeds(DETokenizer& c)
     }
     chunkID.setseed(chunkID.getseed() + roll);
     fileID.setseed(fileID.getseed() + roll);
+    replayer.setRollSeeds(roll);
     return true;
 }
 
@@ -1043,7 +1050,7 @@ Replay::playLogs(int last, bool includeLastLogFlag)
     }
     if (status == 0) {
         oplog.setLog(i);
-        } else {
+    } else {
         appendToLastLogFlag = false;
     }
     return status;

@@ -504,10 +504,12 @@ MetaServer::Startup(bool createEmptyFsFlag)
     logger_setup_paths(mLogDir);
     checkpointer_setup_paths(mCPDir);
 
-    int status;
+    int  status;
+    bool rollChunkIdSeedFlag;
     if (! createEmptyFsFlag || file_exists(LASTCP)) {
         Restorer r;
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
+        rollChunkIdSeedFlag = true;
     } else {
         status = metatree.new_tree(
             mStartupProperties.getValue(
@@ -520,6 +522,7 @@ MetaServer::Startup(bool createEmptyFsFlag)
                 "metaServer.rootDirMode",
                 0755)
         );
+        rollChunkIdSeedFlag = false;
     }
     if (status != 0) {
         KFS_LOG_STREAM_FATAL << "checkpoint load failed: " <<
@@ -534,6 +537,15 @@ MetaServer::Startup(bool createEmptyFsFlag)
             QCUtils::SysError(-status) <<
         KFS_LOG_EOM;
         return false;
+    }
+    if (rollChunkIdSeedFlag) {
+        const int64_t minRollChunkIdSeed = mStartupProperties.getValue(
+            "metaServer.rollChunkIdSeed", int64_t(32) << 10);
+        if (0 < minRollChunkIdSeed &&
+                replayer.getRollSeeds() < minRollChunkIdSeed) {
+            chunkID.setseed(chunkID.getseed() +
+                minRollChunkIdSeed - max(int64_t(0), replayer.getRollSeeds()));
+        }
     }
     // get the sizes of all dirs up-to-date
     KFS_LOG_STREAM_INFO << "updating space utilization" << KFS_LOG_EOM;

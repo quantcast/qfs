@@ -42,7 +42,8 @@ public:
           number(-1),
           lastLogNum(-1),
           lastLogIntBase(-1),
-          appendToLastLogFlag(false)
+          appendToLastLogFlag(false),
+          rollSeeds(0)
         {}
     ~Replay()
         {}
@@ -61,6 +62,8 @@ public:
     int playAllLogs() { return playLogs(true); }
     bool getAppendToLastLogFlag() const { return appendToLastLogFlag; }
     int getLastLogIntBase() const { return lastLogIntBase; }
+    inline void setRollSeeds(int64_t roll);
+    int64_t getRollSeeds() const { return rollSeeds; }
 private:
     ifstream file;   //!< the log file being replayed
     string   path;   //!< path name for log file
@@ -68,6 +71,7 @@ private:
     int      lastLogNum;
     int      lastLogIntBase;
     bool     appendToLastLogFlag;
+    int64_t  rollSeeds;
 
     int playLogs(int lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
