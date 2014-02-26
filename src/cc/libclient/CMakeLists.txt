@@ -64,7 +64,7 @@ target_link_libraries (kfsClient kfsCommon kfsIO qcdio ${OPENSSL_LIBRARIES} kfsr
 target_link_libraries (kfsClient-shared kfsCommon-shared kfsIO-shared qcdio-shared kfsrs-shared ${OPENSSL_LIBRARIES})
 #
 install (TARGETS kfsClient kfsClient-shared
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib/static)
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib/static)
 
 install (FILES KfsAttr.h KfsClient.h DESTINATION include/kfs)

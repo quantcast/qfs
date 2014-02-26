@@ -51,8 +51,4 @@ foreach (exe_file ${exe_files})
 
 endforeach (exe_file)
 
-#
-install (TARGETS ${exe_files}
-        RUNTIME DESTINATION bin/tests)
-
 

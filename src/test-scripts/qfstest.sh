@@ -140,7 +140,7 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
-# Use QFS_CLIENT_CONFIG for sort master, too.
+# Use QFS_CLIENT_CONFIG for sort master.
 #    if [ x"$auth" = x'yes' ]; then
 #        smauthconf="$testdir/sortmasterauth.prp"
 #        export smauthconf
@@ -194,6 +194,7 @@ for dir in  \
         'src/cc/qcdio' \
         'src/cc/common' \
         'src/cc/qcrs' \
+        'src/cc/qfsc' \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
@@ -412,7 +413,7 @@ qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"
 
 qfscpidf="qfsctest${pidsuf}"
-../bin/tests/test-qfsc "$metahost:$metasrvport" 1>test-qfsc.out 2>test-qfsc.log &
+test-qfsc "$metahost:$metasrvport" 1>test-qfsc.out 2>test-qfsc.log &
 qfscpid=$!
 echo "$qfscpid" > "$qfscpidf"
 
