@@ -4527,7 +4527,14 @@ KfsClientImpl::FindFreeFileTableEntry()
         mFreeFileTableEntires.pop_back();
         return fte;
     }
-    const int last = (int)mFileTable.size();
+    int last = (int)mFileTable.size();
+    if (last == 0) {
+        // Do not use 0 slot to make Hypertable work.
+        // Hypertable assumes that 0 is invalid file descriptor.
+        mFileTable.reserve(64);
+        mFileTable.push_back(0);
+        last++;
+    }
     if (last < MAX_FILES) {     // Grow vector up to max. size
         mFileTable.push_back(0);
         return last;

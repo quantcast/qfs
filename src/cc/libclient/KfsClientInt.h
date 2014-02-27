@@ -604,7 +604,8 @@ public:
         KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication);
 
 private:
-     /// Maximum # of files a client can have open.
+     /// Maximum # of files a client can have open minus 1.
+     /// Slot 0 is not used to make Hypertable work.
     enum { MAX_FILES = 128 << 10 };
 
     QCMutex mMutex;
