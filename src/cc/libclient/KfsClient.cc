@@ -2535,7 +2535,7 @@ public:
           beginEntry("Begin-entry"),
           shortBeginEntry("B"),
           hasDirs(false),
-          parser(outer.mTmpInputStream),
+          parser(inOuter.mTmpInputStream),
           result(inResult),
           computeFilesize(inComputeFilesize),
           outer(inOuter),
