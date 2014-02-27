@@ -152,7 +152,7 @@ MakeAuthUid(const MetaHello& op, const string& authName)
         string("sha1"),
         0              // inBufSize
     );
-    char port[2] = { (op.port >> 8) & 0xFF , op.port & 0xFF };
+    char port[2] = { (char)((op.port >> 8) & 0xFF) , (char)(op.port & 0xFF) };
     sha1Stream
         .Reset()
         .write(authName.data(),    authName.size())

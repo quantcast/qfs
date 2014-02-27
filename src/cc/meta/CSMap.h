@@ -797,7 +797,7 @@ public:
         return ChunkServerPtr();
     }
     bool HasServer(const ServerLocation& loc, const Entry& entry) const {
-        return GetServer(loc, entry);
+        return !!GetServer(loc, entry);
     }
     Entry::State GetState(const Entry& entry) const {
         Validate(entry);

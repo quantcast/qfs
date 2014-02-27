@@ -233,7 +233,8 @@ public:
                 }
             }
             if (! theInsertedFlag) {
-                mConnMap.insert(std::make_pair(theConnPtr, mSpecs.end()));
+                mConnMap.insert(
+                    std::make_pair(theConnPtr, ConnEntry(mSpecs.end())));
             }
             theRange = mConnMap.equal_range(theConnPtr);
         }

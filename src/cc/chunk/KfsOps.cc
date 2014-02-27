@@ -377,7 +377,7 @@ SyncReplicationAccess::Parse(istream& is, int chunkAccessLength, int len)
         return true;
     }
     chunkServerAccess.reset(SRChunkServerAccess::Parse(is, len - caLen));
-    return chunkServerAccess;
+    return !!chunkServerAccess;
 }
 
 class KfsOp::NullOp : public KfsOp
