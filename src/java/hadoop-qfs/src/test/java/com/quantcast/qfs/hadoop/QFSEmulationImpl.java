@@ -27,7 +27,6 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.permission.FsPermission;
@@ -69,11 +68,11 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public FileStatus[] readdirplus(Path path) throws IOException {
-    return localFS.listStatus(path);
+    return localFS.listStatus(new Path(path.toUri().getPath()));
   }
 
   public FileStatus stat(Path path) throws IOException {
-    return localFS.getFileStatus(path);
+    return localFS.getFileStatus(new Path(path.toUri().getPath()));
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
