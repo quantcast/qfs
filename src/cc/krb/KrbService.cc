@@ -25,8 +25,7 @@
 //----------------------------------------------------------------------------
 
 #include "KrbService.h"
-
-#include <krb5/krb5.h>
+#include "KfsKrb5.h"
 
 #include <errno.h>
 
@@ -35,6 +34,7 @@
 
 namespace KFS
 {
+
 
 using std::string;
 using std::max;
@@ -52,8 +52,9 @@ public:
           mErrCode(0),
           mOutBuf(),
           mKeyBlockPtr(0),
+          mTicketPtr(0),
           mUserPrincipalStrPtr(0),
-          mUserPrincipalStrLen(0),
+          mUserPrincipalStrAllocLen(0),
           mInitedFlag(false),
           mAuthInitedFlag(false),
           mDetectReplayFlag(false),
@@ -126,7 +127,7 @@ public:
             mErrorMsg = "not initialized yet, invoke KrbService::Init";
             return mErrorMsg.c_str();
         }
-        krb5_free_data_contents(mCtx, &mOutBuf);
+        KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         CleanupAuth();
         InitAuth();
         if (mErrCode) {
@@ -136,7 +137,6 @@ public:
             theData.length = max(0, inDataLen);
             theData.data   = const_cast<char*>(inDataPtr);
             krb5_flags   theReqOptions = { 0 };
-            // krb5_ticket* theTicket     = 0;
             mErrCode = krb5_rd_req(
                 mCtx,
                 &mAuthCtx,
@@ -144,7 +144,7 @@ public:
                 mServerPtr,
                 mKeyTabPtr,
                 &theReqOptions,
-                0 // &theTicket
+                KfsKrb5::req_get_ticket_ptr(&mTicketPtr)
             );
             // krb5_free_ticket(mCtx, theTicket);
             if (! mErrCode) {
@@ -168,6 +168,7 @@ public:
         outSessionKeyPtr       = 0;
         outSessionKeyLen       = 0;
         outUserPrincipalStrPtr = 0;
+        mErrorMsg.clear();
         if (! mInitedFlag) {
             mErrCode  = EINVAL;
             mErrorMsg = "not initialized yet, invoke KrbService::Init";
@@ -184,7 +185,7 @@ public:
             mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
             return mErrorMsg.c_str();
         }
-        krb5_free_data_contents(mCtx, &mOutBuf);
+        KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         mErrCode = krb5_mk_rep(mCtx, mAuthCtx, &mOutBuf);
         if (! mErrCode) {
             if (mKeyBlockPtr) {
@@ -192,44 +193,31 @@ public:
                 mKeyBlockPtr = 0;
             }
             mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr);
-            krb5_authenticator* theAuthenticatorPtr = 0;
-            if (! mErrCode) {
-                mErrCode = krb5_auth_con_getauthenticator(
-                    mCtx, mAuthCtx, &theAuthenticatorPtr);
-            }
-            if (! mErrCode && (! theAuthenticatorPtr ||
-                    ! theAuthenticatorPtr->client)) {
+            if (! mErrCode && (! mKeyBlockPtr ||
+                    KfsKrb5::get_key_block_length(mKeyBlockPtr) <= 0)) {
+                if (mKeyBlockPtr) {
+                    mErrorMsg = "empty session key";
+                    krb5_free_keyblock(mCtx, mKeyBlockPtr);
+                    mKeyBlockPtr = 0;
+                } else {
+                    mErrorMsg = "no session key";
+                }
                 mErrCode = EINVAL;
             }
+            krb5_authenticator* theAuthenticatorPtr = 0;
+            if (! mErrCode && ! mTicketPtr) {
+                mErrCode = KfsKrb5::auth_con_getauthenticator(
+                    mCtx, mAuthCtx, theAuthenticatorPtr);
+            }
+            if (! mErrCode && ! KfsKrb5::get_client_principal(
+                    theAuthenticatorPtr, mTicketPtr)) {
+                mErrorMsg = "no client principal";
+                mErrCode  = EINVAL;
+            }
             if (! mErrCode) {
-                if (mUserPrincipalStrPtr) {
-                    // Work around mit krb5 lib, always does malloc() when
-                    // the size matches, instead of doing nothing, resulting in
-                    // memory leak.
-                    // Another way to work around this would be to lie about the
-                    // size/length, by setting the size/length to 0 or
-                    // subtracting one from it. Of course, the danger is that
-                    // doing so might break in non obvious ways with other
-                    // kerberos implementations or releases. For now just always
-                    // free, then allocate the block.
-                    krb5_free_unparsed_name(mCtx, mUserPrincipalStrPtr);
-                    mUserPrincipalStrPtr = 0;
-                    mUserPrincipalStrLen = 0;
-                }
-#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
-                // FIXME: make flags work with older versions.
-                mErrCode = krb5_unparse_name_ext(
+                mErrCode = KfsKrb5::unparse_name(
                     mCtx,
-                    theAuthenticatorPtr->client,
-                    &mUserPrincipalStrPtr,
-                    &mUserPrincipalStrLen
-                );
-#else
-                mErrCode = krb5_unparse_name_flags_ext(
-                    mCtx,
-                    theAuthenticatorPtr->client,
+                    KfsKrb5::get_client_principal(theAuthenticatorPtr, mTicketPtr),
                     ((inPrincipalUnparseFlags & kPrincipalUnparseShort) != 0 ?
                         KRB5_PRINCIPAL_UNPARSE_SHORT : 0) |
                     ((inPrincipalUnparseFlags & kPrincipalUnparseNoRealm) != 0 ?
@@ -237,11 +225,11 @@ public:
                     ((inPrincipalUnparseFlags & kPrincipalUnparseDisplay) != 0 ?
                         KRB5_PRINCIPAL_UNPARSE_DISPLAY : 0),
                     &mUserPrincipalStrPtr,
-                    &mUserPrincipalStrLen
+                    &mUserPrincipalStrAllocLen
                 );
-#endif
                 if (! mErrCode && ! mUserPrincipalStrPtr) {
-                    mErrCode = EINVAL;
+                    mErrorMsg = "failed to parse client principal";
+                    mErrCode  = EINVAL;
                 }
             }
             if (theAuthenticatorPtr) {
@@ -251,13 +239,15 @@ public:
                 outReplyPtr      = reinterpret_cast<const char*>(mOutBuf.data);
                 outReplyLen      = (int)mOutBuf.length;
                 outSessionKeyPtr =
-                    reinterpret_cast<const char*>(mKeyBlockPtr->contents);
-                outSessionKeyLen = (int)mKeyBlockPtr->length;
+                    KfsKrb5::get_key_block_contents(mKeyBlockPtr);
+                outSessionKeyLen = KfsKrb5::get_key_block_length(mKeyBlockPtr);
                 outUserPrincipalStrPtr = mUserPrincipalStrPtr;
                 return 0;
             }
         }
-        mErrorMsg = ErrToStr(mErrCode);
+        if (mErrorMsg.empty()) {
+            mErrorMsg = ErrToStr(mErrCode);
+        }
         return mErrorMsg.c_str();
     }
     int GetErrorCode() const
@@ -274,8 +264,9 @@ private:
     krb5_error_code   mErrCode;
     krb5_data         mOutBuf;
     krb5_keyblock*    mKeyBlockPtr;
+    krb5_ticket*      mTicketPtr;
     char*             mUserPrincipalStrPtr;
-    unsigned int      mUserPrincipalStrLen;
+    unsigned int      mUserPrincipalStrAllocLen;
     bool              mInitedFlag;
     bool              mAuthInitedFlag;
     bool              mDetectReplayFlag;
@@ -343,7 +334,7 @@ private:
                 (theStatus = krb5_kt_start_seq_get(
                     mCtx, theKeyTabPtr, &theCursor)) == 0
                 ) {
-            krb5_free_keytab_entry_contents(mCtx, &theEntry);
+            krb5_kt_free_entry(mCtx, &theEntry);
         }
         if ((mErrCode = krb5_kt_end_seq_get(mCtx, theKeyTabPtr, &theCursor))
                 || theStatus != KRB5_KT_END) {
@@ -363,7 +354,7 @@ private:
                 (theStatus = krb5_kt_next_entry(
                     mCtx, mKeyTabPtr, &theEntry, &theCursor)) == 0) {
             theStatus = krb5_kt_add_entry(mCtx, theKeyTabPtr, &theEntry);
-            krb5_free_keytab_entry_contents(mCtx, &theEntry);
+            krb5_kt_free_entry(mCtx, &theEntry);
         }
         if ((mErrCode = krb5_kt_end_seq_get(mCtx, mKeyTabPtr, &theCursor)) ||
                 theStatus != KRB5_KT_END) {
@@ -397,7 +388,7 @@ private:
             return;
         }
         mAuthInitedFlag = true;
-        krb5_int32 theFlags = 0;
+        KfsKrb5::int32 theFlags = 0;
         mErrCode = krb5_auth_con_getflags(mCtx, mAuthCtx, &theFlags);
         if (mErrCode) {
             return;
@@ -415,11 +406,8 @@ private:
                 return;
             }
 	    if (! theRCachePtr)  {
-                mErrCode = krb5_get_server_rcache(
-                    mCtx,
-                    krb5_princ_component(mCtx, mServerPtr, 0),
-                    &theRCachePtr
-                );
+                mErrCode = KfsKrb5::get_server_rcache(
+                    mCtx, mServerPtr, &theRCachePtr);
                 if (mErrCode) {
                     return;
                 }
@@ -448,11 +436,11 @@ private:
             krb5_free_principal(mCtx, mServerPtr);
             mServerPtr = 0;
         }
-        krb5_free_data_contents(mCtx, &mOutBuf);
+        KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         if (mUserPrincipalStrPtr) {
-            krb5_free_unparsed_name(mCtx, mUserPrincipalStrPtr);
-            mUserPrincipalStrPtr = 0;
-            mUserPrincipalStrLen = 0;
+            KfsKrb5::free_unparsed_name(mCtx, mUserPrincipalStrPtr);
+            mUserPrincipalStrPtr      = 0;
+            mUserPrincipalStrAllocLen = 0;
         }
         krb5_free_context(mCtx);
         return theErr;
@@ -465,6 +453,9 @@ private:
         if (mKeyBlockPtr) {
             krb5_free_keyblock(mCtx, mKeyBlockPtr);
             mKeyBlockPtr = 0;
+        }
+        if (mTicketPtr) {
+            krb5_free_ticket(mCtx, mTicketPtr);
         }
         mAuthInitedFlag = false;
         return krb5_auth_con_free(mCtx, mAuthCtx);

@@ -26,7 +26,7 @@
 
 #include "KrbClient.h"
 
-#include <krb5/krb5.h>
+#include "KfsKrb5.h"
 
 #include <string.h>
 #include <errno.h>
@@ -35,10 +35,11 @@
 #include <string>
 #include <algorithm>
 
-#if ! defined(_KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT) && \
+#if defined(KFS_KRB_USE_HEIMDAL) || \
+        (! defined(_KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT) && \
         defined(KRB5_GET_INIT_CREDS_OPT_CHG_PWD_PRMPT) && \
         defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(_KFS_KRB_DONT_USE_KRB5_GET_INIT_CREDS_OPT)
+        ! defined(_KFS_KRB_DONT_USE_KRB5_GET_INIT_CREDS_OPT))
 #   define _KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
 #endif
 
@@ -170,9 +171,8 @@ public:
         }
         outDataPtr       = (const char*)mOutBuf.data;
         outDataLen       = (int)mOutBuf.length;
-        outSessionKeyPtr =
-            reinterpret_cast<const char*>(mKeyBlockPtr->contents);
-        outSessionKeyLen = (int)mKeyBlockPtr->length;
+        outSessionKeyPtr = KfsKrb5::get_key_block_contents(mKeyBlockPtr);
+        outSessionKeyLen = KfsKrb5::get_key_block_length(mKeyBlockPtr);
         return 0;
     }
     const char* Reply(
@@ -201,7 +201,7 @@ public:
             return ErrStr();
         }
         krb5_free_ap_rep_enc_part(mCtx, theReplPtr);
-        krb5_free_data_contents(mCtx, &mOutBuf);
+        KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         return 0;
     }
     int GetErrorCode() const
@@ -238,7 +238,7 @@ private:
                 mCtx, &theInitOptionsPtr))) {
             return;
         }
-        if ((mErrCode = krb5_get_init_creds_opt_set_out_ccache(
+        if ((mErrCode = KfsKrb5::get_init_creds_opt_set_out_ccache(
                 mCtx, theInitOptionsPtr, mCachePtr)) == 0) {
 #else
             krb5_get_init_creds_opt theInitOptions;
@@ -390,7 +390,7 @@ private:
             krb5_free_keyblock(mCtx, mKeyBlockPtr);
             mKeyBlockPtr = 0;
         }
-        krb5_free_data_contents(mCtx, &mOutBuf);
+        KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         if (! mAuthCtx) {
             return 0;
         }

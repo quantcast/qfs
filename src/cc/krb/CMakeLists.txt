@@ -54,12 +54,12 @@ endif (NOT APPLE)
 
 foreach (exe_file ${exe_files})
     if (USE_STATIC_LIB_LINKAGE)
-        target_link_libraries (${exe_file} qfskrb qcdio krb5
+        target_link_libraries (${exe_file} qfskrb qcdio krb5 pthread
             ${OPENSSL_LIBRARIES})
            add_dependencies (${exe_file} qfskrb qcdio)
     else (USE_STATIC_LIB_LINKAGE)
         target_link_libraries (${exe_file} qfskrb-shared qcdio-shared krb5
-            ${OPENSSL_LIBRARIES})
+            pthread ${OPENSSL_LIBRARIES})
     add_dependencies (${exe_file} qfskrb-shared qcdio-shared)
     endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
