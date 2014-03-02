@@ -131,6 +131,11 @@ public:
         OT /* inOpts */,
         HT /* inCache */)
         { return 0; }
+    template<typename CT, typename ET>
+    inline static krb5_error_code free_keytab_entry_contents(
+        CT inCtx,
+        ET inEntry)
+        { return krb5_kt_free_entry(inCtx, inEntry); }
 };
 
 } // namespace KFS
@@ -199,8 +204,8 @@ public:
             inStrPtr,
             inAllocLen
         );
-    }
 #endif
+    }
     template<typename KT>
     inline static const char* get_key_block_contents(
         KT inKey)
@@ -238,6 +243,11 @@ public:
     {
         return krb5_get_init_creds_opt_set_out_ccache(inCtx, inOpts, inCache);
     }
+    template<typename CT, typename ET>
+    inline static krb5_error_code free_keytab_entry_contents(
+        CT inCtx,
+        ET inEntry)
+        { return krb5_free_keytab_entry_contents(inCtx, inEntry); }
 };
 
 #if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \

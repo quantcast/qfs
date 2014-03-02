@@ -334,7 +334,7 @@ private:
                 (theStatus = krb5_kt_start_seq_get(
                     mCtx, theKeyTabPtr, &theCursor)) == 0
                 ) {
-            krb5_kt_free_entry(mCtx, &theEntry);
+            KfsKrb5::free_keytab_entry_contents(mCtx, &theEntry);
         }
         if ((mErrCode = krb5_kt_end_seq_get(mCtx, theKeyTabPtr, &theCursor))
                 || theStatus != KRB5_KT_END) {
@@ -354,7 +354,7 @@ private:
                 (theStatus = krb5_kt_next_entry(
                     mCtx, mKeyTabPtr, &theEntry, &theCursor)) == 0) {
             theStatus = krb5_kt_add_entry(mCtx, theKeyTabPtr, &theEntry);
-            krb5_kt_free_entry(mCtx, &theEntry);
+            KfsKrb5::free_keytab_entry_contents(mCtx, &theEntry);
         }
         if ((mErrCode = krb5_kt_end_seq_get(mCtx, mKeyTabPtr, &theCursor)) ||
                 theStatus != KRB5_KT_END) {
