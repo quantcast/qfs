@@ -5,7 +5,7 @@ set_target_properties (qfsc-shared PROPERTIES OUTPUT_NAME "qfsc")
 set_target_properties (qfsc PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfsc-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-add_dependencies (qfs
+add_dependencies (qfsc
     kfsClient kfsCommon kfsIO qcdio kfsrs)
 add_dependencies (qfsc-shared
     kfsClient-shared kfsCommon-shared kfsIO-shared qcdio-shared kfsrs-shared)
@@ -25,7 +25,7 @@ set_target_properties (test-qfsc PROPERTIES LINKER_LANGUAGE CXX)
 
 if (USE_STATIC_LIB_LINKAGE)
     add_dependencies (test-qfsc
-        qfs kfsClient kfsCommon kfsIO qcdio kfsrs)
+        qfsc kfsClient kfsCommon kfsIO qcdio kfsrs)
     target_link_libraries (test-qfsc
         qfsc kfsClient kfsCommon kfsIO qcdio ${OPENSSL_LIBRARIES} kfsrs pthread)
 else (USE_STATIC_LIB_LINKAGE)
