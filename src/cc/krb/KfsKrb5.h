@@ -37,9 +37,10 @@
 #endif
 
 #ifdef KFS_KRB_USE_HEIMDAL
-#   include <inttypes.h>
-#   include <errno.h>
-#   include <string.h>
+
+#include <inttypes.h>
+#include <errno.h>
+#include <string.h>
 
 namespace KFS
 {
@@ -142,8 +143,22 @@ public:
 
 #else /* KFS_KRB_USE_HEIMDAL */
 
+#include <string.h>
+
 namespace KFS
 {
+
+#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
+        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
+        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
+enum
+{
+    KRB5_PRINCIPAL_UNPARSE_SHORT     = 0x1,
+    KRB5_PRINCIPAL_UNPARSE_NO_REALM  = 0x2,
+    KRB5_PRINCIPAL_UNPARSE_DISPLAY   = 0x4
+};
+#endif
+
 class KfsKrb5
 {
 public:
@@ -188,14 +203,60 @@ public:
 #if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
         ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
         ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
-        // FIXME: make flags work with older versions.
-        (void)inFlags;
-        return krb5_unparse_name_ext(
+
+        krb5_error_code theRet = krb5_unparse_name_ext(
             inCtx,
             inPrin,
             inStrPtr,
             inAllocLen
         );
+        if (theRet) {
+            return theRet;
+        }
+        const char* const theBPtr     = *inStrPtr;
+        char*             thePtr      = *inStrPtr + strlen(theBPtr);
+        char*             theEPtr     = thePtr;
+        char*             theRealmPtr = 0;
+        while (theBPtr < thePtr) {
+            if ((*thePtr & 0xFF) == '@' && theBPtr <= thePtr - 1  &&
+                   (thePtr[-1] & 0xFF) != '\\') {
+                theRealmPtr = thePtr;
+            }
+            if ((inFlags & KRB5_PRINCIPAL_UNPARSE_DISPLAY) != 0 &&
+                    (*thePtr & 0xFF) == '\\' && unescape(thePtr, theEPtr)) {
+                --theEPtr;
+                if (theRealmPtr) {
+                    --theRealmPtr;
+                }
+            } 
+            thePtr--;
+        }
+        if (theRealmPtr) {
+            if ((inFlags & KRB5_PRINCIPAL_UNPARSE_NO_REALM) != 0) {
+                *theRealmPtr = 0;
+            } else if ((inFlags & KRB5_PRINCIPAL_UNPARSE_SHORT) != 0) {
+                char*                 theDefRealmPtr = 0;
+                krb5_error_code const theErr         =
+                    krb5_get_default_realm(inCtx, &theDefRealmPtr);
+                if (theErr == 0 && theDefRealmPtr) {
+                    if ((inFlags & KRB5_PRINCIPAL_UNPARSE_DISPLAY) == 0) {
+                        thePtr = theEPtr;
+                        while (theRealmPtr < thePtr) {
+                            if ((*thePtr & 0xFF) == '\\' &&
+                                    unescape(thePtr, theEPtr)) {
+                                --theEPtr;
+                            }
+                            --thePtr;
+                        }
+                    }
+                    if (strcmp(theRealmPtr + 1, theDefRealmPtr) == 0) {
+                        *theRealmPtr = 0;
+                    }
+                    krb5_free_default_realm(inCtx, theDefRealmPtr);
+                }
+            }
+        }
+        return theRet;
 #else
         return krb5_unparse_name_flags_ext(
             inCtx,
@@ -248,18 +309,26 @@ public:
         CT inCtx,
         ET inEntry)
         { return krb5_free_keytab_entry_contents(inCtx, inEntry); }
+    inline static bool unescape(
+        char*       inPtr,
+        const char* inEPtr)
+    {
+        switch (inPtr[1] & 0xFF) {
+            case '\\':
+            case '@':
+            case '/':
+            case '\n':
+            case '\t':
+            case '\b':
+            case '\0':
+            case ' ':
+                memmove(inPtr, inPtr + 1, inEPtr - inPtr);
+                return true;
+            default: break;
+        }
+        return false;
+    }
 };
-
-#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
-// For now add stubs to compile.
-enum {
-    KRB5_PRINCIPAL_UNPARSE_SHORT,
-    KRB5_PRINCIPAL_UNPARSE_NO_REALM,
-    KRB5_PRINCIPAL_UNPARSE_DISPLAY
-};
-#endif
 
 } // namespace KFS
 
