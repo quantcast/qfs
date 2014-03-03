@@ -48,7 +48,8 @@ namespace KFS
 class KfsKrb5
 {
 public:
-    typedef int32_t int32;
+    typedef int32_t            int32;
+    typedef krb5_authenticator authenticator_ptr;
 
     template<typename CT, typename DT>
     inline static void free_data_contents(
@@ -60,12 +61,11 @@ public:
         CT /* inCtx */,
         DT inData)
         { krb5_xfree(inData); }
-    template<typename CT, typename ACT, typename AT>
-    inline static krb5_error_code auth_con_getauthenticator(
-        CT  inCtx,
-        ACT inACtx,
-        AT  inAT)
-        { return krb5_auth_con_getauthenticator(inCtx, inACtx, inAT); }
+    template<typename CT>
+    inline static void free_authenticator(
+        CT                inCtx,
+        authenticator_ptr inAuthPtr)
+        { krb5_free_authenticator(inCtx, &inAuthPtr); }
     template<typename CT, typename PT, typename FT, typename ST, typename LT>
     inline static krb5_error_code unparse_name(
         CT inCtx,
@@ -162,7 +162,8 @@ enum
 class KfsKrb5
 {
 public:
-    typedef krb5_int32 int32;
+    typedef krb5_int32          int32;
+    typedef krb5_authenticator* authenticator_ptr;
 
     template<typename CT, typename DT>
     inline static void free_data_contents(
@@ -174,12 +175,11 @@ public:
         CT inCtx,
         DT inData)
         { krb5_free_unparsed_name(inCtx, inData); }
-    template<typename CT, typename ACT, typename AT>
-    inline static krb5_error_code auth_con_getauthenticator(
-        CT  inCtx,
-        ACT inACtx,
-        AT  inAT)
-        { return krb5_auth_con_getauthenticator(inCtx, inACtx, &inAT); }
+    template<typename CT>
+    inline static void free_authenticator(
+        CT                inCtx,
+        authenticator_ptr inAuthPtr)
+        { krb5_free_authenticator(inCtx, inAuthPtr); }
     template<typename CT, typename PT, typename FT, typename ST, typename LT>
     inline static krb5_error_code unparse_name(
         CT inCtx,

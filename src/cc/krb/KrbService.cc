@@ -204,10 +204,10 @@ public:
                 }
                 mErrCode = EINVAL;
             }
-            krb5_authenticator* theAuthenticatorPtr = 0;
+            KfsKrb5::authenticator_ptr theAuthenticatorPtr = 0;
             if (! mErrCode && ! mTicketPtr) {
-                mErrCode = KfsKrb5::auth_con_getauthenticator(
-                    mCtx, mAuthCtx, theAuthenticatorPtr);
+                mErrCode = krb5_auth_con_getauthenticator(
+                    mCtx, mAuthCtx, &theAuthenticatorPtr);
             }
             if (! mErrCode && ! KfsKrb5::get_client_principal(
                     theAuthenticatorPtr, mTicketPtr)) {
@@ -233,7 +233,7 @@ public:
                 }
             }
             if (theAuthenticatorPtr) {
-                krb5_free_authenticator(mCtx, theAuthenticatorPtr);
+                KfsKrb5::free_authenticator(mCtx, theAuthenticatorPtr);
             }
             if (! mErrCode) {
                 outReplyPtr      = reinterpret_cast<const char*>(mOutBuf.data);
