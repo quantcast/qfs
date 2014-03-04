@@ -44,6 +44,7 @@ Restorer.cc
 util.cc
 AuthContext.cc
 UserAndGroup.cc
+MetaRequestHandler.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})
