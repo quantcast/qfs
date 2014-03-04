@@ -1007,6 +1007,15 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
+        const char* const kAddrAny = "0.0.0.0";
+        if (mHelloOp->location.hostname == kAddrAny) {
+            // Use peer name.
+            mHelloOp->location.hostname.clear();
+            const size_t pos = mPeerName.find_last_of((char)':');
+            if (pos != string::npos) {
+                mHelloOp->location.hostname.assign(mPeerName.data(), pos);
+            }
+        }
         if (! gLayoutManager.Validate(*mHelloOp)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"

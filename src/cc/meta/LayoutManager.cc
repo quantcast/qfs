@@ -2034,6 +2034,11 @@ LayoutManager::UpdateReplicationsThreshold()
 bool
 LayoutManager::Validate(MetaHello& r) const
 {
+    if (! r.location.IsValid()) {
+        r.statusMsg = "invalid chunk server location: " + r.location.ToString();
+        r.status    = -EINVAL;
+        return false;
+    }
     if (r.clusterKey != mClusterKey) {
         r.statusMsg = "cluster key mismatch:"
             " expect: "   + mClusterKey +
@@ -9977,9 +9982,10 @@ LayoutManager::CSMapUnitTest(const Properties& props)
     }
     for (int i = 0; i < kServers; i++) {
         mChunkServers.push_back(ChunkServerPtr(
-            new ChunkServer(NetConnectionPtr(
-            new NetConnection(
-            new TcpSocket(), 0)))));
+            new ChunkServer(
+                NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
+                string()
+        )));
         if (! mChunkToServerMap.AddServer(mChunkServers.back())) {
             panic("failed to add server");
         }

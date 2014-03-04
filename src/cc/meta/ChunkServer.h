@@ -363,7 +363,7 @@ public:
         if (! conn || ! conn->IsGood()) {
             return 0;
         }
-        ChunkServer* const ret = new ChunkServer(conn);
+        ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
         ret->mSelfPtr.reset(ret);
         return ret;
     }
@@ -374,8 +374,7 @@ public:
     ///   - chunkserver sends a HELLO with config info
     ///   - send/recv messages with that chunkserver.
     ///
-    ChunkServer(const NetConnectionPtr& conn,
-        const string& peerName = string());
+    ChunkServer(const NetConnectionPtr& conn, const string& peerName);
     ~ChunkServer();
 
     bool CanBeChunkMaster() const {
@@ -1091,9 +1090,8 @@ protected:
     void ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
         IOBuffer& iobuf, int len, int linesToShow = 64,
         const char* truncatePrefix = "CKey:");
-    string GetPeerName() const {
-        return ((! mPeerName.empty() || ! mNetConnection) ?
-            mPeerName : mNetConnection->GetPeerName());
+    const string& GetPeerName() const {
+        return  mPeerName;
     }
     template<typename T>
     static string Escape(const T& str)
