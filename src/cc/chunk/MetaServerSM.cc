@@ -345,6 +345,9 @@ MetaServerSM::SendHello()
         // Moving this logic into TcpSocket isn't appropriate: INADDR_ANY is
         // valid for unconnected socket bound to INADDR_ANY.
         const char* const kAddrAny = "0.0.0.0";
+        if (loc.hostname == kAddrAny && mLocation.hostname == "127.0.0.1") {
+            loc.hostname = mLocation.hostname;
+        }
         if (! loc.IsValid() || loc.hostname == kAddrAny) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid chunk server location: " << loc <<
