@@ -1850,7 +1850,10 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     suspended  = false;
     layoutDone = true;
     KFS_LOG_STREAM_DEBUG <<
-        "Layout is done for req: " << opSeqno << " status: " << status <<
+        "layout is done for"
+        " req: "    << opSeqno   <<
+        " status: " << status    <<
+        " "         << statusMsg <<
     KFS_LOG_EOM;
     if (status == 0) {
         // Check if all servers are still up, and didn't go down
@@ -2098,7 +2101,19 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
             }
         }
     }
-
+    // Collect and pass back to the client chunk server allocation failure
+    // messages.
+    if (chunkAlloc.status != 0  && statusMsg.length() < 384 &&
+            chunkAlloc.server) {
+        if (! statusMsg.empty()) {
+            statusMsg += " ";
+        }
+        statusMsg += chunkAlloc.server->GetServerLocation().ToString();
+        if (! chunkAlloc.statusMsg.empty()) {
+            statusMsg += " ";
+            statusMsg += chunkAlloc.statusMsg;
+        }
+    }
     numServerReplies++;
     // wait until we get replies from all servers
     if (numServerReplies != servers.size()) {
