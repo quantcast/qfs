@@ -26,7 +26,6 @@
 # Take all the .cc files and build a library out of them
 set (sources
     Acceptor.cc
-    BufferedSocket.cc
     checksum.cc
     Globals.cc
     IOBuffer.cc
