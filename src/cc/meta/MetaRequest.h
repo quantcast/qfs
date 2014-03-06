@@ -142,7 +142,8 @@ using std::less;
     f(CHUNKDIR_INFO) \
     f(GET_CHUNK_SERVER_DIRS_COUNTERS) \
     f(AUTHENTICATE) \
-    f(DELEGATE)
+    f(DELEGATE) \
+    f(DELEGATE_CANCEL)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -2573,6 +2574,29 @@ struct MetaDelegate : public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("Valid-for-time",   &MetaDelegate::validForTime, uint32_t(0))
         .Def("Allow-delegation", &MetaDelegate::allowDelegationFlag, false)
+        ;
+    }
+};
+
+struct MetaDelegateCancel : public MetaRequest {
+    DelegationToken token;
+    StringBufT<64>  tokenStr;
+
+    MetaDelegateCancel()
+        : MetaRequest(META_DELEGATE_CANCEL, true),
+          token(),
+          tokenStr()
+          {}
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "delegate cancel " <<  token.Show()); }
+    virtual void response(ostream& os);
+    virtual int log(ostream& /* file */) const;
+    bool Validate();
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def("Token", &MetaDelegateCancel::tokenStr)
         ;
     }
 };

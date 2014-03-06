@@ -64,6 +64,7 @@ static const MetaRequestHandler& MakeMetaRequestHandler()
     .MakeParser<MetaChmod                >("CHMOD")
     .MakeParser<MetaAuthenticate         >("AUTHENTICATE")
     .MakeParser<MetaDelegate             >("DELEGATE")
+    .MakeParser<MetaDelegateCancel       >("DELEGATE_CANCEL")
     ;
 }
 static const MetaRequestHandler& sMetaRequestHandler = MakeMetaRequestHandler();

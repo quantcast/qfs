@@ -5046,4 +5046,59 @@ MetaAuthenticate::Read(IOBuffer& iobuf)
     return (contentLength - contentBufPos);
 }
 
+/* virtual */ void
+MetaDelegateCancel::handle()
+{
+    if (status != 0) {
+        return;
+    }
+    SetEUserAndEGroup(*this);
+    if (authUid == kKfsUserNone ||
+            (authUid != token.GetUid() && euser != kKfsUserRoot)) {
+        status    = -EPERM;
+        statusMsg = "permission denied";
+    }
+    if (status == 0) {
+    }
+}
+
+/* virtual */ int
+MetaDelegateCancel::log(ostream& file) const
+{
+    if (status == 0) {
+        file << "delegateCancel/" << tokenStr << "\n";
+        return file.fail() ? -EIO : 0;
+    }
+    return 0;
+}
+
+bool
+MetaDelegateCancel::Validate()
+{
+    const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
+    if (! keys) {
+        status    = -EINVAL;
+        statusMsg = "no crypto keys";
+        return true;
+    }
+    char* const kSessionKeyBuffer       = 0;
+    int   const kSessionKeyBufferLength = 0;
+    status = token.Process(
+        tokenStr.GetPtr(),
+        (int)tokenStr.GetSize(),
+        time(0),
+        *keys,
+        kSessionKeyBuffer,
+        kSessionKeyBufferLength,
+        &statusMsg
+    );
+    return true;
+}
+
+void
+MetaDelegateCancel::response(ostream& os)
+{
+    PutHeader(this, os) << "\r\n";
+}
+
 } /* namespace KFS */
