@@ -29,6 +29,7 @@
 #include "Restorer.h"
 #include "util.h"
 #include "DiskEntry.h"
+#include "NetDispatch.h"
 #include "kfstree.h"
 #include "LayoutManager.h"
 #include "common/MdStream.h"
@@ -883,29 +884,30 @@ get_entry_map()
     if (initied) {
         return e;
     }
-    e.add_parser("setintbase", restore_setintbase);
-    e.add_parser("version", replay_version);
-    e.add_parser("create", replay_create);
-    e.add_parser("mkdir", replay_mkdir);
-    e.add_parser("remove", replay_remove);
-    e.add_parser("rmdir", replay_rmdir);
-    e.add_parser("rename", replay_rename);
-    e.add_parser("allocate", replay_allocate);
-    e.add_parser("truncate", replay_truncate);
-    e.add_parser("coalesce", replay_coalesce);
-    e.add_parser("pruneFromHead", replay_pruneFromHead);
-    e.add_parser("setrep", replay_setrep);
-    e.add_parser("size", replay_size);
-    e.add_parser("setmtime", replay_setmtime);
-    e.add_parser("chunkVersionInc", restore_chunkVersionInc);
-    e.add_parser("time", restore_time);
-    e.add_parser("mkstable", restore_mkstable);
-    e.add_parser("mkstabledone", restore_mkstabledone);
-    e.add_parser("beginchunkversionchange", replay_beginchunkversionchange);
-    e.add_parser("checksum", restore_checksum);
-    e.add_parser("rollseeds", restore_rollseeds);
-    e.add_parser("chmod", replay_chmod);
-    e.add_parser("chown", replay_chown);
+    e.add_parser("setintbase",              &restore_setintbase);
+    e.add_parser("version",                 &replay_version);
+    e.add_parser("create",                  &replay_create);
+    e.add_parser("mkdir",                   &replay_mkdir);
+    e.add_parser("remove",                  &replay_remove);
+    e.add_parser("rmdir",                   &replay_rmdir);
+    e.add_parser("rename",                  &replay_rename);
+    e.add_parser("allocate",                &replay_allocate);
+    e.add_parser("truncate",                &replay_truncate);
+    e.add_parser("coalesce",                &replay_coalesce);
+    e.add_parser("pruneFromHead",           &replay_pruneFromHead);
+    e.add_parser("setrep",                  &replay_setrep);
+    e.add_parser("size",                    &replay_size);
+    e.add_parser("setmtime",                &replay_setmtime);
+    e.add_parser("chunkVersionInc",         &restore_chunkVersionInc);
+    e.add_parser("time",                    &restore_time);
+    e.add_parser("mkstable",                &restore_mkstable);
+    e.add_parser("mkstabledone",            &restore_mkstabledone);
+    e.add_parser("beginchunkversionchange", &replay_beginchunkversionchange);
+    e.add_parser("checksum",                &restore_checksum);
+    e.add_parser("rollseeds",               &restore_rollseeds);
+    e.add_parser("chmod",                   &replay_chmod);
+    e.add_parser("chown",                   &replay_chown);
+    e.add_parser("delegatecancel",          &restore_delegate_cancel);
     initied = true;
     return e;
 }

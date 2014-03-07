@@ -731,9 +731,10 @@ ClientSM::GetPsk(
     if (! theKeysPtr) {
         theErrMsg = "no crypto keys";
     }
+    const int theIdLen  = (int)strlen(inIdentityPtr);
     const int theKeyLen = theKeysPtr ? theDelegationToken.Process(
         inIdentityPtr,
-        strlen(inIdentityPtr),
+        theIdLen,
         (int64_t)(mNetConnection ? mNetConnection->TimeNow() : time(0)),
         *theKeysPtr,
         reinterpret_cast<char*>(inPskBufferPtr),
@@ -744,7 +745,14 @@ ClientSM::GetPsk(
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         if (mAuthUid != kKfsUserNone) {
-            if ((theDelegationToken.GetFlags() &
+            if (gNetDispatch.IsCanceled(
+                    theDelegationToken.GetIssuedTime() +
+                    theDelegationToken.GetValidForSec(),
+                    inIdentityPtr,
+                    theIdLen)) {
+                theNamePtr = 0;
+                theErrMsg  = "delegation canceled";
+            } else if ((theDelegationToken.GetFlags() &
                     DelegationToken::kChunkServerFlag) == 0) {
                 theNamePtr = mAuthContext.GetUserNameAndGroup(
                     mAuthUid, mAuthGid, mAuthEUid, mAuthEGid);

@@ -43,6 +43,7 @@
 #include "common/MsgLogger.h"
 #include "common/time.h"
 #include "common/rusage.h"
+#include "common/StdAllocator.h"
 #include "qcdio/QCThread.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
@@ -50,6 +51,7 @@
 #include <inttypes.h>
 #include <algorithm>
 #include <vector>
+#include <set>
 
 namespace KFS
 {
@@ -61,12 +63,148 @@ using KFS::libkfsio::globals;
 
 NetDispatch gNetDispatch;
 
+class NetDispatch::CanceledTokens : ITimeout
+{
+public:
+    CanceledTokens()
+        : ITimeout(),
+          mTokens(),
+          mNetManagerPtr(0),
+          mMutexPtr(0)
+        {}
+    ~CanceledTokens()
+        { Set(0, 0); }
+    void Set(
+        NetManager* inNetManagerPtr,
+        QCMutex*    inMutexPtr)
+    {
+        mMutexPtr = inMutexPtr;
+        if (mNetManagerPtr) {
+            mNetManagerPtr->UnRegisterTimeoutHandler(this);
+        }
+        mNetManagerPtr = inNetManagerPtr;
+        if (mNetManagerPtr) {
+            mNetManagerPtr->RegisterTimeoutHandler(this);
+        }
+    }
+    void RemoveInvalid(
+        const CryptoKeys* inKeysPtr)
+    {
+        QCStMutexLocker(mMutexPtr);
+        if (! inKeysPtr) {
+            mTokens.clear();
+            return;
+        }
+        Expire();
+        const time_t theNow = mNetManagerPtr ? mNetManagerPtr->Now() : time(0);
+        for (Tokens::iterator theIt = mTokens.begin();
+                theIt != mTokens.end();
+                ) {
+            DelegationToken theToken;
+            string          theMsg;
+            if (theToken.Process(
+                    theIt->second.GetPtr(),
+                    (int)theIt->second.GetSize(),
+                    theNow,
+                    *inKeysPtr,
+                    0, 0, &theMsg) != 0) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "removing canceled token: " << theToken.Show() <<
+                    " : " << theMsg <<
+                KFS_LOG_EOM;
+                theIt = mTokens.erase(theIt);
+            } else {
+                ++theIt;
+            }
+        }
+    }
+    virtual void Timeout()
+        { Expire(); }
+    void Expire()
+    {
+        Tokens::iterator theIt = mTokens.begin();
+        if (theIt == mTokens.end()) {
+            return;
+        }
+        const time_t theNow = mNetManagerPtr ? mNetManagerPtr->Now() : time(0);
+        while (theIt != mTokens.end() && theIt->first < theNow) {
+            ++theIt;
+        }
+        if (mTokens.begin() != theIt) {
+            QCStMutexLocker(mMutexPtr);
+            mTokens.erase(mTokens.begin(), theIt);
+        }
+    }
+    void Cancel(
+        int64_t     inExpTime,
+        const char* inPtr,
+        int         inLen)
+    {
+        if (inLen <= 0) {
+            return;
+        }
+        QCStMutexLocker(mMutexPtr);
+        mTokens.insert(Entry(inExpTime, Token(inPtr, inLen)));
+    }
+    bool IsCanceled(
+        int64_t     inExpTime,
+        const char* inPtr,
+        int         inLen)
+    {
+        QCStMutexLocker(mMutexPtr);
+        return (mTokens.find(Entry(inExpTime, Token(inPtr, inLen))) !=
+            mTokens.end());
+    }
+    int Write(
+        ostream& inStream)
+    {
+        Expire();
+        for (Tokens::iterator theIt = mTokens.begin();
+                theIt != mTokens.end() && inStream;
+                ++theIt) {
+            inStream << "delegatecancel/" << theIt->second << "\n";
+        }
+        return (inStream.fail() ? -EIO : 0);
+    }
+private:
+    typedef StringBufT<64>       Token;
+    typedef pair<int64_t, Token> Entry;
+    typedef set<
+        Entry,
+        std::less<Entry>,
+        StdFastAllocator<Entry>
+    > Tokens;
+    Tokens      mTokens;
+    NetManager* mNetManagerPtr;
+    QCMutex*    mMutexPtr;
+};
+
+void
+NetDispatch::CancelToken(
+    int64_t expirationTime, const char* token, int tokenLen)
+{
+    mCanceledTokens.Cancel(expirationTime, token, tokenLen);
+}
+
+bool
+NetDispatch::IsCanceled(int64_t expirationTime, const char* token, int tokenLen)
+{
+    return mCanceledTokens.IsCanceled(expirationTime, token, tokenLen);
+}
+
+int
+NetDispatch::WriteCanceledTokens(ostream& os)
+{
+    return mCanceledTokens.Write(os);
+}
+
 NetDispatch::NetDispatch()
     : mClientManager(),
       mChunkServerFactory(),
       mMutex(0),
       mClientManagerMutex(0),
       mCryptoKeys(0),
+      mCanceledTokens(*(new CanceledTokens())),
       mRunningFlag(false),
       mClientThreadCount(0),
       mClientThreadsStartCpuAffinity(-1)
@@ -75,6 +213,7 @@ NetDispatch::NetDispatch()
 
 NetDispatch::~NetDispatch()
 {
+    delete &mCanceledTokens;
     delete mMutex;
 }
 
@@ -129,8 +268,15 @@ NetDispatch::Start()
                     mClientThreadsStartCpuAffinity
             ) &&
             mChunkServerFactory.StartAcceptor()) {
+        mCanceledTokens.RemoveInvalid(mCryptoKeys);
         // Start event processing.
+        QCMutex cancelTokensMutex;
+        mCanceledTokens.Set(
+            &globalNetManager(),
+            mClientThreadCount > 0 ? &cancelTokensMutex : 0
+        );
         globalNetManager().MainLoop(GetMutex());
+        mCanceledTokens.Set(0, 0);
     } else {
         err = -EINVAL;
     }

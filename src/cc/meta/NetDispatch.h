@@ -64,12 +64,18 @@ public:
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
+    void CancelToken(int64_t expirationTime, const char* token, int tokenLen);
+    bool IsCanceled(int64_t expirationTime, const char* token, int tokenLen);
+    int WriteCanceledTokens(ostream& os);
 private:
+    class CanceledTokens;
+
     ClientManager      mClientManager; //!< tracks the connected clients
     ChunkServerFactory mChunkServerFactory; //!< creates chunk servers when they connect
     QCMutex*           mMutex;
     QCMutex*           mClientManagerMutex;
     CryptoKeys*        mCryptoKeys;
+    CanceledTokens&    mCanceledTokens;
     bool               mRunningFlag;
     int                mClientThreadCount;
     int                mClientThreadsStartCpuAffinity;

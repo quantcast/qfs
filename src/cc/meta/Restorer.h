@@ -75,6 +75,7 @@ extern void acquire_lockfile(const string &lockfn, int ntries);
 extern string restoreChecksum;
 extern bool   lastLineChecksumFlag;
 extern bool   restore_checksum(DETokenizer& c);
+extern bool   restore_delegate_cancel(DETokenizer& c);
 
 }
 #endif // !defined(KFS_RESTORE_H)

@@ -1331,6 +1331,11 @@ public:
         { return mVerifyAllOpsPermissionsFlag; }
     void SetEUserAndEGroup(MetaRequest& req)
     {
+        if (req.fromChunkServerFlag) {
+            req.euser  = kKfsUserNone;
+            req.egroup = kKfsGroupNone;
+            return;
+        }
         SetUserAndGroup(req, req.euser, req.egroup);
         if (mForceEUserToRootFlag) {
             req.euser = kKfsUserRoot;

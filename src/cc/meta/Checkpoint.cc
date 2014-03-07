@@ -35,6 +35,7 @@
 #include "Checkpoint.h"
 #include "kfstree.h"
 #include "MetaRequest.h"
+#include "NetDispatch.h"
 #include "Logger.h"
 #include "util.h"
 #include "LayoutManager.h"
@@ -135,6 +136,9 @@ Checkpoint::do_CP()
         }
         if (status == 0 && os) {
             status = gLayoutManager.WritePendingChunkVersionChange(os);
+        }
+        if (status == 0 && os) {
+            status = gNetDispatch.WriteCanceledTokens(os);
         }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';

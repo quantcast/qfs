@@ -37,6 +37,7 @@
 #include "DiskEntry.h"
 #include "Checkpoint.h"
 #include "LayoutManager.h"
+#include "NetDispatch.h"
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
@@ -386,6 +387,31 @@ restore_checksum(DETokenizer& c)
     return true;
 }
 
+bool
+restore_delegate_cancel(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& t = c.front();
+    DelegationToken token;
+    const int err = token.FromString(t.ptr, t.len, 0, 0);
+    if (err) {
+        KFS_LOG_STREAM_ERROR << "delegate cancel:"
+            " error: "  << QCUtils::SysError(-err) <<
+        KFS_LOG_EOM;
+    } else {
+        static const time_t now = time(0);
+        const int64_t       exp = token.GetIssuedTime() + token.GetValidForSec();
+        if (now <= exp) {
+            gNetDispatch.CancelToken(exp, t.ptr, t.len);
+        }
+    }
+    c.pop_front();
+    return err == 0;
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -394,20 +420,21 @@ get_entry_map()
     if (initied) {
         return e;
     }
-    e.add_parser("setintbase", restore_setintbase);
-    e.add_parser("checkpoint", checkpoint_seq);
-    e.add_parser("version", checkpoint_version);
-    e.add_parser("fid", checkpoint_fid);
-    e.add_parser("chunkId", checkpoint_chunkId);
-    e.add_parser("time", checkpoint_time);
-    e.add_parser("log", checkpoint_log);
-    e.add_parser("chunkVersionInc", restore_chunkVersionInc);
-    e.add_parser("dentry", restore_dentry);
-    e.add_parser("fattr", restore_fattr);
-    e.add_parser("chunkinfo", restore_chunkinfo);
-    e.add_parser("mkstable", restore_makestable);
-    e.add_parser("beginchunkversionchange", restore_beginchunkversionchange);
-    e.add_parser("checksum", restore_checksum);
+    e.add_parser("setintbase",              &restore_setintbase);
+    e.add_parser("checkpoint",              &checkpoint_seq);
+    e.add_parser("version",                 &checkpoint_version);
+    e.add_parser("fid",                     &checkpoint_fid);
+    e.add_parser("chunkId",                 &checkpoint_chunkId);
+    e.add_parser("time",                    &checkpoint_time);
+    e.add_parser("log",                     &checkpoint_log);
+    e.add_parser("chunkVersionInc",         &restore_chunkVersionInc);
+    e.add_parser("dentry",                  &restore_dentry);
+    e.add_parser("fattr",                   &restore_fattr);
+    e.add_parser("chunkinfo",               &restore_chunkinfo);
+    e.add_parser("mkstable",                &restore_makestable);
+    e.add_parser("beginchunkversionchange", &restore_beginchunkversionchange);
+    e.add_parser("checksum",                &restore_checksum);
+    e.add_parser("delegatecancel",          &restore_delegate_cancel);
     initied = true;
     return e;
 }
