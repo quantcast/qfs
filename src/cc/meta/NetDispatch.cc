@@ -112,7 +112,7 @@ public:
                     "removing canceled token: " << theToken.Show() <<
                     " : " << theMsg <<
                 KFS_LOG_EOM;
-                theIt = mTokens.erase(theIt);
+                mTokens.erase(theIt++);
             } else {
                 ++theIt;
             }
