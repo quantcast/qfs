@@ -148,6 +148,7 @@ public:
     typedef shared_ptr<const UidNameMap> UidNamePtr;
     typedef shared_ptr<const RootUsers>  RootUsersPtr;
     typedef shared_ptr<const GidNameMap> GidNamePtr;
+    typedef shared_ptr<const UserIdsSet> DelegationRenewAndCancelUsersPtr;
 
     UserAndGroup(
         bool inUseDefaultsFlag = true);
@@ -214,22 +215,26 @@ public:
         { return mRootUsersPtr; }
     const GidNamePtr& GetGidNamePtr() const
         { return mGidNamePtr; }
+    const DelegationRenewAndCancelUsersPtr&
+        GetDelegationRenewAndCancelUsersPtr() const
+        { return mDelegationRenewAndCancelUsersPtr; }
     bool IsUpdatePending() const;
 private:
     class Impl;
-    Impl&                          mImpl;
-    const volatile uint64_t&       mUpdateCount;
-    const GroupUsersMap&           mGroupUsersMap;
-    const NameUidMap* const* const mNameUidMapPtr;
-    const UidNameMap* const* const mUidNameMapPtr;
-    const GidNameMap* const* const mGidNameMapPtr;
-    const NameGidMap&              mNameGidMap;
-    const NameUidPtr&              mNameUidPtr;
-    const UidNamePtr&              mUidNamePtr;
-    const RootUsersPtr&            mRootUsersPtr;
-    const GidNamePtr&              mGidNamePtr;
-    const UserIdsSet&              mMetaServerAdminUsers;
-    const UserIdsSet&              mMetaServerStatsUsers;
+    Impl&                                   mImpl;
+    const volatile uint64_t&                mUpdateCount;
+    const GroupUsersMap&                    mGroupUsersMap;
+    const NameUidMap* const* const          mNameUidMapPtr;
+    const UidNameMap* const* const          mUidNameMapPtr;
+    const GidNameMap* const* const          mGidNameMapPtr;
+    const NameGidMap&                       mNameGidMap;
+    const NameUidPtr&                       mNameUidPtr;
+    const UidNamePtr&                       mUidNamePtr;
+    const RootUsersPtr&                     mRootUsersPtr;
+    const GidNamePtr&                       mGidNamePtr;
+    const UserIdsSet&                       mMetaServerAdminUsers;
+    const UserIdsSet&                       mMetaServerStatsUsers;
+    const DelegationRenewAndCancelUsersPtr& mDelegationRenewAndCancelUsersPtr;
 
     static const string      kEmptyString;
     static const NameAndGid  kNameAndGroupNone;

@@ -101,6 +101,7 @@ public:
           mGidNameMapPtr(new GidNameMap()),
           mGidNamePtr(mGidNameMapPtr),
           mRootUsersPtr(new RootUsers()),
+          mDelegationRenewAndCancelUsersPtr(new UserIdsSet()),
           mGroupUsersMap(),
           mPendingUidNameMap(),
           mPendingGidNameMap(),
@@ -790,62 +791,63 @@ private:
         const char* mValuePtr;
     };
 
-    volatile uint64_t   mUpdateCount;
-    uint64_t            mCurUpdateCount;
-    QCThread            mThread;
-    QCMutex             mMutex;
-    QCCondVar           mCond;
-    bool                mStopFlag;
-    bool                mUpdateFlag;
-    bool                mDisabledFlag;
-    bool                mOverflowFlag;
-    QCMutex::Time       mUpdatePeriodNanoSec;
-    kfsUid_t            mMinUserId;
-    kfsUid_t            mMaxUserId;
-    kfsGid_t            mMinGroupId;
-    kfsGid_t            mMaxGroupId;
-    UserExcludes        mUserExcludes;
-    GroupExcludes       mGroupExcludes;
-    uint64_t            mParametersReadCount;
-    UidNameMap*         mUidNameMapPtr;
-    UidNamePtr          mUidNamePtr;
-    GidNameMap          mGidNameMap;
-    NameUidMap*         mNameUidMapPtr;
-    NameUidPtr          mNameUidPtr;
-    NameGidMap          mNameGidMap;
-    GidNameMap*         mGidNameMapPtr;
-    GidNamePtr          mGidNamePtr;
-    RootUsersPtr        mRootUsersPtr;
-    GroupUsersMap       mGroupUsersMap;
-    UidNameMap          mPendingUidNameMap;
-    GidNameMap          mPendingGidNameMap;
-    NameUidMap          mPendingNameUidMap;
-    NameGidMap          mPendingNameGidMap;
-    GroupUsersMap       mPendingGroupUsersMap;
-    RootUsers           mPendingRootUsers;
-    UserIdsSet          mPendingMetaAdminUsers;
-    UserIdsSet          mPendingMetaStatsUsers;
-    UidNameMap          mTmpUidNameMap;
-    GidNameMap          mTmpGidNameMap;
-    NameUidMap          mTmpNameUidMap;
-    NameGidMap          mTmpNameGidMap;
-    GroupUsersMap       mTmpGroupUsersMap;
-    GroupUsersNamesMap  mTmpGroupUserNamesMap;
-    RootUsers           mTmpRootUsers;
-    UserIdsSet          mTmpMetaAdminUsers;
-    UserIdsSet          mTmpMetaStatsUsers;
-    RootGroups          mRootGroups;
-    RootUserNames       mRootUserNames;
-    string              mOmitUserPrefix;
-    string              mOmitGroupPrefix;
-    UserIdsSet          mMetaServerAdminUsers;
-    UserIdsSet          mMetaServerStatsUsers;
-    MetaAdminUserNames  mMetaAdminUserNames;
-    MetaAdminGroupNames mMetaAdminGroupNames;
-    MetaStatsUserNames  mMetaStatsUserNames;
-    MetaStatsGroupNames mMetaStatsGroupNames;
-    Properties          mParameters;
-    bool                mSetDefaultsFlag;
+    volatile uint64_t                mUpdateCount;
+    uint64_t                         mCurUpdateCount;
+    QCThread                         mThread;
+    QCMutex                          mMutex;
+    QCCondVar                        mCond;
+    bool                             mStopFlag;
+    bool                             mUpdateFlag;
+    bool                             mDisabledFlag;
+    bool                             mOverflowFlag;
+    QCMutex::Time                    mUpdatePeriodNanoSec;
+    kfsUid_t                         mMinUserId;
+    kfsUid_t                         mMaxUserId;
+    kfsGid_t                         mMinGroupId;
+    kfsGid_t                         mMaxGroupId;
+    UserExcludes                     mUserExcludes;
+    GroupExcludes                    mGroupExcludes;
+    uint64_t                         mParametersReadCount;
+    UidNameMap*                      mUidNameMapPtr;
+    UidNamePtr                       mUidNamePtr;
+    GidNameMap                       mGidNameMap;
+    NameUidMap*                      mNameUidMapPtr;
+    NameUidPtr                       mNameUidPtr;
+    NameGidMap                       mNameGidMap;
+    GidNameMap*                      mGidNameMapPtr;
+    GidNamePtr                       mGidNamePtr;
+    RootUsersPtr                     mRootUsersPtr;
+    DelegationRenewAndCancelUsersPtr mDelegationRenewAndCancelUsersPtr;
+    GroupUsersMap                    mGroupUsersMap;
+    UidNameMap                       mPendingUidNameMap;
+    GidNameMap                       mPendingGidNameMap;
+    NameUidMap                       mPendingNameUidMap;
+    NameGidMap                       mPendingNameGidMap;
+    GroupUsersMap                    mPendingGroupUsersMap;
+    RootUsers                        mPendingRootUsers;
+    UserIdsSet                       mPendingMetaAdminUsers;
+    UserIdsSet                       mPendingMetaStatsUsers;
+    UidNameMap                       mTmpUidNameMap;
+    GidNameMap                       mTmpGidNameMap;
+    NameUidMap                       mTmpNameUidMap;
+    NameGidMap                       mTmpNameGidMap;
+    GroupUsersMap                    mTmpGroupUsersMap;
+    GroupUsersNamesMap               mTmpGroupUserNamesMap;
+    RootUsers                        mTmpRootUsers;
+    UserIdsSet                       mTmpMetaAdminUsers;
+    UserIdsSet                       mTmpMetaStatsUsers;
+    RootGroups                       mRootGroups;
+    RootUserNames                    mRootUserNames;
+    string                           mOmitUserPrefix;
+    string                           mOmitGroupPrefix;
+    UserIdsSet                       mMetaServerAdminUsers;
+    UserIdsSet                       mMetaServerStatsUsers;
+    MetaAdminUserNames               mMetaAdminUserNames;
+    MetaAdminGroupNames              mMetaAdminGroupNames;
+    MetaStatsUserNames               mMetaStatsUserNames;
+    MetaStatsGroupNames              mMetaStatsGroupNames;
+    Properties                       mParameters;
+    bool                             mSetDefaultsFlag;
 
     friend class UserAndGroup;
 
@@ -953,7 +955,9 @@ UserAndGroup::UserAndGroup(
       mRootUsersPtr(mImpl.mRootUsersPtr),
       mGidNamePtr(mImpl.mGidNamePtr),
       mMetaServerAdminUsers(mImpl.mMetaServerAdminUsers),
-      mMetaServerStatsUsers(mImpl.mMetaServerStatsUsers)
+      mMetaServerStatsUsers(mImpl.mMetaServerStatsUsers),
+      mDelegationRenewAndCancelUsersPtr(
+        mImpl.mDelegationRenewAndCancelUsersPtr)
 {
 }
 

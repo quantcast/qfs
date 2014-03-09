@@ -181,15 +181,15 @@ private:
 
 void
 NetDispatch::CancelToken(
-    int64_t expirationTime, const char* token, int tokenLen)
+    const DelegationToken& token, const char* tokenStr, int tokenStrLen)
 {
-    mCanceledTokens.Cancel(expirationTime, token, tokenLen);
+    //mCanceledTokens.Cancel(expirationTime, token, tokenLen);
 }
 
 bool
-NetDispatch::IsCanceled(int64_t expirationTime, const char* token, int tokenLen)
+NetDispatch::IsCanceled(const DelegationToken& token)
 {
-    return mCanceledTokens.IsCanceled(expirationTime, token, tokenLen);
+    return false; //mCanceledTokens.IsCanceled(expirationTime, token, tokenLen);
 }
 
 int

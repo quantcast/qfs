@@ -522,29 +522,12 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
-    op->clientIp         = mClientIp;
-    op->fromClientSMFlag = true;
-    op->clnt             = this;
+    op->clientIp            = mClientIp;
+    op->fromClientSMFlag    = true;
+    op->clnt                = this;
+    op->validDelegationFlag = mDelegationValidFlag;
+    op->authUid             = mAuthUid;
     mPendingOpsCount++;
-    if (op->op == META_AUTHENTICATE) {
-        assert(! mAuthenticateOp);
-        mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
-        HandleAuthenticate(iobuf);
-        return;
-    }
-    if (op->op == META_LOOKUP) {
-        MetaLookup& lookupOp = *static_cast<MetaLookup*>(op);
-        if (lookupOp.IsAuthNegotiation()) {
-            lookupOp.authType = mAuthContext.GetAuthTypes();
-            if (mPendingOpsCount == 1) {
-                HandleRequestSelf(EVENT_CMD_DONE, op);
-            } else {
-                HandleRequest(EVENT_CMD_DONE, op);
-            }
-            return;
-        }
-    }
-    op->authUid = mAuthUid;
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag =
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
@@ -573,8 +556,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         op->euser   = mAuthEUid;
         op->egroup  = mAuthEGid;
     }
-    if (op->op == META_DELEGATE) {
-        HandleDelegation(*static_cast<MetaDelegate*>(op));
+    if (op->dispatch(*this)) {
         return;
     }
     if (mAuthUid == kKfsUserNone && mAuthContext.IsAuthRequired(*op)) {
@@ -586,14 +568,54 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     ClientManager::SubmitRequest(mClientThread, *op);
 }
 
+bool
+ClientSM::Handle(MetaAuthenticate& op)
+{
+    assert(! mAuthenticateOp);
+    mAuthenticateOp = &op;
+    HandleAuthenticate(mNetConnection->GetInBuffer());
+    return true;
+}
+
+bool
+ClientSM::Handle(MetaDelegate& op)
+{
+    HandleDelegation(op);
+    return true;
+}
+
+bool
+ClientSM::Handle(MetaLookup& op)
+{
+    if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
+        return false;
+    }
+    op.authType = mAuthContext.GetAuthTypes();
+    if (mPendingOpsCount == 1) {
+        HandleRequestSelf(EVENT_CMD_DONE, &op);
+    } else {
+        HandleRequest(EVENT_CMD_DONE, &op);
+    }
+    return true;
+}
+
 void
 ClientSM::HandleDelegation(MetaDelegate& op)
 {
     if (mAuthUid != kKfsUserNone) {
+        const bool renewReqFlag = ! op.renewTokenStr.empty();
+        if (renewReqFlag == op.renewKeyStr.empty()) {
+            op.status    = -EINVAL;
+            op.statusMsg =
+                "invalid renew request, both token and key are required";
+        }
         const time_t now       = mNetConnection ? mNetConnection->TimeNow() : 0;
         bool         renewFlag = mDelegationValidFlag;
-        if (mDelegationValidFlag) {
-            if (mDelegationIssuedTime + mDelegationValidForTime < now) {
+        if (op.status == 0 && mDelegationValidFlag) {
+            if (renewReqFlag) {
+                op.status    = -EPERM;
+                op.statusMsg = "renew not permitted with delegation";
+            } else if (mDelegationIssuedTime + mDelegationValidForTime < now) {
                 op.status    = -EPERM;
                 op.statusMsg = "delegation token has expired";
             } else if ((mDelegationFlags &
@@ -606,14 +628,58 @@ ClientSM::HandleDelegation(MetaDelegate& op)
             }
         }
         if (op.status == 0 && ! renewFlag) {
-            op.issuedTime      = now;
-            op.delegationFlags =
-                (mDelegationValidFlag ? mDelegationFlags : 0) |
-                ((op.allowDelegationFlag &&
-                        mAuthContext.IsReDelegationAllowed()) ?
-                    DelegationToken::kAllowDelegationFlag : 0);
+            if (renewReqFlag) {
+                const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
+                if (! keys) {
+                    op.status    = -EINVAL;
+                    op.statusMsg = "no crypto keys";
+                } else {
+                    CryptoKeys::Key key;
+                    op.status =
+                        key.Parse(
+                            op.renewKeyStr.GetPtr(), op.renewKeyStr.GetSize());
+                    if (op.status != 0) {
+                        op.statusMsg = "invalid renew key format";
+                    } else {
+                        char keyBuf[CryptoKeys::Key::kLength];
+                        const int len = op.renewToken.Process(
+                            op.renewTokenStr.GetPtr(),
+                            op.renewTokenStr.GetSize(),
+                            now,
+                            *keys,
+                            keyBuf,
+                            CryptoKeys::Key::kLength,
+                            &op.statusMsg
+                        );
+                        if (len < 0) {
+                            op.status = len;
+                        } else if (len != key.GetSize() ||
+                                memcmp(key.GetPtr(), keyBuf, len)) {
+                            op.status    = -EINVAL;
+                            op.statusMsg = "invalid renew key";
+                        } else if (mAuthUid != op.renewToken.GetUid() &&
+                                ! mAuthContext.CanRenewAndCancelDelegation(
+                                    mAuthUid)) {
+                            op.status    = -EPERM;
+                            op.statusMsg = "delegation renew not permitted";
+                        } else if (gNetDispatch.IsCanceled(op.renewToken)) {
+                            op.status    = -EPERM;
+                            op.statusMsg = "delegation canceled";
+                        } else {
+                            op.validForTime = op.renewToken.GetValidForSec();
+                        }
+                    }
+                }
+            } else {
+                op.issuedTime      = now;
+                op.delegationFlags =
+                    (mDelegationValidFlag ? mDelegationFlags : 0) |
+                    ((op.allowDelegationFlag &&
+                            mAuthContext.IsReDelegationAllowed()) ?
+                        DelegationToken::kAllowDelegationFlag : 0);
+            }
         }
-        if (op.status == 0) {
+        if (op.status == 0 && ! renewReqFlag) {
             const uint32_t maxTime =
                 mAuthContext.GetMaxDelegationValidForTime();
             if (maxTime <= 0) {
@@ -745,11 +811,7 @@ ClientSM::GetPsk(
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         if (mAuthUid != kKfsUserNone) {
-            if (gNetDispatch.IsCanceled(
-                    theDelegationToken.GetIssuedTime() +
-                    theDelegationToken.GetValidForSec(),
-                    inIdentityPtr,
-                    theIdLen)) {
+            if (gNetDispatch.IsCanceled(theDelegationToken)) {
                 theNamePtr = 0;
                 theErrMsg  = "delegation canceled";
             } else if ((theDelegationToken.GetFlags() &

@@ -405,7 +405,7 @@ restore_delegate_cancel(DETokenizer& c)
         static const time_t now = time(0);
         const int64_t       exp = token.GetIssuedTime() + token.GetValidForSec();
         if (now <= exp) {
-            gNetDispatch.CancelToken(exp, t.ptr, t.len);
+            gNetDispatch.CancelToken(token, t.ptr, t.len);
         }
     }
     c.pop_front();

@@ -88,6 +88,8 @@ public:
     const UserAndGroupNames& GetUserAndGroupNames() const
         { return mUserAndGroupNames; }
     int GetAuthTypes() const;
+    bool CanRenewAndCancelDelegation(
+        kfsUid_t inUid) const;
 private:
     class Impl;
     bool                     mAuthRequiredFlag;

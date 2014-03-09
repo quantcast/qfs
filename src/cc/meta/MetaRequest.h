@@ -154,6 +154,7 @@ enum MetaOp {
 
 
 class ChunkServer;
+class ClientSM;
 typedef boost::shared_ptr<ChunkServer> ChunkServerPtr;
 typedef DynamicArray<chunkId_t, 8> ChunkIdQueue;
 
@@ -193,6 +194,7 @@ struct MetaRequest {
     const bool      mutation;        //!< mutates metatree
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
+    bool            validDelegationFlag;
     bool            fromClientSMFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
@@ -216,6 +218,7 @@ struct MetaRequest {
           mutation(mu),
           suspended(false),
           fromChunkServerFlag(false),
+          validDelegationFlag(false),
           fromClientSMFlag(false),
           clientIp(),
           reqHeaders(),
@@ -279,6 +282,8 @@ struct MetaRequest {
     {
         return (req ? *req : GetNullReq()).Show();
     }
+    virtual bool dispatch(ClientSM& /* sm */)
+        { return false; }
 protected:
     virtual void response(ostream& /* os */) {}
 private:
@@ -318,6 +323,7 @@ struct MetaLookup: public MetaRequest {
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ostream& os);
+    virtual bool dispatch(ClientSM& sm);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -2536,6 +2542,7 @@ struct MetaAuthenticate : public MetaRequest {
         delete filter;
     }
     virtual void handle() {}
+    virtual bool dispatch(ClientSM& sm);
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "authenticate"; }
     virtual void response(ostream& os);
@@ -2552,18 +2559,25 @@ struct MetaAuthenticate : public MetaRequest {
 };
 
 struct MetaDelegate : public MetaRequest {
-    uint16_t delegationFlags;
-    uint32_t validForTime;
-    uint64_t issuedTime;
-    bool     allowDelegationFlag;
+    uint16_t        delegationFlags;
+    uint32_t        validForTime;
+    uint64_t        issuedTime;
+    bool            allowDelegationFlag;
+    StringBufT<64>  renewTokenStr;
+    StringBufT<64>  renewKeyStr;
+    DelegationToken renewToken;
 
     MetaDelegate()
         : MetaRequest(META_DELEGATE, false),
           delegationFlags(0),
           validForTime(-1),
-          issuedTime(0)
+          issuedTime(0),
+          renewTokenStr(),
+          renewKeyStr(),
+          renewToken()
           {}
     virtual void handle() {}
+    virtual bool dispatch(ClientSM& sm);
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "delegate: " << " uid: " << authUid); }
     virtual void response(ostream& os);
@@ -2574,6 +2588,8 @@ struct MetaDelegate : public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("Valid-for-time",   &MetaDelegate::validForTime, uint32_t(0))
         .Def("Allow-delegation", &MetaDelegate::allowDelegationFlag, false)
+        .Def("Renew-token",      &MetaDelegate::renewTokenStr)
+        .Def("Renew-key",        &MetaDelegate::renewKeyStr)
         ;
     }
 };

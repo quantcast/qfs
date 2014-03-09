@@ -42,6 +42,7 @@ using std::ostream;
 class Properties;
 class IOBuffer;
 class CryptoKeys;
+class DelegationToken;
 
 class NetDispatch
 {
@@ -64,8 +65,9 @@ public:
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
-    void CancelToken(int64_t expirationTime, const char* token, int tokenLen);
-    bool IsCanceled(int64_t expirationTime, const char* token, int tokenLen);
+    void CancelToken(const DelegationToken& token,
+        const char* tokenStr, int tokenStrLen);
+    bool IsCanceled(const DelegationToken& token);
     int WriteCanceledTokens(ostream& os);
 private:
     class CanceledTokens;

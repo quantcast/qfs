@@ -564,6 +564,12 @@ MetaLookup::handle()
     }
 }
 
+/* virtual */ bool
+MetaLookup::dispatch(ClientSM& sm)
+{
+    return sm.Handle(*this);
+}
+
 /* virtual */ void
 MetaLookupPath::handle()
 {
@@ -4595,6 +4601,12 @@ MetaChown::response(ostream& os)
     "\r\n";
 }
 
+/* virtual */ bool
+MetaAuthenticate::dispatch(ClientSM& sm)
+{
+    return sm.Handle(*this);
+}
+
 void
 MetaAuthenticate::response(ostream& os)
 {
@@ -4612,6 +4624,12 @@ MetaAuthenticate::response(ostream& os)
     os << "Content-length: " << responseContentLen << "\r\n"
     "\r\n";
     os.write(responseContentPtr, responseContentLen);
+}
+
+/* virtual */ bool
+MetaDelegate::dispatch(ClientSM& sm)
+{
+    return sm.Handle(*this);
 }
 
 void
@@ -5052,13 +5070,18 @@ MetaDelegateCancel::handle()
     if (status != 0) {
         return;
     }
-    SetEUserAndEGroup(*this);
     if (authUid == kKfsUserNone ||
-            (authUid != token.GetUid() && euser != kKfsUserRoot)) {
+            fromChunkServerFlag ||
+            validDelegationFlag ||
+            (authUid != token.GetUid() &&
+                ! gLayoutManager.GetClientAuthContext(
+                    ).CanRenewAndCancelDelegation(authUid))) {
         status    = -EPERM;
-        statusMsg = "permission denied";
+        statusMsg = validDelegationFlag ?
+            "not permitted with delegation" : "permission denied";
     }
     if (status == 0) {
+        gNetDispatch.CancelToken(token, tokenStr.GetPtr(), tokenStr.GetSize());
     }
 }
 

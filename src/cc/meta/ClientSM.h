@@ -91,6 +91,9 @@ public:
 
     static void SetParameters(const Properties& prop);
     static int GetClientCount() { return sClientCount; }
+    bool Handle(MetaAuthenticate& op);
+    bool Handle(MetaDelegate& op);
+    bool Handle(MetaLookup& op);
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;

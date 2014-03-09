@@ -68,6 +68,8 @@ public:
     typedef UserAndGroup::UidAndGid    UidAndGid;
     typedef UserAndGroup::NameAndGid   NameAndGid;
     typedef UserAndGroup::RootUsersPtr RootUsersPtr;
+    typedef UserAndGroup::DelegationRenewAndCancelUsersPtr
+        DelegationRenewAndCancelUsersPtr;
 
     Impl(
         bool               inAllowPskFlag,
@@ -87,6 +89,7 @@ public:
           mUidNamePtr(new UserAndGroup::UidNameMap()),
           mGidNamePtr(new UserAndGroup::GidNameMap()),
           mRootUsersPtr(new UserAndGroup::RootUsers()),
+          mDelegationRenewAndCancelUsersPtr(new UserAndGroup::UserIdsSet()),
           mNameRemapParam(),
           mBlackListParam(),
           mWhiteListParam(),
@@ -348,6 +351,9 @@ public:
         QCRTASSERT(mRootUsersPtr);
         mGidNamePtr = inUserAndGroup.GetGidNamePtr();
         QCRTASSERT(mGidNamePtr);
+        mDelegationRenewAndCancelUsersPtr =
+            inUserAndGroup.GetDelegationRenewAndCancelUsersPtr();
+        QCRTASSERT(mDelegationRenewAndCancelUsersPtr);
         mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
     }
     bool SetParameters(
@@ -688,6 +694,9 @@ public:
             mNoAuthMetaOpHosts.find(inOp.clientIp) == mNoAuthMetaOpHosts.end()
         ));
     }
+    bool CanRenewAndCancelDelegation(
+        kfsUid_t inUid) const
+        { return (mDelegationRenewAndCancelUsersPtr->Find(inUid) != 0); }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -778,34 +787,35 @@ private:
         string             mCurName;
     };
 
-    Properties        mKrbProps;
-    Properties        mPskSslProps;
-    Properties        mX509SslProps;
-    KrbServicePtr     mKrbServicePtr;
-    SslCtxPtr         mSslCtxPtr;
-    SslCtxPtr         mX509SslCtxPtr;
-    NameRemap         mNameRemap;
-    NameList          mBlackList;
-    NameList          mWhiteList;
-    NameUidPtr        mNameUidPtr;
-    UidNamePtr        mUidNamePtr;
-    GidNamePtr        mGidNamePtr;
-    RootUsersPtr      mRootUsersPtr;
-    string            mNameRemapParam;
-    string            mBlackListParam;
-    string            mWhiteListParam;
-    int               mPrincipalUnparseFlags;
-    bool              mAuthNoneFlag;
-    bool              mKrbUseSslFlag;
-    const bool        mAllowPskFlag;
-    unsigned int      mMemKeytabGen;
-    uint32_t          mMaxDelegationValidForTime;
-    bool              mReDelegationAllowedFlag;
-    int               mAuthTypes;
-    bool&             mAuthRequiredFlag;
-    UserAndGroupNames mUserAndGroupNames;
-    NoAuthMetaOpHosts mNoAuthMetaOpHosts;
-    NoAuthMetaOps     mNoAuthMetaOps;
+    Properties                       mKrbProps;
+    Properties                       mPskSslProps;
+    Properties                       mX509SslProps;
+    KrbServicePtr                    mKrbServicePtr;
+    SslCtxPtr                        mSslCtxPtr;
+    SslCtxPtr                        mX509SslCtxPtr;
+    NameRemap                        mNameRemap;
+    NameList                         mBlackList;
+    NameList                         mWhiteList;
+    NameUidPtr                       mNameUidPtr;
+    UidNamePtr                       mUidNamePtr;
+    GidNamePtr                       mGidNamePtr;
+    RootUsersPtr                     mRootUsersPtr;
+    DelegationRenewAndCancelUsersPtr mDelegationRenewAndCancelUsersPtr;
+    string                           mNameRemapParam;
+    string                           mBlackListParam;
+    string                           mWhiteListParam;
+    int                              mPrincipalUnparseFlags;
+    bool                             mAuthNoneFlag;
+    bool                             mKrbUseSslFlag;
+    const bool                       mAllowPskFlag;
+    unsigned int                     mMemKeytabGen;
+    uint32_t                         mMaxDelegationValidForTime;
+    bool                             mReDelegationAllowedFlag;
+    int                              mAuthTypes;
+    bool&                            mAuthRequiredFlag;
+    UserAndGroupNames                mUserAndGroupNames;
+    NoAuthMetaOpHosts                mNoAuthMetaOpHosts;
+    NoAuthMetaOps                    mNoAuthMetaOps;
 
     static const OpNamesMap& sOpNamesMap;
 
@@ -1031,6 +1041,13 @@ AuthContext::IsAuthRequiredSelf(
     const MetaRequest& inOp) const
 {
     return mImpl.IsAuthRequired(inOp);
+}
+
+    bool
+AuthContext::CanRenewAndCancelDelegation(
+    kfsUid_t inUid) const
+{
+    return mImpl.CanRenewAndCancelDelegation(inUid);
 }
 
 }
