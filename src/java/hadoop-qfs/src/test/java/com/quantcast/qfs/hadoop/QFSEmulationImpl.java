@@ -19,20 +19,18 @@
 
 package com.quantcast.qfs.hadoop;
 
-import java.io.*;
+import java.io.IOException;
 
 import org.apache.hadoop.conf.Configuration;
-
+import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.permission.FsPermission;
-import com.quantcast.qfs.access.KfsFileAttr;
 
+import com.quantcast.qfs.access.KfsFileAttr;
 
 public class QFSEmulationImpl implements IFSImpl {
   FileSystem localFS;
@@ -69,11 +67,11 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public FileStatus[] readdirplus(Path path) throws IOException {
-    return localFS.listStatus(path);
+    return localFS.listStatus(new Path(path.toUri().getPath()));
   }
 
   public FileStatus stat(Path path) throws IOException {
-    return localFS.getFileStatus(path);
+    return localFS.getFileStatus(new Path(path.toUri().getPath()));
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
@@ -135,20 +133,20 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public short setReplication(String path, short replication)
-    throws IOException {
+      throws IOException {
     return 1;
   }
 
   public String[][] getDataLocation(String path, long start, long len)
-    throws IOException {
+      throws IOException {
     BlockLocation[] blkLocations = localFS.getFileBlockLocations(
-      localFS.getFileStatus(new Path(path)), start, len);
+        localFS.getFileStatus(new Path(path)), start, len);
     if ((blkLocations == null) || (blkLocations.length == 0)) {
       return new String[0][];
     }
     int blkCount = blkLocations.length;
-    String[][]hints = new String[blkCount][];
-    for (int i=0; i < blkCount ; i++) {
+    String[][] hints = new String[blkCount][];
+    for (int i = 0; i < blkCount; i++) {
       String[] hosts = blkLocations[i].getHosts();
       hints[i] = new String[hosts.length];
       hints[i] = hosts;
@@ -165,28 +163,27 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public FSDataOutputStream create(String path, short replication,
-    int bufferSize, boolean overwrite, int mode) throws IOException {
+      int bufferSize, boolean overwrite, int mode) throws IOException {
     // besides path/overwrite, the other args don't matter for
     // testing purposes.
     return localFS.create(new Path(path));
   }
 
-  public FSDataInputStream open(String path, int bufferSize)
-    throws IOException {
+  public FSDataInputStream open(String path, int bufferSize) throws IOException {
     return localFS.open(new Path(path));
   }
 
   public FSDataOutputStream append(String path, short replication,
-    int bufferSize) throws IOException {
+      int bufferSize) throws IOException {
     return localFS.create(new Path(path));
   }
 
   public void setPermission(String path, int mode) throws IOException {
-    localFS.setPermission(new Path(path), new FsPermission((short)mode));
+    localFS.setPermission(new Path(path), new FsPermission((short) mode));
   }
 
   public void setOwner(String path, String username, String groupname)
-    throws IOException {
+      throws IOException {
     localFS.setOwner(new Path(path), username, groupname);
   }
 }

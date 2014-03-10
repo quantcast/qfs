@@ -18,20 +18,22 @@
 
 package com.quantcast.qfs.hadoop;
 
-import java.io.*;
-import java.net.*;
+import java.io.DataOutput;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.net.URI;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Progressable;
-import org.apache.hadoop.fs.BlockLocation;
 
 import com.quantcast.qfs.access.KfsFileAttr;
 
@@ -50,40 +52,37 @@ public class QuantcastFileSystem extends FileSystem {
     this.qfsImpl = fsimpl;
   }
 
+  @Override
   public URI getUri() {
     return uri;
   }
 
+  @Override
   public void initialize(URI uri, Configuration conf) throws IOException {
     super.initialize(uri, conf);
-    try {
-      if (qfsImpl == null) {
-        if (uri.getHost() == null) {
-          qfsImpl = new QFSImpl(conf.get("fs.qfs.metaServerHost", ""),
-                                conf.getInt("fs.qfs.metaServerPort", -1),
-                                statistics);
-        } else {
-          qfsImpl = new QFSImpl(uri.getHost(), uri.getPort(), statistics);
-        }
+    if (qfsImpl == null) {
+      if (uri.getHost() == null) {
+        qfsImpl = new QFSImpl(conf.get("fs.qfs.metaServerHost", ""),
+            conf.getInt("fs.qfs.metaServerPort", -1), statistics);
+      } else {
+        qfsImpl = new QFSImpl(uri.getHost(), uri.getPort(), statistics);
       }
-
-      this.localFs = FileSystem.getLocal(conf);
-      this.uri = URI.create(uri.getScheme() + "://" + uri.getAuthority());
-      this.workingDir = new Path("/user", System.getProperty("user.name")
-                                ).makeQualified(this);
-      setConf(conf);
-
-    } catch (Exception e) {
-      e.printStackTrace();
-      System.out.println("Unable to initialize QFS");
-      System.exit(-1);
     }
+
+    this.localFs = FileSystem.getLocal(conf);
+    this.uri = URI.create(uri.getScheme() + "://"
+        + (uri.getAuthority() == null ? "" : uri.getAuthority()) + "/");
+    this.workingDir = new Path("/user", System.getProperty("user.name"))
+        .makeQualified(this);
+    setConf(conf);
   }
 
+  @Override
   public Path getWorkingDirectory() {
     return workingDir;
   }
 
+  @Override
   public void setWorkingDirectory(Path dir) {
     workingDir = makeAbsolute(dir);
   }
@@ -95,12 +94,13 @@ public class QuantcastFileSystem extends FileSystem {
     return new Path(workingDir, path);
   }
 
-  public boolean mkdirs(Path path, FsPermission permission)
-    throws IOException {
+  @Override
+  public boolean mkdirs(Path path, FsPermission permission) throws IOException {
     return qfsImpl.mkdirs(makeAbsolute(path).toUri().getPath(),
-                          permission.toShort()) == 0;
+        permission.toShort()) == 0;
   }
 
+  @Override
   @Deprecated
   public boolean isDirectory(Path path) throws IOException {
     Path absolute = makeAbsolute(path);
@@ -108,6 +108,7 @@ public class QuantcastFileSystem extends FileSystem {
     return qfsImpl.isDirectory(srep);
   }
 
+  @Override
   @Deprecated
   public boolean isFile(Path path) throws IOException {
     Path absolute = makeAbsolute(path);
@@ -115,56 +116,56 @@ public class QuantcastFileSystem extends FileSystem {
     return qfsImpl.isFile(srep);
   }
 
+  @Override
   public FileStatus[] listStatus(Path path) throws IOException {
     try {
-      final Path absolute = makeAbsolute(path);
+      final Path absolute = makeAbsolute(path).makeQualified(this);
       final FileStatus fs = qfsImpl.stat(absolute);
-      return fs.isDir() ?
-        qfsImpl.readdirplus(absolute) :
-        new FileStatus[] { fs };
-    }
-    catch (FileNotFoundException e) {
+      return fs.isDir() ? qfsImpl.readdirplus(absolute) : new FileStatus[]{fs};
+    } catch (FileNotFoundException e) {
       return null;
     }
   }
 
+  @Override
   public FileStatus getFileStatus(Path path) throws IOException {
     return qfsImpl.stat(makeAbsolute(path));
   }
 
+  @Override
   public FSDataOutputStream append(Path path, int bufferSize,
-                                   Progressable progress) throws IOException {
-    return qfsImpl.append(
-          makeAbsolute(path).toUri().getPath(), (short)-1, bufferSize);
+      Progressable progress) throws IOException {
+    return qfsImpl.append(makeAbsolute(path).toUri().getPath(), (short) -1,
+        bufferSize);
   }
 
+  @Override
   public FSDataOutputStream create(Path file, FsPermission permission,
-                                   boolean overwrite, int bufferSize,
-                                   short replication, long blockSize,
-                                   Progressable progress)
-    throws IOException {
+      boolean overwrite, int bufferSize, short replication, long blockSize,
+      Progressable progress) throws IOException {
     Path parent = file.getParent();
     if (parent != null && !mkdirs(parent)) {
       throw new IOException("Mkdirs failed to create " + parent);
     }
-    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
-      replication, bufferSize, overwrite, permission.toShort());
+    return qfsImpl.create(makeAbsolute(file).toUri().getPath(), replication,
+        bufferSize, overwrite, permission.toShort());
   }
 
+  @Override
   public FSDataOutputStream createNonRecursive(Path file,
-                                   FsPermission permission,
-                                   boolean overwrite, int bufferSize,
-                                   short replication, long blockSize,
-                                   Progressable progress)
-    throws IOException {
-    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
-      replication, bufferSize, overwrite, permission.toShort());
+      FsPermission permission, boolean overwrite, int bufferSize,
+      short replication, long blockSize, Progressable progress)
+      throws IOException {
+    return qfsImpl.create(makeAbsolute(file).toUri().getPath(), replication,
+        bufferSize, overwrite, permission.toShort());
   }
 
+  @Override
   public FSDataInputStream open(Path path, int bufferSize) throws IOException {
     return qfsImpl.open(makeAbsolute(path).toUri().getPath(), bufferSize);
   }
 
+  @Override
   public boolean rename(Path src, Path dst) throws IOException {
     Path absoluteS = makeAbsolute(src);
     String srepS = absoluteS.toUri().getPath();
@@ -175,19 +176,20 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   // recursively delete the directory and its contents
+  @Override
   public boolean delete(Path path, boolean recursive) throws IOException {
     final Path absolute = makeAbsolute(path);
     try {
-      final KfsFileAttr fa   = qfsImpl.fullStat(absolute);
-      final String      srep = absolute.toUri().getPath();
-      if (! fa.isDirectory) {
+      final KfsFileAttr fa = qfsImpl.fullStat(absolute);
+      final String srep = absolute.toUri().getPath();
+      if (!fa.isDirectory) {
         return qfsImpl.remove(srep) == 0;
       }
       if (recursive) {
         return qfsImpl.rmdirs(srep) == 0;
       }
       boolean notEmptyFlag = fa.fileCount > 0 || fa.dirCount > 0;
-      if (! notEmptyFlag && (fa.fileCount < 0 || fa.dirCount < 0)) {
+      if (!notEmptyFlag && (fa.fileCount < 0 || fa.dirCount < 0)) {
         // Backward compatibility: handle the case if sub counts are not
         // available.
         final FileStatus[] dirEntries = qfsImpl.readdirplus(absolute);
@@ -202,17 +204,20 @@ public class QuantcastFileSystem extends FileSystem {
     }
   }
 
+  @Override
   @Deprecated
   public boolean delete(Path path) throws IOException {
     return delete(path, true);
   }
 
+  @Override
   public short getDefaultReplication() {
     return 3;
   }
 
+  @Override
   public boolean setReplication(Path path, short replication)
-    throws IOException {
+      throws IOException {
 
     Path absolute = makeAbsolute(path);
     String srep = absolute.toUri().getPath();
@@ -222,17 +227,18 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   // 64MB is the QFS block size
+  @Override
   public long getDefaultBlockSize() {
     return 1 << 26;
   }
 
   /**
-   * Return null if the file doesn't exist; otherwise, get the
-   * locations of the various chunks of the file file from QFS.
+   * Return null if the file doesn't exist; otherwise, get the locations of the
+   * various chunks of the file file from QFS.
    */
   @Override
-  public BlockLocation[] getFileBlockLocations(FileStatus file,
-    long start, long len) throws IOException {
+  public BlockLocation[] getFileBlockLocations(FileStatus file, long start,
+      long len) throws IOException {
 
     if (file == null) {
       return null;
@@ -246,54 +252,55 @@ public class QuantcastFileSystem extends FileSystem {
     long blockSize = getDefaultBlockSize();
     long length = len;
     long blockStart = start;
-    for(int i=0; i < result.length; ++i) {
-      result[i] = new BlockLocation(
-                      null,
-                      hints[i],
-                      blockStart,
-                      length < blockSize ? length : blockSize);
+    for (int i = 0; i < result.length; ++i) {
+      result[i] = new BlockLocation(null, hints[i], blockStart,
+          length < blockSize ? length : blockSize);
       blockStart += blockSize;
       length -= blockSize;
     }
     return result;
   }
 
+  @Override
   public void copyFromLocalFile(boolean delSrc, Path src, Path dst)
-    throws IOException {
+      throws IOException {
     FileUtil.copy(localFs, src, this, dst, delSrc, getConf());
   }
 
+  @Override
   public void copyToLocalFile(boolean delSrc, Path src, Path dst)
-    throws IOException {
+      throws IOException {
     FileUtil.copy(this, src, localFs, dst, delSrc, getConf());
   }
 
+  @Override
   public Path startLocalOutput(Path fsOutputFile, Path tmpLocalFile)
-    throws IOException {
+      throws IOException {
     return tmpLocalFile;
   }
 
+  @Override
   public void completeLocalOutput(Path fsOutputFile, Path tmpLocalFile)
-    throws IOException {
+      throws IOException {
     moveFromLocalFile(tmpLocalFile, fsOutputFile);
   }
 
+  @Override
   public void setPermission(Path path, FsPermission permission)
-    throws IOException {
+      throws IOException {
     qfsImpl.setPermission(makeAbsolute(path).toUri().getPath(),
-                          permission.toShort());
+        permission.toShort());
   }
 
+  @Override
   public void setOwner(Path path, String username, String groupname)
-    throws IOException {
-    qfsImpl.setOwner(makeAbsolute(path).toUri().getPath(),
-      username, groupname);
+      throws IOException {
+    qfsImpl.setOwner(makeAbsolute(path).toUri().getPath(), username, groupname);
   }
 
   // The following is to get du and dus working without implementing file
   // and directory counts on in the meta server.
-  private class ContentSummaryProxy extends ContentSummary
-  {
+  private class ContentSummaryProxy extends ContentSummary {
     private ContentSummary cs;
     private final Path path;
 
@@ -313,18 +320,22 @@ public class QuantcastFileSystem extends FileSystem {
       return cs;
     }
 
+    @Override
     public long getDirectoryCount() {
       return get().getDirectoryCount();
     }
 
+    @Override
     public long getFileCount() {
       return get().getFileCount();
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
       get().write(out);
     }
 
+    @Override
     public String toString(boolean qOption) {
       return get().toString(qOption);
     }
@@ -334,6 +345,7 @@ public class QuantcastFileSystem extends FileSystem {
     return super.getContentSummary(path);
   }
 
+  @Override
   public ContentSummary getContentSummary(Path path) throws IOException {
     // since QFS stores sizes at each level of the dir tree, we can
     // just stat the dir.
