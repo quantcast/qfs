@@ -70,6 +70,8 @@ private:
     typedef NamesSet MetaAdminGroupNames;
     typedef NamesSet MetaStatsUserNames;
     typedef NamesSet MetaStatsGroupNames;
+    typedef NamesSet DelegationUserNames;
+    typedef NamesSet DelegationGroupNames;
 public:
     Impl(
         bool inUseDefaultsFlag)
@@ -111,6 +113,7 @@ public:
           mPendingRootUsers(),
           mPendingMetaAdminUsers(),
           mPendingMetaStatsUsers(),
+          mPendingDelegationRenewAndCancelUsers(),
           mTmpUidNameMap(),
           mTmpGidNameMap(),
           mTmpNameUidMap(),
@@ -120,6 +123,7 @@ public:
           mTmpRootUsers(),
           mTmpMetaAdminUsers(),
           mTmpMetaStatsUsers(),
+          mTmpDelegationRenewAndCancelUsers(),
           mRootGroups(),
           mRootUserNames(),
           mOmitUserPrefix(),
@@ -130,6 +134,8 @@ public:
           mMetaAdminGroupNames(),
           mMetaStatsUserNames(),
           mMetaStatsGroupNames(),
+          mDelegationUserNames(),
+          mDelegationGroupNames(),
           mParameters(),
           mSetDefaultsFlag(inUseDefaultsFlag)
         {}
@@ -212,14 +218,16 @@ public:
             "disable"), mDisabledFlag ? 1 : 0) != 0;
 
         const NamesSetParamEntry kNameSets[] = {
-            { "excludeUser",            &mUserExcludes        },
-            { "excludeGroup",           &mGroupExcludes       },
-            { "rootGroups",             &mRootGroups          },
-            { "rootUsers",              &mRootUserNames       },
-            { "metaServerAdminUsers",   &mMetaAdminUserNames  },
-            { "metaServerAdminGroups",  &mMetaAdminGroupNames },
-            { "metaServerStatsUsers",   &mMetaStatsUserNames  },
-            { "metaSErverStatsGroups",  &mMetaStatsGroupNames },
+            { "excludeUser",                    &mUserExcludes         },
+            { "excludeGroup",                   &mGroupExcludes        },
+            { "rootGroups",                     &mRootGroups           },
+            { "rootUsers",                      &mRootUserNames        },
+            { "metaServerAdminUsers",           &mMetaAdminUserNames   },
+            { "metaServerAdminGroups",          &mMetaAdminGroupNames  },
+            { "metaServerStatsUsers",           &mMetaStatsUserNames   },
+            { "metaSErverStatsGroups",          &mMetaStatsGroupNames  },
+            { "delegationRenewAndCancelUsers",  &mDelegationUserNames  },
+            { "delegationRenewAndCancelGruops", &mDelegationGroupNames },
             { 0, 0 } // Sentinel
         };
         for (const NamesSetParamEntry* theEPtr = kNameSets;
@@ -309,6 +317,10 @@ private:
         theMetaStatsUserNames.swap(mMetaStatsUserNames);
         MetaStatsGroupNames theMetaStatsGroupNames;
         theMetaStatsGroupNames.swap(mMetaStatsGroupNames);
+        DelegationUserNames theDelegationUserNames;
+        theDelegationUserNames.swap(mDelegationUserNames);
+        DelegationGroupNames theDelegationGroupNames;
+        theDelegationGroupNames.swap(mDelegationGroupNames);
 
         const uint64_t theParametersReadCount = mParametersReadCount;
         bool           theOverflowFlag        = false;
@@ -321,6 +333,8 @@ private:
             theMetaAdminGroupNames,
             theMetaStatsUserNames,
             theMetaStatsGroupNames,
+            theDelegationGroupNames,
+            theDelegationUserNames,
             theOverflowFlag
         );
         if (theError == 0) {
@@ -332,6 +346,8 @@ private:
             mPendingRootUsers.Swap(mTmpRootUsers);
             mPendingMetaAdminUsers.Swap(mTmpMetaAdminUsers);
             mPendingMetaStatsUsers.Swap(mTmpMetaStatsUsers);
+            mPendingDelegationRenewAndCancelUsers.Swap(
+                mTmpDelegationRenewAndCancelUsers);
             mOverflowFlag = theOverflowFlag;
             mUpdateCount++;
         }
@@ -344,6 +360,8 @@ private:
             theMetaAdminGroupNames.swap(mMetaAdminGroupNames);
             theMetaStatsUserNames.swap(mMetaStatsUserNames);
             theMetaStatsGroupNames.swap(mMetaStatsGroupNames);
+            theDelegationGroupNames.swap(mDelegationGroupNames);
+            theDelegationUserNames.swap(mDelegationUserNames);
         }
         return theError;
     }
@@ -382,6 +400,13 @@ private:
 
         mMetaServerAdminUsers.Swap(mPendingMetaAdminUsers);
         mMetaServerStatsUsers.Swap(mPendingMetaStatsUsers);
+
+        UserIdsSet* const theDelegationRenewAndCancelUsersPtr =
+            new UserIdsSet();
+        theDelegationRenewAndCancelUsersPtr->Swap(
+            mPendingDelegationRenewAndCancelUsers);
+        mDelegationRenewAndCancelUsersPtr.reset(
+            theDelegationRenewAndCancelUsersPtr);
     }
     static bool StartsWith(
         const string& inString,
@@ -414,15 +439,17 @@ private:
         return true;
     }
     int UpdateSelf(
-        const UserExcludes&        inUserExcludes,
-        const GroupExcludes&       inGroupExcludes,
-        const RootGroups&          inRootGroups,
-        const RootUserNames&       inRootUserNames,
-        const MetaAdminUserNames&  inMetaAdminUserNames,
-        const MetaAdminGroupNames& inMetaAdminGroupNames,
-        const MetaStatsUserNames&  inMetaStatsUserNames,
-        const MetaStatsGroupNames& inMetaStatsGroupNames,
-        bool&                      outOverflowFlag)
+        const UserExcludes&         inUserExcludes,
+        const GroupExcludes&        inGroupExcludes,
+        const RootGroups&           inRootGroups,
+        const RootUserNames&        inRootUserNames,
+        const MetaAdminUserNames&   inMetaAdminUserNames,
+        const MetaAdminGroupNames&  inMetaAdminGroupNames,
+        const MetaStatsUserNames&   inMetaStatsUserNames,
+        const MetaStatsGroupNames&  inMetaStatsGroupNames,
+        const DelegationUserNames&  inDelegationUserNames,
+        const DelegationGroupNames& inDelegationGroupNames,
+        bool&                       outOverflowFlag)
     {
         kfsUid_t const theMinUserId       = mMinUserId;
         kfsUid_t const theMaxUserId       = mMaxUserId;
@@ -442,6 +469,7 @@ private:
         mTmpRootUsers.Clear();
         mTmpMetaAdminUsers.Clear();
         mTmpMetaStatsUsers.Clear();
+        mTmpDelegationRenewAndCancelUsers.Clear();
 
         int theError = 0;
         if (theDisabledFlag) {
@@ -750,6 +778,13 @@ private:
                 outOverflowFlag)) != 0 && theError == 0) {
             theError = theStatus;
         }
+        if ((theStatus = InsertTmpUsers(
+                inDelegationUserNames.begin(),
+                inDelegationUserNames.end(),
+                mTmpDelegationRenewAndCancelUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
         if ((theStatus = InsertTmpGroupsUsers(
                 inMetaAdminGroupNames.begin(),
                 inMetaAdminGroupNames.end(),
@@ -761,6 +796,13 @@ private:
                 inMetaStatsGroupNames.begin(),
                 inMetaStatsGroupNames.end(),
                 mTmpMetaStatsUsers,
+                outOverflowFlag)) != 0 && theError == 0) {
+            theError = theStatus;
+        }
+        if ((theStatus = InsertTmpGroupsUsers(
+                inDelegationGroupNames.begin(),
+                inDelegationGroupNames.end(),
+                mTmpDelegationRenewAndCancelUsers,
                 outOverflowFlag)) != 0 && theError == 0) {
             theError = theStatus;
         }
@@ -827,6 +869,7 @@ private:
     RootUsers                        mPendingRootUsers;
     UserIdsSet                       mPendingMetaAdminUsers;
     UserIdsSet                       mPendingMetaStatsUsers;
+    UserIdsSet                       mPendingDelegationRenewAndCancelUsers;
     UidNameMap                       mTmpUidNameMap;
     GidNameMap                       mTmpGidNameMap;
     NameUidMap                       mTmpNameUidMap;
@@ -836,6 +879,7 @@ private:
     RootUsers                        mTmpRootUsers;
     UserIdsSet                       mTmpMetaAdminUsers;
     UserIdsSet                       mTmpMetaStatsUsers;
+    UserIdsSet                       mTmpDelegationRenewAndCancelUsers;
     RootGroups                       mRootGroups;
     RootUserNames                    mRootUserNames;
     string                           mOmitUserPrefix;
@@ -846,6 +890,8 @@ private:
     MetaAdminGroupNames              mMetaAdminGroupNames;
     MetaStatsUserNames               mMetaStatsUserNames;
     MetaStatsGroupNames              mMetaStatsGroupNames;
+    DelegationUserNames              mDelegationUserNames;
+    DelegationGroupNames             mDelegationGroupNames;
     Properties                       mParameters;
     bool                             mSetDefaultsFlag;
 
