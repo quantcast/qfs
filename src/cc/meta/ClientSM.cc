@@ -222,7 +222,7 @@ ClientSM::SendResponse(MetaRequest *op)
 /// @retval 0 to indicate successful event handling; -1 otherwise.
 ///
 int
-ClientSM::HandleRequest(int code, void *data)
+ClientSM::HandleRequest(int code, void* data)
 {
     if (code == EVENT_CMD_DONE) {
         assert(data && mPendingOpsCount > 0);
@@ -609,8 +609,7 @@ ClientSM::HandleDelegation(MetaDelegate& op)
             op.statusMsg =
                 "invalid renew request, both token and key are required";
         }
-        const time_t now       = mNetConnection ? mNetConnection->TimeNow() : 0;
-        bool         renewFlag = mDelegationValidFlag;
+        const time_t now = mNetConnection ? mNetConnection->TimeNow() : 0;
         if (op.status == 0 && mDelegationValidFlag) {
             if (renewReqFlag) {
                 op.status    = -EPERM;
@@ -624,10 +623,11 @@ ClientSM::HandleDelegation(MetaDelegate& op)
                 op.validForTime    = mDelegationValidForTime;
                 op.delegationFlags = mDelegationFlags;
             } else {
-                renewFlag = false;
+                op.status    = -EPERM;
+                op.statusMsg = "token re-delegation is not permitted";
             }
         }
-        if (op.status == 0 && ! renewFlag) {
+        if (op.status == 0) {
             if (renewReqFlag) {
                 const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
                 if (! keys) {
@@ -679,13 +679,13 @@ ClientSM::HandleDelegation(MetaDelegate& op)
                         DelegationToken::kAllowDelegationFlag : 0);
             }
         }
-        if (op.status == 0 && ! renewReqFlag) {
+        if (op.status == 0) {
             const uint32_t maxTime =
                 mAuthContext.GetMaxDelegationValidForTime();
             if (maxTime <= 0) {
                 op.status    = -EPERM;
-                op.statusMsg = "delegation is not allowed";
-            } else {
+                op.statusMsg = "configuration does not permit delegation";
+            } else if (! renewReqFlag) {
                 op.validForTime = min(maxTime, op.validForTime);
             }
         }

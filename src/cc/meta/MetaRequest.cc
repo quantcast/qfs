@@ -4661,7 +4661,19 @@ MetaDelegate::response(ostream& os)
         statusMsg = "no valid key exists";
     }
     DelegationToken::TokenSeq tokenSeq = 0;
-    if (status == 0 && authUid != kKfsUserNone && 0 < validForTime &&
+    kfsUid_t                  uid      = authUid;
+    if (status == 0 && ! renewTokenStr.empty()) {
+        validForTime = renewToken.GetValidForSec();
+        if (validForTime <= 0) {
+            status    = -EINVAL;
+            statusMsg = "delegation token is not valid";
+        } else {
+            tokenSeq        = renewToken.GetSeq();
+            issuedTime      = renewToken.GetIssuedTime();
+            delegationFlags = renewToken.GetFlags();
+            uid             = renewToken.GetUid();
+        }
+    } else if (status == 0 && authUid != kKfsUserNone && 0 < validForTime &&
             ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
         status    = -EAGAIN;
         statusMsg = "pseudo random generator failure";
@@ -4678,7 +4690,7 @@ MetaDelegate::response(ostream& os)
     os << "Access: ";
     DelegationToken::WriteTokenAndSessionKey(
         os,
-        authUid,
+        uid,
         tokenSeq,
         keyId,
         issuedTime,
