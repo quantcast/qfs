@@ -2597,11 +2597,13 @@ struct MetaDelegate : public MetaRequest {
 struct MetaDelegateCancel : public MetaRequest {
     DelegationToken token;
     StringBufT<64>  tokenStr;
+    StringBufT<64>  tokenKeyStr;
 
     MetaDelegateCancel()
         : MetaRequest(META_DELEGATE_CANCEL, true),
           token(),
-          tokenStr()
+          tokenStr(),
+          tokenKeyStr()
           {}
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
@@ -2613,6 +2615,7 @@ struct MetaDelegateCancel : public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def("Token", &MetaDelegateCancel::tokenStr)
+        .Def("Key",   &MetaDelegateCancel::tokenKeyStr)
         ;
     }
 };

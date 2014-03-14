@@ -65,8 +65,10 @@ public:
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
-    void CancelToken(const DelegationToken& token,
-        const char* tokenStr, int tokenStrLen);
+    void CancelToken(const DelegationToken& token);
+    void CancelToken(
+        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid, int64_t inSeq,
+        uint16_t inFlags);
     bool IsCanceled(const DelegationToken& token);
     int WriteCanceledTokens(ostream& os);
 private:

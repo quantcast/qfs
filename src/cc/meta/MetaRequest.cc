@@ -5093,7 +5093,7 @@ MetaDelegateCancel::handle()
             "not permitted with delegation" : "permission denied";
     }
     if (status == 0) {
-        gNetDispatch.CancelToken(token, tokenStr.GetPtr(), tokenStr.GetSize());
+        gNetDispatch.CancelToken(token);
     }
 }
 
@@ -5101,6 +5101,14 @@ MetaDelegateCancel::handle()
 MetaDelegateCancel::log(ostream& file) const
 {
     if (status == 0) {
+        file <<
+            "delegatecancel"
+            "/exp/"    << (token.GetIssuedTime() + token.GetValidForSec()) <<
+            "/issued/" << token.GetIssuedTime() <<
+            "/uid/"    << token.GetUid()        <<
+            "/seq/"    << token.GetSeq()        <<
+            "/flags/"  << token.GetFlags()      <<
+        "\n";
         file << "delegateCancel/" << tokenStr << "\n";
         return file.fail() ? -EIO : 0;
     }
@@ -5116,17 +5124,30 @@ MetaDelegateCancel::Validate()
         statusMsg = "no crypto keys";
         return true;
     }
-    char* const kSessionKeyBuffer       = 0;
-    int   const kSessionKeyBufferLength = 0;
-    status = token.Process(
+    CryptoKeys::Key key;
+    if (! key.Parse(tokenKeyStr.GetPtr(), tokenKeyStr.GetSize())) {
+        status    = -EINVAL;
+        statusMsg = "invalid key format";
+        return true;
+    }
+    char keyBuf[CryptoKeys::Key::kLength];
+    const int len = token.Process(
         tokenStr.GetPtr(),
         (int)tokenStr.GetSize(),
         time(0),
         *keys,
-        kSessionKeyBuffer,
-        kSessionKeyBufferLength,
+        keyBuf,
+        CryptoKeys::Key::kLength,
         &statusMsg
     );
+    if (len < 0) {
+        status = len;
+        return true;
+    }
+    if (len != key.GetSize() || memcmp(key.GetPtr(), keyBuf, len) != 0) {
+        status    = -EINVAL;
+        statusMsg = "invalid key";
+    }
     return true;
 }
 

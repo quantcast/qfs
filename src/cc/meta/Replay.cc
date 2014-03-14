@@ -432,7 +432,7 @@ replay_allocate(DETokenizer& c)
     if (ok) {
         // if the log has the mtime, set it up in the FA
         if (gottime) {
-            fa->mtime = mtime;
+            fa->mtime = max(fa->mtime, mtime);
         }
         cid = logChunkId;
         bool stripedFile = false;

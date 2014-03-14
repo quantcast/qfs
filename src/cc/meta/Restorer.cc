@@ -391,25 +391,28 @@ bool
 restore_delegate_cancel(DETokenizer& c)
 {
     c.pop_front();
-    if (c.empty()) {
+    bool    ok     = true;
+    int64_t exp    = -1;
+    int64_t issued = -1;
+    int64_t uid    = 0;
+    int64_t seq    = 0;
+    int64_t flags  = 0;
+    ok = pop_num(exp,    "exp",    c, ok);
+    ok = pop_num(issued, "issued", c, ok);
+    ok = pop_num(uid,    "uid",    c, ok);
+    ok = pop_num(seq,    "seq",    c, ok);
+    ok = pop_num(flags,  "flags",  c, ok);
+    if (! ok || exp <= issued || uid == kKfsUserNone) {
         return false;
     }
-    const DETokenizer::Token& t = c.front();
-    DelegationToken token;
-    const int err = token.FromString(t.ptr, t.len, 0, 0);
-    if (err) {
-        KFS_LOG_STREAM_ERROR << "delegate cancel:"
-            " error: "  << QCUtils::SysError(-err) <<
-        KFS_LOG_EOM;
-    } else {
-        static const time_t now = time(0);
-        const int64_t       exp = token.GetIssuedTime() + token.GetValidForSec();
-        if (now <= exp) {
-            gNetDispatch.CancelToken(token, t.ptr, t.len);
-        }
-    }
-    c.pop_front();
-    return err == 0;
+    gNetDispatch.CancelToken(
+        exp,
+        issued,
+        (kfsUid_t)uid,
+        seq,
+        (uint16_t)flags
+    );
+    return true;
 }
 
 static DiskEntry&

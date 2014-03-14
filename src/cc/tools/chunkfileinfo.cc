@@ -138,7 +138,7 @@ chunkInfo(KfsClient* kfsClient, const vector<string> &args)
             ++it) {
         const kfsChunkId_t chunkId = strtoll(it->c_str(), 0, 10);
         if (chunkId <= 0) {
-            cerr << "skipping invalid file id: " << *it << "\n";
+            cerr << "skipping invalid chunk id: " << *it << "\n";
             continue;
         }
         KfsFileAttr            attr;

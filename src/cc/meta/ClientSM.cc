@@ -581,6 +581,11 @@ bool
 ClientSM::Handle(MetaDelegate& op)
 {
     HandleDelegation(op);
+    if (mPendingOpsCount == 1) {
+        HandleRequestSelf(EVENT_CMD_DONE, &op);
+    } else {
+        HandleRequest(EVENT_CMD_DONE, &op);
+    }
     return true;
 }
 
@@ -602,96 +607,100 @@ ClientSM::Handle(MetaLookup& op)
 void
 ClientSM::HandleDelegation(MetaDelegate& op)
 {
-    if (mAuthUid != kKfsUserNone) {
-        const bool renewReqFlag = ! op.renewTokenStr.empty();
-        if (renewReqFlag == op.renewKeyStr.empty()) {
-            op.status    = -EINVAL;
-            op.statusMsg =
-                "invalid renew request, both token and key are required";
+    if (op.status != 0 || op.authUid == kKfsUserNone) {
+        return;
+    }
+    const bool renewReqFlag = ! op.renewTokenStr.empty();
+    if (renewReqFlag == op.renewKeyStr.empty()) {
+        op.status    = -EINVAL;
+        op.statusMsg = "invalid renew request, both token and key are required";
+        return;
+    }
+    const time_t now = mNetConnection ? mNetConnection->TimeNow() : 0;
+    if (mDelegationValidFlag) {
+        if (renewReqFlag) {
+            op.status    = -EPERM;
+            op.statusMsg = "renew not permitted with delegation";
+            return;
         }
-        const time_t now = mNetConnection ? mNetConnection->TimeNow() : 0;
-        if (op.status == 0 && mDelegationValidFlag) {
-            if (renewReqFlag) {
-                op.status    = -EPERM;
-                op.statusMsg = "renew not permitted with delegation";
-            } else if (mDelegationIssuedTime + mDelegationValidForTime < now) {
-                op.status    = -EPERM;
-                op.statusMsg = "delegation token has expired";
-            } else if ((mDelegationFlags &
-                    DelegationToken::kAllowDelegationFlag) == 0) {
-                op.issuedTime      = mDelegationIssuedTime;
-                op.validForTime    = mDelegationValidForTime;
-                op.delegationFlags = mDelegationFlags;
-            } else {
-                op.status    = -EPERM;
-                op.statusMsg = "token re-delegation is not permitted";
-            }
+        if (mDelegationIssuedTime + mDelegationValidForTime < now) {
+            op.status    = -EPERM;
+            op.statusMsg = "delegation token has expired";
+            return;
         }
-        if (op.status == 0) {
-            if (renewReqFlag) {
-                const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
-                if (! keys) {
-                    op.status    = -EINVAL;
-                    op.statusMsg = "no crypto keys";
-                } else {
-                    CryptoKeys::Key key;
-                    op.status =
-                        key.Parse(
-                            op.renewKeyStr.GetPtr(), op.renewKeyStr.GetSize());
-                    if (op.status != 0) {
-                        op.statusMsg = "invalid renew key format";
-                    } else {
-                        char keyBuf[CryptoKeys::Key::kLength];
-                        const int len = op.renewToken.Process(
-                            op.renewTokenStr.GetPtr(),
-                            op.renewTokenStr.GetSize(),
-                            now,
-                            *keys,
-                            keyBuf,
-                            CryptoKeys::Key::kLength,
-                            &op.statusMsg
-                        );
-                        if (len < 0) {
-                            op.status = len;
-                        } else if (len != key.GetSize() ||
-                                memcmp(key.GetPtr(), keyBuf, len)) {
-                            op.status    = -EINVAL;
-                            op.statusMsg = "invalid renew key";
-                        } else if (mAuthUid != op.renewToken.GetUid() &&
-                                ! mAuthContext.CanRenewAndCancelDelegation(
-                                    mAuthUid)) {
-                            op.status    = -EPERM;
-                            op.statusMsg = "delegation renew not permitted";
-                        } else if (gNetDispatch.IsCanceled(op.renewToken)) {
-                            op.status    = -EPERM;
-                            op.statusMsg = "delegation canceled";
-                        } else {
-                            op.validForTime = op.renewToken.GetValidForSec();
-                        }
-                    }
-                }
-            } else {
-                op.issuedTime      = now;
-                op.delegationFlags =
-                    (mDelegationValidFlag ? mDelegationFlags : 0) |
-                    ((op.allowDelegationFlag &&
-                            mAuthContext.IsReDelegationAllowed()) ?
-                        DelegationToken::kAllowDelegationFlag : 0);
-            }
-        }
-        if (op.status == 0) {
-            const uint32_t maxTime =
-                mAuthContext.GetMaxDelegationValidForTime();
-            if (maxTime <= 0) {
-                op.status    = -EPERM;
-                op.statusMsg = "configuration does not permit delegation";
-            } else if (! renewReqFlag) {
-                op.validForTime = min(maxTime, op.validForTime);
-            }
+        if ((mDelegationFlags &
+                DelegationToken::kAllowDelegationFlag) == 0) {
+            op.issuedTime      = mDelegationIssuedTime;
+            op.validForTime    = mDelegationValidForTime;
+            op.delegationFlags = mDelegationFlags;
+        } else {
+            op.status    = -EPERM;
+            op.statusMsg = "token re-delegation is not permitted";
+            return;
         }
     }
-    op.authUid = mAuthUid;
-    HandleRequestSelf(EVENT_CMD_DONE, &op);
+    if (renewReqFlag) {
+        const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
+        if (! keys) {
+            op.status    = -EINVAL;
+            op.statusMsg = "no crypto keys";
+            return;
+        }
+        CryptoKeys::Key key;
+        if (! key.Parse(
+                op.renewKeyStr.GetPtr(), op.renewKeyStr.GetSize())) {
+            op.status    = -EINVAL;
+            op.statusMsg = "invalid renew key format";
+            return;
+        }
+        char keyBuf[CryptoKeys::Key::kLength];
+        const int len = op.renewToken.Process(
+            op.renewTokenStr.GetPtr(),
+            op.renewTokenStr.GetSize(),
+            now,
+            *keys,
+            keyBuf,
+            CryptoKeys::Key::kLength,
+            &op.statusMsg
+        );
+        if (len < 0) {
+            op.status = len;
+            return;
+        }
+        if (len != key.GetSize() || memcmp(key.GetPtr(), keyBuf, len) != 0) {
+            op.status    = -EINVAL;
+            op.statusMsg = "invalid renew key";
+            return;
+        }
+        if (op.authUid != op.renewToken.GetUid() &&
+                ! mAuthContext.CanRenewAndCancelDelegation(op.authUid)) {
+            op.status    = -EPERM;
+            op.statusMsg = "delegation renew not permitted";
+            return;
+        }
+        if (gNetDispatch.IsCanceled(op.renewToken)) {
+            op.status    = -EPERM;
+            op.statusMsg = "delegation canceled";
+            return;
+        }
+        op.validForTime = op.renewToken.GetValidForSec();
+    } else {
+        op.issuedTime      = now;
+        op.delegationFlags =
+            (mDelegationValidFlag ? mDelegationFlags : 0) |
+            ((op.allowDelegationFlag &&
+                    mAuthContext.IsReDelegationAllowed()) ?
+                DelegationToken::kAllowDelegationFlag : 0);
+    }
+    const uint32_t maxTime = mAuthContext.GetMaxDelegationValidForTime();
+    if (maxTime <= 0) {
+        op.status    = -EPERM;
+        op.statusMsg = "configuration does not permit delegation";
+        return;
+    }
+    if (! renewReqFlag) {
+        op.validForTime = min(maxTime, op.validForTime);
+    }
 }
 
 void

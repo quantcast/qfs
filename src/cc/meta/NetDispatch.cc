@@ -87,36 +87,10 @@ public:
             mNetManagerPtr->RegisterTimeoutHandler(this);
         }
     }
-    void RemoveInvalid(
-        const CryptoKeys* inKeysPtr)
+    void RemoveExpired()
     {
         QCStMutexLocker(mMutexPtr);
-        if (! inKeysPtr) {
-            mTokens.clear();
-            return;
-        }
         Expire();
-        const time_t theNow = mNetManagerPtr ? mNetManagerPtr->Now() : time(0);
-        for (Tokens::iterator theIt = mTokens.begin();
-                theIt != mTokens.end();
-                ) {
-            DelegationToken theToken;
-            string          theMsg;
-            if (theToken.Process(
-                    theIt->second.GetPtr(),
-                    (int)theIt->second.GetSize(),
-                    theNow,
-                    *inKeysPtr,
-                    0, 0, &theMsg) != 0) {
-                KFS_LOG_STREAM_DEBUG <<
-                    "removing canceled token: " << theToken.Show() <<
-                    " : " << theMsg <<
-                KFS_LOG_EOM;
-                mTokens.erase(theIt++);
-            } else {
-                ++theIt;
-            }
-        }
     }
     virtual void Timeout()
         { Expire(); }
@@ -127,7 +101,8 @@ public:
             return;
         }
         const time_t theNow = mNetManagerPtr ? mNetManagerPtr->Now() : time(0);
-        while (theIt != mTokens.end() && theIt->first < theNow) {
+        const time_t kExtra = 5 * 60; // Keep around for 5 more minutes.
+        while (theIt != mTokens.end() && theIt->mExpiration + kExtra < theNow) {
             ++theIt;
         }
         if (mTokens.begin() != theIt) {
@@ -136,24 +111,35 @@ public:
         }
     }
     void Cancel(
-        int64_t     inExpTime,
-        const char* inPtr,
-        int         inLen)
+        const DelegationToken& inToken)
     {
-        if (inLen <= 0) {
+        if (inToken.GetValidForSec() <= 0) {
             return;
         }
         QCStMutexLocker(mMutexPtr);
-        mTokens.insert(Entry(inExpTime, Token(inPtr, inLen)));
+        mTokens.insert(Token(inToken));
     }
-    bool IsCanceled(
-        int64_t     inExpTime,
-        const char* inPtr,
-        int         inLen)
+    void Cancel(
+        int64_t                   inExpiration,
+        int64_t                   inIssued,
+        kfsUid_t                  inUid,
+        DelegationToken::TokenSeq inSeq,
+        uint16_t                  inFlags)
     {
         QCStMutexLocker(mMutexPtr);
-        return (mTokens.find(Entry(inExpTime, Token(inPtr, inLen))) !=
-            mTokens.end());
+        mTokens.insert(Token(
+            inExpiration,
+            inIssued,
+            inUid,
+            inSeq,
+            inFlags
+        ));
+    }
+    bool IsCanceled(
+        const DelegationToken& inToken)
+    {
+        QCStMutexLocker(mMutexPtr);
+        return (mTokens.find(Token(inToken)) != mTokens.end());
     }
     int Write(
         ostream& inStream)
@@ -162,17 +148,77 @@ public:
         for (Tokens::iterator theIt = mTokens.begin();
                 theIt != mTokens.end() && inStream;
                 ++theIt) {
-            inStream << "delegatecancel/" << theIt->second << "\n";
+            inStream <<
+                "delegatecancel"
+                "/exp/"    << theIt->mExpiration <<
+                "/issued/" << theIt->mIssuedTime <<
+                "/uid/"    << theIt->mUid <<
+                "/seq/"    << theIt->mSeq <<
+                "/flags/"  << theIt->mFlags <<
+            "\n";
         }
         return (inStream.fail() ? -EIO : 0);
     }
 private:
-    typedef StringBufT<64>       Token;
-    typedef pair<int64_t, Token> Entry;
+    struct Token
+    {
+    public:
+        Token(
+            const DelegationToken& inToken)
+            : mExpiration(inToken.GetIssuedTime() + inToken.GetValidForSec()),
+              mIssuedTime(inToken.GetIssuedTime()),
+              mUid(inToken.GetUid()),
+              mSeq(inToken.GetSeq()),
+              mFlags(inToken.GetFlags())
+            {}
+        Token(
+            int64_t                   inExpiration,
+            int64_t                   inIssued,
+            kfsUid_t                  inUid,
+            DelegationToken::TokenSeq inSeq,
+            uint16_t                  inFlags)
+            : mExpiration(inExpiration),
+              mIssuedTime(inIssued),
+              mUid(inUid),
+              mSeq(inSeq),
+              mFlags(inFlags)
+            {}
+        bool operator<(
+            const Token& inRhs) const
+        {
+            return (
+            mExpiration < inRhs.mExpiration ||
+                (mExpiration == inRhs.mExpiration &&
+                    (mIssuedTime < inRhs.mIssuedTime ||
+                        (mIssuedTime == inRhs.mIssuedTime &&
+                            (mUid < inRhs.mUid ||
+                                (mUid == inRhs.mUid &&
+                                    (mSeq < inRhs.mSeq ||
+                                        (mSeq == inRhs.mSeq &&
+                                            mFlags < inRhs.mFlags)))))))
+            );
+        }
+        bool operator==(
+            const Token& inRhs) const
+        {
+            return (
+                mExpiration == inRhs.mExpiration &&
+                mIssuedTime == inRhs.mIssuedTime &&
+                mUid        == inRhs.mUid        &&
+                mSeq        == inRhs.mSeq        &&
+                mFlags      == inRhs.mFlags
+            );
+        }
+        int64_t                   mExpiration;
+        int64_t                   mIssuedTime;
+        kfsUid_t                  mUid;
+        DelegationToken::TokenSeq mSeq;
+        uint16_t                  mFlags;
+    };
     typedef set<
-        Entry,
-        std::less<Entry>,
-        StdFastAllocator<Entry>
+        Token,
+        std::less<Token>,
+        StdFastAllocator<Token>
     > Tokens;
     Tokens      mTokens;
     NetManager* mNetManagerPtr;
@@ -181,15 +227,32 @@ private:
 
 void
 NetDispatch::CancelToken(
-    const DelegationToken& token, const char* tokenStr, int tokenStrLen)
+    const DelegationToken& token)
 {
-    //mCanceledTokens.Cancel(expirationTime, token, tokenLen);
+    mCanceledTokens.Cancel(token);
+}
+
+void
+NetDispatch::CancelToken(
+    int64_t  inExpiration,
+    int64_t  inIssued,
+    kfsUid_t inUid,
+    int64_t  inSeq,
+    uint16_t inFlags)
+{
+    mCanceledTokens.Cancel(
+        inExpiration,
+        inIssued,
+        inUid,
+        inSeq,
+        inFlags
+    );
 }
 
 bool
 NetDispatch::IsCanceled(const DelegationToken& token)
 {
-    return false; //mCanceledTokens.IsCanceled(expirationTime, token, tokenLen);
+    return mCanceledTokens.IsCanceled(token);
 }
 
 int
@@ -268,7 +331,7 @@ NetDispatch::Start()
                     mClientThreadsStartCpuAffinity
             ) &&
             mChunkServerFactory.StartAcceptor()) {
-        mCanceledTokens.RemoveInvalid(mCryptoKeys);
+        mCanceledTokens.RemoveExpired();
         // Start event processing.
         QCMutex cancelTokensMutex;
         mCanceledTokens.Set(

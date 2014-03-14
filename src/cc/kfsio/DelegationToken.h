@@ -138,7 +138,7 @@ public:
         Subject*    inSubjectPtr = 0);
     kfsUid_t GetUid() const
         { return mUid; }
-    kfsUid_t GetSeq() const
+    TokenSeq GetSeq() const
         { return mSeq; }
     kfsKeyId_t GetKeyId() const
         { return mKeyId; }
