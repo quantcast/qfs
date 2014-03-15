@@ -70,6 +70,9 @@ public:
         int64_t inExpiration, int64_t inIssued, kfsUid_t inUid, int64_t inSeq,
         uint16_t inFlags);
     bool IsCanceled(const DelegationToken& token);
+    bool IsCanceled(
+        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid, int64_t inSeq,
+        uint16_t inFlags);
     int WriteCanceledTokens(ostream& os);
 private:
     class CanceledTokens;

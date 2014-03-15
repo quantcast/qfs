@@ -49,6 +49,10 @@ using std::string;
 class Properties;
 class AuthContext;
 struct MetaRequest;
+struct MetaAuthenticate;
+struct MetaDelegate;
+struct MetaLookup;
+struct MetaDelegateCancel;
 
 class ClientSM :
     public  KfsCallbackObj,
@@ -94,6 +98,7 @@ public:
     bool Handle(MetaAuthenticate& op);
     bool Handle(MetaDelegate& op);
     bool Handle(MetaLookup& op);
+    bool Handle(MetaDelegateCancel& op);
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;
@@ -115,6 +120,8 @@ private:
     uint16_t                           mDelegationFlags;
     uint32_t                           mDelegationValidForTime;
     int64_t                            mDelegationIssuedTime;
+    int64_t                            mDelegationSeq;
+    time_t                             mNextDelegationTokenCancelCheckTime;
     uint64_t                           mUserAndGroupUpdateCount;
     ClientManager::ClientThread* const mClientThread;
     AuthContext&                       mAuthContext;
@@ -131,6 +138,7 @@ private:
 
     /// Op has finished execution.  Send a response to the client.
     void SendResponse(MetaRequest *op);
+    void CmdDone(MetaRequest& op);
     bool IsOverPendingOpsLimit() const
         { return (mPendingOpsCount >= sMaxPendingOps); }
     void HandleAuthenticate(IOBuffer& iobuf);
@@ -143,6 +151,7 @@ private:
     static int  sMaxWriteBehind;
     static int  sBufCompactionThreshold;
     static int  sOutBufCompactionThreshold;
+    static int  sDelegationCancleCheckTime;
     static int  sClientCount;
     static bool sAuditLoggingFlag;
     static ClientSM* sClientSMPtr[1];

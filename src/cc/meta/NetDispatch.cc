@@ -136,6 +136,22 @@ public:
         ));
     }
     bool IsCanceled(
+        int64_t                   inExpiration,
+        int64_t                   inIssued,
+        kfsUid_t                  inUid,
+        DelegationToken::TokenSeq inSeq,
+        uint16_t                  inFlags)
+    {
+        QCStMutexLocker(mMutexPtr);
+        return (mTokens.find(Token(
+            inExpiration,
+            inIssued,
+            inUid,
+            inSeq,
+            inFlags
+        )) == mTokens.end());
+    }
+    bool IsCanceled(
         const DelegationToken& inToken)
     {
         QCStMutexLocker(mMutexPtr);
@@ -253,6 +269,23 @@ bool
 NetDispatch::IsCanceled(const DelegationToken& token)
 {
     return mCanceledTokens.IsCanceled(token);
+}
+
+bool
+NetDispatch::IsCanceled(
+    int64_t  inExpiration,
+    int64_t  inIssued,
+    kfsUid_t inUid,
+    int64_t  inSeq,
+    uint16_t inFlags)
+{
+    return mCanceledTokens.IsCanceled(
+        inExpiration,
+        inIssued,
+        inUid,
+        inSeq,
+        inFlags
+    );
 }
 
 int

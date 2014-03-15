@@ -4660,24 +4660,6 @@ MetaDelegate::response(ostream& os)
         status    = -EAGAIN;
         statusMsg = "no valid key exists";
     }
-    DelegationToken::TokenSeq tokenSeq = 0;
-    kfsUid_t                  uid      = authUid;
-    if (status == 0 && ! renewTokenStr.empty()) {
-        validForTime = renewToken.GetValidForSec();
-        if (validForTime <= 0) {
-            status    = -EINVAL;
-            statusMsg = "delegation token is not valid";
-        } else {
-            tokenSeq        = renewToken.GetSeq();
-            issuedTime      = renewToken.GetIssuedTime();
-            delegationFlags = renewToken.GetFlags();
-            uid             = renewToken.GetUid();
-        }
-    } else if (status == 0 && authUid != kKfsUserNone && 0 < validForTime &&
-            ! CryptoKeys::PseudoRand(&tokenSeq, sizeof(tokenSeq))) {
-        status    = -EAGAIN;
-        statusMsg = "pseudo random generator failure";
-    }
     if (! OkHeader(this, os)) {
         return;
     }
@@ -4690,7 +4672,7 @@ MetaDelegate::response(ostream& os)
     os << "Access: ";
     DelegationToken::WriteTokenAndSessionKey(
         os,
-        uid,
+        renewTokenStr.empty() ? authUid : renewToken.GetUid(),
         tokenSeq,
         keyId,
         issuedTime,
@@ -5076,22 +5058,15 @@ MetaAuthenticate::Read(IOBuffer& iobuf)
     return (contentLength - contentBufPos);
 }
 
+/* virtual */ bool
+MetaDelegateCancel::dispatch(ClientSM& sm)
+{
+    return sm.Handle(*this);
+}
+
 /* virtual */ void
 MetaDelegateCancel::handle()
 {
-    if (status != 0) {
-        return;
-    }
-    if (authUid == kKfsUserNone ||
-            fromChunkServerFlag ||
-            validDelegationFlag ||
-            (authUid != token.GetUid() &&
-                ! gLayoutManager.GetClientAuthContext(
-                    ).CanRenewAndCancelDelegation(authUid))) {
-        status    = -EPERM;
-        statusMsg = validDelegationFlag ?
-            "not permitted with delegation" : "permission denied";
-    }
     if (status == 0) {
         gNetDispatch.CancelToken(token);
     }

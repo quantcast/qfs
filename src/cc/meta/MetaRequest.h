@@ -2562,6 +2562,7 @@ struct MetaDelegate : public MetaRequest {
     uint16_t        delegationFlags;
     uint32_t        validForTime;
     uint64_t        issuedTime;
+    int64_t         tokenSeq;
     bool            allowDelegationFlag;
     StringBufT<64>  renewTokenStr;
     StringBufT<64>  renewKeyStr;
@@ -2572,6 +2573,7 @@ struct MetaDelegate : public MetaRequest {
           delegationFlags(0),
           validForTime(-1),
           issuedTime(0),
+          tokenSeq(0),
           renewTokenStr(),
           renewKeyStr(),
           renewToken()
@@ -2605,6 +2607,7 @@ struct MetaDelegateCancel : public MetaRequest {
           tokenStr(),
           tokenKeyStr()
           {}
+    virtual bool dispatch(ClientSM& sm);
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "delegate cancel " <<  token.Show()); }
