@@ -673,6 +673,14 @@ public:
             string&   outToken,
             string&   outKey,
             string*   outErrMsg);
+    int RenewDelegation(
+        string&   ioToken,
+        string&   ioKey,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec);
+    int CancelDelegation(
+        const string& token,
+        const string& key);
     static int LoadProperties(
         const char*  metaServerHost,
         int          metaServerPort,

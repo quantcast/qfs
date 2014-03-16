@@ -381,7 +381,7 @@ KfsClient::GetReplication(const char* pathname,
         minChunkReplication, maxChunkReplication);
 }
 
-    int
+int
 KfsClient::CreateDelegationToken(
     bool      allowDelegationFlag,
     uint32_t  maxValidForSec,
@@ -404,6 +404,25 @@ KfsClient::CreateDelegationToken(
         outKey,
         outErrMsg
     );
+}
+
+int
+KfsClient::RenewDelegation(
+    string&   ioToken,
+    string&   ioKey,
+    uint64_t& outIssuedTime,
+    uint32_t& outTokenValidForSec)
+{
+    return mImpl->RenewDelegation(ioToken, ioKey,
+        outIssuedTime, outTokenValidForSec);
+}
+
+int
+KfsClient::CancelDelegation(
+    const string& token,
+    const string& key)
+{
+    return mImpl->CancelDelegation(token, key);
 }
 
 int
@@ -5104,6 +5123,24 @@ KfsClientImpl::CreateDelegationToken(
     outDelegationAllowedFlag =
         (token.GetFlags() & DelegationToken::kAllowDelegationFlag) != 0;
     return 0;
+}
+
+int
+KfsClientImpl::RenewDelegation(
+    string&   ioToken,
+    string&   ioKey,
+    uint64_t& outIssuedTime,
+    uint32_t& outTokenValidForSec)
+{
+    return -EFAULT;
+}
+
+int
+KfsClientImpl::CancelDelegation(
+    const string& token,
+    const string& key)
+{
+    return -EFAULT;
 }
 
 int
