@@ -619,10 +619,13 @@ public:
         string&   ioToken,
         string&   ioKey,
         uint64_t& outIssuedTime,
-        uint32_t& outTokenValidForSec);
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string*   outErrMsg);
     int CancelDelegation(
         const string& token,
-        const string& key);
+        const string& key,
+        string*       outErrMsg);
 
 private:
      /// Maximum # of files a client can have open minus 1.

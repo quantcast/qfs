@@ -100,6 +100,7 @@ enum KfsOp_t {
     CMD_CHOWN,
     CMD_AUTHENTICATE,
     CMD_DELEGATE,
+    CMD_DELEGATE_CANCEL,
     // Stats and admin ops.
     CMD_CHUNK_PING,
     CMD_CHUNK_STATS,
@@ -1515,6 +1516,8 @@ struct DelegateOp : public KfsOp {
     uint32_t validForTime;
     uint32_t tokenValidForTime;
     uint64_t issuedTime;
+    string   renewTokenStr;
+    string   renewKeyStr;
     string   access;
 
     DelegateOp(kfsSeq_t s)
@@ -1524,6 +1527,8 @@ struct DelegateOp : public KfsOp {
           validForTime(0),
           tokenValidForTime(0),
           issuedTime(0),
+          renewTokenStr(),
+          renewKeyStr(),
           access()
         {}
     virtual void Request(ostream& os);
@@ -1533,6 +1538,7 @@ struct DelegateOp : public KfsOp {
             " delegation bit: " << allowDelegationFlag <<
             " time: "           << requestedValidForTime <<
             " / "               << validForTime <<
+            " renew: "          << renewTokenStr <<
             " status: "         << status
         ;
         return os;

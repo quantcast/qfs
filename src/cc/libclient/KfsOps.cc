@@ -1366,6 +1366,12 @@ DelegateOp::Request(ostream& os)
     if (allowDelegationFlag) {
         os << "Allow-delegation: 1\r\n";
     }
+    if (! renewTokenStr.empty()) {
+        os << "Renew-token: " << renewTokenStr << "\r\n";
+    }
+    if (! renewKeyStr.empty()) {
+        os << "Renew-key: " << renewKeyStr << "\r\n";
+    }
     os << "\r\n";
 }
 

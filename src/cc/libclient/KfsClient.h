@@ -677,10 +677,13 @@ public:
         string&   ioToken,
         string&   ioKey,
         uint64_t& outIssuedTime,
-        uint32_t& outTokenValidForSec);
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string*   outErrMsg);
     int CancelDelegation(
         const string& token,
-        const string& key);
+        const string& key,
+        string*       outErrMsg);
     static int LoadProperties(
         const char*  metaServerHost,
         int          metaServerPort,

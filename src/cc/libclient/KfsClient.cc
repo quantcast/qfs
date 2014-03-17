@@ -411,18 +411,22 @@ KfsClient::RenewDelegation(
     string&   ioToken,
     string&   ioKey,
     uint64_t& outIssuedTime,
-    uint32_t& outTokenValidForSec)
+    uint32_t& outTokenValidForSec,
+    uint32_t& outDelegationValidForSec,
+    string*   outErrMsg)
 {
     return mImpl->RenewDelegation(ioToken, ioKey,
-        outIssuedTime, outTokenValidForSec);
+        outIssuedTime, outTokenValidForSec, outDelegationValidForSec,
+        outErrMsg);
 }
 
 int
 KfsClient::CancelDelegation(
     const string& token,
-    const string& key)
+    const string& key,
+    string*       outErrMsg)
 {
-    return mImpl->CancelDelegation(token, key);
+    return mImpl->CancelDelegation(token, key, outErrMsg);
 }
 
 int
@@ -5052,24 +5056,14 @@ KfsClientImpl::GetReplication(const char* pathname,
     return 0;
 }
 
-    int
-KfsClientImpl::CreateDelegationToken(
-    bool      allowDelegationFlag,
-    uint32_t  maxValidForSec,
-    bool&     outDelegationAllowedFlag,
-    uint64_t& outIssuedTime,
-    uint32_t& outTokenValidForSec,
-    uint32_t& outDelegationValidForSec,
-    string&   outToken,
-    string&   outKey,
-    string*   outErrMsg)
+static inline int
+HandleDelegationResponse(
+    DelegateOp&      delegateOp,
+    DelegationToken& token,
+    string&          outToken,
+    string&          outKey,
+    string*          outErrMsg)
 {
-    QCStMutexLocker l(mMutex);
-
-    DelegateOp delegateOp(0);
-    delegateOp.allowDelegationFlag   = allowDelegationFlag;
-    delegateOp.requestedValidForTime = maxValidForSec;
-    DoMetaOpWithRetry(&delegateOp);
     if (delegateOp.status != 0) {
         KFS_LOG_STREAM_ERROR << delegateOp.Show() << ": " <<
             ErrorCodeToStr(delegateOp.status) <<
@@ -5102,7 +5096,6 @@ KfsClientImpl::CreateDelegationToken(
         }
         (i == 0 ? outToken : outKey).assign(b, p - b);
     }
-    DelegationToken token;
     if (outToken.empty() || outKey.empty() ||
             ! token.FromString(outToken, 0, 0, 0)) {
         const char* const msg = "invalid response access format";
@@ -5117,12 +5110,38 @@ KfsClientImpl::CreateDelegationToken(
     KFS_LOG_STREAM_DEBUG <<
         "token: " << DelegationToken::ShowToken(token) <<
     KFS_LOG_EOM;
-    outDelegationValidForSec = delegateOp.validForTime;
-    outTokenValidForSec      = delegateOp.tokenValidForTime;
-    outIssuedTime            = delegateOp.issuedTime;
-    outDelegationAllowedFlag =
-        (token.GetFlags() & DelegationToken::kAllowDelegationFlag) != 0;
     return 0;
+}
+
+    int
+KfsClientImpl::CreateDelegationToken(
+    bool      allowDelegationFlag,
+    uint32_t  maxValidForSec,
+    bool&     outDelegationAllowedFlag,
+    uint64_t& outIssuedTime,
+    uint32_t& outTokenValidForSec,
+    uint32_t& outDelegationValidForSec,
+    string&   outToken,
+    string&   outKey,
+    string*   outErrMsg)
+{
+    QCStMutexLocker l(mMutex);
+
+    DelegateOp delegateOp(0);
+    delegateOp.allowDelegationFlag   = allowDelegationFlag;
+    delegateOp.requestedValidForTime = maxValidForSec;
+    DoMetaOpWithRetry(&delegateOp);
+    DelegationToken token;
+    const int status = HandleDelegationResponse(
+        delegateOp, token, outToken, outKey, outErrMsg);
+    if (status == 0) {
+        outDelegationValidForSec = delegateOp.validForTime;
+        outTokenValidForSec      = delegateOp.tokenValidForTime;
+        outIssuedTime            = delegateOp.issuedTime;
+        outDelegationAllowedFlag =
+            (token.GetFlags() & DelegationToken::kAllowDelegationFlag) != 0;
+    }
+    return status;
 }
 
 int
@@ -5130,16 +5149,33 @@ KfsClientImpl::RenewDelegation(
     string&   ioToken,
     string&   ioKey,
     uint64_t& outIssuedTime,
-    uint32_t& outTokenValidForSec)
+    uint32_t& outTokenValidForSec,
+    uint32_t& outDelegationValidForSec,
+    string*   outErrMsg)
 {
-    return -EFAULT;
+    QCStMutexLocker l(mMutex);
+
+    DelegateOp delegateOp(0);
+    delegateOp.renewTokenStr = ioToken;
+    delegateOp.renewKeyStr   = ioKey;
+    DoMetaOpWithRetry(&delegateOp);
+    DelegationToken token;
+    const int status = HandleDelegationResponse(
+        delegateOp, token, ioToken, ioKey, outErrMsg);
+    if (status == 0) {
+        outDelegationValidForSec = delegateOp.validForTime;
+        outTokenValidForSec      = delegateOp.tokenValidForTime;
+        outIssuedTime            = delegateOp.issuedTime;
+    }
+    return status;
 }
 
 int
 KfsClientImpl::CancelDelegation(
     const string& token,
-    const string& key)
-{
+    const string& key,
+    string*       outErrMsg)
+{    
     return -EFAULT;
 }
 
