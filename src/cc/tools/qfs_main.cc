@@ -3310,7 +3310,7 @@ private:
                     break;
                 }
             }
-            if (theErr == 0 && ! theNRd != 0) {
+            if (theErr == 0 && theNRd != 0) {
                 theErr = theNRd;
             }
             const int theRet = theFs.Close(theFd);
