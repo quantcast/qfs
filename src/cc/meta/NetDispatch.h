@@ -31,6 +31,7 @@
 
 #include "ClientManager.h"
 #include "ChunkServerFactory.h"
+#include "kfsio/DelegationToken.h"
 
 #include <ostream>
 
@@ -42,7 +43,6 @@ using std::ostream;
 class Properties;
 class IOBuffer;
 class CryptoKeys;
-class DelegationToken;
 
 class NetDispatch
 {
@@ -67,12 +67,12 @@ public:
     inline void PrepareToFork();
     void CancelToken(const DelegationToken& token);
     void CancelToken(
-        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid, int64_t inSeq,
-        uint16_t inFlags);
+        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,
+        DelegationToken::TokenSeq inSeq, uint16_t inFlags);
     bool IsCanceled(const DelegationToken& token);
     bool IsCanceled(
-        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid, int64_t inSeq,
-        uint16_t inFlags);
+        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,
+        DelegationToken::TokenSeq inSeq, uint16_t inFlags);
     int WriteCanceledTokens(ostream& os);
 private:
     class CanceledTokens;

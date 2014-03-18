@@ -250,11 +250,11 @@ NetDispatch::CancelToken(
 
 void
 NetDispatch::CancelToken(
-    int64_t  inExpiration,
-    int64_t  inIssued,
-    kfsUid_t inUid,
-    int64_t  inSeq,
-    uint16_t inFlags)
+    int64_t                   inExpiration,
+    int64_t                   inIssued,
+    kfsUid_t                  inUid,
+    DelegationToken::TokenSeq inSeq,
+    uint16_t                  inFlags)
 {
     mCanceledTokens.Cancel(
         inExpiration,
@@ -273,11 +273,11 @@ NetDispatch::IsCanceled(const DelegationToken& token)
 
 bool
 NetDispatch::IsCanceled(
-    int64_t  inExpiration,
-    int64_t  inIssued,
-    kfsUid_t inUid,
-    int64_t  inSeq,
-    uint16_t inFlags)
+    int64_t                   inExpiration,
+    int64_t                   inIssued,
+    kfsUid_t                  inUid,
+    DelegationToken::TokenSeq inSeq,
+    uint16_t                  inFlags)
 {
     return mCanceledTokens.IsCanceled(
         inExpiration,

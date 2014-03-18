@@ -38,6 +38,7 @@
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/DelegationToken.h"
 #include "qcdio/QCDLList.h"
 
 #include <string>
@@ -120,7 +121,7 @@ private:
     uint16_t                           mDelegationFlags;
     uint32_t                           mDelegationValidForTime;
     int64_t                            mDelegationIssuedTime;
-    int64_t                            mDelegationSeq;
+    DelegationToken::TokenSeq          mDelegationSeq;
     time_t                             mNextDelegationTokenCancelCheckTime;
     uint64_t                           mUserAndGroupUpdateCount;
     ClientManager::ClientThread* const mClientThread;
