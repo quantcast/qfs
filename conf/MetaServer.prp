@@ -477,6 +477,78 @@ metaServer.msgLogWriter.logLevel = INFO
 
 #-------------------------------------------------------------------------------
 
+# -------------------- Chunk servers authentication. ---------------------------
+#
+# Authentication is off by default. Both X509 (ssl) and Kerberos authentication
+# methods can be enabled at the same time. Chunk server can negotiate
+# authentication method. If both Kerberos and X509 are configured on the chunk
+# server and meta server then Kerberos authentication is used.
+# Chunk and meta servers perform mutual authentication if authentication is
+# enabled.
+#
+# Please see OpenSSL documentation for detailed description about X509
+# authentication configuration.
+# src/test-scripts/qfsmkcerts.sh might be used as a simple example how to create
+# and use certificate authority, and X509 certificates.
+
+# ================= X509 authentication ========================================
+# Meta server's X509 certificate file in PEM format.
+# metaServer.CSAuthentication.X509.X509PemFile =
+
+# Meta server's private key file. The key must be in clear text, i.e. encrypted
+# private keys are not supported.
+# metaServer.CSAuthentication.X509.PKeyPemFile =
+
+# Certificate authorities file. Used for both chunk server certificate
+# validation and to create certificate chain with meta server's X509
+# certificate.
+# metaServer.CSAuthentication.X509.CAFile =
+
+# Certificate authorities directory can be used in addition to CAFile.
+# For more detailed information please see SSL_CTX_load_verify_locations manual
+# page. CAFile/CADir corresponds to CAfile/CApath in the man page.
+# metaServer.CSAuthentication.X509.CADir =
+
+# If set (the default) verify peer certificate, and declare error if peer does
+# not preset certificate.
+# metaServer.CSAuthentication.X509.verifyPeer = 1
+
+# OpenSSL cipher configuration.
+# metaServer.CSAuthentication.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
+# ================= Kerberos authentication =====================================
+# service/host@realm
+
+# Meta server's Kerberos credential [service/host@realm] service name part.
+# metaServer.CSAuthentication.krb5.service =
+
+# Meta server's Kerberos credential [service/host@realm] host name part.
+# metaServer.CSAuthentication.krb5.host =
+
+# metaServer.CSAuthentication.krb5. =
+
+
+# Chunk server's X509 common names and/or kerberos names, "black" ("revocation")
+# list. If chunk server's authenticated name matches one of the name in this
+# list the authentication will fail. The names in the list are must be
+# separated by spaces. Names with white space symbols are not supported.
+# metaServer.CSAuthentication.blackList =
+
+# Chunk server's X509 common names and/or kerberos names, "white list". Unless
+# the list is empty the chunk server's authenticated name must match one of the
+# names in the list.
+# metaServer.CSAuthentication.whiteList =
+
+#-------------------------------------------------------------------------------
+
+# -------------------- Client servers authentication. --------------------------
+# Client X509 and kerberos authentication parameters only differ from chunk
+# server's authentication parameters by metaServer.clientAuthentication prefix.
+# For parameters description please refer to preceding Chunk servers
+# authentication section.
+
+#-------------------------------------------------------------------------------
+
 # ===================== Chunk servers configuration parameters. ================
 # Configuration parameters in the meta server configuration file take precedence
 # over the chunk server configuration files.

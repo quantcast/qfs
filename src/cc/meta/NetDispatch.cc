@@ -63,7 +63,7 @@ using KFS::libkfsio::globals;
 
 NetDispatch gNetDispatch;
 
-class NetDispatch::CanceledTokens : ITimeout
+class NetDispatch::CanceledTokens : public ITimeout
 {
 public:
     CanceledTokens()
@@ -149,7 +149,7 @@ public:
             inUid,
             inSeq,
             inFlags
-        )) == mTokens.end());
+        )) != mTokens.end());
     }
     bool IsCanceled(
         const DelegationToken& inToken)
