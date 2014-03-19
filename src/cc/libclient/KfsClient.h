@@ -676,6 +676,7 @@ public:
     int RenewDelegation(
         string&   ioToken,
         string&   ioKey,
+        bool&     outDelegationAllowedFlag,
         uint64_t& outIssuedTime,
         uint32_t& outTokenValidForSec,
         uint32_t& outDelegationValidForSec,

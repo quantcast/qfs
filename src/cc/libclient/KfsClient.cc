@@ -410,12 +410,13 @@ int
 KfsClient::RenewDelegation(
     string&   ioToken,
     string&   ioKey,
+    bool&     outDelegationAllowedFlag,
     uint64_t& outIssuedTime,
     uint32_t& outTokenValidForSec,
     uint32_t& outDelegationValidForSec,
     string*   outErrMsg)
 {
-    return mImpl->RenewDelegation(ioToken, ioKey,
+    return mImpl->RenewDelegation(ioToken, ioKey, outDelegationAllowedFlag,
         outIssuedTime, outTokenValidForSec, outDelegationValidForSec,
         outErrMsg);
 }
@@ -5148,6 +5149,7 @@ int
 KfsClientImpl::RenewDelegation(
     string&   ioToken,
     string&   ioKey,
+    bool&     outDelegationAllowedFlag,
     uint64_t& outIssuedTime,
     uint32_t& outTokenValidForSec,
     uint32_t& outDelegationValidForSec,
@@ -5166,6 +5168,8 @@ KfsClientImpl::RenewDelegation(
         outDelegationValidForSec = delegateOp.validForTime;
         outTokenValidForSec      = delegateOp.tokenValidForTime;
         outIssuedTime            = delegateOp.issuedTime;
+        outDelegationAllowedFlag =
+            (token.GetFlags() & DelegationToken::kAllowDelegationFlag) != 0;
     }
     return status;
 }
