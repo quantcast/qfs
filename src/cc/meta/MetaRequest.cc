@@ -5084,7 +5084,6 @@ MetaDelegateCancel::log(ostream& file) const
             "/seq/"    << token.GetSeq()        <<
             "/flags/"  << token.GetFlags()      <<
         "\n";
-        file << "delegateCancel/" << tokenStr << "\n";
         return file.fail() ? -EIO : 0;
     }
     return 0;

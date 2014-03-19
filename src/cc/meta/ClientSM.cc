@@ -778,6 +778,11 @@ ClientSM::HandleDelegation(MetaDelegate& op)
         return;
     }
     // Issue new token.
+    if (! CryptoKeys::PseudoRand(&op.tokenSeq, sizeof(op.tokenSeq))) {
+        op.status    = -EFAULT;
+        op.statusMsg = "pseudo random generator failure";
+        return;
+    }
     op.issuedTime      = now;
     op.delegationFlags = (op.allowDelegationFlag &&
         mAuthContext.IsReDelegationAllowed()) ?

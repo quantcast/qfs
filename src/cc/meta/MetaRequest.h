@@ -2559,14 +2559,14 @@ struct MetaAuthenticate : public MetaRequest {
 };
 
 struct MetaDelegate : public MetaRequest {
-    uint16_t        delegationFlags;
-    uint32_t        validForTime;
-    uint64_t        issuedTime;
-    int64_t         tokenSeq;
-    bool            allowDelegationFlag;
-    StringBufT<64>  renewTokenStr;
-    StringBufT<64>  renewKeyStr;
-    DelegationToken renewToken;
+    uint16_t                  delegationFlags;
+    uint32_t                  validForTime;
+    uint64_t                  issuedTime;
+    DelegationToken::TokenSeq tokenSeq;
+    bool                      allowDelegationFlag;
+    StringBufT<64>            renewTokenStr;
+    StringBufT<64>            renewKeyStr;
+    DelegationToken           renewToken;
 
     MetaDelegate()
         : MetaRequest(META_DELEGATE, false),
