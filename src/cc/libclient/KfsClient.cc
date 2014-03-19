@@ -5176,7 +5176,16 @@ KfsClientImpl::CancelDelegation(
     const string& key,
     string*       outErrMsg)
 {    
-    return -EFAULT;
+    QCStMutexLocker l(mMutex);
+
+    DelegateCancelOp delegateCancelOp(0);
+    delegateCancelOp.tokenStr = token;
+    delegateCancelOp.keyStr   = key;
+    DoMetaOpWithRetry(&delegateCancelOp);
+    if (delegateCancelOp.status <= 0 && outErrMsg) {
+        *outErrMsg = delegateCancelOp.statusMsg;
+    }
+    return delegateCancelOp.status;
 }
 
 int

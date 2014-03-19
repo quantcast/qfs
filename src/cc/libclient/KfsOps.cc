@@ -1385,6 +1385,20 @@ DelegateOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
+DelegateCancelOp::Request(ostream& os)
+{
+    os <<
+        "DELEGATE_CANCEL\r\n" << ReqHeaders(*this);
+    if (! tokenStr.empty()) {
+        os << "Token: " << tokenStr << "\r\n";
+    }
+    if (! keyStr.empty()) {
+        os << "Key: " << keyStr << "\r\n";
+    }
+    os << "\r\n";
+}
+
+void
 MetaPingOp::Request(ostream& os)
 {
     os <<

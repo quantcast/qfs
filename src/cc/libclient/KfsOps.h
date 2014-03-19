@@ -1545,6 +1545,25 @@ struct DelegateOp : public KfsOp {
     }
 };
 
+struct DelegateCancelOp : public KfsOp {
+    string tokenStr;
+    string keyStr;
+
+    DelegateCancelOp(kfsSeq_t s)
+        : KfsOp (CMD_DELEGATE_CANCEL, s),
+          tokenStr(),
+          keyStr()
+        {}
+    virtual void Request(ostream& os);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "delegate cancel:"
+            " token: "  << tokenStr <<
+            " status: " << status
+        ;
+        return os;
+    }
+};
+
 typedef KfsOp KfsMonOp;
 
 struct MetaPingOp : public KfsMonOp {
