@@ -208,6 +208,12 @@ final public class KfsAccess
     String createDelegationToken(long ptr, boolean allowDelegationFlag,
         long validTime, KfsDelegation result);
 
+    private final static native
+    String renewDelegationToken(long ptr, KfsDelegation token);
+
+    private final static native
+    String cancelDelegationToken(long ptr, KfsDelegation token);
+
     static {
         try {
             System.loadLibrary("qfs_access");
@@ -859,6 +865,27 @@ final public class KfsAccess
             throw new OutOfMemoryError();
         }
         return result;
+    }
+
+    public void kfs_renewDelegationToken(
+        KfsDelegation token) throws IOException
+    {
+        final String error = renewDelegationToken(cPtr, token);
+        if (error != null) {
+            throw new IOException(error);
+        }
+        if (token.key == null || token.token == null) {
+            throw new OutOfMemoryError();
+        }
+    }
+
+    public void kfs_cancelDelegationToken(
+        KfsDelegation token) throws IOException
+    {
+        final String error = cancelDelegationToken(cPtr, token);
+        if (error != null) {
+            throw new IOException(error);
+        }
     }
 
     protected void finalize() throws Throwable

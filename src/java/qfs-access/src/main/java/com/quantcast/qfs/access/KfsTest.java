@@ -56,6 +56,7 @@ public class KfsTest
                     kfsAccess.kfs_setEUserAndEGroup(euid, egid, null));
             }
 
+            KfsDelegation dtoken = null;
             try {
                 final boolean       allowDelegationFlag   = true;
                 final long          delegationValidForSec = 24 * 60 * 60;
@@ -69,12 +70,60 @@ public class KfsTest
                 System.out.println("valid:       " + result.delegationValidForSec);
                 System.out.println("token:       " + result.token);
                 System.out.println("key:         " + result.key);
+                dtoken = result;
             } catch (IOException ex) {
                 String msg = ex.getMessage();
                 if (msg == null) {
                     msg = "null";
                 }
                 System.out.println("create delegation token error: " + msg);
+            }
+
+            if (dtoken != null) {
+                try {
+                    kfsAccess.kfs_renewDelegationToken(dtoken);
+                    System.out.println("renew delegation token: ");
+                    System.out.println("delegation:  " + dtoken.delegationAllowedFlag);
+                    System.out.println("issued:      " + dtoken.issuedTime);
+                    System.out.println("token valid: " + dtoken.tokenValidForSec);
+                    System.out.println("valid:       " + dtoken.delegationValidForSec);
+                    System.out.println("token:       " + dtoken.token);
+                    System.out.println("key:         " + dtoken.key);
+                } catch (IOException ex) {
+                    String msg = ex.getMessage();
+                    if (msg == null) {
+                        msg = "null";
+                    }
+                    System.out.println("renew delegation token error: " + msg);
+                    throw ex;
+                }
+                try {
+                    KfsDelegation ctoken = new KfsDelegation();
+                    ctoken.token = dtoken.token;
+                    ctoken.key   = dtoken.key;
+                    kfsAccess.kfs_cancelDelegationToken(ctoken);
+                } catch (IOException ex) {
+                    String msg = ex.getMessage();
+                    if (msg == null) {
+                        msg = "null";
+                    }
+                    System.out.println("cancel delegation token error: " + msg);
+                    throw ex;
+                }
+                try {
+                    kfsAccess.kfs_renewDelegationToken(dtoken);
+                } catch (IOException ex) {
+                    String msg = ex.getMessage();
+                    if (msg == null) {
+                        msg = "null";
+                    }
+                    System.out.println("renew canceled delegation token error: " + msg);
+                    dtoken = null;
+                }
+                if (dtoken != null) {
+                    System.out.println("Token renew after cancellation succeeded");
+                    System.exit(1);
+                }
             }
 
             if (! kfsAccess.kfs_exists(basedir)) {
