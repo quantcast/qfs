@@ -483,7 +483,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # methods can be enabled at the same time. Chunk server can negotiate
 # authentication method. If both Kerberos and X509 are configured on the chunk
 # server and meta server then Kerberos authentication is used.
-# Chunk and meta servers perform mutual authentication if authentication is
+# Chunk and meta servers perform mutual authentication with authentication
 # enabled.
 #
 # Please see OpenSSL documentation for detailed description about X509
@@ -517,16 +517,33 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.CSAuthentication.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 
 # ================= Kerberos authentication =====================================
-# service/host@realm
+# Kerberos principal: service/host@realm
 
-# Meta server's Kerberos credential [service/host@realm] service name part.
+# Meta server's Kerberos principal [service/host@realm] service name part.
 # metaServer.CSAuthentication.krb5.service =
 
-# Meta server's Kerberos credential [service/host@realm] host name part.
+# Meta server's Kerberos principal [service/host@realm] host name part.
 # metaServer.CSAuthentication.krb5.host =
 
-# metaServer.CSAuthentication.krb5. =
+# Kerberos keytab file with the key(s) that corresponds to the meta server's
+# principal.
+# metaServer.CSAuthentication.krb5.keytab =
 
+# Copy keytab into memory keytab, if supported by the kerberos versions, to
+# improve performance, and avoid disk access.
+# Default is on.
+# metaServer.CSAuthentication.krb5.copyToMemKeytab = 1
+
+# Client's (chunk server) principal "unparse" mode.
+# Can be set to space separated combination of the following modes:
+# short noRealm display
+# The result of the principal conversion to string is used as client's
+# (chunk server's) "authenticated name".
+# The default is fullly qualified principal name. For chunk servers it
+# would typically to be in the form of service/host@realm.
+# metaServer.CSAuthentication.princUnparseMode =
+
+# ================= Chunk servers's "black" and "white" lists ==================
 
 # Chunk server's X509 common names and/or kerberos names, "black" ("revocation")
 # list. If chunk server's authenticated name matches one of the name in this
@@ -541,11 +558,163 @@ metaServer.msgLogWriter.logLevel = INFO
 
 #-------------------------------------------------------------------------------
 
-# -------------------- Client servers authentication. --------------------------
+# -------------------- User / "client" authentication. -------------------------
 # Client X509 and kerberos authentication parameters only differ from chunk
 # server's authentication parameters by metaServer.clientAuthentication prefix.
-# For parameters description please refer to preceding Chunk servers
-# authentication section.
+# The defaults are identical to chunk server authentication.
+
+# ================= X509 authentication ========================================
+# Meta server's X509 certificate file in PEM format.
+# metaServer.clientAuthentication.X509.X509PemFile =
+
+# Meta server's private key file. The key must be in clear text, i.e. encrypted
+# private keys are not supported.
+# metaServer.clientAuthentication.X509.PKeyPemFile =
+
+# Certificate authorities file. Used for both chunk server certificate
+# validation and to create certificate chain with meta server's X509
+# certificate.
+# metaServer.clientAuthentication.X509.CAFile =
+
+# Certificate authorities directory can be used in addition to CAFile.
+# For more detailed information please see SSL_CTX_load_verify_locations manual
+# page. CAFile/CADir corresponds to CAfile/CApath in the man page.
+# metaServer.clientAuthentication.X509.CADir =
+
+# If set (the default) verify peer certificate, and declare error if peer does
+# not preset certificate.
+# metaServer.clientAuthentication.X509.verifyPeer = 1
+
+# OpenSSL cipher configuration for X509 authentication method.
+# metaServer.clientAuthentication.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
+# OpenSSL cipher configuration for TLS-PSK authentication method. This method
+# is used with delegation and with Kerberos authentication.
+# metaServer.clientAuthentication.psk.tls.cipher = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
+
+# ================= Kerberos authentication =====================================
+# Kerberos principal: service/host@realm
+
+# Meta server's Kerberos principal [service/host@realm] service name part.
+# metaServer.clientAuthentication.krb5.service =
+
+# Meta server's Kerberos principal [service/host@realm] host name part.
+# metaServer.clientAuthentication.krb5.host =
+
+# Kerberos keytab file with the key(s) that corresponds to the meta server's
+# principal.
+# metaServer.clientAuthentication.krb5.keytab =
+
+# Copy keytab into memory keytab, if supported by the kerberos versions, to
+# improve performance, and avoid disk access.
+# Default is on.
+# metaServer.clientAuthentication.krb5.copyToMemKeytab = 1
+
+# Client's principal "unparse" mode.
+# Can be set to space separated combination of the following modes:
+# short noRealm display
+# The result of the principal conversion to string is used as client's
+# (client's) "authenticated name".
+# The default is fully qualified principal name. For users this typically would
+# it would be in the form user@realm
+# The resulting authentication name should match password database, the meta
+# server host uses. The recommended value is "short', discard realm if it
+# matches the default the kerberos configuration's default realm.
+# metaServer.clientAuthentication.princUnparseMode =
+
+# ================= Client's "black" and "white" lists ==========================
+
+# Client's (user) X509 common names and/or kerberos names, "black"
+# ("revocation") list. If client's authenticated name matches one of the name in
+# this list the authentication will fail. The names in the list are must be
+# separated by spaces. Names with white space symbols are not supported.
+# metaServer.clientAuthentication.blackList =
+
+# Client's X509 common names and/or kerberos names, "white list". Unless
+# the list is empty the client's authenticated name must match one of the
+# names in the list.
+# metaServer.clientAuthentication.whiteList =
+
+#-------------------------------------------------------------------------------
+
+# -------------------- User and group configuration. ---------------------------
+# User and group database parameters.
+# The meta server host's user and group configuration used for QFS file system
+# when QFS authentication is enabled. The user and group database is used to map
+# "authenticated names" obtained with Kerberos and X509 authentication methods
+# to user and group ids, and establish group membership. Authenticated names
+# that have no corresponding user id, or user id that have no corresponding
+# "user name" are considered invalid, and as the result the authentication
+# fails.
+# With authentication enabled QFS client library does not use host's local user
+# and group database, the meta server's host database is effectively used by all
+# QFS clients.
+
+
+# Minimal user id to include in user name to id mapping.
+# Default is 0.
+# metaServer.userAndGroup.minUserId = 0
+
+# Maximum user id to include in user name to id mapping.
+# Default is 4294967295.
+# metaServer.userAndGroup.maxUserId = 4294967295
+
+# Minimal group id to include in group name to group id mapping.
+# Default is 0.
+# metaServer.userAndGroup.minGroupId = 0
+
+# Maximum group id to include in group name to group id mapping.
+# Default is 4294967295.
+# metaServer.userAndGroup.maxGroupId = 4294967295
+
+# Omit entries with user names if it has one of the specified prefixes.
+# metaServer.userAndGroup.omitUserPrefix =
+
+# Omit entries with group names if it has one of the specified prefixes.
+# Default is empty list.
+# metaServer.userAndGroup.omitGroupPrefix =
+
+# Update / re-read user and group to id mappings with every N seconds.
+# Default is 315360000.
+# metaServer.userAndGroup.updatePeriodSec = 315360000
+
+# Disable user and group initial loading and/or reloading.
+# Default is enabled.
+# metaServer.userAndGroup.disable = 0
+
+# Space separated list of the user names to exclude when loading or updating
+# user database.
+# Default is empty list.
+# metaServer.userAndGroup.excludeUser =
+
+# Space separated list of the group names to exclude when loading or updating
+# group database.
+# Default is empty list.
+# metaServer.userAndGroup.excludeGroup =
+
+# Space separated list of the group names, where members of these groups
+# have effective user id 0 -- root.
+# Default is empty list.
+# metaServer.userAndGroup.rootGroups =
+
+# Space separated list of the user names, where such users have effective user
+# id 0 -- root.
+# User with name root and id 0 always added, even if it isn't presnet or
+# excluded from the user database.
+# Default is empty list.
+# metaServer.userAndGroup.rootUsers =
+
+# Space separated list of the user names, where such users are allowed to
+# perform meta server administrative task: fsck
+# Default is empty list.
+# metaServer.userAndGroup.metaServerAdminUsers =
+
+# metaServer.userAndGroup.metaServerAdminGroups =
+# metaServer.userAndGroup.metaServerStatsUsers =
+# metaServer.userAndGroup.metaSErverStatsGroups =
+# metaServer.userAndGroup.delegationRenewAndCancelUsers =
+# metaServer.userAndGroup.delegationRenewAndCancelGruops =
+
 
 #-------------------------------------------------------------------------------
 
