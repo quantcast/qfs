@@ -642,14 +642,18 @@ metaServer.msgLogWriter.logLevel = INFO
 # The meta server host's user and group configuration used for QFS file system
 # when QFS authentication is enabled. The user and group database is used to map
 # "authenticated names" obtained with Kerberos and X509 authentication methods
-# to user and group ids, and establish group membership. Authenticated names
+# to user and group ids, and to establish group membership. Authenticated names
 # that have no corresponding user id, or user id that have no corresponding
 # "user name" are considered invalid, and as the result the authentication
 # fails.
+# User and group id with value 4294967295 have special treatment. Access always
+# denied for users with such id.
+# Root user entry with name "root" and id 0 added if not present in the the user
+# database, unless expliclity excluded with metaServer.userAndGroup.excludeUser
+# parameter.
 # With authentication enabled QFS client library does not use host's local user
 # and group database, the meta server's host database is effectively used by all
 # QFS clients.
-
 
 # Minimal user id to include in user name to id mapping.
 # Default is 0.
@@ -675,6 +679,8 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.userAndGroup.omitGroupPrefix =
 
 # Update / re-read user and group to id mappings with every N seconds.
+# By default period updates are effectively disabled. The parameter reload with
+# HUP signal can be used to trigger user and group information update.
 # Default is 315360000.
 # metaServer.userAndGroup.updatePeriodSec = 315360000
 
@@ -704,15 +710,42 @@ metaServer.msgLogWriter.logLevel = INFO
 # Default is empty list.
 # metaServer.userAndGroup.rootUsers =
 
-# Space separated list of the user names, where such users are allowed to
-# perform meta server administrative task: fsck
-# Default is empty list.
-# metaServer.userAndGroup.metaServerAdminUsers =
+# Space separated list of the user names. Specified users are allowed to
+# perform meta server administrative requests: fsck, chunk server retire,
+# toggle worm, recompute directory sizes, dump to chunk to servers map,
+# dump replication candidates, check chunk leases, list open files.
+# Default is root user.
+# metaServer.userAndGroup.metaServerAdminUsers = root
 
+# Space separated list of group names. Members of these groups are allowed to
+# perform meta server aministration described in the previous parameter's
+# section.
+# Default is empty list.
 # metaServer.userAndGroup.metaServerAdminGroups =
-# metaServer.userAndGroup.metaServerStatsUsers =
-# metaServer.userAndGroup.metaSErverStatsGroups =
+
+# Space separated list of the user names. Specified users are allowed to
+# perform meta server status inquiry requests: ping, up servers, meta stats, get
+# chunk servers counters, get chunk directory counters, get meta server request
+# counters.
+# Default is root user.
+# metaServer.userAndGroup.metaServerStatsUsers = root
+
+# Space separated list of group names. Members of these groups are allowed to
+# perform meta server status requests described in the previous parameter's
+# section.
+# Default is empty list.
+# metaServer.userAndGroup.metaServerStatsGroups =
+
+# Space separated list of the user names. Specified users are allowed to
+# renew and cancel delegation tokens that belong to other users. No delegation
+# can be used, to perform delegation renew or cancel, i.e. Kerberos or X509
+# authentication methods must be used.
+# Default is empty list.
 # metaServer.userAndGroup.delegationRenewAndCancelUsers =
+
+# Space separated list of group names. Members of these groups are allowed to
+# renew and cancel delegation tokens that belong to other users, as described
+# in the previous parameter's section.
 # metaServer.userAndGroup.delegationRenewAndCancelGruops =
 
 
