@@ -225,7 +225,7 @@ public:
             { "metaServerAdminUsers",           &mMetaAdminUserNames   },
             { "metaServerAdminGroups",          &mMetaAdminGroupNames  },
             { "metaServerStatsUsers",           &mMetaStatsUserNames   },
-            { "metaSErverStatsGroups",          &mMetaStatsGroupNames  },
+            { "metaServerStatsGroups",          &mMetaStatsGroupNames  },
             { "delegationRenewAndCancelUsers",  &mDelegationUserNames  },
             { "delegationRenewAndCancelGruops", &mDelegationGroupNames },
             { 0, 0 } // Sentinel
