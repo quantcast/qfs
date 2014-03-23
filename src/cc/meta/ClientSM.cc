@@ -483,6 +483,22 @@ ClientSM::HandleRequestSelf(int code, void *data)
     return 0;
 }
 
+void
+ClientSM::CloseConnection(const char* msg /* = 0 */)
+{
+    if (! mNetConnection) {
+        return;
+    }
+    if (msg) {
+        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+            " closing connection: " << msg <<
+        KFS_LOG_EOM;
+    }
+    mNetConnection->GetInBuffer().Clear();
+    mNetConnection->Close();
+    HandleRequest(EVENT_NET_ERROR, 0);
+}
+
 ///
 /// We have a command in a buffer. So, parse out the command and
 /// execute it if possible.
@@ -540,9 +556,8 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         if (mDelegationValidFlag && mNetConnection) {
              const time_t now = mNetConnection->TimeNow();
             if (mDelegationValidForTime + mDelegationIssuedTime < now) {
-                op->status    = -EPERM;
-                op->statusMsg = "delegation token has expired";
-                CmdDone(*op);
+                delete op;
+                CloseConnection("delegation token has expired");
                 return;
             }
             if (mNextDelegationTokenCancelCheckTime < now) {
@@ -554,9 +569,8 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                         mAuthUid,
                         mDelegationSeq,
                         mDelegationFlags)) {
-                    op->status    = -EPERM;
-                    op->statusMsg = "delegation canceled";
-                    CmdDone(*op);
+                    delete op;
+                    CloseConnection("delegation canceled");
                     return;
                 }
             }
@@ -574,10 +588,8 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                     "user id: " << mAuthUid <<
                     " is no longer valid, clossing connection" <<
                 KFS_LOG_EOM;
-                iobuf.Clear();
                 delete op;
-                mNetConnection->Close();
-                HandleRequest(EVENT_NET_ERROR, 0);
+                CloseConnection();
                 return;
             }
             op->authUid = mAuthUid;

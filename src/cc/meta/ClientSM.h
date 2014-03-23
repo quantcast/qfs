@@ -144,6 +144,7 @@ private:
         { return (mPendingOpsCount >= sMaxPendingOps); }
     void HandleAuthenticate(IOBuffer& iobuf);
     void HandleDelegation(MetaDelegate& op);
+    void CloseConnection(const char* msg = 0);
 
     static int  sMaxPendingOps;
     static int  sMaxPendingBytes;
