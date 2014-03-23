@@ -326,12 +326,14 @@ ClientSM::HandleRequest(int code, void* data)
         if (! mCurOp) {
             int hdrsz;
             if (cmdLen > 0 && ! gotCmd) {
-                CLIENT_SM_LOG_STREAM_ERROR <<
-                    " failed to parse request, closing connection;"
-                    " header size: "    << cmdLen <<
-                    " read available: " << iobuf.BytesConsumable() <<
-                KFS_LOG_EOM;
-                gClientManager.BadRequest();
+                if (mNetConnection->IsGood()) {
+                    CLIENT_SM_LOG_STREAM_ERROR <<
+                        " failed to parse request, closing connection;"
+                        " header size: "    << cmdLen <<
+                        " read available: " << iobuf.BytesConsumable() <<
+                    KFS_LOG_EOM;
+                    gClientManager.BadRequest();
+                }
             } else if ((hdrsz = iobuf.BytesConsumable()) > MAX_RPC_HEADER_LEN) {
                 CLIENT_SM_LOG_STREAM_ERROR <<
                     " exceeded max request header size: " << hdrsz <<
@@ -809,6 +811,19 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         CLIENT_SM_LOG_STREAM_DEBUG <<
             "+seq: " << op->seq << " " << op->Show() <<
         KFS_LOG_EOM;
+        if (IsAccessEnforced() &&
+                mDelegationToken.GetIssuedTime() +
+                    mDelegationToken.GetValidForSec() <
+                globalNetManager().Now()) {
+            CLIENT_SM_LOG_STREAM_ERROR <<
+                "delegation token has expired, closing connection " <<
+                " request: " << op->seq <<
+                " " << op->Show() <<
+            KFS_LOG_EOM;
+            iobuf.Consume(cmdLen);
+            mNetConnection->Close();
+            return false;
+        }
         op->CheckAccess(*this);
     }
     iobuf.Consume(cmdLen);
