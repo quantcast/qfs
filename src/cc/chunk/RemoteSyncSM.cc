@@ -342,21 +342,35 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         mNetConnection->Close();
         mNetConnection.reset();
     }
+    op->seq = NextSeqnum();
     const time_t now                         = globalNetManager().Now();
     const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
-    if (mNetConnection && ! mSessionId.empty() && mDispatchedOps.empty() &&
-            (mSessionExpirationTime + kSessionUpdateResolutionSec <
-                mCurrentSessionExpirationTime ||
-                mSessionExpirationTime <= now) &&
-            now < mCurrentSessionExpirationTime) {
-        KFS_LOG_STREAM_INFO <<
-            "peer: " << mLocation <<
-            " session is about to expiere, forcing re-connect" <<
-        KFS_LOG_EOM;
-        mNetConnection->Close();
-        mNetConnection.reset();
+    if (mNetConnection && ! mSessionId.empty()) {
+        if (mDispatchedOps.empty() &&
+                (mCurrentSessionExpirationTime + kSessionUpdateResolutionSec <
+                    mSessionExpirationTime ||
+                        mCurrentSessionExpirationTime <= now) &&
+                now < mSessionExpirationTime) {
+            KFS_LOG_STREAM_INFO <<
+                "peer: " << mLocation <<
+                " session is about to expiere, forcing re-connect" <<
+            KFS_LOG_EOM;
+            mNetConnection->Close();
+            mNetConnection.reset();
+            mCurrentSessionExpirationTime = mSessionExpirationTime;
+        }
+        if (mCurrentSessionExpirationTime <= now) {
+            KFS_LOG_STREAM_INFO <<
+                "peer: " << mLocation <<
+                " current session has expired" <<
+                " ops in flight: " << mDispatchedOps.size() <<
+            KFS_LOG_EOM;
+            op->status    = -EPERM;
+            op->statusMsg = "current session is no longer valid";
+            SubmitOpResponse(op);
+            return;
+        }
     }
-    op->seq = NextSeqnum();
     if (! mNetConnection && ! Connect()) {
         KFS_LOG_STREAM_INFO <<
             "connection to peer " << mLocation <<
