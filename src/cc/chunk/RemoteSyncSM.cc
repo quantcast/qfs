@@ -235,6 +235,7 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mSessionKey(),
       mShutdownSslFlag(false),
       mSslShutdownInProgressFlag(false),
+      mCurrentSessionExpirationTime(0),
       mSessionExpirationTime(0),
       mIStream(),
       mWOStream(),
@@ -252,8 +253,9 @@ RemoteSyncSM::NextSeqnum()
 
 RemoteSyncSM::~RemoteSyncSM()
 {
-    if (mNetConnection)
+    if (mNetConnection) {
         mNetConnection->Close();
+    }
     assert(mDispatchedOps.size() == 0);
 }
 
@@ -292,6 +294,7 @@ RemoteSyncSM::Connect()
 
     SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
 
+    mCurrentSessionExpirationTime = mSessionExpirationTime;
     mNetConnection.reset(new NetConnection(sock, this));
     mNetConnection->SetDoingNonblockingConnect();
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
@@ -333,8 +336,22 @@ RemoteSyncSM::Enqueue(KfsOp* op)
 {
     if (mNetConnection && ! mNetConnection->IsGood()) {
         KFS_LOG_STREAM_INFO <<
-            "Lost connection to peer " << mLocation <<
+            "lost connection to peer " << mLocation <<
             " failed; failing ops" <<
+        KFS_LOG_EOM;
+        mNetConnection->Close();
+        mNetConnection.reset();
+    }
+    const time_t now                         = globalNetManager().Now();
+    const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
+    if (mNetConnection && ! mSessionId.empty() && mDispatchedOps.empty() &&
+            (mSessionExpirationTime + kSessionUpdateResolutionSec <
+                mCurrentSessionExpirationTime ||
+                mSessionExpirationTime <= now) &&
+            now < mCurrentSessionExpirationTime) {
+        KFS_LOG_STREAM_INFO <<
+            "peer: " << mLocation <<
+            " session is about to expiere, forcing re-connect" <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         mNetConnection.reset();
@@ -352,7 +369,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         return;
     }
     if (mDispatchedOps.empty()) {
-        mLastRecvTime = globalNetManager().Now();
+        mLastRecvTime = now;
     }
     KFS_LOG_STREAM_DEBUG <<
         "forwarding to " << mLocation <<
@@ -704,8 +721,11 @@ RemoteSyncSM::UpdateSession(
     }
     const time_t expTime = GetExpirationTime(
         sessionTokenPtr, sessionTokenLen, err, errMsg);
-    if (err || expTime < mSessionExpirationTime) {
+    if (err) {
         return false;
+    }
+    if (expTime < mSessionExpirationTime) {
+        return true;
     }
     CryptoKeys::Key key;
     if (writeMasterFlag) {

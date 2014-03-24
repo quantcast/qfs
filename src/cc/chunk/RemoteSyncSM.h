@@ -135,6 +135,7 @@ private:
     CryptoKeys::Key    mSessionKey;
     bool               mShutdownSslFlag;
     bool               mSslShutdownInProgressFlag;
+    time_t             mCurrentSessionExpirationTime;
     time_t             mSessionExpirationTime;
     IOBuffer::IStream  mIStream;
     IOBuffer::WOStream mWOStream;
