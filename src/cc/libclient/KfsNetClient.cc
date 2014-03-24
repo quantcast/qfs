@@ -30,6 +30,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/ClientAuthContext.h"
+#include "kfsio/DelegationToken.h"
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
@@ -135,6 +136,8 @@ public:
                 (inLogPrefixPtr + string(" ")) : string()),
           mNetManager(inNetManager),
           mAuthContextPtr(inAuthContextPtr),
+          mSessionExpirationTime(-1),
+          mKeyExpirationTime(-1),
           mKeyId(),
           mKeyData(),
           mSessionKeyId(),
@@ -197,14 +200,7 @@ public:
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,
         int         inKeyDataSize)
-    {
-        mKeyId = inKeyIdPtr ? inKeyIdPtr : "";
-        if (inKeyDataPtr && inKeyDataSize > 0) {
-            mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
-        } else {
-            mKeyData.clear();
-        }
-    }
+        { SetKey(inKeyIdPtr, strlen(inKeyIdPtr), inKeyDataPtr, inKeyDataSize); }
     void SetKey(
         const char* inKeyIdPtr,
         int         inKeyIdLen,
@@ -218,6 +214,11 @@ public:
         }
         if (inKeyDataPtr && inKeyDataSize > 0) {
             mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
+            if (mKeyId.empty()) {
+                mKeyExpirationTime = Now() + 365 * 24 * 60 * 60;
+            } else if (mKeyId != mSessionKeyId) {
+                mKeyExpirationTime = GetTokenExpirationTime(mKeyId);
+            }
         } else {
             mKeyData.clear();
         }
@@ -331,6 +332,18 @@ public:
         OpOwner*  inOwnerPtr,
         IOBuffer* inBufferPtr = 0)
     {
+        const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
+        if (! mSessionKeyId.empty() &&
+                mPendingOpQueue.empty() && IsConnected() &&
+                (mSessionExpirationTime + kSessionUpdateResolutionSec <
+                    mKeyExpirationTime ||
+                    mSessionExpirationTime < Now()) &&
+                ! mKeyId.empty() && Now() < mKeyExpirationTime) {
+            KFS_LOG_STREAM_INFO << mLogPrefix <<
+                " updating session by forcing re-connect" <<
+            KFS_LOG_EOM;
+            ResetConnection();
+        }
         // Ensure that the op is in the queue before attempting to re-establish
         // connection, as later can fail other ops, and invoke the op cancel.
         // The op has to be in the queue in order for cancel to work.
@@ -795,6 +808,8 @@ private:
     const string       mLogPrefix;
     NetManager&        mNetManager;
     ClientAuthContext* mAuthContextPtr;
+    int64_t            mSessionExpirationTime;
+    int64_t            mKeyExpirationTime;
     string             mKeyId;
     string             mKeyData;
     string             mSessionKeyId;
@@ -1190,8 +1205,9 @@ private:
                     return;
                 }
             }
-            mSessionKeyId   = mKeyId;
-            mSessionKeyData = mKeyData;
+            mSessionExpirationTime = mKeyExpirationTime;
+            mSessionKeyId          = mKeyId;
+            mSessionKeyData        = mKeyData;
         } else {
             mSessionKeyId   = string();
             mSessionKeyData = mSessionKeyId;
@@ -1511,6 +1527,21 @@ private:
         if (! mPendingOpQueue.empty()) {
             EnsureConnected();
         }
+    }
+    int64_t GetTokenExpirationTime(
+            const string& inKeyId) const
+    {
+        DelegationToken theToken;
+        if (! theToken.FromString(inKeyId.data(), inKeyId.size(), 0, 0)) {
+            const int64_t kDefaultSessionExpirationTimeSec = 10 * 24 * 60 * 60;
+            KFS_LOG_STREAM_INFO << mLogPrefix <<
+                "failed to parse delegation token,"
+                " setting expriation time to " <<
+                    kDefaultSessionExpirationTimeSec << " sec." <<
+            KFS_LOG_EOM;
+            return Now() + kDefaultSessionExpirationTimeSec;
+        }
+        return theToken.GetIssuedTime() + theToken.GetValidForSec();
     }
     friend class StImplRef;
 private:
