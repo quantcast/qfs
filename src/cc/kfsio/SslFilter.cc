@@ -40,9 +40,10 @@
 #include <openssl/engine.h>
 
 #include <errno.h>
-
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
 #include <string>
 #include <algorithm>
 
@@ -287,7 +288,6 @@ public:
           mAuthName(),
           mServerPskPtr(inServerPskPtr),
           mVerifyPeerPtr(inVerifyPeerPtr),
-          mSessionExpirationTime(-1),
           mReadPendingFlag(inReadPendingFlag),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
@@ -297,7 +297,6 @@ public:
           mSslErrorFlag(false),
           mShutdownCompleteFlag(false),
           mVerifyOrGetPskInvokedFlag(false),
-          mSessionTimeoutSetFlag(false),
           mRenegotiationPendingFlag(false)
     {
         if (! mSslPtr) {
@@ -539,6 +538,27 @@ public:
         const int theErr = SslRetToErr(theRet);
         return (mSslEofFlag ? 0 : theErr);
     }
+    virtual time_t GetSessionExpirationTime() const
+    {
+        if (! mSslPtr || mError != 0 || ! SSL_is_init_finished(mSslPtr)) {
+            return (time(0) - 1);
+        }
+        SSL_SESSION* const theCurSessionPtr = SSL_get_session(mSslPtr);
+        if (! theCurSessionPtr) {
+            return (time(0) - 1);
+        }
+        return ((time_t)SSL_SESSION_get_time(theCurSessionPtr) +
+                SSL_SESSION_get_timeout(theCurSessionPtr));
+    }
+    virtual bool RenewSession()
+    {
+        if (! mSslPtr || mError != 0) {
+            return false;
+        }
+        mRenegotiationPendingFlag =
+            mRenegotiationPendingFlag || SSL_renegotiate(mSslPtr) != 0;
+        return mRenegotiationPendingFlag;
+    }
     bool IsHandshakeDone() const
         { return (mSslPtr && mError == 0 && SSL_is_init_finished(mSslPtr)); }
     string GetAuthName() const
@@ -581,7 +601,6 @@ private:
     string            mPeerName;
     ServerPsk* const  mServerPskPtr;
     VerifyPeer* const mVerifyPeerPtr;
-    int64_t           mSessionExpirationTime;
     bool&             mReadPendingFlag;
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
@@ -591,7 +610,6 @@ private:
     bool              mSslErrorFlag:1;
     bool              mShutdownCompleteFlag:1;
     bool              mVerifyOrGetPskInvokedFlag:1;
-    bool              mSessionTimeoutSetFlag:1;
     bool              mRenegotiationPendingFlag:1;
 
     struct OpenSslInit
@@ -826,38 +844,7 @@ private:
             if (! VerifyPeerIfNeeded()) {
                 return -EINVAL;
             }
-            if (mServerFlag) {
-                if (mSessionTimeoutSetFlag) {
-                    if (! mRenegotiationPendingFlag &&
-                            mSessionExpirationTime < inConnection.TimeNow()) {
-                        if (SSL_renegotiate(mSslPtr)) {
-                            KFS_LOG_STREAM_DEBUG <<
-                                inConnection.GetPeerName() << "=>" <<
-                                inConnection.GetSockName() <<
-                                ": initiated ssl re-negotiation" <<
-                            KFS_LOG_EOM;
-                            mRenegotiationPendingFlag = true;
-                        } else {
-                            KFS_LOG_STREAM_ERROR <<
-                                inConnection.GetPeerName() << "=>" <<
-                                inConnection.GetSockName() <<
-                                ": failed to initiate ssl re-negotiation," <<
-                                " renegotiation is disabled" <<
-                            KFS_LOG_EOM;
-                            return -EINVAL;
-                        }
-                    }
-                } else {
-                    SSL_SESSION* const theCurSessionPtr =
-                        SSL_get_session(mSslPtr);
-                    if (theCurSessionPtr) {
-                        mSessionExpirationTime =
-                            SSL_SESSION_get_time(theCurSessionPtr) +
-                            SSL_SESSION_get_timeout(theCurSessionPtr);
-                        mSessionTimeoutSetFlag = true;
-                    }
-                }
-            } else if (! mSessionStoredFlag) {
+            if (! mServerFlag && ! mSessionStoredFlag) {
                 StoreClientSession();
             }
             return 0;
@@ -865,7 +852,6 @@ private:
         if (mRenegotiationPendingFlag) {
             mVerifyOrGetPskInvokedFlag = false;
         }
-        mSessionTimeoutSetFlag    = false;
         mRenegotiationPendingFlag = false;
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
