@@ -361,7 +361,7 @@ public:
         }
         mReadPendingFlag = false;
         char theByte;
-        int  theRet = DoHandshake(inConnection);
+        int  theRet = DoHandshake();
         if (theRet) {
             return theRet;
         }
@@ -393,7 +393,7 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        int theRet = DoHandshake(inConnection);
+        int theRet = DoHandshake();
         if (theRet) {
             return theRet;
         }
@@ -837,8 +837,7 @@ private:
         const int  kCurCertDepth    = 0;
         return VeifyPeer(kPreverifyOkFlag, kCurCertDepth, thePeerName);
     }
-    int DoHandshake(
-        const NetConnection& inConnection)
+    int DoHandshake()
     {
         if (SSL_is_init_finished(mSslPtr)) {
             if (! VerifyPeerIfNeeded()) {
