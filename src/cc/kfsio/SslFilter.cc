@@ -2,7 +2,7 @@
 // $Id$
 //
 // Created 2013/06/24
-// Author:  Mike Ovsiannikov 
+// Author:  Mike Ovsiannikov
 //
 // Copyright 2013 Quantcast Corp.
 //
@@ -287,6 +287,7 @@ public:
           mAuthName(),
           mServerPskPtr(inServerPskPtr),
           mVerifyPeerPtr(inVerifyPeerPtr),
+          mSessionExpirationTime(-1),
           mReadPendingFlag(inReadPendingFlag),
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
@@ -294,7 +295,10 @@ public:
           mServerFlag(false),
           mSslEofFlag(false),
           mSslErrorFlag(false),
-          mShutdownCompleteFlag(false)
+          mShutdownCompleteFlag(false),
+          mVerifyOrGetPskInvokedFlag(false),
+          mSessionTimeoutSetFlag(false),
+          mRenegotiationPendingFlag(false)
     {
         if (! mSslPtr) {
             return;
@@ -358,7 +362,7 @@ public:
         }
         mReadPendingFlag = false;
         char theByte;
-        int  theRet = DoHandshake();
+        int  theRet = DoHandshake(inConnection);
         if (theRet) {
             return theRet;
         }
@@ -390,7 +394,7 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        int theRet = DoHandshake();
+        int theRet = DoHandshake(inConnection);
         if (theRet) {
             return theRet;
         }
@@ -577,6 +581,7 @@ private:
     string            mPeerName;
     ServerPsk* const  mServerPskPtr;
     VerifyPeer* const mVerifyPeerPtr;
+    int64_t           mSessionExpirationTime;
     bool&             mReadPendingFlag;
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
@@ -586,6 +591,8 @@ private:
     bool              mSslErrorFlag:1;
     bool              mShutdownCompleteFlag:1;
     bool              mVerifyOrGetPskInvokedFlag:1;
+    bool              mSessionTimeoutSetFlag:1;
+    bool              mRenegotiationPendingFlag:1;
 
     struct OpenSslInit
     {
@@ -642,7 +649,7 @@ private:
         }
         QCMutex& theMutex = sOpenSslInitPtr->mLocksPtr[inType];
         if (! (((inMode & CRYPTO_LOCK) != 0) ?
-                theMutex.Lock() : 
+                theMutex.Lock() :
                 theMutex.Unlock())) {
             sOpenSslInitPtr->mErrFileNamePtr = inFileNamePtr;
             sOpenSslInitPtr->mErrLine        = inLine;
@@ -812,17 +819,54 @@ private:
         const int  kCurCertDepth    = 0;
         return VeifyPeer(kPreverifyOkFlag, kCurCertDepth, thePeerName);
     }
-    int DoHandshake()
+    int DoHandshake(
+        const NetConnection& inConnection)
     {
         if (SSL_is_init_finished(mSslPtr)) {
             if (! VerifyPeerIfNeeded()) {
                 return -EINVAL;
             }
-            if (! mSessionStoredFlag) {
+            if (mServerFlag) {
+                if (mSessionTimeoutSetFlag) {
+                    if (! mRenegotiationPendingFlag &&
+                            mSessionExpirationTime < inConnection.TimeNow()) {
+                        if (SSL_renegotiate(mSslPtr)) {
+                            KFS_LOG_STREAM_DEBUG <<
+                                inConnection.GetPeerName() << "=>" <<
+                                inConnection.GetSockName() <<
+                                ": initiated ssl re-negotiation" <<
+                            KFS_LOG_EOM;
+                            mRenegotiationPendingFlag = true;
+                        } else {
+                            KFS_LOG_STREAM_ERROR <<
+                                inConnection.GetPeerName() << "=>" <<
+                                inConnection.GetSockName() <<
+                                ": failed to initiate ssl re-negotiation," <<
+                                " renegotiation is disabled" <<
+                            KFS_LOG_EOM;
+                            return -EINVAL;
+                        }
+                    }
+                } else {
+                    SSL_SESSION* const theCurSessionPtr =
+                        SSL_get_session(mSslPtr);
+                    if (theCurSessionPtr) {
+                        mSessionExpirationTime =
+                            SSL_SESSION_get_time(theCurSessionPtr) +
+                            SSL_SESSION_get_timeout(theCurSessionPtr);
+                        mSessionTimeoutSetFlag = true;
+                    }
+                }
+            } else if (! mSessionStoredFlag) {
                 StoreClientSession();
             }
             return 0;
         }
+        if (mRenegotiationPendingFlag) {
+            mVerifyOrGetPskInvokedFlag = false;
+        }
+        mSessionTimeoutSetFlag    = false;
+        mRenegotiationPendingFlag = false;
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
             if (! VerifyPeerIfNeeded()) {
@@ -890,6 +934,7 @@ private:
         }
         SSL_SESSION* const theCurSessionPtr = SSL_get_session(mSslPtr);
         if (! theCurSessionPtr || ! theCurSessionPtr->peer) {
+            // Do not store session with no peer certificate, i.e. PSK sessions.
             return;
         }
         SSL_CTX* const theCtxPtr = SSL_get_SSL_CTX(mSslPtr);

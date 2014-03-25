@@ -285,10 +285,17 @@ metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.clientAuthentication.whiteList        = $clientuser root
 
+# Set short sessions timeout to test ssl re-negotiations.
+metaServer.clientAuthentication.X509.session.timeout = 5
+metaServer.clientAuthentication.psk.session.timeout  = 5
+
 metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
 metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
 metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
 metaServer.CSAuthentication.blackList            = none
+
+metaServer.CSAuthentication.X509.session.timeout = 5
+metaServer.CSAuthentication.psk.session.timeout  = 5
 
 metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
@@ -345,6 +352,8 @@ EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
 chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+
+chunkServer.client.psk.session.timeout = 5
 EOF
     fi
     cd "$dir" || exit
