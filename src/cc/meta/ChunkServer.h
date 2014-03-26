@@ -818,6 +818,7 @@ protected:
     /// chunk server.  This variable tracks the seq # that
     /// we should use in the next RPC.
     seq_t mSeqNo;
+    seq_t mAuthPendingSeq;
     /// A handle to the network connection
     NetConnectionPtr mNetConnection;
 

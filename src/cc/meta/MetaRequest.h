@@ -1802,10 +1802,12 @@ struct MetaChunkSize: public MetaChunkRequest {
  */
 struct MetaChunkHeartbeat: public MetaChunkRequest {
     int64_t evacuateCount;
+    bool    reAuthenticateFlag;
     MetaChunkHeartbeat(seq_t n, const ChunkServerPtr& s,
             int64_t evacuateCnt)
         : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, false, s, -1),
-          evacuateCount(evacuateCnt)
+          evacuateCount(evacuateCnt),
+          reAuthenticateFlag(false)
         {}
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const

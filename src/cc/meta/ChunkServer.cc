@@ -307,6 +307,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       CSMapServerInfo(),
       SslFilterVerifyPeer(),
       mSeqNo(RandomSeqNo()),
+      mAuthPendingSeq(-1),
       mNetConnection(conn),
       mHelloDone(false),
       mDown(false),
@@ -625,7 +626,8 @@ ChunkServer::HandleRequest(int code, void *data)
                 break;
             }
             if (mAuthenticateOp->status != 0 ||
-                    mNetConnection->HasPendingRead()) {
+                    mNetConnection->HasPendingRead() ||
+                    mNetConnection->IsReadPending()) {
                 const string msg = mAuthenticateOp->statusMsg;
                 Error(msg.empty() ?
                     (mNetConnection->HasPendingRead() ?
@@ -633,6 +635,14 @@ ChunkServer::HandleRequest(int code, void *data)
                         "authentication error") :
                         msg.c_str()
                 );
+                break;
+            }
+            if (mNetConnection->GetFilter()) {
+                if (! mAuthenticateOp->filter) {
+                    panic("downgrade to clear text communication");
+                    Error("no clear text communication allowed");
+                }
+                // Wait for [ssl] shutdown with the current filter to complete.
                 break;
             }
             if (mAuthenticateOp->filter) {
@@ -667,9 +677,41 @@ ChunkServer::HandleRequest(int code, void *data)
         Error("hello timeout");
         break;
 
-    case EVENT_NET_ERROR:
+    case EVENT_NET_ERROR: {
+        NetConnection::Filter* filter;
+        if (! mDown && mNetConnection && mNetConnection->IsGood() &&
+                (filter = mNetConnection->GetFilter()) &&
+                filter->IsShutdownReceived()) {
+            // Do not allow to shutdown filter with ops or data in flight.
+            if (mNetConnection->GetInBuffer().IsEmpty() &&
+                    mNetConnection->GetOutBuffer().IsEmpty()) {
+                // Ssl shutdown from the other side.
+                if (mNetConnection->Shutdown() == 0) {
+                    KFS_LOG_STREAM_DEBUG << GetPeerName() <<
+                        " chunk server: " << GetServerLocation() <<
+                        " shutdown filter: " <<
+                            (void*)mNetConnection->GetFilter() <<
+                    KFS_LOG_EOM;
+                    if (! mNetConnection->GetFilter()) {
+                        HandleRequest(
+                            EVENT_NET_WROTE, &mNetConnection->GetOutBuffer());
+                        break;
+                    }
+                }
+            } else if (0 < mNetConnection->GetNumBytesToRead() ||
+                     0 < mNetConnection->GetNumBytesToWrite()) {
+                KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                    " chunk server: " << GetServerLocation() <<
+                    " invalid filter (ssl) shutdown: "
+                    " error: " << mNetConnection->GetErrorMsg() <<
+                    " read: "  << mNetConnection->GetNumBytesToRead() <<
+                    " write: " << mNetConnection->GetNumBytesToWrite() <<
+                KFS_LOG_EOM;
+            }
+        }
         Error("communication error");
         break;
+    }
 
     default:
         assert(!"Unknown event");
@@ -1575,6 +1617,12 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
 void
 ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 {
+    if (mAuthenticateOp) {
+        if (mAuthPendingSeq < 0) {
+            mAuthPendingSeq = r->opSeqno;
+        }
+        return;
+    }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
     ChunkServerRequest(*r, mOstream.Set(buf), buf);
     mOstream.Reset();
@@ -2199,22 +2247,17 @@ ChunkServer::UpdateStorageTiersSelf(
 int
 ChunkServer::Authenticate(IOBuffer& iobuf)
 {
-    if (! mAuthenticateOp || mAuthenticateOp->doneFlag) {
+    if (! mAuthenticateOp) {
+        return 0;
+    }
+    if (mAuthenticateOp->doneFlag) {
+        if (mNetConnection->GetFilter()) {
+            HandleRequest(EVENT_NET_WROTE, &mNetConnection->GetOutBuffer());
+        }
         return 0;
     }
     if (mAuthenticateOp->contentBufPos <= 0) {
-        mAuthName.clear();
-        if (mHelloDone || mNetConnection->GetFilter()) {
-            // If filter already exits then do not allow authentication
-            // for now, as this might require changing the filter / ssl
-            // on both sides.
-            mAuthenticateOp->status    = -EINVAL;
-            mAuthenticateOp->statusMsg = "re-authentication is not supported";
-            delete [] mAuthenticateOp->contentBuf;
-            mAuthenticateOp->contentBufPos = 0;
-        } else {
-            gLayoutManager.GetCSAuthContext().Validate(*mAuthenticateOp);
-        }
+        gLayoutManager.GetCSAuthContext().Validate(*mAuthenticateOp);
     }
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
@@ -2227,7 +2270,17 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     }
     gLayoutManager.GetCSAuthContext().Authenticate(*mAuthenticateOp, this, 0);
     if (mAuthenticateOp->status == 0) {
-        mAuthName = mAuthenticateOp->authName;
+        if (mAuthName.empty()) {
+            mAuthName = mAuthenticateOp->authName;
+        } else if (! mAuthenticateOp->authName.empty() &&
+                mAuthName != mAuthenticateOp->authName) {
+            mAuthenticateOp->status    = -EINVAL;
+            mAuthenticateOp->statusMsg = "authenticated name mismatch";
+        } else if (! mAuthenticateOp->filter && mNetConnection->GetFilter()) {
+            // An attempt to downgrade to clear text connection.
+            mAuthenticateOp->status    = -EINVAL;
+            mAuthenticateOp->statusMsg = "clear text communication not allowed";
+        }
     }
     mAuthenticateOp->clnt     = this;
     mAuthenticateOp->doneFlag = true;
