@@ -310,12 +310,17 @@ public:
         if (theIt != mNameRemap.end()) {
             ioAuthName = theIt->second;
         }
+        return Validate(ioAuthName);
+    }
+    bool Validate(
+        const string& inAuthName) const
+    {
         return (
-            mBlackList.find(ioAuthName) == mBlackList.end() &&
+            mBlackList.find(inAuthName) == mBlackList.end() &&
             (mWhiteList.empty() ||
-                mWhiteList.find(ioAuthName) != mWhiteList.end()) &&
+                mWhiteList.find(inAuthName) != mWhiteList.end()) &&
             ((! mKrbServicePtr && ! mX509SslCtxPtr) ||
-                ! ioAuthName.empty())
+                ! inAuthName.empty())
         );
     }
     kfsUid_t GetUid(
@@ -675,7 +680,7 @@ public:
         kfsGid_t& outEGid) const
     {
         const NameAndGid* const thePtr = mUidNamePtr->Find(inUid);
-        if (! thePtr) {
+        if (! thePtr || ! Validate(thePtr->mName)) {
             return 0;
         }
         outGid = thePtr->mGid;
@@ -910,6 +915,7 @@ AuthContext::AuthContext(
         inDefaultNoAuthMetaOpsHostsPtr,
         mAuthRequiredFlag
       ))),
+      mUpdateCount(0),
       mUserAndGroupUpdateCount(0),
       mUserAndGroupNames(mImpl.GetUserAndGroupNames())
 {
@@ -973,6 +979,13 @@ AuthContext::RemapAndValidate(
     return mImpl.RemapAndValidate(ioAuthName);
 }
 
+    bool
+AuthContext::Validate(
+    const string& inAuthName) const
+{
+    return mImpl.Validate(inAuthName);
+}
+
     kfsUid_t
 AuthContext::GetUid(
     const string& inAuthName) const
@@ -1004,8 +1017,14 @@ AuthContext::SetParameters(
     const Properties& inParameters,
     AuthContext*      inOtherCtxPtr)
 {
-    return mImpl.SetParameters(inParamNamePrefixPtr, inParameters,
-        inOtherCtxPtr ? &inOtherCtxPtr->mImpl : 0);
+    if (! mImpl.SetParameters(
+            inParamNamePrefixPtr,
+            inParameters,
+            inOtherCtxPtr ? &inOtherCtxPtr->mImpl : 0)) {
+        return false;
+    }
+    mUpdateCount++;
+    return true;
 }
 
     uint32_t

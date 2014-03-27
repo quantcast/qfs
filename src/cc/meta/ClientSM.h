@@ -122,10 +122,11 @@ private:
     uint32_t                           mDelegationValidForTime;
     int64_t                            mDelegationIssuedTime;
     DelegationToken::TokenSeq          mDelegationSeq;
-    time_t                             mNextDelegationTokenCancelCheckTime;
-    uint64_t                           mUserAndGroupUpdateCount;
+    time_t                             mNextAuthCheckTime;
     ClientManager::ClientThread* const mClientThread;
     AuthContext&                       mAuthContext;
+    uint64_t                           mAuthUpdateCount;
+    uint64_t                           mUserAndGroupUpdateCount;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
     ClientSM*                          mNextPtr[1];
@@ -153,7 +154,7 @@ private:
     static int  sMaxWriteBehind;
     static int  sBufCompactionThreshold;
     static int  sOutBufCompactionThreshold;
-    static int  sDelegationCancleCheckTime;
+    static int  sAuthCheckTime;
     static int  sClientCount;
     static bool sAuditLoggingFlag;
     static ClientSM* sClientSMPtr[1];

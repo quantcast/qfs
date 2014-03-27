@@ -4758,7 +4758,11 @@ MetaChunkHeartbeat::request(ostream &os)
     "HEARTBEAT \r\n"
     "Cseq: " << opSeqno << "\r\n"
     "Version: KFS/1.0\r\n"
-    "Num-evacuate: " << evacuateCount << "\r\n"
+    "Num-evacuate: " << evacuateCount << "\r\n";
+    if (reAuthenticateFlag) {
+        os << "Authenticate: 1\r\\n";
+    }
+    os <<
     "\r\n"
     ;
 }

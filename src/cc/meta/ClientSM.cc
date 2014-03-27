@@ -85,7 +85,7 @@ int  ClientSM::sBufCompactionThreshold    = 1 << 10;
 int  ClientSM::sOutBufCompactionThreshold = 8 << 10;
 int  ClientSM::sClientCount               = 0;
 bool ClientSM::sAuditLoggingFlag          = false;
-int  ClientSM::sDelegationCancleCheckTime = 3 * 60;
+int  ClientSM::sAuthCheckTime             = 1 * 60;
 ClientSM* ClientSM::sClientSMPtr[1]       = {0};
 IOBuffer::WOStream ClientSM::sWOStream;
 
@@ -119,9 +119,9 @@ ClientSM::SetParameters(const Properties& prop)
     sOutBufCompactionThreshold = prop.getValue(
         "metaServer.clientSM.outBufCompactionThreshold",
         sOutBufCompactionThreshold);
-    sDelegationCancleCheckTime = prop.getValue(
-        "metaServer.clientSM.delegationCancleCheckTime",
-        sDelegationCancleCheckTime);
+    sAuthCheckTime = prop.getValue(
+        "metaServer.clientSM.authReValidatePeriod",
+        sAuthCheckTime);
     sAuditLoggingFlag = prop.getValue(
         "metaServer.clientSM.auditLogging",
         sAuditLoggingFlag ? 1 : 0) != 0;
@@ -155,10 +155,11 @@ ClientSM::ClientSM(
       mDelegationValidForTime(0),
       mDelegationIssuedTime(0),
       mDelegationSeq(0),
-      mNextDelegationTokenCancelCheckTime(0),
-      mUserAndGroupUpdateCount(0),
+      mNextAuthCheckTime(0),
       mClientThread(thread),
       mAuthContext(ClientManager::GetAuthContext(mClientThread)),
+      mAuthUpdateCount(0),
+      mUserAndGroupUpdateCount(0),
       mNext(0)
 {
     assert(mNetConnection && mNetConnection->IsGood());
@@ -549,20 +550,20 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->clnt                = this;
     op->validDelegationFlag = mDelegationValidFlag;
     op->authUid             = mAuthUid;
-    mPendingOpsCount++;
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag = mDelegationValidFlag &&
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
-        if (mDelegationValidFlag && mNetConnection) {
-             const time_t now = mNetConnection->TimeNow();
+        uint64_t count;
+        bool     checkAuthUidFlag = false;
+        if (mDelegationValidFlag) {
+            const time_t now = mNetConnection->TimeNow();
             if (mDelegationValidForTime + mDelegationIssuedTime < now) {
                 delete op;
                 CloseConnection("delegation token has expired");
                 return;
             }
-            if (mNextDelegationTokenCancelCheckTime < now) {
-                mNextDelegationTokenCancelCheckTime =
-                    now + sDelegationCancleCheckTime;
+            if (mNextAuthCheckTime < now) {
+                mNextAuthCheckTime = now + sAuthCheckTime;
                 if (gNetDispatch.IsCanceled(
                         mDelegationIssuedTime + mDelegationValidForTime,
                         mDelegationIssuedTime,
@@ -574,11 +575,26 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                     return;
                 }
             }
+        } else if ((count = mAuthContext.GetUpdateCount())
+                != mAuthUpdateCount) {
+            mAuthUpdateCount = count;
+            NetConnection::Filter* const filter = mNetConnection->GetFilter();
+            const string peerName = filter ? filter->GetAuthName() : string();
+            if (peerName.empty()) {
+                checkAuthUidFlag = true;
+            } else {
+                string authName;
+                if (! Verify(authName, true, 0, peerName)) {
+                    delete op;
+                    const string msg = peerName + " is no longer valid";
+                    CloseConnection(msg.c_str());
+                    return;
+                }
+            }
         }
-        uint64_t count;
-        if (! op->fromChunkServerFlag &&
+        if (! op->fromChunkServerFlag && (checkAuthUidFlag ||
                 (count = mAuthContext.GetUserAndGroupUpdateCount()) !=
-                    mUserAndGroupUpdateCount) {
+                    mUserAndGroupUpdateCount)) {
             // User and group information has changed, update cached user and
             // group ids, and re-validate user.
             mUserAndGroupUpdateCount = count;
@@ -598,6 +614,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         op->euser   = mAuthEUid;
         op->egroup  = mAuthEGid;
     }
+    mPendingOpsCount++;
     if (op->dispatch(*this)) {
         return;
     }
@@ -835,8 +852,8 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
         mAuthenticateOp->statusMsg = "out of order data received";
     } else {
         mAuthContext.Authenticate(*mAuthenticateOp, this, this);
-        mUserAndGroupUpdateCount =
-            mAuthContext.GetUserAndGroupUpdateCount();
+        mUserAndGroupUpdateCount = mAuthContext.GetUserAndGroupUpdateCount();
+        mAuthUpdateCount         = mAuthContext.GetUpdateCount();
     }
     mDisconnectFlag = mDisconnectFlag || mAuthenticateOp->status != 0;
     mAuthenticateOp->doneFlag = true;
@@ -880,9 +897,11 @@ ClientSM::Verify(
         return false;
     }
     if (inCurCertDepth == 0) {
-        ioFilterAuthName = inPeerName;
-        mAuthUid         = authUid;
-        mDelegationFlags = 0;
+        ioFilterAuthName         = inPeerName;
+        mAuthUid                 = authUid;
+        mDelegationFlags         = 0;
+        mUserAndGroupUpdateCount = mAuthContext.GetUserAndGroupUpdateCount();
+        mAuthUpdateCount         = mAuthContext.GetUpdateCount();
     }
     return true;
 }
@@ -939,8 +958,7 @@ ClientSM::GetPsk(
                 mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
                 mDelegationSeq          = theDelegationToken.GetSeq();
                 mDelegationValidFlag    = true;
-                mNextDelegationTokenCancelCheckTime =
-                    now + sDelegationCancleCheckTime;
+                mNextAuthCheckTime      = now + sAuthCheckTime;
                 KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
                     " authentication:" <<
                     " name: "          << theNamePtr <<

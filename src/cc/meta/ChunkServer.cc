@@ -302,6 +302,8 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
+const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
+
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
       CSMapServerInfo(),
@@ -354,6 +356,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mAuthUid(kKfsUserNone),
       mAuthName(),
       mAuthenticateOp(0),
+      mSessionExpirationTime(TimeNow() + kMaxSessionTimeoutSec),
+      mReAuthSentCount(0),
       mHelloOp(0),
       mSelfPtr(),
       mSrvLoadSampler(sSrvLoadSamplerSampleCount, 0, TimeNow()),
@@ -655,10 +659,23 @@ ChunkServer::HandleRequest(int code, void *data)
                         errMsg = QCUtils::SysError(err < 0 ? -err : err);
                     }
                     Error(errMsg.c_str());
+                    break;
                 }
+                mSessionExpirationTime = TimeNow() - 1;
             }
             delete mAuthenticateOp;
             mAuthenticateOp  = 0;
+            if (mHelloDone && 0 <= mAuthPendingSeq) {
+                // Enqueue rpcs that were waiting for authentication to finish.
+                DispatchedReqs::const_iterator it =
+                    mDispatchedReqs.lower_bound(mAuthPendingSeq);
+                mAuthPendingSeq = -1;
+                while (it != mDispatchedReqs.end()) {
+                    MetaChunkRequest* const op = it->second.first->second;
+                    ++it;
+                    EnqueueSelf(op);
+                }
+            }
             break;
         }
         if (! mHelloDone &&
@@ -682,7 +699,7 @@ ChunkServer::HandleRequest(int code, void *data)
         if (! mDown && mNetConnection && mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter()) &&
                 filter->IsShutdownReceived()) {
-            // Do not allow to shutdown filter with ops or data in flight.
+            // Do not allow to shutdown filter with data in flight.
             if (mNetConnection->GetInBuffer().IsEmpty() &&
                     mNetConnection->GetOutBuffer().IsEmpty()) {
                 // Ssl shutdown from the other side.
@@ -698,8 +715,7 @@ ChunkServer::HandleRequest(int code, void *data)
                         break;
                     }
                 }
-            } else if (0 < mNetConnection->GetNumBytesToRead() ||
-                     0 < mNetConnection->GetNumBytesToWrite()) {
+            } else {
                 KFS_LOG_STREAM_ERROR << GetPeerName() <<
                     " chunk server: " << GetServerLocation() <<
                     " invalid filter (ssl) shutdown: "
@@ -1932,10 +1948,33 @@ ChunkServer::Heartbeat()
         KFS_LOG_EOM;
         mHeartbeatSent     = true;
         mLastHeartbeatSent = now;
-        Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
-                IsRetiring() ? int64_t(1) :
-                    (int64_t)mChunksToEvacuate.Size()),
-            2 * sHeartbeatTimeout);
+        if (mSessionExpirationTime <= now) {
+            NetConnection::Filter* const filter = mNetConnection->GetFilter();
+            if (filter) {
+                mSessionExpirationTime = filter->GetSessionExpirationTime();
+                if (1 < mReAuthSentCount &&
+                        mSessionExpirationTime + sRequestTimeout +
+                        3 * (sHeartbeatTimeout + sHeartbeatInterval) < now) {
+                    Error("re-authentication timed out");
+                    return -1;
+                }
+            } else {
+                mSessionExpirationTime = now + kMaxSessionTimeoutSec;
+            }
+        }
+        if (mSessionExpirationTime <= now) {
+            mReAuthSentCount++;
+        } else {
+            mReAuthSentCount = 0;
+        }
+        Enqueue(new MetaChunkHeartbeat(
+                NextSeq(),
+                shared_from_this(),
+                IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
+                mSessionExpirationTime <= now
+            ),
+            2 * sHeartbeatTimeout
+        );
         return ((sHeartbeatTimeout >= 0 &&
                 sHeartbeatTimeout < sHeartbeatInterval) ?
             sHeartbeatTimeout : sHeartbeatInterval

@@ -58,6 +58,8 @@ public:
         SslFilterServerPsk*  inServerPskPtr);
     bool RemapAndValidate(
         string& ioAuthName) const;
+    bool Validate(
+        const string& inAuthName) const;
     kfsUid_t GetUid(
         const string& inAuthName) const;
     kfsUid_t GetUid(
@@ -83,6 +85,8 @@ public:
         kfsGid_t& outGid,
         kfsUid_t& outEUid,
         kfsGid_t& outEGid) const;
+    uint64_t GetUpdateCount() const
+        { return mUpdateCount; }
     uint64_t GetUserAndGroupUpdateCount() const
         { return mUserAndGroupUpdateCount; }
     const UserAndGroupNames& GetUserAndGroupNames() const
@@ -94,6 +98,7 @@ private:
     class Impl;
     bool                     mAuthRequiredFlag;
     Impl&                    mImpl;
+    uint64_t                 mUpdateCount;
     uint64_t                 mUserAndGroupUpdateCount;
     const UserAndGroupNames& mUserAndGroupNames;
 
