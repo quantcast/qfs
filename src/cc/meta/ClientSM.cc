@@ -592,9 +592,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 }
             }
         }
-        if (! op->fromChunkServerFlag && (checkAuthUidFlag ||
-                (count = mAuthContext.GetUserAndGroupUpdateCount()) !=
-                    mUserAndGroupUpdateCount)) {
+        if (! op->fromChunkServerFlag &&
+                ((count = mAuthContext.GetUserAndGroupUpdateCount()) !=
+                    mUserAndGroupUpdateCount || checkAuthUidFlag)) {
             // User and group information has changed, update cached user and
             // group ids, and re-validate user.
             mUserAndGroupUpdateCount = count;
