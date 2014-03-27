@@ -30,6 +30,7 @@ import java.io.*;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import com.quantcast.qfs.access.KfsFileAttr;
 
@@ -64,5 +65,7 @@ interface IFSImpl {
            throws IOException;
   public void setPermission(String path, int mode) throws IOException;
   public void setOwner(String path, String username, String groupname)
+           throws IOException;
+  public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
            throws IOException;
 };

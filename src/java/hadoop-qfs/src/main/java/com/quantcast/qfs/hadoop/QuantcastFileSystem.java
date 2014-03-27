@@ -290,6 +290,15 @@ public class QuantcastFileSystem extends FileSystem {
       username, groupname);
   }
 
+  // Returns an iterator that returns each directory entry as a FileStatus with
+  // a fully qualified Path. Call close() when done with the iterator.
+  // throws FileNotFoundException if path does not exist
+  // throws IOException if path is not a directory
+  public CloseableIterator<FileStatus> getFileStatusIterator(Path path)
+    throws IOException {
+    return qfsImpl.getFileStatusIterator(this, path);
+  }
+
   // The following is to get du and dus working without implementing file
   // and directory counts on in the meta server.
   private class ContentSummaryProxy extends ContentSummary
