@@ -201,7 +201,7 @@ RecordAppendOp::ShowSelf(ostream& os) const
     return os <<
         "record-append:"
         " seq: "              << seq <<
-        " chunkId: "          << chunkId <<
+        " chunk: "            << chunkId <<
         " chunkversion: "     << chunkVersion <<
         " file-offset: "      << fileOffset <<
         " writeId = "         << writeId <<
@@ -596,7 +596,7 @@ AtomicRecordAppendManager::Detach(AtomicRecordAppender& appender)
     if (cnt != 1) {
         WAPPEND_LOG_STREAM_FATAL <<
             "appender detach: "  << (const void*)&appender <<
-            " chunkId: "         << appender.GetChunkId() <<
+            " chunk: "           << appender.GetChunkId() <<
             " appenders count: " << mAppenders.GetSize() <<
         KFS_LOG_EOM;
         appender.FatalError();
@@ -691,8 +691,9 @@ AtomicRecordAppender::AtomicRecordAppender(
     mTmpChecksums.reserve(32);
     WAPPEND_LOG_STREAM_DEBUG <<
         "ctor" <<
-        " chunk: "  << mChunkId <<
-        " offset: " << mNextOffset <<
+        " chunk: "    << mChunkId <<
+        " offset: "   << mNextOffset <<
+        " repl-pos: " << mReplicationPos <<
     KFS_LOG_EOM;
 }
 
@@ -1959,7 +1960,7 @@ AtomicRecordAppender::BeginMakeStable(
         " in flight:"
         " replicaton: " << mReplicationsInFlight <<
         " ios: "        << mIoOpsInFlight <<
-        " " << KfsOp::ShowOp(op) <<
+        " op: "         << KfsOp::ShowOp(op) <<
     KFS_LOG_EOM;
 
     mLastActivityTime = Now();
@@ -2345,8 +2346,8 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
         " size: "        << mNextWriteOffset <<
         " in flight:"
         " replication: " << mReplicationsInFlight <<
-        " ios: "      << mIoOpsInFlight <<
-        (op ? " " : "")  << KfsOp::ShowOp(op) <<
+        " ios: "         << mIoOpsInFlight <<
+        " op: "          << KfsOp::ShowOp(op) <<
     KFS_LOG_EOM;
     if (! mMakeChunkStableOp) {
         FatalError();
