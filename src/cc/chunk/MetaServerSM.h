@@ -146,6 +146,7 @@ public:
     }
 private:
     typedef deque<KfsOp*> OpsQueue;
+    typedef OpsQueue      PendingResponses;
     typedef std::map<
         kfsSeq_t,
         KfsOp*,
@@ -220,6 +221,7 @@ private:
     KfsOp*                        mOp;
     bool                          mRequestFlag;
     int                           mContentLength;
+    PendingResponses              mPendingResponses;
     Counters                      mCounters;
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;
@@ -235,7 +237,7 @@ private:
 
     /// Op has finished execution.  Send a response to the meta
     /// server.
-    void SendResponse(KfsOp *op);
+    bool SendResponse(KfsOp *op);
 
     /// This is special: we dispatch mHelloOp and get rid of it.
     void DispatchHello();
@@ -248,6 +250,8 @@ private:
     void FailOps(bool shutdownFlag);
     void HandleAuthResponse(IOBuffer& ioBuf);
     void CleanupOpInFlight();
+    bool Authenticate();
+    void DiscardPendingResponses();
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);

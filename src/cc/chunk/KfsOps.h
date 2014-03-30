@@ -798,6 +798,7 @@ struct ReplicateChunkOp : public KfsOp {
 
 struct HeartbeatOp : public KfsOp {
     int64_t           metaEvacuateCount; // input
+    bool              authenticateFlag;
     IOBuffer          response;
     string            cmdShow;
     bool              sendCurrentKeyFlag;
@@ -806,6 +807,7 @@ struct HeartbeatOp : public KfsOp {
     HeartbeatOp(kfsSeq_t s = 0)
         : KfsOp(CMD_HEARTBEAT, s),
           metaEvacuateCount(-1),
+          authenticateFlag(false),
           response(),
           cmdShow(),
           sendCurrentKeyFlag(false),
@@ -828,6 +830,7 @@ struct HeartbeatOp : public KfsOp {
     {
         return KfsOp::ParserDef(parser)
         .Def("Num-evacuate", &HeartbeatOp::metaEvacuateCount, int64_t(-1))
+        .Def("Authenticate", &HeartbeatOp::authenticateFlag, false)
         ;
     }
 };
@@ -2295,7 +2298,8 @@ struct AuthenticateOp : public KfsOp {
             " requested: " << requestedAuthType <<
             " chosen: "    << chosenAuthType <<
             " ssl: "       << (useSslFlag ? 1 : 0) <<
-            " status: "    << status
+            " status: "    << status <<
+            " msg: "       << statusMsg
         ;
     }
     int ReadResponseContent(IOBuffer& buf);

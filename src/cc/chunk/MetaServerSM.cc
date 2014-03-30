@@ -109,6 +109,7 @@ MetaServerSM::~MetaServerSM()
 {
     globalNetManager().UnRegisterTimeoutHandler(this);
     CleanupOpInFlight();
+    DiscardPendingResponses();
     FailOps(true);
     delete mHelloOp;
     delete mAuthOp;
@@ -222,7 +223,7 @@ MetaServerSM::Timeout()
         }
         return;
     }
-    if (! IsHandshakeDone()) {
+    if (mAuthOp || ! IsHandshakeDone()) {
         return;
     }
     DispatchOps();
@@ -244,6 +245,7 @@ MetaServerSM::Connect()
     delete mAuthOp;
     mAuthOp = 0;
     CleanupOpInFlight();
+    DiscardPendingResponses();
     mContentLength = 0;
     mCounters.mConnectCount++;
     mSentHello = false;
@@ -377,28 +379,7 @@ MetaServerSM::SendHello()
             }
         }
     }
-    if (mAuthContext.IsEnabled()) {
-        mAuthOp = new AuthenticateOp(nextSeq());
-        string    errMsg;
-        const int err = mAuthContext.Request(
-            mAuthType,
-            mAuthOp->requestedAuthType,
-            mAuthOp->reqBuf,
-            mAuthOp->contentLength,
-            mAuthRequestCtx,
-            &errMsg
-        );
-        if (err) {
-            KFS_LOG_STREAM_ERROR <<
-                "authentication request failure: " <<
-                errMsg <<
-            KFS_LOG_EOM;
-            return HandleRequest(EVENT_NET_ERROR, 0);
-        }
-        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-        mAuthOp->Request(mWOStream.Set(ioBuf), ioBuf);
-        mWOStream.Reset();
-    } else {
+    if (! Authenticate()) {
         mHelloOp = new HelloMetaOp(
             nextSeq(), gChunkServer.GetLocation(),
             mClusterKey, mMD5Sum, mRackId);
@@ -407,6 +388,43 @@ MetaServerSM::SendHello()
         SubmitOp(mHelloOp);
     }
     return 0;
+}
+
+bool
+MetaServerSM::Authenticate()
+{
+    if (! mAuthContext.IsEnabled()) {
+        return false;
+    }
+    if (mAuthOp) {
+        die("invalid authenticate invocation: auth is in flight");
+        return true;
+    }
+    mAuthOp = new AuthenticateOp(nextSeq());
+    string    errMsg;
+    const int err = mAuthContext.Request(
+        mAuthType,
+        mAuthOp->requestedAuthType,
+        mAuthOp->reqBuf,
+        mAuthOp->contentLength,
+        mAuthRequestCtx,
+        &errMsg
+    );
+    if (err) {
+        KFS_LOG_STREAM_ERROR <<
+            "authentication request failure: " <<
+            errMsg <<
+        KFS_LOG_EOM;
+        delete mAuthOp;
+        mAuthOp = 0;
+        HandleRequest(EVENT_NET_ERROR, 0);
+        return true;
+    }
+    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
+    mAuthOp->Request(mWOStream.Set(ioBuf), ioBuf);
+    mWOStream.Reset();
+    KFS_LOG_STREAM_INFO << "started: " << mAuthOp->Show() << KFS_LOG_EOM;
+    return true;
 }
 
 void
@@ -454,13 +472,17 @@ MetaServerSM::HandleRequest(int code, void* data)
             // came in.
             IOBuffer& iobuf = mNetConnection->GetInBuffer();
             assert(&iobuf == data);
-            if ((mOp || mAuthOp) &&
-                    iobuf.BytesConsumable() < mContentLength) {
+            if ((mOp || mAuthOp) && iobuf.BytesConsumable() < mContentLength) {
                 break;
             }
-            if (mAuthOp && 0 < mContentLength) {
-                HandleAuthResponse(iobuf);
-                break;
+            if (mAuthOp) {
+                if (mOp) {
+                    die("op and authentication in flight");
+                }
+                if (0 < mContentLength) {
+                    HandleAuthResponse(iobuf);
+                    break;
+                }
             }
             if (mOp && ! (mRequestFlag ?
                     HandleCmd(iobuf, 0) :
@@ -516,6 +538,7 @@ MetaServerSM::HandleRequest(int code, void* data)
                 break;
             }
             if (mUpdateCurrentKeyFlag && op->op == CMD_HEARTBEAT) {
+                assert(! mOp);
                 HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
                 if ((hb.sendCurrentKeyFlag =
                         gChunkManager.GetCryptoKeys().GetCurrentKey(
@@ -524,16 +547,22 @@ MetaServerSM::HandleRequest(int code, void* data)
                     mCurrentKeyId = hb.currentKeyId;
                 }
             }
-            SendResponse(op);
-            delete op;
+            if (SendResponse(op)) {
+                delete op;
+            }
         }
         break;
 
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
+        if (mAuthOp && IsUp() && ! mNetConnection->GetFilter()) {
+            HandleAuthResponse(mNetConnection->GetInBuffer());
+            return 0;
+        }
         delete mAuthOp;
         mAuthOp = 0;
         CleanupOpInFlight();
+        DiscardPendingResponses();
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
@@ -544,6 +573,7 @@ MetaServerSM::HandleRequest(int code, void* data)
                     "inactivity timeout" : "network error") <<
             KFS_LOG_EOM;
             mNetConnection->Close();
+            mNetConnection->GetInBuffer().Clear();
             // Drop all leases.
             gLeaseClerk.UnregisterAllLeases();
             // Meta server will fail all replication requests on
@@ -834,6 +864,13 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
         " seq: " << op->seq <<
         " "      << op->Show() <<
     KFS_LOG_EOM;
+    if (! mAuthOp && op->op == CMD_HEARTBEAT &&
+            static_cast<HeartbeatOp*>(op)->authenticateFlag) {
+        if (Authenticate() && ! IsUp()) {
+            delete op;
+            return false;
+        }
+    }
     SubmitOp(op);
     return true;
 }
@@ -842,7 +879,7 @@ void
 MetaServerSM::EnqueueOp(KfsOp* op)
 {
     op->seq = nextSeq();
-    if (mPendingOps.empty() && IsUp()) {
+    if (! mAuthOp && mPendingOps.empty() && IsUp()) {
         if (! op->noReply &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
@@ -871,7 +908,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
 /// @param[in] op The request for which we finished execution.
 ///
 
-void
+bool
 MetaServerSM::SendResponse(KfsOp* op)
 {
     if (! mSentHello || ! IsConnected()) {
@@ -880,7 +917,11 @@ MetaServerSM::SendResponse(KfsOp* op)
         // in flight at the time of disconnect, and will discard the responses
         // anyway, as it will purge its pending response queue at the time of
         // disconnect.
-        return;
+        return true;
+    }
+    if (mAuthOp) {
+        mPendingResponses.push_back(op);
+        return false;
     }
     // fire'n'forget.
     KFS_LOG_STREAM_DEBUG <<
@@ -903,13 +944,14 @@ MetaServerSM::SendResponse(KfsOp* op)
     op->ResponseContent(iobuf, len);
     mNetConnection->Write(iobuf, len);
     globalNetManager().Wakeup();
+    return true;
 }
 
 void
 MetaServerSM::DispatchOps()
 {
     OpsQueue doneOps;
-    while (! mPendingOps.empty() && IsHandshakeDone()) {
+    while (! mPendingOps.empty() && ! mAuthOp && IsHandshakeDone()) {
         if (! IsConnected()) {
             KFS_LOG_STREAM_INFO <<
                 "meta handshake is not done, will dispatch later" <<
@@ -962,6 +1004,9 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
 {
     if (! mAuthOp || ! mNetConnection) {
         die("handle auth response: invalid invocation");
+        delete mAuthOp;
+        mAuthOp = 0;
+        HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
     const int rem = mAuthOp->ReadResponseContent(ioBuf);
@@ -975,47 +1020,94 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
             "authentication protocol failure:" <<
             " " << ioBuf.BytesConsumable() <<
             " bytes past authentication response" <<
+            " filter: " <<
+                reinterpret_cast<const void*>(mNetConnection->GetFilter()) <<
+            " cmd: " << mAuthOp->Show() <<
         KFS_LOG_EOM;
-        HandleRequest(EVENT_NET_ERROR, 0);
-        return;
+        if (! mAuthOp->statusMsg.empty()) {
+            mAuthOp->statusMsg += "; ";
+        }
+        mAuthOp->statusMsg += "invalid extraneous data received";
+        mAuthOp->status    = -EINVAL;
+    } else if (mAuthOp->status == 0) {
+        if (mNetConnection->GetFilter()) {
+            if (IsHandshakeDone()) {
+                // Shutdown the current filter.
+                mNetConnection->Shutdown();
+                return;
+            }
+            if (! mAuthOp->statusMsg.empty()) {
+                mAuthOp->statusMsg += "; ";
+            }
+            mAuthOp->statusMsg += "authentication protocol failure:"
+                "  filter exists prior to handshake completion";
+            mAuthOp->status = -EINVAL;
+        } else {
+            mAuthOp->status = mAuthContext.Response(
+                mAuthOp->chosenAuthType,
+                mAuthOp->useSslFlag,
+                mAuthOp->responseBuf,
+                mAuthOp->responseContentLength,
+                *mNetConnection,
+                mAuthRequestCtx,
+                &mAuthOp->statusMsg
+            );
+        }
     }
-    string errMsg;
-    int    err = mAuthOp->status;
-    if (err) {
-        mAuthOp->statusMsg.swap(errMsg);
-    } else {
-        err = mAuthContext.Response(
-            mAuthOp->chosenAuthType,
-            mAuthOp->useSslFlag,
-            mAuthOp->responseBuf,
-            mAuthOp->responseContentLength,
-            *mNetConnection,
-            mAuthRequestCtx,
-            &errMsg
-        );
-    }
-    const int authType = mAuthOp->chosenAuthType;
+    const bool okFlag = mAuthOp->status == 0;
+    KFS_LOG_STREAM(okFlag ?
+            MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+        "finished: " << mAuthOp->Show() <<
+        " filter: "  <<
+            reinterpret_cast<const void*>(mNetConnection->GetFilter()) <<
+    KFS_LOG_EOM;
     delete mAuthOp;
     mAuthOp = 0;
-    if (err) {
-        KFS_LOG_STREAM_ERROR <<
-            "authentication type: " << authType <<
-            " response failure: " << errMsg <<
-        KFS_LOG_EOM;
+    if (! okFlag) {
         HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
-    KFS_LOG_STREAM_INFO <<
-        "authentication type: " << authType <<
-        " ssl: "                <<
-            reinterpret_cast<void*>(mNetConnection->GetFilter()) <<
-    KFS_LOG_EOM;
+    if (IsHandshakeDone()) {
+        while (! mPendingResponses.empty()) {
+            KfsOp* const op = mPendingResponses.front();
+            mPendingResponses.pop_front();
+            if (! SendResponse(op)) {
+                die("invalid send response completion");
+                HandleRequest(EVENT_NET_ERROR, 0);
+                return;
+            }
+            delete op;
+        }
+        if (! mPendingOps.empty()) {
+            globalNetManager().Wakeup();
+        }
+        return;
+    }
+    if (mHelloOp) {
+        die("hello op in flight prior to authentication completion");
+        HandleRequest(EVENT_NET_ERROR, 0);
+        return;
+    }
+    if (! mPendingResponses.empty()) {
+        die("non empty pending responses");
+        DiscardPendingResponses();
+    }
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->clnt = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
+}
+
+void
+MetaServerSM::DiscardPendingResponses()
+{
+    while (! mPendingResponses.empty()) {
+        KfsOp* const op = mPendingResponses.front();
+        mPendingResponses.pop_front();
+        delete op;
+    }
 }
 
 } // namespace KFS
