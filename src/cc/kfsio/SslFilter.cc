@@ -262,6 +262,9 @@ public:
         }
         return reinterpret_cast<Ctx*>(theRetPtr);
     }
+    static long GetSessionTimeout(
+        Ctx& inCtx)
+        { return SSL_CTX_get_timeout(reinterpret_cast<SSL_CTX*>(&inCtx)); }
     static void FreeCtx(
         Ctx* inCtxPtr)
     {
@@ -1055,6 +1058,13 @@ SslFilter::CreateCtx(
         inServerFlag, inPskOnlyFlag,inParamsPrefixPtr, inParams, inErrMsgPtr);
 }
 
+    /* static */ long
+SslFilter::GetSessionTimeout(
+    SslFilter::Ctx& inCtx)
+{
+    return Impl::GetSessionTimeout(inCtx);
+}
+
     /* static */ void
 SslFilter::FreeCtx(
     SslFilter::Ctx* inCtxPtr)
@@ -1063,7 +1073,7 @@ SslFilter::FreeCtx(
 }
 
 SslFilter::SslFilter(
-    Ctx&                   inCtx,
+    SslFilter::Ctx&        inCtx,
     const char*            inPskDataPtr,
     size_t                 inPskDataLen,
     const char*            inPskCliIdendityPtr,

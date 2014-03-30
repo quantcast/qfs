@@ -103,7 +103,7 @@ public:
         virtual ~Filter()
             {}
         virtual time_t GetSessionExpirationTime() const
-            { return (time(0) - 1); }
+            { return (time(0) + 365 * 24 * 60 * 60); }
         virtual bool RenewSession()
             { return false; }
         bool IsReadPending() const

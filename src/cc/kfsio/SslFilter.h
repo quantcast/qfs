@@ -101,6 +101,8 @@ public:
         const char*       inParamsPrefixPtr,
         const Properties& inParams,
         string*           inErrMsgPtr);
+    static long GetSessionTimeout(
+        Ctx& inCtx);
     static void FreeCtx(
         Ctx* inCtxPtr);
 

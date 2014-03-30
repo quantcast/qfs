@@ -102,6 +102,7 @@ public:
         string*        outErrMsgPtr);
     int GetMaxAuthRetryCount() const;
     bool IsChunkServerClearTextAllowed() const;
+    string GetPskId() const;
 private:
     Impl& mImpl;
     static void Dispose(

@@ -550,6 +550,8 @@ public:
         }
         return -EPERM;
     }
+    string GetPskId() const
+        { return mPskKeyId; }
     static void Dispose(
         RequestCtx& inRequestCtx)
     {
@@ -820,6 +822,13 @@ ClientAuthContext::GetMaxAuthRetryCount() const
 {
     return mImpl.GetMaxAuthRetryCount();
 }
+
+    string
+ClientAuthContext::GetPskId() const
+{
+    return mImpl.GetPskId();
+}
+
     /* static */ void
 ClientAuthContext::Dispose(
     ClientAuthContext::RequestCtxImpl& inRequestCtxImpl)
