@@ -1487,15 +1487,19 @@ struct ChownOp : public KfsOp {
 };
 
 struct AuthenticateOp : public KfsOp {
-    int  requestedAuthType;
-    int  chosenAuthType;
-    bool useSslFlag;
+    int     requestedAuthType;
+    int     chosenAuthType;
+    bool    useSslFlag;
+    int64_t currentTime;
+    int64_t sessionEndTime;
 
     AuthenticateOp(kfsSeq_t s, int authType)
         : KfsOp (CMD_AUTHENTICATE, s),
           requestedAuthType(authType),
           chosenAuthType(kAuthenticationTypeUndef),
-          useSslFlag(false)
+          useSslFlag(false),
+          currentTime(-1),
+          sessionEndTime(-1)
         {}
     virtual void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);

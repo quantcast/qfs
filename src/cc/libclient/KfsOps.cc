@@ -1353,6 +1353,8 @@ AuthenticateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     chosenAuthType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
     useSslFlag     = prop.getValue("Use-ssl", 0) != 0;
+    currentTime    = prop.getValue("Curtime", int64_t(-1));
+    sessionEndTime = prop.getValue("Endtime", int64_t(-1));
 }
 
 void

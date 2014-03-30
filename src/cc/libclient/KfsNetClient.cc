@@ -67,6 +67,8 @@ using std::max;
 using std::hex;
 using std::showbase;
 
+const int64_t kMaxSessionTimeout = int64_t(10) * 365 * 24 * 60 * 60;
+
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
     public KfsCallbackObj,
@@ -215,7 +217,7 @@ public:
         if (inKeyDataPtr && inKeyDataSize > 0) {
             mKeyData.assign(inKeyDataPtr, (size_t)inKeyDataSize);
             if (mKeyId.empty()) {
-                mKeyExpirationTime = Now() + 365 * 24 * 60 * 60;
+                mKeyExpirationTime = Now() + kMaxSessionTimeout;
             } else if (mKeyId != mSessionKeyId) {
                 mKeyExpirationTime = GetTokenExpirationTime(mKeyId);
             }
@@ -333,12 +335,13 @@ public:
         IOBuffer* inBufferPtr = 0)
     {
         const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
-        if (! mSessionKeyId.empty() &&
-                mPendingOpQueue.empty() && IsConnected() &&
-                (mSessionExpirationTime + kSessionUpdateResolutionSec <
+        if (mPendingOpQueue.empty() && IsConnected() &&
+                (mSessionKeyId.empty() ?
+                (mSessionExpirationTime < Now() + kSessionUpdateResolutionSec) :
+                ((mSessionExpirationTime + kSessionUpdateResolutionSec <
                     mKeyExpirationTime ||
                     mSessionExpirationTime < Now()) &&
-                ! mKeyId.empty() && Now() < mKeyExpirationTime) {
+                ! mKeyId.empty() && Now() < mKeyExpirationTime))) {
             KFS_LOG_STREAM_INFO << mLogPrefix <<
                 " updating session by forcing re-connect" <<
             KFS_LOG_EOM;
@@ -687,6 +690,27 @@ public:
                     mAuthRequestCtx,
                     &mAuthOp.statusMsg)) == 0 &&
                     IsConnected()) {
+                const int kMaxAuthResponseTimeSec = 4;
+                bool      theUseTokenEndTimeFlag  = false;
+                if (mAuthOp.chosenAuthType == kAuthenticationTypePSK) {
+                    int64_t theEndTime = 0;
+                    if (ParseTokenExpirationTime(
+                            mAuthContextPtr->GetPskId(), theEndTime)) {
+                        theUseTokenEndTimeFlag = true;
+                        if (mAuthOp.currentTime < mAuthOp.sessionEndTime) {
+                            mSessionExpirationTime =
+                                Now() - kMaxAuthResponseTimeSec -
+                                mAuthOp.currentTime + theEndTime;
+                        } else {
+                            mSessionExpirationTime = theEndTime;
+                        }
+                    }
+                }
+                if (! theUseTokenEndTimeFlag &&
+                        mAuthOp.currentTime < mAuthOp.sessionEndTime) {
+                    mSessionExpirationTime = Now() - kMaxAuthResponseTimeSec +
+                        mAuthOp.currentTime + mAuthOp.sessionEndTime;
+                }
                 SubmitPending();
                 return;
             }
@@ -1209,8 +1233,9 @@ private:
             mSessionKeyId          = mKeyId;
             mSessionKeyData        = mKeyData;
         } else {
-            mSessionKeyId   = string();
-            mSessionKeyData = mSessionKeyId;
+            mSessionKeyId          = string();
+            mSessionKeyData        = mSessionKeyId;
+            mSessionExpirationTime = Now() + kMaxSessionTimeout;
             if (IsAuthEnabled()) {
                 assert(! IsAuthInFlight());
                 mLookupOp.DeallocContentBuf();
@@ -1531,8 +1556,8 @@ private:
     int64_t GetTokenExpirationTime(
             const string& inKeyId) const
     {
-        DelegationToken theToken;
-        if (! theToken.FromString(inKeyId.data(), inKeyId.size(), 0, 0)) {
+        int64_t theRet = 0;
+        if (! ParseTokenExpirationTime(inKeyId, theRet)) {
             const int64_t kDefaultSessionExpirationTimeSec = 10 * 24 * 60 * 60;
             KFS_LOG_STREAM_INFO << mLogPrefix <<
                 "failed to parse delegation token,"
@@ -1541,7 +1566,19 @@ private:
             KFS_LOG_EOM;
             return Now() + kDefaultSessionExpirationTimeSec;
         }
-        return theToken.GetIssuedTime() + theToken.GetValidForSec();
+        return theRet;
+    }
+    bool ParseTokenExpirationTime(
+            const string& inKeyId,
+            int64_t&      outTime) const
+    {
+        DelegationToken theToken;
+        if (inKeyId.empty() ||
+                ! theToken.FromString(inKeyId.data(), inKeyId.size(), 0, 0)) {
+            return false;
+        }
+        outTime = theToken.GetIssuedTime() + theToken.GetValidForSec();
+        return true;
     }
     friend class StImplRef;
 private:
