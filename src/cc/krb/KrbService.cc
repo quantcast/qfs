@@ -45,6 +45,7 @@ public:
     Impl()
         : mKeyTabFileName(),
           mMemKeyTabName(),
+          mTicketEndTime(0),
           mCtx(),
           mAuthCtx(),
           mServerPtr(0),
@@ -144,7 +145,7 @@ public:
                 mServerPtr,
                 mKeyTabPtr,
                 &theReqOptions,
-                KfsKrb5::req_get_ticket_ptr(&mTicketPtr)
+                &mTicketPtr
             );
             // krb5_free_ticket(mCtx, theTicket);
             if (! mErrCode) {
@@ -185,6 +186,11 @@ public:
             mErrorMsg = "possible extraneous invocation of KrbClient::Reply";
             return mErrorMsg.c_str();
         }
+        if (! KfsKrb5::get_ticket_endtime(mTicketPtr, mTicketEndTime)) {
+            mErrCode  = EINVAL;
+            mErrorMsg = "falied to obtain ticket's end time";
+            return mErrorMsg.c_str();
+        }
         KfsKrb5::free_data_contents(mCtx, &mOutBuf);
         mErrCode = krb5_mk_rep(mCtx, mAuthCtx, &mOutBuf);
         if (! mErrCode) {
@@ -205,8 +211,8 @@ public:
                 mErrCode = EINVAL;
             }
             KfsKrb5::authenticator_ptr theAuthenticatorPtr = 0;
-            if (! mErrCode && ! mTicketPtr) {
-                mErrCode = krb5_auth_con_getauthenticator(
+            if (! mErrCode) {
+                mErrCode = KfsKrb5::getauthenticator_if_needed(
                     mCtx, mAuthCtx, &theAuthenticatorPtr);
             }
             if (! mErrCode && ! KfsKrb5::get_client_principal(
@@ -254,9 +260,12 @@ public:
         { return mErrCode; }
     bool IsInMemoryKeytabUsed() const
         { return mInMemoryKeytabUsedFlag; }
+    const time_t GetTicketEndTime() const
+        { return mTicketEndTime; }
 private:
     string            mKeyTabFileName;
     string            mMemKeyTabName;
+    time_t            mTicketEndTime;
     krb5_context      mCtx;
     krb5_auth_context mAuthCtx;
     krb5_principal    mServerPtr;
@@ -456,7 +465,9 @@ private:
         }
         if (mTicketPtr) {
             krb5_free_ticket(mCtx, mTicketPtr);
+            mTicketPtr = 0;
         }
+        mTicketEndTime  = 0;
         mAuthInitedFlag = false;
         return krb5_auth_con_free(mCtx, mAuthCtx);
     }
@@ -550,6 +561,12 @@ KrbService::GetErrorCode() const
 KrbService::IsInMemoryKeytabUsed() const
 {
     return mImpl.IsInMemoryKeytabUsed();
+}
+
+    time_t
+KrbService::GetTicketEndTime() const
+{
+    return mImpl.GetTicketEndTime();
 }
 
 }

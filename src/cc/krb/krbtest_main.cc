@@ -188,10 +188,11 @@ private:
         if (theDebugFlag) {
             cout <<
                 "client:"
+                " expires: " << (mClient.GetLastCredEndTime() - time(0)) <<
                 " request:"
-                " length: " << theDataLen <<
+                " length: "  << theDataLen <<
                 " key:"
-                " length: " << theCliKeyLen <<
+                " length: "  << theCliKeyLen <<
                 " data: "
             ;
             ShowAsHexString(theCliKeyPtr, theCliKeyLen, cout) << "\n";
@@ -230,11 +231,12 @@ private:
             if (theDebugFlag) {
                 cout <<
                     "service:"
+                    " expires: "   << (mService.GetTicketEndTime() - time(0)) <<
                     " reply:"
-                    " length: " << theDataLen <<
+                    " length: "    << theDataLen <<
                     " principal: " << thePrincipalPtr <<
                     " key:"
-                    " length: " << theSrvKeyLen <<
+                    " length: "    << theSrvKeyLen <<
                     " data: "
                 ;
                 ShowAsHexString(theSrvKeyPtr, theSrvKeyLen, cout) << "\n";

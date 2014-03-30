@@ -27,6 +27,8 @@
 #ifndef KFS_KRB_CLIENT_H
 #define KFS_KRB_CLIENT_H
 
+#include <time.h>
+
 namespace KFS
 {
 
@@ -51,7 +53,7 @@ public:
         const char*  inReplyPtr,
         int          inReplyLen);
     int GetErrorCode() const;
-    long GetLastCredEndTime() const;
+    time_t GetLastCredEndTime() const;
 private:
     class Impl;
     Impl& mImpl;

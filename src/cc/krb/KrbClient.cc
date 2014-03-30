@@ -159,8 +159,8 @@ public:
             theCredsPtr,
             &mOutBuf
         );
-        if (theCredsPtr && theCredsPtr->times.endtime) {
-            mLastCredEndTime = (long)theCredsPtr->times.endtime;
+        if (theCredsPtr) {
+            mLastCredEndTime = theCredsPtr->times.endtime;
         }
         krb5_free_creds(mCtx, theCredsPtr);
         if (mErrCode != 0) {
@@ -206,7 +206,7 @@ public:
     }
     int GetErrorCode() const
         { return (int)mErrCode; }
-    long GetLastCredEndTime() const
+    time_t GetLastCredEndTime() const
         { return mLastCredEndTime; }
 private:
     string            mServiceHost;
@@ -222,7 +222,7 @@ private:
     krb5_ccache       mCachePtr;
     bool              mInitedFlag;
     bool              mUseKeyTabFlag;
-    long              mLastCredEndTime;
+    time_t            mLastCredEndTime;
     string            mServiceName;
     string            mErrorMsg;
 
@@ -489,7 +489,7 @@ KrbClient::GetErrorCode() const
     return mImpl.GetErrorCode();
 }
 
-    long
+    time_t
 KrbClient::GetLastCredEndTime() const
 {
     return mImpl.GetLastCredEndTime();

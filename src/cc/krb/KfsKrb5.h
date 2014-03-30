@@ -93,10 +93,6 @@ public:
         AT /* inAuth */,
         TT  inTicket)
         { return (inTicket ? inTicket->client : 0); }
-    inline static krb5_ticket** req_get_ticket_ptr(
-        krb5_ticket** inTicketPtr)
-        { return inTicketPtr; }
-    
     template<typename KT>
     inline static const char* get_key_block_contents(
         KT inKey)
@@ -137,6 +133,26 @@ public:
         CT inCtx,
         ET inEntry)
         { return krb5_kt_free_entry(inCtx, inEntry); }
+    template<typename CT, typename ACT, typename AT>
+    inline static krb5_error_code getauthenticator_if_needed(
+            CT   /* inCtx */,
+            ACT  /* inACtx */,
+            AT   outAuth)
+    {
+        *outAuth = 0;
+        return 0;
+    }
+    template<typename TT, typename MT>
+    static bool get_ticket_endtime(
+        TT  inTicketPtr,
+        MT& outTime)
+    {
+        if (! inTicketPtr) {
+            return false;
+        }
+        outTime = inTicketPtr->ticket.endtime;
+        return true;
+    }
 };
 
 } // namespace KFS
@@ -228,7 +244,7 @@ public:
                 if (theRealmPtr) {
                     --theRealmPtr;
                 }
-            } 
+            }
             thePtr--;
         }
         if (theRealmPtr) {
@@ -281,9 +297,6 @@ public:
         AT inAuth,
         TT /* inTicket */)
         { return (inAuth ? inAuth->client : 0); }
-    inline static krb5_ticket** req_get_ticket_ptr(
-        krb5_ticket** /* inTicketPtr */)
-        { return 0; }
     template<typename CT, typename PT, typename RT>
     inline static krb5_error_code get_server_rcache(
         CT inCtx,
@@ -309,6 +322,23 @@ public:
         CT inCtx,
         ET inEntry)
         { return krb5_free_keytab_entry_contents(inCtx, inEntry); }
+    template<typename CT, typename ACT, typename AT>
+    inline static krb5_error_code getauthenticator_if_needed(
+            CT   inCtx,
+            ACT  inACtx,
+            AT   outAuth)
+        { return krb5_auth_con_getauthenticator(inCtx, inACtx, outAuth); }
+    template<typename TT, typename MT>
+    static bool get_ticket_endtime(
+        TT  inTicketPtr,
+        MT& outTime)
+    {
+        if (! inTicketPtr || ! inTicketPtr->enc_part2) {
+            return false;
+        }
+        outTime = inTicketPtr->enc_part2->times.endtime;
+        return true;
+    }
     inline static bool unescape(
         char*       inPtr,
         const char* inEPtr)
