@@ -85,7 +85,8 @@ int  ClientSM::sBufCompactionThreshold    = 1 << 10;
 int  ClientSM::sOutBufCompactionThreshold = 8 << 10;
 int  ClientSM::sClientCount               = 0;
 bool ClientSM::sAuditLoggingFlag          = false;
-int  ClientSM::sAuthCheckTime             = 1 * 60;
+int  ClientSM::sDelegationCancelCheckTime = 1 * 60;
+int  ClientSM::sAuthMaxTimeSkew           = 1 * 60;
 ClientSM* ClientSM::sClientSMPtr[1]       = {0};
 IOBuffer::WOStream ClientSM::sWOStream;
 
@@ -119,12 +120,15 @@ ClientSM::SetParameters(const Properties& prop)
     sOutBufCompactionThreshold = prop.getValue(
         "metaServer.clientSM.outBufCompactionThreshold",
         sOutBufCompactionThreshold);
-    sAuthCheckTime = prop.getValue(
-        "metaServer.clientSM.authReValidatePeriod",
-        sAuthCheckTime);
+    sDelegationCancelCheckTime = prop.getValue(
+        "metaServer.clientSM.delegationReValidatePeriod",
+        sDelegationCancelCheckTime);
     sAuditLoggingFlag = prop.getValue(
         "metaServer.clientSM.auditLogging",
         sAuditLoggingFlag ? 1 : 0) != 0;
+    sAuthMaxTimeSkew = prop.getValue(
+        "metaServer.clientSM.authMaxTimeSkew",
+        sAuthMaxTimeSkew);
     AuditLog::SetParameters(prop);
 }
 
@@ -156,6 +160,7 @@ ClientSM::ClientSM(
       mDelegationIssuedTime(0),
       mDelegationSeq(0),
       mNextAuthCheckTime(0),
+      mSessionExpirationTime(0),
       mClientThread(thread),
       mAuthContext(ClientManager::GetAuthContext(mClientThread)),
       mAuthUpdateCount(0),
@@ -364,6 +369,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mAuthenticateOp->filter = 0;
                 string authName;
                 authName.swap(mAuthenticateOp->authName);
+                mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
                 delete mAuthenticateOp;
                 mAuthenticateOp = 0;
                 if (filter) {
@@ -553,17 +559,17 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag = mDelegationValidFlag &&
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
+        const time_t now = mNetConnection->TimeNow();
+        if (mSessionExpirationTime + sAuthMaxTimeSkew < now) {
+            delete op;
+            CloseConnection("delegation token has expired");
+            return;
+        }
         uint64_t count;
         bool     checkAuthUidFlag = false;
         if (mDelegationValidFlag) {
-            const time_t now = mNetConnection->TimeNow();
-            if (mDelegationValidForTime + mDelegationIssuedTime < now) {
-                delete op;
-                CloseConnection("delegation token has expired");
-                return;
-            }
             if (mNextAuthCheckTime < now) {
-                mNextAuthCheckTime = now + sAuthCheckTime;
+                mNextAuthCheckTime = now + sDelegationCancelCheckTime;
                 if (gNetDispatch.IsCanceled(
                         mDelegationIssuedTime + mDelegationValidForTime,
                         mDelegationIssuedTime,
@@ -958,7 +964,9 @@ ClientSM::GetPsk(
                 mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
                 mDelegationSeq          = theDelegationToken.GetSeq();
                 mDelegationValidFlag    = true;
-                mNextAuthCheckTime      = now + sAuthCheckTime;
+                mSessionExpirationTime  = (time_t)(
+                    mDelegationIssuedTime + mDelegationValidForTime);
+                mNextAuthCheckTime      = now + sDelegationCancelCheckTime;
                 KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
                     " authentication:" <<
                     " name: "          << theNamePtr <<

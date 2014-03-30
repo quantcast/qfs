@@ -975,8 +975,9 @@ protected:
     kfsUid_t           mAuthUid;
     string             mAuthName;
     MetaAuthenticate*  mAuthenticateOp;
+    uint64_t           mAuthCtxUpdateCount;
     time_t             mSessionExpirationTime;
-    int                mReAuthSentCount;
+    bool               mReAuthSentFlag;
     MetaHello*         mHelloOp;
     ChunkServerPtr     mSelfPtr;
     ValueSampler       mSrvLoadSampler;

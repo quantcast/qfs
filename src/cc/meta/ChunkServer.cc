@@ -182,6 +182,8 @@ MakeAuthUid(const MetaHello& op, const string& authName)
     return authUid;
 }
 
+const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
+
 int ChunkServer::sHeartbeatTimeout     = 60;
 int ChunkServer::sHeartbeatInterval    = 20;
 int ChunkServer::sHeartbeatLogInterval = 1000;
@@ -302,8 +304,6 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
-const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
-
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
       CSMapServerInfo(),
@@ -356,8 +356,9 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mAuthUid(kKfsUserNone),
       mAuthName(),
       mAuthenticateOp(0),
+      mAuthCtxUpdateCount(0),
       mSessionExpirationTime(TimeNow() + kMaxSessionTimeoutSec),
-      mReAuthSentCount(0),
+      mReAuthSentFlag(false),
       mHelloOp(0),
       mSelfPtr(),
       mSrvLoadSampler(sSrvLoadSamplerSampleCount, 0, TimeNow()),
@@ -661,8 +662,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     Error(errMsg.c_str());
                     break;
                 }
-                mSessionExpirationTime = TimeNow() - 1;
             }
+            mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
             delete mAuthenticateOp;
             mAuthenticateOp  = 0;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
@@ -696,7 +697,8 @@ ChunkServer::HandleRequest(int code, void *data)
 
     case EVENT_NET_ERROR: {
         NetConnection::Filter* filter;
-        if (! mDown && mNetConnection && mNetConnection->IsGood() &&
+        if (! mDown && mAuthenticateOp &&
+                mNetConnection && mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter()) &&
                 filter->IsShutdownReceived()) {
             // Do not allow to shutdown filter with data in flight.
@@ -1020,6 +1022,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return -1;
         }
         if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
+            mReAuthSentFlag = false;
             mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
         }
         if (mAuthenticateOp) {
@@ -1059,6 +1062,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             mHelloOp = 0;
             // Do not declare error, hello reply still pending.
             return 0;
+        }
+        if (mHelloOp->authName.empty()) {
+            mAuthCtxUpdateCount =
+                gLayoutManager.GetCSAuthContext().GetUpdateCount();
         }
         if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
             mHelloOp = 0;
@@ -1334,6 +1341,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     // Message is ready to be pushed down.  So remove it.
     iobuf->Consume(msgLen);
     if (op->op == META_AUTHENTICATE) {
+        mReAuthSentFlag = false;
         mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
     }
     if (mAuthenticateOp) {
@@ -1633,7 +1641,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
 void
 ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 {
-    if (mAuthenticateOp) {
+    if (mReAuthSentFlag || mAuthenticateOp) {
         if (mAuthPendingSeq < 0) {
             mAuthPendingSeq = r->opSeqno;
         }
@@ -1948,33 +1956,43 @@ ChunkServer::Heartbeat()
         KFS_LOG_EOM;
         mHeartbeatSent     = true;
         mLastHeartbeatSent = now;
-        if (mSessionExpirationTime <= now) {
-            NetConnection::Filter* const filter = mNetConnection->GetFilter();
-            if (filter) {
-                mSessionExpirationTime = filter->GetSessionExpirationTime();
-                if (1 < mReAuthSentCount &&
-                        mSessionExpirationTime + sRequestTimeout +
-                        3 * (sHeartbeatTimeout + sHeartbeatInterval) < now) {
-                    Error("re-authentication timed out");
-                    return -1;
-                }
-            } else {
-                mSessionExpirationTime = now + kMaxSessionTimeoutSec;
+        if (mReAuthSentFlag) {
+            const time_t rem = mSessionExpirationTime + sRequestTimeout +
+                    3 * (sHeartbeatTimeout + sHeartbeatInterval);
+            if (rem < now) {
+                Error("re-authentication timed out");
+                return -1;
             }
+            return (now - rem);
         }
-        if (mSessionExpirationTime <= now) {
-            mReAuthSentCount++;
-        } else {
-            mReAuthSentCount = 0;
+        const AuthContext& authCtx = gLayoutManager.GetCSAuthContext();
+        bool reAuthenticateFlag =
+            (! mAuthenticateOp &&  mSessionExpirationTime <= now) ||
+            mAuthCtxUpdateCount != authCtx.GetUpdateCount();
+        if (reAuthenticateFlag && ! authCtx.IsAuthRequired()) {
+            reAuthenticateFlag     = false;
+            mSessionExpirationTime = now + kMaxSessionTimeoutSec;
+            mAuthCtxUpdateCount    = authCtx.GetUpdateCount();
+        }
+        if (reAuthenticateFlag) {
+            KFS_LOG_STREAM_INFO <<
+                GetServerLocation() <<
+                " requesting chunk server re-authentication; "
+                "session expires in: " <<
+                (mSessionExpirationTime - now) << " sec." <<
+                " auth ctx update count: " << mAuthCtxUpdateCount <<
+                " vs: " << authCtx.GetUpdateCount() <<
+            KFS_LOG_EOM;
         }
         Enqueue(new MetaChunkHeartbeat(
                 NextSeq(),
                 shared_from_this(),
                 IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
-                mSessionExpirationTime <= now
+                reAuthenticateFlag
             ),
             2 * sHeartbeatTimeout
         );
+        mReAuthSentFlag = reAuthenticateFlag;
         return ((sHeartbeatTimeout >= 0 &&
                 sHeartbeatTimeout < sHeartbeatInterval) ?
             sHeartbeatTimeout : sHeartbeatInterval
@@ -2323,13 +2341,16 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     }
     mAuthenticateOp->clnt     = this;
     mAuthenticateOp->doneFlag = true;
+    mAuthCtxUpdateCount = gLayoutManager.GetCSAuthContext().GetUpdateCount();
     KFS_LOG_STREAM(mAuthenticateOp->status == 0 ?
         MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
-        GetPeerName() << " chunk server authentication"
-        " type: " << mAuthenticateOp->responseAuthType <<
-        " name: " << mAuthenticateOp->authName <<
-        " ssl: "  << reinterpret_cast<const void*>(mAuthenticateOp->filter) <<
+        GetPeerName()        << " chunk server authentication"
+        " type: "            << mAuthenticateOp->responseAuthType <<
+        " name: "            << mAuthenticateOp->authName <<
+        " filter: "          <<
+            reinterpret_cast<const void*>(mAuthenticateOp->filter) <<
         " response length: " << mAuthenticateOp->responseContentLen <<
+        " msg: "             << mAuthenticateOp->statusMsg <<
     KFS_LOG_EOM;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;

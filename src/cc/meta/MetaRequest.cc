@@ -85,6 +85,17 @@ GetTmpOStringStream()
     return ret;
 }
 
+template<typename T>
+static string&
+AppendDecNum(string& str, T num)
+{
+    char              buf[32];
+    char* const       e = buf + sizeof(buf) / sizeof(buf[0]);
+    const char* const p = IntToDecString(num, e);
+    str.append(p, e - p);
+    return str;
+}
+
 static bool
 CanAccessFile(const MetaFattr* fa, MetaRequest& op)
 {
@@ -1557,8 +1568,9 @@ MetaGetalloc::handle()
         }
     }
     if (err) {
-        statusMsg = "no replicas available";
         status    = -EAGAIN;
+        statusMsg = "no replicas available chunk: ";
+        AppendDecNum(statusMsg, chunkId);
         KFS_LOG_STREAM_ERROR <<
             "getalloc "
             "<" << fid << "," << chunkId << "," << offset << ">"
@@ -1648,8 +1660,8 @@ MetaGetlayout::handle()
             if (err) {
                 resp.Clear();
                 status    = -EHOSTUNREACH;
-                statusMsg = "chunk: " + toString(l.chunkId) +
-                    " no replicas available";
+                statusMsg = "no replicas available chunk: ";
+                AppendDecNum(statusMsg, l.chunkId);
                 break;
             }
             for_each(c.begin(), c.end(),
@@ -4614,8 +4626,10 @@ MetaAuthenticate::response(ostream& os)
         return;
     }
     os <<
-        "Auth-type: " << responseAuthType << "\r\n"
-        "Use-ssl: "   << (filter ? 1 : 0) << "\r\n"
+        "Auth-type: " << responseAuthType               << "\r\n"
+        "Use-ssl: "   << (filter ? 1 : 0)               << "\r\n"
+        "Curtime: "   << (int64_t)time(0)               << "\r\n"
+        "Endtime: "   << (int64_t)sessionExpirationTime << "\r\n"
     ;
     if (responseContentLen <= 0) {
         os << "\r\n";
@@ -4758,9 +4772,10 @@ MetaChunkHeartbeat::request(ostream &os)
     "HEARTBEAT \r\n"
     "Cseq: " << opSeqno << "\r\n"
     "Version: KFS/1.0\r\n"
-    "Num-evacuate: " << evacuateCount << "\r\n";
+    "Num-evacuate: " << evacuateCount << "\r\n"
+    ;
     if (reAuthenticateFlag) {
-        os << "Authenticate: 1\r\\n";
+        os << "Authenticate: 1\r\n";
     }
     os <<
     "\r\n"

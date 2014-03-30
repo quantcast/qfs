@@ -189,9 +189,11 @@ public:
                 }
                 delete theFilterPtr;
             } else {
-                inOp.filter           = theFilterPtr;
-                inOp.responseAuthType = kAuthenticationTypePSK;
                 inOp.authName.clear();
+                inOp.filter                = theFilterPtr;
+                inOp.responseAuthType      = kAuthenticationTypePSK;
+                inOp.sessionExpirationTime =
+                    time(0) + SslFilter::GetSessionTimeout(*mSslCtxPtr);
             }
             return (inOp.status == 0);
         }
@@ -222,6 +224,7 @@ public:
                 inOp.responseContentLen = 0;
                 return false;
             }
+            inOp.sessionExpirationTime = mKrbServicePtr->GetTicketEndTime();
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
@@ -288,8 +291,10 @@ public:
                 }
                 delete theFilterPtr;
             } else {
-                inOp.filter           = theFilterPtr;
-                inOp.responseAuthType = inOp.authType;
+                inOp.filter                = theFilterPtr;
+                inOp.responseAuthType      = inOp.authType;
+                inOp.sessionExpirationTime =
+                    time(0) + SslFilter::GetSessionTimeout(*mX509SslCtxPtr);
             }
             if (inOp.status == 0) {
                 inOp.responseAuthType = kAuthenticationTypeX509;

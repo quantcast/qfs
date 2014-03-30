@@ -123,6 +123,7 @@ private:
     int64_t                            mDelegationIssuedTime;
     DelegationToken::TokenSeq          mDelegationSeq;
     time_t                             mNextAuthCheckTime;
+    time_t                             mSessionExpirationTime;
     ClientManager::ClientThread* const mClientThread;
     AuthContext&                       mAuthContext;
     uint64_t                           mAuthUpdateCount;
@@ -154,7 +155,8 @@ private:
     static int  sMaxWriteBehind;
     static int  sBufCompactionThreshold;
     static int  sOutBufCompactionThreshold;
-    static int  sAuthCheckTime;
+    static int  sDelegationCancelCheckTime;
+    static int  sAuthMaxTimeSkew;
     static int  sClientCount;
     static bool sAuditLoggingFlag;
     static ClientSM* sClientSMPtr[1];

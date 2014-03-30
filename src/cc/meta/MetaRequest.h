@@ -2522,6 +2522,7 @@ struct MetaAuthenticate : public MetaRequest {
     const char*            responseContentPtr;
     int                    responseContentLen;
     bool                   doneFlag;
+    time_t                 sessionExpirationTime;
     string                 authName;
     NetConnection::Filter* filter;
 
@@ -2535,6 +2536,7 @@ struct MetaAuthenticate : public MetaRequest {
           responseContentPtr(0),
           responseContentLen(0),
           doneFlag(false),
+          sessionExpirationTime(0),
           authName(),
           filter(0)
           {}
