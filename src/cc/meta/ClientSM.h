@@ -100,6 +100,7 @@ public:
     bool Handle(MetaDelegate& op);
     bool Handle(MetaLookup& op);
     bool Handle(MetaDelegateCancel& op);
+    bool Handle(MetaAllocate& op);
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;

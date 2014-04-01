@@ -203,6 +203,7 @@ struct MetaRequest {
     kfsUid_t        euser;
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
+    time_t          sessionEndTime;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
     MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
@@ -227,6 +228,7 @@ struct MetaRequest {
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),
+          sessionEndTime(),
           next(0),
           clnt(0)
         { MetaRequest::Init(); }
@@ -960,6 +962,10 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int                  validForTime;
     CryptoKeys::KeyId    writeMasterKeyId;
     CryptoKeys::Key      writeMasterKey;
+    TokenSeq             delegationSeq;
+    uint32_t             delegationValidForTime;
+    uint16_t             delegationFlags;
+    int64_t              delegationIssuedTime;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
     StringBufT<64>       clientHost;   //!< the host from which request was received
@@ -1000,6 +1006,10 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           validForTime(0),
           writeMasterKeyId(),
           writeMasterKey(),
+          delegationSeq(-1),
+          delegationValidForTime(0),
+          delegationFlags(0),
+          delegationIssuedTime(0),
           clientHost(),
           pathname()
     {
@@ -1017,6 +1027,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int CheckStatus(bool forceFlag = false) const;
     bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
     void writeChunkAccess(ostream& os);
+    virtual bool dispatch(ClientSM& sm);
     bool Validate()
     {
         return (fid >= 0 && (offset >= 0 || appendChunk));

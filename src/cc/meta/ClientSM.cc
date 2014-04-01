@@ -556,6 +556,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->clnt                = this;
     op->validDelegationFlag = mDelegationValidFlag;
     op->authUid             = mAuthUid;
+    op->sessionEndTime      = mSessionExpirationTime;
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag = mDelegationValidFlag &&
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
@@ -699,6 +700,19 @@ ClientSM::Handle(MetaDelegateCancel& op)
         return true;
     }
     return false; // Not done continue processing.
+}
+
+bool
+ClientSM::Handle(MetaAllocate& op)
+{
+    if (! mDelegationValidFlag) {
+        return false;
+    }
+    op.delegationSeq          = mDelegationSeq;
+    op.delegationValidForTime = mDelegationValidForTime;
+    op.delegationFlags        = mDelegationFlags;
+    op.delegationFlags        = mDelegationIssuedTime;
+    return false;
 }
 
 void

@@ -429,18 +429,45 @@ ChunkLeases::GetValidWriteLease(
 
 inline const ChunkLeases::WriteLease*
 ChunkLeases::RenewValidWriteLease(
-    chunkId_t chunkId)
+    chunkId_t           chunkId,
+    const MetaAllocate& req)
 {
     WEntry* const we = mWriteLeases.Find(chunkId);
     if (! we) {
         return 0;
     }
-    const WriteLease& wl = *we;
+    WriteLease& wl = *we;
     const time_t now = TimeNow();
     if (wl.expires < now) {
         return 0;
     }
     if (! wl.allocInFlight) {
+        if (req.authUid != kKfsUserNone) {
+            if (wl.appendFlag) {
+                // For now do not allow to append to the same chunk if the
+                // delegation tokens are different, in order to make delegation
+                // cancellation work.
+                if ((0 < wl.delegationValidForTime) !=
+                        req.validDelegationFlag ||
+                    (req.validDelegationFlag && (
+                        wl.delegationValidForTime !=
+                            req.delegationValidForTime ||
+                        wl.delegationFlags        != req.delegationFlags ||
+                        wl.delegationIssuedTime   != req.delegationIssuedTime ||
+                        wl.delegationUser         != req.authUid))) {
+                    return 0;
+                }
+                wl.endTime = max(wl.endTime, req.sessionEndTime);
+            } else {
+                wl.delegationValidForTime = req.validDelegationFlag ?
+                    req.delegationValidForTime : uint32_t(0);
+                wl.delegationFlags      = req.delegationFlags;
+                wl.delegationIssuedTime = req.delegationIssuedTime;
+                wl.delegationUser       = req.authUid;
+                wl.delegationSeq        = req.delegationSeq;
+                wl.endTime              = req.sessionEndTime;
+            }
+        }
         Renew(*we, now);
     }
     return &wl;
@@ -878,39 +905,22 @@ ChunkLeases::NewReadLease(
 
 inline bool
 ChunkLeases::NewWriteLease(
-    chunkId_t             chunkId,
-    seq_t                 chunkVersion,
-    time_t                expires,
-    const ChunkServerPtr& server,
-    const string&         path,
-    bool                  append,
-    bool                  stripedFileFlag,
-    const MetaAllocate*   allocInFlight,
-    ChunkLeases::LeaseId& leaseId,
-    kfsUid_t              euser,
-    kfsGid_t              egroup)
+    MetaAllocate& req)
 {
-    if (mReadLeases.Find(chunkId)) {
-        assert(! mWriteLeases.Find(chunkId));
+    if (mReadLeases.Find(req.chunkId)) {
+        assert(! mWriteLeases.Find(req.chunkId));
         return false;
     }
     const LeaseId id = NewWriteLeaseId();
     WriteLease const wl(
         id,
-        chunkVersion,
-        server,
-        path,
-        append,
-        stripedFileFlag,
-        allocInFlight,
-        expires,
-        euser,
-        egroup
+        GetInitialWriteLeaseExpireTime(),
+        req
     );
     bool insertedFlag = false;
     WEntry* const l = mWriteLeases.Insert(
-        chunkId, WEntry(chunkId, wl), insertedFlag);
-    leaseId = l->Get().leaseId;
+        req.chunkId, WEntry(req.chunkId, wl), insertedFlag);
+    req.leaseId = l->Get().leaseId;
     if (insertedFlag) {
         PutInExpirationList(*l);
     }
@@ -922,7 +932,8 @@ ChunkLeases::Renew(
     chunkId_t            chunkId,
     ChunkLeases::LeaseId leaseId,
     bool                 allocDoneFlag /* = false */,
-    const MetaFattr*     fa            /* = 0 */)
+    const MetaFattr*     fa            /* = 0 */,
+    MetaLeaseRenew*      req           /* = 0 */)
 {
     if (IsReadLease(leaseId)) {
         REntry* const rl = mReadLeases.Find(chunkId);
@@ -975,6 +986,24 @@ ChunkLeases::Renew(
     if (fa && ! fa->CanWrite(wl.euser, wl.egroup)) {
         Expire(*we, now);
         return -EPERM;
+    }
+    if (req && req->authUid != kKfsUserNone) {
+        if (wl.endTime < now) {
+            req->statusMsg = "authentication has expired";
+            Expire(*we, now);
+            return -EPERM;
+        }
+        if (0 < wl.delegationValidForTime &&
+                gNetDispatch.IsCanceled(
+                    wl.delegationIssuedTime + wl.delegationValidForTime,
+                    wl.delegationIssuedTime,
+                    wl.delegationUser,
+                    wl.delegationSeq,
+                    wl.delegationFlags)) {
+            req->statusMsg = "delegation canceled";
+            Expire(*we, now);
+            return -EPERM;
+        }
     }
     if (! wl.allocInFlight) {
         Renew(*we, now);
@@ -4757,18 +4786,7 @@ LayoutManager::AllocateChunk(
     );
     r->master = r->servers[0];
 
-    if (! mChunkLeases.NewWriteLease(
-            r->chunkId,
-            r->chunkVersion,
-            GetInitialWriteLeaseExpireTime(),
-            r->servers[0],
-            r->pathname.GetStr(),
-            r->appendChunk,
-            r->stripedFileFlag,
-            r,
-            r->leaseId,
-            r->euser,
-            r->egroup)) {
+    if (! mChunkLeases.NewWriteLease(*r)) {
         panic("failed to get write lease for a new chunk");
     }
 
@@ -4993,7 +5011,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     }
 
     const ChunkLeases::WriteLease* const l =
-        mChunkLeases.RenewValidWriteLease(r->chunkId);
+        mChunkLeases.RenewValidWriteLease(r->chunkId, *r);
     if (l) {
         if (l->allocInFlight) {
             r->statusMsg =
@@ -5074,18 +5092,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     // When issuing a new lease, increment the version, skipping over
     // the failed version increment attemtps.
     r->chunkVersion += IncrementChunkVersionRollBack(r->chunkId);
-    if (! mChunkLeases.NewWriteLease(
-            r->chunkId,
-            r->chunkVersion,
-            GetInitialWriteLeaseExpireTime(),
-            r->servers[0],
-            r->pathname.GetStr(),
-            r->appendChunk,
-            r->stripedFileFlag,
-            r,
-            r->leaseId,
-            r->euser,
-            r->egroup)) {
+    if (! mChunkLeases.NewWriteLease(*r)) {
         panic("failed to get write lease for a chunk");
     }
 
@@ -5221,7 +5228,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         return -1;
     }
     const ChunkLeases::WriteLease* const wl =
-        mChunkLeases.RenewValidWriteLease(entry->chunkId);
+        mChunkLeases.RenewValidWriteLease(entry->chunkId, *req);
     if (! wl) {
         mARAChunkCache.Invalidate(it);
         return -1;
@@ -5659,10 +5666,12 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         return -EACCES;
     }
     const bool kAllocDoneFlag = false;
-    const int  ret            = mChunkLeases.Renew(req->chunkId, req->leaseId,
+    const int  ret            = mChunkLeases.Renew(
+        req->chunkId,
+        req->leaseId,
         kAllocDoneFlag,
-        (cs && mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ?
-        cs->GetFattr() : 0
+        (mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ? cs->GetFattr() : 0,
+        req
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
         req->issuedTime                 = TimeNow();

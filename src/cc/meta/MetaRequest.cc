@@ -1681,6 +1681,12 @@ MetaGetlayout::handle()
     sWOStream.Reset();
 }
 
+/* virtual */ bool
+MetaAllocate::dispatch(ClientSM& sm)
+{
+    return sm.Handle(*this);
+}
+
 /*!
  * \brief handle an allocation request for a chunk in a file.
  * \param[in] r write allocation request

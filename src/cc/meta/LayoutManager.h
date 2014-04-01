@@ -53,6 +53,7 @@
 #include "kfsio/event.h"
 #include "kfsio/Globals.h"
 #include "kfsio/PrngIsaac64.h"
+#include "kfsio/DelegationToken.h"
 #include "MetaRequest.h"
 #include "CSMap.h"
 #include "ChunkPlacement.h"
@@ -103,6 +104,7 @@ class ChunkLeases
 public:
     enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
+    typedef DelegationToken::TokenSeq TokenSeq;
     struct ReadLease
     {
         ReadLease(LeaseId id, time_t exp)
@@ -125,27 +127,27 @@ public:
     struct WriteLease : public ReadLease
     {
         WriteLease(
-            LeaseId               i,
-            seq_t                 cvers,
-            const ChunkServerPtr& c,
-            const string&         p,
-            bool                  append,
-            bool                  stripedFile,
-            const MetaAllocate*   alloc,
-            time_t                exp,
-            kfsUid_t              euid,
-            kfsGid_t              egid)
+            LeaseId             i,
+            time_t              exp,
+            const MetaAllocate& alloc)
             : ReadLease(i, exp),
-              chunkVersion(cvers),
-              chunkServer(c),
-              pathname(p),
-              appendFlag(append),
-              stripedFileFlag(stripedFile),
+              chunkVersion(alloc.chunkVersion),
+              chunkServer(alloc.servers.front()),
+              pathname(alloc.pathname.GetStr()),
+              appendFlag(alloc.appendChunk),
+              stripedFileFlag(alloc.stripedFileFlag),
               relinquishedFlag(false),
               ownerWasDownFlag(false),
-              allocInFlight(alloc),
-              euser(euid),
-              egroup(egid)
+              allocInFlight(&alloc),
+              euser(alloc.euser),
+              egroup(alloc.egroup),
+              endTime(alloc.sessionEndTime),
+              delegationSeq(alloc.delegationSeq),
+              delegationValidForTime(alloc.validDelegationFlag ?
+                alloc.delegationValidForTime : uint32_t(0)),
+              delegationFlags(alloc.delegationFlags),
+              delegationIssuedTime(alloc.delegationIssuedTime),
+              delegationUser(alloc.authUid)
             {}
         WriteLease(const WriteLease& lease)
             : ReadLease(lease),
@@ -158,7 +160,13 @@ public:
               ownerWasDownFlag(lease.ownerWasDownFlag),
               allocInFlight(lease.allocInFlight),
               euser(lease.euser),
-              egroup(lease.egroup)
+              egroup(lease.egroup),
+              endTime(lease.endTime),
+              delegationSeq(lease.delegationSeq),
+              delegationValidForTime(lease.delegationValidForTime),
+              delegationFlags(lease.delegationFlags),
+              delegationIssuedTime(lease.delegationIssuedTime),
+              delegationUser(lease.delegationUser)
             {}
         WriteLease()
             : ReadLease(),
@@ -171,7 +179,13 @@ public:
               ownerWasDownFlag(false),
               allocInFlight(0),
               euser(kKfsUserNone),
-              egroup(kKfsGroupNone)
+              egroup(kKfsGroupNone),
+              endTime(0),
+              delegationSeq(-1),
+              delegationValidForTime(0),
+              delegationFlags(0),
+              delegationIssuedTime(0),
+              delegationUser(kKfsUserNone)
             {}
         void ResetServer()
             { const_cast<ChunkServerPtr&>(chunkServer).reset(); }
@@ -188,6 +202,12 @@ public:
         const MetaAllocate*  allocInFlight;
         kfsUid_t             euser;
         kfsGid_t             egroup;
+        time_t               endTime;
+        TokenSeq             delegationSeq;
+        uint32_t             delegationValidForTime;
+        uint16_t             delegationFlags;
+        int64_t              delegationIssuedTime;
+        kfsUid_t             delegationUser;
     };
 
     ChunkLeases();
@@ -197,7 +217,8 @@ public:
     inline const WriteLease* GetValidWriteLease(
         chunkId_t chunkId) const;
     inline const WriteLease* RenewValidWriteLease(
-        chunkId_t chunkId);
+        chunkId_t           chunkId,
+        const MetaAllocate& req);
     inline bool HasValidWriteLease(
         chunkId_t chunkId) const;
     inline bool HasValidLease(
@@ -214,17 +235,7 @@ public:
         time_t    expires,
         LeaseId&  leaseId);
     inline bool NewWriteLease(
-        chunkId_t             chunkId,
-        seq_t                 chunkVersion,
-        time_t                expires,
-        const ChunkServerPtr& server,
-        const string&         path,
-        bool                  append,
-        bool                  stripedFileFlag,
-        const MetaAllocate*   allocInFlight,
-        LeaseId&              leaseId,
-        kfsUid_t              euser,
-        kfsGid_t              egroup);
+        MetaAllocate& req);
     inline bool DeleteWriteLease(
         chunkId_t chunkId,
         LeaseId   leaseId);
@@ -232,7 +243,8 @@ public:
         chunkId_t        chunkId,
         LeaseId          leaseId,
         bool             allocDoneFlag = false,
-        const MetaFattr* fattr         = 0);
+        const MetaFattr* fattr         = 0,
+        MetaLeaseRenew*  req           = 0);
     inline bool Delete(chunkId_t chunkId);
     inline bool ExpiredCleanup(
         chunkId_t      chunkId,
