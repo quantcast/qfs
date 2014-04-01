@@ -197,7 +197,7 @@ public:
             int                inDefaultSpaceReservationSize = 1 << 20,
             int                inPreferredAppendSize         = KFS::CHECKSUM_BLOCKSIZE,
             int                inOpTimeoutSec                = 120,
-            int                inIdleTimeoutSec              = 5 * 30,
+            int                inIdleTimeoutSec              = IDLE_TIMEOUT_SECS,
             const char*        inLogPrefixPtr                = 0,
             int64_t            inChunkServerInitialSeqNum    = 0,
             bool               inPreAllocateFlag             = false,

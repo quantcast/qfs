@@ -140,7 +140,7 @@ public:
         int         inPreferredAppendSize         = KFS::CHECKSUM_BLOCKSIZE,
         int         inMaxPartialBuffersCount      = 16,
         int         inOpTimeoutSec                = 30,
-        int         inIdleTimeoutSec              = 5 * 30,
+        int         inIdleTimeoutSec              = IDLE_TIMEOUT_SECS,
         const char* inLogPrefixPtr                = 0,
         int64_t     inChunkServerInitialSeqNum    = 1,
         bool        inPreAllocationFlag           = true,

@@ -231,7 +231,7 @@ public:
         int         inMaxRetryCount            = 6,
         int         inTimeSecBetweenRetries    = 15,
         int         inOpTimeoutSec             = 30,
-        int         inIdleTimeoutSec           = 5 * 30,
+        int         inIdleTimeoutSec           = IDLE_TIMEOUT_SECS,
         int         inMaxReadSize              = 1 << 20,
         int         inLeaseRetryTimeout        = 3,
         int         inLeaseWaitTimeout         = 900,

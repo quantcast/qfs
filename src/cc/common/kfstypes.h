@@ -88,6 +88,9 @@ const short int MAX_REPLICAS_PER_FILE = 64; //!< max. replicas per chunk of file
 //!< Default lease interval of 5 mins
 const int LEASE_INTERVAL_SECS = 300;
 
+//!< Default idle timeout of 2m30s
+const int IDLE_TIMEOUT_SECS = 5 * 30;
+
 //!< Error codes for KFS specific errors
 // version # being presented by client doesn't match what the server has
 const int EBADVERS = 1000;
