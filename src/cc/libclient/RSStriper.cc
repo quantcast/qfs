@@ -3500,11 +3500,24 @@ private:
                     }
                 }
             }
-            QCRTASSERT(
-                theLen > 0 &&
+            if (!(theLen > 0 &&
                 (theLen % kAlign == 0 || theLen < kAlign) &&
-                theMissingCnt == mRecoveryStripeCount
-            );
+                theMissingCnt == mRecoveryStripeCount))
+            {
+              KFS_LOG_STREAM_INFO << mLogPrefix
+                << "read recovery" <<
+                " req: "  << inRequest.mPos         <<
+                ","       << inRequest.mSize        <<
+                " pos: "  << inRequest.mRecoveryPos <<
+                "+"       << thePos                 <<
+                " size: " << theLen                 <<
+                " of: "   << theSize
+                << " failed, theLen : " << theLen
+                << " kAlign : " << kAlign
+                << " theMissingCnt : " << theMissingCnt
+                << KFS_LOG_EOM;
+              QCRTASSERT(false);
+            }
             if (thePos == 0 || thePos + theLen >= theSize) {
                 KFS_LOG_STREAM_INFO << mLogPrefix       <<
                     "read recovery"
