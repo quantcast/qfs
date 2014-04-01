@@ -200,7 +200,7 @@ public:
                 theRetPtr,
                 inParams.getValue(
                     theParamName.Truncate(thePrefLen).Append(
-                    "session.timeout"), long(3) * 60 * 60)
+                    "session.timeout"), long(4) * 60 * 60)
         );
         const char* const theSessCtxIdPtr = inPskOnlyFlag ?
             "QFS_SSL_PSK_CACHE" : "QFS_SSL_CACHE";
