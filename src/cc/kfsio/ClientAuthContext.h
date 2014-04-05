@@ -26,6 +26,7 @@
 #ifndef KFS_CLIENT_AUTH_CONTEXT_H
 #define KFS_CLIENT_AUTH_CONTEXT_H
 
+#include <inttypes.h>
 #include <string>
 
 namespace KFS
