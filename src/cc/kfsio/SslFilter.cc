@@ -37,6 +37,8 @@
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
+#include <openssl/bio.h>
+#include <openssl/pem.h>
 #include <openssl/engine.h>
 
 #include <errno.h>
@@ -68,6 +70,18 @@ private:
             SSL_SESSION_free(reinterpret_cast<SSL_SESSION*>(inSessionPtr));
         }
     }
+    static void SslCtxCertFree(
+        void*           /* inSslCtx */,
+        void*           inCertPtr,
+        CRYPTO_EX_DATA* /* inDataPtr */,
+        int             /* inIdx */,
+        long            /* inArgLong */,
+        void*           /* inArgPtr */)
+    {
+        if (inCertPtr) {
+            X509_free(reinterpret_cast<X509*>(inCertPtr));
+        }
+    }
 
 public:
     typedef SslFilter::Ctx       Ctx;
@@ -80,6 +94,9 @@ public:
             return 0;
         }
         static OpenSslInit sOpenSslInit;
+        if (! SetJulianUtcOffsetSec(sOpenSslInit.mJulianUtcOffsetSec)) {
+            return 1;
+        }
         sOpenSslInitPtr = &sOpenSslInit;
 #if OPENSSL_VERSION_NUMBER < 0x10000000L
         CRYPTO_set_id_callback(&ThreadIdCB);
@@ -106,6 +123,14 @@ public:
             SSL_CTX_get_ex_new_index(0, (void*)"SSL_SESSION", 0, 0,
                 &SslCtxSessionFree);
         if (sOpenSslInitPtr->mExDataSessionIdx < 0) {
+            const Error theErr = GetAndClearErr();
+            Cleanup();
+            return theErr;
+        }
+        sOpenSslInitPtr->mExDataClientX509Idx =
+            SSL_CTX_get_ex_new_index(0, (void*)"ClientX509", 0, 0,
+                &SslCtxCertFree);
+        if (sOpenSslInitPtr->mExDataClientX509Idx < 0) {
             const Error theErr = GetAndClearErr();
             Cleanup();
             return theErr;
@@ -241,13 +266,35 @@ public:
         const char* const theX509FileNamePtr = inParams.getValue(
             theParamName.Truncate(thePrefLen).Append("X509PemFile"),
             kNullStrPtr);
-        if (theX509FileNamePtr && ! SSL_CTX_use_certificate_file(
-                theRetPtr, theX509FileNamePtr, SSL_FILETYPE_PEM)) {
-            if (inErrMsgPtr) {
-                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+        if (theX509FileNamePtr) {
+            BIO* const theBioPtr  = BIO_new(BIO_s_file());
+            X509*      theX509Ptr = 0;
+            if (! theBioPtr ||
+                    BIO_read_filename(theBioPtr, theX509FileNamePtr) <= 0 ||
+                    ! PEM_read_bio_X509(theBioPtr, &theX509Ptr, 0,
+                        const_cast<char*>(inParams.getValue(
+                            theParamName.Truncate(thePrefLen).Append(
+                            "X509Password"), kNullStrPtr))) ||
+                    ! SSL_CTX_use_certificate(theRetPtr, theX509Ptr) ||
+                    ! SSL_CTX_set_ex_data(
+                        theRetPtr,
+                        sOpenSslInitPtr->mExDataClientX509Idx,
+                        theX509Ptr)) {
+                if (inErrMsgPtr) {
+                    *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+                }
+                if (theX509Ptr) {
+                    X509_free(theX509Ptr);
+                    theX509Ptr = 0;
+                }
             }
-            SSL_CTX_free(theRetPtr);
-            return 0;
+            if (theBioPtr) {
+                BIO_free(theBioPtr);
+            }
+            if (! theX509Ptr) {
+                SSL_CTX_free(theRetPtr);
+                return 0;
+            }
         }
         const char* const thePKeyFileNamePtr = inParams.getValue(
             theParamName.Truncate(thePrefLen).Append("PKeyPemFile"),
@@ -260,11 +307,48 @@ public:
             SSL_CTX_free(theRetPtr);
             return 0;
         }
+        if (! SSL_CTX_sess_set_cache_size(
+                theRetPtr,
+                inParams.getValue(
+                    theParamName.Truncate(thePrefLen).Append(
+                        "sessionCacheSize"),
+                    SSL_CTX_sess_get_cache_size(theRetPtr)))) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
+            SSL_CTX_free(theRetPtr);
+            return 0;
+        }
         return reinterpret_cast<Ctx*>(theRetPtr);
     }
     static long GetSessionTimeout(
         Ctx& inCtx)
         { return SSL_CTX_get_timeout(reinterpret_cast<SSL_CTX*>(&inCtx)); }
+    static bool GetCtxX509EndTime(
+        Ctx&     inCtx,
+        int64_t& outEndTime)
+    {
+        return GetX509EndTimeSelf(
+            reinterpret_cast<SSL_CTX*>(&inCtx), outEndTime);
+    }
+    static bool GetX509EndTimeSelf(
+        SSL_CTX* inSslCtxPtr,
+        int64_t& outEndTime)
+    {
+        if (! inSslCtxPtr) {
+            return false;
+        }
+        const X509* const theX509Ptr = reinterpret_cast<X509*>(
+            SSL_CTX_get_ex_data(
+                inSslCtxPtr,
+                sOpenSslInitPtr->mExDataClientX509Idx
+        ));
+        if (! theX509Ptr) {
+            return false;
+        }
+        const ASN1_TIME* const theTimePtr = X509_get_notAfter(theX509Ptr);
+        return (theTimePtr && GetTime(*theTimePtr, outEndTime));
+    }
     static void FreeCtx(
         Ctx* inCtxPtr)
     {
@@ -541,7 +625,7 @@ public:
         const int theErr = SslRetToErr(theRet);
         return (mSslEofFlag ? 0 : theErr);
     }
-    virtual time_t GetSessionExpirationTime() const
+    virtual int64_t GetSessionExpirationTime() const
     {
         if (! mSslPtr || mError != 0 || ! SSL_is_init_finished(mSslPtr)) {
             return (time(0) - 1);
@@ -550,7 +634,7 @@ public:
         if (! theCurSessionPtr) {
             return (time(0) - 1);
         }
-        return ((time_t)SSL_SESSION_get_time(theCurSessionPtr) +
+        return ((int64_t)SSL_SESSION_get_time(theCurSessionPtr) +
                 SSL_SESSION_get_timeout(theCurSessionPtr));
     }
     virtual bool RenewSession()
@@ -595,6 +679,12 @@ public:
     }
     bool IsShutdownReceived() const
         { return (mSslEofFlag && mSslPtr != 0); }
+    bool GetX509EndTime(
+        int64_t& outEndTime) const
+    {
+        return (mSslPtr && GetX509EndTimeSelf(
+            SSL_get_SSL_CTX(mSslPtr), outEndTime));
+    }
 private:
     SSL*              mSslPtr;
     unsigned long     mError;
@@ -623,8 +713,10 @@ private:
               mSessionUpdateMutex(),
               mExDataIdx(-1),
               mExDataSessionIdx(-1),
+              mExDataClientX509Idx(-1),
               mErrFileNamePtr(0),
               mErrLine(-1),
+              mJulianUtcOffsetSec(0),
               mAES256CbcCypherDebugPtr(0)
             {}
         ~OpenSslInit()
@@ -636,8 +728,10 @@ private:
         QCMutex           mSessionUpdateMutex;
         int               mExDataIdx;
         int               mExDataSessionIdx;
+        int               mExDataClientX509Idx;
         const char*       mErrFileNamePtr;
         int               mErrLine;
+        int64_t           mJulianUtcOffsetSec;
         // To simplify tracking down using core file if aes-ni is engaged or
         // not.
         const EVP_CIPHER* mAES256CbcCypherDebugPtr;
@@ -760,12 +854,15 @@ private:
     bool VeifyPeer(
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
-        const string& inPeerName)
+        const string& inPeerName,
+        int64_t       inEndTime,
+        bool          inEndTimeValidFlag)
     {
         mVerifyOrGetPskInvokedFlag = true;
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
-                mAuthName, inPreverifyOkFlag, inCurCertDepth, inPeerName);
+                mAuthName, inPreverifyOkFlag, inCurCertDepth, inPeerName,
+                inEndTime, inEndTimeValidFlag);
         }
         if (! inPreverifyOkFlag) {
             mAuthName.clear();
@@ -796,11 +893,20 @@ private:
             abort();
             return 0;
         }
-        X509* const theCertPtr = X509_STORE_CTX_get_current_cert(inX509CtxPtr);
+        X509* const theCertPtr       =
+            X509_STORE_CTX_get_current_cert(inX509CtxPtr);
+        bool        theTimeValidFlag = false;
+        int64_t     theTime          = 0;
+        if (theCertPtr) {
+            const ASN1_TIME* const theTimePtr = X509_get_notAfter(theCertPtr);
+            theTimeValidFlag = theTimePtr && GetTime(*theTimePtr, theTime);
+        }
         return (thePtr->VeifyPeer(
             inPreverifyOkFlag != 0,
             X509_STORE_CTX_get_error_depth(inX509CtxPtr),
-            GetCommonName(theCertPtr ? X509_get_subject_name(theCertPtr) : 0)
+            GetCommonName(theCertPtr ? X509_get_subject_name(theCertPtr) : 0),
+            theTime,
+            theTimeValidFlag
         ) ? 1 : 0);
     }
     static string GetCommonName(
@@ -831,14 +937,24 @@ private:
         }
         // This is invoked in the case of ssl session resume.
         string      thePeerName;
-        X509* const theCertPtr = SSL_get_peer_certificate(mSslPtr);
+        X509* const theCertPtr       = SSL_get_peer_certificate(mSslPtr);
+        int64_t     theTime          = 0;
+        bool        theTimeValidFlag = 0;
         if (theCertPtr) {
             thePeerName = GetCommonName(X509_get_subject_name(theCertPtr));
+            const ASN1_TIME* const theTimePtr = X509_get_notAfter(theCertPtr);
+            theTimeValidFlag = theTimePtr && GetTime(*theTimePtr, theTime);
             X509_free(theCertPtr);
         }
         const bool kPreverifyOkFlag = true;
         const int  kCurCertDepth    = 0;
-        return VeifyPeer(kPreverifyOkFlag, kCurCertDepth, thePeerName);
+        return VeifyPeer(
+            kPreverifyOkFlag,
+            kCurCertDepth,
+            thePeerName,
+            theTime,
+            theTimeValidFlag
+        );
     }
     int DoHandshake()
     {
@@ -1024,6 +1140,173 @@ private:
             delete this;
         }
         return 0;
+    }
+    static int64_t
+    ToJulianDay(
+        int inYear,
+        int inMonth,
+        int inDay)
+    {
+        return ((int64_t(1461) *
+            (inYear + 4800 + (inMonth - 14) / 12)) / 4 +
+            (367 * (inMonth - 2 - 12 * ((inMonth - 14) / 12))) / 12 -
+            (3 * ((inYear + 4900 + (inMonth - 14) / 12) / 100)) / 4 +
+            inDay - 32075
+        );
+    }
+    static bool SetJulianUtcOffsetSec(
+        int64_t& outOffset)
+    {
+        struct tm    theGmt  = { 0 };
+        const time_t theTime = 0;
+        const tm* const theTmPtr = gmtime_r(&theTime, &theGmt);
+        if (! theTmPtr) {
+            return false;
+        }
+        outOffset = ((
+            ToJulianDay(
+                theTmPtr->tm_year  + 1900,
+                theTmPtr->tm_mon   + 1,
+                theTmPtr->tm_mday) * 24 +
+            theTmPtr->tm_hour) * 60 +
+            theTmPtr->tm_min) * 60 +
+            theTmPtr->tm_sec;
+        return true;
+    }
+    static bool ParseUtcTime(
+        const unsigned char* inStrPtr,
+        int                  inLen,
+        int64_t&             outTime)
+    {
+        if (! sOpenSslInitPtr) {
+            return false;
+        }
+	if (inLen < 10) {
+            return false;
+        }
+	for (int i = 0; i < 10; i++) {
+            if (inStrPtr[i] > '9' || inStrPtr[i] < '0') {
+                return false;
+            }
+        }
+	int       theYear   = (inStrPtr[0] - '0') * 10 + (inStrPtr[1] - '0');
+	if (theYear < 50) {
+            theYear += 100;
+        }
+	const int theMonth  = (inStrPtr[2] - '0') * 10 + (inStrPtr[3] - '0');
+	if (12 < theMonth || theMonth < 1) {
+            return false;
+        }
+	const int theDay    = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
+	const int theHour   = (inStrPtr[6] - '0') * 10 + (inStrPtr[7] - '0');
+	const int theMinute = (inStrPtr[8] - '0') * 10 + (inStrPtr[9] - '0');
+        const int theSecond = (12 <= inLen &&
+                inStrPtr[10] >= '0' && inStrPtr[10] <= '9' &&
+                inStrPtr[11] >= '0' && inStrPtr[11] <= '9') ?
+            (inStrPtr[10] - '0') * 10 + (inStrPtr[11] - '0') : 0;
+        int theUtcOffset = 0;
+        if (inStrPtr[inLen - 1] != 'Z' && 16 <= inLen) {
+            if (inStrPtr[12] != '+' && inStrPtr[12] != '-') {
+                return false;
+            }
+            theUtcOffset =
+                ((inStrPtr[13] - '0') * 10 + (inStrPtr[14] - '0')) * 60 +
+                (inStrPtr[15] - '0') * 10 + (inStrPtr[16] - '0');
+            if (inStrPtr[12] == '-') {
+                theUtcOffset = -theUtcOffset;
+            }
+        }
+        outTime = ((ToJulianDay(
+            theYear + 1900,
+            theMonth,
+            theDay) * 24 +
+            theHour) * 60 +
+            theMinute) * 60 +
+            theSecond +
+            theUtcOffset -
+            sOpenSslInitPtr->mJulianUtcOffsetSec;
+        return true;
+    }
+    static bool ParseGeneralizedTime(
+        const unsigned char* inStrPtr,
+        int                  inLen,
+        int64_t&             outTime)
+    {
+        if (inLen < 12) {
+            return false;
+        }
+        for (int i = 0; i < 12; i++) {
+            if (inStrPtr[i] > '9' || inStrPtr[i] < '0') {
+                return false;
+            }
+        }
+	const int theYear = ((
+             (inStrPtr[0] - '0')  * 10 +
+             (inStrPtr[1] - '0')) * 10 +
+             (inStrPtr[2] - '0')) * 10 +
+             (inStrPtr[3] - '0');
+	const int theMonth = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
+	if (theMonth > 12 || theMonth < 1) {
+            return false;
+        }
+	const int theDay    = (inStrPtr[ 6] - '0') * 10 + (inStrPtr[ 7] - '0');
+	const int theHour   = (inStrPtr[ 8] - '0') * 10 + (inStrPtr[ 9] - '0');
+	const int theMinute = (inStrPtr[10] - '0') * 10 + (inStrPtr[11] - '0');
+        int theSecond = 0;
+        int theTmzPos = 12;
+	if (14 <= inLen &&
+                inStrPtr[12] >= '0' && inStrPtr[12] <= '9' &&
+                inStrPtr[13] >= '0' && inStrPtr[13] <= '9') {
+            theSecond = (inStrPtr[12] - '0') * 10 + (inStrPtr[13] - '0');
+            theTmzPos = 14;
+            // Skip seconds fractional.
+            if (15 <= inLen && inStrPtr[14] == '.') {
+                theTmzPos = 15;
+                while (theTmzPos < inLen &&
+                        0 <= inStrPtr[theTmzPos] &&
+                        inStrPtr[theTmzPos] <= 9) {
+                    theTmzPos++;
+                }
+            }
+        }
+        int theUtcOffset = 0;
+        if (inStrPtr[inLen - 1] != 'Z' && theTmzPos < inLen) {
+            if (inLen < theTmzPos + 4 ||
+                    (inStrPtr[theTmzPos] != '+' &&
+                        inStrPtr[theTmzPos] != '-')) {
+                return false;
+            }
+            theUtcOffset = (
+                (inStrPtr[theTmzPos + 1] - '0') * 10 +
+                (inStrPtr[theTmzPos + 2] - '0')) * 60 +
+                (inStrPtr[theTmzPos + 3] - '0') * 10 +
+                (inStrPtr[theTmzPos + 4] - '0');
+            if (inStrPtr[theTmzPos] == '-') {
+                theUtcOffset = -theUtcOffset;
+            }
+        }
+        outTime = ((ToJulianDay(
+            theYear,
+            theMonth,
+            theDay) * 24 +
+            theHour) * 60 +
+            theMinute) * 60 +
+            theSecond +
+            theUtcOffset -
+            sOpenSslInitPtr->mJulianUtcOffsetSec;
+        return true;
+    }
+    static bool GetTime(
+        const ASN1_TIME& inTime,
+        int64_t&         outTime)
+    {
+        if (inTime.type == V_ASN1_UTCTIME) {
+            return ParseUtcTime(inTime.data, inTime.length, outTime);
+        }
+        if (inTime.type == V_ASN1_GENERALIZEDTIME) {
+            return ParseGeneralizedTime(inTime.data, inTime.length, outTime);
+        }
+        return false;
     }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;
@@ -1215,6 +1498,21 @@ SslFilter::IsShutdownReceived() const
     return mImpl.IsShutdownReceived();
 }
 
+    /* static */ bool
+SslFilter::GetCtxX509EndTime(
+    Ctx&     inCtx,
+    int64_t& outEndTime)
+{
+    return Impl::GetCtxX509EndTime(inCtx, outEndTime);
+}
+
+    bool
+SslFilter::GetX509EndTime(
+    int64_t& outEndTime) const
+{
+    return mImpl.GetX509EndTime(outEndTime);
+}
+
 class SslFilterPeerVerify :
     private SslFilter::VerifyPeer,
     public  SslFilter
@@ -1246,7 +1544,9 @@ public:
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
-        const string& inPeerName)
+        const string& inPeerName,
+        int64_t       inEndTime,
+        bool          inEndTimeValidFlag)
     {
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
@@ -1254,29 +1554,35 @@ public:
                 inPreverifyOkFlag &&
                     (inCurCertDepth != 0 || inPeerName == mExpectedPeerName),
                 inCurCertDepth,
-                inPeerName
+                inPeerName,
+                inEndTime,
+                inEndTimeValidFlag
             );
         }
         if (! inPreverifyOkFlag ||
                 (inCurCertDepth == 0 && inPeerName != mExpectedPeerName)) {
             KFS_LOG_STREAM_ERROR <<
                 "peer verify failure:"
-                " peer: "      << inPeerName <<
-                " expected: "  << mExpectedPeerName <<
-                " prev name: " << ioFilterAuthName <<
-                " preverify: " << inPreverifyOkFlag <<
-                " depth: "     << inCurCertDepth <<
+                " peer: "           << inPeerName <<
+                " expected: "       << mExpectedPeerName <<
+                " prev name: "      << ioFilterAuthName <<
+                " preverify: "      << inPreverifyOkFlag <<
+                " depth: "          << inCurCertDepth <<
+                " end time: "       << inEndTime <<
+                " end time valid: " << inEndTimeValidFlag <<
             KFS_LOG_EOM;
             ioFilterAuthName.clear();
             return false;
         }
         KFS_LOG_STREAM_DEBUG <<
             "peer verify ok:"
-            " peer: "      << inPeerName <<
-            " expected: "  << mExpectedPeerName <<
-            " prev name: " << ioFilterAuthName <<
-            " preverify: " << inPreverifyOkFlag <<
-            " depth: "     << inCurCertDepth <<
+             " peer: "           << inPeerName <<
+             " expected: "       << mExpectedPeerName <<
+             " prev name: "      << ioFilterAuthName <<
+             " preverify: "      << inPreverifyOkFlag <<
+             " depth: "          << inCurCertDepth <<
+             " end time: "       << inEndTime <<
+             " end time valid: " << inEndTimeValidFlag <<
         KFS_LOG_EOM;
         if (inCurCertDepth == 0) {
             ioFilterAuthName = inPeerName;

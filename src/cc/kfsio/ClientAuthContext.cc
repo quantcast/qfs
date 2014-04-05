@@ -570,6 +570,12 @@ public:
         }
         delete &inRequestCtxImpl;
     }
+    bool GetX509EndTime(
+        int64_t& outEndTime) const
+    {
+        return (mX509SslCtxPtr &&
+            SslFilter::GetCtxX509EndTime(*mX509SslCtxPtr, outEndTime));
+    }
 private:
     typedef RequestCtxImpl::KrbClientPtr KrbClientPtr;
     typedef SslFilter::CtxPtr            SslCtxPtr;
@@ -836,5 +842,11 @@ ClientAuthContext::Dispose(
     Impl::Dispose(inRequestCtxImpl);
 }
 
+    bool
+ClientAuthContext::GetX509EndTime(
+    int64_t& outEndTime) const
+{
+    return mImpl.GetX509EndTime(outEndTime);
+}
 
 } // namespace KFS

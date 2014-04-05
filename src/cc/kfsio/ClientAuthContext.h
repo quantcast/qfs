@@ -103,6 +103,8 @@ public:
     int GetMaxAuthRetryCount() const;
     bool IsChunkServerClearTextAllowed() const;
     string GetPskId() const;
+    bool GetX509EndTime(
+        int64_t& outEndTime) const;
 private:
     Impl& mImpl;
     static void Dispose(

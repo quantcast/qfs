@@ -63,7 +63,9 @@ public:
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
-        const string& inPeerName) = 0;
+        const string& inPeerName,
+        int64_t       inEndTime,
+        bool          inEndTimeValidFlag) = 0;
 protected:
     SslFilterVerifyPeer()
         {}
@@ -161,6 +163,11 @@ public:
     virtual int GetErrorCode() const;
     virtual bool IsShutdownReceived() const;
     bool IsHandshakeDone() const;
+    static bool GetCtxX509EndTime(
+        Ctx&     inCtx,
+        int64_t& outEndTime);
+    bool GetX509EndTime(
+        int64_t& outEndTime) const;
 private:
     class Impl;
     Impl& mImpl;

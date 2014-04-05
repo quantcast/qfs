@@ -102,8 +102,8 @@ public:
             { return false; }
         virtual ~Filter()
             {}
-        virtual time_t GetSessionExpirationTime() const
-            { return (time(0) + 365 * 24 * 60 * 60); }
+        virtual int64_t GetSessionExpirationTime() const
+            { return ((int64_t)time(0) + 365 * 24 * 60 * 60); }
         virtual bool RenewSession()
             { return false; }
         bool IsReadPending() const
