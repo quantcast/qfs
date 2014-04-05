@@ -85,8 +85,7 @@ int  ClientSM::sBufCompactionThreshold    = 1 << 10;
 int  ClientSM::sOutBufCompactionThreshold = 8 << 10;
 int  ClientSM::sClientCount               = 0;
 bool ClientSM::sAuditLoggingFlag          = false;
-int  ClientSM::sDelegationCancelCheckTime = 1 * 60;
-int  ClientSM::sAuthMaxTimeSkew           = 1 * 60;
+int  ClientSM::sAuthMaxTimeSkew           = 2 * 60;
 ClientSM* ClientSM::sClientSMPtr[1]       = {0};
 IOBuffer::WOStream ClientSM::sWOStream;
 
@@ -120,9 +119,6 @@ ClientSM::SetParameters(const Properties& prop)
     sOutBufCompactionThreshold = prop.getValue(
         "metaServer.clientSM.outBufCompactionThreshold",
         sOutBufCompactionThreshold);
-    sDelegationCancelCheckTime = prop.getValue(
-        "metaServer.clientSM.delegationReValidatePeriod",
-        sDelegationCancelCheckTime);
     sAuditLoggingFlag = prop.getValue(
         "metaServer.clientSM.auditLogging",
         sAuditLoggingFlag ? 1 : 0) != 0;
@@ -159,7 +155,7 @@ ClientSM::ClientSM(
       mDelegationValidForTime(0),
       mDelegationIssuedTime(0),
       mDelegationSeq(0),
-      mNextAuthCheckTime(0),
+      mCanceledTokensUpdateCount(0),
       mSessionExpirationTime(0),
       mClientThread(thread),
       mAuthContext(ClientManager::GetAuthContext(mClientThread)),
@@ -563,20 +559,21 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         const time_t now = mNetConnection->TimeNow();
         if (mSessionExpirationTime + sAuthMaxTimeSkew < now) {
             delete op;
-            CloseConnection("delegation token has expired");
+            CloseConnection("authenticated session has expired");
             return;
         }
         uint64_t count;
         bool     checkAuthUidFlag = false;
         if (mDelegationValidFlag) {
-            if (mNextAuthCheckTime < now) {
-                mNextAuthCheckTime = now + sDelegationCancelCheckTime;
+            if (gNetDispatch.GetCanceledTokensUpdateCount() !=
+                    mCanceledTokensUpdateCount) {
                 if (gNetDispatch.IsCanceled(
                         mDelegationIssuedTime + mDelegationValidForTime,
                         mDelegationIssuedTime,
                         mAuthUid,
                         mDelegationSeq,
-                        mDelegationFlags)) {
+                        mDelegationFlags,
+                        mCanceledTokensUpdateCount)) {
                     delete op;
                     CloseConnection("delegation canceled");
                     return;
@@ -591,7 +588,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 checkAuthUidFlag = true;
             } else {
                 string authName;
-                if (! Verify(authName, true, 0, peerName)) {
+                if (! Verify(authName, true, 0, peerName, 0, false)) {
                     delete op;
                     const string msg = peerName + " is no longer valid";
                     CloseConnection(msg.c_str());
@@ -886,14 +883,18 @@ ClientSM::Verify(
     string&       ioFilterAuthName,
     bool          inPreverifyOkFlag,
     int           inCurCertDepth,
-    const string& inPeerName)
+    const string& inPeerName,
+    int64_t       inEndTime,
+    bool          inEndTimeValidFlag)
 {
     KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
-        " auth. verify:" <<
-        " name: "        << inPeerName <<
-        " prev: "        << ioFilterAuthName <<
-        " preverify: "   << inPreverifyOkFlag <<
-        " depth: "       << inCurCertDepth <<
+        " auth. verify:"    <<
+        " name: "           << inPeerName <<
+        " prev: "           << ioFilterAuthName <<
+        " preverify: "      << inPreverifyOkFlag <<
+        " depth: "          << inCurCertDepth <<
+        " end time: +"      << (inEndTime - time(0)) <<
+        " end time valid: " << inEndTimeValidFlag <<
     KFS_LOG_EOM;
     // For now do no allow to renegotiate and change the name.
     kfsUid_t authUid = kKfsUserNone;
@@ -922,6 +923,9 @@ ClientSM::Verify(
         mDelegationFlags         = 0;
         mUserAndGroupUpdateCount = mAuthContext.GetUserAndGroupUpdateCount();
         mAuthUpdateCount         = mAuthContext.GetUpdateCount();
+        if (inEndTimeValidFlag && inEndTime < mSessionExpirationTime) {
+            mSessionExpirationTime = inEndTime;
+        }
     }
     return true;
 }
@@ -956,7 +960,8 @@ ClientSM::GetPsk(
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();
         if (mAuthUid != kKfsUserNone) {
-            if (gNetDispatch.IsCanceled(theDelegationToken)) {
+            if (gNetDispatch.IsCanceled(theDelegationToken,
+                    mCanceledTokensUpdateCount)) {
                 theNamePtr = 0;
                 theErrMsg  = "delegation canceled";
             } else if ((theDelegationToken.GetFlags() &
@@ -978,9 +983,8 @@ ClientSM::GetPsk(
                 mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
                 mDelegationSeq          = theDelegationToken.GetSeq();
                 mDelegationValidFlag    = true;
-                mSessionExpirationTime  = (time_t)(
+                mSessionExpirationTime  = min(mSessionExpirationTime,
                     mDelegationIssuedTime + mDelegationValidForTime);
-                mNextAuthCheckTime      = now + sDelegationCancelCheckTime;
                 KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
                     " authentication:" <<
                     " name: "          << theNamePtr <<

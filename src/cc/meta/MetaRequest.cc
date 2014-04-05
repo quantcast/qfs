@@ -5093,14 +5093,14 @@ MetaDelegateCancel::dispatch(ClientSM& sm)
 MetaDelegateCancel::handle()
 {
     if (status == 0) {
-        gNetDispatch.CancelToken(token);
+        writeLogFlag = gNetDispatch.CancelToken(token);
     }
 }
 
 /* virtual */ int
 MetaDelegateCancel::log(ostream& file) const
 {
-    if (status == 0) {
+    if (status == 0 && writeLogFlag) {
         file <<
             "delegatecancel"
             "/exp/"    << (token.GetIssuedTime() + token.GetValidForSec()) <<

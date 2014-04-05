@@ -99,6 +99,7 @@ public:
           mAllowPskFlag(inAllowPskFlag),
           mMemKeytabGen(0),
           mMaxDelegationValidForTime(60 * 60 * 24),
+          mMaxAuthenticationValidTime(60 * 60 * 24),
           mReDelegationAllowedFlag(false),
           mAuthTypes(kAuthenticationTypeUndef),
           mAuthRequiredFlag(inAuthRequiredFlag),
@@ -192,8 +193,8 @@ public:
                 inOp.authName.clear();
                 inOp.filter                = theFilterPtr;
                 inOp.responseAuthType      = kAuthenticationTypePSK;
-                inOp.sessionExpirationTime =
-                    time(0) + SslFilter::GetSessionTimeout(*mSslCtxPtr);
+                inOp.sessionExpirationTime = int64_t(time(0)) +
+                    mMaxAuthenticationValidTime;
             }
             return (inOp.status == 0);
         }
@@ -224,7 +225,10 @@ public:
                 inOp.responseContentLen = 0;
                 return false;
             }
-            inOp.sessionExpirationTime = mKrbServicePtr->GetTicketEndTime();
+            inOp.sessionExpirationTime = min(
+                int64_t(time(0)) + mMaxAuthenticationValidTime,
+                mKrbServicePtr->GetTicketEndTime()
+            );
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
@@ -293,8 +297,13 @@ public:
             } else {
                 inOp.filter                = theFilterPtr;
                 inOp.responseAuthType      = inOp.authType;
-                inOp.sessionExpirationTime =
-                    time(0) + SslFilter::GetSessionTimeout(*mX509SslCtxPtr);
+                inOp.sessionExpirationTime = int64_t(time(0)) +
+                    mMaxAuthenticationValidTime;
+                int64_t theEndTime = 0;
+                if (SslFilter::GetCtxX509EndTime(*mX509SslCtxPtr, theEndTime)) {
+                    inOp.sessionExpirationTime =
+                        min(theEndTime, inOp.sessionExpirationTime);
+                }
             }
             if (inOp.status == 0) {
                 inOp.responseAuthType = kAuthenticationTypeX509;
@@ -670,6 +679,9 @@ public:
             (mX509SslCtxPtr ? int(kAuthenticationTypeX509) : 0) |
             (mKrbServicePtr ? int(kAuthenticationTypeKrb5) : 0)
         ;
+        mMaxAuthenticationValidTime = max(int64_t(5), inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "maxAuthenticationValidTimeSec"), mMaxAuthenticationValidTime));
         mAuthRequiredFlag = ! mAuthNoneFlag &&
             (mAuthTypes & ~int(kAuthenticationTypePSK)) != 0;
         return true;
@@ -820,6 +832,7 @@ private:
     const bool                       mAllowPskFlag;
     unsigned int                     mMemKeytabGen;
     uint32_t                         mMaxDelegationValidForTime;
+    int64_t                          mMaxAuthenticationValidTime;
     bool                             mReDelegationAllowedFlag;
     int                              mAuthTypes;
     bool&                            mAuthRequiredFlag;

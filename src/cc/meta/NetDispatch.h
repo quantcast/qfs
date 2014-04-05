@@ -65,15 +65,29 @@ public:
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
-    void CancelToken(const DelegationToken& token);
-    void CancelToken(
+    bool CancelToken(const DelegationToken& token);
+    bool CancelToken(
         int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,
         DelegationToken::TokenSeq inSeq, uint16_t inFlags);
-    bool IsCanceled(const DelegationToken& token);
+    bool IsCanceled(const DelegationToken& inToken, uint64_t& outUpdateCount);
+    bool IsCanceled(const DelegationToken& inToken)
+    {
+        uint64_t cnt = 0;
+        return IsCanceled(inToken, cnt);
+    }
     bool IsCanceled(
         int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,
-        DelegationToken::TokenSeq inSeq, uint16_t inFlags);
+        DelegationToken::TokenSeq inSeq, uint16_t inFlags,
+        uint64_t& outUpdateCount);
+    bool IsCanceled(
+        int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,
+        DelegationToken::TokenSeq inSeq, uint16_t inFlags)
+    {
+        uint64_t cnt = 0;
+        return IsCanceled(inExpiration, inIssued, inUid, inSeq, inFlags, cnt);
+    }
     int WriteCanceledTokens(ostream& os);
+    uint64_t GetCanceledTokensUpdateCount() const;
 private:
     class CanceledTokens;
 

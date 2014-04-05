@@ -791,7 +791,9 @@ public:
 	string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
-        const string& inPeerName);
+        const string& inPeerName,
+        int64_t       inEndTime,
+        bool          inEndTimeValidFlag);
     bool GetCryptoKey(
         CryptoKeys::KeyId&  outKeyId,
         CryptoKeys::Key&    outKey) const

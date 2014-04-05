@@ -203,7 +203,7 @@ struct MetaRequest {
     kfsUid_t        euser;
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
-    time_t          sessionEndTime;
+    int64_t         sessionEndTime;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
     MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
@@ -2533,7 +2533,7 @@ struct MetaAuthenticate : public MetaRequest {
     const char*            responseContentPtr;
     int                    responseContentLen;
     bool                   doneFlag;
-    time_t                 sessionExpirationTime;
+    int64_t                sessionExpirationTime;
     string                 authName;
     NetConnection::Filter* filter;
 
@@ -2586,7 +2586,7 @@ struct MetaDelegate : public MetaRequest {
     MetaDelegate()
         : MetaRequest(META_DELEGATE, false),
           delegationFlags(0),
-          validForTime(-1),
+          validForTime(0),
           issuedTime(0),
           tokenSeq(0),
           renewTokenStr(),
@@ -2615,12 +2615,14 @@ struct MetaDelegateCancel : public MetaRequest {
     DelegationToken token;
     StringBufT<64>  tokenStr;
     StringBufT<64>  tokenKeyStr;
+    bool            writeLogFlag;
 
     MetaDelegateCancel()
         : MetaRequest(META_DELEGATE_CANCEL, true),
           token(),
           tokenStr(),
-          tokenKeyStr()
+          tokenKeyStr(),
+          writeLogFlag(false)
           {}
     virtual bool dispatch(ClientSM& sm);
     virtual void handle();

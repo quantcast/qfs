@@ -70,7 +70,8 @@ public:
         : ITimeout(),
           mTokens(),
           mNetManagerPtr(0),
-          mMutexPtr(0)
+          mMutexPtr(0),
+          mUpdateCount(0)
         {}
     ~CanceledTokens()
         { Set(0, 0); }
@@ -110,16 +111,17 @@ public:
             mTokens.erase(mTokens.begin(), theIt);
         }
     }
-    void Cancel(
+    bool Cancel(
         const DelegationToken& inToken)
     {
         if (inToken.GetValidForSec() <= 0) {
-            return;
+            return false;
         }
         QCStMutexLocker(mMutexPtr);
-        mTokens.insert(Token(inToken));
+        mUpdateCount++;
+        return mTokens.insert(Token(inToken)).second;
     }
-    void Cancel(
+    bool Cancel(
         int64_t                   inExpiration,
         int64_t                   inIssued,
         kfsUid_t                  inUid,
@@ -127,22 +129,25 @@ public:
         uint16_t                  inFlags)
     {
         QCStMutexLocker(mMutexPtr);
-        mTokens.insert(Token(
+        mUpdateCount++;
+        return mTokens.insert(Token(
             inExpiration,
             inIssued,
             inUid,
             inSeq,
             inFlags
-        ));
+        )).second;
     }
     bool IsCanceled(
         int64_t                   inExpiration,
         int64_t                   inIssued,
         kfsUid_t                  inUid,
         DelegationToken::TokenSeq inSeq,
-        uint16_t                  inFlags)
+        uint16_t                  inFlags,
+        uint64_t&                 outUpdateCount)
     {
         QCStMutexLocker(mMutexPtr);
+        outUpdateCount = mUpdateCount;
         return (mTokens.find(Token(
             inExpiration,
             inIssued,
@@ -152,9 +157,11 @@ public:
         )) != mTokens.end());
     }
     bool IsCanceled(
-        const DelegationToken& inToken)
+        const DelegationToken& inToken,
+        uint64_t&              outUpdateCount)
     {
         QCStMutexLocker(mMutexPtr);
+        outUpdateCount = mUpdateCount;
         return (mTokens.find(Token(inToken)) != mTokens.end());
     }
     int Write(
@@ -175,6 +182,8 @@ public:
         }
         return (inStream.fail() ? -EIO : 0);
     }
+    uint64_t GetUpdateCount() const
+        { return mUpdateCount; }
 private:
     struct Token
     {
@@ -239,16 +248,17 @@ private:
     Tokens      mTokens;
     NetManager* mNetManagerPtr;
     QCMutex*    mMutexPtr;
+    uint64_t    mUpdateCount;
 };
 
-void
+bool
 NetDispatch::CancelToken(
     const DelegationToken& token)
 {
-    mCanceledTokens.Cancel(token);
+    return mCanceledTokens.Cancel(token);
 }
 
-void
+bool
 NetDispatch::CancelToken(
     int64_t                   inExpiration,
     int64_t                   inIssued,
@@ -256,7 +266,7 @@ NetDispatch::CancelToken(
     DelegationToken::TokenSeq inSeq,
     uint16_t                  inFlags)
 {
-    mCanceledTokens.Cancel(
+    return mCanceledTokens.Cancel(
         inExpiration,
         inIssued,
         inUid,
@@ -266,9 +276,11 @@ NetDispatch::CancelToken(
 }
 
 bool
-NetDispatch::IsCanceled(const DelegationToken& token)
+NetDispatch::IsCanceled(
+    const DelegationToken& inToken,
+    uint64_t&              outUpdateCount)
 {
-    return mCanceledTokens.IsCanceled(token);
+    return mCanceledTokens.IsCanceled(inToken, outUpdateCount);
 }
 
 bool
@@ -277,14 +289,16 @@ NetDispatch::IsCanceled(
     int64_t                   inIssued,
     kfsUid_t                  inUid,
     DelegationToken::TokenSeq inSeq,
-    uint16_t                  inFlags)
+    uint16_t                  inFlags,
+    uint64_t&                 outUpdateCount)
 {
     return mCanceledTokens.IsCanceled(
         inExpiration,
         inIssued,
         inUid,
         inSeq,
-        inFlags
+        inFlags,
+        outUpdateCount
     );
 }
 
@@ -292,6 +306,12 @@ int
 NetDispatch::WriteCanceledTokens(ostream& os)
 {
     return mCanceledTokens.Write(os);
+}
+
+uint64_t
+NetDispatch::GetCanceledTokensUpdateCount() const
+{
+    return mCanceledTokens.GetUpdateCount();
 }
 
 NetDispatch::NetDispatch()

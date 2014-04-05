@@ -2395,14 +2395,18 @@ ChunkServer::Verify(
     string&       ioFilterAuthName,
     bool          inPreverifyOkFlag,
     int           inCurCertDepth,
-    const string& inPeerName)
+    const string& inPeerName,
+    int64_t       inEndTime,
+    bool          inEndTimeValidFlag)
 {
     KFS_LOG_STREAM_DEBUG << GetPeerName() <<
         " chunk server auth. verify:" <<
-        " name: "      << inPeerName <<
-        " prev: "      << ioFilterAuthName <<
-        " preverify: " << inPreverifyOkFlag <<
-        " depth: "     << inCurCertDepth <<
+        " name: "           << inPeerName <<
+        " prev: "           << ioFilterAuthName <<
+        " preverify: "      << inPreverifyOkFlag <<
+        " depth: "          << inCurCertDepth <<
+        " end time: +"      << (inEndTime - time(0)) <<
+        " end time valid: " << inEndTimeValidFlag <<
     KFS_LOG_EOM;
     // Do no allow to renegotiate and change the name.
     string authName = inPeerName;
@@ -2425,6 +2429,9 @@ ChunkServer::Verify(
     if (inCurCertDepth == 0) {
         ioFilterAuthName = inPeerName;
         mAuthName        = authName;
+        if (inEndTimeValidFlag && inEndTime < mSessionExpirationTime) {
+            mSessionExpirationTime = inEndTime;
+        }
     }
     return true;
 }

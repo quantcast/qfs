@@ -202,7 +202,7 @@ public:
         const MetaAllocate*  allocInFlight;
         kfsUid_t             euser;
         kfsGid_t             egroup;
-        time_t               endTime;
+        int64_t              endTime;
         TokenSeq             delegationSeq;
         uint32_t             delegationValidForTime;
         uint16_t             delegationFlags;
