@@ -1508,7 +1508,11 @@ struct AuthenticateOp : public KfsOp {
             " requested: " << requestedAuthType <<
             " chosen: "    << chosenAuthType <<
             " ssl: "       << (useSslFlag ? 1 : 0) <<
-            " status: "    << status
+            " time:"
+            " cur: "       << currentTime <<
+            " end: +"      << (sessionEndTime - currentTime) <<
+            " status: "    << status <<
+            " msg: "       << statusMsg
         ;
         return os;
     }

@@ -5155,6 +5155,15 @@ KfsClientImpl::RenewDelegation(
     uint32_t& outDelegationValidForSec,
     string*   outErrMsg)
 {
+    if (ioToken.empty() || ioKey.empty()) {
+        if (outErrMsg) {
+            *outErrMsg = ioToken.empty() ?
+                "invalid empty token string" :
+                "invalid empty key string";
+        }
+        return -EINVAL;
+    }
+
     QCStMutexLocker l(mMutex);
 
     DelegateOp delegateOp(0);

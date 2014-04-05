@@ -68,6 +68,7 @@ using std::hex;
 using std::showbase;
 
 const int64_t kMaxSessionTimeout = int64_t(10) * 365 * 24 * 60 * 60;
+const int64_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
 
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
@@ -334,7 +335,6 @@ public:
         OpOwner*  inOwnerPtr,
         IOBuffer* inBufferPtr = 0)
     {
-        const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
         if (mPendingOpQueue.empty() && IsConnected() &&
                 (mSessionKeyId.empty() ?
                 (mSessionExpirationTime < Now() + kSessionUpdateResolutionSec) :
@@ -343,7 +343,8 @@ public:
                     mSessionExpirationTime < Now()) &&
                 ! mKeyId.empty() && Now() < mKeyExpirationTime))) {
             KFS_LOG_STREAM_INFO << mLogPrefix <<
-                " updating session by forcing re-connect" <<
+                " updating session by initiating re-connect" <<
+                " expires: +" << (mSessionExpirationTime - Now()) <<
             KFS_LOG_EOM;
             ResetConnection();
         }
@@ -590,6 +591,7 @@ public:
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             (inCanceledFlag ? "op canceled: " : "op done: ") <<
             inOpPtr->Show() <<
+            " now: "    << Now() <<
             " status: " << inOpPtr->status <<
             " msg: "    << inOpPtr->statusMsg <<
         KFS_LOG_EOM;
@@ -691,26 +693,29 @@ public:
                     &mAuthOp.statusMsg)) == 0 &&
                     IsConnected()) {
                 const int kMaxAuthResponseTimeSec = 4;
-                bool      theUseTokenEndTimeFlag  = false;
+                bool      theUseEndTimeFlag       = false;
+                int64_t   theEndTime              = 0;
                 if (mAuthOp.chosenAuthType == kAuthenticationTypePSK) {
-                    int64_t theEndTime = 0;
-                    if (ParseTokenExpirationTime(
-                            mAuthContextPtr->GetPskId(), theEndTime)) {
-                        theUseTokenEndTimeFlag = true;
-                        if (mAuthOp.currentTime < mAuthOp.sessionEndTime) {
-                            mSessionExpirationTime =
-                                Now() - kMaxAuthResponseTimeSec -
-                                mAuthOp.currentTime + theEndTime;
-                        } else {
-                            mSessionExpirationTime = theEndTime;
-                        }
-                    }
+                    theUseEndTimeFlag = ParseTokenExpirationTime(
+                            mAuthContextPtr->GetPskId(), theEndTime);
+                } else if (mAuthOp.chosenAuthType == kAuthenticationTypeX509) {
+                    theUseEndTimeFlag =
+                        mAuthContextPtr->GetX509EndTime(theEndTime);
                 }
-                if (! theUseTokenEndTimeFlag &&
-                        mAuthOp.currentTime < mAuthOp.sessionEndTime) {
-                    mSessionExpirationTime = Now() - kMaxAuthResponseTimeSec +
+                if (mAuthOp.currentTime < mAuthOp.sessionEndTime) {
+                    mSessionExpirationTime = Now() - kMaxAuthResponseTimeSec -
                         mAuthOp.currentTime + mAuthOp.sessionEndTime;
+                    if (theUseEndTimeFlag) {
+                        mSessionExpirationTime =
+                            min(mSessionExpirationTime, theEndTime);
+                    }
+                } else if (theUseEndTimeFlag) {
+                    mSessionExpirationTime = theEndTime;
                 }
+                mSessionExpirationTime = max(
+                    mSessionExpirationTime,
+                    Now() + kSessionUpdateResolutionSec + 4
+                );
                 SubmitPending();
                 return;
             }
