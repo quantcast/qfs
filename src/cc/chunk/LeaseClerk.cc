@@ -234,6 +234,10 @@ LeaseClerk::HandleEvent(int code, void* data)
                 if (renewOp->status == 0) {
                     LeaseRenewed(*renewOp);
                 } else {
+                    KFS_LOG_STREAM_ERROR << renewOp->Show() <<
+                        " status: " << renewOp->status <<
+                        " msg: "    << renewOp->statusMsg <<
+                    KFS_LOG_EOM;
                     UnRegisterLease(renewOp->chunkId);
                 }
             } else if (op->op != CMD_LEASE_RELINQUISH) {
