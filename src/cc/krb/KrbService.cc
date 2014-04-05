@@ -260,12 +260,12 @@ public:
         { return mErrCode; }
     bool IsInMemoryKeytabUsed() const
         { return mInMemoryKeytabUsedFlag; }
-    const time_t GetTicketEndTime() const
+    const int64_t GetTicketEndTime() const
         { return mTicketEndTime; }
 private:
     string            mKeyTabFileName;
     string            mMemKeyTabName;
-    time_t            mTicketEndTime;
+    int64_t           mTicketEndTime;
     krb5_context      mCtx;
     krb5_auth_context mAuthCtx;
     krb5_principal    mServerPtr;
@@ -563,7 +563,7 @@ KrbService::IsInMemoryKeytabUsed() const
     return mImpl.IsInMemoryKeytabUsed();
 }
 
-    time_t
+    int64_t
 KrbService::GetTicketEndTime() const
 {
     return mImpl.GetTicketEndTime();

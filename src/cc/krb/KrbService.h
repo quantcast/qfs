@@ -27,7 +27,7 @@
 #ifndef KFS_KRB_SERVICE_H
 #define KFS_KRB_SERVICE_H
 
-#include <time.h>
+#include <inttypes.h>
 
 namespace KFS
 {
@@ -84,7 +84,7 @@ public:
     }
     int GetErrorCode() const;
     bool IsInMemoryKeytabUsed() const;
-    time_t GetTicketEndTime() const;
+    int64_t GetTicketEndTime() const;
 private:
     class Impl;
     Impl& mImpl;
