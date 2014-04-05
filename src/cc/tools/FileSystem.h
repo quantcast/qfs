@@ -215,6 +215,18 @@ public:
         string&   outToken,
         string&   outKey,
         string*   outErrMsgPtr) = 0;
+    virtual int RenewDelegation(
+        string&   ioToken,
+        string&   ioKey,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string*   outErrMsgPtr) = 0;
+    virtual int CancelDelegation(
+        const string& inToken,
+        const string& inKey,
+        string*       outErrMsgPtr) = 0;
     virtual bool operator==(
         const FileSystem& inFs) const = 0;
     bool operator!=(

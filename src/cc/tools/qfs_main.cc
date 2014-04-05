@@ -182,6 +182,7 @@ public:
         bool   theMoveFlag      = false;
         bool   theRecursiveFlag = false;
         bool   theCopyFlag      = false;
+        bool   theCancelFlag    = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -510,6 +511,85 @@ public:
                         "Delegation Allowed: " <<
                             (theDelegationAllowedFlag ? "yes" : "no") << "\n"
                     ;
+                }
+            }
+        } else if (strcmp(theCmdPtr, "renew") == 0 ||
+                (theCancelFlag = strcmp(theCmdPtr, "cancel") == 0)) {
+            if (2 < theArgCnt) {
+                theErr = EINVAL;
+                ShortHelp(cerr);
+            } else {
+                string theToken;
+                string theKey;
+                string theErrMsg;
+                if (0 < theArgCnt) {
+                    theToken = theArgsPtr[0];
+                } else {
+                    if (! (cin >> theToken)) {
+                        theErrMsg = "failed to read token";
+                        theErr    = EIO;
+                    }
+                }
+                if (theErr == 0) {
+                    if (1 < theArgCnt) {
+                        theKey = theArgsPtr[1];
+                    } else {
+                        if (! (cin >> theKey)) {
+                            theErrMsg = "failed to read key";
+                            theErr    = EIO;
+                        }
+                    }
+                }
+                FileSystem* theFsPtr = 0;
+                if (theErr == 0) {
+                    theErr = FileSystem::Get(string(), theFsPtr);
+                }
+                if (theErr == 0) {
+                    if (theCancelFlag) {
+                        theErr = theFsPtr->CancelDelegation(
+                            theToken, theKey, &theErrMsg);
+                        if (theErr == 0) {
+                            cout << "token canceled\n";
+                        }
+                    } else {
+                        bool     theDelegationAllowedFlag = false;
+                        uint64_t theIssuedTime            = 0;
+                        uint32_t theTokenValidForSec      = 0;
+                        uint32_t theDelegationValidForSec = 0;
+                        string   theErrMsg;
+                        theErr = theFsPtr->RenewDelegation(
+                            theToken,
+                            theKey,
+                            theDelegationAllowedFlag,
+                            theIssuedTime,
+                            theTokenValidForSec,
+                            theDelegationValidForSec,
+                            &theErrMsg
+                        );
+                        if (theErr == 0) {
+                            cout <<
+                                "Token:              " <<
+                                    theToken                 << "\n"
+                                "Key:                " <<
+                                    theKey                   << "\n"
+                                "Valid From:         " <<
+                                    theIssuedTime            << "\n"
+                                "Valid For:          +" <<
+                                    theDelegationValidForSec << "\n"
+                                "Renew Before:       +" <<
+                                    theTokenValidForSec      << "\n"
+                                "Delegation Allowed: " <<
+                                    (theDelegationAllowedFlag ? "yes" : "no") <<
+                                "\n"
+                            ;
+                        }
+                    }
+                }
+                if (theErr) {
+                    if (theErrMsg.empty()) {
+                        theErrMsg = FileSystem::GetStrError(theErr, theFsPtr);
+                    }
+                    cerr << theErrMsg << "\n";
                 }
             }
         } else if (strcmp(theCmdPtr, "help") == 0) {
@@ -4275,11 +4355,21 @@ const char* const KfsTool::sHelpStrings[] =
     "most recent one.\n",
 
     "runEmptier", "[interval in seconds]",
-    "run trash emptier forever",
+    "run trash emptier forever\n",
 
     "delegate",
         "[<allow re-delegation>] [<max delegation validity time seconds>]",
-    "create delegation token",
+    "create delegation token\n",
+
+    "cancel",
+        "[delegation token] [key]",
+    "cancel delegation token. If token and/or key aren't specificied then\n\t\t"
+    "token and/or key are read from standard in\n",
+
+    "renew",
+        "[delegation token] [key]",
+    "renew delegation token. If token and/or key aren't specificied then\n\t\t"
+    "token and/or key are read from standard in\n",
 
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"

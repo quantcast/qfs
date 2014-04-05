@@ -716,6 +716,36 @@ public:
         }
         return -ENODEV;
     }
+    virtual int RenewDelegation(
+        string&   ioToken,
+        string&   ioKey,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string*   outErrMsgPtr)
+    {
+        outDelegationAllowedFlag = false;
+        outIssuedTime            = 0;
+        outTokenValidForSec      = 0;
+        outDelegationValidForSec = 0;
+        ioToken.clear();
+        ioKey.clear();
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "operation is not supported";
+        }
+        return -ENODEV;
+    }
+    virtual int CancelDelegation(
+        const string& inToken,
+        const string& inKey,
+        string*       outErrMsgPtr)
+    {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "operation is not supported";
+        }
+        return -ENODEV;
+    }
 private:
     static int RetErrno(
         int inErrno)
@@ -1184,6 +1214,36 @@ public:
             outDelegationValidForSec,
             outToken,
             outKey,
+            outErrMsgPtr
+        );
+    }
+    virtual int RenewDelegation(
+        string&   ioToken,
+        string&   ioKey,
+        bool&     outDelegationAllowedFlag,
+        uint64_t& outIssuedTime,
+        uint32_t& outTokenValidForSec,
+        uint32_t& outDelegationValidForSec,
+        string*   outErrMsgPtr)
+    {
+        return KfsClient::RenewDelegation(
+            ioToken,
+            ioKey,
+            outDelegationAllowedFlag,
+            outIssuedTime,
+            outTokenValidForSec,
+            outDelegationValidForSec,
+            outErrMsgPtr
+        );
+    }
+    virtual int CancelDelegation(
+        const string& inToken,
+        const string& inKey,
+        string*       outErrMsgPtr)
+    {
+        return KfsClient::CancelDelegation(
+            inToken,
+            inKey,
             outErrMsgPtr
         );
     }
