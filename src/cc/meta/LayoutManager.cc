@@ -1429,7 +1429,8 @@ LayoutManager::LayoutManager() :
     mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
-    mCSAccessValidForTime(2 * 60 * 60 - 60),
+    mCSAccessValidForTimeSec(2 * 60 * 60 - 60),
+    mMinWriteLeaseTimeSec(LEASE_INTERVAL_SECS),
     mFileRecoveryInFlightCount(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -2020,9 +2021,10 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mClientCSAllowClearTextFlag = props.getValue(
         "metaServer.clientCSAllowClearText",
         mClientCSAllowClearTextFlag ? 1 : 0) != 0;
-    mCSAccessValidForTime = props.getValue(
-        "metaServer.CSAccessValidForTime", mCSAccessValidForTime);
-
+    mCSAccessValidForTimeSec = max(LEASE_INTERVAL_SECS, props.getValue(
+        "metaServer.CSAccessValidForTimeSec", mCSAccessValidForTimeSec));
+    mMinWriteLeaseTimeSec = props.getValue(
+        "metaServer.minWriteLeaseTimeSec", mMinWriteLeaseTimeSec);
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
@@ -2106,11 +2108,12 @@ LayoutManager::SetChunkServersProperties(const Properties& props)
     }
     const char* prefix = "chunkServer.";
     props.copyWithPrefix(prefix, mChunkServersProps);
-    if (0 < mCSAccessValidForTime && mClientAuthContext.IsAuthRequired()) {
+    if (0 < mCSAccessValidForTimeSec && mClientAuthContext.IsAuthRequired()) {
         const int         kBufSize = 32;
         char              buf[kBufSize];
         char*             end      = buf + kBufSize;
-        const char* const ptr      = IntToDecString(mCSAccessValidForTime, end);
+        const char* const ptr      =
+            IntToDecString(mCSAccessValidForTimeSec, end);
         Properties::String name(prefix);
         mChunkServersProps.setValue(
             name.Append("cryptoKeys.minKeyValidTimeSec"),
@@ -4799,7 +4802,7 @@ LayoutManager::AllocateChunk(
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
         r->issuedTime                 = TimeNow();
-        r->validForTime               = mCSAccessValidForTime;
+        r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
     }
@@ -5106,7 +5109,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
         r->issuedTime                 = TimeNow();
-        r->validForTime               = mCSAccessValidForTime;
+        r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
     }
@@ -5121,6 +5124,10 @@ LayoutManager::IsAllocationAllowed(MetaAllocate* req)
         req->status    = -EPERM;
         req->statusMsg = "client upgrade required";
         return false;
+    }
+    if (req->authUid != kKfsUserNone) {
+        req->sessionEndTime = max(
+            req->sessionEndTime, (int64_t)TimeNow() + mMinWriteLeaseTimeSec);
     }
     return true;
 }
@@ -5255,14 +5262,14 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         return -1;
     }
     if (! req->responseAccessStr.empty()) {
-        req->validForTime = mCSAccessValidForTime;
+        req->validForTime = mCSAccessValidForTimeSec;
     }
     bool accessExpiredFlag = false;
     if (! pending && mClientCSAuthRequiredFlag &&
             (req->responseAccessStr.empty() ||
             (accessExpiredFlag =
                 req->issuedTime +
-                    min(mCSAccessValidForTime / 3,
+                    min(mCSAccessValidForTimeSec / 3,
                         LEASE_INTERVAL_SECS * 2 / 3) < now))) {
         // 2/3 of the lease time implicitly assumes that the chunk access token
         // life time is double of more of the lease time.
@@ -5271,7 +5278,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                         req->writeMasterKeyId, req->writeMasterKey))) {
             req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
             req->issuedTime                 = now;
-            req->validForTime               = mCSAccessValidForTime;
+            req->validForTime               = mCSAccessValidForTimeSec;
             if (accessExpiredFlag &&
                     entry->numAppendersInChunk < mMaxAppendersPerChunk) {
                 req->responseAccessStr.clear();
@@ -5526,7 +5533,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         mClientCSAllowClearTextFlag;
     if (mClientCSAuthRequiredFlag) {
         req->issuedTime   = TimeNow();
-        req->validForTime = mCSAccessValidForTime;
+        req->validForTime = mCSAccessValidForTimeSec;
     }
     const int ret = GetChunkReadLeases(*req);
     if (ret != 0 || req->chunkId < 0) {
@@ -5677,7 +5684,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
-            req->validForTime = mCSAccessValidForTime;
+            req->validForTime = mCSAccessValidForTimeSec;
         }
         req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
         MakeChunkAccess(*cs, req->authUid, req->chunkAccess, req->chunkServer);
@@ -6595,7 +6602,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         if ((r->writeMasterKeyValidFlag = r->master->GetCryptoKey(
                 r->writeMasterKeyId, r->writeMasterKey))) {
             r->issuedTime   = TimeNow();
-            r->validForTime = mCSAccessValidForTime;
+            r->validForTime = mCSAccessValidForTimeSec;
             r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
         } else {
             r->status    = -EALLOCFAILED;

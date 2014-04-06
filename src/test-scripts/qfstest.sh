@@ -287,6 +287,9 @@ metaServer.clientAuthentication.whiteList        = $clientuser root
 
 # Set short valid time to test session time enforcement.
 metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 5
+# Insure that the write lease is valid for at least 10 min to avoid spurious
+# write retries with 5 seconds authentication timeous.
+metaServer.minWriteLeaseTimeSec = 600
 
 metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
 metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key

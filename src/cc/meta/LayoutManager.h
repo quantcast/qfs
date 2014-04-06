@@ -1407,7 +1407,7 @@ public:
     bool IsClientCSAllowClearText() const
         { return mClientCSAllowClearTextFlag; }
     int GetCSAccessValidForTime() const
-        { return mCSAccessValidForTime; }
+        { return mCSAccessValidForTimeSec; }
     const UserAndGroup& GetUserAndGroup() const
         { return mUserAndGroup; }
     bool HasMetaServerAdminAccess(MetaRequest& op)
@@ -2069,7 +2069,8 @@ protected:
     UserAndGroup      mUserAndGroup;
     bool              mClientCSAuthRequiredFlag;
     bool              mClientCSAllowClearTextFlag;
-    int               mCSAccessValidForTime;
+    int               mCSAccessValidForTimeSec;
+    int               mMinWriteLeaseTimeSec;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
