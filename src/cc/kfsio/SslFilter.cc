@@ -269,29 +269,28 @@ public:
         if (theX509FileNamePtr) {
             BIO* const theBioPtr  = BIO_new(BIO_s_file());
             X509*      theX509Ptr = 0;
-            if (! theBioPtr ||
-                    BIO_read_filename(theBioPtr, theX509FileNamePtr) <= 0 ||
-                    ! PEM_read_bio_X509(theBioPtr, &theX509Ptr, 0,
+            const bool theOkFlag  = theBioPtr &&
+                    0 < BIO_read_filename(theBioPtr, theX509FileNamePtr) &&
+                    PEM_read_bio_X509(theBioPtr, &theX509Ptr, 0,
                         const_cast<char*>(inParams.getValue(
                             theParamName.Truncate(thePrefLen).Append(
-                            "X509Password"), kNullStrPtr))) ||
-                    ! SSL_CTX_use_certificate(theRetPtr, theX509Ptr) ||
-                    ! SSL_CTX_set_ex_data(
+                            "X509Password"), kNullStrPtr))
+                    ) &&
+                    SSL_CTX_use_certificate(theRetPtr, theX509Ptr) &&
+                    SSL_CTX_set_ex_data(
                         theRetPtr,
                         sOpenSslInitPtr->mExDataClientX509Idx,
-                        theX509Ptr)) {
-                if (inErrMsgPtr) {
-                    *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
-                }
-                if (theX509Ptr) {
-                    X509_free(theX509Ptr);
-                    theX509Ptr = 0;
-                }
+                        theX509Ptr);
+            if (! theOkFlag && inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
             }
             if (theBioPtr) {
                 BIO_free(theBioPtr);
             }
-            if (! theX509Ptr) {
+            if (! theOkFlag) {
+                if (theX509Ptr) {
+                    X509_free(theX509Ptr);
+                }
                 SSL_CTX_free(theRetPtr);
                 return 0;
             }
@@ -299,6 +298,32 @@ public:
         const char* const thePKeyFileNamePtr = inParams.getValue(
             theParamName.Truncate(thePrefLen).Append("PKeyPemFile"),
             kNullStrPtr);
+        if (thePKeyFileNamePtr) {
+            BIO* const theBioPtr  = BIO_new(BIO_s_file());
+            EVP_PKEY*  thePKeyPtr = 0;
+            const bool theOkFlag  = theBioPtr &&
+                    0 < BIO_read_filename(theBioPtr, thePKeyFileNamePtr) &&
+                    PEM_read_bio_PrivateKey(
+                        theBioPtr, &thePKeyPtr, 0,
+                        const_cast<char*>(inParams.getValue(
+                                theParamName.Truncate(thePrefLen).Append(
+                                "PKeyPassword"), kNullStrPtr))
+                    ) &&
+                    SSL_CTX_use_PrivateKey(theRetPtr, thePKeyPtr);
+            if (! theOkFlag && inErrMsgPtr) {
+                *inErrMsgPtr = GetErrorMsg(GetAndClearErr());
+            }
+            if (theBioPtr) {
+                BIO_free(theBioPtr);
+            }
+            if (thePKeyPtr) {
+                EVP_PKEY_free(thePKeyPtr);
+            }
+            if (! theOkFlag) {
+                SSL_CTX_free(theRetPtr);
+                return 0;
+            }
+        }
         if (thePKeyFileNamePtr && ! SSL_CTX_use_PrivateKey_file(
                 theRetPtr, thePKeyFileNamePtr, SSL_FILETYPE_PEM)) {
             if (inErrMsgPtr) {
