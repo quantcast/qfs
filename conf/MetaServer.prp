@@ -491,13 +491,26 @@ metaServer.msgLogWriter.logLevel = INFO
 # src/test-scripts/qfsmkcerts.sh might be used as a simple example how to create
 # and use certificate authority, and X509 certificates.
 
+# Maximum authenticated session lifetime. This limits authenticated session time
+# for all authentication methods. In other words, the session [connection] must
+# be re-authenticated if the authentication token (Kerberos ticket, or x509
+# certificate) "end time" is reached or authenticated session exists longer than
+# the value of this parameter.
+# Default is 24 hours.
+# metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 86400
+
 # ================= X509 authentication ========================================
 # Meta server's X509 certificate file in PEM format.
 # metaServer.CSAuthentication.X509.X509PemFile =
 
-# Meta server's private key file. The key must be in clear text, i.e. encrypted
-# private keys are not supported.
+# Password if X509 PEM file is encrypted.
+# metaServer.CSAuthentication.X509.X509Password =
+
+# Meta server's private key file.
 # metaServer.CSAuthentication.X509.PKeyPemFile =
+
+# Password if private key PEM file is encrypted.
+# metaServer.CSAuthentication.X509.PKeyPassword =
 
 # Certificate authorities file. Used for both chunk server certificate
 # validation and to create certificate chain with meta server's X509
@@ -509,12 +522,24 @@ metaServer.msgLogWriter.logLevel = INFO
 # page. CAFile/CADir corresponds to CAfile/CApath in the man page.
 # metaServer.CSAuthentication.X509.CADir =
 
-# If set (the default) verify peer certificate, and declare error if peer does
-# not preset certificate.
+# If set (the default) verify peer certificate, and declare error if peer, i.e.
+# chunk server, does not preset "trusted" valid X509 certificate.
+# Default is on.
 # metaServer.CSAuthentication.X509.verifyPeer = 1
 
 # OpenSSL cipher configuration.
 # metaServer.CSAuthentication.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
+# SSL/TLS session cache timeout. Session cache is only used with X509
+# authentication method, with non default client or server side openssl options
+# that turns off use of tls session tickets.
+# Default is 4 hours.
+# metaServer.CSAuthentication.X509.session.timeout = 14400
+
+# The long integer value passed to SSL_CTX_set_options() call.
+# See open ssl documentation for details.
+# Default is the integer value that corresponds to SSL_OP_NO_COMPRESSION
+# metaServer.clientAuthentication.X509.options =
 
 # ================= Kerberos authentication =====================================
 # Kerberos principal: service/host@realm
@@ -543,6 +568,16 @@ metaServer.msgLogWriter.logLevel = INFO
 # would typically to be in the form of service/host@realm.
 # metaServer.CSAuthentication.princUnparseMode =
 
+# OpenSSL cipher configuration for TLS-PSK authentication method. This method
+# is used with delegation and with Kerberos authentication.
+# metaServer.CSAuthentication.psk.tls.cipher = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
+
+# The long integer value passed to SSL_CTX_set_options() call.
+# See open ssl documentation for details.
+# Default is the integer value that corresponds to the logical OR of
+# SSL_OP_NO_COMPRESSION and SSL_OP_NO_TICKET
+# metaServer.clientAuthentication.psk.options =
+
 # ================= Chunk servers's "black" and "white" lists ==================
 
 # Chunk server's X509 common names and/or kerberos names, "black" ("revocation")
@@ -563,13 +598,26 @@ metaServer.msgLogWriter.logLevel = INFO
 # server's authentication parameters by metaServer.clientAuthentication prefix.
 # The defaults are identical to chunk server authentication.
 
+# Maximum authenticated session lifetime. This limits authenticated session time
+# for all authentication methods. In other words, the session [connection] must
+# be re-authenticated if the authentication token (delegation token, Kerberos
+# ticket, or x509 certificate) "end time" is reached or authenticated session
+# exists longer than the value of this parameter.
+# Default is 24 hours.
+# metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 86400
+
 # ================= X509 authentication ========================================
 # Meta server's X509 certificate file in PEM format.
 # metaServer.clientAuthentication.X509.X509PemFile =
 
-# Meta server's private key file. The key must be in clear text, i.e. encrypted
-# private keys are not supported.
+# Password if X509 PEM file is encrypted.
+# metaServer.clientAuthentication.X509.X509Password =
+
+# Meta server's private key file.
 # metaServer.clientAuthentication.X509.PKeyPemFile =
+
+# Password if private key PEM file is encrypted.
+# metaServer.clientAuthentication.X509.PKeyPassword =
 
 # Certificate authorities file. Used for both chunk server certificate
 # validation and to create certificate chain with meta server's X509
@@ -578,19 +626,27 @@ metaServer.msgLogWriter.logLevel = INFO
 
 # Certificate authorities directory can be used in addition to CAFile.
 # For more detailed information please see SSL_CTX_load_verify_locations manual
-# page. CAFile/CADir corresponds to CAfile/CApath in the man page.
+# page. CAFile/CADir corresponds to CAfile/CApath in the manual page.
 # metaServer.clientAuthentication.X509.CADir =
 
-# If set (the default) verify peer certificate, and declare error if peer does
-# not preset certificate.
+# If set (the default) verify peer certificate, and declare error if peer, i.e.
+# QFS client, does not preset certificate.
+# Default is on.
 # metaServer.clientAuthentication.X509.verifyPeer = 1
 
 # OpenSSL cipher configuration for X509 authentication method.
 # metaServer.clientAuthentication.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 
-# OpenSSL cipher configuration for TLS-PSK authentication method. This method
-# is used with delegation and with Kerberos authentication.
-# metaServer.clientAuthentication.psk.tls.cipher = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
+# SSL/TLS session cache timeout. Session cache is only used with X509
+# authentication method, with non default client or server side openssl options
+# that turns off use of tls session tickets.
+# Default is 4 hours.
+# metaServer.clientAuthentication.X509.session.timeout = 14400
+
+# The long integer value passed to SSL_CTX_set_options() call.
+# See open ssl documentation for details.
+# Default is the integer value that corresponds to SSL_OP_NO_COMPRESSION
+# metaServer.clientAuthentication.X509.options =
 
 # ================= Kerberos authentication =====================================
 # Kerberos principal: service/host@realm
@@ -622,6 +678,16 @@ metaServer.msgLogWriter.logLevel = INFO
 # matches the default the kerberos configuration's default realm.
 # metaServer.clientAuthentication.princUnparseMode =
 
+# OpenSSL cipher configuration for TLS-PSK authentication method. This method
+# is used with delegation and with Kerberos authentication.
+# metaServer.clientAuthentication.psk.tls.cipher = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
+
+# The long integer value passed to SSL_CTX_set_options() call.
+# See open ssl documentation for details.
+# Default is the integer value that corresponds to the logical OR of
+# SSL_OP_NO_COMPRESSION and SSL_OP_NO_TICKET
+# metaServer.clientAuthentication.psk.options =
+
 # ================= Client's "black" and "white" lists ==========================
 
 # Client's (user) X509 common names and/or kerberos names, "black"
@@ -634,6 +700,36 @@ metaServer.msgLogWriter.logLevel = INFO
 # the list is empty the client's authenticated name must match one of the
 # names in the list.
 # metaServer.clientAuthentication.whiteList =
+
+# Allow to use "clear text" communication mode by performing SSL/TLS shutdown
+# immediately after successful authentication completion. If enabled, the QFS
+# client's corresponding setting defines the communication mode between the
+# client and the write master. The "clear text" communication mode between chunk
+# servers (synchronous replication, re-replication, and chunk recovery) will be
+# used if this parameter set to "on".
+# Using this mode might make sense in order reduce chunk server CPU utilization
+# and/or possibly increase IO throughput, in the cases where chunk server
+# communication channel is considered to have adequate security for the purpose
+# at hands.
+# Default if "off" / "no"
+# metaServer.clientCSAllowClearText = 0
+
+# Chunk server access token maximum lifetime.
+# A particular chunk access access token time defines chunk access time limit.
+# Chunk access tokens have 10 min time limit -- twice chunk lease time. The
+# chunk server access token effectively defines maximum client and chunk server
+# and chunk server to chunk server connections lifetimes. The client and chunk
+# servers attempt to obtain and user a new chunk server access token before the
+# current token expires, and re-open connection with the newly obtained token.
+# Default is 2 hours.
+# metaServer.CSAccessValidForTimeSec = 7200
+
+# The meta server limits the write lease end time to the max of the current time
+# plus the value of the following parameter, and the authentication end time.
+# The parameter is intended primarily for testing to avoid spurious write
+# retries with authentication maximum life time set to very small value -- 5sec
+# in order to test the re-authentication logic.
+# metaServer.minWriteLeaseTimeSec = 600
 
 #-------------------------------------------------------------------------------
 
@@ -748,6 +844,18 @@ metaServer.msgLogWriter.logLevel = INFO
 # in the previous parameter's section.
 # metaServer.userAndGroup.delegationRenewAndCancelGruops =
 
+
+# -------------------- Meta server cryptographic keys. -------------------------
+
+# Key lifetime. The value defines maximum time before the delegation tokens
+# issued by the meta server expire, and have to be renewed.
+# Default is 4 hours.
+# metaServer.cryptoKeys.keyValidTimeSec = 14400
+
+# Keys change period.
+# Key lifetime minus key change period is the minim time before delegation token
+# must be renewed.
+# metaServer.cryptoKeys.keyChangePeriodSec = 7200
 
 #-------------------------------------------------------------------------------
 
