@@ -1429,7 +1429,7 @@ LayoutManager::LayoutManager() :
     mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),
-    mCSAccessValidForTimeSec(2 * 60 * 60 - 60),
+    mCSAccessValidForTimeSec(2 * 60 * 60),
     mMinWriteLeaseTimeSec(LEASE_INTERVAL_SECS),
     mFileRecoveryInFlightCount(),
     mChunkInfosTmp(),
