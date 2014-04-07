@@ -1243,8 +1243,6 @@ LayoutManager::ChunkPlacement::ChunkPlacement()
     Reserve(512);
 }
 
-// Chunk servers don't use delegation -- turn off psk.
-const bool kChunkServerAuthAllowPskFlag = false;
 const bool kClientAuthAllowPskFlag      = true;
 // By default allow web ui access from local host without authentication.
 const int kClientDefaultNoAuthMetaOps[] = {
@@ -1425,7 +1423,7 @@ LayoutManager::LayoutManager() :
         kClientAuthAllowPskFlag,
         kClientDefaultNoAuthMetaOps,
         kClientDefaultNoAuthMetaOpsHosts),
-    mCSAuthContext(kChunkServerAuthAllowPskFlag),
+    mCSAuthContext(),
     mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),

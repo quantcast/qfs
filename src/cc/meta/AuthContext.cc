@@ -105,7 +105,9 @@ public:
           mAuthRequiredFlag(inAuthRequiredFlag),
           mUserAndGroupNames(*mUidNamePtr, *mGidNamePtr),
           mNoAuthMetaOpHosts(),
-          mNoAuthMetaOps()
+          mNoAuthMetaOps(),
+          mPskKey(),
+          mPskId()
     {
         if (inDefaultNoAuthMetaOpsPtr) {
             for (const int* thePtr = inDefaultNoAuthMetaOpsPtr;
@@ -163,7 +165,8 @@ public:
             inOp.statusMsg = "partial content read";
             return false;
         }
-        if (mAllowPskFlag && inServerPskPtr && mSslCtxPtr &&
+        if (mAllowPskFlag && (inServerPskPtr || ! mPskKey.empty()) &&
+                mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) {
             inOp.responseContentPtr = 0;
             inOp.responseContentLen = 0;
@@ -174,9 +177,9 @@ public:
             int                          kSessionKeyLen        = 0;
             SslFilter* const theFilterPtr = new SslFilter(
                 *mSslCtxPtr,
-                kSessionKeyPtr,
-                kSessionKeyLen,
-                kPskClientIdentityPtr,
+                inServerPskPtr ? kSessionKeyPtr        : mPskKey.data(),
+                inServerPskPtr ? kSessionKeyLen        : mPskKey.size(),
+                inServerPskPtr ? kPskClientIdentityPtr : mPskId.c_str(),
                 inServerPskPtr,
                 kVerifyPeerPtr,
                 kDeleteOnCloseFlag
@@ -632,6 +635,14 @@ public:
                 return false;
             }
         }
+        if (mAllowPskFlag) {
+            mPskKey = thePskSslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "key"), mPskKey);
+            mPskId  = thePskSslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "keyId"), mPskId);
+        }
         if (theKrbChangedFlag) {
             mPrincipalUnparseFlags = thePrincipalUnparseFlags;
             mKrbUseSslFlag         = theKrbUseSslFlag;
@@ -839,6 +850,8 @@ private:
     UserAndGroupNames                mUserAndGroupNames;
     NoAuthMetaOpHosts                mNoAuthMetaOpHosts;
     NoAuthMetaOps                    mNoAuthMetaOps;
+    string                           mPskKey;
+    string                           mPskId;
 
     static const OpNamesMap& sOpNamesMap;
 
