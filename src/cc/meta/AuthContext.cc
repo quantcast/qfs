@@ -198,6 +198,9 @@ public:
                 inOp.responseAuthType      = kAuthenticationTypePSK;
                 inOp.sessionExpirationTime = int64_t(time(0)) +
                     mMaxAuthenticationValidTime;
+                if (! inServerPskPtr) {
+                    inOp.authName = mPskId;
+                }
             }
             return (inOp.status == 0);
         }
