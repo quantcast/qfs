@@ -106,6 +106,8 @@ public:
             { return ((int64_t)time(0) + 365 * 24 * 60 * 60); }
         virtual bool RenewSession()
             { return false; }
+        virtual string GetPeerId() const
+            { return string(); }
         bool IsReadPending() const
             { return mReadPendingFlag; }
     protected:

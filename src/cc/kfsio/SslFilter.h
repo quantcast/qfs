@@ -162,6 +162,7 @@ public:
     virtual string GetErrorMsg() const;
     virtual int GetErrorCode() const;
     virtual bool IsShutdownReceived() const;
+    virtual string GetPeerId() const;
     bool IsHandshakeDone() const;
     static bool GetCtxX509EndTime(
         Ctx&     inCtx,

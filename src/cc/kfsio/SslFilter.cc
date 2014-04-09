@@ -398,6 +398,7 @@ public:
             inPskDataPtr ? inPskDataLen : 0),
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
           mAuthName(),
+          mPeerPskId(),
           mServerPskPtr(inServerPskPtr),
           mVerifyPeerPtr(inVerifyPeerPtr),
           mReadPendingFlag(inReadPendingFlag),
@@ -584,6 +585,7 @@ public:
             mSslErrorFlag              = false;
             mVerifyOrGetPskInvokedFlag = false;
             mAuthName.clear();
+            mPeerPskId.clear();
             mServerFlag = ! SSL_in_connect_init(mSslPtr);
             SetStoredClientSession();
             const int theSslRet = mServerFlag ?
@@ -710,12 +712,15 @@ public:
         return (mSslPtr && GetX509EndTimeSelf(
             SSL_get_SSL_CTX(mSslPtr), outEndTime));
     }
+    string GetPeerId() const
+        { return (mSslPtr ? mPeerPskId : string()); }
 private:
     SSL*              mSslPtr;
     unsigned long     mError;
     string            mPskData;
     string            mPskCliIdendity;
     string            mAuthName;
+    string            mPeerPskId;
     string            mPeerName;
     ServerPsk* const  mServerPskPtr;
     VerifyPeer* const mVerifyPeerPtr;
@@ -845,6 +850,7 @@ private:
         unsigned int   inPskBufferLen)
     {
         mVerifyOrGetPskInvokedFlag = true;
+        mPeerPskId.clear();
         if (mServerPskPtr) {
             mAuthName.clear();
             return mServerPskPtr->GetPsk(
@@ -853,6 +859,9 @@ private:
         }
         if (inPskBufferLen < mPskData.size()) {
             return 0;
+        }
+        if (inIdentityPtr) {
+            mPeerPskId = inIdentityPtr;
         }
         memcpy(inPskBufferPtr, mPskData.data(), mPskData.size());
         return (unsigned int)mPskData.size();
@@ -865,11 +874,15 @@ private:
 	unsigned int   inPskBufferLen)
     {
         mVerifyOrGetPskInvokedFlag = true;
+        mPeerPskId.clear();
         if (inPskBufferLen < mPskData.size()) {
             return 0;
         }
         if (inIdentityBufferLen < mPskCliIdendity.size() + 1) {
             return 0;
+        }
+        if (inHintPtr) {
+            mPeerPskId = inHintPtr;
         }
         memcpy(inIdentityBufferPtr,
             mPskCliIdendity.c_str(), mPskCliIdendity.size() + 1);
@@ -884,6 +897,7 @@ private:
         bool          inEndTimeValidFlag)
     {
         mVerifyOrGetPskInvokedFlag = true;
+        mPeerPskId.clear();
         if (mVerifyPeerPtr) {
             return mVerifyPeerPtr->Verify(
                 mAuthName, inPreverifyOkFlag, inCurCertDepth, inPeerName,
@@ -1500,6 +1514,13 @@ SslFilter::GetAuthName() const
 {
     return mImpl.GetAuthName();
 }
+
+    string
+SslFilter::GetPeerId() const
+{
+    return mImpl.GetPeerId();
+}
+
     bool
 SslFilter::IsAuthFailure() const
 {
