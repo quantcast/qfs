@@ -700,9 +700,10 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 seq != mHelloOp->seq || status != 0 || 0 < mContentLength;
             if (err) {
                 KFS_LOG_STREAM_ERROR <<
-                    "bad hello response:"
-                    " seq: "         << seq << "/" << mHelloOp->seq <<
+                    "hello response error:"
+                    " seq: "         << seq << " => " << mHelloOp->seq <<
                     " status: "      << status <<
+                    " msg: "         << statusMsg <<
                     " content len: " << mContentLength <<
                 KFS_LOG_EOM;
                 mCounters.mHelloErrorCount++;
