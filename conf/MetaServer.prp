@@ -692,7 +692,7 @@ metaServer.msgLogWriter.logLevel = INFO
 
 # ================= PSK authentication =========================================
 # PSK chunk server authentication is intended only for testing and possibly
-# for small [test] clusters where with very few chunk servers where the
+# for small [test] clusters where with very few chunk servers, where the
 # same authentication credentials [psk "key"] are used for for all chunk
 # servers.
 
