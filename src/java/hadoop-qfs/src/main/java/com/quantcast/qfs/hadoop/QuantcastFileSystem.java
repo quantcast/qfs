@@ -117,7 +117,7 @@ public class QuantcastFileSystem extends FileSystem {
 
   public FileStatus[] listStatus(Path path) throws IOException {
     try {
-      final Path absolute = makeAbsolute(path);
+      final Path absolute = makeAbsolute(path).makeQualified(this);
       final FileStatus fs = qfsImpl.stat(absolute);
       return fs.isDir() ?
         qfsImpl.readdirplus(absolute) :
