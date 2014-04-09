@@ -32,6 +32,7 @@
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/Base64.h"
 #include "krb/KrbService.h"
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCUtils.h"
@@ -135,7 +136,7 @@ public:
                 (inOp.authType & kAuthenticationTypeKrb5) != 0) ||
             (mX509SslCtxPtr &&
                 (inOp.authType & kAuthenticationTypeX509) != 0) ||
-            (mAllowPskFlag && mSslCtxPtr &&
+            (IsPskAllowed() && mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) ||
             (mAuthNoneFlag &&
                     (inOp.authType & kAuthenticationTypeNone) != 0);
@@ -165,9 +166,13 @@ public:
             inOp.statusMsg = "partial content read";
             return false;
         }
-        if (mAllowPskFlag && (inServerPskPtr || ! mPskKey.empty()) &&
-                mSslCtxPtr &&
+        if (IsPskAllowed() && mSslCtxPtr &&
                 (inOp.authType & kAuthenticationTypePSK) != 0) {
+            if (! inServerPskPtr && mPskKey.empty()) {
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "no PSK key configured";
+                return false;
+            }
             inOp.responseContentPtr = 0;
             inOp.responseContentLen = 0;
             SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
@@ -601,12 +606,30 @@ public:
             }
         }
         Properties thePskSslProps(mPskSslProps);
-        theParamName.Truncate(thePrefLen).Append("psk.tls.");
+        theParamName.Truncate(thePrefLen).Append("psk.");
         theCurLen = theParamName.GetSize();
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theCurLen, thePskSslProps);
+        const Properties::String* const theKeyStrPtr = thePskSslProps.getValue(
+            theParamName.Truncate(theCurLen).Append("key"));
+        string thePskKey;
+        if (theKeyStrPtr) {
+            StBufferT<char, 64> theKeyBuf;
+            char* const thePtr = theKeyBuf.Resize(
+                Base64::GetMaxDecodedLength((int)theKeyStrPtr->GetSize()));
+            const int   theLen = Base64::Decode(
+                theKeyStrPtr->GetPtr(), theKeyStrPtr->GetSize(), thePtr);
+            if (theLen <= 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    theParamName << ": " << "invalid key encoding" <<
+                KFS_LOG_EOM;
+                return false;
+            }
+            thePskKey.assign(thePtr, theLen);
+        }
         const bool theCreateSslPskFlag  =
-            ((theKrbServicePtr && theKrbUseSslFlag) || mAllowPskFlag) &&
+            ((theKrbServicePtr && theKrbUseSslFlag) ||
+                (mAllowPskFlag || ! thePskKey.empty())) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0;
@@ -628,23 +651,13 @@ public:
                 thePskSslProps,
                 &theErrMsg
             ));
-            if (! theSslCtxPtr &&
-                    ((theKrbServicePtr && theKrbUseSslFlag) ||
-                    (mAllowPskFlag && theX509SslCtxPtr))) {
+            if (! theSslCtxPtr) {
                 KFS_LOG_STREAM_ERROR <<
                     theParamName.Truncate(theCurLen) <<
                     "* configuration error: " << theErrMsg <<
                 KFS_LOG_EOM;
                 return false;
             }
-        }
-        if (mAllowPskFlag) {
-            mPskKey = thePskSslProps.getValue(
-                theParamName.Truncate(theCurLen).Append(
-                "key"), mPskKey);
-            mPskId  = thePskSslProps.getValue(
-                theParamName.Truncate(theCurLen).Append(
-                "keyId"), mPskId);
         }
         if (theKrbChangedFlag) {
             mPrincipalUnparseFlags = thePrincipalUnparseFlags;
@@ -653,6 +666,10 @@ public:
             mKrbProps.swap(theKrbProps);
         }
         if (thePskSslChangedFlag) {
+            mPskKey = thePskKey;
+            mPskId  = thePskSslProps.getValue(
+                theParamName.Truncate(theCurLen).Append(
+                "keyId"), string());
             mSslCtxPtr.swap(theSslCtxPtr);
             mPskSslProps.swap(thePskSslProps);
         }
@@ -927,6 +944,8 @@ private:
         }
         return true;
     }
+    bool IsPskAllowed() const
+        { return (mAllowPskFlag || ! mPskKey.empty()); }
 
 private:
     Impl(

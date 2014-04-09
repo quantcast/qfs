@@ -1257,6 +1257,7 @@ const char* const kClientDefaultNoAuthMetaOpsHosts[] = {
     "127.0.0.1",
     0 // Sentinel
 };
+const bool kCSAuthenticationUsesServerPskFlag = false;
 
 LayoutManager::LayoutManager() :
     mNumOngoingReplications(0),
@@ -1423,7 +1424,7 @@ LayoutManager::LayoutManager() :
         kClientAuthAllowPskFlag,
         kClientDefaultNoAuthMetaOps,
         kClientDefaultNoAuthMetaOpsHosts),
-    mCSAuthContext(),
+    mCSAuthContext(kCSAuthenticationUsesServerPskFlag),
     mUserAndGroup(),
     mClientCSAuthRequiredFlag(false),
     mClientCSAllowClearTextFlag(false),

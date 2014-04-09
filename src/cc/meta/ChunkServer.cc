@@ -681,7 +681,8 @@ ChunkServer::HandleRequest(int code, void *data)
         }
         if (! mHelloDone &&
                 mNetConnection && ! mNetConnection->IsWriteReady()) {
-            Error("hello authentication error cluster key or md5sum mismatch");
+            Error(
+                "hello authentication error, cluster key, or md5sum mismatch");
         }
         // Something went out on the network.
         break;
@@ -1048,12 +1049,32 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             delete op;
             return -1;
         }
+        NetConnection::Filter* filter;
+        if (mAuthName.empty() && (filter = mNetConnection->GetFilter()) &&
+                filter->GetAuthName().empty()) {
+            // Only for PSK authentication with meta server empty key id.
+            // If key id is used, then it is validated only once here, with
+            // initial handshake, it is not validated in the case of
+            // re-authentication.
+            mAuthName = filter->GetPeerId();
+            if (! gLayoutManager.GetCSAuthContext().RemapAndValidate(
+                    mAuthName)) {
+                KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                    " invalid chunk server peer id" << filter->GetPeerId() <<
+                KFS_LOG_EOM;
+                delete op;
+                return -1;
+            }
+        }
         mHelloOp           = static_cast<MetaHello*>(op);
         mHelloOp->authName = mAuthName;
-        if (mHelloOp->authName.empty() &&
+        if (mAuthName.empty() &&
                 gLayoutManager.GetCSAuthContext().IsAuthRequired()) {
             mHelloOp->status    = -EPERM;
             mHelloOp->statusMsg = "authentication required";
+            KFS_LOG_STREAM_ERROR << GetPeerName() << " " <<
+                mHelloOp->statusMsg <<
+            KFS_LOG_EOM;
             iobuf->Clear();
             mNetConnection->SetMaxReadAhead(0);
             mNetConnection->SetInactivityTimeout(sRequestTimeout);
@@ -1063,14 +1084,14 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             // Do not declare error, hello reply still pending.
             return 0;
         }
-        if (mHelloOp->authName.empty()) {
+        if (! mAuthName.empty()) {
+            if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
+                mHelloOp = 0;
+                delete op;
+                return -1;
+            }
             mAuthCtxUpdateCount =
                 gLayoutManager.GetCSAuthContext().GetUpdateCount();
-        }
-        if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
-            mHelloOp = 0;
-            delete op;
-            return -1;
         }
         const char* const kAddrAny = "0.0.0.0";
         if (mHelloOp->location.hostname == kAddrAny) {
