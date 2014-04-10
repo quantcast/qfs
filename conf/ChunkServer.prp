@@ -151,9 +151,9 @@ chunkServer.msgLogWriter.logLevel = INFO
 #
 # If any of the following meta authentication method is configured then chunk
 # server requires QFS client connection to be authenticated. In other words, the
-# QFS client, and chunk server acting as a client, must obtain from the meta
-# server chunk server access token and corresponding key and use this token and
-# the key to authenticate with the chunk server.
+# QFS client, and other chunk server acting as a client, must obtain from the
+# meta server chunk server access token and corresponding key and use this token
+# and the key to authenticate with the chunk server.
 
 # ================= X509 authentication ========================================
 #
