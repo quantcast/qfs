@@ -835,8 +835,9 @@ jlong Java_com_quantcast_qfs_access_KfsAccess_filesize(
     string path;
     setStr(path, jenv, jpath);
 
-    if (clnt->Stat(path.c_str(), attr) != 0) {
-        return -1;
+    const int ret = clnt->Stat(path.c_str(), attr);
+    if (ret != 0) {
+        return (ret < 0 ? ret : -ret);
     }
     return attr.fileSize;
 }

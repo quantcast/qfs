@@ -36,11 +36,14 @@ class QFSInputStream extends FSInputStream {
   public QFSInputStream(KfsAccess kfsAccess, String path,
                         FileSystem.Statistics stats) throws IOException {
     this.statistics = stats;
-    this.kfsChannel = kfsAccess.kfs_open(path);
+    this.kfsChannel = kfsAccess.kfs_open_ex(path, -1, -1);
     if (kfsChannel == null) {
       throw new IOException("QFS internal error -- null channel");
     }
     this.fsize = kfsAccess.kfs_filesize(path);
+    if (this.fsize < 0) {
+        kfsAccess.kfs_retToIOException((int)this.fsize);
+    }
   }
 
   public long getPos() throws IOException {
