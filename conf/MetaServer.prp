@@ -883,6 +883,29 @@ metaServer.msgLogWriter.logLevel = INFO
 # must be renewed.
 # metaServer.cryptoKeys.keyChangePeriodSec = 7200
 
+# ------------------- Meta server authentication override ----------------------
+#
+# Setting the following 3 parameters to the values specified below, will
+# effectively disable client authentication. The chunk server authentication can
+# still be enabled.
+# Like the other parameters, removing or commenting out these parameters will
+# not turn back QFS client authentication, until chunk and meta servers restart.
+# To turn back the QFS client authentication the parameters should be explicitly
+# set back to the original / default values.
+#
+# Overriding the default behavior might be useful for initial authentication
+# setup and/or debugging.
+#
+# Default is 0 if QFS client authentication *not* configured, 1 otherwise.
+# metaServer.clientAuthentication.authNone = 1
+#
+# Default is 0 if QFS client authentication *not* configured, 1 otherwise.
+# metaServer.clientCSAuthRequired          = 0
+#
+# Default is 0 if chunk and meta server server authentication is *not*
+# configured, 1 otherwise.
+# chunkServer.client.auth.enabled          = 0
+
 #-------------------------------------------------------------------------------
 
 # ===================== Chunk servers configuration parameters. ================
