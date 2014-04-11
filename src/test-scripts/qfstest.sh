@@ -73,6 +73,7 @@ chunksrvlog='chunkserver.log'
 chunksrvpid="chunkserver${pidsuf}"
 chunksrvout='chunkserver.out'
 metahost='127.0.0.1'
+csallowcleartext=${csallowcleartext-1}
 clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
 clientrootprop="$testdir/clientroot.prp"
@@ -273,7 +274,7 @@ metaServer.rootDirUser = `id -u`
 metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 metaServer.maxSpaceUtilizationThreshold = 0.995
-metaServer.clientCSAllowClearText = 1
+metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
 EOF
 
