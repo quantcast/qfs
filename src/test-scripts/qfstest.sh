@@ -272,7 +272,6 @@ metaServer.auditLogWriter.waitMicroSec = 36000e6
 metaServer.rootDirUser = `id -u`
 metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
-metaServer.verifyAllOpsPermissions = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.clientCSAllowClearText = 1
 metaServer.appendPlacementIgnoreMasterSlave = 1
