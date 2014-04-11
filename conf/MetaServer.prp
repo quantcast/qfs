@@ -578,7 +578,32 @@ metaServer.msgLogWriter.logLevel = INFO
 # See open ssl documentation for details.
 # Default is the integer value that corresponds to the logical OR of
 # SSL_OP_NO_COMPRESSION and SSL_OP_NO_TICKET
-# metaServer.clientAuthentication.psk.options =
+# metaServer.CSAuthentication.psk.options =
+
+# ================= PSK authentication =========================================
+# PSK chunk server authentication is intended only for testing and possibly
+# for small [test] clusters where with very few chunk servers, where the
+# same authentication credentials [psk "key"] are used for for all chunk
+# servers.
+
+# Chunk server PSK key id. This string sent to the chunk as TLS PSK "hint", and
+# also used as chunk server "authenticated name".
+# This effectively overrides chunk server key id.
+# If chunk server key id set to non empty string, then it can be left empty.
+# In such case chunk server key id is used as authenticated name. The chunk
+# server key id sent as "clear text" as part of ssl handshake, and is not
+# "tied" in any way known to the meta server logic to the key id, therefore any
+# "name" can be used. In other words the key is the only real security
+# "credential" with this authentication scheme.
+# The resulting chunk server name must not be empty, and pass "black" and
+# "white" list check, see below.
+# metaServer.CSAuthentication.psk.keyId =
+
+# Chunk server PSK key (the "pre-shared-key"). The same key must be used on the
+# chunk server side in order for psk authentication to work.
+# The default is empty key -- PSK authentication is not enabled.
+# The key must be base 64 encoded, i.e. it must be valid base 64 sequence.
+# metaServer.CSAuthentication.psk.key =
 
 # ================= Chunk servers's "black" and "white" lists ==================
 
@@ -690,30 +715,19 @@ metaServer.msgLogWriter.logLevel = INFO
 # SSL_OP_NO_COMPRESSION and SSL_OP_NO_TICKET
 # metaServer.clientAuthentication.psk.options =
 
-# ================= PSK authentication =========================================
-# PSK chunk server authentication is intended only for testing and possibly
-# for small [test] clusters where with very few chunk servers, where the
-# same authentication credentials [psk "key"] are used for for all chunk
-# servers.
+# The following two parameters and respective defaults are intended to allow
+# non authenticated access for the meta server web UI from the local host.
 
-# Chunk server PSK key id. This string sent to the chunk as TLS PSK "hint", and
-# also used as chunk server "authenticated name".
-# This effectively overrides chunk server key id.
-# If chunk server key id set to non empty string, then it can be left empty.
-# In such case chunk server key id is used as authenticated name. The chunk
-# server key id sent as "clear text" as part of ssl handshake, and is not
-# "tied" in any way known to the meta server logic to the key id, therefore any
-# "name" can be used. In other words the key is the only real security
-# "credential" with this authentication scheme.
-# The resulting chunk server name must not be empty, and pass "black" and
-# "white" list check, see below.
-# metaServer.clientAuthentication.psk.keyId =
+# Space separated list of host ips that RPC listed in the next parameter are
+# permitted with no authentication.
+# Default is 127.0.0.1
+# metaServer.clientAuthentication.noAuthOpsHostIps = 127.0.0.1
 
-# Chunk server PSK key (the "pre-shared-key"). The same key must be used on the
-# chunk server side in order for psk authentication to work.
-# The default is empty key -- PSK authentication is not enabled.
-# The key must be base 64 encoded, i.e. it must be valid base 64 sequence.
-# metaServer.clientAuthentication.psk.key =
+# Space separated list of RPC names that allowed with no authentication, if the
+# client's host ip obtained with getpeername() call matches one of the ips in
+# the preceding list.
+# Default is RPCs used by the meta server web UI.
+# metaServer.clientAuthentication.noAuthOps = PING GET_CHUNK_SERVERS_COUNTERS GET_CHUNK_SERVER_DIRS_COUNTERS GET_REQUEST_COUNTERS DISCONNECT
 
 # ================= Client's "black" and "white" lists =========================
 
