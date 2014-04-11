@@ -703,7 +703,8 @@ public:
             "reDelegationAllowedFlag"), mReDelegationAllowedFlag ? 1 : 0) != 0;
         mAuthNoneFlag = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
-            "authNone"), (mX509SslCtxPtr || mKrbServicePtr) ? 0 : 1) != 0;
+            "authNone"), (mX509SslCtxPtr || mKrbServicePtr ||
+                (! mAuthNoneFlag && ! mPskKey.empty())) ? 0 : 1) != 0;
         mAuthTypes =
             (mAuthNoneFlag ? int(kAuthenticationTypeNone) : 0) |
             (mSslCtxPtr ? int(kAuthenticationTypePSK) : 0) |
@@ -714,7 +715,8 @@ public:
             theParamName.Truncate(thePrefLen).Append(
             "maxAuthenticationValidTimeSec"), mMaxAuthenticationValidTime));
         mAuthRequiredFlag = ! mAuthNoneFlag &&
-            (mAuthTypes & ~int(kAuthenticationTypePSK)) != 0;
+            (mAuthTypes & ~(mAllowPskFlag ?
+                int(kAuthenticationTypePSK) : 0)) != 0;
         return true;
     }
     uint32_t GetMaxDelegationValidForTime() const
