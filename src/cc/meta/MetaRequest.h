@@ -1369,6 +1369,9 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     ChunkInfos         notStableAppendChunks;
     int                bytesReceived;
     bool               staleChunksHexFormatFlag;
+    bool               deleteAllChunksFlag;
+    int64_t            fileSystemId;
+    int64_t            metaFileSystemId;
     MetaHello()
         : MetaRequest(META_HELLO, false),
           ServerLocation(),
@@ -1394,7 +1397,10 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           notStableChunks(),
           notStableAppendChunks(),
           bytesReceived(0),
-          staleChunksHexFormatFlag(false)
+          staleChunksHexFormatFlag(false),
+          deleteAllChunksFlag(false),
+          fileSystemId(-1),
+          metaFileSystemId(-1)
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1426,9 +1432,10 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("Num-appends-with-wids",        &MetaHello::numAppendsWithWid,    int64_t(0))
         .Def("Content-length",               &MetaHello::contentLength,            int(0))
         .Def("Content-int-base",             &MetaHello::contentIntBase,          int(10))
-        .Def("Stale-chunks-hex-format",      &MetaHello::staleChunksHexFormatFlag, false)
+        .Def("Stale-chunks-hex-format",      &MetaHello::staleChunksHexFormatFlag,  false)
         .Def("CKeyId",                       &MetaHello::cryptoKeyId)
         .Def("CKey",                         &MetaHello::cryptoKey)
+        .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
         ;
     }
 };

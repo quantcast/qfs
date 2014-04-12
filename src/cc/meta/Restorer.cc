@@ -419,9 +419,9 @@ static bool
 restore_filesystem_info(DETokenizer& c)
 {
     c.pop_front();
-    fid_t   fsid   = -1;
+    int64_t fsid   = -1;
     int64_t crtime = 0;
-    bool ok = pop_fid(fsid,      "fsid", c, true);
+    bool ok = pop_num(fsid,      "fsid", c, true);
     ok =      pop_time(crtime, "crtime", c, ok);
     if (ok) {
         metatree.SetFsInfo(fsid, crtime);

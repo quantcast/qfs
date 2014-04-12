@@ -4396,7 +4396,16 @@ MetaCoalesceBlocks::response(ostream &os)
 void
 MetaHello::response(ostream &os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    if (0 <= metaFileSystemId) {
+        os << "File-system-id: " << metaFileSystemId << "\r\n";
+        if (deleteAllChunksFlag) {
+            os << "Delete-all-chunks: " << metaFileSystemId << "\r\n";
+        }
+    }
+    os << "\r\n";
 }
 
 void

@@ -339,7 +339,7 @@ class Tree {
     time_t mLastPathToFidCacheCleanupTime;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaDentry*> >::Tmp    mDentriesTmp;
-    seq_t   mFileSystemId;
+    int64_t mFileSystemId;
     int64_t mCrTime;
 
 
@@ -420,7 +420,7 @@ public:
           mLastPathToFidCacheCleanupTime(0),
           mChunkInfosTmp(),
           mDentriesTmp(),
-          mFileSystemId(),
+          mFileSystemId(-1),
           mCrTime()
     {
         root = Node::create(META_ROOT|META_LEVEL1);
@@ -428,12 +428,12 @@ public:
         first = root;
         hgt = 1;
     }
-    void SetFsInfo(seq_t id, int64_t crtime)
+    void SetFsInfo(int64_t id, int64_t crtime)
     {
         mFileSystemId = id;
         mCrTime       = crtime;
     }
-    seq_t GetFsId() const
+    int64_t GetFsId() const
         { return mFileSystemId; }
     int64_t GetCreateTime() const
         { return mCrTime; }
