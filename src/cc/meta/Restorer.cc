@@ -415,6 +415,20 @@ restore_delegate_cancel(DETokenizer& c)
     return true;
 }
 
+static bool
+restore_filesystem_info(DETokenizer& c)
+{
+    c.pop_front();
+    fid_t   fsid   = -1;
+    int64_t crtime = 0;
+    bool ok = pop_fid(fsid,      "fsid", c, true);
+    ok =      pop_time(crtime, "crtime", c, ok);
+    if (ok) {
+        metatree.SetFsInfo(fsid, crtime);
+    }
+    return (ok && 0 <= fsid);
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -438,6 +452,7 @@ get_entry_map()
     e.add_parser("beginchunkversionchange", &restore_beginchunkversionchange);
     e.add_parser("checksum",                &restore_checksum);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
+    e.add_parser("filesysteminfo",          &restore_filesystem_info),
     initied = true;
     return e;
 }

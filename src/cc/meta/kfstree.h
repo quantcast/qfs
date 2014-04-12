@@ -339,6 +339,8 @@ class Tree {
     time_t mLastPathToFidCacheCleanupTime;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaDentry*> >::Tmp    mDentriesTmp;
+    seq_t   mFileSystemId;
+    int64_t mCrTime;
 
 
     template<typename MATCH>
@@ -417,13 +419,24 @@ public:
           mPathToFidCache(),
           mLastPathToFidCacheCleanupTime(0),
           mChunkInfosTmp(),
-          mDentriesTmp()
+          mDentriesTmp(),
+          mFileSystemId(),
+          mCrTime()
     {
         root = Node::create(META_ROOT|META_LEVEL1);
         root->insertData(new Key(KFS_SENTINEL, 0), NULL, 0);
         first = root;
         hgt = 1;
     }
+    void SetFsInfo(seq_t id, int64_t crtime)
+    {
+        mFileSystemId = id;
+        mCrTime       = crtime;
+    }
+    seq_t GetFsId() const
+        { return mFileSystemId; }
+    int64_t GetCreateTime() const
+        { return mCrTime; }
     //!< create a directory namespace
     int new_tree(kfsUid_t user = kKfsUserRoot,
             kfsGid_t group = kKfsGroupRoot, kfsMode_t mode = 0755)

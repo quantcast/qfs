@@ -31,6 +31,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
 
 #include "NetDispatch.h"
 #include "ChunkServer.h"
@@ -497,6 +498,16 @@ MetaServer::Startup(bool createEmptyFsFlag)
         return false;
     }
 
+    seq_t fsid = 0;
+    if (! CryptoKeys::PseudoRand(&fsid, sizeof(fsid))) {
+        KFS_LOG_STREAM_FATAL <<
+            "failed to initialize pseudo random number generator" <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (fsid < 0) {
+        fsid = -fsid;
+    }
     metatree.disableFidToPathname();
     const bool updateSpaceUsageFlag =
         metatree.getUpdatePathSpaceUsageFlag();
@@ -507,10 +518,14 @@ MetaServer::Startup(bool createEmptyFsFlag)
     int  status;
     bool rollChunkIdSeedFlag;
     if (! createEmptyFsFlag || file_exists(LASTCP)) {
+        // Init fs id if needed, leave create time 0, restorer will set these
+        // unless fsinfo entry doesn't exit.
+        metatree.SetFsInfo(fsid, 0);
         Restorer r;
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
         rollChunkIdSeedFlag = true;
     } else {
+        metatree.SetFsInfo(fsid, microseconds());
         status = metatree.new_tree(
             mStartupProperties.getValue(
                 "metaServer.rootDirUser",

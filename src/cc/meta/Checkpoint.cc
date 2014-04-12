@@ -124,6 +124,8 @@ Checkpoint::do_CP()
         os << "checkpoint/" << highest << '\n';
         os << "checksum/last-line\n";
         os << "version/" << VERSION << '\n';
+        os << "filesysteminfo/fsid/" << metatree.GetFsId() << "/crtime/" <<
+            ShowTime(metatree.GetCreateTime()) << '\n';
         os << "fid/" << fileID.getseed() << '\n';
         os << "chunkId/" << chunkID.getseed() << '\n';
         os << "chunkVersionInc/1\n";
