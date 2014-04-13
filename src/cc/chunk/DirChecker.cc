@@ -29,6 +29,7 @@
 #include "common/MsgLogger.h"
 #include "common/StBuffer.h"
 #include "common/time.h"
+#include "common/RequestParser.h"
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
@@ -81,6 +82,7 @@ public:
           mDoneCond(),
           mCheckIntervalNanoSec(Time(60) * 1000 * 1000 * 1000),
           mLockFileName(),
+          mFsIdPrefix(),
           mDirLocks(),
           mRemoveFilesFlag(false),
           mRunFlag(false),
@@ -103,6 +105,7 @@ public:
         FileNames       theDontUseIfExistFileNames = mDontUseIfExistFileNames;
         FileNames       theIgnoreFileNames         = mIgnoreFileNames;
         string          theLockFileName;
+        string          theFsIdPrefix;
         DirLocks        theDirLocks;
         mUpdateDirInfosFlag = false;
         while (mRunFlag) {
@@ -122,6 +125,7 @@ public:
             }
             const bool theRemoveFilesFlag = mRemoveFilesFlag;
             theLockFileName = mLockFileName;
+            theFsIdPrefix   = mFsIdPrefix;
             DirsAvailable theAvailableDirs;
             theDirLocks.swap(mDirLocks);
             QCASSERT(mDirLocks.empty());
@@ -144,7 +148,8 @@ public:
                     theLockFileName,
                     theLockToken,
                     theRequireChunkHeaderChecksumFlag,
-                    mChunkHeaderBuffer
+                    mChunkHeaderBuffer,
+                    theFsIdPrefix
                 );
             }
             bool theUpdateDirInfosFlag = false;
@@ -371,6 +376,12 @@ public:
         QCStMutexLocker theLocker(mMutex);
         mIgnoreErrorsFlag = inFlag;
     }
+    void SetFsIdPrefix(
+        const string& inFsIdPrefix)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mFsIdPrefix = inFsIdPrefix;
+    }
 
 private:
     typedef std::map<dev_t, DeviceId> DeviceIds;
@@ -390,6 +401,7 @@ private:
     QCCondVar         mDoneCond;
     Time              mCheckIntervalNanoSec;
     string            mLockFileName;
+    string            mFsIdPrefix;
     DirLocks          mDirLocks;
     bool              mRemoveFilesFlag;
     bool              mRunFlag;
@@ -413,7 +425,8 @@ private:
         const string&      inLockName,
         const string&      inLockToken,
         bool               inRequireChunkHeaderChecksumFlag,
-        ChunkHeaderBuffer& inChunkHeaderBuffer)
+        ChunkHeaderBuffer& inChunkHeaderBuffer,
+        const string       inFsIdPrefix)
     {
         for (DirInfos::const_iterator theIt = inDirInfos.begin();
                 theIt != inDirInfos.end();
@@ -495,6 +508,7 @@ private:
             if (theSit != inSubDirNames.end()) {
                 continue;
             }
+            int64_t    theFsId = -1;
             ChunkInfos theChunkInfos;
             if (GetChunkFiles(
                     theIt->first,
@@ -503,7 +517,9 @@ private:
                     inRequireChunkHeaderChecksumFlag,
                     inRemoveFilesFlag,
                     inIgnoreErrorsFlag,
+                    inFsIdPrefix,
                     inChunkHeaderBuffer,
+                    theFsId,
                     theChunkInfos) != 0) {
                 continue;
             }
@@ -532,10 +548,13 @@ private:
         bool               inRequireChunkHeaderChecksumFlag,
         bool               inRemoveFilesFlag,
         bool               inIgnoreErrorsFlag,
+        const string&      inFsIdPrefix,
         ChunkHeaderBuffer& inChunkHeaderBuffer,
+        int64_t&           outFileSystemId,
         ChunkInfos&        outChunkInfos)
     {
         QCASSERT(! inDirName.empty() && *(inDirName.rbegin()) == '/');
+        outFileSystemId = -1;
         int theErr = 0;
         DIR* const theDirStream = opendir(inDirName.c_str());
         if (! theDirStream) {
@@ -559,6 +578,36 @@ private:
             theName = theEntryPtr->d_name;
             if (inIgnoreFileNames.find(theName) != inIgnoreFileNames.end()) {
                 continue;
+            }
+            if (! inFsIdPrefix.empty() &&
+                    inFsIdPrefix.length() < theName.length() &&
+                    inFsIdPrefix.compare(0, string::npos, theName, 0,
+                        inFsIdPrefix.length()) == 0) {
+                int64_t     theFsId = -1;
+                const char* thePtr  = theName.data() + inFsIdPrefix.length();
+                if (DecIntParser::Parse(
+                        thePtr,
+                        theName.length() - inFsIdPrefix.length(),
+                        theFsId) &&
+                        theName.c_str() + theName.length() <= thePtr) {
+                    if (0 < outFileSystemId && 0 < theFsId &&
+                            theFsId != outFileSystemId) {
+                        KFS_LOG_STREAM_ERROR << inDirName <<
+                            " error: inconsistent file system id: " <<
+                            theFsId << " vs " << outFileSystemId <<
+                        KFS_LOG_EOM;
+                        theErr = -EINVAL;
+                        break;
+                    }
+                    continue;
+                } else {
+                    KFS_LOG_STREAM_ERROR << inDirName <<
+                        " error: unable to parse file system id: " <<
+                        theName <<
+                    KFS_LOG_EOM;
+                    theErr = -EINVAL;
+                    break;
+                }
             }
             theName = inDirName;
             theName += theEntryPtr->d_name;

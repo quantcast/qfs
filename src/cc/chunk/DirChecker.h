@@ -96,17 +96,20 @@ public:
             DeviceId         inDeviceId                    = -1,
             const LockFdPtr& inLockFdPtr                   = LockFdPtr(),
             bool             inBufferedIoFlag              = false,
-            bool             inSupportsSpaceReservatonFlag = false)
+            bool             inSupportsSpaceReservatonFlag = false,
+            int64_t          inFileSystemId                = -1)
             : mDeviceId(inDeviceId),
               mLockFdPtr(inLockFdPtr),
               mBufferedIoFlag(inBufferedIoFlag),
               mSupportsSpaceReservatonFlag(inSupportsSpaceReservatonFlag),
+              mFileSystemId(inFileSystemId),
               mChunkInfos()
             {}
         DeviceId   mDeviceId;
         LockFdPtr  mLockFdPtr;
         bool       mBufferedIoFlag;
         bool       mSupportsSpaceReservatonFlag;
+        int64_t    mFileSystemId;
         ChunkInfos mChunkInfos;
     };
     typedef map<string, DirInfo> DirsAvailable;
