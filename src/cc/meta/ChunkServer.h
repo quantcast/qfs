@@ -1127,6 +1127,9 @@ protected:
     bool ParseCryptoKey(
         const Properties::String& keyId,
         const Properties::String& key);
+    int DeclareHelloError(
+        int         status,
+        const char* statusMsg);
 };
 
 } // namespace KFS

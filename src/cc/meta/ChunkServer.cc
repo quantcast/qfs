@@ -1009,6 +1009,30 @@ private:
 };
 const unsigned char* const HexChunkInfoParser::sC2HexTable = char2HexTable();
 
+int
+ChunkServer::DeclareHelloError(
+    int         status,
+    const char* statusMsg)
+{
+    mHelloOp->status = status < 0 ? status : -EINVAL;
+    if (statusMsg) {
+        mHelloOp->statusMsg = statusMsg;
+    }
+    if (mHelloOp->statusMsg.empty()) {
+        mHelloOp->statusMsg = "invalid chunk server hello";
+    }
+    KFS_LOG_STREAM_ERROR << GetPeerName() << " " <<
+        mHelloOp->statusMsg <<
+    KFS_LOG_EOM;
+    mNetConnection->GetInBuffer().Clear();
+    mNetConnection->SetMaxReadAhead(0);
+    mNetConnection->SetInactivityTimeout(sRequestTimeout);
+    SendResponse(mHelloOp);
+    delete mHelloOp;
+    mHelloOp = 0;
+    return 0;
+}
+
 /// Case #1: Handle Hello message from a chunkserver that
 /// just connected to us.
 int
@@ -1060,30 +1084,16 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             mAuthName = filter->GetPeerId();
             if (! gLayoutManager.GetCSAuthContext().RemapAndValidate(
                     mAuthName)) {
-                KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                    " invalid chunk server peer id" << filter->GetPeerId() <<
-                KFS_LOG_EOM;
-                delete op;
-                return -1;
+                string msg("invalid chunk server peer id: ");
+                msg +=  filter->GetPeerId();
+                return DeclareHelloError(-EPERM, msg.c_str());
             }
         }
         mHelloOp           = static_cast<MetaHello*>(op);
         mHelloOp->authName = mAuthName;
         if (mAuthName.empty() &&
                 gLayoutManager.GetCSAuthContext().IsAuthRequired()) {
-            mHelloOp->status    = -EPERM;
-            mHelloOp->statusMsg = "authentication required";
-            KFS_LOG_STREAM_ERROR << GetPeerName() << " " <<
-                mHelloOp->statusMsg <<
-            KFS_LOG_EOM;
-            iobuf->Clear();
-            mNetConnection->SetMaxReadAhead(0);
-            mNetConnection->SetInactivityTimeout(sRequestTimeout);
-            SendResponse(mHelloOp);
-            delete mHelloOp;
-            mHelloOp = 0;
-            // Do not declare error, hello reply still pending.
-            return 0;
+            return DeclareHelloError(-EPERM, "authentication required");
         }
         if (! mAuthName.empty()) {
             if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
@@ -1116,23 +1126,14 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return -1;
             }
             if (! sRestartCSOnInvalidClusterKeyFlag) {
-                iobuf->Clear();
-                mNetConnection->SetMaxReadAhead(0);
-                mNetConnection->SetInactivityTimeout(sRequestTimeout);
-                SendResponse(mHelloOp);
-                delete mHelloOp;
-                mHelloOp = 0;
-                // Do not declare error, hello reply still pending.
-                return 0;
+                return DeclareHelloError(mHelloOp->status, 0);
             }
         }
         if (mHelloOp->status == 0 &&
                 sMaxHelloBufferBytes < mHelloOp->contentLength) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " hello content length: " <<
-                    mHelloOp->contentLength <<
-                " exceeds max. allowed: " <<
-                    sMaxHelloBufferBytes <<
+                " hello content length: " << mHelloOp->contentLength <<
+                " exceeds max. allowed: " << sMaxHelloBufferBytes <<
             KFS_LOG_EOM;
             mHelloOp = 0;
             delete op;
@@ -1159,16 +1160,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 mHelloOp->numNotStableAppendChunks = 0;
                 mHelloOp->numNotStableChunks       = 0;
             } else {
-                mHelloOp->status    = -EINVAL;
-                mHelloOp->statusMsg = "file system id mismatch";
-                iobuf->Clear();
-                mNetConnection->SetMaxReadAhead(0);
-                mNetConnection->SetInactivityTimeout(sRequestTimeout);
-                SendResponse(mHelloOp);
-                delete mHelloOp;
-                mHelloOp = 0;
-                // Do not declare error, hello reply still pending.
-                return 0;
+                return DeclareHelloError(-EINVAL, "file system id mismatch");
             }
         }
         if (mHelloOp->status == 0 &&
