@@ -1424,6 +1424,10 @@ public:
             mUserAndGroup.IsMetaServerStatsUser(op.euser)
         );
     }
+    bool IsFileSystemIdRequired() const
+        { return mFileSystemIdRequiredFlag; }
+    bool IsDeleteChunkOnFsIdMismatch() const
+        { return mDeleteChunkOnFsIdMismatchFlag; }
 protected:
     class RackInfoRackIdLess
     {
@@ -2071,6 +2075,8 @@ protected:
     bool              mClientCSAllowClearTextFlag;
     int               mCSAccessValidForTimeSec;
     int               mMinWriteLeaseTimeSec;
+    bool              mFileSystemIdRequiredFlag;
+    bool              mDeleteChunkOnFsIdMismatchFlag;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;

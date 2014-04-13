@@ -1430,6 +1430,8 @@ LayoutManager::LayoutManager() :
     mClientCSAllowClearTextFlag(false),
     mCSAccessValidForTimeSec(2 * 60 * 60),
     mMinWriteLeaseTimeSec(LEASE_INTERVAL_SECS),
+    mFileSystemIdRequiredFlag(false),
+    mDeleteChunkOnFsIdMismatchFlag(false),
     mFileRecoveryInFlightCount(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -2024,6 +2026,12 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.CSAccessValidForTimeSec", mCSAccessValidForTimeSec));
     mMinWriteLeaseTimeSec = props.getValue(
         "metaServer.minWriteLeaseTimeSec", mMinWriteLeaseTimeSec);
+    mFileSystemIdRequiredFlag = props.getValue(
+        "metaServer.fileSystemIdRequired",
+        mFileSystemIdRequiredFlag ? 1 : 0) != 0;
+    mDeleteChunkOnFsIdMismatchFlag = props.getValue(
+        "metaServer.deleteChunkOnFsIdMismatch",
+        mDeleteChunkOnFsIdMismatchFlag ? 1 : 0) != 0;
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));

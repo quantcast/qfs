@@ -28,6 +28,7 @@
 #include "ChunkServer.h"
 #include "LayoutManager.h"
 #include "NetDispatch.h"
+#include "kfstree.h"
 #include "util.h"
 #include "kfsio/Globals.h"
 #include "kfsio/DelegationToken.h"
@@ -1136,6 +1137,39 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             mHelloOp = 0;
             delete op;
             return -1;
+        }
+        if (mHelloOp->fileSystemId <= 0 &&
+                (0 < mHelloOp->numChunks ||
+                    0 < mHelloOp->numNotStableAppendChunks ||
+                    0 < mHelloOp->numNotStableChunks) &&
+                gLayoutManager.IsFileSystemIdRequired()) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " hello: invalid file sytem id" <<
+            KFS_LOG_EOM;
+            mHelloOp = 0;
+            delete op;
+            return -1;
+        }
+        mHelloOp->metaFileSystemId = metatree.GetFsId();
+        if (0 < mHelloOp->fileSystemId &&
+                mHelloOp->fileSystemId != mHelloOp->metaFileSystemId) {
+            if (gLayoutManager.IsDeleteChunkOnFsIdMismatch()) {
+                mHelloOp->deleteAllChunksFlag      = true;
+                mHelloOp->numChunks                = 0;
+                mHelloOp->numNotStableAppendChunks = 0;
+                mHelloOp->numNotStableChunks       = 0;
+            } else {
+                mHelloOp->status    = -EINVAL;
+                mHelloOp->statusMsg = "file system id mismatch";
+                iobuf->Clear();
+                mNetConnection->SetMaxReadAhead(0);
+                mNetConnection->SetInactivityTimeout(sRequestTimeout);
+                SendResponse(mHelloOp);
+                delete mHelloOp;
+                mHelloOp = 0;
+                // Do not declare error, hello reply still pending.
+                return 0;
+            }
         }
         if (mHelloOp->status == 0 &&
                 mHelloOp->contentLength > 0 &&

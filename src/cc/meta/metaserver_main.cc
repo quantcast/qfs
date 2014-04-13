@@ -505,7 +505,9 @@ MetaServer::Startup(bool createEmptyFsFlag)
         KFS_LOG_EOM;
         return false;
     }
-    if (fsid < 0) {
+    if (fsid == 0) {
+        fsid = 1;
+    } else if (fsid < 0) {
         fsid = -fsid;
     }
     metatree.disableFidToPathname();
