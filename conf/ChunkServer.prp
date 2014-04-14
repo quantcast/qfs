@@ -226,10 +226,9 @@ chunkServer.msgLogWriter.logLevel = INFO
 
 # ================= PSK authentication =========================================
 #
-# PSK chunk server authentication is intended only for testing and possibly
-# for small [test] clusters where with very few chunk servers, where the
-# same authentication credentials [psk "key"] are used for for all chunk
-# servers.
+# PSK chunk server authentication is intended only for testing and possibly for
+# small [test] clusters with very few chunk servers, where the same
+# authentication credentials [PSK "key"] are used for for all chunk servers.
 
 # Chunk server's PSK key, Must be identical to the key the meta server
 # configured with. See metaServer.CSAuthentication.psk.key parameter description
