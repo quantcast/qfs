@@ -565,13 +565,13 @@ metaServer.msgLogWriter.logLevel = INFO
 # The result of the principal conversion to string is used as client's
 # (chunk server's) "authenticated name".
 # The default is fullly qualified principal name. For chunk servers it
-# would typically to be in the form of service/host@realm.
+# would typically be in the form of service/host@realm.
 # The "unparsed" chunk server name is checked against "black" and "white" chunk
 # server list names as described below.
 # metaServer.CSAuthentication.princUnparseMode =
 
 # OpenSSL cipher configuration for TLS-PSK authentication method. This method
-# is used with delegation and with Kerberos authentication.
+# is used with QFS delegation and with Kerberos authentication.
 # metaServer.CSAuthentication.psk.cipherpsk = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
 
 # The long integer value passed to SSL_CTX_set_options() call.
@@ -755,20 +755,21 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.clientCSAllowClearText = 0
 
 # Chunk server access token maximum lifetime.
-# A particular chunk access access token time defines chunk access time limit.
+# Chunk server access token time defines chunk access time limit.
 # Chunk access tokens have 10 min time limit -- twice chunk lease time. The
 # chunk server access token effectively defines maximum client and chunk server
-# and chunk server to chunk server connections lifetimes. The client and chunk
-# servers attempt to obtain and user a new chunk server access token before the
-# current token expires, and re-open connection with the newly obtained token.
+# to chunk server connections lifetimes. The client and chunk servers attempt
+# to obtain and use a new chunk server access token before the current token
+# expires, and re-open connection with the newly obtained token.
 # Default is 2 hours.
 # metaServer.CSAccessValidForTimeSec = 7200
 
 # The meta server limits the write lease end time to the max of the current time
 # plus the value of the following parameter, and the authentication end time.
-# The parameter is intended primarily for testing to avoid spurious write
-# retries with authentication maximum life time set to very small value -- 5sec
-# in order to test the re-authentication logic.
+# The parameter is intended primarily for testing, to avoid spurious write
+# retries with authentication maximum life time set to very small value -- 5sec.
+# (The short authentication lifetime is used in order to test the
+# re-authentication logic.)
 # metaServer.minWriteLeaseTimeSec = 600
 
 #-------------------------------------------------------------------------------
@@ -901,8 +902,8 @@ metaServer.msgLogWriter.logLevel = INFO
 # Setting the following 3 parameters to the values specified below, will
 # effectively disable client authentication. The chunk server authentication can
 # still be enabled.
-# Like the other parameters, removing or commenting out these parameters will
-# not turn back QFS client authentication, until chunk and meta servers restart.
+# Like the other parameters, removing or commenting out these parameters will not
+# turn back QFS client authentication on, until chunk and meta servers restart.
 # To turn back the QFS client authentication the parameters should be explicitly
 # set back to the original / default values.
 #
