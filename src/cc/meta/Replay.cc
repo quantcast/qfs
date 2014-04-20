@@ -908,6 +908,7 @@ get_entry_map()
     e.add_parser("chmod",                   &replay_chmod);
     e.add_parser("chown",                   &replay_chown);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
+    e.add_parser("filesysteminfo",          &restore_filesystem_info);
     initied = true;
     return e;
 }

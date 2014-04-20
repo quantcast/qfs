@@ -415,7 +415,7 @@ restore_delegate_cancel(DETokenizer& c)
     return true;
 }
 
-static bool
+bool
 restore_filesystem_info(DETokenizer& c)
 {
     c.pop_front();
@@ -452,7 +452,7 @@ get_entry_map()
     e.add_parser("beginchunkversionchange", &restore_beginchunkversionchange);
     e.add_parser("checksum",                &restore_checksum);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
-    e.add_parser("filesysteminfo",          &restore_filesystem_info),
+    e.add_parser("filesysteminfo",          &restore_filesystem_info);
     initied = true;
     return e;
 }

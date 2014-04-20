@@ -76,6 +76,7 @@ extern string restoreChecksum;
 extern bool   lastLineChecksumFlag;
 extern bool   restore_checksum(DETokenizer& c);
 extern bool   restore_delegate_cancel(DETokenizer& c);
+extern bool   restore_filesystem_info(DETokenizer& c);
 
 }
 #endif // !defined(KFS_RESTORE_H)

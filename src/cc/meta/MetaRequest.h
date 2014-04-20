@@ -143,7 +143,8 @@ using std::less;
     f(GET_CHUNK_SERVER_DIRS_COUNTERS) \
     f(AUTHENTICATE) \
     f(DELEGATE) \
-    f(DELEGATE_CANCEL)
+    f(DELEGATE_CANCEL) \
+    f(SET_FILE_SYSTEM_INFO)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,

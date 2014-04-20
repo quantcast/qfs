@@ -490,6 +490,49 @@ CheckDirWritable(
     return true;
 }
 
+struct MetaSetFsInfo : public MetaRequest
+{
+public:
+    MetaSetFsInfo(
+        int64_t fsid,
+        int64_t crTime)
+        : MetaRequest(META_SET_FILE_SYSTEM_INFO, true),
+          fileSystemId(fsid),
+          createTime(crTime)
+        {}
+    virtual void handle()
+    {
+        if (status != 0) {
+            return;
+        }
+        if (fileSystemId < 0 || 0 < metatree.GetFsId()) {
+            status = -EINVAL;
+            return;
+        }
+        metatree.SetFsInfo(fileSystemId, createTime);
+    }
+    virtual int log(ostream& os) const
+    {
+        if (status == 0) {
+            os << "filesysteminfo"
+                "/fsid/"   << fileSystemId <<
+                "/crtime/" << ShowTime(createTime) <<
+            "\n";
+        }
+        return (os.fail() ? -EIO : 0);
+    }
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "fsid: "  << fileSystemId <<
+            " time: " << createTime
+        );
+    }
+private:
+    const int64_t fileSystemId;
+    const int64_t createTime;
+};
+
 bool
 MetaServer::Startup(bool createEmptyFsFlag)
 {
@@ -522,7 +565,6 @@ MetaServer::Startup(bool createEmptyFsFlag)
     if (! createEmptyFsFlag || file_exists(LASTCP)) {
         // Init fs id if needed, leave create time 0, restorer will set these
         // unless fsinfo entry doesn't exit.
-        metatree.SetFsInfo(fsid, 0);
         Restorer r;
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
         rollChunkIdSeedFlag = true;
@@ -584,6 +626,9 @@ MetaServer::Startup(bool createEmptyFsFlag)
             QCUtils::SysError(-status) <<
         KFS_LOG_EOM;
         return false;
+    }
+    if (metatree.GetFsId() <= 0) {
+        submit_request(new MetaSetFsInfo(fsid, 0));
     }
     gLayoutManager.InitRecoveryStartTime();
     return true;
