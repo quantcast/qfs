@@ -30,6 +30,7 @@
 #include "common/StBuffer.h"
 #include "common/time.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
@@ -84,6 +85,7 @@ public:
           mLockFileName(),
           mFsIdPrefix(),
           mDirLocks(),
+          mFileSystemId(-1),
           mRemoveFilesFlag(false),
           mRunFlag(false),
           mDoneFlag(false),
@@ -91,6 +93,7 @@ public:
           mUpdateDirInfosFlag(false),
           mRequireChunkHeaderChecksumFlag(false),
           mIgnoreErrorsFlag(false),
+          mDeleteAllChaunksOnFsMismatchFlag(false),
           mChunkHeaderBuffer()
         {}
     virtual ~Impl()
@@ -123,15 +126,20 @@ public:
                 theIgnoreFileNames         = mIgnoreFileNames;
                 mUpdateDirInfosFlag = false;
             }
-            const bool theRemoveFilesFlag = mRemoveFilesFlag;
+            const bool    theRemoveFilesFlag                  =
+                mRemoveFilesFlag;
+            const bool    theDeleteAllChaunksOnFsMismatchFlag =
+                mDeleteAllChaunksOnFsMismatchFlag;
+            const bool    theIgnoreErrorsFlag                 =
+                mIgnoreErrorsFlag;
+            const bool    theRequireChunkHeaderChecksumFlag   =
+                mRequireChunkHeaderChecksumFlag;
+            const int64_t theFileSystemId                     = mFileSystemId;
             theLockFileName = mLockFileName;
             theFsIdPrefix   = mFsIdPrefix;
             DirsAvailable theAvailableDirs;
             theDirLocks.swap(mDirLocks);
             QCASSERT(mDirLocks.empty());
-            const bool theIgnoreErrorsFlag = mIgnoreErrorsFlag;
-            const bool theRequireChunkHeaderChecksumFlag =
-                mRequireChunkHeaderChecksumFlag;
             {
                 QCStMutexUnlocker theUnlocker(mMutex);
                 theDirLocks.clear();
@@ -149,7 +157,9 @@ public:
                     theLockToken,
                     theRequireChunkHeaderChecksumFlag,
                     mChunkHeaderBuffer,
-                    theFsIdPrefix
+                    theFsIdPrefix,
+                    theFileSystemId,
+                    theDeleteAllChaunksOnFsMismatchFlag
                 );
             }
             bool theUpdateDirInfosFlag = false;
@@ -382,6 +392,19 @@ public:
         QCStMutexLocker theLocker(mMutex);
         mFsIdPrefix = inFsIdPrefix;
     }
+    void SetDeleteAllChaunksOnFsMismatch(
+        int64_t inFsId,
+        bool    inDeleteFlag)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mFileSystemId                     = inFsId;
+        mDeleteAllChaunksOnFsMismatchFlag = inDeleteFlag;
+    }
+    void Wakeup()
+    {
+        QCStMutexLocker theLocker(mMutex);
+        mCond.Notify();
+    }
 
 private:
     typedef std::map<dev_t, DeviceId> DeviceIds;
@@ -403,6 +426,7 @@ private:
     string            mLockFileName;
     string            mFsIdPrefix;
     DirLocks          mDirLocks;
+    int64_t           mFileSystemId;
     bool              mRemoveFilesFlag;
     bool              mRunFlag;
     bool              mDoneFlag;
@@ -410,6 +434,7 @@ private:
     bool              mUpdateDirInfosFlag;
     bool              mRequireChunkHeaderChecksumFlag;
     bool              mIgnoreErrorsFlag;
+    bool              mDeleteAllChaunksOnFsMismatchFlag;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
     static void CheckDirs(
@@ -426,7 +451,9 @@ private:
         const string&      inLockToken,
         bool               inRequireChunkHeaderChecksumFlag,
         ChunkHeaderBuffer& inChunkHeaderBuffer,
-        const string       inFsIdPrefix)
+        const string       inFsIdPrefix,
+        int64_t            inFileSystemId,
+        bool               inDeleteAllChaunksOnFsMismatchFlag)
     {
         for (DirInfos::const_iterator theIt = inDirInfos.begin();
                 theIt != inDirInfos.end();
@@ -510,6 +537,7 @@ private:
             }
             int64_t    theFsId = -1;
             ChunkInfos theChunkInfos;
+            string     theFsIdPathName;
             if (GetChunkFiles(
                     theIt->first,
                     inLockName,
@@ -520,8 +548,85 @@ private:
                     inFsIdPrefix,
                     inChunkHeaderBuffer,
                     theFsId,
+                    theFsIdPathName,
                     theChunkInfos) != 0) {
                 continue;
+            }
+            if (0 < inFileSystemId && 0 < theFsId &&
+                    inFileSystemId != theFsId) {
+                const int theCleanupFlag =
+                    inDeleteAllChaunksOnFsMismatchFlag || theChunkInfos.IsEmpty();
+                KFS_LOG_STREAM(theCleanupFlag ?
+                    MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+                    theIt->first <<
+                    " file system id: "             << theFsId <<
+                    " does not match expected id: " << inFileSystemId <<
+                    (theCleanupFlag ? " deleting all chunks" : "") <<
+                KFS_LOG_EOM;
+                if (! theCleanupFlag) {
+                    continue;
+                }
+                string                    theName = theIt->first;
+                const size_t              theSize = theName.size();
+                ChunkInfos::ConstIterator theCIt(theChunkInfos);
+                const ChunkInfo*          thePtr;
+                char                      theBuf[32];
+                char* const               theBufEndPtr =
+                    theBuf + sizeof(theBuf) / sizeof(theBuf[0]) - 1;
+                *theBufEndPtr = 0;
+                while ((thePtr = theCIt.Next())) {
+                    theName.resize(theSize);
+                    theName += IntToDecString(thePtr->mFileId, theBufEndPtr);
+                    theName += ".";
+                    theName += IntToDecString(thePtr->mChunkId, theBufEndPtr);
+                    theName += ".";
+                    theName += IntToDecString(
+                        thePtr->mChunkVersion, theBufEndPtr);
+                    if (unlink(theName.c_str())) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            theName <<
+                            " error: " << QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
+                }
+                if (thePtr) {
+                    // Cleanup error.
+                    continue;
+                }
+                if (! theFsIdPathName.empty() &&
+                        unlink(theFsIdPathName.c_str())) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        theFsIdPathName <<
+                        " error: " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    continue;
+                }
+                theFsIdPathName.clear();
+                theChunkInfos.Clear();
+                theFsId = inFileSystemId;
+            }
+            if (0 < inFileSystemId && theFsIdPathName.empty() &&
+                    ! inFsIdPrefix.empty()) {
+                string theName = theIt->first;
+                theName += inFsIdPrefix;
+                char        theBuf[32];
+                char* const theBufEndPtr =
+                    theBuf + sizeof(theBuf) / sizeof(theBuf[0]) - 1;
+                *theBufEndPtr = 0;
+                theName += IntToDecString(inFileSystemId, theBufEndPtr);
+                const int theFd = open(theName.c_str(),
+                    O_CREAT|O_RDWR|O_TRUNC, 0644);
+                if (theFd < 0 || close(theFd)) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        theName <<
+                        " error: " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    continue;
+                }
             }
             pair<DeviceIds::iterator, bool> const theDevRes =
                 inDeviceIds.insert(make_pair(theStat.st_dev, ioNextDevId));
@@ -534,7 +639,8 @@ private:
                         theDevRes.first->second,
                         theLockFdPtr,
                         theIt->second,
-                        theSupportsSpaceReservatonFlag
+                        theSupportsSpaceReservatonFlag,
+                        theFsId
                     )));
             if (! theChunkInfos.IsEmpty() && theDirRes.second) {
                 theChunkInfos.Swap(theDirRes.first->second.mChunkInfos);
@@ -551,6 +657,7 @@ private:
         const string&      inFsIdPrefix,
         ChunkHeaderBuffer& inChunkHeaderBuffer,
         int64_t&           outFileSystemId,
+        string&            outFsIdPathName,
         ChunkInfos&        outChunkInfos)
     {
         QCASSERT(! inDirName.empty() && *(inDirName.rbegin()) == '/');
@@ -568,6 +675,10 @@ private:
         struct dirent const* theEntryPtr;
         ChunkInfo            theChunkInfo;
         string               theName;
+        string               theMaxChunkName;
+        int64_t              theMaxChunkSize = -1;
+        kfsChunkId_t         theMaxChunkId   = -1;
+        size_t               kFsIdSampleMask = 0x1F;
         theName.reserve(1024);
         while ((theEntryPtr = readdir(theDirStream))) {
             if (strcmp(theEntryPtr->d_name, ".") == 0 ||
@@ -599,6 +710,8 @@ private:
                         theErr = -EINVAL;
                         break;
                     }
+                    outFileSystemId = theFsId;
+                    outFsIdPathName = inDirName + theName;
                     continue;
                 } else {
                     KFS_LOG_STREAM_ERROR << inDirName <<
@@ -626,6 +739,9 @@ private:
             if (S_ISDIR(theBuf.st_mode) || ! S_ISREG(theBuf.st_mode)) {
                 continue;
             }
+            // Get file system id from 1/32 = 3.125% of the chunk files,
+            // starting from the first file.
+            int64_t theChunkFileFsId = -1;
             if (! IsValidChunkFile(
                     inDirName,
                     theEntryPtr->d_name,
@@ -635,7 +751,9 @@ private:
                     theChunkInfo.mFileId,
                     theChunkInfo.mChunkId,
                     theChunkInfo.mChunkVersion,
-                    theChunkInfo.mChunkSize)) {
+                    theChunkInfo.mChunkSize,
+                    (outChunkInfos.GetSize() & kFsIdSampleMask) == 0 ?
+                        &theChunkFileFsId : 0)) {
                 if (inRemoveFilesFlag && unlink(theName.c_str())) {
                     theErr = errno;
                     KFS_LOG_STREAM_ERROR <<
@@ -647,12 +765,64 @@ private:
                 }
                 continue;
             }
+            if (0 < theChunkFileFsId) {
+                if (0 < outFileSystemId) {
+                    if (outFileSystemId != theChunkFileFsId) {
+                        KFS_LOG_STREAM_ERROR << theName <<
+                            " error: inconsistent file system id: " <<
+                            theChunkFileFsId << " vs " << outFileSystemId <<
+                        KFS_LOG_EOM;
+                        theErr = -EINVAL;
+                        break;
+                    }
+                } else {
+                    outFileSystemId = theChunkFileFsId;
+                }
+            }
             KFS_LOG_STREAM_DEBUG <<
                 "adding: " << theName <<
             KFS_LOG_EOM;
             outChunkInfos.PushBack(theChunkInfo);
+            if (theMaxChunkId < theChunkInfo.mChunkId) {
+                theMaxChunkId   = theChunkInfo.mChunkId;
+                if ((outChunkInfos.GetSize() & kFsIdSampleMask) == 0) {
+                    theMaxChunkName.clear();
+                } else {
+                    theMaxChunkName = theEntryPtr->d_name;
+                }
+                theMaxChunkSize = theBuf.st_size;
+            }
         }
         closedir(theDirStream);
+        // Get fs id from the chunk with the largest id, which is likely the
+        // most recently created chunk.
+        int64_t theChunkFileFsId = -1;
+        if (0 <= theMaxChunkId && ! theMaxChunkName.empty() &&
+                IsValidChunkFile(
+                    inDirName,
+                    theMaxChunkName.c_str(),
+                    theMaxChunkSize,
+                    inRequireChunkHeaderChecksumFlag,
+                    inChunkHeaderBuffer,
+                    theChunkInfo.mFileId,
+                    theChunkInfo.mChunkId,
+                    theChunkInfo.mChunkVersion,
+                    theChunkInfo.mChunkSize,
+                    &theChunkFileFsId
+                ) &&
+                0 < theChunkFileFsId) {
+            if (0 < outFileSystemId) {
+                if (outFileSystemId != theChunkFileFsId) {
+                    KFS_LOG_STREAM_ERROR << theName <<
+                        " error: inconsistent file system id: " <<
+                        theChunkFileFsId << " vs " << outFileSystemId <<
+                    KFS_LOG_EOM;
+                    theErr = -EINVAL;
+                }
+            } else {
+                outFileSystemId = theChunkFileFsId;
+            }
+        }
         return theErr;
     }
     static int Remove(
@@ -1026,6 +1196,27 @@ DirChecker::SetIgnoreErrorsFlag(
     bool inFlag)
 {
     mImpl.SetIgnoreErrorsFlag(inFlag);
+}
+
+    void
+DirChecker::SetFsIdPrefix(
+    const string& inFsIdPrefix)
+{
+    mImpl.SetFsIdPrefix(inFsIdPrefix);
+}
+
+    void
+DirChecker::SetDeleteAllChaunksOnFsMismatch(
+    int64_t inFsId,
+    bool    inDeleteFlag)
+{
+    mImpl.SetDeleteAllChaunksOnFsMismatch(inFsId, inDeleteFlag);
+}
+
+    void
+DirChecker::Wakeup()
+{
+    mImpl.Wakeup();
 }
 
 }

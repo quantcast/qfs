@@ -2029,6 +2029,10 @@ struct HelloMetaOp : public KfsOp {
     bool              sendCurrentKeyFlag;
     CryptoKeys::KeyId currentKeyId;
     CryptoKeys::Key   currentKey;
+    int64_t           fileSystemId;
+    int64_t           metaFileSystemId;
+    bool              deleteAllChunksFlag;
+
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
         : KfsOp(CMD_META_HELLO, s),
@@ -2043,7 +2047,10 @@ struct HelloMetaOp : public KfsOp {
           chunkLists(),
           sendCurrentKeyFlag(false),
           currentKeyId(),
-          currentKey()
+          currentKey(),
+          fileSystemId(-1),
+          metaFileSystemId(-1),
+          deleteAllChunksFlag(false)
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);
@@ -2060,7 +2067,10 @@ struct HelloMetaOp : public KfsOp {
             " used: "        << usedSpace <<
             " chunks: "      << chunkLists[kStableChunkList].count <<
             " not-stable: "  << chunkLists[kNotStableChunkList].count <<
-            " append: "      << chunkLists[kNotStableAppendChunkList].count
+            " append: "      << chunkLists[kNotStableAppendChunkList].count <<
+            " fsid: "        << fileSystemId <<
+            " metafsid: "    << metaFileSystemId <<
+            " delete flag: " << deleteAllChunksFlag
         ;
     }
 };

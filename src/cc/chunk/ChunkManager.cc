@@ -34,6 +34,7 @@
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
 #include "common/nofilelimit.h"
+#include "common/IntToString.h"
 
 #include "ChunkManager.h"
 #include "ChunkServer.h"
@@ -110,6 +111,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           dirLock(),
           dirCountSpaceAvailable(0),
           pendingSpaceReservationSize(0),
+          fileSystemId(-1),
           supportsSpaceReservatonFlag(false),
           fsSpaceAvailInFlightFlag(false),
           checkDirFlightFlag(false),
@@ -582,6 +584,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 (bufMgr ? bufMgr->GetWaitingAvgCount() : int64_t(0)) << "\r\n"
             "Canceled-count: "        << ctrs.mReqeustCanceledCount  << "\r\n"
             "Canceled-bytes: "        << ctrs.mReqeustCanceledBytes  << "\r\n"
+            "File-system-id: "        << mChunkDir.fileSystemId << "\r\n"
             ;
             mChunkDir.readCounters.Display(
                 "Read-",         "\r\n", inStream);
@@ -646,6 +649,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     DirChecker::LockFdPtr  dirLock;
     ChunkDirInfo*          dirCountSpaceAvailable;
     int64_t                pendingSpaceReservationSize;
+    int64_t                fileSystemId;
     bool                   supportsSpaceReservatonFlag:1;
     bool                   fsSpaceAvailInFlightFlag:1;
     bool                   checkDirFlightFlag:1;
@@ -1430,7 +1434,7 @@ ChunkInfoHandle::WriteChunkMetadata(
     if (d) {
         const kfsSeq_t prevVersion = chunkInfo.chunkVersion;
         chunkInfo.chunkVersion = targetVersion;
-        chunkInfo.Serialize(&wcm->dataBuf);
+        chunkInfo.Serialize(&wcm->dataBuf, gChunkManager.GetFileSystemId());
         chunkInfo.chunkVersion = prevVersion;
         const uint64_t checksum =
             ComputeBlockChecksum(&wcm->dataBuf, wcm->dataBuf.BytesConsumable());
@@ -1638,6 +1642,8 @@ ChunkManager::ChunkManager()
       mForceVerifyDiskReadChecksumFlag(false),
       mWritePrepareReplyFlag(true),
       mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
+      mFileSystemId(-1),
+      mFsIdFileNamePrefix("0-fsid-"),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1909,13 +1915,16 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.allocDefaultMaxTier", mAllocDefaultMaxTier);
     mDiskBufferManagerEnabledFlag = prop.getValue(
         "chunkServer.disk.bufferManager.enabled",
-        mDiskBufferManagerEnabledFlag ? 1 : 0) != 0,
+        mDiskBufferManagerEnabledFlag ? 1 : 0) != 0;
     mForceVerifyDiskReadChecksumFlag = prop.getValue(
         "chunkServer.forceVerifyDiskReadChecksum",
-        mForceVerifyDiskReadChecksumFlag ? 1 : 0) != 0,
+        mForceVerifyDiskReadChecksumFlag ? 1 : 0) != 0;
     mWritePrepareReplyFlag = prop.getValue(
         "chunkServer.debugTestWriteSync",
-        mWritePrepareReplyFlag ? 0 : 1) == 0,
+        mWritePrepareReplyFlag ? 0 : 1) == 0;
+    mFsIdFileNamePrefix = prop.getValue(
+        "chunkServer.fsIdFileNamePrefix", mFsIdFileNamePrefix);
+    mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -2591,6 +2600,19 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                     "chunk meta data read completion: " << op->statusMsg  <<
                     " file: " << cih->chunkInfo.chunkSize <<
                     " meta: " << dci.chunkSize <<
+                    " " << op->Show() <<
+                KFS_LOG_EOM;
+            }
+        }
+        if (0 <= op->status && 0 < mFileSystemId) {
+            const int64_t fsId = dci.GetFsId();
+            if (0 < fsId && mFileSystemId != fsId) {
+                op->status    = -EINVAL;
+                op->statusMsg = "file system id mismatch";
+                KFS_LOG_STREAM_ERROR <<
+                    "chunk meta data read completion: " << op->statusMsg  <<
+                    " file: "   << fsId <<
+                    " expect: " << mFileSystemId <<
                     " " << op->Show() <<
                 KFS_LOG_EOM;
             }
@@ -3986,7 +4008,9 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo* diskIo)
 // re-replicate.
 //
 void
-ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
+ChunkManager::NotifyMetaChunksLost(
+    ChunkManager::ChunkDirInfo& dir,
+    bool                        staleChunksFlag /* = false */)
 {
     KFS_LOG_STREAM(dir.evacuateDoneFlag ?
             MsgLogger::kLogLevelWARN : MsgLogger::kLogLevelERROR) <<
@@ -4002,7 +4026,7 @@ ChunkManager::NotifyMetaChunksLost(ChunkManager::ChunkDirInfo& dir)
             const kfsChunkId_t chunkId = cih->chunkInfo.chunkId;
             const kfsFileId_t  fileId  = cih->chunkInfo.fileId;
             // get rid of chunkid from our list
-            const bool staleFlag = cih->IsStale();
+            const bool staleFlag = staleChunksFlag || cih->IsStale();
             ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
             if (ci && *ci == cih) {
                 if (mChunkTable.Erase(chunkId) <= 0) {
@@ -4699,6 +4723,8 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
     return fdsAvailableFlag;
 }
 
+typedef map<int64_t, int> FileSystemIdsCount;
+
 bool
 ChunkManager::StartDiskIo()
 {
@@ -4714,6 +4740,7 @@ ChunkManager::StartDiskIo()
     // Ignore host fs errors and do not remove files / dirs on the initial load.
     mDirChecker.SetRemoveFilesFlag(false);
     mDirChecker.SetIgnoreErrorsFlag(true);
+    mDirChecker.SetDeleteAllChaunksOnFsMismatch(-1, false);
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end(); ++it) {
         mDirChecker.Add(it->dirname, it->bufferedIoFlag);
@@ -4725,6 +4752,54 @@ ChunkManager::StartDiskIo()
     // Start is synchronous. Restore the settings after start.
     mDirChecker.SetRemoveFilesFlag(mCleanupChunkDirsFlag);
     mDirChecker.SetIgnoreErrorsFlag(false);
+    FileSystemIdsCount fsCnts;
+    for (DirChecker::DirsAvailable::const_iterator it = dirs.begin();
+            it != dirs.end();
+            ++it) {
+        fsCnts[it->second.mFileSystemId]++;
+    }
+    int64_t fileSystemId = -1;
+    int     maxCnt       = 0;
+    for (FileSystemIdsCount::const_iterator it = fsCnts.begin();
+            it != fsCnts.end();
+            ++it) {
+        if (0 < it->first && maxCnt < it->second) {
+            maxCnt       = it->second;
+            fileSystemId = it->first;
+        }
+    }
+    if (0 < fileSystemId) {
+        mFileSystemId = fileSystemId;
+        mDirChecker.SetDeleteAllChaunksOnFsMismatch(fileSystemId, false);
+        if (1 < fsCnts.size()) {
+            // Set file system id, and remove directories with different fs ids,
+            // and directories that have no fs id. Directory checker will
+            // "assign" fs id to the directories with no fs. This code path
+            // should only be executed in the cases if new empty chunk directory
+            // is added, and/or in the case of "converting" non empty chunk
+            // directory. For non empty chunk directories this isn't very
+            // efficient way to assign the fs id. Under normal circumstances
+            // this code path should almost never be invoked.
+            mDirChecker.SetDeleteAllChaunksOnFsMismatch(fileSystemId, false);
+            for (ChunkDirs::iterator it = mChunkDirs.begin();
+                    it != mChunkDirs.end();
+                    ++it) {
+                DirChecker::DirsAvailable::iterator const dit =
+                    dirs.find(it->dirname);
+                if (dit == dirs.end() ||
+                        dit->second.mFileSystemId == fileSystemId) {
+                    continue;
+                }
+                it->fileSystemId = dit->second.mFileSystemId;
+                dirs.erase(dit);
+                mDirChecker.Add(it->dirname, it->bufferedIoFlag);
+            }
+            if (fsCnts.begin()->first <= 0) {
+                const bool kSyncFlag = true;
+                mDirChecker.GetNewlyAvailable(dirs, kSyncFlag);
+            }
+        }
+    }
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it != mChunkDirs.end();
             ++it) {
@@ -4740,6 +4815,7 @@ ChunkManager::StartDiskIo()
         }
         // UpdateCountFsSpaceAvailable() below will set the following.
         it->dirCountSpaceAvailable      = 0;
+        it->fileSystemId                = dit->second.mFileSystemId;
         it->deviceId                    = dit->second.mDeviceId;
         it->dirLock                     = dit->second.mLockFdPtr;
         it->availableSpace              = 0;
@@ -4754,8 +4830,8 @@ ChunkManager::StartDiskIo()
                 it->deviceId,
                 mMaxOpenChunkFiles,
                 &errMsg)) {
-            KFS_LOG_STREAM_ERROR <<
-                "Failed to start disk queue for: " << it->dirname <<
+            KFS_LOG_STREAM_FATAL <<
+                "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<
             KFS_LOG_EOM;
             DiskIo::Shutdown();
@@ -4783,6 +4859,72 @@ ChunkManager::StartDiskIo()
     UpdateCountFsSpaceAvailable();
     GetFsSpaceAvailable();
     return true;
+}
+
+bool
+ChunkManager::SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag)
+{
+    if (fileSystemId <= 0) {
+        die("invalid file system id");
+        return false;
+    }
+    mFileSystemId = fileSystemId;
+    mDirChecker.SetDeleteAllChaunksOnFsMismatch(
+        mFileSystemId, deleteAllChunksFlag);
+    bool        ret       = true;
+    string      name;
+    char        tmpBuf[32];
+    char* const tmpBufEnd = tmpBuf + sizeof(tmpBuf) / sizeof(tmpBuf[0]) - 1;
+    *tmpBufEnd = 0;
+    for (ChunkDirs::iterator it = mChunkDirs.begin();
+            it != mChunkDirs.end();
+            ++it) {
+        if (it->availableSpace < 0) {
+            continue;
+        }
+        if (0 < it->fileSystemId && it->fileSystemId != mFileSystemId) {
+            const bool kStaleChunksFlag = true;
+            NotifyMetaChunksLost(*it, kStaleChunksFlag);
+            continue;
+        }
+        if (mFileSystemId == it->fileSystemId) {
+            continue;
+        }
+        if (mFsIdFileNamePrefix.empty()) {
+            it->fileSystemId = mFileSystemId;
+            continue;
+        }
+        // Assign fs id to chunk directory by creating fs id file.
+        DiskIo::File   file;
+        DiskIo::Offset kMaxFileSize          = -1;
+        DiskIo::Offset kFileSize             = -1;
+        bool           kReadOnlyFlag         = false;
+        bool           kReserveFileSpaceFlag = false;
+        bool           kCreateFlag           = true;
+        string         err;
+        name = it->dirname + mFsIdFileNamePrefix +
+            IntToDecString(mFileSystemId, tmpBufEnd);
+        if (file.Open(
+                    name.c_str(),
+                    kMaxFileSize,
+                    kReadOnlyFlag,
+                    kReserveFileSpaceFlag,
+                    kCreateFlag,
+                    &err) &&
+                file.Close(kFileSize, &err)) {
+            it->fileSystemId = mFileSystemId;
+        } else {
+            ret = false;
+            KFS_LOG_STREAM_ERROR <<
+                name << ": " << err <<
+            KFS_LOG_EOM;
+            NotifyMetaChunksLost(*it);
+        }
+    }
+    mDirChecker.Wakeup();
+    mNextChunkDirsCheckTime =
+        min(mNextChunkDirsCheckTime, globalNetManager().Now() + 5);
+    return ret;
 }
 
 int64_t
@@ -5540,9 +5682,11 @@ ChunkManager::CheckChunkDirs()
                 continue;
             }
             if (it->checkDirFlightFlag ||
-                    it->bufferedIoFlag != dit->second.mBufferedIoFlag) {
+                    it->bufferedIoFlag != dit->second.mBufferedIoFlag ||
+                    (0 < mFileSystemId && it->fileSystemId != mFileSystemId)) {
                 // Add it back, and wait in flight op completion, or re-check
-                // with the current buffered io flag.
+                // with the current buffered io flag, or if file system id
+                // still doesn't match.
                 mDirChecker.Add(it->dirname, it->bufferedIoFlag);
                 continue;
             }

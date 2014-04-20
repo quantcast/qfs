@@ -47,7 +47,8 @@ bool IsValidChunkFile(
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
-    int64_t&           outChunkSize)
+    int64_t&           outChunkSize,
+    int64_t*           outFileSfId)
 {
     const int   kNumComponents = 3;
     long long   components[kNumComponents];
@@ -92,7 +93,7 @@ bool IsValidChunkFile(
     }
     const chunkId_t chunkId   = components[1];
     const kfsSeq_t  chunkVers = components[2];
-    if (filesz > kMaxChunkFileSize) {
+    if (filesz > kMaxChunkFileSize || outFileSfId) {
         // Load and validate chunk header, and set proper file size.
         const string cf(dirname + filename);
         const int    fd = open(cf.c_str(), O_RDONLY);
@@ -147,21 +148,26 @@ bool IsValidChunkFile(
             KFS_LOG_EOM;
             return false;
         }
+        if (outFileSfId) {
+            *outFileSfId = dci.GetFsId();
+        }
         filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;
-        if (truncate(cf.c_str(), filesz)) {
-            const int err = errno;
-            KFS_LOG_STREAM_ERROR <<
-                "failed truncate chunk file: " << cf <<
-                    " size: "                  << infilesz <<
-                    " to: "                    << filesz <<
-                    " :"                       << QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-        } else {
-            KFS_LOG_STREAM_INFO <<
-                "truncated chunk file: " << cf <<
-                    " size: "            << infilesz <<
-                    " to: "              << filesz <<
-            KFS_LOG_EOM;
+        if (filesz < infilesz) {
+            if (truncate(cf.c_str(), filesz)) {
+                const int err = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    "failed truncate chunk file: " << cf <<
+                        " size: "                  << infilesz <<
+                        " to: "                    << filesz <<
+                        " :"                       << QCUtils::SysError(err) <<
+                KFS_LOG_EOM;
+            } else {
+                KFS_LOG_STREAM_INFO <<
+                    "truncated chunk file: " << cf <<
+                        " size: "            << infilesz <<
+                        " to: "              << filesz <<
+                KFS_LOG_EOM;
+            }
         }
     }
     outFileId    = components[0];

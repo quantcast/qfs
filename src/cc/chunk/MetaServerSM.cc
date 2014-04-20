@@ -707,6 +707,21 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     " content len: " << mContentLength <<
                 KFS_LOG_EOM;
                 mCounters.mHelloErrorCount++;
+            } else {
+                mHelloOp->metaFileSystemId =
+                    prop.getValue("File-system-id", int64_t(-1));
+                const int64_t deleteAllChunksId =
+                    prop.getValue("Delete-all-chunks", (int64_t)-1);
+                mHelloOp->deleteAllChunksFlag =
+                    0 < mHelloOp->metaFileSystemId &&
+                    deleteAllChunksId == mHelloOp->metaFileSystemId &&
+                    0 < mHelloOp->fileSystemId &&
+                    mHelloOp->fileSystemId != mHelloOp->metaFileSystemId;
+                if (0 < mHelloOp->metaFileSystemId) {
+                    gChunkManager.SetFileSystemId(
+                        mHelloOp->metaFileSystemId,
+                        mHelloOp->deleteAllChunksFlag);
+                }
             }
             HelloMetaOp::LostChunkDirs lostDirs;
             lostDirs.swap(mHelloOp->lostChunkDirs);

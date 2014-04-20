@@ -3431,6 +3431,9 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
         "Stale-chunks-hex-format: 1\r\n"
         "Content-int-base: 16\r\n"
     ;
+    if (0 < fileSystemId) {
+        os << "FsId: " << fileSystemId << "\r\n";
+    }
     if (sendCurrentKeyFlag) {
         SendCryptoKey(os, currentKeyId, currentKey);
     }
@@ -3532,6 +3535,7 @@ HelloMetaOp::Execute()
     }
     sendCurrentKeyFlag = sendCurrentKeyFlag &&
         gChunkManager.GetCryptoKeys().GetCurrentKey(currentKeyId, currentKey);
+    fileSystemId = gChunkManager.GetFileSystemId();
     status = 0;
     gLogger.Submit(this);
 }

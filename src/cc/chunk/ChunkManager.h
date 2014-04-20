@@ -406,6 +406,9 @@ public:
     BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
     const CryptoKeys& GetCryptoKeys() const
         { return mCryptoKeys; }
+    int64_t GetFileSystemId() const
+        { return mFileSystemId; }
+    bool SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag);
 
 private:
     class PendingWrites
@@ -780,7 +783,8 @@ private:
     bool       mForceVerifyDiskReadChecksumFlag;
     bool       mWritePrepareReplyFlag;
     CryptoKeys mCryptoKeys;
-
+    int64_t    mFileSystemId;
+    string     mFsIdFileNamePrefix;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -835,7 +839,7 @@ private:
     /// drive may have failed); in this case, notify metaserver that
     /// all the blocks on that dir are lost and the metaserver can
     /// then re-replicate.
-    void NotifyMetaChunksLost(ChunkDirInfo& dir);
+    void NotifyMetaChunksLost(ChunkDirInfo& dir, bool staleChunksFlag = false);
 
     /// Helper function to move a chunk to the stale dir
     int MarkChunkStale(ChunkInfoHandle *cih, KfsCallbackObj* cb);

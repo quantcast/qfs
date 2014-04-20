@@ -27,16 +27,17 @@
 #ifndef _CHUNKSERVER_CHUNK_H
 #define _CHUNKSERVER_CHUNK_H
 
-#include <stdint.h>
-#include <unistd.h>
-#include <string.h>
-
 #include "common/MsgLogger.h"
 #include "common/kfstypes.h"
 #include "kfsio/checksum.h"
 #include "utils.h"
 
+#include <stdint.h>
+#include <unistd.h>
+#include <string.h>
+
 #include <iomanip>
+#include <boost/static_assert.hpp>
 
 namespace KFS
 {
@@ -70,15 +71,13 @@ const size_t CHUNK_META_MAX_FILENAME_LEN = 256;
 
 const uint32_t CHUNK_META_MAGIC = 0xCAFECAFE;
 const uint32_t CHUNK_META_VERSION = 0x1;
+static const char* const kKfsChunkFsIdPrefix       =
+    "\0QFSFsId\xe4\x5e\x23\x0e\x34\x9a\x07\xce";
+static size_t const      kKfsChunkFsIdPrefixLength = 16;
 
 // This structure is on-disk
 struct DiskChunkInfo_t
 {
-    DiskChunkInfo_t()
-        : metaMagic(CHUNK_META_MAGIC),
-          metaVersion(CHUNK_META_VERSION)
-        {}
-
     DiskChunkInfo_t(kfsFileId_t f, kfsChunkId_t c, int64_t s, kfsSeq_t v)
         : metaMagic(CHUNK_META_MAGIC),
           metaVersion(CHUNK_META_VERSION),
@@ -142,6 +141,28 @@ struct DiskChunkInfo_t
         return 0;
     }
 
+    int64_t GetFsId() const {
+        int64_t id = -1;
+        if (memcmp(filename,
+                kKfsChunkFsIdPrefix, kKfsChunkFsIdPrefixLength) == 0) {
+            memcpy(&id, filename + kKfsChunkFsIdPrefixLength, sizeof(id));
+        }
+        return id;
+    }
+
+    void SetFsId(int64_t id) {
+        if (id <= 0) {
+            memset(filename, 0, CHUNK_META_MAX_FILENAME_LEN);
+            return;
+        }
+        size_t pos = 0;
+        memcpy(filename + pos, kKfsChunkFsIdPrefix, kKfsChunkFsIdPrefixLength);
+        pos += kKfsChunkFsIdPrefixLength;
+        memcpy(filename + pos, &id, sizeof(id));
+        pos += sizeof(id);
+        memset(filename + pos, 0, CHUNK_META_MAX_FILENAME_LEN - pos);
+    }
+
     uint32_t metaMagic;
     uint32_t metaVersion;
 
@@ -158,6 +179,11 @@ struct DiskChunkInfo_t
     char     filename[CHUNK_META_MAX_FILENAME_LEN];
     uint32_t unused;    // legacy padding
 } __attribute__ ((__packed__));
+
+BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) == 4400);
+BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) < KFS_CHUNK_HEADER_SIZE);
+BOOST_STATIC_ASSERT(
+    sizeof(int64_t) + kKfsChunkFsIdPrefixLength <= CHUNK_META_MAX_FILENAME_LEN);
 
 // This structure is in-core
 struct ChunkInfo_t
@@ -201,7 +227,8 @@ struct ChunkInfo_t
             return;
         }
         chunkBlockChecksum = new uint32_t[MAX_CHUNK_CHECKSUM_BLOCKS];
-        memcpy(chunkBlockChecksum, checksums, MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
+        memcpy(chunkBlockChecksum, checksums,
+            MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
     }
 
     void VerifyChecksumsLoaded() const {
@@ -211,8 +238,9 @@ struct ChunkInfo_t
     }
 
     // save the chunk meta-data to the buffer; 
-    void Serialize(IOBuffer* dataBuf) {
+    void Serialize(IOBuffer* dataBuf, int64_t fsid) {
         DiskChunkInfo_t dci(fileId, chunkId, chunkSize, chunkVersion);
+        dci.SetFsId(fsid);
         assert(chunkBlockChecksum);
         dci.SetChecksums(chunkBlockChecksum);
         dataBuf->CopyIn(reinterpret_cast<const char*>(&dci), sizeof(dci));
@@ -289,7 +317,8 @@ bool IsValidChunkFile(
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
-    int64_t&           outChunkSize);
+    int64_t&           outChunkSize,
+    int64_t*           outFileSystemId);
 
 }
 

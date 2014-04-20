@@ -151,6 +151,12 @@ public:
         bool inFlag);
     void SetIgnoreErrorsFlag(
         bool inFlag);
+    void SetFsIdPrefix(
+        const string& inFsIdPrefix);
+    void SetDeleteAllChaunksOnFsMismatch(
+        int64_t inFsId,
+        bool    inDeleteFlag);
+    void Wakeup();
 private:
     class Impl;
     Impl& mImpl;
