@@ -2002,6 +2002,7 @@ private:
             bool          inOverwriteFlag = true)
             : mDestPtr(0),
               mDstName(),
+              mDstNameLength(0),
               mBufferPtr(0),
               mDstDirStat(),
               mMoveFlag(inMoveFlag),
@@ -2019,7 +2020,7 @@ private:
             if (! mDestPtr || inPath.empty()) {
                 return -EINVAL;
             }
-            if (mDstName.empty()) {
+            if (mDstNameLength <= 0) {
                 mCheckDestFlag = true;
                 mDstName = mDestPtr->GetPathName();
                 if (mDestPtr->IsDirectory()) {
@@ -2027,8 +2028,10 @@ private:
                         mDstName += "/";
                     }
                 }
+                mDstNameLength = mDstName.length();
+            } else {
+                mDstName.resize(mDstNameLength);
             }
-            const size_t theLen = mDstName.length();
             if (mDestPtr->IsDirectory()) {
                 const char* const theSPtr = inPath.c_str();
                 const char*       thePtr  = theSPtr + inPath.length();
@@ -2049,9 +2052,6 @@ private:
                 if ((theStatus = inFs.Rename(inPath, mDstName)) != 0 &&
                         theStatus != -EXDEV) {
                     theStatus = inErrorReporter(inPath, theStatus);
-                    if (theLen < mDstName.length()) {
-                        mDstName.resize(theLen);
-                    }
                 }
                 if (theStatus != -EXDEV) {
                     return theStatus;
@@ -2065,7 +2065,6 @@ private:
             FileSystem::StatBuf theStat;
             theStatus = inFs.Stat(inPath, theStat);
             if (theStatus != 0) {
-                mDstName.resize(theLen);
                 inErrorReporter(inPath, theStatus);
                 return theStatus;
             }
@@ -2080,7 +2079,6 @@ private:
                 if (mMoveFlag && (theStatus = theDstFs.Rmdir(mDstName)) != 0 &&
                         theStatus != -ENOENT) {
                     theStatus = theDstErrorReporter(mDstName, theStatus);
-                    mDstName.resize(theLen);
                     return theStatus;
                 }
                 const bool kCreateAllFlag = false;
@@ -2098,7 +2096,6 @@ private:
                 }
                 if (theStatus != 0) {
                     theStatus = theDstErrorReporter(mDstName, theStatus);
-                    mDstName.resize(theLen);
                     return theStatus;
                 }
                 theSetModeFlag = theSetModeFlag &&
@@ -2127,9 +2124,6 @@ private:
                         theStat.st_mode & (0777 | S_ISVTX), false, 0)) != 0) {
                 theStatus = theDstErrorReporter(mDstName, theStatus);
             }
-            if (theLen < mDstName.length()) {
-                mDstName.resize(theLen);
-            }
             return theStatus;
         }
         void SetDest(
@@ -2138,6 +2132,7 @@ private:
     private:
         TGetGlobLastEntry*  mDestPtr;
         string              mDstName;
+        size_t              mDstNameLength;
         char*               mBufferPtr;
         FileSystem::StatBuf mDstDirStat;
         const bool          mMoveFlag;
