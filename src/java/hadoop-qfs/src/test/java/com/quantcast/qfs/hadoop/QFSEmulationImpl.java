@@ -22,15 +22,14 @@ package com.quantcast.qfs.hadoop;
 import java.io.*;
 
 import org.apache.hadoop.conf.Configuration;
-
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.permission.FsPermission;
+
 import com.quantcast.qfs.access.KfsFileAttr;
 
 
@@ -69,11 +68,11 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public FileStatus[] readdirplus(Path path) throws IOException {
-    return localFS.listStatus(path);
+    return localFS.listStatus(new Path(path.toUri().getPath()));
   }
 
   public FileStatus stat(Path path) throws IOException {
-    return localFS.getFileStatus(path);
+    return localFS.getFileStatus(new Path(path.toUri().getPath()));
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
@@ -188,5 +187,10 @@ public class QFSEmulationImpl implements IFSImpl {
   public void setOwner(String path, String username, String groupname)
     throws IOException {
     localFS.setOwner(new Path(path), username, groupname);
+  }
+
+  public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
+    throws IOException {
+    return null;
   }
 }

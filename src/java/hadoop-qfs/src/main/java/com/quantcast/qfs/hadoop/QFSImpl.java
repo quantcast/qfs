@@ -18,6 +18,7 @@
 package com.quantcast.qfs.hadoop;
 
 import java.io.*;
+import java.util.NoSuchElementException;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -205,5 +206,103 @@ class QFSImpl implements IFSImpl {
     throws IOException {
     kfsAccess.kfs_retToIOException(kfsAccess.kfs_chown(
       path, username, groupname), path);
+  }
+
+  public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
+    throws IOException {
+    return new KfsFileStatusIterator(fs, path);
+  }
+
+  // Iterator returning each directory entry as a FileStatus
+  public class KfsFileStatusIterator implements CloseableIterator<FileStatus> {
+    final Path path;
+    final FileSystem fileSystem;
+    String prefix;
+    KfsAccess.DirectoryIterator itr;
+    FileStatus current;
+
+    public KfsFileStatusIterator(FileSystem fs, Path p) throws IOException {
+      fileSystem = fs;
+      path = p;
+      prefix = path.toString();
+      if (! prefix.endsWith("/")) {
+        prefix += "/";
+      }
+      // If path does not exist or is a file, throw now
+      FileStatus status = fileSystem.getFileStatus(path);
+      if (!status.isDir()) {
+        throw new IOException(path + " is not a directory");
+      }
+      itr = kfsAccess.new DirectoryIterator(path.toUri().getPath());
+      getNext();
+    }
+
+    public boolean hasNext() {
+      return current != null;
+    }
+
+    public FileStatus next() {
+      FileStatus oldCurrent = current;
+      getNext();
+      return oldCurrent;
+    }
+
+    public void remove() {
+      close();
+      throw new UnsupportedOperationException("Not implemented");
+    }
+
+    // Called to release resources. May be called multiple times.
+    public void close() {
+      if (itr != null) {
+        try {
+          itr.close();
+        }
+        catch(Exception e) {}
+        finally {
+          itr = null;
+          current = null;
+        }
+      }
+    }
+
+    private void getNext() {
+      current = null;
+      if (itr == null) {
+        throw new NoSuchElementException();
+      }
+      try {
+        while (itr.next()) {
+          if (itr.filename.compareTo(".") == 0 ||
+              itr.filename.compareTo("..") == 0) {
+            continue;
+          }
+          current = new FileStatus(
+              itr.isDirectory ? 0L : itr.filesize,
+              itr.isDirectory,
+              itr.isDirectory ? 1 : itr.replication,
+              itr.isDirectory ? 0 : BLOCK_SIZE,
+              itr.modificationTime,
+              ACCESS_TIME,
+              FsPermission.createImmutable((short)itr.mode),
+              itr.ownerName,
+              itr.groupName,
+              new Path(prefix + itr.filename).makeQualified(fileSystem));
+          break;
+        }
+      }
+      catch(IOException e) {
+        close();
+        throw new RuntimeException("Error while iterating " + path, e);
+      }
+      if (current == null) {
+        close();
+      }
+    }
+
+    // Make sure close is eventually called.
+    protected void finalize() throws Throwable {
+      close();
+    }
   }
 }

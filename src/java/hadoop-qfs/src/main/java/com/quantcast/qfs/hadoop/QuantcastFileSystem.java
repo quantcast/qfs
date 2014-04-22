@@ -117,7 +117,7 @@ public class QuantcastFileSystem extends FileSystem {
 
   public FileStatus[] listStatus(Path path) throws IOException {
     try {
-      final Path absolute = makeAbsolute(path);
+      final Path absolute = makeAbsolute(path).makeQualified(this);
       final FileStatus fs = qfsImpl.stat(absolute);
       return fs.isDir() ?
         qfsImpl.readdirplus(absolute) :
@@ -288,6 +288,15 @@ public class QuantcastFileSystem extends FileSystem {
     throws IOException {
     qfsImpl.setOwner(makeAbsolute(path).toUri().getPath(),
       username, groupname);
+  }
+
+  // Returns an iterator that returns each directory entry as a FileStatus with
+  // a fully qualified Path. Call close() when done with the iterator.
+  // throws FileNotFoundException if path does not exist
+  // throws IOException if path is not a directory
+  public CloseableIterator<FileStatus> getFileStatusIterator(Path path)
+    throws IOException {
+    return qfsImpl.getFileStatusIterator(this, path);
   }
 
   // The following is to get du and dus working without implementing file
