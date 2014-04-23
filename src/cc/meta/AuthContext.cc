@@ -629,7 +629,9 @@ public:
         }
         const bool theCreateSslPskFlag  =
             ((theKrbServicePtr && theKrbUseSslFlag) ||
-                (mAllowPskFlag || ! thePskKey.empty())) &&
+                ((mAllowPskFlag &&
+                    (theKrbServicePtr || theX509SslCtxPtr)) ||
+                ! thePskKey.empty())) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0;
