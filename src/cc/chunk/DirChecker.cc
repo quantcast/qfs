@@ -608,7 +608,8 @@ private:
                 theChunkInfos.Clear();
                 theFsId = inFileSystemId;
             }
-            if (0 < inFileSystemId && theFsIdPathName.empty() &&
+            if ((0 < inFileSystemId || 0 < theFsId) &&
+                    theFsIdPathName.empty() &&
                     ! inFsIdPrefix.empty()) {
                 string theName = theIt->first;
                 theName += inFsIdPrefix;
@@ -616,7 +617,10 @@ private:
                 char* const theBufEndPtr =
                     theBuf + sizeof(theBuf) / sizeof(theBuf[0]) - 1;
                 *theBufEndPtr = 0;
-                theName += IntToDecString(inFileSystemId, theBufEndPtr);
+                theName += IntToDecString(
+                    0 < inFileSystemId ? inFileSystemId : theFsId,
+                    theBufEndPtr
+                );
                 const int theFd = open(theName.c_str(),
                     O_CREAT|O_RDWR|O_TRUNC, 0644);
                 if (theFd < 0 || close(theFd)) {
