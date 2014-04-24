@@ -73,7 +73,7 @@ public:
     template<typename FT>
     void Run(
         TimeT inNow,
-        FT&   inFuctor)
+        FT&   inFunctor)
     {
         if (inNow < mNextRunTime) {
             return;
@@ -91,7 +91,7 @@ public:
             }
             while (ListT::IsInList(mTmpList)) {
                 T& theCur = ListT::GetNext(mTmpList);
-                inFuctor(theCur);
+                inFunctor(theCur);
                 if (&theCur == &ListT::GetNext(mTmpList)) {
                     assert(! "TimerWheel::Run: the element still the list.");
                     abort();
@@ -115,14 +115,14 @@ private:
 
     template<typename FT, typename ET>
     void ApplySelf(
-        FT& inFuctor,
+        FT& inFunctor,
         ET* /* inConstQualifiedElementTypePtr */) const
     {
         for (size_t i = 0, k = mCurBucket; i < BucketCntT; i++) {
             ET& theList = mBuckets[k];
             ET* thePtr  = &theList;
             while (&theList != (thePtr = ListT::GetNextPtr(thePtr))) {
-                inFuctor(*thePtr);
+                inFunctor(*thePtr);
             }
             if (BucketCntT <= ++k) {
                 k = 0;
