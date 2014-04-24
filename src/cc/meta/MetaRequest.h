@@ -1340,7 +1340,6 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
  */
 struct MetaHello : public MetaRequest, public ServerLocation {
     struct ChunkInfo {
-        fid_t     allocFileId; // file id when chunk was allocated
         chunkId_t chunkId;
         seq_t     chunkVersion;
     };
@@ -1373,6 +1372,8 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     bool               deleteAllChunksFlag;
     int64_t            fileSystemId;
     int64_t            metaFileSystemId;
+    bool               noFidsFlag;
+
     MetaHello()
         : MetaRequest(META_HELLO, false),
           ServerLocation(),
@@ -1401,7 +1402,8 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           staleChunksHexFormatFlag(false),
           deleteAllChunksFlag(false),
           fileSystemId(-1),
-          metaFileSystemId(-1)
+          metaFileSystemId(-1),
+          noFidsFlag(false)
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1437,6 +1439,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("CKeyId",                       &MetaHello::cryptoKeyId)
         .Def("CKey",                         &MetaHello::cryptoKey)
         .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
+        .Def("NoFids",                       &MetaHello::noFidsFlag,                false)
         ;
     }
 };

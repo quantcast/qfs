@@ -2032,6 +2032,7 @@ struct HelloMetaOp : public KfsOp {
     int64_t           fileSystemId;
     int64_t           metaFileSystemId;
     bool              deleteAllChunksFlag;
+    bool              noFidsFlag;
 
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
@@ -2050,7 +2051,8 @@ struct HelloMetaOp : public KfsOp {
           currentKey(),
           fileSystemId(-1),
           metaFileSystemId(-1),
-          deleteAllChunksFlag(false)
+          deleteAllChunksFlag(false),
+          noFidsFlag(false)
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);

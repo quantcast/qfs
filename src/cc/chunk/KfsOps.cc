@@ -3431,6 +3431,9 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
         "Stale-chunks-hex-format: 1\r\n"
         "Content-int-base: 16\r\n"
     ;
+    if (noFidsFlag) {
+        os << "NoFids: 1\r\n";
+    }
     if (0 < fileSystemId) {
         os << "FsId: " << fileSystemId << "\r\n";
     }
@@ -3527,7 +3530,8 @@ HelloMetaOp::Execute()
     gChunkManager.GetHostedChunks(
         lists[kStableChunkList],
         lists[kNotStableAppendChunkList],
-        lists[kNotStableChunkList]
+        lists[kNotStableChunkList],
+        noFidsFlag
     );
     for (int i = 0; i < kChunkListCount; i++) {
         lists[i].second->flush();

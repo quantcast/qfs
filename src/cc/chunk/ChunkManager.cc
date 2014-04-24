@@ -4335,11 +4335,15 @@ static inline void
 AppendToHostedList(
     const ChunkManager::HostedChunkList& list,
     const ChunkInfo_t&                   chunkInfo,
-    kfsSeq_t                             chunkVersion)
+    kfsSeq_t                             chunkVersion,
+    bool                                 noFidsFlag)
 {
     (*list.first)++;
+    if (! noFidsFlag) {
+        (*list.second) <<
+            chunkInfo.fileId  << ' ';
+    }
     (*list.second) <<
-        chunkInfo.fileId  << ' ' <<
         chunkInfo.chunkId << ' ' <<
         chunkVersion      << ' '
     ;
@@ -4349,7 +4353,8 @@ void
 ChunkManager::GetHostedChunks(
     const ChunkManager::HostedChunkList& stable,
     const ChunkManager::HostedChunkList& notStableAppend,
-    const ChunkManager::HostedChunkList& notStable)
+    const ChunkManager::HostedChunkList& notStable,
+    bool                                 noFidsFlag)
 {
     // walk thru the table and pick up the chunk-ids
     mChunkTable.First();
@@ -4377,7 +4382,8 @@ ChunkManager::GetHostedChunks(
                     (cih->IsWriteAppenderOwns() ?
                         notStableAppend : notStable),
                     cih->chunkInfo,
-                    vers
+                    vers,
+                    noFidsFlag
             );
         } else {
             AppendToHostedList(
@@ -4387,7 +4393,8 @@ ChunkManager::GetHostedChunks(
                         notStableAppend :
                         notStable),
                 cih->chunkInfo,
-                cih->chunkInfo.chunkVersion
+                cih->chunkInfo.chunkVersion,
+                noFidsFlag
             );
         }
     }

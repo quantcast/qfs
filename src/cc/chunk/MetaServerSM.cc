@@ -91,6 +91,7 @@ MetaServerSM::MetaServerSM()
       mAuthTypeStr("Krb5 X509 PSK"),
       mCurrentKeyId(),
       mUpdateCurrentKeyFlag(false),
+      mNoFidsFlag(true),
       mOp(0),
       mRequestFlag(false),
       mContentLength(0),
@@ -146,6 +147,8 @@ MetaServerSM::SetParameters(const Properties& prop)
         "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     mMaxReadAhead      = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
+    mNoFidsFlag        = prop.getValue(
+        "chunkServer.meta.noFids",            mNoFidsFlag ? 1 : 0) != 0;
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
         "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
@@ -1111,6 +1114,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->sendCurrentKeyFlag = true;
+    mHelloOp->noFidsFlag = mNoFidsFlag;
     mHelloOp->clnt = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);

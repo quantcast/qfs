@@ -949,12 +949,13 @@ class HexChunkInfoParser
 public:
     typedef MetaHello::ChunkInfo ChunkInfo;
 
-    HexChunkInfoParser(const IOBuffer& buf)
+    HexChunkInfoParser(const IOBuffer& buf, bool noFidsFlag)
         : mIt(buf),
           mCur(),
           mVal(0),
           mPrevSpaceFlag(true),
-          mFieldIdx(0)
+          mStartFieldIdx(noFidsFlag ? 1 : 0),
+          mFieldIdx(mStartFieldIdx)
         {}
     const ChunkInfo* Next()
     {
@@ -969,10 +970,10 @@ public:
                 }
                 mPrevSpaceFlag = true;
                 switch (mFieldIdx) {
-                    case 0: mCur.allocFileId  = mVal; break;
+                    case 0:                         ; break;
                     case 1: mCur.chunkId      = mVal; break;
                     case 2: mCur.chunkVersion = mVal;
-                        mFieldIdx = 0;
+                        mFieldIdx = mStartFieldIdx;
                         mVal      = 0;
                         return &mCur;
                     default: assert(! "invald field index");
@@ -1003,6 +1004,7 @@ private:
     ChunkInfo              mCur;
     int64_t                mVal;
     bool                   mPrevSpaceFlag;
+    const int              mStartFieldIdx;
     int                    mFieldIdx;
 
     static const unsigned char* const sC2HexTable;
@@ -1231,7 +1233,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             mHelloOp->notStableChunks.reserve(nonStableNum);
             // get the chunkids
             istream& is = mIStream.Set(iobuf, contentLength);
-            HexChunkInfoParser hexParser(*iobuf);
+            HexChunkInfoParser hexParser(*iobuf, mHelloOp->noFidsFlag);
             for (int j = 0; j < 3; ++j) {
                 MetaHello::ChunkInfos& chunks = j == 0 ?
                     mHelloOp->chunks : (j == 1 ?
@@ -1248,13 +1250,23 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     }
                 } else {
                     MetaHello::ChunkInfo c;
-                    while (i-- > 0) {
-                        if (! (is >> c.allocFileId
-                                >> c.chunkId
-                                >> c.chunkVersion)) {
-                            break;
+                    if (mHelloOp->noFidsFlag) {
+                        while (i-- > 0) {
+                            if (! (is >> c.chunkId >> c.chunkVersion)) {
+                                break;
+                            }
+                            chunks.push_back(c);
                         }
-                        chunks.push_back(c);
+                    } else {
+                        fid_t allocFileId;
+                        while (i-- > 0) {
+                            if (! (is >> allocFileId
+                                    >> c.chunkId
+                                    >> c.chunkVersion)) {
+                                break;
+                            }
+                            chunks.push_back(c);
+                        }
                     }
                 }
             }

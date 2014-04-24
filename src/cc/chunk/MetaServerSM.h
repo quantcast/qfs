@@ -218,6 +218,7 @@ private:
     string                        mAuthTypeStr;
     kfsKeyId_t                    mCurrentKeyId;
     bool                          mUpdateCurrentKeyFlag;
+    bool                          mNoFidsFlag;
     KfsOp*                        mOp;
     bool                          mRequestFlag;
     int                           mContentLength;

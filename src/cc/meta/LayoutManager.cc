@@ -2672,8 +2672,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             if (cs) {
                 KFS_LOG_STREAM_ERROR << srvId <<
                     " stable chunk: <" <<
-                        fileId << "/" <<
-                        it->allocFileId << "," <<
+                        fileId << "," <<
                         chunkId << ">" <<
                     " already hosted on: " <<
                         (const void*)cs.get() <<
@@ -2757,8 +2756,7 @@ LayoutManager::AddNewServer(MetaHello *r)
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelDEBUG) <<
                 srvId <<
-                " stable chunk: <" <<
-                it->allocFileId << "," << chunkId << ">"
+                " stable chunk: <x," << chunkId << ">"
                 " version: " << it->chunkVersion <<
                 "/" << chunkVersion <<
                 " " << staleReason <<
@@ -2778,7 +2776,6 @@ LayoutManager::AddNewServer(MetaHello *r)
                 ++it) {
             const char* const staleReason = AddNotStableChunk(
                 r->server,
-                it->allocFileId,
                 it->chunkId,
                 it->chunkVersion,
                 i == 0,
@@ -2791,8 +2788,7 @@ LayoutManager::AddNewServer(MetaHello *r)
                 srvId <<
                 " not stable chunk:" <<
                 (i == 0 ? " append" : "") <<
-                " <" <<
-                    it->allocFileId << "," << it->chunkId << ">"
+                " <" << it->chunkId << ">"
                 " version: " << it->chunkVersion <<
                 " " << (staleReason ? staleReason : "") <<
                 (staleReason ? " => stale" : "added back") <<
@@ -2871,7 +2867,6 @@ LayoutManager::AddNewServer(MetaHello *r)
 const char*
 LayoutManager::AddNotStableChunk(
     const ChunkServerPtr& server,
-    fid_t                 allocFileId,
     chunkId_t             chunkId,
     seq_t                 chunkVersion,
     bool                  appendFlag,
@@ -2890,7 +2885,6 @@ LayoutManager::AddNotStableChunk(
             " not stable chunk:" <<
                 (appendFlag ? " append " : "") <<
             " <"                   << fileId <<
-            "/"                    << allocFileId <<
             ","                    << chunkId << ">" <<
             " already hosted on: " << (const void*)cs.get() <<
             " new server: "        << (const void*)server.get() <<

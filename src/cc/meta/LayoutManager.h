@@ -1089,7 +1089,6 @@ public:
     bool IsChunkStable(chunkId_t chunkId);
     const char* AddNotStableChunk(
         const ChunkServerPtr& server,
-        fid_t                 allocFileId,
         chunkId_t             chunkId,
         seq_t                 chunkVersion,
         bool                  appendFlag,

@@ -258,7 +258,8 @@ public:
     void GetHostedChunks(
         const HostedChunkList& stable,
         const HostedChunkList& notStableAppend,
-        const HostedChunkList& notStable);
+        const HostedChunkList& notStable,
+        bool                   noFidsFlag);
 
     typedef EvacuateChunksOp::StorageTierInfo  StorageTierInfo;
     typedef EvacuateChunksOp::StorageTiersInfo StorageTiersInfo;
