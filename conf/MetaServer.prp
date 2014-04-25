@@ -568,7 +568,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # would typically be in the form of service/host@realm.
 # The "unparsed" chunk server name is checked against "black" and "white" chunk
 # server list names as described below.
-# metaServer.CSAuthentication.princUnparseMode =
+# metaServer.CSAuthentication.krb5.princUnparseMode =
 
 # OpenSSL cipher configuration for TLS-PSK authentication method. This method
 # is used with QFS delegation and with Kerberos authentication.
@@ -702,7 +702,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # The resulting authentication name should match password database, the meta
 # server host uses. The recommended value is "short', discard realm if it
 # matches the default the kerberos configuration's default realm.
-# metaServer.clientAuthentication.princUnparseMode =
+# metaServer.clientAuthentication.krb5.princUnparseMode =
 
 # OpenSSL cipher configuration for TLS-PSK authentication method. This method
 # is used with delegation and with Kerberos authentication.
