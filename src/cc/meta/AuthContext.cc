@@ -229,7 +229,10 @@ public:
                 return false;
             }
             string theAuthName(thePeerPrincipalPtr ? thePeerPrincipalPtr : "");
-            if (! RemapAndValidate(theAuthName)) {
+            if (! RemapAndValidate(theAuthName) ||
+                    (inOp.authUid = GetUidSelf(
+                        theAuthName, inOp.authGid, inOp.euser, inOp.egroup)) ==
+                    kKfsUserNone) {
                 inOp.status    = -EACCES;
                 inOp.statusMsg = "access denied for '" + theAuthName + "'";
                 inOp.responseContentPtr = 0;
@@ -243,8 +246,6 @@ public:
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
                 inOp.responseAuthType = inOp.authType;
-                inOp.authUid          = GetUidSelf(
-                    theAuthName, inOp.authGid, inOp.euser, inOp.egroup);
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
@@ -276,8 +277,6 @@ public:
                 inOp.filter           = theFilterPtr;
                 inOp.responseAuthType = kAuthenticationTypeKrb5;
                 inOp.authName         = theAuthName;
-                inOp.authUid          = GetUidSelf(
-                    theAuthName, inOp.authGid, inOp.euser, inOp.egroup);
             }
             return (inOp.status == 0);
         }
