@@ -160,6 +160,21 @@ private:
     BufferBytes& operator=(const BufferBytes&);
 };
 
+struct KfsOp;
+class NextOp
+{
+public:
+    NextOp()
+        : mNextPtr(0)
+        {}
+private:
+    KfsOp* mNextPtr;
+    friend class ClientThread;
+private:
+    NextOp(const NextOp&);
+    NextOp& operator=(const NextOp&);
+};
+
 template<typename> class FwdAccessParser;
 
 class SRChunkAccess
@@ -264,9 +279,11 @@ struct KfsOp : public KfsCallbackObj
     // keep statistics
     int64_t         startTime;
     BufferBytes     bufferBytes;
+    NextOp          nextOp;
 
     KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0)
-        : op(o),
+        : KfsCallbackObj(),
+          op(o),
           type(OP_REQUEST),
           seq(s),
           status(0),
@@ -279,7 +296,8 @@ struct KfsOp : public KfsCallbackObj
           statusMsg(),
           clnt(c),
           startTime(microseconds()),
-          bufferBytes()
+          bufferBytes(),
+          nextOp()
     {
         SET_HANDLER(this, &KfsOp::HandleDone);
         sOpsCount++;

@@ -41,6 +41,7 @@ add_executable (chunkserver
     utils.cc
     DirChecker.cc
     Chunk.cc
+    ClientThread.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
 

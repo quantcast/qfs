@@ -32,11 +32,11 @@
 #include "KfsOps.h"
 #include "AtomicRecordAppender.h"
 #include "DiskIo.h"
+#include "ClientThread.h"
 
 #include "common/MsgLogger.h"
 #include "common/time.h"
 #include "kfsio/Globals.h"
-#include "kfsio/NetManager.h"
 #include "kfsio/ChunkAccessToken.h"
 #include "qcdio/QCUtils.h"
 
@@ -65,7 +65,6 @@ using std::string;
 using std::max;
 using std::make_pair;
 using std::list;
-using KFS::libkfsio::globalNetManager;
 
 // KFS client protocol state machine implementation.
 
@@ -76,6 +75,12 @@ bool     ClientSM::sEnforceMaxWaitFlag       = true;
 int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
 size_t   ClientSM::sMaxAppendRequestSize     = CHUNKSIZE;
 uint64_t ClientSM::sInstanceNum              = 10000;
+
+inline time_t
+ClientSM::TimeNow() const
+{
+    return (mNetConnection ? mNetConnection->TimeNow() : time(0));
+}
 
 inline string
 ClientSM::GetPeerName()
@@ -171,8 +176,11 @@ ClientSM::SetParameters(const Properties& prop)
         sMaxAppendRequestSize);
 }
 
-ClientSM::ClientSM(NetConnectionPtr &conn)
+ClientSM::ClientSM(
+    const NetConnectionPtr& conn,
+    ClientThread*           thread)
     : KfsCallbackObj(),
+      ClientThreadListEntry(),
       BufferManager::Client(),
       SslFilterServerPsk(),
       mNetConnection(conn),
@@ -196,7 +204,8 @@ ClientSM::ClientSM(NetConnectionPtr &conn)
       mDataReceivedFlag(false),
       mContentReceivedFlag(false),
       mDelegationToken(),
-      mSessionKey()
+      mSessionKey(),
+      mClientThread(thread)
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
@@ -250,7 +259,7 @@ ClientSM::SendResponseSelf(KfsOp& op)
     assert(mNetConnection);
 
     const int64_t timespent = max(int64_t(0),
-        (int64_t)globalNetManager().Now() * 1000000 - op.startTime);
+        (int64_t)TimeNow() * 1000000 - op.startTime);
     const bool    tooLong   = timespent > 5 * 1000000;
     CLIENT_SM_LOG_STREAM(
             (op.status >= 0 ||
@@ -286,6 +295,16 @@ ClientSM::SendResponseSelf(KfsOp& op)
 ///
 int
 ClientSM::HandleRequest(int code, void* data)
+{
+    if (mClientThread && mRecursionCnt == 0 &&
+            mClientThread->Handle(*this, code, data)) {
+        return 0;
+    }
+    return HandleRequestSelf(code, data);
+}
+
+int
+ClientSM::HandleRequestSelf(int code, void* data)
 {
     if (mRecursionCnt < 0 || ! mNetConnection) {
         die("ClientSM: invalid recursion count or null connection");
@@ -814,7 +833,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         if (IsAccessEnforced() &&
                 mDelegationToken.GetIssuedTime() +
                     mDelegationToken.GetValidForSec() <
-                globalNetManager().Now()) {
+                TimeNow()) {
             CLIENT_SM_LOG_STREAM_ERROR <<
                 "delegation token has expired, closing connection " <<
                 " request: " << op->seq <<
@@ -977,17 +996,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             }
         }
         mCurOp = 0;
-        if (! submitResponseFlag &&
-                ! gChunkManager.IsChunkReadable(chunkId)) {
-            // Do not allow dirty reads.
-            op->statusMsg = "chunk not readable";
-            op->status    = -EAGAIN;
-            submitResponseFlag = true;
-            CLIENT_SM_LOG_STREAM_ERROR <<
-                " read request for chunk: " << chunkId <<
-                " denied: " << op->statusMsg <<
-            KFS_LOG_EOM;
-        }
     }
 
     if (bufferBytes < 0 && ! submitResponseFlag) {
@@ -1065,7 +1073,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     mInFlightOpCount++;
     gChunkServer.OpInserted();
     if (submitResponseFlag) {
-        HandleRequest(EVENT_CMD_DONE, op);
+        HandleRequestSelf(EVENT_CMD_DONE, op);
     } else {
         SubmitOp(op);
     }
@@ -1168,11 +1176,20 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         " dev. mgr: " << (const void*)mDevBufMgr <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
+    if (mClientThread) {
+        mClientThread->Granted(*this);
+    } else {
+        HandleGranted();
+    }
+}
+
+void ClientSM::HandleGranted()
+{
     if (! mNetConnection->IsGood()) {
         return;
     }
     mGrantedFlag = true;
-    HandleEvent(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
+    HandleRequestSelf(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 
 /* virtual */ unsigned long
@@ -1187,7 +1204,7 @@ ClientSM::GetPsk(
     const int theKeyLen = mDelegationToken.Process(
         inIdentityPtr,
         strlen(inIdentityPtr),
-        (int64_t)globalNetManager().Now(),
+        (int64_t)TimeNow(),
         gChunkManager.GetCryptoKeys(),
         reinterpret_cast<char*>(inPskBufferPtr),
         (int)min(inPskBufferLen, 0x7FFFFu),

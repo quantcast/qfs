@@ -32,11 +32,14 @@
 #include "kfsio/Acceptor.h"
 #include "KfsOps.h"
 
+class QCMutex;
+
 namespace KFS
 {
 
 class Properties;
 class ClientSM;
+class ClientThread;
 
 // Client connection listener.
 class ClientManager : public IAcceptorOwner {
@@ -69,7 +72,8 @@ public:
         Counter mWaitTimeExceededCount;
         Counter mDiscardedBytesCount;
 
-        void Clear() {
+        void Clear()
+        {
             mAcceptCount                = 0;
             mClientCount                = 0;
             mBadRequestCount            = 0;
@@ -98,20 +102,30 @@ public:
     ClientManager();
     virtual ~ClientManager();
     bool BindAcceptor(
-        int inPort);
+        int inPort,
+        int inThreadCount);
     bool StartListening();
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnPtr);
+    void GetCounters(
+        Counters& outCounters) const;
+    bool SetParameters(
+        const char*       inParamsPrefixPtr,
+        const Properties& inProps,
+        bool              inAuthEnabledFlag);
+    int GetIdleTimeoutSec() const
+        { return mIdleTimeoutSec; }
+    int GetIoTimeoutSec() const
+        { return mIoTimeoutSec; }
+    int GetPort() const
+        { return (mAcceptorPtr ? mAcceptorPtr->GetPort() : -1); }
+    void Stop();
     void Remove(
         ClientSM* /* inClientPtr */)
     {
         assert(mCounters.mClientCount > 0);
         mCounters.mClientCount--;
     }
-    int GetIdleTimeoutSec() const
-        { return mIdleTimeoutSec; }
-    int GetIoTimeoutSec() const
-        { return mIoTimeoutSec; }
     void BadRequest()
         { mCounters.mBadRequestCount++; }
     void BadRequestHeader()
@@ -177,11 +191,6 @@ public:
             break;
         }
     }
-    void GetCounters(
-        Counters& outCounters)
-        { outCounters = mCounters; }
-    int GetPort() const
-        { return (mAcceptorPtr ? mAcceptorPtr->GetPort() : -1); }
     void Discarded(
         int inByteCount)
     {
@@ -189,18 +198,19 @@ public:
             mCounters.mDiscardedBytesCount += inByteCount;
         }
     }
-    bool SetParameters(
-        const char*       inParamsPrefixPtr,
-        const Properties& inProps,
-        bool              inAuthEnabledFlag);
+    QCMutex* GetMutexPtr() const;
+    void Shutdown();
 private:
     class Auth;
 
-    Acceptor* mAcceptorPtr;
-    int       mIoTimeoutSec;
-    int       mIdleTimeoutSec;
-    Counters  mCounters;
-    Auth&     mAuth;
+    Acceptor*     mAcceptorPtr;
+    int           mIoTimeoutSec;
+    int           mIdleTimeoutSec;
+    Counters      mCounters;
+    Auth&         mAuth;
+    int           mCurThreadIdx;
+    int           mThreadCount;
+    ClientThread* mThreadsPtr;
 
 private:
     // No copy.

@@ -31,6 +31,7 @@
 #include <list>
 #include <map>
 #include <algorithm>
+#include <vector>
 
 #include "common/LinearHash.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -52,19 +53,68 @@ using std::deque;
 using std::pair;
 using std::list;
 using std::string;
+using std::vector;
 
 class Properties;
+class ClientThread;
+
+class ClientThreadListEntry
+{
+public:
+    ClientThreadListEntry()
+        : mOpsHeadPtr(0),
+          mOpsTailPtr(0),
+          mNextPtr(0),
+          mReceivedOpPtr(0),
+          mBlocksChecksums(),
+          mChecksum(0),
+          mReceiveByteCount(0),
+          mGrantedFlag(false),
+          mReceiveOpFlag(false),
+          mComputeChecksumFlag(false)
+        {}
+    void SetReceiveOp()
+    {
+        mReceiveByteCount    = 0;
+        mReceiveOpFlag       = true;
+        mComputeChecksumFlag = false;
+    }
+    void SetReceiveContent(
+        int  inLength,
+        bool inComputeChecksumFlag)
+    {
+        mReceiveByteCount    = inLength;
+        mReceiveOpFlag       = false;
+        mComputeChecksumFlag = 0 <= mReceiveByteCount && inComputeChecksumFlag;
+    }
+private:
+    KfsOp*           mOpsHeadPtr;
+    KfsOp*           mOpsTailPtr;
+    ClientSM*        mNextPtr;
+    KfsOp*           mReceivedOpPtr;
+    vector<uint32_t> mBlocksChecksums;
+    uint32_t         mChecksum;
+    int              mReceiveByteCount;
+    bool             mGrantedFlag;
+    bool             mReceiveOpFlag;
+    bool             mComputeChecksumFlag;
+
+    friend class ClientThread;
+};
 
 // KFS client protocol state machine.
 class ClientSM :
-    public KfsCallbackObj,
+    public  KfsCallbackObj,
+    public  ClientThreadListEntry,
     private BufferManager::Client,
-    public SslFilterServerPsk
+    public  SslFilterServerPsk
 {
 public:
     static void SetParameters(const Properties& prop);
 
-    ClientSM(NetConnectionPtr &conn);
+    ClientSM(
+        const NetConnectionPtr& conn,
+        ClientThread*           thread);
     ~ClientSM(); 
 
     //
@@ -133,6 +183,10 @@ public:
         { return mDelegationToken; }
     const string& GetSessionKey() const
         { return mSessionKey; }
+    const NetConnectionPtr& GetConnection() const
+        { return mNetConnection; }
+    int HandleRequestSelf(int code, void* data);
+    void HandleGranted();
 private:
     typedef deque<KfsOp*> OpsQueue;
     // There is a dependency in waiting for a write-op to finish
@@ -261,6 +315,7 @@ private:
     bool                       mContentReceivedFlag;
     DelegationToken            mDelegationToken;
     string                     mSessionKey;
+    ClientThread* const        mClientThread;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
@@ -284,6 +339,7 @@ private:
     bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
         IOBuffer& ioOpBuf, bool forwardFlag);
     string GetPeerName();
+    inline time_t TimeNow() const;
     inline void SendResponse(KfsOp& op);
     inline static BufferManager& GetBufferManager();
     inline static BufferManager* FindDevBufferManager(KfsOp& op);

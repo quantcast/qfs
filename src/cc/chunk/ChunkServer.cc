@@ -24,11 +24,12 @@
 //
 //----------------------------------------------------------------------------
 
-#include "kfsio/Globals.h"
-
 #include "ChunkServer.h"
 #include "Logger.h"
 #include "utils.h"
+
+#include "kfsio/Globals.h"
+#include "qcdio/QCStUtils.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -48,7 +49,7 @@ ChunkServer::SendTelemetryReport(KfsOp_t /* op */, double /* timeSpent */)
 }
 
 bool
-ChunkServer::Init(int clientAcceptPort, const string& serverIp)
+ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
 {
     if (clientAcceptPort < 0) {
         KFS_LOG_STREAM_FATAL <<
@@ -81,7 +82,7 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp)
             return false;
         }
     }
-    if (! gClientManager.BindAcceptor(clientAcceptPort) ||
+    if (! gClientManager.BindAcceptor(clientAcceptPort, threadCount) ||
             gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
             "failed to bind acceptor to port: " << clientAcceptPort <<
@@ -95,6 +96,8 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp)
 bool
 ChunkServer::MainLoop()
 {
+    QCStMutexLocker lock(gClientManager.GetMutexPtr());
+
     if (gChunkManager.Restart() != 0) {
         return false;
     }
@@ -107,11 +110,13 @@ ChunkServer::MainLoop()
         return false;
     }
     gMetaServerSM.Init();
-
-    globalNetManager().MainLoop();
-
+    {
+        QCStMutexUnlocker unlocker(gClientManager.GetMutexPtr());
+        globalNetManager().MainLoop(gClientManager.GetMutexPtr());
+    }
     ReleaseAllServers(mRemoteSyncers);
     RemoteSyncSM::Shutdown();
+    gClientManager.Shutdown();
 
     return true;
 }

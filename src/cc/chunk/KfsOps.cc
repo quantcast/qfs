@@ -1840,6 +1840,16 @@ ReadOp::Execute()
             "read request size exceeds chunk size: " << numBytes <<
         KFS_LOG_EOM;
         status = -EINVAL;
+    } else if (clientSMFlag && ! gChunkManager.IsChunkReadable(chunkId)) {
+        // Do not allow dirty reads.
+        statusMsg = "chunk not readable";
+        status    = -EAGAIN;
+        KFS_LOG_STREAM_ERROR <<
+            " read request for chunk: " << chunkId <<
+            " denied: " << statusMsg <<
+        KFS_LOG_EOM;
+    }
+    if (status < 0) {
         gLogger.Submit(this);
         return;
     }

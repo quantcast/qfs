@@ -29,10 +29,12 @@
 #include "kfsio/SslFilter.h"
 #include "kfsio/DelegationToken.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCStUtils.h"
 
 #include "ClientManager.h"
 #include "ClientSM.h"
 #include "ChunkManager.h"
+#include "ClientThread.h"
 
 #include <string.h>
 
@@ -166,27 +168,44 @@ ClientManager::ClientManager()
       mIoTimeoutSec(5 * 60),
       mIdleTimeoutSec(10 * 60),
       mCounters(),
-      mAuth(*(new Auth))
+      mAuth(*(new Auth)),
+      mCurThreadIdx(0),
+      mThreadCount(0),
+      mThreadsPtr(0)
 {
     mCounters.Clear();
 }
 
 ClientManager::~ClientManager()
 {
-    assert(mCounters.mClientCount == 0);
     delete mAcceptorPtr;
     delete &mAuth;
+    delete [] mThreadsPtr;
 }
 
     bool
 ClientManager::BindAcceptor(
-    int inPort)
+    int inPort,
+    int inThreadCount)
 {
     delete mAcceptorPtr;
+    delete [] mThreadsPtr;
     mAcceptorPtr = 0;
+    mThreadsPtr  = 0;
+    mThreadCount = 0;
     const bool kBindOnlyFlag = true;
     mAcceptorPtr = new Acceptor(inPort, this, kBindOnlyFlag);
-    return mAcceptorPtr->IsAcceptorStarted();
+    const bool theOkFlag = mAcceptorPtr->IsAcceptorStarted();
+    if (theOkFlag && 0 < mThreadCount) {
+        QCStMutexLocker theLocker(ClientThread::GetMutex());
+        mThreadCount  = inThreadCount;
+        mThreadsPtr   = new ClientThread[mThreadCount];
+        mCurThreadIdx = 0;
+        for (int i = 0; i < mThreadCount; i++) {
+            mThreadsPtr[i].Start();
+        }
+    }
+    return theOkFlag;
 }
 
     bool
@@ -199,6 +218,14 @@ ClientManager::StartListening()
     return mAcceptorPtr->IsAcceptorStarted();
 }
 
+    void
+ClientManager::Stop()
+{
+    for (int i = 0; i < mThreadCount; i++) {
+        mThreadsPtr[i].Stop();
+    }
+}
+
     /* virtual */ KfsCallbackObj*
 ClientManager::CreateKfsCallbackObj(
     NetConnectionPtr& inConnPtr)
@@ -206,13 +233,24 @@ ClientManager::CreateKfsCallbackObj(
     if (! inConnPtr) {
         return 0;
     }
-    assert(mCounters.mClientCount >= 0);
     mCounters.mAcceptCount++;
     mCounters.mClientCount++;
-    ClientSM* const theClientPtr = new ClientSM(inConnPtr);
+    ClientSM* const theClientPtr = new ClientSM(
+        inConnPtr,
+        mThreadsPtr ? mThreadsPtr + mCurThreadIdx : 0
+    );
     if (! mAuth.Setup(*inConnPtr, *theClientPtr)) {
         delete theClientPtr;
         return 0;
+    }
+    if (mThreadCount <= 0) {
+        return theClientPtr;
+    }
+    inConnPtr.reset(); // Thread takes ownership.
+    mThreadsPtr[mCurThreadIdx].Add(*theClientPtr);
+    mCurThreadIdx++;
+    if (mThreadCount <= mCurThreadIdx) {
+        mCurThreadIdx = 0;
     }
     return theClientPtr;
 }
@@ -237,6 +275,27 @@ ClientManager::SetParameters(
         inProps,
         inAuthEnabledFlag
     );
+}
+
+    void
+ClientManager::GetCounters(
+    Counters& outCounters) const
+{
+    outCounters = mCounters;
+}
+
+    QCMutex*
+ClientManager::GetMutexPtr() const
+{
+    return (0 < mThreadCount ? &ClientThread::GetMutex() : 0);
+}
+
+    void
+ClientManager::Shutdown()
+{
+    for (int i = 0; i < mThreadCount; i++) {
+        mThreadsPtr[i].Stop();
+    }
 }
 
 }

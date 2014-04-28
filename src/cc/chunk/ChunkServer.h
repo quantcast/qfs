@@ -49,7 +49,7 @@ public:
         mRemoteSyncers()
         {}
 
-    bool Init(int clientAcceptPort, const string& serverIp);
+    bool Init(int clientAcceptPort, const string& serverIp, int threadCount);
     bool MainLoop();
     bool IsLocalServer(const ServerLocation& location) const {
         return mLocation == location;

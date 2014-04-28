@@ -308,7 +308,8 @@ public:
           mMD5Sum(),
           mMetaServerLoc(),
           mChunkServerClientPort(-1), 
-          mChunkServerHostname(),   
+          mClientThreadCount(0),
+          mChunkServerHostname(),
           mClusterKey(),
           mChunkServerRackId(-1),
           mMaxLockedMemorySize(0)
@@ -322,6 +323,7 @@ private:
     string         mMD5Sum;
     ServerLocation mMetaServerLoc;
     int            mChunkServerClientPort;   // Port at which kfs clients connect to us
+    int            mClientThreadCount;
     string         mChunkServerHostname;     // Our hostname to use (instead of using gethostname() )
     string         mClusterKey;
     int            mChunkServerRackId;
@@ -410,6 +412,11 @@ ChunkServerMain::LoadParams(const char* fileName)
     }
     KFS_LOG_STREAM_INFO << "chunk server client port: " <<
         mChunkServerClientPort <<
+    KFS_LOG_EOM;
+    mClientThreadCount = mProp.getValue(
+        "chunkServer.clientThreadCount", mClientThreadCount);
+    KFS_LOG_STREAM_INFO << "chunk server client thread count: " <<
+        mClientThreadCount <<
     KFS_LOG_EOM;
 
     mChunkServerHostname = mProp.getValue("chunkServer.hostname", mChunkServerHostname);
@@ -536,7 +543,8 @@ ChunkServerMain::Run(int argc, char **argv)
                 mChunkServerRackId,
                 mMD5Sum,
                 mProp) == 0 &&
-            gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname) &&
+            gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname,
+                mClientThreadCount) &&
             gChunkManager.Init(mChunkDirs, mProp)) {
         gLogger.Init(mLogDir);
         ret = gChunkServer.MainLoop() ? 0 : 1;
