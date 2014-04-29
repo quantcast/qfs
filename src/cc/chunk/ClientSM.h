@@ -68,25 +68,51 @@ public:
           mReceivedOpPtr(0),
           mBlocksChecksums(),
           mChecksum(0),
-          mReceiveByteCount(0),
+          mFirstChecksumBlockLen(CHECKSUM_BLOCKSIZE),
+          mReceiveByteCount(-1),
+          mReceivedHeaderLen(0),
           mGrantedFlag(false),
           mReceiveOpFlag(false),
           mComputeChecksumFlag(false)
         {}
+    ~ClientThreadListEntry();
+    void ReceiveClear()
+    {
+        mFirstChecksumBlockLen = CHECKSUM_BLOCKSIZE;
+        mReceiveByteCount      = -1;
+        mReceivedHeaderLen     = 0;
+        mReceiveOpFlag         = false;
+        mComputeChecksumFlag   = false;
+        mReceivedOpPtr         = 0;
+        mChecksum              = 0;
+        mBlocksChecksums.clear();
+    }
     void SetReceiveOp()
     {
-        mReceiveByteCount    = 0;
-        mReceiveOpFlag       = true;
-        mComputeChecksumFlag = false;
+        ReceiveClear();
+        mReceiveOpFlag = true;
     }
     void SetReceiveContent(
-        int  inLength,
-        bool inComputeChecksumFlag)
+        int     inLength,
+        bool    inComputeChecksumFlag,
+        int32_t inFirstCheckSumBlockLen = CHECKSUM_BLOCKSIZE)
     {
-        mReceiveByteCount    = inLength;
-        mReceiveOpFlag       = false;
-        mComputeChecksumFlag = 0 <= mReceiveByteCount && inComputeChecksumFlag;
+        ReceiveClear();
+        mReceiveByteCount      = inLength;
+        mFirstChecksumBlockLen = inFirstCheckSumBlockLen;
+        mComputeChecksumFlag   =
+            0 <= mReceiveByteCount && inComputeChecksumFlag;
     }
+    KfsOp* GetReceivedOp() const
+        { return mReceivedOpPtr; }
+    vector<uint32_t>& GetBlockChecksums()
+        { return mBlocksChecksums; }
+    uint32_t GetChecksum() const
+        { return mChecksum; }
+    int GetReceivedHeaderLen() const
+        { return mReceivedHeaderLen; }
+    int GetReceiveByteCount() const
+        { return mReceiveByteCount; }
 private:
     KfsOp*           mOpsHeadPtr;
     KfsOp*           mOpsTailPtr;
@@ -94,7 +120,9 @@ private:
     KfsOp*           mReceivedOpPtr;
     vector<uint32_t> mBlocksChecksums;
     uint32_t         mChecksum;
+    uint32_t         mFirstChecksumBlockLen;
     int              mReceiveByteCount;
+    int              mReceivedHeaderLen;
     bool             mGrantedFlag;
     bool             mReceiveOpFlag;
     bool             mComputeChecksumFlag;
@@ -316,6 +344,7 @@ private:
     DelegationToken            mDelegationToken;
     string                     mSessionKey;
     ClientThread* const        mClientThread;
+    bool                       mHandleTerminateFlag;
 
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;

@@ -27,8 +27,9 @@
 #include "RemoteSyncSM.h"
 #include "utils.h"
 #include "ChunkServer.h"
+#include "ClientManager.h"
+
 #include "kfsio/NetManager.h"
-#include "kfsio/Globals.h"
 #include "kfsio/SslFilter.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
@@ -51,7 +52,12 @@ using std::istringstream;
 using std::string;
 using std::make_pair;
 
-using namespace KFS::libkfsio;
+
+inline static NetManager&
+GetNetManager()
+{
+    return gClientManager.GetCurrentNetManager();
+}
 
 class RemoteSyncSM::Auth
 {
@@ -190,7 +196,7 @@ RemoteSyncSM::UpdateRecvTimeout()
     if (sOpResponseTimeoutSec < 0 || ! mNetConnection) {
         return;
     }
-    const time_t now = globalNetManager().Now();
+    const time_t now = GetNetManager().Now();
     const time_t end = mLastRecvTime + sOpResponseTimeoutSec;
     mNetConnection->SetInactivityTimeout(end > now ? end - now : 0);
 }
@@ -268,7 +274,7 @@ RemoteSyncSM::Connect()
         "trying to connect to: " << mLocation <<
     KFS_LOG_EOM;
 
-    if (! globalNetManager().IsRunning()) {
+    if (! GetNetManager().IsRunning()) {
         KFS_LOG_STREAM_DEBUG <<
             "net manager shutdown, failing connection attempt to: " <<
                 mLocation <<
@@ -320,13 +326,13 @@ RemoteSyncSM::Connect()
         }
         mSslShutdownInProgressFlag = mShutdownSslFlag;
     }
-    mLastRecvTime = globalNetManager().Now();
+    mLastRecvTime = GetNetManager().Now();
 
     // If there is no activity on this socket, we want
     // to be notified, so that we can close connection.
     mNetConnection->SetInactivityTimeout(sOpResponseTimeoutSec);
     // Add this to the poll vector
-    globalNetManager().AddConnection(mNetConnection);
+    GetNetManager().AddConnection(mNetConnection);
 
     return true;
 }
@@ -343,7 +349,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         mNetConnection.reset();
     }
     op->seq = NextSeqnum();
-    const time_t now                         = globalNetManager().Now();
+    const time_t now                         = GetNetManager().Now();
     const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
     if (mNetConnection && ! mSessionId.empty()) {
         if (mDispatchedOps.empty() &&
@@ -454,7 +460,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     assert(mRecursionCount > 0);
     switch (code) {
     case EVENT_NET_READ:
-        mLastRecvTime = globalNetManager().Now();
+        mLastRecvTime = GetNetManager().Now();
         // We read something from the network.  Run the RPC that
         // came in if we got all the data for the RPC
         iobuf = (IOBuffer *) data;
@@ -729,7 +735,7 @@ RemoteSyncSM::UpdateSession(
     }
     err = 0;
     errMsg.clear();
-    const time_t now = globalNetManager().Now();
+    const time_t now = GetNetManager().Now();
     if (now + LEASE_INTERVAL_SECS <= mSessionExpirationTime) {
         return false;
     }
@@ -787,7 +793,7 @@ RemoteSyncSM::Create(
         const time_t expTime = GetExpirationTime(
             sessionTokenPtr, sessionTokenLen, err, errMsg);
         if (! err) {
-            if (expTime < globalNetManager().Now()) {
+            if (expTime < GetNetManager().Now()) {
                 errMsg = "session token has expired";
                 err    = -EINVAL;
             } else  {

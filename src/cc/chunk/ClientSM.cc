@@ -68,7 +68,7 @@ using std::list;
 
 // KFS client protocol state machine implementation.
 
-const int kMaxCmdHeaderLength = 1 << 10;
+const int kMaxCmdHeaderReadAhead = 1 << 10;
 
 bool     ClientSM::sTraceRequestResponseFlag = false;
 bool     ClientSM::sEnforceMaxWaitFlag       = true;
@@ -205,15 +205,19 @@ ClientSM::ClientSM(
       mContentReceivedFlag(false),
       mDelegationToken(),
       mSessionKey(),
-      mClientThread(thread)
+      mClientThread(thread),
+      mHandleTerminateFlag(false)
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
         return;
     }
     SET_HANDLER(this, &ClientSM::HandleRequest);
-    mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
+    mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
     mNetConnection->SetInactivityTimeout(gClientManager.GetIdleTimeoutSec());
+    if (mClientThread) {
+        SetReceiveOp();
+    }
 }
 
 ClientSM::~ClientSM()
@@ -306,6 +310,10 @@ ClientSM::HandleRequest(int code, void* data)
 int
 ClientSM::HandleRequestSelf(int code, void* data)
 {
+    if (mHandleTerminateFlag) {
+        return HandleTerminate(code, data);
+    }
+
     if (mRecursionCnt < 0 || ! mNetConnection) {
         die("ClientSM: invalid recursion count or null connection");
         return -1;
@@ -337,7 +345,7 @@ ClientSM::HandleRequestSelf(int code, void* data)
         bool      gotCmd = false;
         IOBuffer& iobuf  = mNetConnection->GetInBuffer();
         assert(&iobuf == data);
-        while ((mCurOp || IsMsgAvail(&iobuf, &cmdLen)) &&
+        while ((mCurOp || GetReceivedOp() || IsMsgAvail(&iobuf, &cmdLen)) &&
                 (gotCmd = HandleClientCmd(iobuf, cmdLen))) {
             cmdLen = 0;
             gotCmd = false;
@@ -501,7 +509,9 @@ ClientSM::HandleRequestSelf(int code, void* data)
 
     assert(mRecursionCnt > 0);
     if (mRecursionCnt == 1) {
-        mNetConnection->StartFlush();
+        if (! mClientThread) {
+            mNetConnection->StartFlush();
+        }
         if (mNetConnection->IsGood()) {
             // Enforce 5 min timeout if connection has pending read and write.
             mNetConnection->SetInactivityTimeout(
@@ -511,8 +521,14 @@ ClientSM::HandleRequestSelf(int code, void* data)
                 gClientManager.GetIdleTimeoutSec());
             if (IsWaiting() || mDevBufMgr) {
                 mNetConnection->SetMaxReadAhead(0);
+                if (mClientThread) {
+                    ReceiveClear();
+                }
             } else if (! mCurOp || ! mNetConnection->IsReadReady()) {
-                mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
+                mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
+                if (mClientThread) {
+                    SetReceiveOp();
+                }
             }
         } else {
             // get rid of the connection to all the peers in daisy chain;
@@ -520,11 +536,9 @@ ClientSM::HandleRequestSelf(int code, void* data)
             // to this method as EVENT_CMD_DONE and we clean them up above.
             ReleaseAllServers(mRemoteSyncers);
             ReleaseChunkSpaceReservations();
-            mRecursionCnt--;
             // if there are any disk ops, wait for the ops to finish
             mNetConnection->SetOwningKfsCallbackObj(0);
-            SET_HANDLER(this, &ClientSM::HandleTerminate);
-            return HandleTerminate(EVENT_NET_ERROR, 0);
+            mHandleTerminateFlag = true;
         }
     }
     mRecursionCnt--;
@@ -582,11 +596,6 @@ ClientSM::HandleTerminate(int code, void* data)
         }
         break;
     }
-
-    case EVENT_INACTIVITY_TIMEOUT:
-    case EVENT_NET_ERROR:
-        // clean things up
-        break;
 
     default:
         die("unexpected event");
@@ -736,6 +745,9 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     }
     if (nAvail < numBytes) {
         mNetConnection->SetMaxReadAhead(numBytes - nAvail);
+        if (mClientThread) {
+            SetReceiveContent(numBytes, op.op == CMD_WRITE_PREPARE);
+        }
         // we couldn't process the command...so, wait
         return false;
     }
@@ -796,11 +808,17 @@ ClientSM::FailIfExceedsWait(
 /// out the command and if we have everything execute it.
 ///
 bool
-ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
+ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
 {
-    KfsOp* op = mCurOp;
-    assert(op ? cmdLen == 0 : cmdLen > 0);
+    KfsOp* op     = mCurOp;
+    int    cmdLen = inCmdLen;
+    assert(op ? cmdLen == 0 : (cmdLen > 0 || GetReceivedOp()));
     if (! op) {
+        if ((op = GetReceivedOp())) {
+            assert(mClientThread);
+            cmdLen = GetReceivedHeaderLen();
+            ReceiveClear();
+        }
         if (sTraceRequestResponseFlag) {
             istream& is = mIStream.Set(iobuf, cmdLen);
             string line;
@@ -812,7 +830,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             mIStream.Reset();
         }
         mContentReceivedFlag = false;
-        if (ParseClientCommand(iobuf, cmdLen, &op) != 0) {
+        if (! op && ParseClientCommand(iobuf, cmdLen, &op) != 0) {
             assert(! op);
             istream& is = mIStream.Set(iobuf, cmdLen);
             string line;
@@ -888,9 +906,16 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             mNetConnection->SetMaxReadAhead(
                 iobuf.BytesConsumable() - contentLength);
             mCurOp = op;
+            if (mClientThread) {
+                const bool kComputeChecksumFlag = false;
+                SetReceiveContent(contentLength, kComputeChecksumFlag);
+            }
             return false;
         }
         mCurOp = 0;
+        if (mClientThread) {
+            ReceiveClear();
+        }
         if (0 < contentLength && 0 <= op->status) {
             if (! op->ParseContent(mIStream.Set(iobuf, contentLength))) {
                 if (0 < op->status) {
@@ -913,6 +938,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             return false;
         }
         bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
+        if (mClientThread) {
+            if (GetReceiveByteCount() == wop->numBytes) {
+                wop->receivedChecksum = GetChecksum();
+                wop->blocksChecksums.swap(GetBlockChecksums());
+            }
+            ReceiveClear();
+        }
     } else if (op->op == CMD_RECORD_APPEND) {
         RecordAppendOp* const waop = static_cast<RecordAppendOp*>(op);
         bool       forwardFlag = false;
@@ -930,6 +962,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             return false;
         }
         bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
+        if (mClientThread) {
+            ReceiveClear();
+        }
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "got:"

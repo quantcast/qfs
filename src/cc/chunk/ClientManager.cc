@@ -28,6 +28,7 @@
 #include "common/MsgLogger.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/DelegationToken.h"
+#include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCStUtils.h"
 
@@ -40,6 +41,8 @@
 
 namespace KFS
 {
+
+using libkfsio::globalNetManager;
 
 class ClientManager::Auth
 {
@@ -296,6 +299,15 @@ ClientManager::Shutdown()
     for (int i = 0; i < mThreadCount; i++) {
         mThreadsPtr[i].Stop();
     }
+}
+
+    NetManager&
+ClientManager::GetCurrentNetManager()
+{
+    return (0 < mThreadCount ?
+        ClientThread::GetCurrentNetManager() :
+        globalNetManager()
+    );
 }
 
 }

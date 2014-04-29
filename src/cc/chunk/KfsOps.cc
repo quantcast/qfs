@@ -640,7 +640,7 @@ static const ChunkRequestHandler& sMetaRequestHandler   =
 ///
 static int
 ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    const ChunkRequestHandler& requestHandlers)
+    const ChunkRequestHandler& requestHandlers, char* tmpBuf)
 {
     // Main thread's buffer
     static char tempBuf[MAX_RPC_HEADER_LEN];
@@ -657,7 +657,8 @@ ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
     // per call processing), besides the request headers are small
     // enough to fit into cpu cache.
     int               reqLen = len;
-    const char* const buf    = ioBuf.CopyOutOrGetBufPtr(tempBuf, reqLen);
+    const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
+        tmpBuf ? tmpBuf : tempBuf, reqLen);
     assert(reqLen == len);
     *res = reqLen == len ? requestHandlers.Handle(buf, reqLen) : 0;
     return (*res ? 0 : -1);
@@ -666,13 +667,13 @@ ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
 int
 ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
 {
-    return ParseCommand(ioBuf, len, res, sMetaRequestHandler);
+    return ParseCommand(ioBuf, len, res, sMetaRequestHandler, 0);
 }
 
 int
-ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
+ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res, char* tmpBuf)
 {
-    return ParseCommand(ioBuf, len, res, sClientRequestHandler);
+    return ParseCommand(ioBuf, len, res, sClientRequestHandler, tmpBuf);
 }
 
 ClientSM*
@@ -2125,13 +2126,14 @@ WritePrepareOp::Execute()
         gLeaseClerk.DoingWrite(chunkId);
     }
 
-    uint32_t         val       = 0;
-    vector<uint32_t> checksums = ComputeChecksums(&dataBuf, numBytes, &val);
-    if (val != checksum) {
+    if (blocksChecksums.empty()) {
+        blocksChecksums = ComputeChecksums(&dataBuf, numBytes, &receivedChecksum);
+    }
+    if (receivedChecksum != checksum) {
         statusMsg = "checksum mismatch";
         KFS_LOG_STREAM_ERROR <<
             "checksum mismatch: sent: " << checksum <<
-            ", computed: " << val << " for " << Show() <<
+            ", computed: " << receivedChecksum << " for " << Show() <<
         KFS_LOG_EOM;
         status = -EBADCKSUM;
         Done(EVENT_CMD_DONE, this);
@@ -2164,7 +2166,7 @@ WritePrepareOp::Execute()
     writeOp->numBytes = numBytes;
     writeOp->dataBuf.Move(&dataBuf);
     writeOp->wpop = this;
-    writeOp->checksums.swap(checksums);
+    writeOp->checksums.swap(blocksChecksums);
 
     writeOp->enqueueTime = globalNetManager().Now();
 

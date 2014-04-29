@@ -34,14 +34,64 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/Globals.h"
+#include "kfsio/Checksum.h"
 #include "common/kfsatomic.h"
 
 namespace KFS
 {
+using KFS::libkfsio::globalNetManager;
+
+ClientThreadListEntry::~ClientThreadListEntry()
+{
+    QCASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mGrantedFlag);
+}
+
 
 class ClientThread::Impl : public QCRunnable, public ITimeout
 {
 public:
+    class StMutexLocker
+    {
+    public:
+        StMutexLocker(
+            Impl& inImpl)
+            : mLockedFlag(true)
+        {
+            Impl::GetMutex().Lock();
+            QCASSERT(
+                (! Impl::sCurrentNetManagerPtr && sLockCnt == 0) ||
+                (&inImpl.mNetManager == sCurrentNetManagerPtr && 0 < sLockCnt)
+            );
+            if (sLockCnt++ == 0) {
+                Impl::sCurrentNetManagerPtr = &inImpl.mNetManager;
+            }
+        }
+        ~StMutexLocker()
+            { StMutexLocker::Unlock(); }
+        void Unlock()
+        {
+            if (! mLockedFlag) {
+                return;
+            }
+            QCASSERT(0 < sLockCnt);
+            if (--sLockCnt == 0) {
+                Impl::sCurrentNetManagerPtr = 0;
+            }
+            mLockedFlag = false;
+            Impl::GetMutex().Unlock();
+        }
+    private:
+        bool       mLockedFlag;
+        static int sLockCnt;
+    private:
+        StMutexLocker(
+            const StMutexLocker& inLocker);
+        StMutexLocker& operator=(
+            const StMutexLocker& inLocker);
+    };
+    friend class StMutexLocker;
+
     typedef ClientThread Outer;
 
     Impl()
@@ -52,9 +102,11 @@ public:
           mAddQueueHeadPtr(0),
           mRunQueueTailPtr(0),
           mRunQueueHeadPtr(0),
-          mRunQueuesCnt(0)
+          mTmpDispatchQueue(),
+          mWakeupCnt(0)
     {
         QCASSERT( GetMutex().IsOwned());
+        mTmpDispatchQueue.reserve(1 << 10);
     }
     ~Impl()
         { Impl::Stop(); } 
@@ -63,9 +115,8 @@ public:
     {
         QCASSERT( GetMutex().IsOwned());
         if (Enqueue(inClient, mAddQueueHeadPtr, mAddQueueTailPtr)) {
-            mNetManager.Wakeup();
+            Wakeup();
         }
-        SyncAddAndFetch(mRunQueuesCnt, 1);
     }
     virtual void Run()
     {
@@ -89,21 +140,20 @@ public:
             return;
         }
         mRunFlag = false;
-        mNetManager.Wakeup();
-        SyncAddAndFetch(mRunQueuesCnt, 1);
+        Wakeup();
 
         QCStMutexUnlocker theUnlocker(GetMutex());
         mThread.Join();
     }
     virtual void Timeout()
     {
-        if (SyncAddAndFetch(mRunQueuesCnt, 0) <= 0) {
+        if (SyncAddAndFetch(mWakeupCnt, 0) <= 0) {
             return;
         }
         QCASSERT( ! GetMutex().IsOwned());
-        QCStMutexLocker theLocker(GetMutex());
+        StMutexLocker theLocker(*this);
 
-        mRunQueuesCnt = 0;
+        mWakeupCnt = 0;
         ClientSM* thePtr = mAddQueueHeadPtr;
         mAddQueueTailPtr = 0;
         mAddQueueHeadPtr = 0;
@@ -122,11 +172,24 @@ public:
         thePtr = mRunQueueHeadPtr;
         mRunQueueTailPtr = 0;
         mRunQueueHeadPtr = 0;
+        TmpDispatchQueue& theQueue = GetTmpDispatchQueue();
+        theQueue.clear();
         while (thePtr) {
             ClientSM& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
-            RunPending(theCur);
+            theQueue.push_back(&theCur);
+        }
+        for (TmpDispatchQueue::const_iterator theIt = theQueue.begin();
+                theIt != theQueue.end();
+                ++theIt) {
+            RunPending(**theIt);
+        }
+        theLocker.Unlock();
+        for (TmpDispatchQueue::const_iterator theIt = theQueue.begin();
+                theIt != theQueue.end();
+                ++theIt) {
+            (**theIt).GetConnection()->StartFlush();
         }
     }
     bool Handle(
@@ -135,11 +198,13 @@ public:
         void*     inDataPtr)
     {
         if (inCode == EVENT_CMD_DONE) {
-            QCASSERT(GetMutex().IsOwned());
+            if (&GetCurrentNetManager() == &mNetManager) {
+                return false;
+            }
             QCASSERT(inDataPtr);
             if (AddPending(*reinterpret_cast<KfsOp*>(inDataPtr), inClient) &&
                     Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
-                mNetManager.Wakeup();
+                Wakeup();
             }
             return true;
         }
@@ -149,18 +214,38 @@ public:
             QCASSERT(inDataPtr);
             IOBuffer& theBuf = *reinterpret_cast<IOBuffer*>(inDataPtr);
             if (theEntry.mReceiveOpFlag) {
-                // Implement op parsing.
-            } else if (theEntry.mReceiveByteCount > 0) {
+                theEntry.mReceivedHeaderLen = 0;
+                if (! IsMsgAvail(&theBuf, &theEntry.mReceivedHeaderLen)) {
+                    return true;
+                }
+                theEntry.mReceivedOpPtr = 0;
+                if (ParseClientCommand(
+                        theBuf,
+                        theEntry.mReceivedHeaderLen,
+                        &theEntry.mReceivedOpPtr,
+                        mParseBuffer) != 0) {
+                    theEntry.mReceivedOpPtr     = 0;
+                    theEntry.mReceiveOpFlag     = false;
+                    theEntry.mReceivedHeaderLen = 0;
+                }
+            } else if (0 <= theEntry.mReceiveByteCount) {
                 if (theBuf.BytesConsumable() < theEntry.mReceiveByteCount) {
                     return true;
                 }
                 if (theEntry.mComputeChecksumFlag) {
-                    // Implement checksum computation.
+                    theEntry.mBlocksChecksums = ComputeChecksums(
+                        &theBuf,
+                        theEntry.mReceiveByteCount,
+                        &theEntry.mChecksum,
+                        theEntry.mFirstChecksumBlockLen
+                    );
                 }
             }
         }
-        QCStMutexLocker theLocker(GetMutex());
+        StMutexLocker theLocker(*this);
         inClient.HandleRequestSelf(inCode, inDataPtr);
+        theLocker.Unlock();
+        inClient.GetConnection()->StartFlush();
         return true;
     }
     void Granted(
@@ -173,8 +258,14 @@ public:
         }
         theEntry.mGrantedFlag = true;
         if (Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
-            mNetManager.Wakeup();
+            Wakeup();
         }
+    }
+    static NetManager& GetCurrentNetManager()
+    {
+        QCASSERT(GetMutex().IsOwned());
+        return (sCurrentNetManagerPtr ?
+            *sCurrentNetManagerPtr : globalNetManager());
     }
     static QCMutex& GetMutex()
     {
@@ -182,21 +273,45 @@ public:
         return sMutex;
     }
 private:
-    QCThread     mThread;
-    bool         mRunFlag;
-    NetManager   mNetManager;
-    ClientSM*    mAddQueueTailPtr;
-    ClientSM*    mAddQueueHeadPtr;
-    ClientSM*    mRunQueueTailPtr;
-    ClientSM*    mRunQueueHeadPtr;
-    volatile int mRunQueuesCnt;
+    typedef vector<ClientSM*> TmpDispatchQueue;
 
+    QCThread         mThread;
+    bool             mRunFlag;
+    NetManager       mNetManager;
+    ClientSM*        mAddQueueTailPtr;
+    ClientSM*        mAddQueueHeadPtr;
+    ClientSM*        mRunQueueTailPtr;
+    ClientSM*        mRunQueueHeadPtr;
+    TmpDispatchQueue mTmpDispatchQueue;
+    volatile int     mWakeupCnt;
+    char             mParseBuffer[MAX_RPC_HEADER_LEN];
+
+    static NetManager* sCurrentNetManagerPtr;
+
+    void Wakeup()
+    {
+        mNetManager.Wakeup();
+        SyncAddAndFetch(mWakeupCnt, 1);
+    }
+    TmpDispatchQueue& GetTmpDispatchQueue()
+        { return mTmpDispatchQueue; }
     void RunPending(
         ClientSM& inClient)
     {
         ClientThreadListEntry& theEntry = inClient;
-        if (theEntry.mGrantedFlag) {
-            theEntry.mGrantedFlag = false;
+        const bool theGrantedFlag = theEntry.mGrantedFlag;
+        KfsOp*     thePtr         = theEntry.mOpsHeadPtr;
+        theEntry.mOpsHeadPtr  = 0;
+        theEntry.mOpsTailPtr  = 0;
+        theEntry.mGrantedFlag = false;
+        while (thePtr) {
+            KfsOp& theCur = *thePtr;
+            thePtr = GetNextPtr(theCur);
+            GetNextPtr(theCur) = 0;
+            inClient.HandleRequestSelf(EVENT_CMD_DONE, &theCur);
+        }
+        if (theGrantedFlag) {
+            inClient.HandleGranted();
         }
     }
     static ClientSM*& GetNextPtr(
@@ -236,6 +351,9 @@ private:
         );
     }
 };
+
+NetManager* ClientThread::Impl::sCurrentNetManagerPtr   = 0;
+int         ClientThread::Impl::StMutexLocker::sLockCnt = 0;
 
 ClientThread::ClientThread()
     : mImpl(*(new Impl()))
@@ -285,6 +403,12 @@ ClientThread::Granted(
 ClientThread::GetMutex()
 {
     return Impl::GetMutex();
+}
+
+    /* static */ NetManager&
+ClientThread::GetCurrentNetManager()
+{
+    return Impl::GetCurrentNetManager();
 }
 
 }

@@ -1246,6 +1246,8 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     WriteOp*              writeOp;    /* the underlying write that is queued up locally */
     uint32_t              numDone;    // sub/forwarding ops count
     BufferManager*        devBufMgr;
+    uint32_t              receivedChecksum;
+    vector<uint32_t>      blocksChecksums;
 
     WritePrepareOp(kfsSeq_t s = 0)
         : ChunkAccessRequestOp(CMD_WRITE_PREPARE, s),
@@ -1263,7 +1265,9 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
           writeFwdOp(0),
           writeOp(0),
           numDone(0),
-          devBufMgr(0)
+          devBufMgr(0),
+          receivedChecksum(0),
+          blocksChecksums()
         { SET_HANDLER(this, &WritePrepareOp::Done); }
     ~WritePrepareOp();
 
@@ -2338,7 +2342,8 @@ private:
 };
 
 extern int ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
-extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
+extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
+    char* tmpBuf = 0);
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
 

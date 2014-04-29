@@ -35,6 +35,7 @@ namespace KFS
 {
 
 class ClientSM;
+class NetManager;
 
 class ClientThread
 {
@@ -51,6 +52,7 @@ public:
         void*     inDataPtr);
     void Granted(
         ClientSM& inClient);
+    static NetManager& GetCurrentNetManager();
     static QCMutex& GetMutex();
 private:
     class Impl;
