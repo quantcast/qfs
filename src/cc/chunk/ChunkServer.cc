@@ -114,7 +114,7 @@ ChunkServer::MainLoop()
         QCStMutexUnlocker unlocker(gClientManager.GetMutexPtr());
         globalNetManager().MainLoop(gClientManager.GetMutexPtr());
     }
-    ReleaseAllServers(mRemoteSyncers);
+    mRemoteSyncers.ReleaseAllServers();
     RemoteSyncSM::Shutdown();
     gClientManager.Shutdown();
 
@@ -140,7 +140,7 @@ ChunkServer::FindServer(
     int&                  err,
     string&               errMsg)
 {
-    return KFS::FindServer(
+    return RemoteSyncSM::FindServer(
         mRemoteSyncers,
         location,
         connectFlag,
@@ -153,12 +153,6 @@ ChunkServer::FindServer(
         err,
         errMsg
     );
-}
-
-void
-ChunkServer::RemoveServer(RemoteSyncSM* target)
-{
-    KFS::RemoveServer(mRemoteSyncers, target);
 }
 
 }

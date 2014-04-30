@@ -301,12 +301,12 @@ ClientManager::Shutdown()
     }
 }
 
-    NetManager&
-ClientManager::GetCurrentNetManager()
+    ClientThread*
+ClientManager::GetCurrentClientThreadPtr()
 {
     return (0 < mThreadCount ?
-        ClientThread::GetCurrentNetManager() :
-        globalNetManager()
+        ClientThread::GetCurrentClientThreadPtr() :
+        0
     );
 }
 

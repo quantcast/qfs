@@ -1292,6 +1292,7 @@ Replicator::Run(ReplicateChunkOp* op)
                 peer.reset();
             }
         } else {
+            const bool kConnectFlag = true;
             peer = RemoteSyncSM::Create(
                 op->location,
                 token,
@@ -1301,9 +1302,10 @@ Replicator::Run(ReplicateChunkOp* op)
                 kKeyIsNotEncryptedFlag,
                 op->allowCSClearTextFlag,
                 op->status,
-                op->statusMsg
+                op->statusMsg,
+                kConnectFlag
             );
-            if (peer && (op->status < 0 || ! peer->Connect())) {
+            if (peer && op->status < 0) {
                 peer.reset();
             }
         }

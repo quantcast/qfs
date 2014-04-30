@@ -66,7 +66,6 @@ public:
         int&                  err,
         string&               errMsg);
 
-    void RemoveServer(RemoteSyncSM* target);
     string GetMyLocation() const {
         return mLocation.ToString();
     }

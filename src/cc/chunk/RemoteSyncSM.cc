@@ -28,13 +28,17 @@
 #include "utils.h"
 #include "ChunkServer.h"
 #include "ClientManager.h"
+#include "ClientThread.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/Globals.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/kfserrno.h"
+#include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCStUtils.h"
 
 #include <cerrno>
 #include <sstream>
@@ -51,12 +55,32 @@ using std::list;
 using std::istringstream;
 using std::string;
 using std::make_pair;
+using libkfsio::globalNetManager;
 
 
-inline static NetManager&
-GetNetManager()
+inline NetManager&
+RemoteSyncSM::GetNetManager()
 {
-    return gClientManager.GetCurrentNetManager();
+    return (mClientThread ?
+        mClientThread->GetNetManager() : globalNetManager());
+}
+
+inline QCMutex*
+RemoteSyncSM::GetMutexPtr()
+{
+    return gClientManager.GetMutexPtr();
+}
+
+inline bool IsMutexOwner(QCMutex* mutex)
+{
+    return (! mutex || mutex->IsOwned());
+}
+
+inline static time_t
+TimeNow()
+{
+    ClientThread* const curThread = gClientManager.GetCurrentClientThreadPtr();
+    return (curThread ? curThread->GetNetManager() : globalNetManager()).Now();
 }
 
 class RemoteSyncSM::Auth
@@ -229,6 +253,7 @@ RemoteSyncSM::Shutdown()
 // State machine for communication with other chunk servers.
 RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
     : KfsCallbackObj(),
+      ClientThreadRemoteSyncListEntry(),
       mNetConnection(),
       mLocation(location),
       mSeqnum(NextSeq()),
@@ -246,8 +271,11 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mIStream(),
       mWOStream(),
       mList(0),
-      mListIt()
+      mListIt(),
+      mClientThread(gClientManager.GetCurrentClientThreadPtr()),
+      mConnectCount(0)
 {
+    SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
 }
 
 kfsSeq_t
@@ -262,14 +290,15 @@ RemoteSyncSM::~RemoteSyncSM()
     if (mNetConnection) {
         mNetConnection->Close();
     }
-    assert(mDispatchedOps.size() == 0);
+    QCASSERT(mDispatchedOps.empty());
 }
 
 bool
 RemoteSyncSM::Connect()
 {
-    assert(! mNetConnection);
+    QCASSERT(! mNetConnection && IsMutexOwner(GetMutexPtr()));
 
+    mConnectCount++;
     KFS_LOG_STREAM_DEBUG <<
         "trying to connect to: " << mLocation <<
     KFS_LOG_EOM;
@@ -298,13 +327,11 @@ RemoteSyncSM::Connect()
         " succeeded, status: " << res <<
     KFS_LOG_EOM;
 
-    SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
-
     mCurrentSessionExpirationTime = mSessionExpirationTime;
     mNetConnection.reset(new NetConnection(sock, this));
     mNetConnection->SetDoingNonblockingConnect();
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
-    assert(sAuthPtr);
+    QCASSERT(sAuthPtr);
     mSslShutdownInProgressFlag = false;
     if (! mSessionId.empty()) {
         int  err          = 0;
@@ -340,6 +367,19 @@ RemoteSyncSM::Connect()
 void
 RemoteSyncSM::Enqueue(KfsOp* op)
 {
+    QCASSERT(op);
+    if (mClientThread) {
+        mClientThread->Enqueue(*this, *op);
+    } else {
+        EnqueueSelf(op);
+    }
+}
+
+bool
+RemoteSyncSM::EnqueueSelf(KfsOp* op)
+{
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
+
     if (mNetConnection && ! mNetConnection->IsGood()) {
         KFS_LOG_STREAM_INFO <<
             "lost connection to peer " << mLocation <<
@@ -374,7 +414,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
             op->status    = -EPERM;
             op->statusMsg = "current session is no longer valid";
             SubmitOpResponse(op);
-            return;
+            return false;
         }
     }
     if (! mNetConnection && ! Connect()) {
@@ -386,7 +426,7 @@ RemoteSyncSM::Enqueue(KfsOp* op)
             die("duplicate seq. number");
         }
         FailAllOps();
-        return;
+        return false;
     }
     if (mDispatchedOps.empty()) {
         mLastRecvTime = now;
@@ -395,13 +435,14 @@ RemoteSyncSM::Enqueue(KfsOp* op)
         "forwarding to " << mLocation <<
         " " << op->Show() <<
     KFS_LOG_EOM;
-    IOBuffer& buf   = mNetConnection->GetOutBuffer();
-    const int start = buf.BytesConsumable();
+    IOBuffer& buf         = mNetConnection->GetOutBuffer();
+    const int headerStart = buf.BytesConsumable();
     op->Request(mWOStream.Set(buf), buf);
     mWOStream.Reset();
+    const int headerEnd   = buf.BytesConsumable();
     if (sTraceRequestResponse) {
         IOBuffer::IStream is(buf, buf.BytesConsumable());
-        is.ignore(start);
+        is.ignore(headerStart);
         string line;
         KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
             " send to: " << mLocation <<
@@ -442,28 +483,36 @@ RemoteSyncSM::Enqueue(KfsOp* op)
     }
     UpdateRecvTimeout();
     if (mRecursionCount <= 0 && mNetConnection) {
-        mNetConnection->StartFlush();
+        if (mClientThread) {
+            if (headerStart <= 0 && 0 < headerEnd &&
+                    headerEnd == buf.BytesConsumable()) {
+                mNetConnection->Flush(); // Schedule write.
+            }
+        } else {
+            mNetConnection->StartFlush();
+        }
     }
+    return (mNetConnection && mNetConnection->IsGood());
 }
 
 int
 RemoteSyncSM::HandleEvent(int code, void *data)
 {
-    IOBuffer *iobuf;
+    IOBuffer* iobuf;
     int msgLen = 0;
     // take a ref to prevent the object from being deleted
     // while we are still in this function.
-    RemoteSyncSMPtr self = shared_from_this();
+    RemoteSyncSMPtr const self = shared_from_this();
     const char *reason = "inactivity timeout";
 
     mRecursionCount++;
-    assert(mRecursionCount > 0);
+    QCASSERT(mRecursionCount > 0);
     switch (code) {
     case EVENT_NET_READ:
         mLastRecvTime = GetNetManager().Now();
         // We read something from the network.  Run the RPC that
         // came in if we got all the data for the RPC
-        iobuf = (IOBuffer *) data;
+        iobuf = reinterpret_cast<IOBuffer*>(data);
         while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
                 HandleResponse(iobuf, msgLen) >= 0)
             {}
@@ -507,10 +556,10 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         break;
 
     default:
-        assert(!"Unknown event");
+        die("Unknown event");
         break;
     }
-    assert(mRecursionCount > 0);
+    QCASSERT(mRecursionCount > 0);
     if (mRecursionCount <= 1) {
         const bool connectedFlag = mNetConnection && mNetConnection->IsGood();
         if (connectedFlag) {
@@ -518,6 +567,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         }
         if (! connectedFlag || ! mNetConnection || ! mNetConnection->IsGood()) {
             // we are done...
+            QCStMutexLocker lock(GetMutexPtr());
             Finish();
         }
     }
@@ -533,7 +583,7 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
     int nAvail = iobuf->BytesConsumable();
 
     if (mReplyNumBytes <= 0) {
-        assert(msgLen >= 0 && msgLen <= nAvail);
+        QCASSERT(msgLen >= 0 && msgLen <= nAvail);
         if (sTraceRequestResponse) {
             IOBuffer::IStream is(*iobuf, msgLen);
             string            line;
@@ -638,7 +688,7 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
             gcm->dataBuf.Move(iobuf, mReplyNumBytes);
         }
         mReplyNumBytes = 0;
-        // op->HandleEvent(EVENT_DONE, op);
+        QCStMutexLocker lock(GetMutexPtr());
         SubmitOpResponse(op);
     } else {
         KFS_LOG_STREAM_DEBUG <<
@@ -669,6 +719,8 @@ public:
 void
 RemoteSyncSM::FailAllOps()
 {
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
+
     if (mDispatchedOps.empty()) {
         return;
     }
@@ -688,6 +740,16 @@ RemoteSyncSM::FailAllOps()
 
 void
 RemoteSyncSM::Finish()
+{
+    if (mClientThread) {
+        mClientThread->Finish(*this);
+    } else {
+        FinishSelf();
+    }
+}
+
+void
+RemoteSyncSM::FinishSelf()
 {
     FailAllOps();
     if (mNetConnection) {
@@ -723,19 +785,21 @@ RemoteSyncSM::UpdateSession(
     int&        err,
     string&     errMsg)
 {
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
+
     if (sessionTokenLen <= 0 || sessionKeyLen <= 0) {
         err    = -EINVAL;
         errMsg = "invalid session and/or key length";
         return false;
     }
-    if (mSessionId.empty() && mNetConnection && mNetConnection->IsGood()) {
+    if (mSessionId.empty() && 0 < mConnectCount) {
         err    = -EINVAL;
         errMsg = "sync replication: no current session";
         return false;
     }
     err = 0;
     errMsg.clear();
-    const time_t now = GetNetManager().Now();
+    const time_t now = TimeNow();
     if (now + LEASE_INTERVAL_SECS <= mSessionExpirationTime) {
         return false;
     }
@@ -779,21 +843,22 @@ RemoteSyncSM::Create(
     bool                  writeMasterFlag,
     bool                  shutdownSslFlag,
     int&                  err,
-    string&               errMsg)
+    string&               errMsg,
+    bool                  connectFlag)
 {
     err = 0;
     errMsg.clear();
+    SMPtr peer;
     if (sessionKeyLen <= 0) {
-        return SMPtr(new RemoteSyncSM(location));
-    }
-    if (sessionTokenLen <= 0) {
+        peer.reset(new RemoteSyncSM(location));
+    } else if (sessionTokenLen <= 0) {
         err    = -EINVAL;
         errMsg = "invalid session token length";
     } else {
         const time_t expTime = GetExpirationTime(
             sessionTokenPtr, sessionTokenLen, err, errMsg);
         if (! err) {
-            if (expTime < GetNetManager().Now()) {
+            if (expTime < TimeNow()) {
                 errMsg = "session token has expired";
                 err    = -EINVAL;
             } else  {
@@ -813,19 +878,23 @@ RemoteSyncSM::Create(
                     );
                 }
                 if (! err) {
-                    SMPtr peer(new RemoteSyncSM(location));
+                    peer.reset(new RemoteSyncSM(location));
                     peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
                     peer->SetShutdownSslFlag(shutdownSslFlag);
                     peer->mSessionExpirationTime = expTime;
-                    return peer;
                 }
             }
         }
     }
+    if (connectFlag && peer && ! peer->Connect()) {
+        errMsg = "connection failure";
+        err    = -EHOSTUNREACH;
+        peer.reset();
+    }
     KFS_LOG_STREAM_ERROR <<
         "failed to forward: " << errMsg << " status: " << err <<
     KFS_LOG_EOM;
-    return SMPtr();
+    return peer;
 }
 
 //
@@ -857,8 +926,8 @@ public:
     }
 };
 
-RemoteSyncSMPtr
-FindServer(
+RemoteSyncSM::SMPtr
+RemoteSyncSM::FindServer(
     RemoteSyncSMList&     remoteSyncers,
     const ServerLocation& location,
     bool                  connectFlag,
@@ -913,18 +982,12 @@ FindServer(
         writeMasterFlag,
         shutdownSslFlag,
         err,
-        errMsg
+        errMsg,
+        connectFlag
     );
-    if (! peer) {
-        return res;
-    }
-    if (peer->Connect()) {
+    if (peer) {
         return remoteSyncers.PutInList(*peer);
-    } else {
-        errMsg = "connection failure";
-        err    = -EHOSTUNREACH;
     }
-    // Failed to connect, return 0
     return res;
 }
 

@@ -534,7 +534,7 @@ ClientSM::HandleRequestSelf(int code, void* data)
             // get rid of the connection to all the peers in daisy chain;
             // if there were any outstanding ops, they will all come back
             // to this method as EVENT_CMD_DONE and we clean them up above.
-            ReleaseAllServers(mRemoteSyncers);
+            mRemoteSyncers.ReleaseAllServers();
             ReleaseChunkSpaceReservations();
             // if there are any disk ops, wait for the ops to finish
             mNetConnection->SetOwningKfsCallbackObj(0);
@@ -1183,7 +1183,7 @@ ClientSM::FindServer(
     int&                  err,
     string&               errMsg)
 {
-    return KFS::FindServer(
+    return RemoteSyncSM::FindServer(
         mRemoteSyncers,
         location,
         connectFlag,

@@ -26,27 +26,33 @@
 #include "ClientThread.h"
 #include "ClientSM.h"
 
+#include "common/kfsatomic.h"
+
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCStUtils.h"
 #include "qcdio/QCDebug.h"
+#include "qcdio/QCUtils.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
 #include "kfsio/Checksum.h"
-#include "common/kfsatomic.h"
 
 namespace KFS
 {
-using KFS::libkfsio::globalNetManager;
+using libkfsio::globalNetManager;
 
 ClientThreadListEntry::~ClientThreadListEntry()
 {
-    QCASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mGrantedFlag);
+    QCRTASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mGrantedFlag);
 }
 
+ClientThreadRemoteSyncListEntry::~ClientThreadRemoteSyncListEntry()
+{
+    QCRTASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mFinishFlag);
+}
 
 class ClientThread::Impl : public QCRunnable, public ITimeout
 {
@@ -60,11 +66,11 @@ public:
         {
             Impl::GetMutex().Lock();
             QCASSERT(
-                (! Impl::sCurrentNetManagerPtr && sLockCnt == 0) ||
-                (&inImpl.mNetManager == sCurrentNetManagerPtr && 0 < sLockCnt)
+                (! Impl::sCurrentClientThreadPtr && sLockCnt == 0) ||
+                (&inImpl.mOuter == sCurrentClientThreadPtr && 0 < sLockCnt)
             );
             if (sLockCnt++ == 0) {
-                Impl::sCurrentNetManagerPtr = &inImpl.mNetManager;
+                Impl::sCurrentClientThreadPtr = &inImpl.mOuter;
             }
         }
         ~StMutexLocker()
@@ -76,7 +82,7 @@ public:
             }
             QCASSERT(0 < sLockCnt);
             if (--sLockCnt == 0) {
-                Impl::sCurrentNetManagerPtr = 0;
+                Impl::sCurrentClientThreadPtr = 0;
             }
             mLockedFlag = false;
             Impl::GetMutex().Unlock();
@@ -94,7 +100,8 @@ public:
 
     typedef ClientThread Outer;
 
-    Impl()
+    Impl(
+        ClientThread& inOuter)
         : QCRunnable(),
           mThread(),
           mNetManager(),
@@ -102,8 +109,11 @@ public:
           mAddQueueHeadPtr(0),
           mRunQueueTailPtr(0),
           mRunQueueHeadPtr(0),
+          mSyncQueueTailPtr(0),
+          mSyncQueueHeadPtr(0),
           mTmpDispatchQueue(),
-          mWakeupCnt(0)
+          mWakeupCnt(0),
+          mOuter(inOuter)
     {
         QCASSERT( GetMutex().IsOwned());
         mTmpDispatchQueue.reserve(1 << 10);
@@ -161,7 +171,7 @@ public:
             ClientSM& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
-            const NetConnectionPtr& theConnPtr = theCur.GetConnection();
+            const NetConnectionPtr& theConnPtr = GetConnection(theCur);
             QCASSERT(theConnPtr);
             theConnPtr->SetOwningKfsCallbackObj(&theCur);
             mNetManager.AddConnection(theConnPtr);
@@ -180,8 +190,23 @@ public:
             GetNextPtr(theCur) = 0;
             theQueue.push_back(&theCur);
         }
+        RemoteSyncSM* theSyncPtr = mSyncQueueHeadPtr;
+        mSyncQueueHeadPtr = 0;
+        mSyncQueueTailPtr = 0;
+        mTmpSyncSMQueue.clear();
+        while (theSyncPtr) {
+            RemoteSyncSM& theCur = *theSyncPtr;
+            theSyncPtr = GetNextPtr(theCur);
+            GetNextPtr(theCur) = 0;
+            mTmpSyncSMQueue.push_back(&theCur);
+        }
         for (TmpDispatchQueue::const_iterator theIt = theQueue.begin();
                 theIt != theQueue.end();
+                ++theIt) {
+            RunPending(**theIt);
+        }
+        for (TmpSyncSMQueue::const_iterator theIt = mTmpSyncSMQueue.begin();
+                theIt != mTmpSyncSMQueue.end();
                 ++theIt) {
             RunPending(**theIt);
         }
@@ -189,7 +214,7 @@ public:
         for (TmpDispatchQueue::const_iterator theIt = theQueue.begin();
                 theIt != theQueue.end();
                 ++theIt) {
-            (**theIt).GetConnection()->StartFlush();
+            GetConnection(**theIt)->StartFlush();
         }
     }
     bool Handle(
@@ -198,7 +223,7 @@ public:
         void*     inDataPtr)
     {
         if (inCode == EVENT_CMD_DONE) {
-            if (&GetCurrentNetManager() == &mNetManager) {
+            if (GetCurrentClientThreadPtr() == &mOuter) {
                 return false;
             }
             QCASSERT(inDataPtr);
@@ -243,9 +268,9 @@ public:
             }
         }
         StMutexLocker theLocker(*this);
-        inClient.HandleRequestSelf(inCode, inDataPtr);
+        ClientThreadListEntry::HandleRequest(inClient, inCode, inDataPtr);
         theLocker.Unlock();
-        inClient.GetConnection()->StartFlush();
+        GetConnection(inClient)->StartFlush();
         return true;
     }
     void Granted(
@@ -257,15 +282,48 @@ public:
             return;
         }
         theEntry.mGrantedFlag = true;
-        if (Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
+        if (! theEntry.mOpsHeadPtr &&
+                Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
             Wakeup();
         }
     }
-    static NetManager& GetCurrentNetManager()
+    NetManager& GetNetManager()
+        { return mNetManager; }
+    void Enqueue(
+        RemoteSyncSM& inSyncSM,
+        KfsOp&        inOp)
+    {
+        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
+        if (GetCurrentClientThreadPtr() == &mOuter && ! theEntry.IsPending()) {
+            ClientThreadRemoteSyncListEntry::Enqueue(inSyncSM, inOp);
+            return;
+        }
+        if (AddPending(inOp, inSyncSM) &&
+                Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
+            Wakeup();
+        }
+    }
+    void Finish(
+        RemoteSyncSM& inSyncSM)
+    {
+        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
+        if (GetCurrentClientThreadPtr() == &mOuter && ! theEntry.IsPending()) {
+            ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
+            return;
+        }
+        if (inSyncSM.mFinishFlag) {
+            return;
+        }
+        inSyncSM.mFinishFlag = true;
+        if (! theEntry.mOpsHeadPtr &&
+                Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
+            Wakeup();
+        }
+    }
+    static ClientThread* GetCurrentClientThreadPtr()
     {
         QCASSERT(GetMutex().IsOwned());
-        return (sCurrentNetManagerPtr ?
-            *sCurrentNetManagerPtr : globalNetManager());
+        return sCurrentClientThreadPtr;
     }
     static QCMutex& GetMutex()
     {
@@ -273,7 +331,8 @@ public:
         return sMutex;
     }
 private:
-    typedef vector<ClientSM*> TmpDispatchQueue;
+    typedef vector<ClientSM*>     TmpDispatchQueue;
+    typedef vector<RemoteSyncSM*> TmpSyncSMQueue;
 
     QCThread         mThread;
     bool             mRunFlag;
@@ -282,11 +341,15 @@ private:
     ClientSM*        mAddQueueHeadPtr;
     ClientSM*        mRunQueueTailPtr;
     ClientSM*        mRunQueueHeadPtr;
+    RemoteSyncSM*    mSyncQueueTailPtr;
+    RemoteSyncSM*    mSyncQueueHeadPtr;
     TmpDispatchQueue mTmpDispatchQueue;
+    TmpSyncSMQueue   mTmpSyncSMQueue;
     volatile int     mWakeupCnt;
+    ClientThread&    mOuter;
     char             mParseBuffer[MAX_RPC_HEADER_LEN];
 
-    static NetManager* sCurrentNetManagerPtr;
+    static ClientThread* sCurrentClientThreadPtr;
 
     void Wakeup()
     {
@@ -295,7 +358,7 @@ private:
     }
     TmpDispatchQueue& GetTmpDispatchQueue()
         { return mTmpDispatchQueue; }
-    void RunPending(
+    static void RunPending(
         ClientSM& inClient)
     {
         ClientThreadListEntry& theEntry = inClient;
@@ -308,11 +371,44 @@ private:
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
-            inClient.HandleRequestSelf(EVENT_CMD_DONE, &theCur);
+            ClientThreadListEntry::HandleRequest(
+                inClient, EVENT_CMD_DONE, &theCur);
         }
         if (theGrantedFlag) {
-            inClient.HandleGranted();
+            ClientThreadListEntry::HandleGranted(inClient);
         }
+    }
+    static void RunPending(
+        RemoteSyncSM& inSyncSM)
+    {
+        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
+        const bool theFinishFlag = theEntry.mFinishFlag;
+        KfsOp*     thePtr        = theEntry.mOpsHeadPtr;
+        theEntry.mOpsHeadPtr = 0;
+        theEntry.mOpsTailPtr = 0;
+        theEntry.mFinishFlag = false;
+        bool theOkFlag = false;
+        while (thePtr) {
+            KfsOp& theCur = *thePtr;
+            thePtr = GetNextPtr(theCur);
+            GetNextPtr(theCur) = 0;
+            if (! theOkFlag) {
+                theCur.status = -EHOSTUNREACH;
+                SubmitOpResponse(&theCur);
+                continue;
+            }
+            theOkFlag = ClientThreadRemoteSyncListEntry::Enqueue(
+                inSyncSM, theCur);
+        }
+        if (theFinishFlag) {
+            ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
+        }
+    }
+    static RemoteSyncSM*& GetNextPtr(
+        RemoteSyncSM& inSyncSM)
+    {
+        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
+        return theEntry.mNextPtr;
     }
     static ClientSM*& GetNextPtr(
         ClientSM& inClient)
@@ -350,13 +446,28 @@ private:
             ! theEntry.mGrantedFlag
         );
     }
+    static bool AddPending(
+        KfsOp&        inOp,
+        RemoteSyncSM& inSyncSM)
+    {
+        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
+        return (
+            Enqueue(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
+            ! theEntry.mFinishFlag
+        );
+    }
+    static const NetConnectionPtr& GetConnection(
+        const ClientSM& inClient)
+    {
+        return ClientThreadListEntry::GetConnection(inClient);
+    }
 };
 
-NetManager* ClientThread::Impl::sCurrentNetManagerPtr   = 0;
-int         ClientThread::Impl::StMutexLocker::sLockCnt = 0;
+ClientThread* ClientThread::Impl::sCurrentClientThreadPtr = 0;
+int           ClientThread::Impl::StMutexLocker::sLockCnt = 0;
 
 ClientThread::ClientThread()
-    : mImpl(*(new Impl()))
+    : mImpl(*(new Impl(*this)))
     {}
 
 ClientThread::~ClientThread()
@@ -399,16 +510,37 @@ ClientThread::Granted(
     mImpl.Granted(inClient);
 }
 
+    void
+ClientThread::Enqueue(
+    RemoteSyncSM& inSyncSM,
+    KfsOp&        inOp)
+{
+    mImpl.Enqueue(inSyncSM, inOp);
+}
+
+    void
+ClientThread::Finish(
+    RemoteSyncSM& inSyncSM)
+{
+    mImpl.Finish(inSyncSM);
+}
+
+    NetManager&
+ClientThread::GetNetManager()
+{
+    return mImpl.GetNetManager();
+}
+
     /* static */ QCMutex&
 ClientThread::GetMutex()
 {
     return Impl::GetMutex();
 }
 
-    /* static */ NetManager&
-ClientThread::GetCurrentNetManager()
+    /* static */ ClientThread*
+ClientThread::GetCurrentClientThreadPtr()
 {
-    return Impl::GetCurrentNetManager();
+    return Impl::GetCurrentClientThreadPtr();
 }
 
 }

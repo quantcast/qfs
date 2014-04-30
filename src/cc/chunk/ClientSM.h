@@ -123,9 +123,23 @@ private:
     uint32_t         mFirstChecksumBlockLen;
     int              mReceiveByteCount;
     int              mReceivedHeaderLen;
-    bool             mGrantedFlag;
-    bool             mReceiveOpFlag;
-    bool             mComputeChecksumFlag;
+    bool             mGrantedFlag:1;
+    bool             mReceiveOpFlag:1;
+    bool             mComputeChecksumFlag:1;
+
+    inline static int HandleRequest(
+        ClientSM& inClient,
+        int       inCode,
+        void*     inDataPtr);
+    inline static void HandleGranted(
+        ClientSM& inClient);
+    inline static const NetConnectionPtr& GetConnection(
+        const ClientSM& inClient);
+private:
+    ClientThreadListEntry(
+        const ClientThreadListEntry& inEntry);
+    ClientThreadListEntry& operator=(
+        const ClientThreadListEntry& inEntry);
 
     friend class ClientThread;
 };
@@ -211,10 +225,6 @@ public:
         { return mDelegationToken; }
     const string& GetSessionKey() const
         { return mSessionKey; }
-    const NetConnectionPtr& GetConnection() const
-        { return mNetConnection; }
-    int HandleRequestSelf(int code, void* data);
-    void HandleGranted();
 private:
     typedef deque<KfsOp*> OpsQueue;
     // There is a dependency in waiting for a write-op to finish
@@ -368,6 +378,8 @@ private:
     bool GetWriteOp(KfsOp& op, int align, int numBytes, IOBuffer& iobuf,
         IOBuffer& ioOpBuf, bool forwardFlag);
     string GetPeerName();
+    int HandleRequestSelf(int code, void* data);
+    void HandleGranted();
     inline time_t TimeNow() const;
     inline void SendResponse(KfsOp& op);
     inline static BufferManager& GetBufferManager();
@@ -388,7 +400,31 @@ private:
     // No copy.
     ClientSM(const ClientSM&);
     ClientSM& operator=(const ClientSM&);
+    friend class ClientThreadListEntry;
 };
+
+inline int
+ClientThreadListEntry::HandleRequest(
+    ClientSM& inClient,
+    int       inCode,
+    void*     inDataPtr)
+{
+    return inClient.HandleRequestSelf(inCode, inDataPtr);
+}
+
+inline void
+ClientThreadListEntry::HandleGranted(
+    ClientSM& inClient)
+{
+    inClient.HandleGranted();
+}
+
+inline const NetConnectionPtr&
+ClientThreadListEntry::GetConnection(
+    const ClientSM& inClient)
+{
+    return inClient.mNetConnection;
+}
 
 }
 

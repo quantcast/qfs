@@ -200,7 +200,7 @@ public:
     }
     QCMutex* GetMutexPtr() const;
     void Shutdown();
-    NetManager& GetCurrentNetManager();
+    ClientThread* GetCurrentClientThreadPtr();
 private:
     class Auth;
 

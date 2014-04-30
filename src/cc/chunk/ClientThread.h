@@ -26,16 +26,16 @@
 #ifndef CLIENT_THREAD_H
 #define CLIENT_THREAD_H
 
-#include "ClientManager.h"
-#include "KfsOps.h"
-
 class QCMutex;
 
 namespace KFS
 {
 
 class ClientSM;
+class RemoteSyncSM;
 class NetManager;
+class RemoteSyncSM;
+struct KfsOp;
 
 class ClientThread
 {
@@ -52,7 +52,13 @@ public:
         void*     inDataPtr);
     void Granted(
         ClientSM& inClient);
-    static NetManager& GetCurrentNetManager();
+    void Enqueue(
+        RemoteSyncSM& inSyncSM,
+        KfsOp&        inOp);
+    void Finish(
+        RemoteSyncSM& inSyncSM);
+    NetManager& GetNetManager();
+    static ClientThread* GetCurrentClientThreadPtr();
     static QCMutex& GetMutex();
 private:
     class Impl;

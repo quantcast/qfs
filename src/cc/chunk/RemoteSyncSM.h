@@ -41,6 +41,8 @@
 #include <list>
 #include <algorithm>
 
+class QCMutex;
+
 namespace KFS
 {
 using std::map;
@@ -50,11 +52,47 @@ using std::find_if;
 
 class RemoteSyncSMTimeoutImpl;
 class Properties;
+class RemoteSyncSMList;
+class ClientThread;
+class RemoteSyncSM;
 struct KfsOp;
+
+class ClientThreadRemoteSyncListEntry
+{
+public:
+    ClientThreadRemoteSyncListEntry()
+        : mOpsHeadPtr(0),
+          mOpsTailPtr(0),
+          mNextPtr(0),
+          mFinishFlag(false)
+        {}
+    ~ClientThreadRemoteSyncListEntry();
+private:
+    KfsOp*        mOpsHeadPtr;
+    KfsOp*        mOpsTailPtr;
+    RemoteSyncSM* mNextPtr;
+    bool          mFinishFlag;
+
+    bool IsPending() const
+        { return (mOpsHeadPtr || mFinishFlag); }
+
+    static inline bool Enqueue(
+        RemoteSyncSM& inSyncSM,
+        KfsOp&        inOp);
+    static inline void Finish(
+        RemoteSyncSM& inSyncSM);
+private:
+    ClientThreadRemoteSyncListEntry(
+        const ClientThreadRemoteSyncListEntry& inEntry);
+    ClientThreadRemoteSyncListEntry& operator=(
+        const ClientThreadRemoteSyncListEntry& inEntry);
+friend class ClientThread;
+};
 
 // State machine for communication with other chunk servers: daisy chain rpc
 // forwarding, and re-replication data and meta-data chunk read.
 class RemoteSyncSM : public KfsCallbackObj,
+                     public ClientThreadRemoteSyncListEntry,
                      public boost::enable_shared_from_this<RemoteSyncSM>
 {
 public:
@@ -73,17 +111,9 @@ public:
         bool                  writeMasterFlag,
         bool                  shutdownSslFlag,
         int&                  err,
-        string&               errMsg);
+        string&               errMsg,
+        bool                  connectFlag = false);
     ~RemoteSyncSM();
-    bool Connect();
-    void SetSessionKey(
-        const char*            inIdPtr,
-        int                    inIdLen,
-        const CryptoKeys::Key& inKey)
-    {
-        mSessionId.assign(inIdPtr, inIdLen);
-        mSessionKey = inKey;
-    }
     bool HasAuthentication() const
         { return ! mSessionId.empty(); }
     bool GetShutdownSslFlag() const
@@ -110,6 +140,18 @@ public:
     static int GetResponseTimeoutSec() {
         return sOpResponseTimeoutSec;
     }
+    static SMPtr FindServer(
+        RemoteSyncSMList&     remoteSyncers,
+        const ServerLocation& location,
+        bool                  connectFlag,
+        const char*           sessionTokenPtr,
+        int                   sessionTokenLen,
+        const char*           sessionKeyPtr,
+        int                   sessionKeyLen,
+        bool                  writeMasterFlag,
+        bool                  shutdownSslFlag,
+        int&                  err,
+        string&               errMsg);
 private:
     typedef map<
         kfsSeq_t,
@@ -121,29 +163,40 @@ private:
     > DispatchedOps;
     class Auth;
 
-    NetConnectionPtr   mNetConnection;
-    ServerLocation     mLocation;
+    NetConnectionPtr    mNetConnection;
+    ServerLocation      mLocation;
     /// Assign a sequence # for each op we send to the remote server
-    kfsSeq_t           mSeqnum;
+    kfsSeq_t            mSeqnum;
     /// Queue of outstanding ops sent to remote server.
-    DispatchedOps      mDispatchedOps;
-    kfsSeq_t           mReplySeqNum;
-    int                mReplyNumBytes;
-    int                mRecursionCount;
-    time_t             mLastRecvTime;
-    string             mSessionId;
-    CryptoKeys::Key    mSessionKey;
-    bool               mShutdownSslFlag;
-    bool               mSslShutdownInProgressFlag;
-    time_t             mCurrentSessionExpirationTime;
-    time_t             mSessionExpirationTime;
-    IOBuffer::IStream  mIStream;
-    IOBuffer::WOStream mWOStream;
-    SMList*            mList;
-    SMList::iterator   mListIt;
+    DispatchedOps       mDispatchedOps;
+    kfsSeq_t            mReplySeqNum;
+    int                 mReplyNumBytes;
+    int                 mRecursionCount;
+    time_t              mLastRecvTime;
+    string              mSessionId;
+    CryptoKeys::Key     mSessionKey;
+    bool                mShutdownSslFlag;
+    bool                mSslShutdownInProgressFlag;
+    time_t              mCurrentSessionExpirationTime;
+    time_t              mSessionExpirationTime;
+    IOBuffer::IStream   mIStream;
+    IOBuffer::WOStream  mWOStream;
+    SMList*             mList;
+    SMList::iterator    mListIt;
+    ClientThread* const mClientThread;
+    int                 mConnectCount;
 
     RemoteSyncSM(const ServerLocation& location);
 
+    void SetSessionKey(
+        const char*            inIdPtr,
+        int                    inIdLen,
+        const CryptoKeys::Key& inKey)
+    {
+        mSessionId.assign(inIdPtr, inIdLen);
+        mSessionKey = inKey;
+    }
+    bool Connect();
     const SMPtr& PutInList(SMList& list)
     {
         SMPtr ptr = shared_from_this();
@@ -175,13 +228,18 @@ private:
     /// @retval 0 if we got the response; -1 if we need to wait
     int HandleResponse(IOBuffer *iobuf, int cmdLen);
     void FailAllOps();
+    bool EnqueueSelf(KfsOp* op);
+    void FinishSelf();
     inline void UpdateRecvTimeout();
+    inline NetManager& GetNetManager();
+    inline static QCMutex* GetMutexPtr();
 
     static bool  sTraceRequestResponse;
     static int   sOpResponseTimeoutSec;
     static Auth* sAuthPtr;
 
     friend class RemoteSyncSMList;
+    friend class ClientThreadRemoteSyncListEntry;
 private:
     // No copy.
     RemoteSyncSM(const RemoteSyncSM&);
@@ -221,27 +279,19 @@ private:
     RemoteSyncSMList& operator=(const RemoteSyncSMList&);
 };
 
-RemoteSyncSMPtr FindServer(
-    RemoteSyncSMList&     remoteSyncers,
-    const ServerLocation& location,
-    bool                  connectFlag,
-    const char*           sessionTokenPtr,
-    int                   sessionTokenLen,
-    const char*           sessionKeyPtr,
-    int                   sessionKeyLen,
-    bool                  writeMasterFlag,
-    bool                  shutdownSslFlag,
-    int&                  err,
-    string&               errMsg);
-
-static inline bool RemoveServer(RemoteSyncSMList& remoteSyncers, RemoteSyncSM* target)
+inline bool
+ClientThreadRemoteSyncListEntry::Enqueue(
+    RemoteSyncSM& inSyncSM,
+    KfsOp&        inOp)
 {
-    return remoteSyncers.RemoveServer(target);
+    return inSyncSM.EnqueueSelf(&inOp);
 }
 
-static inline void ReleaseAllServers(RemoteSyncSMList& remoteSyncers)
+inline void
+ClientThreadRemoteSyncListEntry::Finish(
+    RemoteSyncSM& inSyncSM)
 {
-    remoteSyncers.ReleaseAllServers();
+    inSyncSM.FinishSelf();
 }
 
 }
