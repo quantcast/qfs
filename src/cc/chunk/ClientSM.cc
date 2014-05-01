@@ -32,7 +32,6 @@
 #include "KfsOps.h"
 #include "AtomicRecordAppender.h"
 #include "DiskIo.h"
-#include "ClientThread.h"
 
 #include "common/MsgLogger.h"
 #include "common/time.h"
@@ -180,7 +179,7 @@ ClientSM::ClientSM(
     const NetConnectionPtr& conn,
     ClientThread*           thread)
     : KfsCallbackObj(),
-      ClientThreadListEntry(),
+      ClientThreadListEntry(thread),
       BufferManager::Client(),
       SslFilterServerPsk(),
       mNetConnection(conn),
@@ -205,19 +204,20 @@ ClientSM::ClientSM(
       mContentReceivedFlag(false),
       mDelegationToken(),
       mSessionKey(),
-      mClientThread(thread),
       mHandleTerminateFlag(false)
 {
     if (! mNetConnection) {
         die("ClientSM: null connection");
         return;
     }
-    SET_HANDLER(this, &ClientSM::HandleRequest);
+    if (IsClientThread()) {
+        SET_HANDLER(this, &ClientSM::DispatchRequest);
+    } else {
+        SET_HANDLER(this, &ClientSM::HandleRequest);
+    }
     mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
     mNetConnection->SetInactivityTimeout(gClientManager.GetIdleTimeoutSec());
-    if (mClientThread) {
-        SetReceiveOp();
-    }
+    SetReceiveOp();
 }
 
 ClientSM::~ClientSM()
@@ -299,16 +299,6 @@ ClientSM::SendResponseSelf(KfsOp& op)
 ///
 int
 ClientSM::HandleRequest(int code, void* data)
-{
-    if (mClientThread && mRecursionCnt == 0 &&
-            mClientThread->Handle(*this, code, data)) {
-        return 0;
-    }
-    return HandleRequestSelf(code, data);
-}
-
-int
-ClientSM::HandleRequestSelf(int code, void* data)
 {
     if (mHandleTerminateFlag) {
         return HandleTerminate(code, data);
@@ -509,7 +499,7 @@ ClientSM::HandleRequestSelf(int code, void* data)
 
     assert(mRecursionCnt > 0);
     if (mRecursionCnt == 1) {
-        if (! mClientThread) {
+        if (! IsClientThread()) {
             mNetConnection->StartFlush();
         }
         if (mNetConnection->IsGood()) {
@@ -521,14 +511,10 @@ ClientSM::HandleRequestSelf(int code, void* data)
                 gClientManager.GetIdleTimeoutSec());
             if (IsWaiting() || mDevBufMgr) {
                 mNetConnection->SetMaxReadAhead(0);
-                if (mClientThread) {
-                    ReceiveClear();
-                }
+                ReceiveClear();
             } else if (! mCurOp || ! mNetConnection->IsReadReady()) {
                 mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
-                if (mClientThread) {
-                    SetReceiveOp();
-                }
+                SetReceiveOp();
             }
         } else {
             // get rid of the connection to all the peers in daisy chain;
@@ -745,9 +731,7 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     }
     if (nAvail < numBytes) {
         mNetConnection->SetMaxReadAhead(numBytes - nAvail);
-        if (mClientThread) {
-            SetReceiveContent(numBytes, op.op == CMD_WRITE_PREPARE);
-        }
+        SetReceiveContent(numBytes, op.op == CMD_WRITE_PREPARE);
         // we couldn't process the command...so, wait
         return false;
     }
@@ -815,7 +799,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
     assert(op ? cmdLen == 0 : (cmdLen > 0 || GetReceivedOp()));
     if (! op) {
         if ((op = GetReceivedOp())) {
-            assert(mClientThread);
             cmdLen = GetReceivedHeaderLen();
             ReceiveClear();
         }
@@ -906,16 +889,12 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             mNetConnection->SetMaxReadAhead(
                 iobuf.BytesConsumable() - contentLength);
             mCurOp = op;
-            if (mClientThread) {
-                const bool kComputeChecksumFlag = false;
-                SetReceiveContent(contentLength, kComputeChecksumFlag);
-            }
+            const bool kComputeChecksumFlag = false;
+            SetReceiveContent(contentLength, kComputeChecksumFlag);
             return false;
         }
         mCurOp = 0;
-        if (mClientThread) {
-            ReceiveClear();
-        }
+        ReceiveClear();
         if (0 < contentLength && 0 <= op->status) {
             if (! op->ParseContent(mIStream.Set(iobuf, contentLength))) {
                 if (0 < op->status) {
@@ -938,13 +917,11 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             return false;
         }
         bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
-        if (mClientThread) {
-            if (GetReceiveByteCount() == wop->numBytes) {
-                wop->receivedChecksum = GetChecksum();
-                wop->blocksChecksums.swap(GetBlockChecksums());
-            }
-            ReceiveClear();
+        if (GetReceiveByteCount() == wop->numBytes) {
+            wop->receivedChecksum = GetChecksum();
+            wop->blocksChecksums.swap(GetBlockChecksums());
         }
+        ReceiveClear();
     } else if (op->op == CMD_RECORD_APPEND) {
         RecordAppendOp* const waop = static_cast<RecordAppendOp*>(op);
         bool       forwardFlag = false;
@@ -962,9 +939,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             return false;
         }
         bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
-        if (mClientThread) {
-            ReceiveClear();
-        }
+        ReceiveClear();
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "got:"
@@ -1108,7 +1083,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
     mInFlightOpCount++;
     gChunkServer.OpInserted();
     if (submitResponseFlag) {
-        HandleRequestSelf(EVENT_CMD_DONE, op);
+        HandleRequest(EVENT_CMD_DONE, op);
     } else {
         SubmitOp(op);
     }
@@ -1211,20 +1186,21 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
         " dev. mgr: " << (const void*)mDevBufMgr <<
     KFS_LOG_EOM;
     assert(devBufManagerFlag == (mDevBufMgr != 0));
-    if (mClientThread) {
-        mClientThread->Granted(*this);
+    if (IsClientThread()) {
+        DispatchGranted(*this);
     } else {
         HandleGranted();
     }
 }
 
-void ClientSM::HandleGranted()
+void
+ClientSM::HandleGranted()
 {
     if (! mNetConnection->IsGood()) {
         return;
     }
     mGrantedFlag = true;
-    HandleRequestSelf(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
+    HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 
 /* virtual */ unsigned long

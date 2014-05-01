@@ -24,20 +24,20 @@
 //
 //----------------------------------------------------------------------------
 
+#include "ClientManager.h"
+#include "ClientSM.h"
+#include "ClientThread.h"
+
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
+
 #include "kfsio/SslFilter.h"
 #include "kfsio/DelegationToken.h"
 #include "kfsio/Globals.h"
+
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCStUtils.h"
-
-#include "ClientManager.h"
-#include "ClientSM.h"
-#include "ChunkManager.h"
-#include "ClientThread.h"
-
-#include <string.h>
+#include "qcdio/QCDebug.h"
 
 namespace KFS
 {
@@ -238,22 +238,15 @@ ClientManager::CreateKfsCallbackObj(
     }
     mCounters.mAcceptCount++;
     mCounters.mClientCount++;
-    ClientSM* const theClientPtr = new ClientSM(
-        inConnPtr,
-        mThreadsPtr ? mThreadsPtr + mCurThreadIdx : 0
-    );
+    ClientThread* const theThreadPtr = GetNextClientThreadPtr();
+    ClientSM*     const theClientPtr = new ClientSM(inConnPtr, theThreadPtr);
     if (! mAuth.Setup(*inConnPtr, *theClientPtr)) {
         delete theClientPtr;
         return 0;
     }
-    if (mThreadCount <= 0) {
-        return theClientPtr;
-    }
-    inConnPtr.reset(); // Thread takes ownership.
-    mThreadsPtr[mCurThreadIdx].Add(*theClientPtr);
-    mCurThreadIdx++;
-    if (mThreadCount <= mCurThreadIdx) {
-        mCurThreadIdx = 0;
+    if (theThreadPtr) {
+        inConnPtr.reset(); // Thread takes ownership.
+        theThreadPtr->Add(*theClientPtr);
     }
     return theClientPtr;
 }
@@ -308,6 +301,21 @@ ClientManager::GetCurrentClientThreadPtr()
         ClientThread::GetCurrentClientThreadPtr() :
         0
     );
+}
+
+    ClientThread*
+ClientManager::GetNextClientThreadPtr()
+{
+    if (mThreadCount <= 0) {
+        return 0;
+    }
+    QCASSERT(0 <= mCurThreadIdx && mCurThreadIdx < mThreadCount);
+    ClientThread* const theRetPtr = mThreadsPtr + mCurThreadIdx;
+    mCurThreadIdx++;
+    if (mThreadCount <= mCurThreadIdx) {
+        mCurThreadIdx = 0;
+    }
+    return theRetPtr;
 }
 
 }

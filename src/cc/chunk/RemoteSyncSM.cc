@@ -59,10 +59,10 @@ using libkfsio::globalNetManager;
 
 
 inline NetManager&
-RemoteSyncSM::GetNetManager()
+ClientThreadRemoteSyncListEntry::GetNetManager()
 {
-    return (mClientThread ?
-        mClientThread->GetNetManager() : globalNetManager());
+    return (mClientThreadPtr ?
+        mClientThreadPtr->GetNetManager() : globalNetManager());
 }
 
 inline QCMutex*
@@ -251,9 +251,11 @@ RemoteSyncSM::Shutdown()
 }
 
 // State machine for communication with other chunk servers.
-RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
+RemoteSyncSM::RemoteSyncSM(
+    const ServerLocation& location,
+    ClientThread*         thread)
     : KfsCallbackObj(),
-      ClientThreadRemoteSyncListEntry(),
+      ClientThreadRemoteSyncListEntry(thread),
       mNetConnection(),
       mLocation(location),
       mSeqnum(NextSeq()),
@@ -272,7 +274,6 @@ RemoteSyncSM::RemoteSyncSM(const ServerLocation &location)
       mWOStream(),
       mList(0),
       mListIt(),
-      mClientThread(gClientManager.GetCurrentClientThreadPtr()),
       mConnectCount(0)
 {
     SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
@@ -368,9 +369,10 @@ void
 RemoteSyncSM::Enqueue(KfsOp* op)
 {
     QCASSERT(op);
-    if (mClientThread) {
-        mClientThread->Enqueue(*this, *op);
+    if (IsClientThread()) {
+        DispatchEnqueue(*this, *op);
     } else {
+        QCASSERT(! gClientManager.GetCurrentClientThreadPtr());
         EnqueueSelf(op);
     }
 }
@@ -483,7 +485,7 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
     }
     UpdateRecvTimeout();
     if (mRecursionCount <= 0 && mNetConnection) {
-        if (mClientThread) {
+        if (IsClientThread()) {
             if (headerStart <= 0 && 0 < headerEnd &&
                     headerEnd == buf.BytesConsumable()) {
                 mNetConnection->Flush(); // Schedule write.
@@ -741,9 +743,10 @@ RemoteSyncSM::FailAllOps()
 void
 RemoteSyncSM::Finish()
 {
-    if (mClientThread) {
-        mClientThread->Finish(*this);
+    if (IsClientThread()) {
+        DispatchFinish(*this);
     } else {
+        QCASSERT(! gClientManager.GetCurrentClientThreadPtr());
         FinishSelf();
     }
 }
@@ -833,6 +836,16 @@ RemoteSyncSM::UpdateSession(
     return (err == 0);
 }
 
+inline static ClientThread*
+GetClientThread(bool forceUseClientThreadFlag)
+{
+    ClientThread* const cliThread = gClientManager.GetCurrentClientThreadPtr();
+    if (cliThread || ! forceUseClientThreadFlag) {
+        return cliThread;
+    }
+    return gClientManager.GetNextClientThreadPtr();
+}
+
 RemoteSyncSM::SMPtr
 RemoteSyncSM::Create(
     const ServerLocation& location,
@@ -844,13 +857,16 @@ RemoteSyncSM::Create(
     bool                  shutdownSslFlag,
     int&                  err,
     string&               errMsg,
-    bool                  connectFlag)
+    bool                  connectFlag,
+    bool                  forceUseClientThreadFlag)
 {
+    QCASSERT(! connectFlag || ! forceUseClientThreadFlag);
     err = 0;
     errMsg.clear();
     SMPtr peer;
     if (sessionKeyLen <= 0) {
-        peer.reset(new RemoteSyncSM(location));
+        peer.reset(new RemoteSyncSM(
+            location, GetClientThread(forceUseClientThreadFlag)));
     } else if (sessionTokenLen <= 0) {
         err    = -EINVAL;
         errMsg = "invalid session token length";
@@ -878,7 +894,8 @@ RemoteSyncSM::Create(
                     );
                 }
                 if (! err) {
-                    peer.reset(new RemoteSyncSM(location));
+                    peer.reset(new RemoteSyncSM(
+                        location, GetClientThread(forceUseClientThreadFlag)));
                     peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
                     peer->SetShutdownSslFlag(shutdownSslFlag);
                     peer->mSessionExpirationTime = expTime;

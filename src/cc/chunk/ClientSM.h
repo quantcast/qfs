@@ -60,9 +60,11 @@ class ClientThread;
 
 class ClientThreadListEntry
 {
-public:
-    ClientThreadListEntry()
-        : mOpsHeadPtr(0),
+protected:
+    ClientThreadListEntry(
+        ClientThread* inClientThreadPtr)
+        : mClientThreadPtr(inClientThreadPtr),
+          mOpsHeadPtr(0),
           mOpsTailPtr(0),
           mNextPtr(0),
           mReceivedOpPtr(0),
@@ -78,6 +80,9 @@ public:
     ~ClientThreadListEntry();
     void ReceiveClear()
     {
+        if (! mClientThreadPtr) {
+            return;
+        }
         mFirstChecksumBlockLen = CHECKSUM_BLOCKSIZE;
         mReceiveByteCount      = -1;
         mReceivedHeaderLen     = 0;
@@ -89,6 +94,9 @@ public:
     }
     void SetReceiveOp()
     {
+        if (! mClientThreadPtr) {
+            return;
+        }
         ReceiveClear();
         mReceiveOpFlag = true;
     }
@@ -97,6 +105,9 @@ public:
         bool    inComputeChecksumFlag,
         int32_t inFirstCheckSumBlockLen = CHECKSUM_BLOCKSIZE)
     {
+        if (! mClientThreadPtr) {
+            return;
+        }
         ReceiveClear();
         mReceiveByteCount      = inLength;
         mFirstChecksumBlockLen = inFirstCheckSumBlockLen;
@@ -113,19 +124,28 @@ public:
         { return mReceivedHeaderLen; }
     int GetReceiveByteCount() const
         { return mReceiveByteCount; }
+    bool IsClientThread() const
+        { return (mClientThreadPtr != 0); }
+    int DispatchEvent(
+        ClientSM& inClient,
+        int       inCode,
+        void*     inDataPtr);
+    void DispatchGranted(
+        ClientSM& inClient);
 private:
-    KfsOp*           mOpsHeadPtr;
-    KfsOp*           mOpsTailPtr;
-    ClientSM*        mNextPtr;
-    KfsOp*           mReceivedOpPtr;
-    vector<uint32_t> mBlocksChecksums;
-    uint32_t         mChecksum;
-    uint32_t         mFirstChecksumBlockLen;
-    int              mReceiveByteCount;
-    int              mReceivedHeaderLen;
-    bool             mGrantedFlag:1;
-    bool             mReceiveOpFlag:1;
-    bool             mComputeChecksumFlag:1;
+    ClientThread* const mClientThreadPtr;
+    KfsOp*              mOpsHeadPtr;
+    KfsOp*              mOpsTailPtr;
+    ClientSM*           mNextPtr;
+    KfsOp*              mReceivedOpPtr;
+    vector<uint32_t>    mBlocksChecksums;
+    uint32_t            mChecksum;
+    uint32_t            mFirstChecksumBlockLen;
+    int                 mReceiveByteCount;
+    int                 mReceivedHeaderLen;
+    bool                mGrantedFlag:1;
+    bool                mReceiveOpFlag:1;
+    bool                mComputeChecksumFlag:1;
 
     inline static int HandleRequest(
         ClientSM& inClient,
@@ -141,7 +161,7 @@ private:
     ClientThreadListEntry& operator=(
         const ClientThreadListEntry& inEntry);
 
-    friend class ClientThread;
+    friend class ClientThreadImpl;
 };
 
 // KFS client protocol state machine.
@@ -171,12 +191,6 @@ public:
     //       -- in READ DONE: data that was read arrives; 
     //            schedule that data to be sent out and transition back to READ START
     //       
-    int HandleRequest(int code, void *data);
-
-    // This is a terminal state handler.  In this state, we wait for
-    // all outstanding ops to finish and then destroy this.
-    int HandleTerminate(int code, void *data);
-
     // For daisy-chain writes, retrieve the server object for the
     // chunkserver running at the specified location.
     //
@@ -353,7 +367,6 @@ private:
     bool                       mContentReceivedFlag;
     DelegationToken            mDelegationToken;
     string                     mSessionKey;
-    ClientThread* const        mClientThread;
     bool                       mHandleTerminateFlag;
 
     static bool                sTraceRequestResponseFlag;
@@ -363,6 +376,11 @@ private:
     static size_t              sMaxAppendRequestSize;
     static uint64_t            sInstanceNum;
 
+    int HandleRequest(int code, void *data);
+
+    // This is a terminal state handler.  In this state, we wait for
+    // all outstanding ops to finish and then destroy this.
+    int HandleTerminate(int code, void *data);
     void ReleaseChunkSpaceReservations();
     /// Given a (possibly) complete op in a buffer, run it.
     /// @retval True if the command was handled (i.e., we have all the
@@ -396,6 +414,8 @@ private:
 	unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen,
         string&        outAuthName);
+    int DispatchRequest(int code, void* data)
+        { return DispatchEvent(*this, code, data); }
 private:
     // No copy.
     ClientSM(const ClientSM&);
@@ -409,7 +429,7 @@ ClientThreadListEntry::HandleRequest(
     int       inCode,
     void*     inDataPtr)
 {
-    return inClient.HandleRequestSelf(inCode, inDataPtr);
+    return inClient.HandleRequest(inCode, inDataPtr);
 }
 
 inline void

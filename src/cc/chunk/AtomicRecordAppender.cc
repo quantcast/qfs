@@ -1402,7 +1402,7 @@ AtomicRecordAppender::AppendBegin(
         // way to look at this: socket buffer space becomes an extension to
         // write appender io buffer space.
         // The price is "undoing" writes, which might be necessary in the case of
-        // replication failure. Undoing writes is a simple truncate, and the the
+        // replication failure. Undoing writes is a simple truncate, besides the
         // failures aren't expected to be frequent enough to matter.
         const int prevNumBytes = mBuffer.BytesConsumable();
         // Always try to append to the last buffer.
@@ -2959,6 +2959,8 @@ AtomicRecordAppendManager::AllocateChunk(
                     token = csa.token;
                     key   = csa.key;
                 }
+                const bool kConnectFlag              = false;
+                const bool kForceUseClientThreadFlag = true;
                 peer = RemoteSyncSM::Create(
                     peerLoc,
                     token.mPtr,
@@ -2968,7 +2970,9 @@ AtomicRecordAppendManager::AllocateChunk(
                     replicationPos == 0,
                     op->allowCSClearTextFlag,
                     op->status,
-                    op->statusMsg
+                    op->statusMsg,
+                    kConnectFlag,
+                    kForceUseClientThreadFlag
                 );
                 if (! peer && 0 <= op->status) {
                     op->status    = -EFAULT;

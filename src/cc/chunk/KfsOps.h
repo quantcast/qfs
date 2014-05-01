@@ -169,7 +169,7 @@ public:
         {}
 private:
     KfsOp* mNextPtr;
-    friend class ClientThread;
+    friend class ClientThreadImpl;
 private:
     NextOp(const NextOp&);
     NextOp& operator=(const NextOp&);

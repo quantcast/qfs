@@ -59,34 +59,48 @@ struct KfsOp;
 
 class ClientThreadRemoteSyncListEntry
 {
-public:
-    ClientThreadRemoteSyncListEntry()
-        : mOpsHeadPtr(0),
+protected:
+    typedef boost::shared_ptr<RemoteSyncSM> SMPtr;
+    ClientThreadRemoteSyncListEntry(
+        ClientThread* inThreadPtr)
+        : mClientThreadPtr(inThreadPtr),
+          mOpsHeadPtr(0),
           mOpsTailPtr(0),
           mNextPtr(0),
-          mFinishFlag(false)
+          mFinishPtr()
         {}
     ~ClientThreadRemoteSyncListEntry();
+    inline NetManager& GetNetManager();
+    void DispatchEnqueue(
+        RemoteSyncSM& inSyncSM,
+        KfsOp&        inOp);
+    void DispatchFinish(
+        RemoteSyncSM& inSyncSM);
+    bool IsClientThread()
+        { return (mClientThreadPtr != 0); }
 private:
-    KfsOp*        mOpsHeadPtr;
-    KfsOp*        mOpsTailPtr;
-    RemoteSyncSM* mNextPtr;
-    bool          mFinishFlag;
+    ClientThread* const mClientThreadPtr;
+    KfsOp*              mOpsHeadPtr;
+    KfsOp*              mOpsTailPtr;
+    RemoteSyncSM*       mNextPtr;
+    SMPtr               mFinishPtr;
 
     bool IsPending() const
-        { return (mOpsHeadPtr || mFinishFlag); }
+        { return (mOpsHeadPtr || mFinishPtr); }
 
     static inline bool Enqueue(
         RemoteSyncSM& inSyncSM,
         KfsOp&        inOp);
     static inline void Finish(
         RemoteSyncSM& inSyncSM);
+    static inline bool RemoveFromList(
+        RemoteSyncSM& inSyncSM);
 private:
     ClientThreadRemoteSyncListEntry(
         const ClientThreadRemoteSyncListEntry& inEntry);
     ClientThreadRemoteSyncListEntry& operator=(
         const ClientThreadRemoteSyncListEntry& inEntry);
-friend class ClientThread;
+friend class ClientThreadImpl;
 };
 
 // State machine for communication with other chunk servers: daisy chain rpc
@@ -96,7 +110,7 @@ class RemoteSyncSM : public KfsCallbackObj,
                      public boost::enable_shared_from_this<RemoteSyncSM>
 {
 public:
-    typedef boost::shared_ptr<RemoteSyncSM> SMPtr;
+    typedef ClientThreadRemoteSyncListEntry::SMPtr SMPtr;
     typedef list<
         SMPtr,
         StdFastAllocator<SMPtr>
@@ -112,7 +126,8 @@ public:
         bool                  shutdownSslFlag,
         int&                  err,
         string&               errMsg,
-        bool                  connectFlag = false);
+        bool                  connectFlag              = false,
+        bool                  forceUseClientThreadFlag = false);
     ~RemoteSyncSM();
     bool HasAuthentication() const
         { return ! mSessionId.empty(); }
@@ -183,10 +198,11 @@ private:
     IOBuffer::WOStream  mWOStream;
     SMList*             mList;
     SMList::iterator    mListIt;
-    ClientThread* const mClientThread;
     int                 mConnectCount;
 
-    RemoteSyncSM(const ServerLocation& location);
+    RemoteSyncSM(
+        const ServerLocation& location,
+        ClientThread*         thread);
 
     void SetSessionKey(
         const char*            inIdPtr,
@@ -217,9 +233,7 @@ private:
         list.erase(mListIt); // Can invoke destructor.
         return true;
     }
-    bool RemoveFromList(SMList& list)
-        { return (mList == &list && RemoveFromList()); }
-   kfsSeq_t NextSeqnum();
+    kfsSeq_t NextSeqnum();
 
     /// We (may) have got a response from the peer.  If we are doing
     /// re-replication, then we need to wait until we got all the data
@@ -231,7 +245,6 @@ private:
     bool EnqueueSelf(KfsOp* op);
     void FinishSelf();
     inline void UpdateRecvTimeout();
-    inline NetManager& GetNetManager();
     inline static QCMutex* GetMutexPtr();
 
     static bool  sTraceRequestResponse;
@@ -255,8 +268,6 @@ public:
         {}
     ~RemoteSyncSMList()
         { RemoteSyncSMList::ReleaseAllServers(); }
-    bool RemoveServer(RemoteSyncSM* target)
-        { return (target && target->RemoveFromList(mList)); }
     void ReleaseAllServers()
     {
         while (! mList.empty()) {
@@ -292,6 +303,13 @@ ClientThreadRemoteSyncListEntry::Finish(
     RemoteSyncSM& inSyncSM)
 {
     inSyncSM.FinishSelf();
+}
+
+inline bool
+ClientThreadRemoteSyncListEntry::RemoveFromList(
+    RemoteSyncSM& inSyncSM)
+{
+    return inSyncSM.RemoveFromList();
 }
 
 }

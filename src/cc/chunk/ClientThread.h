@@ -37,6 +37,7 @@ class NetManager;
 class RemoteSyncSM;
 struct KfsOp;
 
+class ClientThreadImpl;
 class ClientThread
 {
 public:
@@ -45,12 +46,6 @@ public:
     void Start();
     void Stop();
     void Add(
-        ClientSM& inClient);
-    bool Handle(
-        ClientSM& inClient,
-        int       inCode,
-        void*     inDataPtr);
-    void Granted(
         ClientSM& inClient);
     void Enqueue(
         RemoteSyncSM& inSyncSM,
@@ -61,10 +56,9 @@ public:
     static ClientThread* GetCurrentClientThreadPtr();
     static QCMutex& GetMutex();
 private:
-    class Impl;
-    Impl& mImpl;
+    ClientThreadImpl& mImpl;
 
-    friend class Impl;
+    friend class ClientThreadImpl;
 private:
     ClientThread(
         const ClientThread& inThread);
