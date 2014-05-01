@@ -18,20 +18,22 @@
 
 package com.quantcast.qfs.hadoop;
 
-import java.io.*;
-import java.net.*;
+import java.io.DataOutput;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.net.URI;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Progressable;
-import org.apache.hadoop.fs.BlockLocation;
 
 import com.quantcast.qfs.access.KfsFileAttr;
 
@@ -56,6 +58,8 @@ public class QuantcastFileSystem extends FileSystem {
 
   public void initialize(URI uri, Configuration conf) throws IOException {
     super.initialize(uri, conf);
+    setConf(conf);
+
     try {
       if (qfsImpl == null) {
         if (uri.getHost() == null) {
@@ -68,11 +72,10 @@ public class QuantcastFileSystem extends FileSystem {
       }
 
       this.localFs = FileSystem.getLocal(conf);
-      this.uri = URI.create(uri.getScheme() + "://" + uri.getAuthority());
+      this.uri = URI.create(uri.getScheme() + "://" +
+          (uri.getAuthority() == null ? "/" : uri.getAuthority()));
       this.workingDir = new Path("/user", System.getProperty("user.name")
                                 ).makeQualified(this);
-      setConf(conf);
-
     } catch (Exception e) {
       e.printStackTrace();
       System.out.println("Unable to initialize QFS");
