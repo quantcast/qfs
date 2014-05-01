@@ -2125,7 +2125,7 @@ private:
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
-        return Apply(theGlob, theErr, theGlob.front().first != theFsPtr,
+        return Apply(theGlob, theGlob.front().first != theFsPtr, theErr,
             theFunc);
     }
     int CopyToLocal(
@@ -2188,7 +2188,7 @@ private:
         FunctorT<CpFunctor, CopyGetlastEntry, true, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
-        return Apply(theGlob, theErr, theGlob.front().first != theFsPtr,
+        return Apply(theGlob, theGlob.front().first != theFsPtr, theErr,
             theFunc);
     }
     class Copier
