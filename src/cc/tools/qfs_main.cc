@@ -869,8 +869,6 @@ private:
                 &theGlobRes
             );
             if (theErr == 0) {
-                outResult.resize(outResult.size() + 1);
-                outResult.back().first = theFsPtr;
                 string thePrefix;
                 if (thePath.empty() || thePath[0] != '/') {
                     string theCwd;
@@ -889,6 +887,11 @@ private:
                         thePrefix += "/";
                     }
                 }
+                if (theGlobRes.gl_pathc <= 0) {
+                    continue;
+                }
+                outResult.resize(outResult.size() + 1);
+                outResult.back().first = theFsPtr;
                 GlobResult::value_type::second_type&
                     theResult = outResult.back().second;
                 theResult.reserve(theGlobRes.gl_pathc);
@@ -1905,6 +1908,9 @@ private:
             ostream&    inErrorStream,
             bool        /* inMoreThanOneFsFlag */ )
         {
+            if (ioGlobError != 0) {
+                return false;
+            }
             if (inGlobResult.size() <= 1 &&
                     inGlobResult.back().second.size() <= 1) {
                 inErrorStream << "source and destination required\n";
