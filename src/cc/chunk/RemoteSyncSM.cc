@@ -30,15 +30,16 @@
 #include "ClientManager.h"
 #include "ClientThread.h"
 
-#include "kfsio/NetManager.h"
-#include "kfsio/SslFilter.h"
-#include "kfsio/Globals.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/kfserrno.h"
+#include "kfsio/NetManager.h"
+#include "kfsio/SslFilter.h"
+#include "kfsio/Globals.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCStUtils.h"
+#include "qcdio/QCDebug.h"
 
 #include <cerrno>
 #include <sstream>

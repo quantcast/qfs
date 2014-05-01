@@ -38,6 +38,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/ChunkAccessToken.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDebug.h"
 
 #include <algorithm>
 #include <string>
