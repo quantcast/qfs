@@ -36,8 +36,8 @@
 #include "kfsio/Globals.h"
 
 #include "qcdio/QCUtils.h"
-#include "qcdio/QCStUtils.h"
 #include "qcdio/QCDebug.h"
+#include "qcdio/qcstutils.h"
 
 namespace KFS
 {

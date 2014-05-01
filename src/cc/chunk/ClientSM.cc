@@ -918,7 +918,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             return false;
         }
         bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
-        if (GetReceiveByteCount() == wop->numBytes) {
+        if (GetReceiveByteCount() == (int)wop->numBytes) {
             wop->receivedChecksum = GetChecksum();
             wop->blocksChecksums.swap(GetBlockChecksums());
         }
