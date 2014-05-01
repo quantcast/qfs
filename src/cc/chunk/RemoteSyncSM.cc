@@ -38,8 +38,8 @@
 #include "kfsio/Globals.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
-#include "qcdio/QCStUtils.h"
-#include "qcdio/QCDebug.h"
+#include "qcdio/qcstutils.h"
+#include "qcdio/qcdebug.h"
 
 #include <cerrno>
 #include <sstream>

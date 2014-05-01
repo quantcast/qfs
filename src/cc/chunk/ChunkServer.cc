@@ -29,7 +29,7 @@
 #include "utils.h"
 
 #include "kfsio/Globals.h"
-#include "qcdio/QCStUtils.h"
+#include "qcdio/qcstutils.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
