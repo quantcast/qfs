@@ -382,8 +382,8 @@ private:
         RemoteSyncSM& inSyncSM)
     {
         ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
-        KfsOp*          thePtr        = theEntry.mOpsHeadPtr;
-        RemoteSyncSMPtr theFinishPtr;
+        KfsOp*                           thePtr   = theEntry.mOpsHeadPtr;
+        RemoteSyncSMPtr                  theFinishPtr;
         // Going out of scope might delete the entry.
         theFinishPtr.swap(theEntry.mFinishPtr);
         theEntry.mOpsHeadPtr = 0;
