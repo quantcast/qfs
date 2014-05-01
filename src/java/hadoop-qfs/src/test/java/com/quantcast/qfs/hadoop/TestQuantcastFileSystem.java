@@ -58,6 +58,11 @@ public class TestQuantcastFileSystem extends TestCase {
   }
 
   // @Test
+  public void testMakeQualified() throws Exception {
+    assertEquals("qfs:/", new Path("/").makeQualified(quantcastFileSystem).toString());
+  }
+
+  // @Test
   // Check all the directory API's in QFS
   public void testDirs() throws Exception {
     Path subDir1 = new Path("dir.1");
