@@ -1302,8 +1302,8 @@ private:
             if (15 <= inLen && inStrPtr[14] == '.') {
                 theTmzPos = 15;
                 while (theTmzPos < inLen &&
-                        0 <= inStrPtr[theTmzPos] &&
-                        inStrPtr[theTmzPos] <= 9) {
+                        '0' <= inStrPtr[theTmzPos] &&
+                        inStrPtr[theTmzPos] <= '9') {
                     theTmzPos++;
                 }
             }
