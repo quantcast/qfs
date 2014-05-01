@@ -30,9 +30,9 @@
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
-#include "qcdio/QCStUtils.h"
-#include "qcdio/QCDebug.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
+#include "qcdio/qcdebug.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
