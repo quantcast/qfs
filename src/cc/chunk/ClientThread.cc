@@ -38,7 +38,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
-#include "kfsio/Checksum.h"
+#include "kfsio/checksum.h"
 
 namespace KFS
 {
