@@ -123,6 +123,8 @@ BEGIN {
     names[i++] = "get_chunk_server_dirs_counters";
     names[i++] = "authenticate";
     names[i++] = "delegate";
+    names[i++] = "delegate_cancel";
+    names[i++] = "set_file_system_info";
     names[i++] = "other";
     names[i++] = "alloc_reuse";
     ncnt = i;

@@ -739,7 +739,7 @@ ClientSM::HandleDelegation(MetaDelegate& op)
     if (mDelegationValidFlag) {
         if (op.fromChunkServerFlag) {
             op.status    = -EPERM;
-            op.statusMsg = "chunk server toke renew is not permitted";
+            op.statusMsg = "chunk server token renew is not permitted";
             return;
         }
         if (renewReqFlag) {
