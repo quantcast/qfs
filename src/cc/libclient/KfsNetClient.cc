@@ -69,6 +69,7 @@ using std::showbase;
 
 const int64_t kMaxSessionTimeout = int64_t(10) * 365 * 24 * 60 * 60;
 const int64_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
+const int64_t kSessionChangeStartInterval = 30 * 60;
 
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
@@ -335,16 +336,19 @@ public:
         OpOwner*  inOwnerPtr,
         IOBuffer* inBufferPtr = 0)
     {
+        const time_t theNow = Now();
         if (mPendingOpQueue.empty() && IsConnected() &&
                 (mSessionKeyId.empty() ?
-                (mSessionExpirationTime < Now() + kSessionUpdateResolutionSec) :
-                ((mSessionExpirationTime + kSessionUpdateResolutionSec <
-                    mKeyExpirationTime ||
-                    mSessionExpirationTime < Now()) &&
-                ! mKeyId.empty() && Now() < mKeyExpirationTime))) {
+                (mSessionExpirationTime < theNow + kSessionUpdateResolutionSec) :
+                ((mSessionExpirationTime <
+                        theNow + kSessionChangeStartInterval &&
+                    (mSessionExpirationTime + kSessionUpdateResolutionSec <
+                        mKeyExpirationTime) ||
+                    mSessionExpirationTime < theNow) &&
+                ! mKeyId.empty() && theNow < mKeyExpirationTime))) {
             KFS_LOG_STREAM_INFO << mLogPrefix <<
                 " updating session by initiating re-connect" <<
-                " expires: +" << (mSessionExpirationTime - Now()) <<
+                " expires: +" << (mSessionExpirationTime - theNow) <<
             KFS_LOG_EOM;
             ResetConnection();
         }
