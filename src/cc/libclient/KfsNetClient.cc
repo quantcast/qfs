@@ -67,9 +67,9 @@ using std::max;
 using std::hex;
 using std::showbase;
 
-const int64_t kMaxSessionTimeout = int64_t(10) * 365 * 24 * 60 * 60;
-const int64_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
-const int64_t kSessionChangeStartInterval = 30 * 60;
+const int64_t kMaxSessionTimeout             = int64_t(10) * 365 * 24 * 60 * 60;
+const int64_t kSessionUpdateResolutionSec    = LEASE_INTERVAL_SECS / 2;
+const int64_t kSessionChangeStartIntervalSec = 30 * 60;
 
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
@@ -340,9 +340,9 @@ public:
         if (mPendingOpQueue.empty() && IsConnected() &&
                 (mSessionKeyId.empty() ?
                 (mSessionExpirationTime < theNow + kSessionUpdateResolutionSec) :
-                ((mSessionExpirationTime <
-                        theNow + kSessionChangeStartInterval &&
-                    (mSessionExpirationTime + kSessionUpdateResolutionSec <
+                (((mSessionExpirationTime <
+                        theNow + kSessionChangeStartIntervalSec &&
+                    mSessionExpirationTime + kSessionUpdateResolutionSec <
                         mKeyExpirationTime) ||
                     mSessionExpirationTime < theNow) &&
                 ! mKeyId.empty() && theNow < mKeyExpirationTime))) {
