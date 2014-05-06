@@ -178,27 +178,27 @@ private:
     > DispatchedOps;
     class Auth;
 
-    NetConnectionPtr    mNetConnection;
-    ServerLocation      mLocation;
+    NetConnectionPtr   mNetConnection;
+    ServerLocation     mLocation;
     /// Assign a sequence # for each op we send to the remote server
-    kfsSeq_t            mSeqnum;
+    kfsSeq_t           mSeqnum;
     /// Queue of outstanding ops sent to remote server.
-    DispatchedOps       mDispatchedOps;
-    kfsSeq_t            mReplySeqNum;
-    int                 mReplyNumBytes;
-    int                 mRecursionCount;
-    time_t              mLastRecvTime;
-    string              mSessionId;
-    CryptoKeys::Key     mSessionKey;
-    bool                mShutdownSslFlag;
-    bool                mSslShutdownInProgressFlag;
-    time_t              mCurrentSessionExpirationTime;
-    time_t              mSessionExpirationTime;
-    IOBuffer::IStream   mIStream;
-    IOBuffer::WOStream  mWOStream;
-    SMList*             mList;
-    SMList::iterator    mListIt;
-    int                 mConnectCount;
+    DispatchedOps      mDispatchedOps;
+    kfsSeq_t           mReplySeqNum;
+    int                mReplyNumBytes;
+    int                mRecursionCount;
+    time_t             mLastRecvTime;
+    string             mSessionId;
+    CryptoKeys::Key    mSessionKey;
+    bool               mShutdownSslFlag;
+    bool               mSslShutdownInProgressFlag;
+    int64_t            mCurrentSessionExpirationTime;
+    int64_t            mSessionExpirationTime;
+    IOBuffer::IStream  mIStream;
+    IOBuffer::WOStream mWOStream;
+    SMList*            mList;
+    SMList::iterator   mListIt;
+    int                mConnectCount;
 
     RemoteSyncSM(
         const ServerLocation& location,

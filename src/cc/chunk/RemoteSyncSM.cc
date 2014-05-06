@@ -392,13 +392,16 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         mNetConnection.reset();
     }
     op->seq = NextSeqnum();
-    const time_t now                         = GetNetManager().Now();
-    const time_t kSessionUpdateResolutionSec = LEASE_INTERVAL_SECS / 2;
+    const time_t now                             = globalNetManager().Now();
+    const int64_t kSessionUpdateResolutionSec    = LEASE_INTERVAL_SECS / 2;
+    const int64_t kSessionUpdateStartIntervalSec = 30 * 60;
     if (mNetConnection && ! mSessionId.empty()) {
         if (mDispatchedOps.empty() &&
-                (mCurrentSessionExpirationTime + kSessionUpdateResolutionSec <
-                    mSessionExpirationTime ||
-                        mCurrentSessionExpirationTime <= now) &&
+                ((mCurrentSessionExpirationTime <
+                    now + kSessionUpdateStartIntervalSec &&
+                mCurrentSessionExpirationTime +
+                    kSessionUpdateResolutionSec < mSessionExpirationTime) ||
+                mCurrentSessionExpirationTime <= now) &&
                 now < mSessionExpirationTime) {
             KFS_LOG_STREAM_INFO <<
                 "peer: " << mLocation <<
@@ -763,7 +766,7 @@ RemoteSyncSM::FinishSelf()
     RemoveFromList();
 }
 
-inline static time_t
+inline static int64_t
 GetExpirationTime(
     const char* sessionTokenPtr,
     int         sessionTokenLen,
@@ -807,7 +810,7 @@ RemoteSyncSM::UpdateSession(
     if (now + LEASE_INTERVAL_SECS <= mSessionExpirationTime) {
         return false;
     }
-    const time_t expTime = GetExpirationTime(
+    const int64_t expTime = GetExpirationTime(
         sessionTokenPtr, sessionTokenLen, err, errMsg);
     if (err) {
         return false;
