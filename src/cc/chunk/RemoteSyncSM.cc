@@ -912,9 +912,11 @@ RemoteSyncSM::Create(
         err    = -EHOSTUNREACH;
         peer.reset();
     }
-    KFS_LOG_STREAM_ERROR <<
-        "failed to forward: " << errMsg << " status: " << err <<
-    KFS_LOG_EOM;
+    if (! peer) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to forward: " << errMsg << " status: " << err <<
+        KFS_LOG_EOM;
+    }
     return peer;
 }
 
