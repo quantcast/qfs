@@ -2982,7 +2982,7 @@ KfsClientImpl::UpdateFattr(
                 InvalidateCachedAttrsWithPathPrefix(path, fa);
             }
         }
-        UpdatePath(fa, path);
+        UpdatePath(fa, path, copyPathFlag);
         FAttrLru::PushBack(mFAttrLru, *fa);
     } else if (! (fa = NewFAttr(parentFid, name,
             copyPathFlag ? path : string(path.data(), path.size())))) {
