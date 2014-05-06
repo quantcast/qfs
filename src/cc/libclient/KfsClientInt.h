@@ -977,9 +977,19 @@ private:
     void InvalidateAttributeAndCounts(const string& path)
         { InvalidateAttribute(path, true, true); }
     void ValidateFAttrCache(time_t now, int maxScan);
-    void UpdatePath(KfsClientImpl::FAttr* fa, const string& path,
+    void UpdatePath(FAttr* fa, const string& path,
         bool copyPathFlag = true);
     const char* GetTmpAbsPath(const char* pathname, size_t& ioLen);
+    bool InvalidateCachedAttrsWithPathPrefix(const string& path,
+        const FAttr* doNotDeleteFa = 0);
+    bool UpdateFattr(
+        kfsFileId_t     parentFid,
+        const string&   name,
+        FAttr*&         fa,
+        const string&   path,
+        const FileAttr& fattr,
+        time_t          now,
+        bool            copyPathFlag = false);
     void UpdateUserAndGroup(const LookupOp& op, time_t now);
     void DoNotUseOsUserAndGroup();
     void UpdateUserId(const string& userName, kfsUid_t uid, time_t now);
