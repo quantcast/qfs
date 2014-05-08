@@ -1219,6 +1219,8 @@ FileSystem::Get(
     }
     if (outPathPtr) {
         *outPathPtr = theParts[5];
+        *outPathPtr += theParts[6];
+        *outPathPtr += theParts[8];
     }
     string theScheme(theParts[2]);
     if (theScheme.empty()) {
