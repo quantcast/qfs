@@ -766,19 +766,17 @@ private:
         void OpDone(
             bool inCanceledFlag)
         {
-            if (mOwnerPtr) {
-                if (mOpPtr) {
-                    KfsOp* const theOpPtr = mOpPtr;
-                    mOpPtr = 0;
-                    mOwnerPtr->OpDone(theOpPtr, inCanceledFlag, mBufferPtr);
+            KfsOp*    const theOpPtr     = mOpPtr;
+            OpOwner*  const theOwnerPtr  = mOwnerPtr;
+            IOBuffer* const theBufferPtr = mBufferPtr;
+            Clear();
+            if (theOwnerPtr) {
+                if (theOpPtr) {
+                    theOwnerPtr->OpDone(theOpPtr, inCanceledFlag, theBufferPtr);
                 }
-                mOwnerPtr  = 0;
-                mBufferPtr = 0;
             } else {
-                delete mOpPtr;
-                delete mBufferPtr;
-                mBufferPtr = 0;
-                mOpPtr     = 0;
+                delete theOpPtr;
+                delete theBufferPtr;
             }
         }
         void Clear()
@@ -1257,7 +1255,7 @@ private:
             }
         }
         RetryAll(inLastOpPtr);
-        if (mLookupOp.seq >= 0) {
+        if (0 <= mLookupOp.seq) {
             EnqueueAuth(mLookupOp);
         }
     }
@@ -1280,23 +1278,18 @@ private:
             if (! theEntry.mOpPtr) {
                 continue;
             }
-            if (theIt->second.mOwnerPtr) {
-                if (theEntry.mRetryCount > mMaxRetryCount) {
-                    mStats.mOpsTimeoutCount++;
-                    theEntry.mOpPtr->status = kErrorMaxRetryReached;
-                    theEntry.Done();
-                } else {
-                    if (inLastOpPtr != theEntry.mOpPtr &&
-                            theEntry.mRetryCount > 0) {
-                        mStats.mOpsRetriedCount++;
-                    }
-                    EnqueueSelf(theEntry.mOpPtr, theEntry.mOwnerPtr,
-                        theEntry.mBufferPtr, theEntry.mRetryCount);
-                    theEntry.Clear();
-                }
+            if (theEntry.mRetryCount > mMaxRetryCount) {
+                mStats.mOpsTimeoutCount++;
+                theEntry.mOpPtr->status = kErrorMaxRetryReached;
+                theEntry.Done();
             } else {
-                mStats.mOpsCancelledCount++;
-                theEntry.Cancel();
+                if (inLastOpPtr != theEntry.mOpPtr &&
+                        theEntry.mRetryCount > 0) {
+                    mStats.mOpsRetriedCount++;
+                }
+                EnqueueSelf(theEntry.mOpPtr, theEntry.mOwnerPtr,
+                    theEntry.mBufferPtr, theEntry.mRetryCount);
+                theEntry.Clear();
             }
         }
         mQueueStack.erase(theIt);
@@ -1308,11 +1301,13 @@ private:
         if (! mConnPtr) {
             return;
         }
-        if (mLookupOp.seq >= 0) {
+        if (0 <= mLookupOp.seq) {
             Cancel(&mLookupOp, this);
+            mLookupOp.seq = -1;
         }
-        if (mAuthOp.seq >= 0) {
+        if (0 <= mAuthOp.seq) {
             Cancel(&mAuthOp, this);
+            mAuthOp.seq = -1;
         }
         mConnPtr->Close();
         mConnPtr->GetInBuffer().Clear();
