@@ -418,7 +418,7 @@ qfstoolpidf="qfstooltest${pidsuf}"
 qfstoolmeta="$metahost:$metasrvport" \
 qfstooltrace=on \
 qfstoolrootauthcfg=$qfstoolrootauthcfg \
-qfs_tool-test.sh 1>qfs_tool-test.out 2>qfs_tool-test.log &
+qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' 1>qfs_tool-test.out 2>qfs_tool-test.log &
 qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"
 

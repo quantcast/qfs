@@ -5690,7 +5690,8 @@ ChunkManager::CheckChunkDirs()
             }
             if (it->checkDirFlightFlag ||
                     it->bufferedIoFlag != dit->second.mBufferedIoFlag ||
-                    (0 < mFileSystemId && it->fileSystemId != mFileSystemId)) {
+                    (0 < mFileSystemId &&
+                        dit->second.mFileSystemId != mFileSystemId)) {
                 // Add it back, and wait in flight op completion, or re-check
                 // with the current buffered io flag, or if file system id
                 // still doesn't match.
@@ -5708,6 +5709,7 @@ ChunkManager::CheckChunkDirs()
                     die(it->dirname + ": failed to find disk queue");
                 }
                 it->availableSpace              = 0;
+                it->fileSystemId                = dit->second.mFileSystemId;
                 it->deviceId                    = dit->second.mDeviceId;
                 it->dirLock                     = dit->second.mLockFdPtr;
                 it->supportsSpaceReservatonFlag =
