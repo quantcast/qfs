@@ -1323,6 +1323,7 @@ KfsClientImpl::ClientsList* KfsClientImpl::ClientsList::sInstance =
 
 KfsClientImpl::KfsClientImpl()
     : mMutex(),
+      mReadCompletionMutex(),
       mIsInitialized(false),
       mMetaServerLoc(),
       mNetManager(),

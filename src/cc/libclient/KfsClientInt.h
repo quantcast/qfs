@@ -634,6 +634,7 @@ private:
     enum { MAX_FILES = 128 << 10 };
 
     QCMutex mMutex;
+    QCMutex mReadCompletionMutex;
 
     /// Seed to the random number generator
     bool    mIsInitialized;
