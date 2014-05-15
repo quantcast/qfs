@@ -969,6 +969,31 @@ private:
         mLastAppendActivityTime = Now();
         StartAppend();
     }
+    void ChunkServerSetKey(
+        const char* inTokenPtr,
+        size_t      inTokenLength,
+        const char* inKeyPtr,
+        size_t      inKeyLength)
+    {
+        KfsNetClient& theChunkServer = GetChunkServer();
+        theChunkServer.SetKey(
+            inTokenPtr,
+            inTokenLength,
+            inKeyPtr,
+            inKeyLength
+        );
+        if (&theChunkServer != &mChunkServer) {
+            // With the server pool, update the key of the dedicated chunk
+            // server here. This is needed to make the first round of recovery
+            // work, as the first round will attempt to use this key.
+            mChunkServer.SetKey(
+                inTokenPtr,
+                inTokenLength,
+                inKeyPtr,
+                inKeyLength
+            );
+        }
+    }
     void AllocateWriteId()
     {
         QCASSERT(mAllocOp.chunkId > 0 && ! mAllocOp.chunkServers.empty());
@@ -1015,11 +1040,11 @@ private:
             } else {
                 mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
                 mCSAccessExpireTime    = mChunkAccessExpireTime;
-                GetChunkServer().SetKey(0, 0, 0, 0);
+                ChunkServerSetKey(0, 0, 0, 0);
                 GetChunkServer().SetAuthContext(0);
             }
         } else {
-            GetChunkServer().SetKey(
+            ChunkServerSetKey(
                 mAllocOp.chunkServerAccessToken.data(),
                 mAllocOp.chunkServerAccessToken.size(),
                 mAllocOp.chunkServerAccessKey.GetPtr(),
@@ -1093,7 +1118,7 @@ private:
         }
         if (0 < inOp.accessResponseValidForSec &&
                 ! inOp.chunkServerAccessId.empty()) {
-            GetChunkServer().SetKey(
+            ChunkServerSetKey(
                 inOp.chunkServerAccessId.data(),
                 inOp.chunkServerAccessId.size(),
                 inOp.chunkServerAccessKey.GetPtr(),
