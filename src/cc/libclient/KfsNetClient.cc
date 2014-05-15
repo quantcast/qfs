@@ -1255,7 +1255,8 @@ private:
             }
         }
         RetryAll(inLastOpPtr);
-        if (0 <= mLookupOp.seq) {
+        const kfsSeq_t theLookupSeq = mLookupOp.seq;
+        if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
             EnqueueAuth(mLookupOp);
         }
     }
@@ -1298,8 +1299,11 @@ private:
     {
         CancelInFlightOp();
         mOutstandingOpPtr = 0;
-        if (! mConnPtr) {
-            return;
+        if (mConnPtr) {
+            mConnPtr->Close();
+            mConnPtr->GetInBuffer().Clear();
+            mConnPtr->SetOwningKfsCallbackObj(0);
+            mConnPtr.reset();
         }
         if (0 <= mLookupOp.seq) {
             Cancel(&mLookupOp, this);
@@ -1309,10 +1313,6 @@ private:
             Cancel(&mAuthOp, this);
             mAuthOp.seq = -1;
         }
-        mConnPtr->Close();
-        mConnPtr->GetInBuffer().Clear();
-        mConnPtr->SetOwningKfsCallbackObj(0);
-        mConnPtr.reset();
         mReadHeaderDoneFlag        = false;
         mContentLength             = 0;
         mSslShutdownInProgressFlag = false;
