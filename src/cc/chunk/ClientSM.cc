@@ -1302,9 +1302,17 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
         case CMD_CLOSE:
             if ((op.chunkAccessFlags & (ChunkAccessToken::kAllowReadFlag |
                     ChunkAccessToken::kAllowWriteFlag)) == 0) {
-                op.statusMsg = "chunk access: no access";
+                op.statusMsg = "chunk access: no rw access";
                 op.status    = -EPERM;
                 return false;
+            }
+            break;
+        case CMD_GET_RECORD_APPEND_STATUS:
+            if ((op.chunkAccessFlags &
+                    (ChunkAccessToken::kAppendRecoveryFlag |
+                    ChunkAccessToken::kAllowWriteFlag)) == 0) {
+                op.statusMsg = "chunk access: invalid status recovery access";
+                op.status    = -EPERM;
             }
             break;
         default:

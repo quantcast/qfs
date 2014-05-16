@@ -1149,19 +1149,20 @@ struct LeaseAcquireOp : public KfsOp {
     enum { kMaxChunkIds = 256 };
     BOOST_STATIC_ASSERT(kMaxChunkIds * 21 + (1<<10) < MAX_RPC_HEADER_LEN);
 
-    kfsChunkId_t  chunkId;      // input
-    const char*   pathname;     // input
-    bool          flushFlag;    // input
-    int           leaseTimeout; // input
-    int64_t       leaseId;      // output
-    int           chunkAccessCount;
-    int64_t       chunkServerAccessValidForTime;
-    int64_t       chunkServerAccessIssuedTime;
-    bool          allowCSClearTextFlag;
-    bool          appendRecoveryFlag;
-    kfsChunkId_t* chunkIds;
-    int64_t*      leaseIds;
-    bool          getChunkLocationsFlag;
+    kfsChunkId_t           chunkId;      // input
+    const char*            pathname;     // input
+    bool                   flushFlag;    // input
+    int                    leaseTimeout; // input
+    int64_t                leaseId;      // output
+    int                    chunkAccessCount;
+    int64_t                chunkServerAccessValidForTime;
+    int64_t                chunkServerAccessIssuedTime;
+    bool                   allowCSClearTextFlag;
+    bool                   appendRecoveryFlag;
+    vector<ServerLocation> appendRecoveryLocations;
+    kfsChunkId_t*          chunkIds;
+    int64_t*               leaseIds;
+    bool                   getChunkLocationsFlag;
 
     LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char* p)
         : KfsOp(CMD_LEASE_ACQUIRE, s),
@@ -1175,6 +1176,7 @@ struct LeaseAcquireOp : public KfsOp {
           chunkServerAccessIssuedTime(0),
           allowCSClearTextFlag(false),
           appendRecoveryFlag(false),
+          appendRecoveryLocations(),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)

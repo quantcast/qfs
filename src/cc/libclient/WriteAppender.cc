@@ -105,6 +105,7 @@ public:
           mPreAllocationFlag(inPreAllocationFlag),
           mErrorCode(0),
           mSpaceAvailable(0),
+          mSpaceReserveDisconnectCount(0),
           mRetryCount(0),
           mAppendRestartRetryCount(0),
           mWriteThreshold(inWriteThreshold),
@@ -490,6 +491,7 @@ private:
     bool                    mPreAllocationFlag;
     int                     mErrorCode;
     int                     mSpaceAvailable;
+    int64_t                 mSpaceReserveDisconnectCount;
     int                     mRetryCount;
     int                     mAppendRestartRetryCount;
     int                     mWriteThreshold;
@@ -913,10 +915,21 @@ private:
             (mClosingFlag || mBuffer.BytesConsumable() >= mWriteThreshold)
         );
     }
+    void UpdateSpaceAvailable()
+    {
+        // Chunk server automatically release reserved space in the event of
+        // disconnect. With the server pool detect disconnect / reconnects, and
+        // set the available space accordingly.
+        if (0 < mSpaceAvailable && mSpaceReserveDisconnectCount !=
+                GetChunkServer().GetDisconnectCount()) {
+            mSpaceAvailable = 0;
+        }
+    }
     bool ReserveSpace(
         bool inCheckAppenderFlag = false)
     {
         QCASSERT(mAllocOp.chunkId > 0 && ! mWriteIds.empty());
+        UpdateSpaceAvailable();
         const int theSpaceNeeded = mWriteQueue.empty() ?
             ((mSpaceAvailable <= 0 && ! mClosingFlag) ?
                 mDefaultSpaceReservationSize : 0) :
@@ -967,6 +980,7 @@ private:
         }
         mSpaceAvailable += inOp.numBytes;
         mLastAppendActivityTime = Now();
+        mSpaceReserveDisconnectCount = GetChunkServer().GetDisconnectCount();
         StartAppend();
     }
     void ChunkServerSetKey(
@@ -1306,6 +1320,7 @@ private:
     }
     void SpaceRelease()
     {
+        UpdateSpaceAvailable();
         if (mSpaceAvailable <= 0) {
             StartAppend();
             return;
@@ -1344,13 +1359,20 @@ private:
         Reset(mLeaseAcquireOp);
         mLeaseAcquireOp.chunkId  = mAllocOp.chunkId;
         mLeaseAcquireOp.pathname = mAllocOp.pathname.c_str();
-        mLeaseAcquireOp.leaseId  = -1;
+        mLeaseAcquireOp.leaseId                       = -1;
         mLeaseAcquireOp.chunkAccessCount              = 0;
         mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
         mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
         mLeaseAcquireOp.allowCSClearTextFlag          = false;
         mLeaseAcquireOp.appendRecoveryFlag            = true;
+        mLeaseAcquireOp.appendRecoveryLocations.clear();
         mChunkServerAccess.Clear();
+        const size_t theSize = mWriteIds.size();
+        mLeaseAcquireOp.appendRecoveryLocations.reserve(theSize);
+        for (size_t i = 0; i < theSize; i++) {
+            mLeaseAcquireOp.appendRecoveryLocations.push_back(
+                mWriteIds[i].serverLoc);
+        }
         EnqueueMeta(mLeaseAcquireOp);
     }
     void Done(

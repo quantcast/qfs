@@ -2893,6 +2893,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
     bool               getChunkLocationsFlag;
     bool               appendRecoveryFlag;
+    string             appendRecoveryLocations;
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
@@ -2909,6 +2910,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           chunkIds(),
           getChunkLocationsFlag(false),
           appendRecoveryFlag(false),
+          appendRecoveryLocations(),
           responseBuf(),
           chunkAccess()
           {}
@@ -2932,13 +2934,14 @@ struct MetaLeaseAcquire: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Pathname",          &MetaLeaseAcquire::pathname                         )
-        .Def("Chunk-handle",      &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
-        .Def("Flush-write-lease", &MetaLeaseAcquire::flushFlag,    false              )
-        .Def("Lease-timeout",     &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
-        .Def("Chunk-ids",         &MetaLeaseAcquire::chunkIds)
-        .Def("Get-locations",     &MetaLeaseAcquire::getChunkLocationsFlag,      false)
-        .Def("Append-recovery",   &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("Pathname",            &MetaLeaseAcquire::pathname                         )
+        .Def("Chunk-handle",        &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def("Flush-write-lease",   &MetaLeaseAcquire::flushFlag,    false              )
+        .Def("Lease-timeout",       &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
+        .Def("Chunk-ids",           &MetaLeaseAcquire::chunkIds)
+        .Def("Get-locations",       &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def("Append-recovery",     &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("Append-recovery-loc", &MetaLeaseAcquire::appendRecoveryLocations)
         ;
     }
 };

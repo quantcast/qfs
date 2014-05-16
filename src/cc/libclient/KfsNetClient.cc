@@ -135,6 +135,7 @@ public:
           mOstream(),
           mProperties(),
           mStats(),
+          mDisconnectCount(0),
           mEventObserverPtr(0),
           mLogPrefix((inLogPrefixPtr && inLogPrefixPtr[0]) ?
                 (inLogPrefixPtr + string(" ")) : string()),
@@ -153,6 +154,8 @@ public:
     }
     bool IsConnected() const
         { return (mConnPtr && mConnPtr->IsGood()); }
+    int64_t GetDisconnectCount() const
+        { return mDisconnectCount; }
     bool Start(
         string             inServerName,
         int                inServerPort,
@@ -835,6 +838,7 @@ private:
     IOBuffer::WOStream mOstream;
     Properties         mProperties;
     Stats              mStats;
+    int64_t            mDisconnectCount;
     EventObserver*     mEventObserverPtr;
     const string       mLogPrefix;
     NetManager&        mNetManager;
@@ -1254,8 +1258,8 @@ private:
                 mNextSeqNum++; // Leave one slot for mAuthOp
             }
         }
-        RetryAll(inLastOpPtr);
         const kfsSeq_t theLookupSeq = mLookupOp.seq;
+        RetryAll(inLastOpPtr);
         if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
             EnqueueAuth(mLookupOp);
         }
@@ -1304,6 +1308,7 @@ private:
             mConnPtr->GetInBuffer().Clear();
             mConnPtr->SetOwningKfsCallbackObj(0);
             mConnPtr.reset();
+            mDisconnectCount++;
         }
         if (0 <= mLookupOp.seq) {
             Cancel(&mLookupOp, this);
@@ -1639,6 +1644,13 @@ KfsNetClient::IsConnected() const
 {
     Impl::StRef theRef(mImpl);
     return mImpl.IsConnected();
+}
+
+    int64_t
+KfsNetClient::GetDisconnectCount() const
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.GetDisconnectCount();
 }
 
     bool

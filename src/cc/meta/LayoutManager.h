@@ -58,6 +58,7 @@
 #include "CSMap.h"
 #include "ChunkPlacement.h"
 #include "AuthContext.h"
+#include "common/RequestParser.h"
 
 #include <map>
 #include <vector>
@@ -1810,6 +1811,13 @@ protected:
 
     /// List of connected chunk servers.
     Servers mChunkServers;
+    typedef map<
+        ServerLocation,
+        ChunkServerPtr,
+        less<ServerLocation>,
+        StdFastAllocator<pair<const ServerLocation, ChunkServerPtr> >
+    > ChunkServersMap;
+    ChunkServersMap mChunkServersMap;
 
     /// List of servers that are hibernating; if they don't wake up
     /// the time the hibernation period ends, the blocks on those
@@ -2081,6 +2089,7 @@ protected:
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
 
+    BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;
     StTmp<Servers>::Tmp                 mServersTmp;

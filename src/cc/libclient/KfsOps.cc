@@ -657,6 +657,14 @@ LeaseAcquireOp::Request(ostream &os)
     }
     if (appendRecoveryFlag) {
         os << "Append-recovery: 1\r\n";
+        const size_t cnt = appendRecoveryLocations.size();
+        if (0 < cnt) {
+            os << "Append-recovery-loc:";
+            for (size_t i = 0; i < cnt; i++) {
+                os << " " << appendRecoveryLocations[i];
+            }
+            os << "\r\n";
+        }
     }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << "Chunk-ids:";

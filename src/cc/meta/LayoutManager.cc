@@ -1274,6 +1274,8 @@ LayoutManager::LayoutManager() :
     mChunkReplicator(5 * 1000),
     mCheckpoint(5 * 1000),
     mMinChunkserversToExitRecovery(1),
+    mChunkServers(),
+    mChunkServersMap(),
     mMastersCount(0),
     mSlavesCount(0),
     mAssignMasterByIpFlag(false),
@@ -1433,6 +1435,7 @@ LayoutManager::LayoutManager() :
     mFileSystemIdRequiredFlag(false),
     mDeleteChunkOnFsIdMismatchFlag(false),
     mFileRecoveryInFlightCount(),
+    mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
     mServersTmp(),
@@ -2600,6 +2603,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         return;
     }
     mChunkServers.push_back(r->server);
+    mChunkServersMap[r->server->GetServerLocation()] = r->server;
 
     const uint64_t allocSpace = r->chunks.size() * CHUNKSIZE;
     srv.SetSpace(r->totalSpace, r->usedSpace, allocSpace);
@@ -4103,6 +4107,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
             panic("remove server failure");
         }
     }
+    mChunkServersMap.erase((*i)->GetServerLocation());
     mChunkServers.erase(i);
     if (! mAssignMasterByIpFlag &&
             mMastersCount == 0 && ! mChunkServers.empty()) {
@@ -5549,7 +5554,9 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return -EBUSY;
     }
     const CSMap::Entry* const cs = mChunkToServerMap.Find(req->chunkId);
-    if (! cs || ! mChunkToServerMap.HasServers(*cs)) {
+    if ((! cs || ! mChunkToServerMap.HasServers(*cs)) &&
+            (req->fromChunkServerFlag || ! req->appendRecoveryFlag ||
+                req->appendRecoveryLocations.empty())) {
         req->statusMsg = cs ? "no replica available" : "no such chunk";
         return (cs ? -EAGAIN : -EINVAL);
     }
@@ -5560,7 +5567,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             req->statusMsg = "no chunk recovery is in flight for this file";
             return -EACCES;
         }
-    } else if (mVerifyAllOpsPermissionsFlag &&
+    } else if (mVerifyAllOpsPermissionsFlag && cs &&
             ((0 <= req->leaseTimeout && ! req->appendRecoveryFlag &&
                 ! cs->GetFattr()->CanRead(req->euser, req->egroup)) ||
             ((req->flushFlag || req->appendRecoveryFlag) &&
@@ -5568,15 +5575,55 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return -EACCES;
     }
     if (req->appendRecoveryFlag) {
+        if (! mClientCSAuthRequiredFlag || req->authUid == kKfsUserNone) {
+            return 0;
+        }
         // Leases are irrelevant, the client just need to talk to the write
         // slaves to recover the its last append rpc status.
         // To avoid lease lookup, and to handle the case where no write lease
-        // exists return access tokes to all servers. It is possible that on of
+        // exists return access tokes to all servers. It is possible that one of
         // the server is or was the write master -- without the corresponding
-        // write lease, or the client explicitly telling this it is not
+        // write lease, or the client explicitly telling this, it is not
         // possible, to determine which one was the master.
-        if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
+        if (req->appendRecoveryLocations.empty()) {
+            assert(cs);
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
+        } else {
+            // Ensure that the client isn't trying to get recovery for in flight
+            // allocations.
+            // Chunk might already be deleted. The chunk server keeps append
+            // status information after the chunk deletion.
+            // Give the client access to the chunk server it requests with
+            // the chunk access tokens that only permit append status recovery.
+            if (! cs) {
+                if (chunkID.id() < req->chunkId) {
+                    req->statusMsg = "invalid chunk id";
+                    return -EINVAL; 
+                }
+                if (0 < GetInFlightChunkOpsCount(
+                        req->chunkId, META_CHUNK_ALLOCATE)) {
+                    req->statusMsg = "chunk allocation in flight";
+                    return -EINVAL; 
+                }
+            }
+            MetaLeaseAcquire::ChunkAccessInfo info(
+                ServerLocation(), req->chunkId, req->authUid);
+            req->chunkAccess.Clear();
+            istream& is = mTmpParseStream.Set(
+                req->appendRecoveryLocations.data(),
+                req->appendRecoveryLocations.size());
+            while ((is >> info.serverLocation)) {
+                if (info.serverLocation.IsValid()) {
+                    ChunkServersMap::const_iterator const it =
+                        mChunkServersMap.find(info.serverLocation);
+                    if (it != mChunkServersMap.end()) {
+                        if (it->second->GetCryptoKey(info.keyId, info.key)) {
+                            req->chunkAccess.Append(info);
+                        }
+                    }
+                }
+            }
+            mTmpParseStream.Reset();
         }
         return 0;
     }

@@ -4241,7 +4241,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
                     ptr->keyId,
                     issuedTime,
                     (appendRecoveryFlag ?
-                        ChunkAccessToken::kAllowWriteFlag :
+                        ChunkAccessToken::kAppendRecoveryFlag :
                         ChunkAccessToken::kAllowReadFlag) |
                         (clientCSAllowClearTextFlag ?
                             ChunkAccessToken::kAllowClearTextFlag : 0),

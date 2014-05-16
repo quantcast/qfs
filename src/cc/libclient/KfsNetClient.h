@@ -169,6 +169,7 @@ public:
         ClientAuthContext* mAuthContextPtr                  = 0);
     virtual ~KfsNetClient();
     bool IsConnected() const;
+    int64_t GetDisconnectCount() const; // Used to detect disconnects
     bool Start(
         string             inServerName,
         int                inServerPort,
