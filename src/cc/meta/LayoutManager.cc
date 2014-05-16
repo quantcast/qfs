@@ -5598,12 +5598,12 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             if (! cs) {
                 if (chunkID.id() < req->chunkId) {
                     req->statusMsg = "invalid chunk id";
-                    return -EINVAL; 
+                    return -EINVAL;
                 }
                 if (0 < GetInFlightChunkOpsCount(
                         req->chunkId, META_CHUNK_ALLOCATE)) {
                     req->statusMsg = "chunk allocation in flight";
-                    return -EINVAL; 
+                    return -EINVAL;
                 }
             }
             MetaLeaseAcquire::ChunkAccessInfo info(
