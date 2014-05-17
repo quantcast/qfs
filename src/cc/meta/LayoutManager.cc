@@ -1120,6 +1120,31 @@ public:
     }
 };
 
+inline LayoutManager::Servers::const_iterator
+LayoutManager::FindServer(const ServerLocation& loc) const
+{
+    Servers::const_iterator const it = lower_bound(
+        mChunkServers.begin(), mChunkServers.end(),
+        loc, bind(&ChunkServer::GetServerLocation, _1) < loc
+    );
+    return ((it == mChunkServers.end() || (*it)->GetServerLocation() == loc) ?
+        it : mChunkServers.end());
+}
+
+template<typename T>
+inline LayoutManager::Servers::const_iterator
+LayoutManager::FindServerByHost(const T& host) const
+{
+    const ServerLocation loc(host, -1);
+    Servers::const_iterator const it = lower_bound(
+        mChunkServers.begin(), mChunkServers.end(),
+        loc, bind(&ChunkServer::GetServerLocation, _1) < loc
+    );
+    return ((it == mChunkServers.end() ||
+            (*it)->GetServerLocation().hostname == loc.hostname) ?
+        it : mChunkServers.end());
+}
+
 inline CSMap::Entry&
 LayoutManager::GetCsEntry(MetaChunkInfo& chunkInfo)
 {
@@ -1275,7 +1300,6 @@ LayoutManager::LayoutManager() :
     mCheckpoint(5 * 1000),
     mMinChunkserversToExitRecovery(1),
     mChunkServers(),
-    mChunkServersMap(),
     mMastersCount(0),
     mSlavesCount(0),
     mAssignMasterByIpFlag(false),
@@ -2486,23 +2510,6 @@ LayoutManager::GetChunkServerDirCounters(IOBuffer& buf)
     buf.Copy(&mCSDirCountersResponse, mCSDirCountersResponse.BytesConsumable());
 }
 
-//
-// Try to match servers by hostname: for write allocation, we'd like to place
-// one copy of the block on the same host on which the client is running.
-//
-template <typename T>
-class HostNameEqualsTo
-{
-    const T& host;
-public:
-    HostNameEqualsTo(const T &h) : host(h) {}
-    bool operator()(const ChunkServerPtr &s) const {
-        return s->GetServerLocation().hostname == host;
-    }
-};
-template <typename T> HostNameEqualsTo<T>
-MatchServerByHost(const T& host) { return HostNameEqualsTo<T>(host); }
-
 void
 LayoutManager::UpdateDelayedRecovery(const MetaFattr& fa,
         bool forceUpdateFlag /* = false */)
@@ -2570,14 +2577,18 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (r->server->IsDown()) {
         return;
     }
-    ChunkServer& srv = *r->server.get();
-    srv.SetServerLocation(r->location);
+    ChunkServer&          srv   = *r->server.get();
+    const ServerLocation& srvId = srv.GetServerLocation();
+    if (srvId != r->location || ! srvId.IsValid()) {
+        panic("invalid server location");
+        return;
+    }
 
-    const string srvId = r->location.ToString();
-    Servers::iterator const existing = find_if(
+    Servers::iterator existing = lower_bound(
         mChunkServers.begin(), mChunkServers.end(),
-        MatchingServer(r->location));
-    if (existing != mChunkServers.end()) {
+        srvId, bind(&ChunkServer::GetServerLocation, _1) < srvId);
+    if (existing != mChunkServers.end() &&
+            (*existing)->GetServerLocation() == srvId) {
         KFS_LOG_STREAM_DEBUG << "duplicate server: " << srvId <<
             " possible reconnect, taking: " <<
                 (const void*)existing->get() << " down " <<
@@ -2586,6 +2597,13 @@ LayoutManager::AddNewServer(MetaHello *r)
         ServerDown(*existing);
         if (srv.IsDown()) {
             return;
+        }
+        existing = lower_bound(
+            mChunkServers.begin(), mChunkServers.end(),
+            srvId,
+            bind(&ChunkServer::GetServerLocation, _1) < srvId);
+        if ((*existing)->GetServerLocation() == srvId) {
+            panic("duplicate server");
         }
     }
 
@@ -2602,12 +2620,11 @@ LayoutManager::AddNewServer(MetaHello *r)
         srv.ForceDown();
         return;
     }
-    mChunkServers.push_back(r->server);
-    mChunkServersMap[r->server->GetServerLocation()] = r->server;
+    mChunkServers.insert(existing, r->server);
 
     const uint64_t allocSpace = r->chunks.size() * CHUNKSIZE;
     srv.SetSpace(r->totalSpace, r->usedSpace, allocSpace);
-    RackId rackId = GetRackId(r->location);
+    RackId rackId = GetRackId(srvId);
     if (rackId < 0 && r->rackId >= 0) {
         rackId = r->rackId;
     }
@@ -2617,7 +2634,7 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (rackId >= 0) {
         RackInfos::iterator const rackIter = lower_bound(
             mRacks.begin(), mRacks.end(),
-            RackInfoRackIdLess::sUnused, RackInfoRackIdLess(rackId)
+            rackId, bind(&RackInfo::id, _1) < rackId
         );
         if (rackIter != mRacks.end() && rackIter->id() == rackId) {
             rackIter->addServer(r->server);
@@ -2874,7 +2891,7 @@ LayoutManager::AddNotStableChunk(
     chunkId_t             chunkId,
     seq_t                 chunkVersion,
     bool                  appendFlag,
-    const string&         logPrefix)
+    const ServerLocation& logPrefix)
 {
     CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
     if (! cmi) {
@@ -3977,9 +3994,8 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
         server->ForceDown();
     }
     const bool validFlag = mChunkToServerMap.Validate(server);
-    Servers::iterator const i = find(
-        mChunkServers.begin(), mChunkServers.end(), server);
-    if (validFlag != (i != mChunkServers.end())) {
+    Servers::const_iterator const i = FindServer(server->GetServerLocation());
+    if (validFlag != (i != mChunkServers.end() && *i == server)) {
         panic("stale server");
         return;
     }
@@ -4107,7 +4123,6 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
             panic("remove server failure");
         }
     }
-    mChunkServersMap.erase((*i)->GetServerLocation());
     mChunkServers.erase(i);
     if (! mAssignMasterByIpFlag &&
             mMastersCount == 0 && ! mChunkServers.empty()) {
@@ -4139,10 +4154,7 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
         KFS_LOG_EOM;
         return -EPERM;
     }
-    Servers::iterator const si = find_if(
-        mChunkServers.begin(), mChunkServers.end(),
-        MatchingServer(loc)
-    );
+    Servers::const_iterator const si = FindServer(loc);
     if (si == mChunkServers.end() || (*si)->IsDown()) {
         // Update down time, and let hibernation status check to
         // take appropriate action.
@@ -4534,13 +4546,12 @@ LayoutManager::AllocateChunk(
     // a chunk master is never made a slave.
     ChunkServerPtr localserver;
     int            replicaCnt = 0;
-    Servers::iterator const li = (! (r->appendChunk ?
+    Servers::const_iterator const li = (! (r->appendChunk ?
         (mAllowLocalPlacementForAppendFlag && ! mInRackPlacementForAppendFlag) :
         mAllowLocalPlacementFlag) ||
         r->clientIp.empty()) ?
         mChunkServers.end() :
-        find_if(mChunkServers.begin(), mChunkServers.end(),
-            MatchServerByHost(r->clientIp));
+        FindServerByHost(r->clientIp);
     if (li != mChunkServers.end() &&
             (mAppendPlacementIgnoreMasterSlaveFlag ||
                 ! r->appendChunk || (*li)->CanBeChunkMaster()) &&
@@ -4563,10 +4574,7 @@ LayoutManager::AllocateChunk(
             rackIdToUse = GetRackId(r->clientIp);
         }
         if (rackIdToUse < 0 && li == mChunkServers.end()) {
-            Servers::iterator const it = find_if(
-                mChunkServers.begin(),
-                mChunkServers.end(),
-                MatchServerByHost(r->clientIp));
+            Servers::const_iterator const it = FindServerByHost(r->clientIp);
             if (it != mChunkServers.end()) {
                 rackIdToUse = (*it)->GetRack();
             }
@@ -5584,7 +5592,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         // exists return access tokes to all servers. It is possible that one of
         // the server is or was the write master -- without the corresponding
         // write lease, or the client explicitly telling this, it is not
-        // possible, to determine which one was the master.
+        // possible to determine which one was the master.
         if (req->appendRecoveryLocations.empty()) {
             assert(cs);
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
@@ -5606,18 +5614,18 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                     return -EINVAL;
                 }
             }
-            MetaLeaseAcquire::ChunkAccessInfo info(
-                ServerLocation(), req->chunkId, req->authUid);
-            req->chunkAccess.Clear();
             istream& is = mTmpParseStream.Set(
                 req->appendRecoveryLocations.data(),
                 req->appendRecoveryLocations.size());
+            MetaLeaseAcquire::ChunkAccessInfo info(
+                ServerLocation(), req->chunkId, req->authUid);
+            req->chunkAccess.Clear();
             while ((is >> info.serverLocation)) {
                 if (info.serverLocation.IsValid()) {
-                    ChunkServersMap::const_iterator const it =
-                        mChunkServersMap.find(info.serverLocation);
-                    if (it != mChunkServersMap.end()) {
-                        if (it->second->GetCryptoKey(info.keyId, info.key)) {
+                    Servers::const_iterator const it =
+                        FindServer(info.serverLocation);
+                    if (it != mChunkServers.end()) {
+                        if ((*it)->GetCryptoKey(info.keyId, info.key)) {
                             req->chunkAccess.Append(info);
                         }
                     }
@@ -6565,7 +6573,7 @@ LayoutManager::ScheduleChunkServersRestart()
                 mMastersCount >
                 mMastersToRestartCount + minMastersUp;
             if (! restartFlag && ! mAssignMasterByIpFlag) {
-                for (Servers::iterator
+                for (Servers::const_iterator
                         it = servers.begin();
                         it != servers.end();
                         ++it) {
@@ -8417,9 +8425,7 @@ LayoutManager::CheckHibernatingServersStatus()
             iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
             ) {
-        Servers::const_iterator const i = find_if(
-            mChunkServers.begin(), mChunkServers.end(),
-            MatchingServer(iter->location));
+        Servers::const_iterator const i = FindServer(iter->location);
         if (i == mChunkServers.end() && now < iter->sleepEndTime) {
             // within the time window where the server is sleeping
             // so, move on
@@ -9250,7 +9256,7 @@ LayoutManager::DeleteAddlChunkReplicas(
         // For striped files placement keep the copies that are on
         // different racks than the chunks in stripe / rs block.
         StBufferT<size_t, 16> canDiscardIdx;
-        for (Servers::iterator it = servers.begin();
+        for (Servers::const_iterator it = servers.begin();
                 it != servers.end();
                 ++it) {
             const ChunkServerPtr& server = *it;
@@ -9679,10 +9685,7 @@ LayoutManager::ReadRebalancePlan(size_t nread)
             break;
         }
         mRebalanceCtrs.PlanLine();
-        Servers::const_iterator const it = find_if(
-            mChunkServers.begin(), mChunkServers.end(),
-            MatchingServer(loc)
-        );
+        Servers::const_iterator const it = FindServer(loc);
         if (it == mChunkServers.end()) {
             mRebalanceCtrs.PlanNoServer();
             continue;
@@ -10316,7 +10319,5 @@ LayoutManager::RebalanceCtrs::Show(
     ;
     return os;
 }
-
-const RackInfo LayoutManager::RackInfoRackIdLess::sUnused;
 
 } // namespace KFS

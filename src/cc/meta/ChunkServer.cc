@@ -39,6 +39,7 @@
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 
 #include <boost/bind.hpp>
 
@@ -1131,6 +1132,14 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return DeclareHelloError(mHelloOp->status, 0);
             }
         }
+        if (! mHelloOp->location.IsValid()) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " hello: invalid server locaton: " << mHelloOp->location <<
+            KFS_LOG_EOM;
+            mHelloOp = 0;
+            delete op;
+            return -1;
+        }
         if (mHelloOp->status == 0 &&
                 sMaxHelloBufferBytes < mHelloOp->contentLength) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
@@ -1370,11 +1379,24 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     } else {
         mAuthUid = MakeAuthUid(*mHelloOp, mAuthName);
     }
+    SetServerLocation(mHelloOp->location);
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;
     op->authUid = mAuthUid;
     submit_request(op);
     return 0;
+}
+
+void
+ChunkServer::SetServerLocation(const ServerLocation& loc)
+{
+    if (mLocation == loc) {
+        return;
+    }
+    mLocation = loc;
+    mHostPortStr = mLocation.hostname;
+    mHostPortStr += ':';
+    AppendDecIntToString(mHostPortStr, mLocation.port);
 }
 
 ///

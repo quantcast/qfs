@@ -1093,7 +1093,7 @@ public:
         chunkId_t             chunkId,
         seq_t                 chunkVersion,
         bool                  appendFlag,
-        const string&         logPrefix);
+        const ServerLocation& logPrefix);
     void ProcessPendingBeginMakeStable();
 
     /// Add a mapping from chunkId -> server.
@@ -1380,8 +1380,7 @@ public:
         if (id < 0) {
             return last;
         }
-        T const it = lower_bound(first, last,
-            RackInfoRackIdLess::sUnused, RackInfoRackIdLess(id));
+        T const it = lower_bound(first, last, id, bind(&RackInfo::id, _1) < id);
         return ((it == last || it->id() != id) ? last : it);
     }
     uint64_t GetAuthCtxUpdateCount() const
@@ -1429,18 +1428,6 @@ public:
     bool IsDeleteChunkOnFsIdMismatch() const
         { return mDeleteChunkOnFsIdMismatchFlag; }
 protected:
-    class RackInfoRackIdLess
-    {
-    public:
-        RackInfoRackIdLess(RackId v)
-            : id(v)
-            {}
-        bool operator()(const RackInfo& l, const RackInfo& r) const
-            { return (&sUnused == &l ? id < r.id() : l.id() < id); }
-        static const RackInfo sUnused;
-    private:
-        const RackId id;
-    };
     typedef vector<
         int,
         StdAllocator<int>
@@ -1811,13 +1798,6 @@ protected:
 
     /// List of connected chunk servers.
     Servers mChunkServers;
-    typedef map<
-        ServerLocation,
-        ChunkServerPtr,
-        less<ServerLocation>,
-        StdFastAllocator<pair<const ServerLocation, ChunkServerPtr> >
-    > ChunkServersMap;
-    ChunkServersMap mChunkServersMap;
 
     /// List of servers that are hibernating; if they don't wake up
     /// the time the hibernation period ends, the blocks on those
@@ -2266,6 +2246,9 @@ protected:
         SetEUserAndEGroup(op);
         return true;
     }
+    inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
+    template<typename T>
+    inline Servers::const_iterator FindServerByHost(const T& host) const;
 };
 
 extern LayoutManager& gLayoutManager;

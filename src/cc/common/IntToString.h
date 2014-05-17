@@ -48,6 +48,19 @@ public:
             ConvertSigned(inVal, inBufEndPtr) :
             Impl<T>::Convert(inVal, inBufEndPtr));
     }
+    template<typename ST, typename T>
+        static inline ST&
+    Append(
+        ST& inStr,
+        T   inVal)
+    {
+        // Large enough buffer for binary representation.
+        char theBuf[sizeof(T) * 8 + 2];
+        char* const theBufEndPtr = theBuf + sizeof(theBuf) / sizeof(theBuf[0]);
+        const char* const thePtr = Convert(inVal, theBufEndPtr);
+        inStr.append(thePtr, theBufEndPtr - thePtr);
+        return inStr;
+    }
 private:
     template <typename T>
     class Impl
@@ -136,6 +149,34 @@ IntToOctString(
 {
     return IntToString<8>::Convert(inVal, inBufEndPtr);
 }
+
+template<typename ST, typename T>
+    static inline ST&
+AppendOctIntToString(
+    ST&   inStr,
+    T     inVal)
+{
+    return IntToString<8>::Append(inStr, inVal);
+}
+
+template<typename ST, typename T>
+    static inline ST&
+AppendDecIntToString(
+    ST&   inStr,
+    T     inVal)
+{
+    return IntToString<10>::Append(inStr, inVal);
+}
+
+template<typename ST, typename T>
+    static inline ST&
+AppendHexIntToString(
+    ST&   inStr,
+    T     inVal)
+{
+    return IntToString<16>::Append(inStr, inVal);
+}
+
 
 template<typename T, int TRadix>
 class DisplayInt
