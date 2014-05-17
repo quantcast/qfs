@@ -4123,7 +4123,8 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
             panic("remove server failure");
         }
     }
-    mChunkServers.erase(i);
+    // Convert const_iterator to iterator below to make erase() compile.
+    mChunkServers.erase(mChunkServers.begin() + (i - mChunkServers.begin()));
     if (! mAssignMasterByIpFlag &&
             mMastersCount == 0 && ! mChunkServers.empty()) {
         assert(mSlavesCount > 0 &&
