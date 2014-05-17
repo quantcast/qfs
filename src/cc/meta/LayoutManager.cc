@@ -1110,16 +1110,6 @@ ChunkLeases::GetOpenFiles(
     }
 }
 
-class MatchingServer
-{
-    const ServerLocation loc;
-public:
-    MatchingServer(const ServerLocation& l) : loc(l) {}
-    bool operator() (const ChunkServerPtr &s) const {
-        return s->MatchingServer(loc);
-    }
-};
-
 inline LayoutManager::Servers::const_iterator
 LayoutManager::FindServer(const ServerLocation& loc) const
 {
@@ -1138,7 +1128,8 @@ LayoutManager::FindServerByHost(const T& host) const
     const ServerLocation loc(host, -1);
     Servers::const_iterator const it = lower_bound(
         mChunkServers.begin(), mChunkServers.end(),
-        loc, bind(&ChunkServer::GetServerLocation, _1) < loc
+        boost::ref(loc),
+        bind(&ChunkServer::GetServerLocation, _1) < boost::ref(loc)
     );
     return ((it == mChunkServers.end() ||
             (*it)->GetServerLocation().hostname == loc.hostname) ?
@@ -2602,8 +2593,10 @@ LayoutManager::AddNewServer(MetaHello *r)
             mChunkServers.begin(), mChunkServers.end(),
             srvId,
             bind(&ChunkServer::GetServerLocation, _1) < srvId);
-        if ((*existing)->GetServerLocation() == srvId) {
+        if (existing != mChunkServers.end() &&
+                (*existing)->GetServerLocation() == srvId) {
             panic("duplicate server");
+            return;
         }
     }
 
@@ -7084,7 +7077,8 @@ LayoutManager::AddServerToMakeStable(
     Servers&       servers = serversTmp.Get();
     mChunkToServerMap.GetServers(placementInfo, servers);
     if (find_if(servers.begin(), servers.end(),
-            MatchingServer(server->GetServerLocation())
+            bind(&ChunkServer::GetServerLocation, _1) ==
+                server->GetServerLocation()
             ) != servers.end()) {
         // Already there, duplicate chunk? Same as in progress.
         return true;
