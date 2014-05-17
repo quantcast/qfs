@@ -5598,7 +5598,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             // Give the client access to the chunk server it requests with
             // the chunk access tokens that only permit append status recovery.
             if (! cs) {
-                if (chunkID.id() < req->chunkId) {
+                if (chunkID.getseed() < req->chunkId) {
                     req->statusMsg = "invalid chunk id";
                     return -EINVAL;
                 }
