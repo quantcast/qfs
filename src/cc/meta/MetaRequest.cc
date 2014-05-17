@@ -3243,7 +3243,7 @@ MetaCheckpoint::handle()
             close(lockFd);
         }
         if (lastCheckpointId != oplog.checkpointed()) {
-            panic("finish log failure", false);
+            panic("finish log failure");
             return;
         }
         KFS_LOG_STREAM_WARN << "finish log: no new log started"
@@ -3252,14 +3252,27 @@ MetaCheckpoint::handle()
         return;
     }
     runningCheckpointId = oplog.checkpointed();
+    // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
+    // global mutex by waiting on condition with this mutex, but must ensure
+    // that no other RPC gets processed. If checkpoint mutation count isn't
+    // zero after DoFork() invocation, then there is a bug with the prepare to
+    // fork logic, and checkpoint will not be valid. In such case do not write
+    // the checkpoint in the child, and "panic" the parent.
     if ((pid = DoFork(checkpointWriteTimeoutSec)) == 0) {
-        metatree.disableFidToPathname();
-        metatree.recomputeDirSize();
-        cp.setWriteSyncFlag(checkpointWriteSyncFlag);
-        cp.setWriteBufferSize(checkpointWriteBufferSize);
-        status = cp.do_CP();
+        if (cp.isCPNeeded()) {
+            status = -EINVAL;
+        } else {
+            metatree.disableFidToPathname();
+            metatree.recomputeDirSize();
+            cp.setWriteSyncFlag(checkpointWriteSyncFlag);
+            cp.setWriteBufferSize(checkpointWriteBufferSize);
+            status = cp.do_CP();
+        }
         // Child does not attempt graceful exit.
         _exit(status == 0 ? 0 : 1);
+    }
+    if (cp.isCPNeeded()) {
+        panic("checkpoint: meta data changed after prepare to fork");
     }
     KFS_LOG_STREAM(pid > 0 ?
             MsgLogger::kLogLevelINFO :

@@ -401,8 +401,10 @@ NetManager::Wakeup()
 }
 
 void
-NetManager::MainLoop(QCMutex* mutex /* = 0 */,
-    bool wakeupAndCleanupFlag /* = true */)
+NetManager::MainLoop(
+    QCMutex*                mutex                /* = 0 */,
+    bool                    wakeupAndCleanupFlag /* = true */,
+    NetManager::Dispatcher* dispatcher           /* = 0 */)
 {
     QCStMutexLocker locker(mutex);
 
@@ -453,10 +455,13 @@ NetManager::MainLoop(QCMutex* mutex /* = 0 */,
                     QCUtils::SysError(-ret, "poll error") <<
                 KFS_LOG_EOM;
             }
+            mWaker.Wake();
         }
-        mWaker.Wake();
         const int64_t nowMs = ITimeout::NowMs();
         mNow = time_t(nowMs / 1000);
+        if (dispatcher) {
+            dispatcher->DispatchStart();
+        }
         mCurTimeoutHandler = TimeoutHandlers::Front(mTimeoutHandlers);
         while (mCurTimeoutHandler) {
             ITimeout& cur = *mCurTimeoutHandler;

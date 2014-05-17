@@ -58,6 +58,14 @@ using std::list;
 class NetManager
 {
 public:
+    class Dispatcher
+    {
+    public:
+        virtual void DispatchStart() = 0;
+    protected:
+        virtual ~Dispatcher()
+            {}
+    };
     typedef NetConnection::NetManagerEntry NetManagerEntry;
 
     NetManager(int timeoutMs = 1000);
@@ -84,7 +92,10 @@ public:
     /// NetConnection::Close()), then it automatically falls out of
     /// the net manager's list of connections that are polled.
     ///
-    void MainLoop(QCMutex* mutex = 0, bool wakeupAndCleanupFlag = true);
+    void MainLoop(
+        QCMutex*    mutex                = 0,
+        bool        wakeupAndCleanupFlag = true,
+        Dispatcher* dispatcher           = 0);
     void Wakeup();
 
     void Shutdown()
