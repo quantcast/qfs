@@ -5782,12 +5782,15 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         // check the replication state when the replicaiton checker gets to it
         CheckReplication(*ci);
     }
+    const MetaFattr* const fa = ci->GetFattr();
     KFS_LOG_STREAM_INFO << "server " << server->GetServerLocation() <<
         " declaring: <" <<
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<
         " servers: " << mChunkToServerMap.ServerCount(*ci) <<
         (removedFlag ? " -1" : " -0") <<
+        " replication: " << fa->numReplicas <<
+        " recovery: "    << fa->numRecoveryStripes <<
     KFS_LOG_EOM;
     if (! notifyStale || server->IsDown()) {
         return;
@@ -6968,10 +6971,13 @@ LayoutManager::MakeChunkStableInit(
         // needs to be logged and the corresponding pending make stable
         // entry has to be created.
         if (beginMakeStableFlag || ! appendFlag) {
+            const MetaFattr* const fa = entry.GetFattr();
             KFS_LOG_STREAM_INFO << logPrefix <<
                 " <" << fid << "," << chunkId << ">"
                 " name: "     << pathname <<
-                " no servers" <<
+                " servers: 0" <<
+                " replication: " << fa->numReplicas <<
+                " recovery: "    << fa->numRecoveryStripes <<
             KFS_LOG_EOM;
             // Update replication state.
             ChangeChunkReplication(chunkId);
@@ -7226,9 +7232,13 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             }
         }
         if (numUpServers <= 0) {
+            const MetaFattr* const fa = ci->GetFattr();
             KFS_LOG_STREAM_DEBUG << logPrefix <<
                 " <" << req->fid << "," << req->chunkId  << ">"
                 " no servers up, retry later" <<
+                " servers: 0" <<
+                " replication: " << fa->numReplicas <<
+                " recovery: "    << fa->numRecoveryStripes <<
             KFS_LOG_EOM;
         } else {
             // Shouldn't get here.
