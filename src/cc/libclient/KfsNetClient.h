@@ -140,7 +140,10 @@ public:
         Counter mOpsCancelledCount;
         Counter mSleepTimeSec;
     };
-    enum { kErrorMaxRetryReached = -(10000 + ETIMEDOUT) };
+    enum {
+        kErrorMaxRetryReached = -(10000 + ETIMEDOUT),
+        kErrorRequeueRequired = -(10000 + ETIMEDOUT + 1)
+    };
     class EventObserver
     {
     public:

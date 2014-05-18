@@ -1786,38 +1786,44 @@ private:
             }
             return;
         } else {
-            mStats.mRetriesCount++;
-            mRetryCount++;
-            int theTimeToNextRetry = GetTimeToNextRetry(mTimeSecBetweenRetries);
-            // Treat alloc failure the same as chunk server failure.
-            if (&mAllocOp == mCurOpPtr) {
-                mStats.mAllocRetriesCount++;
-            } else if (&mWriteIdAllocOp == mCurOpPtr ||
-                        &mRecAppendOp == mCurOpPtr ||
-                        (&mSpaceReserveOp == mCurOpPtr &&
-                            mSpaceReserveOp.status != -ENOSPC)) {
-                if (++mAppendRestartRetryCount == 2 ||
-                        mAppendRestartRetryCount == 5 ||
-                        mAppendRestartRetryCount == 15) {
-                    // When write id or append fails the second, fifth, and
-                    // fifteen times tell meta server to allocate new chunk to
-                    // paper over bugs, and network connectivity problems by
-                    // pretending that space reservation have failed.
-                    KFS_LOG_STREAM_INFO <<
-                        "force new chunk allocation"
-                        " retry: " << mAppendRestartRetryCount <<
-                    KFS_LOG_EOM;
-                    mSpaceReserveOp.status = -ENOSPC;
-                    theTimeToNextRetry = 0;
-                } else if (mAppendRestartRetryCount <= 1) {
-                    theTimeToNextRetry = 0;
+            int         theTimeToNextRetry = 0;
+            const char* theMsgPtr          = "handling re-queue";
+            if (mErrorCode != KfsNetClient::kErrorRequeueRequired) {
+                theMsgPtr = "scheduling retry";
+                mStats.mRetriesCount++;
+                mRetryCount++;
+                theTimeToNextRetry = GetTimeToNextRetry(mTimeSecBetweenRetries);
+                // Treat alloc failure the same as chunk server failure.
+                if (&mAllocOp == mCurOpPtr) {
+                    mStats.mAllocRetriesCount++;
+                } else if (&mWriteIdAllocOp == mCurOpPtr ||
+                            &mRecAppendOp == mCurOpPtr ||
+                            (&mSpaceReserveOp == mCurOpPtr &&
+                                mSpaceReserveOp.status != -ENOSPC)) {
+                    if (++mAppendRestartRetryCount == 2 ||
+                            mAppendRestartRetryCount == 5 ||
+                            mAppendRestartRetryCount == 15) {
+                        // When write id or append fails the second, fifth, and
+                        // fifteen times tell meta server to allocate new chunk
+                        // to paper over bugs, and network connectivity problems
+                        // by pretending that space reservation have failed.
+                        KFS_LOG_STREAM_INFO <<
+                            "force new chunk allocation"
+                            " retry: " << mAppendRestartRetryCount <<
+                        KFS_LOG_EOM;
+                        mSpaceReserveOp.status = -ENOSPC;
+                        theTimeToNextRetry = 0;
+                    } else if (mAppendRestartRetryCount <= 1) {
+                        theTimeToNextRetry = 0;
+                    }
                 }
             }
             // Retry.
             KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "scheduling retry: " << mRetryCount <<
-                " of " << mMaxRetryCount <<
-                " in " << theTimeToNextRetry << " sec." <<
+                theMsgPtr <<
+                " retries: " << mRetryCount <<
+                " of "       << mMaxRetryCount <<
+                " in "       << theTimeToNextRetry << " sec." <<
                 " op: " <<
                 (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp) <<
             KFS_LOG_EOM;
