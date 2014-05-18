@@ -5626,6 +5626,11 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                 }
             }
             mTmpParseStream.Reset();
+            if (req->chunkAccess.IsEmpty()) {
+                // For now retry even in the case of parse errors.
+                req->statusMsg = "no chunk servers available";
+                return -EAGAIN;
+            }
         }
         return 0;
     }
