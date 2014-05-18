@@ -741,6 +741,11 @@ metaServer.msgLogWriter.logLevel = INFO
 # names in the list.
 # metaServer.clientAuthentication.whiteList =
 
+# ================== Delegation ================================================
+# Delegation token expiration time limit.
+# Default is 24 hours.
+# metaServer.clientAuthentication.maxDelegationValidForTimeSec = 86400
+
 # Allow to use "clear text" communication mode by performing SSL/TLS shutdown
 # immediately after successful authentication completion. If enabled, the QFS
 # client's corresponding setting defines the communication mode between the
