@@ -378,7 +378,7 @@ public:
             EVP_MD_CTX_cleanup(&theCtx);
             return -EFAULT;
         }
-        char          theBuf[kKeyBufSize];
+        char          theBuf[kEncryptedKeyLen];
         unsigned char theMd[EVP_MAX_MD_SIZE];
         unsigned int  theLen   = 0;
         if (! EVP_DigestFinal_ex(&theCtx, theMd, &theLen) || theLen <= 0) {
@@ -397,6 +397,14 @@ public:
         if (theLen <= 0) {
             return theLen;
         }
+        if (theLen != CryptoKeys::Key::kLength) {
+            KFS_LOG_STREAM_FATAL <<
+                "invalid session key length:" << theLen <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
+            abort();
+            return -EFAULT;
+        }
         const char* theKeyPtr;
         if (0 < inSessionKeyKeyLen) {
             char* thePtr = theBuf;
@@ -405,30 +413,44 @@ public:
             if (theRet < 0) {
                 return theRet;
             }
+            const char* const theIvPtr = thePtr;
+            thePtr += theRet;
             const bool kEncryptFlag = true;
             theRet = Crypt(
                 inSessionKeyKeyPtr,
                 inSessionKeyKeyLen,
-                thePtr,
+                theIvPtr,
                 reinterpret_cast<const char*>(theMd),
                 (int)theLen,
-                &theBuf[kEncryptedKeyPrefixSize],
+                thePtr,
+                kEncryptedKeyPadding != 0,
                 kEncryptFlag,
                 outErrMsgPtr
             );
             if (theRet < 0) {
                 return theRet;
             }
+            thePtr += theRet;
             theKeyPtr = theBuf;
-            theLen    = kEncryptedKeyPrefixSize + theRet;
+            theLen    = (int)(thePtr - theKeyPtr);
+            if (theLen != kEncryptedKeyLen) {
+                KFS_LOG_STREAM_FATAL <<
+                    "invalid encrypted session key length:" << theLen <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+                return -EFAULT;
+            }
         } else {
             theKeyPtr = reinterpret_cast<const char*>(theMd);
         }
         if (inWriterPtr) {
-            char      theBase64Buf[Base64::GetEncodedMaxBufSize(kKeyBufSize)];
+            char      theBase64Buf[
+                Base64::GetEncodedMaxBufSize(kEncryptedKeyLen)];
             const int theBase64Len = Base64::Encode(
                 theKeyPtr, theLen, theBase64Buf);
             if (0 < theBase64Len) {
+                QCRTASSERT(theBase64Len <= (int)sizeof(theBase64Buf));
                 inWriterPtr->Write(theBase64Buf, theBase64Len);
             }
             return theBase64Len;
@@ -479,7 +501,7 @@ public:
             }
             return -EFAULT;
         }
-        return 0;
+        return kCryptIvLen;
     }
     static int Crypt(
         const char* inKeyPtr,
@@ -488,6 +510,7 @@ public:
         const char* inPtr,
         int         inLen,
         char*       inOutPtr,
+        bool        inPaddingFlag,
         bool        inEncryptFlag,
         string*     outErrMsgPtr)
     {
@@ -562,7 +585,7 @@ public:
                 EVP_MD_CTX_cleanup(&theCtx);
                 return -EFAULT;
             }
-            QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
+            QCRTASSERT(theLen <= EVP_MAX_MD_SIZE && kCryptKeyLen <= theLen);
             EVP_MD_CTX_cleanup(&theCtx);
             theKeyPtr = theMd;
         } else {
@@ -583,9 +606,11 @@ public:
             }
             return -EFAULT;
         }
+        // Ensure correctness of the cipher's parameters, and set padding mode.
         if (EVP_CIPHER_CTX_block_size(&theCtx) != kCryptBlockLen ||
                 EVP_CIPHER_CTX_key_length(&theCtx) != kCryptKeyLen ||
-                EVP_CIPHER_CTX_iv_length(&theCtx) != kCryptIvLen) {
+                EVP_CIPHER_CTX_iv_length(&theCtx) != kCryptIvLen ||
+                ! EVP_CIPHER_CTX_set_padding(&theCtx, inPaddingFlag ? 1 : 0)) {
             KFS_LOG_STREAM_FATAL <<
                 "invalid cipher parameters:" <<
                     " block: " << EVP_CIPHER_CTX_block_size(&theCtx) <<
@@ -626,7 +651,9 @@ public:
         }
         theLen += theRemLen;
         EVP_CIPHER_CTX_cleanup(&theCtx);
-        QCASSERT(theLen <= inLen + (inEncryptFlag ? EVP_MAX_BLOCK_LENGTH : 0));
+        QCASSERT(theLen <= ((inEncryptFlag && inPaddingFlag) ?
+            (inLen + kCryptBlockLen) / kCryptBlockLen * kCryptBlockLen :
+            inLen));
         return theLen;
     }
     static int DecryptSessionKeyFromString(
@@ -638,13 +665,16 @@ public:
         CryptoKeys::Key&  outKey,
         string*           outErrMsgPtr)
     {
-        char theBuf[kMaxEncryptedKeyLen];
+        char theBuf[Base64::GetMaxDecodedLength(
+            Base64::EncodedLength(kEncryptedKeyLen))];
         int  theLen = DecodeBase64(
-            inStrPtr, inStrLen, theBuf, kKeyBufSize, outErrMsgPtr);
+            inStrPtr, inStrLen, theBuf, (int)sizeof(theBuf), outErrMsgPtr);
         if (theLen < 0) {
             if (theLen == -ERANGE) {
-                theLen        = -EINVAL;
-                *outErrMsgPtr = "invalid key string size";
+                theLen = -EINVAL;
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = "invalid key string size";
+                }
             }
             return theLen;
         }
@@ -667,7 +697,7 @@ public:
         CryptoKeys::Key&  outKey,
         string*           outErrMsgPtr)
     {
-        if (inKeyLen < kMinEncryptedKeyLen || kMaxEncryptedKeyLen < inKeyLen) {
+        if (inKeyLen != kEncryptedKeyLen) {
             if (outErrMsgPtr) {
                 *outErrMsgPtr = "invalid key buffer size";
             }
@@ -684,17 +714,28 @@ public:
             return -EPERM;
         }
         const bool kEncryptFlag = false;
-        const int  theLen       = Crypt(
+        char       theBuf[CryptoKeys::Key::kLength + kEncryptedKeyPadding];
+        QCRTASSERT(inKeyLen - kEncryptedKeyPrefixSize <=
+            (kEncryptedKeyPadding == 0 ?
+                CryptoKeys::Key::GetSize() :
+                (int)(sizeof(theBuf) / sizeof(theBuf[0])))
+        );
+        const int  theLen = Crypt(
             inKeysPtr ? theKey.GetPtr()  : inDecryptKeyPtr,
             inKeysPtr ? theKey.GetSize() : inDecryptKeyLen,
             thePtr,
             thePtr + kCryptIvLen,
             inKeyLen - kEncryptedKeyPrefixSize,
-            outKey.WritePtr(),
+            kEncryptedKeyPadding != 0 ? theBuf : outKey.WritePtr(),
+            kEncryptedKeyPadding != 0,
             kEncryptFlag,
             outErrMsgPtr
         );
-        QCRTASSERT(theLen <= theKey.GetSize());
+        QCRTASSERT(
+            theLen <= (kEncryptedKeyPadding == 0 ?
+                CryptoKeys::Key::GetSize() :
+                (int)(sizeof(theBuf) / sizeof(theBuf[0])))
+        );
         if (theLen < 0) {
             return theLen;
         }
@@ -703,6 +744,9 @@ public:
                 *outErrMsgPtr = "decryption failure: invalid result size";
             }
             return -EPERM;
+        }
+        if (kEncryptedKeyPadding != 0) {
+            memcpy(outKey.WritePtr(), theBuf, theLen);
         }
         return 0;
     }
@@ -721,12 +765,15 @@ private:
     enum { kCryptIvLen     = kCryptBlockLen };
     enum { kCryptKeyLen    = 256 / 8 };
     enum {
+        kEncryptedKeyPadding =
+            (CryptoKeys::Key::kLength % kCryptBlockLen == 0) ?
+                0 :
+                kCryptBlockLen - CryptoKeys::Key::kLength % kCryptBlockLen
+    };
+    enum {
         kEncryptedKeyPrefixSize = sizeof(kfsKeyId_t) + kCryptIvLen,
-        kKeyBufSize             = kEncryptedKeyPrefixSize +
-            EVP_MAX_MD_SIZE + kCryptBlockLen,
-        kMinEncryptedKeyLen        =
-            kEncryptedKeyPrefixSize + CryptoKeys::Key::kLength,
-        kMaxEncryptedKeyLen        = kMinEncryptedKeyLen + kCryptBlockLen
+        kEncryptedKeyLen        = kEncryptedKeyPrefixSize +
+            CryptoKeys::Key::kLength + kEncryptedKeyPadding
     };
 
     char mBuffer[kTokenSize + 1];

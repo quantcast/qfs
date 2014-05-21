@@ -32,6 +32,7 @@ requestparser
 sortedhash
 stlset
 sslfiltertest
+dtokentest
 )
 
 #
