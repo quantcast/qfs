@@ -79,6 +79,7 @@ public:
     }
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
+    inline void ForkDone();
 private:
     class Impl;
     Impl& mImpl;

@@ -62,6 +62,8 @@ public:
     {
     public:
         virtual void DispatchStart() = 0;
+        virtual void DispatchEnd()   = 0;
+        virtual void DispatchExit()  = 0;
     protected:
         virtual ~Dispatcher()
             {}

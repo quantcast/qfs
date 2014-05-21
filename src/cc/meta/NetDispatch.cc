@@ -350,8 +350,10 @@ public:
         : NetManager::Dispatcher(),
           mClientManager(inClientManager)
         {}
-    virtual void DispatchStart()
-        { mClientManager.PrepareToFork(); }
+    virtual void DispatchStart();
+    virtual void DispatchEnd();
+    virtual void DispatchExit()
+        {}
 private:
     ClientManager& mClientManager;
 private:
@@ -928,22 +930,37 @@ public:
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork()
     {
-        if (! mPrepareToForkFlag) {
-            return;
-        }
         QCMutex* const mutex = gNetDispatch.GetMutex();
         if (! mutex) {
             return;
         }
         assert(mutex->IsOwned());
-        // The prepare thread count includes the "main" thread.
-        if (++mPrepareToForkCnt >= mClientThreadCount) {
-            mPrepareToForkDoneCond.Notify();
+        while (mPrepareToForkFlag) {
+            // The prepare thread count includes the "main" thread.
+            if (++mPrepareToForkCnt >= mClientThreadCount) {
+                mPrepareToForkDoneCond.Notify();
+            }
+            const uint64_t forkDoneCount = mForkDoneCount;
+            while (forkDoneCount == mForkDoneCount) {
+                mForkDoneCond.Wait(*mutex);
+            }
         }
-        const uint64_t forkDoneCount = mForkDoneCount;
-        while (forkDoneCount == mForkDoneCount) {
-            mForkDoneCond.Wait(*mutex);
+    }
+    inline void ForkDone()
+    {
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        if (! mutex) {
+            return;
         }
+        assert(mutex->IsOwned());
+        if (! mPrepareToForkFlag) {
+            return;
+        }
+        mPrepareToForkFlag = false;
+        mPrepareToForkCnt  = 0;
+        mForkDoneCount++;
+        // Resume threads after fork(s) completes and the lock gets released.
+        mForkDoneCond.NotifyAll();
     }
 private:
     class ClientThread;
@@ -970,6 +987,30 @@ inline void
 NetDispatch::PrepareToFork()
 {
     mClientManager.PrepareToFork();
+}
+
+inline void
+ClientManager::ForkDone()
+{
+    mImpl.ForkDone();
+}
+
+inline void
+NetDispatch::ForkDone()
+{
+    mClientManager.ForkDone();
+}
+
+/* virtual */ void
+MainThreadPrepareToFork::DispatchStart()
+{
+    mClientManager.PrepareToFork();
+}
+
+/* virtual */ void
+MainThreadPrepareToFork::DispatchEnd()
+{
+    mClientManager.ForkDone();
 }
 
 // All acceptors run in the main thread running global net manager event loop.
@@ -1074,6 +1115,7 @@ public:
             op.next = 0;
             submit_request(&op);
         }
+        gNetDispatch.ForkDone();
         dispatchLocker.Unlock();
 
         ClientSM* nextCli;
@@ -1139,6 +1181,10 @@ public:
         // io buffers, if any.
         CheckIfIoBuffersAvailable();
     }
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        {}
     void Enqueue(MetaRequest& op)
     {
         if (! op.clnt) {
@@ -1319,7 +1365,11 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     if (! mutex) {
         return;
     }
-    assert(! mPrepareToForkFlag && mutex->IsOwned());
+    assert(mutex->IsOwned());
+    if (mPrepareToForkFlag) {
+        assert(mPrepareToForkCnt == mClientThreadCount);
+        return;
+    }
     mPrepareToForkFlag = true;
     mPrepareToForkCnt  = 0;
     for (int i = 0; i < mClientThreadCount; i++) {
@@ -1329,11 +1379,6 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     while (mPrepareToForkCnt < mClientThreadCount) {
         mPrepareToForkDoneCond.Wait(*mutex);
     }
-    mPrepareToForkFlag = false;
-    mPrepareToForkCnt  = 0;
-    mForkDoneCount++;
-    // Resume threads after fork completes and the lock gets released.
-    mForkDoneCond.NotifyAll();
 }
 
 ClientManager::ClientManager()

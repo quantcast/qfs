@@ -65,6 +65,7 @@ public:
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
+    inline void ForkDone();
     bool CancelToken(const DelegationToken& token);
     bool CancelToken(
         int64_t inExpiration, int64_t inIssued, kfsUid_t inUid,

@@ -445,18 +445,22 @@ NetManager::MainLoop(
                 }
             }
         }
-        {
-            const int timeout = (! PendingReadList::IsInList(mPendingReadList)
-                && mWaker.Sleep()) ? mTimeoutMs : 0;
-            QCStMutexUnlocker unlocker(mutex);
-            const int ret = mPoll.Poll(mConnectionsCount + 1, timeout);
-            if (ret < 0 && ret != -EINTR && ret != -EAGAIN) {
-                KFS_LOG_STREAM_ERROR <<
-                    QCUtils::SysError(-ret, "poll error") <<
-                KFS_LOG_EOM;
-            }
-            mWaker.Wake();
+        const int timeout = (! PendingReadList::IsInList(mPendingReadList)
+            && mWaker.Sleep()) ? mTimeoutMs : 0;
+        if (dispatcher) {
+            dispatcher->DispatchEnd();
         }
+
+        QCStMutexUnlocker unlocker(mutex);
+        const int ret = mPoll.Poll(mConnectionsCount + 1, timeout);
+        if (ret < 0 && ret != -EINTR && ret != -EAGAIN) {
+            KFS_LOG_STREAM_ERROR <<
+                QCUtils::SysError(-ret, "poll error") <<
+            KFS_LOG_EOM;
+        }
+        mWaker.Wake();
+        unlocker.Lock();
+
         const int64_t nowMs = ITimeout::NowMs();
         mNow = time_t(nowMs / 1000);
         if (dispatcher) {
@@ -580,6 +584,9 @@ NetManager::MainLoop(
         CleanUp();
     } else {
         mRunFlag = true;
+    }
+    if (dispatcher) {
+        dispatcher->DispatchExit();
     }
 }
 
