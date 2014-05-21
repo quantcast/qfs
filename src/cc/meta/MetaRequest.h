@@ -2600,6 +2600,7 @@ struct MetaDelegate : public MetaRequest {
           validForTime(0),
           issuedTime(0),
           tokenSeq(0),
+          allowDelegationFlag(false),
           renewTokenStr(),
           renewKeyStr(),
           renewToken()
