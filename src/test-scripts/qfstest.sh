@@ -47,7 +47,7 @@ fi
 
 clientuser=${clientuser-"`id -un`"}
 
-numchunksrv=${numchunksrv-2}
+numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
 
@@ -392,7 +392,7 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-m 1 -l 15' \
+    cptokfsopts='-r 3 -m 1 -l 15' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
@@ -440,7 +440,7 @@ if [ $fotest -ne 0 ]; then
             -size "$fanouttestsize" \
             -partitions "$fanoutpartitions" \
             -read-retries 1 \
-            -kfanout-extra-opts "-U $p" \
+            -kfanout-extra-opts "-U $p -P 3" \
         || exit
     done > kfanout_test.out 2>&1 &
     fopid=$!
