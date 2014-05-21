@@ -114,6 +114,10 @@ MetaServerSM::~MetaServerSM()
     FailOps(true);
     delete mHelloOp;
     delete mAuthOp;
+    if (mNetConnection) {
+        mNetConnection->Close();
+    }
+    mNetConnection.reset();
 }
 
 void
