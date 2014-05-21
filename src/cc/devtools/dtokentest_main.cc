@@ -114,7 +114,7 @@ main(
         }
         (cout << theLength << " "
             ).write(theBuf, theLength < 0 ? 0 : theLength) << "\n";
-        if (theLength != theTestKeys[1].size() ||
+        if (theLength != (int)theTestKeys[1].size() ||
                 theTestKeys[1].compare(0, theLength, theBuf) != 0) {
             cout << "error: key mismatch\n";
             theErrorCount++;
