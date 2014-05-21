@@ -920,9 +920,11 @@ metaServer.msgLogWriter.logLevel = INFO
 # set back to the original / default values.
 #
 # Overriding the default behavior might be useful for initial authentication
-# setup and/or debugging.
+# setup and/or debugging. Only two sets of values, the default and the set of
+# inverted values work, any other combinations will not though could be useful
+# for testing, i.e. 1 0 0 0 and 0 1 1 1
 #
-# Default is 0 if QFS client authentication *not* configured, 1 otherwise.
+# Default is 1 if QFS client authentication *not* configured, 0 otherwise.
 # metaServer.clientAuthentication.authNone = 1
 #
 # Default is 0 if QFS client authentication *not* configured, 1 otherwise.
@@ -931,6 +933,10 @@ metaServer.msgLogWriter.logLevel = INFO
 # Default is 0 if chunk and meta server server authentication is *not*
 # configured, 1 otherwise.
 # chunkServer.client.auth.enabled          = 0
+#
+# Default is 0 if chunk and meta server server authentication is *not*
+# configured, 1 otherwise.
+# chunkServer.remoteSync.auth.enabled      = 0
 
 # -------------------- File system ID ------------------------------------------
 #
