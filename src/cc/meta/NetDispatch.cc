@@ -330,7 +330,6 @@ NetDispatch::NetDispatch()
 NetDispatch::~NetDispatch()
 {
     delete &mCanceledTokens;
-    delete mMutex;
 }
 
 bool
@@ -1099,10 +1098,7 @@ public:
         // and re-acquire the mutex by waiting on the "fork done" condition.
         QCStMutexLocker dispatchLocker(gNetDispatch.GetMutex());
         gNetDispatch.PrepareToFork();
-        if (gLayoutManager.GetAuthCtxUpdateCount() != mAuthCtxUpdateCount) {
-            gLayoutManager.UpdateClientAuthContext(
-                mAuthCtxUpdateCount, mAuthContext);
-        }
+        gLayoutManager.UpdateClientAuthContext(mAuthCtxUpdateCount, mAuthContext);
         if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
                 mAuthContext.GetUserAndGroupUpdateCount()) {
             mAuthContext.SetUserAndGroup(gLayoutManager.GetUserAndGroup());

@@ -127,6 +127,7 @@ private:
     DelegationToken::TokenSeq          mDelegationSeq;
     uint64_t                           mCanceledTokensUpdateCount;
     int64_t                            mSessionExpirationTime;
+    int64_t                            mCredExpirationTime;
     ClientManager::ClientThread* const mClientThread;
     AuthContext&                       mAuthContext;
     uint64_t                           mAuthUpdateCount;

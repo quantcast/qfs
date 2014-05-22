@@ -2169,6 +2169,8 @@ LayoutManager::Shutdown()
     mCSDirCountersResponse.Clear();
     mPingResponse.Clear();
     mUserAndGroup.Shutdown();
+    mClientAuthContext.Clear();
+    mCSAuthContext.Clear();
 }
 
 template<
