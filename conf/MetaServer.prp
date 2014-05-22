@@ -571,7 +571,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.CSAuthentication.krb5.princUnparseMode =
 
 # OpenSSL cipher configuration for TLS-PSK authentication method. This method
-# is used with QFS delegation and with Kerberos authentication.
+# is used with TLS-PSK and with Kerberos authentication.
 # metaServer.CSAuthentication.psk.cipherpsk = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
 
 # The long integer value passed to SSL_CTX_set_options() call.
@@ -742,9 +742,17 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.clientAuthentication.whiteList =
 
 # ================== Delegation ================================================
+#
 # Delegation token expiration time limit.
 # Default is 24 hours.
 # metaServer.clientAuthentication.maxDelegationValidForTimeSec = 86400
+
+# Do not limit delegation token end time to the meta server session credentials
+# (Kerberos ticket or X509 certificate) end time.
+# Default is 0.
+# metaServer.clientAuthentication.delegationIgnoreCredEndTime = 0
+
+================================================================================
 
 # Allow to use "clear text" communication mode by performing SSL/TLS shutdown
 # immediately after successful authentication completion. If enabled, the QFS
