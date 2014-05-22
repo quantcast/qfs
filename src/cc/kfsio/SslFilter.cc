@@ -467,7 +467,8 @@ public:
         NetConnection& inConnection,
         TcpSocket&     inSocket,
         IOBuffer&      inIoBuffer,
-        int            inMaxRead)
+        int            inMaxRead,
+        SslFilter&     inOuter)
     {
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
@@ -479,7 +480,7 @@ public:
             return theRet;
         }
         if (mShutdownInitiatedFlag) {
-            return ShutdownSelf(inConnection);
+            return ShutdownSelf(inConnection, inOuter);
         }
         if (inMaxRead == 0) {
             // Don't want to read, just complete handshake.
@@ -500,7 +501,8 @@ public:
         NetConnection& inConnection,
         TcpSocket&     inSocket,
         IOBuffer&      inIoBuffer,
-        bool&          outForceInvokeErrHandlerFlag)
+        bool&          outForceInvokeErrHandlerFlag,
+        SslFilter&     inOuter)
     {
         outForceInvokeErrHandlerFlag = false;
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
@@ -511,7 +513,7 @@ public:
             return theRet;
         }
         if (mShutdownInitiatedFlag) {
-            const int theRet = ShutdownSelf(inConnection);
+            const int theRet = ShutdownSelf(inConnection, inOuter);
             // On successful shutdown completion read handler to be invoked in
             // order to let the caller know that shutdown is now complete.
             outForceInvokeErrHandlerFlag = theRet == 0;
@@ -544,7 +546,8 @@ public:
     }
     void Close(
         NetConnection& inConnection,
-        TcpSocket*     inSocketPtr)
+        TcpSocket*     inSocketPtr,
+        SslFilter&     inOuter)
     {
         if (mSslPtr && inSocketPtr &&
                 SSL_get_fd(mSslPtr) == inSocketPtr->GetFd()) {
@@ -552,7 +555,7 @@ public:
         }
         inConnection.SetFilter(0, 0);
         if (mDeleteOnCloseFlag) {
-            delete this;
+            delete &inOuter;
         }
         inConnection.Close();
     }
@@ -695,12 +698,13 @@ public:
         { return (mError ? GetErrorMsg(mError) : string()); }
     int Shutdown(
         NetConnection& inConnection,
-        TcpSocket&     inSocket)
+        TcpSocket&     inSocket,
+        SslFilter&     inOuter)
     {
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        const int theRet = ShutdownSelf(inConnection);
+        const int theRet = ShutdownSelf(inConnection, inOuter);
         inConnection.Update();
         return theRet;
     }
@@ -1149,7 +1153,8 @@ private:
         }
     }
     int ShutdownSelf(
-        NetConnection& inConnection)
+        NetConnection& inConnection,
+        SslFilter&     inOuter)
     {
         mShutdownInitiatedFlag = true;
         if (mShutdownCompleteFlag) {
@@ -1176,7 +1181,7 @@ private:
         mShutdownCompleteFlag = true;
         inConnection.SetFilter(0, 0);
         if (mDeleteOnCloseFlag) {
-            delete this;
+            delete &inOuter;
         }
         return 0;
     }
@@ -1456,7 +1461,7 @@ SslFilter::Read(
     IOBuffer&      inIoBuffer,
     int            inMaxRead)
 {
-    return mImpl.Read(inConnection, inSocket, inIoBuffer, inMaxRead);
+    return mImpl.Read(inConnection, inSocket, inIoBuffer, inMaxRead, *this);
 }
 
     /* virtual */ int
@@ -1467,7 +1472,7 @@ SslFilter::Write(
     bool&          outForceInvokeErrHandlerFlag)
 {
     return mImpl.Write(inConnection, inSocket, inIoBuffer,
-        outForceInvokeErrHandlerFlag);
+        outForceInvokeErrHandlerFlag, *this);
 }
 
     /* virtual */ void
@@ -1475,7 +1480,7 @@ SslFilter::Close(
     NetConnection& inConnection,
     TcpSocket*     inSocketPtr)
 {
-    mImpl.Close(inConnection, inSocketPtr);
+    mImpl.Close(inConnection, inSocketPtr, *this);
 }
 
     /* virtual */ int
@@ -1483,7 +1488,7 @@ SslFilter::Shutdown(
     NetConnection& inConnection,
     TcpSocket&     inSocket)
 {
-    return mImpl.Shutdown(inConnection, inSocket);
+    return mImpl.Shutdown(inConnection, inSocket, *this);
 }
 
     /* virtual */ int
