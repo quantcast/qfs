@@ -576,6 +576,36 @@ public:
         return (mX509SslCtxPtr &&
             SslFilter::GetCtxX509EndTime(*mX509SslCtxPtr, outEndTime));
     }
+    void Clear()
+    {
+        if (mCurRequest.mOuterPtr) {
+            RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
+            QCASSERT(theImplPtr);
+            if (theImplPtr && theImplPtr->mKrbClientPtr) {
+                // If kerberos request is in flight, keep kerberos client
+                // context around until outer destructor is invoked to ensure
+                // that the request buffers are still valid.
+                theImplPtr = new RequestCtxImpl();
+                theImplPtr->mKrbClientPtr.swap(mCurRequest.mKrbClientPtr);
+            } else {
+                theImplPtr = 0;
+            }
+            mCurRequest.mOuterPtr = 0;
+        }
+        mParams.clear();
+        mKrbClientPtr.reset();
+        mSslCtxPtr.reset();
+        mX509SslCtxPtr.reset();
+        mPskKeyId.clear();
+        mPskKey.clear();
+        mX509ExpectedName.clear();
+        mEnabledFlag           = false;
+        mAuthNoneEnabledFlag   = false;
+        mKrbAuthRequireSslFlag = false;
+        mAuthRequiredFlag      = false;
+        mAllowCSClearTextFlag  = true;
+        mMaxAuthRetryCount     = 3;
+    }
 private:
     typedef RequestCtxImpl::KrbClientPtr KrbClientPtr;
     typedef SslFilter::CtxPtr            SslCtxPtr;
@@ -847,6 +877,12 @@ ClientAuthContext::GetX509EndTime(
     int64_t& outEndTime) const
 {
     return mImpl.GetX509EndTime(outEndTime);
+}
+
+    void
+ClientAuthContext::Clear()
+{
+    mImpl.Clear();
 }
 
 } // namespace KFS
