@@ -276,6 +276,7 @@ metaServer.rootDirMode = 0777
 metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
+metaServer.clientThreadCount = 2
 EOF
 
 if [ x"$auth" = x'yes' ]; then
