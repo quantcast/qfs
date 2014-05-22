@@ -146,6 +146,12 @@ public:
         delete theFilterPtr;
         return false;
     }
+    void Clear()
+    {
+        mSslCtxPtr.reset();
+        mParams.clear();
+        mEnabledFlag = false;
+    }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
 
@@ -237,6 +243,14 @@ ClientManager::SetParameters(
         inProps,
         inAuthEnabledFlag
     );
+}
+
+void
+ClientManager::Shutdown()
+{
+    delete mAcceptorPtr;
+    mAcceptorPtr = 0;
+    mAuth.Clear();
 }
 
 }

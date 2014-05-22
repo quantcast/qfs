@@ -108,16 +108,7 @@ MetaServerSM::MetaServerSM()
 
 MetaServerSM::~MetaServerSM()
 {
-    globalNetManager().UnRegisterTimeoutHandler(this);
-    CleanupOpInFlight();
-    DiscardPendingResponses();
-    FailOps(true);
-    delete mHelloOp;
-    delete mAuthOp;
-    if (mNetConnection) {
-        mNetConnection->Close();
-    }
-    mNetConnection.reset();
+    MetaServerSM::Shutdown();
 }
 
 void
@@ -142,6 +133,30 @@ MetaServerSM::SetMetaInfo(
     mRackId     = rackId;
     mMD5Sum     = md5sum;
     return SetParameters(prop);
+}
+
+void
+MetaServerSM::Shutdown()
+{
+    if (! mLocation.IsValid() && ! mNetConnection) {
+        return;
+    }
+    if (mNetConnection) {
+        mNetConnection->Close();
+    }
+    mNetConnection.reset();
+    globalNetManager().UnRegisterTimeoutHandler(this);
+    CleanupOpInFlight();
+    DiscardPendingResponses();
+    FailOps(true);
+    delete mHelloOp;
+    mHelloOp = 0;
+    delete mAuthOp;
+    mHelloOp = 0;
+    mAuthContext.Clear();
+    if (mLocation.IsValid()) {
+        mLocation.port = -mLocation.port;
+    }
 }
 
 int
@@ -915,11 +930,12 @@ MetaServerSM::EnqueueOp(KfsOp* op)
             SubmitOpResponse(op);
         }
     } else {
-        if (globalNetManager().IsRunning()) {
+        if (globalNetManager().IsRunning() && ! mLocation.IsValid()) {
             mPendingOps.push_back(op);
         } else {
             op->status = -EHOSTUNREACH;
             SubmitOpResponse(op);
+            return;
         }
     }
     globalNetManager().Wakeup();

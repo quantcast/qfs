@@ -193,6 +193,7 @@ public:
         const char*       inParamsPrefixPtr,
         const Properties& inProps,
         bool              inAuthEnabledFlag);
+    void Shutdown();
 private:
     class Auth;
 

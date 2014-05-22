@@ -158,6 +158,12 @@ public:
         KFS_LOG_EOM;
         return false;
     }
+    void Clear()
+    {
+        mSslCtxPtr.reset();
+        mParams.clear();
+        mEnabledFlag = false;
+    }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
 
@@ -218,6 +224,7 @@ void
 RemoteSyncSM::Shutdown()
 {
     delete sAuthPtr;
+    sAuthPtr = 0;
 }
 
 // State machine for communication with other chunk servers.
