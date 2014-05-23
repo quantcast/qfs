@@ -2671,6 +2671,9 @@ LayoutManager::AddNewServer(MetaHello *r)
         mSlavesCount++;
     }
 
+    if (! mChunkServersProps.empty() && ! srv.IsDown()) {
+        srv.SetProperties(mChunkServersProps);
+    }
     int maxLogInfoCnt = 32;
     ChunkIdQueue staleChunkIds;
     for (MetaHello::ChunkInfos::const_iterator it = r->chunks.begin();
@@ -2819,9 +2822,6 @@ LayoutManager::AddNewServer(MetaHello *r)
     const size_t staleCnt = staleChunkIds.GetSize();
     if (! staleChunkIds.IsEmpty() && ! srv.IsDown()) {
         srv.NotifyStaleChunks(staleChunkIds);
-    }
-    if (! mChunkServersProps.empty() && ! srv.IsDown()) {
-        srv.SetProperties(mChunkServersProps);
     }
     // All ops are queued at this point, make sure that the server is still up.
     if (srv.IsDown()) {
@@ -6556,7 +6556,8 @@ LayoutManager::GetMaxCSUptime() const
 void
 LayoutManager::ScheduleChunkServersRestart()
 {
-    if (mMaxCSRestarting <= 0 || ! IsChunkServerRestartAllowed()) {
+    if (mMaxCSRestarting <= 0 || TimeNow() < mCSRestartTime ||
+            ! IsChunkServerRestartAllowed()) {
         return;
     }
     Servers servers(mChunkServers);
