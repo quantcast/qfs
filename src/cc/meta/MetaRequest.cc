@@ -1628,6 +1628,7 @@ MetaGetlayout::handle()
             return;
         }
     }
+    fileSize  = fa->filesize;
     numChunks = (int)chunkInfo.size();
     if ((hasMoreChunksFlag = maxResCnt > 0 && maxResCnt < numChunks)) {
         numChunks = maxResCnt;
@@ -4069,6 +4070,9 @@ MetaGetlayout::response(ostream& os, IOBuffer& buf)
     }
     if (hasMoreChunksFlag) {
         os << "Has-more-chunks:  1\r\n";
+    }
+    if (0 <= fileSize) {
+        os << "File-size: " << fileSize << "\r\n";
     }
     os <<
         "Num-chunks: "     << numChunks << "\r\n"

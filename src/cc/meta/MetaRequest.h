@@ -817,6 +817,7 @@ struct MetaGetlayout: public MetaRequest {
     int        maxResCnt;
     int        numChunks;
     bool       hasMoreChunksFlag;
+    chunkOff_t fileSize;
     IOBuffer   resp;   //!< result
     MetaGetlayout()
         : MetaRequest(META_GETLAYOUT, false),
@@ -828,6 +829,7 @@ struct MetaGetlayout: public MetaRequest {
           maxResCnt(-1),
           numChunks(-1),
           hasMoreChunksFlag(false),
+          fileSize(-1),
           resp()
         {}
     virtual void handle();

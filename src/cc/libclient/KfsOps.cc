@@ -1133,6 +1133,7 @@ GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     numChunks         = prop.getValue("Num-chunks", 0);
     hasMoreChunksFlag = prop.getValue("Has-more-chunks", 0) != 0;
+    fileSize          = prop.getValue("File-size", chunkOff_t(-1));
 }
 
 int

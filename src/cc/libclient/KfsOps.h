@@ -629,6 +629,7 @@ struct GetLayoutOp: public KfsOp {
     int                     numChunks;
     int                     maxChunks;
     bool                    hasMoreChunksFlag;
+    chunkOff_t              fileSize;
     vector<ChunkLayoutInfo> chunks;
     GetLayoutOp(kfsSeq_t s, kfsFileId_t f)
         : KfsOp(CMD_GETLAYOUT, s),
@@ -640,6 +641,7 @@ struct GetLayoutOp: public KfsOp {
           numChunks(0),
           maxChunks(-1),
           hasMoreChunksFlag(false),
+          fileSize(-1),
           chunks()
         {}
     void Request(ostream& os);
