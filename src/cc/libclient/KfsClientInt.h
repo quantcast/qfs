@@ -1053,6 +1053,7 @@ private:
     int AddChunkLocation(
         int                      inFd,
         chunkOff_t               inChunkPos,
+        bool                     inNewEntryFlag,
         vector<vector<string> >& inLocations);
     friend struct RespondingServer;
     friend struct RespondingServer2;

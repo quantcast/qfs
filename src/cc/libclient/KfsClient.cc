@@ -37,6 +37,7 @@
 #include "common/kfsatomic.h"
 #include "common/MdStream.h"
 #include "common/StdAllocator.h"
+#include "common/IntToString.h"
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
 #include "kfsio/checksum.h"
@@ -3956,6 +3957,7 @@ int
 KfsClientImpl::AddChunkLocation(
     int                      inFd,
     chunkOff_t               inChunkPos,
+    bool                     inNewEntryFlag,
     vector<vector<string> >& inLocations)
 {
     ChunkAttr theChunk;
@@ -3963,12 +3965,17 @@ KfsClientImpl::AddChunkLocation(
     if ((theRes = LocateChunk(inFd, inChunkPos, theChunk)) < 0) {
         return theRes;
     }
-    inLocations.push_back(vector<string>());
+    if (inLocations.empty() || inNewEntryFlag) {
+        inLocations.push_back(vector<string>());
+    }
     vector<string>& theHosts = inLocations.back();
     const size_t theCnt = theChunk.chunkServerLoc.size();
     for (size_t i = 0; i < theCnt; i++) {
         theHosts.push_back(string());
-        theHosts.back().swap(theChunk.chunkServerLoc[i].hostname);
+        string& str = theHosts.back();
+        str.swap(theChunk.chunkServerLoc[i].hostname);
+        str += ':';
+        AppendDecIntToString(str, theChunk.chunkServerLoc[i].port);
     }
     return 0;
 }
@@ -4000,11 +4007,19 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
         chunkOff_t cpos         = pbpos + idx * (chunkOff_t)CHUNKSIZE;
         chunkOff_t pos          = fstart - fstart % fattr.stripeSize;
         chunkOff_t const end    = min(fstart + len, fattr.fileSize);
+        chunkOff_t inspos       = fstart;
+        chunkOff_t pinspos      = inspos - (chunkOff_t)CHUNKSIZE;
         while (pos < end) {
             lbpos += lblksz;
             const int sidx = idx;
             do {
-                const int res = AddChunkLocation(fd, cpos, locations);
+                const bool newEntryFlag =
+                    pinspos + (chunkOff_t)CHUNKSIZE <= inspos;
+                if (newEntryFlag) {
+                    pinspos = inspos;
+                }
+                const int res = AddChunkLocation(
+                    fd, cpos, newEntryFlag, locations);
                 if (res == -EAGAIN) {
                     locations.push_back(vector<string>());
                 } else if (res < 0 && res != -ENOENT) {
@@ -4018,7 +4033,21 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                     cpos += (chunkOff_t)CHUNKSIZE;
                 }
                 pos += fattr.stripeSize;
+                inspos += fattr.stripeSize;
             } while (idx != sidx && pos < end && pos < lbpos);
+            if (end <= pos) {
+                break;
+            }
+            assert(! locations.empty());
+            inspos = max(inspos, lbpos - lblksz + (chunkOff_t)CHUNKSIZE);
+            // Duplicating the last entry is rough approximation, sufficient for
+            // location hints. It is possible to query precise location by
+            // specifying smaller length and/or aligning start position.
+            while (inspos < lbpos && inspos < end) {
+                locations.push_back(locations.back());
+                inspos += (chunkOff_t)CHUNKSIZE;
+            }
+            pinspos = inspos -= (chunkOff_t)CHUNKSIZE;
             pbpos += pblksz;
             cpos = pbpos;
             idx = 0;
@@ -4030,7 +4059,7 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                     end = min(start + len, fattr.fileSize);
                 pos < end;
                 pos += (chunkOff_t)CHUNKSIZE) {
-            const int res = AddChunkLocation(fd, pos, locations);
+            const int res = AddChunkLocation(fd, pos, true, locations);
             if (res == -EAGAIN) {
                 locations.push_back(vector<string>());
             } else if (res < 0 && res != -ENOENT) {

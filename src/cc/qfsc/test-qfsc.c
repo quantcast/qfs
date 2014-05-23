@@ -318,7 +318,7 @@ static char* test_qfs_get_data_locations() {
       "result should always be less than the expected number of chunks");
     check(chunk == expected[res].chunk,
       "unexpected chunk: %jd != %jd", (intmax_t)chunk, (intmax_t)expected[res].chunk);
-    check(strcmp(location, expected[res].hostname) == 0,
+    check(strncmp(location, expected[res].hostname, strlen(expected[res].hostname)) == 0,
       "unexpected location");
     count++;
   }
