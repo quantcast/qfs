@@ -6556,8 +6556,7 @@ LayoutManager::GetMaxCSUptime() const
 void
 LayoutManager::ScheduleChunkServersRestart()
 {
-    if (mMaxCSRestarting <= 0 || TimeNow() < mCSRestartTime ||
-            ! IsChunkServerRestartAllowed()) {
+    if (mMaxCSRestarting <= 0 || ! IsChunkServerRestartAllowed()) {
         return;
     }
     Servers servers(mChunkServers);
