@@ -346,7 +346,7 @@ class Status:
             <div class="floatleft">
              <table class="sortable status-table" id="tiersInfo" cellspacing="0" cellpadding="0.1em"
                 summary="Status of storage tiers in the system">
-             <caption> <a name="StorageTiers">Storage Tiers Status</a> </caption>
+             <caption> <a name="StorageTiers">Storage Tiers Available For Placement Status</a> </caption>
              <thead>
              <tr>
             '''
