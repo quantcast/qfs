@@ -229,7 +229,8 @@ public:
     /// @param[in] pathname the name of the file that is being queried.
     /// @retval status code
     ///
-    int EnumerateBlocks(const char* pathname, BlockInfos& res);
+    int EnumerateBlocks(const char* pathname, BlockInfos& res,
+        bool getChunkSizesFlag = true);
 
     ///
     /// Given a file in KFS, verify that all N copies of each chunk are

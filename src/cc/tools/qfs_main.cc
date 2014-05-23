@@ -410,6 +410,33 @@ public:
             } else {
                 theErr = FullStat(theArgsPtr, theArgCnt);
             }
+        } else if (strcmp(theCmdPtr, "dloc") == 0) {
+            if (theArgCnt <= 2) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                char* theEndPtr = 0;
+                const int64_t theStartPos =
+                    strtoll(theArgsPtr[0], &theEndPtr, 0);
+                if (! theEndPtr && ' ' <= (*theEndPtr & 0xFF)) {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else {
+                    const int64_t theLength =
+                        strtoll(theArgsPtr[1], &theEndPtr, 0);
+                    if (! theEndPtr && ' ' <= (*theEndPtr & 0xFF)) {
+                        theErr = EINVAL;
+                        ShortHelp(cerr, "Usage: ", theCmdPtr);
+                    } else {
+                        theErr = GetDataLocation(
+                            theStartPos,
+                            theLength,
+                            theArgsPtr + 2,
+                            theArgCnt - 2
+                        );
+                    }
+                }
+            }
         } else if (strcmp(theCmdPtr, "tail") == 0) {
             bool theFollowFlag = theArgCnt > 0 &&
                 strcmp(theArgsPtr[0], "-f") == 0;
@@ -4108,6 +4135,64 @@ private:
         FunctorT<FullStatFunc> theFunc(theFullStatFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    class DataLoctionFunc
+    {
+    public:
+        typedef FileSystem::DataLocations Locations;
+        DataLoctionFunc(
+            int64_t  inStartPos,
+            int64_t  inLength,
+            ostream& inOutStream)
+            : mStartPos(inStartPos),
+              mLength(inLength),
+              mOutStream(inOutStream),
+              mLocations()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            mLocations.clear();
+            const int theErr = inFs.GetDataLocation(
+                inPath, mStartPos, mLength, mLocations);
+            if (theErr != 0) {
+                return theErr;
+            }
+            mOutStream <<
+                "Uri: " << inFs.GetUri() << inPath << "\n";
+            for (Locations::const_iterator theIt = mLocations.begin();
+                    theIt != mLocations.end();
+                    ++theIt) {
+                for (Locations::value_type::const_iterator
+                        theLIt = theIt->begin();
+                        theLIt != theIt->end();
+                        ++theLIt) {
+                    if (theLIt != theIt->begin()) {
+                        mOutStream << " ";
+                    }
+                    mOutStream << *theLIt;
+                }
+                mOutStream << "\n";
+            }
+            return theErr;
+        }
+    private:
+        int64_t const mStartPos;
+        int64_t const mLength;
+        ostream&      mOutStream;
+        Locations     mLocations;
+    };
+    int GetDataLocation(
+        int64_t inStartPos,
+        int64_t inLength,
+        char**  inArgsPtr,
+        int     inArgCount)
+    {
+        DataLoctionFunc theDataLocationFunc(inStartPos, inLength, cout);
+        FunctorT<DataLoctionFunc> theFunc(theDataLocationFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -4312,6 +4397,9 @@ const char* const KfsTool::sHelpStrings[] =
 
     "astat", "<glob> [<glob>...]",
     "displays all attributes",
+
+    "dloc", "<glob> [<glob>...]",
+    "displays data location",
 
     "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
     "Changes permissions of a file.\n\t\t"

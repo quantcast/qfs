@@ -625,6 +625,7 @@ struct GetLayoutOp: public KfsOp {
     chunkOff_t              startOffset;
     bool                    omitLocationsFlag;
     bool                    lastChunkOnlyFlag;
+    bool                    continueIfNoReplicasFlag;
     int                     numChunks;
     int                     maxChunks;
     bool                    hasMoreChunksFlag;
@@ -635,6 +636,7 @@ struct GetLayoutOp: public KfsOp {
           startOffset(0),
           omitLocationsFlag(false),
           lastChunkOnlyFlag(false),
+          continueIfNoReplicasFlag(false),
           numChunks(0),
           maxChunks(-1),
           hasMoreChunksFlag(false),
@@ -642,7 +644,7 @@ struct GetLayoutOp: public KfsOp {
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
-    int ParseLayoutInfo();
+    int ParseLayoutInfo(bool clearFlag = true);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "getlayout: fid: " << fid;
         return os;

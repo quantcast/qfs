@@ -49,6 +49,7 @@ class FileSystem
 {
 public:
     typedef KfsClient::ErrorHandler ErrorHandler;
+    typedef vector<vector<string> > DataLocations;
 
     class StatBuf : public stat
     {
@@ -227,6 +228,11 @@ public:
         const string& inToken,
         const string& inKey,
         string*       outErrMsgPtr) = 0;
+    virtual int GetDataLocation(
+        const string   inPath,
+        int64_t        inStartPos,
+        int64_t        inLength,
+        DataLocations& outLocations) = 0;
     virtual bool operator==(
         const FileSystem& inFs) const = 0;
     bool operator!=(

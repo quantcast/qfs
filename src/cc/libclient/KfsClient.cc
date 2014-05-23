@@ -368,9 +368,10 @@ KfsClient::IsDirectory(const char *pathname)
 }
 
 int
-KfsClient::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
+KfsClient::EnumerateBlocks(
+    const char* pathname, KfsClient::BlockInfos& res, bool getChunkSizesFlag)
 {
-    return mImpl->EnumerateBlocks(pathname, res);
+    return mImpl->EnumerateBlocks(pathname, res, getChunkSizesFlag);
 }
 
 int
@@ -3952,31 +3953,91 @@ KfsClientImpl::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
 }
 
 int
+KfsClientImpl::AddChunkLocation(
+    int                      inFd,
+    chunkOff_t               inChunkPos,
+    vector<vector<string> >& inLocations)
+{
+    ChunkAttr theChunk;
+    int       theRes;
+    if ((theRes = LocateChunk(inFd, inChunkPos, theChunk)) < 0) {
+        return theRes;
+    }
+    inLocations.push_back(vector<string>());
+    vector<string>& theHosts = inLocations.back();
+    const size_t theCnt = theChunk.chunkServerLoc.size();
+    for (size_t i = 0; i < theCnt; i++) {
+        theHosts.push_back(string());
+        theHosts.back().swap(theChunk.chunkServerLoc[i].hostname);
+    }
+    return 0;
+}
+
+int
 KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
-    vector<vector<string> > &locations)
+    vector<vector<string> >& locations)
 {
     assert(mMutex.IsOwned());
 
     if (! valid_fd(fd)) {
         return -EBADF;
     }
-    int       res;
-    ChunkAttr chunk;
-    // locate each chunk and get the hosts that are storing the chunk.
-    for (chunkOff_t pos = start / (chunkOff_t)CHUNKSIZE * (chunkOff_t)CHUNKSIZE;
-            pos < start + len;
-            pos += CHUNKSIZE) {
-        if ((res = LocateChunk(fd, pos, chunk)) < 0) {
-            return res;
+    const FileAttr& fattr = mFileTable[fd]->fattr;
+    if (fattr.isDirectory) {
+        return -EISDIR;
+    }
+    if (fattr.striperType == KFS_STRIPED_FILE_TYPE_RS &&
+            0 < fattr.numStripes && 0 < fattr.stripeSize) {
+        chunkOff_t const lblksz = (chunkOff_t)CHUNKSIZE * (int)fattr.numStripes;
+        chunkOff_t const pblksz = (chunkOff_t)CHUNKSIZE *
+            (int)(fattr.numStripes + max(0, (int)fattr.numRecoveryStripes));
+        chunkOff_t const fstart = max(chunkOff_t(0), start);
+        chunkOff_t lbpos        = fstart / lblksz;
+        chunkOff_t pbpos        = lbpos * pblksz;
+        lbpos *= lblksz;
+        int        idx          = (int)((fstart %
+            (fattr.stripeSize * fattr.numStripes)) / fattr.stripeSize);
+        chunkOff_t cpos         = pbpos + idx * (chunkOff_t)CHUNKSIZE;
+        chunkOff_t pos          = fstart - fstart % fattr.stripeSize;
+        chunkOff_t const end    = min(fstart + len, fattr.fileSize);
+        while (pos < end) {
+            lbpos += lblksz;
+            const int sidx = idx;
+            do {
+                const int res = AddChunkLocation(fd, cpos, locations);
+                if (res == -EAGAIN) {
+                    locations.push_back(vector<string>());
+                } else if (res < 0 && res != -ENOENT) {
+                    return res;
+                }
+                ++idx;
+                if (fattr.numStripes <= idx) {
+                    idx  = 0;
+                    cpos = pbpos;
+                } else {
+                    cpos += (chunkOff_t)CHUNKSIZE;
+                }
+                pos += fattr.stripeSize;
+            } while (idx != sidx && pos < end && pos < lbpos);
+            pbpos += pblksz;
+            cpos = pbpos;
+            idx = 0;
+            pos = lbpos;
         }
-        locations.push_back(vector<string>());
-        vector<string>& hosts = locations.back();
-        const size_t cnt = chunk.chunkServerLoc.size();
-        for (size_t i = 0; i < cnt; i++) {
-            hosts.push_back(chunk.chunkServerLoc[i].hostname);
+    } else {
+        for (chunkOff_t pos = max(chunkOff_t(0), start) /
+                        (chunkOff_t)CHUNKSIZE * (chunkOff_t)CHUNKSIZE,
+                    end = min(start + len, fattr.fileSize);
+                pos < end;
+                pos += (chunkOff_t)CHUNKSIZE) {
+            const int res = AddChunkLocation(fd, pos, locations);
+            if (res == -EAGAIN) {
+                locations.push_back(vector<string>());
+            } else if (res < 0 && res != -ENOENT) {
+                return res;
+            }
         }
     }
-
     return 0;
 }
 
@@ -4215,7 +4276,7 @@ KfsClientImpl::LocateChunk(int fd, chunkOff_t chunkOffset, ChunkAttr& chunk)
     }
     chunk.chunkId        = op.chunkId;
     chunk.chunkVersion   = op.chunkVersion;
-    chunk.chunkServerLoc = op.chunkServers;
+    chunk.chunkServerLoc.swap(op.chunkServers);
     chunk.chunkSize      = -1;
     chunk.chunkOffset    = chunkOffset;
     return 0;
@@ -4416,22 +4477,53 @@ KfsClientImpl::UpdateFilesize(int fd)
     return 0;
 }
 
+void
+KfsClientImpl::GetLyout(GetLayoutOp& inOp)
+{
+    inOp.chunks.clear();
+    inOp.maxChunks = 384;
+    for (; ;) {
+        inOp.contentLength = 0;
+        DoMetaOpWithRetry(&inOp);
+        if (inOp.status < 0) {
+            break;
+        }
+        const bool kClearFlag = false;
+        if (inOp.startOffset == 0 && ! inOp.hasMoreChunksFlag) {
+            inOp.chunks.reserve(inOp.numChunks);
+        }
+        if (inOp.ParseLayoutInfo(kClearFlag)) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to parse layout info fid: " << inOp.fid <<
+            KFS_LOG_EOM;
+            inOp.status = -EINVAL;
+            break;
+        }
+        if (! inOp.hasMoreChunksFlag) {
+            break;
+        }
+        if (inOp.chunks.empty()) {
+            break;
+        }
+        chunkOff_t const thePos = inOp.chunks.back().fileOffset;
+        if (thePos < inOp.startOffset) {
+            break;
+        }
+        inOp.startOffset = thePos + (chunkOff_t)CHUNKSIZE;
+    }
+    inOp.numChunks = (int)inOp.chunks.size();
+}
+
 chunkOff_t
 KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
 {
     GetLayoutOp lop(0, kfsfid);
     lop.lastChunkOnlyFlag = true;
-    DoMetaOpWithRetry(&lop);
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to compute filesize fid: " << kfsfid <<
             " status: " << lop.status <<
-        KFS_LOG_EOM;
-        return -1;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR <<
-            "failed to parse layout info fid: " << kfsfid <<
         KFS_LOG_EOM;
         return -1;
     }
@@ -5055,17 +5147,14 @@ KfsClientImpl::GetReplication(const char* pathname,
     KFS_LOG_EOM;
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = 0 < attr.numRecoveryStripes;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
-        KFS_LOG_EOM;
-        return -EFAULT;
     }
     maxChunkReplication = 0;
     if (lop.chunks.empty()) {
@@ -5235,7 +5324,8 @@ KfsClientImpl::CancelDelegation(
 }
 
 int
-KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
+KfsClientImpl::EnumerateBlocks(
+    const char* pathname, KfsClient::BlockInfos& res, bool getChunkSizesFlag)
 {
     QCStMutexLocker l(mMutex);
 
@@ -5256,7 +5346,9 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     KFS_LOG_EOM;
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
@@ -5264,17 +5356,11 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
         return lop.status;
     }
 
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
-        KFS_LOG_EOM;
-        return -EINVAL;
-    }
-
     vector<ssize_t> chunksize;
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
             i != lop.chunks.end();
             ++i) {
-        if (i->chunkServers.empty()) {
+        if (i->chunkServers.empty() || ! getChunkSizesFlag) {
             res.push_back(KfsClient::BlockInfo());
             KfsClient::BlockInfo& chunk = res.back();
             chunk.offset  = i->fileOffset;
@@ -5369,17 +5455,13 @@ int
 KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
 {
     GetLayoutOp lop(0, fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout info" <<
-        KFS_LOG_EOM;
-        return -EINVAL;
     }
     const size_t numChecksums = CHUNKSIZE / CHECKSUM_BLOCKSIZE;
     scoped_array<uint32_t> chunkChecksums1;
@@ -6027,16 +6109,14 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     }
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
             ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "Unable to parse layout info!" << KFS_LOG_EOM;
-        return -EINVAL;
     }
     MdStream mdsAll;
     MdStream mds;

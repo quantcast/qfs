@@ -746,6 +746,21 @@ public:
         }
         return -ENODEV;
     }
+    virtual int GetDataLocation(
+        const string   inPath,
+        int64_t        /* inStartPos */,
+        int64_t        /* inLength */,
+        DataLocations& outLocations)
+    {
+        StatBuf theStat;
+        const int theStatus = Stat(inPath, theStat);
+        if (theStatus != 0) {
+            return theStatus;
+        }
+        outLocations.push_back(DataLocations::value_type());
+        outLocations.back().push_back(string("localhost"));
+        return 0;
+    }
 private:
     static int RetErrno(
         int inErrno)
@@ -1245,6 +1260,19 @@ public:
             inToken,
             inKey,
             outErrMsgPtr
+        );
+    }
+    virtual int GetDataLocation(
+        const string   inPath,
+        int64_t        inStartPos,
+        int64_t        inLength,
+        DataLocations& outLocations)
+    {
+        return KfsClient::GetDataLocation(
+            inPath.c_str(),
+            inStartPos,
+            inLength,
+            outLocations
         );
     }
 private:

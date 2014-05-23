@@ -364,7 +364,8 @@ public:
     bool IsFile(const char *pathname);
     bool IsDirectory(const char *pathname);
 
-    int EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res);
+    int EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res,
+        bool getChunkSizesFlag);
 
     int CompareChunkReplicas(const char *pathname, string &md5sum);
 
@@ -1047,7 +1048,12 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion);
-
+    void GetLyout(
+        GetLayoutOp& inOp);
+    int AddChunkLocation(
+        int                      inFd,
+        chunkOff_t               inChunkPos,
+        vector<vector<string> >& inLocations);
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;

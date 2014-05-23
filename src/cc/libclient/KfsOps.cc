@@ -380,6 +380,9 @@ GetLayoutOp::Request(ostream &os)
     if (lastChunkOnlyFlag) {
         os << "Last-chunk-only: 1\r\n";
     }
+    if (continueIfNoReplicasFlag) {
+        os << "Continue-if-no-replicas: 1\r\n";
+    }
     if (maxChunks > 0) {
         os << "Max-chunks : " << maxChunks << "\r\n";
     }
@@ -1133,14 +1136,16 @@ GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 int
-GetLayoutOp::ParseLayoutInfo()
+GetLayoutOp::ParseLayoutInfo(bool clearFlag)
 {
-    if (numChunks <= 0 || contentBuf == NULL) {
+    if (clearFlag) {
+        chunks.clear();
+        chunks.reserve(numChunks);
+    }
+    if (numChunks <= 0 || ! contentBuf) {
         return 0;
     }
     BufferInputStream is(contentBuf, contentLength);
-    chunks.clear();
-    chunks.reserve(numChunks);
     for (int i = 0; i < numChunks; ++i) {
         chunks.push_back(ChunkLayoutInfo());
         if (! (is >> chunks.back())) {
