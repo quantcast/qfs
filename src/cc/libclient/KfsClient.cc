@@ -4020,9 +4020,9 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                 }
                 const int res = AddChunkLocation(
                     fd, cpos, newEntryFlag, locations);
-                if (res == -EAGAIN) {
+                if (res == -EAGAIN || res == -ENOENT) {
                     locations.push_back(vector<string>());
-                } else if (res < 0 && res != -ENOENT) {
+                } else if (res < 0) {
                     return res;
                 }
                 ++idx;
@@ -4060,9 +4060,9 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                 pos < end;
                 pos += (chunkOff_t)CHUNKSIZE) {
             const int res = AddChunkLocation(fd, pos, true, locations);
-            if (res == -EAGAIN) {
+            if (res == -EAGAIN || res == -ENOENT) {
                 locations.push_back(vector<string>());
-            } else if (res < 0 && res != -ENOENT) {
+            } else if (res < 0) {
                 return res;
             }
         }
