@@ -813,6 +813,7 @@ struct MetaGetlayout: public MetaRequest {
     chunkOff_t startOffset;
     bool       omitLocationsFlag;
     bool       lastChunkInfoOnlyFlag;
+    bool       continueIfNoReplicasFlag;
     int        maxResCnt;
     int        numChunks;
     bool       hasMoreChunksFlag;
@@ -823,6 +824,7 @@ struct MetaGetlayout: public MetaRequest {
           startOffset(0),
           omitLocationsFlag(false),
           lastChunkInfoOnlyFlag(false),
+          continueIfNoReplicasFlag(false),
           maxResCnt(-1),
           numChunks(-1),
           hasMoreChunksFlag(false),
@@ -842,11 +844,12 @@ struct MetaGetlayout: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",     &MetaGetlayout::fid,                   fid_t(-1))
-        .Def("Start-offset",    &MetaGetlayout::startOffset,           chunkOff_t(0))
-        .Def("Omit-locations",  &MetaGetlayout::omitLocationsFlag,     false)
-        .Def("Last-chunk-only", &MetaGetlayout::lastChunkInfoOnlyFlag, false)
-        .Def("Max-chunks",      &MetaGetlayout::maxResCnt,             -1)
+        .Def("File-handle",             &MetaGetlayout::fid,                      fid_t(-1))
+        .Def("Start-offset",            &MetaGetlayout::startOffset,              chunkOff_t(0))
+        .Def("Omit-locations",          &MetaGetlayout::omitLocationsFlag,        false)
+        .Def("Last-chunk-only",         &MetaGetlayout::lastChunkInfoOnlyFlag,    false)
+        .Def("Max-chunks",              &MetaGetlayout::maxResCnt,                -1)
+        .Def("Continue-if-no-replicas", &MetaGetlayout::continueIfNoReplicasFlag, false)
         ;
     }
 };

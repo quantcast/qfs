@@ -85,17 +85,6 @@ GetTmpOStringStream()
     return ret;
 }
 
-template<typename T>
-static string&
-AppendDecNum(string& str, T num)
-{
-    char              buf[32];
-    char* const       e = buf + sizeof(buf) / sizeof(buf[0]);
-    const char* const p = IntToDecString(num, e);
-    str.append(p, e - p);
-    return str;
-}
-
 static bool
 CanAccessFile(const MetaFattr* fa, MetaRequest& op)
 {
@@ -1570,7 +1559,7 @@ MetaGetalloc::handle()
     if (err) {
         status    = -EAGAIN;
         statusMsg = "no replicas available chunk: ";
-        AppendDecNum(statusMsg, chunkId);
+        AppendDecIntToString(statusMsg, chunkId);
         KFS_LOG_STREAM_ERROR <<
             "getalloc "
             "<" << fid << "," << chunkId << "," << offset << ">"
@@ -1657,11 +1646,11 @@ MetaGetlayout::handle()
             const int  err = gLayoutManager.GetChunkToServerMapping(
                 *(chunkInfo[i]), c, cfa);
             assert(! fa || cfa == fa);
-            if (err) {
+            if (err && ! continueIfNoReplicasFlag) {
                 resp.Clear();
                 status    = -EHOSTUNREACH;
                 statusMsg = "no replicas available chunk: ";
-                AppendDecNum(statusMsg, l.chunkId);
+                AppendDecIntToString(statusMsg, l.chunkId);
                 break;
             }
             for_each(c.begin(), c.end(),
