@@ -90,22 +90,7 @@ public:
           mPskKey()
         {}
     ~Impl()
-    {
-        if (mCurRequest.mOuterPtr) {
-            RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
-            QCASSERT(theImplPtr);
-            if (theImplPtr && theImplPtr->mKrbClientPtr) {
-                // If kerberos request is in flight, keep kerberos client
-                // context around until outer destructor is invoked to ensure
-                // that the request buffers are still valid.
-                theImplPtr = new RequestCtxImpl();
-                theImplPtr->mKrbClientPtr.swap(mCurRequest.mKrbClientPtr);
-            } else {
-                theImplPtr = 0;
-            }
-            mCurRequest.mOuterPtr = 0;
-        }
-    }
+        { Impl::Clear(); }
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
