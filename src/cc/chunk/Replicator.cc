@@ -932,7 +932,7 @@ private:
         mReader.Unregister(this);
         mReader.Shutdown();
         ReplicatorImpl::Cancel();
-        if (mReadInFlightFlag && prevRef <= GetRefCount()) {
+        if (prevRef <= GetRefCount() && mReadInFlightFlag) {
             assert(mOwner);
             mReadInFlightFlag = false;
             mReadOp.status = -ETIMEDOUT;

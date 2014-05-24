@@ -681,7 +681,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             statusMsg = prop.getValue("Status-message", string());
         }
         mContentLength = prop.getValue("Content-length",  -1);
-        if (mAuthOp) {
+        if (mAuthOp && (! IsHandshakeDone() || seq == mAuthOp->seq)) {
             if (seq != mAuthOp->seq) {
                 KFS_LOG_STREAM_ERROR <<
                     "authentication response seq number mismatch: " <<

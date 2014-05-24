@@ -632,6 +632,10 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
     if (i != mDispatchedOps.end()) {
         KfsOp* const op = i->second;
         mDispatchedOps.erase(i);
+        if (! op) {
+            die("invalid null op");
+            return -1;
+        }
         if (op->op == CMD_READ) {
             ReadOp* const rop = static_cast<ReadOp*>(op);
             rop->dataBuf.Move(iobuf, mReplyNumBytes);
