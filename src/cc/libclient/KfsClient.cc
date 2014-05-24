@@ -1421,11 +1421,12 @@ void
 KfsClientImpl::Shutdown()
 {
     QCStMutexLocker l(mMutex);
-    if (! mProtocolWorker) {
-        return;
+    if (mProtocolWorker) {
+        QCStMutexUnlocker unlock(mMutex);
+        mProtocolWorker->Stop();
     }
-    l.Unlock();
-    mProtocolWorker->Stop();
+    mAuthCtx.Clear();
+    mProtocolWorkerAuthCtx.Clear();
 }
 
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
@@ -2642,6 +2643,12 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     vector<KfsFileAttr>& result, bool computeFilesize, bool updateClientCache)
 {
     assert(mMutex.IsOwned());
+    if (pathname.empty() || pathname[0] != '/') {
+        KFS_LOG_STREAM_ERROR <<
+            "ReaddirPlus invalid path name: " << pathname <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
 
     time_t const                      now = time(0);
     ReadDirPlusResponseParser         parser(
@@ -2733,7 +2740,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 
     // if there are too many entries in the dir, then the caller is
     // probably scanning the directory.  don't put it in the cache
-    string                 dirname(pathname);
+    string dirname(pathname);
     for (string::size_type len = dirname.size();
             len > 0 && dirname[len - 1] == '/';
             ) {
@@ -3121,17 +3128,19 @@ KfsClientImpl::InvalidateCachedAttrsWithPathPrefix(
         QCASSERT(mPathCache.begin() == mPathCacheNone);
         return true;
     }
-    if (path == "/") {
+    const size_t len = path.length();
+    if (len == 0 || path == "/") {
         InvalidateAllCachedAttrs();
         return true;
     }
+    if (path[0] != '/') {
+        return false;
+    }
     string prefix = path;
-    if (*prefix.rbegin() != '/') {
+    if (prefix[len - 1] != '/') {
         prefix += "/";
     }
-    const size_t len      = prefix.length();
-    int          maxInval =
-        (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
+    int maxInval = (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
     for (NameToFAttrMap::iterator it = mPathCache.lower_bound(prefix);
             it != mPathCache.end();
             ) {
