@@ -72,7 +72,10 @@ getFsckInfo(MonClient& client, const ServerLocation& loc,
         KFS_LOG_EOM;
         return false;
     }
-    QCRTASSERT(op.contentBuf && op.contentLength <= op.contentBufLen);
+    if (! op.contentBuf || op.contentBufLen < op.contentLength) {
+        panic("invalid op content buffer");
+        return false;
+    }
 
     cout.write(op.contentBuf, op.contentLength);
     const char* const okHdrs[] = {
