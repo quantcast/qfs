@@ -498,10 +498,10 @@ MetaServerSM::HandleRequest(int code, void* data)
                 break;
             }
             if (mAuthOp) {
-                if (mOp) {
+                if (mOp && ! IsHandshakeDone()) {
                     die("op and authentication in flight");
                 }
-                if (0 < mContentLength) {
+                if (! mOp && 0 < mContentLength) {
                     HandleAuthResponse(iobuf);
                     break;
                 }
