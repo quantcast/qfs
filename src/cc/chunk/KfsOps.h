@@ -39,6 +39,9 @@
 #include "common/time.h"
 #include "common/StBuffer.h"
 #include "common/RequestParser.h"
+
+#include "qcdio/QCDLList.h"
+
 #include "Chunk.h"
 #include "DiskIo.h"
 #include "RemoteSyncSM.h"
@@ -281,8 +284,11 @@ struct KfsOp : public KfsCallbackObj
           startTime(microseconds()),
           bufferBytes()
     {
+        OpsList::Init(*this);
         SET_HANDLER(this, &KfsOp::HandleDone);
+        static CleanupChecker checker;
         sOpsCount++;
+        OpsList::PushBack(sOpsList, *this);
     }
     void Cancel() {
         cancelled = true;
@@ -372,7 +378,23 @@ protected:
     class NullOp;
     friend class NullOp;
 private:
+    typedef QCDLList<KfsOp> OpsList;
+    KfsOp* mPrevPtr[1];
+    KfsOp* mNextPtr[1];
+
+    static KfsOp*  sOpsList[1];
     static int64_t sOpsCount;
+    class CleanupChecker
+    {
+    public:
+        CleanupChecker()
+            { assert(sOpsCount == 0); }
+        ~CleanupChecker();
+    };
+    friend class QCDLListOp<KfsOp>;
+private:
+    KfsOp(const KfsOp&);
+    KfsOp& operator=(const KfsOp&);
 };
 inline static ostream& operator<<(ostream& os, const KfsOp::Display& disp)
 { return disp.Show(os); }

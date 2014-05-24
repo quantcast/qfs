@@ -410,7 +410,8 @@ public:
     int64_t GetFileSystemId() const
         { return mFileSystemId; }
     bool SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag);
-
+    static bool GetExitDebugCheckFlag()
+        { return sExitDebugCheckFlag; }
 private:
     class PendingWrites
     {
@@ -862,6 +863,8 @@ private:
     void SetStorageTiers(const Properties& props);
     void SetBufferedIo(const Properties& props);
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
+
+    static bool sExitDebugCheckFlag;
 private:
     // No copy.
     ChunkManager(const ChunkManager&);

@@ -346,6 +346,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
+chunkServer.exitDebugCheck = 1
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF

@@ -1755,6 +1755,8 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
     return (ci && (*ci)->IsWriteAppenderOwns());
 }
 
+bool ChunkManager::sExitDebugCheckFlag = false;
+
 bool
 ChunkManager::SetParameters(const Properties& prop)
 {
@@ -1946,6 +1948,8 @@ ChunkManager::SetParameters(const Properties& prop)
     } else {
         ret = ret && err == 0;
     }
+    sExitDebugCheckFlag = prop.getValue(
+        "chunkServer.exitDebugCheck", sExitDebugCheckFlag ? 1 : 0);
     return ret;
 }
 
