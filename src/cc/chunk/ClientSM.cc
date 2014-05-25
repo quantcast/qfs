@@ -820,6 +820,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 " request: " << op->seq <<
                 " " << op->Show() <<
             KFS_LOG_EOM;
+            delete op;
             iobuf.Consume(cmdLen);
             mNetConnection->Close();
             return false;
@@ -836,11 +837,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     const int contentLength = mContentReceivedFlag ? 0 : op->GetContentLength();
     if (0 < contentLength) {
         if (! mCurOp) {
-            if (iobuf.BytesConsumable() < contentLength) {
+            mCurOp = op;
+            if (op->status < 0) {
+                mDiscardByteCnt = contentLength;
+            } else if (iobuf.BytesConsumable() < contentLength) {
                 const ByteCount bufferBytes = contentLength;
                 BufferManager&  bufMgr      = GetBufferManager();
                 if (! bufMgr.Get(*this, bufferBytes)) {
-                    mCurOp = op;
                     const bool exceedsWaitFlag = FailIfExceedsWait(bufMgr, 0);
                     CLIENT_SM_LOG_STREAM_DEBUG <<
                         "request for: " << bufferBytes << " bytes denied" <<
@@ -857,9 +860,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                     }
                 }
             }
-            if (op->status < 0) {
-                mDiscardByteCnt = contentLength;
-            }
         }
         if (0 < mDiscardByteCnt) {
             if (! Discard(iobuf)) {
@@ -868,7 +868,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         } else if (iobuf.BytesConsumable() < contentLength) {
             mNetConnection->SetMaxReadAhead(
                 iobuf.BytesConsumable() - contentLength);
-            mCurOp = op;
             return false;
         }
         mCurOp = 0;
@@ -893,7 +892,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 iobuf, wop->dataBuf, kForwardFlag)) {
             return false;
         }
-        bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
+        bufferBytes = 0 <= op->status ? IoRequestBytes(wop->numBytes) : 0;
     } else if (op->op == CMD_RECORD_APPEND) {
         RecordAppendOp* const waop = static_cast<RecordAppendOp*>(op);
         bool       forwardFlag = false;
@@ -910,7 +909,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             )) {
             return false;
         }
-        bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
+        bufferBytes = 0 <= op->status ? IoRequestBytes(waop->numBytes) : 0;
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
         "got:"
