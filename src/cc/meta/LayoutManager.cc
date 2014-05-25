@@ -4810,7 +4810,7 @@ LayoutManager::AllocateChunk(
         }
     }
     if (mClientCSAuthRequiredFlag) {
-        r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
+        r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         r->issuedTime                 = TimeNow();
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
@@ -5117,7 +5117,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         " version: " << r->chunkVersion <<
     KFS_LOG_EOM;
     if (mClientCSAuthRequiredFlag) {
-        r->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag;
+        r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         r->issuedTime                 = TimeNow();
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
