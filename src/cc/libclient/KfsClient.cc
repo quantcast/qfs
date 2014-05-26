@@ -6173,64 +6173,66 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                  ": " << ErrorCodeToStr(nbytes) <<
             KFS_LOG_EOM;
             match = false;
-            continue;
-        }
-        const string md5sumFirst = mds.GetMd();
-        mds.Reset();
-        KFS_LOG_STREAM_DEBUG <<
-            "chunk: "    << i->chunkId <<
-            " replica: " << i->chunkServers[0] <<
-            " size: "    << nbytes <<
-            " md5sum: "  << md5sumFirst <<
-        KFS_LOG_EOM;
-        for (uint32_t k = 1; k < i->chunkServers.size(); k++) {
+        } else {
+            const string md5sumFirst = mds.GetMd();
             mds.Reset();
-            const int n = GetChunkFromReplica(
-                chunkServerAccess,
-                i->chunkServers[k],
-                i->chunkId,
-                i->chunkVersion,
-                mds
-            );
-            if (n < 0) {
-                KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
-                     ": " << ErrorCodeToStr(n) <<
-                KFS_LOG_EOM;
-                match = false;
-                continue;
-            }
-            const string md5sumCur = mds.GetMd();
             KFS_LOG_STREAM_DEBUG <<
                 "chunk: "    << i->chunkId <<
-                " replica: " << i->chunkServers[k] <<
+                " replica: " << i->chunkServers[0] <<
                 " size: "    << nbytes <<
-                " md5sum: "  << md5sumCur <<
+                " md5sum: "  << md5sumFirst <<
             KFS_LOG_EOM;
-            if (nbytes != n || md5sumFirst != md5sumCur) {
-                match = false;
-            }
-            if (! match) {
-                KFS_LOG_STREAM_ERROR <<
-                    "chunk: " << i->chunkId <<
-                    (nbytes != n ? "size" : "data") <<
-                    " mismatch: " << i->chunkServers[0] <<
-                    " size: "     << nbytes <<
-                    " md5sum: "   << md5sumFirst <<
-                    " vs "        << i->chunkServers[k] <<
-                    " size: "     << n <<
-                    " md5sum: "   << md5sumCur <<
-                KFS_LOG_EOM;
+            for (uint32_t k = 1; k < i->chunkServers.size(); k++) {
+                mds.Reset();
+                const int n = GetChunkFromReplica(
+                    chunkServerAccess,
+                    i->chunkServers[k],
+                    i->chunkId,
+                    i->chunkVersion,
+                    mds
+                );
+                if (n < 0) {
+                    KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
+                         ": " << ErrorCodeToStr(n) <<
+                    KFS_LOG_EOM;
+                    match = false;
+                } else {
+                    const string md5sumCur = mds.GetMd();
+                    KFS_LOG_STREAM_DEBUG <<
+                        "chunk: "    << i->chunkId <<
+                        " replica: " << i->chunkServers[k] <<
+                        " size: "    << nbytes <<
+                        " md5sum: "  << md5sumCur <<
+                    KFS_LOG_EOM;
+                    if (nbytes != n || md5sumFirst != md5sumCur) {
+                        match = false;
+                    }
+                    if (! match) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "chunk: " << i->chunkId <<
+                            (nbytes != n ? "size" : "data") <<
+                            " mismatch: " << i->chunkServers[0] <<
+                            " size: "     << nbytes <<
+                            " md5sum: "   << md5sumFirst <<
+                            " vs "        << i->chunkServers[k] <<
+                            " size: "     << n <<
+                            " md5sum: "   << md5sumCur <<
+                        KFS_LOG_EOM;
+                    }
+                }
             }
         }
-        LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
-        DoMetaOpWithRetry(&lrelOp);
-        if (lrelOp.status < 0) {
-            KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
-                " chunk: " << i->chunkId <<
-                " lease: " << leaseId <<
-                " msg: "   << lrelOp.statusMsg <<
-                " "        << ErrorCodeToStr(lrelOp.status) <<
-            KFS_LOG_EOM;
+        if (0 <= leaseId) {
+            LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
+            DoMetaOpWithRetry(&lrelOp);
+            if (lrelOp.status < 0) {
+                KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
+                    " chunk: " << i->chunkId <<
+                    " lease: " << leaseId <<
+                    " msg: "   << lrelOp.statusMsg <<
+                    " "        << ErrorCodeToStr(lrelOp.status) <<
+                KFS_LOG_EOM;
+            }
         }
     }
     md5sum = mdsAll.GetMd();
