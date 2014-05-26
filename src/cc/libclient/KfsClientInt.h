@@ -71,9 +71,6 @@ const int DEFAULT_NUM_RETRIES_PER_OP = 30;
 /// recover.  So, introduce a delay of 5 secs between retries.
 const int RETRY_DELAY_SECS = 5;
 
-/// Whenever we have issues with lease failures, we retry the op after 5 secs
-const int LEASE_RETRY_DELAY_SECS = 5;
-
 ///
 /// A KfsClient maintains a file-table that stores information about
 /// KFS files on that client.  Each file in the file-table is composed

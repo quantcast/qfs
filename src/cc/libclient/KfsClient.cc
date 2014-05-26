@@ -4568,24 +4568,17 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     if (lop.chunks.empty()) {
         return 0;
     }
-    const ChunkLayoutInfo& last = *lop.chunks.rbegin();
-    chunkOff_t filesize = last.fileOffset;
-    chunkOff_t endsize  = 0;
-    int        rstatus  = 0;
-    for (int retry = 0; retry < max(1, mMaxNumRetriesPerOp); retry++) {
-        if (retry > 0) {
-            Sleep(mRetryDelaySec);
-        }
-        if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
-                        RespondingServer(*this, last, endsize, rstatus)) !=
-                    last.chunkServers.end()) {
-            break;
-        }
+    const ChunkLayoutInfo& last     = *lop.chunks.rbegin();
+    chunkOff_t             filesize = last.fileOffset;
+    chunkOff_t             endsize  = 0;
+    int                    rstatus  = 0;
+    if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
+                    RespondingServer(*this, last, endsize, rstatus)) ==
+                last.chunkServers.end()) {
         KFS_LOG_STREAM_INFO <<
             "failed to connect to any server to get size of"
             " fid: "   << kfsfid <<
             " chunk: " << last.chunkId <<
-            " retry: " << retry <<
             " max: "   << mMaxNumRetriesPerOp <<
         KFS_LOG_EOM;
     }
@@ -4747,10 +4740,7 @@ KfsClientImpl::DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp
     server.SetOpTimeoutSec(mDefaultOpTimeout);
     server.SetMaxRetryCount(mMaxNumRetriesPerOp);
     server.SetTimeSecBetweenRetries(mRetryDelaySec);
-    if (! server.SetServer(loc)) {
-        op.status = -EHOSTUNREACH;
-        return;
-    }
+    server.SetServer(loc); // Ignore return, and let Enqueue() deal with retries.
     if (! server.Enqueue(&op, this)) {
         KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
             op.Show() <<
