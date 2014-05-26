@@ -6247,7 +6247,32 @@ KfsClientImpl::GetChunkLease(
 {
     LeaseAcquireOp theLeaseOp(0, inChunkId, inPathNamePtr);
     theLeaseOp.leaseTimeout = inLeaseTime;
-    DoMetaOpWithRetry(&theLeaseOp);
+    const int kMaxLeaseWaitTimeSec = max(LEASE_INTERVAL_SECS * 3 / 2,
+        (mMaxNumRetriesPerOp - 1) * (mRetryDelaySec + mDefaultOpTimeout));
+    const int leseRetryDelaySec    = min(3, max(1, mRetryDelaySec));
+    time_t    endTime              = kMaxLeaseWaitTimeSec;
+    for (int retryCnt = 0; ; retryCnt++) {
+        DoMetaOpWithRetry(&theLeaseOp);
+        if (theLeaseOp.status != -EBUSY) {
+            break;
+        }
+        const time_t now = time(0);
+        if (retryCnt == 0) {
+            endTime += now;
+        }
+        if (endTime < now) {
+            break;
+        }
+        KFS_LOG_STREAM((endTime - kMaxLeaseWaitTimeSec + 15 < now) ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
+            "chunk: "        << inChunkId <<
+            " lease busy: "  << theLeaseOp.statusMsg <<
+            " retrying in: " << leseRetryDelaySec << " sec." <<
+            " retry: "       << retryCnt <<
+        KFS_LOG_EOM;
+        Sleep(leseRetryDelaySec);
+        theLeaseOp.statusMsg.clear();
+    }
     if (theLeaseOp.status == 0 && 0 < theLeaseOp.chunkAccessCount) {
         const bool         kHasChunkServerAccessFlag = true;
         const int          kBufPos                   = 0;
