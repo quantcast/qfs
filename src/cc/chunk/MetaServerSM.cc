@@ -577,7 +577,7 @@ MetaServerSM::HandleRequest(int code, void* data)
 
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
-        if (mAuthOp && IsUp() && ! mNetConnection->GetFilter()) {
+        if (mAuthOp && ! mOp && IsUp() && ! mNetConnection->GetFilter()) {
             HandleAuthResponse(mNetConnection->GetInBuffer());
             return 0;
         }

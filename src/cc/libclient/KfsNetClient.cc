@@ -535,7 +535,9 @@ public:
                 } else {
                     mStats.mConnectFailureCount++;
                 }
-                if (! mPendingOpQueue.empty()) {
+                if (mPendingOpQueue.empty()) {
+                    ResetConnection();
+                } else {
                     RetryConnect(theOutstandingOpPtr);
                 }
                 break;
@@ -1260,7 +1262,9 @@ private:
         }
         const kfsSeq_t theLookupSeq = mLookupOp.seq;
         RetryAll(inLastOpPtr);
-        if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
+        if (! mConnPtr) {
+            ResetConnection();
+        } else if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
             EnqueueAuth(mLookupOp);
         }
     }
