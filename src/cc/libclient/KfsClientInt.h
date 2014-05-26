@@ -65,7 +65,7 @@ using std::streambuf;
 
 /// If an op fails because the server crashed, retry the op.  This
 /// constant defines the # of retries before declaring failure.
-const int DEFAULT_NUM_RETRIES_PER_OP = 30;
+const int DEFAULT_NUM_RETRIES_PER_OP = 6;
 
 /// Whenever an op fails, we need to give time for the server to
 /// recover.  So, introduce a delay of 5 secs between retries.
