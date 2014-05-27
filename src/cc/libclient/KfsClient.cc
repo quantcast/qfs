@@ -4056,7 +4056,7 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                 locations.push_back(locations.back());
                 inspos += (chunkOff_t)CHUNKSIZE;
             }
-            pinspos = inspos -= (chunkOff_t)CHUNKSIZE;
+            pinspos = inspos - (chunkOff_t)CHUNKSIZE;
             pbpos += pblksz;
             cpos = pbpos;
             idx = 0;
