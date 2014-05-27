@@ -535,9 +535,7 @@ public:
                 } else {
                     mStats.mConnectFailureCount++;
                 }
-                if (mPendingOpQueue.empty()) {
-                    ResetConnection();
-                } else {
+                if (! mPendingOpQueue.empty()) {
                     RetryConnect(theOutstandingOpPtr);
                 }
                 break;
