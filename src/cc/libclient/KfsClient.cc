@@ -4691,6 +4691,27 @@ KfsClientImpl::OpDone(
     mNetManager.Shutdown(); // Exit service loop.
 }
 
+int
+KfsClientImpl::InitUserAndGroupMode()
+{
+    if (! mInitLookupRootFlag || ! mMetaServerLoc.IsValid()) {
+        return 0;
+    }
+    StartProtocolWorker();
+    // Root directory lookup to determine user and group mode.
+    // If no root directory exists or not searchable, then the results is
+    // doesn't have much effect on subsequent ops.
+    LookupOp lrop(0, ROOTFID, ".");
+    mProtocolWorker->ExecuteMeta(lrop);
+    UpdateUserAndGroup(lrop, time(0));
+    if (0 <= lrop.status && 
+            ! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) {
+        mEUser  = lrop.euser;
+        mEGroup = lrop.egroup;
+    }
+    return lrop.status;
+}
+
 ///
 /// Wrapper for retrying ops with the metaserver.
 ///
@@ -4705,19 +4726,7 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
         return;
     }
     StartProtocolWorker();
-    if (mInitLookupRootFlag) {
-        // Root directory lookup to determine user and group mode.
-        // If no root directory exists or not searchable, then the results is
-        // doesn't have much effect on subsequent ops.
-        LookupOp lrop(0, ROOTFID, ".");
-        mProtocolWorker->ExecuteMeta(lrop);
-        UpdateUserAndGroup(lrop, time(0));
-        if (0 <= lrop.status && 
-                ! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) {
-            mEUser  = lrop.euser;
-            mEGroup = lrop.egroup;
-        }
-    }
+    InitUserAndGroupMode();
     mProtocolWorker->ExecuteMeta(*op);
     KFS_LOG_STREAM_DEBUG <<
         "meta op done:" <<
@@ -5598,6 +5607,10 @@ KfsClientImpl::GetUserAndGroup(const char* user, const char* group,
 
     QCStMutexLocker l(mMutex);
 
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     const time_t now = time(0);
     if (user && *user) {
         uid = NameToUid(user, now);
@@ -5794,6 +5807,10 @@ KfsClientImpl::ChownSetParams(
     kfsUid_t&    user,
     kfsGid_t&    group)
 {
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     kfsUid_t    uid = user;
     kfsGid_t    gid = group;
     const char* un  = userName  ? userName  : "";
@@ -6704,6 +6721,10 @@ KfsClientImpl::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
     string& uname, string& gname)
 {
     QCStMutexLocker l(mMutex);
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     const time_t now = time(0);
     if (user != kKfsUserNone) {
         uname = UidToName(user, now);

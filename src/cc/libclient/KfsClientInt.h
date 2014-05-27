@@ -1052,6 +1052,7 @@ private:
         chunkOff_t               inChunkPos,
         bool                     inNewEntryFlag,
         vector<vector<string> >& inLocations);
+    int InitUserAndGroupMode();
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;
