@@ -4737,6 +4737,7 @@ KfsClientImpl::DoChunkServerOp(const ServerLocation& loc, KfsOp& op)
 void
 KfsClientImpl::DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op)
 {
+    server.GetNetManager().UpdateTimeNow();
     server.SetOpTimeoutSec(mDefaultOpTimeout);
     server.SetMaxRetryCount(mMaxNumRetriesPerOp);
     server.SetTimeSecBetweenRetries(mRetryDelaySec);

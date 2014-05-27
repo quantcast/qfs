@@ -119,6 +119,7 @@ public:
     void SetMaxAcceptsPerRead(int maxAcceptsPerRead)
         { mMaxAcceptsPerRead = maxAcceptsPerRead <= 0 ? 1 : maxAcceptsPerRead; }
     void ChildAtFork(bool onlyCloseFdFlag = true);
+    void UpdateTimeNow() { mNow = time(0); }
 
     // Primarily for debugging, to simulate network failures.
     class PollEventHook
