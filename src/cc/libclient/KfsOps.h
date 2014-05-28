@@ -499,8 +499,11 @@ struct LookupOp : public KfsOp {
     kfsUid_t    euser;     // result -- effective user set by the meta server
     kfsGid_t    egroup;    // result -- effective group set by the meta server
     int         authType;  // in / out auth type.
+    bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
     string      userName;
     string      groupName;
+    string      euserName;
+    string      egroupName;
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
@@ -509,8 +512,11 @@ struct LookupOp : public KfsOp {
           euser(eu),
           egroup(eg),
           authType(kAuthenticationTypeUndef),
+          getAuthInfoOnlyFlag(false),
           userName(),
-          groupName()
+          groupName(),
+          euserName(),
+          egroupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);

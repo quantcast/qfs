@@ -433,6 +433,27 @@ KfsClient::CancelDelegation(
 }
 
 int
+KfsClient::GetDelegationTokenInfo(
+    const char* inTokenStrPtr,
+    kfsUid_t&   outUid,
+    uint32_t&   outSeq,
+    kfsKeyId_t& outKeyId,
+    int16_t&    outFlags,
+    uint64_t&   outIssuedTime,
+    uint32_t&   outValidForSec)
+{
+    return mImpl->GetDelegationTokenInfo(
+        inTokenStrPtr,
+        outUid,
+        outSeq,
+        outKeyId,
+        outFlags,
+        outIssuedTime,
+        outValidForSec
+    );
+}
+
+int
 KfsClient::CompareChunkReplicas(const char *pathname, string &md5sum)
 {
     return mImpl->CompareChunkReplicas(pathname, md5sum);
@@ -1401,9 +1422,9 @@ KfsClientImpl::KfsClientImpl()
 KfsClientImpl::~KfsClientImpl()
 {
     ClientsList::Remove(*this);
-    KfsClientImpl::Shutdown();
 
     QCStMutexLocker l(mMutex);
+    KfsClientImpl::ShutdownSelf();
     FAttr* p;
     while ((p = FAttrLru::Front(mFAttrLru))) {
         Delete(p);
@@ -1421,6 +1442,13 @@ void
 KfsClientImpl::Shutdown()
 {
     QCStMutexLocker l(mMutex);
+    ShutdownSelf();
+}
+
+void
+KfsClientImpl::ShutdownSelf()
+{
+    assert(mMutex.IsOwned());
     if (mProtocolWorker) {
         QCStMutexUnlocker unlock(mMutex);
         mProtocolWorker->Stop();
@@ -1437,9 +1465,19 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             "invalid metaserver location: " <<
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
     ClientsList::Init(*this);
+
+    QCStMutexLocker l(mMutex);
+    if (mIsInitialized) {
+        KFS_LOG_STREAM_ERROR <<
+            "extraneous init invocation with: " <<
+                metaServerHost << " " << metaServerPort <<
+            " current: " << mMetaServerLoc <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
 
     mMetaServerLoc.hostname = metaServerHost;
     mMetaServerLoc.port     = metaServerPort;
@@ -1473,6 +1511,9 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             KFS_LOG_EOM;
             return err;
         }
+        mFailShortReadsFlag = properties->getValue(
+            "client.fullSparseFileSupport",
+            mFailShortReadsFlag ? 0 : 1) == 0;
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
@@ -1484,9 +1525,15 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             "invalid metaserver location: " <<
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
-    return 0;
+    const int ret = InitUserAndGroupMode();
+    mIsInitialized = ret == 0;
+    if (! mIsInitialized) {
+        mInitLookupRootFlag = true;
+        ShutdownSelf();
+    }
+    return ret;
 }
 
 /// A notion of "cwd" in KFS.
@@ -1731,7 +1778,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     }
     MkdirOp op(0, parentFid, dirname.c_str(),
         Permissions(
-            mUseOsUserAndGroupFlag ? mEUser : kKfsUserNone,
+            mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
             mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
             mode != kKfsModeUndef  ? (mode & ~mUMask) : mode
         ),
@@ -4702,12 +4749,21 @@ KfsClientImpl::InitUserAndGroupMode()
     // If no root directory exists or not searchable, then the results is
     // doesn't have much effect on subsequent ops.
     LookupOp lrop(0, ROOTFID, ".");
+    lrop.getAuthInfoOnlyFlag = true;
     mProtocolWorker->ExecuteMeta(lrop);
     UpdateUserAndGroup(lrop, time(0));
     if (0 <= lrop.status && 
-            ! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) {
+            ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
+                ! lrop.euserName.empty())) {
         mEUser  = lrop.euser;
         mEGroup = lrop.egroup;
+        if (lrop.euserName.empty()) {
+            const time_t now = time(0);
+            UpdateUserId(lrop.euserName, mEUser, now);
+            if (! lrop.egroupName.empty()) {
+                UpdateGroupId(lrop.egroupName, mEGroup, now);
+            }
+       }
     }
     return lrop.status;
 }
@@ -5362,6 +5418,37 @@ KfsClientImpl::CancelDelegation(
 }
 
 int
+KfsClientImpl::GetDelegationTokenInfo(
+    const char* inTokenStrPtr,
+    kfsUid_t&   outUid,
+    uint32_t&   outSeq,
+    kfsKeyId_t& outKeyId,
+    int16_t&    outFlags,
+    uint64_t&   outIssuedTime,
+    uint32_t&   outValidForSec)
+{
+    const char* const               kKeyPtr     = 0;
+    int const                       kKeyLen     = 0;
+    DelegationToken::Subject* const kSubjectPtr = 0;
+    DelegationToken                 theToken;
+    if ( ! theToken.FromString(
+            inTokenStrPtr,
+            inTokenStrPtr ? (int)strlen(inTokenStrPtr) : 0,
+            kKeyPtr,
+            kKeyLen,
+            kSubjectPtr)) {
+        return -EINVAL;
+    }
+    outUid         = theToken.GetUid();
+    outSeq         = theToken.GetSeq();
+    outKeyId       = theToken.GetKeyId();
+    outFlags       = theToken.GetFlags();
+    outIssuedTime  = theToken.GetIssuedTime();
+    outValidForSec = theToken.GetValidForSec();
+    return 0;
+}
+
+int
 KfsClientImpl::EnumerateBlocks(
     const char* pathname, KfsClient::BlockInfos& res, bool getChunkSizesFlag)
 {
@@ -5595,6 +5682,7 @@ kfsUid_t
 KfsClientImpl::GetUserId()
 {
     QCStMutexLocker l(mMutex);
+    InitUserAndGroupMode();
     return mEUser;
 }
 

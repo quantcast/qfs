@@ -625,6 +625,14 @@ public:
         const string& token,
         const string& key,
         string*       outErrMsg);
+    int GetDelegationTokenInfo(
+        const char* inTokenStrPtr,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec);
 
 private:
      /// Maximum # of files a client can have open minus 1.
@@ -813,6 +821,7 @@ private:
     }
 
     void Shutdown();
+    void ShutdownSelf();
 
     /// Check that fd is in range
     bool valid_fd(int fd) const {

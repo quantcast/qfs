@@ -338,6 +338,9 @@ LookupOp::Request(ostream &os)
     if (authType != kAuthenticationTypeUndef) {
         os << "Auth-type: " << authType << "\r\n";
     }
+    if (getAuthInfoOnlyFlag) {
+        os << "Auth-info-only: 1\r\n";
+    }
     os << "\r\n";
 }
 
@@ -958,9 +961,11 @@ ParseFileAttribute(const Properties &prop,
 void
 LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    euser    = prop.getValue("EUserId",   euser);
-    egroup   = prop.getValue("EGroupId",  kKfsGroupNone);
-    authType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
+    euser      = prop.getValue("EUserId",   euser);
+    egroup     = prop.getValue("EGroupId",  kKfsGroupNone);
+    authType   = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
+    euserName  = prop.getValue("EUName", string());
+    egroupName = prop.getValue("EGName", string());
     ParseFileAttribute(prop, fattr, userName, groupName);
 }
 
