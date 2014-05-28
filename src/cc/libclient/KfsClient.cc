@@ -4763,7 +4763,7 @@ KfsClientImpl::InitUserAndGroupMode()
                 ! lrop.euserName.empty()) {
         mEUser  = lrop.euser;
         mEGroup = lrop.egroup;
-        if (lrop.euserName.empty()) {
+        if (! lrop.euserName.empty()) {
             const time_t now = time(0);
             UpdateUserId(lrop.euserName, mEUser, now);
             if (! lrop.egroupName.empty()) {
@@ -6771,6 +6771,9 @@ UpdateMap(T& inMap, IT& inIt, const KT& inKey, const VT& inVal)
 void
 KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 {
+    if (userName.empty()) {
+        return;
+    }
     if (mUseOsUserAndGroupFlag) {
         DoNotUseOsUserAndGroup();
     }
@@ -6792,6 +6795,9 @@ KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 void
 KfsClientImpl::UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now)
 {
+    if (groupName.empty()) {
+        return;
+    }
     if (mUseOsUserAndGroupFlag) {
         DoNotUseOsUserAndGroup();
     }
