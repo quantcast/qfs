@@ -1167,7 +1167,7 @@ private:
                         mSizeOp.access.swap(theChunkAccess);
                         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                             "chunk: "    << mSizeOp.chunkId <<
-                            " update "
+                            " update"
                             " access: "  << mSizeOp.access <<
                             " CS access:"
                             " updated: " << theHasChunkServerAccessFlag <<
