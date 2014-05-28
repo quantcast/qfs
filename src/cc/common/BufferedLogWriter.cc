@@ -171,7 +171,7 @@ public:
         GetLogTimeStampPrefixPtr(theSec);
         mNextFlushTime = Seconds(theSec) + theMicroSec + mFlushInterval;
         if (mFd >= 0) {
-            ::fcntl(mFd, O_NONBLOCK, 1);
+            ::fcntl(mFd, F_SETFL, O_NONBLOCK);
         }
     }
     static const char* GetLogLevelNamePtr(
