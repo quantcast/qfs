@@ -944,10 +944,12 @@ private:
                     mChunkServer.SetServer(theLocation);
                 }
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                    "chunk: "   << mSizeOp.chunkId <<
-                    " access: " << mSizeOp.access <<
-                    " chunk server access expires: " <<
-                        mChunkServerAccessExpires <<
+                    "chunk: "      << mGetAllocOp.chunkId <<
+                    " access: "    << mSizeOp.access <<
+                    " cleartext: " << mChunkServer.IsShutdownSsl() <<
+                    " allowed: "   << mLeaseAcquireOp.allowCSClearTextFlag <<
+                    " CS access expires in: " <<
+                        (mChunkServerAccessExpires - Now()) <<
                 KFS_LOG_EOM;
             }
             if (mSizeOp.size < 0) {
@@ -1164,11 +1166,13 @@ private:
                     } else {
                         mSizeOp.access.swap(theChunkAccess);
                         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                            "chunk: "   << mSizeOp.chunkId <<
+                            "chunk: "    << mSizeOp.chunkId <<
                             " update "
-                            " access: " << mSizeOp.access <<
-                            " chunk server access expires: " <<
-                                mChunkServerAccessExpires <<
+                            " access: "  << mSizeOp.access <<
+                            " CS access:"
+                            " updated: " << theHasChunkServerAccessFlag <<
+                            " expires in: " <<
+                                (mChunkServerAccessExpires - Now()) <<
                         KFS_LOG_EOM;
                     }
                 }
