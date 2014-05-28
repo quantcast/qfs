@@ -315,12 +315,14 @@ struct MetaLookup: public MetaRequest {
     fid_t  dir;      //!< parent directory fid
     string name;     //!< name to look up
     int    authType; //!< io auth type
+    bool   authInfoOnlyFlag;
     MFattr fattr;
     MetaLookup()
         : MetaRequest(META_LOOKUP, false),
           dir(-1),
           name(),
           authType(kAuthenticationTypeUndef),
+          authInfoOnlyFlag(false),
           fattr()
         {}
     virtual void handle();
@@ -342,10 +344,10 @@ struct MetaLookup: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaLookup::dir, fid_t(-1))
-        .Def("Filename",           &MetaLookup::name          )
-        .Def("Auth-type",          &MetaLookup::authType,
-            int(kAuthenticationTypeUndef))
+        .Def("Parent File-handle", &MetaLookup::dir,              fid_t(-1))
+        .Def("Filename",           &MetaLookup::name              )
+        .Def("Auth-type",          &MetaLookup::authType,         int(kAuthenticationTypeUndef))
+        .Def("Auth-info-only",     &MetaLookup::authInfoOnlyFlag, false)
         ;
     }
     bool IsAuthNegotiation() const

@@ -663,10 +663,13 @@ ClientSM::Handle(MetaDelegate& op)
 bool
 ClientSM::Handle(MetaLookup& op)
 {
-    if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
-        return false;
+    if (! op.authInfoOnlyFlag) {
+        if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
+            return false;
+        } else {
+            op.authType = mAuthContext.GetAuthTypes();
+        }
     }
-    op.authType = mAuthContext.GetAuthTypes();
     CmdDone(op);
     return true;
 }

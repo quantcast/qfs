@@ -317,18 +317,19 @@ UserAndGroupNamesReply(
     ostream&                 os,
     const UserAndGroupNames* ugn,
     kfsUid_t                 user,
-    kfsGid_t                 group)
+    kfsGid_t                 group,
+    const char* const        prefix = "")
 {
     if (ugn) {
         const string* name = ugn->GetUserName(user);
-        os << "UName: ";
+        os << prefix << "UName: ";
         if (name && ! name->empty()) {
             os << *name;
         } else {
             os << user;
         }
         os << "\r\n"
-            "GName: ";
+            << prefix << "GName: ";
         name = ugn->GetGroupName(group);
         if (name && ! name->empty()) {
             os << *name;
@@ -3911,7 +3912,17 @@ MetaLookup::response(ostream& os)
         "EUserId: "  << euser  << "\r\n"
         "EGroupId: " << egroup << "\r\n"
     ;
-    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
+    if (authInfoOnlyFlag) {
+        os <<
+            "User: "  << authUid  << "\r\n"
+            "Group: " << authGid << "\r\n"
+        ;
+        const UserAndGroupNames* const ugn = GetUserAndGroupNames(*this);
+        UserAndGroupNamesReply(os, ugn, euser,   egroup, "E");
+        UserAndGroupNamesReply(os, ugn, authUid, authGid) << "\r\n";
+    } else {
+        FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
+    }
 }
 
 void
