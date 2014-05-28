@@ -1018,6 +1018,9 @@ private:
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
+            mChunkAccess.Clear();
+            mChunkServerAccess.Clear();
+            mSizeOp.access.clear();
             EnqueueMeta(mLeaseAcquireOp);
         }
         void Done(
@@ -1720,6 +1723,8 @@ private:
                                 mLeaseAcquireOp.leaseId = -1;
                                 mSizeOp.access.clear();
                             }
+                            mChunkAccess.Clear();
+                            mChunkServerAccess.Clear();
                         }
                         // Always restart from get chunk size, [first] read
                         // failure might imply that reported chunk size wasn't
