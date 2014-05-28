@@ -233,6 +233,15 @@ public:
         int64_t        inStartPos,
         int64_t        inLength,
         DataLocations& outLocations) = 0;
+    virtual int GetDelegationTokenInfo(
+        const char* inTokenStrPtr,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec,
+        string*     outErrMsgPtr) = 0;
     virtual bool operator==(
         const FileSystem& inFs) const = 0;
     bool operator!=(
