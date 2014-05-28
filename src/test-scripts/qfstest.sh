@@ -25,7 +25,7 @@
 
 if [ $# -ge 1 -a x"$1" = x'-valgrind' ]; then
     shift
-    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --db-attach=yes --db-command="kill %p"'
+    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
     GLIBCPP_FORCE_NEW=1
     export GLIBCPP_FORCE_NEW
     GLIBCXX_FORCE_NEW=1
