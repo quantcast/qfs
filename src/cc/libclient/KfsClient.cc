@@ -4752,9 +4752,15 @@ KfsClientImpl::InitUserAndGroupMode()
     lrop.getAuthInfoOnlyFlag = true;
     mProtocolWorker->ExecuteMeta(lrop);
     UpdateUserAndGroup(lrop, time(0));
-    if (0 <= lrop.status && 
-            ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
-                ! lrop.euserName.empty())) {
+    if (lrop.status < 0) {
+        KFS_LOG_STREAM_ERROR <<
+            mMetaServerLoc.hostname << ":" << mMetaServerLoc.port <<
+            " status: " << lrop.status <<
+            " " << lrop.statusMsg <<
+            " " << lrop.Show() <<
+        KFS_LOG_EOM;
+    } else if ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
+                ! lrop.euserName.empty()) {
         mEUser  = lrop.euser;
         mEGroup = lrop.egroup;
         if (lrop.euserName.empty()) {
