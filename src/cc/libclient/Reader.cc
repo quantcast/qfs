@@ -943,6 +943,12 @@ private:
                 } else {
                     mChunkServer.SetServer(theLocation);
                 }
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "chunk: "   << mSizeOp.chunkId <<
+                    " access: " << mSizeOp.access <<
+                    " chunk server access expires: " <<
+                        mChunkServerAccessExpires <<
+                KFS_LOG_EOM;
             }
             if (mSizeOp.size < 0) {
                 GetChunkSize();
@@ -1115,7 +1121,8 @@ private:
                     (mLeaseRenewOp.getCSAccessFlag &&
                         inOp.chunkServerAccessValidForTime <= 0))) {
                 inOp.status    = kErrorPermissions;
-                inOp.statusMsg = "no chunk server access with lease response";
+                inOp.statusMsg =
+                    "no chunk or chunk server access with lease response";
             }
             if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
                 mChunkAccess.Clear();
@@ -1156,6 +1163,13 @@ private:
                         inOp.statusMsg = "chunk access: no such location";
                     } else {
                         mSizeOp.access.swap(theChunkAccess);
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                            "chunk: "   << mSizeOp.chunkId <<
+                            " update "
+                            " access: " << mSizeOp.access <<
+                            " chunk server access expires: " <<
+                                mChunkServerAccessExpires <<
+                        KFS_LOG_EOM;
                     }
                 }
             }
