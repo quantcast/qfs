@@ -91,7 +91,7 @@ main(int argc, char **argv)
     if (help) {
         cout << "Usage: " << argv[0] <<
             " -s <metaserver> -p <port> -k <QFSfile> [-c|-d] [-v]"
-            " [-c <config file name>]\n"
+            " [-f <config file name>]\n"
             " -c: compare checksums on the replicas.\n"
             " -d: compare the chunks and return md5 of the file.\n";
         return -1;
