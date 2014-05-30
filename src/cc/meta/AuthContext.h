@@ -69,6 +69,8 @@ public:
         kfsGid_t&     outEGid) const;
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup);
+    void DontUseUserAndGroup();
+    bool HasUserAndGroup() const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,

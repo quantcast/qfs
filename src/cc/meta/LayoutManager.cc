@@ -2031,6 +2031,17 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mConfigParameters = props;
     const bool csOk = mCSAuthContext.SetParameters(
         "metaServer.CSAuthentication.", mConfigParameters);
+    const bool curCSAuthUseUserAndGroupFlag = mCSAuthContext.HasUserAndGroup();
+    const bool newCSAuthUseUserAndGroupFlag = props.getValue(
+        "metaServer.CSAuthentication.useUserAndGrupDb",
+        curCSAuthUseUserAndGroupFlag ? 1 : 0) != 0;
+    if (newCSAuthUseUserAndGroupFlag != curCSAuthUseUserAndGroupFlag) {
+        if (newCSAuthUseUserAndGroupFlag) {
+            mCSAuthContext.SetUserAndGroup(mUserAndGroup);
+        } else {
+            mCSAuthContext.DontUseUserAndGroup();
+        }
+    }
     const int cliOk = UpdateClientAuth(mClientAuthContext);
     mAuthCtxUpdateCount++;
 
@@ -5458,18 +5469,10 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                             loc, chunkId, req.authUid);
                         if ((*it)->GetCryptoKey(info.keyId, info.key)) {
                             req.chunkAccess.Append(info);
-                        } else {
-                            panic("invalid crypto key");
-                            req.chunkAccess.Append(
-                                MetaLeaseAcquire::ChunkAccessInfo());
                         }
                     }
                 } else {
                     writer.Write(" ? -1", 5);
-                    if (emitCAFlag) {
-                        req.chunkAccess.Append(
-                            MetaLeaseAcquire::ChunkAccessInfo());
-                    }
                 }
             }
         } else {

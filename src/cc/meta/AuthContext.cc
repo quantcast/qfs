@@ -98,6 +98,7 @@ public:
           mAuthNoneFlag(false),
           mKrbUseSslFlag(true),
           mAllowPskFlag(inAllowPskFlag),
+          mHasUserAndGroupFlag(false),
           mMemKeytabGen(0),
           mMaxDelegationValidForTime(60 * 60 * 24),
           mDelegationIgnoreCredEndTimeFlag(false),
@@ -230,10 +231,10 @@ public:
                 return false;
             }
             string theAuthName(thePeerPrincipalPtr ? thePeerPrincipalPtr : "");
-            if (! RemapAndValidate(theAuthName) ||
+            if (! RemapAndValidate(theAuthName) || (mHasUserAndGroupFlag &&
                     (inOp.authUid = GetUidSelf(
                         theAuthName, inOp.authGid, inOp.euser, inOp.egroup)) ==
-                    kKfsUserNone) {
+                    kKfsUserNone)) {
                 inOp.status    = -EACCES;
                 inOp.statusMsg = "access denied for '" + theAuthName + "'";
                 inOp.responseContentPtr = 0;
@@ -374,6 +375,7 @@ public:
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup)
     {
+        mHasUserAndGroupFlag = true;
         mNameUidPtr = inUserAndGroup.GetNameUidPtr();
         QCRTASSERT(mNameUidPtr);
         mUidNamePtr = inUserAndGroup.GetUidNamePtr();
@@ -387,6 +389,18 @@ public:
         QCRTASSERT(mDelegationRenewAndCancelUsersPtr);
         mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
     }
+    void DontUseUserAndGroup()
+    {
+        mNameUidPtr.reset(new UserAndGroup::NameUidMap());
+        mUidNamePtr.reset((new UserAndGroup::UidNameMap()));
+        mGidNamePtr.reset((new UserAndGroup::GidNameMap()));
+        mRootUsersPtr.reset((new UserAndGroup::RootUsers()));
+        mDelegationRenewAndCancelUsersPtr.reset((new UserAndGroup::UserIdsSet()));
+        mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
+        mHasUserAndGroupFlag = false;
+    }
+    bool HasUserAndGroup() const
+        { return mHasUserAndGroupFlag; }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,
@@ -629,10 +643,12 @@ public:
             thePskKey.assign(thePtr, theLen);
         }
         const bool theCreateSslPskFlag  =
-            ((theKrbServicePtr && theKrbUseSslFlag) ||
-                ((mAllowPskFlag &&
-                    (theKrbServicePtr || theX509SslCtxPtr)) ||
-                ! thePskKey.empty())) &&
+            (((theKrbChangedFlag ? theKrbServicePtr : mKrbServicePtr) &&
+                    theKrbUseSslFlag) ||
+                (mAllowPskFlag && // delegation uses psk
+                    ((theKrbChangedFlag ? theKrbServicePtr : mKrbServicePtr) ||
+                    (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr))) ||
+                ! thePskKey.empty()) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0;
@@ -771,6 +787,7 @@ public:
         { return (mDelegationRenewAndCancelUsersPtr->Find(inUid) != 0); }
     void Clear()
     {
+        DontUseUserAndGroup();
         mKrbProps.clear();
         mPskSslProps.clear();
         mX509SslProps.clear();
@@ -780,11 +797,6 @@ public:
         mNameRemap.clear();
         mBlackList.clear();
         mWhiteList.clear();
-        mNameUidPtr.reset(new UserAndGroup::NameUidMap());
-        mUidNamePtr.reset((new UserAndGroup::UidNameMap()));
-        mGidNamePtr.reset((new UserAndGroup::GidNameMap()));
-        mRootUsersPtr.reset((new UserAndGroup::RootUsers()));
-        mDelegationRenewAndCancelUsersPtr.reset((new UserAndGroup::UserIdsSet()));
         mNameRemapParam.clear();
         mBlackListParam.clear();
         mWhiteListParam.clear();
@@ -913,6 +925,7 @@ private:
     bool                             mAuthNoneFlag;
     bool                             mKrbUseSslFlag;
     const bool                       mAllowPskFlag;
+    bool                             mHasUserAndGroupFlag;
     unsigned int                     mMemKeytabGen;
     uint32_t                         mMaxDelegationValidForTime;
     bool                             mDelegationIgnoreCredEndTimeFlag;
@@ -1115,6 +1128,18 @@ AuthContext::SetUserAndGroup(
 {
     mImpl.SetUserAndGroup(inUserAndGroup);
     mUserAndGroupUpdateCount = inUserAndGroup.GetUpdateCount();
+}
+
+    void
+AuthContext::DontUseUserAndGroup()
+{
+    mImpl.DontUseUserAndGroup();
+}
+
+    bool
+AuthContext::HasUserAndGroup() const
+{
+    return mImpl.HasUserAndGroup();
 }
 
     bool

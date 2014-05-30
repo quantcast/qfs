@@ -4367,6 +4367,7 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     if (leaseType == WRITE_LEASE && 0 < validForTime &&
             (ptr = chunkAccess.GetPtr()) < end) {
         os << "C-access-length: " << writer.GetTotalSize() << "\r\n";
+        DelegationToken::Subject* const kNoSubjectPtr = 0;
         const ChunkAccessInfo* prev = 0;
         do {
             DelegationToken::WriteTokenAndSessionKey(
@@ -4379,7 +4380,7 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
                 validForTime,
                 ptr->key.GetPtr(),
                 ptr->key.GetSize(),
-                0, // Subject pointer
+                kNoSubjectPtr,
                 prev ? prev->keyId         : kfsKeyId_t(),
                 prev ? prev->key.GetPtr()  : 0,
                 prev ? prev->key.GetSize() : 0
