@@ -499,6 +499,12 @@ metaServer.msgLogWriter.logLevel = INFO
 # Default is 24 hours.
 # metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 86400
 
+# Check chunk server authenticated name against the user and group database.
+# If enabled then the authenticated name must be present in the user database in
+# order for chunk server to be accepted.
+# Default is 0 (off), use only black and white lists, if configured, see below.
+# metaServer.CSAuthentication.useUserAndGrupDb = 0
+
 # ================= X509 authentication ========================================
 # Meta server's X509 certificate file in PEM format.
 # metaServer.CSAuthentication.X509.X509PemFile =
