@@ -249,7 +249,8 @@ public:
             theParams.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0 &&
-            (theX509SslCtxPtr || theKrbClientPtr ||
+            ((theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr) ||
+                (theKrbChangedFlag ? theKrbClientPtr : mKrbClientPtr) ||
             ! thePskKey.empty());
         const bool thePskSslChangedFlag =
             (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
@@ -286,8 +287,7 @@ public:
             (thePskSslChangedFlag ?
                 (theSslCtxPtr && ! thePskKey.empty()) :
                 (mSslCtxPtr   && ! mPskKey.empty())) ||
-            (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr)
-        ;
+            (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr);
         const bool theAuthRequiredFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("required"),
             theEnabledFlag ? 1 : 0) != 0;
