@@ -1139,10 +1139,11 @@ private:
         if (! mInFlightOpPtr) {
             return;
         }
-        if (mContentLength > 0 && mConnPtr && mInFlightOpPtr->mBufferPtr) {
+        if (mContentLength > 0 && mConnPtr) {
             // Detach shared buffers, if any.
             IOBuffer& theBuf = mConnPtr->GetInBuffer();
             mContentLength -= theBuf.BytesConsumable();
+            assert(0 <= mContentLength);
             theBuf.Clear();
         }
         delete [] mInFlightRecvBufPtr;
