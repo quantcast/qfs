@@ -875,17 +875,12 @@ private:
             QCStDeleteNotifier theDeleteNotifier(mDeletedFlagPtr);
             if (mLeaseRenewTime <= Now()) {
                 RenewLease();
-                if (theDeleteNotifier.IsDeleted()) {
+                if (theDeleteNotifier.IsDeleted() ||
+                        &mLeaseRenewOp != mLastMetaOpPtr) {
                     return; // Unwind.
                 }
                 // OK read while renew is in flight, as long as the lease hasn't
                 // expired yet.
-                if (mLeaseRenewTime <= Now()) {
-                    if (mLeaseExpireTime <= Now()) {
-                        GetLease();
-                    }
-                    return;
-                }
             }
             if (! mChunkServerSetFlag) {
                 QCASSERT(mChunkServerIdx < mGetAllocOp.chunkServers.size());
