@@ -967,14 +967,15 @@ public:
         if (theFd < 0) {
             return theFd;
         }
-        if (mSkipHolesFlag) {
-            KfsClient::SkipHolesInFile(theFd);
-        }
         const int theRet = KfsClient::SetFullSparseFileSupport(
             theFd, mFullSparseFileSupportFlag);
         if (theRet != 0) {
             KfsClient::Close(theFd);
             return theRet;
+        }
+        // Skip holes presently turn on full sparse file support.
+        if (mSkipHolesFlag) {
+            KfsClient::SkipHolesInFile(theFd);
         }
         return theFd;
     }
