@@ -4768,10 +4768,11 @@ KfsClientImpl::InitUserAndGroupMode()
         " "         << lrop.euserName <<
         " egroup: " << lrop.egroup <<
         " "         << lrop.egroupName <<
+        " use host user and group db: " << mUseOsUserAndGroupFlag <<
     KFS_LOG_EOM;
     if (0 <= lrop.status &&
-            (! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
-                ! lrop.euserName.empty()) {
+            ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
+                ! lrop.euserName.empty())) {
         mEUser  = lrop.euser;
         mEGroup = lrop.egroup;
         if (! lrop.euserName.empty()) {
