@@ -80,7 +80,8 @@ public:
         kErrorChecksum       = -EBADCKSUM,
         kErrorLeaseExpired   = -ELEASEEXPIRED,
         kErrorFault          = -EFAULT,
-        kErrorInvalChunkSize = -EINVALCHUNKSIZE
+        kErrorInvalChunkSize = -EINVALCHUNKSIZE,
+        kErrorPermissions    = -EPERM
     };
 
     Impl(
@@ -874,17 +875,12 @@ private:
             QCStDeleteNotifier theDeleteNotifier(mDeletedFlagPtr);
             if (mLeaseRenewTime <= Now()) {
                 RenewLease();
-                if (theDeleteNotifier.IsDeleted()) {
+                if (theDeleteNotifier.IsDeleted() ||
+                        &mLeaseRenewOp != mLastMetaOpPtr) {
                     return; // Unwind.
                 }
                 // OK read while renew is in flight, as long as the lease hasn't
                 // expired yet.
-                if (mLeaseRenewTime <= Now()) {
-                    if (mLeaseExpireTime <= Now()) {
-                        GetLease();
-                    }
-                    return;
-                }
             }
             if (! mChunkServerSetFlag) {
                 QCASSERT(mChunkServerIdx < mGetAllocOp.chunkServers.size());
@@ -942,6 +938,14 @@ private:
                 } else {
                     mChunkServer.SetServer(theLocation);
                 }
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "chunk: "      << mGetAllocOp.chunkId <<
+                    " access: "    << mSizeOp.access <<
+                    " cleartext: " << mChunkServer.IsShutdownSsl() <<
+                    " allowed: "   << mLeaseAcquireOp.allowCSClearTextFlag <<
+                    " CS access expires in: " <<
+                        (mChunkServerAccessExpires - Now()) <<
+                KFS_LOG_EOM;
             }
             if (mSizeOp.size < 0) {
                 GetChunkSize();
@@ -1017,6 +1021,9 @@ private:
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
+            mChunkAccess.Clear();
+            mChunkServerAccess.Clear();
+            mSizeOp.access.clear();
             EnqueueMeta(mLeaseAcquireOp);
         }
         void Done(
@@ -1032,9 +1039,10 @@ private:
                 inOp.status = kErrorLeaseExpired;
             }
             if (inOp.status == 0 &&
-                    inOp.chunkAccessCount <= 0 &&
-                    ! mOuter.IsChunkServerClearTextAllowed()) {
-                inOp.status    = -EPERM;
+                    (inOp.chunkAccessCount <= 0 ||
+                        inOp.chunkServerAccessValidForTime <= 0) &&
+                    mOuter.IsAuthEnabled()) {
+                inOp.status    = kErrorPermissions;
                 inOp.statusMsg = "no chunk server access with lease response";
             }
             if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
@@ -1106,10 +1114,12 @@ private:
                 return;
             }
             if (inOp.status == 0 &&
-                    inOp.chunkAccessCount <= 0 &&
-                    ! mOuter.IsChunkServerClearTextAllowed()) {
-                inOp.status    = -EPERM;
-                inOp.statusMsg = "no chunk server access with lease response";
+                    ((inOp.chunkAccessCount <= 0 && mOuter.IsAuthEnabled()) ||
+                    (mLeaseRenewOp.getCSAccessFlag &&
+                        inOp.chunkServerAccessValidForTime <= 0))) {
+                inOp.status    = kErrorPermissions;
+                inOp.statusMsg =
+                    "no chunk or chunk server access with lease response";
             }
             if (inOp.status == 0 && 0 < inOp.chunkAccessCount) {
                 mChunkAccess.Clear();
@@ -1120,15 +1130,16 @@ private:
                 ChunkServerAccess& theAccess                   =
                     theHasChunkServerAccessFlag ?
                         mChunkServerAccess : mChunkAccess;
-                const int  theRet                              = theAccess.Parse(
-                    inOp.chunkAccessCount,
-                    theHasChunkServerAccessFlag,
-                    inOp.chunkId,
-                    inOp.contentBuf,
-                    kBufPos,
-                    inOp.contentLength,
-                    kOwnsBufferFlag
-                );
+                const int  theRet                              =
+                    theAccess.Parse(
+                        inOp.chunkAccessCount,
+                        theHasChunkServerAccessFlag,
+                        inOp.chunkId,
+                        inOp.contentBuf,
+                        kBufPos,
+                        inOp.contentLength,
+                        kOwnsBufferFlag
+                    );
                 inOp.ReleaseContentBuf();
                 if (theRet < 0) {
                     inOp.status    = theRet;
@@ -1144,10 +1155,27 @@ private:
                         mChunkServer.GetServerLocation(), inOp.chunkId);
                     // If chunk server disappeared / down let the read to
                     // to discover that.
-                    if (! theChunkAccess.empty()) {
+                    if (theChunkAccess.empty()) {
+                        inOp.status    = kErrorParameters;
+                        inOp.statusMsg = "chunk access: no such location";
+                    } else {
                         mSizeOp.access.swap(theChunkAccess);
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                            "chunk: "    << mSizeOp.chunkId <<
+                            " update"
+                            " access: "  << mSizeOp.access <<
+                            " CS access:"
+                            " updated: " << theHasChunkServerAccessFlag <<
+                            " expires in: " <<
+                                (mChunkServerAccessExpires - Now()) <<
+                        KFS_LOG_EOM;
                     }
                 }
+            }
+            if (inOp.status == 0 &&
+                    ! mSizeOp.access.empty() && inOp.chunkAccessCount <= 0) {
+                inOp.status    = kErrorParameters;
+                inOp.statusMsg = "no chunk acces";
             }
             if (inOp.status != 0) {
                 mLeaseAcquireOp.leaseId = -1;
@@ -1583,7 +1611,7 @@ private:
             IOBuffer* inBufferPtr = 0)
         {
             if (mNoCSAccessFlag) {
-                inOp.status    = -EINVAL;
+                inOp.status    = kErrorParameters;
                 inOp.statusMsg = "no chunk server key";
                 OpDone(&inOp, false, inBufferPtr);
             } else {
@@ -1691,7 +1719,9 @@ private:
                             theReadLeaseOtherFalureFlag) {
                         if (theReadLeaseOtherFalureFlag ||
                                 ++mChunkServerIdx >=
-                                    mGetAllocOp.chunkServers.size()) {
+                                    mGetAllocOp.chunkServers.size() ||
+                                (! mSizeOp.access.empty() &&
+                                    inOp.status == kErrorPermissions)) {
                             mChunkServerIdx = 0;
                             if (inOp.op != CMD_READ ||
                                     inOp.status != kErrorChecksum) {
@@ -1702,6 +1732,12 @@ private:
                             // moved or re-replicated.
                             mGetAllocOp.status  = 0;
                             mGetAllocOp.chunkId = -1;
+                            if (! mSizeOp.access.empty()) {
+                                mLeaseAcquireOp.leaseId = -1;
+                                mSizeOp.access.clear();
+                            }
+                            mChunkAccess.Clear();
+                            mChunkServerAccess.Clear();
                         }
                         // Always restart from get chunk size, [first] read
                         // failure might imply that reported chunk size wasn't
@@ -2367,10 +2403,15 @@ private:
             0
         );
     }
-    bool IsChunkServerClearTextAllowed()
+    bool IsChunkServerClearTextAllowed() const
     {
         ClientAuthContext* const theCtxPtr = mMetaServer.GetAuthContext();
         return (! theCtxPtr || theCtxPtr->IsChunkServerClearTextAllowed());
+    }
+    bool IsAuthEnabled() const
+    {
+        ClientAuthContext* const theCtxPtr = mMetaServer.GetAuthContext();
+        return (theCtxPtr && theCtxPtr->IsEnabled());
     }
 private:
     Impl(

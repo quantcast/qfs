@@ -58,6 +58,7 @@
 #include "CSMap.h"
 #include "ChunkPlacement.h"
 #include "AuthContext.h"
+#include "common/RequestParser.h"
 
 #include <map>
 #include <vector>
@@ -1092,7 +1093,7 @@ public:
         chunkId_t             chunkId,
         seq_t                 chunkVersion,
         bool                  appendFlag,
-        const string&         logPrefix);
+        const ServerLocation& logPrefix);
     void ProcessPendingBeginMakeStable();
 
     /// Add a mapping from chunkId -> server.
@@ -1379,8 +1380,7 @@ public:
         if (id < 0) {
             return last;
         }
-        T const it = lower_bound(first, last,
-            RackInfoRackIdLess::sUnused, RackInfoRackIdLess(id));
+        T const it = lower_bound(first, last, id, bind(&RackInfo::id, _1) < id);
         return ((it == last || it->id() != id) ? last : it);
     }
     uint64_t GetAuthCtxUpdateCount() const
@@ -1428,18 +1428,6 @@ public:
     bool IsDeleteChunkOnFsIdMismatch() const
         { return mDeleteChunkOnFsIdMismatchFlag; }
 protected:
-    class RackInfoRackIdLess
-    {
-    public:
-        RackInfoRackIdLess(RackId v)
-            : id(v)
-            {}
-        bool operator()(const RackInfo& l, const RackInfo& r) const
-            { return (&sUnused == &l ? id < r.id() : l.id() < id); }
-        static const RackInfo sUnused;
-    private:
-        const RackId id;
-    };
     typedef vector<
         int,
         StdAllocator<int>
@@ -2081,6 +2069,7 @@ protected:
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
 
+    BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;
     StTmp<Servers>::Tmp                 mServersTmp;
@@ -2257,6 +2246,9 @@ protected:
         SetEUserAndEGroup(op);
         return true;
     }
+    inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
+    template<typename T>
+    inline Servers::const_iterator FindServerByHost(const T& host) const;
 };
 
 extern LayoutManager& gLayoutManager;

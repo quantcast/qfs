@@ -177,7 +177,6 @@ private:
 
     static InFlightReplications sInFlightReplications;
     static Counters             sCounters;
-    static int                  sReplicationCount;
     static bool                 sUseConnectionPoolFlag;
     static bool                 sReadSkipDiskVerifyFlag;
 private:
@@ -191,28 +190,27 @@ const int kDefaultReplicationReadSize = (int)(
     CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE);
 ReplicatorImpl::InFlightReplications ReplicatorImpl::sInFlightReplications;
 ReplicatorImpl::Counters             ReplicatorImpl::sCounters;
-int                                  ReplicatorImpl::sReplicationCount = 0;
 bool ReplicatorImpl::sUseConnectionPoolFlag  = false;
 bool ReplicatorImpl::sReadSkipDiskVerifyFlag = true;
 
 int
 ReplicatorImpl::GetNumReplications()
 {
-    if (sInFlightReplications.empty()) {
-        sReplicationCount = 0;
-    }
-    return sReplicationCount;
+    return (int)sInFlightReplications.size();
 }
 
 void
 ReplicatorImpl::CancelAll()
 {
-    for (InFlightReplications::iterator it = sInFlightReplications.begin();
-            it != sInFlightReplications.end();
+    InFlightReplications cancelInFlight;
+    cancelInFlight.swap(sInFlightReplications);
+    for (InFlightReplications::iterator it = cancelInFlight.begin();
+            it != cancelInFlight.end();
             ++it) {
-        it->second->Cancel();
+        ReplicatorImpl& cur = *it->second;
+        it->second = 0;
+        cur.Cancel();
     }
-    sReplicationCount = 0;
 }
 
 void ReplicatorImpl::GetCounters(ReplicatorImpl::Counters& counters)
@@ -256,9 +254,6 @@ ReplicatorImpl::~ReplicatorImpl()
     InFlightReplications::iterator const it =
         sInFlightReplications.find(mChunkId);
     if (it != sInFlightReplications.end() && it->second == this) {
-        if (! mCancelFlag && sReplicationCount > 0) {
-            sReplicationCount--;
-        }
         sInFlightReplications.erase(it);
     }
     assert(! mOwner && Ctrs().mReplicatorCount > 0);
@@ -270,9 +265,7 @@ ReplicatorImpl::Run()
 {
     pair<InFlightReplications::iterator, bool> const ret =
         sInFlightReplications.insert(make_pair(mChunkId, this));
-    if (ret.second) {
-        sReplicationCount++;
-    } else {
+    if (! ret.second) {
         assert(ret.first->second && ret.first->second != this);
         ReplicatorImpl& other = *ret.first->second;
         KFS_LOG_STREAM_INFO << "replication:"
@@ -939,7 +932,7 @@ private:
         mReader.Unregister(this);
         mReader.Shutdown();
         ReplicatorImpl::Cancel();
-        if (mReadInFlightFlag && prevRef <= GetRefCount()) {
+        if (prevRef <= GetRefCount() && mReadInFlightFlag) {
             assert(mOwner);
             mReadInFlightFlag = false;
             mReadOp.status = -ETIMEDOUT;

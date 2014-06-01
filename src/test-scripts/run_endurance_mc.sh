@@ -524,7 +524,8 @@ fi
         -partitions 64 \
         -read-retries 1 \
         -test-runs 100000 \
-        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5 $foretry" \
+        -kfanout-extra-opts "-U 1 -c $cstimeout -q 5 $foretry -P 3" \
+        -cpfromkfs-extra-opts "-R $csretry" \
         > kfanout_test.log 2>&1 &
         echo $! > kfanout_test.pid
 )

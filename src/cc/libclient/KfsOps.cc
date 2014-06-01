@@ -338,6 +338,9 @@ LookupOp::Request(ostream &os)
     if (authType != kAuthenticationTypeUndef) {
         os << "Auth-type: " << authType << "\r\n";
     }
+    if (getAuthInfoOnlyFlag) {
+        os << "Auth-info-only: 1\r\n";
+    }
     os << "\r\n";
 }
 
@@ -379,6 +382,9 @@ GetLayoutOp::Request(ostream &os)
     }
     if (lastChunkOnlyFlag) {
         os << "Last-chunk-only: 1\r\n";
+    }
+    if (continueIfNoReplicasFlag) {
+        os << "Continue-if-no-replicas: 1\r\n";
     }
     if (maxChunks > 0) {
         os << "Max-chunks : " << maxChunks << "\r\n";
@@ -657,6 +663,14 @@ LeaseAcquireOp::Request(ostream &os)
     }
     if (appendRecoveryFlag) {
         os << "Append-recovery: 1\r\n";
+        const size_t cnt = appendRecoveryLocations.size();
+        if (0 < cnt) {
+            os << "Append-recovery-loc:";
+            for (size_t i = 0; i < cnt; i++) {
+                os << " " << appendRecoveryLocations[i];
+            }
+            os << "\r\n";
+        }
     }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << "Chunk-ids:";
@@ -947,9 +961,11 @@ ParseFileAttribute(const Properties &prop,
 void
 LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    euser    = prop.getValue("EUserId",   euser);
-    egroup   = prop.getValue("EGroupId",  kKfsGroupNone);
-    authType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
+    euser      = prop.getValue("EUserId",   euser);
+    egroup     = prop.getValue("EGroupId",  kKfsGroupNone);
+    authType   = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
+    euserName  = prop.getValue("EUName", string());
+    egroupName = prop.getValue("EGName", string());
     ParseFileAttribute(prop, fattr, userName, groupName);
 }
 
@@ -1122,17 +1138,20 @@ GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     numChunks         = prop.getValue("Num-chunks", 0);
     hasMoreChunksFlag = prop.getValue("Has-more-chunks", 0) != 0;
+    fileSize          = prop.getValue("File-size", chunkOff_t(-1));
 }
 
 int
-GetLayoutOp::ParseLayoutInfo()
+GetLayoutOp::ParseLayoutInfo(bool clearFlag)
 {
-    if (numChunks <= 0 || contentBuf == NULL) {
+    if (clearFlag) {
+        chunks.clear();
+        chunks.reserve(numChunks);
+    }
+    if (numChunks <= 0 || ! contentBuf) {
         return 0;
     }
     BufferInputStream is(contentBuf, contentLength);
-    chunks.clear();
-    chunks.reserve(numChunks);
     for (int i = 0; i < numChunks; ++i) {
         chunks.push_back(ChunkLayoutInfo());
         if (! (is >> chunks.back())) {

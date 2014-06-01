@@ -106,6 +106,7 @@ public:
     string GetPskId() const;
     bool GetX509EndTime(
         int64_t& outEndTime) const;
+    void Clear();
 private:
     Impl& mImpl;
     static void Dispose(

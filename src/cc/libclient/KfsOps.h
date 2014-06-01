@@ -499,8 +499,11 @@ struct LookupOp : public KfsOp {
     kfsUid_t    euser;     // result -- effective user set by the meta server
     kfsGid_t    egroup;    // result -- effective group set by the meta server
     int         authType;  // in / out auth type.
+    bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
     string      userName;
     string      groupName;
+    string      euserName;
+    string      egroupName;
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
@@ -509,8 +512,11 @@ struct LookupOp : public KfsOp {
           euser(eu),
           egroup(eg),
           authType(kAuthenticationTypeUndef),
+          getAuthInfoOnlyFlag(false),
           userName(),
-          groupName()
+          groupName(),
+          euserName(),
+          egroupName()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -625,9 +631,11 @@ struct GetLayoutOp: public KfsOp {
     chunkOff_t              startOffset;
     bool                    omitLocationsFlag;
     bool                    lastChunkOnlyFlag;
+    bool                    continueIfNoReplicasFlag;
     int                     numChunks;
     int                     maxChunks;
     bool                    hasMoreChunksFlag;
+    chunkOff_t              fileSize;
     vector<ChunkLayoutInfo> chunks;
     GetLayoutOp(kfsSeq_t s, kfsFileId_t f)
         : KfsOp(CMD_GETLAYOUT, s),
@@ -635,14 +643,16 @@ struct GetLayoutOp: public KfsOp {
           startOffset(0),
           omitLocationsFlag(false),
           lastChunkOnlyFlag(false),
+          continueIfNoReplicasFlag(false),
           numChunks(0),
           maxChunks(-1),
           hasMoreChunksFlag(false),
+          fileSize(-1),
           chunks()
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
-    int ParseLayoutInfo();
+    int ParseLayoutInfo(bool clearFlag = true);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "getlayout: fid: " << fid;
         return os;
@@ -1149,19 +1159,20 @@ struct LeaseAcquireOp : public KfsOp {
     enum { kMaxChunkIds = 256 };
     BOOST_STATIC_ASSERT(kMaxChunkIds * 21 + (1<<10) < MAX_RPC_HEADER_LEN);
 
-    kfsChunkId_t  chunkId;      // input
-    const char*   pathname;     // input
-    bool          flushFlag;    // input
-    int           leaseTimeout; // input
-    int64_t       leaseId;      // output
-    int           chunkAccessCount;
-    int64_t       chunkServerAccessValidForTime;
-    int64_t       chunkServerAccessIssuedTime;
-    bool          allowCSClearTextFlag;
-    bool          appendRecoveryFlag;
-    kfsChunkId_t* chunkIds;
-    int64_t*      leaseIds;
-    bool          getChunkLocationsFlag;
+    kfsChunkId_t           chunkId;      // input
+    const char*            pathname;     // input
+    bool                   flushFlag;    // input
+    int                    leaseTimeout; // input
+    int64_t                leaseId;      // output
+    int                    chunkAccessCount;
+    int64_t                chunkServerAccessValidForTime;
+    int64_t                chunkServerAccessIssuedTime;
+    bool                   allowCSClearTextFlag;
+    bool                   appendRecoveryFlag;
+    vector<ServerLocation> appendRecoveryLocations;
+    kfsChunkId_t*          chunkIds;
+    int64_t*               leaseIds;
+    bool                   getChunkLocationsFlag;
 
     LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char* p)
         : KfsOp(CMD_LEASE_ACQUIRE, s),
@@ -1175,6 +1186,7 @@ struct LeaseAcquireOp : public KfsOp {
           chunkServerAccessIssuedTime(0),
           allowCSClearTextFlag(false),
           appendRecoveryFlag(false),
+          appendRecoveryLocations(),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)

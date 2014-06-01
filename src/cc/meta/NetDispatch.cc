@@ -330,7 +330,6 @@ NetDispatch::NetDispatch()
 NetDispatch::~NetDispatch()
 {
     delete &mCanceledTokens;
-    delete mMutex;
 }
 
 bool
@@ -341,6 +340,28 @@ NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
 }
 
 const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
+
+class MainThreadPrepareToFork : public NetManager::Dispatcher
+{
+public:
+    MainThreadPrepareToFork(
+        ClientManager& inClientManager)
+        : NetManager::Dispatcher(),
+          mClientManager(inClientManager)
+        {}
+    virtual void DispatchStart();
+    virtual void DispatchEnd();
+    virtual void DispatchExit()
+        {}
+private:
+    ClientManager& mClientManager;
+private:
+    MainThreadPrepareToFork(
+        const MainThreadPrepareToFork& inPrepare);
+    MainThreadPrepareToFork& operator=(
+        const MainThreadPrepareToFork& inPrepare);
+};
+
 //
 // Open up the server for connections.
 //
@@ -348,27 +369,27 @@ bool
 NetDispatch::Start()
 {
     assert(! mMutex && ! mCryptoKeys);
-    mMutex = mClientThreadCount > 0 ? new QCMutex() : 0;
-    mCryptoKeys = new CryptoKeys(globalNetManager(), GetMutex());
+    QCMutex dispatchMutex;
+    mMutex = 0 < mClientThreadCount ? &dispatchMutex : 0;
+    CryptoKeys cryptoKeys(globalNetManager(), GetMutex());
+    mCryptoKeys = &cryptoKeys;
     string errMsg;
-    int err;
+    int    err;
     if ((err = mCryptoKeys->SetParameters(kCryptoKeysParamsPrefix,
             gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to set main crypto keys parameters: " <<
                 " status: " << err << " " << errMsg <<
         KFS_LOG_EOM;
-        delete mCryptoKeys;
         mCryptoKeys = 0;
-        delete mMutex;
-        mMutex = 0;
+        mMutex      = 0;
         return false;
     }
-    mClientManagerMutex = mClientThreadCount > 0 ?
-        &mClientManager.GetMutex() : 0;
-    mRunningFlag = true;
+    mClientManagerMutex = GetMutex() ? &mClientManager.GetMutex() : 0;
+    mRunningFlag        = true;
     // Start the acceptors so that it sets up a connection with the net
     // manager for listening.
+    QCMutex cancelTokensMutex;
     if (mClientThreadsStartCpuAffinity >= 0 &&
             (err = QCThread::SetCurrentThreadAffinity(
                 QCThread::CpuAffinity(mClientThreadsStartCpuAffinity)))) {
@@ -385,23 +406,26 @@ NetDispatch::Start()
             ) &&
             mChunkServerFactory.StartAcceptor()) {
         mCanceledTokens.RemoveExpired();
-        // Start event processing.
-        QCMutex cancelTokensMutex;
         mCanceledTokens.Set(
             &globalNetManager(),
-            mClientThreadCount > 0 ? &cancelTokensMutex : 0
+            GetMutex() ? &cancelTokensMutex : 0
         );
-        globalNetManager().MainLoop(GetMutex());
-        mCanceledTokens.Set(0, 0);
+        const bool              kWakeupAndCleanupFlag = true;
+        MainThreadPrepareToFork prepareToFork(mClientManager);
+        // Run main thread event processing.
+        globalNetManager().MainLoop(
+            GetMutex(),
+            kWakeupAndCleanupFlag,
+            GetMutex() ? &prepareToFork : 0
+        );
     } else {
         err = -EINVAL;
     }
     mClientManager.Shutdown();
+    mCanceledTokens.Set(0, 0);
     mRunningFlag = false;
-    delete mCryptoKeys;
     mCryptoKeys = 0;
     mClientManagerMutex = 0;
-    delete mMutex;
     mMutex = 0;
     return (err == 0);
 }
@@ -878,12 +902,11 @@ NetDispatch::Dispatch(MetaRequest *r)
     }
 }
 
-class ClientManager::Impl : public IAcceptorOwner, public ITimeout
+class ClientManager::Impl : public IAcceptorOwner
 {
 public:
     Impl()
         : IAcceptorOwner(),
-          ITimeout(),
           mAcceptor(0),
           mClientThreads(0),
           mClientThreadCount(-1),
@@ -891,6 +914,7 @@ public:
           mMutex(),
           mPrepareToForkDoneCond(),
           mForkDoneCond(),
+          mForkDoneCount(0),
           mPrepareToForkFlag(false),
           mPrepareToForkCnt(0)
         {};
@@ -903,27 +927,39 @@ public:
     QCMutex& GetMutex()
         { return mMutex; }
     void PrepareCurrentThreadToFork();
-    inline void PrepareToFork(bool mainThreadFlag = false)
+    inline void PrepareToFork()
     {
-        if (! mPrepareToForkFlag) {
-            return;
-        }
         QCMutex* const mutex = gNetDispatch.GetMutex();
         if (! mutex) {
             return;
         }
-        assert(! mainThreadFlag || mutex->IsOwned());
-        QCStMutexLocker locker(mainThreadFlag ? 0 : mutex);
-        // The prepare thread count includes "main" thread.
-        if (++mPrepareToForkCnt >= mClientThreadCount) {
-            mPrepareToForkDoneCond.Notify();
+        assert(mutex->IsOwned());
+        while (mPrepareToForkFlag) {
+            // The prepare thread count includes the "main" thread.
+            if (++mPrepareToForkCnt >= mClientThreadCount) {
+                mPrepareToForkDoneCond.Notify();
+            }
+            const uint64_t forkDoneCount = mForkDoneCount;
+            while (forkDoneCount == mForkDoneCount) {
+                mForkDoneCond.Wait(*mutex);
+            }
         }
-        mForkDoneCond.Wait(*mutex);
     }
-    virtual void Timeout()
+    inline void ForkDone()
     {
-        const bool kMainThreadFlag = true;
-        PrepareToFork(kMainThreadFlag);
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        if (! mutex) {
+            return;
+        }
+        assert(mutex->IsOwned());
+        if (! mPrepareToForkFlag) {
+            return;
+        }
+        mPrepareToForkFlag = false;
+        mPrepareToForkCnt  = 0;
+        mForkDoneCount++;
+        // Resume threads after fork(s) completes and the lock gets released.
+        mForkDoneCond.NotifyAll();
     }
 private:
     class ClientThread;
@@ -935,6 +971,7 @@ private:
     QCMutex                      mMutex;
     QCCondVar                    mPrepareToForkDoneCond;
     QCCondVar                    mForkDoneCond;
+    uint64_t                     mForkDoneCount;
     volatile bool                mPrepareToForkFlag;
     volatile int                 mPrepareToForkCnt;
 };
@@ -949,6 +986,30 @@ inline void
 NetDispatch::PrepareToFork()
 {
     mClientManager.PrepareToFork();
+}
+
+inline void
+ClientManager::ForkDone()
+{
+    mImpl.ForkDone();
+}
+
+inline void
+NetDispatch::ForkDone()
+{
+    mClientManager.ForkDone();
+}
+
+/* virtual */ void
+MainThreadPrepareToFork::DispatchStart()
+{
+    mClientManager.PrepareToFork();
+}
+
+/* virtual */ void
+MainThreadPrepareToFork::DispatchEnd()
+{
+    mClientManager.ForkDone();
 }
 
 // All acceptors run in the main thread running global net manager event loop.
@@ -966,12 +1027,12 @@ NetDispatch::PrepareToFork()
 // connections.
 class ClientManager::ClientThread :
     public QCRunnable,
-    public ITimeout
+    private NetManager::Dispatcher
 {
 public:
     ClientThread()
         : QCRunnable(),
-          ITimeout(),
+          NetManager::Dispatcher(),
           mMutex(0),
           mThread(),
           mNetManager(),
@@ -986,7 +1047,6 @@ public:
           mAuthContext(),
           mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
     {
-        mNetManager.RegisterTimeoutHandler(this);
         gLayoutManager.UpdateClientAuthContext(
             mAuthCtxUpdateCount, mAuthContext);
     }
@@ -997,9 +1057,8 @@ public:
             mNetManager.Wakeup();
             mThread.Join();
         }
-        ClientThread::Timeout();
+        ClientThread::DispatchStart();
         assert(! mCliHead && ! mCliTail);
-        mNetManager.UnRegisterTimeoutHandler(this);
     }
     bool Start(QCMutex* mutex, int cpuIndex)
     {
@@ -1023,50 +1082,50 @@ public:
     }
     virtual void Run()
     {
-        mNetManager.MainLoop();
+        QCMutex* const kMutex                = 0;
+        bool     const kWakeupAndCleanupFlag = true;
+        mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
     }
-    virtual void Timeout()
+    virtual void DispatchStart()
     {
+        MetaRequest* nextReq = mReqPendingHead;
+        mReqPendingHead = 0;
+        mReqPendingTail = 0;
+
+        // Keep the lock acquisition and PrepareToFork() next to each other, in
+        // order to ensure that the mutext is locked while dispatching requests
+        // and prevent prepare to fork recursion, as PrepareToFork() can release
+        // and re-acquire the mutex by waiting on the "fork done" condition.
+        QCStMutexLocker dispatchLocker(gNetDispatch.GetMutex());
         gNetDispatch.PrepareToFork();
-        if (gLayoutManager.GetAuthCtxUpdateCount() != mAuthCtxUpdateCount) {
-            QCStMutexLocker locker(gNetDispatch.GetMutex());
-            gLayoutManager.UpdateClientAuthContext(
-                mAuthCtxUpdateCount, mAuthContext);
-        }
+        gLayoutManager.UpdateClientAuthContext(mAuthCtxUpdateCount, mAuthContext);
         if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
                 mAuthContext.GetUserAndGroupUpdateCount()) {
-            QCStMutexLocker locker(gNetDispatch.GetMutex());
-            if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
-                    mAuthContext.GetUserAndGroupUpdateCount()) {
-                mAuthContext.SetUserAndGroup(gLayoutManager.GetUserAndGroup());
-            }
+            mAuthContext.SetUserAndGroup(gLayoutManager.GetUserAndGroup());
         }
-        MetaRequest* nextReq;
-        if (mReqPendingHead) {
-            // Dispatch requests.
-            nextReq = mReqPendingHead;
-            mReqPendingHead = 0;
-            mReqPendingTail = 0;
-            QCStMutexLocker locker(gNetDispatch.GetMutex());
-            while (nextReq) {
-                MetaRequest& op = *nextReq;
-                nextReq = op.next;
-                op.next = 0;
-                submit_request(&op);
-            }
+        assert(! mReqPendingHead && ! mReqPendingTail);
+        // Dispatch requests.
+        while (nextReq) {
+            MetaRequest& op = *nextReq;
+            nextReq = op.next;
+            op.next = 0;
+            submit_request(&op);
         }
+        gNetDispatch.ForkDone();
+        dispatchLocker.Unlock();
+
         ClientSM* nextCli;
-        {
-            QCStMutexLocker locker(mMutex);
-            nextReq  = mReqHead;
-            mReqHead = 0;
-            mReqTail = 0;
-            nextCli  = mCliHead;
-            mCliHead = 0;
-            mCliTail = 0;
-        }
+        QCStMutexLocker threadQueuesLocker(mMutex);
+        nextReq  = mReqHead;
+        mReqHead = 0;
+        mReqTail = 0;
+        nextCli  = mCliHead;
+        mCliHead = 0;
+        mCliTail = 0;
+        threadQueuesLocker.Unlock();
+
         // Send responses. Try to minimize number of system calls by
-        // attempting to send multiple responses in single write.
+        // attempting to send multiple responses with single write call.
         FlushQueue::iterator it = mFlushQueue.begin();
         NetConnectionPtr conn;
         while (nextReq) {
@@ -1118,6 +1177,10 @@ public:
         // io buffers, if any.
         CheckIfIoBuffersAvailable();
     }
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        {}
     void Enqueue(MetaRequest& op)
     {
         if (! op.clnt) {
@@ -1251,9 +1314,6 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
             cpuIndex++;
         }
     }
-    if (mClientThreadCount > 0) {
-        globalNetManager().RegisterTimeoutHandler(this);
-    }
     return true;
 };
 
@@ -1279,9 +1339,6 @@ ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr &conn)
 void
 ClientManager::Impl::Shutdown()
 {
-    if (mClientThreadCount > 0) {
-        globalNetManager().UnRegisterTimeoutHandler(this);
-    }
     delete mAcceptor;
     mAcceptor = 0;
     delete [] mClientThreads;
@@ -1304,7 +1361,11 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     if (! mutex) {
         return;
     }
-    assert(! mPrepareToForkFlag && mutex->IsOwned());
+    assert(mutex->IsOwned());
+    if (mPrepareToForkFlag) {
+        assert(mPrepareToForkCnt == mClientThreadCount);
+        return;
+    }
     mPrepareToForkFlag = true;
     mPrepareToForkCnt  = 0;
     for (int i = 0; i < mClientThreadCount; i++) {
@@ -1314,10 +1375,6 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     while (mPrepareToForkCnt < mClientThreadCount) {
         mPrepareToForkDoneCond.Wait(*mutex);
     }
-    mPrepareToForkFlag = false;
-    mPrepareToForkCnt  = 0;
-    // Resume threads after fork completes and the logck gets released.
-    mForkDoneCond.NotifyAll();
 }
 
 ClientManager::ClientManager()

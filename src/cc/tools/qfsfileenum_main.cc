@@ -80,7 +80,7 @@ main(int argc, char **argv)
 
     if (help || ! server || port < 0 || ! filename) {
         cout << "Usage: " << argv[0] <<
-            " -s <server name> -p <port> -f <path> [-v]\n"
+            " -s <server name> -p <port> -f <path> [-v] -c <config file>\n"
             "Enumerate the chunks and sizes of the given file.\n";
         return 1;
     }

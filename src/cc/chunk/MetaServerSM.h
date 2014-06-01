@@ -144,6 +144,8 @@ public:
     bool IsAuthEnabled() const {
         return mAuthContext.IsEnabled();
     }
+
+    void Shutdown();
 private:
     typedef deque<KfsOp*> OpsQueue;
     typedef OpsQueue      PendingResponses;

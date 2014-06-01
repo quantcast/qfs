@@ -229,7 +229,8 @@ public:
     /// @param[in] pathname the name of the file that is being queried.
     /// @retval status code
     ///
-    int EnumerateBlocks(const char* pathname, BlockInfos& res);
+    int EnumerateBlocks(const char* pathname, BlockInfos& res,
+        bool getChunkSizesFlag = true);
 
     ///
     /// Given a file in KFS, verify that all N copies of each chunk are
@@ -685,6 +686,14 @@ public:
         const string& token,
         const string& key,
         string*       outErrMsg);
+    int GetDelegationTokenInfo(
+        const char* inTokenStrPtr,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec);
     static int LoadProperties(
         const char*  metaServerHost,
         int          metaServerPort,

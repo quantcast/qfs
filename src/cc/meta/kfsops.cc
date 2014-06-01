@@ -1584,6 +1584,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
             fa, boundary, chunkId, chunkVersion, newEntryFlag);
     if (! m || ! newEntryFlag) {
         panic("duplicate chunk mapping");
+        return -EFAULT;
     }
     if (insert(m)) {
         // insert failed
@@ -1897,6 +1898,9 @@ Tree::is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa)
             MetaFattr* fa = 0;
             lookup(dst, kParentDir,
                 kKfsUserRoot, kKfsGroupRoot, fa);
+            if (! fa) {
+                return false;
+            }
             dotdot = fa;
         }
         dst = dotdot->id();

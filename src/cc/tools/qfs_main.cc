@@ -75,6 +75,9 @@ using std::left;
 using std::right;
 using std::oct;
 using std::dec;
+using std::hex;
+using std::showbase;
+using std::noshowbase;
 using std::make_pair;
 
 using client::Path;
@@ -410,6 +413,33 @@ public:
             } else {
                 theErr = FullStat(theArgsPtr, theArgCnt);
             }
+        } else if (strcmp(theCmdPtr, "dloc") == 0) {
+            if (theArgCnt <= 2) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                char* theEndPtr = 0;
+                const int64_t theStartPos =
+                    strtoll(theArgsPtr[0], &theEndPtr, 0);
+                if (! theEndPtr && ' ' <= (*theEndPtr & 0xFF)) {
+                    theErr = EINVAL;
+                    ShortHelp(cerr, "Usage: ", theCmdPtr);
+                } else {
+                    const int64_t theLength =
+                        strtoll(theArgsPtr[1], &theEndPtr, 0);
+                    if (! theEndPtr && ' ' <= (*theEndPtr & 0xFF)) {
+                        theErr = EINVAL;
+                        ShortHelp(cerr, "Usage: ", theCmdPtr);
+                    } else {
+                        theErr = GetDataLocation(
+                            theStartPos,
+                            theLength,
+                            theArgsPtr + 2,
+                            theArgCnt - 2
+                        );
+                    }
+                }
+            }
         } else if (strcmp(theCmdPtr, "tail") == 0) {
             bool theFollowFlag = theArgCnt > 0 &&
                 strcmp(theArgsPtr[0], "-f") == 0;
@@ -592,6 +622,8 @@ public:
                     cerr << theErrMsg << "\n";
                 }
             }
+        } else if (strcmp(theCmdPtr, "dtinfo") == 0) {
+            theErr = ShowDelegationTokenInfo(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -669,6 +701,7 @@ private:
             LongHelp(inOutStream, 0, 0);
             return -EINVAL;
         }
+        inOutStream.flush();
         return 0;
     }
     static const char* GlobError(
@@ -4108,6 +4141,113 @@ private:
         FunctorT<FullStatFunc> theFunc(theFullStatFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
+    class DataLoctionFunc
+    {
+    public:
+        typedef FileSystem::DataLocations Locations;
+        DataLoctionFunc(
+            int64_t  inStartPos,
+            int64_t  inLength,
+            ostream& inOutStream)
+            : mStartPos(inStartPos),
+              mLength(inLength),
+              mOutStream(inOutStream),
+              mLocations()
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            mLocations.clear();
+            const int theErr = inFs.GetDataLocation(
+                inPath, mStartPos, mLength, mLocations);
+            if (theErr != 0) {
+                return theErr;
+            }
+            mOutStream <<
+                "Uri: " << inFs.GetUri() << inPath << "\n";
+            for (Locations::const_iterator theIt = mLocations.begin();
+                    theIt != mLocations.end();
+                    ++theIt) {
+                for (Locations::value_type::const_iterator
+                        theLIt = theIt->begin();
+                        theLIt != theIt->end();
+                        ++theLIt) {
+                    if (theLIt != theIt->begin()) {
+                        mOutStream << " ";
+                    }
+                    mOutStream << *theLIt;
+                }
+                mOutStream << "\n";
+            }
+            return theErr;
+        }
+    private:
+        int64_t const mStartPos;
+        int64_t const mLength;
+        ostream&      mOutStream;
+        Locations     mLocations;
+    };
+    int GetDataLocation(
+        int64_t inStartPos,
+        int64_t inLength,
+        char**  inArgsPtr,
+        int     inArgCount)
+    {
+        DataLoctionFunc theDataLocationFunc(inStartPos, inLength, cout);
+        FunctorT<DataLoctionFunc> theFunc(theDataLocationFunc, cerr);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    int ShowDelegationTokenInfo(
+        char**  inArgsPtr,
+        int     inArgCount)
+    {
+        FileSystem* theFsPtr = 0;
+        int theStatus = GetFs(string(), theFsPtr);
+        if (theStatus || ! theFsPtr) {
+            cerr << FileSystem::GetStrError(theStatus) << "\n";
+            return theStatus;
+        }
+        int theRet = 0;
+        for (int i = 0; i < inArgCount; i++) {
+            kfsUid_t   theUid         = kKfsUserNone;
+            uint32_t   theSeq         = 0;
+            kfsKeyId_t theKeyId       = 0;
+            int16_t    theFlags       = 0;
+            uint64_t   theIssuedTime  = 0;
+            uint32_t   theValidForSec = 0;
+            string     theErrMsg;
+            if ((theStatus = theFsPtr->GetDelegationTokenInfo(
+                        inArgsPtr[i],
+                        theUid,
+                        theSeq,
+                        theKeyId,
+                        theFlags,
+                        theIssuedTime,
+                        theValidForSec,
+                        &theErrMsg
+                    )) != 0) {
+                cerr << inArgsPtr[i] << " : " <<
+                    FileSystem::GetStrError(theStatus) <<
+                    (theErrMsg.empty() ? "" : " ") << theErrMsg <<
+                "\n";
+                theRet = theStatus;
+            } else {
+                cout <<
+                    "token:     " << inArgsPtr[i] << "\n"
+                    "uid:       " << theUid << "\n"
+                    "seq:       " << theSeq << "\n"
+                    "key id:    " << theKeyId << "\n"
+                    "flags:     " <<
+                        hex << showbase << theFlags << dec << noshowbase << "\n"
+                    "issued:    " << theIssuedTime << "\n"
+                    "valid for: " << theValidForSec << "\n"
+                ;
+            }
+        }
+        return theRet;
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -4163,7 +4303,17 @@ const char* const KfsTool::sHelpStrings[] =
     "dfs.force.remove         = false\n\t\t\t"
         "see the above\n\t\t"
     "fs.msgLogWriter.logLevel = INFO\n\t\t\t"
-        "trace log level: {DEBUG|INFO|NOTICE|WARN|ERROR|FATAL}\n",
+        "trace log level: {DEBUG|INFO|NOTICE|WARN|ERROR|FATAL}\n\t\t"
+    "fs.readSkipHoles         = 0\n\t\t\t"
+        "skip holes in sparse files. Only has effect with QFS.\n\t\t"
+            "Note that the QFS files system does not maintain exact\n\t\t"
+            "hole boundaries maintained with RS files. The holes\n\t\t"
+            "boundaries can be \"rounded\" to stripe size by zero\n\t\t"
+            "filling the \"tail\" of the stripe.\n\t\t"
+    "fs.readFullSparseFileSupport = 0\n\t\t\t"
+        "zero fill holes, instead of declaring an error.\n\t\t"
+        "Only has effect with QFS.\n"
+    ,
 
     "fs", "[local | <file system URI>]",
     "Specify the file system to use.\n\t\t"
@@ -4313,6 +4463,9 @@ const char* const KfsTool::sHelpStrings[] =
     "astat", "<glob> [<glob>...]",
     "displays all attributes",
 
+    "dloc", "<glob> [<glob>...]",
+    "displays data location",
+
     "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
     "Changes permissions of a file.\n\t\t"
     "This works similar to shell's chmod with a few exceptions.\n"
@@ -4371,6 +4524,9 @@ const char* const KfsTool::sHelpStrings[] =
         "[delegation token] [key]",
     "renew delegation token. If token and/or key aren't specificied then\n\t\t"
     "token and/or key are read from standard in\n",
+
+    "dtinfo", "<delegation token> <delegation token> ...",
+    "Show delegation and chunk access token info\n",
 
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"

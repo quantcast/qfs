@@ -180,7 +180,7 @@ MonClient::Execute(
     if (theStatus != 0) {
         return theStatus;
     }
-
+    KfsNetClient::GetNetManager().UpdateTimeNow();
     if (! KfsNetClient::SetServer(inLocation)) {
         inOp.status = -EHOSTUNREACH;
         return inOp.status;

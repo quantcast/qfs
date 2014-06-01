@@ -105,6 +105,7 @@ public:
           mPreAllocationFlag(inPreAllocationFlag),
           mErrorCode(0),
           mSpaceAvailable(0),
+          mSpaceReserveDisconnectCount(0),
           mRetryCount(0),
           mAppendRestartRetryCount(0),
           mWriteThreshold(inWriteThreshold),
@@ -490,6 +491,7 @@ private:
     bool                    mPreAllocationFlag;
     int                     mErrorCode;
     int                     mSpaceAvailable;
+    int64_t                 mSpaceReserveDisconnectCount;
     int                     mRetryCount;
     int                     mAppendRestartRetryCount;
     int                     mWriteThreshold;
@@ -913,10 +915,21 @@ private:
             (mClosingFlag || mBuffer.BytesConsumable() >= mWriteThreshold)
         );
     }
+    void UpdateSpaceAvailable()
+    {
+        // Chunk server automatically release reserved space in the event of
+        // disconnect. With the server pool detect disconnect / reconnects, and
+        // set the available space accordingly.
+        if (0 < mSpaceAvailable && mSpaceReserveDisconnectCount !=
+                GetChunkServer().GetDisconnectCount()) {
+            mSpaceAvailable = 0;
+        }
+    }
     bool ReserveSpace(
         bool inCheckAppenderFlag = false)
     {
         QCASSERT(mAllocOp.chunkId > 0 && ! mWriteIds.empty());
+        UpdateSpaceAvailable();
         const int theSpaceNeeded = mWriteQueue.empty() ?
             ((mSpaceAvailable <= 0 && ! mClosingFlag) ?
                 mDefaultSpaceReservationSize : 0) :
@@ -967,7 +980,33 @@ private:
         }
         mSpaceAvailable += inOp.numBytes;
         mLastAppendActivityTime = Now();
+        mSpaceReserveDisconnectCount = GetChunkServer().GetDisconnectCount();
         StartAppend();
+    }
+    void ChunkServerSetKey(
+        const char* inTokenPtr,
+        size_t      inTokenLength,
+        const char* inKeyPtr,
+        size_t      inKeyLength)
+    {
+        KfsNetClient& theChunkServer = GetChunkServer();
+        theChunkServer.SetKey(
+            inTokenPtr,
+            inTokenLength,
+            inKeyPtr,
+            inKeyLength
+        );
+        if (&theChunkServer != &mChunkServer) {
+            // With the server pool, update the key of the dedicated chunk
+            // server here. This is needed to make the first round of recovery
+            // work, as the first round will attempt to use this key.
+            mChunkServer.SetKey(
+                inTokenPtr,
+                inTokenLength,
+                inKeyPtr,
+                inKeyLength
+            );
+        }
     }
     void AllocateWriteId()
     {
@@ -1015,11 +1054,11 @@ private:
             } else {
                 mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
                 mCSAccessExpireTime    = mChunkAccessExpireTime;
-                GetChunkServer().SetKey(0, 0, 0, 0);
+                ChunkServerSetKey(0, 0, 0, 0);
                 GetChunkServer().SetAuthContext(0);
             }
         } else {
-            GetChunkServer().SetKey(
+            ChunkServerSetKey(
                 mAllocOp.chunkServerAccessToken.data(),
                 mAllocOp.chunkServerAccessToken.size(),
                 mAllocOp.chunkServerAccessKey.GetPtr(),
@@ -1093,7 +1132,7 @@ private:
         }
         if (0 < inOp.accessResponseValidForSec &&
                 ! inOp.chunkServerAccessId.empty()) {
-            GetChunkServer().SetKey(
+            ChunkServerSetKey(
                 inOp.chunkServerAccessId.data(),
                 inOp.chunkServerAccessId.size(),
                 inOp.chunkServerAccessKey.GetPtr(),
@@ -1281,6 +1320,7 @@ private:
     }
     void SpaceRelease()
     {
+        UpdateSpaceAvailable();
         if (mSpaceAvailable <= 0) {
             StartAppend();
             return;
@@ -1319,13 +1359,20 @@ private:
         Reset(mLeaseAcquireOp);
         mLeaseAcquireOp.chunkId  = mAllocOp.chunkId;
         mLeaseAcquireOp.pathname = mAllocOp.pathname.c_str();
-        mLeaseAcquireOp.leaseId  = -1;
+        mLeaseAcquireOp.leaseId                       = -1;
         mLeaseAcquireOp.chunkAccessCount              = 0;
         mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
         mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
         mLeaseAcquireOp.allowCSClearTextFlag          = false;
         mLeaseAcquireOp.appendRecoveryFlag            = true;
+        mLeaseAcquireOp.appendRecoveryLocations.clear();
         mChunkServerAccess.Clear();
+        const size_t theSize = mWriteIds.size();
+        mLeaseAcquireOp.appendRecoveryLocations.reserve(theSize);
+        for (size_t i = 0; i < theSize; i++) {
+            mLeaseAcquireOp.appendRecoveryLocations.push_back(
+                mWriteIds[i].serverLoc);
+        }
         EnqueueMeta(mLeaseAcquireOp);
     }
     void Done(
@@ -1739,38 +1786,44 @@ private:
             }
             return;
         } else {
-            mStats.mRetriesCount++;
-            mRetryCount++;
-            int theTimeToNextRetry = GetTimeToNextRetry(mTimeSecBetweenRetries);
-            // Treat alloc failure the same as chunk server failure.
-            if (&mAllocOp == mCurOpPtr) {
-                mStats.mAllocRetriesCount++;
-            } else if (&mWriteIdAllocOp == mCurOpPtr ||
-                        &mRecAppendOp == mCurOpPtr ||
-                        (&mSpaceReserveOp == mCurOpPtr &&
-                            mSpaceReserveOp.status != -ENOSPC)) {
-                if (++mAppendRestartRetryCount == 2 ||
-                        mAppendRestartRetryCount == 5 ||
-                        mAppendRestartRetryCount == 15) {
-                    // When write id or append fails the second, fifth, and
-                    // fifteen times tell meta server to allocate new chunk to
-                    // paper over bugs, and network connectivity problems by
-                    // pretending that space reservation have failed.
-                    KFS_LOG_STREAM_INFO <<
-                        "force new chunk allocation"
-                        " retry: " << mAppendRestartRetryCount <<
-                    KFS_LOG_EOM;
-                    mSpaceReserveOp.status = -ENOSPC;
-                    theTimeToNextRetry = 0;
-                } else if (mAppendRestartRetryCount <= 1) {
-                    theTimeToNextRetry = 0;
+            int         theTimeToNextRetry = 0;
+            const char* theMsgPtr          = "handling re-queue";
+            if (mErrorCode != KfsNetClient::kErrorRequeueRequired) {
+                theMsgPtr = "scheduling retry";
+                mStats.mRetriesCount++;
+                mRetryCount++;
+                theTimeToNextRetry = GetTimeToNextRetry(mTimeSecBetweenRetries);
+                // Treat alloc failure the same as chunk server failure.
+                if (&mAllocOp == mCurOpPtr) {
+                    mStats.mAllocRetriesCount++;
+                } else if (&mWriteIdAllocOp == mCurOpPtr ||
+                            &mRecAppendOp == mCurOpPtr ||
+                            (&mSpaceReserveOp == mCurOpPtr &&
+                                mSpaceReserveOp.status != -ENOSPC)) {
+                    if (++mAppendRestartRetryCount == 2 ||
+                            mAppendRestartRetryCount == 5 ||
+                            mAppendRestartRetryCount == 15) {
+                        // When write id or append fails the second, fifth, and
+                        // fifteen times tell meta server to allocate new chunk
+                        // to paper over bugs, and network connectivity problems
+                        // by pretending that space reservation have failed.
+                        KFS_LOG_STREAM_INFO <<
+                            "force new chunk allocation"
+                            " retry: " << mAppendRestartRetryCount <<
+                        KFS_LOG_EOM;
+                        mSpaceReserveOp.status = -ENOSPC;
+                        theTimeToNextRetry = 0;
+                    } else if (mAppendRestartRetryCount <= 1) {
+                        theTimeToNextRetry = 0;
+                    }
                 }
             }
             // Retry.
             KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "scheduling retry: " << mRetryCount <<
-                " of " << mMaxRetryCount <<
-                " in " << theTimeToNextRetry << " sec." <<
+                theMsgPtr <<
+                " retries: " << mRetryCount <<
+                " of "       << mMaxRetryCount <<
+                " in "       << theTimeToNextRetry << " sec." <<
                 " op: " <<
                 (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp) <<
             KFS_LOG_EOM;

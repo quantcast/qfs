@@ -135,6 +135,7 @@ public:
           mOstream(),
           mProperties(),
           mStats(),
+          mDisconnectCount(0),
           mEventObserverPtr(0),
           mLogPrefix((inLogPrefixPtr && inLogPrefixPtr[0]) ?
                 (inLogPrefixPtr + string(" ")) : string()),
@@ -153,6 +154,8 @@ public:
     }
     bool IsConnected() const
         { return (mConnPtr && mConnPtr->IsGood()); }
+    int64_t GetDisconnectCount() const
+        { return mDisconnectCount; }
     bool Start(
         string             inServerName,
         int                inServerPort,
@@ -835,6 +838,7 @@ private:
     IOBuffer::WOStream mOstream;
     Properties         mProperties;
     Stats              mStats;
+    int64_t            mDisconnectCount;
     EventObserver*     mEventObserverPtr;
     const string       mLogPrefix;
     NetManager&        mNetManager;
@@ -1135,10 +1139,11 @@ private:
         if (! mInFlightOpPtr) {
             return;
         }
-        if (mContentLength > 0 && mConnPtr && mInFlightOpPtr->mBufferPtr) {
+        if (mContentLength > 0 && mConnPtr) {
             // Detach shared buffers, if any.
             IOBuffer& theBuf = mConnPtr->GetInBuffer();
             mContentLength -= theBuf.BytesConsumable();
+            assert(0 <= mContentLength);
             theBuf.Clear();
         }
         delete [] mInFlightRecvBufPtr;
@@ -1254,8 +1259,11 @@ private:
                 mNextSeqNum++; // Leave one slot for mAuthOp
             }
         }
+        const kfsSeq_t theLookupSeq = mLookupOp.seq;
         RetryAll(inLastOpPtr);
-        if (0 <= mLookupOp.seq) {
+        if (! mConnPtr) {
+            ResetConnection();
+        } else if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
             EnqueueAuth(mLookupOp);
         }
     }
@@ -1298,8 +1306,12 @@ private:
     {
         CancelInFlightOp();
         mOutstandingOpPtr = 0;
-        if (! mConnPtr) {
-            return;
+        if (mConnPtr) {
+            mConnPtr->Close();
+            mConnPtr->GetInBuffer().Clear();
+            mConnPtr->SetOwningKfsCallbackObj(0);
+            mConnPtr.reset();
+            mDisconnectCount++;
         }
         if (0 <= mLookupOp.seq) {
             Cancel(&mLookupOp, this);
@@ -1309,10 +1321,6 @@ private:
             Cancel(&mAuthOp, this);
             mAuthOp.seq = -1;
         }
-        mConnPtr->Close();
-        mConnPtr->GetInBuffer().Clear();
-        mConnPtr->SetOwningKfsCallbackObj(0);
-        mConnPtr.reset();
         mReadHeaderDoneFlag        = false;
         mContentLength             = 0;
         mSslShutdownInProgressFlag = false;
@@ -1483,6 +1491,8 @@ private:
         // completion changing mPendingOpQueue while iterating.
         QueueStack::iterator theStIt       = mQueueStack.end();
         time_t               theExpireTime = theNow - mOpTimeoutSec;
+        const bool           theMaxOneOutstandingOpFlag =
+            mMaxOneOutstandingOpFlag;
         for (OpQueue::iterator theIt = mPendingOpQueue.begin();
                 theIt != mPendingOpQueue.end() &&
                 theIt->second.mTime < theExpireTime; ) {
@@ -1526,30 +1536,41 @@ private:
         if (theStIt == mQueueStack.end()) {
             return;
         }
+        int theStatus         = kErrorMaxRetryReached;
+        int theRetryIncrement = 1;
         for (OpQueue::iterator theIt = theStIt->begin();
                 theIt != theStIt->end();
                 ++theIt) {
+            const int theCurStatus = theStatus;
+            if (theMaxOneOutstandingOpFlag) {
+                theStatus         = kErrorRequeueRequired;
+                theRetryIncrement = 0;
+            }
             OpQueueEntry& theEntry = theIt->second;
             if (! theEntry.mOpPtr) {
                 continue;
             }
             KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "op timed out: seq: " << theEntry.mOpPtr->seq <<
+                "op " << (theStatus == kErrorRequeueRequired ?
+                    "re-queue" : "timed out") <<
+                " seq: "              << theEntry.mOpPtr->seq <<
                 " "                   << theEntry.mOpPtr->Show() <<
                 " retry count: "      << theEntry.mRetryCount <<
                 " max: "              << mMaxRetryCount <<
                 " wait time: "        << (theNow - theEntry.mTime) <<
             KFS_LOG_EOM;
-            mStats.mOpsTimeoutCount++;
+            if (theStatus != kErrorRequeueRequired) {
+                mStats.mOpsTimeoutCount++;
+            }
             if (theEntry.mRetryCount >= mMaxRetryCount) {
-                theEntry.mOpPtr->status = kErrorMaxRetryReached;
+                theEntry.mOpPtr->status = theCurStatus;
                 theEntry.Done();
             } else {
-                mStats.mOpsRetriedCount++;
+                mStats.mOpsRetriedCount += theRetryIncrement;
                 const OpQueueEntry theTmp = theEntry;
                 theEntry.Clear();
                 EnqueueSelf(theTmp.mOpPtr, theTmp.mOwnerPtr,
-                    theTmp.mBufferPtr, theTmp.mRetryCount + 1);
+                    theTmp.mBufferPtr, theTmp.mRetryCount + theRetryIncrement);
             }
         }
         mQueueStack.erase(theStIt);
@@ -1639,6 +1660,13 @@ KfsNetClient::IsConnected() const
 {
     Impl::StRef theRef(mImpl);
     return mImpl.IsConnected();
+}
+
+    int64_t
+KfsNetClient::GetDisconnectCount() const
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.GetDisconnectCount();
 }
 
     bool

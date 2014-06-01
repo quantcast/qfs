@@ -737,14 +737,50 @@ public:
         return -ENODEV;
     }
     virtual int CancelDelegation(
-        const string& inToken,
-        const string& inKey,
+        const string& /* inToken */,
+        const string& /* inKey */,
         string*       outErrMsgPtr)
     {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "operation is not supported";
         }
         return -ENODEV;
+    }
+    virtual int GetDelegationTokenInfo(
+        const char* /* inTokenStrPtr */,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec,
+        string*     outErrMsgPtr)
+    {
+        outUid         = kKfsUserNone;
+        outSeq         = 0,
+        outKeyId       = 0,
+        outFlags       = 0,
+        outIssuedTime  = 0,
+        outValidForSec = 0;
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "operation is not supported";
+        }
+        return -ENODEV;
+    }
+    virtual int GetDataLocation(
+        const string   inPath,
+        int64_t        /* inStartPos */,
+        int64_t        /* inLength */,
+        DataLocations& outLocations)
+    {
+        StatBuf theStat;
+        const int theStatus = Stat(inPath, theStat);
+        if (theStatus != 0) {
+            return theStatus;
+        }
+        outLocations.push_back(DataLocations::value_type());
+        outLocations.back().push_back(string("localhost"));
+        return 0;
     }
 private:
     static int RetErrno(
@@ -835,9 +871,13 @@ public:
         StatBuf             mStatBuf;
     };
     KfsFileSystem(
-        const string& inUri)
+        const string& inUri,
+        bool          inSkipHolesFlag,
+        bool          inFullSparseFileSupportFlag)
         : FileSystemImpl(inUri),
-          KfsClient()
+          KfsClient(),
+          mSkipHolesFlag(inSkipHolesFlag),
+          mFullSparseFileSupportFlag(inFullSparseFileSupportFlag)
         {}
     virtual ~KfsFileSystem()
         {}
@@ -903,13 +943,14 @@ public:
         int           inMode,
         const string* inParamsPtr)
     {
+        int theFd = -1;
         if (! inParamsPtr || inParamsPtr->empty()) {
             const int kReplicaCount        = 1;
             const int kStripeCount         = 6;
             const int kRecoveryStripeCount = 3;
             const int kStripeSize          = 64 << 10;
             const int kStriperType         = KFS_STRIPED_FILE_TYPE_RS;
-            return KfsClient::Open(
+            theFd = KfsClient::Open(
                 inFileName.c_str(),
                 inFlags,
                 kReplicaCount,
@@ -919,10 +960,24 @@ public:
                 kStriperType,
                 inMode
             );
+        } else {
+            theFd = KfsClient::Open(
+                inFileName.c_str(), inFlags, inParamsPtr->c_str(), inMode);
         }
-        return KfsClient::Open(
-            inFileName.c_str(), inFlags, inParamsPtr->c_str(), inMode);
-
+        if (theFd < 0) {
+            return theFd;
+        }
+        const int theRet = KfsClient::SetFullSparseFileSupport(
+            theFd, mFullSparseFileSupportFlag);
+        if (theRet != 0) {
+            KfsClient::Close(theFd);
+            return theRet;
+        }
+        // Skip holes presently turn on full sparse file support.
+        if (mSkipHolesFlag) {
+            KfsClient::SkipHolesInFile(theFd);
+        }
+        return theFd;
     }
     virtual int Close(
         int inFd)
@@ -1247,6 +1302,48 @@ public:
             outErrMsgPtr
         );
     }
+    virtual int GetDelegationTokenInfo(
+        const char* inTokenStrPtr,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec,
+        string*     /* outErrMsgPtr */)
+    {
+        outUid         = kKfsUserNone;
+        outSeq         = 0,
+        outKeyId       = 0,
+        outFlags       = 0,
+        outIssuedTime  = 0,
+        outValidForSec = 0;
+        return KfsClient::GetDelegationTokenInfo(
+            inTokenStrPtr,
+            outUid,
+            outSeq,
+            outKeyId,
+            outFlags,
+            outIssuedTime,
+            outValidForSec
+        );
+    }
+    virtual int GetDataLocation(
+        const string   inPath,
+        int64_t        inStartPos,
+        int64_t        inLength,
+        DataLocations& outLocations)
+    {
+        return KfsClient::GetDataLocation(
+            inPath.c_str(),
+            inStartPos,
+            inLength,
+            outLocations
+        );
+    }
+private:
+    const bool mSkipHolesFlag;
+    const bool mFullSparseFileSupportFlag;
 private:
     KfsFileSystem(
         const KfsFileSystem& inFileSystem);
@@ -1394,7 +1491,13 @@ FileSystem::Get(
     // effect only when only one kfs client with no open files exists.
     GetKfsClient(inPropertiesPtr);
     if (theScheme == "qfs") {
-        KfsFileSystem* const theFsPtr = new KfsFileSystem(theFsUri);
+        KfsFileSystem* const theFsPtr = new KfsFileSystem(
+            theFsUri,
+            inPropertiesPtr && inPropertiesPtr->getValue(
+                "fs.readSkipHoles", 0) != 0,
+            inPropertiesPtr && inPropertiesPtr->getValue(
+                "fs.readFullSparseFileSupport", 0) != 0
+        );
         if ((theRet = theFsPtr->Init(theAuthority, inPropertiesPtr)) == 0) {
             theImplPtr = theFsPtr;
         } else {

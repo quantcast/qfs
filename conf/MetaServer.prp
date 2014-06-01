@@ -1,7 +1,7 @@
 #
 # $Id#
 #
-# Copyright 2008-2012 Quantcast Corp.
+# Copyright 2008-2014 Quantcast Corp.
 #
 # Author: Mike Ovsiannikov
 #
@@ -499,6 +499,12 @@ metaServer.msgLogWriter.logLevel = INFO
 # Default is 24 hours.
 # metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 86400
 
+# Check chunk server authenticated name against the user and group database.
+# If enabled then the authenticated name must be present in the user database in
+# order for chunk server to be accepted.
+# Default is 0 (off), use only black and white lists, if configured, see below.
+# metaServer.CSAuthentication.useUserAndGrupDb = 0
+
 # ================= X509 authentication ========================================
 # Meta server's X509 certificate file in PEM format.
 # metaServer.CSAuthentication.X509.X509PemFile =
@@ -571,7 +577,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.CSAuthentication.krb5.princUnparseMode =
 
 # OpenSSL cipher configuration for TLS-PSK authentication method. This method
-# is used with QFS delegation and with Kerberos authentication.
+# is used with TLS-PSK and with Kerberos authentication.
 # metaServer.CSAuthentication.psk.cipherpsk = !ADH:!AECDH:!MD5:!3DES:PSK:@STRENGTH
 
 # The long integer value passed to SSL_CTX_set_options() call.
@@ -740,6 +746,19 @@ metaServer.msgLogWriter.logLevel = INFO
 # the list is empty the client's authenticated name must match one of the
 # names in the list.
 # metaServer.clientAuthentication.whiteList =
+
+# ================== Delegation ================================================
+#
+# Delegation token expiration time limit.
+# Default is 24 hours.
+# metaServer.clientAuthentication.maxDelegationValidForTimeSec = 86400
+
+# Do not limit delegation token end time to the meta server session credentials
+# (Kerberos ticket or X509 certificate) end time.
+# Default is 0.
+# metaServer.clientAuthentication.delegationIgnoreCredEndTime = 0
+
+================================================================================
 
 # Allow to use "clear text" communication mode by performing SSL/TLS shutdown
 # immediately after successful authentication completion. If enabled, the QFS
@@ -915,9 +934,11 @@ metaServer.msgLogWriter.logLevel = INFO
 # set back to the original / default values.
 #
 # Overriding the default behavior might be useful for initial authentication
-# setup and/or debugging.
+# setup and/or debugging. Only two sets of values, the default and the set of
+# inverted values work, any other combinations will not though could be useful
+# for testing, i.e. 1 0 0 0 and 0 1 1 1
 #
-# Default is 0 if QFS client authentication *not* configured, 1 otherwise.
+# Default is 1 if QFS client authentication *not* configured, 0 otherwise.
 # metaServer.clientAuthentication.authNone = 1
 #
 # Default is 0 if QFS client authentication *not* configured, 1 otherwise.
@@ -926,6 +947,10 @@ metaServer.msgLogWriter.logLevel = INFO
 # Default is 0 if chunk and meta server server authentication is *not*
 # configured, 1 otherwise.
 # chunkServer.client.auth.enabled          = 0
+#
+# Default is 0 if chunk and meta server server authentication is *not*
+# configured, 1 otherwise.
+# chunkServer.remoteSync.auth.enabled      = 0
 
 # -------------------- File system ID ------------------------------------------
 #

@@ -65,14 +65,11 @@ using std::streambuf;
 
 /// If an op fails because the server crashed, retry the op.  This
 /// constant defines the # of retries before declaring failure.
-const int DEFAULT_NUM_RETRIES_PER_OP = 30;
+const int DEFAULT_NUM_RETRIES_PER_OP = 6;
 
 /// Whenever an op fails, we need to give time for the server to
 /// recover.  So, introduce a delay of 5 secs between retries.
 const int RETRY_DELAY_SECS = 5;
-
-/// Whenever we have issues with lease failures, we retry the op after 5 secs
-const int LEASE_RETRY_DELAY_SECS = 5;
 
 ///
 /// A KfsClient maintains a file-table that stores information about
@@ -364,7 +361,8 @@ public:
     bool IsFile(const char *pathname);
     bool IsDirectory(const char *pathname);
 
-    int EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res);
+    int EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res,
+        bool getChunkSizesFlag);
 
     int CompareChunkReplicas(const char *pathname, string &md5sum);
 
@@ -627,6 +625,14 @@ public:
         const string& token,
         const string& key,
         string*       outErrMsg);
+    int GetDelegationTokenInfo(
+        const char* inTokenStrPtr,
+        kfsUid_t&   outUid,
+        uint32_t&   outSeq,
+        kfsKeyId_t& outKeyId,
+        int16_t&    outFlags,
+        uint64_t&   outIssuedTime,
+        uint32_t&   outValidForSec);
 
 private:
      /// Maximum # of files a client can have open minus 1.
@@ -634,6 +640,7 @@ private:
     enum { MAX_FILES = 128 << 10 };
 
     QCMutex mMutex;
+    QCMutex mReadCompletionMutex;
 
     /// Seed to the random number generator
     bool    mIsInitialized;
@@ -814,6 +821,7 @@ private:
     }
 
     void Shutdown();
+    void ShutdownSelf();
 
     /// Check that fd is in range
     bool valid_fd(int fd) const {
@@ -1046,7 +1054,14 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion);
-
+    void GetLyout(
+        GetLayoutOp& inOp);
+    int AddChunkLocation(
+        int                      inFd,
+        chunkOff_t               inChunkPos,
+        bool                     inNewEntryFlag,
+        vector<vector<string> >& inLocations);
+    int InitUserAndGroupMode();
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;

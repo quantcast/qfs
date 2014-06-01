@@ -94,7 +94,6 @@ public:
         int64_t         inOffset,
         int             inMsgLogId)
     {
-        QCASSERT(inMutex.IsOwned());
         const int theSize = MaxRequestSize(inEntry, inSize, inOffset);
         if (theSize <= 0) {
             return 0;
@@ -110,15 +109,6 @@ public:
     virtual void Done(
         int64_t inStatus)
     {
-        // Using the same global lock for both client (mainly meta server
-        // blocking requests now) and completion isn't ideal. Though the meta
-        // server sync. call will presently block all clients anyway.
-        //
-        // Probably the best way to fix that is to make meta server requests
-        // non blocking by moving the corresponding logic into protocol worker,
-        // and change meta server to process requests out of order for the same
-        // client connection, i.e. allow more than one suspended request per
-        // client connection.
         QCStMutexLocker theLocker(mMutex);
         QCASSERT(! mDoneFlag && (mCondVarPtr || mWaitingCount == 0));
         mDoneFlag = true;
@@ -132,10 +122,12 @@ public:
         }
     }
     int64_t Wait(
+        QCMutex&             inClientMutex,
         ReadRequestCondVar*& ioFreeCondVarsHeadPtr,
         FileTableEntry&      inEntry)
     {
-        QCASSERT(mMutex.IsOwned() && mWaitingCount >= 0);
+        QCASSERT(inClientMutex.IsOwned() && &inClientMutex != &mMutex);
+        QCStMutexLocker theLocker(mMutex);
         if (++mWaitingCount <= 1 && ! mDoneFlag) {
             QCRTASSERT(! mCondVarPtr);
             if (ioFreeCondVarsHeadPtr) {
@@ -146,9 +138,22 @@ public:
                 mCondVarPtr = new ReadRequestCondVar();
             }
         }
-        while (! mDoneFlag) {
-            QCASSERT(mCondVarPtr);
-            mCondVarPtr->Wait(mMutex);
+        if (! mDoneFlag) {
+            QCStMutexUnlocker theUnlockerClient(inClientMutex);
+            QCASSERT(! inClientMutex.IsOwned());
+            while (! mDoneFlag) {
+                QCASSERT(mCondVarPtr);
+                mCondVarPtr->Wait(mMutex);
+            }
+            // Release the request completion mutex and re-acquire client mutex,
+            // to maintain the lock acquisition ordering in order to avoid dead
+            // lock.
+            // Note that there is no race between mWaitingCount decrement below
+            // and the mWaitingCount == 0 condition evaluation in Done(), as the
+            // later is only invoked once, and must already be invoked by the
+            // time the decrement performed, therefore the decrement can be done
+            // without re-acquiring the completion mutex.
+            theLocker.Unlock();
         }
         const int64_t theStatus = mCanceledFlag ? -ECANCELED : mStatus;
         // Do not access inEntry if request was canceled. inEntry might not be
@@ -162,6 +167,11 @@ public:
         QCASSERT(mWaitingCount > 0);
         if (--mWaitingCount > 0) {
             QCASSERT(mCondVarPtr);
+            // Wake up the next thread waiting the request completion.
+            // The mutex here must already be released, by the request
+            // completion wait logic the above. Re-acquire the mutex in order
+            // for Notify() to work correctly.
+            QCStMutexLocker theLocker(mMutex);
             mCondVarPtr->Notify();
         } else {
             if (mCondVarPtr) {
@@ -175,6 +185,7 @@ public:
                     inEntry.buffer.mReadReq = 0;
                 }
             }
+            theLocker.Unlock();
             delete this;
         }
         return theStatus;
@@ -182,7 +193,7 @@ public:
     void Cancel(
         FileTableEntry& inEntry)
     {
-        QCASSERT(mMutex.IsOwned());
+        QCStMutexLocker theLocker(mMutex);
         Queue::Remove(inEntry.mReadQueue, *this);
         if (inEntry.buffer.mReadReq == this) {
             if (! mDoneFlag) {
@@ -199,10 +210,12 @@ public:
         }
         mCanceledFlag = true;
         if (mWaitingCount == 0 && mDoneFlag) {
+            theLocker.Unlock();
             delete this;
         }
     }
     static int64_t Wait(
+        QCMutex&             inClientMutex,
         ReadRequestCondVar*& ioFreeCondVarsHeadPtr,
         FileTableEntry&      inEntry,
         int64_t              inOffset,
@@ -215,7 +228,8 @@ public:
             const int64_t theReqStart = thePtr->GetOffset();
             const int64_t theReqEnd   = theReqStart + thePtr->GetSize();
             if (theReqStart < theEndPos && inOffset < theReqEnd) {
-                return thePtr->Wait(ioFreeCondVarsHeadPtr, inEntry);
+                return thePtr->Wait(
+                    inClientMutex, ioFreeCondVarsHeadPtr, inEntry);
             }
         }
         return 0;
@@ -255,6 +269,7 @@ public:
         Queue::Init(inEntry.mReadQueue);
     }
     static int GetReadAhead(
+        QCMutex&             inClientMutex,
         ReadRequestCondVar*& ioFreeCondVarsHeadPtr,
         FileTableEntry&      inEntry,
         void*                inBufPtr,
@@ -274,7 +289,7 @@ public:
         }
         if (inEntry.buffer.mReadReq) {
             const int64_t theRet = inEntry.buffer.mReadReq->Wait(
-                ioFreeCondVarsHeadPtr, inEntry);
+                inClientMutex, ioFreeCondVarsHeadPtr, inEntry);
             // The last thread leaving wait sets inEntry.buffer.mReadReq to 0,
             // this guarantees that read ahead buffer and result remains valid,
             // and corresponds to the read ahead request that was waited for.
@@ -320,7 +335,6 @@ public:
         int                  inMsgLogId,
         chunkOff_t           inPos)
     {
-        QCASSERT(inMutex.IsOwned());
         if (inEntry.buffer.mReadReq ||
                 inPos >= GetEof(inEntry) ||
                 (inEntry.buffer.mSize > 0 &&
@@ -388,7 +402,7 @@ private:
         int64_t         inOffset,
         int             inMsgLogId)
     {
-        QCASSERT(! mCondVarPtr && mMutex.IsOwned());
+        QCASSERT(! mCondVarPtr);
         if (inOffset < 0 || ! inBufPtr) {
             return -EINVAL;
         }
@@ -523,7 +537,7 @@ KfsClientImpl::ReadPrefetch(
     }
     StartProtocolWorker();
     ReadRequest* const theReqPtr = ReadRequest::Create(
-        mMutex,
+        mReadCompletionMutex,
         theEntry,
         inBufPtr,
         (int)min(inSize, (size_t)numeric_limits<int>::max()),
@@ -601,7 +615,8 @@ KfsClientImpl::Read(
         void* const   theBufPtr  = theReqPtr->GetBufferPtr();
         const int64_t theReqPos  = theReqPtr->GetOffset();
         const int     theReqSize = theReqPtr->GetSize();
-        int64_t       theRes     = theReqPtr->Wait(mFreeCondVarsHead, theEntry);
+        int64_t       theRes     = theReqPtr->Wait(
+            mMutex, mFreeCondVarsHead, theEntry);
         if (theSkipHolesFlag && theRes == -ENOENT) {
             theRes = 0;
         }
@@ -652,6 +667,7 @@ KfsClientImpl::Read(
 
     bool theShortReadFlag = false;
     const int theRes = ReadRequest::GetReadAhead(
+        mMutex,
         mFreeCondVarsHead,
         theEntry,
         inBufPtr + theRet,
@@ -682,17 +698,16 @@ KfsClientImpl::Read(
             theFilePos = thePos;
             theFdPos   = thePos;
         }
-        ReadRequest* const theReqPtr =
-            ReadRequest::InitReadAhead(mMutex, theEntry, inFd, theFilePos);
+        ReadRequest* const theReqPtr = ReadRequest::InitReadAhead(
+            mReadCompletionMutex, theEntry, inFd, theFilePos);
         if (theReqPtr) {
-            // Theoretically Enqueue can immediately invoke Request::Done(),
-            // this should not be a problem as mMutex is recursive.
             mProtocolWorker->Enqueue(*theReqPtr);
             if (theSize <= theRet) {
                 return theRet;
             }
         }
         const int theRes = ReadRequest::GetReadAhead(
+            mMutex,
             mFreeCondVarsHead,
             theEntry,
             inBufPtr + theRet,
@@ -788,8 +803,8 @@ KfsClientImpl::Read(
         if (theEntry.instance + 1 == theInstance && theFilePos == theFdPos) {
             QCASSERT(mProtocolWorker);
             theFilePos = thePos;
-            theReadAheadReqPtr =
-                ReadRequest::InitReadAhead(mMutex, theEntry, inFd, theFilePos);
+            theReadAheadReqPtr = ReadRequest::InitReadAhead(
+                mReadCompletionMutex, theEntry, inFd, theFilePos);
         }
     }
     if (theReadAheadReqPtr) {

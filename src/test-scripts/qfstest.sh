@@ -25,7 +25,7 @@
 
 if [ $# -ge 1 -a x"$1" = x'-valgrind' ]; then
     shift
-    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --db-attach=yes --db-command="kill %p"'
+    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
     GLIBCPP_FORCE_NEW=1
     export GLIBCPP_FORCE_NEW
     GLIBCXX_FORCE_NEW=1
@@ -47,7 +47,7 @@ fi
 
 clientuser=${clientuser-"`id -un`"}
 
-numchunksrv=${numchunksrv-2}
+numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
 
@@ -276,6 +276,7 @@ metaServer.rootDirMode = 0777
 metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
+metaServer.clientThreadCount = 2
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -345,6 +346,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
+chunkServer.exitDebugCheck = 1
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF
@@ -392,7 +394,7 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-m 1 -l 15' \
+    cptokfsopts='-r 3 -m 1 -l 15' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
@@ -440,7 +442,7 @@ if [ $fotest -ne 0 ]; then
             -size "$fanouttestsize" \
             -partitions "$fanoutpartitions" \
             -read-retries 1 \
-            -kfanout-extra-opts "-U $p" \
+            -kfanout-extra-opts "-U $p -P 3" \
         || exit
     done > kfanout_test.out 2>&1 &
     fopid=$!

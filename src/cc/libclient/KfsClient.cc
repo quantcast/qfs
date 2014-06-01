@@ -37,6 +37,7 @@
 #include "common/kfsatomic.h"
 #include "common/MdStream.h"
 #include "common/StdAllocator.h"
+#include "common/IntToString.h"
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
 #include "kfsio/checksum.h"
@@ -368,9 +369,10 @@ KfsClient::IsDirectory(const char *pathname)
 }
 
 int
-KfsClient::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
+KfsClient::EnumerateBlocks(
+    const char* pathname, KfsClient::BlockInfos& res, bool getChunkSizesFlag)
 {
-    return mImpl->EnumerateBlocks(pathname, res);
+    return mImpl->EnumerateBlocks(pathname, res, getChunkSizesFlag);
 }
 
 int
@@ -428,6 +430,27 @@ KfsClient::CancelDelegation(
     string*       outErrMsg)
 {
     return mImpl->CancelDelegation(token, key, outErrMsg);
+}
+
+int
+KfsClient::GetDelegationTokenInfo(
+    const char* inTokenStrPtr,
+    kfsUid_t&   outUid,
+    uint32_t&   outSeq,
+    kfsKeyId_t& outKeyId,
+    int16_t&    outFlags,
+    uint64_t&   outIssuedTime,
+    uint32_t&   outValidForSec)
+{
+    return mImpl->GetDelegationTokenInfo(
+        inTokenStrPtr,
+        outUid,
+        outSeq,
+        outKeyId,
+        outFlags,
+        outIssuedTime,
+        outValidForSec
+    );
 }
 
 int
@@ -1323,6 +1346,7 @@ KfsClientImpl::ClientsList* KfsClientImpl::ClientsList::sInstance =
 
 KfsClientImpl::KfsClientImpl()
     : mMutex(),
+      mReadCompletionMutex(),
       mIsInitialized(false),
       mMetaServerLoc(),
       mNetManager(),
@@ -1398,9 +1422,9 @@ KfsClientImpl::KfsClientImpl()
 KfsClientImpl::~KfsClientImpl()
 {
     ClientsList::Remove(*this);
-    KfsClientImpl::Shutdown();
 
     QCStMutexLocker l(mMutex);
+    KfsClientImpl::ShutdownSelf();
     FAttr* p;
     while ((p = FAttrLru::Front(mFAttrLru))) {
         Delete(p);
@@ -1418,11 +1442,19 @@ void
 KfsClientImpl::Shutdown()
 {
     QCStMutexLocker l(mMutex);
-    if (! mProtocolWorker) {
-        return;
+    ShutdownSelf();
+}
+
+void
+KfsClientImpl::ShutdownSelf()
+{
+    assert(mMutex.IsOwned());
+    if (mProtocolWorker) {
+        QCStMutexUnlocker unlock(mMutex);
+        mProtocolWorker->Stop();
     }
-    l.Unlock();
-    mProtocolWorker->Stop();
+    mAuthCtx.Clear();
+    mProtocolWorkerAuthCtx.Clear();
 }
 
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
@@ -1433,9 +1465,19 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             "invalid metaserver location: " <<
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
     ClientsList::Init(*this);
+
+    QCStMutexLocker l(mMutex);
+    if (mIsInitialized) {
+        KFS_LOG_STREAM_ERROR <<
+            "extraneous init invocation with: " <<
+                metaServerHost << " " << metaServerPort <<
+            " current: " << mMetaServerLoc <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
 
     mMetaServerLoc.hostname = metaServerHost;
     mMetaServerLoc.port     = metaServerPort;
@@ -1469,6 +1511,9 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             KFS_LOG_EOM;
             return err;
         }
+        mFailShortReadsFlag = properties->getValue(
+            "client.fullSparseFileSupport",
+            mFailShortReadsFlag ? 0 : 1) == 0;
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
@@ -1480,9 +1525,15 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             "invalid metaserver location: " <<
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
-    return 0;
+    const int ret = InitUserAndGroupMode();
+    mIsInitialized = ret == 0;
+    if (! mIsInitialized) {
+        mInitLookupRootFlag = true;
+        ShutdownSelf();
+    }
+    return ret;
 }
 
 /// A notion of "cwd" in KFS.
@@ -1727,7 +1778,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     }
     MkdirOp op(0, parentFid, dirname.c_str(),
         Permissions(
-            mUseOsUserAndGroupFlag ? mEUser : kKfsUserNone,
+            mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
             mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
             mode != kKfsModeUndef  ? (mode & ~mUMask) : mode
         ),
@@ -2639,6 +2690,12 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     vector<KfsFileAttr>& result, bool computeFilesize, bool updateClientCache)
 {
     assert(mMutex.IsOwned());
+    if (pathname.empty() || pathname[0] != '/') {
+        KFS_LOG_STREAM_ERROR <<
+            "ReaddirPlus invalid path name: " << pathname <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
 
     time_t const                      now = time(0);
     ReadDirPlusResponseParser         parser(
@@ -2730,7 +2787,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 
     // if there are too many entries in the dir, then the caller is
     // probably scanning the directory.  don't put it in the cache
-    string                 dirname(pathname);
+    string dirname(pathname);
     for (string::size_type len = dirname.size();
             len > 0 && dirname[len - 1] == '/';
             ) {
@@ -3118,17 +3175,19 @@ KfsClientImpl::InvalidateCachedAttrsWithPathPrefix(
         QCASSERT(mPathCache.begin() == mPathCacheNone);
         return true;
     }
-    if (path == "/") {
+    const size_t len = path.length();
+    if (len == 0 || path == "/") {
         InvalidateAllCachedAttrs();
         return true;
     }
+    if (path[0] != '/') {
+        return false;
+    }
     string prefix = path;
-    if (*prefix.rbegin() != '/') {
+    if (prefix[len - 1] != '/') {
         prefix += "/";
     }
-    const size_t len      = prefix.length();
-    int          maxInval =
-        (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
+    int maxInval = (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
     for (NameToFAttrMap::iterator it = mPathCache.lower_bound(prefix);
             it != mPathCache.end();
             ) {
@@ -3951,31 +4010,119 @@ KfsClientImpl::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
 }
 
 int
+KfsClientImpl::AddChunkLocation(
+    int                      inFd,
+    chunkOff_t               inChunkPos,
+    bool                     inNewEntryFlag,
+    vector<vector<string> >& inLocations)
+{
+    ChunkAttr theChunk;
+    int       theRes;
+    if ((theRes = LocateChunk(inFd, inChunkPos, theChunk)) < 0) {
+        return theRes;
+    }
+    if (inLocations.empty() || inNewEntryFlag) {
+        inLocations.push_back(vector<string>());
+    }
+    vector<string>& theHosts = inLocations.back();
+    const size_t theCnt = theChunk.chunkServerLoc.size();
+    for (size_t i = 0; i < theCnt; i++) {
+        theHosts.push_back(string());
+        string& str = theHosts.back();
+        str.swap(theChunk.chunkServerLoc[i].hostname);
+        str += ':';
+        AppendDecIntToString(str, theChunk.chunkServerLoc[i].port);
+    }
+    return 0;
+}
+
+int
 KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
-    vector<vector<string> > &locations)
+    vector<vector<string> >& locations)
 {
     assert(mMutex.IsOwned());
 
     if (! valid_fd(fd)) {
         return -EBADF;
     }
-    int       res;
-    ChunkAttr chunk;
-    // locate each chunk and get the hosts that are storing the chunk.
-    for (chunkOff_t pos = start / (chunkOff_t)CHUNKSIZE * (chunkOff_t)CHUNKSIZE;
-            pos < start + len;
-            pos += CHUNKSIZE) {
-        if ((res = LocateChunk(fd, pos, chunk)) < 0) {
-            return res;
+    const FileAttr& fattr = mFileTable[fd]->fattr;
+    if (fattr.isDirectory) {
+        return -EISDIR;
+    }
+    if (fattr.striperType == KFS_STRIPED_FILE_TYPE_RS &&
+            0 < fattr.numStripes && 0 < fattr.stripeSize) {
+        chunkOff_t const lblksz = (chunkOff_t)CHUNKSIZE * (int)fattr.numStripes;
+        chunkOff_t const pblksz = (chunkOff_t)CHUNKSIZE *
+            (int)(fattr.numStripes + max(0, (int)fattr.numRecoveryStripes));
+        chunkOff_t const fstart = max(chunkOff_t(0), start);
+        chunkOff_t lbpos        = fstart / lblksz;
+        chunkOff_t pbpos        = lbpos * pblksz;
+        lbpos *= lblksz;
+        int        idx          = (int)((fstart %
+            (fattr.stripeSize * fattr.numStripes)) / fattr.stripeSize);
+        chunkOff_t cpos         = pbpos + idx * (chunkOff_t)CHUNKSIZE;
+        chunkOff_t pos          = fstart - fstart % fattr.stripeSize;
+        chunkOff_t const end    = min(fstart + len, fattr.fileSize);
+        chunkOff_t inspos       = fstart;
+        chunkOff_t pinspos      = inspos - (chunkOff_t)CHUNKSIZE;
+        while (pos < end) {
+            lbpos += lblksz;
+            const int sidx = idx;
+            do {
+                const bool newEntryFlag =
+                    pinspos + (chunkOff_t)CHUNKSIZE <= inspos;
+                if (newEntryFlag) {
+                    pinspos = inspos;
+                }
+                const int res = AddChunkLocation(
+                    fd, cpos, newEntryFlag, locations);
+                if (res == -EAGAIN || res == -ENOENT) {
+                    locations.push_back(vector<string>());
+                } else if (res < 0) {
+                    return res;
+                }
+                ++idx;
+                if (fattr.numStripes <= idx) {
+                    idx  = 0;
+                    cpos = pbpos;
+                } else {
+                    cpos += (chunkOff_t)CHUNKSIZE;
+                }
+                pos += fattr.stripeSize;
+                inspos += fattr.stripeSize;
+            } while (idx != sidx && pos < end && pos < lbpos);
+            if (end <= pos) {
+                break;
+            }
+            assert(! locations.empty());
+            inspos = max(inspos, lbpos - lblksz + (chunkOff_t)CHUNKSIZE);
+            // Duplicating the last entry is rough approximation, sufficient for
+            // location hints. It is possible to query precise location by
+            // specifying smaller length and/or aligning start position.
+            while (inspos < lbpos && inspos < end) {
+                locations.push_back(locations.back());
+                inspos += (chunkOff_t)CHUNKSIZE;
+            }
+            pinspos = inspos - (chunkOff_t)CHUNKSIZE;
+            pbpos += pblksz;
+            cpos = pbpos;
+            idx = 0;
+            pos = lbpos;
         }
-        locations.push_back(vector<string>());
-        vector<string>& hosts = locations.back();
-        const size_t cnt = chunk.chunkServerLoc.size();
-        for (size_t i = 0; i < cnt; i++) {
-            hosts.push_back(chunk.chunkServerLoc[i].hostname);
+    } else {
+        for (chunkOff_t pos = max(chunkOff_t(0), start) /
+                        (chunkOff_t)CHUNKSIZE * (chunkOff_t)CHUNKSIZE,
+                    end = min(start + len, fattr.fileSize);
+                pos < end;
+                pos += (chunkOff_t)CHUNKSIZE) {
+            const int res = AddChunkLocation(fd, pos, true, locations);
+            if (res == -EAGAIN || res == -ENOENT) {
+                locations.push_back(vector<string>());
+            } else if (res < 0) {
+                return res;
+            }
         }
     }
-
     return 0;
 }
 
@@ -4214,7 +4361,7 @@ KfsClientImpl::LocateChunk(int fd, chunkOff_t chunkOffset, ChunkAttr& chunk)
     }
     chunk.chunkId        = op.chunkId;
     chunk.chunkVersion   = op.chunkVersion;
-    chunk.chunkServerLoc = op.chunkServers;
+    chunk.chunkServerLoc.swap(op.chunkServers);
     chunk.chunkSize      = -1;
     chunk.chunkOffset    = chunkOffset;
     return 0;
@@ -4415,12 +4562,49 @@ KfsClientImpl::UpdateFilesize(int fd)
     return 0;
 }
 
+void
+KfsClientImpl::GetLyout(GetLayoutOp& inOp)
+{
+    inOp.chunks.clear();
+    inOp.maxChunks = 384;
+    for (; ;) {
+        inOp.contentLength = 0;
+        DoMetaOpWithRetry(&inOp);
+        if (inOp.status < 0) {
+            break;
+        }
+        const bool kClearFlag = false;
+        if (inOp.startOffset == 0 && ! inOp.hasMoreChunksFlag) {
+            inOp.chunks.reserve(inOp.numChunks);
+        }
+        if (inOp.ParseLayoutInfo(kClearFlag)) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to parse layout info fid: " << inOp.fid <<
+            KFS_LOG_EOM;
+            inOp.status = -EINVAL;
+            break;
+        }
+        if (! inOp.hasMoreChunksFlag) {
+            break;
+        }
+        if (inOp.chunks.empty()) {
+            break;
+        }
+        chunkOff_t const thePos = inOp.chunks.back().fileOffset;
+        if (thePos < inOp.startOffset) {
+            break;
+        }
+        inOp.startOffset = thePos + (chunkOff_t)CHUNKSIZE;
+    }
+    inOp.numChunks = (int)inOp.chunks.size();
+}
+
 chunkOff_t
 KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
 {
     GetLayoutOp lop(0, kfsfid);
     lop.lastChunkOnlyFlag = true;
-    DoMetaOpWithRetry(&lop);
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to compute filesize fid: " << kfsfid <<
@@ -4428,33 +4612,20 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
         KFS_LOG_EOM;
         return -1;
     }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR <<
-            "failed to parse layout info fid: " << kfsfid <<
-        KFS_LOG_EOM;
-        return -1;
-    }
     if (lop.chunks.empty()) {
         return 0;
     }
-    const ChunkLayoutInfo& last = *lop.chunks.rbegin();
-    chunkOff_t filesize = last.fileOffset;
-    chunkOff_t endsize  = 0;
-    int        rstatus  = 0;
-    for (int retry = 0; retry < max(1, mMaxNumRetriesPerOp); retry++) {
-        if (retry > 0) {
-            Sleep(mRetryDelaySec);
-        }
-        if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
-                        RespondingServer(*this, last, endsize, rstatus)) !=
-                    last.chunkServers.end()) {
-            break;
-        }
+    const ChunkLayoutInfo& last     = *lop.chunks.rbegin();
+    chunkOff_t             filesize = last.fileOffset;
+    chunkOff_t             endsize  = 0;
+    int                    rstatus  = 0;
+    if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
+                    RespondingServer(*this, last, endsize, rstatus)) ==
+                last.chunkServers.end()) {
         KFS_LOG_STREAM_INFO <<
             "failed to connect to any server to get size of"
             " fid: "   << kfsfid <<
             " chunk: " << last.chunkId <<
-            " retry: " << retry <<
             " max: "   << mMaxNumRetriesPerOp <<
         KFS_LOG_EOM;
     }
@@ -4567,6 +4738,53 @@ KfsClientImpl::OpDone(
     mNetManager.Shutdown(); // Exit service loop.
 }
 
+int
+KfsClientImpl::InitUserAndGroupMode()
+{
+    if (! mInitLookupRootFlag || ! mMetaServerLoc.IsValid()) {
+        return 0;
+    }
+    StartProtocolWorker();
+    // Root directory lookup to determine user and group mode.
+    // If no root directory exists or not searchable, then the results is
+    // doesn't have much effect on subsequent ops.
+    LookupOp lrop(0, ROOTFID, ".");
+    lrop.getAuthInfoOnlyFlag = true;
+    mProtocolWorker->ExecuteMeta(lrop);
+    const time_t now = time(0);
+    UpdateUserAndGroup(lrop, now);
+    KFS_LOG_STREAM(0 <= lrop.status ?
+            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+        mMetaServerLoc.hostname << ":" << mMetaServerLoc.port <<
+        " auth info"
+        " "         << lrop.Show() <<
+        " status: " << lrop.status <<
+        " "         << lrop.statusMsg <<
+        " user: "   << lrop.fattr.user <<
+        " "         << lrop.userName <<
+        " group: "  << lrop.fattr.group <<
+        " "         << lrop.groupName <<
+        " euser: "  << lrop.euser <<
+        " "         << lrop.euserName <<
+        " egroup: " << lrop.egroup <<
+        " "         << lrop.egroupName <<
+        " use host user and group db: " << mUseOsUserAndGroupFlag <<
+    KFS_LOG_EOM;
+    if (0 <= lrop.status &&
+            ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
+                ! lrop.euserName.empty())) {
+        mEUser  = lrop.euser;
+        mEGroup = lrop.egroup;
+        if (! lrop.euserName.empty()) {
+            UpdateUserId(lrop.euserName, mEUser, now);
+            if (! lrop.egroupName.empty()) {
+                UpdateGroupId(lrop.egroupName, mEGroup, now);
+            }
+       }
+    }
+    return lrop.status;
+}
+
 ///
 /// Wrapper for retrying ops with the metaserver.
 ///
@@ -4581,19 +4799,7 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
         return;
     }
     StartProtocolWorker();
-    if (mInitLookupRootFlag) {
-        // Root directory lookup to determine user and group mode.
-        // If no root directory exists or not searchable, then the results is
-        // doesn't have much effect on subsequent ops.
-        LookupOp lrop(0, ROOTFID, ".");
-        mProtocolWorker->ExecuteMeta(lrop);
-        UpdateUserAndGroup(lrop, time(0));
-        if (0 <= lrop.status && 
-                ! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) {
-            mEUser  = lrop.euser;
-            mEGroup = lrop.egroup;
-        }
-    }
+    InitUserAndGroupMode();
     mProtocolWorker->ExecuteMeta(*op);
     KFS_LOG_STREAM_DEBUG <<
         "meta op done:" <<
@@ -4613,13 +4819,11 @@ KfsClientImpl::DoChunkServerOp(const ServerLocation& loc, KfsOp& op)
 void
 KfsClientImpl::DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op)
 {
+    server.GetNetManager().UpdateTimeNow();
     server.SetOpTimeoutSec(mDefaultOpTimeout);
     server.SetMaxRetryCount(mMaxNumRetriesPerOp);
     server.SetTimeSecBetweenRetries(mRetryDelaySec);
-    if (! server.SetServer(loc)) {
-        op.status = -EHOSTUNREACH;
-        return;
-    }
+    server.SetServer(loc); // Ignore return, and let Enqueue() deal with retries.
     if (! server.Enqueue(&op, this)) {
         KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
             op.Show() <<
@@ -5054,17 +5258,14 @@ KfsClientImpl::GetReplication(const char* pathname,
     KFS_LOG_EOM;
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = 0 < attr.numRecoveryStripes;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
-        KFS_LOG_EOM;
-        return -EFAULT;
     }
     maxChunkReplication = 0;
     if (lop.chunks.empty()) {
@@ -5234,7 +5435,39 @@ KfsClientImpl::CancelDelegation(
 }
 
 int
-KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
+KfsClientImpl::GetDelegationTokenInfo(
+    const char* inTokenStrPtr,
+    kfsUid_t&   outUid,
+    uint32_t&   outSeq,
+    kfsKeyId_t& outKeyId,
+    int16_t&    outFlags,
+    uint64_t&   outIssuedTime,
+    uint32_t&   outValidForSec)
+{
+    const char* const               kKeyPtr     = 0;
+    int const                       kKeyLen     = 0;
+    DelegationToken::Subject* const kSubjectPtr = 0;
+    DelegationToken                 theToken;
+    if ( ! theToken.FromString(
+            inTokenStrPtr,
+            inTokenStrPtr ? (int)strlen(inTokenStrPtr) : 0,
+            kKeyPtr,
+            kKeyLen,
+            kSubjectPtr)) {
+        return -EINVAL;
+    }
+    outUid         = theToken.GetUid();
+    outSeq         = theToken.GetSeq();
+    outKeyId       = theToken.GetKeyId();
+    outFlags       = theToken.GetFlags();
+    outIssuedTime  = theToken.GetIssuedTime();
+    outValidForSec = theToken.GetValidForSec();
+    return 0;
+}
+
+int
+KfsClientImpl::EnumerateBlocks(
+    const char* pathname, KfsClient::BlockInfos& res, bool getChunkSizesFlag)
 {
     QCStMutexLocker l(mMutex);
 
@@ -5255,7 +5488,9 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
     KFS_LOG_EOM;
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
@@ -5263,17 +5498,11 @@ KfsClientImpl::EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res)
         return lop.status;
     }
 
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout for path: " << pathname <<
-        KFS_LOG_EOM;
-        return -EINVAL;
-    }
-
     vector<ssize_t> chunksize;
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
             i != lop.chunks.end();
             ++i) {
-        if (i->chunkServers.empty()) {
+        if (i->chunkServers.empty() || ! getChunkSizesFlag) {
             res.push_back(KfsClient::BlockInfo());
             KfsClient::BlockInfo& chunk = res.back();
             chunk.offset  = i->fileOffset;
@@ -5368,17 +5597,13 @@ int
 KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
 {
     GetLayoutOp lop(0, fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "unable to parse layout info" <<
-        KFS_LOG_EOM;
-        return -EINVAL;
     }
     const size_t numChecksums = CHUNKSIZE / CHECKSUM_BLOCKSIZE;
     scoped_array<uint32_t> chunkChecksums1;
@@ -5474,6 +5699,7 @@ kfsUid_t
 KfsClientImpl::GetUserId()
 {
     QCStMutexLocker l(mMutex);
+    InitUserAndGroupMode();
     return mEUser;
 }
 
@@ -5486,6 +5712,10 @@ KfsClientImpl::GetUserAndGroup(const char* user, const char* group,
 
     QCStMutexLocker l(mMutex);
 
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     const time_t now = time(0);
     if (user && *user) {
         uid = NameToUid(user, now);
@@ -5682,6 +5912,10 @@ KfsClientImpl::ChownSetParams(
     kfsUid_t&    user,
     kfsGid_t&    group)
 {
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     kfsUid_t    uid = user;
     kfsGid_t    gid = group;
     const char* un  = userName  ? userName  : "";
@@ -6026,16 +6260,14 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     }
 
     GetLayoutOp lop(0, attr.fileId);
-    DoMetaOpWithRetry(&lop);
+    lop.continueIfNoReplicasFlag = true;
+    lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
+    GetLyout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
             ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return lop.status;
-    }
-    if (lop.ParseLayoutInfo()) {
-        KFS_LOG_STREAM_ERROR << "Unable to parse layout info!" << KFS_LOG_EOM;
-        return -EINVAL;
     }
     MdStream mdsAll;
     MdStream mds;
@@ -6064,64 +6296,66 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                  ": " << ErrorCodeToStr(nbytes) <<
             KFS_LOG_EOM;
             match = false;
-            continue;
-        }
-        const string md5sumFirst = mds.GetMd();
-        mds.Reset();
-        KFS_LOG_STREAM_DEBUG <<
-            "chunk: "    << i->chunkId <<
-            " replica: " << i->chunkServers[0] <<
-            " size: "    << nbytes <<
-            " md5sum: "  << md5sumFirst <<
-        KFS_LOG_EOM;
-        for (uint32_t k = 1; k < i->chunkServers.size(); k++) {
+        } else {
+            const string md5sumFirst = mds.GetMd();
             mds.Reset();
-            const int n = GetChunkFromReplica(
-                chunkServerAccess,
-                i->chunkServers[k],
-                i->chunkId,
-                i->chunkVersion,
-                mds
-            );
-            if (n < 0) {
-                KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
-                     ": " << ErrorCodeToStr(n) <<
-                KFS_LOG_EOM;
-                match = false;
-                continue;
-            }
-            const string md5sumCur = mds.GetMd();
             KFS_LOG_STREAM_DEBUG <<
                 "chunk: "    << i->chunkId <<
-                " replica: " << i->chunkServers[k] <<
+                " replica: " << i->chunkServers[0] <<
                 " size: "    << nbytes <<
-                " md5sum: "  << md5sumCur <<
+                " md5sum: "  << md5sumFirst <<
             KFS_LOG_EOM;
-            if (nbytes != n || md5sumFirst != md5sumCur) {
-                match = false;
-            }
-            if (! match) {
-                KFS_LOG_STREAM_ERROR <<
-                    "chunk: " << i->chunkId <<
-                    (nbytes != n ? "size" : "data") <<
-                    " mismatch: " << i->chunkServers[0] <<
-                    " size: "     << nbytes <<
-                    " md5sum: "   << md5sumFirst <<
-                    " vs "        << i->chunkServers[k] <<
-                    " size: "     << n <<
-                    " md5sum: "   << md5sumCur <<
-                KFS_LOG_EOM;
+            for (uint32_t k = 1; k < i->chunkServers.size(); k++) {
+                mds.Reset();
+                const int n = GetChunkFromReplica(
+                    chunkServerAccess,
+                    i->chunkServers[k],
+                    i->chunkId,
+                    i->chunkVersion,
+                    mds
+                );
+                if (n < 0) {
+                    KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
+                         ": " << ErrorCodeToStr(n) <<
+                    KFS_LOG_EOM;
+                    match = false;
+                } else {
+                    const string md5sumCur = mds.GetMd();
+                    KFS_LOG_STREAM_DEBUG <<
+                        "chunk: "    << i->chunkId <<
+                        " replica: " << i->chunkServers[k] <<
+                        " size: "    << nbytes <<
+                        " md5sum: "  << md5sumCur <<
+                    KFS_LOG_EOM;
+                    if (nbytes != n || md5sumFirst != md5sumCur) {
+                        match = false;
+                    }
+                    if (! match) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "chunk: " << i->chunkId <<
+                            (nbytes != n ? "size" : "data") <<
+                            " mismatch: " << i->chunkServers[0] <<
+                            " size: "     << nbytes <<
+                            " md5sum: "   << md5sumFirst <<
+                            " vs "        << i->chunkServers[k] <<
+                            " size: "     << n <<
+                            " md5sum: "   << md5sumCur <<
+                        KFS_LOG_EOM;
+                    }
+                }
             }
         }
-        LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
-        DoMetaOpWithRetry(&lrelOp);
-        if (lrelOp.status < 0) {
-            KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
-                " chunk: " << i->chunkId <<
-                " lease: " << leaseId <<
-                " msg: "   << lrelOp.statusMsg <<
-                " "        << ErrorCodeToStr(lrelOp.status) <<
-            KFS_LOG_EOM;
+        if (0 <= leaseId) {
+            LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
+            DoMetaOpWithRetry(&lrelOp);
+            if (lrelOp.status < 0) {
+                KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
+                    " chunk: " << i->chunkId <<
+                    " lease: " << leaseId <<
+                    " msg: "   << lrelOp.statusMsg <<
+                    " "        << ErrorCodeToStr(lrelOp.status) <<
+                KFS_LOG_EOM;
+            }
         }
     }
     md5sum = mdsAll.GetMd();
@@ -6138,7 +6372,32 @@ KfsClientImpl::GetChunkLease(
 {
     LeaseAcquireOp theLeaseOp(0, inChunkId, inPathNamePtr);
     theLeaseOp.leaseTimeout = inLeaseTime;
-    DoMetaOpWithRetry(&theLeaseOp);
+    const int kMaxLeaseWaitTimeSec = max(LEASE_INTERVAL_SECS * 3 / 2,
+        (mMaxNumRetriesPerOp - 1) * (mRetryDelaySec + mDefaultOpTimeout));
+    const int leseRetryDelaySec    = min(3, max(1, mRetryDelaySec));
+    time_t    endTime              = kMaxLeaseWaitTimeSec;
+    for (int retryCnt = 0; ; retryCnt++) {
+        DoMetaOpWithRetry(&theLeaseOp);
+        if (theLeaseOp.status != -EBUSY) {
+            break;
+        }
+        const time_t now = time(0);
+        if (retryCnt == 0) {
+            endTime += now;
+        }
+        if (endTime < now) {
+            break;
+        }
+        KFS_LOG_STREAM((endTime - kMaxLeaseWaitTimeSec + 15 < now) ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
+            "chunk: "        << inChunkId <<
+            " lease busy: "  << theLeaseOp.statusMsg <<
+            " retrying in: " << leseRetryDelaySec << " sec." <<
+            " retry: "       << retryCnt <<
+        KFS_LOG_EOM;
+        Sleep(leseRetryDelaySec);
+        theLeaseOp.statusMsg.clear();
+    }
     if (theLeaseOp.status == 0 && 0 < theLeaseOp.chunkAccessCount) {
         const bool         kHasChunkServerAccessFlag = true;
         const int          kBufPos                   = 0;
@@ -6523,6 +6782,9 @@ UpdateMap(T& inMap, IT& inIt, const KT& inKey, const VT& inVal)
 void
 KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 {
+    if (userName.empty()) {
+        return;
+    }
     if (mUseOsUserAndGroupFlag) {
         DoNotUseOsUserAndGroup();
     }
@@ -6544,6 +6806,9 @@ KfsClientImpl::UpdateUserId(const string& userName, kfsUid_t uid, time_t now)
 void
 KfsClientImpl::UpdateGroupId(const string& groupName, kfsGid_t gid, time_t now)
 {
+    if (groupName.empty()) {
+        return;
+    }
     if (mUseOsUserAndGroupFlag) {
         DoNotUseOsUserAndGroup();
     }
@@ -6567,6 +6832,10 @@ KfsClientImpl::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
     string& uname, string& gname)
 {
     QCStMutexLocker l(mMutex);
+    const int ret = InitUserAndGroupMode();
+    if (ret < 0) {
+        return ret;
+    }
     const time_t now = time(0);
     if (user != kKfsUserNone) {
         uname = UidToName(user, now);

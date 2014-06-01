@@ -51,7 +51,8 @@
 #include "MetaRequest.h"
 
 #include <string>
-#include <sstream>
+#include <ostream>
+#include <istream>
 #include <map>
 #include <set>
 
@@ -540,18 +541,6 @@ public:
         return mLocation == loc;
     }
 
-    /// Setter method to set the host name/port
-    void SetServerLocation(const ServerLocation& loc) {
-        if (loc != mLocation) {
-            mLocation = loc;
-            ostringstream os;
-            os << loc.port;
-            mHostPortStr = mLocation.hostname;
-            mHostPortStr += ':';
-            mHostPortStr += os.str();
-        }
-    }
-
     /// Setter method to set space
     void SetSpace(int64_t total, int64_t used, int64_t alloc) {
         mTotalSpace = total;
@@ -815,6 +804,7 @@ protected:
     /// allow override in layout emulator.
     virtual void EnqueueSelf(MetaChunkRequest* r);
     void Enqueue(MetaChunkRequest* r, int timeout = -1);
+    void SetServerLocation(const ServerLocation& loc);
 
     /// A sequence # associated with each RPC we send to
     /// chunk server.  This variable tracks the seq # that

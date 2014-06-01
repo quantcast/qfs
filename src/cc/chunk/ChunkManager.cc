@@ -1664,7 +1664,7 @@ void
 ChunkManager::Shutdown()
 {
     // Force meta server connection down first.
-    gMetaServerSM.HandleEvent(EVENT_NET_ERROR, 0);
+    gMetaServerSM.Shutdown();
     mDirChecker.Stop();
     // Run delete queue before removing chunk table entries.
     RunStaleChunksQueue();
@@ -1745,6 +1745,7 @@ ChunkManager::Shutdown()
             "DiskIo::Shutdown failure: " << errMsg <<
         KFS_LOG_EOM;
     }
+    gClientManager.Shutdown();
 }
 
 bool
@@ -1753,6 +1754,8 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     return (ci && (*ci)->IsWriteAppenderOwns());
 }
+
+bool ChunkManager::sExitDebugCheckFlag = false;
 
 bool
 ChunkManager::SetParameters(const Properties& prop)
@@ -1945,6 +1948,8 @@ ChunkManager::SetParameters(const Properties& prop)
     } else {
         ret = ret && err == 0;
     }
+    sExitDebugCheckFlag = prop.getValue(
+        "chunkServer.exitDebugCheck", sExitDebugCheckFlag ? 1 : 0);
     return ret;
 }
 

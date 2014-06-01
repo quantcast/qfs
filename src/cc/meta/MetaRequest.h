@@ -315,12 +315,14 @@ struct MetaLookup: public MetaRequest {
     fid_t  dir;      //!< parent directory fid
     string name;     //!< name to look up
     int    authType; //!< io auth type
+    bool   authInfoOnlyFlag;
     MFattr fattr;
     MetaLookup()
         : MetaRequest(META_LOOKUP, false),
           dir(-1),
           name(),
           authType(kAuthenticationTypeUndef),
+          authInfoOnlyFlag(false),
           fattr()
         {}
     virtual void handle();
@@ -342,10 +344,10 @@ struct MetaLookup: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaLookup::dir, fid_t(-1))
-        .Def("Filename",           &MetaLookup::name          )
-        .Def("Auth-type",          &MetaLookup::authType,
-            int(kAuthenticationTypeUndef))
+        .Def("Parent File-handle", &MetaLookup::dir,              fid_t(-1))
+        .Def("Filename",           &MetaLookup::name              )
+        .Def("Auth-type",          &MetaLookup::authType,         int(kAuthenticationTypeUndef))
+        .Def("Auth-info-only",     &MetaLookup::authInfoOnlyFlag, false)
         ;
     }
     bool IsAuthNegotiation() const
@@ -396,8 +398,8 @@ struct MetaLookupPath: public MetaRequest {
  * \brief create a file
  */
 struct MetaCreate: public MetaRequest {
-    fid_t      dir;               //!< parent directory fid
-    fid_t      fid;               //!< file ID of new file
+    fid_t      dir;                 //!< parent directory fid
+    fid_t      fid;                 //!< file ID of new file
     int16_t    numReplicas;         //!< desired degree of replication
     int32_t    striperType;
     int32_t    numStripes;
@@ -417,6 +419,7 @@ struct MetaCreate: public MetaRequest {
     MetaCreate()
         : MetaRequest(META_CREATE, true),
           dir(-1),
+          fid(-1),
           numReplicas(1),
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
           numStripes(0),
@@ -778,7 +781,7 @@ struct MetaGetalloc: public MetaRequest {
           locations(),
           pathname(),
           replicasOrderedFlag(false)
-    {}
+        {}
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os);
@@ -813,9 +816,11 @@ struct MetaGetlayout: public MetaRequest {
     chunkOff_t startOffset;
     bool       omitLocationsFlag;
     bool       lastChunkInfoOnlyFlag;
+    bool       continueIfNoReplicasFlag;
     int        maxResCnt;
     int        numChunks;
     bool       hasMoreChunksFlag;
+    chunkOff_t fileSize;
     IOBuffer   resp;   //!< result
     MetaGetlayout()
         : MetaRequest(META_GETLAYOUT, false),
@@ -823,9 +828,11 @@ struct MetaGetlayout: public MetaRequest {
           startOffset(0),
           omitLocationsFlag(false),
           lastChunkInfoOnlyFlag(false),
+          continueIfNoReplicasFlag(false),
           maxResCnt(-1),
           numChunks(-1),
           hasMoreChunksFlag(false),
+          fileSize(-1),
           resp()
         {}
     virtual void handle();
@@ -842,11 +849,12 @@ struct MetaGetlayout: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",     &MetaGetlayout::fid,                   fid_t(-1))
-        .Def("Start-offset",    &MetaGetlayout::startOffset,           chunkOff_t(0))
-        .Def("Omit-locations",  &MetaGetlayout::omitLocationsFlag,     false)
-        .Def("Last-chunk-only", &MetaGetlayout::lastChunkInfoOnlyFlag, false)
-        .Def("Max-chunks",      &MetaGetlayout::maxResCnt,             -1)
+        .Def("File-handle",             &MetaGetlayout::fid,                      fid_t(-1))
+        .Def("Start-offset",            &MetaGetlayout::startOffset,              chunkOff_t(0))
+        .Def("Omit-locations",          &MetaGetlayout::omitLocationsFlag,        false)
+        .Def("Last-chunk-only",         &MetaGetlayout::lastChunkInfoOnlyFlag,    false)
+        .Def("Max-chunks",              &MetaGetlayout::maxResCnt,                -1)
+        .Def("Continue-if-no-replicas", &MetaGetlayout::continueIfNoReplicasFlag, false)
         ;
     }
 };
@@ -1386,6 +1394,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           cryptoKey(),
           cryptoKeyId(),
           totalSpace(0),
+          totalFsSpace(0),
           usedSpace(0),
           uptime(0),
           rackId(-1),
@@ -1449,8 +1458,9 @@ struct MetaHello : public MetaRequest, public ServerLocation {
  */
 struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
-    MetaBye(seq_t s, const ChunkServerPtr& c):
-        MetaRequest(META_BYE, false, s), server(c) { }
+    MetaBye(seq_t s, const ChunkServerPtr& c)
+        : MetaRequest(META_BYE, false, s),
+          server(c) { }
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual ostream& ShowSelf(ostream& os) const
@@ -1535,7 +1545,9 @@ struct MetaChown: public MetaRequest {
         : MetaRequest(META_CHOWN, true),
           fid(-1),
           user(kKfsUserNone),
-          group(kKfsGroupNone)
+          group(kKfsGroupNone),
+          ownerName(),
+          groupName()
         {}
     virtual void handle();
     virtual void response(ostream &os);
@@ -1844,6 +1856,9 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
  * server should get rid of.
  */
 struct MetaChunkStaleNotify: public MetaChunkRequest {
+    ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
+    bool         evacuatedFlag;
+    bool         hexFormatFlag;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag)
         : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, false, s, -1),
@@ -1851,9 +1866,6 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
           evacuatedFlag(evacFlag),
           hexFormatFlag(hexFmtFlag)
         {}
-    ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
-    bool         evacuatedFlag;
-    bool         hexFormatFlag;
     virtual void request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1870,8 +1882,11 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     MetaBeginMakeChunkStable(seq_t n, const ChunkServerPtr& s,
             const ServerLocation& l, fid_t f, chunkId_t c, seq_t v) :
         MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, false, s, c),
-        fid(f), chunkVersion(v), serverLoc(l),
-        chunkSize(-1), chunkChecksum(0)
+        fid(f),
+        chunkVersion(v),
+        serverLoc(l),
+        chunkSize(-1),
+        chunkChecksum(0)
         {}
     virtual void handle();
     virtual void request(ostream &os);
@@ -1952,6 +1967,12 @@ struct MetaLogMakeChunkStableDone : public MetaLogMakeChunkStable {
  * that the chunkserver should flush any dirty data.
  */
 struct MetaChunkMakeStable: public MetaChunkRequest {
+    const fid_t      fid;   //!< input: we tell the chunkserver what it is
+    const seq_t      chunkVersion; //!< The version tha the chunk should be in
+    const chunkOff_t chunkSize;
+    const bool       hasChunkChecksum:1;
+    const bool       addPending:1;
+    const uint32_t   chunkChecksum;
     MetaChunkMakeStable(
         seq_t                 inSeqNo,
         const ChunkServerPtr& inServer,
@@ -1971,12 +1992,6 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
           addPending(inAddPending),
           chunkChecksum(inChunkChecksum)
         {}
-    const fid_t      fid;   //!< input: we tell the chunkserver what it is
-    const seq_t      chunkVersion; //!< The version tha the chunk should be in
-    const chunkOff_t chunkSize;
-    const bool       hasChunkChecksum:1;
-    const bool       addPending:1;
-    const uint32_t   chunkChecksum;
     virtual void handle();
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const;
@@ -2233,16 +2248,16 @@ struct MetaCheckLeases: public MetaRequest {
  * being re-replicated.
  */
 struct MetaDumpChunkReplicationCandidates: public MetaRequest {
+    // list of blocks that are being re-replicated
+    size_t   numReplication;
+    size_t   numPendingRecovery;
+    IOBuffer resp;
     MetaDumpChunkReplicationCandidates()
         : MetaRequest(META_DUMP_CHUNKREPLICATIONCANDIDATES, false),
           numReplication(0),
           numPendingRecovery(0),
           resp()
         {}
-    // list of blocks that are being re-replicated
-    size_t   numReplication;
-    size_t   numPendingRecovery;
-    IOBuffer resp;
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ostream &os, IOBuffer& buf);
@@ -2544,6 +2559,7 @@ struct MetaAuthenticate : public MetaRequest {
     const char*            responseContentPtr;
     int                    responseContentLen;
     bool                   doneFlag;
+    int64_t                credExpirationTime;
     int64_t                sessionExpirationTime;
     string                 authName;
     NetConnection::Filter* filter;
@@ -2558,6 +2574,7 @@ struct MetaAuthenticate : public MetaRequest {
           responseContentPtr(0),
           responseContentLen(0),
           doneFlag(false),
+          credExpirationTime(0),
           sessionExpirationTime(0),
           authName(),
           filter(0)
@@ -2600,6 +2617,7 @@ struct MetaDelegate : public MetaRequest {
           validForTime(0),
           issuedTime(0),
           tokenSeq(0),
+          allowDelegationFlag(false),
           renewTokenStr(),
           renewKeyStr(),
           renewToken()
@@ -2893,6 +2911,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
     bool               getChunkLocationsFlag;
     bool               appendRecoveryFlag;
+    string             appendRecoveryLocations;
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
@@ -2909,6 +2928,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           chunkIds(),
           getChunkLocationsFlag(false),
           appendRecoveryFlag(false),
+          appendRecoveryLocations(),
           responseBuf(),
           chunkAccess()
           {}
@@ -2932,13 +2952,14 @@ struct MetaLeaseAcquire: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Pathname",          &MetaLeaseAcquire::pathname                         )
-        .Def("Chunk-handle",      &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
-        .Def("Flush-write-lease", &MetaLeaseAcquire::flushFlag,    false              )
-        .Def("Lease-timeout",     &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
-        .Def("Chunk-ids",         &MetaLeaseAcquire::chunkIds)
-        .Def("Get-locations",     &MetaLeaseAcquire::getChunkLocationsFlag,      false)
-        .Def("Append-recovery",   &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("Pathname",            &MetaLeaseAcquire::pathname                         )
+        .Def("Chunk-handle",        &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def("Flush-write-lease",   &MetaLeaseAcquire::flushFlag,    false              )
+        .Def("Lease-timeout",       &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
+        .Def("Chunk-ids",           &MetaLeaseAcquire::chunkIds)
+        .Def("Get-locations",       &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def("Append-recovery",     &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("Append-recovery-loc", &MetaLeaseAcquire::appendRecoveryLocations)
         ;
     }
 };

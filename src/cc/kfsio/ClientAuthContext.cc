@@ -90,22 +90,7 @@ public:
           mPskKey()
         {}
     ~Impl()
-    {
-        if (mCurRequest.mOuterPtr) {
-            RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
-            QCASSERT(theImplPtr);
-            if (theImplPtr && theImplPtr->mKrbClientPtr) {
-                // If kerberos request is in flight, keep kerberos client
-                // context around until outer destructor is invoked to ensure
-                // that the request buffers are still valid.
-                theImplPtr = new RequestCtxImpl();
-                theImplPtr->mKrbClientPtr.swap(mCurRequest.mKrbClientPtr);
-            } else {
-                theImplPtr = 0;
-            }
-            mCurRequest.mOuterPtr = 0;
-        }
-    }
+        { Impl::Clear(); }
     int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
@@ -264,7 +249,8 @@ public:
             theParams.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0 &&
-            (theX509SslCtxPtr || theKrbClientPtr ||
+            ((theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr) ||
+                (theKrbChangedFlag ? theKrbClientPtr : mKrbClientPtr) ||
             ! thePskKey.empty());
         const bool thePskSslChangedFlag =
             (theCreatSslPskFlag != (mSslCtxPtr != 0)) ||
@@ -301,8 +287,7 @@ public:
             (thePskSslChangedFlag ?
                 (theSslCtxPtr && ! thePskKey.empty()) :
                 (mSslCtxPtr   && ! mPskKey.empty())) ||
-            (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr)
-        ;
+            (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr);
         const bool theAuthRequiredFlag = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append("required"),
             theEnabledFlag ? 1 : 0) != 0;
@@ -576,6 +561,36 @@ public:
         return (mX509SslCtxPtr &&
             SslFilter::GetCtxX509EndTime(*mX509SslCtxPtr, outEndTime));
     }
+    void Clear()
+    {
+        if (mCurRequest.mOuterPtr) {
+            RequestCtxImpl*& theImplPtr = mCurRequest.mOuterPtr->mImplPtr;
+            QCASSERT(theImplPtr);
+            if (theImplPtr && theImplPtr->mKrbClientPtr) {
+                // If kerberos request is in flight, keep kerberos client
+                // context around until outer destructor is invoked to ensure
+                // that the request buffers are still valid.
+                theImplPtr = new RequestCtxImpl();
+                theImplPtr->mKrbClientPtr.swap(mCurRequest.mKrbClientPtr);
+            } else {
+                theImplPtr = 0;
+            }
+            mCurRequest.mOuterPtr = 0;
+        }
+        mParams.clear();
+        mKrbClientPtr.reset();
+        mSslCtxPtr.reset();
+        mX509SslCtxPtr.reset();
+        mPskKeyId.clear();
+        mPskKey.clear();
+        mX509ExpectedName.clear();
+        mEnabledFlag           = false;
+        mAuthNoneEnabledFlag   = false;
+        mKrbAuthRequireSslFlag = false;
+        mAuthRequiredFlag      = false;
+        mAllowCSClearTextFlag  = true;
+        mMaxAuthRetryCount     = 3;
+    }
 private:
     typedef RequestCtxImpl::KrbClientPtr KrbClientPtr;
     typedef SslFilter::CtxPtr            SslCtxPtr;
@@ -847,6 +862,12 @@ ClientAuthContext::GetX509EndTime(
     int64_t& outEndTime) const
 {
     return mImpl.GetX509EndTime(outEndTime);
+}
+
+    void
+ClientAuthContext::Clear()
+{
+    mImpl.Clear();
 }
 
 } // namespace KFS

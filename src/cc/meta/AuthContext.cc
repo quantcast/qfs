@@ -98,8 +98,10 @@ public:
           mAuthNoneFlag(false),
           mKrbUseSslFlag(true),
           mAllowPskFlag(inAllowPskFlag),
+          mHasUserAndGroupFlag(false),
           mMemKeytabGen(0),
           mMaxDelegationValidForTime(60 * 60 * 24),
+          mDelegationIgnoreCredEndTimeFlag(false),
           mMaxAuthenticationValidTime(60 * 60 * 24),
           mReDelegationAllowedFlag(false),
           mAuthTypes(kAuthenticationTypeUndef),
@@ -229,19 +231,20 @@ public:
                 return false;
             }
             string theAuthName(thePeerPrincipalPtr ? thePeerPrincipalPtr : "");
-            if (! RemapAndValidate(theAuthName) ||
+            if (! RemapAndValidate(theAuthName) || (mHasUserAndGroupFlag &&
                     (inOp.authUid = GetUidSelf(
                         theAuthName, inOp.authGid, inOp.euser, inOp.egroup)) ==
-                    kKfsUserNone) {
+                    kKfsUserNone)) {
                 inOp.status    = -EACCES;
                 inOp.statusMsg = "access denied for '" + theAuthName + "'";
                 inOp.responseContentPtr = 0;
                 inOp.responseContentLen = 0;
                 return false;
             }
+            inOp.credExpirationTime    = mKrbServicePtr->GetTicketEndTime();
             inOp.sessionExpirationTime = min(
                 int64_t(time(0)) + mMaxAuthenticationValidTime,
-                mKrbServicePtr->GetTicketEndTime()
+                inOp.credExpirationTime
             );
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName         = theAuthName;
@@ -372,6 +375,7 @@ public:
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup)
     {
+        mHasUserAndGroupFlag = true;
         mNameUidPtr = inUserAndGroup.GetNameUidPtr();
         QCRTASSERT(mNameUidPtr);
         mUidNamePtr = inUserAndGroup.GetUidNamePtr();
@@ -385,6 +389,18 @@ public:
         QCRTASSERT(mDelegationRenewAndCancelUsersPtr);
         mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
     }
+    void DontUseUserAndGroup()
+    {
+        mNameUidPtr.reset(new UserAndGroup::NameUidMap());
+        mUidNamePtr.reset((new UserAndGroup::UidNameMap()));
+        mGidNamePtr.reset((new UserAndGroup::GidNameMap()));
+        mRootUsersPtr.reset((new UserAndGroup::RootUsers()));
+        mDelegationRenewAndCancelUsersPtr.reset((new UserAndGroup::UserIdsSet()));
+        mUserAndGroupNames.Set(*mUidNamePtr, *mGidNamePtr);
+        mHasUserAndGroupFlag = false;
+    }
+    bool HasUserAndGroup() const
+        { return mHasUserAndGroupFlag; }
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,
@@ -627,10 +643,12 @@ public:
             thePskKey.assign(thePtr, theLen);
         }
         const bool theCreateSslPskFlag  =
-            ((theKrbServicePtr && theKrbUseSslFlag) ||
-                ((mAllowPskFlag &&
-                    (theKrbServicePtr || theX509SslCtxPtr)) ||
-                ! thePskKey.empty())) &&
+            (((theKrbChangedFlag ? theKrbServicePtr : mKrbServicePtr) &&
+                    theKrbUseSslFlag) ||
+                (mAllowPskFlag && // delegation uses psk
+                    ((theKrbChangedFlag ? theKrbServicePtr : mKrbServicePtr) ||
+                    (theX509ChangedFlag ? theX509SslCtxPtr : mX509SslCtxPtr))) ||
+                ! thePskKey.empty()) &&
             thePskSslProps.getValue(
                 theParamName.Truncate(theCurLen).Append(
                 "disable"), 0) == 0;
@@ -699,6 +717,10 @@ public:
         mMaxDelegationValidForTime = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "maxDelegationValidForTimeSec"), mMaxDelegationValidForTime);
+        mDelegationIgnoreCredEndTimeFlag = inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append(
+            "delegationIgnoreCredEndTime"),
+            mDelegationIgnoreCredEndTimeFlag ? 1 : 0) != 0;
         mReDelegationAllowedFlag   = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "reDelegationAllowedFlag"), mReDelegationAllowedFlag ? 1 : 0) != 0;
@@ -720,8 +742,18 @@ public:
                 int(kAuthenticationTypePSK) : 0)) != 0;
         return true;
     }
-    uint32_t GetMaxDelegationValidForTime() const
-        { return mMaxDelegationValidForTime; }
+    uint32_t GetMaxDelegationValidForTime(
+        int64_t inCredValidForTime) const
+    {
+        if (mDelegationIgnoreCredEndTimeFlag) {
+            return mMaxDelegationValidForTime;
+        }
+        if (inCredValidForTime <= 0) {
+            return 0;
+        }
+        return (uint32_t)min(
+            (int64_t)mMaxDelegationValidForTime, inCredValidForTime);
+    }
     bool IsReDelegationAllowed() const
         { return mReDelegationAllowedFlag; }
     const char* GetUserNameAndGroup(
@@ -753,6 +785,35 @@ public:
     bool CanRenewAndCancelDelegation(
         kfsUid_t inUid) const
         { return (mDelegationRenewAndCancelUsersPtr->Find(inUid) != 0); }
+    void Clear()
+    {
+        DontUseUserAndGroup();
+        mKrbProps.clear();
+        mPskSslProps.clear();
+        mX509SslProps.clear();
+        mKrbServicePtr.reset();
+        mSslCtxPtr.reset();
+        mX509SslCtxPtr.reset();
+        mNameRemap.clear();
+        mBlackList.clear();
+        mWhiteList.clear();
+        mNameRemapParam.clear();
+        mBlackListParam.clear();
+        mWhiteListParam.clear();
+        mPrincipalUnparseFlags           = 0;
+        mAuthNoneFlag                    = false;
+        mKrbUseSslFlag                   = true;
+        mMemKeytabGen                    = 0;
+        mMaxDelegationValidForTime       = 60 * 60 * 24;
+        mDelegationIgnoreCredEndTimeFlag = false;
+        mMaxAuthenticationValidTime      = 60 * 60 * 24;
+        mReDelegationAllowedFlag         = false;
+        mAuthTypes                       = kAuthenticationTypeUndef;
+        mNoAuthMetaOpHosts.clear();
+        mNoAuthMetaOps.clear();
+        mPskKey.clear();
+        mPskId.clear();
+    }
 private:
     typedef scoped_ptr<KrbService> KrbServicePtr;
     typedef map<
@@ -864,8 +925,10 @@ private:
     bool                             mAuthNoneFlag;
     bool                             mKrbUseSslFlag;
     const bool                       mAllowPskFlag;
+    bool                             mHasUserAndGroupFlag;
     unsigned int                     mMemKeytabGen;
     uint32_t                         mMaxDelegationValidForTime;
+    bool                             mDelegationIgnoreCredEndTimeFlag;
     int64_t                          mMaxAuthenticationValidTime;
     bool                             mReDelegationAllowedFlag;
     int                              mAuthTypes;
@@ -1067,6 +1130,18 @@ AuthContext::SetUserAndGroup(
     mUserAndGroupUpdateCount = inUserAndGroup.GetUpdateCount();
 }
 
+    void
+AuthContext::DontUseUserAndGroup()
+{
+    mImpl.DontUseUserAndGroup();
+}
+
+    bool
+AuthContext::HasUserAndGroup() const
+{
+    return mImpl.HasUserAndGroup();
+}
+
     bool
 AuthContext::SetParameters(
     const char*       inParamNamePrefixPtr,
@@ -1084,9 +1159,10 @@ AuthContext::SetParameters(
 }
 
     uint32_t
-AuthContext::GetMaxDelegationValidForTime() const
+AuthContext::GetMaxDelegationValidForTime(
+    int64_t inCredValidForTime) const
 {
-    return mImpl.GetMaxDelegationValidForTime();
+    return mImpl.GetMaxDelegationValidForTime(inCredValidForTime);
 }
 
     bool
@@ -1123,6 +1199,14 @@ AuthContext::CanRenewAndCancelDelegation(
     kfsUid_t inUid) const
 {
     return mImpl.CanRenewAndCancelDelegation(inUid);
+}
+
+    void
+AuthContext::Clear()
+{
+    mUpdateCount++;
+    mUserAndGroupUpdateCount++;
+    mImpl.Clear();
 }
 
 }

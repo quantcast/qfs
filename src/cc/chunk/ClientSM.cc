@@ -841,6 +841,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
                 " request: " << op->seq <<
                 " " << op->Show() <<
             KFS_LOG_EOM;
+            delete op;
             iobuf.Consume(cmdLen);
             mNetConnection->Close();
             return false;
@@ -857,11 +858,13 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
     const int contentLength = mContentReceivedFlag ? 0 : op->GetContentLength();
     if (0 < contentLength) {
         if (! mCurOp) {
-            if (iobuf.BytesConsumable() < contentLength) {
+            mCurOp = op;
+            if (op->status < 0) {
+                mDiscardByteCnt = contentLength;
+            } else if (iobuf.BytesConsumable() < contentLength) {
                 const ByteCount bufferBytes = contentLength;
                 BufferManager&  bufMgr      = GetBufferManager();
                 if (! bufMgr.Get(*this, bufferBytes)) {
-                    mCurOp = op;
                     const bool exceedsWaitFlag = FailIfExceedsWait(bufMgr, 0);
                     CLIENT_SM_LOG_STREAM_DEBUG <<
                         "request for: " << bufferBytes << " bytes denied" <<
@@ -878,9 +881,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
                     }
                 }
             }
-            if (op->status < 0) {
-                mDiscardByteCnt = contentLength;
-            }
         }
         if (0 < mDiscardByteCnt) {
             if (! Discard(iobuf)) {
@@ -889,7 +889,6 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
         } else if (iobuf.BytesConsumable() < contentLength) {
             mNetConnection->SetMaxReadAhead(
                 iobuf.BytesConsumable() - contentLength);
-            mCurOp = op;
             const bool kComputeChecksumFlag = false;
             SetReceiveContent(contentLength, kComputeChecksumFlag);
             return false;
@@ -917,7 +916,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
                 iobuf, wop->dataBuf, kForwardFlag)) {
             return false;
         }
-        bufferBytes = op->status >= 0 ? IoRequestBytes(wop->numBytes) : 0;
+        bufferBytes = 0 <= op->status ? IoRequestBytes(wop->numBytes) : 0;
         if (GetReceiveByteCount() == (int)wop->numBytes) {
             wop->receivedChecksum = GetChecksum();
             wop->blocksChecksums.swap(GetBlockChecksums());
@@ -939,7 +938,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             )) {
             return false;
         }
-        bufferBytes = op->status >= 0 ? IoRequestBytes(waop->numBytes) : 0;
+        bufferBytes = 0 <= op->status ? IoRequestBytes(waop->numBytes) : 0;
         ReceiveClear();
     }
     CLIENT_SM_LOG_STREAM_DEBUG <<
@@ -1331,9 +1330,17 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
         case CMD_CLOSE:
             if ((op.chunkAccessFlags & (ChunkAccessToken::kAllowReadFlag |
                     ChunkAccessToken::kAllowWriteFlag)) == 0) {
-                op.statusMsg = "chunk access: no access";
+                op.statusMsg = "chunk access: no rw access";
                 op.status    = -EPERM;
                 return false;
+            }
+            break;
+        case CMD_GET_RECORD_APPEND_STATUS:
+            if ((op.chunkAccessFlags &
+                    (ChunkAccessToken::kAppendRecoveryFlag |
+                    ChunkAccessToken::kAllowWriteFlag)) == 0) {
+                op.statusMsg = "chunk access: invalid status recovery access";
+                op.status    = -EPERM;
             }
             break;
         default:

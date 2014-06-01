@@ -76,12 +76,12 @@ public:
     size_t getWriteBufferSize() const { return writebuffersize; }
     void setWriteBufferSize(size_t size) { writebuffersize = size; }
 private:
-    string cpdir;       //!< dir for CP files
-    string cpname;      //!< name of CP file
-    int    mutations;   //!< changes since last CP
-    int    cpcount;     //!< number of CP's since startup
-    bool   writesync;
-    size_t writebuffersize;
+    string  cpdir;       //!< dir for CP files
+    string  cpname;      //!< name of CP file
+    int64_t mutations;   //!< changes since last CP
+    int64_t cpcount;     //!< number of CP's since startup
+    bool    writesync;
+    size_t  writebuffersize;
 
     string cpfile(seq_t highest)    //!< generate the next file name
         { return makename(cpdir, "chkpt", highest); }

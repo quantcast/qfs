@@ -69,6 +69,8 @@ public:
         kfsGid_t&     outEGid) const;
     void SetUserAndGroup(
         const UserAndGroup& inUserAndGroup);
+    void DontUseUserAndGroup();
+    bool HasUserAndGroup() const;
     bool SetParameters(
         const char*       inParamNamePrefixPtr,
         const Properties& inParameters,
@@ -78,7 +80,8 @@ public:
     bool IsAuthRequired(
         const MetaRequest& inOp) const
         { return (mAuthRequiredFlag && IsAuthRequiredSelf(inOp)); }
-    uint32_t GetMaxDelegationValidForTime() const;
+    uint32_t GetMaxDelegationValidForTime(
+        int64_t inCredValidForTime) const;
     bool IsReDelegationAllowed() const;
     const char* GetUserNameAndGroup(
         kfsUid_t  inUid,
@@ -94,6 +97,7 @@ public:
     int GetAuthTypes() const;
     bool CanRenewAndCancelDelegation(
         kfsUid_t inUid) const;
+    void Clear();
 private:
     class Impl;
     bool                     mAuthRequiredFlag;

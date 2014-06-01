@@ -28,11 +28,14 @@
 //----------------------------------------------------------------------------
 
 #include "KfsOps.h"
+
 #include "common/Version.h"
 #include "common/kfstypes.h"
 #include "common/time.h"
 #include "common/RequestParser.h"
 #include "common/kfserrno.h"
+#include "common/IntToString.h"
+
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 #include "kfsio/CryptoKeys.h"
@@ -402,7 +405,8 @@ KfsOp::GetNullOp()
     return sNullOp;
 }
 
-int64_t KfsOp::sOpsCount = 0;
+int64_t KfsOp::sOpsCount   = 0;
+KfsOp*  KfsOp::sOpsList[1] = {0};
 
 KfsOp::~KfsOp()
 {
@@ -412,7 +416,22 @@ KfsOp::~KfsOp()
     }
     OpCounters::Update(op, startTime);
     sOpsCount--;
+    OpsList::Remove(sOpsList, *this);
     const_cast<KfsOp_t&>(op) = CMD_UNKNOWN; // To catch double delete.
+}
+
+KfsOp::CleanupChecker::~CleanupChecker()
+{
+    if (sOpsCount == 0) {
+        return;
+    }
+    char buffer[] = { "error: ops count at extit 000000000000000\n" };
+    const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
+    IntToDecString(sOpsCount, buffer + sz - 1);
+    write(2, buffer, sizeof(buffer));
+    if (ChunkManager::GetExitDebugCheckFlag()) {
+        abort();
+    }
 }
 
 /* static */ uint32_t

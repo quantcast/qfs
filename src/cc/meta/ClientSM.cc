@@ -157,6 +157,7 @@ ClientSM::ClientSM(
       mDelegationSeq(0),
       mCanceledTokensUpdateCount(0),
       mSessionExpirationTime(0),
+      mCredExpirationTime(0),
       mClientThread(thread),
       mAuthContext(ClientManager::GetAuthContext(mClientThread)),
       mAuthUpdateCount(0),
@@ -365,6 +366,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mAuthenticateOp->filter = 0;
                 string authName;
                 authName.swap(mAuthenticateOp->authName);
+                mCredExpirationTime    = mAuthenticateOp->credExpirationTime;
                 mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
                 delete mAuthenticateOp;
                 mAuthenticateOp = 0;
@@ -661,10 +663,13 @@ ClientSM::Handle(MetaDelegate& op)
 bool
 ClientSM::Handle(MetaLookup& op)
 {
-    if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
-        return false;
+    if (! op.authInfoOnlyFlag) {
+        if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
+            return false;
+        } else {
+            op.authType = mAuthContext.GetAuthTypes();
+        }
     }
-    op.authType = mAuthContext.GetAuthTypes();
     CmdDone(op);
     return true;
 }
@@ -723,7 +728,9 @@ ClientSM::HandleDelegation(MetaDelegate& op)
         op.statusMsg = "no connection";
         return;
     }
-    const uint32_t maxTime = mAuthContext.GetMaxDelegationValidForTime();
+    const time_t   now     = mNetConnection->TimeNow();
+    const uint32_t maxTime = mAuthContext.GetMaxDelegationValidForTime(
+        mCredExpirationTime - (int64_t)now);
     if (maxTime <= 0) {
         op.status    = -EPERM;
         op.statusMsg = "configuration does not permit delegation";
@@ -735,7 +742,6 @@ ClientSM::HandleDelegation(MetaDelegate& op)
         op.statusMsg = "invalid renew request, both token and key are required";
         return;
     }
-    const time_t now = mNetConnection->TimeNow();
     if (mDelegationValidFlag) {
         if (op.fromChunkServerFlag) {
             op.status    = -EPERM;
@@ -923,8 +929,11 @@ ClientSM::Verify(
         mDelegationFlags         = 0;
         mUserAndGroupUpdateCount = mAuthContext.GetUserAndGroupUpdateCount();
         mAuthUpdateCount         = mAuthContext.GetUpdateCount();
-        if (inEndTimeValidFlag && inEndTime < mSessionExpirationTime) {
-            mSessionExpirationTime = inEndTime;
+        if (inEndTimeValidFlag) {
+            mCredExpirationTime = inEndTime;
+            if (inEndTime < mSessionExpirationTime) {
+                mSessionExpirationTime = inEndTime;
+            }
         }
     }
     return true;
@@ -983,6 +992,8 @@ ClientSM::GetPsk(
                 mDelegationIssuedTime   = theDelegationToken.GetIssuedTime();
                 mDelegationSeq          = theDelegationToken.GetSeq();
                 mDelegationValidFlag    = true;
+                mCredExpirationTime     =
+                    mDelegationIssuedTime + mDelegationValidForTime;
                 mSessionExpirationTime  = min(mSessionExpirationTime,
                     mDelegationIssuedTime + mDelegationValidForTime);
                 KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<

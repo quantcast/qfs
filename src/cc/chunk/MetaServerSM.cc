@@ -108,12 +108,7 @@ MetaServerSM::MetaServerSM()
 
 MetaServerSM::~MetaServerSM()
 {
-    globalNetManager().UnRegisterTimeoutHandler(this);
-    CleanupOpInFlight();
-    DiscardPendingResponses();
-    FailOps(true);
-    delete mHelloOp;
-    delete mAuthOp;
+    MetaServerSM::Shutdown();
 }
 
 void
@@ -138,6 +133,30 @@ MetaServerSM::SetMetaInfo(
     mRackId     = rackId;
     mMD5Sum     = md5sum;
     return SetParameters(prop);
+}
+
+void
+MetaServerSM::Shutdown()
+{
+    if (! mLocation.IsValid() && ! mNetConnection) {
+        return;
+    }
+    if (mNetConnection) {
+        mNetConnection->Close();
+    }
+    mNetConnection.reset();
+    globalNetManager().UnRegisterTimeoutHandler(this);
+    CleanupOpInFlight();
+    DiscardPendingResponses();
+    FailOps(true);
+    delete mHelloOp;
+    mHelloOp = 0;
+    delete mAuthOp;
+    mHelloOp = 0;
+    mAuthContext.Clear();
+    if (mLocation.IsValid()) {
+        mLocation.port = -mLocation.port;
+    }
 }
 
 int
@@ -479,10 +498,10 @@ MetaServerSM::HandleRequest(int code, void* data)
                 break;
             }
             if (mAuthOp) {
-                if (mOp) {
+                if (mOp && ! IsHandshakeDone()) {
                     die("op and authentication in flight");
                 }
-                if (0 < mContentLength) {
+                if (! mOp && 0 < mContentLength) {
                     HandleAuthResponse(iobuf);
                     break;
                 }
@@ -558,7 +577,7 @@ MetaServerSM::HandleRequest(int code, void* data)
 
     case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
-        if (mAuthOp && IsUp() && ! mNetConnection->GetFilter()) {
+        if (mAuthOp && ! mOp && IsUp() && ! mNetConnection->GetFilter()) {
             HandleAuthResponse(mNetConnection->GetInBuffer());
             return 0;
         }
@@ -662,7 +681,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             statusMsg = prop.getValue("Status-message", string());
         }
         mContentLength = prop.getValue("Content-length",  -1);
-        if (mAuthOp) {
+        if (mAuthOp && (! IsHandshakeDone() || seq == mAuthOp->seq)) {
             if (seq != mAuthOp->seq) {
                 KFS_LOG_STREAM_ERROR <<
                     "authentication response seq number mismatch: " <<
@@ -911,11 +930,12 @@ MetaServerSM::EnqueueOp(KfsOp* op)
             SubmitOpResponse(op);
         }
     } else {
-        if (globalNetManager().IsRunning()) {
+        if (globalNetManager().IsRunning() && ! mLocation.IsValid()) {
             mPendingOps.push_back(op);
         } else {
             op->status = -EHOSTUNREACH;
             SubmitOpResponse(op);
+            return;
         }
     }
     globalNetManager().Wakeup();

@@ -39,6 +39,7 @@
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 
 #include <boost/bind.hpp>
 
@@ -1083,6 +1084,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             // If key id is used, then it is validated only once here, with
             // initial handshake, it is not validated in the case of
             // re-authentication.
+            // User and group database is always ignored with PSK.
             mAuthName = filter->GetPeerId();
             if (! gLayoutManager.GetCSAuthContext().RemapAndValidate(
                     mAuthName)) {
@@ -1130,6 +1132,14 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             if (! sRestartCSOnInvalidClusterKeyFlag) {
                 return DeclareHelloError(mHelloOp->status, 0);
             }
+        }
+        if (! mHelloOp->location.IsValid()) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " hello: invalid server locaton: " << mHelloOp->location <<
+            KFS_LOG_EOM;
+            mHelloOp = 0;
+            delete op;
+            return -1;
         }
         if (mHelloOp->status == 0 &&
                 sMaxHelloBufferBytes < mHelloOp->contentLength) {
@@ -1370,11 +1380,24 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     } else {
         mAuthUid = MakeAuthUid(*mHelloOp, mAuthName);
     }
+    SetServerLocation(mHelloOp->location);
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;
     op->authUid = mAuthUid;
     submit_request(op);
     return 0;
+}
+
+void
+ChunkServer::SetServerLocation(const ServerLocation& loc)
+{
+    if (mLocation == loc) {
+        return;
+    }
+    mLocation = loc;
+    mHostPortStr = mLocation.hostname;
+    mHostPortStr += ':';
+    AppendDecIntToString(mHostPortStr, mLocation.port);
 }
 
 ///
@@ -2403,13 +2426,15 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     mAuthCtxUpdateCount = gLayoutManager.GetCSAuthContext().GetUpdateCount();
     KFS_LOG_STREAM(mAuthenticateOp->status == 0 ?
         MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
-        GetPeerName()        << " chunk server authentication"
-        " type: "            << mAuthenticateOp->responseAuthType <<
-        " name: "            << mAuthenticateOp->authName <<
-        " filter: "          <<
+        GetPeerName()           << " chunk server authentication"
+        " type: "               << mAuthenticateOp->responseAuthType <<
+        " name: "               << mAuthenticateOp->authName <<
+        " filter: "             <<
             reinterpret_cast<const void*>(mAuthenticateOp->filter) <<
-        " response length: " << mAuthenticateOp->responseContentLen <<
-        " msg: "             << mAuthenticateOp->statusMsg <<
+        " session expires in: " <<
+            (mAuthenticateOp->sessionExpirationTime - TimeNow()) <<
+        " response length: "    << mAuthenticateOp->responseContentLen <<
+        " msg: "                << mAuthenticateOp->statusMsg <<
     KFS_LOG_EOM;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
@@ -2471,7 +2496,11 @@ ChunkServer::Verify(
     string authName = inPeerName;
     if (! inPreverifyOkFlag ||
             (inCurCertDepth == 0 &&
-            (! gLayoutManager.GetCSAuthContext().RemapAndValidate(authName) ||
+            ((gLayoutManager.GetCSAuthContext().HasUserAndGroup() ?
+                gLayoutManager.GetCSAuthContext().GetUid(
+                    authName) == kKfsUserNone :
+                ! gLayoutManager.GetCSAuthContext().RemapAndValidate(
+                    authName)) ||
             (! mAuthName.empty() && authName != mAuthName)))) {
         KFS_LOG_STREAM_ERROR << GetPeerName() <<
             " chunk server autentication failure:"
