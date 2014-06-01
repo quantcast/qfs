@@ -4751,20 +4751,30 @@ KfsClientImpl::InitUserAndGroupMode()
     LookupOp lrop(0, ROOTFID, ".");
     lrop.getAuthInfoOnlyFlag = true;
     mProtocolWorker->ExecuteMeta(lrop);
-    UpdateUserAndGroup(lrop, time(0));
-    if (lrop.status < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            mMetaServerLoc.hostname << ":" << mMetaServerLoc.port <<
-            " status: " << lrop.status <<
-            " " << lrop.statusMsg <<
-            " " << lrop.Show() <<
-        KFS_LOG_EOM;
-    } else if ((! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
+    const time_t now = time(0);
+    UpdateUserAndGroup(lrop, now);
+    KFS_LOG_STREAM(0 <= lrop.status ?
+            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+        mMetaServerLoc.hostname << ":" << mMetaServerLoc.port <<
+        " auth info"
+        " "         << lrop.Show() <<
+        " status: " << lrop.status <<
+        " "         << lrop.statusMsg <<
+        " user: "   << lrop.fattr.user <<
+        " "         << lrop.userName <<
+        " group: "  << lrop.fattr.group <<
+        " "         << lrop.groupName <<
+        " euser: "  << lrop.euser <<
+        " "         << lrop.euserName <<
+        " egroup: " << lrop.egroup <<
+        " "         << lrop.egroupName <<
+    KFS_LOG_EOM;
+    if (0 <= lrop.status &&
+            (! mUseOsUserAndGroupFlag && lrop.euser != kKfsUserNone) ||
                 ! lrop.euserName.empty()) {
         mEUser  = lrop.euser;
         mEGroup = lrop.egroup;
         if (! lrop.euserName.empty()) {
-            const time_t now = time(0);
             UpdateUserId(lrop.euserName, mEUser, now);
             if (! lrop.egroupName.empty()) {
                 UpdateGroupId(lrop.egroupName, mEGroup, now);
