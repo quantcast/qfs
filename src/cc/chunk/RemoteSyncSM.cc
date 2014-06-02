@@ -25,17 +25,20 @@
 //----------------------------------------------------------------------------
 
 #include "RemoteSyncSM.h"
-#include "utils.h"
-#include "ChunkServer.h"
+#include "ChunkManager.h"
 #include "ClientManager.h"
 #include "ClientThread.h"
+#include "utils.h"
 
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/kfserrno.h"
+
 #include "kfsio/NetManager.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/Globals.h"
+#include "kfsio/DelegationToken.h"
+
 #include "qcdio/QCMutex.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
@@ -58,6 +61,15 @@ using std::string;
 using std::make_pair;
 using libkfsio::globalNetManager;
 
+class ClientThreadRemoteSyncListEntry::StMutexLocker :
+    public ClientThread::StMutexLocker
+{
+public:
+    StMutexLocker(
+        ClientThreadRemoteSyncListEntry& inEntry)
+        : ClientThread::StMutexLocker(inEntry.mClientThreadPtr)
+        {}
+};
 
 inline NetManager&
 ClientThreadRemoteSyncListEntry::GetNetManager()
@@ -208,39 +220,35 @@ private:
         const Auth& inAuth);
 };
 
-RemoteSyncSM::Auth* RemoteSyncSM::sAuthPtr              = 0;
-bool                RemoteSyncSM::sTraceRequestResponse = false;
-int                 RemoteSyncSM::sOpResponseTimeoutSec = 5 * 60;
+RemoteSyncSM::Auth* RemoteSyncSM::sAuthPtr                  = 0;
+bool                RemoteSyncSM::sTraceRequestResponseFlag = false;
+int                 RemoteSyncSM::sOpResponseTimeoutSec     = 5 * 60;
+int                 RemoteSyncSM::sRemoteSyncCount          = 0;
 
 const int kMaxCmdHeaderLength = 2 << 10;
-
-static kfsSeq_t
-NextSeq()
-{
-    static kfsSeq_t sSeqno = GetRandomSeq();
-    return sSeqno++;
-}
 
 inline void
 RemoteSyncSM::UpdateRecvTimeout()
 {
-    if (sOpResponseTimeoutSec < 0 || ! mNetConnection) {
+    if (mOpResponseTimeoutSec < 0 || ! mNetConnection) {
         return;
     }
     const time_t now = GetNetManager().Now();
-    const time_t end = mLastRecvTime + sOpResponseTimeoutSec;
+    const time_t end = mLastRecvTime + mOpResponseTimeoutSec;
     mNetConnection->SetInactivityTimeout(end > now ? end - now : 0);
 }
 
-bool
+/* static */ bool
 RemoteSyncSM::SetParameters(
     const char* prefix, const Properties& props, bool authEnabledFlag)
 {
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
+
     Properties::String name(prefix);
     const size_t       len(name.GetSize());
-    sTraceRequestResponse = props.getValue(
+    sTraceRequestResponseFlag = props.getValue(
         name.Truncate(len).Append(
-            "traceRequestResponse"), sTraceRequestResponse ? 1 : 0) != 0;
+            "traceRequestResponse"), sTraceRequestResponseFlag ? 1 : 0) != 0;
     sOpResponseTimeoutSec = props.getValue(
         name.Truncate(len).Append(
             "traceRequestResponse"), sOpResponseTimeoutSec);
@@ -251,9 +259,13 @@ RemoteSyncSM::SetParameters(
         name.Truncate(len).Append("auth.").GetPtr(), props, authEnabledFlag);
 }
 
-void
+/* static */ void
 RemoteSyncSM::Shutdown()
 {
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
+    if (sRemoteSyncCount != 0) {
+        die("remote sync shutdown: invalid instance count");
+    }
     delete sAuthPtr;
     sAuthPtr = 0;
 }
@@ -266,7 +278,7 @@ RemoteSyncSM::RemoteSyncSM(
       ClientThreadRemoteSyncListEntry(thread),
       mNetConnection(),
       mLocation(location),
-      mSeqnum(NextSeq()),
+      mSeqnum(GetRandomSeq()),
       mDispatchedOps(),
       mReplySeqNum(-1),
       mReplyNumBytes(0),
@@ -282,30 +294,35 @@ RemoteSyncSM::RemoteSyncSM(
       mWOStream(),
       mList(0),
       mListIt(),
-      mConnectCount(0)
+      mConnectCount(0),
+      mDeleteFlag(false),
+      mFinishRecursionCount(0),
+      mOpResponseTimeoutSec(sOpResponseTimeoutSec),
+      mTraceRequestResponseFlag(sTraceRequestResponseFlag)
 {
+    QCASSERT(IsMutexOwner(GetMutexPtr()));
     SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
-}
-
-kfsSeq_t
-RemoteSyncSM::NextSeqnum()
-{
-    mSeqnum = NextSeq();
-    return mSeqnum;
+    sRemoteSyncCount++;
 }
 
 RemoteSyncSM::~RemoteSyncSM()
 {
-    if (mNetConnection) {
-        mNetConnection->Close();
+    if (! IsMutexOwner(GetMutexPtr()) ||
+            sRemoteSyncCount <= 0 ||
+            mFinishRecursionCount != 0 ||
+            mNetConnection ||
+            ! mDispatchedOps.empty() ||
+            mList ||
+            ! mDeleteFlag) {
+        die("invalid remote sync destructor invocation");
     }
-    QCASSERT(mDispatchedOps.empty());
+    sRemoteSyncCount--;
 }
 
 bool
 RemoteSyncSM::Connect()
 {
-    QCASSERT(! mNetConnection && IsMutexOwner(GetMutexPtr()));
+    QCASSERT(! mNetConnection && IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
 
     mConnectCount++;
     KFS_LOG_STREAM_DEBUG <<
@@ -366,7 +383,7 @@ RemoteSyncSM::Connect()
 
     // If there is no activity on this socket, we want
     // to be notified, so that we can close connection.
-    mNetConnection->SetInactivityTimeout(sOpResponseTimeoutSec);
+    mNetConnection->SetInactivityTimeout(mOpResponseTimeoutSec);
     // Add this to the poll vector
     GetNetManager().AddConnection(mNetConnection);
 
@@ -376,7 +393,7 @@ RemoteSyncSM::Connect()
 void
 RemoteSyncSM::Enqueue(KfsOp* op)
 {
-    QCASSERT(op);
+    QCASSERT(op && ! mDeleteFlag);
     if (IsClientThread()) {
         DispatchEnqueue(*this, *op);
     } else {
@@ -388,8 +405,14 @@ RemoteSyncSM::Enqueue(KfsOp* op)
 bool
 RemoteSyncSM::EnqueueSelf(KfsOp* op)
 {
-    QCASSERT(IsMutexOwner(GetMutexPtr()));
+    QCASSERT(IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
 
+    if (0 < mFinishRecursionCount) {
+        op->status    = -EHOSTUNREACH;
+        op->statusMsg = "remote sync finish in flight";
+        SubmitOpResponse(op);
+        return false;
+    }
     if (mNetConnection && ! mNetConnection->IsGood()) {
         KFS_LOG_STREAM_INFO <<
             "lost connection to peer " << mLocation <<
@@ -399,7 +422,7 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         mNetConnection.reset();
     }
     op->seq = NextSeqnum();
-    const time_t now                             = globalNetManager().Now();
+    const time_t now                             = GetNetManager().Now();
     const int64_t kSessionUpdateResolutionSec    = LEASE_INTERVAL_SECS / 2;
     const int64_t kSessionUpdateStartIntervalSec = 30 * 60;
     if (mNetConnection && ! mSessionId.empty()) {
@@ -453,7 +476,7 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
     op->Request(mWOStream.Set(buf), buf);
     mWOStream.Reset();
     const int headerEnd   = buf.BytesConsumable();
-    if (sTraceRequestResponse) {
+    if (mTraceRequestResponseFlag) {
         IOBuffer::IStream is(buf, buf.BytesConsumable());
         is.ignore(headerStart);
         string line;
@@ -511,12 +534,9 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
 int
 RemoteSyncSM::HandleEvent(int code, void *data)
 {
-    IOBuffer* iobuf;
-    int msgLen = 0;
-    // take a ref to prevent the object from being deleted
-    // while we are still in this function.
-    RemoteSyncSMPtr const self = shared_from_this();
-    const char *reason = "inactivity timeout";
+    IOBuffer*   iobuf;
+    int         msgLen = 0;
+    const char* reason = "inactivity timeout";
 
     mRecursionCount++;
     QCASSERT(mRecursionCount > 0);
@@ -569,7 +589,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         break;
 
     default:
-        die("Unknown event");
+        die("RemoteSyncSM: unexpected event");
         break;
     }
     QCASSERT(mRecursionCount > 0);
@@ -580,8 +600,10 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         }
         if (! connectedFlag || ! mNetConnection || ! mNetConnection->IsGood()) {
             // we are done...
-            QCStMutexLocker lock(GetMutexPtr());
+            mRecursionCount--;
+            StMutexLocker lock(*this);
             Finish();
+            return 0;
         }
     }
     mRecursionCount--;
@@ -592,12 +614,12 @@ RemoteSyncSM::HandleEvent(int code, void *data)
 int
 RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
 {
-    DispatchedOps::iterator i = mDispatchedOps.end();
+    DispatchedOps::iterator it = mDispatchedOps.end();
     int nAvail = iobuf->BytesConsumable();
 
     if (mReplyNumBytes <= 0) {
         QCASSERT(msgLen >= 0 && msgLen <= nAvail);
-        if (sTraceRequestResponse) {
+        if (mTraceRequestResponseFlag) {
             IOBuffer::IStream is(*iobuf, msgLen);
             string            line;
             while (getline(is, line)) {
@@ -621,8 +643,8 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         }
         mReplyNumBytes = prop.getValue("Content-length", 0);
         nAvail -= msgLen;
-        i = mDispatchedOps.find(mReplySeqNum);
-        KfsOp* const op = i != mDispatchedOps.end() ? i->second : 0;
+        it = mDispatchedOps.find(mReplySeqNum);
+        KfsOp* const op = it != mDispatchedOps.end() ? it->second : 0;
         if (op) {
             op->status = prop.getValue("Status", -1);
             if (op->status < 0) {
@@ -685,12 +707,11 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
     }
 
     // find the matching op
-    if (i == mDispatchedOps.end()) {
-        i = mDispatchedOps.find(mReplySeqNum);
+    if (it == mDispatchedOps.end()) {
+        it = mDispatchedOps.find(mReplySeqNum);
     }
-    if (i != mDispatchedOps.end()) {
-        KfsOp* const op = i->second;
-        mDispatchedOps.erase(i);
+    if (it != mDispatchedOps.end()) {
+        KfsOp* const op = it->second;
         if (! op) {
             die("invalid null op");
             return -1;
@@ -699,18 +720,32 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
             ReadOp* const rop = static_cast<ReadOp*>(op);
             rop->dataBuf.Move(iobuf, mReplyNumBytes);
             rop->numBytesIO = mReplyNumBytes;
+            rop->VerifyReply();
         } else if (op->op == CMD_GET_CHUNK_METADATA) {
             GetChunkMetadataOp* const gcm =
                 static_cast<GetChunkMetadataOp*>(op);
             gcm->dataBuf.Move(iobuf, mReplyNumBytes);
+        } else if (0 < mReplyNumBytes) {
+            KFS_LOG_STREAM_ERROR <<
+                "seq: "                 << mReplySeqNum <<
+                " discarding content: " << mReplyNumBytes <<
+                op->Show() <<
+            KFS_LOG_EOM;
+            iobuf->Consume(mReplyNumBytes);
         }
         mReplyNumBytes = 0;
-        QCStMutexLocker lock(GetMutexPtr());
-        SubmitOpResponse(op);
+        StMutexLocker lock(*this);
+        // If finish is pending, then FinishSelf will fail the op.
+        if (! IsFinishPending()) {
+            mDispatchedOps.erase(it);
+            SubmitOpResponse(op);
+        }
     } else {
         KFS_LOG_STREAM_DEBUG <<
             "discarding a reply for unknown seq #: " << mReplySeqNum <<
+            " content length: "                      << mReplyNumBytes <<
         KFS_LOG_EOM;
+        iobuf->Consume(mReplyNumBytes);
         mReplyNumBytes = 0;
     }
     return 0;
@@ -769,12 +804,17 @@ RemoteSyncSM::Finish()
 void
 RemoteSyncSM::FinishSelf()
 {
-    FailAllOps();
+    mFinishRecursionCount++;
     if (mNetConnection) {
         mNetConnection->Close();
         mNetConnection.reset();
     }
+    FailAllOps();
     RemoveFromList();
+    mFinishRecursionCount--;
+    if (mDeleteFlag && mFinishRecursionCount <= 0) {
+        delete this;
+    }
 }
 
 inline static int64_t
@@ -851,6 +891,22 @@ RemoteSyncSM::UpdateSession(
     return (err == 0);
 }
 
+void
+RemoteSyncSM::ScheduleDelete()
+{
+    QCASSERT(IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
+    mDeleteFlag = true;
+    Finish();
+}
+
+class RemoteSyncSMCleanupFunctor
+{
+public:
+    void operator()(
+        RemoteSyncSM* inSyncSMPtr)
+        { inSyncSMPtr->ScheduleDelete(); }
+};
+
 inline static ClientThread*
 GetClientThread(bool forceUseClientThreadFlag)
 {
@@ -881,7 +937,8 @@ RemoteSyncSM::Create(
     SMPtr peer;
     if (sessionKeyLen <= 0) {
         peer.reset(new RemoteSyncSM(
-            location, GetClientThread(forceUseClientThreadFlag)));
+            location, GetClientThread(forceUseClientThreadFlag)),
+            RemoteSyncSMCleanupFunctor());
     } else if (sessionTokenLen <= 0) {
         err    = -EINVAL;
         errMsg = "invalid session token length";
@@ -910,7 +967,8 @@ RemoteSyncSM::Create(
                 }
                 if (! err) {
                     peer.reset(new RemoteSyncSM(
-                        location, GetClientThread(forceUseClientThreadFlag)));
+                        location, GetClientThread(forceUseClientThreadFlag)),
+                        RemoteSyncSMCleanupFunctor());
                     peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
                     peer->SetShutdownSslFlag(shutdownSslFlag);
                     peer->mSessionExpirationTime = expTime;
