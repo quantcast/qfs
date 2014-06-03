@@ -6275,6 +6275,12 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
          i != lop.chunks.end();
          ++i) {
+        if (i->chunkServers.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "chunk: " << i->chunkId << " no replica available" <<
+            KFS_LOG_EOM;
+            continue;
+        }
         ChunkServerAccess  chunkServerAccess;
         int64_t            leaseId = -1;
         const int status = GetChunkLease(
