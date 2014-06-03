@@ -728,6 +728,10 @@ public:
             "chunkServer.rsReader.meta.idleTimeoutSec",
             sRSReaderMetaResetConnectionOnOpTimeoutFlag ? 1 : 0
         ) != 0;
+        sRSReaderMaxRecoverChunkSize = props.getValue(
+            "chunkServer.rsReader.maxRecoverChunkSize",
+            sRSReaderMaxRecoverChunkSize
+        );
         props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams);
     }
     RSReplicatorImpl(
@@ -837,6 +841,18 @@ public:
         }
         mReadOp.status = inStatusCode;
         if (mReadOp.status == 0 && inBufferPtr) {
+            if (sRSReaderMaxRecoverChunkSize <
+                    mOffset + inBufferPtr->BytesConsumable()) {
+                ostringstream os;
+                os << " recovery:"
+                    " file: "   << mFileId  <<
+                    " chunk: "  << mChunkId <<
+                    " pos: "    << mOffset  <<
+                    " rdsize: " << inBufferPtr->BytesConsumable() <<
+                    " exceeds " << sRSReaderMaxRecoverChunkSize;
+                const string msg = os.str();
+                die(msg.c_str());
+            }
             const bool endOfChunk =
                 mReadSize > inBufferPtr->BytesConsumable() ||
                 mOffset + mReadSize >= mChunkSize;
@@ -1172,6 +1188,7 @@ private:
     static int  sRSReaderMetaTimeSecBetweenRetries;
     static int  sRSReaderMetaOpTimeoutSec;
     static int  sRSReaderMetaIdleTimeoutSec;
+    static int  sRSReaderMaxRecoverChunkSize;
     static bool sRSReaderMetaResetConnectionOnOpTimeoutFlag;
     static Properties sAuthParams;
 private:
@@ -1194,6 +1211,8 @@ int  RSReplicatorImpl::sRSReaderMetaTimeSecBetweenRetries          = 10;
 int  RSReplicatorImpl::sRSReaderMetaOpTimeoutSec                   = 4 * 60;
 int  RSReplicatorImpl::sRSReaderMetaIdleTimeoutSec                 = 5 * 60;
 bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
+int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
+    (int)CHUNKSIZE;
 Properties RSReplicatorImpl::sAuthParams;
 
 int
