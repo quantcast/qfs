@@ -1662,6 +1662,9 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                 # skip over '/files/
                 fpath = os.path.join(docRoot, self.path[7:])
                 try:
+                    self.send_response(200)
+                    self.send_header('Content-length', str(os.path.getsize(fpath)))
+                    self.end_headers()
                     self.copyfile(urllib.urlopen(fpath), self.wfile)
                 except IOError:
                     self.send_error(404, 'Not found')
@@ -1670,6 +1673,9 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
             if self.path.startswith('/charts'):
                 fpath = self.path[1:]
                 try:
+                    self.send_response(200)
+                    self.send_header('Content-length', str(os.path.getsize(fpath)))
+                    self.end_headers()
                     self.copyfile(urllib.urlopen(fpath), self.wfile)
                 except IOError:
                     self.send_error(404, 'Not found')
@@ -1878,6 +1884,7 @@ if __name__ == '__main__':
         displayChunkServerStorageTiers = True
         pass
     docRoot = config.get('webserver', 'webServer.docRoot')
+    HOST = config.get('webserver', 'webServer.host')
     PORT = config.getint('webserver', 'webServer.port')
     allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
     if metaserverHost != '127.0.0.1' and metaserverHost != 'localhost':
@@ -1903,7 +1910,7 @@ if __name__ == '__main__':
 
     socket.setdefaulttimeout(socketTimeout)
     SocketServer.TCPServer.allow_reuse_address = True
-    httpd = ThreadedTCPServer(('', PORT), Pinger)
+    httpd = ThreadedTCPServer((HOST, PORT), Pinger)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
