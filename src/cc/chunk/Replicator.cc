@@ -841,13 +841,15 @@ public:
         }
         mReadOp.status = inStatusCode;
         if (mReadOp.status == 0 && inBufferPtr) {
-            if (sRSReaderMaxRecoverChunkSize <
-                    mOffset + inBufferPtr->BytesConsumable()) {
+            if (sRSReaderMaxRecoverChunkSize < mOffset +
+                    mReadTail.BytesConsumable() +
+                    inBufferPtr->BytesConsumable()) {
                 ostringstream os;
                 os << " recovery:"
                     " file: "   << mFileId  <<
                     " chunk: "  << mChunkId <<
                     " pos: "    << mOffset  <<
+                    " + "       << mReadTail.BytesConsumable() <<
                     " rdsize: " << inBufferPtr->BytesConsumable() <<
                     " exceeds " << sRSReaderMaxRecoverChunkSize;
                 const string msg = os.str();
@@ -855,7 +857,7 @@ public:
             }
             const bool endOfChunk =
                 mReadSize > inBufferPtr->BytesConsumable() ||
-                mOffset + mReadSize >= mChunkSize;
+                mOffset + mReadTail.BytesConsumable() + mReadSize >= mChunkSize;
             IOBuffer& buf = mReadOp.dataBuf;
             buf.Clear();
             if (endOfChunk) {
