@@ -144,7 +144,8 @@ using std::less;
     f(AUTHENTICATE) \
     f(DELEGATE) \
     f(DELEGATE_CANCEL) \
-    f(SET_FILE_SYSTEM_INFO)
+    f(SET_FILE_SYSTEM_INFO) \
+    f(FORCE_CHUNK_REPLICATION)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -3038,8 +3039,9 @@ private:
  * dead leases thru the main event processing loop.
  */
 struct MetaLeaseCleanup: public MetaRequest {
-    MetaLeaseCleanup(seq_t s, KfsCallbackObj *c):
-        MetaRequest(META_LEASE_CLEANUP, false, s) { clnt = c; }
+    MetaLeaseCleanup(seq_t s, KfsCallbackObj *c)
+        : MetaRequest(META_LEASE_CLEANUP, false, s)
+            { clnt = c; }
 
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -3055,14 +3057,49 @@ struct MetaLeaseCleanup: public MetaRequest {
  * thru the main event processing loop.
  */
 struct MetaChunkReplicationCheck : public MetaRequest {
-    MetaChunkReplicationCheck(seq_t s, KfsCallbackObj *c):
-        MetaRequest(META_CHUNK_REPLICATION_CHECK, false, s) { clnt = c; }
+    MetaChunkReplicationCheck(seq_t s, KfsCallbackObj *c)
+        : MetaRequest(META_CHUNK_REPLICATION_CHECK, false, s)
+            { clnt = c; }
 
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "chunk replication check";
+    }
+};
+
+struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
+    chunkId_t chunkId;
+    bool      recoveryFlag;
+
+    MetaForceChunkReplication()
+        : ServerLocation(),
+          MetaRequest(META_FORCE_CHUNK_REPLICATION, false),
+          chunkId(-1),
+          recoveryFlag(false)
+        {}
+    virtual void handle();
+    virtual void response(ostream& os);
+    virtual int log(ostream& /* file */) const
+        { return 0; }
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "force recovery:"
+            " chunk: "    << chunkId <<
+            " recovery: " << recoveryFlag
+        ;
+    }
+    bool Validate()
+        { return true; }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def("Host",     &ServerLocation::hostname)
+        .Def("Port",     &ServerLocation::port,                    int(-1))
+        .Def("Chunk",    &MetaForceChunkReplication::chunkId,      int64_t(-1))
+        .Def("Recovery", &MetaForceChunkReplication::recoveryFlag, false)
+        ;
     }
 };
 

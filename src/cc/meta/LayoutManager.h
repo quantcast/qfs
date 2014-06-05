@@ -1427,6 +1427,7 @@ public:
         { return mFileSystemIdRequiredFlag; }
     bool IsDeleteChunkOnFsIdMismatch() const
         { return mDeleteChunkOnFsIdMismatchFlag; }
+    void Handle(MetaForceChunkReplication& op);
 protected:
     typedef vector<
         int,

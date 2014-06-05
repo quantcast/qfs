@@ -10335,4 +10335,91 @@ LayoutManager::RebalanceCtrs::Show(
     return os;
 }
 
+void
+LayoutManager::Handle(MetaForceChunkReplication& op)
+{
+    if (op.chunkId < 0) {
+        op.status    = -EINVAL;
+        op.statusMsg = "invalid chunk id";
+        return;
+    }
+    CSMap::Entry* const entry = mChunkToServerMap.Find(op.chunkId);
+    if (! entry) {
+        op.status    = -ENOENT;
+        op.statusMsg = "no such chunk";
+        return;
+    }
+    const MetaFattr* const fa = entry->GetFattr();
+    if (fa->numRecoveryStripes <= 0 && op.recoveryFlag) {
+        op.status    = -EINVAL;
+        op.statusMsg = "file is not created with recovery";
+        return;
+    }
+    const ServerLocation& dst = op;
+    Servers::const_iterator dstIt;
+    if (dst.IsValid()) {
+        dstIt = FindServer(dst);
+        if (dstIt == mChunkServers.end()) {
+            op.status    = -EINVAL;
+            op.statusMsg = "no such chunk server";
+            return;
+        }
+        StTmp<Servers> serversTmp(mServers3Tmp);
+        Servers&       servers = serversTmp.Get();
+        mChunkToServerMap.GetServers(*entry, servers);
+        if (find(servers.begin(), servers.end(), *dstIt) != servers.end()) {
+            op.status    = -EINVAL;
+            op.statusMsg = "chunk exists already on " + dst.ToString();
+            return;
+        }
+    } else {
+        dstIt = mChunkServers.end();
+    }
+    int extraReplicas = 0;
+    ChunkRecoveryInfo recoveryInfo;
+    StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
+    ChunkPlacement& placement = placementTmp.Get();
+    int hibernatedReplicaCount = 0;
+    if (! CanReplicateChunkNow(
+            *entry,
+            extraReplicas,
+            placement,
+            &hibernatedReplicaCount,
+            &recoveryInfo,
+            op.recoveryFlag)) {
+        op.status    = -EBUSY;
+        op.statusMsg = "cannot be started at the moment";
+        return;
+    }
+    if (dstIt != mChunkServers.end()) {
+        StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
+        vector<kfsSTier_t>&        tiers = tiersTmp.Get();
+        StTmp<Servers>             candidatesTmp(mServers2Tmp);
+        Servers&                   candidates = candidatesTmp.Get();
+        tiers.push_back(fa->minSTier);
+        candidates.push_back(*dstIt);
+        extraReplicas = 1;
+        if (ReplicateChunk(
+                *entry,
+                extraReplicas,
+                candidates,
+                recoveryInfo,
+                tiers,
+                fa->maxSTier,
+                "admin forced") <= 0) {
+            op.status    = -EAGAIN;
+            op.statusMsg = "failed to start replication";
+            return;
+        }
+    } else {
+        extraReplicas = max(1, extraReplicas + 1);
+        if (ReplicateChunk(
+                *entry, extraReplicas, placement, recoveryInfo) <= 0) {
+            op.status    = -EAGAIN;
+            op.statusMsg = "no replication candidates";
+            return;
+        }
+    }
+}
+
 } // namespace KFS

@@ -5189,4 +5189,19 @@ MetaDelegateCancel::response(ostream& os)
     PutHeader(this, os) << "\r\n";
 }
 
+void
+MetaForceChunkReplication::handle()
+{
+    if (! HasMetaServerAdminAccess(*this)) {
+        return;
+    }
+    gLayoutManager.Handle(*this);
+}
+
+void
+MetaForceChunkReplication::response(ostream& os)
+{
+    PutHeader(this, os) << "\r\n";
+}
+
 } /* namespace KFS */
