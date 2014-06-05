@@ -32,6 +32,7 @@
 #include "libclient/KfsClient.h"
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <map>
 #include <algorithm>
@@ -53,6 +54,7 @@ using std::cout;
 using std::setw;
 using std::right;
 using std::max;
+using std::istringstream;
 
 #define KfsForEachMetaOpId(f) \
     f(CHECK_LEASES,                    "debug: run chunk leases check") \
@@ -73,7 +75,14 @@ using std::max;
                                        " counters") \
     f(PING,                            "stats: list current status counters") \
     f(STATS,                           "stats: list RPC counters") \
-    f(FSCK,                            "debug: run fsck")
+    f(FSCK,                            "debug: run fsck") \
+    f(FORCE_REPLICATION,               "debug: force chunk replication or"\
+                                        " recovery" \
+                                        " Chunk=<id>" \
+                                        " [Recovery=1]" \
+                                        " [Host=<chunk server ip>]" \
+                                        " [Port=<chunk server port>]" \
+    )
 
     static string
 ToLower(
@@ -153,9 +162,10 @@ Main(
     bool        theVerboseLoggingFlag = false;
     bool        theShowHeadersFlag    = false;
     int         theRetCode            = 0;
+    string      thePropsStr;
 
     int theOptChar;
-    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:a")) != -1) {
+    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:aF:")) != -1) {
         switch (theOptChar) {
             case 'm':
             case 's':
@@ -173,6 +183,10 @@ Main(
             case 'f':
                 theConfigFileNamePtr = optarg;
                 break;
+            case 'F':
+                thePropsStr += optarg;
+                thePropsStr += "\n";
+                break;
             case 'a':
                 theShowHeadersFlag = true;
                 break;
@@ -188,8 +202,9 @@ Main(
             " -m|-s <meta server host name>\n"
             " -p <port>\n"
             " [-f <config file name>]\n"
-            " [-a -- show headers]\n"
+            " [-a -- show response headers]\n"
             " [-v -- verbose]\n"
+            " [-F <request field name>=<request field value>]\n"
             " --  <cmd> <cmd> ...\n"
             "Where cmd is one of the following:\n"
         ;
@@ -206,6 +221,9 @@ Main(
         return 1;
     }
     theClient.SetMaxContentLength(512 << 20);
+    Properties theReqProps;
+    theReqProps.loadProperties(
+        thePropsStr.data(), thePropsStr.size(), (char)'=');
     for (int i = optind; i < inArgCount; i++) {
         MetaAdminOps::const_iterator const theIt =
             sMetaAdminOpsMap.find(ToLower(inArgsPtr[i]));
@@ -219,7 +237,9 @@ Main(
                 theIt->second.second.first,
                 theIt->second.first
             );
-            if (theOp.op == CMD_META_FSCK) {
+            if (! theReqProps.empty()) {
+                theOp.requestProps = theReqProps;
+            } else if (theOp.op == CMD_META_FSCK) {
                 theOp.requestProps.setValue("Report-Abandoned-Files", "1");
             }
             theClient.SetMaxRpcHeaderLength(
