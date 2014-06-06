@@ -3187,10 +3187,11 @@ private:
                 if (theBuf.mBuf.mSize <= 0) {
                     QCASSERT(
                         theBuf.mPos >= 0 &&
-                        theBuf.mPos >= theBuf.mBufL.mSize
+                        theBuf.mPos >= theBuf.mBufL.mSize &&
+                        theBuf.mBufL.mSize >= theSize
                     );
                     theBuf.mPos -= theBuf.mBufL.mSize;
-                    theBuf.mBuf.mSize = theBuf.mBufL.mSize;
+                    theBuf.mBuf.mSize = theSize;
                     theBuf.mBuf.mBuffer.Clear();
                     theBuf.mBuf.MarkFailed();
                     theBuf.mBufL.mSize = 0;
