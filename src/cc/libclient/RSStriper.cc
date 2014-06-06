@@ -2151,6 +2151,8 @@ private:
             mSize            = 0;
             mReadFailureFlag = false;
         }
+        const IOBuffer& GetBuffer() const
+            { return mBuffer; }
     private:
         typedef IOBuffer::iterator It;
 
@@ -2753,23 +2755,57 @@ private:
             }
         } else if (ioMaxRd < theRdSize) {
             if (ioMaxRd >= 0) {
-                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "read recovery failure:"
-                    " req: "        << inRequest.mPos        <<
-                    ","             << inRequest.mSize       <<
-                    " previous short read:"
-                    " got: "        << ioMaxRd               <<
-                    " expected: "   << theRdSize             <<
-                    " stripe: "     << inIdx                 <<
-                    " pos: "        << theBuf.mBufL.GetPos() <<
-                    " size: "       << theBuf.GetSize()      <<
-                    " chunk: "      << theBuf.mChunkId       <<
-                    " version: "    << theBuf.mChunkVersion  <<
-                KFS_LOG_EOM;
-                InvalidChunkSize(inRequest, theBuf, theRdSize);
-                return false;
+                if (1 < inIdx && 0 <= ioEndPosHead &&
+                        theRdSize <= ioMaxRd + mStripeSize - ioEndPosHead &&
+                        IsTailAllZeros(
+                            theIt.GetBuffer(), theRdSize - ioMaxRd)) {
+                    // NOTE 1.
+                    // Stripe 1 cannot ever be larger than stripe 0. If the
+                    // start position of the hole is in stripe 0, then its
+                    // position cannot ever be lost, if the RS block remains
+                    // recoverable, or course, as the hole position
+                    // effectively has replication 4 due to recovery stripe
+                    // sizes matching the size of stripe 0 in the case if the
+                    // stripe 0 is partial (smaller than stripe size).
+                    //
+                    // It is possible that the original stripe containing the
+                    // hole boundary re-appeared, and the current stripe was
+                    // recovered without exact knowledge of the size of
+                    // the original stripe.
+                    KFS_LOG_STREAM_INFO << mLogPrefix <<
+                        "read recovery possible zero padded larger stripe:"
+                        " req: "        << inRequest.mPos        <<
+                        ","             << inRequest.mSize       <<
+                        " previous short read:"
+                        " got: "        << ioMaxRd               <<
+                        " expected: "   << theRdSize             <<
+                        " stripe: "     << inIdx                 <<
+                        " pos: "        << theBuf.mBufL.GetPos() <<
+                        " size: "       << theBuf.GetSize()      <<
+                        " chunk: "      << theBuf.mChunkId       <<
+                        " version: "    << theBuf.mChunkVersion  <<
+                    KFS_LOG_EOM;
+                    theRdSize = ioMaxRd;
+                } else {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "read recovery failure:"
+                        " req: "        << inRequest.mPos        <<
+                        ","             << inRequest.mSize       <<
+                        " previous short read:"
+                        " got: "        << ioMaxRd               <<
+                        " expected: "   << theRdSize             <<
+                        " stripe: "     << inIdx                 <<
+                        " pos: "        << theBuf.mBufL.GetPos() <<
+                        " size: "       << theBuf.GetSize()      <<
+                        " chunk: "      << theBuf.mChunkId       <<
+                        " version: "    << theBuf.mChunkVersion  <<
+                    KFS_LOG_EOM;
+                    InvalidChunkSize(inRequest, theBuf, theRdSize);
+                    return false;
+                }
+            } else {
+                ioMaxRd = theRdSize;
             }
-            ioMaxRd = theRdSize;
         } else if (theRdSize + mStripeSize < ioMaxRd) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "read recovery failure:"
@@ -2788,24 +2824,50 @@ private:
             return false;
         } else if (ioEndPosHead >= 0 && theRdSize > 0 &&
                 ioEndPos - ioEndPosHead < theRdSize) {
-            Buffer& theCBuf = inRequest.GetBuffer(ioEndPosIdx);
-            KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "read recovery failure:"
-                " req: "         << inRequest.mPos        <<
-                ","              << inRequest.mSize       <<
-                " previous short read:"
-                " stripe: "      << ioEndPosIdx           <<
-                " stripe head: " << ioEndPosHead          <<
-                " got: "         << ioEndPos              <<
-                " expected: "    << theRdSize             <<
-                " cur stripe: "  << inIdx                 <<
-                " pos: "         << theBuf.mBufL.GetPos() <<
-                " size: "        << theBuf.GetReadSize()  <<
-                " chunk: "       << theBuf.mChunkId       <<
-                " version: "     << theBuf.mChunkVersion  <<
-            KFS_LOG_EOM;
-            InvalidChunkSize(inRequest, theCBuf);
-            return false;
+            // If only part of the stripe is being recovered, then ioEndPosHead
+            // can be larger than ioEndPos. In other words, the stripe starts
+            // to the left from the beginning of the read buffer.
+            const int theFrontSize = max(0, ioEndPos - ioEndPosHead);
+            if (1 < inIdx &&
+                    theRdSize <= ioEndPos - ioEndPosHead + mStripeSize &&
+                    IsTailAllZeros(
+                        theIt.GetBuffer(), theRdSize - theFrontSize)) {
+                // See NOTE 1. the above, the asme applies here.
+                KFS_LOG_STREAM_INFO << mLogPrefix <<
+                    "read recovery possible zero padded larger stripe:"
+                    " req: "         << inRequest.mPos        <<
+                    ","              << inRequest.mSize       <<
+                    " previous short read:"
+                    " stripe: "      << ioEndPosIdx           <<
+                    " stripe head: " << ioEndPosHead          <<
+                    " got: "         << ioEndPos              <<
+                    " expected: "    << theRdSize             <<
+                    " cur stripe: "  << inIdx                 <<
+                    " pos: "         << theBuf.mBufL.GetPos() <<
+                    " size: "        << theBuf.GetReadSize()  <<
+                    " chunk: "       << theBuf.mChunkId       <<
+                    " version: "     << theBuf.mChunkVersion  <<
+                KFS_LOG_EOM;
+                theRdSize = theFrontSize;
+            } else {
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "read recovery failure:"
+                    " req: "         << inRequest.mPos        <<
+                    ","              << inRequest.mSize       <<
+                    " previous short read:"
+                    " stripe: "      << ioEndPosIdx           <<
+                    " stripe head: " << ioEndPosHead          <<
+                    " got: "         << ioEndPos              <<
+                    " expected: "    << theRdSize             <<
+                    " cur stripe: "  << inIdx                 <<
+                    " pos: "         << theBuf.mBufL.GetPos() <<
+                    " size: "        << theBuf.GetReadSize()  <<
+                    " chunk: "       << theBuf.mChunkId       <<
+                    " version: "     << theBuf.mChunkVersion  <<
+                KFS_LOG_EOM;
+                InvalidChunkSize(inRequest, inRequest.GetBuffer(ioEndPosIdx));
+                return false;
+            }
         }
         if (theRdSize >= ioRecoverySize) {
             return true;
@@ -3120,7 +3182,7 @@ private:
                     if (mBufPtr[i]) {
                         // If recovery stripe restore requested, all recovery
                         // stripe buffers must be present for rs_decode3 to
-                        // work. In this case just declare the stipe missing,
+                        // work. In this case just declare the stripe missing,
                         // rs_decode3 always recalculate all 3 recovery stripes.
                         if (mRecoverStripeIdx < mStripeCount) {
                             mBufIteratorsPtr[i].Clear();
@@ -3210,6 +3272,52 @@ private:
         const T&  inVal)
     {
         inBuffer.CopyIn(reinterpret_cast<const char*>(&inVal), sizeof(inVal));
+    }
+    static bool IsTailAllZeros(
+        const IOBuffer& inBuffer,
+        int             inSize)
+    {
+        int theRem = inSize;
+        IOBuffer::iterator theIt = inBuffer.end();
+        while (0 < theRem && inBuffer.begin() != theIt) {
+            --theIt;
+            const char* const theEndPtr = theIt->Producer();
+            const char*       thePtr    = theIt->Consumer();
+            if (theEndPtr <= thePtr) {
+                continue;
+            }
+            if (thePtr + theRem < theEndPtr) {
+                thePtr = theEndPtr - theRem;
+            }
+            theRem -= (int)(theEndPtr - thePtr);
+            const char*const  kNullPtr       = 0;
+            const size_t      kAlign         = 2 * sizeof(uint64_t);
+            const char* const theFrontEndPtr =
+                min(theEndPtr, thePtr + (thePtr - kNullPtr) % kAlign);
+            while (thePtr < theFrontEndPtr && *thePtr == 0) {
+                ++thePtr;
+            }
+            if (thePtr < theFrontEndPtr) {
+                return false;
+            }
+            const char* const theTailStartPtr =
+                theEndPtr - (theEndPtr - kNullPtr) % kAlign;
+            while (thePtr < theTailStartPtr &&
+                    (reinterpret_cast<const uint64_t*>(thePtr)[0] |
+                     reinterpret_cast<const uint64_t*>(thePtr)[1]) == 0) {
+                thePtr += 2 * sizeof(uint64_t);
+            }
+            if (thePtr < theTailStartPtr) {
+                return false;
+            }
+            while (thePtr < theEndPtr && *thePtr == 0) {
+                ++thePtr;
+            }
+            if (thePtr < theEndPtr) {
+                return false;
+            }
+        }
+        return (theRem <= 0);
     }
     void RequestCompletion(
         Request& inRequest)
