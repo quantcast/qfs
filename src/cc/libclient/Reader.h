@@ -192,7 +192,8 @@ public:
             RequestId    inRequestId,
             RequestId    inStriperRequestId,
             kfsChunkId_t inChunkId,
-            int64_t      inChunkVersion) = 0;
+            int64_t      inChunkVersion,
+            int64_t      inChunkSize) = 0;
         virtual bool CanCancelRead(
             RequestId inStriperRequestId) = 0;
     protected:

@@ -672,7 +672,6 @@ private:
             return (mGetAllocOp.chunkId >= 0 ?
                 mGetAllocOp.chunkVersion : int64_t(-1));
         }
-
     private:
         class StRunningCompletion
         {
@@ -2332,7 +2331,8 @@ private:
                 inRequestId,
                 inStriperRequestId,
                 inReaderPtr->GetChunkId(),
-                inReaderPtr->GetChunkVersion()
+                inReaderPtr->GetChunkVersion(),
+                inReaderPtr->GetSize()
             );
         }
         if ((! mStriperPtr || inStiperDoneFlag) &&
