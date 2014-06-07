@@ -2118,7 +2118,7 @@ private:
             // MakeBufferForRecovery(), thus it should not invalidate iterators.
             return (mReadFailureFlag ?
                 mBuffer.CopyIn(static_cast<const char*>(inPtr),
-                    min(inLen, mSize - mBuffer.BytesConsumable())) : 0
+                    min(inLen, mSize - mBuffer.BytesConsumable()), mCurIt) : 0
             );
 
         }
