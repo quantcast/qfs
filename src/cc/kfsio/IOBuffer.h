@@ -343,6 +343,8 @@ public:
     /// @retval Returns the # of bytes copied.
     ///
     int CopyIn(const char* buf, int numBytes);
+    /// Pos must be valid boundary between used and available space.
+    int CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos);
 
     int Copy(const IOBuffer* buf, int numBytes);
 
@@ -555,6 +557,7 @@ private:
 
     inline static BList::iterator SplitBufferListAt(BList& buf, int& nBytes);
     inline BList::iterator BeginSpaceAvailable(int* nBytes = 0);
+    inline bool IsValidCopyInPos(const IOBuffer::iterator& pos);
     IOBuffer(const IOBuffer& buf);
     IOBuffer& operator=(const IOBuffer& buf);
 };

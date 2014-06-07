@@ -1298,6 +1298,39 @@ IOBuffer::Trim(int numBytes)
     DebugVerify(true);
 }
 
+inline bool
+IOBuffer::IsValidCopyInPos(const IOBuffer::iterator& pos)
+{
+    IOBuffer::iterator cur = pos;
+    if (cur != mBuf.begin() && (--cur)->IsEmpty()) {
+        return false;
+    }
+    cur = pos;
+    return (cur == mBuf.end() ||
+        cur->IsEmpty() || ++cur == mBuf.end() || cur->IsEmpty());
+}
+
+int
+IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
+{
+    assert(IsValidCopyInPos(pos));
+    if (numBytes <= 0) {
+        return 0;
+    }
+    DebugChecksum(buf, numBytes);
+    int nBytes = 0;
+    while ((nBytes += const_cast<IOBufferData&>(*pos).CopyIn(
+                buf + nBytes, numBytes - nBytes)) < numBytes) {
+        assert(pos->IsFull());
+        if (++pos == mBuf.end()) {
+            pos = mBuf.insert(mBuf.end(), IOBufferData());
+        }
+    }
+    mByteCount += nBytes;
+    DebugVerify(true);
+    return nBytes;
+}
+
 int
 IOBuffer::CopyIn(const char *buf, int numBytes)
 {
