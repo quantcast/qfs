@@ -701,10 +701,34 @@ MetaCreate::handle()
                 return;
             }
         }
-        const string msg("detected invalid chunk: " + name);
+        const char* ptr     = name.data();
+        const char* end     = ptr + name.size();
+        chunkId_t   chunkId = -1;
+        if (! DecIntParser::Parse(ptr, end - ptr, chunkId) || ptr != end) {
+            statusMsg = "invalid chunk id: " + name;
+            status    = -EINVAL;
+            return;
+        }
+        fid_t            fid = -1;
+        const MetaFattr* cfa = 0;
+        if (! gLayoutManager.GetChunkFileId(chunkId, fid, 0, &cfa, 0) ||
+                ! cfa) {
+            status    = -ENOENT;
+            statusMsg = "no such chunk";
+            return;
+        }
+        string msg("detected invalid chunk: " + name);
+        msg += " file ";
+        AppendDecIntToString(msg, fid);
+        msg += " eof: ";
+        AppendDecIntToString(msg, cfa->filesize);
         KFS_LOG_STREAM_ERROR << msg << KFS_LOG_EOM;
+        if (cfa->filesize <= 0) {
+            // Ignore null size files for now, most likely it is abandoned file.
+            return;
+        }
         if (gLayoutManager.GetPanicOnInvalidChunkFlag()) {
-            panic(msg, false);
+            panic(msg);
         }
         MetaFattr* fa = 0;
         if ((status = metatree.lookupPath(ROOTFID, kInvalidChunksPath,
@@ -718,12 +742,12 @@ MetaCreate::handle()
             return;
         }
         dir = fa->id();
-        if (user == kKfsUserNone) {
+        if (user == kKfsUserNone && authUid == kKfsUserNone) {
             user  = euser  != kKfsUserNone  ? euser  : kKfsUserRoot;
             group = egroup != kKfsGroupNone ? egroup : kKfsGroupRoot;
         }
         mode         = 0;
-        rootUserFlag = true;
+        rootUserFlag = authUid == kKfsUserNone;
         minSTier     = kKfsSTierMax;
         maxSTier     = kKfsSTierMax;
     } else {

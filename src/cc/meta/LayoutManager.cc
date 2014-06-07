@@ -9150,14 +9150,17 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
     for (InvalidChunks::const_iterator cit = invalidChunks.begin();
             cit != invalidChunks.end();
             ++cit, ++sit) {
-        KFS_LOG_STREAM_INFO << "invalidating:"
+        KFS_LOG_STREAM(fa->filesize <= 0 ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+            "invalidating:"
             " <"         << req.fid <<
             ","          << cit->chunkId << ">"
             " version: " << cit->chunkVersion <<
             " offset: "  << cit->offset <<
             " stripe: "  << sit->first <<
+            " eof: "     << fa->filesize <<
         KFS_LOG_EOM;
-        if (mPanicOnInvalidChunkFlag) {
+        if (mPanicOnInvalidChunkFlag && 0 < fa->filesize) {
             ostringstream os;
             os <<
             "invalid chunk detected:"
@@ -9165,7 +9168,8 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
             ","          << cit->chunkId << ">"
             " version: " << cit->chunkVersion <<
             " offset: "  << cit->offset <<
-            " stripe: "  << sit->first;
+            " stripe: "  << sit->first <<
+            " eof: "     << fa->filesize;
             panic(os.str());
         }
         MetaAllocate& alloc = *(new MetaAllocate(
