@@ -6271,7 +6271,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     }
     MdStream mdsAll;
     MdStream mds;
-    bool     match = true;
+    int      ret = 0;
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
          i != lop.chunks.end();
          ++i) {
@@ -6279,6 +6279,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
             KFS_LOG_STREAM_ERROR <<
                 "chunk: " << i->chunkId << " no replica available" <<
             KFS_LOG_EOM;
+            ret = -EAGAIN;
             continue;
         }
         ChunkServerAccess  chunkServerAccess;
@@ -6301,7 +6302,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
             KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                  ": " << ErrorCodeToStr(nbytes) <<
             KFS_LOG_EOM;
-            match = false;
+            ret = nbytes;
         } else {
             const string md5sumFirst = mds.GetMd();
             mds.Reset();
@@ -6324,7 +6325,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                     KFS_LOG_STREAM_ERROR << i->chunkServers[0] <<
                          ": " << ErrorCodeToStr(n) <<
                     KFS_LOG_EOM;
-                    match = false;
+                    ret = n;
                 } else {
                     const string md5sumCur = mds.GetMd();
                     KFS_LOG_STREAM_DEBUG <<
@@ -6334,9 +6335,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                         " md5sum: "  << md5sumCur <<
                     KFS_LOG_EOM;
                     if (nbytes != n || md5sumFirst != md5sumCur) {
-                        match = false;
-                    }
-                    if (! match) {
+                        ret = -EINVAL;
                         KFS_LOG_STREAM_ERROR <<
                             "chunk: " << i->chunkId <<
                             (nbytes != n ? "size" : "data") <<
@@ -6365,7 +6364,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         }
     }
     md5sum = mdsAll.GetMd();
-    return (match ? 0 : 1);
+    return ret;
 }
 
 int
