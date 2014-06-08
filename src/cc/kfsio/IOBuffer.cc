@@ -444,6 +444,9 @@ IOBuffer::Append(IOBuffer *ioBuf)
 inline IOBuffer::BList::iterator
 IOBuffer::BeginSpaceAvailable(int* nBytes /* = 0 */)
 {
+    if (IsEmpty()) {
+        return mBuf.begin();
+    }
     BList::iterator it = mBuf.end();
     while (it != mBuf.begin() && (--it)->IsEmpty()) {
         if (it->IsFull()) {
