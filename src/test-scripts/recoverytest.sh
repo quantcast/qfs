@@ -39,6 +39,8 @@ maxrecovsize=${maxrecovsize-5242880}
 metaport=${metaport-20200}
 metahost=${metahost-127.0.0.1}
 testblocksize=${testblocksize-29313488}
+testtailblocksize=${testtailblocksize-1}
+filecreateparams=${filecreateparams-'fs.createParams=1,6,3,1048576,2,15,15'}
 
 valgrind_cmd=
 if [ x"$1" = x'-valgrind' ]; then
@@ -89,26 +91,49 @@ usr=`id -un`
     -cfg "$clicfg" \
     -rm -skipTrash "qfs://$metahost:$metaport/user/$usr/testrep*.dat"
 
-"$devtoolsdir"/rand-sfmt -g 1 1234 \
+"$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 \
     | "$toolsdir"/qfs \
         -cfg "$clicfg" \
-        -D fs.createParams=1,6,3,1048576,2,15,15 \
+        -D "$filecreateparams" \
         -put - "qfs://$metahost:$metaport/user/$usr/testrep1.dat" || exit
 
-"$devtoolsdir"/rand-sfmt -g 29313488 1234 \
+"$devtoolsdir"/rand-sfmt -g $testblocksize 1234 \
     | "$toolsdir"/qfs \
         -cfg "$clicfg" \
-        -D fs.createParams=1,6,3,1048576,2,15,15 \
+        -D "$filecreateparams" \
         -put - "qfs://$metahost:$metaport/user/$usr/testrep.dat" || exit
 
 "$toolsdir"/qfsshell \
     -f "$clicfg" -s $metahost -p $metaport -q -- \
     append "/user/$usr/testrep1.dat" "/user/$usr/testrep.dat" || exit
 
+testholesize=`expr 1024 \* 1024 \* 64 \* 6 - $testblocksize`
+testmd5=`{ \
+    "$devtoolsdir"/rand-sfmt -g $testblocksize 1234 ;
+    dd bs=$testholesize count=1 if=/dev/zero 2>/dev/null ;
+    "$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 ;
+} | openssl md5 | awk '{print $NF}'`
+
+function verify_file()
+{
+    filemd5=`"$toolsdir"/qfs \
+        -D fs.readFullSparseFileSupport=1 \
+        -cfg "$clicfg" \
+        -cat "qfs://$metahost:$metaport/user/$usr/testrep.dat" \
+        | openssl md5 | awk '{print $NF}'`
+
+    if [ x"$testmd5" = x"$filemd5" ]; then
+        return
+    fi
+    echo "read checsum mismath: expected: $testmd5 actual: $filemd5"
+    exit 1
+}
+
+verify_file
+
 fenumout="$qfstestdir/fenum.txt"
 "$toolsdir"/qfsfileenum -s $metahost -p $metaport -c "$clicfg" \
         -f "/user/$usr/testrep.dat" > "$fenumout"
-
 cat "$fenumout"
 
 tmpchunk="$qfstestdir/tmpchunk"
@@ -181,6 +206,7 @@ while read stripes; do
     sed -e 's/ [0-9]*$//' "$fenumout"      > "$fenumout.np"
     sed -e 's/ [0-9]*$//' "$fenumout.prev" > "$fenumout.prev.np"
     diff -du  "$fenumout.prev.np" "$fenumout.np"
+    verify_file
     echo "============================= $k == $stripes ========================"
     k=`expr $k + 1`
 done << EOF
@@ -188,6 +214,8 @@ done << EOF
     0 0 1 2
     5 5 6
     -1 4 5
+    -1 10 11
+    -1 10 11 12
 EOF
 # Format:
 # <stripe to force recovery> <stripe to delete> <stripe to delete> <stripe to delete>
