@@ -2342,7 +2342,7 @@ private:
                     (inStatus == kErrorNoEntry || inStatus == 0)) {
                 const int theLen = inBufferPtr->BytesConsumable();
                 if (theLen < inSize) {
-                    inBufferPtr->ZeroFill(inSize - theLen);
+                    inBufferPtr->ZeroFillSpaceAvailable(inSize - theLen);
                 }
                 theStatus = 0;
             }
