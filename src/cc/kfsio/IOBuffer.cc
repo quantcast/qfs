@@ -972,22 +972,24 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
 void
 IOBuffer::ZeroFill(int numBytes)
 {
+    if (numBytes <= 0) {
+        return;
+    }
     DebugVerify();
-    while (! mBuf.empty() && mBuf.back().IsEmpty()) {
-        mBuf.pop_back();
-    }
+    BList::iterator it = BeginSpaceAvailable();
     int nBytes = numBytes;
-    if (nBytes > 0 && ! mBuf.empty()) {
-        nBytes -= mBuf.back().ZeroFill(nBytes);
+    for (; ;) {
+        if (it == mBuf.end()) {
+            it = mBuf.insert(it, IOBufferData());
+        }
+        if ((nBytes -= it->ZeroFill(nBytes)) <= 0) {
+            break;
+        }
+        assert(it->IsFull());
+        ++it;
     }
-    while (nBytes > 0) {
-        mBuf.push_back(IOBufferData());
-        nBytes -= mBuf.back().ZeroFill(nBytes);
-    }
-    assert(mByteCount >= 0);
-    if (numBytes > 0) {
-        mByteCount += numBytes;
-    }
+    assert(0 <= mByteCount && nBytes == 0);
+    mByteCount += numBytes;
     DebugVerify(true);
 }
 
@@ -1318,17 +1320,22 @@ IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
         return 0;
     }
     DebugChecksum(buf, numBytes);
-    int nBytes = 0;
-    while ((nBytes += const_cast<IOBufferData&>(*pos).CopyIn(
-                buf + nBytes, numBytes - nBytes)) < numBytes) {
-        assert(pos->IsFull());
-        if (++pos == mBuf.end()) {
+    int nBytes = numBytes;
+    for (; ;) {
+        if (pos == mBuf.end()) {
             pos = mBuf.insert(mBuf.end(), IOBufferData());
         }
+        if ((nBytes -= const_cast<IOBufferData&>(*pos).CopyIn(
+                buf + numBytes - nBytes, nBytes)) <= 0) {
+            break;
+        }
+        assert(pos->IsFull());
+        ++pos;
     }
-    mByteCount += nBytes;
+    assert(0 <= mByteCount && nBytes == 0);
+    mByteCount += numBytes;
     DebugVerify(true);
-    return nBytes;
+    return numBytes;
 }
 
 int
