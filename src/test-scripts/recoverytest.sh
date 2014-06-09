@@ -164,11 +164,30 @@ while read stripes; do
             s=1
             continue
         fi
+        if [ $i -lt 0 ]; then
+            i=`expr 0 - $i`
+            b=1
+        else
+            b=0
+        fi
         eval srvport='$srvport'$i
         eval chunksuf='$chunkid'$i'.$chunkvers'$i
         chunkf=`echo "$qfstestdir/chunk/$srvport/"*/*".$chunksuf"`
-        ls -l "$chunkf"
-        mv "$chunkf" "$tmpchunk/$k" || exit
+        if [ $b -eq 0 ]; then
+            ls -l "$chunkf"
+            mv "$chunkf" "$tmpchunk/$k" || exit
+        else
+            # Restore the original chunk file.
+            cfname="`basename "$chunkf"`"
+            t=0
+            while [ $t -le $k ]; do
+                [ -f "$tmpchunk/$t/$cfname" ] && break
+                t=`expr $t + 1`
+            done
+            cp "$tmpchunk/$t/$cfname" "$chunkf.orig" || exit
+            mv "$chunkf.orig" "$chunkf" || exit
+            ls -l "$chunkf"
+        fi
     done
 
     s=0
@@ -216,6 +235,10 @@ done << EOF
     -1 4 5
     -1 10 11
     -1 10 11 12
+    -1 -3 -5
+    -1 0 1 5
 EOF
 # Format:
 # <stripe to force recovery> <stripe to delete> <stripe to delete> <stripe to delete>
+# negative stripe / chunk numbers except the first column means restore the
+# "original" chunk.
