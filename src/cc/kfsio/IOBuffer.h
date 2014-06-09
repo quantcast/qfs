@@ -395,7 +395,8 @@ public:
     /// Trim data from the end of the buffer to nbytes.  This is the
     /// converse of consume, where data is removed from the front of
     /// the buffer.
-    void Trim(int nbytes);
+    int Trim(int nbytes);
+    int TrimAndConvertRemainderToAvailableSpace(int numBytes);
 
     /// Ensures HasCompleteBuffer() returns true for all buffers,
     /// and all buffers possibly except the last one are full.

@@ -724,6 +724,27 @@ IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
     return (numBytes - nBytes);
 }
 
+int
+IOBuffer::TrimAndConvertRemainderToAvailableSpace(int numBytes)
+{
+    DebugVerify();
+    assert(0 <= mByteCount);
+    if (mByteCount <= numBytes) {
+        return mByteCount;
+    }
+    int nBytes = max(0, numBytes);
+    mByteCount = nBytes;
+    for (BList::iterator it = mBuf.begin(); it != mBuf.end(); ++it) {
+        const int nb = it->BytesConsumable();
+        if ((nBytes -= nBytes < nb ? it->Trim(nBytes) : nb) <= 0) {
+            break;
+        }
+    }
+    assert(nBytes == 0);
+    DebugVerify(true);
+    return mByteCount;
+}
+
 inline IOBuffer::BList::iterator
 IOBuffer::SplitBufferListAt(IOBuffer::BList& buf, int& nBytes)
 {
@@ -1266,18 +1287,18 @@ IOBuffer::Consume(int numBytes)
     return nBytes;
 }
 
-void
+int
 IOBuffer::Trim(int numBytes)
 {
     DebugVerify();
     if (mByteCount <= numBytes) {
-        return;
+        return mByteCount;
     }
     if (numBytes <= 0) {
         mBuf.clear();
         mByteCount = 0;
         DebugVerify(true);
-        return;
+        return mByteCount;
     }
     int             nBytes = numBytes;
     BList::iterator iter   = mBuf.begin();
@@ -1301,6 +1322,7 @@ IOBuffer::Trim(int numBytes)
     assert(mByteCount >= 0);
     mByteCount = numBytes;
     DebugVerify(true);
+    return mByteCount;
 }
 
 inline bool
