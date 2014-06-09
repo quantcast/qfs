@@ -3424,10 +3424,54 @@ private:
             return;
         }
         SetPos(inRequest.mPos);
-        int theLen = inRequest.mSize;
+        int  theLen            = inRequest.mSize;
+        bool theEndOfBlockFlag = false;
         while (theLen > 0) {
             const int theSize = min(theLen, GetStripeRemaining());
             Buffer&   theBuf  = inRequest.GetBuffer(GetStripeIdx());
+            if (theEndOfBlockFlag) {
+                // No holes withing RS blocks are currently supported, therefore
+                // all subsequent stripes must be shorter by stripe size, or zero
+                // padded.
+                if (! theBuf.mBuf.mBuffer.IsEmpty()) {
+                    if (! IsTailAllZeros(theBuf.mBuf.mBuffer,
+                            theBuf.mBuf.mBuffer.BytesConsumable())) {
+                        if (inRequest.mStatus == 0) {
+                            inRequest.mStatus = kErrorInvalChunkSize;
+                        }
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "chunk sizes mismatch detected:" <<
+                            " pos: "       << GetPos() <<
+                            " chunk: "     << theBuf.mChunkId <<
+                            " version: "   << theBuf.mChunkVersion <<
+                            " size: "      << theBuf.mChunkSize <<
+                            " chunk pos: " << GetChunkPos(GetFilePos()) <<
+                            " bytes: "     <<
+                                theBuf.mBuf.mBuffer.BytesConsumable() <<
+                            " are not all zeros,"
+                            " the previous stipe / "
+                            " chunk size might be truncated" <<
+                        KFS_LOG_EOM;
+                        InvalidChunkSize(inRequest, theBuf);
+                    } else {
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                            " pos: "       << GetPos() <<
+                            " chunk: "     << theBuf.mChunkId <<
+                            " version: "   << theBuf.mChunkVersion <<
+                            " size: "      << theBuf.mChunkSize <<
+                            " chunk pos: " << GetChunkPos(GetFilePos()) <<
+                            " bytes: "     <<
+                                theBuf.mBuf.mBuffer.BytesConsumable() <<
+                            " discarded at the end of RS block" <<
+                        KFS_LOG_EOM;
+                    }
+                    theBuf.mBuf.mBuffer.TrimAndConvertRemainderToAvailableSpace(
+                        0);
+                }
+            } else {
+                theEndOfBlockFlag =
+                    theBuf.mBuf.mBuffer.BytesConsumable() < theSize;
+            }
             theBuffer.MoveSpace(&theBuf.mBuf.mBuffer, theSize);
             theLen -= theSize;
             // The last seek sets position for the next sequential read request.
