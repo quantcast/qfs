@@ -2126,7 +2126,7 @@ private:
             const int         theLen =
                 min(inLen, mSize - mBuffer.BytesConsumable());
             const char* const thePtr = static_cast<const char*>(inPtr);
-            return (theLen <= mCurIt->SpaceAvailable() ?
+            return (theLen <= (int)mCurIt->SpaceAvailable() ?
                 mBuffer.CopyInOnlyIntoBufferAtPos(thePtr, theLen, mCurIt) :
                 mBuffer.CopyIn(thePtr, theLen, mCurIt)
             );
