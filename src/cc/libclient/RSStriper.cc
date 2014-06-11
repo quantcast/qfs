@@ -2120,12 +2120,16 @@ private:
             // In the most cases no actual coy will be done, the call
             // will only update the buffer pointers and byte count, as the
             // recovery, in most, cases runs the underlying buffer.
-            return (mReadFailureFlag ?
-                mBuffer.CopyInOnlyIntoBufferAtPos(
-                    static_cast<const char*>(inPtr),
-                    min(inLen, mSize - mBuffer.BytesConsumable()), mCurIt) : 0
+            if (! mReadFailureFlag) {
+                return 0;
+            }
+            const int         theLen =
+                min(inLen, mSize - mBuffer.BytesConsumable());
+            const char* const thePtr = static_cast<const char*>(inPtr);
+            return (theLen <= mCurIt->SpaceAvailable() ?
+                mBuffer.CopyInOnlyIntoBufferAtPos(thePtr, theLen, mCurIt) :
+                mBuffer.CopyIn(thePtr, theLen, mCurIt)
             );
-
         }
         int CopyOut(
             char* inPtr,
