@@ -2115,9 +2115,14 @@ private:
             int         inLen)
         {
             // Copy should use available buffer space, allocated by
-            // MakeBufferForRecovery(), thus it should not invalidate iterators.
+            // MakeBufferForRecovery(), thus the current buffer must have
+            // enough available space.
+            // In the most cases no actual coy will be done, the call
+            // will only update the buffer pointers and byte count, as the
+            // recovery, in most, cases runs the underlying buffer.
             return (mReadFailureFlag ?
-                mBuffer.CopyIn(static_cast<const char*>(inPtr),
+                mBuffer.CopyInOnlyIntoBufferAtPos(
+                    static_cast<const char*>(inPtr),
                     min(inLen, mSize - mBuffer.BytesConsumable()), mCurIt) : 0
             );
 
@@ -2919,7 +2924,23 @@ private:
             }
         }
         if (theRdSize >= ioRecoverySize) {
-            return true;
+            // Ensure that the chunk end position is not withing the last
+            // stripe, in the cases when recovery end position isn't stripe
+            // aligned, and/or less than stripe size, otherwise use chunk sizes
+            // to determine the stripe position where RS block ends.
+            // The two if conditions and the first part of the second if
+            // condition below is to avoid modulo operation (%), when possible.
+            if ((Offset)CHUNKSIZE <= theBuf.mChunkSize ||
+                    (0 <= ioEndPosHead &&
+                        inIdx != ioFirstGoodRecoveryStripeIdx)) {
+                return true;
+            }
+            const int theChunkPos = GetChunkPos(inRequest.mRecoveryPos);
+            if (theChunkPos + mStripeSize <= theBuf.mChunkSize ||
+                    theChunkPos - theChunkPos % mStripeSize +
+                        mStripeSize <= theBuf.mChunkSize) {
+                return true;
+            }
         }
         if (inIdx < mStripeCount) {
             if (ioEndPosHead < 0) {
@@ -3302,7 +3323,9 @@ private:
                 if (! theIt.IsFailure()) {
                     continue;
                 }
-                QCVERIFY(theIt.CopyIn(mBufPtr[i], theCpLen) == theCpLen);
+                if (theIt.CopyIn(mBufPtr[i], theCpLen) != theCpLen) {
+                    InternalError("invalid copy size");
+                }
             }
             thePos += theLen;
             thePrevLen = theLen;
@@ -3325,6 +3348,13 @@ private:
                     theBuf.mBuf.mSize = theSize;
                     theBuf.mBuf.mBuffer.Clear();
                     theBuf.mBuf.MarkFailed();
+                    // Set the right buffer size to the padded size, if any, to
+                    // ensure that the total size matches the iterator buffer
+                    // size in the case when no recovery run on this stripe, as
+                    // otherwise assertion in SetRecoveryResult() will fail.
+                    theBuf.mBufR.Clear();
+                    theBuf.mBufR.mSize = theBuf.mBufL.mSize - theSize;
+                    theBuf.mBufR.MarkFailed();
                     theBuf.mBufL.mSize = 0;
                     theBuf.mBufL.mBuffer.Clear();
                     mBufIteratorsPtr[i].SetRecoveryResult(theBuf);
@@ -3431,8 +3461,8 @@ private:
             Buffer&   theBuf  = inRequest.GetBuffer(GetStripeIdx());
             if (theEndOfBlockFlag) {
                 // No holes withing RS blocks are currently supported, therefore
-                // all subsequent stripes must be shorter by stripe size, or zero
-                // padded.
+                // all subsequent stripes must be shorter by stripe size, or
+                // zero padded.
                 if (! theBuf.mBuf.mBuffer.IsEmpty()) {
                     if (! IsTailAllZeros(theBuf.mBuf.mBuffer,
                             theBuf.mBuf.mBuffer.BytesConsumable())) {
