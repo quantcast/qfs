@@ -732,6 +732,9 @@ public:
             "chunkServer.rsReader.maxRecoverChunkSize",
             sRSReaderMaxRecoverChunkSize
         );
+        sRSReaderPanicOnInvalidChunkFlag = props.getValue(
+            "chunkServer.rsReader.panicOnInvalidChunk",
+            sRSReaderPanicOnInvalidChunkFlag ? 1 : 0) != 0;
         props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams);
     }
     RSReplicatorImpl(
@@ -920,6 +923,11 @@ public:
                     " status: "          << inStatusCode <<
                     " invalid stripes: " << mOwner->invalidStripeIdx <<
                 KFS_LOG_EOM;
+                if (sRSReaderPanicOnInvalidChunkFlag) {
+                    const string msg = "recovery: invalid chunk(s) detected: " +
+                        mOwner->invalidStripeIdx;
+                    die(msg.c_str());
+                }
             }
         }
         HandleReadDone(EVENT_CMD_DONE, &mReadOp);
@@ -1192,6 +1200,7 @@ private:
     static int  sRSReaderMetaIdleTimeoutSec;
     static int  sRSReaderMaxRecoverChunkSize;
     static bool sRSReaderMetaResetConnectionOnOpTimeoutFlag;
+    static bool sRSReaderPanicOnInvalidChunkFlag;
     static Properties sAuthParams;
 private:
     // No copy.
@@ -1215,6 +1224,7 @@ int  RSReplicatorImpl::sRSReaderMetaIdleTimeoutSec                 = 5 * 60;
 bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
 int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
     (int)CHUNKSIZE;
+bool RSReplicatorImpl::sRSReaderPanicOnInvalidChunkFlag            = false;
 Properties RSReplicatorImpl::sAuthParams;
 
 int
