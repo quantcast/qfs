@@ -76,6 +76,61 @@ if [ x"$valgrind_cmd" != x ]; then
     export GLIBCPP_FORCE_NEW
     GLIBCXX_FORCE_NEW=1
     export GLIBCXX_FORCE_NEW
+    maxrecovwait=${maxrecovwait-200}
+else
+    maxrecovwait=${maxrecovwait-100}
+fi
+
+function wait_shutdown_complete()
+{
+    pid=$0
+    maxtry=${1-100}
+    k=0
+    while kill -0 $pid 2>/dev/null; do
+        sleep 1
+        k=`expr $k + 1`
+        if [ $k -gt $maxtry ]; then
+            echo "server $pid shutdown failure" 1>&2
+            kill -ABRT $pid
+            sleep 3
+            kill -KILL $pid 2>/dev/null
+            return 1
+        fi
+    done
+    return 0
+}
+
+function shutdown()
+{
+    [ $stop -eq 0 ] && return 0
+    stop=0
+    status=0
+    cd "$qfstestdir"/meta || return 1
+    pid=`cat metaserver.pid`
+    kill -QUIT $pid
+    if wait_shutdown_complete $pid; then
+        true;
+    else
+        status 1
+    fi
+    cd ../..
+    i=$csstartport
+    while [ $i -le $csendport ]; do
+        cd "$qfstestdir"/chunk/$i || return 1
+        pid=`cat chunkserver.pid`
+        kill -QUIT `cat chunkserver.pid`
+        if wait_shutdown_complete $pid; then
+            true;
+        else
+            status 1
+        fi
+        i=`expr $i + 1`
+    done
+    return $status
+}
+
+if [ $stop -ne 0 ]; then
+    trap shutdown EXIT
 fi
 
 if [ $start -ne 0 ]; then
@@ -107,52 +162,6 @@ if [ $start -ne 0 ]; then
         i=`expr $i + 1`
     done
 fi
-
-function wait_shutdown_complete()
-{
-    pid=$0
-    maxtry=${1-100}
-    k=0
-    while kill -0 $pid 2>/dev/null; do
-        sleep 1
-        k=`expr $k + 1`
-        if [ $k -gt $maxtry ]; then
-            echo "server $pid shutdown failure" 1>&2
-            kill -ABRT $pid
-            sleep 3
-            kill -KILL $pid 2>/dev/null
-            return 1
-        fi
-    done
-    return 0
-}
-
-function shutdown()
-{
-    status=0
-    cd "$qfstestdir"/meta || return 1
-    pid=`cat metaserver.pid`
-    kill -QUIT $pid
-    if wait_shutdown_complete $pid; then
-        true;
-    else
-        status 1
-    fi
-    cd ../..
-    i=$csstartport
-    while [ $i -le $csendport ]; do
-        cd "$qfstestdir"/chunk/$i || return 1
-        pid=`cat chunkserver.pid`
-        kill -QUIT `cat chunkserver.pid`
-        if wait_shutdown_complete $pid; then
-            true;
-        else
-            status 1
-        fi
-        i=`expr $i + 1`
-    done
-    return $status
-}
 
 if [ $runtest -eq 0 ]; then
     if [ $stop -ne 0 ]; then
@@ -319,7 +328,8 @@ for testblocksize in $testblocksizes ; do
                 -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
                     "/user/$usr/testrep.dat" 1>/dev/null 2>/dev/null && break
             t=`expr $t + 1`
-            if [ $t -gt 100 ]; then
+            if [ $t -gt $maxrecovwait ]; then
+                echo "wait for recovery to finish timed out" 1>&2
                 status=1
                 break
             fi
@@ -357,9 +367,11 @@ done
 # "original" chunk.
 
 if [ $stop -eq 0 ] || shutdown; then
+    stop=0
     if [ $status -eq 0 ]; then
         echo "Passed all tests"
         exit 0
     fi
 fi
+stop=0
 exit 1
