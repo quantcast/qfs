@@ -268,11 +268,13 @@ TcpSocket::SetupSocket()
         Perror("setsockopt SO_RCVBUF");
     }
     int flag = 1;
+#ifdef _KFS_USE_TCP_KEEP_ALIVE
     // enable keep alive so we can socket errors due to detect network partitions
     if (setsockopt(mSockFd, SOL_SOCKET, SO_KEEPALIVE,
             (char *) &flag, sizeof(flag)) < 0) {
         Perror("setsockopt SO_KEEPALIVE");
     }
+#endif
     if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
         Perror("set O_NONBLOCK");
     }

@@ -1357,10 +1357,25 @@ IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
         assert(pos->IsFull());
         ++pos;
     }
-    assert(0 <= mByteCount && nBytes == 0);
     mByteCount += numBytes;
+    assert(nBytes == 0 && 0 < mByteCount && ! mBuf.empty());
     DebugVerify(true);
     return numBytes;
+}
+
+int
+IOBuffer::CopyInOnlyIntoBufferAtPos(
+    const char* buf, int numBytes, IOBuffer::iterator pos)
+{
+    if (numBytes <= 0 || pos == mBuf.end()) {
+        return 0;
+    }
+    assert(! mBuf.empty());
+    DebugChecksum(buf, numBytes);
+    const int nb = const_cast<IOBufferData&>(*pos).CopyIn(buf, numBytes);
+    mByteCount += nb;
+    DebugVerify(true);
+    return nb;
 }
 
 int

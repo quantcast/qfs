@@ -345,6 +345,9 @@ public:
     int CopyIn(const char* buf, int numBytes);
     /// Pos must be valid boundary between used and available space.
     int CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos);
+    /// Append only to the buffer at the specified position.
+    int CopyInOnlyIntoBufferAtPos(const char* buf, int numBytes,
+        IOBuffer::iterator pos);
 
     int Copy(const IOBuffer* buf, int numBytes);
 
