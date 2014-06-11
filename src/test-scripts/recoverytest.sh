@@ -71,6 +71,13 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+if [ x"$valgrind_cmd" != x ]; then
+    GLIBCPP_FORCE_NEW=1
+    export GLIBCPP_FORCE_NEW
+    GLIBCXX_FORCE_NEW=1
+    export GLIBCXX_FORCE_NEW
+fi
+
 if [ $start -ne 0 ]; then
     cd "$qfstestdir"/meta || exit
     kill -KILL `cat metaserver.pid` 2>/dev/null
