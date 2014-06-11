@@ -24,11 +24,12 @@
 //
 //----------------------------------------------------------------------------
 
-#include "kfsio/Globals.h"
-
 #include "ChunkServer.h"
+#include "Replicator.h"
 #include "Logger.h"
 #include "utils.h"
+
+#include "kfsio/Globals.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -112,6 +113,7 @@ ChunkServer::MainLoop()
 
     ReleaseAllServers(mRemoteSyncers);
     RemoteSyncSM::Shutdown();
+    Replicator::Shutdown();
 
     return true;
 }

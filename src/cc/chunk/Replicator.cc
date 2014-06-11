@@ -934,6 +934,11 @@ public:
     }
     static void CancelAll()
         { StopMetaServer(); }
+    static void Shutdown()
+    {
+        CancelAll();
+        GetAuthContext().Clear();
+    }
 
 private:
     Reader    mReader;
@@ -1018,6 +1023,11 @@ private:
     };
     static void StopMetaServer()
         { GetMetaserver(-1, 0, 0, 0, 0, 0); }
+    static ClientAuthContext& GetAuthContext()
+    {
+        static ClientAuthContext sAuthContext;
+        return sAuthContext;
+    }
     static KfsNetClient& GetMetaserver(
         int               port,
         const char*       sessionToken,
@@ -1088,15 +1098,15 @@ private:
                 );
                 ClientAuthContext* const kOtherCtx   = 0;
                 const bool               kVerifyFlag = false;
-                static ClientAuthContext sAuthContext;
-                op->status = sAuthContext.SetParameters(
+                static ClientAuthContext& authContext = GetAuthContext();
+                op->status = authContext.SetParameters(
                     kRsReadMetaAuthPrefix,
                     sAuthParams,
                     kOtherCtx,
                     op ? &op->statusMsg : 0,
                     kVerifyFlag
                 );
-                sMetaServerClientAuth.SetAuthContext(&sAuthContext);
+                sMetaServerClientAuth.SetAuthContext(&authContext);
                 if (sMetaAuthPort != port) {
                     if (0 < sMetaAuthPort) {
                         KFS_LOG_STREAM_INFO << "recovery:"
@@ -1238,6 +1248,13 @@ Replicator::CancelAll()
 {
     ReplicatorImpl::CancelAll();
     RSReplicatorImpl::CancelAll();
+}
+
+void
+Replicator::Shutdown()
+{
+    ReplicatorImpl::CancelAll();
+    RSReplicatorImpl::Shutdown();
 }
 
 void

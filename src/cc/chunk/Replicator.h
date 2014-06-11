@@ -66,6 +66,7 @@ public:
     static void CancelAll();
     static void SetParameters(const Properties& props);
     static void GetCounters(Counters& counters);
+    static void Shutdown();
 };
 
 }
