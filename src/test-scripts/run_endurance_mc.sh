@@ -262,16 +262,14 @@ metaServer.minChunkservers = 1
 metaServer.leaseOwnerDownExpireDelay = 60
 metaServer.chunkServer.heartbeatTimeout  = 5
 metaServer.chunkServer.heartbeatInterval = 3
-metaServer.chunkServer.chunkReallocTimeout = 60
+metaServer.chunkServer.chunkReallocTimeout = 600
 metaServer.chunkServer.chunkAllocTimeout = 18
-metaServer.chunkServer.makeStableTimeout = 60
+metaServer.chunkServer.makeStableTimeout = 600
 
 metaServer.clientThreadCount = 4
 metaServer.maxDownServersHistorySize = 4096
 metaServer.maxCSRestarting = 24
 metaServer.useFsTotalSpace = 1
-# report all fs free space with "useFsTotalSpace = 1"
-chunkServer.totalSpace = 109951162777600
 
 metaServer.maxGoodCandidateLoadRatio = 1.2
 metaServer.maxGoodMasterLoadRatio = 1.5
@@ -286,7 +284,7 @@ chunkServer.remoteSync.responseTimeoutSec = 19
 chunkServer.chunkPlacementPendingReadWeight = 1.3
 chunkServer.chunkPlacementPendingWriteWeight = 1.3
 chunkServer.bufferManager.waitingAvgInterval = 8
-chunkServer.diskIo.maxIoTimeSec = 40
+chunkServer.diskIo.maxIoTimeSec = 600
 chunkServer.forceDeleteStaleChunks = 1
 chunkServer.storageTierPrefixes = kfschunk1 0 kfschunk2 14 kfschunk3 9
 # chunkServer.msgLogWriter.logLevel = ERROR
