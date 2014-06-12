@@ -922,8 +922,9 @@ public:
                 KFS_LOG_STREAM_ERROR << "recovery: "
                     " status: "          << inStatusCode <<
                     " invalid stripes: " << mOwner->invalidStripeIdx <<
+                    " file size: "       << mOwner->fileSize <<
                 KFS_LOG_EOM;
-                if (sRSReaderPanicOnInvalidChunkFlag) {
+                if (sRSReaderPanicOnInvalidChunkFlag && 0 < mOwner->fileSize) {
                     const string msg = "recovery: invalid chunk(s) detected: " +
                         mOwner->invalidStripeIdx;
                     die(msg.c_str());

@@ -189,6 +189,7 @@ public:
             mCounters.mDiscardedBytesCount += inByteCount;
         }
     }
+    bool IsAuthEnabled() const;
     bool SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inProps,

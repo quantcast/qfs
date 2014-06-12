@@ -110,6 +110,7 @@ public:
     static int GetResponseTimeoutSec() {
         return sOpResponseTimeoutSec;
     }
+    static bool IsAuthEnabled();
 private:
     typedef map<
         kfsSeq_t,

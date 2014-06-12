@@ -152,6 +152,8 @@ public:
         mParams.clear();
         mEnabledFlag = false;
     }
+    bool IsEnabled() const
+        { return mEnabledFlag; }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
 
@@ -243,6 +245,12 @@ ClientManager::SetParameters(
         inProps,
         inAuthEnabledFlag
     );
+}
+
+bool
+ClientManager::IsAuthEnabled() const
+{
+    return mAuth.IsEnabled();
 }
 
 void
