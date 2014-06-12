@@ -1782,9 +1782,10 @@ HeartbeatOp::Execute()
         globals().ctrDiskBytesWritten.GetValue());
     HBAppend(os, "Total-ops-count",  "ops",
         KfsOp::GetOpsCount());
-    HBAppend(os, "Auth-clnt",  "authcl", gClientManager.IsAuthEnabled());
-    HBAppend(os, "Auth-rsync", "authrs", RemoteSyncSM::IsAuthEnabled());
-    HBAppend(os, "Auth-meta",  "authms", gMetaServerSM.IsAuthEnabled());
+    HBAppend(os, "Auth-clnt",  "authcl",
+        gClientManager.IsAuthEnabled() ? 1 : 0);
+    HBAppend(os, "Auth-rsync", "authrs", RemoteSyncSM::IsAuthEnabled() ? 1 : 0);
+    HBAppend(os, "Auth-meta",  "authms", gMetaServerSM.IsAuthEnabled() ? 1 : 0);
     *os[0] << "\r\n";
     os[0]->flush();
     sWOs.Reset();
