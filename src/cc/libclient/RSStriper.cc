@@ -2952,17 +2952,18 @@ private:
                 ioEndPos     = theRdSize;
                 ioEndPosHead =
                     (inRequest.mRecoveryPos + theRdSize) % mStripeSize;
-                if (ioEndPosHead == 0) {
+                if (ioEndPosHead == 0 &&
+                        theBuf.mChunkSize < (Offset)CHUNKSIZE) {
                     // If end is stripe aligned, see if the end is in preceding
                     // stripes. The stripe with the end that isn't stripe
                     // aligned is where the end is. If the recovery size is less
                     // than stripe size, the read of this stripe might not not
                     // return less that recovery size.
+                    const Offset theMinSize = theBuf.mChunkSize + mStripeSize;
                     for (int i = inIdx - 2; 0 <= i; i--) {
                         const Buffer& theCBuf = inRequest.GetBuffer(i);
                         if (! theCBuf.IsFailed() &&
-                                theCBuf.mChunkSize <
-                                    theBuf.mChunkSize + mStripeSize) {
+                                theCBuf.mChunkSize < theMinSize) {
                             // Set end position to the stripe after this one,
                             // as the read of this stripe was not less than
                             // recovery size.
