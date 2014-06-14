@@ -1283,7 +1283,7 @@ private:
         if (! MsgLogger::IsLoggerInited()) {
             const char* p = getenv("QFS_CLIENT_LOG_LEVEL");
             if (! p) {
-                getenv("KFS_CLIENT_LOG_LEVEL");
+                p = getenv("KFS_CLIENT_LOG_LEVEL");
             }
             MsgLogger::Init(0, GetLogLevel(p));
         }

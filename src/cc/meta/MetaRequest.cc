@@ -3025,7 +3025,7 @@ MetaFsck::handle()
             for (int i = 0; i < cnt; i++) {
                 if (failedFlag) {
                     // Zero length file means error.
-                    ftruncate(fd[i], 0);
+                    (void)ftruncate(fd[i], 0);
                 }
             }
         }

@@ -102,7 +102,7 @@ QCUtils::FatalError(
     char      theMsgBuf[1<<9];
     const int theLen =
         DoSysErrorMsg(inMsgPtr, inSysError, theMsgBuf, sizeof(theMsgBuf));
-    write(2, theMsgBuf, theLen);
+    (void)write(2, theMsgBuf, theLen);
     abort();
 }
 
@@ -132,7 +132,7 @@ QCUtils::AssertionFailure(
         snprintf(theMsgPtr, theMaxLen, ":%d\n", inLineNum);
         StrAppend(theMsgPtr, theMsgPtr, theMaxLen);
     }
-    write(2, theMsgBuf, theMsgPtr - theMsgBuf);
+    (void)write(2, theMsgBuf, theMsgPtr - theMsgBuf);
     abort();
 }
 
