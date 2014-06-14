@@ -28,7 +28,7 @@
 set -e
 
 showcerts=0
-if [ $# -gt 1 -a x"$1" == x"-v" ]; then
+if [ $# -gt 1 -a x"$1" = x"-v" ]; then
     showcerts=1
     shift
 fi
