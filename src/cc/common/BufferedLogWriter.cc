@@ -25,6 +25,13 @@
 //----------------------------------------------------------------------------
 
 #include "BufferedLogWriter.h"
+#include "Properties.h"
+
+#include "qcdio/QCMutex.h"
+#include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
+#include "qcdio/qcdebug.h"
+#include "qcdio/QCThread.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -44,13 +51,6 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
-
-#include "qcdio/QCMutex.h"
-#include "qcdio/QCUtils.h"
-#include "qcdio/qcstutils.h"
-#include "qcdio/qcdebug.h"
-#include "qcdio/QCThread.h"
-#include "Properties.h"
 
 namespace KFS
 {
@@ -170,7 +170,7 @@ public:
         mLastLogTm       = mTimeTm;
         GetLogTimeStampPrefixPtr(theSec);
         mNextFlushTime = Seconds(theSec) + theMicroSec + mFlushInterval;
-        if (mFd >= 0) {
+        if (mFd >= 0 && ! isatty(mFd)) {
             ::fcntl(mFd, F_SETFL, O_NONBLOCK);
         }
     }
