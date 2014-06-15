@@ -259,7 +259,7 @@ static char* test_large_write() {
     "filename should be correct: %s != %s", attr.filename, "file");
   check(attr.size == len*2,
     "file size should be correct: %li != %li",
-    (long long)attr.size, (long long)len);
+    (long)attr.size, (long)len);
 
   return 0;
 }
