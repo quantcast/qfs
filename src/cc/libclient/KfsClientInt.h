@@ -124,9 +124,10 @@ public:
         if (mBufSize <= 0) {
             return 0;
         }
-        const int kAlign = 16;
+        const unsigned int kAlign = 16;
         mAllocBuf = new char[mBufSize + kAlign];
-        mBuf      = mAllocBuf + kAlign - (mAllocBuf - (char*)0) % kAlign;
+        mBuf      = mAllocBuf +
+            kAlign - (unsigned int)(mAllocBuf - (char*)0) % kAlign;
         return mBuf;
     }
     void SetBufSize(int size)

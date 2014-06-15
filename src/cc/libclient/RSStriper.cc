@@ -247,8 +247,13 @@ public:
     static IOBufferData NewDataBuffer(
         int inSize)
     {
-        char* const thePtr    = new char [inSize + kAlign];
-        const int   theOffset = kAlign - (thePtr - (const char*)0) % kAlign;
+        const unsigned int kPtrAlign   = kAlign;
+        const char* const  kNullPtr    = 0;
+        char* const        thePtr      = new char [inSize + kPtrAlign];
+        const unsigned int thePtrAlign =
+            (unsigned int)(thePtr - kNullPtr) % kPtrAlign;
+        const int          theOffset   = 0 < thePtrAlign ?
+            (int)(kPtrAlign - thePtrAlign) : 0;
         return IOBufferData(thePtr, inSize + theOffset, theOffset, 0);
     }
     static void InternalError(
@@ -293,10 +298,12 @@ protected:
         int inBufsCount)
     {
         if (! mTempBufAllocPtr) {
-            const size_t theSize = kTempBufSize * inBufsCount;
-            mTempBufAllocPtr = new char [theSize + kAlign];
-            mTempBufPtr = mTempBufAllocPtr +
-                (kAlign - (mTempBufAllocPtr - (const char*)0) % kAlign);
+            const size_t       theSize   = kTempBufSize * inBufsCount;
+            const unsigned int kPtrAlign = kAlign;
+            mTempBufAllocPtr = new char [theSize + kPtrAlign];
+            const char* const kNullPtr = 0;
+            mTempBufPtr      = mTempBufAllocPtr + (kPtrAlign -
+                (unsigned int)(mTempBufAllocPtr - kNullPtr) % kPtrAlign);
             memset(mTempBufPtr, 0, theSize);
         }
         QCASSERT(0 <= inIndex && inIndex < inBufsCount);
