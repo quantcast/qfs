@@ -254,7 +254,9 @@ private:
     }
     static void SigAlrmHandler(int /* sig */)
     {
-        write(2, "SIGALRM\n", 8);
+        if (write(2, "SIGALRM\n", 8) < 0) {
+            QCUtils::SetLastIgnoredError(errno);
+        }
         ::abort();
     }
 };
@@ -275,11 +277,19 @@ public:
           mPrevCout(*outName ? cout.tie(&mCout) : 0),
           mPrevCerr(*errName ? cerr.tie(&mCerr) : 0)
     {
-        if (*outName) {
-            freopen(outName, "a", stdout);
+        if (outName && *outName) {
+            if (! freopen(outName, "a", stdout)) {
+                KFS_LOG_STREAM_ERROR <<
+                    outName << QCUtils::SysError(errno) <<
+                KFS_LOG_EOM;
+            }
         }
-        if (*errName) {
-            freopen(errName, "a", stderr);
+        if (errName && *errName) {
+            if (! freopen(errName, "a", stderr)) {
+                KFS_LOG_STREAM_ERROR <<
+                    errName << QCUtils::SysError(errno) <<
+                KFS_LOG_EOM;
+            }
         }
     }
     ~StdErrAndOutRedirector()
@@ -465,7 +475,9 @@ ChunkServerMain::LoadParams(const char* fileName)
 
 static void SigQuitHandler(int /* sig */)
 {
-    write(1, "SIGQUIT\n", 8);
+    if (write(1, "SIGQUIT\n", 8) < 0) {
+        QCUtils::SetLastIgnoredError(errno);
+    }
     globalNetManager().Shutdown();
 }
 

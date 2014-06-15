@@ -55,6 +55,9 @@ struct QCUtils
         int     inFd,
         int64_t inSize);
 
+    static void SetLastIgnoredError(
+        int inError);
+
     static int AllocateFileSpace(
         const char* inFileNamePtr,
         int64_t     inSize,

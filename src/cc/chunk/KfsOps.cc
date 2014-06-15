@@ -29,6 +29,15 @@
 
 #include "KfsOps.h"
 
+#include "ChunkManager.h"
+#include "Logger.h"
+#include "ChunkServer.h"
+#include "LeaseClerk.h"
+#include "Replicator.h"
+#include "AtomicRecordAppender.h"
+#include "ClientSM.h"
+#include "utils.h"
+
 #include "common/Version.h"
 #include "common/kfstypes.h"
 #include "common/time.h"
@@ -41,14 +50,7 @@
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/ChunkAccessToken.h"
 
-#include "ChunkManager.h"
-#include "Logger.h"
-#include "ChunkServer.h"
-#include "LeaseClerk.h"
-#include "Replicator.h"
-#include "AtomicRecordAppender.h"
-#include "ClientSM.h"
-#include "utils.h"
+#include "qcdio/QCUtils.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -428,7 +430,9 @@ KfsOp::CleanupChecker::~CleanupChecker()
     char buffer[] = { "error: ops count at extit 000000000000000\n" };
     const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
     IntToDecString(sOpsCount, buffer + sz - 1);
-    write(2, buffer, sizeof(buffer));
+    if (write(2, buffer, sizeof(buffer))) {
+        QCUtils::SetLastIgnoredError(errno);
+    }
     if (ChunkManager::GetExitDebugCheckFlag()) {
         abort();
     }

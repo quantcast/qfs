@@ -348,8 +348,8 @@ ChunkLeases::Renew(
     time_t  now)
 {
     WriteLease& wl = we;
-    const time_t exp = now + LEASE_INTERVAL_SECS;
-    if (wl.expires < exp) {
+    const int64_t exp = now + LEASE_INTERVAL_SECS;
+    if ((int64_t)wl.expires < exp) {
         wl.expires = exp;
         PutInExpirationList(we);
     }

@@ -3025,7 +3025,9 @@ MetaFsck::handle()
             for (int i = 0; i < cnt; i++) {
                 if (failedFlag) {
                     // Zero length file means error.
-                    (void)ftruncate(fd[i], 0);
+                    if (ftruncate(fd[i], 0) < 0) {
+                        QCUtils::SetLastIgnoredError(errno);
+                    }
                 }
             }
         }
