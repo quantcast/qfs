@@ -48,7 +48,7 @@ const int O_DIRECT = 0;
 
 using std::cout;
 
-const int kIoBlkSize = 4 << 10;
+const unsigned int kIoBlkSize = 4 << 10;
 
 static int
 Deserialize(ChunkInfo_t& chunkInfo, int fd, char* buf, bool hdrChksumRequiredFlag)
@@ -265,8 +265,8 @@ ChunkScrubberMain(int argc, char **argv)
 
     char* const allocBuf =
         new char[CHUNKSIZE + KFS_CHUNK_HEADER_SIZE + kIoBlkSize];
-    char* const buf      =
-        allocBuf + (kIoBlkSize - (allocBuf - (char*)0) % kIoBlkSize);
+    char* const buf      = allocBuf +
+        (kIoBlkSize - (unsigned int)(allocBuf - (char*)0) % kIoBlkSize);
     srand48(time(0));
 
     int ret = 0;
