@@ -78,8 +78,8 @@ clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
 clientrootprop="$testdir/clientroot.prp"
 certsdir=${certsdir-"$testdir/certs"}
-minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-5e9}
-minrequreddiskspace=${minrequreddiskspace-10e9}
+minrequreddiskspace=${minrequreddiskspace-5e9}
+minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-10e9}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
