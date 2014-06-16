@@ -280,14 +280,16 @@ public:
         if (outName && *outName) {
             if (! freopen(outName, "a", stdout)) {
                 KFS_LOG_STREAM_ERROR <<
-                    outName << QCUtils::SysError(errno) <<
+                    "freopen: " <<  outName <<
+                    ": " << QCUtils::SysError(errno) <<
                 KFS_LOG_EOM;
             }
         }
         if (errName && *errName) {
             if (! freopen(errName, "a", stderr)) {
                 KFS_LOG_STREAM_ERROR <<
-                    errName << QCUtils::SysError(errno) <<
+                    "freopen: " << errName <<
+                    ": " << QCUtils::SysError(errno) <<
                 KFS_LOG_EOM;
             }
         }
