@@ -81,7 +81,7 @@ else
     maxrecovwait=${maxrecovwait-100}
 fi
 
-function wait_shutdown_complete
+wait_shutdown_complete()
 {
     pid=$0
     maxtry=${1-100}
@@ -100,7 +100,7 @@ function wait_shutdown_complete
     return 0
 }
 
-function shutdown
+shutdown()
 {
     [ $stop -eq 0 ] && return 0
     stop=0
@@ -174,7 +174,7 @@ if [ $runtest -eq 0 ]; then
     exit 0
 fi
 
-function verify_file
+verify_file()
 {
     filemd5=`"$toolsdir"/qfs \
         -D fs.readFullSparseFileSupport=1 \
