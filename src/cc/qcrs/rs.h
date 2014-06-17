@@ -32,15 +32,22 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Chao's edit: to allow more coding parameters
+//#define RS_LIB_MAX_DATA_BLOCKS 64
+//#define RS_LIB_MAX_RECOVERY_BLOCKS 3
 
-#define RS_LIB_MAX_DATA_BLOCKS 64
-#define RS_LIB_MAX_RECOVERY_BLOCKS 3
 
-void rs_encode(int nblocks, int blocksize, void **data);
-void rs_decode1(int nblocks, int blocksize, int x, void **data);
-void rs_decode2(int nblocks, int blocksize, int x, int y, void **data);
-void rs_decode3(int nblocks, int blocksize, int x, int y, int z, void **data);
+#define RS_LIB_MAX_DATA_BLOCKS 255
+#define RS_LIB_MAX_RECOVERY_BLOCKS 255
+#define RS_LIB_PACKETSIZE 1024
 
+
+
+//void rs_encode(int nblocks, int mrecoveryblocks, int blocksize, void **data);
+//void rs_decode1(int nblocks, int blocksize, int x, void **data);
+//void rs_decode2(int nblocks, int blocksize, int x, int y, void **data);
+//void rs_decode3(int nblocks, int blocksize, int x, int y, int z, void **data);
+// end of Chao's edit
 #ifdef __cplusplus
 }
 #endif

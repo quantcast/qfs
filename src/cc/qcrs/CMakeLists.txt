@@ -3,6 +3,7 @@
 #
 # Created 2010/08/05
 # Author: Mike Ovsiannikov
+# Edited by: Chao Tian (AT&T) 2014/3/25
 #
 # Copyright 2010-2011 Quantcast Corp.
 #
@@ -25,9 +26,11 @@
 include(CheckCCompilerFlag)
 
 set (sources
-decode.c
-encode.c
-rs_table.c
+cauchy.c
+galois.c
+gf.c
+gf_w8.c
+jerasure.c
 )
 
 add_library (kfsrs STATIC ${sources})
@@ -48,25 +51,36 @@ if (NOT DEFINED vectormode)
     message(STATUS "System processor: ${CMAKE_SYSTEM_PROCESSOR}")
     # OS X uses sysctl instead of /proc/cpuinfo
     if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        execute_process(
-            COMMAND sh -c "sysctl machdep.cpu.features | grep -wi ssse3"
+	execute_process(
+            COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse4_1"
             OUTPUT_QUIET
             ERROR_QUIET
-            RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
+            RESULT_VARIABLE MY_SSE4_SUPPORTED_RET
         )
-        if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            set(vectormode ssse3)
-        else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            execute_process(
-                COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse2"
-                OUTPUT_QUIET
-                ERROR_QUIET
-                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+
+        if (MY_SSE4_SUPPORTED_RET EQUAL 0)
+            set(vectormode sse4.1)  
+	else (MY_SSE4_SUPPORTED_RET EQUAL 0)
+	    execute_process(
+        	    COMMAND sh -c "sysctl machdep.cpu.features | grep -wi ssse3"
+        	    OUTPUT_QUIET
+        	    ERROR_QUIET
+        	    RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
             )
-            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
-                set(vectormode sse2)
-            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
-        endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+            if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+            	set(vectormode ssse3)
+            else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+    	        execute_process(
+    	            COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse2"
+    	            OUTPUT_QUIET
+    	            ERROR_QUIET
+    	            RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+    	        )
+    	        if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+    	            set(vectormode sse2)
+    	        endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
+    	    endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)   
+        endif (MY_SSE4_SUPPORTED_RET EQUAL 0)
     elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm)
         if (EXISTS /proc/cpuinfo)
             # Check for the NEON feature in /proc/cpuinfo on ARM processors
@@ -85,27 +99,37 @@ if (NOT DEFINED vectormode)
         # environments like Cygwin report "unknown" for processor
         # (Note that SSSE3 is not the same as SSE3, and not all 64-bit x86
         # processors have SSSE3, especially non-Intel ones)
-        execute_process(
-            COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w ssse3"
+	execute_process(
+            COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w sse4_1"
             OUTPUT_QUIET
             ERROR_QUIET
-            RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
+            RESULT_VARIABLE MY_SSE4_SUPPORTED_RET
         )
-        if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            set(vectormode ssse3)
-        else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            execute_process(
-                COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w sse2"
-                OUTPUT_QUIET
-                ERROR_QUIET
-                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
-            )
-            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
-                message(STATUS "qcrs: no ssse3 flag present in /proc/cpuinfo, assuming no ssse3 support.")
-                message(STATUS "qcrs: Ssse3 can be forced with cmake -D vecormode=ssse3 if the target cpu has ssse3 support.")
-                set(vectormode sse2)
-            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
-        endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+        if (MY_SSE4_SUPPORTED_RET EQUAL 0)
+            set(vectormode sse4)  
+	else (MY_SSE4_SUPPORTED_RET EQUAL 0)
+	        execute_process(
+	            COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w ssse3"
+	            OUTPUT_QUIET
+	            ERROR_QUIET
+	            RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
+	        )
+	        if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+	            set(vectormode ssse3)
+	        else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+	            execute_process(
+	                COMMAND sh -c "grep -w flags /proc/cpuinfo | grep -w sse2"
+	                OUTPUT_QUIET
+	                ERROR_QUIET
+	                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+	            )
+	            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+	                message(STATUS "qcrs: no ssse3 flag present in /proc/cpuinfo, assuming no ssse3 support.")
+	                message(STATUS "qcrs: Ssse3 can be forced with cmake -D vecormode=ssse3 if the target cpu has ssse3 support.")
+	                set(vectormode sse2)
+	            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
+	        endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+	endif (MY_SSE4_SUPPORTED_RET EQUAL 0)
     elseif (CMAKE_SYSTEM_PROCESSOR MATCHES x86_64 OR
         CMAKE_SYSTEM_PROCESSOR MATCHES amd64 OR
         CMAKE_SYSTEM_PROCESSOR MATCHES i686)
@@ -121,16 +145,20 @@ endif (NOT DEFINED vectormode)
 # Vector intrinsics are only available on GCC
 if (DEFINED vectormode)
     if (CMAKE_COMPILER_IS_GNUCC OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-        if (vectormode STREQUAL ssse3)
-            message(STATUS "qcrs: enabling ssse3")
-            add_definitions(-mssse3 -DLIBRS_USE_SSSE3)
+        if (vectormode STREQUAL sse4)
+	    message(STATUS "qcrs: enabling sse4")
+	    add_definitions(-mmmx -msse -DINTEL_SSE -msse2 -DINTEL_SSE2 -msse3 -DINTEL_SSE3 -mssse3 -DINTEL_SSSE3 -msse4.1 -DINTEL_SSE41)
+        elseif (vectormode STREQUAL ssse3)
+             message(STATUS "qcrs: enabling ssse3")
+#             add_definitions(-mssse3 -DLIBRS_USE_SSSE3)
+             add_definitions(-mmmx -msse -DINTEL_SSE -msse2 -DINTEL_SSE2 -msse3 -DINTEL_SSE3 -mssse3 -DINTEL_SSSE3)
         elseif (vectormode STREQUAL sse2)
             message(STATUS "qcrs: enabling sse2")
             add_definitions(-msse2 -DLIBRS_USE_SSE2)
         elseif (vectormode STREQUAL neon)
             message(STATUS "qcrs: enabling neon")
             add_definitions(-mfpu=neon -DLIBRS_USE_NEON)
-        endif (vectormode STREQUAL ssse3)
+        endif (vectormode STREQUAL sse4)
         if (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
             CHECK_C_COMPILER_FLAG(-flax-vector-conversions MY_LAXVEC_CONV)
             if (MY_LAXVEC_CONV)
@@ -144,14 +172,14 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-O3)
 endif (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 
-set(rstestbin rstest)
-set(rsmktablebin rsmktable)
-add_executable (${rstestbin} rs_test_main.c)
-add_executable (${rsmktablebin} mktable_main.c)
+#set(rstestbin rstest)
+#set(rsmktablebin rsmktable)
+#add_executable (${rstestbin} rs_test_main.c)
+#add_executable (${rsmktablebin} mktable_main.c)
 
-target_link_libraries (${rstestbin} kfsrs)
-add_dependencies (${rstestbin} kfsrs)
-add_dependencies (${rsmktablebin} kfsrs)
+#target_link_libraries (${rstestbin} kfsrs)
+#add_dependencies (${rstestbin} kfsrs)
+#add_dependencies (${rsmktablebin} kfsrs)
 
 install (TARGETS kfsrs kfsrs-shared
         LIBRARY DESTINATION lib

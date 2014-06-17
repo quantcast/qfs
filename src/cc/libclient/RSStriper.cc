@@ -34,6 +34,9 @@
 #include "qcdio/QCDLList.h"
 #include "qcdio/QCUtils.h"
 
+#include "qcrs/jerasure.h"
+#include "qcrs/cauchy.h"
+
 #include <sstream>
 #include <algorithm>
 #include <cerrno>
@@ -76,6 +79,8 @@ public:
         string& outErrMsg)
     {
         const int kChunkSize = (int)CHUNKSIZE;
+	// Chao's edit
+	/*
         if (inStripeSize < KFS_MIN_STRIPE_SIZE ||
                 inStripeSize > KFS_MAX_STRIPE_SIZE ||
                 inStripeCount <= 0 ||
@@ -95,6 +100,28 @@ public:
             outErrMsg = theErrStream.str();
             return false;
         }
+	*/
+	 if (inStripeSize < KFS_MIN_STRIPE_SIZE ||
+                inStripeSize > KFS_MAX_STRIPE_SIZE ||
+                inStripeCount <= 0 ||
+                (inRecoveryStripeCount != 0 &&
+                    inStripeCount > RS_LIB_MAX_DATA_BLOCKS) ||
+                inStripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
+                kChunkSize % inStripeSize != 0 ||
+                (inRecoveryStripeCount != 0 &&
+                    inRecoveryStripeCount > kMaxRecoveryStripes) ||
+                (inRecoveryStripeCount > 0 && inStripeSize % kAlign != 0)||
+		(inRecoveryStripeCount+inStripeCount>RS_LIB_MAX_DATA_BLOCKS)) {
+            ostringstream theErrStream;
+            theErrStream << "invalid parameters:"
+                " stripe count: "          << inStripeCount <<
+                " recovery stripe count: " << inRecoveryStripeCount <<
+                " stripe size: "           << inStripeSize
+            ;
+            outErrMsg = theErrStream.str();
+            return false;
+        }
+	//end Chao's edit
         return true;
     }
     RSStriper(
@@ -121,6 +148,8 @@ public:
           mBufPtr(inRecoveryStripeCount > 0 ?
             new void*[inStripeCount + inRecoveryStripeCount] : 0)
     {
+	// Chao's edit
+	/*
         QCRTASSERT(
             mStripeCount > 0 &&
             (mRecoveryStripeCount == 0 ||
@@ -129,6 +158,16 @@ public:
             mStripeSize <= KFS_MAX_STRIPE_SIZE &&
             CHUNKSIZE % mStripeSize == 0
         );
+	*/
+	QCRTASSERT(
+            mStripeCount > 0 &&
+            (mRecoveryStripeCount == 0 ||
+                mRecoveryStripeCount <= kMaxRecoveryStripes) &&
+            mStripeSize >= KFS_MIN_STRIPE_SIZE &&
+            mStripeSize <= KFS_MAX_STRIPE_SIZE &&
+            CHUNKSIZE % mStripeSize == 0
+        );
+	// end Chao's edit
     }
     virtual ~RSStriper()
     {
@@ -260,8 +299,11 @@ public:
         MsgLogger::Stop();
         abort();
     }
+    // Chao's change from 16 to sizeof(long)*32
+    //enum { kAlign = 16 };
+    enum { kAlign = sizeof(long)*32};    
+    // end Chao's edit
 
-    enum { kAlign = 16 };
     enum { kMaxRecoveryStripes = RS_LIB_MAX_RECOVERY_BLOCKS };
 
     const string mLogPrefix;
@@ -749,6 +791,7 @@ private:
             " cur: "     << theCurThreshold <<
         KFS_LOG_EOM;
     }
+    
     void ComputeRecovery(
         int* ioPaddSizeWriteFrontTrimPtr = 0)
     {
@@ -770,6 +813,19 @@ private:
         const int theSize       = theTotalSize / mStripeCount;
         QCASSERT(theSize * mStripeCount == theTotalSize);
         Offset thePendingCount = 0;
+	// CT: edit to introduce the matrix encoding/decoding
+        gf_t* gfp = galois_init_default_field(8);
+	if(gfp==NULL) {		
+            KFS_LOG_STREAM_ERROR << "Field Initialization failed "<< KFS_LOG_EOM;
+            return;        	
+        }
+	int* matrix = cauchy_good_general_coding_matrix(mStripeCount, mRecoveryStripeCount, 8, gfp);
+	if (matrix == NULL) {
+	    KFS_LOG_STREAM_ERROR << "Field Initialization failed "<< KFS_LOG_EOM;
+            return;        	
+	}       
+	// end CT edit
+
         for (int i = mStripeCount;
                 i < mStripeCount + mRecoveryStripeCount;
                 i++) {
@@ -853,7 +909,11 @@ private:
                     " len: " << theLen <<
                 KFS_LOG_EOM;
             }
-            rs_encode(mStripeCount + mRecoveryStripeCount, theLen, mBufPtr);
+	    // CT: edit
+	    jerasure_matrix_encode(mStripeCount, mRecoveryStripeCount, 8, matrix,
+                       (char**)mBufPtr, (char**)(mBufPtr+mStripeCount), theLen, gfp);	    
+	    //rs_encode(mStripeCount + mRecoveryStripeCount, mRecoveryStripeCount, theLen, mBufPtr);
+	    // end CT edit
             for (int i = mStripeCount;
                     i < mStripeCount + mRecoveryStripeCount;
                     i++) {
@@ -882,7 +942,18 @@ private:
             }
         }
         mPendingCount = thePendingCount;
+	// CT edit: free coding matrics
+	if(matrix!=NULL){
+		free(matrix);
+		matrix = NULL;
+	}        
+	if(gfp!=NULL){
+	 	gf_free(gfp,1);
+		gfp = NULL ; 
+	}
+	// end CT edit
     }
+
     void TrimBufferFront(
         Buffer& inBuf,
         int&    ioStrideTrim,
@@ -986,6 +1057,8 @@ public:
         }
         outOpenChunkBlockSize =
             Offset(CHUNKSIZE) * (inStripeCount + inRecoveryStripeCount);
+	
+	
         return new RSReadStriper(
             inStripeSize,
             inStripeCount,
@@ -999,6 +1072,7 @@ public:
             inLogPrefix,
             inOuter
         );
+	return NULL;
     }
     virtual ~RSReadStriper()
     {
@@ -2220,7 +2294,7 @@ private:
         Offset   mChunkBlockStartPos;
         int      mSize;
         int      mMissingCnt;
-        int      mMissingIdx[kMaxRecoveryStripes];
+        int      mMissingIdx[kMaxRecoveryStripes+1];
 
         RecoveryInfo()
             : mBuffer(),
@@ -2229,7 +2303,7 @@ private:
               mSize(0),
               mMissingCnt(0)
         {
-            for (int i = 0; i < kMaxRecoveryStripes; i++) {
+            for (int i = 0; i <= kMaxRecoveryStripes; i++) {
                 mMissingIdx[i] = -1;
             }
         }
@@ -2244,7 +2318,7 @@ private:
             ClearBuffer();
             mMissingCnt         = 0;
             mChunkBlockStartPos = -1;
-            for (int i = 0; i < kMaxRecoveryStripes; i++) {
+            for (int i = 0; i <= kMaxRecoveryStripes; i++) {
                 mMissingIdx[i] = -1;
             }
         }
@@ -2263,7 +2337,9 @@ private:
             mMissingCnt         = 0;
             const int theBufCount = inOuter.GetBufferCount();
             for (int i = 0;
-                    i < theBufCount && mMissingCnt < kMaxRecoveryStripes;
+		// CT edit                    
+		    i < theBufCount && mMissingCnt < inOuter.mRecoveryStripeCount; 
+		//end CT edit
                     i++) {
                 Buffer& theBuf = inRequest.GetBuffer(i);
                 if (theBuf.IsFailed()) {
@@ -2296,11 +2372,13 @@ private:
             mMissingCnt         = 1;
             mMissingIdx[0]      = inBadStripeIdx;
             const int theCnt    = inOuter.GetBufferCount();
-            int       theSwappedIdx[kMaxRecoveryStripes];
+            int       theSwappedIdx[kMaxRecoveryStripes+1];
             theSwappedIdx[0]    = theCnt - mMissingCnt;
             // Randomly select which stripes to use for RS recovery in order to
             // attempt to uniformly distribute the chunk server read load.
-            while (mMissingCnt < kMaxRecoveryStripes) {
+	    // CT edit
+	    while (mMissingCnt < inOuter.mRecoveryStripeCount) {
+	    // End CT Edit
                 int theIdx = inOuter.Rand() % (theCnt - mMissingCnt);
                 int i;
                 for (i = 0; i < mMissingCnt; i++) {
@@ -2644,13 +2722,17 @@ private:
         if (theIt.Set(*this, theBuf, theRdSize) != inRequest.mRecoverySize &&
                 (theIt.IsRequested() ||
                 inIdx < mStripeCount ||
-                ioMissingCnt >= kMaxRecoveryStripes)) {
+		// CT edit
+		ioMissingCnt >= mRecoveryStripeCount)) {
+		// end CT edit
             InternalError("invalid recovery buffer length");
             inRequest.mStatus = kErrorIO;
             return false;
         }
         if (theIt.IsFailure() || ! theIt.IsRequested()) {
-            if (ioMissingCnt >= kMaxRecoveryStripes) {
+	    // CT edit
+	    if (ioMissingCnt >= mRecoveryStripeCount) {
+	    // End CT edit
                 KFS_LOG_STREAM_ERROR << mLogPrefix   <<
                     "read recovery failure:"
                     " req: "      << inRequest.mPos  <<
@@ -2890,6 +2972,7 @@ private:
         }
         return true;
     }
+
     void InitRecoveryStripeRestore(
         Request& inRequest,
         int      inIdx,
@@ -2940,6 +3023,7 @@ private:
             theIt.MakeScratchBuffer(*this, ioRRdSize);
         }
     }
+
     void FinishRecovery(
         Request& inRequest)
     {
@@ -2958,11 +3042,11 @@ private:
             }
             return;
         }
-        const int theBufCount = GetBufferCount();
+        const int theBufCount = GetBufferCount();	
         if (! mBufIteratorsPtr) {
             mBufIteratorsPtr = new BufIterator[theBufCount];
         }
-        int theMissingIdx[kMaxRecoveryStripes];
+        int theMissingIdx[kMaxRecoveryStripes+1];
         int theMissingCnt     = 0;
         int theSize           = inRequest.mRecoverySize;
         int thePrevLen        = 0;
@@ -2974,6 +3058,19 @@ private:
         int theRSize          = -1;
         int theBufToCopyCount = mStripeCount;
         int theEndPosHead     = -1;
+	// CT edit to introduce the bitmatrix encoding/decoding	
+	gf_t* gfp = galois_init_default_field(8);
+    	if(gfp==NULL) {		
+            KFS_LOG_STREAM_ERROR << "Field Initialization failed "<< KFS_LOG_EOM;
+            return;        
+	}
+	int* matrix = cauchy_good_general_coding_matrix(mStripeCount, mRecoveryStripeCount, 8, gfp);
+	if (matrix == NULL) {		
+            KFS_LOG_STREAM_ERROR << "Field Initialization failed "<< KFS_LOG_EOM;
+            return;        
+	}
+	// end CT edit
+
         for (int thePos = 0; thePos < theSize; ) {
             int theLen = theSize - thePos;
             if (theLen > kAlign) {
@@ -3049,7 +3146,8 @@ private:
                 }
                 mBufPtr[i] = thePtr;
             }
-            const int kMissingCnt = 3;
+	    // CT edit: delete
+	    // const int kMissingCnt = 3;
             if (thePos == 0) {
                 if (theEndPosHead >= 0) {
                     const int    theChunkStridePos  =
@@ -3110,13 +3208,16 @@ private:
                         return;
                     }
                 }
-                QCASSERT(
-                    theMissingCnt == kMissingCnt ||
+
+		// CT edit				
+		QCASSERT(
+                    theMissingCnt == mRecoveryStripeCount ||
                     inRequest.mRecoveryRound > 0
-                );
+                );		
                 for (int i = theBufCount - 1;
-                        theMissingCnt < kMissingCnt && i >= mStripeCount;
+                        theMissingCnt < mRecoveryStripeCount && i >= mStripeCount;
                         i--) {
+		//End CT edit
                     if (mBufPtr[i]) {
                         // If recovery stripe restore requested, all recovery
                         // stripe buffers must be present for rs_decode3 to
@@ -3133,11 +3234,15 @@ private:
                     theNextEndPos = max(0, theEndPos - theEndPosHead);
                 }
             }
+
+            // CT edit   	    
             QCRTASSERT(
                 theLen > 0 &&
                 (theLen % kAlign == 0 || theLen < kAlign) &&
-                theMissingCnt == kMissingCnt
+                theMissingCnt == mRecoveryStripeCount
             );
+	    // End CT edit
+
             if (thePos == 0 || thePos + theLen >= theSize) {
                 KFS_LOG_STREAM_INFO << mLogPrefix       <<
                     "read recovery"
@@ -3149,14 +3254,13 @@ private:
                     " of: "   << theSize                <<
                 KFS_LOG_EOM;
             }
-            rs_decode3(
-                theBufCount,
-                max(theLen, (int)kAlign),
-                theMissingIdx[0],
-                theMissingIdx[1],
-                theMissingIdx[2],
-                mBufPtr
-            );
+
+	    // CT Edit
+	    
+	    theMissingIdx[mRecoveryStripeCount] = -1;	    
+	    jerasure_matrix_decode_adaptive(mStripeCount, mRecoveryStripeCount, 8, matrix, theMissingIdx,
+                        (char**)mBufPtr, (char**)(mBufPtr+mStripeCount), max(theLen, (int)kAlign),gfp);	        	   
+	    //end CT edit
             for (int i = 0; i < theBufToCopyCount; i++) {
                 BufIterator& theIt = mBufIteratorsPtr[i];
                 const int theCpLen = (i < theEndPosIdx || i >= mStripeCount) ?
@@ -3176,6 +3280,16 @@ private:
             thePos += theLen;
             thePrevLen = theLen;
         }
+
+	// CT edit: free coding matrix and gf	
+	if(matrix!=NULL){
+		free(matrix); matrix = NULL;
+	}
+	if(gfp!=NULL){
+		gf_free(gfp,1); gfp = NULL;
+	}
+	// end CT edit
+
         mRecoveryInfo.Set(*this, inRequest);
         for (int i = 0; i < mStripeCount; i++) {
             mBufIteratorsPtr[i].SetRecoveryResult(inRequest.GetBuffer(i));
@@ -3203,6 +3317,7 @@ private:
             }
         }
     }
+
     template <typename T>
     static void IOBufferWrite(
         IOBuffer& inBuffer,
@@ -3391,6 +3506,8 @@ RSStriperCreate(
         outOpenChunkBlockSize,
         outErrMsg
     );
+
+    return NULL;
 }
 
 }} /* namespace client KFS */
