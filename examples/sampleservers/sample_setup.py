@@ -462,6 +462,7 @@ def setup_config_files(config):
     print >> webFile, '[webserver]'
     print >> webFile, 'webServer.metaserverHost = %s' % metaserverHostname
     print >> webFile, 'webServer.metaserverPort = %d' % metaserverClientPort
+    print >> webFile, 'webServer.host = 0.0.0.0'
     print >> webFile, 'webServer.port = %d' % config.getint('webui', 'webport')
     print >> webFile, 'webServer.docRoot = %s/docroot' % webDir
     print >> webFile, 'webServer.allmachinesfn = /dev/null'
