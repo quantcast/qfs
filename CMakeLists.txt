@@ -24,16 +24,16 @@
 #
 
 set(CMAKE_LEGACY_CYGWIN_WIN32 0) # Remove when CMake >= 2.8.4 is required
-cmake_minimum_required(VERSION 2.4.6)
+cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
 
-project (KFS)
+project (QFS)
 
 if (DEFINED KFS_DIR_PREFIX)
     message ("Qfs source dir prefix: ${KFS_DIR_PREFIX}")
-    set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake)
+    set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake/Modules)
 else (DEFINED KFS_DIR_PREFIX)
     set(KFS_DIR_PREFIX "")
-    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 endif (DEFINED KFS_DIR_PREFIX)
 
 # Locate Boost
@@ -147,29 +147,28 @@ add_definitions (-D${KFS_OS_NAME})
 # Find the path to libfuse.so
 #
 
-SET(Fuse_LIBRARY_DIR "")
-IF (EXISTS "/lib64/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/lib64")
-ELSEIF (EXISTS "/opt/local/lib/libfuse.dylib")
-    SET(Fuse_LIBRARY_DIR "/opt/local/lib")
-ELSEIF (EXISTS "/usr/local/lib/libfuse.dylib" OR
-        EXISTS "/usr/local/lib/libfuse_ino64.dylib")
-    SET(Fuse_LIBRARY_DIR "/usr/local/lib")
-    SET(Fuse_INCLUDE_DIR "/usr/local/include/osxfuse")
-ELSEIF (EXISTS "/opt/local/lib/libosxfuse.dylib" AND
-        EXISTS "/opt/local/include/osxfuse/fuse.h")
-    SET(Fuse_LIBRARY_DIR "/opt/local/lib")
-    SET(Fuse_INCLUDE_DIR "/opt/local/include/osxfuse")
-    SET(Fuse_LIBRARY "osxfuse")
-ELSEIF (EXISTS "/usr/lib/libfuse.a" OR EXISTS "/usr/lib/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/usr/local/lib")
-ELSEIF (EXISTS "/lib/libfuse.a" OR EXISTS "/lib/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/lib")
-ENDIF (EXISTS "/lib64/libfuse.so")
+IF (${CMAKE_MAJOR_VERSION} LESS 2)
+ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
+ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
+    SET(USE_FIND_FUSE_CMAKE_MODULE TRUE)
+    find_package(FUSE)
+ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
 
-if(COMMAND cmake_policy)
+IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
+    INCLUDE(UsePkgConfig)
+    PKGCONFIG(fuse
+        FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIR FUSE_LIBRARIES FUSE_DEFINITIONS)
+    IF (DEFINED FUSE_LIBRARIES)
+        SET(FUSE_FOUND TRUE)
+    ENDIF (DEFINED FUSE_LIBRARIES)
+ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE)
+
+IF (COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
-endif(COMMAND cmake_policy)
+ENDIF (COMMAND cmake_policy)
 
 # include dirs
 include_directories( ${Boost_INCLUDE_DIRS} ${OPEN_SSL_INCLUDE_DIR} ${KFS_DIR_PREFIX}src/cc)
@@ -205,8 +204,10 @@ ELSE (JNI_FOUND)
     message(STATUS "JNI NOT found: NOT building qfs_access")
 ENDIF (JNI_FOUND)
 
-IF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
-    message(STATUS "Found fuse")
-    include_directories ( ${Fuse_INCLUDE_DIR} )
+IF (FUSE_FOUND)
+    message(STATUS "Building qfs_fuse")
+    add_definitions(${FUSE_DEFINITIONS})
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
-ENDIF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
+ELSE  (FUSE_FOUND)
+    message(STATUS "Not building qfs_fuse")
+ENDIF (FUSE_FOUND)
