@@ -1797,7 +1797,6 @@ def parseChunkConfig(config):
         pass
     current = ChunkArrayData(timespan,theSize)
 
-chunkServer.forceDeleteStaleChunks
     theSize = 10
     timespan = 120
     try:
