@@ -29,9 +29,8 @@
 //----------------------------------------------------------------------------
 
 #include "libclient/KfsClient.h"
+#include "common/Properties.h"
 
-#define FUSE_USE_VERSION        26
-#define _FILE_OFFSET_BITS       64
 #include <fuse.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -53,6 +52,7 @@ using KFS::kKfsGroupNone;
 using KFS::kKfsModeUndef;
 using KFS::Permissions;
 using KFS::KFS_STRIPED_FILE_TYPE_NONE;
+using KFS::Properties;
 
 static KfsClient *client;
 
@@ -336,7 +336,7 @@ struct fuse_operations ops_readonly = {
         fuse_fgetattr,          /* fgetattr */
 };
 
-void
+static void
 fatal(const char *fmt, ...)
 {
     va_list arg;
@@ -354,17 +354,39 @@ fatal(const char *fmt, ...)
     exit(2);
 }
 
-void
-initkfs(char *addr)
+static void
+initkfs(char* addr, const string& cfg_file, const string& cfg_props)
 {
     char *cp;
 
-    if ((cp = strchr(addr, ':')) == NULL)
+    if (! (cp = strchr(addr, ':'))) {
         fatal("bad address: %s", addr);
+        return;
+    }
     string host(addr, cp - addr);
-    int port = atoi(cp + 1);
-    if ((client = KFS::Connect(host, port)) == NULL)
+    int const  port  = atoi(cp + 1);
+    const char delim = (char)'=';
+    if (cfg_file.empty()) {
+        if (cfg_props.empty()) {
+            client = KFS::Connect(host, port);
+        } else {
+            Properties props;
+            if (props.loadProperties(
+                    cfg_props.data(), cfg_props.size(), delim) == 0) {
+                client = KFS::Connect(host, port, &props);
+            }
+        }
+    } else {
+        Properties props;
+        const bool verbose_flag = false;
+        if (props.loadProperties(
+                cfg_file.c_str(), delim, verbose_flag) == 0) {
+            client = KFS::Connect(host, port, &props);
+        }
+    }
+    if (! client) {
         fatal("connect: %s:%d", host.c_str(), port);
+    }
 }
 
 static struct fuse_args*
@@ -373,8 +395,8 @@ get_fs_args(struct fuse_args* args)
 #ifdef KFS_OS_NAME_DARWIN
     return NULL;
 #else
-    if (!args) {
-        return NULL;
+    if (! args) {
+        return 0;
     }
     args->argc = 2;
     args->argv = (char**)calloc(sizeof(char*), args->argc + 1);
@@ -407,7 +429,9 @@ get_mount_args(struct fuse_args* args, const char* options)
  * behavior to be readonly.
  */
 static int
-massage_options(char** opt_argv, int opt_argc, string* options, bool* readonly)
+massage_options(
+    char** opt_argv, int opt_argc, string* options, bool* readonly,
+    string& out_cfg_file, string& out_cfg_props)
 {
     if (!opt_argv || !readonly || !options) {
         return -1;
@@ -418,47 +442,49 @@ massage_options(char** opt_argv, int opt_argc, string* options, bool* readonly)
     *readonly = true;
     string cmdline = opt_argc == 1 ? opt_argv[0] + 2 : opt_argv[1];
 
-    size_t start = 0;
-    size_t end = 0;
     vector<string> opts;
-    string delim = " ,";
-    while (true) {
+    const string delim = " ,";
+    for(size_t start = 0; ;) {
         start = cmdline.find_first_not_of(delim, start);
         if (start == string::npos){
             break;
         }
-
-        end = cmdline.find_first_of(delim, start);
-        if (end == string::npos) {
-            string token = cmdline.substr(start);
-            if (token == "rrw") {
-                *readonly = false;
-                opts.push_back("rw");
-            } else if (token != "rw") {
-                opts.push_back(token);
-            }
-            break;
-        }
-        string token = cmdline.substr(start, end - start);
+        const size_t end   = cmdline.find_first_of(delim, start);
+        const string token = cmdline.substr(start,
+            end == string::npos ? string::npos : end - start);
         if (token == "rrw") {
             *readonly = false;
             opts.push_back("rw");
         } else if (token != "rw") {
             opts.push_back(token);
         }
+        if (end == string::npos) {
+            break;
+        }
         start = end;
     }
-
     if (*readonly) {
         *options = "-oro";
     } else {
         *options = "-orw";
     }
-
-    while (!opts.empty()) {
-        string token = opts.back();
+    const string cfg("cfg=");
+    const string cfg_file("cfg=FILE:");
+    while (! opts.empty()) {
+        const string token = opts.back();
         opts.pop_back();
         if (token == "rw" || token == "ro") {
+            continue;
+        }
+        if (cfg.length() <= token.length() &&
+                token.compare(0, cfg.length(), cfg) == 0) {
+            if (cfg_file.length() <= token.length() &&
+                    token.compare(0, cfg_file.length(), cfg_file) == 0) {
+                out_cfg_file = token.substr(cfg_file.length());
+            } else {
+                out_cfg_props += token.substr(cfg.length());
+                out_cfg_props += "\n";
+            }
             continue;
         }
         options->append(",");
@@ -471,16 +497,17 @@ massage_options(char** opt_argv, int opt_argc, string* options, bool* readonly)
  * Fork and do the work in the child so that init will reap the process.
  * Do the KfsClient connection, fuse mount, and so on in the child process.
  */
-void
+static void
 initfuse(char* kfs_host_address, const char* mountpoint,
-         const char* options, bool readonly)
+         const char* options, bool readonly, bool fork_flag,
+         const string& cfg_file, const string& cfg_props)
 {
-    int pid = fork();
+    int pid = fork_flag ? fork() : 0;
     if (pid < 0) {
         fatal("fork:");
     }
     if (pid == 0) {
-        initkfs(kfs_host_address);
+        initkfs(kfs_host_address, cfg_file, cfg_props);
 
         struct fuse_args fs_args;
         struct fuse_args mnt_args;
@@ -511,42 +538,54 @@ initfuse(char* kfs_host_address, const char* mountpoint,
     return;
 }
 
-void
+static void
 usage(int e)
 {
     //Undocumented option: 'rrw'. See massage_options() above.
-    fprintf(stderr, "usage: kfs_fuse kfshost mountpoint [-o opt1[,opt2..]]\n"
-                    "       eg: kfs_fuse 127.0.0.1:20000 "
-                           "/mnt/kfs -o allow_other,ro\n");
+    fprintf(stderr,
+        "usage: kfs_fuse kfshost mountpoint [-o opt1[,opt2..]]\n"
+        "       eg: kfs_fuse 127.0.0.1:20000 "
+        "/mnt/kfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n");
     exit(e);
 }
 
 int
 main(int argc, char **argv)
 {
-    argc--; argv++;
+    argc--;
+    argv++;
 
+    bool fork_flag = true;
+    if (strcmp(argv[0], "-f") == 0) {
+        argc--;
+        argv++;
+        fork_flag = false;
+    }
     if (argc >= 1 && (
         !strncmp("-h", argv[0], 2) ||
         !strncmp("-help", argv[0], 5) ||
-        !strncmp("--help", argv[0], 6)))
+        !strncmp("--help", argv[0], 6))) {
       usage(0);
-
-    if (argc < 2)
+    }
+    if (argc < 2) {
         usage(1);
-
+    }
     // Default is readonly mount,private mount.
     string options("-oro");
     bool readonly = true;
+    string cfg_file;
+    string cfg_props;
     if (argc > 2) {
-        if (massage_options(argv + 2, argc - 2, &options, &readonly) < 0) {
+        if (massage_options(argv + 2, argc - 2, &options, &readonly,
+                cfg_file, cfg_props) < 0) {
             usage(1);
         }
     }
 
     //setsid(); // detach from console
 
-    initfuse(argv[0], argv[1], options.c_str(), readonly);
+    initfuse(argv[0], argv[1], options.c_str(), readonly,
+        fork_flag, cfg_file, cfg_props);
 
     return 0;
 }
