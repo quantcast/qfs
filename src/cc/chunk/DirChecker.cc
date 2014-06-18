@@ -104,7 +104,7 @@ public:
 
         QCStMutexLocker theLocker(mMutex);
         DirInfos        theDirInfos                = mDirInfos;
-        DirNames        theSubDirNames             = mSubDirNames;
+        SubDirNames     theSubDirNames             = mSubDirNames;
         FileNames       theDontUseIfExistFileNames = mDontUseIfExistFileNames;
         FileNames       theIgnoreFileNames         = mIgnoreFileNames;
         string          theLockFileName;
@@ -326,7 +326,8 @@ public:
         mThread.Join();
     }
     void AddSubDir(
-        const string& inDirName)
+        const string& inDirName,
+        bool          inRemoveFilesFlag)
     {
         const size_t theLen = inDirName.length();
         size_t i = 0;
@@ -337,7 +338,7 @@ public:
             return;
         }
         QCStMutexLocker theLocker(mMutex);
-        mSubDirNames.insert(Normalize(inDirName.substr(i)));
+        mSubDirNames[Normalize(inDirName.substr(i))] = inRemoveFilesFlag;
         mUpdateDirInfosFlag = true;
     }
     void SetDontUseIfExist(
@@ -410,11 +411,12 @@ private:
     typedef std::map<dev_t, DeviceId> DeviceIds;
     typedef std::deque<LockFdPtr>     DirLocks;
     typedef std::map<string, bool>    DirInfos;
+    typedef std::map<string, bool>    SubDirNames;
 
     DeviceIds         mDeviceIds;
     DeviceId          mNextDevId;
     DirInfos          mDirInfos;
-    DirNames          mSubDirNames;
+    SubDirNames       mSubDirNames;
     FileNames         mDontUseIfExistFileNames;
     FileNames         mIgnoreFileNames;
     DirsAvailable     mAvailableDirs;
@@ -439,7 +441,7 @@ private:
 
     static void CheckDirs(
         const DirInfos&    inDirInfos,
-        const DirNames&    inSubDirNames,
+        const SubDirNames& inSubDirNames,
         const FileNames&   inDontUseIfExistFileNames,
         const FileNames&   inIgnoreFileNames,
         DeviceIds&         inDeviceIds,
@@ -500,11 +502,11 @@ private:
                 }
                 theLockFdPtr.reset(new LockFd(theLockFd));
             }
-            DirNames::const_iterator theSit;
+            SubDirNames::const_iterator theSit;
             for (theSit = inSubDirNames.begin();
                     theSit != inSubDirNames.end();
                     ++theSit) {
-                string theDirName = theIt->first + *theSit;
+                string theDirName = theIt->first + theSit->first;
                 if (mkdir(theDirName.c_str(), 0755)) {
                     if (errno != EEXIST) {
                         KFS_LOG_STREAM_ERROR <<
@@ -527,7 +529,8 @@ private:
                         KFS_LOG_EOM;
                         break;
                     }
-                    if (inRemoveFilesFlag && Remove(theDirName, true) != 0) {
+                    if (inRemoveFilesFlag && theSit->second &&
+                            Remove(theDirName, true) != 0) {
                         break;
                     }
                 }
@@ -1155,9 +1158,10 @@ DirChecker::GetInterval()
 
     void
 DirChecker::AddSubDir(
-    const string& inDirName)
+    const string& inDirName,
+    bool          inRemoveFilesFlag)
 {
-    mImpl.AddSubDir(inDirName);
+    mImpl.AddSubDir(inDirName, inRemoveFilesFlag);
 }
 
     void

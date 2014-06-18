@@ -1791,9 +1791,13 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.requireChunkHeaderChecksum",
         mRequireChunkHeaderChecksumFlag ? 1 : 0) != 0;
     mDirChecker.SetRequireChunkHeaderChecksumFlag(mRequireChunkHeaderChecksumFlag);
+    const bool prevForcedeleteStaleChunksFlag = mForceDeleteStaleChunksFlag;
     mForceDeleteStaleChunksFlag = prop.getValue(
         "chunkServer.forceDeleteStaleChunks",
         mForceDeleteStaleChunksFlag ? 1 : 0) != 0;
+    if (prevForcedeleteStaleChunksFlag != mForceDeleteStaleChunksFlag) {
+        mDirChecker.AddSubDir(mStaleChunksDir, mForceDeleteStaleChunksFlag);
+    }
     mKeepEvacuatedChunksFlag = prop.getValue(
         "chunkServer.keepEvacuatedChunksFlag",
         mKeepEvacuatedChunksFlag ? 1 : 0) != 0;
@@ -4757,8 +4761,8 @@ ChunkManager::StartDiskIo()
             it < mChunkDirs.end(); ++it) {
         mDirChecker.Add(it->dirname, it->bufferedIoFlag);
     }
-    mDirChecker.AddSubDir(mStaleChunksDir);
-    mDirChecker.AddSubDir(mDirtyChunksDir);
+    mDirChecker.AddSubDir(mStaleChunksDir, mForceDeleteStaleChunksFlag);
+    mDirChecker.AddSubDir(mDirtyChunksDir, true);
     DirChecker::DirsAvailable dirs;
     mDirChecker.Start(dirs);
     // Start is synchronous. Restore the settings after start.

@@ -138,7 +138,8 @@ public:
         int inTimeMilliSec);
     int GetInterval();
     void AddSubDir(
-        const string& inDirName);
+        const string& inDirName,
+        bool          inRemoveFilesFlag);
     void SetDontUseIfExist(
         const FileNames& inFileNames);
     void SetIgnoreFileNames(
