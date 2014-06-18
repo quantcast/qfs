@@ -75,7 +75,8 @@ ENDIF (NOT DEFINED OPENSSL_VERSION)
 
 IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(WARNING ": Open SSL version ${OPENSSL_VERSION}")
-    message(WARNING ": QFS authentication support requires Open SSL version 1.0 or greater")
+    message(WARNING
+        ": QFS authentication support requires Open SSL version 1.0 or greater")
     message(WARNING ": QFS authentication will not work")
 ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
@@ -84,11 +85,12 @@ ENABLE_TESTING()
 
 # Change this to where the install directory is located
 IF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "." CACHE PATH "installation directory prefix" FORCE)
+    set(CMAKE_INSTALL_PREFIX "." CACHE PATH
+        "installation directory prefix" FORCE)
 ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
-# Build with statically linked libraries; the value for this variable has to be defined here
-# overwriting whatever is in the cache.
+# Build with statically linked libraries; the value for this variable has to be
+# defined here overwriting whatever is in the cache.
 # When set to ON, we build with statically linked libraries; when off we
 # link with dynamically linked libs
 
@@ -96,7 +98,11 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     IF (BUILD_CPU_MODE STREQUAL "32")
         message (STATUS "Building 32-bit mode on Solaris")
         # If we are asked to build 32 bit mode
-        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES)
+        add_definitions (
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGEFILE_SOURCE
+            -D_LARGE_FILES
+        )
     ELSE (BUILD_CPU_MODE STREQUAL "32")
         # On solaris, use 64-bit mode
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
@@ -104,14 +110,21 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
         set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
     ENDIF (BUILD_CPU_MODE STREQUAL "32")
     # Statically linked binaries don't work on solaris
-    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL "Build binaries with statically linked libraries" FORCE)
+    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL
+        "Build binaries with statically linked libraries" FORCE)
     # Cmake does whacky relink on solaris and messes things up; avoid this
     set (CMAKE_SKIP_RPATH ON)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL "Build binaries with statically linked libraries" FORCE)
+    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL
+        "Build binaries with statically linked libraries" FORCE)
     IF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
         message (STATUS "Enabling largefile source flags")
-        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_LARGE_FILES)
+        add_definitions (
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGEFILE_SOURCE
+            -D_LARGEFILE64_SOURCE
+            -D_LARGE_FILES
+        )
     ENDIF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
@@ -119,7 +132,8 @@ IF (ENABLE_PROFILING)
     message (STATUS "Enabling profiling with gprof")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")
     set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -pg")
-    set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -pg")
+    set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS
+        "${CMAKE_SHARED_LINKER_FLAGS} -pg")
     set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
 ENDIF (ENABLE_PROFILING)
 
@@ -172,7 +186,11 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE)
 
 # include dirs
-include_directories( ${Boost_INCLUDE_DIRS} ${OPEN_SSL_INCLUDE_DIR} ${KFS_DIR_PREFIX}src/cc)
+include_directories(
+    ${Boost_INCLUDE_DIRS}
+    ${OPEN_SSL_INCLUDE_DIR}
+    ${KFS_DIR_PREFIX}src/cc
+)
 
 # get the subdirs we want
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
