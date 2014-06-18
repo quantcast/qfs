@@ -1797,7 +1797,7 @@ def parseChunkConfig(config):
         pass
     current = ChunkArrayData(timespan,theSize)
 
-
+chunkServer.forceDeleteStaleChunks
     theSize = 10
     timespan = 120
     try:
@@ -1884,7 +1884,11 @@ if __name__ == '__main__':
         displayChunkServerStorageTiers = True
         pass
     docRoot = config.get('webserver', 'webServer.docRoot')
-    HOST = config.get('webserver', 'webServer.host')
+    try:
+        HOST = config.get('webserver', 'webServer.host')
+    except:
+        HOST = "0.0.0.0"
+        pass
     PORT = config.getint('webserver', 'webServer.port')
     allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
     if metaserverHost != '127.0.0.1' and metaserverHost != 'localhost':
