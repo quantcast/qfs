@@ -4463,7 +4463,7 @@ const char* const KfsTool::sHelpStrings[] =
     "astat", "<glob> [<glob>...]",
     "displays all attributes",
 
-    "dloc", "<glob> [<glob>...]",
+    "dloc", "<start position> <length> <glob> [<glob>...]",
     "displays data location",
 
     "chmod", "[-R] <MODE[,MODE]... | OCTALMODE> PATH...",
