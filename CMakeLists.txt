@@ -28,20 +28,20 @@ cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
 
 project (QFS)
 
-if (DEFINED KFS_DIR_PREFIX)
+IF (DEFINED KFS_DIR_PREFIX)
     message ("Qfs source dir prefix: ${KFS_DIR_PREFIX}")
     set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake/Modules)
-else (DEFINED KFS_DIR_PREFIX)
+ELSE (DEFINED KFS_DIR_PREFIX)
     set(KFS_DIR_PREFIX "")
     set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
-endif (DEFINED KFS_DIR_PREFIX)
+ENDIF (DEFINED KFS_DIR_PREFIX)
 
 # Locate Boost
 # set(Boost_LIB_DIAGNOSTIC_DEFINITIONS "-DBOOST_LIB_DIAGNOSTIC")
 
-if (NOT DEFINED Boost_USE_STATIC_LIBS)
+IF (NOT DEFINED Boost_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS OFF)
-endif (NOT DEFINED Boost_USE_STATIC_LIBS)
+ENDIF (NOT DEFINED Boost_USE_STATIC_LIBS)
 
 set(Boost_USE_MULTITHREADED ON)
 
@@ -58,7 +58,7 @@ message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
 
-if (NOT OPENSSL_VERSION)
+IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(
         COMMAND openssl version
         ERROR_QUIET
@@ -66,21 +66,21 @@ if (NOT OPENSSL_VERSION)
     )
     string(REGEX REPLACE "^[^ ]+ +([^ ]+).*$" "\\1"
         OPENSSL_VERSION "${OPENSSL_VERSION}")
-endif (NOT OPENSSL_VERSION)
+ENDIF (NOT DEFINED OPENSSL_VERSION)
 
-if (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(WARNING ": Open SSL version ${OPENSSL_VERSION}")
     message(WARNING ": QFS authentication support requires Open SSL version 1.0 or greater")
     message(WARNING ": QFS authentication will not work")
-endif (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
 
 ENABLE_TESTING()
 
 # Change this to where the install directory is located
-if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+IF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "." CACHE PATH "installation directory prefix" FORCE)
-endif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
 # Build with statically linked libraries; the value for this variable has to be defined here
 # overwriting whatever is in the cache.
@@ -194,7 +194,7 @@ add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
 
 IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
     set(JNI_FOUND TRUE)
-ENDIF  (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
+ENDIF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
 
 IF (JNI_FOUND)
     message(STATUS "JNI found: building qfs_access")
