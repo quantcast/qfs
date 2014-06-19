@@ -465,8 +465,10 @@ ClientSM::HandleRequestSelf(int code, void *data)
             }
             if (mNetConnection->IsReadReady() &&
                     (IsOverPendingOpsLimit() ||
-                    mNetConnection->GetNumBytesToWrite() >= sMaxWriteBehind ||
-                    mNetConnection->GetNumBytesToRead()  >= sMaxPendingBytes)) {
+                    sMaxWriteBehind <= mNetConnection->GetNumBytesToWrite() ||
+                    ((0 < mPendingOpsCount || mNetConnection->IsWriteReady()) &&
+                        sMaxPendingBytes <=
+                            mNetConnection->GetNumBytesToRead()))) {
                 mLastReadLeft = 0;
                 mNetConnection->SetMaxReadAhead(0);
             }
@@ -864,7 +866,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
         // Try to read more, to detect protocol error, as the client
-        // should not send anything else prior to receiving the response.Fi
+        // should not send anything else prior to receiving the response.
         mNetConnection->SetMaxReadAhead(rem + sMaxReadAhead);
         return;
     }
