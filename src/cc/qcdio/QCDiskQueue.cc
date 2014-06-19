@@ -169,6 +169,8 @@ public:
     EnqueueStatus CheckDirWritable(
         const char*    inTestFileNamePtr,
         bool           inBufferedIoFlag,
+        bool           inAllocSpaceFlag,
+        int64_t        inWriteSize,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec);
     EnqueueStatus EnqueueMeta(
@@ -683,7 +685,8 @@ private:
     void ProcessClose(
         unsigned int inFileIdx);
     void ProcessMeta(
-        Request& inReq);
+        Request&      inReq,
+        struct iovec* inIoVecPtr);
     void RequestComplete(
         Request& inReq,
         Error    inError,
@@ -1208,7 +1211,7 @@ QCDiskQueue::Queue::Process(
         return;
     }
     if (inReq.IsMeta()) {
-        ProcessMeta(inReq);
+        ProcessMeta(inReq, inIoVecPtr);
         return;
     }
 
@@ -1522,7 +1525,8 @@ GetFsAvailable(
 
     void
 QCDiskQueue::Queue::ProcessMeta(
-    Request& inReq)
+    Request&      inReq,
+    struct iovec* inIoVecPtr)
 {
     QCASSERT(
         mMutex.IsOwned() &&
@@ -1600,17 +1604,65 @@ QCDiskQueue::Queue::ProcessMeta(
             }
             break;
         case kReqTypeCheckDirWritable: {
-                const bool theBufferedIoFlag =
-                    theNamePtr[theNextNameStart] != 0;
-                const int theOpenFlags       =
+                const char* thePtr = theNamePtr + theNextNameStart;
+                const bool theBufferedIoFlag    = (*thePtr++ & 0xFF) != '0';
+                const bool theAllocateSpaceFlag = (*thePtr++ & 0xFF) != '0';
+                int64_t    theSize              = 0;
+                int        theSym;
+                while ((theSym = (*thePtr++ & 0xFF))) {
+                    theSym -= '0';
+                    QCASSERT((theSym & ~0xF) == 0);
+                    theSize <<= 4;
+                    theSize |= theSym & 0xF;
+                }
+                const int theOpenFlags =
                     O_RDWR | GetOpenCommonFlags(theBufferedIoFlag);
-                const int theFd = CreateFile(
+                const int theFd        = CreateFile(
                     theNamePtr, theOpenFlags, S_IRUSR | S_IWUSR);
                 if (theFd < 0) {
                     theSysErr = errno;
                     theError  = kErrorCheckDirWritable;
                 } else {
-                    if (close(theFd)) {
+                    if (0 < theSize) {
+                        if (theAllocateSpaceFlag) {
+                            const int64_t theResv = QCUtils::ReserveFileSpace(
+                                theFd, theSize);
+                            if (theResv < 0) {
+                                theError  = kErrorCheckDirWritable;
+                                theSysErr = int(-theResv);
+                            }
+                        }
+                        if (theError == kErrorNone) {
+                            char* const theBufPtr = mBufferPoolPtr->Get();
+                            if (theBufPtr) {
+                                memset(theBufPtr, 0xF9, mBlockSize);
+                                int64_t theIoBytes = 0;
+                                while (theIoBytes < theSize) {
+                                    int theIoVecCnt = 0;
+                                    while (theIoBytes < theSize &&
+                                            theIoVecCnt <
+                                                mIoVecPerThreadCount) {
+                                        inIoVecPtr[theIoVecCnt  ].iov_base =
+                                            theBufPtr;
+                                        inIoVecPtr[theIoVecCnt++].iov_len  =
+                                            mBlockSize;
+                                        theIoBytes += mBlockSize;
+                                    }
+                                    const ssize_t theNWr = writev(
+                                        theFd, inIoVecPtr, theIoVecCnt);
+                                    if (theNWr !=
+                                            (ssize_t)theIoVecCnt * mBlockSize) {
+                                        theSysErr = errno;
+                                        theError  = kErrorCheckDirWritable;
+                                        break;
+                                    }
+                                }
+                                mBufferPoolPtr->Put(theBufPtr);
+                            }
+                            // Out of buffers silently ignored for now.
+                        }
+                    }
+                    if (close(theFd) && theError == kErrorNone) {
                         theSysErr = errno;
                         theError  = kErrorCheckDirWritable;
                     }
@@ -1848,16 +1900,32 @@ QCDiskQueue::Queue::CheckDirReadable(
 QCDiskQueue::Queue::CheckDirWritable(
     const char*                inTestFileNamePtr,
     bool                       inBufferedIoFlag,
+    bool                       inAllocSpaceFlag,
+    int64_t                    inWriteSize,
     QCDiskQueue::IoCompletion* inIoCompletionPtr,
     QCDiskQueue::Time          inTimeWaitNanoSec)
 {
     if (! inTestFileNamePtr || ! *inTestFileNamePtr) {
         return EnqueueStatus(kRequestIdNone, kErrorParameter);
     }
+    char  theParams[1 + sizeof(inWriteSize) * 2 + 2];
+    char* thePtr = theParams + sizeof(theParams) / sizeof(theParams[0]);
+    *--thePtr = 0;
+    if (inWriteSize <= 0) {
+        *--thePtr = (char)'0';
+    } else {
+        int64_t theVal = inWriteSize;
+        while (0 < theVal) {
+            *--thePtr = (char)('0' + (theVal & 0xF));
+            theVal >>= 4;
+        }
+    }
+    *--thePtr = (char)(inBufferedIoFlag ? '1' : '0');
+    *--thePtr = (char)(inAllocSpaceFlag ? '1' : '0');
     return EnqueueMeta(
         kReqTypeCheckDirWritable,
         inTestFileNamePtr,
-        inBufferedIoFlag ? "buffio" : "",
+        thePtr,
         inIoCompletionPtr,
         inTimeWaitNanoSec
     );
@@ -2256,11 +2324,14 @@ QCDiskQueue::CheckDirReadable(
 QCDiskQueue::CheckDirWritable(
     const char*                inTestFileNamePtr,
     bool                       inBufferedIoFlag,
+    bool                       inAllocSpaceFlag,
+    int64_t                    inWriteSize,
     QCDiskQueue::IoCompletion* inIoCompletionPtr,
     QCDiskQueue::Time          inTimeWaitNanoSec /* = -1 */)
 {
     return (mQueuePtr ?
         mQueuePtr->CheckDirWritable(inTestFileNamePtr, inBufferedIoFlag,
+            inAllocSpaceFlag, inWriteSize,
             inIoCompletionPtr, inTimeWaitNanoSec) :
         EnqueueStatus(kRequestIdNone, kErrorParameter)
     );

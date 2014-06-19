@@ -1382,15 +1382,20 @@ DiskIo::CheckDirReadable(
 DiskIo::CheckDirWritable(
     const char*     inTestFileNamePtr,
     bool            inBufferedIoFlag,
+    bool            inAllocSpaceFlag,
+    int64_t         inWriteSize,
     KfsCallbackObj* inCallbackObjPtr /* = 0 */,
     string*         inErrMessagePtr /* = 0 */)
 {
     return EnqueueMeta(
         kMetaOpTypeCheckDirWritable,
         inTestFileNamePtr,
-        inBufferedIoFlag ? "buffio" : "",
+        0,
         inCallbackObjPtr,
-        inErrMessagePtr
+        inErrMessagePtr,
+        inBufferedIoFlag,
+        inAllocSpaceFlag,
+        inWriteSize
     );
 }
 
@@ -1443,7 +1448,10 @@ DiskIo::EnqueueMeta(
     const char*        inNamePtr,
     const char*        inNextNamePtr,
     KfsCallbackObj*    inCallbackObjPtr,
-    string*            inErrMessagePtr)
+    string*            inErrMessagePtr,
+    bool               inBufferedIoFlag,
+    bool               inAllocSpaceFlag,
+    int64_t            inWriteSize)
 {
     const char* theErrMsgPtr = 0;
     if (! inNamePtr) {
@@ -1533,7 +1541,9 @@ DiskIo::EnqueueMeta(
                     sDiskIoQueuesPtr->SetInFlight(theDiskIoPtr);
                     theStatus = theQueuePtr->CheckDirWritable(
                         inNamePtr,
-                        inNextNamePtr && inNextNamePtr[0] != 0,
+                        inBufferedIoFlag,
+                        inAllocSpaceFlag,
+                        inWriteSize,
                         theDiskIoPtr,
                         sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
                     );

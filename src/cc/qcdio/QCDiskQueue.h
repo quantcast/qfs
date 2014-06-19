@@ -406,6 +406,8 @@ public:
     EnqueueStatus CheckDirWritable(
         const char*    inTestFileNamePtr,
         bool           inBufferedIoFlag,
+        bool           inAllocSpaceFlag,
+        int64_t        inWriteSize,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec = -1);
 

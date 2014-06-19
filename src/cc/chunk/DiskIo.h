@@ -153,6 +153,8 @@ public:
     static bool CheckDirWritable(
         const char*     inTestFileNamePtr,
         bool            inBufferedIoFlag,
+        bool            inAllocSpaceFlag,
+        int64_t         inWriteSize,
         KfsCallbackObj* inCallbackObjPtr = 0,
         string*         inErrMessagePtr  = 0);
     static bool GetDiskQueuePendingCount(
@@ -311,7 +313,10 @@ private:
         const char*     inSrcFileNamePtr,
         const char*     inDstFileNamePtr,
         KfsCallbackObj* inCallbackObjPtr,
-        string*         inErrMessagePtr);
+        string*         inErrMessagePtr,
+        bool            inBufferedIoFlag = false,
+        bool            inAllocSpaceFlag = false,
+        int64_t         inWriteSize      = 0);
 
     friend class QCDLListOp<DiskIo, 0>;
     friend class DiskIoQueues;

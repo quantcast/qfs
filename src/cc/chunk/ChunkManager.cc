@@ -1617,6 +1617,7 @@ ChunkManager::ChunkManager()
       mBufferedIoFlag(false),
       mSyncChunkHeaderFlag(false),
       mCheckDirWritableFlag(true),
+      mCheckDirTestWriteSize(16 << 10),
       mCheckDirWritableTmpFileName("checkdir.tmp"),
       mNullBlockChecksum(0),
       mCounters(),
@@ -1844,6 +1845,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mCheckDirWritableFlag = prop.getValue(
         "chunkServer.checkDirWritableFlag",
         mCheckDirWritableFlag ? 1 : 0) != 0;
+    mCheckDirTestWriteSize = prop.getValue(
+        "chunkServer.checkDirTestWriteSize",
+        mCheckDirTestWriteSize);
     mCheckDirWritableTmpFileName = prop.getValue(
         "chunkserver.checkDirWritableTmpFileName",
         mCheckDirWritableTmpFileName);
@@ -5787,8 +5791,12 @@ ChunkManager::CheckChunkDirs()
         }
         if ((mCheckDirWritableFlag ? 
             ! DiskIo::CheckDirWritable(
-                name.c_str(), it->bufferedIoFlag,
-                &(it->checkDirCb), &err) :
+                name.c_str(),
+                it->bufferedIoFlag,
+                it->supportsSpaceReservatonFlag,
+                mCheckDirTestWriteSize,
+                &(it->checkDirCb),
+                &err) :
             ! DiskIo::CheckDirReadable(
                 name.c_str(), &(it->checkDirCb), &err))) {
             it->checkDirFlightFlag = false;

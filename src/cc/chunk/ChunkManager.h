@@ -758,6 +758,7 @@ private:
     bool mBufferedIoFlag;
     bool mSyncChunkHeaderFlag;
     bool mCheckDirWritableFlag;
+    int64_t mCheckDirTestWriteSize;
     string mCheckDirWritableTmpFileName;
 
     uint32_t mNullBlockChecksum;
