@@ -1591,6 +1591,9 @@ HeartbeatOp::Execute()
     HBAppend(os, "Client-other-micro-sec", "tm",
         cli.mOtherRequestTimeMicroSecs);
     HBAppend(os, "Client-other-errors",    "err",   cli.mOtherRequestErrors);
+    HBAppend(os, "Client-over-limit",      "oce",   cli.mOverClientLimitCount);
+    HBAppend(os, "Client-max-count",       "max",
+        gClientManager.GetMaxClientCount());
 
     HBAppend(os, 0, "timer: ovr", "");
     HBAppend(os, "Timer-overrun-count", "cnt",

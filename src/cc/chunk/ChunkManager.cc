@@ -1583,6 +1583,7 @@ ChunkManager::ChunkManager()
       mNextCheckpointTime(0),
       mMaxOpenChunkFiles((64 << 10) - 8),
       mMaxOpenFds(1 << 10),
+      mMaxClientCount(mMaxOpenFds * 2 / 3),
       mFdsPerChunk(1),
       mChunkDirs(),
       mWriteId(GetRandomSeq()), // Seed write id.
@@ -1885,8 +1886,14 @@ ChunkManager::SetParameters(const Properties& prop)
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
 
+    mMaxClientCount = min(mMaxOpenFds * 2 / 3, prop.getValue(
+        "chunkServer.client.maxClientCount", mMaxClientCount));
     bool ret = gClientManager.SetParameters(
-        "chunkServer.client.", prop, gMetaServerSM.IsAuthEnabled());
+        "chunkServer.client.",
+        prop,
+        gMetaServerSM.IsAuthEnabled(),
+        mMaxClientCount
+    );
     ret = RemoteSyncSM::SetParameters(
         "chunkServer.remoteSync.", prop, gMetaServerSM.IsAuthEnabled()) && ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
@@ -2105,6 +2112,12 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     mStaleChunksDir = AddTrailingPathSeparator(mStaleChunksDir);
     mDirtyChunksDir = AddTrailingPathSeparator(mDirtyChunksDir);
 
+    mMaxOpenFds = SetMaxNoFileLimit();
+    mMaxClientCount = mMaxOpenFds * 2 / 3;
+    KFS_LOG_STREAM_INFO <<
+        " max open files: "           << mMaxOpenFds <<
+        " default max client count: " << mMaxClientCount <<
+    KFS_LOG_EOM;
     if (! SetParameters(prop)) {
         return false;
     }
@@ -2160,7 +2173,6 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         return false;
     }
     const int kMinOpenFds = 32;
-    mMaxOpenFds = SetMaxNoFileLimit();
     if (mMaxOpenFds < kMinOpenFds) {
         KFS_LOG_STREAM_ERROR <<
             "file descriptor limit too small: " << mMaxOpenFds <<

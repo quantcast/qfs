@@ -710,6 +710,7 @@ private:
     time_t mNextCheckpointTime;
     int    mMaxOpenChunkFiles;
     int    mMaxOpenFds;
+    int    mMaxClientCount;
     int    mFdsPerChunk;
 
     /// directories for storing the chunks

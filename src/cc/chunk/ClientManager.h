@@ -68,6 +68,7 @@ public:
         Counter mAppendRequestErrors;
         Counter mWaitTimeExceededCount;
         Counter mDiscardedBytesCount;
+        Counter mOverClientLimitCount;
 
         void Clear() {
             mAcceptCount                = 0;
@@ -93,6 +94,7 @@ public:
             mAppendRequestErrors        = 0;
             mWaitTimeExceededCount      = 0;
             mDiscardedBytesCount        = 0;
+            mOverClientLimitCount       = 0;
         }
     };
     ClientManager();
@@ -193,14 +195,18 @@ public:
     bool SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inProps,
-        bool              inAuthEnabledFlag);
+        bool              inAuthEnabledFlag,
+        int               inMaxClientCount);
     void Shutdown();
+    int GetMaxClientCount() const
+        { return mMaxClientCount; }
 private:
     class Auth;
 
     Acceptor* mAcceptorPtr;
     int       mIoTimeoutSec;
     int       mIdleTimeoutSec;
+    int       mMaxClientCount;
     Counters  mCounters;
     Auth&     mAuth;
 
