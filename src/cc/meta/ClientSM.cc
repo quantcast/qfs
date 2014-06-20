@@ -252,8 +252,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
 
     switch (code) {
     case EVENT_NET_READ: {
-        // We read something from the network. Run the RPC that
-        // came in.
+        // We read something from the network. Run the RPC that came in.
         mLastReadLeft = 0;
         IOBuffer& iobuf = mNetConnection->GetInBuffer();
         if (mDisconnectFlag) {
@@ -459,14 +458,13 @@ ClientSM::HandleRequestSelf(int code, void *data)
             }
             IOBuffer& outbuf = mNetConnection->GetOutBuffer();
             numBytes = outbuf.BytesConsumable();
-            if (numBytes <= sOutBufCompactionThreshold &&
-                    numBytes > 0) {
+            if (numBytes <= sOutBufCompactionThreshold && numBytes > 0) {
                 outbuf.MakeBuffersFull();
             }
             if (mNetConnection->IsReadReady() &&
                     (IsOverPendingOpsLimit() ||
                     sMaxWriteBehind <= mNetConnection->GetNumBytesToWrite() ||
-                    ((0 < mPendingOpsCount || mNetConnection->IsWriteReady()) &&
+                    (mNetConnection->IsWriteReady() &&
                         sMaxPendingBytes <=
                             mNetConnection->GetNumBytesToRead()))) {
                 mLastReadLeft = 0;
