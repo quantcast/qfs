@@ -121,6 +121,9 @@ class SystemInfo:
         self.totalDrives = -1
         self.writableDrives = 1
         self.appendCacheSize = -1
+        self.maxClients = -1
+        self.maxChunkServers = -1
+        self.totalBuffers = -1
 
 class Status:
     def __init__(self):
@@ -223,11 +226,24 @@ class Status:
                 '''&nbsp;backlog:&nbsp;''' + splitThousands(systemInfo.replicationBacklog) + \
                 '''</td></tr>'''
         if systemInfo.clients >= 0:
-            print >> buffer, '''<tr> <td> Allocations </td><td>:</td><td>clients:&nbsp;''' + \
-                splitThousands(systemInfo.clients) + \
-                '''&nbsp;chunk&nbsp;servers:&nbsp;''' + splitThousands(systemInfo.chunkServers) + \
+            print >> buffer, \
+                '''<tr> <td> Allocations </td><td>:</td><td>clients:&nbsp;''' + \
+                splitThousands(systemInfo.clients)
+            if 0 <= systemInfo.maxClients:
+                print >> buffer, \
+                    '''&nbsp;(max:&nbsp;''' + splitThousands(systemInfo.maxClients) + ')'
+            print >> buffer, \
+                '''&nbsp;chunk&nbsp;servers:&nbsp;''' + splitThousands(systemInfo.chunkServers)
+            if 0 <= systemInfo.maxChunkServers:
+                print >> buffer, \
+                    '''&nbsp;(max:&nbsp;''' + splitThousands(systemInfo.maxChunkServers) + ')'
+            print >> buffer, \
                 '''&nbsp;requests:&nbsp;''' + splitThousands(systemInfo.allocatedRequests) + \
-                '''&nbsp;buffers:&nbsp;''' + splitThousands(systemInfo.usedBuffers) + \
+                '''&nbsp;buffers:&nbsp;''' + splitThousands(systemInfo.usedBuffers)
+            if 0 <= systemInfo.totalBuffers:
+                print >> buffer, \
+                    '''&nbsp;(max:&nbsp;''' + splitThousands(systemInfo.totalBuffers) + ')'
+            print >> buffer, \
                 '''&nbsp;sockets:&nbsp;''' + splitThousands(systemInfo.sockets) + \
                 '''&nbsp;chunks:&nbsp;''' + splitThousands(systemInfo.chunks)
             if systemInfo.appendCacheSize >= 0:
@@ -1044,6 +1060,15 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 49:
         return
     systemInfo.appendCacheSize = long(info[48].split('=')[1])
+    if len(info) < 50:
+        return
+    systemInfo.maxClients = long(info[49].split('=')[1])
+    if len(info) < 51:
+        return
+    systemInfo.maxChunkServers = long(info[50].split('=')[1])
+    if len(info) < 52:
+        return
+    systemInfo.totalBuffers = long(info[51].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
