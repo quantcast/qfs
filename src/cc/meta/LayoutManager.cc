@@ -5146,6 +5146,11 @@ LayoutManager::IsAllocationAllowed(MetaAllocate* req)
         req->statusMsg = "client upgrade required";
         return false;
     }
+    if (InRecovery() && ! req->invalidateAllFlag) {
+        req->statusMsg = "meta server in recovery mode";
+        req->status    = -EBUSY;
+        return false;
+    }
     if (req->authUid != kKfsUserNone) {
         req->sessionEndTime = max(
             req->sessionEndTime, (int64_t)TimeNow() + mMinWriteLeaseTimeSec);
@@ -9179,6 +9184,8 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
         MetaAllocate& alloc = *(new MetaAllocate(
             sit->first, req.fid, cit->offset));
         alloc.invalidateAllFlag = true;
+        alloc.clientProtoVers   = max(KFS_CLIENT_PROTO_VERS,
+            mMinChunkAllocClientProtoVersion + 1);
         // To pass worm mode check assign name with tmp suffix.
         const char* const kWormFakeName = "InvalidateChunk.tmp";
         alloc.pathname.Copy(kWormFakeName, strlen(kWormFakeName));
