@@ -469,7 +469,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
             maxSocketFd / (512 < maxSocketFd ? 8 : 4));
     }
     const int kMinClientSocketCount = 16;
-    if (mMaxChunkServers < mMinChunkservers ||
+    if (mMaxChunkServers < (int)mMinChunkservers ||
             maxSocketFd < mMaxChunkServers + kMinClientSocketCount) {
         KFS_LOG_STREAM_FATAL <<
             "insufficient file descriptors limit: " << mMaxFdLimit <<
