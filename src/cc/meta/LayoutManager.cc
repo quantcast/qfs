@@ -6455,7 +6455,11 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
         "Good slaves= "       << pinger.goodSlaves  << "\t"
         "Total drives= "      << pinger.totalDrives << "\t"
         "Writable drives= "   << pinger.writableDrives << "\t"
-        "Append cache size= " << mARAChunkCache.GetSize()
+        "Append cache size= " << mARAChunkCache.GetSize() << "\t"
+        "Max clients= "       << gNetDispatch.GetMaxClientCount() << "\t"
+        "Max chunk srvs= "    << ChunkServer::GetMaxChunkServerCount() << "\t"
+        "Buffers total= "     <<
+            (mBufferPool ? mBufferPool->GetTotalBufferCount() : 0)
     ;
     mWOstream.flush();
     mWOstream.Reset();

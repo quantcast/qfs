@@ -339,6 +339,12 @@ NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
         mChunkServerFactory.Bind(chunkServerAcceptPort));
 }
 
+int
+NetDispatch::GetMaxClientCount() const
+{
+    return mClientManager.GetMaxClientCount();
+}
+
 const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
 
 class MainThreadPrepareToFork : public NetManager::Dispatcher
@@ -808,6 +814,7 @@ void NetDispatch::SetParameters(const Properties& props)
         globalNetManager().GetMaxAcceptsPerRead()));
 
     sReqStatsGatherer.SetParameters(props);
+    mClientManager.SetParameters(props);
 
     string errMsg;
     int    err;
@@ -902,6 +909,11 @@ NetDispatch::Dispatch(MetaRequest *r)
     }
 }
 
+void NetDispatch::SetMaxClientSockets(int count)
+{
+    mClientManager.SetMaxClientSockets(count);
+}
+
 class ClientManager::Impl : public IAcceptorOwner
 {
 public:
@@ -911,6 +923,8 @@ public:
           mClientThreads(0),
           mClientThreadCount(-1),
           mNextThreadIdx(0),
+          mMaxClientCount(64 << 10),
+          mMaxClientSocketCount(mMaxClientCount),
           mMutex(),
           mPrepareToForkDoneCond(),
           mForkDoneCond(),
@@ -961,6 +975,15 @@ public:
         // Resume threads after fork(s) completes and the lock gets released.
         mForkDoneCond.NotifyAll();
     }
+    void SetParameters(const Properties& params)
+    {
+        mMaxClientCount = min(mMaxClientSocketCount, params.getValue(
+            "metaServer.maxClientCount", mMaxClientCount));
+    }
+    void SetMaxClientSockets(int count)
+        { mMaxClientSocketCount = count; }
+    int GetMaxClientCount() const
+        { return mMaxClientCount; }
 private:
     class ClientThread;
     // The socket object which is setup to accept connections.
@@ -968,6 +991,8 @@ private:
     ClientManager::ClientThread* mClientThreads;
     int                          mClientThreadCount;
     int                          mNextThreadIdx;
+    int                          mMaxClientCount;
+    int                          mMaxClientSocketCount;
     QCMutex                      mMutex;
     QCCondVar                    mPrepareToForkDoneCond;
     QCCondVar                    mForkDoneCond;
@@ -975,6 +1000,24 @@ private:
     volatile bool                mPrepareToForkFlag;
     volatile int                 mPrepareToForkCnt;
 };
+
+void
+ClientManager::SetParameters(const Properties& props)
+{
+    mImpl.SetParameters(props);
+}
+
+void
+ClientManager::SetMaxClientSockets(int count)
+{
+    mImpl.SetMaxClientSockets(count);
+}
+
+int
+ClientManager::GetMaxClientCount() const
+{
+    return mImpl.GetMaxClientCount();
+}
 
 inline void
 ClientManager::PrepareToFork()
@@ -1318,11 +1361,25 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
 };
 
 KfsCallbackObj*
-ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr &conn)
+ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr& conn)
 {
-    if (mClientThreadCount < 0) {
+    if (mClientThreadCount < 0 || ! conn || ! conn->IsGood()) {
         return 0;
-    } else if (mClientThreadCount == 0) {
+    }
+    const int connCount = ClientSM::GetClientCount();
+    if (mMaxClientCount <= connCount) {
+        // The value doesn't reflect the active connection count, but rather
+        // number of existing client state machines. This should be OK here, as
+        // with no state machines "leak" it wouldn't make much difference.
+        // The leak, if exists, must be fixed, of course.
+        KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
+            " over connection limit: " << mMaxClientCount <<
+            " connection count: "      << connCount <<
+            " closing connection" <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+    if (mClientThreadCount == 0) {
         return new ClientSM(conn);
     }
     int idx = mNextThreadIdx;

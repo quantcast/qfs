@@ -203,7 +203,8 @@ string ChunkServer::sSrvLoadPropName("Buffer-usec-wait-avg");
 bool ChunkServer::sRestartCSOnInvalidClusterKeyFlag = false;
 ChunkServer::ChunkOpsInFlight ChunkServer::sChunkOpsInFlight;
 ChunkServer* ChunkServer::sChunkServersPtr[kChunkSrvListsCount] = { 0, 0 };
-int ChunkServer::sChunkServerCount = 0;
+int ChunkServer::sChunkServerCount    = 0;
+int ChunkServer::sMaxChunkServerCount = 0;
 int ChunkServer::sPendingHelloCount    = 0;
 int ChunkServer::sMinHelloWaitingBytes = 0;
 int64_t ChunkServer::sHelloBytesCommitted = 0;
@@ -304,6 +305,24 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     mAllocSpace += CHUNKSIZE;
     UpdateChunkWritesPerDrive(mNumChunkWrites + 1, mNumWritableDrives);
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
+}
+
+/* static */ KfsCallbackObj*
+ChunkServer::Create(const NetConnectionPtr &conn)
+{
+    if (! conn || ! conn->IsGood()) {
+        return 0;
+    }
+    if (sMaxChunkServerCount <= sChunkServerCount) {
+        KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
+            "over chunk servers lmit << " << sMaxChunkServerCount <<
+            " closing connection" <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+    ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
+    ret->mSelfPtr.reset(ret);
+    return ret;
 }
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)

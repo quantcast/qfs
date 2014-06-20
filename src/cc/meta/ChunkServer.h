@@ -360,14 +360,7 @@ public:
         >
     > ChunkOpsInFlight;
 
-    static KfsCallbackObj* Create(const NetConnectionPtr &conn) {
-        if (! conn || ! conn->IsGood()) {
-            return 0;
-        }
-        ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
-        ret->mSelfPtr.reset(ret);
-        return ret;
-    }
+    static KfsCallbackObj* Create(const NetConnectionPtr &conn);
     ///
     /// Sequence:
     ///  Chunk server connects.
@@ -797,6 +790,10 @@ public:
         { return mCryptoKeyValidFlag; }
     kfsUid_t GetAuthUid() const
         { return mAuthUid; }
+    static void SetMaxChunkServerCount(int count)
+        { sMaxChunkServerCount = count; }
+    static int GetMaxChunkServerCount()
+        { return sMaxChunkServerCount; }
 
 protected:
     /// Enqueue a request to be dispatched to this server
@@ -1002,6 +999,7 @@ protected:
     static ChunkOpsInFlight sChunkOpsInFlight;
     static ChunkServer*     sChunkServersPtr[kChunkSrvListsCount];
     static int              sChunkServerCount;
+    static int              sMaxChunkServerCount;
     static int              sPendingHelloCount;
     static int              sMinHelloWaitingBytes;
     static int64_t          sMaxHelloBufferBytes;

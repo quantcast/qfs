@@ -197,10 +197,13 @@ private:
           mLogDir(),
           mCPDir(),
           mMinChunkservers(1),
+          mMaxChunkServers(-1),
+          mMaxChunkServersSocketCount(-1),
           mMinReplicasPerFile(1),
           mIsPathToFidCacheEnabled(false),
           mLogRotateIntervalSec(600),
-          mMaxLockedMemorySize(0)
+          mMaxLockedMemorySize(0),
+          mMaxFdLimit(-1)
         {}
     ~MetaServer()
     {
@@ -300,10 +303,13 @@ private:
     string     mCPDir;
     // min # of chunk servers to exit recovery mode
     uint32_t   mMinChunkservers;
+    int        mMaxChunkServers;
+    int        mMaxChunkServersSocketCount;
     int16_t    mMinReplicasPerFile;
     bool       mIsPathToFidCacheEnabled;
     int        mLogRotateIntervalSec;
     int64_t    mMaxLockedMemorySize;
+    int        mMaxFdLimit;
 
     static MetaServer sInstance;
 } MetaServer::sInstance;
@@ -312,8 +318,22 @@ void
 MetaServer::SetParameters(const Properties& props)
 {
     // min # of chunkservers that should connect to exit recovery mode
-    mMinChunkservers = props.getValue("metaServer.minChunkservers", 1);
-    KFS_LOG_STREAM_INFO << "min. # of chunkserver that should connect: " <<
+    mMinChunkservers = props.getValue(
+        "metaServer.minChunkservers", mMinChunkservers);
+    mMaxChunkServers = props.getValue(
+        "metaServer.maxChunkservers", mMaxChunkServers);
+    if (0 <= mMaxChunkServersSocketCount) {
+        KFS_LOG_STREAM_INFO <<
+            "setting chunk servers limit:"
+            " max: " << mMaxChunkServers <<
+            " min: " << mMinChunkservers <<
+            " chunk servers socket limit: " << mMaxChunkServersSocketCount <<
+        KFS_LOG_EOM;
+        mMaxChunkServers = min(mMaxChunkServersSocketCount, mMaxChunkServers);
+        ChunkServer::SetMaxChunkServerCount(mMaxChunkServers);
+        // Allow to set min greater than max to force "recoverY" mode.
+    }
+    KFS_LOG_STREAM_INFO << "min chunk servers that should connect: " <<
         mMinChunkservers <<
     KFS_LOG_EOM;
     gLayoutManager.SetMinChunkserversToExitRecovery(mMinChunkservers);
@@ -334,6 +354,7 @@ MetaServer::SetParameters(const Properties& props)
     mLogRotateIntervalSec = max(3,
         props.getValue("metaServer.mLogRotateInterval",
             mLogRotateIntervalSec));
+
     logger_set_rotate_interval(mLogRotateIntervalSec);
 
     string chunkmapDumpDir = props.getValue("metaServer.chunkmapDumpDir", ".");
@@ -362,8 +383,13 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     MsgLogger::GetLogger()->SetParameters(props, "metaServer.msgLogWriter.");
 
     // bump up the # of open fds to as much as possible
-    SetMaxNoFileLimit();
-
+    mMaxFdLimit = SetMaxNoFileLimit();
+    if (mMaxFdLimit < 32) {
+        KFS_LOG_STREAM_FATAL <<
+            "insufficient file descripro limit: " << mMaxFdLimit <<
+        KFS_LOG_EOM;
+        return false;
+    }
     mMaxLockedMemorySize = (int64_t)props.getValue(
         "metaServer.maxLockedMemory", (double)mMaxLockedMemorySize);
     string errMsg;
@@ -436,6 +462,34 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     metatree.setUpdatePathSpaceUsage(true);
 
     SetParameters(props);
+
+    const int maxSocketFd = mMaxFdLimit - min(256, (mMaxFdLimit + 2) / 3);
+    if (mMaxChunkServers < 0) {
+        mMaxChunkServers = min(max(4 << 10, 2 * (int)mMinChunkservers),
+            maxSocketFd / (512 < maxSocketFd ? 8 : 4));
+    }
+    const int kMinClientSocketCount = 16;
+    if (mMaxChunkServers < mMinChunkservers ||
+            maxSocketFd < mMaxChunkServers + kMinClientSocketCount) {
+        KFS_LOG_STREAM_FATAL <<
+            "insufficient file descriptors limit: " << mMaxFdLimit <<
+            " for number of chunk servers:"
+            " min: " << mMinChunkservers <<
+            " max: " << mMaxChunkServers <<
+            " min client socket count: " << kMinClientSocketCount <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    const int maxClientSocketCount = maxSocketFd - mMaxChunkServers;
+    mMaxChunkServersSocketCount = mMaxChunkServers;
+    KFS_LOG_STREAM_INFO <<
+        "hard limits:"
+        " open files: "    << mMaxFdLimit <<
+        " chunk servers: " << mMaxChunkServersSocketCount <<
+        " clients: "       << maxClientSocketCount <<
+    KFS_LOG_EOM;
+    ChunkServer::SetMaxChunkServerCount(mMaxChunkServers);
+    gNetDispatch.SetMaxClientSockets(maxClientSocketCount);
 
     gLayoutManager.SetBufferPool(&GetIoBufAllocator().GetBufferPool());
     bool okFlag = gLayoutManager.SetParameters(props, mClientPort);
