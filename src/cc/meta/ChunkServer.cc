@@ -315,7 +315,8 @@ ChunkServer::Create(const NetConnectionPtr &conn)
     }
     if (sMaxChunkServerCount <= sChunkServerCount) {
         KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
-            "over chunk servers lmit << " << sMaxChunkServerCount <<
+            " chunk servers: "            << sChunkServerCount <<
+            " over chunk servers limit: " << sMaxChunkServerCount <<
             " closing connection" <<
         KFS_LOG_EOM;
         return 0;
