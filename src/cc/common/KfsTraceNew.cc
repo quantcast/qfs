@@ -179,7 +179,7 @@ KfsTraceNew::MallocFailed(
         const int theLen = snprintf(theBuf, sizeof(theBuf),
             "malloc(%lu) failure:\n", (unsigned long)inSize);
         if (theLen > 0) {
-            if (theFd, theBuf, theLen) < 0) {
+            if (write(theFd, theBuf, theLen) < 0) {
                 mLastIgnoredSysErr = errno;
             }
         }
