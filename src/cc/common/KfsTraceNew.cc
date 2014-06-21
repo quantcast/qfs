@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -52,6 +53,7 @@ struct KfsTraceNew
           mTraceFd(-1),
           mMaxNewSize(0),
           mContinueOnMallocFailureFlag(false),
+          mLastIgnoredSysErr(0),
           mParametersPtr(getenv("KFS_TRACE_NEW_PARAMS")),
           mStackTraceDepth(0),
           mRlimAs(),
@@ -94,7 +96,9 @@ struct KfsTraceNew
         if (theLen <= 0) {
             return;
         }
-        write(mTraceFd, theBuf, theLen);
+        if (write(mTraceFd, theBuf, theLen) < 0) {
+            mLastIgnoredSysErr = errno;
+        }
     }
     void MallocFailed(
         size_t inSize);
@@ -129,6 +133,7 @@ struct KfsTraceNew
     int               mTraceFd;
     size_t            mMaxNewSize;
     bool              mContinueOnMallocFailureFlag;
+    int               mLastIgnoredSysErr;
     const char* const mParametersPtr;
     int               mStackTraceDepth;
     struct rlimit     mRlimAs;
@@ -164,12 +169,17 @@ KfsTraceNew::MallocFailed(
         const int theLen = snprintf(theBuf, sizeof(theBuf),
             "malloc(%lu) failure:\n", (unsigned long)inSize);
         if (theLen > 0) {
-            write(2, theBuf, theLen);
+            if (write(0 <= mTraceFd ? mTraceFd : 2, theBuf, theLen) < 0) {
+                mLastIgnoredSysErr = errno;
+            }
         }
         backtrace_symbols_fd(theStackTrace, theDepth, 2);
         memcpy(mStackTrace, theStackTrace, theDepth * sizeof(mStackTrace[0]));
         if (theMapsSize > 0) {
-            write(2, mMapsBuf, theMapsSize);
+            if (write(
+                    0 <= mTraceFd ? mTraceFd : 2, mMapsBuf, theMapsSize) < 0) {
+                mLastIgnoredSysErr = errno;
+            }
         }
         mStackTraceDepth = theDepth;
     }
