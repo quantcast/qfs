@@ -405,6 +405,7 @@ public:
           mDeleteOnCloseFlag(inDeleteOnCloseFlag),
           mSessionStoredFlag(false),
           mShutdownInitiatedFlag(false),
+          mSslShutdownWantsWriteFlag(false),
           mServerFlag(false),
           mSslEofFlag(false),
           mSslErrorFlag(false),
@@ -459,8 +460,9 @@ public:
         return (
             mSslPtr && mError == 0 &&
             (SSL_want_write(mSslPtr) ||
-            (! mShutdownInitiatedFlag &&
-                inConnection.IsWriteReady() && SSL_is_init_finished(mSslPtr)))
+            (mShutdownInitiatedFlag ?
+                mSslShutdownWantsWriteFlag :
+                (inConnection.IsWriteReady() && SSL_is_init_finished(mSslPtr))))
         );
     }
     int Read(
@@ -704,7 +706,21 @@ public:
         if (! mSslPtr || SSL_get_fd(mSslPtr) != inSocket.GetFd()) {
             return -EINVAL;
         }
-        const int theRet = ShutdownSelf(inConnection, inOuter);
+        int theRet = ShutdownSelf(inConnection, inOuter);
+        // Check the return first, as the object might be already delete in
+        // the case if return is 0.
+        if (theRet != 0 && (
+                theRet == -EAGAIN ||
+                theRet == -EWOULDBLOCK ||
+                theRet == -EINTR) &&
+                mError == 0 && ! mSslErrorFlag) {
+            // If ssl doesn't want read or write, then assume that ssl alert
+            // write has failed, and retry ssl shutdown again when socket
+            // becomes write ready.
+            mSslShutdownWantsWriteFlag =
+                ! SSL_want_read(mSslPtr) && ! SSL_want_write(mSslPtr);
+            theRet = 0;
+        }
         inConnection.Update();
         return theRet;
     }
@@ -732,6 +748,7 @@ private:
     const bool        mDeleteOnCloseFlag:1;
     bool              mSessionStoredFlag:1;
     bool              mShutdownInitiatedFlag:1;
+    bool              mSslShutdownWantsWriteFlag:1;
     bool              mServerFlag:1;
     bool              mSslEofFlag:1;
     bool              mSslErrorFlag:1;
@@ -1156,7 +1173,8 @@ private:
         NetConnection& inConnection,
         SslFilter&     inOuter)
     {
-        mShutdownInitiatedFlag = true;
+        mShutdownInitiatedFlag     = true;
+        mSslShutdownWantsWriteFlag = false; // Always reset here.
         if (mShutdownCompleteFlag) {
             return 0;
         }
