@@ -3466,8 +3466,9 @@ private:
             return;
         }
         SetPos(inRequest.mPos);
-        int  theLen            = inRequest.mSize;
-        bool theEndOfBlockFlag = false;
+        int        theLen            = inRequest.mSize;
+        bool       theEndOfBlockFlag = false;
+        const bool theOkFlag         = inRequest.mStatus == 0;
         while (theLen > 0) {
             const int theSize = min(theLen, GetStripeRemaining());
             Buffer&   theBuf  = inRequest.GetBuffer(GetStripeIdx());
@@ -3511,7 +3512,7 @@ private:
                         0);
                 }
             } else {
-                theEndOfBlockFlag =
+                theEndOfBlockFlag = theOkFlag &&
                     theBuf.mBuf.mBuffer.BytesConsumable() < theSize;
             }
             theBuffer.MoveSpace(&theBuf.mBuf.mBuffer, theSize);
