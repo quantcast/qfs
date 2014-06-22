@@ -4812,7 +4812,6 @@ ChunkManager::StartDiskIo()
             // directory. For non empty chunk directories this isn't very
             // efficient way to assign the fs id. Under normal circumstances
             // this code path should almost never be invoked.
-            mDirChecker.SetDeleteAllChaunksOnFsMismatch(fileSystemId, false);
             for (ChunkDirs::iterator it = mChunkDirs.begin();
                     it != mChunkDirs.end();
                     ++it) {
