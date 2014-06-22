@@ -5375,10 +5375,11 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
                     availableChunksOp.numChunks++;
                 } else {
                     if (&(ach->GetDirInfo()) == this &&
-                            ach->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
+                            (ach->IsBeingReplicated() ||
+                            ach->CanHaveVersion(cih->chunkInfo.chunkVersion))) {
                         gChunkManager.DeleteSelf(*cih);
                     } else {
-                        const bool kForceDeleteFlag = true;
+                        const bool kForceDeleteFlag = false;
                         const bool kEvacuatedFlag   = false;
                         gChunkManager.MakeStale(
                             *cih, kForceDeleteFlag, kEvacuatedFlag);
