@@ -602,8 +602,15 @@ struct GetAllocOp: public KfsOp {
             " fid: "     << fid <<
             " offset: "  << fileOffset <<
             " chunkId: " << chunkId <<
-            " version: " << chunkVersion
+            " version: " << chunkVersion <<
+            " ordered: " << serversOrderedFlag <<
+            " servers: " << chunkServers.size()
         ;
+        for (vector<ServerLocation>::const_iterator it = chunkServers.begin();
+                it != chunkServers.end();
+                ++it) {
+            os << " " << *it;
+        }
         return os;
     }
 };
