@@ -991,6 +991,8 @@ public:
         mMaxIoTime = max(1, inProperties.getValue(
             "chunkServer.diskIo.maxIoTimeSec", mMaxIoTime));
     }
+    int GetMaxIoTimeSec() const
+        { return mMaxIoTime; }
 private:
     typedef DiskIo::IoBuffers IoBuffers;
     class WriteCancelWaiter : public QCDiskQueue::IoCompletion
@@ -1440,6 +1442,15 @@ DiskIo::SetParameters(
     if (sDiskIoQueuesPtr) {
         sDiskIoQueuesPtr->SetParameters(inProperties);
     }
+}
+
+    /* static */ int
+DiskIo::GetMaxIoTimeSec()
+{
+    if (sDiskIoQueuesPtr) {
+        return sDiskIoQueuesPtr->GetMaxIoTimeSec();
+    }
+    return -1;
 }
 
      /* static */ bool

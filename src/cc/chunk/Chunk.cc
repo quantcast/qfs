@@ -30,6 +30,7 @@
 
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <fcntl.h>
@@ -48,7 +49,8 @@ bool IsValidChunkFile(
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
     int64_t&           outChunkSize,
-    int64_t*           outFileSfId)
+    int64_t*           outFileSystemId,
+    int*               outIoTimeSec)
 {
     const int   kNumComponents = 3;
     long long   components[kNumComponents];
@@ -93,10 +95,11 @@ bool IsValidChunkFile(
     }
     const chunkId_t chunkId   = components[1];
     const kfsSeq_t  chunkVers = components[2];
-    if (filesz > kMaxChunkFileSize || outFileSfId) {
+    if (filesz > kMaxChunkFileSize || outFileSystemId) {
         // Load and validate chunk header, and set proper file size.
         const string cf(dirname + filename);
-        const int    fd = open(cf.c_str(), O_RDONLY);
+        const time_t start = outIoTimeSec ? time(0) : 0;
+        const int    fd    = open(cf.c_str(), O_RDONLY);
         if (fd < 0) {
             const int err = errno;
             KFS_LOG_STREAM_INFO <<
@@ -109,6 +112,9 @@ bool IsValidChunkFile(
         const ssize_t rd = read(fd, chunkHeaderBuffer.GetPtr(),
             chunkHeaderBuffer.GetSize());
         close(fd);
+        if (outIoTimeSec) {
+            *outIoTimeSec = time(0) - start;
+        }
         if (rd != chunkHeaderBuffer.GetSize()) {
             const int err = rd < 0 ? errno : EINVAL;
             KFS_LOG_STREAM_INFO <<
@@ -148,8 +154,8 @@ bool IsValidChunkFile(
             KFS_LOG_EOM;
             return false;
         }
-        if (outFileSfId) {
-            *outFileSfId = dci.GetFsId();
+        if (outFileSystemId) {
+            *outFileSystemId = dci.GetFsId();
         }
         filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;
         if (filesz < infilesz) {

@@ -318,7 +318,8 @@ bool IsValidChunkFile(
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
     int64_t&           outChunkSize,
-    int64_t*           outFileSystemId);
+    int64_t*           outFileSystemId,
+    int*               outIoTimeSec);
 
 }
 

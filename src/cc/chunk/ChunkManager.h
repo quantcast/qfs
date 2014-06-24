@@ -789,6 +789,7 @@ private:
     CryptoKeys mCryptoKeys;
     int64_t    mFileSystemId;
     string     mFsIdFileNamePrefix;
+    int        mDirCheckerIoTimeoutSec;
 
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -864,6 +865,7 @@ private:
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);
     void SetBufferedIo(const Properties& props);
+    void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
 
     static bool sExitDebugCheckFlag;

@@ -1646,6 +1646,7 @@ ChunkManager::ChunkManager()
       mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
       mFileSystemId(-1),
       mFsIdFileNamePrefix("0-fsid-"),
+      mDirCheckerIoTimeoutSec(-1),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1758,6 +1759,24 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
 }
 
 bool ChunkManager::sExitDebugCheckFlag = false;
+
+void
+ChunkManager::SetDirCheckerIoTimeout()
+{
+    int theTimeoutSec;
+    if (0 < mDirCheckerIoTimeoutSec) {
+        theTimeoutSec = mDirCheckerIoTimeoutSec;
+    } else {
+        theTimeoutSec = DiskIo::GetMaxIoTimeSec();
+        if (theTimeoutSec <= 0) {
+            theTimeoutSec = -1;
+        } else {
+            theTimeoutSec =
+                (int)max(int64_t(1), int64_t(theTimeoutSec) * 3 / 4);
+        }
+    }
+    mDirChecker.SetIoTimeout(theTimeoutSec);
+}
 
 bool
 ChunkManager::SetParameters(const Properties& prop)
@@ -1942,7 +1961,10 @@ ChunkManager::SetParameters(const Properties& prop)
         mWritePrepareReplyFlag ? 0 : 1) == 0;
     mFsIdFileNamePrefix = prop.getValue(
         "chunkServer.fsIdFileNamePrefix", mFsIdFileNamePrefix);
+    mDirCheckerIoTimeoutSec = prop.getValue(
+        "chunkServer.dirCheckerIoTimeoutSec", mDirCheckerIoTimeoutSec);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
+    SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -4779,11 +4801,13 @@ ChunkManager::StartDiskIo()
     }
     mDirChecker.AddSubDir(mStaleChunksDir, mForceDeleteStaleChunksFlag);
     mDirChecker.AddSubDir(mDirtyChunksDir, true);
+    mDirChecker.SetIoTimeout(-1); // Turn off on startup.
     DirChecker::DirsAvailable dirs;
     mDirChecker.Start(dirs);
     // Start is synchronous. Restore the settings after start.
     mDirChecker.SetRemoveFilesFlag(mCleanupChunkDirsFlag);
     mDirChecker.SetIgnoreErrorsFlag(false);
+    SetDirCheckerIoTimeout();
     FileSystemIdsCount fsCnts;
     for (DirChecker::DirsAvailable::const_iterator it = dirs.begin();
             it != dirs.end();

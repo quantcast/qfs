@@ -157,6 +157,8 @@ public:
     void SetDeleteAllChaunksOnFsMismatch(
         int64_t inFsId,
         bool    inDeleteFlag);
+    void SetIoTimeout(
+        int inTimeoutSec);
     void Wakeup();
 private:
     class Impl;

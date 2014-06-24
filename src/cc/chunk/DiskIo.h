@@ -55,6 +55,7 @@ public:
     struct Counters
     {
         typedef int64_t Counter;
+    static int GetIoTimeoutSec();
 
         Counter mReadCount;
         Counter mReadByteCount;
@@ -168,7 +169,7 @@ public:
         const char* inDirNamePtr);
     static void SetParameters(
         const Properties& inProperties);
-
+    static int GetMaxIoTimeSec();
     class File
     {
     public:
