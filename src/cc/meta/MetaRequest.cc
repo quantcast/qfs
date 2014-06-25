@@ -4983,6 +4983,7 @@ MetaChunkReplicate::request(ostream& os)
         "Num-recovery-stripes: " << numRecoveryStripes   << "\r\n"
         "Stripe-size: "          << stripeSize           << "\r\n"
         "Meta-port: "            << srcLocation.port     << "\r\n"
+        "Target-version: "       << chunkVersion         << "\r\n"
         ;
         if (fileSize > 0) {
             rs << "File-size: " << fileSize << "\r\n";

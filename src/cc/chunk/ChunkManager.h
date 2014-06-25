@@ -36,6 +36,7 @@
 
 #include "kfsio/ITimeout.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/PrngIsaac64.h"
 #include "common/LinearHash.h"
 #include "common/StdAllocator.h"
 
@@ -134,7 +135,9 @@ public:
         bool              isBeingReplicated,
         ChunkInfoHandle** cih,
         bool              mustExistFlag,
-        AllocChunkOp*     op = 0);
+        AllocChunkOp*     op                            = 0,
+        kfsSeq_t          chunkReplicationTargetVersion = -1,
+        DiskIo::FilePtr*  outFileHandle                 = 0);
     void AllocChunkForAppend(
         AllocChunkOp*         op,
         int                   replicationPos,
@@ -179,7 +182,8 @@ public:
     /// @param[in] chunkVersion  the version assigned by the metaserver to this chunk
     /// @retval status code
     int ChangeChunkVers(kfsChunkId_t chunkId,
-                           int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
+                           int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb,
+                           const DiskIo::FilePtr* filePtr = 0);
     int ChangeChunkVers(ChunkInfoHandle *cih,
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
     int ChangeChunkVers(ChangeChunkVersOp* op);
@@ -218,7 +222,7 @@ public:
     /// Schedule a write on a chunk.
     /// @param[in] op  The write operation being scheduled.
     /// @retval 0 if op was successfully scheduled; -1 otherwise
-    int WriteChunk(WriteOp *op);
+    int WriteChunk(WriteOp *op, const DiskIo::FilePtr* filePtr = 0);
 
     /// Write/read out/in the chunk meta-data and notify the cb when the op
     /// is done.
@@ -235,7 +239,8 @@ public:
     /// @param[in] op  The write op that just finished
     ///
     bool ReadChunkDone(ReadOp *op);
-    void ReplicationDone(kfsChunkId_t chunkId, int status);
+    void ReplicationDone(kfsChunkId_t chunkId, int status,
+        const DiskIo::FilePtr& filePtr);
     /// Determine the size of a chunk.
     /// @param[in] chunkId  The chunk whose size is needed
     /// @param[out] fid     Return the file-id that owns the chunk
@@ -359,7 +364,8 @@ public:
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename.
     string MakeChunkPathname(ChunkInfoHandle *cih);
-    string MakeChunkPathname(ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion);
+    string MakeChunkPathname(
+        ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion);
     void WriteDone(WriteOp* op);
     int GetMaxDirCheckDiskTimeouts() const
         { return mMaxDirCheckDiskTimeouts; }
@@ -410,6 +416,10 @@ public:
     int64_t GetFileSystemId() const
         { return mFileSystemId; }
     bool SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag);
+    uint64_t Rand()
+        { return mRand.Rand(); }
+    int GetDirCheckFailureSimulatorInterval() const
+        { return mDirCheckFailureSimulatorInterval; }
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -790,7 +800,9 @@ private:
     int64_t    mFileSystemId;
     string     mFsIdFileNamePrefix;
     int        mDirCheckerIoTimeoutSec;
+    int        mDirCheckFailureSimulatorInterval;
 
+    PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
     inline void Delete(ChunkInfoHandle& cih);

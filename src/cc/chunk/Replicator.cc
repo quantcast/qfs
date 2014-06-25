@@ -125,6 +125,8 @@ public:
         { return sCounters; };
     static bool GetUseConnectionPoolFlag()
         { return sUseConnectionPoolFlag; }
+    static bool CancelChunkReplication(
+        kfsChunkId_t chunkId, kfsSeq_t targetVersion);
 
 protected:
     // Inputs from the metaserver
@@ -146,6 +148,7 @@ protected:
     // Are we done yet?
     bool               mDone;
     bool               mCancelFlag;
+    DiskIo::FilePtr    mFileHandle;
 
     virtual ~ReplicatorImpl();
     // Cleanup...
@@ -158,6 +161,11 @@ protected:
     virtual void Cancel()
     {
         mCancelFlag = true;
+        if (mFileHandle) {
+            DiskIo::FilePtr fileH;
+            fileH.swap(mFileHandle);
+            gChunkManager.ReplicationDone(mChunkId, -ECANCELED, fileH);
+        }
         if (IsWaiting()) {
             // Cancel buffers wait, and fail the op.
             CancelRequest();
@@ -207,10 +215,32 @@ ReplicatorImpl::CancelAll()
     for (InFlightReplications::iterator it = cancelInFlight.begin();
             it != cancelInFlight.end();
             ++it) {
+        if (! it->second) {
+            continue;
+        }
         ReplicatorImpl& cur = *it->second;
         it->second = 0;
         cur.Cancel();
     }
+}
+
+bool
+ReplicatorImpl::CancelChunkReplication(
+    kfsChunkId_t chunkId, kfsSeq_t targetVersion)
+{
+    InFlightReplications::iterator const it =
+        sInFlightReplications.find(chunkId);
+    if (it == sInFlightReplications.end() || ! it->second ||
+            (0 <= targetVersion && (! it->second->mOwner ||
+            ((it->second->mOwner->targetVersion < 0 ?
+                it->second->mChunkVersion :
+                it->second->mOwner->targetVersion) != targetVersion)))) {
+        return false;
+    }
+    ReplicatorImpl& cur = *it->second;
+    sInFlightReplications.erase(it);
+    cur.Cancel();
+    return true;
 }
 
 void ReplicatorImpl::GetCounters(ReplicatorImpl::Counters& counters)
@@ -232,7 +262,8 @@ ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer
     mReadOp(0),
     mWriteOp(op->chunkId, op->chunkVersion),
     mDone(false),
-    mCancelFlag(false)
+    mCancelFlag(false),
+    mFileHandle()
 {
     mReadOp.chunkId = op->chunkId;
     mReadOp.chunkVersion = op->chunkVersion;
@@ -376,11 +407,8 @@ ReplicatorImpl::HandleStartDone(int code, void* data)
         return 0;
     }
 
+    assert(! mFileHandle);
     mReadOp.chunkVersion = mChunkVersion;
-    // Delete stale copy if it exists, before replication.
-    // Replication request implicitly makes the previous copy stale.
-    const bool kDeleteOkFlag = true;
-    gChunkManager.StaleChunk(mChunkId, kDeleteOkFlag);
     // set the version to a value that will never be used; if
     // replication is successful, we then bump up the counter.
     mWriteOp.chunkVersion = 0;
@@ -394,10 +422,22 @@ ReplicatorImpl::HandleStartDone(int code, void* data)
         mOwner->minStorageTier,
         kIsBeingReplicatedFlag,
         0,
-        kMustExistFlag
+        kMustExistFlag,
+        0, // alloc op
+        0 <= mOwner->targetVersion ? mOwner->targetVersion : mChunkVersion,
+        &mFileHandle
     );
     if (status < 0) {
+        if (status == -EEXIST && mOwner) {
+            mOwner->statusMsg =
+                "readable chunk with target version already exists";
+        }
         Terminate(status);
+        return -1;
+    }
+    if (! mFileHandle) {
+        die("replication: invalid null file handle");
+        Terminate(-EINVAL);
         return -1;
     }
     KFS_LOG_STREAM_INFO << "replication:"
@@ -538,7 +578,7 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
     }
 
     SET_HANDLER(this, &ReplicatorImpl::HandleWriteDone);
-    const int status = gChunkManager.WriteChunk(&mWriteOp);
+    const int status = gChunkManager.WriteChunk(&mWriteOp, &mFileHandle);
     if (status < 0) {
         // abort everything
         Terminate(status);
@@ -585,16 +625,17 @@ ReplicatorImpl::Terminate(int status)
     int res;
     if (mDone && ! mCancelFlag) {
         KFS_LOG_STREAM_INFO << "replication:"
-            " chunk: "  << mChunkId <<
-            " peer: "   << GetPeerName() <<
-            " finished" <<
+            " chunk: "   << mChunkId <<
+            " version: " << mChunkVersion <<
+            " peer: "    << GetPeerName() <<
+            " finished"  <<
         KFS_LOG_EOM;
         // The data copy or recovery has completed.
         // Set the version appropriately, and write the meta data.
         SET_HANDLER(this, &ReplicatorImpl::HandleReplicationDone);
         const bool kStableFlag = true;
         res = gChunkManager.ChangeChunkVers(
-            mChunkId, mChunkVersion, kStableFlag, this);
+            mChunkId, mChunkVersion, kStableFlag, this, &mFileHandle);
         if (res == 0) {
             return;
         }
@@ -613,10 +654,11 @@ ReplicatorImpl::HandleReplicationDone(int code, void* data)
     mOwner->status = status >= 0 ? 0 : status;
     if (status < 0) {
         KFS_LOG_STREAM_ERROR << "replication:" <<
-            " chunk: "  << mChunkId <<
-            " peer: "   << GetPeerName() <<
+            " chunk: "   << mChunkId <<
+            " version: " << mChunkVersion <<
+            " peer: "    << GetPeerName() <<
             (mCancelFlag ? " cancelled" : " failed") <<
-            " status: " << status <<
+            " status: "  << status <<
             " " << mOwner->Show() <<
         KFS_LOG_EOM;
     } else {
@@ -625,14 +667,10 @@ ReplicatorImpl::HandleReplicationDone(int code, void* data)
             " chunk size: " << (ci ? ci->chunkSize : -1) <<
         KFS_LOG_EOM;
     }
-    bool notifyFlag = ! mCancelFlag;
-    if (mCancelFlag) {
-        InFlightReplications::iterator const it =
-            sInFlightReplications.find(mChunkId);
-        notifyFlag = it != sInFlightReplications.end() && it->second == this;
-    }
-    if (notifyFlag) {
-        gChunkManager.ReplicationDone(mChunkId, status);
+    if (mFileHandle) {
+        DiskIo::FilePtr fileH;
+        fileH.swap(mFileHandle);
+        gChunkManager.ReplicationDone(mChunkId, status, fileH);
     }
     // Notify the owner of completion
     mOwner->chunkVersion = (! mCancelFlag && status >= 0) ? mChunkVersion : -1;
@@ -1249,6 +1287,12 @@ Replicator::CancelAll()
 {
     ReplicatorImpl::CancelAll();
     RSReplicatorImpl::CancelAll();
+}
+
+bool
+Replicator::Cancel(kfsChunkId_t chunkId, kfsSeq_t targetVersion)
+{
+    return ReplicatorImpl::CancelChunkReplication(chunkId, targetVersion);
 }
 
 void

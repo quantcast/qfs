@@ -738,6 +738,7 @@ struct ReplicateChunkOp : public KfsOp {
     kfsChunkId_t    chunkId;      // input
     ServerLocation  location;     // input: where to get the chunk from
     int64_t         chunkVersion; // io: we tell the metaserver what we replicated
+    int64_t         targetVersion;
     int64_t         fileSize;
     int64_t         chunkOffset;
     int16_t         striperType;
@@ -760,6 +761,7 @@ struct ReplicateChunkOp : public KfsOp {
         chunkId(-1),
         location(),
         chunkVersion(-1),
+        targetVersion(-1),
         fileSize(-1),
         chunkOffset(-1),
         striperType(KFS_STRIPED_FILE_TYPE_NONE),
@@ -781,18 +783,19 @@ struct ReplicateChunkOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "replicate-chunk:" <<
-            " seq: "      << seq <<
-            " fid: "      << fid <<
-            " chunkid: "  << chunkId <<
-            " version: "  << chunkVersion <<
-            " offset: "   << chunkOffset <<
-            " stiper: "   << striperType <<
-            " dstripes: " << numStripes <<
-            " rstripes: " << numRecoveryStripes <<
-            " ssize: "    << stripeSize <<
-            " fsize: "    << fileSize <<
-            " fname: "    << pathName <<
-            " invals: "   << invalidStripeIdx
+            " seq: "        << seq <<
+            " fid: "        << fid <<
+            " chunkid: "    << chunkId <<
+            " version: "    << chunkVersion <<
+            " targetVers: " << targetVersion <<
+            " offset: "     << chunkOffset <<
+            " stiper: "     << striperType <<
+            " dstripes: "   << numStripes <<
+            " rstripes: "   << numRecoveryStripes <<
+            " ssize: "      << stripeSize <<
+            " fsize: "      << fileSize <<
+            " fname: "      << pathName <<
+            " invals: "     << invalidStripeIdx
         ;
     }
     bool Validate()
@@ -810,6 +813,7 @@ struct ReplicateChunkOp : public KfsOp {
         .Def("File-handle",          &ReplicateChunkOp::fid,            kfsFileId_t(-1))
         .Def("Chunk-handle",         &ReplicateChunkOp::chunkId,        kfsChunkId_t(-1))
         .Def("Chunk-version",        &ReplicateChunkOp::chunkVersion,   int64_t(-1))
+        .Def("Target-version",       &ReplicateChunkOp::targetVersion,  int64_t(-1))
         .Def("Chunk-location",       &ReplicateChunkOp::locationStr)
         .Def("Meta-port",            &ReplicateChunkOp::metaPort,       int(-1))
         .Def("Chunk-offset",         &ReplicateChunkOp::chunkOffset,    int64_t(-1))

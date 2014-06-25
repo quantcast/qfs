@@ -2065,6 +2065,7 @@ protected:
     int               mMinWriteLeaseTimeSec;
     bool              mFileSystemIdRequiredFlag;
     bool              mDeleteChunkOnFsIdMismatchFlag;
+    int               mChunkAvailableUseReplicationOrRecoveryThreshold;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
@@ -2247,6 +2248,7 @@ protected:
         SetEUserAndEGroup(op);
         return true;
     }
+    bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
