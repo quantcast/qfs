@@ -5177,6 +5177,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
                 cih->chunkInfo.fileId       = ci.mFileId;
                 cih->chunkInfo.chunkId      = ci.mChunkId;
                 cih->chunkInfo.chunkVersion = ci.mChunkVersion;
+                cih->chunkInfo.chunkSize    = ci.mChunkSize;
                 const ChunkInfoHandle* const ach =
                     gChunkManager.AddMapping(cih);
                 if (ach == cih) {
