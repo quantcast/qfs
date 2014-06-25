@@ -84,6 +84,7 @@ clientprop="$clitestdir/client.prp"
 certsdir=${certsdir-"`dirname "$clitestdir"`/certs"}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+chunkdirerrsim=0
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -102,18 +103,21 @@ kill_all_proc()
 if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
     echo \
 "Usage: $0 {-stop|-get-logs|-status}"'
- -get-logs       -- get names of all log files
- -stop           -- stop (kill -9) all started processes
- -status [<sec>] -- get current status (tail) from the test logs,
+ -get-logs                -- get names of all log files
+ -stop                    -- stop (kill -9) all started processes
+ -status [<sec>]          -- get current status (tail) from the test logs,
     repeat every <num> sec
- -no-err-sym     -- trun off error sumulator
- -testonly       -- start tests only, do not start / restart meta and chunk servers
- -mc-only        -- only start / restart meta and chunk servers
- -cp-only        -- only run copy test, do not run fanout test
- -no-sm-test     -- do not run sort master endurance test
- -disk-err-sym   -- enable disk error sumulation
- -valgrind-cs    -- run chunk servers under valgrind
- -auth           -- turn authentication on or off'
+ -no-err-sym              -- trun off error sumulator
+ -testonly                -- start tests only, do not start / restart meta and\
+ chunk servers
+ -mc-only                 -- only start / restart meta and chunk servers
+ -cp-only                 -- only run copy test, do not run fanout test
+ -no-sm-test              -- do not run sort master endurance test
+ -disk-err-sym            -- enable disk error simulation
+ -chunk-dir-err-sym <num> -- enable chunk directory check failure simulator on\
+ firtst <num> chunk servers
+ -valgrind-cs             -- run chunk servers under valgrind
+ -auth                    -- turn authentication on or off'
     exit 0
 fi
 
@@ -156,6 +160,15 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-no-sm-test' ]; then
         shift
         smtest='no'
+    elif [ x"$1" = x'-chunk-dir-err-sym' ]; then
+        if [ $# -le 1 ]; then
+            echo "$1: missing argument"
+            excode=1
+            break
+        fi
+        shift
+        chunkdirerrsim=$1
+        shift
     elif [ x"$1" = x'-testonly' ]; then
         shift
         testonly='yes'
@@ -391,6 +404,13 @@ chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
 EOF
+
+        if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.chunkDirsCheckIntervalSecs       = 15
+chunkServer.dirCheckFailureSimulatorInterval = 10
+EOF
+        fi
         if [ x"$errsym" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log,int=128,rsleep=30;
