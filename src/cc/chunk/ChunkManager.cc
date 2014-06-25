@@ -5433,6 +5433,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
                 cih->chunkInfo.fileId       = ci.mFileId;
                 cih->chunkInfo.chunkId      = ci.mChunkId;
                 cih->chunkInfo.chunkVersion = ci.mChunkVersion;
+                cih->chunkInfo.chunkSize    = ci.mChunkSize;
                 ChunkInfoHandle* ach = gChunkManager.AddMapping(cih);
                 if (ach != cih && 0 < ci.mChunkVersion) {
                     if (! ach) {
@@ -5471,8 +5472,11 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
                                 " keeping:"
                                 " chunk: "   << ci.mChunkId <<
                                 " version: " << ci.mChunkVersion <<
+                                " size: "    << ci.mChunkSize <<
                                 " discarding:"
                                 " version: " <<
+                                    ach->chunkInfo.chunkVersion <<
+                                " size: "    <<
                                     ach->chunkInfo.chunkVersion <<
                             KFS_LOG_EOM;
                             // Move 0 version chunk into lost+found, if
