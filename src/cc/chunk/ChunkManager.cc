@@ -1813,7 +1813,8 @@ ChunkManager::SetParameters(const Properties& prop)
     mRequireChunkHeaderChecksumFlag = prop.getValue(
         "chunkServer.requireChunkHeaderChecksum",
         mRequireChunkHeaderChecksumFlag ? 1 : 0) != 0;
-    mDirChecker.SetRequireChunkHeaderChecksumFlag(mRequireChunkHeaderChecksumFlag);
+    mDirChecker.SetRequireChunkHeaderChecksumFlag(
+        mRequireChunkHeaderChecksumFlag);
     const bool prevForcedeleteStaleChunksFlag = mForceDeleteStaleChunksFlag;
     mForceDeleteStaleChunksFlag = prop.getValue(
         "chunkServer.forceDeleteStaleChunks",
