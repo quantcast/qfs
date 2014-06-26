@@ -158,6 +158,8 @@ ValidateCreateParams(
     int numReplicas, int numStripes, int numRecoveryStripes,
     int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
+    // Chao's edit
+    /*
     return (
         (numReplicas <= 0 ||
         (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
@@ -174,6 +176,24 @@ ValidateCreateParams(
             maxSTier < kKfsSTierMin || minSTier < kKfsSTierMin)
         ) ? -EINVAL : 0
     );
+    */   
+     return (
+        (numReplicas <= 0 ||
+        (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
+            stripedType != KFS_STRIPED_FILE_TYPE_RS) ||
+        (stripedType == KFS_STRIPED_FILE_TYPE_RS &&
+                (numStripes <= 0 ||
+                stripeSize < KFS_MIN_STRIPE_SIZE ||
+                stripeSize > KFS_MAX_STRIPE_SIZE ||
+                stripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
+                (numRecoveryStripes != 0 &&
+                    (numRecoveryStripes > RS_LIB_MAX_RECOVERY_BLOCKS ||
+                    numStripes > RS_LIB_MAX_DATA_BLOCKS)))) ||
+        (minSTier > maxSTier || maxSTier > kKfsSTierMax || minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin || minSTier < kKfsSTierMin)
+        ) ? -EINVAL : 0
+    );
+    // end Chao's edit	
 }
 
 static MsgLogger::LogLevel
@@ -2295,7 +2315,20 @@ KfsClientImpl::Cache(time_t now, const string& dirname, kfsFileId_t dirFid,
     }
     const string path = dirname + "/" + attr.filename;
     FAttr* fa = LookupFAttr(dirFid, attr.filename);
-    return (UpdateFattr(dirFid, attr.filename, fa, path, attr, now) == 0);
+    if (fa) {
+        UpdatePath(fa, path, false);
+        FAttrLru::PushBack(mFAttrLru, *fa);
+    } else {
+        fa = NewFAttr(dirFid, attr.filename, path);
+        if (! fa) {
+            return false;
+        }
+    }
+    *fa                    = attr;
+    fa->validatedTime      = now;
+    fa->generation         = mFAttrCacheGeneration;
+    fa->staleSubCountsFlag = false;
+    return true;
 }
 
 class KfsClientImpl::ReadDirPlusResponseParser
@@ -2313,7 +2346,7 @@ public:
           beginEntry("Begin-entry"),
           shortBeginEntry("B"),
           hasDirs(false),
-          parser(inOuter.mTmpInputStream),
+          parser(outer.mTmpInputStream),
           result(inResult),
           computeFilesize(inComputeFilesize),
           outer(inOuter),
@@ -2497,7 +2530,6 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     if (updateClientCache &&
             result.size() <= kMaxUpdateSize &&
             mFidNameToFAttrMap.size() < kMaxUpdateSize) {
-        InvalidateCachedAttrsWithPathPrefix(dirname);
         for (size_t i = 0; i < result.size(); i++) {
             if (! Cache(now, dirname, dirFid, result[i])) {
                 break;
@@ -2506,7 +2538,6 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     } else if (updateClientCache && parser.hasDirs) {
         size_t dirCnt            = 0;
         size_t kMaxDirUpdateSize = 1024;
-        InvalidateCachedAttrsWithPathPrefix(dirname);
         for (size_t i = 0; i < result.size(); i++) {
             if (! result[i].isDirectory) {
                 continue;
@@ -2685,7 +2716,21 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
     if (! fa) {
         fa = LookupFAttr(parentFid, filename);
     }
-    return UpdateFattr(parentFid, filename, fa, path, op.fattr, time(0));
+    if (fa) {
+        // Update i-node cache.
+        UpdatePath(fa, path);
+        FAttrLru::PushBack(mFAttrLru, *fa);
+    } else {
+        fa = NewFAttr(parentFid, filename, path);
+        if (! fa) {
+            return -ENOMEM;
+        }
+    }
+    *fa                    = op.fattr;
+    fa->validatedTime      = time(0);
+    fa->generation         = mFAttrCacheGeneration;
+    fa->staleSubCountsFlag = false;
+    return 0;
 }
 
 int
@@ -2850,50 +2895,6 @@ KfsClientImpl::Remove(const char* pathname)
     return op.status;
 }
 
-bool
-KfsClientImpl::InvalidateCachedAttrsWithPathPrefix(
-    const string&               path,
-    const KfsClientImpl::FAttr* faDoNotDelete)
-{
-    if (mPathCache.size() <= 1) {
-        QCASSERT(mPathCache.begin() == mPathCacheNone);
-        return true;
-    }
-    if (path == "/") {
-        InvalidateAllCachedAttrs();
-        return true;
-    }
-    string prefix = path;
-    if (*prefix.rbegin() != '/') {
-        prefix += "/";
-    }
-    const size_t len      = prefix.length();
-    int          maxInval =
-        (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
-    for (NameToFAttrMap::iterator it = mPathCache.lower_bound(prefix);
-            it != mPathCache.end();
-            ) {
-        const string& cp = it->first;
-        if (cp.length() < len || cp.compare(0, len, prefix) != 0) {
-            break;
-        }
-        FAttr* const fa = it->second;
-        if (--maxInval < 0) {
-            InvalidateAllCachedAttrs();
-            return true;
-        }
-        ++it;
-        if (fa == faDoNotDelete) {
-            if (fa->generation == mFAttrCacheGeneration) {
-                fa->generation--;
-            }
-        } else {
-            Delete(fa);
-        }
-    }
-    return false;
-}
-
 int
 KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
 {
@@ -2947,7 +2948,25 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
         if (*path.rbegin() != '/') {
             path += "/";
         }
-        if (InvalidateCachedAttrsWithPathPrefix(path, 0)) {
+        const size_t len      = path.length();
+        int          maxInval =
+            (int)min(size_t(256), mFidNameToFAttrMap.size() / 2 + 1);
+        for (NameToFAttrMap::iterator it = mPathCache.lower_bound(path);
+                it != mPathCache.end();
+                ) {
+            const string& cp = it->first;
+            if (cp.length() < len || cp.compare(0, len, path) != 0) {
+                break;
+            }
+            if (--maxInval < 0) {
+                break;
+            }
+            FAttr* const fa = it->second;
+            ++it;
+            Delete(fa);
+        }
+        if (maxInval < 0) {
+            InvalidateAllCachedAttrs();
             invalidateFlag = false;
             break;
         }
@@ -2960,39 +2979,6 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
         Delete(LookupFAttr(dstParentFid, dstFileName));
     }
     return op.status;
-}
-
-bool
-KfsClientImpl::UpdateFattr(
-    kfsFileId_t            parentFid,
-    const string&          name,
-    KfsClientImpl::FAttr*& fa,
-    const string&          path,
-    const FileAttr&        fattr,
-    time_t                 now,
-    bool                   copyPathFlag)
-{
-    if (fa) {
-        if (fattr.fileId != fa->fileId &&
-                (fa->isDirectory || fattr.isDirectory)) {
-            const bool invalPathFlag = fa->nameIt->first != path;
-            if ((! fa->isDirectory || ! InvalidateCachedAttrsWithPathPrefix(
-                    fa->nameIt->first, fa)) && invalPathFlag &&
-                    fattr.isDirectory) {
-                InvalidateCachedAttrsWithPathPrefix(path, fa);
-            }
-        }
-        UpdatePath(fa, path, copyPathFlag);
-        FAttrLru::PushBack(mFAttrLru, *fa);
-    } else if (! (fa = NewFAttr(parentFid, name,
-            copyPathFlag ? path : string(path.data(), path.size())))) {
-        return -ENOMEM;
-    }
-    fa->validatedTime      = now;
-    fa->generation         = mFAttrCacheGeneration;
-    fa->staleSubCountsFlag = false;
-    *fa                    = fattr;
-    return 0;
 }
 
 void
@@ -4342,8 +4328,7 @@ KfsClientImpl::UpdateFilesize(int fd)
             Delete(fa);
             return op.status;
         }
-        if (op.fattr.fileId != entry.fattr.fileId ||
-                op.fattr.isDirectory != entry.fattr.isDirectory) {
+        if (op.fattr.fileId != entry.fattr.fileId) {
             Delete(fa);
             return 0; // File doesn't exists anymore, or in the dumpster.
         }
@@ -4562,14 +4547,7 @@ KfsClientImpl::FindFreeFileTableEntry()
         mFreeFileTableEntires.pop_back();
         return fte;
     }
-    int last = (int)mFileTable.size();
-    if (last == 0) {
-        // Do not use 0 slot to make Hypertable work.
-        // Hypertable assumes that 0 is invalid file descriptor.
-        mFileTable.reserve(64);
-        mFileTable.push_back(0);
-        last++;
-    }
+    const int last = (int)mFileTable.size();
     if (last < MAX_FILES) {     // Grow vector up to max. size
         mFileTable.push_back(0);
         return last;
@@ -4655,7 +4633,8 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
             res = mPathCache.insert(make_pair(pathname, fa));
         if (! res.second) {
             FAttr* const cfa = res.first->second;
-            if (cfa->nameIt != res.first) {
+            if (cfa->generation == mFAttrCacheGeneration ||
+                    cfa->nameIt != res.first) {
                 KFS_LOG_STREAM_FATAL << "fattr path entry already exists: " <<
                     " parent: "  << parentFid <<
                     " name: "    << name <<
@@ -4668,14 +4647,6 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
                 KFS_LOG_EOM;
                 MsgLogger::Stop();
                 abort();
-            }
-            if (cfa->generation == mFAttrCacheGeneration) {
-                string path = pathname;
-                const size_t pos = path.rfind('/');
-                if (pos != string::npos && pos + 1 < path.length()) {
-                    path.erase(pos + 1);
-                }
-                InvalidateCachedAttrsWithPathPrefix(path, cfa);
             }
             cfa->nameIt = mPathCacheNone;
             Delete(cfa);
@@ -4813,8 +4784,18 @@ KfsClientImpl::LookupSelf(LookupOp& op,
     // This method presently called only from the path traversal.
     // Force new path string allocation to keep "path" buffer mutable,
     // assuming string class implementation with ref. counting, of course.
-    const bool kCopyPathFlag = true;
-    return UpdateFattr(parentFid, name, fa, path, op.fattr, now, kCopyPathFlag);
+    if (fa) {
+        UpdatePath(fa, path);
+        FAttrLru::PushBack(mFAttrLru, *fa);
+    } else if (! (fa = NewFAttr(parentFid, name,
+            string(path.data(), path.length())))) {
+        return -ENOMEM;
+    }
+    fa->validatedTime      = now;
+    fa->generation         = mFAttrCacheGeneration;
+    fa->staleSubCountsFlag = false;
+    *fa                    = op.fattr;
+    return 0;
 }
 
 int
