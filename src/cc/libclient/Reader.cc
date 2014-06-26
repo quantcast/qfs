@@ -1182,9 +1182,19 @@ private:
                             " access: "  << mSizeOp.access <<
                             " CS access:"
                             " updated: " << theHasChunkServerAccessFlag <<
+                            " cleartext: "  << mChunkServer.IsShutdownSsl() <<
+                            " allowed: "    << inOp.allowCSClearTextFlag <<
                             " expires in: " <<
                                 (mChunkServerAccessExpires - Now()) <<
                         KFS_LOG_EOM;
+                        if (! inOp.allowCSClearTextFlag &&
+                                mChunkServer.IsShutdownSsl()) {
+                            KFS_LOG_STREAM_INFO << mLogPrefix <<
+                                "chunk: " << mSizeOp.chunkId <<
+                                " cleartext is no longer allowed" <<
+                            KFS_LOG_EOM;
+                            mChunkServer.SetShutdownSsl(false);
+                        }
                     }
                 }
             }
