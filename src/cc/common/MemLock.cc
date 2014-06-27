@@ -175,10 +175,14 @@ LockProcessMemory(
             } else {
                 AllocThreadStack();
                 // Try to grow the heap.
+                errno = 0;
                 MallocSetup mallocSetup(
                     inMaxHeapSize, inMaxStlPoolSize, &theMsgPtr);
                 if (mallocSetup.IsError()) {
                     theRet = errno;
+                    if (theRet == 0) {
+                        theRet = EINVAL;
+                    }
                     if (! theMsgPtr) {
                         theMsgPtr = "malloc:";
                     }
