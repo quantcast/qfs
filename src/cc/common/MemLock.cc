@@ -91,7 +91,7 @@ public:
         if (mStdPtr) {
             StdAlloc::pointer* thePtr = mStdPtr;
             while (*thePtr) {
-                mAllocator.deallocate(*thePtr, kStdMaxAllocSize);
+                mAllocator.deallocate(*thePtr++, kStdMaxAllocSize);
             }
             delete [] mStdPtr;
         }
