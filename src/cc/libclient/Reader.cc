@@ -1193,6 +1193,9 @@ private:
                                 "chunk: " << mSizeOp.chunkId <<
                                 " cleartext is no longer allowed" <<
                             KFS_LOG_EOM;
+                            // Clear lease acquire flag to ensure that the
+                            // change has effect on other chunk servers.
+                            mLeaseAcquireOp.allowCSClearTextFlag = false;
                             mChunkServer.SetShutdownSsl(false);
                         }
                     }
