@@ -25,7 +25,7 @@
 # recovery by deleting chunk files and running file verification, and
 # using admin tool to force recovery of existing chunks.
 
-ulimit -c unlimited
+ulimit -c unlimited || exit
 
 builddir=`pwd`
 toolsdir=${toolsdir-"$builddir"/src/cc/tools}
@@ -76,9 +76,9 @@ if [ x"$valgrind_cmd" != x ]; then
     export GLIBCPP_FORCE_NEW
     GLIBCXX_FORCE_NEW=1
     export GLIBCXX_FORCE_NEW
-    maxrecovwait=${maxrecovwait-200}
+    maxrecovwait=${maxrecovwait-400}
 else
-    maxrecovwait=${maxrecovwait-100}
+    maxrecovwait=${maxrecovwait-240}
 fi
 
 wait_shutdown_complete()
@@ -104,14 +104,14 @@ shutdown()
 {
     [ $stop -eq 0 ] && return 0
     stop=0
-    status=0
+    sstatus=0
     cd "$qfstestdir"/meta || return 1
     pid=`cat metaserver.pid`
     kill -QUIT $pid
     if wait_shutdown_complete $pid; then
         true;
     else
-        status 1
+        sstatus=1
     fi
     cd ../..
     i=$csstartport
@@ -122,11 +122,11 @@ shutdown()
         if wait_shutdown_complete $pid; then
             true;
         else
-            status 1
+            sstatus=1
         fi
         i=`expr $i + 1`
     done
-    return $status
+    return $sstatus
 }
 
 if [ $stop -ne 0 ]; then
@@ -139,7 +139,11 @@ if [ $start -ne 0 ]; then
     rm -f kfscp/* kfslog/*
     rm -f metaserver-recovery.log
     cp MetaServer.prp MetaServer-recovery.prp || exit
-    echo "metaServer.panicOnInvalidChunk=1" >> MetaServer-recovery.prp
+    {
+        echo "metaServer.panicOnInvalidChunk=1"
+        echo "metaServer.csmap.unittest=0"
+        echo "metaServer.recoveryInterval=0"
+    } >> MetaServer-recovery.prp
     "$metadir"/metaserver -c MetaServer-recovery.prp > metaserver-recovery.log 2>&1 &
     echo $! > metaserver.pid
     cd ../..
@@ -160,6 +164,19 @@ if [ $start -ne 0 ]; then
         echo $! > chunkserver.pid
         cd ../../..
         i=`expr $i + 1`
+    done
+    echo "Waiting for chunk servers to connect"
+    sleep 1
+    t=0
+    until "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
+                -f "$clirootcfg" upservers 2>/dev/null \
+            | awk 'BEGIN{n=0;}{n++;}END{exit(n<2?1:0);}'; do
+        t=`expr $t = 1`
+        if [ $t -gt 60 ]; then
+            echo "wait for chunk servers to connect timed out"
+            exit 1
+        fi
+        sleep 1
     done
 fi
 
@@ -203,7 +220,8 @@ for testblocksize in $testblocksizes ; do
 
     "$toolsdir"/qfs \
         -cfg "$clicfg" \
-        -rm -skipTrash "qfs://$metahost:$metaport/user/$usr/testrep*.dat"
+        -rm -skipTrash "qfs://$metahost:$metaport/user/$usr/testrep*.dat" \
+            2>/dev/null
 
     "$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 \
         | "$toolsdir"/qfs \
@@ -268,6 +286,11 @@ for testblocksize in $testblocksizes ; do
         mkdir "$tmpchunk/$k" || exit
         m=-1
         s=0
+        # Invoke verify here, in order to make chunk server to close the chunk
+        # files, as fileenum chunk size read can leave the chunk files open.
+        "$toolsdir"/qfsdataverify \
+            -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
+            "/user/$usr/testrep.dat" >/dev/null 2>/dev/null
         for i in $stripes; do
             if [ $m -lt 0 -a $s -eq 0 ]; then
                 m=$i
@@ -314,7 +337,8 @@ for testblocksize in $testblocksizes ; do
             fi
 
             echo "forcing recovery: chunk: $chunkid port: $srvportr"
-            "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" -f "$clirootcfg" -a \
+            "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
+                -f "$clirootcfg" -a \
                 -F "Chunk=$chunkid" \
                 -F "Host=$srvhost" \
                 -F "Port=$srvportr" \
@@ -323,7 +347,7 @@ for testblocksize in $testblocksizes ; do
         done
         # Wait for chunk recoveries to complete.
         t=0
-        while sleep 3; do
+        while sleep 1; do
             "$toolsdir"/qfsdataverify \
                 -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
                     "/user/$usr/testrep.dat" 1>/dev/null 2>/dev/null && break
