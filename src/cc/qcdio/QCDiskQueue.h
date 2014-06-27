@@ -382,6 +382,8 @@ public:
         FileIdx inFileIdx,
         int64_t inFileSize = -1);
 
+    void CloseAllFiles();
+
     EnqueueStatus Rename(
         const char*    inSrcFileNamePtr,
         const char*    inDstFileNamePtr,

@@ -390,6 +390,9 @@ public:
                 const size_t theLen = thePtr - inPrefixPtr;
                 mFileNamePrefixes.erase(
                     thePrefPtr - mFileNamePrefixes.data() - theLen, theLen + 1);
+                if (! IsInUse()) {
+                    DiskQueue::CloseAllFiles();
+                }
                 return true;
             }
             while (*thePrefPtr++)

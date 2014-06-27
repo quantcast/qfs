@@ -141,6 +141,7 @@ public:
     CloseFileStatus CloseFile(
         FileIdx inFileIdx,
         int64_t inFileSize);
+    void CloseAllFiles();
     int GetBlockSize() const
         { return mBlockSize; }
     EnqueueStatus CheckOpenStatus(
@@ -1777,6 +1778,34 @@ QCDiskQueue::Queue::CloseFile(
     return CloseFileStatus(kErrorNone, 0);
 }
 
+    void
+QCDiskQueue::Queue::CloseAllFiles()
+{
+    QCStMutexLocker theLocker(mMutex);
+    bool theNotifiedFlag = false;
+    for (int i = 0; i < mFileCount; i++) {
+        if (mFdPtr[i] < 0 || mFileInfoPtr[i].mClosedFlag) {
+            continue;
+        }
+        mFileInfoPtr[i].mClosedFlag = true;
+        // mFileInfoPtr[i].mCloseFileSize = -1;
+        if (mFilePendingReqCountPtr[i] <= 0 &&
+                mFileInfoPtr[i].mOpenError != kOpenErrorNone) {
+            mFdPtr[i] = mFreeFdHead;
+            mFreeFdHead = -(i + kFreeFdOffset);
+            continue;
+        }
+        if (mFilePendingReqCountPtr[i] <= 0) {
+            ScheduleClose(i);
+            if (theNotifiedFlag) {
+                continue;
+            }
+            mWorkCond.Notify();
+            theNotifiedFlag = true;
+        }
+    }
+}
+
     QCDiskQueue::EnqueueStatus
 QCDiskQueue::Queue::CheckOpenStatus(
     QCDiskQueue::FileIdx       inFileIdx,
@@ -2253,6 +2282,14 @@ QCDiskQueue::CloseFile(
         mQueuePtr->CloseFile(inFileIdx, inFileSize) :
         CloseFileStatus(kErrorParameter, 0)
     );
+}
+
+    void
+QCDiskQueue::CloseAllFiles()
+{
+    if (mQueuePtr) {
+        mQueuePtr->CloseAllFiles();
+    }
 }
 
     QCDiskQueue::EnqueueStatus
