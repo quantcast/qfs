@@ -287,6 +287,7 @@ public:
           mGetFsSpaceAvailableNullFilePtr(new DiskIo::File()),
           mCheckDirReadableNullFilePtr(new DiskIo::File()),
           mCheckDirWritableNullFilePtr(new DiskIo::File()),
+          mGeneration(1),
           mBufferManager(true),
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0)
@@ -391,6 +392,7 @@ public:
                 mFileNamePrefixes.erase(
                     thePrefPtr - mFileNamePrefixes.data() - theLen, theLen + 1);
                 if (! IsInUse()) {
+                    mGeneration++;
                     DiskQueue::CloseAllFiles();
                 }
                 return true;
@@ -433,6 +435,8 @@ public:
     }
     BufferManager& GetBufferManager()
         { return mBufferManager; }
+    uint64_t GetGeneration() const
+        { return mGeneration; }
 private:
     string                    mFileNamePrefixes;
     DeviceId                  mDeviceId;
@@ -441,6 +445,7 @@ private:
     DiskIo::FilePtr           mGetFsSpaceAvailableNullFilePtr;
     DiskIo::FilePtr           mCheckDirReadableNullFilePtr;
     DiskIo::FilePtr           mCheckDirWritableNullFilePtr;
+    uint64_t                  mGeneration;
     BufferManager             mBufferManager;
     DiskErrorSimulator* const mSimulatorPtr;
     DiskQueue*                mPrevPtr[1];
@@ -1651,7 +1656,8 @@ DiskIo::File::Open(
         }
         return false;
     }
-    mFileIdx = theStatus.GetFileIdx();
+    mFileIdx    = theStatus.GetFileIdx();
+    mGeneration = mQueuePtr->GetGeneration();
     sDiskIoQueuesPtr->UpdateOpenFilesCount(+1);
     return true;
 }
@@ -1661,7 +1667,8 @@ DiskIo::File::Close(
     DiskIo::Offset inFileSize,     /* = -1 */
     string*        inErrMessagePtr /* = 0  */)
 {
-    if (mFileIdx < 0 || ! mQueuePtr) {
+    if (mFileIdx < 0 || ! mQueuePtr ||
+            mGeneration != mQueuePtr->GetGeneration()) {
         Reset();
         return true;
     }
@@ -1749,6 +1756,7 @@ DiskIo::File::ReserveSpace(
 DiskIo::File::Reset()
 {
     mQueuePtr          = 0;
+    mGeneration        = 0;
     mFileIdx           = -1;
     mReadOnlyFlag      = false;
     mSpaceReservedFlag = false;
