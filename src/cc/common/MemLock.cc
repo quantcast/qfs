@@ -60,7 +60,7 @@ public:
           mAllocator()
     {
 #ifdef KFS_OS_NAME_LINUX
-        if (mallopt(M_TRIM_THRESHOLD, -1)) {
+        if (! mallopt(M_TRIM_THRESHOLD, -1)) {
             if (inErrMsgPtr) {
                 *inErrMsgPtr = "mallopt trim_threshold:";
             }
