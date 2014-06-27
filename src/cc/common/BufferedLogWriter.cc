@@ -836,7 +836,15 @@ public:
         bool inFlag)
     {
         if (0 <= mFd && ! isatty(mFd)) {
-            ::fcntl(mFd, F_SETFL, O_NONBLOCK);
+            int theFlags = fcntl(mFd, F_GETFL);
+            if (theFlags != -1) {
+                if (inFlag) {
+                    theFlags |= O_NONBLOCK;
+                } else {
+                    theFlags &= ~((int)O_NONBLOCK);
+                }
+                ::fcntl(mFd, F_SETFL, theFlags);
+            }
         }
     }
 private:
