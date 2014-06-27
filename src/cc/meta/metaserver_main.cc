@@ -379,6 +379,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         props.getValue("metaServer.loglevel",
         MsgLogger::GetLogLevelNamePtr(MsgLogger::GetLogger()->GetLogLevel()))
     );
+    MsgLogger::GetLogger()->SetUseNonBlockingIo(true);
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(props, "metaServer.msgLogWriter.");
 

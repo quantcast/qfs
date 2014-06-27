@@ -395,6 +395,7 @@ ChunkServerMain::LoadParams(const char* fileName)
     MsgLogger::GetLogger()->SetLogLevel(
         mProp.getValue("chunkServer.loglevel",
         MsgLogger::GetLogLevelNamePtr(MsgLogger::GetLogger()->GetLogLevel())));
+    MsgLogger::GetLogger()->SetUseNonBlockingIo(true);
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(mProp, "chunkServer.msgLogWriter.");
     sRestarter.SetParameters(mProp, "chunkServer.");

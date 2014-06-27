@@ -185,6 +185,8 @@ public:
         Writer&  inWriter);
     void PrepareToFork();
     void ForkDone();
+    void SetUseNonBlockingIo(
+        bool inFlag);
 private:
     class Impl;
     volatile LogLevel mLogLevel;

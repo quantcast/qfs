@@ -170,9 +170,6 @@ public:
         mLastLogTm       = mTimeTm;
         GetLogTimeStampPrefixPtr(theSec);
         mNextFlushTime = Seconds(theSec) + theMicroSec + mFlushInterval;
-        if (mFd >= 0 && ! isatty(mFd)) {
-            ::fcntl(mFd, F_SETFL, O_NONBLOCK);
-        }
     }
     static const char* GetLogLevelNamePtr(
         LogLevel inLogLevel)
@@ -833,6 +830,13 @@ public:
             mMsgStreamCount++;
         } else {
             delete &theStream;
+        }
+    }
+    void SetUseNonBlockingIo(
+        bool inFlag)
+    {
+        if (0 <= mFd && ! isatty(mFd)) {
+            ::fcntl(mFd, F_SETFL, O_NONBLOCK);
         }
     }
 private:
@@ -1509,6 +1513,13 @@ void
 BufferedLogWriter::ForkDone()
 {
     mImpl.ForkDone();
+}
+
+void
+BufferedLogWriter::SetUseNonBlockingIo(
+    bool inFlag)
+{
+    mImpl.SetUseNonBlockingIo(inFlag);
 }
 
 }
