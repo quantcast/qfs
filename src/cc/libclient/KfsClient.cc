@@ -4490,8 +4490,8 @@ struct RespondingServer {
     {
         size = client.GetChunkSize(loc, layout.chunkId, layout.chunkVersion);
         if (size < 0) {
-            size = -1;
             status = (int)size;
+            size = -1;
         } else {
             status = 0;
         }
@@ -4619,7 +4619,9 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     chunkOff_t             filesize = last.fileOffset;
     chunkOff_t             endsize  = 0;
     int                    rstatus  = 0;
-    if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
+    if (last.chunkServers.empty()) {
+        rstatus = -EAGAIN;
+    } else if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
                     RespondingServer(*this, last, endsize, rstatus)) ==
                 last.chunkServers.end()) {
         KFS_LOG_STREAM_INFO <<
@@ -5610,42 +5612,56 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
     chunkChecksums1.reset(new uint32_t[numChecksums]);
     scoped_array<uint32_t> chunkChecksums2;
     chunkChecksums2.reset(new uint32_t[numChecksums]);
+    int status = 0;
     for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
             i != lop.chunks.end();
             ++i) {
         int ret;
+        if (i->chunkServers.empty()) {
+            if (status == 0) {
+                status = -EAGAIN;
+            }
+            KFS_LOG_STREAM_ERROR << "no replicas chunk: " <<
+                i->chunkId <<
+            KFS_LOG_EOM;
+            continue;
+        }
         if ((ret = GetDataChecksums(
                 i->chunkServers[0], i->chunkId, chunkChecksums1.get())) < 0) {
             KFS_LOG_STREAM_ERROR << "failed to get checksums from server " <<
                 i->chunkServers[0] << " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
-            return ret;
+            if (status == 0) {
+                status = ret;
+            }
+            continue;
         }
         for (size_t k = 1; k < i->chunkServers.size(); k++) {
             if ((ret = GetDataChecksums(
                     i->chunkServers[k], i->chunkId,
                     chunkChecksums2.get())) < 0) {
-                KFS_LOG_STREAM_ERROR << "didn't get checksums from server: " <<
+                KFS_LOG_STREAM_ERROR << "failed get checksums from server: " <<
                     i->chunkServers[k] << " " << ErrorCodeToStr(ret) <<
                 KFS_LOG_EOM;
-                return ret;
+                if (status == 0) {
+                    status = ret;
+                }
+                continue;
             }
-            bool mismatch = false;
             for (size_t v = 0; v < numChecksums; v++) {
                 if (chunkChecksums1[v] != chunkChecksums2[v]) {
                     KFS_LOG_STREAM_ERROR <<
                         "checksum mismatch between servers: " <<
                         i->chunkServers[0] << " " << i->chunkServers[k] <<
                     KFS_LOG_EOM;
-                    mismatch = true;
+                    if (status == 0) {
+                        status = -EINVAL;
+                    }
                 }
-            }
-            if (mismatch) {
-                return 1;
             }
         }
     }
-    return 0;
+    return status;
 }
 
 int
@@ -6338,7 +6354,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                         ret = -EINVAL;
                         KFS_LOG_STREAM_ERROR <<
                             "chunk: " << i->chunkId <<
-                            (nbytes != n ? "size" : "data") <<
+                            (nbytes != n ? " size" : " data") <<
                             " mismatch: " << i->chunkServers[0] <<
                             " size: "     << nbytes <<
                             " md5sum: "   << md5sumFirst <<

@@ -83,8 +83,6 @@ enum KfsOp_t {
     CMD_RECORD_APPEND,
     CMD_GET_RECORD_APPEND_STATUS,
     CMD_CHANGE_FILE_REPLICATION,
-    CMD_DUMP_CHUNKTOSERVERMAP,
-    CMD_UPSERVERS,
     // Chunkserver RPCs
     CMD_CLOSE,
     CMD_READ,
@@ -112,7 +110,6 @@ enum KfsOp_t {
     // Meta server maintenance and debugging.
     CMD_META_CHECK_LEASES,
     CMD_META_RECOMPUTE_DIRSIZE,
-    CMD_META_DUMP_CHUNKTOSERVERMAP,
     CMD_META_DUMP_CHUNKREPLICATIONCANDIDATES,
     CMD_META_OPEN_FILES,
     CMD_META_GET_CHUNK_SERVERS_COUNTERS,
@@ -121,6 +118,8 @@ enum KfsOp_t {
     CMD_META_GET_REQUEST_COUNTERS,
     CMD_META_DISCONNECT,
     CMD_META_FORCE_REPLICATION,
+    CMD_META_DUMP_CHUNKTOSERVERMAP,
+    CMD_META_UPSERVERS,
 
     CMD_NCMDS
 };
@@ -429,7 +428,7 @@ struct SetMtimeOp : public KfsOp {
 
 struct DumpChunkServerMapOp : public KfsOp {
         DumpChunkServerMapOp(kfsSeq_t s)
-            : KfsOp(CMD_DUMP_CHUNKTOSERVERMAP, s)
+            : KfsOp(CMD_META_DUMP_CHUNKTOSERVERMAP, s)
             {}
         void Request(ostream& os);
         virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -441,7 +440,7 @@ struct DumpChunkServerMapOp : public KfsOp {
 
 struct UpServersOp : public KfsOp {
     UpServersOp(kfsSeq_t s)
-        : KfsOp(CMD_UPSERVERS, s)
+        : KfsOp(CMD_META_UPSERVERS, s)
         {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -453,7 +452,7 @@ struct UpServersOp : public KfsOp {
 
 struct DumpChunkMapOp : public KfsOp {
         DumpChunkMapOp(kfsSeq_t s)
-            : KfsOp(CMD_DUMP_CHUNKMAP, s)
+            : KfsOp(CMD_META_DUMP_CHUNKTOSERVERMAP, s)
             {}
         void Request(ostream& os);
         virtual void ParseResponseHeaderSelf(const Properties& prop);
