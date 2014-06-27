@@ -1703,11 +1703,15 @@ struct SizeOp : public KfsClientChunkOp {
           fileId(fid),
           chunkVersion(v),
           size(-1)
-        { chunkId = c; }
+    {
+        chunkId = c;
+        SET_HANDLER(this, &SizeOp::HandleChunkMetaReadDone);
+    }
 
     void Request(ostream &os);
     void Response(ostream &os);
     void Execute();
+    int HandleChunkMetaReadDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<

@@ -1648,6 +1648,7 @@ ChunkManager::ChunkManager()
       mFsIdFileNamePrefix("0-fsid-"),
       mDirCheckerIoTimeoutSec(-1),
       mDirCheckFailureSimulatorInterval(-1),
+      mChunkSizeSkipHeaderVerifyFlag(false),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -1969,6 +1970,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mDirCheckFailureSimulatorInterval = prop.getValue(
         "chunkServer.dirCheckFailureSimulatorInterval",
         mDirCheckFailureSimulatorInterval);
+    mChunkSizeSkipHeaderVerifyFlag = prop.getValue(
+        "chunkServer.chunkSizeSkipHeaderVerifyFlag",
+        mChunkSizeSkipHeaderVerifyFlag ? 1 : 0);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
@@ -2664,7 +2668,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                 UpdateDirSpace(cih, -extra);
                 cih->chunkInfo.chunkSize = dci.chunkSize;
             } else if (cih->chunkInfo.chunkSize != (int64_t)dci.chunkSize) {
-                op->status    = res;
+                op->status    = -EIO;
                 op->statusMsg = "chunk metadata size mismatch";
                 KFS_LOG_STREAM_ERROR <<
                     "chunk meta data read completion: " << op->statusMsg  <<
@@ -3354,25 +3358,25 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
     return 0;
 }
 
-void
+bool
 ChunkManager::ChunkSize(SizeOp* op)
 {
     ChunkInfoHandle* cih;
     if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
         op->status    = -EBADF;
         op->statusMsg = "no such chunk";
-        return;
+        return true;
     }
     if (cih->IsBeingReplicated()) {
         op->status    = -EAGAIN;
         op->statusMsg = "chunk replication in progress";
-        return;
+        return true;
     }
     if (op->chunkVersion >= 0 &&
             op->chunkVersion != cih->chunkInfo.chunkVersion) {
         op->status    = -EBADVERS;
         op->statusMsg = "chunk version mismatch";
-        return;
+        return true;
     }
     if (cih->IsWriteAppenderOwns() &&
             ! gAtomicRecordAppendManager.IsChunkStable(op->chunkId)) {
@@ -3384,9 +3388,14 @@ ChunkManager::ChunkSize(SizeOp* op)
             " file: "  << op->fileId  <<
             " size: "  << op->size    <<
         KFS_LOG_EOM;
-        return;
+        return true;
+    }
+    if (! mChunkSizeSkipHeaderVerifyFlag &&
+            ! cih->chunkInfo.AreChecksumsLoaded()) {
+        return false;
     }
     op->size = cih->chunkInfo.chunkSize;
+    return true;
 }
 
 string

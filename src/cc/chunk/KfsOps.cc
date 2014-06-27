@@ -2537,8 +2537,28 @@ GetRecordAppendOpStatus::Execute()
 void
 SizeOp::Execute()
 {
-    gChunkManager.ChunkSize(this);
+    int res = 0;
+    if (gChunkManager.ChunkSize(this) ||
+            (res = gChunkManager.ReadChunkMetadata(chunkId, this)) < 0) {
+        if (0 <= status && res < 0) {
+            status = res;
+        }
+        gLogger.Submit(this);
+    }
+}
+
+int
+SizeOp::HandleChunkMetaReadDone(int code, void* data)
+{
+    if (0 <= status && data) {
+        status = *reinterpret_cast<const int*>(data);
+    }
+    if (0 <= status && ! gChunkManager.ChunkSize(this)) {
+        statusMsg = "chunk header is not loaded";
+        status    = -EAGAIN;
+    }
     gLogger.Submit(this);
+    return 0;
 }
 
 void

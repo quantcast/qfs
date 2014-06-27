@@ -242,11 +242,7 @@ public:
     void ReplicationDone(kfsChunkId_t chunkId, int status,
         const DiskIo::FilePtr& filePtr);
     /// Determine the size of a chunk.
-    /// @param[in] chunkId  The chunk whose size is needed
-    /// @param[out] fid     Return the file-id that owns the chunk
-    /// @param[out] chunkSize  The size of the chunk
-    /// @retval status code
-    void ChunkSize(SizeOp* op);
+    bool ChunkSize(SizeOp* op);
 
     /// Register a timeout handler with the net manager for taking
     /// checkpoints.  Also, get the logger going
@@ -801,6 +797,7 @@ private:
     string     mFsIdFileNamePrefix;
     int        mDirCheckerIoTimeoutSec;
     int        mDirCheckFailureSimulatorInterval;
+    bool       mChunkSizeSkipHeaderVerifyFlag;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
