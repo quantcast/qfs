@@ -82,7 +82,8 @@ using std::istringstream;
                                         " [Recovery=1]" \
                                         " [Host=<chunk server ip>]" \
                                         " [Port=<chunk server port>]" \
-    )
+    ) \
+    f(UPSERVERS,                        "debug: show connected chunk servers")
 
     static string
 ToLower(
