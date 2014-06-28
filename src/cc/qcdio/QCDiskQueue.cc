@@ -48,7 +48,10 @@
 #include <sys/mount.h>
 #endif
 
-static const unsigned int kEndOfPendingCloseList = ~((unsigned int)0);
+// Ensure that all valid entries are positive, to make equal to 0 condition work
+// for 0 slot.
+static const unsigned int kPendingCloseListIdxOff = 1;
+static const unsigned int kEndOfPendingCloseList  = ~((unsigned int)0);
 
 class QCDiskQueue::Queue
 {
@@ -756,12 +759,13 @@ private:
                 mFilePendingReqCountPtr[mPendingCloseTail] ==
                 kEndOfPendingCloseList
             );
-            mFilePendingReqCountPtr[mPendingCloseTail] = inFileIdx;
+            mFilePendingReqCountPtr[mPendingCloseTail] =
+                inFileIdx + kPendingCloseListIdxOff;
             mPendingCloseTail = inFileIdx;
         } else {
             QCASSERT(mPendingCloseHead == kEndOfPendingCloseList);
             mPendingCloseTail = inFileIdx;
-            mPendingCloseHead = inFileIdx;
+            mPendingCloseHead = inFileIdx + kPendingCloseListIdxOff;
         }
         mFilePendingReqCountPtr[inFileIdx] = kEndOfPendingCloseList;
     }
@@ -1178,13 +1182,15 @@ QCDiskQueue::Queue::Run(
         } else {
             QCASSERT(
                 mPendingCloseHead != kEndOfPendingCloseList &&
+                kPendingCloseListIdxOff <= mPendingCloseHead &&
                 mBarrierFlag
             );
             unsigned int theHead = mPendingCloseHead;
             mPendingCloseHead = kEndOfPendingCloseList;
             mPendingCloseTail = kEndOfPendingCloseList;
             while (theHead != kEndOfPendingCloseList) {
-                const unsigned int theFileIdx = theHead;
+                const unsigned int theFileIdx =
+                    theHead - kPendingCloseListIdxOff;
                 theHead = mFilePendingReqCountPtr[theFileIdx];
                 ProcessClose(theFileIdx);
             }
