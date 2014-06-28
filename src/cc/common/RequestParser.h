@@ -45,6 +45,7 @@ namespace KFS
 using std::string;
 using std::streambuf;
 using std::istream;
+using std::ostream;
 using std::min;
 using std::make_pair;
 using std::map;
@@ -419,6 +420,8 @@ public:
             { return (! operator==(inToken)); }
         const char* GetEndPtr() const
             { return (mPtr + mLen); }
+        string ToString() const
+            { return string(mPtr, mLen); }
         const char* const mPtr;
         size_t const      mLen;
     };
