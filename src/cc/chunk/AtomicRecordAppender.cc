@@ -403,6 +403,7 @@ private:
     bool                    mFlushFullBlocksFlag:1;
     bool                    mCanDoLowOnBuffersFlushFlag:1;
     bool                    mMakeStableSucceededFlag:1;
+    bool                    mFirstFwdOpFlag:1;
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
     WriteIdState            mWriteIdState;
@@ -667,6 +668,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mFlushFullBlocksFlag(false),
       mCanDoLowOnBuffersFlushFlag(false),
       mMakeStableSucceededFlag(false),
+      mFirstFwdOpFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
       mWriteIdState(),
@@ -937,10 +939,17 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
         SetState(kStateReplicationFailed);
     } else if (op && mPeer && op->syncReplicationAccess.chunkAccess &&
             mPeer->GetShutdownSslFlag() != allowCSClearTextFlag) {
-        WAPPEND_LOG_STREAM_WARN <<
+        WAPPEND_LOG_STREAM(mFirstFwdOpFlag ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
             "chunk: " << mChunkId <<
             " peer clear text access has changed to: " <<
             (allowCSClearTextFlag ? "allowed" : "not allowed") <<
+            " state: "  << GetStateAsStr() <<
+            " master: " << IsMaster() <<
+            " hasCA: "  << hasChunkAccessFlag <<
+            " CA: "     <<
+                op->syncReplicationAccess.chunkAccess->token.ToString() <<
+            " " << op->Show() <<
         KFS_LOG_EOM;
         mPeer->SetShutdownSslFlag(allowCSClearTextFlag);
     }
@@ -1477,6 +1486,7 @@ AtomicRecordAppender::AppendBegin(
             mTimer.ScheduleTimeoutNoLaterThanIn(
                 gAtomicRecordAppendManager.GetReplicationTimeoutSec());
         }
+        mFirstFwdOpFlag = false;
         mPeer->Enqueue(op);
     } else {
         OpDone(op);
@@ -1843,18 +1853,25 @@ AtomicRecordAppender::CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag
         forwardFlag = false;
         CloseOp* const fwdOp = new CloseOp(0, *op);
         fwdOp->needAck = false;
-        const bool allowCSClearTextFlag = fwdOp->chunkAccessTokenValidFlag &&
-            (fwdOp->chunkAccessFlags &
-                ChunkAccessToken::kAllowClearTextFlag) != 0;
+        const bool allowCSClearTextFlag = op->chunkAccessTokenValidFlag &&
+            (op->chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
         SET_HANDLER(fwdOp, &CloseOp::HandlePeerReply);
         if (fwdOp->syncReplicationAccess.chunkAccess &&
                     ! allowCSClearTextFlag && mPeer->GetShutdownSslFlag()) {
-            WAPPEND_LOG_STREAM_WARN <<
+            WAPPEND_LOG_STREAM(mFirstFwdOpFlag ?
+                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
                 "chunk: " << mChunkId <<
-                " peer clear text access has changed t not allowed" <<
+                " peer clear text access has changed to: not allowed" <<
+                " state: "  << GetStateAsStr() <<
+                " master: " << IsMaster() <<
+                " hasCA: "  << op->chunkAccessTokenValidFlag <<
+                " CA: "     <<
+                  fwdOp->syncReplicationAccess.chunkAccess->token.ToString() <<
+                " " << op->Show() <<
             KFS_LOG_EOM;
             mPeer->SetShutdownSslFlag(allowCSClearTextFlag);
         }
+        mFirstFwdOpFlag = false;
         mPeer->Enqueue(fwdOp);
     }
     WAPPEND_LOG_STREAM(status == 0 ?
