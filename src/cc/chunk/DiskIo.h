@@ -175,7 +175,6 @@ public:
     public:
         File()
             : mQueuePtr(0),
-              mGeneration(0),
               mFileIdx(-1),
               mReadOnlyFlag(false),
               mSpaceReservedFlag(false)
@@ -216,7 +215,6 @@ public:
             int&     outBlockSize);
     private:
         DiskQueue* mQueuePtr;
-        uint64_t   mGeneration;
         int        mFileIdx;
         bool       mReadOnlyFlag:1;
         bool       mSpaceReservedFlag:1;
