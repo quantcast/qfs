@@ -1729,10 +1729,14 @@ HeartbeatOp::Execute()
     HBAppend(os, "Disk-fs-get-free-errors","err",
         dio.mGetFsSpaceAvailableErrorCount);
     HBAppend(os, 0, "dirchk", "");
-    HBAppend(os, "Disk-dir-readable-count", "cnt",
+    HBAppend(os, "Disk-dir-readable-count", "rnt",
         dio.mCheckDirReadableCount);
-    HBAppend(os, "Disk-dir-readable-errors","err",
+    HBAppend(os, "Disk-dir-readable-errors","rer",
         dio.mCheckDirReadableErrorCount);
+    HBAppend(os, "Disk-dir-writable-count", "wnt",
+        dio.mCheckDirWritableCount);
+    HBAppend(os, "Disk-dir-writable-errors","wer",
+        dio.mCheckDirWritableErrorCount);
     HBAppend(os, 0, "timedout", "");
     HBAppend(os, "Disk-timedout-count",      "cnt",
         dio.mTimedOutErrorCount);
