@@ -156,7 +156,7 @@ using std::ostringstream;
 using std::istringstream;
 using std::ws;
 
-#define WAPPEND_LOG_STREAM_PREFIX << "w_append: I" << mInstanceNum << "I "
+#define WAPPEND_LOG_STREAM_PREFIX << "W" << mInstanceNum << "A "
 #define WAPPEND_LOG_STREAM(pri)  KFS_LOG_STREAM(pri)  WAPPEND_LOG_STREAM_PREFIX
 #define WAPPEND_LOG_STREAM_DEBUG KFS_LOG_STREAM_DEBUG WAPPEND_LOG_STREAM_PREFIX
 #define WAPPEND_LOG_STREAM_WARN  KFS_LOG_STREAM_WARN  WAPPEND_LOG_STREAM_PREFIX
