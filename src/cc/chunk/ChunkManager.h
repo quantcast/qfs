@@ -169,6 +169,8 @@ public:
     /// @retval status code
     int StaleChunk(kfsChunkId_t chunkId,
         bool forceDeleteFlag = false, bool evacuatedFlag = false);
+    int StaleChunk(kfsChunkId_t chunkId,
+        bool forceDeleteFlag, bool evacuatedFlag, kfsSeq_t availChunksSeq);
 
     /// Truncate a chunk to the specified size
     /// @param[in] chunkId id of the chunk being truncated.
@@ -810,14 +812,16 @@ private:
     void AddMapping(ChunkDirInfo& dir, kfsFileId_t fileId, chunkId_t chunkId,
         kfsSeq_t chunkVers, int64_t chunkSize);
 
-    /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.
+    /// Of the various directories this chunkserver is configured with, find the
+    /// directory to store a chunk file.
     /// This method does a "directory allocation".
     ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
 
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
 
-    string MakeChunkPathname(const string &chunkdir, kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion);
+    string MakeChunkPathname(const string &chunkdir, kfsFileId_t fid,
+        kfsChunkId_t chunkId, kfsSeq_t chunkVersion);
 
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename in the "stalechunks" dir
@@ -861,7 +865,8 @@ private:
     /// On a restart, nuke out all the dirty chunks
     void RemoveDirtyChunks();
 
-    /// Scan the chunk dirs and rebuild the list of chunks that are hosted on this server
+    /// Scan the chunk dirs and rebuild the list of chunks that are hosted on
+    /// this server
     void Restore();
     /// Restore the chunk meta-data from the specified file name.
     void RestoreChunkMeta(const string &chunkMetaFn);

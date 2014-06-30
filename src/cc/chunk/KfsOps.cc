@@ -1857,7 +1857,8 @@ StaleChunksOp::Execute()
     for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
             it != staleChunkIds.end();
             ++it) {
-        gChunkManager.StaleChunk(*it, forceDeleteFlag, evacuatedFlag);
+        gChunkManager.StaleChunk(
+            *it, forceDeleteFlag, evacuatedFlag, availChunksSeq);
     }
     KFS_LOG_STREAM_INFO << "stale chunks: " <<
         (staleChunkIds.empty() ? kfsChunkId_t(-1) : staleChunkIds.front()) <<
@@ -3451,7 +3452,7 @@ AvailableChunksOp::Request(ostream& os)
     os << "Chunk-ids-vers:";
     os << hex;
     for (int i = 0; i < numChunks; i++) {
-        os << ' ' << chunkIds[i] << ' ' << chunkVersions[i];
+        os << ' ' << chunks[i].first << ' ' << chunks[i].second;
     }
     os << dec;
     os << "\r\n\r\n";

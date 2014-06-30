@@ -4869,6 +4869,9 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     if (hexFormatFlag) {
         os << "HexFormat: 1\r\n";
     }
+    if (hasAvailChunksSeqFlag) {
+        os << "AvailChunksSeq: " << availChunksSeq << "\r\n";
+    }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
     char* const end = tmpBuf + kBufEnd;

@@ -1860,12 +1860,16 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
     bool         evacuatedFlag;
     bool         hexFormatFlag;
+    bool         hasAvailChunksSeqFlag;
+    seq_t        availChunksSeq;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
-            bool evacFlag, bool hexFmtFlag)
+            bool evacFlag, bool hexFmtFlag, const seq_t* acSeq)
         : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, false, s, -1),
           staleChunkIds(),
           evacuatedFlag(evacFlag),
-          hexFormatFlag(hexFmtFlag)
+          hexFormatFlag(hexFmtFlag),
+          hasAvailChunksSeqFlag(acSeq != 0),
+          availChunksSeq(acSeq ? *acSeq : -1)
         {}
     virtual void request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const

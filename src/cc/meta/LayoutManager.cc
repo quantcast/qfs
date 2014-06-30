@@ -6028,8 +6028,10 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         }
         AddServer(*cmi, r->server);
     }
+    // The chunk's server logic presently "prefers" stale chunk's RPC arrival
+    // prior to chunk available RPC response.
     if (! staleChunks.IsEmpty()) {
-        r->server->NotifyStaleChunks(staleChunks);
+        r->server->NotifyStaleChunks(staleChunks, *r);
     }
 }
 

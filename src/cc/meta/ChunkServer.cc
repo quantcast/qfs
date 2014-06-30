@@ -1945,11 +1945,11 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag)
+    bool evacuatedFlag, bool clearStaleChunksFlag, const MetaChunkAvailable* ca)
 {
-    MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
+    MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
-        mStaleChunksHexFormatFlag);
+        mStaleChunksHexFormatFlag, ca ? &ca->opSeqno : 0);
     if (clearStaleChunksFlag) {
         r->staleChunkIds.Swap(staleChunkIds);
     } else {
@@ -1969,7 +1969,7 @@ ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
     MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
-        mStaleChunksHexFormatFlag);
+        mStaleChunksHexFormatFlag, 0);
     r->staleChunkIds.PushBack(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
     Enqueue(r);

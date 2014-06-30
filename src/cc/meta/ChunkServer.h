@@ -510,7 +510,12 @@ public:
     /// server has stale chunks, it queues an RPC to
     /// notify the chunk server of the stale data.
     void NotifyStaleChunks(ChunkIdQueue& staleChunks,
-        bool evacuatedFlag = false, bool clearStaleChunksFlag = true);
+        bool evacuatedFlag = false, bool clearStaleChunksFlag = true,
+        const MetaChunkAvailable* ca = 0);
+    void NotifyStaleChunks(
+        ChunkIdQueue&             staleChunks,
+        const MetaChunkAvailable& ca)
+        { NotifyStaleChunks(staleChunks, false, true, &ca); }
     void NotifyStaleChunk(chunkId_t staleChunk, bool evacuatedFlag = false);
 
     /// There is a difference between the version # as stored

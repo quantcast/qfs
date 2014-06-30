@@ -878,6 +878,7 @@ struct StaleChunksOp : public KfsOp {
     int           numStaleChunks; /* what the server tells us */
     bool          evacuatedFlag;
     bool          hexFormatFlag;
+    kfsSeq_t      availChunksSeq;
     StaleChunkIds staleChunkIds; /* data we parse out */
 
     StaleChunksOp(kfsSeq_t s = 0)
@@ -886,6 +887,7 @@ struct StaleChunksOp : public KfsOp {
           numStaleChunks(0),
           evacuatedFlag(false),
           hexFormatFlag(false),
+          availChunksSeq(-1),
           staleChunkIds()
         {}
     void Execute();
@@ -904,8 +906,9 @@ struct StaleChunksOp : public KfsOp {
         return KfsOp::ParserDef(parser)
         .Def("Content-length", &StaleChunksOp::contentLength)
         .Def("Num-chunks",     &StaleChunksOp::numStaleChunks)
-        .Def("Evacuated",      &StaleChunksOp::evacuatedFlag, false)
-        .Def("HexFormat",      &StaleChunksOp::hexFormatFlag, false)
+        .Def("Evacuated",      &StaleChunksOp::evacuatedFlag,  false)
+        .Def("HexFormat",      &StaleChunksOp::hexFormatFlag,  false)
+        .Def("AvailChunksSeq", &StaleChunksOp::availChunksSeq, kfsSeq_t(-1))
         ;
     }
 };
@@ -2249,9 +2252,9 @@ struct EvacuateChunksOp : public KfsOp {
 
 struct AvailableChunksOp : public KfsOp {
     enum { kMaxChunkIds = 64 };
-    kfsChunkId_t chunkIds[kMaxChunkIds];      // input
-    kfsChunkId_t chunkVersions[kMaxChunkIds]; // input
-    int          numChunks;
+    typedef pair<kfsChunkId_t, int64_t> Chunks;
+    Chunks chunks[kMaxChunkIds];
+    int    numChunks;
 
     AvailableChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
         : KfsOp(CMD_AVAILABLE_CHUNKS, s, c),
@@ -2273,7 +2276,7 @@ struct AvailableChunksOp : public KfsOp {
     {
         os << "available chunks: seq: " << seq;
         for (int i = 0; i < numChunks; i++) {
-            os << " " << chunkIds[i] << "." << chunkVersions[i];
+            os << " " << chunks[i].first << "." << chunks[i].second;
         }
         return os;
     }
