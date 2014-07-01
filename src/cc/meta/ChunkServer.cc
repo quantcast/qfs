@@ -1069,8 +1069,9 @@ ChunkServer::DeclareHelloError(
     mNetConnection->GetInBuffer().Clear();
     mNetConnection->SetMaxReadAhead(0);
     mNetConnection->SetInactivityTimeout(sRequestTimeout);
-    SendResponse(mHelloOp);
-    delete mHelloOp;
+    if (SendResponse(mHelloOp)) {
+        delete mHelloOp;
+    }
     mHelloOp = 0;
     return 0;
 }
