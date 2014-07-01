@@ -2754,13 +2754,15 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
         return -EFAULT;
     }
     ChunkDirInfo& dir = cih->GetDirInfo();
-    if (dir.availableChunksOpInFlightFlag) {
+    if (dir.availableChunksOpInFlightFlag &&
+            dir.availableChunksOp.seq != availChunksSeq) {
         // The following condition and correspond warning trace message relies
-        // on the protocol message order where the chunks available reply must
-        // arrive *after* "related" stale chunks rpc requests.
-        if (0 <= availChunksSeq &&
-                dir.availableChunksOp.seq != availChunksSeq) {
-            KFS_LOG_STREAM_WARN <<
+        // on the protocol message order where the chunks available reply would
+        // normally arrive *after* "related" stale chunks rpc requests.
+        // Presently the message can arrive after the chunk available RPC reply
+        // in the case of chunk server re-authentication.
+        if (0 <= availChunksSeq) {
+            KFS_LOG_STREAM_NOTICE <<
                 "detected possible available chunks message reording:"
                 " received: " << availChunksSeq <<
                 " current: "  << dir.availableChunksOp.seq <<
@@ -2773,7 +2775,8 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
                     dir.availableChunksOp.chunks +
                         dir.availableChunksOp.numChunks,
                     bind(&AvailableChunksOp::Chunks::first, _1) <
-                    bind(&AvailableChunksOp::Chunks::first, _2));
+                        bind(&AvailableChunksOp::Chunks::first, _2)
+                );
             }
         }
         const AvailableChunksOp::Chunks* const entry = lower_bound(
@@ -2781,7 +2784,8 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
             dir.availableChunksOp.chunks +
                 dir.availableChunksOp.numChunks,
             chunkId,
-            bind(&AvailableChunksOp::Chunks::first, _1) < chunkId);
+            bind(&AvailableChunksOp::Chunks::first, _1) < chunkId
+        );
         if (entry < dir.availableChunksOp.chunks +
                 dir.availableChunksOp.numChunks &&
                 entry->first == chunkId) {
@@ -2794,7 +2798,7 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
                 KFS_LOG_EOM;
             } else {
                 KFS_LOG_STREAM(availChunksSeq < 0 ?
-                        MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelWARN) <<
+                        MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
                     "keeping stale availabe"
                     " chunk: "   << chunkId <<
                     " version: " << entry->second <<
