@@ -271,6 +271,7 @@ fi
 
 ulimit -c unlimited || exit
 ulimit -n 65535 || exit
+ulimit -u `ulimit -Hu`
 exec 0</dev/null
 
 if [ x"$testonly" != x'yes' ]; then
