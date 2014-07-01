@@ -1046,7 +1046,7 @@ protected:
     int HandleReply(IOBuffer *iobuf, int msgLen);
 
     /// Send a response message to the MetaRequest we got.
-    void SendResponse(MetaRequest *op);
+    bool SendResponse(MetaRequest *op);
 
     ///
     /// Given a response from a chunkserver, find the

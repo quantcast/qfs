@@ -455,10 +455,9 @@ ChunkServer::ReleasePendingResponses(bool sendResponseFlag /* = false */)
         MetaRequest* const op = next;
         next = op->next;
         op->next = 0;
-        if (sendResponseFlag) {
-            SendResponse(op);
+        if (! sendResponseFlag || SendResponse(op)) {
+            delete op;
         }
-        delete op;
     }
 }
 
@@ -652,11 +651,8 @@ ChunkServer::HandleRequest(int code, void *data)
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data && (mHelloDone || mAuthenticateOp == op));
         const bool deleteOpFlag = op != mAuthenticateOp;
-        if (! mDown) {
-            SendResponse(op);
-        }
         // nothing left to be done...get rid of it
-        if (deleteOpFlag) {
+        if (SendResponse(op) && deleteOpFlag) {
             delete op;
         }
         break;
@@ -2296,11 +2292,11 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
     os << "\t";
 }
 
-void
+bool
 ChunkServer::SendResponse(MetaRequest* op)
 {
     if (! mNetConnection) {
-        return;
+        return true;
     }
     if (mAuthenticateOp && mAuthenticateOp != op) {
         op->next = 0;
@@ -2310,7 +2306,7 @@ ChunkServer::SendResponse(MetaRequest* op)
             mPendingResponseOpsHeadPtr = op;
         }
         mPendingResponseOpsTailPtr = op;
-        return;
+        return false;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
     op->response(mOstream.Set(buf), buf);
@@ -2318,6 +2314,7 @@ ChunkServer::SendResponse(MetaRequest* op)
     if (mRecursionCount <= 0) {
         mNetConnection->StartFlush();
     }
+    return true;
 }
 
 bool
