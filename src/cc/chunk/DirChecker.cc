@@ -1128,7 +1128,7 @@ private:
                                             (inTestIoBufferPtr[i]& 0xFF) <<
                                         " expect: " << kTestByte <<
                                     KFS_LOG_EOM;
-                                    theErr = -EIO;
+                                    theErr = EIO;
                                     memset(inTestIoBufferPtr,
                                         kTestByte, kTestIoSize);
                                     break;
