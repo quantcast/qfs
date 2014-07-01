@@ -995,6 +995,8 @@ protected:
     bool               mCryptoKeyValidFlag;
     CryptoKeys::KeyId  mCryptoKeyId;
     CryptoKeys::Key    mCryptoKey;
+    MetaRequest*       mPendingResponseOpsHeadPtr;
+    MetaRequest*       mPendingResponseOpsTailPtr;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1123,6 +1125,7 @@ protected:
     int DeclareHelloError(
         int         status,
         const char* statusMsg);
+    void ReleasePendingResponses(bool sendResponseFlag = false);
 };
 
 } // namespace KFS

@@ -404,6 +404,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mCryptoKeyValidFlag(false),
       mCryptoKeyId(),
       mCryptoKey(),
+      mPendingResponseOpsHeadPtr(0),
+      mPendingResponseOpsTailPtr(0),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -438,8 +440,26 @@ ChunkServer::~ChunkServer()
     RemoveFromPendingHelloList();
     delete mHelloOp;
     delete mAuthenticateOp;
+    ReleasePendingResponses();
     ChunkServersList::Remove(sChunkServersPtr, *this);
     sChunkServerCount--;
+}
+
+void
+ChunkServer::ReleasePendingResponses(bool sendResponseFlag /* = false */)
+{
+    MetaRequest* next = mPendingResponseOpsHeadPtr;
+    mPendingResponseOpsTailPtr = 0;
+    mPendingResponseOpsHeadPtr = 0;
+    while (next) {
+        MetaRequest* const op = next;
+        next = op->next;
+        op->next = 0;
+        if (sendResponseFlag) {
+            SendResponse(op);
+        }
+        delete op;
+    }
 }
 
 void
@@ -699,6 +719,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     EnqueueSelf(op);
                 }
             }
+            const bool kSendResponseFlag = true;
+            ReleasePendingResponses(kSendResponseFlag);
             break;
         }
         if (! mHelloDone &&
@@ -815,10 +837,10 @@ ChunkServer::ForceDown()
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
-    mSelfPtr.reset(); // Unref / delete self
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
+    mSelfPtr.reset(); // Unref / delete self
 }
 
 void
@@ -888,6 +910,7 @@ ChunkServer::Error(const char* errorMsg)
         mb->clnt    = this;
         submit_request(mb);
     }
+    ReleasePendingResponses();
     mSelfPtr.reset(); // Unref / delete self
 }
 
@@ -2277,6 +2300,16 @@ void
 ChunkServer::SendResponse(MetaRequest* op)
 {
     if (! mNetConnection) {
+        return;
+    }
+    if (mAuthenticateOp && mAuthenticateOp != op) {
+        op->next = 0;
+        if (mPendingResponseOpsHeadPtr) {
+            mPendingResponseOpsTailPtr->next = op;
+        } else {
+            mPendingResponseOpsHeadPtr = op;
+        }
+        mPendingResponseOpsTailPtr = op;
         return;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
