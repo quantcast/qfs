@@ -72,8 +72,8 @@ wuilog='webui.log'
 wuipid='webui.pid'
 myhost='127.0.0.1'
 metahost=$myhost
-errsym='yes'
-derrsym='no'
+errsim='yes'
+derrsim='no'
 smtest='yes'
 testonly='no'
 mconly='no'
@@ -85,6 +85,7 @@ certsdir=${certsdir-"`dirname "$clitestdir"`/certs"}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 chunkdirerrsim=0
+chunkdirerrsimall=0
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -107,15 +108,22 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -stop                    -- stop (kill -9) all started processes
  -status [<sec>]          -- get current status (tail) from the test logs,
     repeat every <num> sec
- -no-err-sym              -- trun off error sumulator
- -testonly                -- start tests only, do not start / restart meta and\
- chunk servers
+ -no-err-sim              -- trun off error simulator
+ -testonly                -- start tests only, do not start / restart meta and
+    chunk servers
  -mc-only                 -- only start / restart meta and chunk servers
  -cp-only                 -- only run copy test, do not run fanout test
  -no-sm-test              -- do not run sort master endurance test
- -disk-err-sym            -- enable disk error simulation
- -chunk-dir-err-sym <num> -- enable chunk directory check failure simulator on\
- firtst <num> chunk servers
+ -disk-err-sim            -- enable disk error simulation
+ -chunk-dir-err-sim-only  -- only run chunk directory error simulation with
+    very short replication / recovery timeout to make all replication recovery
+    fail. This option only makes sense if the endurance test was previously run
+    and enough chunks exits. Presently the test must be stopped with
+ -chunk-dir-err-sim-stop option, and then fack and qfsfileenum must be used to
+    detect possible problems.
+ -chunk-dir-err-sim-stop  -- stop chunk directories failure simulation test.
+ -chunk-dir-err-sim <num> -- enable chunk directory check failure simulator on
+    firtst <num> chunk servers
  -valgrind-cs             -- run chunk servers under valgrind
  -auth                    -- turn authentication on or off'
     exit 0
@@ -151,16 +159,16 @@ while [ $# -gt 0 ]; do
         done
         excode=1
         break
-    elif [ x"$1" = x'-no-err-sym' ]; then
+    elif [ x"$1" = x'-no-err-sim' ]; then
         shift
-        errsym='no'
-    elif [ x"$1" = x'-disk-err-sym' ]; then
+        errsim='no'
+    elif [ x"$1" = x'-disk-err-sim' ]; then
         shift
-        derrsym='yes'
+        derrsim='yes'
     elif [ x"$1" = x'-no-sm-test' ]; then
         shift
         smtest='no'
-    elif [ x"$1" = x'-chunk-dir-err-sym' ]; then
+    elif [ x"$1" = x'-chunk-dir-err-sim' ]; then
         if [ $# -le 1 ]; then
             echo "$1: missing argument"
             excode=1
@@ -190,6 +198,16 @@ while [ $# -gt 0 ]; do
             auth='no'
         fi
         [ $# -gt 0  ] && shift
+    elif [ x"$1" = x'-chunk-dir-err-sim-only' ]; then
+        shift
+        mconly='yes'
+        errsim='no'
+        derrsim='no'
+        chunkdirerrsim=0
+        chunkdirerrsimall=1
+    elif [ x"$1" = x'-chunk-dir-err-sim-stop' ]; then
+        shift
+        chunkdirerrsimall=-1
     else
         echo "invalid option: $1"
         excode=1
@@ -199,6 +217,24 @@ done
 
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
+fi
+
+mkdir -p "$metasrvdir"
+cd "$metasrvdir" || exit
+
+if [ $chunkdirerrsimall -lt 0 ]; then
+    cd "$metasrvdir" || exit
+    if [ -f "$metasrvpid" ]; then
+        cat >> "$metasrvprop" << EOF
+chunkServer.dirCheckFailureSimulatorInterval = -1
+metaServer.chunkServer.replicationTimeout    = 510
+EOF
+        kill -HUP `cat "$metasrvpid"`
+        exit
+    else
+        echo "not found: $metasrvpid"
+        exit 1
+    fi
 fi
 
 for n in "$chunkbin" "$metabin"; do
@@ -220,12 +256,12 @@ EOF
     export QFS_CLIENT_CONFIG
 fi
 
-if [ x"$errsym" = x'yes' ]; then
+if [ x"$errsim" = x'yes' ]; then
     cstimeout=20
     csretry=200 # make wait longer than chunk replication timeout / 5 sec
 else
     csretry=-1 # default
-    if [ x"$derrsym" = x'yes' ]; then
+    if [ x"$derrsim" = x'yes' ]; then
         cstimeout=30
     else
         cstimeout=8
@@ -247,6 +283,7 @@ echo "Starting meta server $metahost:$metasrvport"
 
 mkdir -p "$metasrvdir"
 cd "$metasrvdir" || exit
+
 kill_all_proc "$metasrvdir"
 mkdir -p kfscp || exit
 mkdir -p kfslog || exit
@@ -333,6 +370,14 @@ metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
 fi
 
+if [ $chunkdirerrsimall -gt 0 ]; then
+    cat >> "$metasrvprop" << EOF
+chunkServer.chunkDirsCheckIntervalSecs       = 15
+chunkServer.dirCheckFailureSimulatorInterval = 10
+metaServer.chunkServer.replicationTimeout    = 2
+EOF
+fi
+
 rm -f *.log*
 ./"$metaserverbin" -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 echo $! > "$metasrvpid"
@@ -411,17 +456,17 @@ chunkServer.chunkDirsCheckIntervalSecs       = 15
 chunkServer.dirCheckFailureSimulatorInterval = 10
 EOF
         fi
-        if [ x"$errsym" = x'yes' ]; then
+        if [ x"$errsim" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log,int=128,rsleep=30;
 EOF
-        elif [ x"$derrsym" = x'yes' ]; then
+        elif [ x"$derrsim" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log+err,int=128;
 EOF
         fi
 
-        if [ x"$derrsym" = x'yes' ]; then
+        if [ x"$derrsim" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.diskErrorSimulator.minPeriod = 3000
 chunkServer.diskErrorSimulator.maxPeriod = 4000
