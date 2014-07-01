@@ -25,16 +25,18 @@ set_target_properties (test-qfsc PROPERTIES LINKER_LANGUAGE CXX)
 
 if (USE_STATIC_LIB_LINKAGE)
     add_dependencies (test-qfsc
-        qfsc kfsClient kfsCommon kfsIO qcdio qfsrs qfskrb)
+        qfsc kfsClient kfsCommon kfsIO qcdio kfsrs qfskrb)
     target_link_libraries (test-qfsc
-        qfsc kfsClient kfsCommon kfsIO qcdio qfskrb ${OPENSSL_LIBRARIES} kfsrs pthread)
+        qfsc kfsClient kfsCommon kfsIO qcdio kfsrs qfskrb
+        ${OPENSSL_LIBRARIES} pthread)
 else (USE_STATIC_LIB_LINKAGE)
     add_dependencies (test-qfsc
         qfsc-shared kfsClient-shared kfsCommon-shared
         kfsIO-shared qcdio-shared kfsrs-shared qfskrb-shared)
     target_link_libraries (test-qfsc
         qfsc-shared kfsClient-shared kfsCommon-shared
-        kfsIO-shared qcdio-shared kfsrs-shared qfskrb-shared ${OPENSSL_LIBRARIES} pthread)
+        kfsIO-shared qcdio-shared kfsrs-shared qfskrb-shared
+        ${OPENSSL_LIBRARIES} pthread)
 endif (USE_STATIC_LIB_LINKAGE)
 
 install (TARGETS qfsc qfsc-shared
