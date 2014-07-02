@@ -682,7 +682,6 @@ ChunkServer::HandleRequest(int code, void *data)
             }
             if (mNetConnection->GetFilter()) {
                 if (! mAuthenticateOp->filter) {
-                    panic("downgrade to clear text communication");
                     Error("no clear text communication allowed");
                 }
                 // Wait for [ssl] shutdown with the current filter to complete.
