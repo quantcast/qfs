@@ -703,6 +703,19 @@ ChunkServer::HandleRequest(int code, void *data)
             mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
             delete mAuthenticateOp;
             mAuthenticateOp  = 0;
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
+                (mHelloDone ? " re-" : " ") <<
+                "authentication complete:"
+                " session expires in: " <<
+                    (mSessionExpirationTime - TimeNow()) << " sec." <<
+                " pending seq:"
+                " requests: "  << mAuthPendingSeq <<
+                    " +" << (mSeqNo - mAuthPendingSeq) <<
+                " responses: " << (mPendingResponseOpsHeadPtr ?
+                    mPendingResponseOpsHeadPtr->opSeqno : seq_t(-1)) <<
+                " "            << (mPendingResponseOpsTailPtr ?
+                        mPendingResponseOpsTailPtr->opSeqno : seq_t(-1)) <<
+            KFS_LOG_EOM;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
                 // Enqueue rpcs that were waiting for authentication to finish.
                 DispatchedReqs::const_iterator it =
@@ -2098,9 +2111,9 @@ ChunkServer::Heartbeat()
         if (reAuthenticateFlag) {
             KFS_LOG_STREAM_INFO <<
                 GetServerLocation() <<
-                " requesting chunk server re-authentication; "
-                "session expires in: " <<
-                (mSessionExpirationTime - now) << " sec." <<
+                " requesting chunk server re-authentication:"
+                " session expires in: " <<
+                    (mSessionExpirationTime - now) << " sec." <<
                 " auth ctx update count: " << mAuthCtxUpdateCount <<
                 " vs: " << authCtx.GetUpdateCount() <<
             KFS_LOG_EOM;
