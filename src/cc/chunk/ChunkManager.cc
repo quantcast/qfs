@@ -4490,7 +4490,7 @@ ChunkManager::Restore()
             const string evacuateName(it->dirname + mEvacuateFileName);
             struct stat buf = {0};
             if (stat(evacuateName.c_str(), &buf) == 0) {
-                KFS_LOG_STREAM_INFO <<
+                KFS_LOG_STREAM_NOTICE <<
                     "evacuate directory: " << it->dirname <<
                     " file: " << mEvacuateFileName << " exists" <<
                 KFS_LOG_EOM;
@@ -5404,7 +5404,7 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
             }
         } else {
             if (evacuateFlag && ! stopEvacuationFlag && StopEvacuation()) {
-                KFS_LOG_STREAM_INFO <<
+                KFS_LOG_STREAM_NOTICE <<
                     "chunk directory: " << dirname <<
                     " stopping evacuation"
                     " space: " << availableSpace <<
@@ -5416,7 +5416,7 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
             evacuateCheckIoErrorsCount = 0;
         }
     } else if (! evacuateFlag) {
-        KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM_NOTICE <<
             "chunk directory: " << dirname <<
             " \"evacuate\""
             " space: " << availableSpace <<
@@ -5720,7 +5720,7 @@ ChunkManager::ChunkDirInfo::RenameEvacuateFileDone(int code, void* data)
     if (code == EVENT_DISK_ERROR) {
         DiskError(*reinterpret_cast<int*>(data));
     } else {
-        KFS_LOG_STREAM_DEBUG <<
+        KFS_LOG_STREAM_NOTICE <<
             "chunk directory: " << dirname << " evacuation done"
             " space: " << availableSpace <<
             " used: "  << usedSpace <<
