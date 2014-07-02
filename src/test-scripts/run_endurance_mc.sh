@@ -368,6 +368,9 @@ metaServer.CSAuthentication.X509.X509PemFile     = $certsdir/meta.crt
 metaServer.CSAuthentication.X509.PKeyPemFile     = $certsdir/meta.key
 metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
 metaServer.cryptoKeys.keysFileName               = keys.txt
+
+metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 20
+metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 20
 EOF
 fi
 
@@ -375,7 +378,7 @@ if [ $chunkdirerrsimall -gt 0 ]; then
     cat >> "$metasrvprop" << EOF
 chunkServer.chunkDirsCheckIntervalSecs       = 15
 chunkServer.dirCheckFailureSimulatorInterval = 10
-metaServer.chunkServer.replicationTimeout    = 2
+metaServer.chunkServer.replicationTimeout    = 8
 EOF
 fi
 
