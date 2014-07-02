@@ -25,15 +25,25 @@
 
 set(CMAKE_LEGACY_CYGWIN_WIN32 0) # Remove when CMake >= 2.8.4 is required
 cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
-if (COMMAND cmake_policy)
-    cmake_policy(VERSION
-        ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION})
-endif (COMMAND cmake_policy)
+
+IF (COMMAND cmake_policy)
+    IF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+        message(
+            STATUS
+            "Not setting version policy: ${QFS_DONT_SET_CMAMKE_POLICY_VERISON}"
+        )
+    ELSE (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+        cmake_policy(
+            VERSION
+            ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION}
+        )
+    ENDIF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+ENDIF (COMMAND cmake_policy)
 
 project (QFS)
 
 IF (DEFINED KFS_DIR_PREFIX)
-    message ("Qfs source dir prefix: ${KFS_DIR_PREFIX}")
+    message (STATUS "Qfs source dir prefix: ${KFS_DIR_PREFIX}")
     set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake/Modules)
 ELSE (DEFINED KFS_DIR_PREFIX)
     set(KFS_DIR_PREFIX "")
