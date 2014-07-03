@@ -948,7 +948,7 @@ QCDiskQueue::Queue::Start(
                 theError = errno;
                 break;
             }
-            if (theFd >= 0 && fcntl(theFd, FD_CLOEXEC, 1)) {
+            if (theFd >= 0 && fcntl(theFd, F_SETFD, FD_CLOEXEC)) {
                 theError = errno;
                 break;
             }
@@ -1405,7 +1405,7 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
         const int theFd    = (theCreateFlag && i == theIdx) ?
             CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR) :
             open(theFileNamePtr, theOpenFlags);
-        if (theFd < 0 || fcntl(theFd, FD_CLOEXEC, 1)) {
+        if (theFd < 0 || fcntl(theFd, F_SETFD, FD_CLOEXEC)) {
             theSysErr = errno ? errno : -1;
             break;
         }

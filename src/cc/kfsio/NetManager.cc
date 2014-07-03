@@ -68,8 +68,8 @@ public:
         }
         fcntl(mPipeFds[0], F_SETFL, O_NONBLOCK);
         fcntl(mPipeFds[1], F_SETFL, O_NONBLOCK);
-        fcntl(mPipeFds[0], FD_CLOEXEC, 1);
-        fcntl(mPipeFds[1], FD_CLOEXEC, 1);
+        fcntl(mPipeFds[0], F_SETFD, FD_CLOEXEC);
+        fcntl(mPipeFds[1], F_SETFD, FD_CLOEXEC);
     }
     ~Waker() { Waker::Close(); }
     bool Sleep()

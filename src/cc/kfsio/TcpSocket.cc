@@ -108,7 +108,7 @@ TcpSocket::Bind(int port)
     if (mSockFd == -1) {
         return Perror("socket");
     }
-    if (fcntl(mSockFd, FD_CLOEXEC, 1)) {
+    if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
 
@@ -159,7 +159,7 @@ TcpSocket::Accept(int* status /* = 0 */)
         }
         return 0;
     }
-    if (fcntl(fd, FD_CLOEXEC, 1)) {
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
     accSock = new TcpSocket(fd);
@@ -182,7 +182,7 @@ TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect
     if (mSockFd < 0) {
         return (errno > 0 ? -errno : mSockFd);
     }
-    if (fcntl(mSockFd, FD_CLOEXEC, 1)) {
+    if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
 

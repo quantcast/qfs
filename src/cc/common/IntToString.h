@@ -55,7 +55,7 @@ public:
         T   inVal)
     {
         // Large enough buffer for binary representation.
-        char theBuf[sizeof(T) * 8 + 2];
+        char theBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
         char* const theBufEndPtr = theBuf + sizeof(theBuf) / sizeof(theBuf[0]);
         const char* const thePtr = Convert(inVal, theBufEndPtr);
         inStr.append(thePtr, theBufEndPtr - thePtr);
@@ -185,17 +185,17 @@ public:
     DisplayInt(
         T inVal)
         : mPtr(IntToString<TRadix>::Convert(
-            inVal, mBuf + sizeof(mBuf) / sizeof(mBuf[0])))
+            inVal, mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1))
         {}
     template<typename TStream>
     TStream& Display(
         TStream& inStream) const
     {
-        return inStream.write(
-            mPtr, mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - mPtr);
+        mBuf[sizeof(mBuf) / sizeof(mBuf[0]) - 1] = 0;
+        return (inStream << mPtr);
     }
 private:
-    char        mBuf[TRadix < 8 ? sizeof(T) * 8  + 1 : 32];
+    char        mBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
     char* const mPtr;
 };
 

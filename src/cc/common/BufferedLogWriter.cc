@@ -345,7 +345,7 @@ public:
             if (theFd < 0) {
                 return theErr;
             }
-            ::fcntl(theFd, FD_CLOEXEC, 1);
+            ::fcntl(theFd, F_SETFD, FD_CLOEXEC);
         }
         QCStMutexLocker theLocker(mMutex);
         if (theFd >= 0) {
@@ -1136,7 +1136,7 @@ private:
                     RotateLogs(theFileName, theMaxLogFiles, mMutex);
                     continue;
                 }
-                ::fcntl(theFd, FD_CLOEXEC, 1);
+                ::fcntl(theFd, F_SETFD, FD_CLOEXEC);
                 break;
             }
             while (theIt != theLogFileNames.end() &&

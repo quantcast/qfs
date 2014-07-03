@@ -579,13 +579,13 @@ try_to_acquire_lockfile(const string &lockfn)
     return fd;
 }
 
-void
+int
 acquire_lockfile(const string &lockfn, int ntries)
 {
     for (int i = 0; i < ntries; i++) {
         const int ret = try_to_acquire_lockfile(lockfn);
         if (ret >= 0) {
-            return;
+            return ret;
         }
         if (ret != -EACCES && ret != -EAGAIN) {
             cerr << "failed to open lock file: " << lockfn <<
