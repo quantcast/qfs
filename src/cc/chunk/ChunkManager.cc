@@ -5569,7 +5569,9 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
                 cih->chunkInfo.chunkVersion = ci.mChunkVersion;
                 if (ci.mChunkSize < 0) {
                     // Invalid chunk or io error.
-                    cih->chunkInfo.chunkSize = -ci.mChunkSize - 1;
+                    // Set chunk size to 0, to make accounting work in stale
+                    // chunk deletion, as the space utilization was not updated.
+                    cih->chunkInfo.chunkSize    = 0; //-ci.mChunkSize - 1;
                     const bool kForceDeleteFlag = false;
                     const bool kEvacuatedFlag   = false;
                     gChunkManager.MakeStale(
