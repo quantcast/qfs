@@ -177,6 +177,23 @@ AppendHexIntToString(
     return IntToString<16>::Append(inStr, inVal);
 }
 
+template<typename T, int TRadix>
+class ConvertInt
+{
+public:
+    ConvertInt(
+        T inVal)
+        : mPtr(IntToString<TRadix>::Convert(
+            inVal, mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1))
+        { mBuf[sizeof(mBuf) / sizeof(mBuf[0]) - 1] = 0; }
+    const char* GetPtr() const
+        { return mPtr; }
+    size_t GetSize() const
+        { return (mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1 - mPtr); }
+private:
+    char        mBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
+    char* const mPtr;
+};
 
 template<typename T, int TRadix>
 class DisplayInt
@@ -184,19 +201,32 @@ class DisplayInt
 public:
     DisplayInt(
         T inVal)
-        : mPtr(IntToString<TRadix>::Convert(
-            inVal, mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1))
+        : ConvertInt<T, TRadix>(inVal)
         {}
     template<typename TStream>
     TStream& Display(
         TStream& inStream) const
+        { return (inStream << mConverter.GetPtr()); }
+private:
+    ConvertInt<T, TRadix> const mConverter;
+};
+
+template<typename T, int TRadix>
+class WriteInt
+{
+public:
+    WriteInt(
+        T inVal)
+        : ConvertInt<T, TRadix>(inVal)
+        {}
+    template<typename TStream>
+    TStream& Write(
+        TStream& inStream) const
     {
-        mBuf[sizeof(mBuf) / sizeof(mBuf[0]) - 1] = 0;
-        return (inStream << mPtr);
+        return inStream.write(mConverter.GetPtr(), mConverter.GetSize());
     }
 private:
-    char        mBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
-    char* const mPtr;
+    ConvertInt<T, TRadix> const mConverter;
 };
 
 template<typename TStream, typename T, int TRadix>
@@ -206,6 +236,15 @@ operator<<(
     DisplayInt<T, TRadix> const& inDisplay)
 {
     return inDisplay.Display(inStream);
+}
+
+template<typename TStream, typename T, int TRadix>
+    inline static TStream&
+operator<<(
+    TStream&                   inStream,
+    WriteInt<T, TRadix> const& inWrite)
+{
+    return inWrite.Write(inStream);
 }
 
 }
