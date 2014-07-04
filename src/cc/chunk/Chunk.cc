@@ -44,13 +44,15 @@ bool IsValidChunkFile(
     const char*        filename,
     int64_t            infilesz,
     bool               requireChunkHeaderChecksumFlag,
+    bool               forceReadFlag,
     ChunkHeaderBuffer& chunkHeaderBuffer,
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
     int64_t&           outChunkSize,
-    int64_t*           outFileSystemId,
-    int*               outIoTimeSec)
+    int64_t&           outFileSystemId,
+    int&               outIoTimeSec,
+    bool&              outReadFlag)
 {
     const int   kNumComponents = 3;
     long long   components[kNumComponents];
@@ -59,6 +61,7 @@ bool IsValidChunkFile(
     int64_t     filesz = infilesz;
     int         i;
 
+    outReadFlag = false;
     for (i = 0; i < kNumComponents; i++) {
         components[i] = strtoll(ptr, &end, 10);
         if (components[i] < 0) {
@@ -84,7 +87,8 @@ bool IsValidChunkFile(
     // validated and proper size must be set.
     // The file might be bigger by one io buffer size, and io buffer size is
     // guaranteed to be less or equal to the KFS_CHUNK_HEADER_SIZE.
-    const int64_t kMaxChunkFileSize = (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
+    const int64_t kMaxChunkFileSize =
+        (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
     if (filesz < (int64_t)KFS_CHUNK_HEADER_SIZE ||
             filesz > (int64_t)(kMaxChunkFileSize + KFS_CHUNK_HEADER_SIZE)) {
         KFS_LOG_STREAM_INFO <<
@@ -95,10 +99,15 @@ bool IsValidChunkFile(
     }
     const chunkId_t chunkId   = components[1];
     const kfsSeq_t  chunkVers = components[2];
-    if (filesz > kMaxChunkFileSize || outFileSystemId) {
+    outFileId    = components[0];
+    outChunkId   = chunkId;
+    outChunkVers = chunkVers;
+    outChunkSize = filesz - KFS_CHUNK_HEADER_SIZE;
+    if (filesz > kMaxChunkFileSize || forceReadFlag) {
+        outReadFlag = true;
         // Load and validate chunk header, and set proper file size.
         const string cf(dirname + filename);
-        const time_t start = outIoTimeSec ? time(0) : 0;
+        const time_t start = time(0);
         const int    fd    = open(cf.c_str(), O_RDONLY);
         if (fd < 0) {
             const int err = errno;
@@ -112,9 +121,7 @@ bool IsValidChunkFile(
         const ssize_t rd = read(fd, chunkHeaderBuffer.GetPtr(),
             chunkHeaderBuffer.GetSize());
         close(fd);
-        if (outIoTimeSec) {
-            *outIoTimeSec = time(0) - start;
-        }
+        outIoTimeSec = time(0) - start;
         if (rd != chunkHeaderBuffer.GetSize()) {
             const int err = rd < 0 ? errno : EINVAL;
             KFS_LOG_STREAM_INFO <<
@@ -154,9 +161,7 @@ bool IsValidChunkFile(
             KFS_LOG_EOM;
             return false;
         }
-        if (outFileSystemId) {
-            *outFileSystemId = dci.GetFsId();
-        }
+        outFileSystemId = dci.GetFsId();
         filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;
         if (filesz < infilesz) {
             if (truncate(cf.c_str(), filesz)) {
@@ -176,10 +181,6 @@ bool IsValidChunkFile(
             }
         }
     }
-    outFileId    = components[0];
-    outChunkId   = chunkId;
-    outChunkVers = chunkVers;
-    outChunkSize = filesz - KFS_CHUNK_HEADER_SIZE;
     return true;
 }
 

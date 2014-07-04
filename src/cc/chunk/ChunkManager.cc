@@ -1895,6 +1895,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mDirChecker.SetInterval(prop.getValue(
         "chunkServer.dirRecheckInterval",
         mDirChecker.GetInterval() / 1000) * 1000);
+    mDirChecker.SetMaxChunkFilesSampled(prop.getValue(
+        "chunkServer.dirCheckMaxChunkFilesSampled",
+        mDirChecker.GetMaxChunkFilesSampled()));
     mCleanupChunkDirsFlag = prop.getValue(
         "chunkServer.cleanupChunkDirs",
         mCleanupChunkDirsFlag);
@@ -3223,35 +3226,44 @@ ChunkManager::MakeChunkPathname(ChunkInfoHandle *cih)
 }
 
 string
-ChunkManager::MakeChunkPathname(ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion)
+ChunkManager::MakeChunkPathname(
+    ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion)
 {
     return MakeChunkPathname(
-        stableFlag ?
-            cih->GetDirname() :
-            cih->GetDirname() + mDirtyChunksDir,
+        cih->GetDirname(),
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
-        stableFlag ? targetVersion : 0
+        stableFlag ? targetVersion : 0,
+        stableFlag ? string()      : mDirtyChunksDir
     );
 }
 
 string
 ChunkManager::MakeChunkPathname(const string& chunkdir,
-    kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion)
+    kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
+    const string& subDir)
 {
-    ostringstream os;
-    os << chunkdir << fid << '.' << chunkId << '.' << chunkVersion;
-    return os.str();
+    string ret;
+    ret.reserve(chunkdir.size() + subDir.size() + 78);
+    ret.assign(chunkdir.data(), chunkdir.size());
+    ret.append(subDir.data(), subDir.size());
+    AppendDecIntToString(ret, fid);
+    ret += '.';
+    AppendDecIntToString(ret, chunkId);
+    ret += '.';
+    AppendDecIntToString(ret, chunkVersion);
+    return ret;
 }
 
 string
 ChunkManager::MakeStaleChunkPathname(ChunkInfoHandle *cih)
 {
     return MakeChunkPathname(
-        cih->GetDirname() + mStaleChunksDir,
+        cih->GetDirname(),
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
-        cih->chunkInfo.chunkVersion
+        cih->chunkInfo.chunkVersion,
+        mStaleChunksDir
     );
 }
 
@@ -3270,14 +3282,14 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir,
             fileName  = MakeChunkPathname(cih);
             staleName = MakeStaleChunkPathname(cih);
             keepName  = MakeChunkPathname(
-                dir.dirname, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, string());
             Delete(*cih);
             cih = 0;
         } else {
             fileName  = MakeChunkPathname(
-                dir.dirname, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, string());
             staleName = MakeChunkPathname(
-                dir.dirname + mStaleChunksDir, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, mStaleChunksDir);
             keepName  = MakeChunkPathname(cih);
         }
         KFS_LOG_STREAM_INFO <<
@@ -3315,6 +3327,7 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir,
     cih->chunkInfo.chunkSize    = chunkSize;
     if (AddMapping(cih) != cih) {
         die("duplicate chunk table entry");
+        Delete(*cih);
     }
 }
 
@@ -4480,10 +4493,31 @@ ChunkManager::Restore()
             continue;
         }
         DirChecker::ChunkInfos::Iterator cit(it->availableChunks);
-        const DirChecker::ChunkInfo*     ci;
+        const DirChecker::ChunkInfo* ci;
         while ((ci = cit.Next())) {
-            AddMapping(*it,
-                ci->mFileId, ci->mChunkId, ci->mChunkVersion, ci->mChunkSize);
+            if (0 <= ci->mChunkSize) {
+                AddMapping(
+                    *it,
+                    ci->mFileId,
+                    ci->mChunkId,
+                    ci->mChunkVersion,
+                    ci->mChunkSize
+                );
+            } else {
+                const string name  = MakeChunkPathname(
+                    string(),
+                    ci->mFileId, ci->mChunkId, ci->mChunkVersion,
+                    string());
+                const string src(it->dirname + name);
+                const string dst(it->dirname + mStaleChunksDir + name);
+                if (rename(src.c_str(), dst.c_str())) {
+                    const int err = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "failed to rename " << src << " to " << dst <<
+                        " error: " << QCUtils::SysError(err) <<
+                    KFS_LOG_EOM;
+                }
+            }
         }
         it->availableChunks.Clear();
         if (! mEvacuateFileName.empty()) {
@@ -5528,12 +5562,22 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
             while (! availableChunks.IsEmpty() &&
                     availableChunksOp.numChunks <
                     AvailableChunksOp::kMaxChunkIds) {
-                const DirChecker::ChunkInfo& ci = availableChunks.Back();
-                ChunkInfoHandle* const cih = new ChunkInfoHandle(*this);
+                const DirChecker::ChunkInfo& ci  = availableChunks.Back();
+                ChunkInfoHandle* const       cih = new ChunkInfoHandle(*this);
                 cih->chunkInfo.fileId       = ci.mFileId;
                 cih->chunkInfo.chunkId      = ci.mChunkId;
                 cih->chunkInfo.chunkVersion = ci.mChunkVersion;
-                cih->chunkInfo.chunkSize    = ci.mChunkSize;
+                if (ci.mChunkSize < 0) {
+                    // Invalid chunk or io error.
+                    cih->chunkInfo.chunkSize = -ci.mChunkSize - 1;
+                    const bool kForceDeleteFlag = false;
+                    const bool kEvacuatedFlag   = false;
+                    gChunkManager.MakeStale(
+                        *cih, kForceDeleteFlag, kEvacuatedFlag);
+                    availableChunks.PopBack();
+                    continue;
+                }
+                cih->chunkInfo.chunkSize = ci.mChunkSize;
                 ChunkInfoHandle* ach = gChunkManager.AddMapping(cih);
                 if (ach != cih && 0 < ci.mChunkVersion) {
                     if (! ach) {

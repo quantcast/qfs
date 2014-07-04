@@ -313,13 +313,15 @@ bool IsValidChunkFile(
     const char*        filename,
     int64_t            infilesz,
     bool               requireChunkHeaderChecksumFlag,
+    bool               forceReadFlag,
     ChunkHeaderBuffer& chunkHeaderBuffer,
     kfsFileId_t&       outFileId,
     chunkId_t&         outChunkId,
     kfsSeq_t&          outChunkVers,
     int64_t&           outChunkSize,
-    int64_t*           outFileSystemId,
-    int*               outIoTimeSec);
+    int64_t&           outFileSystemId,
+    int&               outIoTimeSec,
+    bool&              outReadFlag);
 
 }
 

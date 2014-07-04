@@ -159,6 +159,9 @@ public:
         bool    inDeleteFlag);
     void SetIoTimeout(
         int inTimeoutSec);
+    void SetMaxChunkFilesSampled(
+        int inValue);
+    int GetMaxChunkFilesSampled();
     void Wakeup();
 private:
     class Impl;

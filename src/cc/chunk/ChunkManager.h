@@ -820,8 +820,8 @@ private:
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
 
-    string MakeChunkPathname(const string &chunkdir, kfsFileId_t fid,
-        kfsChunkId_t chunkId, kfsSeq_t chunkVersion);
+    string MakeChunkPathname(const string& chunkdir, kfsFileId_t fid,
+        kfsChunkId_t chunkId, kfsSeq_t chunkVersion, const string& subDir);
 
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename in the "stalechunks" dir
