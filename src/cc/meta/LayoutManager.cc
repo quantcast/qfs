@@ -5753,7 +5753,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->leaseId,
         kAllocDoneFlag,
         (mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ? cs->GetFattr() : 0,
-        req
+        mClientCSAuthRequiredFlag ? req : 0
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
         req->issuedTime                 = TimeNow();
