@@ -41,6 +41,7 @@
 #include "Logger.h"
 #include "BufferManager.h"
 #include "DiskIo.h"
+#include "ClientManager.h"
 
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
@@ -128,24 +129,24 @@ public:
 
 protected:
     // Inputs from the metaserver
-    kfsFileId_t        mFileId;
-    kfsChunkId_t       mChunkId;
-    kfsSeq_t           mChunkVersion;
+    kfsFileId_t const     mFileId;
+    kfsChunkId_t const    mChunkId;
+    kfsSeq_t              mChunkVersion;
     // What we obtain from the src from where we download the chunk.
-    int64_t            mChunkSize;
+    int64_t               mChunkSize;
     // The op that triggered this replication operation.
-    ReplicateChunkOp*  mOwner;
+    ReplicateChunkOp*     mOwner;
     // What is the offset we are currently reading at
-    int64_t            mOffset;
+    int64_t               mOffset;
     // Handle to the peer from where we have to get data
-    RemoteSyncSMPtr    mPeer;
+    RemoteSyncSMPtr const mPeer;
 
-    GetChunkMetadataOp mChunkMetadataOp;
-    ReadOp             mReadOp;
-    WriteOp            mWriteOp;
+    GetChunkMetadataOp    mChunkMetadataOp;
+    ReadOp                mReadOp;
+    WriteOp               mWriteOp;
     // Are we done yet?
-    bool               mDone;
-    bool               mCancelFlag;
+    bool                  mDone;
+    bool                  mCancelFlag;
 
     virtual ~ReplicatorImpl();
     // Cleanup...
@@ -1225,7 +1226,7 @@ Replicator::GetCounters(Replicator::Counters& counters)
 void
 Replicator::Run(ReplicateChunkOp* op)
 {
-    assert(op);
+    assert(op && ! gClientManager.GetCurrentClientThreadPtr());
     KFS_LOG_STREAM_DEBUG << op->Show() << KFS_LOG_EOM;
 
     const char*       p = op->chunkServerAccess.GetPtr();
@@ -1285,7 +1286,9 @@ Replicator::Run(ReplicateChunkOp* op)
                 peer.reset();
             }
         } else {
-            const bool kConnectFlag = true;
+            const bool theConnectFlag              =
+                gClientManager.GetMutexPtr() == 0;
+            const bool theForceUseClientThreadFlag = ! theConnectFlag;
             peer = RemoteSyncSM::Create(
                 op->location,
                 token,
@@ -1296,7 +1299,8 @@ Replicator::Run(ReplicateChunkOp* op)
                 op->allowCSClearTextFlag,
                 op->status,
                 op->statusMsg,
-                kConnectFlag
+                theConnectFlag,
+                theForceUseClientThreadFlag
             );
             if (peer && op->status < 0) {
                 peer.reset();

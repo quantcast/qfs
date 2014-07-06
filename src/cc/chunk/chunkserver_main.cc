@@ -548,7 +548,6 @@ ChunkServerMain::Run(int argc, char **argv)
             gChunkManager.Init(mChunkDirs, mProp)) {
         gLogger.Init(mLogDir);
         ret = gChunkServer.MainLoop() ? 0 : 1;
-        gChunkManager.Shutdown();
     }
     NetErrorSimulatorConfigure(globalNetManager());
     err = SslFilter::Cleanup();

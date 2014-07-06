@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #ifndef CLIENT_THREAD_H
@@ -41,6 +41,37 @@ class ClientThreadImpl;
 class ClientThread
 {
 public:
+    class StMutexLocker
+    {
+    public:
+        StMutexLocker(
+            ClientThread* inThreadPtr)
+            : mThreadPtr(inThreadPtr)
+        {
+            if (mThreadPtr) {
+                StMutexLocker::Lock();
+            }
+        }
+        ~StMutexLocker()
+            { StMutexLocker::Unlock(); }
+        void Unlock()
+        {
+            if (mThreadPtr) {
+                StMutexLocker::UnlockSelf();
+            }
+        }
+    private:
+        ClientThread* mThreadPtr;
+
+        void Lock();
+        void UnlockSelf();
+    private:
+        StMutexLocker(
+            const StMutexLocker& inLocker);
+        StMutexLocker& operator=(
+            const StMutexLocker& inLocker);
+    };
+
     ClientThread();
     ~ClientThread();
     void Start();

@@ -114,7 +114,9 @@ ChunkServer::MainLoop()
         QCStMutexUnlocker unlocker(gClientManager.GetMutexPtr());
         globalNetManager().MainLoop(gClientManager.GetMutexPtr());
     }
+    gClientManager.Stop();
     mRemoteSyncers.ReleaseAllServers();
+    gChunkManager.Shutdown();
     RemoteSyncSM::Shutdown();
     gClientManager.Shutdown();
 

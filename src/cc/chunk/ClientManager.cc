@@ -190,6 +190,7 @@ ClientManager::~ClientManager()
     delete mAcceptorPtr;
     delete &mAuth;
     delete [] mThreadsPtr;
+    KfsOp::SetMutex(0);
 }
 
     bool
@@ -206,6 +207,8 @@ ClientManager::BindAcceptor(
     mAcceptorPtr = new Acceptor(inPort, this, kBindOnlyFlag);
     const bool theOkFlag = mAcceptorPtr->IsAcceptorStarted();
     if (theOkFlag && 0 < mThreadCount) {
+        static QCMutex sOpsMutex;
+        KfsOp::SetMutex(&sOpsMutex);
         QCStMutexLocker theLocker(ClientThread::GetMutex());
         mThreadCount  = inThreadCount;
         mThreadsPtr   = new ClientThread[mThreadCount];
@@ -295,9 +298,8 @@ ClientManager::GetMutexPtr() const
     void
 ClientManager::Shutdown()
 {
-    for (int i = 0; i < mThreadCount; i++) {
-        mThreadsPtr[i].Stop();
-    }
+    Stop();
+    KfsOp::SetMutex(0);
     delete mAcceptorPtr;
     mAcceptorPtr = 0;
     mAuth.Clear();

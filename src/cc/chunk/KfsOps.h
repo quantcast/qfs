@@ -59,6 +59,8 @@
 
 #include <boost/shared_ptr.hpp>
 
+class QCMutex;
+
 namespace KFS
 {
 
@@ -284,30 +286,7 @@ struct KfsOp : public KfsCallbackObj
     BufferBytes     bufferBytes;
     NextOp          nextOp;
 
-    KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0)
-        : KfsCallbackObj(),
-          op(o),
-          type(OP_REQUEST),
-          seq(s),
-          status(0),
-          cancelled(false),
-          done(false),
-          noReply(false),
-          noRetry(false),
-          clientSMFlag(false),
-          maxWaitMillisec(-1),
-          statusMsg(),
-          clnt(c),
-          startTime(microseconds()),
-          bufferBytes(),
-          nextOp()
-    {
-        OpsList::Init(*this);
-        SET_HANDLER(this, &KfsOp::HandleDone);
-        static CleanupChecker checker;
-        sOpsCount++;
-        OpsList::PushBack(sOpsList, *this);
-    }
+    KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0);
     void Cancel() {
         cancelled = true;
     }
@@ -383,6 +362,8 @@ struct KfsOp : public KfsCallbackObj
         }
         return ret;
     }
+    static void SetMutex(QCMutex* mutex)
+        { sMutex = mutex; }
     static BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
     inline static Display ShowOp(const KfsOp* op)
         { return (op ? Display(*op) : Display(GetNullOp())); }
@@ -400,8 +381,9 @@ private:
     KfsOp* mPrevPtr[1];
     KfsOp* mNextPtr[1];
 
-    static KfsOp*  sOpsList[1];
-    static int64_t sOpsCount;
+    static KfsOp*   sOpsList[1];
+    static int64_t  sOpsCount;
+    static QCMutex* sMutex;
     class CleanupChecker
     {
     public:
@@ -1676,6 +1658,7 @@ struct ReadOp : public KfsClientChunkOp {
     // handler for reading in the chunk meta-data
     int HandleChunkMetaReadDone(int code, void *data);
     // handler for dealing with re-replication events
+    void VerifyReply();
     int HandleReplicatorDone(int code, void *data);
     int HandleScrubReadDone(int code, void *data);
     virtual ostream& ShowSelf(ostream& os) const

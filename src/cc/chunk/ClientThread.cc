@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #include "ClientThread.h"
@@ -47,49 +47,54 @@ using libkfsio::globalNetManager;
 class ClientThreadImpl : public QCRunnable, public ITimeout
 {
 public:
+    typedef ClientThread Outer;
+
+    static void Lock(
+        Outer& inThread)
+    {
+        GetMutex().Lock();
+        QCASSERT(
+            (! sCurrentClientThreadPtr && sLockCnt == 0) ||
+            (&inThread == sCurrentClientThreadPtr && 0 < sLockCnt)
+        );
+        if (sLockCnt++ == 0) {
+            sCurrentClientThreadPtr = &inThread;
+        }
+    }
+    static void Unlock(
+        Outer& inThread)
+    {
+        QCASSERT(0 < sLockCnt && sCurrentClientThreadPtr == &inThread);
+        if (--sLockCnt == 0) {
+            sCurrentClientThreadPtr = 0;
+        }
+        GetMutex().Unlock();
+    }
+
     class StMutexLocker
     {
     public:
         StMutexLocker(
-            ClientThreadImpl& inImpl)
-            : mLockedFlag(true)
-        {
-            ClientThreadImpl::GetMutex().Lock();
-            QCASSERT(
-                (! ClientThreadImpl::sCurrentClientThreadPtr &&
-                    sLockCnt == 0) ||
-                (&inImpl.mOuter == sCurrentClientThreadPtr && 0 < sLockCnt)
-            );
-            if (sLockCnt++ == 0) {
-                ClientThreadImpl::sCurrentClientThreadPtr = &inImpl.mOuter;
-            }
-        }
+            Outer& inThread)
+            : mThreadPtr(&inThread)
+            { ClientThreadImpl::Lock(inThread); }
         ~StMutexLocker()
             { StMutexLocker::Unlock(); }
         void Unlock()
         {
-            if (! mLockedFlag) {
-                return;
+            if (mThreadPtr) {
+                ClientThreadImpl::Unlock(*mThreadPtr);
+                mThreadPtr = 0;
             }
-            QCASSERT(0 < sLockCnt);
-            if (--sLockCnt == 0) {
-                ClientThreadImpl::sCurrentClientThreadPtr = 0;
-            }
-            mLockedFlag = false;
-            ClientThreadImpl::GetMutex().Unlock();
         }
     private:
-        bool       mLockedFlag;
-        static int sLockCnt;
+        Outer* mThreadPtr;
     private:
         StMutexLocker(
             const StMutexLocker& inLocker);
         StMutexLocker& operator=(
             const StMutexLocker& inLocker);
     };
-    friend class StMutexLocker;
-
-    typedef ClientThread Outer;
 
     ClientThreadImpl(
         ClientThread& inOuter)
@@ -151,7 +156,7 @@ public:
             return;
         }
         QCASSERT( ! GetMutex().IsOwned());
-        StMutexLocker theLocker(*this);
+        StMutexLocker theLocker(mOuter);
 
         mWakeupCnt = 0;
         ClientSM* thePtr = mAddQueueHeadPtr;
@@ -245,9 +250,7 @@ public:
                         theEntry.mReceivedHeaderLen,
                         &theEntry.mReceivedOpPtr,
                         mParseBuffer) != 0) {
-                    theEntry.mReceivedOpPtr     = 0;
-                    theEntry.mReceiveOpFlag     = false;
-                    theEntry.mReceivedHeaderLen = 0;
+                    theEntry.ReceiveClear();
                 }
             } else if (0 <= theEntry.mReceiveByteCount) {
                 if (theBuf.BytesConsumable() < theEntry.mReceiveByteCount) {
@@ -263,7 +266,7 @@ public:
                 }
             }
         }
-        StMutexLocker theLocker(*this);
+        StMutexLocker theLocker(mOuter);
         ClientThreadListEntry::HandleRequest(inClient, inCode, inDataPtr);
         theLocker.Unlock();
         GetConnection(inClient)->StartFlush();
@@ -307,12 +310,11 @@ public:
             ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
             return;
         }
-        if (inSyncSM.mFinishPtr) {
-            QCASSERT(inSyncSM.mFinishPtr.get() == &inSyncSM);
+        ClientThreadRemoteSyncListEntry::RemoveFromList(inSyncSM);
+        if (inSyncSM.mFinishFlag) {
             return;
         }
-        inSyncSM.mFinishPtr = inSyncSM.shared_from_this();
-        ClientThreadRemoteSyncListEntry::RemoveFromList(inSyncSM);
+        inSyncSM.mFinishFlag = true;
         if (! theEntry.mOpsHeadPtr &&
                 Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
             Wakeup();
@@ -351,6 +353,7 @@ private:
     char             mParseBuffer[MAX_RPC_HEADER_LEN];
 
     static ClientThread* sCurrentClientThreadPtr;
+    static int           sLockCnt;
 
     void Wakeup()
     {
@@ -381,28 +384,30 @@ private:
     static void RunPending(
         RemoteSyncSM& inSyncSM)
     {
-        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
-        KfsOp*                           thePtr   = theEntry.mOpsHeadPtr;
-        RemoteSyncSMPtr                  theFinishPtr;
-        // Going out of scope might delete the entry.
-        theFinishPtr.swap(theEntry.mFinishPtr);
+        ClientThreadRemoteSyncListEntry& theEntry      = inSyncSM;
+        KfsOp*                           thePtr        = theEntry.mOpsHeadPtr;
+        const bool                       theFinishFlag = theEntry.mFinishFlag;
         theEntry.mOpsHeadPtr = 0;
         theEntry.mOpsTailPtr = 0;
-        bool theOkFlag = false;
+        theEntry.mFinishFlag = false;
+        if (theFinishFlag) {
+            // Call Finish first, the fail pending ops, to maintain Enqueue()
+            // order.
+            ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
+            // theEntry and inSyncSM might be deleted at this point.
+        }
+        bool theOkFlag = ! theFinishFlag;
         while (thePtr) {
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
-            if (! theOkFlag) {
+            if (theOkFlag) {
+                theOkFlag = ClientThreadRemoteSyncListEntry::Enqueue(
+                    inSyncSM, theCur);
+            } else {
                 theCur.status = -EHOSTUNREACH;
                 SubmitOpResponse(&theCur);
-                continue;
             }
-            theOkFlag = ClientThreadRemoteSyncListEntry::Enqueue(
-                inSyncSM, theCur);
-        }
-        if (theFinishPtr) {
-            ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
         }
     }
     static RemoteSyncSM*& GetNextPtr(
@@ -454,7 +459,7 @@ private:
         ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
         return (
             Enqueue(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
-            ! theEntry.mFinishPtr
+            ! theEntry.mFinishFlag
         );
     }
     static const NetConnectionPtr& GetConnection(
@@ -470,11 +475,13 @@ private:
 };
 
 ClientThread* ClientThreadImpl::sCurrentClientThreadPtr = 0;
-int           ClientThreadImpl::StMutexLocker::sLockCnt = 0;
+int           ClientThreadImpl::sLockCnt                = 0;
 
 ClientThreadListEntry::~ClientThreadListEntry()
 {
-    QCRTASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mGrantedFlag);
+    if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mGrantedFlag) {
+        die("invalid client thread list entry destructor invocation");
+    }
 }
 
     int
@@ -496,7 +503,9 @@ ClientThreadListEntry::DispatchGranted(
 
 ClientThreadRemoteSyncListEntry::~ClientThreadRemoteSyncListEntry()
 {
-    QCRTASSERT(! mOpsHeadPtr && ! mOpsTailPtr && ! mNextPtr && ! mFinishPtr);
+    if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mFinishFlag) {
+        die("invalid remote sync list entry destructor invocation");
+    }
 }
 
     void
@@ -521,6 +530,21 @@ ClientThread::ClientThread()
 ClientThread::~ClientThread()
 {
     delete &mImpl;
+}
+
+    void
+ClientThread::StMutexLocker::Lock()
+{
+    QCASSERT(mThreadPtr);
+    ClientThreadImpl::Lock(*mThreadPtr);
+}
+
+    void
+ClientThread::StMutexLocker::UnlockSelf()
+{
+    QCASSERT(mThreadPtr);
+    ClientThreadImpl::Unlock(*mThreadPtr);
+    mThreadPtr = 0;
 }
 
     void

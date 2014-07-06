@@ -33,6 +33,8 @@
 #include "common/kfsdecls.h"
 #include "common/LinearHash.h"
 
+class QCMutex;
+
 namespace KFS
 {
 class AtomicRecordAppender;
@@ -170,6 +172,8 @@ public:
 
     void   UpdateAppenderFlushLimit(const AtomicRecordAppender* appender = 0);
     int    GetFlushLimit(AtomicRecordAppender& appender, int addBytes = 0);
+    int    GetAppendDropLockMinSize() const
+        { return mAppendDropLockMinSize; }
     inline void UpdatePendingFlush(AtomicRecordAppender& appender);
     inline void Detach(AtomicRecordAppender& appender);
     inline void DecOpenAppenderCount();
@@ -208,6 +212,10 @@ private:
     int                   mCloseOutOfSpaceThreshold;
     int                   mCloseOutOfSpaceSec;
     int                   mRecursionCount;
+    int                   mAppendDropLockMinSize;
+    int                   mMutexesCount;
+    int                   mCurMutexIdx;
+    QCMutex*              mMutexes;
     AtomicRecordAppender* mPendingFlushList[1];
     AtomicRecordAppender* mCurUpdateFlush;
     AtomicRecordAppender* mCurUpdateLowBufFlush;

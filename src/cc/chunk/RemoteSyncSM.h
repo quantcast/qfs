@@ -50,7 +50,6 @@ using std::list;
 using std::less;
 using std::find_if;
 
-class RemoteSyncSMTimeoutImpl;
 class Properties;
 class RemoteSyncSMList;
 class ClientThread;
@@ -60,14 +59,13 @@ struct KfsOp;
 class ClientThreadRemoteSyncListEntry
 {
 protected:
-    typedef boost::shared_ptr<RemoteSyncSM> SMPtr;
     ClientThreadRemoteSyncListEntry(
         ClientThread* inThreadPtr)
         : mClientThreadPtr(inThreadPtr),
           mOpsHeadPtr(0),
           mOpsTailPtr(0),
           mNextPtr(0),
-          mFinishPtr()
+          mFinishFlag(false)
         {}
     ~ClientThreadRemoteSyncListEntry();
     inline NetManager& GetNetManager();
@@ -76,17 +74,21 @@ protected:
         KfsOp&        inOp);
     void DispatchFinish(
         RemoteSyncSM& inSyncSM);
-    bool IsClientThread()
+    bool IsClientThread() const
         { return (mClientThreadPtr != 0); }
+    bool IsFinishPending() const
+        { return mFinishFlag; }
+    class StMutexLocker;
+    friend class StMutexLocker;
 private:
     ClientThread* const mClientThreadPtr;
     KfsOp*              mOpsHeadPtr;
     KfsOp*              mOpsTailPtr;
     RemoteSyncSM*       mNextPtr;
-    SMPtr               mFinishPtr;
+    bool                mFinishFlag;
 
     bool IsPending() const
-        { return (mOpsHeadPtr || mFinishPtr); }
+        { return (mOpsHeadPtr || mFinishFlag); }
 
     static inline bool Enqueue(
         RemoteSyncSM& inSyncSM,
@@ -110,7 +112,7 @@ class RemoteSyncSM : public KfsCallbackObj,
                      public boost::enable_shared_from_this<RemoteSyncSM>
 {
 public:
-    typedef ClientThreadRemoteSyncListEntry::SMPtr SMPtr;
+    typedef boost::shared_ptr<RemoteSyncSM> SMPtr;
     typedef list<
         SMPtr,
         StdFastAllocator<SMPtr>
@@ -128,33 +130,11 @@ public:
         string&               errMsg,
         bool                  connectFlag              = false,
         bool                  forceUseClientThreadFlag = false);
-    ~RemoteSyncSM();
-    bool HasAuthentication() const
-        { return ! mSessionId.empty(); }
-    bool GetShutdownSslFlag() const
-        { return mShutdownSslFlag; }
-    void SetShutdownSslFlag(bool inFlag)
-        { mShutdownSslFlag = inFlag; }
-    void Enqueue(KfsOp* op);
-    void Finish();
-    int HandleEvent(int code, void *data);
-    const ServerLocation& GetLocation() const {
-        return mLocation;
-    }
-    bool UpdateSession(
-        const char* sessionTokenPtr,
-        int         sessionTokenLen,
-        const char* sessionKeyPtr,
-        int         sessionKeyLen,
-        bool        writeMasterFlag,
-        int&        err,
-        string&     errMsg);
     static bool SetParameters(
-        const char* prefix, const Properties& props, bool authEnabledFlag);
+        const char*       prefix,
+        const Properties& props,
+        bool              authEnabledFlag);
     static void Shutdown();
-    static int GetResponseTimeoutSec() {
-        return sOpResponseTimeoutSec;
-    }
     static SMPtr FindServer(
         RemoteSyncSMList&     remoteSyncers,
         const ServerLocation& location,
@@ -167,6 +147,25 @@ public:
         bool                  shutdownSslFlag,
         int&                  err,
         string&               errMsg);
+    bool HasAuthentication() const
+        { return ! mSessionId.empty(); }
+    bool GetShutdownSslFlag() const
+        { return mShutdownSslFlag; }
+    void SetShutdownSslFlag(bool inFlag)
+        { mShutdownSslFlag = inFlag; }
+    const ServerLocation& GetLocation() const
+        { return mLocation; }
+    void Enqueue(
+        KfsOp* op);
+    void Finish();
+    bool UpdateSession(
+        const char* sessionTokenPtr,
+        int         sessionTokenLen,
+        const char* sessionKeyPtr,
+        int         sessionKeyLen,
+        bool        writeMasterFlag,
+        int&        err,
+        string&     errMsg);
 private:
     typedef map<
         kfsSeq_t,
@@ -199,7 +198,17 @@ private:
     SMList*            mList;
     SMList::iterator   mListIt;
     int                mConnectCount;
+    bool               mDeleteFlag;
+    int                mFinishRecursionCount;
+    const int          mOpResponseTimeoutSec;
+    const bool         mTraceRequestResponseFlag;
 
+    static bool        sTraceRequestResponseFlag;
+    static int         sOpResponseTimeoutSec;
+    static int         sRemoteSyncCount;
+    static Auth*       sAuthPtr;
+
+    ~RemoteSyncSM();
     RemoteSyncSM(
         const ServerLocation& location,
         ClientThread*         thread);
@@ -233,8 +242,9 @@ private:
         list.erase(mListIt); // Can invoke destructor.
         return true;
     }
-    kfsSeq_t NextSeqnum();
-
+    kfsSeq_t NextSeqnum()
+        { return mSeqnum++; }
+    int HandleEvent(int code, void *data);
     /// We (may) have got a response from the peer.  If we are doing
     /// re-replication, then we need to wait until we got all the data
     /// for the op; in such cases, we need to know if we got the full
@@ -244,15 +254,13 @@ private:
     void FailAllOps();
     bool EnqueueSelf(KfsOp* op);
     void FinishSelf();
+    void ScheduleDelete();
     inline void UpdateRecvTimeout();
     inline static QCMutex* GetMutexPtr();
 
-    static bool  sTraceRequestResponse;
-    static int   sOpResponseTimeoutSec;
-    static Auth* sAuthPtr;
-
     friend class RemoteSyncSMList;
     friend class ClientThreadRemoteSyncListEntry;
+    friend class RemoteSyncSMCleanupFunctor;
 private:
     // No copy.
     RemoteSyncSM(const RemoteSyncSM&);
@@ -267,7 +275,10 @@ public:
         : mList()
         {}
     ~RemoteSyncSMList()
-        { RemoteSyncSMList::ReleaseAllServers(); }
+    {
+        RemoteSyncSMList::ReleaseAllServers();
+        assert(mList.empty());
+    }
     void ReleaseAllServers()
     {
         while (! mList.empty()) {

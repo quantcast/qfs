@@ -120,19 +120,6 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 
 */
 
-#include <algorithm>
-#include <vector>
-#include <map>
-#include <iomanip>
-#include <sstream>
-#include <cerrno>
-
-#include "common/MsgLogger.h"
-#include "common/StdAllocator.h"
-#include "common/RequestParser.h"
-#include "kfsio/Globals.h"
-#include "kfsio/ChunkAccessToken.h"
-#include "qcdio/QCDLList.h"
 #include "AtomicRecordAppender.h"
 #include "ChunkManager.h"
 #include "LeaseClerk.h"
@@ -143,6 +130,26 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 #include "MetaServerSM.h"
 #include "DiskIo.h"
 #include "utils.h"
+#include "ClientManager.h"
+#include "ClientThread.h"
+
+#include "common/MsgLogger.h"
+#include "common/StdAllocator.h"
+#include "common/RequestParser.h"
+
+#include "kfsio/Globals.h"
+#include "kfsio/ChunkAccessToken.h"
+
+#include "qcdio/QCDLList.h"
+#include "qcdio/QCMutex.h"
+#include "qcdio/qcstutils.h"
+
+#include <algorithm>
+#include <vector>
+#include <map>
+#include <iomanip>
+#include <sstream>
+#include <cerrno>
 
 namespace KFS {
 using std::map;
@@ -243,13 +250,14 @@ public:
     {
         kErrNone              = 0,
         kErrParameters        = -EINVAL,
-        kErrProtocolState     = -EPERM,
+        kErrProtocolState     = -ENXIO,
         kErrStatusInProgress  = -EAGAIN,
         kErrWidReadOnly       = -EROFS,
         kErrFailedState       = -EFAULT,
         kErrOutOfSpace        = -ENOSPC,
         kErrNotFound          = -ENOENT,
-        kErrReplicationFailed = -EHOSTUNREACH
+        kErrReplicationFailed = -EHOSTUNREACH,
+        kErrBadChecksum       = -EBADCKSUM
     };
     template<typename T>
     AtomicRecordAppender(
@@ -261,47 +269,55 @@ public:
         ServerLocation         peerLoc,
         int                    replicationPos,
         int64_t                chunkSize,
-        const RemoteSyncSMPtr& peer);
-    void MakeChunkStable(MakeChunkStableOp* op = 0);
-    bool IsOpen() const
-        { return (mState == kStateOpen); }
-    bool IsChunkStable() const
+        const RemoteSyncSMPtr& peer,
+        QCMutex*               mutex);
+    void MakeChunkStableEx(MakeChunkStableOp* op)
     {
-        return (
-            mState != kStateOpen &&
-            mState != kStateClosed &&
-            mState != kStateReplicationFailed
-        );
+        QCStMutexLocker lock(mMutex);
+        MakeChunkStable(op);
     }
-    void Timeout();
+    bool CheckChunkStable() const
+    {
+        QCStMutexLocker lock(mMutex);
+        return IsChunkStable();
+    }
     int GetAlignmentAndFwdFlag(bool& forwardFlag) const
     {
+        QCStMutexLocker lock(mMutex);
         forwardFlag = IsOpen() && mPeer;
         return (mBuffer.BytesConsumableLast() + mBufFrontPadding);
     }
     kfsChunkId_t GetChunkId() const
         { return mChunkId; }
     size_t SpaceReserved() const
-        { return mBytesReserved; }
-    bool IsMaster() const
-        { return (mReplicationPos == 0); }
+    {
+        QCStMutexLocker lock(mMutex);
+        return mBytesReserved;
+    }
     bool WantsToKeepLease() const;
     void AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
         ServerLocation peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     int  ChangeChunkSpaceReservaton(
         int64_t writeId, size_t nBytesIn, bool releaseFlag, string* errMsg);
     int  InvalidateWriteId(int64_t writeId, bool declareFailureFlag);
-    void AppendBegin(RecordAppendOp *op, int replicationPos,
-        ServerLocation peerLoc);
+    void AppendChunkBegin(RecordAppendOp *op, int replicationPos,
+        ServerLocation peerLoc)
+    {
+        QCStMutexLocker lock(mMutex);
+        AppendBegin(op, replicationPos, peerLoc);
+    }
     void GetOpStatus(GetRecordAppendOpStatus* op);
-    void BeginMakeStable(BeginMakeChunkStableOp* op = 0);
     void CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag);
     bool CanDoLowOnBuffersFlush() const
         { return mCanDoLowOnBuffersFlushFlag; }
     void LowOnBuffersFlush()
-        { FlushFullBlocks(); }
+    {
+        QCStMutexLocker lock(mMutex);
+        FlushFullBlocks();
+    }
     void UpdateFlushLimit(int flushLimit)
     {
+        QCStMutexLocker lock(mMutex);
         if (mBuffer.BytesConsumable() > flushLimit) {
             FlushFullBlocks();
         }
@@ -309,6 +325,11 @@ public:
     int  EventHandler(int code, void *data);
     void DeleteChunk();
     bool Delete();
+    bool IsOpenEx() const
+    {
+        QCStMutexLocker lock(mMutex);
+        return IsOpen();
+    }
     template<typename T>
     int  CheckParameters(
         int64_t chunkVersion, uint32_t numServers, const T& servers,
@@ -317,8 +338,13 @@ public:
     static bool ComputeChecksum(
         kfsChunkId_t chunkId, int64_t chunkVersion,
         int64_t& chunkSize, uint32_t& chunkChecksum);
-    void FatalError()
-        { die("AtomicRecordAppender internal error"); }
+    void FatalError(const char* msg = "AtomicRecordAppender internal error")
+        { die(msg); }
+    void BeginChunkMakeStable(BeginMakeChunkStableOp* op)
+    {
+        QCStMutexLocker lock(mMutex);
+        BeginMakeStable(op);
+    }
 
 private:
     enum State
@@ -409,6 +435,7 @@ private:
     vector<uint32_t>        mTmpChecksums;
     Timer                   mTimer;
     const RemoteSyncSMPtr   mPeer;
+    QCMutex* const          mMutex;
     RecordAppendOp*         mReplicationList[1];
     AtomicRecordAppender*   mPrevPtr[1];
     AtomicRecordAppender*   mNextPtr[1];
@@ -417,6 +444,8 @@ private:
     ~AtomicRecordAppender();
     static inline time_t Now()
         { return libkfsio::globalNetManager().Now(); }
+    bool IsOpen() const
+        { return (mState == kStateOpen); }
     void SetState(State state, bool notifyIfLostFlag = true);
     const char* GetStateAsStr() const
         { return GetStateAsStr(mState); }
@@ -454,11 +483,12 @@ private:
     bool DeleteIfNeeded()
     {
         if (mState == kStatePendingDelete) {
-            Delete();
+            DeleteSelf();
             return true;
         }
         return false;
     }
+    void Timeout();
     template<typename T>
     void CheckLeaseAndChunk(const char* prefix, T* op);
     void MetaWriteDone(int status);
@@ -474,6 +504,22 @@ private:
         { gAtomicRecordAppendManager.IncAppendersWithWidCount(); }
     void DecAppendersWithWidCount()
         { gAtomicRecordAppendManager.DecAppendersWithWidCount(); }
+    bool DeleteSelf();
+    bool IsChunkStable() const
+    {
+        return (
+            mState != kStateOpen &&
+            mState != kStateClosed &&
+            mState != kStateReplicationFailed
+        );
+    }
+    void BeginMakeStable(BeginMakeChunkStableOp* op = 0);
+    void MakeChunkStable(MakeChunkStableOp* op = 0);
+    void AppendBegin(RecordAppendOp *op, int replicationPos,
+        ServerLocation peerLoc);
+    bool IsMaster() const
+        { return (mReplicationPos == 0); }
+    void Relock();
     int GetCloseEmptyWidStateSec()
     {
         if (mConsecutiveOutOfSpaceCount >
@@ -632,7 +678,8 @@ AtomicRecordAppender::AtomicRecordAppender(
     ServerLocation         peerLoc,
     int                    replicationPos,
     int64_t                chunkSize,
-    const RemoteSyncSMPtr& peer)
+    const RemoteSyncSMPtr& peer,
+    QCMutex*               mutex)
     : KfsCallbackObj(),
       mReplicationPos(replicationPos),
       mNumServers(numServers),
@@ -676,7 +723,8 @@ AtomicRecordAppender::AtomicRecordAppender(
         *this,
         gAtomicRecordAppendManager.GetCleanUpSec()
       ),
-      mPeer(peer)
+      mPeer(peer),
+      mMutex(mutex)
 {
     assert(
         chunkSize >= 0 &&
@@ -716,6 +764,7 @@ AtomicRecordAppender::~AtomicRecordAppender()
         mPeer->Finish();
     }
     mState = kStateNone; // To catch double free;
+    const_cast<QCMutex*&>(mMutex) = 0;
 }
 
 void
@@ -774,7 +823,7 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
 }
 
 bool
-AtomicRecordAppender::Delete()
+AtomicRecordAppender::DeleteSelf()
 {
     if (mState != kStatePendingDelete) {
         if (int(mState) <= kStateNone || int(mState) >= kNumStates) {
@@ -804,6 +853,8 @@ AtomicRecordAppender::CheckParameters(
     int replicationPos, ServerLocation peerLoc,
     const DiskIo::FilePtr& fileHandle, string& msg)
 {
+    QCStMutexLocker lock(mMutex);
+
     int status = 0;
     if (chunkVersion != mChunkVersion) {
         msg    = "invalid chunk version";
@@ -832,9 +883,17 @@ AtomicRecordAppender::CheckParameters(
     return status;
 }
 
+bool
+AtomicRecordAppender::Delete()
+{
+    QCStMutexLocker lock(mMutex);
+    return DeleteSelf();
+}
+
 void
 AtomicRecordAppender::DeleteChunk()
 {
+    QCStMutexLocker lock(mMutex);
     WAPPEND_LOG_STREAM_DEBUG <<
         "delete: " <<
         " chunk: "      << mChunkId <<
@@ -857,6 +916,7 @@ AtomicRecordAppender::DeleteChunk()
 int
 AtomicRecordAppender::EventHandler(int code, void* data)
 {
+    QCStMutexLocker lock(mMutex);
     switch(code) {
         case EVENT_INACTIVITY_TIMEOUT:
             Timeout();
@@ -951,6 +1011,7 @@ AtomicRecordAppender::AllocateWriteId(
     WriteIdAllocOp *op, int replicationPos, ServerLocation peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
+    QCStMutexLocker lock(mMutex);
     mLastActivityTime = Now();
     if (! IsChunkStable() && chunkFileHandle != mChunkFileHandle) {
         WAPPEND_LOG_STREAM_FATAL <<
@@ -1036,6 +1097,7 @@ int
 AtomicRecordAppender::ChangeChunkSpaceReservaton(
     int64_t writeId, size_t nBytes, bool releaseFlag, string* errMsg)
 {
+    QCStMutexLocker lock(mMutex);
     mLastActivityTime = Now();
     RecordAppendOp* const kNullOp = 0;
     CheckLeaseAndChunk(
@@ -1112,6 +1174,7 @@ AtomicRecordAppender::ChangeChunkSpaceReservaton(
 int
 AtomicRecordAppender::InvalidateWriteId(int64_t writeId, bool declareFailureFlag)
 {
+    QCStMutexLocker lock(mMutex);
     int status = 0;
     WriteIdState::iterator const it = mWriteIdState.find(writeId);
     if (it != mWriteIdState.end() &&
@@ -1170,6 +1233,28 @@ AtomicRecordAppender::UpdateMasterCommittedOffset(int64_t masterCommittedOffset)
 }
 
 void
+AtomicRecordAppender::Relock()
+{
+    QCMutex* const cliMutex = gClientManager.GetMutexPtr();
+    QCMutex* const mutex    = mMutex;
+    if (! mutex || ! cliMutex || ! mutex->IsOwned() || cliMutex->IsOwned()) {
+        FatalError("AtomicRecordAppender::Relock: invalid mutex state");
+        return;
+    }
+    mutex->Unlock();
+    if (mutex->IsOwned()) {
+        FatalError("AtomicRecordAppender::Relock: failed to release mutex");
+        return;
+    }
+    // Re-acquire in the same order.
+    cliMutex->Lock();
+    mutex->Lock();
+    if (mutex == mMutex) {
+        FatalError("AtomicRecordAppender::Relock: possible unexpected deletion");
+    }
+}
+
+void
 AtomicRecordAppender::AppendBegin(
     RecordAppendOp* op, int replicationPos, ServerLocation peerLoc)
 {
@@ -1188,7 +1273,8 @@ AtomicRecordAppender::AppendBegin(
     mLastActivityTime = Now();
     CheckLeaseAndChunk("begin", op);
 
-    int    status = 0;
+    bool   relockFlag = false;
+    int    status     = 0;
     string msg;
     ClientSM*   client = 0;
     if (op->chunkId != mChunkId) {
@@ -1283,7 +1369,48 @@ AtomicRecordAppender::AppendBegin(
                     "invalid write id: previous append failed";
             }
         }
+        if (status == 0 && IsMaster()) {
+            // Only on the write master is space reserved
+            assert(mNextOffset + mBytesReserved <= int64_t(CHUNKSIZE));
+            // Decrease space reservation for this client connection.
+            // ClientSM space un-reservation in case of the subsequent
+            // failures, except checksum mismatch, is not needed because
+            // these failures will at least prevent any further writes with
+            // this write id.
+            // The client must handle checksum mismatch by re-reserving
+            // space prior to retry, to resolve potential race due to
+            // re-locking.
+            if (widIt->second.mBytesReserved < op->numBytes) {
+                status = kErrParameters;
+                msg    = "write id out of reserved space";
+            } else if (mBytesReserved < op->numBytes) {
+                msg    = "out of reserved space";
+                status = kErrParameters;
+            } else {
+                assert(
+                    widIt != mWriteIdState.end() &&
+                    widIt->second.mStatus == 0
+                );
+                mBytesReserved -= op->numBytes;
+                widIt->second.mBytesReserved -= op->numBytes;
+                if (client) {
+                    client->UseReservedSpace(
+                        mChunkId, op->writeId, op->numBytes);
+                }
+            }
+        }
         if (status == 0) {
+            relockFlag = mMutex &&
+                gAtomicRecordAppendManager.GetAppendDropLockMinSize() <
+                (int)op->numBytes;
+            if (relockFlag) {
+                QCMutex* const mutex = gClientManager.GetMutexPtr();
+                if (mutex) {
+                    mutex->Unlock();
+                } else {
+                    relockFlag = false;
+                }
+            }
             uint32_t     checksum       = kKfsNullChecksum;
             const size_t lastLen        = mNextOffset % CHECKSUM_BLOCKSIZE;
             const size_t rem            = min(op->numBytes,
@@ -1310,9 +1437,12 @@ AtomicRecordAppender::AppendBegin(
                     " " << op->Show() <<
                 KFS_LOG_EOM;
                 FatalError();
-                op->status = -EFAULT;
+                op->status = kErrFailedState;
                 if (! IsMaster()) {
                     SetState(kStateReplicationFailed);
+                }
+                if (relockFlag) {
+                    Relock();
                 }
                 return;
             }
@@ -1334,7 +1464,7 @@ AtomicRecordAppender::AppendBegin(
                     " actual: " << checksum
                 ;
                 msg    = os.str();
-                status = kErrParameters;
+                status = kErrBadChecksum;
                 Cntrs().mChecksumErrorCount++;
                 if (! IsMaster()) {
                     SetState(kStateReplicationFailed);
@@ -1344,36 +1474,10 @@ AtomicRecordAppender::AppendBegin(
         if (status == 0) {
             assert(IsChunkOpen());
             if (IsMaster()) {
-                // only on the write master is space reserved
-                if (widIt->second.mBytesReserved < op->numBytes) {
-                    status = kErrParameters;
-                    msg    = "write id out of reserved space";
-                } else if (mBytesReserved < op->numBytes) {
-                    msg    = "out of reserved space";
-                    status = kErrParameters;
-                } else {
-                    assert(mNextOffset + mBytesReserved <= int64_t(CHUNKSIZE));
-                    // Commit the execution.
-                    assert(
-                        widIt != mWriteIdState.end() &&
-                        widIt->second.mStatus == 0
-                    );
-                    op->fileOffset = mNextOffset;
-                    mBytesReserved -= op->numBytes;
-                    widIt->second.mBytesReserved -= op->numBytes;
-                    mNextOffset += op->numBytes;
-                    // Decrease space reservation for this client connection.
-                    // ClientSM space un-reservation in case of the subsequent
-                    // failures is not needed because these failures will at
-                    // least prevent any further writes with this write id.
-                    if (client) {
-                        client->UseReservedSpace(
-                            mChunkId, op->writeId, op->numBytes);
-                    }
-                }
-            } else {
-                mNextOffset += op->numBytes;
+                // Commit the execution.
+                op->fileOffset = mNextOffset;
             }
+            mNextOffset += op->numBytes;
         }
     }
     // Empty appends (0 bytes) are always forwarded.
@@ -1384,7 +1488,9 @@ AtomicRecordAppender::AppendBegin(
         op->origClnt = op->clnt;
         op->clnt     = this;
     }
-    if (status == 0 && ! masterAckflag) {
+    const bool flushFlag = status == 0 && ! masterAckflag;
+    int prevNumBytes;
+    if (flushFlag) {
         // Write id table is updated only in the case when execution is
         // committed. Otherwise the op is discarded, and treated like
         // it was never received.
@@ -1404,7 +1510,7 @@ AtomicRecordAppender::AppendBegin(
         // The price is "undoing" writes, which might be necessary in the case of
         // replication failure. Undoing writes is a simple truncate, besides the
         // failures aren't expected to be frequent enough to matter.
-        const int prevNumBytes = mBuffer.BytesConsumable();
+        prevNumBytes = mBuffer.BytesConsumable();
         // Always try to append to the last buffer.
         // Flush() keeps track of the write offset and "slides" buffers
         // accordingly.
@@ -1428,6 +1534,17 @@ AtomicRecordAppender::AppendBegin(
                 assert(! mBuffer.IsEmpty());
             }
         }
+    }
+    // Update in flight queue to ensure that the appender cannot be deleted, by
+    // re-locking when the appender's mutex released and re-acquired.
+    mReplicationsInFlight++;
+    assert(0 < mReplicationsInFlight);
+    op->replicationStartTime = mLastActivityTime;
+    AppendReplicationList::PushBack(mReplicationList, *op);
+    if (relockFlag) {
+        Relock();
+    }
+    if (flushFlag) {
         // Do space accounting and flush if needed.
         if (mBuffer.BytesConsumable() >=
                 gAtomicRecordAppendManager.GetFlushLimit(*this,
@@ -1461,13 +1578,8 @@ AtomicRecordAppender::AppendBegin(
         " status: "       << status <<
         " " << op->Show() <<
     KFS_LOG_EOM;
-    mReplicationsInFlight++;
-    op->replicationStartTime = Now();
-    AppendReplicationList::PushBack(mReplicationList, *op);
-    if (op->origClnt || ! mPeer) {
-        mLastAppendActivityTime = Now();
-    }
-    if (op->origClnt) {
+    // Ensure that state is still open after re-locking.
+    if (op->origClnt && mState == kStateOpen) {
         assert(status == 0);
         if (IsMaster()) {
             op->masterCommittedOffset = mNextCommitOffset;
@@ -1528,14 +1640,14 @@ AtomicRecordAppender::OpDone(RecordAppendOp* op)
     if (deleteOpFlag) {
         delete op;
     }
-    DeleteIfNeeded();
+    const bool deletedFlag = DeleteIfNeeded();
     if (! deleteOpFlag) {
         Cntrs().mAppendCount++;
         if (op->status >= 0) {
             Cntrs().mAppendByteCount += op->numBytes;
         } else {
             Cntrs().mAppendErrorCount++;
-            if (mState == kStateReplicationFailed) {
+            if (! deletedFlag && mState == kStateReplicationFailed) {
                 Cntrs().mReplicationErrorCount++;
             }
         }
@@ -1655,6 +1767,7 @@ AtomicRecordAppender::AppendCommit(RecordAppendOp *op)
 void
 AtomicRecordAppender::GetOpStatus(GetRecordAppendOpStatus* op)
 {
+    QCStMutexLocker lock(mMutex);
     mLastActivityTime = Now();
 
     int         status = 0;
@@ -1760,6 +1873,7 @@ AtomicRecordAppender::GetOpStatus(GetRecordAppendOpStatus* op)
 void
 AtomicRecordAppender::CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag)
 {
+    QCStMutexLocker lock(mMutex);
     mLastActivityTime = Now();
 
     int         status = 0;
@@ -2012,6 +2126,7 @@ AtomicRecordAppender::BeginMakeStable(
 bool
 AtomicRecordAppender::WantsToKeepLease() const
 {
+    QCStMutexLocker lock(mMutex);
     return (IsMaster() && ! IsChunkStable());
 }
 
@@ -2116,7 +2231,7 @@ AtomicRecordAppender::Timeout()
             if (mState != kStateStable) {
                 SetState(kStateChunkLost);
             }
-            Delete();
+            DeleteSelf();
             return;
         }
     }
@@ -2570,7 +2685,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
                 " ios: "         << mIoOpsInFlight <<
             KFS_LOG_EOM;
             FatalError();
-            int res = -EINVAL;
+            int res = kErrParameters;
             wop->status = res;;
             wop->HandleEvent(EVENT_DISK_ERROR, &res);
             return;
@@ -2801,6 +2916,10 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mCloseOutOfSpaceThreshold(4),
       mCloseOutOfSpaceSec(5),
       mRecursionCount(0),
+      mAppendDropLockMinSize((4 << 10) - 1),
+      mMutexesCount(-1),
+      mCurMutexIdx(0),
+      mMutexes(0),
       mCurUpdateFlush(0),
       mCurUpdateLowBufFlush(0),
       mInstanceNum(0),
@@ -2813,6 +2932,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
 AtomicRecordAppendManager::~AtomicRecordAppendManager()
 {
     assert(mAppenders.IsEmpty() && mRecursionCount == 0);
+    delete [] mMutexes;
 }
 
 void
@@ -2845,6 +2965,8 @@ AtomicRecordAppendManager::SetParameters(const Properties& props)
         mCloseOutOfSpaceThreshold);
     mCloseOutOfSpaceSec     = props.getValue(
         "chunkServer.recAppender.closeOutOfSpaceSec", mCloseOutOfSpaceSec);
+    mAppendDropLockMinSize  = max(0, props.getValue(
+        "chunkServer.recAppender.dropLockMinSize",    mAppendDropLockMinSize));
     mTotalBuffersBytes       = 0;
     if (! mAppenders.IsEmpty()) {
         UpdateAppenderFlushLimit();
@@ -2869,7 +2991,7 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
 {
     assert(mActiveAppendersCount >= 0);
     if (appender) {
-        if (appender->IsChunkStable()) {
+        if (appender->CheckChunkStable()) {
             assert(mActiveAppendersCount > 0);
             mActiveAppendersCount--;
         } else {
@@ -2975,22 +3097,47 @@ AtomicRecordAppendManager::AllocateChunk(
                     kForceUseClientThreadFlag
                 );
                 if (! peer && 0 <= op->status) {
-                    op->status    = -EFAULT;
+                    op->status    = AtomicRecordAppender::kErrFailedState;
                     op->statusMsg = "failed to create forwarding peer";
                 }
             }
             if (op->status != 0) {
                 mAppenders.Erase(op->chunkId);
             } else {
+                QCMutex* mutex = 0;
+                if (mMutexesCount < 0) {
+                    if (gClientManager.GetMutexPtr()) {
+                        mMutexesCount = 1 << 8;
+                        mMutexes = new QCMutex[mMutexesCount];
+                    } else {
+                        mMutexesCount = 0;
+                        delete [] mMutexes;
+                        mMutexes = 0;
+                    }
+                }
+                if (mMutexes) {
+                    if (mMutexesCount <= mCurMutexIdx) {
+                        mCurMutexIdx = 0;
+                    }
+                    mutex = &(mMutexes[mCurMutexIdx++]);
+                }
                 *res = new AtomicRecordAppender(
-                    chunkFileHandle, op->chunkId, op->chunkVersion, op->numServers,
-                    op->servers, peerLoc, replicationPos, info->chunkSize, peer
+                    chunkFileHandle,
+                    op->chunkId,
+                    op->chunkVersion,
+                    op->numServers,
+                    op->servers,
+                    peerLoc,
+                    replicationPos,
+                    info->chunkSize,
+                    peer,
+                    mutex
                 );
                 mOpenAppendersCount++;
                 UpdateAppenderFlushLimit(*res);
             }
         }
-    } else if ((*res)->IsOpen()) {
+    } else if ((*res)->IsOpenEx()) {
         op->status = (*res)->CheckParameters(
             op->chunkVersion, op->numServers,
             op->servers, replicationPos, peerLoc, chunkFileHandle, op->statusMsg);
@@ -3077,7 +3224,7 @@ bool
 AtomicRecordAppendManager::IsChunkStable(kfsChunkId_t chunkId) const
 {
     AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
-    return (! appender || (*appender)->IsChunkStable());
+    return (! appender || (*appender)->CheckChunkStable());
 }
 
 bool
@@ -3167,7 +3314,7 @@ AtomicRecordAppendManager::BeginMakeChunkStable(BeginMakeChunkStableOp* op)
         mCounters.mBeginMakeStableErrorCount++;
         return false; // Submit response now.
     }
-    (*appender)->BeginMakeStable(op);
+    (*appender)->BeginChunkMakeStable(op);
     // Completion handler is already invoked or will be invoked later.
     return true;
 }
@@ -3191,7 +3338,7 @@ AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
     assert(op);
     AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
     if (appender) {
-        (*appender)->MakeChunkStable(op);
+        (*appender)->MakeChunkStableEx(op);
         // Completion handler is already invoked or will be invoked later.
         return true;
     }
@@ -3262,7 +3409,7 @@ AtomicRecordAppendManager::AppendBegin(
         mCounters.mAppendErrorCount++;
         KFS::SubmitOpResponse(op);
     } else {
-        (*appender)->AppendBegin(op, replicationPos, peerLoc);
+        (*appender)->AppendChunkBegin(op, replicationPos, peerLoc);
     }
 }
 

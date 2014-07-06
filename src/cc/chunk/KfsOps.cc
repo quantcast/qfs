@@ -41,6 +41,8 @@
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/ChunkAccessToken.h"
 
+#include "qcdio/qcstutils.h"
+
 #include "ChunkManager.h"
 #include "Logger.h"
 #include "ChunkServer.h"
@@ -405,11 +407,39 @@ KfsOp::GetNullOp()
     return sNullOp;
 }
 
-int64_t KfsOp::sOpsCount   = 0;
-KfsOp*  KfsOp::sOpsList[1] = {0};
+QCMutex* KfsOp::sMutex      = 0;
+int64_t  KfsOp::sOpsCount   = 0;
+KfsOp*   KfsOp::sOpsList[1] = {0};
+
+KfsOp::KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c)
+    : KfsCallbackObj(),
+      op(o),
+      type(OP_REQUEST),
+      seq(s),
+      status(0),
+      cancelled(false),
+      done(false),
+      noReply(false),
+      noRetry(false),
+      clientSMFlag(false),
+      maxWaitMillisec(-1),
+      statusMsg(),
+      clnt(c),
+      startTime(microseconds()),
+      bufferBytes(),
+      nextOp()
+{
+    OpsList::Init(*this);
+    SET_HANDLER(this, &KfsOp::HandleDone);
+    QCStMutexLocker theLocker(sMutex);
+    static CleanupChecker checker;
+    sOpsCount++;
+    OpsList::PushBack(sOpsList, *this);
+}
 
 KfsOp::~KfsOp()
 {
+    QCStMutexLocker theLocker(sMutex);
     if (sOpsCount <= 0 || op <= CMD_UNKNOWN || CMD_NCMDS <= op) {
         die("~KfsOp: invalid instance");
         return;
@@ -861,8 +891,8 @@ ReadOp::HandleDone(int code, void *data)
     return 0;
 }
 
-int
-ReadOp::HandleReplicatorDone(int code, void *data)
+void
+ReadOp::VerifyReply()
 {
     if (0 <= status && (ssize_t)numBytes < numBytesIO) {
         status    = -EINVAL;
@@ -897,6 +927,11 @@ ReadOp::HandleReplicatorDone(int code, void *data)
             }
         }
     }
+}
+
+int
+ReadOp::HandleReplicatorDone(int code, void *data)
+{
     // notify the replicator object that the read it had submitted to
     // the peer has finished.
     return clnt->HandleEvent(code, data);
