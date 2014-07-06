@@ -57,6 +57,8 @@
 #include <string>
 #include <set>
 
+#include <boost/bind.hpp>
+
 namespace KFS
 {
 using std::ofstream;
@@ -71,6 +73,7 @@ using std::unique;
 using std::greater;
 using std::set;
 using std::binary_function;
+using boost::bind;
 
 using namespace KFS::libkfsio;
 
@@ -126,6 +129,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           availableChunksOpInFlightFlag(false),
           notifyAvailableChunksStartFlag(false),
           timeoutPendingFlag(false),
+          chunksAvailableInFlightSortedFlag(false),
           lastEvacuationActivityTime(
             globalNetManager().Now() - 365 * 24 * 60 * 60),
           startTime(globalNetManager().Now()),
@@ -664,6 +668,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     bool                   availableChunksOpInFlightFlag:1;
     bool                   notifyAvailableChunksStartFlag:1;
     bool                   timeoutPendingFlag:1;
+    bool                   chunksAvailableInFlightSortedFlag:1;
     time_t                 lastEvacuationActivityTime;
     time_t                 startTime;
     time_t                 stopTime;
@@ -1583,6 +1588,7 @@ ChunkManager::ChunkManager()
       mNextCheckpointTime(0),
       mMaxOpenChunkFiles((64 << 10) - 8),
       mMaxOpenFds(1 << 10),
+      mMaxClientCount(mMaxOpenFds * 2 / 3),
       mFdsPerChunk(1),
       mChunkDirs(),
       mWriteId(GetRandomSeq()), // Seed write id.
@@ -1617,6 +1623,7 @@ ChunkManager::ChunkManager()
       mBufferedIoFlag(false),
       mSyncChunkHeaderFlag(false),
       mCheckDirWritableFlag(true),
+      mCheckDirTestWriteSize(16 << 10),
       mCheckDirWritableTmpFileName("checkdir.tmp"),
       mNullBlockChecksum(0),
       mCounters(),
@@ -1644,6 +1651,10 @@ ChunkManager::ChunkManager()
       mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
       mFileSystemId(-1),
       mFsIdFileNamePrefix("0-fsid-"),
+      mDirCheckerIoTimeoutSec(-1),
+      mDirCheckFailureSimulatorInterval(-1),
+      mChunkSizeSkipHeaderVerifyFlag(false),
+      mRand(),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -1757,6 +1768,24 @@ ChunkManager::IsWriteAppenderOwns(kfsChunkId_t chunkId) const
 
 bool ChunkManager::sExitDebugCheckFlag = false;
 
+void
+ChunkManager::SetDirCheckerIoTimeout()
+{
+    int theTimeoutSec;
+    if (0 < mDirCheckerIoTimeoutSec) {
+        theTimeoutSec = mDirCheckerIoTimeoutSec;
+    } else {
+        theTimeoutSec = DiskIo::GetMaxIoTimeSec();
+        if (theTimeoutSec <= 0) {
+            theTimeoutSec = -1;
+        } else {
+            theTimeoutSec =
+                (int)max(int64_t(1), int64_t(theTimeoutSec) * 3 / 4);
+        }
+    }
+    mDirChecker.SetIoTimeout(theTimeoutSec);
+}
+
 bool
 ChunkManager::SetParameters(const Properties& prop)
 {
@@ -1790,10 +1819,15 @@ ChunkManager::SetParameters(const Properties& prop)
     mRequireChunkHeaderChecksumFlag = prop.getValue(
         "chunkServer.requireChunkHeaderChecksum",
         mRequireChunkHeaderChecksumFlag ? 1 : 0) != 0;
-    mDirChecker.SetRequireChunkHeaderChecksumFlag(mRequireChunkHeaderChecksumFlag);
+    mDirChecker.SetRequireChunkHeaderChecksumFlag(
+        mRequireChunkHeaderChecksumFlag);
+    const bool prevForcedeleteStaleChunksFlag = mForceDeleteStaleChunksFlag;
     mForceDeleteStaleChunksFlag = prop.getValue(
         "chunkServer.forceDeleteStaleChunks",
         mForceDeleteStaleChunksFlag ? 1 : 0) != 0;
+    if (prevForcedeleteStaleChunksFlag != mForceDeleteStaleChunksFlag) {
+        mDirChecker.AddSubDir(mStaleChunksDir, mForceDeleteStaleChunksFlag);
+    }
     mKeepEvacuatedChunksFlag = prop.getValue(
         "chunkServer.keepEvacuatedChunksFlag",
         mKeepEvacuatedChunksFlag ? 1 : 0) != 0;
@@ -1840,6 +1874,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mCheckDirWritableFlag = prop.getValue(
         "chunkServer.checkDirWritableFlag",
         mCheckDirWritableFlag ? 1 : 0) != 0;
+    mCheckDirTestWriteSize = prop.getValue(
+        "chunkServer.checkDirTestWriteSize",
+        mCheckDirTestWriteSize);
     mCheckDirWritableTmpFileName = prop.getValue(
         "chunkserver.checkDirWritableTmpFileName",
         mCheckDirWritableTmpFileName);
@@ -1858,6 +1895,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mDirChecker.SetInterval(prop.getValue(
         "chunkServer.dirRecheckInterval",
         mDirChecker.GetInterval() / 1000) * 1000);
+    mDirChecker.SetMaxChunkFilesSampled(prop.getValue(
+        "chunkServer.dirCheckMaxChunkFilesSampled",
+        mDirChecker.GetMaxChunkFilesSampled()));
     mCleanupChunkDirsFlag = prop.getValue(
         "chunkServer.cleanupChunkDirs",
         mCleanupChunkDirsFlag);
@@ -1877,8 +1917,14 @@ ChunkManager::SetParameters(const Properties& prop)
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
 
+    mMaxClientCount = min(mMaxOpenFds * 2 / 3, prop.getValue(
+        "chunkServer.client.maxClientCount", mMaxClientCount));
     bool ret = gClientManager.SetParameters(
-        "chunkServer.client.", prop, gMetaServerSM.IsAuthEnabled());
+        "chunkServer.client.",
+        prop,
+        gMetaServerSM.IsAuthEnabled(),
+        mMaxClientCount
+    );
     ret = RemoteSyncSM::SetParameters(
         "chunkServer.remoteSync.", prop, gMetaServerSM.IsAuthEnabled()) && ret;
     mMaxEvacuateIoErrors = max(1, prop.getValue(
@@ -1927,7 +1973,16 @@ ChunkManager::SetParameters(const Properties& prop)
         mWritePrepareReplyFlag ? 0 : 1) == 0;
     mFsIdFileNamePrefix = prop.getValue(
         "chunkServer.fsIdFileNamePrefix", mFsIdFileNamePrefix);
+    mDirCheckerIoTimeoutSec = prop.getValue(
+        "chunkServer.dirCheckerIoTimeoutSec", mDirCheckerIoTimeoutSec);
+    mDirCheckFailureSimulatorInterval = prop.getValue(
+        "chunkServer.dirCheckFailureSimulatorInterval",
+        mDirCheckFailureSimulatorInterval);
+    mChunkSizeSkipHeaderVerifyFlag = prop.getValue(
+        "chunkServer.chunkSizeSkipHeaderVerifyFlag",
+        mChunkSizeSkipHeaderVerifyFlag ? 1 : 0);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
+    SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -2097,6 +2152,12 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     mStaleChunksDir = AddTrailingPathSeparator(mStaleChunksDir);
     mDirtyChunksDir = AddTrailingPathSeparator(mDirtyChunksDir);
 
+    mMaxOpenFds = SetMaxNoFileLimit();
+    mMaxClientCount = mMaxOpenFds * 2 / 3;
+    KFS_LOG_STREAM_INFO <<
+        " max open files: "           << mMaxOpenFds <<
+        " default max client count: " << mMaxClientCount <<
+    KFS_LOG_EOM;
     if (! SetParameters(prop)) {
         return false;
     }
@@ -2152,7 +2213,6 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         return false;
     }
     const int kMinOpenFds = 32;
-    mMaxOpenFds = SetMaxNoFileLimit();
     if (mMaxOpenFds < kMinOpenFds) {
         KFS_LOG_STREAM_ERROR <<
             "file descriptor limit too small: " << mMaxOpenFds <<
@@ -2194,23 +2254,37 @@ ChunkManager::AllocChunk(
     bool              isBeingReplicated,
     ChunkInfoHandle** outCih,
     bool              mustExistFlag,
-    AllocChunkOp*     op /* = 0 */)
+    AllocChunkOp*     op                            /* = 0 */,
+    kfsSeq_t          chunkReplicationTargetVersion /* = -1 */,
+    DiskIo::FilePtr*  outFileHandle                 /* = 0 */)
 {
     ChunkInfoHandle** const cie = mChunkTable.Find(chunkId);
     if (cie) {
-        if (isBeingReplicated) {
-            return -EINVAL;
-        }
         ChunkInfoHandle* const cih = *cie;
-        if (cih->IsBeingReplicated() || cih->IsStable() ||
-                cih->IsWriteAppenderOwns() ||
-                cih->chunkInfo.chunkVersion != chunkVersion) {
-            return -EINVAL;
+        if (isBeingReplicated) {
+            if (mustExistFlag || cih->IsBeingReplicated()) {
+                // Replicator must cancel the replication prior to allocation
+                // invocation, and set must exist to false.
+                return -EINVAL;
+            }
+            if (0 <= chunkReplicationTargetVersion &&
+                    cih->IsChunkReadable() &&
+                    cih->CanHaveVersion(chunkReplicationTargetVersion)) {
+                return -EEXIST;
+            }
+            const bool forceDeleteFlag = true;
+            StaleChunk(cih, forceDeleteFlag);
+        } else {
+            if (cih->IsBeingReplicated() || cih->IsStable() ||
+                    cih->IsWriteAppenderOwns() ||
+                    cih->chunkInfo.chunkVersion != chunkVersion) {
+                return -EINVAL;
+            }
+            if (outCih) {
+                *outCih = cih;
+            }
+            return 0;
         }
-        if (outCih) {
-            *outCih = cih;
-        }
-        return 0;
     } else if (mustExistFlag) {
         return -EBADF;
     }
@@ -2267,6 +2341,9 @@ ChunkManager::AllocChunk(
             StaleChunk(cih, forceDeleteFlag);
             return status;
         }
+    }
+    if (ret == 0 && outFileHandle) {
+        *outFileHandle = cih->dataFH;
     }
     return ret;
 }
@@ -2599,7 +2676,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                 UpdateDirSpace(cih, -extra);
                 cih->chunkInfo.chunkSize = dci.chunkSize;
             } else if (cih->chunkInfo.chunkSize != (int64_t)dci.chunkSize) {
-                op->status    = res;
+                op->status    = -EIO;
                 op->statusMsg = "chunk metadata size mismatch";
                 KFS_LOG_STREAM_ERROR <<
                     "chunk meta data read completion: " << op->statusMsg  <<
@@ -2668,6 +2745,88 @@ ChunkManager::MarkChunkStale(ChunkInfoHandle* cih, KfsCallbackObj* cb)
 
 int
 ChunkManager::StaleChunk(kfsChunkId_t chunkId,
+    bool forceDeleteFlag, bool evacuatedFlag, kfsSeq_t availChunksSeq)
+{
+    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    if (! ci) {
+        return -EBADF;
+    }
+    ChunkInfoHandle* const cih = *ci;
+    if (! cih) {
+        die("null chunk table entry");
+        return -EFAULT;
+    }
+    ChunkDirInfo& dir = cih->GetDirInfo();
+    if (dir.availableChunksOpInFlightFlag &&
+            dir.availableChunksOp.seq != availChunksSeq) {
+        // The following condition and correspond warning trace message relies
+        // on the protocol message order where the chunks available reply would
+        // normally arrive *after* "related" stale chunks rpc requests.
+        // Presently the message can arrive after the chunk available RPC reply
+        // in the case of chunk server re-authentication.
+        if (0 <= availChunksSeq) {
+            KFS_LOG_STREAM_NOTICE <<
+                "detected possible available chunks message reording:"
+                " received: " << availChunksSeq <<
+                " current: "  << dir.availableChunksOp.seq <<
+            KFS_LOG_EOM;
+        }
+        if (! dir.chunksAvailableInFlightSortedFlag) {
+            dir.chunksAvailableInFlightSortedFlag = true;
+            if (1 < dir.availableChunksOp.numChunks) {
+                sort(dir.availableChunksOp.chunks,
+                    dir.availableChunksOp.chunks +
+                        dir.availableChunksOp.numChunks,
+                    bind(&AvailableChunksOp::Chunks::first, _1) <
+                        bind(&AvailableChunksOp::Chunks::first, _2)
+                );
+            }
+        }
+        const AvailableChunksOp::Chunks* const entry = lower_bound(
+            dir.availableChunksOp.chunks,
+            dir.availableChunksOp.chunks +
+                dir.availableChunksOp.numChunks,
+            chunkId,
+            bind(&AvailableChunksOp::Chunks::first, _1) < chunkId
+        );
+        if (entry < dir.availableChunksOp.chunks +
+                dir.availableChunksOp.numChunks &&
+                entry->first == chunkId) {
+            if (dir.availableChunksOp.seq == availChunksSeq) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "stale available"
+                    " chunk: "   << chunkId <<
+                    " version: " << entry->second <<
+                    " seq: "     << availChunksSeq <<
+                KFS_LOG_EOM;
+            } else {
+                KFS_LOG_STREAM(availChunksSeq < 0 ?
+                        MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
+                    "keeping stale availabe"
+                    " chunk: "   << chunkId <<
+                    " version: " << entry->second <<
+                    " seq: "     << availChunksSeq <<
+                    " != "       << dir.availableChunksOp.seq <<
+                KFS_LOG_EOM;
+                // The meta server must explicitly tell to delete this chunk by
+                // setting chunk available rpc sequence number in stale chunk
+                // request.
+                // The available chunks rpc sequence numbers is used here to
+                // disambiguate possible stale chunks requests sent in response
+                // to other "events". In particular in response to chunk
+                // replication or recovery, or version change completion
+                // [failures], or in the cases if meta server decides to
+                // "timeout" such (or any other relevant) requests, and send
+                // stale chunk request in order to ensure proper cleanup.
+                return -EAGAIN;
+            }
+        }
+    }
+    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag);
+}
+
+int
+ChunkManager::StaleChunk(kfsChunkId_t chunkId,
     bool forceDeleteFlag, bool evacuatedFlag)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
@@ -2681,7 +2840,10 @@ int
 ChunkManager::StaleChunk(ChunkInfoHandle* cih,
     bool forceDeleteFlag, bool evacuatedFlag)
 {
-    assert(cih);
+    if (! cih) {
+        die("null chunk table entry");
+        return -EFAULT;
+    }
     if (mChunkTable.Erase(cih->chunkInfo.chunkId) <= 0) {
         return -EBADF;
     }
@@ -2768,14 +2930,18 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
 
 int
 ChunkManager::ChangeChunkVers(
-    kfsChunkId_t    chunkId,
-    int64_t         chunkVersion,
-    bool            stableFlag,
-    KfsCallbackObj* cb)
+    kfsChunkId_t           chunkId,
+    int64_t                chunkVersion,
+    bool                   stableFlag,
+    KfsCallbackObj*        cb,
+    const DiskIo::FilePtr* filePtr /* = 0 */)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     if (! ci) {
         return -EBADF;
+    }
+    if (filePtr && *filePtr != (*ci)->dataFH) {
+        return -EINVAL;
     }
     return ChangeChunkVers(*ci, chunkVersion, stableFlag, cb);
 }
@@ -2823,18 +2989,21 @@ ChunkManager::ChangeChunkVers(
 }
 
 void
-ChunkManager::ReplicationDone(kfsChunkId_t chunkId, int status)
+ChunkManager::ReplicationDone(kfsChunkId_t chunkId, int status,
+    const DiskIo::FilePtr& filePtr)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     if (! ci) {
         return;
     }
     ChunkInfoHandle* const cih = *ci;
-    if (! cih->IsBeingReplicated()) {
+    if (! cih->IsBeingReplicated() || filePtr != cih->dataFH) {
         KFS_LOG_STREAM_DEBUG <<
             "irnored stale replication completion for"
-                " chunk: "  << chunkId <<
-                " status: " << status <<
+                " chunk: "    << chunkId <<
+                " status: "   << status <<
+                " fileH: "    << (const void*)cih->dataFH.get() <<
+                " "           << (const void*)filePtr.get() <<
         KFS_LOG_EOM;
         return;
     }
@@ -3057,35 +3226,44 @@ ChunkManager::MakeChunkPathname(ChunkInfoHandle *cih)
 }
 
 string
-ChunkManager::MakeChunkPathname(ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion)
+ChunkManager::MakeChunkPathname(
+    ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion)
 {
     return MakeChunkPathname(
-        stableFlag ?
-            cih->GetDirname() :
-            cih->GetDirname() + mDirtyChunksDir,
+        cih->GetDirname(),
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
-        stableFlag ? targetVersion : 0
+        stableFlag ? targetVersion : 0,
+        stableFlag ? string()      : mDirtyChunksDir
     );
 }
 
 string
 ChunkManager::MakeChunkPathname(const string& chunkdir,
-    kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion)
+    kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
+    const string& subDir)
 {
-    ostringstream os;
-    os << chunkdir << fid << '.' << chunkId << '.' << chunkVersion;
-    return os.str();
+    string ret;
+    ret.reserve(chunkdir.size() + subDir.size() + 78);
+    ret.assign(chunkdir.data(), chunkdir.size());
+    ret.append(subDir.data(), subDir.size());
+    AppendDecIntToString(ret, fid);
+    ret += '.';
+    AppendDecIntToString(ret, chunkId);
+    ret += '.';
+    AppendDecIntToString(ret, chunkVersion);
+    return ret;
 }
 
 string
 ChunkManager::MakeStaleChunkPathname(ChunkInfoHandle *cih)
 {
     return MakeChunkPathname(
-        cih->GetDirname() + mStaleChunksDir,
+        cih->GetDirname(),
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
-        cih->chunkInfo.chunkVersion
+        cih->chunkInfo.chunkVersion,
+        mStaleChunksDir
     );
 }
 
@@ -3104,14 +3282,14 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir,
             fileName  = MakeChunkPathname(cih);
             staleName = MakeStaleChunkPathname(cih);
             keepName  = MakeChunkPathname(
-                dir.dirname, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, string());
             Delete(*cih);
             cih = 0;
         } else {
             fileName  = MakeChunkPathname(
-                dir.dirname, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, string());
             staleName = MakeChunkPathname(
-                dir.dirname + mStaleChunksDir, fileId, chunkId, chunkVers);
+                dir.dirname, fileId, chunkId, chunkVers, mStaleChunksDir);
             keepName  = MakeChunkPathname(cih);
         }
         KFS_LOG_STREAM_INFO <<
@@ -3149,6 +3327,7 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir,
     cih->chunkInfo.chunkSize    = chunkSize;
     if (AddMapping(cih) != cih) {
         die("duplicate chunk table entry");
+        Delete(*cih);
     }
 }
 
@@ -3282,25 +3461,25 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
     return 0;
 }
 
-void
+bool
 ChunkManager::ChunkSize(SizeOp* op)
 {
     ChunkInfoHandle* cih;
     if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
         op->status    = -EBADF;
         op->statusMsg = "no such chunk";
-        return;
+        return true;
     }
     if (cih->IsBeingReplicated()) {
         op->status    = -EAGAIN;
         op->statusMsg = "chunk replication in progress";
-        return;
+        return true;
     }
     if (op->chunkVersion >= 0 &&
             op->chunkVersion != cih->chunkInfo.chunkVersion) {
         op->status    = -EBADVERS;
         op->statusMsg = "chunk version mismatch";
-        return;
+        return true;
     }
     if (cih->IsWriteAppenderOwns() &&
             ! gAtomicRecordAppendManager.IsChunkStable(op->chunkId)) {
@@ -3312,9 +3491,14 @@ ChunkManager::ChunkSize(SizeOp* op)
             " file: "  << op->fileId  <<
             " size: "  << op->size    <<
         KFS_LOG_EOM;
-        return;
+        return true;
+    }
+    if (! mChunkSizeSkipHeaderVerifyFlag &&
+            ! cih->chunkInfo.AreChecksumsLoaded()) {
+        return false;
     }
     op->size = cih->chunkInfo.chunkSize;
+    return true;
 }
 
 string
@@ -3387,11 +3571,14 @@ ChunkManager::ReadChunk(ReadOp* op)
 }
 
 int
-ChunkManager::WriteChunk(WriteOp* op)
+ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
 {
     ChunkInfoHandle* cih = 0;
     if (GetChunkInfoHandle(op->chunkId, &cih) < 0) {
         return -EBADF;
+    }
+    if (filePtr && *filePtr != cih->dataFH) {
+        return -EINVAL;
     }
     // the checksums should be loaded...
     cih->chunkInfo.VerifyChecksumsLoaded();
@@ -4306,17 +4493,38 @@ ChunkManager::Restore()
             continue;
         }
         DirChecker::ChunkInfos::Iterator cit(it->availableChunks);
-        const DirChecker::ChunkInfo*     ci;
+        const DirChecker::ChunkInfo* ci;
         while ((ci = cit.Next())) {
-            AddMapping(*it,
-                ci->mFileId, ci->mChunkId, ci->mChunkVersion, ci->mChunkSize);
+            if (0 <= ci->mChunkSize) {
+                AddMapping(
+                    *it,
+                    ci->mFileId,
+                    ci->mChunkId,
+                    ci->mChunkVersion,
+                    ci->mChunkSize
+                );
+            } else {
+                const string name  = MakeChunkPathname(
+                    string(),
+                    ci->mFileId, ci->mChunkId, ci->mChunkVersion,
+                    string());
+                const string src(it->dirname + name);
+                const string dst(it->dirname + mStaleChunksDir + name);
+                if (rename(src.c_str(), dst.c_str())) {
+                    const int err = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "failed to rename " << src << " to " << dst <<
+                        " error: " << QCUtils::SysError(err) <<
+                    KFS_LOG_EOM;
+                }
+            }
         }
         it->availableChunks.Clear();
         if (! mEvacuateFileName.empty()) {
             const string evacuateName(it->dirname + mEvacuateFileName);
             struct stat buf = {0};
             if (stat(evacuateName.c_str(), &buf) == 0) {
-                KFS_LOG_STREAM_INFO <<
+                KFS_LOG_STREAM_NOTICE <<
                     "evacuate directory: " << it->dirname <<
                     " file: " << mEvacuateFileName << " exists" <<
                 KFS_LOG_EOM;
@@ -4757,13 +4965,15 @@ ChunkManager::StartDiskIo()
             it < mChunkDirs.end(); ++it) {
         mDirChecker.Add(it->dirname, it->bufferedIoFlag);
     }
-    mDirChecker.AddSubDir(mStaleChunksDir);
-    mDirChecker.AddSubDir(mDirtyChunksDir);
+    mDirChecker.AddSubDir(mStaleChunksDir, mForceDeleteStaleChunksFlag);
+    mDirChecker.AddSubDir(mDirtyChunksDir, true);
+    mDirChecker.SetIoTimeout(-1); // Turn off on startup.
     DirChecker::DirsAvailable dirs;
     mDirChecker.Start(dirs);
     // Start is synchronous. Restore the settings after start.
     mDirChecker.SetRemoveFilesFlag(mCleanupChunkDirsFlag);
     mDirChecker.SetIgnoreErrorsFlag(false);
+    SetDirCheckerIoTimeout();
     FileSystemIdsCount fsCnts;
     for (DirChecker::DirsAvailable::const_iterator it = dirs.begin();
             it != dirs.end();
@@ -4792,7 +5002,6 @@ ChunkManager::StartDiskIo()
             // directory. For non empty chunk directories this isn't very
             // efficient way to assign the fs id. Under normal circumstances
             // this code path should almost never be invoked.
-            mDirChecker.SetDeleteAllChaunksOnFsMismatch(fileSystemId, false);
             for (ChunkDirs::iterator it = mChunkDirs.begin();
                     it != mChunkDirs.end();
                     ++it) {
@@ -5098,8 +5307,20 @@ ChunkManager::ChunkDirInfo::CheckDirDone(int code, void* data)
         return 0; // Ignore, already marked not in use.
     }
 
+    const int interval = gChunkManager.GetDirCheckFailureSimulatorInterval();
+    if (0 <= interval && code != EVENT_DISK_ERROR &&
+            (interval == 0 || gChunkManager.Rand() % interval == 0)) {
+        KFS_LOG_STREAM_NOTICE <<
+            "simulating chunkd direcotry check failure:"
+            " "           << dirname <<
+            " interval: " << interval <<
+        KFS_LOG_EOM;
+        DiskError(-EIO);
+        return 0;
+    }
+
     if (code == EVENT_DISK_ERROR) {
-        DiskError(*reinterpret_cast<int*>(data));
+        DiskError(*reinterpret_cast<const int*>(data));
     } else {
         KFS_LOG_STREAM_DEBUG <<
             "chunk directory: " << dirname << " is ok"
@@ -5217,7 +5438,7 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
             }
         } else {
             if (evacuateFlag && ! stopEvacuationFlag && StopEvacuation()) {
-                KFS_LOG_STREAM_INFO <<
+                KFS_LOG_STREAM_NOTICE <<
                     "chunk directory: " << dirname <<
                     " stopping evacuation"
                     " space: " << availableSpace <<
@@ -5229,7 +5450,7 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
             evacuateCheckIoErrorsCount = 0;
         }
     } else if (! evacuateFlag) {
-        KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM_NOTICE <<
             "chunk directory: " << dirname <<
             " \"evacuate\""
             " space: " << availableSpace <<
@@ -5341,25 +5562,93 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
             while (! availableChunks.IsEmpty() &&
                     availableChunksOp.numChunks <
                     AvailableChunksOp::kMaxChunkIds) {
-                const DirChecker::ChunkInfo& ci = availableChunks.Back();
-                ChunkInfoHandle* const cih = new ChunkInfoHandle(*this);
+                const DirChecker::ChunkInfo& ci  = availableChunks.Back();
+                ChunkInfoHandle* const       cih = new ChunkInfoHandle(*this);
                 cih->chunkInfo.fileId       = ci.mFileId;
                 cih->chunkInfo.chunkId      = ci.mChunkId;
                 cih->chunkInfo.chunkVersion = ci.mChunkVersion;
-                const ChunkInfoHandle* const ach =
-                    gChunkManager.AddMapping(cih);
+                if (ci.mChunkSize < 0) {
+                    // Invalid chunk or io error.
+                    // Set chunk size to 0, to make accounting work in stale
+                    // chunk deletion, as the space utilization was not updated.
+                    cih->chunkInfo.chunkSize    = 0; //-ci.mChunkSize - 1;
+                    const bool kForceDeleteFlag = false;
+                    const bool kEvacuatedFlag   = false;
+                    gChunkManager.MakeStale(
+                        *cih, kForceDeleteFlag, kEvacuatedFlag);
+                    availableChunks.PopBack();
+                    continue;
+                }
+                cih->chunkInfo.chunkSize = ci.mChunkSize;
+                ChunkInfoHandle* ach = gChunkManager.AddMapping(cih);
+                if (ach != cih && 0 < ci.mChunkVersion) {
+                    if (! ach) {
+                        // Eliminate lint warning.
+                        die("invalid null chunk handle");
+                        return;
+                    }
+                    if (ach->IsBeingReplicated()) {
+                        if (Replicator::Cancel(ci.mChunkId, ci.mChunkVersion)) {
+                            // Cancel should have already erase the chunk table
+                            // entry, if not, stale chunk below will remove it.
+                            // The previous chunk entry "ach" is no longer
+                            // valid, do not use it with StaleChunk() method.
+                            const bool kForceDeleteFlag = true;
+                            gChunkManager.StaleChunk(
+                                ci.mChunkId, kForceDeleteFlag);
+                            ach = gChunkManager.AddMapping(cih);
+                        }
+                    } else {
+                        // Keep the "old" chunk file that just became
+                        // "available", in the case if recovery has completed,
+                        // but meta server has not transitioned the chunk into
+                        // the final version. It is impossible to tell here if
+                        // the existing chunk version is stale or not. If the
+                        // version is stale then the meta server will have to
+                        // re-schedule chunk recovery again, when the version
+                        // change fails due non zero "from" version, and make
+                        // this chunk stale when chunk available rpc arrives.
+                        // The chunk must not have any meta operations in
+                        // flight, i.e. it must be "readable", as, otherwise,
+                        // in flight rename might have already completed and
+                        // replaced the "available" chunk file.
+                        if (ach->IsChunkReadable() &&
+                                ach->chunkInfo.chunkVersion <= 0) {
+                            KFS_LOG_STREAM_NOTICE <<
+                                " keeping:"
+                                " chunk: "   << ci.mChunkId <<
+                                " version: " << ci.mChunkVersion <<
+                                " size: "    << ci.mChunkSize <<
+                                " discarding:"
+                                " version: " <<
+                                    ach->chunkInfo.chunkVersion <<
+                                " size: "    <<
+                                    ach->chunkInfo.chunkVersion <<
+                            KFS_LOG_EOM;
+                            // Move 0 version chunk into lost+found, if
+                            // configured.
+                            const bool kForceDeleteFlag = false;
+                            const bool kEvacuatedFlag   = false;
+                            gChunkManager.StaleChunk(
+                                ach, kForceDeleteFlag, kEvacuatedFlag);
+                            ach = gChunkManager.AddMapping(cih);
+                        }
+                    }
+                }
                 if (ach == cih) {
-                    availableChunksOp.chunkIds[
-                        availableChunksOp.numChunks] = ci.mChunkId;
-                    availableChunksOp.chunkVersions[
-                        availableChunksOp.numChunks] = ci.mChunkVersion;
+                    availableChunksOp.chunks[
+                        availableChunksOp.numChunks].first  = ci.mChunkId;
+                    availableChunksOp.chunks[
+                        availableChunksOp.numChunks].second = ci.mChunkVersion;
                     availableChunksOp.numChunks++;
                 } else {
                     if (&(ach->GetDirInfo()) == this &&
                             ach->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
+                        // Do not attempt to delete chunk file, only free the
+                        // table entry.
                         gChunkManager.DeleteSelf(*cih);
                     } else {
-                        const bool kForceDeleteFlag = true;
+                        const bool kForceDeleteFlag = false;
                         const bool kEvacuatedFlag   = false;
                         gChunkManager.MakeStale(
                             *cih, kForceDeleteFlag, kEvacuatedFlag);
@@ -5404,8 +5693,9 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
             ! globalNetManager().IsRunning()) {
         return;
     }
-    availableChunksOpInFlightFlag = true;
-    availableChunksOp.status      = 0;
+    availableChunksOpInFlightFlag     = true;
+    chunksAvailableInFlightSortedFlag = false;
+    availableChunksOp.status          = 0;
     gMetaServerSM.EnqueueOp(&availableChunksOp);
 }
 
@@ -5431,10 +5721,10 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
         for (int i = 0; i < availableChunksOp.numChunks; i++) {
             ChunkInfoHandle* cih = 0;
             if (gChunkManager.GetChunkInfoHandle(
-                        availableChunksOp.chunkIds[i], &cih) != 0 ||
+                        availableChunksOp.chunks[i].first, &cih) != 0 ||
                     ! cih ||
                     cih->chunkInfo.chunkVersion !=
-                        availableChunksOp.chunkVersions[i] ||
+                        availableChunksOp.chunks[i].second ||
                     &(cih->GetDirInfo()) != this ||
                     ! cih->IsChunkReadable() ||
                     cih->IsRenameInFlight() ||
@@ -5476,7 +5766,7 @@ ChunkManager::ChunkDirInfo::RenameEvacuateFileDone(int code, void* data)
     if (code == EVENT_DISK_ERROR) {
         DiskError(*reinterpret_cast<int*>(data));
     } else {
-        KFS_LOG_STREAM_DEBUG <<
+        KFS_LOG_STREAM_NOTICE <<
             "chunk directory: " << dirname << " evacuation done"
             " space: " << availableSpace <<
             " used: "  << usedSpace <<
@@ -5783,8 +6073,12 @@ ChunkManager::CheckChunkDirs()
         }
         if ((mCheckDirWritableFlag ? 
             ! DiskIo::CheckDirWritable(
-                name.c_str(), it->bufferedIoFlag,
-                &(it->checkDirCb), &err) :
+                name.c_str(),
+                it->bufferedIoFlag,
+                it->supportsSpaceReservatonFlag,
+                mCheckDirTestWriteSize,
+                &(it->checkDirCb),
+                &err) :
             ! DiskIo::CheckDirReadable(
                 name.c_str(), &(it->checkDirCb), &err))) {
             it->checkDirFlightFlag = false;

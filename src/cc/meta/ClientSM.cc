@@ -252,8 +252,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
 
     switch (code) {
     case EVENT_NET_READ: {
-        // We read something from the network. Run the RPC that
-        // came in.
+        // We read something from the network. Run the RPC that came in.
         mLastReadLeft = 0;
         IOBuffer& iobuf = mNetConnection->GetInBuffer();
         if (mDisconnectFlag) {
@@ -459,14 +458,15 @@ ClientSM::HandleRequestSelf(int code, void *data)
             }
             IOBuffer& outbuf = mNetConnection->GetOutBuffer();
             numBytes = outbuf.BytesConsumable();
-            if (numBytes <= sOutBufCompactionThreshold &&
-                    numBytes > 0) {
+            if (numBytes <= sOutBufCompactionThreshold && numBytes > 0) {
                 outbuf.MakeBuffersFull();
             }
             if (mNetConnection->IsReadReady() &&
                     (IsOverPendingOpsLimit() ||
-                    mNetConnection->GetNumBytesToWrite() >= sMaxWriteBehind ||
-                    mNetConnection->GetNumBytesToRead()  >= sMaxPendingBytes)) {
+                    sMaxWriteBehind <= mNetConnection->GetNumBytesToWrite() ||
+                    (mNetConnection->IsWriteReady() &&
+                        sMaxPendingBytes <=
+                            mNetConnection->GetNumBytesToRead()))) {
                 mLastReadLeft = 0;
                 mNetConnection->SetMaxReadAhead(0);
             }
@@ -864,7 +864,7 @@ ClientSM::HandleAuthenticate(IOBuffer& iobuf)
     const int rem = mAuthenticateOp->Read(iobuf);
     if (0 < rem) {
         // Try to read more, to detect protocol error, as the client
-        // should not send anything else prior to receiving the response.Fi
+        // should not send anything else prior to receiving the response.
         mNetConnection->SetMaxReadAhead(rem + sMaxReadAhead);
         return;
     }

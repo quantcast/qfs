@@ -36,6 +36,7 @@
 
 #include "kfsio/ITimeout.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/PrngIsaac64.h"
 #include "common/LinearHash.h"
 #include "common/StdAllocator.h"
 
@@ -134,7 +135,9 @@ public:
         bool              isBeingReplicated,
         ChunkInfoHandle** cih,
         bool              mustExistFlag,
-        AllocChunkOp*     op = 0);
+        AllocChunkOp*     op                            = 0,
+        kfsSeq_t          chunkReplicationTargetVersion = -1,
+        DiskIo::FilePtr*  outFileHandle                 = 0);
     void AllocChunkForAppend(
         AllocChunkOp*         op,
         int                   replicationPos,
@@ -166,6 +169,8 @@ public:
     /// @retval status code
     int StaleChunk(kfsChunkId_t chunkId,
         bool forceDeleteFlag = false, bool evacuatedFlag = false);
+    int StaleChunk(kfsChunkId_t chunkId,
+        bool forceDeleteFlag, bool evacuatedFlag, kfsSeq_t availChunksSeq);
 
     /// Truncate a chunk to the specified size
     /// @param[in] chunkId id of the chunk being truncated.
@@ -179,7 +184,8 @@ public:
     /// @param[in] chunkVersion  the version assigned by the metaserver to this chunk
     /// @retval status code
     int ChangeChunkVers(kfsChunkId_t chunkId,
-                           int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
+                           int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb,
+                           const DiskIo::FilePtr* filePtr = 0);
     int ChangeChunkVers(ChunkInfoHandle *cih,
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
     int ChangeChunkVers(ChangeChunkVersOp* op);
@@ -218,7 +224,7 @@ public:
     /// Schedule a write on a chunk.
     /// @param[in] op  The write operation being scheduled.
     /// @retval 0 if op was successfully scheduled; -1 otherwise
-    int WriteChunk(WriteOp *op);
+    int WriteChunk(WriteOp *op, const DiskIo::FilePtr* filePtr = 0);
 
     /// Write/read out/in the chunk meta-data and notify the cb when the op
     /// is done.
@@ -235,13 +241,10 @@ public:
     /// @param[in] op  The write op that just finished
     ///
     bool ReadChunkDone(ReadOp *op);
-    void ReplicationDone(kfsChunkId_t chunkId, int status);
+    void ReplicationDone(kfsChunkId_t chunkId, int status,
+        const DiskIo::FilePtr& filePtr);
     /// Determine the size of a chunk.
-    /// @param[in] chunkId  The chunk whose size is needed
-    /// @param[out] fid     Return the file-id that owns the chunk
-    /// @param[out] chunkSize  The size of the chunk
-    /// @retval status code
-    void ChunkSize(SizeOp* op);
+    bool ChunkSize(SizeOp* op);
 
     /// Register a timeout handler with the net manager for taking
     /// checkpoints.  Also, get the logger going
@@ -359,7 +362,8 @@ public:
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename.
     string MakeChunkPathname(ChunkInfoHandle *cih);
-    string MakeChunkPathname(ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion);
+    string MakeChunkPathname(
+        ChunkInfoHandle *cih, bool stableFlag, kfsSeq_t targetVersion);
     void WriteDone(WriteOp* op);
     int GetMaxDirCheckDiskTimeouts() const
         { return mMaxDirCheckDiskTimeouts; }
@@ -410,6 +414,10 @@ public:
     int64_t GetFileSystemId() const
         { return mFileSystemId; }
     bool SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag);
+    uint64_t Rand()
+        { return mRand.Rand(); }
+    int GetDirCheckFailureSimulatorInterval() const
+        { return mDirCheckFailureSimulatorInterval; }
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -710,6 +718,7 @@ private:
     time_t mNextCheckpointTime;
     int    mMaxOpenChunkFiles;
     int    mMaxOpenFds;
+    int    mMaxClientCount;
     int    mFdsPerChunk;
 
     /// directories for storing the chunks
@@ -758,6 +767,7 @@ private:
     bool mBufferedIoFlag;
     bool mSyncChunkHeaderFlag;
     bool mCheckDirWritableFlag;
+    int64_t mCheckDirTestWriteSize;
     string mCheckDirWritableTmpFileName;
 
     uint32_t mNullBlockChecksum;
@@ -787,7 +797,11 @@ private:
     CryptoKeys mCryptoKeys;
     int64_t    mFileSystemId;
     string     mFsIdFileNamePrefix;
+    int        mDirCheckerIoTimeoutSec;
+    int        mDirCheckFailureSimulatorInterval;
+    bool       mChunkSizeSkipHeaderVerifyFlag;
 
+    PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
     inline void Delete(ChunkInfoHandle& cih);
@@ -798,14 +812,16 @@ private:
     void AddMapping(ChunkDirInfo& dir, kfsFileId_t fileId, chunkId_t chunkId,
         kfsSeq_t chunkVers, int64_t chunkSize);
 
-    /// Of the various directories this chunkserver is configured with, find the directory to store a chunk file.
+    /// Of the various directories this chunkserver is configured with, find the
+    /// directory to store a chunk file.
     /// This method does a "directory allocation".
     ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
 
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
 
-    string MakeChunkPathname(const string &chunkdir, kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion);
+    string MakeChunkPathname(const string& chunkdir, kfsFileId_t fid,
+        kfsChunkId_t chunkId, kfsSeq_t chunkVersion, const string& subDir);
 
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename in the "stalechunks" dir
@@ -849,7 +865,8 @@ private:
     /// On a restart, nuke out all the dirty chunks
     void RemoveDirtyChunks();
 
-    /// Scan the chunk dirs and rebuild the list of chunks that are hosted on this server
+    /// Scan the chunk dirs and rebuild the list of chunks that are hosted on
+    /// this server
     void Restore();
     /// Restore the chunk meta-data from the specified file name.
     void RestoreChunkMeta(const string &chunkMetaFn);
@@ -862,6 +879,7 @@ private:
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);
     void SetBufferedIo(const Properties& props);
+    void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
 
     static bool sExitDebugCheckFlag;

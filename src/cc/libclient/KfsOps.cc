@@ -1229,11 +1229,15 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
     chunkAccessCount              = prop.getValue("CS-access",       0);
     chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
     chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
-    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
+    const Properties::String* const v = prop.getValue("Lease-ids");
+    allowCSClearTextFlag          = prop.getValue("CS-clear-text",
+        (0 <= status && (0 <= leaseId || (v && ! v->empty())) &&
+            chunkAccessCount <= 0 && chunkServerAccessValidForTime <= 0
+        ) ? 1 : 0
+    ) != 0;
     if (! chunkIds || ! leaseIds) {
         return;
     }
-    const Properties::String* const v = prop.getValue("Lease-ids");
     if (! v) {
         return;
     }

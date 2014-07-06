@@ -138,7 +138,8 @@ public:
         int inTimeMilliSec);
     int GetInterval();
     void AddSubDir(
-        const string& inDirName);
+        const string& inDirName,
+        bool          inRemoveFilesFlag);
     void SetDontUseIfExist(
         const FileNames& inFileNames);
     void SetIgnoreFileNames(
@@ -156,6 +157,11 @@ public:
     void SetDeleteAllChaunksOnFsMismatch(
         int64_t inFsId,
         bool    inDeleteFlag);
+    void SetIoTimeout(
+        int inTimeoutSec);
+    void SetMaxChunkFilesSampled(
+        int inValue);
+    int GetMaxChunkFilesSampled();
     void Wakeup();
 private:
     class Impl;

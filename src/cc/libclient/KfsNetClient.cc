@@ -1007,10 +1007,15 @@ private:
             mProperties.clear();
             if (mContentLength > 0) {
                 if (theBufPtr) {
-                    theBufPtr->RemoveSpaceAvailable();
+                    IOBuffer theBuf;
+                    theBuf.MoveSpaceAvailable(theBufPtr, mContentLength);
+                    theBuf.Clear();
+                    const int kMaxInt = ~(int(1) << (sizeof(int) * 8 - 1));
+                    theBuf.MoveSpaceAvailable(theBufPtr, kMaxInt);
                     QCVERIFY(mContentLength ==
                         theBufPtr->MoveSpace(&inBuffer, mContentLength)
                     );
+                    theBufPtr->Move(&theBuf);
                 } else {
                     IOBuffer theBuf;
                     QCVERIFY(mContentLength ==
@@ -1088,8 +1093,8 @@ private:
         }
         if (mOutstandingOpPtr && mOutstandingOpPtr != mInFlightOpPtr) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "error: " << mServerLocation <<
-                " seq: " << theOpSeq <<
+                "error: "     << mServerLocation <<
+                " seq: "      << theOpSeq <<
                 " op:"
                 " expected: " << static_cast<const void*>(mOutstandingOpPtr) <<
                 " actual: "   << static_cast<const void*>(mInFlightOpPtr) <<

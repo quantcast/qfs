@@ -40,6 +40,7 @@ namespace KFS
 
 class ClientSM;
 class AuthContext;
+class Properties;
 
 class ClientManager
 {
@@ -48,11 +49,14 @@ public:
 
     ClientManager();
     virtual ~ClientManager();
+    void SetMaxClientSockets(int count);
+    int GetMaxClientCount() const;
     bool Bind(int port);
     bool StartAcceptor(int threadCount, int startCpuAffinity);
     void Shutdown();
     void ChildAtFork();
     QCMutex& GetMutex();
+    void SetParameters(const Properties& params);
     static AuthContext& GetAuthContext(ClientThread* inThread);
     static bool Enqueue(ClientThread* thread, MetaRequest& op)
     {

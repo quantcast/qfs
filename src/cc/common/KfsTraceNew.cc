@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -52,6 +53,7 @@ struct KfsTraceNew
           mTraceFd(-1),
           mMaxNewSize(0),
           mContinueOnMallocFailureFlag(false),
+          mLastIgnoredSysErr(0),
           mParametersPtr(getenv("KFS_TRACE_NEW_PARAMS")),
           mStackTraceDepth(0),
           mRlimAs(),
@@ -61,7 +63,7 @@ struct KfsTraceNew
     {
         // Format: fd,maxsize,abort
         // Example: KFS_TRACE_NEW_PARAMS=2,1e3,1
-
+        sKfsTraceNewInstancePtr = this;
         mMapsBuf[0] = 0;
         if (! mParametersPtr || ! *mParametersPtr) {
             return;
@@ -94,7 +96,9 @@ struct KfsTraceNew
         if (theLen <= 0) {
             return;
         }
-        write(mTraceFd, theBuf, theLen);
+        if (write(mTraceFd, theBuf, theLen) < 0) {
+            mLastIgnoredSysErr = errno;
+        }
     }
     void MallocFailed(
         size_t inSize);
@@ -120,6 +124,11 @@ struct KfsTraceNew
         Trace(inMsgPtr, -1, inPtr);
         free(inPtr);
     }
+    static KfsTraceNew& Instance()
+    {
+        static KfsTraceNew sTraceNewInstance;
+        return sTraceNewInstance;
+    }
 
     enum { kMaxStackTraceDepth = 64 };
 
@@ -129,6 +138,7 @@ struct KfsTraceNew
     int               mTraceFd;
     size_t            mMaxNewSize;
     bool              mContinueOnMallocFailureFlag;
+    int               mLastIgnoredSysErr;
     const char* const mParametersPtr;
     int               mStackTraceDepth;
     struct rlimit     mRlimAs;
@@ -137,7 +147,11 @@ struct KfsTraceNew
     struct mallinfo   mMallinfo;
     char              mMapsBuf[16 << 10];
     void*             mStackTrace[kMaxStackTraceDepth];
-} gKfsTraceNew;
+
+    static KfsTraceNew* sKfsTraceNewInstancePtr;
+};
+// Ensure object construction before entrering main.
+KfsTraceNew* KfsTraceNew::sKfsTraceNewInstancePtr = &KfsTraceNew::Instance();
 
 void
 KfsTraceNew::MallocFailed(
@@ -160,16 +174,21 @@ KfsTraceNew::MallocFailed(
     void* theStackTrace[kMaxStackTraceDepth];
     const int theDepth = backtrace(theStackTrace, kMaxStackTraceDepth);
     if (theDepth > 0) {
-        char theBuf[64];
+        const int theFd = 0 <= mTraceFd ? mTraceFd : 2;
+        char      theBuf[64];
         const int theLen = snprintf(theBuf, sizeof(theBuf),
             "malloc(%lu) failure:\n", (unsigned long)inSize);
         if (theLen > 0) {
-            write(2, theBuf, theLen);
+            if (write(theFd, theBuf, theLen) < 0) {
+                mLastIgnoredSysErr = errno;
+            }
         }
-        backtrace_symbols_fd(theStackTrace, theDepth, 2);
+        backtrace_symbols_fd(theStackTrace, theDepth, theFd);
         memcpy(mStackTrace, theStackTrace, theDepth * sizeof(mStackTrace[0]));
         if (theMapsSize > 0) {
-            write(2, mMapsBuf, theMapsSize);
+            if (write(theFd, mMapsBuf, theMapsSize) < 0) {
+                mLastIgnoredSysErr = errno;
+            }
         }
         mStackTraceDepth = theDepth;
     }
@@ -183,23 +202,23 @@ KfsTraceNew::MallocFailed(
 void*
 operator new(std::size_t inSize) throw (std::bad_alloc)
 {
-    return gKfsTraceNew.Allocate(inSize, true);
+    return KfsTraceNew::Instance().Allocate(inSize, true);
 }
 
 void
 operator delete(void* inPtr) throw()
 {
-    gKfsTraceNew.Free("delete", inPtr);
+    KfsTraceNew::Instance().Free("delete", inPtr);
 }
 
 void*
 operator new(std::size_t inSize, const std::nothrow_t&) throw()
 {
-    return gKfsTraceNew.Allocate(inSize, false);
+    return KfsTraceNew::Instance().Allocate(inSize, false);
 }
 
 void
 operator delete(void* inPtr, const std::nothrow_t&) throw()
 {
-    gKfsTraceNew.Free("delete_nt", inPtr);
+    KfsTraceNew::Instance().Free("delete_nt", inPtr);
 }

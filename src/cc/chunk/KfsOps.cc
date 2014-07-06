@@ -29,6 +29,15 @@
 
 #include "KfsOps.h"
 
+#include "ChunkManager.h"
+#include "Logger.h"
+#include "ChunkServer.h"
+#include "LeaseClerk.h"
+#include "Replicator.h"
+#include "AtomicRecordAppender.h"
+#include "ClientSM.h"
+#include "utils.h"
+
 #include "common/Version.h"
 #include "common/kfstypes.h"
 #include "common/time.h"
@@ -42,15 +51,7 @@
 #include "kfsio/ChunkAccessToken.h"
 
 #include "qcdio/qcstutils.h"
-
-#include "ChunkManager.h"
-#include "Logger.h"
-#include "ChunkServer.h"
-#include "LeaseClerk.h"
-#include "Replicator.h"
-#include "AtomicRecordAppender.h"
-#include "ClientSM.h"
-#include "utils.h"
+#include "qcdio/QCUtils.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -458,7 +459,9 @@ KfsOp::CleanupChecker::~CleanupChecker()
     char buffer[] = { "error: ops count at extit 000000000000000\n" };
     const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
     IntToDecString(sOpsCount, buffer + sz - 1);
-    write(2, buffer, sizeof(buffer));
+    if (write(2, buffer, sizeof(buffer))) {
+        QCUtils::SetLastIgnoredError(errno);
+    }
     if (ChunkManager::GetExitDebugCheckFlag()) {
         abort();
     }
@@ -1623,6 +1626,9 @@ HeartbeatOp::Execute()
     HBAppend(os, "Client-other-micro-sec", "tm",
         cli.mOtherRequestTimeMicroSecs);
     HBAppend(os, "Client-other-errors",    "err",   cli.mOtherRequestErrors);
+    HBAppend(os, "Client-over-limit",      "oce",   cli.mOverClientLimitCount);
+    HBAppend(os, "Client-max-count",       "max",
+        gClientManager.GetMaxClientCount());
 
     HBAppend(os, 0, "timer: ovr", "");
     HBAppend(os, "Timer-overrun-count", "cnt",
@@ -1758,10 +1764,14 @@ HeartbeatOp::Execute()
     HBAppend(os, "Disk-fs-get-free-errors","err",
         dio.mGetFsSpaceAvailableErrorCount);
     HBAppend(os, 0, "dirchk", "");
-    HBAppend(os, "Disk-dir-readable-count", "cnt",
+    HBAppend(os, "Disk-dir-readable-count", "rnt",
         dio.mCheckDirReadableCount);
-    HBAppend(os, "Disk-dir-readable-errors","err",
+    HBAppend(os, "Disk-dir-readable-errors","rer",
         dio.mCheckDirReadableErrorCount);
+    HBAppend(os, "Disk-dir-writable-count", "wnt",
+        dio.mCheckDirWritableCount);
+    HBAppend(os, "Disk-dir-writable-errors","wer",
+        dio.mCheckDirWritableErrorCount);
     HBAppend(os, 0, "timedout", "");
     HBAppend(os, "Disk-timedout-count",      "cnt",
         dio.mTimedOutErrorCount);
@@ -1818,6 +1828,10 @@ HeartbeatOp::Execute()
         globals().ctrDiskBytesWritten.GetValue());
     HBAppend(os, "Total-ops-count",  "ops",
         KfsOp::GetOpsCount());
+    HBAppend(os, "Auth-clnt",  "authcl",
+        gClientManager.IsAuthEnabled() ? 1 : 0);
+    HBAppend(os, "Auth-rsync", "authrs", RemoteSyncSM::IsAuthEnabled() ? 1 : 0);
+    HBAppend(os, "Auth-meta",  "authms", gMetaServerSM.IsAuthEnabled() ? 1 : 0);
     *os[0] << "\r\n";
     os[0]->flush();
     sWOs.Reset();
@@ -1878,7 +1892,8 @@ StaleChunksOp::Execute()
     for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
             it != staleChunkIds.end();
             ++it) {
-        gChunkManager.StaleChunk(*it, forceDeleteFlag, evacuatedFlag);
+        gChunkManager.StaleChunk(
+            *it, forceDeleteFlag, evacuatedFlag, availChunksSeq);
     }
     KFS_LOG_STREAM_INFO << "stale chunks: " <<
         (staleChunkIds.empty() ? kfsChunkId_t(-1) : staleChunkIds.front()) <<
@@ -2573,8 +2588,28 @@ GetRecordAppendOpStatus::Execute()
 void
 SizeOp::Execute()
 {
-    gChunkManager.ChunkSize(this);
+    int res = 0;
+    if (gChunkManager.ChunkSize(this) ||
+            (res = gChunkManager.ReadChunkMetadata(chunkId, this)) < 0) {
+        if (0 <= status && res < 0) {
+            status = res;
+        }
+        gLogger.Submit(this);
+    }
+}
+
+int
+SizeOp::HandleChunkMetaReadDone(int code, void* data)
+{
+    if (0 <= status && data) {
+        status = *reinterpret_cast<const int*>(data);
+    }
+    if (0 <= status && ! gChunkManager.ChunkSize(this)) {
+        statusMsg = "chunk header is not loaded";
+        status    = -EAGAIN;
+    }
     gLogger.Submit(this);
+    return 0;
 }
 
 void
@@ -3463,7 +3498,7 @@ AvailableChunksOp::Request(ostream& os)
     os << "Chunk-ids-vers:";
     os << hex;
     for (int i = 0; i < numChunks; i++) {
-        os << ' ' << chunkIds[i] << ' ' << chunkVersions[i];
+        os << ' ' << chunks[i].first << ' ' << chunks[i].second;
     }
     os << dec;
     os << "\r\n\r\n";

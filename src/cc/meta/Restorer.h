@@ -70,7 +70,7 @@ extern bool restore_setintbase(DETokenizer& c);
  * checkpoint.
  */
 extern int try_to_acquire_lockfile(const string &lockfn);
-extern void acquire_lockfile(const string &lockfn, int ntries);
+extern int acquire_lockfile(const string &lockfn, int ntries);
 
 extern string restoreChecksum;
 extern bool   lastLineChecksumFlag;

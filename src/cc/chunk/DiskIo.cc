@@ -991,6 +991,8 @@ public:
         mMaxIoTime = max(1, inProperties.getValue(
             "chunkServer.diskIo.maxIoTimeSec", mMaxIoTime));
     }
+    int GetMaxIoTimeSec() const
+        { return mMaxIoTime; }
 private:
     typedef DiskIo::IoBuffers IoBuffers;
     class WriteCancelWaiter : public QCDiskQueue::IoCompletion
@@ -1382,15 +1384,20 @@ DiskIo::CheckDirReadable(
 DiskIo::CheckDirWritable(
     const char*     inTestFileNamePtr,
     bool            inBufferedIoFlag,
+    bool            inAllocSpaceFlag,
+    int64_t         inWriteSize,
     KfsCallbackObj* inCallbackObjPtr /* = 0 */,
     string*         inErrMessagePtr /* = 0 */)
 {
     return EnqueueMeta(
         kMetaOpTypeCheckDirWritable,
         inTestFileNamePtr,
-        inBufferedIoFlag ? "buffio" : "",
+        0,
         inCallbackObjPtr,
-        inErrMessagePtr
+        inErrMessagePtr,
+        inBufferedIoFlag,
+        inAllocSpaceFlag,
+        inWriteSize
     );
 }
 
@@ -1437,13 +1444,25 @@ DiskIo::SetParameters(
     }
 }
 
+    /* static */ int
+DiskIo::GetMaxIoTimeSec()
+{
+    if (sDiskIoQueuesPtr) {
+        return sDiskIoQueuesPtr->GetMaxIoTimeSec();
+    }
+    return -1;
+}
+
      /* static */ bool
 DiskIo::EnqueueMeta(
     DiskIo::MetaOpType inOpType,
     const char*        inNamePtr,
     const char*        inNextNamePtr,
     KfsCallbackObj*    inCallbackObjPtr,
-    string*            inErrMessagePtr)
+    string*            inErrMessagePtr,
+    bool               inBufferedIoFlag,
+    bool               inAllocSpaceFlag,
+    int64_t            inWriteSize)
 {
     const char* theErrMsgPtr = 0;
     if (! inNamePtr) {
@@ -1533,7 +1552,9 @@ DiskIo::EnqueueMeta(
                     sDiskIoQueuesPtr->SetInFlight(theDiskIoPtr);
                     theStatus = theQueuePtr->CheckDirWritable(
                         inNamePtr,
-                        inNextNamePtr && inNextNamePtr[0] != 0,
+                        inBufferedIoFlag,
+                        inAllocSpaceFlag,
+                        inWriteSize,
                         theDiskIoPtr,
                         sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
                     );

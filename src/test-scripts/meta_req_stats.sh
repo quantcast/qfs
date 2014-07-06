@@ -125,6 +125,7 @@ BEGIN {
     names[i++] = "delegate";
     names[i++] = "delegate_cancel";
     names[i++] = "set_file_system_info";
+    names[i++] = "force_chunk_replication";
     names[i++] = "other";
     names[i++] = "alloc_reuse";
     ncnt = i;

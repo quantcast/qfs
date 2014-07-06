@@ -108,7 +108,7 @@ TcpSocket::Bind(int port)
     if (mSockFd == -1) {
         return Perror("socket");
     }
-    if (fcntl(mSockFd, FD_CLOEXEC, 1)) {
+    if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
 
@@ -159,7 +159,7 @@ TcpSocket::Accept(int* status /* = 0 */)
         }
         return 0;
     }
-    if (fcntl(fd, FD_CLOEXEC, 1)) {
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
     accSock = new TcpSocket(fd);
@@ -182,7 +182,7 @@ TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect
     if (mSockFd < 0) {
         return (errno > 0 ? -errno : mSockFd);
     }
-    if (fcntl(mSockFd, FD_CLOEXEC, 1)) {
+    if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
 
@@ -268,11 +268,13 @@ TcpSocket::SetupSocket()
         Perror("setsockopt SO_RCVBUF");
     }
     int flag = 1;
+#ifdef _KFS_USE_TCP_KEEP_ALIVE
     // enable keep alive so we can socket errors due to detect network partitions
     if (setsockopt(mSockFd, SOL_SOCKET, SO_KEEPALIVE,
             (char *) &flag, sizeof(flag)) < 0) {
         Perror("setsockopt SO_KEEPALIVE");
     }
+#endif
     if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
         Perror("set O_NONBLOCK");
     }

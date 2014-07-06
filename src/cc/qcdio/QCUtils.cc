@@ -102,7 +102,9 @@ QCUtils::FatalError(
     char      theMsgBuf[1<<9];
     const int theLen =
         DoSysErrorMsg(inMsgPtr, inSysError, theMsgBuf, sizeof(theMsgBuf));
-    write(2, theMsgBuf, theLen);
+    if (write(2, theMsgBuf, theLen) < 0) {
+        SetLastIgnoredError(errno);
+    }
     abort();
 }
 
@@ -132,10 +134,20 @@ QCUtils::AssertionFailure(
         snprintf(theMsgPtr, theMaxLen, ":%d\n", inLineNum);
         StrAppend(theMsgPtr, theMsgPtr, theMaxLen);
     }
-    write(2, theMsgBuf, theMsgPtr - theMsgBuf);
+    if (write(2, theMsgBuf, theMsgPtr - theMsgBuf) < 0) {
+        SetLastIgnoredError(errno);
+    }
     abort();
 }
 
+static int sLastIgnoredError = 0;
+
+/* static */ void
+QCUtils::SetLastIgnoredError(
+    int inError)
+{
+    sLastIgnoredError = inError;
+}
 
     bool
 QCUtils::IsReserveFileSpaceSupported(

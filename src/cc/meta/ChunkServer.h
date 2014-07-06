@@ -360,14 +360,7 @@ public:
         >
     > ChunkOpsInFlight;
 
-    static KfsCallbackObj* Create(const NetConnectionPtr &conn) {
-        if (! conn || ! conn->IsGood()) {
-            return 0;
-        }
-        ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
-        ret->mSelfPtr.reset(ret);
-        return ret;
-    }
+    static KfsCallbackObj* Create(const NetConnectionPtr &conn);
     ///
     /// Sequence:
     ///  Chunk server connects.
@@ -517,7 +510,12 @@ public:
     /// server has stale chunks, it queues an RPC to
     /// notify the chunk server of the stale data.
     void NotifyStaleChunks(ChunkIdQueue& staleChunks,
-        bool evacuatedFlag = false, bool clearStaleChunksFlag = true);
+        bool evacuatedFlag = false, bool clearStaleChunksFlag = true,
+        const MetaChunkAvailable* ca = 0);
+    void NotifyStaleChunks(
+        ChunkIdQueue&             staleChunks,
+        const MetaChunkAvailable& ca)
+        { NotifyStaleChunks(staleChunks, false, true, &ca); }
     void NotifyStaleChunk(chunkId_t staleChunk, bool evacuatedFlag = false);
 
     /// There is a difference between the version # as stored
@@ -797,6 +795,10 @@ public:
         { return mCryptoKeyValidFlag; }
     kfsUid_t GetAuthUid() const
         { return mAuthUid; }
+    static void SetMaxChunkServerCount(int count)
+        { sMaxChunkServerCount = count; }
+    static int GetMaxChunkServerCount()
+        { return sMaxChunkServerCount; }
 
 protected:
     /// Enqueue a request to be dispatched to this server
@@ -993,6 +995,8 @@ protected:
     bool               mCryptoKeyValidFlag;
     CryptoKeys::KeyId  mCryptoKeyId;
     CryptoKeys::Key    mCryptoKey;
+    MetaRequest*       mPendingResponseOpsHeadPtr;
+    MetaRequest*       mPendingResponseOpsTailPtr;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1002,6 +1006,7 @@ protected:
     static ChunkOpsInFlight sChunkOpsInFlight;
     static ChunkServer*     sChunkServersPtr[kChunkSrvListsCount];
     static int              sChunkServerCount;
+    static int              sMaxChunkServerCount;
     static int              sPendingHelloCount;
     static int              sMinHelloWaitingBytes;
     static int64_t          sMaxHelloBufferBytes;
@@ -1041,7 +1046,7 @@ protected:
     int HandleReply(IOBuffer *iobuf, int msgLen);
 
     /// Send a response message to the MetaRequest we got.
-    void SendResponse(MetaRequest *op);
+    bool SendResponse(MetaRequest *op);
 
     ///
     /// Given a response from a chunkserver, find the
@@ -1120,6 +1125,7 @@ protected:
     int DeclareHelloError(
         int         status,
         const char* statusMsg);
+    void ReleasePendingResponses(bool sendResponseFlag = false);
 };
 
 } // namespace KFS

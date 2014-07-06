@@ -382,6 +382,8 @@ public:
         FileIdx inFileIdx,
         int64_t inFileSize = -1);
 
+    void CloseAllFiles();
+
     EnqueueStatus Rename(
         const char*    inSrcFileNamePtr,
         const char*    inDstFileNamePtr,
@@ -406,6 +408,8 @@ public:
     EnqueueStatus CheckDirWritable(
         const char*    inTestFileNamePtr,
         bool           inBufferedIoFlag,
+        bool           inAllocSpaceFlag,
+        int64_t        inWriteSize,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec = -1);
 

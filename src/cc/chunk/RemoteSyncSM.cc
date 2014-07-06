@@ -157,7 +157,7 @@ public:
         mParams.swap(theParams);
         mEnabledFlag = mSslCtxPtr && mParams.getValue(
             theParamName.Truncate(thePrefLen).Append(
-            "disable"), 0) == 0;
+            "enabled"), inAuthEnabledFlag ? 1 : 0) != 0;
         return true;
     }
     bool Setup(
@@ -207,6 +207,8 @@ public:
         mParams.clear();
         mEnabledFlag = false;
     }
+    bool IsEnabled() const
+        { return mEnabledFlag; }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
 
@@ -815,6 +817,12 @@ RemoteSyncSM::FinishSelf()
     if (mDeleteFlag && mFinishRecursionCount <= 0) {
         delete this;
     }
+}
+
+bool
+RemoteSyncSM::IsAuthEnabled()
+{
+    return (sAuthPtr && sAuthPtr->IsEnabled());
 }
 
 inline static int64_t

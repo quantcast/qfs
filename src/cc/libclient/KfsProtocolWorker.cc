@@ -478,25 +478,28 @@ private:
                 inRequestType == kRequestTypeWriteAsyncNoCopy ||
                 inRequestType == kRequestTypeReadAsync
             );
-            const size_t theReqHdr = sizeof(AsyncRequest) +
-                (inParamsPtr ? sizeof(*inParamsPtr) : 0);
-            const int kAlign       = 16;
-            const int theBufAlign  =
-                (theCopyFlag && inOffset > 0) ? (int)(inOffset % kAlign) : 0;
-            char* const theAllocPtr = new char[
+            const size_t       theReqHdr   = sizeof(AsyncRequest) +
+                (inParamsPtr ? sizeof(*inParamsPtr) : size_t(0));
+            const unsigned int kAlign      = 16u;
+            const unsigned int theBufAlign = (theCopyFlag && inOffset > 0) ?
+                (unsigned int)(inOffset % kAlign) : 0u;
+            char* const        theAllocPtr = new char[
                 theReqHdr +
                 (theCopyFlag ? (inSize + kAlign + theBufAlign) : 0)
             ];
             void* theBufferPtr;
             if (theCopyFlag) {
-                char* const thePtr = theAllocPtr + theReqHdr;
-                theBufferPtr = thePtr +
-                    (kAlign - ((thePtr - (char*)0) % kAlign)) + theBufAlign;
+                const char* const  kNullPtr    = 0;
+                char* const        thePtr      = theAllocPtr + theReqHdr;
+                const unsigned int thePtrAlign =
+                    (unsigned int)(thePtr - kNullPtr) % kAlign;
+                theBufferPtr = thePtr + (0 < thePtrAlign ?
+                    (kAlign - thePtrAlign) : 0) + theBufAlign;
                 memcpy(theBufferPtr, inBufferPtr, inSize);
             } else {
                 theBufferPtr = inBufferPtr;
             }
-            AsyncRequest* const theRetPtr   = new(theAllocPtr) AsyncRequest(
+            AsyncRequest* const theRetPtr = new(theAllocPtr) AsyncRequest(
                 inRequestType,
                 inFileInstance,
                 inFileId,

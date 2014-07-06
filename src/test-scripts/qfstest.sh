@@ -78,6 +78,8 @@ clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
 clientrootprop="$testdir/clientroot.prp"
 certsdir=${certsdir-"$testdir/certs"}
+minrequreddiskspace=${minrequreddiskspace-6.5e9}
+minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -225,6 +227,24 @@ rm -rf "$testdir"
 mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
+
+if [ $fotest -ne 0 ]; then
+    mindiskspace=$minrequreddiskspacefanoutsort
+else
+    mindiskspace=$minrequreddiskspace
+fi
+
+df -k "$testdir" | awk -v msp="${mindiskspace}" '
+    { lns = lns $0 "\n" }
+    /^\// {
+    if ($4 * 1024 < msp) {
+        print lns
+        printf(\
+            "Insufficient host file system available space:" \
+            " %5.2e, at least %5.2e required for the test.\n", \
+            $4 * 1024., msp)
+        exit 1
+    }}' || exit
 
 if [ x"$auth" = x'yes' ]; then
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit

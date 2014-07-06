@@ -930,7 +930,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
             SubmitOpResponse(op);
         }
     } else {
-        if (globalNetManager().IsRunning() && ! mLocation.IsValid()) {
+        if (globalNetManager().IsRunning() && mLocation.IsValid()) {
             mPendingOps.push_back(op);
         } else {
             op->status = -EHOSTUNREACH;

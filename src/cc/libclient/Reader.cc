@@ -427,6 +427,7 @@ private:
               mNoCSAccessFlag(false),
               mStartReadRunningFlag(false),
               mRestartStartReadFlag(false),
+              mLeaseToRelinquish(-1),
               mLogPrefix(inLogPrefix),
               mOpsNoRetryCount(0),
               mDeletedFlagPtr(0),
@@ -672,7 +673,6 @@ private:
             return (mGetAllocOp.chunkId >= 0 ?
                 mGetAllocOp.chunkVersion : int64_t(-1));
         }
-
     private:
         class StRunningCompletion
         {
@@ -770,6 +770,7 @@ private:
         bool                 mNoCSAccessFlag;
         bool                 mStartReadRunningFlag;
         bool                 mRestartStartReadFlag;
+        int64_t              mLeaseToRelinquish;
         string const         mLogPrefix;
         int                  mOpsNoRetryCount;
         bool*                mDeletedFlagPtr;
@@ -838,7 +839,8 @@ private:
             if (! CanRead()) {
                 return;
             }
-            if (mGetAllocOp.chunkId > 0 && mChunkServer.WasDisconnected()) {
+            if (mGetAllocOp.chunkId > 0 && mChunkServerSetFlag &&
+                    mChunkServer.WasDisconnected()) {
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "detected chunk server disconnect: " <<
                         mChunkServer.GetServerLocation() <<
@@ -887,7 +889,8 @@ private:
                 const bool theCSClearTextAllowedFlag =
                     mOuter.IsChunkServerClearTextAllowed();
                 mChunkServerSetFlag = true;
-                mNoCSAccessFlag     = ! theCSClearTextAllowedFlag;
+                mNoCSAccessFlag     = ! theCSClearTextAllowedFlag ||
+                    ! mLeaseAcquireOp.allowCSClearTextFlag;
                 const ServerLocation& theLocation =
                     mGetAllocOp.chunkServers[mChunkServerIdx];
                 mChunkServer.SetShutdownSsl(
@@ -938,13 +941,18 @@ private:
                 } else {
                     mChunkServer.SetServer(theLocation);
                 }
-                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                KFS_LOG_STREAM(mNoCSAccessFlag ?
+                        MsgLogger::kLogLevelERROR :
+                        MsgLogger::kLogLevelDEBUG) << mLogPrefix <<
                     "chunk: "      << mGetAllocOp.chunkId <<
+                    " cs access: " << (! mChunkServerAccess.IsEmpty()) <<
                     " access: "    << mSizeOp.access <<
                     " cleartext: " << mChunkServer.IsShutdownSsl() <<
                     " allowed: "   << mLeaseAcquireOp.allowCSClearTextFlag <<
                     " CS access expires in: " <<
                         (mChunkServerAccessExpires - Now()) <<
+                    " server:"     << theLocation <<
+                    " idx: "       << mChunkServerIdx <<
                 KFS_LOG_EOM;
             }
             if (mSizeOp.size < 0) {
@@ -1077,6 +1085,14 @@ private:
                 HandleError(inOp);
                 return;
             }
+            if (0 <= mLeaseToRelinquish && 0 <= mLeaseAcquireOp.chunkId) {
+                mOuter.mStats.mMetaOpsQueuedCount++;
+                const int64_t theLeaseId = mLeaseToRelinquish;
+                mLeaseToRelinquish = -1;
+                // Tell meta server to relinquish the previous lease.
+                mOuter.mMetaServer.Enqueue(new LeaseRelinquishOp(
+                    0, mLeaseAcquireOp.chunkId, theLeaseId), 0);
+            }
             StartRead();
         }
         void RenewLease()
@@ -1166,9 +1182,22 @@ private:
                             " access: "  << mSizeOp.access <<
                             " CS access:"
                             " updated: " << theHasChunkServerAccessFlag <<
+                            " cleartext: "  << mChunkServer.IsShutdownSsl() <<
+                            " allowed: "    << inOp.allowCSClearTextFlag <<
                             " expires in: " <<
                                 (mChunkServerAccessExpires - Now()) <<
                         KFS_LOG_EOM;
+                        if (! inOp.allowCSClearTextFlag &&
+                                mChunkServer.IsShutdownSsl()) {
+                            KFS_LOG_STREAM_INFO << mLogPrefix <<
+                                "chunk: " << mSizeOp.chunkId <<
+                                " cleartext is no longer allowed" <<
+                            KFS_LOG_EOM;
+                            // Clear lease acquire flag to ensure that the
+                            // change has effect on other chunk servers.
+                            mLeaseAcquireOp.allowCSClearTextFlag = false;
+                            mChunkServer.SetShutdownSsl(false);
+                        }
                     }
                 }
             }
@@ -1660,7 +1689,9 @@ private:
                 " status: "               << inOp.status    <<
                 " msg: "                  << inOp.statusMsg <<
                 " op: "                   << inOp.Show()    <<
-                " current chunk server: " << mChunkServer.GetServerLocation() <<
+                " current chunk server: " << (mChunkServerSetFlag ?
+                        mChunkServer.GetServerLocation() :
+                        ServerLocation()) <<
                 " chunkserver: "          << (mChunkServer.IsDataSent() ?
                     (mChunkServer.IsAllDataSent() ? "all" : "partial") :
                     "no") << " data sent" <<
@@ -1732,7 +1763,15 @@ private:
                             // moved or re-replicated.
                             mGetAllocOp.status  = 0;
                             mGetAllocOp.chunkId = -1;
-                            if (! mSizeOp.access.empty()) {
+                            if (mNoCSAccessFlag ||
+                                    ! mSizeOp.access.empty() ||
+                                    ! mChunkServerAccess.IsEmpty() ||
+                                    ! mChunkAccess.IsEmpty()) {
+                                // Start from lease acquire, relinquish current
+                                // lease only after lease acquisition.
+                                if (mLeaseToRelinquish < 0) {
+                                    mLeaseToRelinquish = mLeaseAcquireOp.leaseId;
+                                }
                                 mLeaseAcquireOp.leaseId = -1;
                                 mSizeOp.access.clear();
                             }
@@ -2332,7 +2371,8 @@ private:
                 inRequestId,
                 inStriperRequestId,
                 inReaderPtr->GetChunkId(),
-                inReaderPtr->GetChunkVersion()
+                inReaderPtr->GetChunkVersion(),
+                inReaderPtr->GetSize()
             );
         }
         if ((! mStriperPtr || inStiperDoneFlag) &&
@@ -2342,7 +2382,7 @@ private:
                     (inStatus == kErrorNoEntry || inStatus == 0)) {
                 const int theLen = inBufferPtr->BytesConsumable();
                 if (theLen < inSize) {
-                    inBufferPtr->ZeroFill(inSize - theLen);
+                    inBufferPtr->ZeroFillSpaceAvailable(inSize - theLen);
                 }
                 theStatus = 0;
             }

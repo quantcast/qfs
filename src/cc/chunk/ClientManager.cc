@@ -157,6 +157,8 @@ public:
         mParams.clear();
         mEnabledFlag = false;
     }
+    bool IsEnabled() const
+        { return mEnabledFlag; }
 private:
     typedef SslFilter::CtxPtr SslCtxPtr;
 
@@ -176,6 +178,7 @@ ClientManager::ClientManager()
     : mAcceptorPtr(0),
       mIoTimeoutSec(5 * 60),
       mIdleTimeoutSec(10 * 60),
+      mMaxClientCount(64 << 10),
       mCounters(),
       mAuth(*(new Auth)),
       mCurThreadIdx(0),
@@ -242,7 +245,17 @@ ClientManager::Stop()
 ClientManager::CreateKfsCallbackObj(
     NetConnectionPtr& inConnPtr)
 {
-    if (! inConnPtr) {
+    if (! inConnPtr || ! inConnPtr->IsGood()) {
+        return 0;
+    }
+    assert(0 <= mCounters.mClientCount);
+    if (mMaxClientCount <= mCounters.mClientCount) {
+        mCounters.mOverClientLimitCount++;
+        KFS_LOG_STREAM_ERROR << inConnPtr->GetPeerName() <<
+            " over client limit: " << mMaxClientCount <<
+            " client count: "      << mCounters.mClientCount <<
+            " closing connection" <<
+        KFS_LOG_EOM;
         return 0;
     }
     mCounters.mAcceptCount++;
@@ -264,7 +277,8 @@ ClientManager::CreateKfsCallbackObj(
 ClientManager::SetParameters(
     const char*       inParamsPrefixPtr,
     const Properties& inProps,
-    bool              inAuthEnabledFlag)
+    bool              inAuthEnabledFlag,
+    int               inMaxClientCount)
 {
     Properties::String theParamName;
     if (inParamsPrefixPtr) {
@@ -275,6 +289,7 @@ ClientManager::SetParameters(
         "ioTimeoutSec"), mIoTimeoutSec);
     mIdleTimeoutSec = inProps.getValue(theParamName.Truncate(thePrefLen).Append(
         "idleTimeoutSec"), mIdleTimeoutSec);
+    mMaxClientCount = inMaxClientCount;
     return mAuth.SetParameters(
         theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(),
         inProps,
@@ -293,6 +308,12 @@ ClientManager::GetCounters(
 ClientManager::GetMutexPtr() const
 {
     return (0 < mThreadCount ? &ClientThread::GetMutex() : 0);
+}
+
+    bool
+ClientManager::IsAuthEnabled() const
+{
+    return mAuth.IsEnabled();
 }
 
     void

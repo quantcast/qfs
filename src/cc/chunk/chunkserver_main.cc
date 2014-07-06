@@ -254,7 +254,9 @@ private:
     }
     static void SigAlrmHandler(int /* sig */)
     {
-        write(2, "SIGALRM\n", 8);
+        if (write(2, "SIGALRM\n", 8) < 0) {
+            QCUtils::SetLastIgnoredError(errno);
+        }
         ::abort();
     }
 };
@@ -275,11 +277,21 @@ public:
           mPrevCout(*outName ? cout.tie(&mCout) : 0),
           mPrevCerr(*errName ? cerr.tie(&mCerr) : 0)
     {
-        if (*outName) {
-            freopen(outName, "a", stdout);
+        if (outName && *outName) {
+            if (! freopen(outName, "a", stdout)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "freopen: " <<  outName <<
+                    ": " << QCUtils::SysError(errno) <<
+                KFS_LOG_EOM;
+            }
         }
-        if (*errName) {
-            freopen(errName, "a", stderr);
+        if (errName && *errName) {
+            if (! freopen(errName, "a", stderr)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "freopen: " << errName <<
+                    ": " << QCUtils::SysError(errno) <<
+                KFS_LOG_EOM;
+            }
         }
     }
     ~StdErrAndOutRedirector()
@@ -385,6 +397,7 @@ ChunkServerMain::LoadParams(const char* fileName)
     MsgLogger::GetLogger()->SetLogLevel(
         mProp.getValue("chunkServer.loglevel",
         MsgLogger::GetLogLevelNamePtr(MsgLogger::GetLogger()->GetLogLevel())));
+    MsgLogger::GetLogger()->SetUseNonBlockingIo(true);
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(mProp, "chunkServer.msgLogWriter.");
     sRestarter.SetParameters(mProp, "chunkServer.");
@@ -472,7 +485,9 @@ ChunkServerMain::LoadParams(const char* fileName)
 
 static void SigQuitHandler(int /* sig */)
 {
-    write(1, "SIGQUIT\n", 8);
+    if (write(1, "SIGQUIT\n", 8) < 0) {
+        QCUtils::SetLastIgnoredError(errno);
+    }
     globalNetManager().Shutdown();
 }
 

@@ -27,6 +27,7 @@
 #ifndef CHUNKSERVER_REPLICATOR_H
 #define CHUNKSERVER_REPLICATOR_H
 
+#include "common/kfstypes.h"
 #include <stdint.h>
 
 namespace KFS
@@ -64,8 +65,10 @@ public:
     static void Run(ReplicateChunkOp* op);
     static int GetNumReplications();
     static void CancelAll();
+    static bool Cancel(kfsChunkId_t chunkId, kfsSeq_t targeVersion);
     static void SetParameters(const Properties& props);
     static void GetCounters(Counters& counters);
+    static void Shutdown();
 };
 
 }

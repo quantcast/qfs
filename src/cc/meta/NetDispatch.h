@@ -49,6 +49,8 @@ class NetDispatch
 public:
     NetDispatch();
     ~NetDispatch();
+    void SetMaxClientSockets(int count);
+    int GetMaxClientCount() const;
     bool Bind(int clientAcceptPort, int chunkServerAcceptPort);
     bool Start();
     //!< Dispatch completed request.

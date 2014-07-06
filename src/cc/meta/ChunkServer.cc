@@ -192,7 +192,7 @@ int ChunkServer::sHeartbeatLogInterval = 1000;
 int ChunkServer::sChunkAllocTimeout    = 40;
 int ChunkServer::sChunkReallocTimeout  = 75;
 int ChunkServer::sMakeStableTimeout    = 330;
-int ChunkServer::sReplicationTimeout   = 330;
+int ChunkServer::sReplicationTimeout   = 510;
 int ChunkServer::sRequestTimeout       = 600;
 int ChunkServer::sMetaClientPort       = 0;
 size_t ChunkServer::sMaxChunksToEvacuate  = 2 << 10; // Max queue size
@@ -203,7 +203,8 @@ string ChunkServer::sSrvLoadPropName("Buffer-usec-wait-avg");
 bool ChunkServer::sRestartCSOnInvalidClusterKeyFlag = false;
 ChunkServer::ChunkOpsInFlight ChunkServer::sChunkOpsInFlight;
 ChunkServer* ChunkServer::sChunkServersPtr[kChunkSrvListsCount] = { 0, 0 };
-int ChunkServer::sChunkServerCount = 0;
+int ChunkServer::sChunkServerCount    = 0;
+int ChunkServer::sMaxChunkServerCount = 0;
 int ChunkServer::sPendingHelloCount    = 0;
 int ChunkServer::sMinHelloWaitingBytes = 0;
 int64_t ChunkServer::sHelloBytesCommitted = 0;
@@ -306,6 +307,25 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
+/* static */ KfsCallbackObj*
+ChunkServer::Create(const NetConnectionPtr &conn)
+{
+    if (! conn || ! conn->IsGood()) {
+        return 0;
+    }
+    if (sMaxChunkServerCount <= sChunkServerCount) {
+        KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
+            " chunk servers: "            << sChunkServerCount <<
+            " over chunk servers limit: " << sMaxChunkServerCount <<
+            " closing connection" <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+    ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
+    ret->mSelfPtr.reset(ret);
+    return ret;
+}
+
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
       CSMapServerInfo(),
@@ -384,6 +404,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mCryptoKeyValidFlag(false),
       mCryptoKeyId(),
       mCryptoKey(),
+      mPendingResponseOpsHeadPtr(0),
+      mPendingResponseOpsTailPtr(0),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -418,8 +440,25 @@ ChunkServer::~ChunkServer()
     RemoveFromPendingHelloList();
     delete mHelloOp;
     delete mAuthenticateOp;
+    ReleasePendingResponses();
     ChunkServersList::Remove(sChunkServersPtr, *this);
     sChunkServerCount--;
+}
+
+void
+ChunkServer::ReleasePendingResponses(bool sendResponseFlag /* = false */)
+{
+    MetaRequest* next = mPendingResponseOpsHeadPtr;
+    mPendingResponseOpsTailPtr = 0;
+    mPendingResponseOpsHeadPtr = 0;
+    while (next) {
+        MetaRequest* const op = next;
+        next = op->next;
+        op->next = 0;
+        if (! sendResponseFlag || SendResponse(op)) {
+            delete op;
+        }
+    }
 }
 
 void
@@ -612,11 +651,8 @@ ChunkServer::HandleRequest(int code, void *data)
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data && (mHelloDone || mAuthenticateOp == op));
         const bool deleteOpFlag = op != mAuthenticateOp;
-        if (! mDown) {
-            SendResponse(op);
-        }
         // nothing left to be done...get rid of it
-        if (deleteOpFlag) {
+        if (SendResponse(op) && deleteOpFlag) {
             delete op;
         }
         break;
@@ -646,7 +682,6 @@ ChunkServer::HandleRequest(int code, void *data)
             }
             if (mNetConnection->GetFilter()) {
                 if (! mAuthenticateOp->filter) {
-                    panic("downgrade to clear text communication");
                     Error("no clear text communication allowed");
                 }
                 // Wait for [ssl] shutdown with the current filter to complete.
@@ -668,6 +703,19 @@ ChunkServer::HandleRequest(int code, void *data)
             mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
             delete mAuthenticateOp;
             mAuthenticateOp  = 0;
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
+                (mHelloDone ? " re-" : " ") <<
+                "authentication complete:"
+                " session expires in: " <<
+                    (mSessionExpirationTime - TimeNow()) << " sec." <<
+                " pending seq:"
+                " requests: "  << mAuthPendingSeq <<
+                    " +" << (mSeqNo - mAuthPendingSeq) <<
+                " responses: " << (mPendingResponseOpsHeadPtr ?
+                    mPendingResponseOpsHeadPtr->opSeqno : seq_t(-1)) <<
+                " "            << (mPendingResponseOpsTailPtr ?
+                        mPendingResponseOpsTailPtr->opSeqno : seq_t(-1)) <<
+            KFS_LOG_EOM;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
                 // Enqueue rpcs that were waiting for authentication to finish.
                 DispatchedReqs::const_iterator it =
@@ -679,6 +727,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     EnqueueSelf(op);
                 }
             }
+            const bool kSendResponseFlag = true;
+            ReleasePendingResponses(kSendResponseFlag);
             break;
         }
         if (! mHelloDone &&
@@ -795,10 +845,10 @@ ChunkServer::ForceDown()
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps();
-    mSelfPtr.reset(); // Unref / delete self
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
+    mSelfPtr.reset(); // Unref / delete self
 }
 
 void
@@ -868,6 +918,7 @@ ChunkServer::Error(const char* errorMsg)
         mb->clnt    = this;
         submit_request(mb);
     }
+    ReleasePendingResponses();
     mSelfPtr.reset(); // Unref / delete self
 }
 
@@ -1030,8 +1081,9 @@ ChunkServer::DeclareHelloError(
     mNetConnection->GetInBuffer().Clear();
     mNetConnection->SetMaxReadAhead(0);
     mNetConnection->SetInactivityTimeout(sRequestTimeout);
-    SendResponse(mHelloOp);
-    delete mHelloOp;
+    if (SendResponse(mHelloOp)) {
+        delete mHelloOp;
+    }
     mHelloOp = 0;
     return 0;
 }
@@ -1925,11 +1977,11 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag)
+    bool evacuatedFlag, bool clearStaleChunksFlag, const MetaChunkAvailable* ca)
 {
-    MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
+    MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
-        mStaleChunksHexFormatFlag);
+        mStaleChunksHexFormatFlag, ca ? &ca->opSeqno : 0);
     if (clearStaleChunksFlag) {
         r->staleChunkIds.Swap(staleChunkIds);
     } else {
@@ -1949,7 +2001,7 @@ ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
     MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
-        mStaleChunksHexFormatFlag);
+        mStaleChunksHexFormatFlag, 0);
     r->staleChunkIds.PushBack(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
     Enqueue(r);
@@ -2059,9 +2111,9 @@ ChunkServer::Heartbeat()
         if (reAuthenticateFlag) {
             KFS_LOG_STREAM_INFO <<
                 GetServerLocation() <<
-                " requesting chunk server re-authentication; "
-                "session expires in: " <<
-                (mSessionExpirationTime - now) << " sec." <<
+                " requesting chunk server re-authentication:"
+                " session expires in: " <<
+                    (mSessionExpirationTime - now) << " sec." <<
                 " auth ctx update count: " << mAuthCtxUpdateCount <<
                 " vs: " << authCtx.GetUpdateCount() <<
             KFS_LOG_EOM;
@@ -2253,11 +2305,21 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
     os << "\t";
 }
 
-void
+bool
 ChunkServer::SendResponse(MetaRequest* op)
 {
     if (! mNetConnection) {
-        return;
+        return true;
+    }
+    if (mAuthenticateOp && mAuthenticateOp != op) {
+        op->next = 0;
+        if (mPendingResponseOpsHeadPtr) {
+            mPendingResponseOpsTailPtr->next = op;
+        } else {
+            mPendingResponseOpsHeadPtr = op;
+        }
+        mPendingResponseOpsTailPtr = op;
+        return false;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
     op->response(mOstream.Set(buf), buf);
@@ -2265,6 +2327,7 @@ ChunkServer::SendResponse(MetaRequest* op)
     if (mRecursionCount <= 0) {
         mNetConnection->StartFlush();
     }
+    return true;
 }
 
 bool

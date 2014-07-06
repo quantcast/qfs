@@ -738,6 +738,7 @@ struct ReplicateChunkOp : public KfsOp {
     kfsChunkId_t    chunkId;      // input
     ServerLocation  location;     // input: where to get the chunk from
     int64_t         chunkVersion; // io: we tell the metaserver what we replicated
+    int64_t         targetVersion;
     int64_t         fileSize;
     int64_t         chunkOffset;
     int16_t         striperType;
@@ -760,6 +761,7 @@ struct ReplicateChunkOp : public KfsOp {
         chunkId(-1),
         location(),
         chunkVersion(-1),
+        targetVersion(-1),
         fileSize(-1),
         chunkOffset(-1),
         striperType(KFS_STRIPED_FILE_TYPE_NONE),
@@ -781,18 +783,19 @@ struct ReplicateChunkOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "replicate-chunk:" <<
-            " seq: "      << seq <<
-            " fid: "      << fid <<
-            " chunkid: "  << chunkId <<
-            " version: "  << chunkVersion <<
-            " offset: "   << chunkOffset <<
-            " stiper: "   << striperType <<
-            " dstripes: " << numStripes <<
-            " rstripes: " << numRecoveryStripes <<
-            " ssize: "    << stripeSize <<
-            " fsize: "    << fileSize <<
-            " fname: "    << pathName <<
-            " invals: "   << invalidStripeIdx
+            " seq: "        << seq <<
+            " fid: "        << fid <<
+            " chunkid: "    << chunkId <<
+            " version: "    << chunkVersion <<
+            " targetVers: " << targetVersion <<
+            " offset: "     << chunkOffset <<
+            " stiper: "     << striperType <<
+            " dstripes: "   << numStripes <<
+            " rstripes: "   << numRecoveryStripes <<
+            " ssize: "      << stripeSize <<
+            " fsize: "      << fileSize <<
+            " fname: "      << pathName <<
+            " invals: "     << invalidStripeIdx
         ;
     }
     bool Validate()
@@ -810,6 +813,7 @@ struct ReplicateChunkOp : public KfsOp {
         .Def("File-handle",          &ReplicateChunkOp::fid,            kfsFileId_t(-1))
         .Def("Chunk-handle",         &ReplicateChunkOp::chunkId,        kfsChunkId_t(-1))
         .Def("Chunk-version",        &ReplicateChunkOp::chunkVersion,   int64_t(-1))
+        .Def("Target-version",       &ReplicateChunkOp::targetVersion,  int64_t(-1))
         .Def("Chunk-location",       &ReplicateChunkOp::locationStr)
         .Def("Meta-port",            &ReplicateChunkOp::metaPort,       int(-1))
         .Def("Chunk-offset",         &ReplicateChunkOp::chunkOffset,    int64_t(-1))
@@ -874,6 +878,7 @@ struct StaleChunksOp : public KfsOp {
     int           numStaleChunks; /* what the server tells us */
     bool          evacuatedFlag;
     bool          hexFormatFlag;
+    kfsSeq_t      availChunksSeq;
     StaleChunkIds staleChunkIds; /* data we parse out */
 
     StaleChunksOp(kfsSeq_t s = 0)
@@ -882,6 +887,7 @@ struct StaleChunksOp : public KfsOp {
           numStaleChunks(0),
           evacuatedFlag(false),
           hexFormatFlag(false),
+          availChunksSeq(-1),
           staleChunkIds()
         {}
     void Execute();
@@ -900,8 +906,9 @@ struct StaleChunksOp : public KfsOp {
         return KfsOp::ParserDef(parser)
         .Def("Content-length", &StaleChunksOp::contentLength)
         .Def("Num-chunks",     &StaleChunksOp::numStaleChunks)
-        .Def("Evacuated",      &StaleChunksOp::evacuatedFlag, false)
-        .Def("HexFormat",      &StaleChunksOp::hexFormatFlag, false)
+        .Def("Evacuated",      &StaleChunksOp::evacuatedFlag,  false)
+        .Def("HexFormat",      &StaleChunksOp::hexFormatFlag,  false)
+        .Def("AvailChunksSeq", &StaleChunksOp::availChunksSeq, kfsSeq_t(-1))
         ;
     }
 };
@@ -1704,11 +1711,15 @@ struct SizeOp : public KfsClientChunkOp {
           fileId(fid),
           chunkVersion(v),
           size(-1)
-        { chunkId = c; }
+    {
+        chunkId = c;
+        SET_HANDLER(this, &SizeOp::HandleChunkMetaReadDone);
+    }
 
     void Request(ostream &os);
     void Response(ostream &os);
     void Execute();
+    int HandleChunkMetaReadDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -2246,9 +2257,9 @@ struct EvacuateChunksOp : public KfsOp {
 
 struct AvailableChunksOp : public KfsOp {
     enum { kMaxChunkIds = 64 };
-    kfsChunkId_t chunkIds[kMaxChunkIds];      // input
-    kfsChunkId_t chunkVersions[kMaxChunkIds]; // input
-    int          numChunks;
+    typedef pair<kfsChunkId_t, int64_t> Chunks;
+    Chunks chunks[kMaxChunkIds];
+    int    numChunks;
 
     AvailableChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
         : KfsOp(CMD_AVAILABLE_CHUNKS, s, c),
@@ -2270,7 +2281,7 @@ struct AvailableChunksOp : public KfsOp {
     {
         os << "available chunks: seq: " << seq;
         for (int i = 0; i < numChunks; i++) {
-            os << " " << chunkIds[i] << "." << chunkVersions[i];
+            os << " " << chunks[i].first << "." << chunks[i].second;
         }
         return os;
     }

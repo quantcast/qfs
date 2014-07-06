@@ -76,8 +76,20 @@ add_custom_target (
 )
 add_dependencies(mstress-tarball mstress-scripts)
 
-get_target_property (metaserver_location metaserver LOCATION)
-get_target_property (chunkserver_location chunkserver LOCATION)
+if (${CMAKE_MAJOR_VERSION} LESS 2)
+elseif (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+elseif (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 12)
+    set (cmake_use_target_property ON)
+endif (${CMAKE_MAJOR_VERSION} LESS 2)
+
+if (${cmake_use_target_property})
+    get_target_property (metaserver_location metaserver LOCATION)
+    get_target_property (chunkserver_location chunkserver LOCATION)
+else (${cmake_use_target_property})
+    set (metaserver_location $<TARGET_FILE:metaserver)
+    set (chunkserver_location $<TARGET_FILE:chunkserver)
+endif (${cmake_use_target_property})
 
 add_custom_target (
     mstress-bootstrap

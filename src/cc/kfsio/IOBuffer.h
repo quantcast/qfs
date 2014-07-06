@@ -343,6 +343,11 @@ public:
     /// @retval Returns the # of bytes copied.
     ///
     int CopyIn(const char* buf, int numBytes);
+    /// Pos must be valid boundary between used and available space.
+    int CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos);
+    /// Append only to the buffer at the specified position.
+    int CopyInOnlyIntoBufferAtPos(const char* buf, int numBytes,
+        IOBuffer::iterator pos);
 
     int Copy(const IOBuffer* buf, int numBytes);
 
@@ -393,7 +398,8 @@ public:
     /// Trim data from the end of the buffer to nbytes.  This is the
     /// converse of consume, where data is removed from the front of
     /// the buffer.
-    void Trim(int nbytes);
+    int Trim(int nbytes);
+    int TrimAndConvertRemainderToAvailableSpace(int numBytes);
 
     /// Ensures HasCompleteBuffer() returns true for all buffers,
     /// and all buffers possibly except the last one are full.
@@ -555,6 +561,7 @@ private:
 
     inline static BList::iterator SplitBufferListAt(BList& buf, int& nBytes);
     inline BList::iterator BeginSpaceAvailable(int* nBytes = 0);
+    inline bool IsValidCopyInPos(const IOBuffer::iterator& pos);
     IOBuffer(const IOBuffer& buf);
     IOBuffer& operator=(const IOBuffer& buf);
 };

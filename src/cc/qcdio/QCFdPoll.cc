@@ -63,7 +63,7 @@ public:
         if (mDevpollFd < 0) {
             QCUtils::FatalError("Unable to open /dev/poll device:", errno);
         } else {
-            fcntl(mDevpollFd, FD_CLOEXEC, 1);
+            fcntl(mDevpollFd, F_SETFD, FD_CLOEXEC);
         }
     }
     ~Impl()
@@ -298,7 +298,7 @@ public:
             mEpollFd = -mEpollFd;
         }
         if (mEpollFd >= 0) {
-            fcntl(mEpollFd, FD_CLOEXEC, 1);
+            fcntl(mEpollFd, F_SETFD, FD_CLOEXEC);
         }
     }
     ~Impl()
@@ -494,7 +494,7 @@ public:
           mDummyFd(open("/dev/null", O_RDONLY)),
           mDoCompactionFlag(false)
     {
-        fcntl(mDummyFd, FD_CLOEXEC, 1);
+        fcntl(mDummyFd, F_SETFD, FD_CLOEXEC);
     }
     ~Impl()
     {

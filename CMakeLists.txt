@@ -24,24 +24,38 @@
 #
 
 set(CMAKE_LEGACY_CYGWIN_WIN32 0) # Remove when CMake >= 2.8.4 is required
-cmake_minimum_required(VERSION 2.4.6)
+cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
 
-project (KFS)
+IF (COMMAND cmake_policy)
+    IF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+        message(
+            STATUS
+            "Not setting version policy: ${QFS_DONT_SET_CMAMKE_POLICY_VERISON}"
+        )
+    ELSE (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+        cmake_policy(
+            VERSION
+            ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION}
+        )
+    ENDIF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
+ENDIF (COMMAND cmake_policy)
 
-if (DEFINED KFS_DIR_PREFIX)
-    message ("Qfs source dir prefix: ${KFS_DIR_PREFIX}")
-    set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake)
-else (DEFINED KFS_DIR_PREFIX)
+project (QFS)
+
+IF (DEFINED KFS_DIR_PREFIX)
+    message (STATUS "Qfs source dir prefix: ${KFS_DIR_PREFIX}")
+    set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake/Modules)
+ELSE (DEFINED KFS_DIR_PREFIX)
     set(KFS_DIR_PREFIX "")
-    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
-endif (DEFINED KFS_DIR_PREFIX)
+    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
+ENDIF (DEFINED KFS_DIR_PREFIX)
 
 # Locate Boost
 # set(Boost_LIB_DIAGNOSTIC_DEFINITIONS "-DBOOST_LIB_DIAGNOSTIC")
 
-if (NOT DEFINED Boost_USE_STATIC_LIBS)
+IF (NOT DEFINED Boost_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS OFF)
-endif (NOT DEFINED Boost_USE_STATIC_LIBS)
+ENDIF (NOT DEFINED Boost_USE_STATIC_LIBS)
 
 set(Boost_USE_MULTITHREADED ON)
 
@@ -58,7 +72,7 @@ message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
 
-if (NOT OPENSSL_VERSION)
+IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(
         COMMAND openssl version
         ERROR_QUIET
@@ -66,24 +80,26 @@ if (NOT OPENSSL_VERSION)
     )
     string(REGEX REPLACE "^[^ ]+ +([^ ]+).*$" "\\1"
         OPENSSL_VERSION "${OPENSSL_VERSION}")
-endif (NOT OPENSSL_VERSION)
+ENDIF (NOT DEFINED OPENSSL_VERSION)
 
-if (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(WARNING ": Open SSL version ${OPENSSL_VERSION}")
-    message(WARNING ": QFS authentication support requires Open SSL version 1.0 or greater")
+    message(WARNING
+        ": QFS authentication support requires Open SSL version 1.0 or greater")
     message(WARNING ": QFS authentication will not work")
-endif (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
 
 ENABLE_TESTING()
 
 # Change this to where the install directory is located
-if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "." CACHE PATH "installation directory prefix" FORCE)
-endif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+IF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "." CACHE PATH
+        "installation directory prefix" FORCE)
+ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
-# Build with statically linked libraries; the value for this variable has to be defined here
-# overwriting whatever is in the cache.
+# Build with statically linked libraries; the value for this variable has to be
+# defined here overwriting whatever is in the cache.
 # When set to ON, we build with statically linked libraries; when off we
 # link with dynamically linked libs
 
@@ -91,7 +107,11 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     IF (BUILD_CPU_MODE STREQUAL "32")
         message (STATUS "Building 32-bit mode on Solaris")
         # If we are asked to build 32 bit mode
-        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES)
+        add_definitions (
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGEFILE_SOURCE
+            -D_LARGE_FILES
+        )
     ELSE (BUILD_CPU_MODE STREQUAL "32")
         # On solaris, use 64-bit mode
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
@@ -99,22 +119,30 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
         set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
     ENDIF (BUILD_CPU_MODE STREQUAL "32")
     # Statically linked binaries don't work on solaris
-    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL "Build binaries with statically linked libraries" FORCE)
+    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL
+        "Build binaries with statically linked libraries" FORCE)
     # Cmake does whacky relink on solaris and messes things up; avoid this
     set (CMAKE_SKIP_RPATH ON)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL "Build binaries with statically linked libraries" FORCE)
-    IF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
+    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL
+        "Build binaries with statically linked libraries" FORCE)
+    IF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
         message (STATUS "Enabling largefile source flags")
-        add_definitions (-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_LARGE_FILES)
-    ENDIF (CMAKE_SIZEOF_VOID_P MATCHES "4" AND NOT CYGWIN)
+        add_definitions (
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGEFILE_SOURCE
+            -D_LARGEFILE64_SOURCE
+            -D_LARGE_FILES
+        )
+    ENDIF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 IF (ENABLE_PROFILING)
     message (STATUS "Enabling profiling with gprof")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")
     set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -pg")
-    set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -pg")
+    set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS
+        "${CMAKE_SHARED_LINKER_FLAGS} -pg")
     set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
 ENDIF (ENABLE_PROFILING)
 
@@ -147,26 +175,37 @@ add_definitions (-D${KFS_OS_NAME})
 # Find the path to libfuse.so
 #
 
-SET(Fuse_LIBRARY_DIR "")
-IF (EXISTS "/lib64/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/lib64")
-ELSEIF (EXISTS "/opt/local/lib/libfuse.dylib")
-    SET(Fuse_LIBRARY_DIR "/opt/local/lib")
-ELSEIF (EXISTS "/usr/local/lib/libfuse.dylib" OR EXISTS "/usr/local/lib/libfuse_ino64.dylib")
-    SET(Fuse_LIBRARY_DIR "/usr/local/lib")
-    SET(Fuse_INCLUDE_DIR "/usr/local/include/osxfuse")
-ELSEIF (EXISTS "/usr/lib/libfuse.a" OR EXISTS "/usr/lib/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/usr/local/lib")
-ELSEIF (EXISTS "/lib/libfuse.a" OR EXISTS "/lib/libfuse.so")
-    SET(Fuse_LIBRARY_DIR "/lib")
-ENDIF (EXISTS "/lib64/libfuse.so")
+IF (${CMAKE_MAJOR_VERSION} LESS 2)
+ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
+ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
+    SET(USE_FIND_FUSE_CMAKE_MODULE TRUE)
+    find_package(FUSE)
+ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
 
-if(COMMAND cmake_policy)
-    cmake_policy(SET CMP0003 NEW)
-endif(COMMAND cmake_policy)
+IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
+    IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+        INCLUDE(UsePkgConfig)
+        PKGCONFIG("fuse"
+            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIR FUSE_LIBRARIES FUSE_DEFINITIONS)
+        IF (DEFINED FUSE_LIBRARIES)
+            SET(FUSE_FOUND TRUE)
+        ENDIF (DEFINED FUSE_LIBRARIES)
+    ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+        INCLUDE(FindPkgConfig)
+        pkg_search_module(FUSE "fuse")
+        set(FUSE_DEFINITIONS ${FUSE_CFLAGS})
+    ENDIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE)
 
 # include dirs
-include_directories( ${Boost_INCLUDE_DIRS} ${OPEN_SSL_INCLUDE_DIR} ${KFS_DIR_PREFIX}src/cc)
+include_directories(
+    ${Boost_INCLUDE_DIRS}
+    ${OPEN_SSL_INCLUDE_DIR}
+    ${KFS_DIR_PREFIX}src/cc
+)
 
 # get the subdirs we want
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
@@ -189,7 +228,7 @@ add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
 
 IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
     set(JNI_FOUND TRUE)
-ENDIF  (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
+ENDIF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
 
 IF (JNI_FOUND)
     message(STATUS "JNI found: building qfs_access")
@@ -199,8 +238,11 @@ ELSE (JNI_FOUND)
     message(STATUS "JNI NOT found: NOT building qfs_access")
 ENDIF (JNI_FOUND)
 
-IF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
-    message(STATUS "Found fuse")
-    include_directories ( ${Fuse_INCLUDE_DIR} )
+IF (FUSE_FOUND)
+    message(STATUS "Building qfs_fuse")
+    add_definitions(${FUSE_DEFINITIONS})
+    add_definitions(-D FUSE_USE_VERSION=26)
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
-ENDIF (NOT ${Fuse_LIBRARY_DIR} STREQUAL "")
+ELSE  (FUSE_FOUND)
+    message(STATUS "Not building qfs_fuse")
+ENDIF (FUSE_FOUND)

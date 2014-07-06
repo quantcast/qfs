@@ -444,6 +444,9 @@ IOBuffer::Append(IOBuffer *ioBuf)
 inline IOBuffer::BList::iterator
 IOBuffer::BeginSpaceAvailable(int* nBytes /* = 0 */)
 {
+    if (! nBytes && IsEmpty()) {
+        return mBuf.begin();
+    }
     BList::iterator it = mBuf.end();
     while (it != mBuf.begin() && (--it)->IsEmpty()) {
         if (it->IsFull()) {
@@ -721,6 +724,27 @@ IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
     return (numBytes - nBytes);
 }
 
+int
+IOBuffer::TrimAndConvertRemainderToAvailableSpace(int numBytes)
+{
+    DebugVerify();
+    assert(0 <= mByteCount);
+    if (mByteCount <= numBytes) {
+        return mByteCount;
+    }
+    int nBytes = max(0, numBytes);
+    mByteCount = nBytes;
+    for (BList::iterator it = mBuf.begin(); it != mBuf.end(); ++it) {
+        const int nb = it->BytesConsumable();
+        if ((nBytes -= nBytes < nb ? it->Trim(nBytes) : nb) <= 0) {
+            break;
+        }
+    }
+    assert(nBytes == 0);
+    DebugVerify(true);
+    return mByteCount;
+}
+
 inline IOBuffer::BList::iterator
 IOBuffer::SplitBufferListAt(IOBuffer::BList& buf, int& nBytes)
 {
@@ -972,22 +996,24 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
 void
 IOBuffer::ZeroFill(int numBytes)
 {
+    if (numBytes <= 0) {
+        return;
+    }
     DebugVerify();
-    while (! mBuf.empty() && mBuf.back().IsEmpty()) {
-        mBuf.pop_back();
-    }
+    BList::iterator it = BeginSpaceAvailable();
     int nBytes = numBytes;
-    if (nBytes > 0 && ! mBuf.empty()) {
-        nBytes -= mBuf.back().ZeroFill(nBytes);
+    for (; ;) {
+        if (it == mBuf.end()) {
+            it = mBuf.insert(it, IOBufferData());
+        }
+        if ((nBytes -= it->ZeroFill(nBytes)) <= 0) {
+            break;
+        }
+        assert(it->IsFull());
+        ++it;
     }
-    while (nBytes > 0) {
-        mBuf.push_back(IOBufferData());
-        nBytes -= mBuf.back().ZeroFill(nBytes);
-    }
-    assert(mByteCount >= 0);
-    if (numBytes > 0) {
-        mByteCount += numBytes;
-    }
+    assert(0 <= mByteCount && nBytes == 0);
+    mByteCount += numBytes;
     DebugVerify(true);
 }
 
@@ -1261,18 +1287,18 @@ IOBuffer::Consume(int numBytes)
     return nBytes;
 }
 
-void
+int
 IOBuffer::Trim(int numBytes)
 {
     DebugVerify();
     if (mByteCount <= numBytes) {
-        return;
+        return mByteCount;
     }
     if (numBytes <= 0) {
         mBuf.clear();
         mByteCount = 0;
         DebugVerify(true);
-        return;
+        return mByteCount;
     }
     int             nBytes = numBytes;
     BList::iterator iter   = mBuf.begin();
@@ -1296,6 +1322,60 @@ IOBuffer::Trim(int numBytes)
     assert(mByteCount >= 0);
     mByteCount = numBytes;
     DebugVerify(true);
+    return mByteCount;
+}
+
+inline bool
+IOBuffer::IsValidCopyInPos(const IOBuffer::iterator& pos)
+{
+    IOBuffer::iterator cur = pos;
+    if (cur != mBuf.begin() && (--cur)->IsEmpty()) {
+        return false;
+    }
+    cur = pos;
+    return (cur == mBuf.end() ||
+        cur->IsEmpty() || ++cur == mBuf.end() || cur->IsEmpty());
+}
+
+int
+IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
+{
+    assert(IsValidCopyInPos(pos));
+    if (numBytes <= 0) {
+        return 0;
+    }
+    DebugChecksum(buf, numBytes);
+    int nBytes = numBytes;
+    for (; ;) {
+        if (pos == mBuf.end()) {
+            pos = mBuf.insert(mBuf.end(), IOBufferData());
+        }
+        if ((nBytes -= const_cast<IOBufferData&>(*pos).CopyIn(
+                buf + numBytes - nBytes, nBytes)) <= 0) {
+            break;
+        }
+        assert(pos->IsFull());
+        ++pos;
+    }
+    mByteCount += numBytes;
+    assert(nBytes == 0 && 0 < mByteCount && ! mBuf.empty());
+    DebugVerify(true);
+    return numBytes;
+}
+
+int
+IOBuffer::CopyInOnlyIntoBufferAtPos(
+    const char* buf, int numBytes, IOBuffer::iterator pos)
+{
+    if (numBytes <= 0 || pos == mBuf.end()) {
+        return 0;
+    }
+    assert(! mBuf.empty());
+    DebugChecksum(buf, numBytes);
+    const int nb = const_cast<IOBufferData&>(*pos).CopyIn(buf, numBytes);
+    mByteCount += nb;
+    DebugVerify(true);
+    return nb;
 }
 
 int

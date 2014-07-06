@@ -247,8 +247,13 @@ public:
     static IOBufferData NewDataBuffer(
         int inSize)
     {
-        char* const thePtr    = new char [inSize + kAlign];
-        const int   theOffset = kAlign - (thePtr - (const char*)0) % kAlign;
+        const unsigned int kPtrAlign   = kAlign;
+        const char* const  kNullPtr    = 0;
+        char* const        thePtr      = new char [inSize + kPtrAlign];
+        const unsigned int thePtrAlign =
+            (unsigned int)(thePtr - kNullPtr) % kPtrAlign;
+        const int          theOffset   = 0 < thePtrAlign ?
+            (int)(kPtrAlign - thePtrAlign) : 0;
         return IOBufferData(thePtr, inSize + theOffset, theOffset, 0);
     }
     static void InternalError(
@@ -293,10 +298,12 @@ protected:
         int inBufsCount)
     {
         if (! mTempBufAllocPtr) {
-            const size_t theSize = kTempBufSize * inBufsCount;
-            mTempBufAllocPtr = new char [theSize + kAlign];
-            mTempBufPtr = mTempBufAllocPtr +
-                (kAlign - (mTempBufAllocPtr - (const char*)0) % kAlign);
+            const size_t       theSize   = kTempBufSize * inBufsCount;
+            const unsigned int kPtrAlign = kAlign;
+            mTempBufAllocPtr = new char [theSize + kPtrAlign];
+            const char* const kNullPtr = 0;
+            mTempBufPtr      = mTempBufAllocPtr + (kPtrAlign -
+                (unsigned int)(mTempBufAllocPtr - kNullPtr) % kPtrAlign);
             memset(mTempBufPtr, 0, theSize);
         }
         QCASSERT(0 <= inIndex && inIndex < inBufsCount);
@@ -1101,7 +1108,8 @@ public:
         RequestId    inOriginalRequestId,
         RequestId    inRequestId,
         kfsChunkId_t inChunkId,
-        int64_t      inChunkVersion)
+        int64_t      inChunkVersion,
+        int64_t      inChunkSize)
     {
         QCASSERT(inRequestId.mPtr && inLength <= mPendingCount);
         PBuffer& theBuf = *reinterpret_cast<PBuffer*>(inRequestId.mPtr);
@@ -1114,7 +1122,8 @@ public:
             inOffset,
             inOriginalRequestId,
             inChunkId,
-            inChunkVersion
+            inChunkVersion,
+            inChunkSize
         );
     }
     virtual bool CanCancelRead(
@@ -1199,7 +1208,8 @@ private:
             Offset       inOffset,
             RequestId    inRequestId,
             kfsChunkId_t inChunkId,
-            int64_t      inChunkVersion)
+            int64_t      inChunkVersion,
+            int64_t      inChunkSize)
         {
             QCRTASSERT(
                 mInFlightFlag   &&
@@ -1232,7 +1242,8 @@ private:
                 thePrevOk && IsFailed(),
                 inRequestId,
                 inChunkId,
-                inChunkVersion
+                inChunkVersion,
+                inChunkSize
             );
         }
         int InitRecoveryRead(
@@ -1309,6 +1320,7 @@ private:
                     mParent.mRequest.mRequestId,
                     theId,
                     -1,
+                    -1,
                     -1
                 );
                 return 0;
@@ -1382,6 +1394,7 @@ private:
         PBuffer      mBufR;
         kfsChunkId_t mChunkId;
         int64_t      mChunkVersion;
+        int64_t      mChunkSize;
 
         Buffer(
             Request& inRequest,
@@ -1392,7 +1405,8 @@ private:
               mBuf(*this),
               mBufR(*this),
               mChunkId(-1),
-              mChunkVersion(-1)
+              mChunkVersion(-1),
+              mChunkSize(0)
             {}
         ~Buffer()
             {}
@@ -1401,7 +1415,8 @@ private:
             mBufL.Clear();
             mBuf.Clear();
             mBufR.Clear();
-            mPos = -1;
+            mPos       = -1;
+            mChunkSize = 0;
         }
         int GetStripeIdx() const
             { return mRequest.GetStripeIdx(*this); }
@@ -1429,7 +1444,8 @@ private:
             bool         inNewFailureFlag,
             RequestId    inRequestId,
             kfsChunkId_t inChunkId,
-            int64_t      inChunkVersion)
+            int64_t      inChunkVersion,
+            int64_t      inChunkSize)
         {
             if (inBuffer.IsFailed()) {
                 if (&inBuffer != &mBuf) {
@@ -1438,6 +1454,7 @@ private:
             } else {
                 mChunkId      = inChunkId;
                 mChunkVersion = inChunkVersion;
+                mChunkSize    = max(int64_t(0), inChunkSize);
             }
             mRequest.ReadDone(
                 inOuter,
@@ -2105,12 +2122,21 @@ private:
             int         inLen)
         {
             // Copy should use available buffer space, allocated by
-            // MakeBufferForRecovery(), thus it should not invalidate iterators.
-            return (mReadFailureFlag ?
-                mBuffer.CopyIn(static_cast<const char*>(inPtr),
-                    min(inLen, mSize - mBuffer.BytesConsumable())) : 0
+            // MakeBufferForRecovery(), thus the current buffer must have
+            // enough available space.
+            // In the most cases no actual coy will be done, the call
+            // will only update the buffer pointers and byte count, as the
+            // recovery, in most, cases runs the underlying buffer.
+            if (! mReadFailureFlag) {
+                return 0;
+            }
+            const int         theLen =
+                min(inLen, mSize - mBuffer.BytesConsumable());
+            const char* const thePtr = static_cast<const char*>(inPtr);
+            return (theLen <= (int)mCurIt->SpaceAvailable() ?
+                mBuffer.CopyInOnlyIntoBufferAtPos(thePtr, theLen, mCurIt) :
+                mBuffer.CopyIn(thePtr, theLen, mCurIt)
             );
-
         }
         int CopyOut(
             char* inPtr,
@@ -2151,6 +2177,8 @@ private:
             mSize            = 0;
             mReadFailureFlag = false;
         }
+        const IOBuffer& GetBuffer() const
+            { return mBuffer; }
     private:
         typedef IOBuffer::iterator It;
 
@@ -2293,43 +2321,62 @@ private:
             Clear();
             mPos                = inPos;
             mChunkBlockStartPos = mPos - mPos % inOuter.mChunkBlockSize;
-            mMissingCnt         = 1;
-            mMissingIdx[0]      = inBadStripeIdx;
             const int theCnt    = inOuter.GetBufferCount();
-            int       theSwappedIdx[kMaxRecoveryStripes];
-            theSwappedIdx[0]    = theCnt - mMissingCnt;
+            int       theSwappedIdx[kMaxRecoveryStripes + 1];
+            int       theMissingIdx[kMaxRecoveryStripes + 1];
+            int       theMissingCnt    = 0;
+            int       theMaxMissingCnt = kMaxRecoveryStripes;
+            int const theSkipStripeIdx =
+                inBadStripeIdx < inOuter.mStripeCount ? inBadStripeIdx - 1 : -1;
+            if (0 <= theSkipStripeIdx) {
+                // Ensure that the data stripe prior to the recovered data
+                // stripe is *not* selected as bad stripe, as it might define
+                // the hole position in the case when the file is sparse.
+                theMissingIdx[0] = theSkipStripeIdx;
+                theSwappedIdx[0] = theCnt - 1;
+                ++theMissingCnt;
+                ++theMaxMissingCnt;
+            }
+            theMissingIdx[theMissingCnt] = inBadStripeIdx;
+            theSwappedIdx[theMissingCnt] = theCnt - (theMissingCnt + 1);
+            ++theMissingCnt;
             // Randomly select which stripes to use for RS recovery in order to
             // attempt to uniformly distribute the chunk server read load.
-            while (mMissingCnt < kMaxRecoveryStripes) {
-                int theIdx = inOuter.Rand() % (theCnt - mMissingCnt);
+            while (theMissingCnt < theMaxMissingCnt) {
+                int theIdx = inOuter.Rand() % (theCnt - theMissingCnt);
                 int i;
-                for (i = 0; i < mMissingCnt; i++) {
-                    if (theIdx == mMissingIdx[i]) {
+                for (i = 0; i < theMissingCnt; i++) {
+                    if (theIdx == theMissingIdx[i]) {
                         theIdx = theSwappedIdx[i];
-                        theSwappedIdx[i] = theCnt - (mMissingCnt + 1);
-                        while (i > 0 && theIdx < mMissingIdx[i - 1]) {
+                        theSwappedIdx[i] = theCnt - (theMissingCnt + 1);
+                        while (i > 0 && theIdx < theMissingIdx[i - 1]) {
                             i--;
                         }
                     }
                     // Insertion sort.
-                    if (theIdx < mMissingIdx[i]) {
-                        for (int k = mMissingCnt; i < k; k--) {
-                            mMissingIdx[k]   = mMissingIdx[k - 1];
+                    if (theIdx < theMissingIdx[i]) {
+                        for (int k = theMissingCnt; i < k; k--) {
+                            theMissingIdx[k] = theMissingIdx[k - 1];
                             theSwappedIdx[k] = theSwappedIdx[k - 1];
                         }
-                        mMissingIdx[i]   = theIdx;
-                        mMissingCnt++;
-                        theSwappedIdx[i] = theCnt - mMissingCnt;
+                        theMissingIdx[i] = theIdx;
+                        theMissingCnt++;
+                        theSwappedIdx[i] = theCnt - theMissingCnt;
                         break;
                     }
                 }
-                if (i >= mMissingCnt) {
-                    mMissingIdx[mMissingCnt]   = theIdx;
-                    theSwappedIdx[mMissingCnt] = theCnt - (mMissingCnt + 1);
-                    mMissingCnt++;
+                if (i >= theMissingCnt) {
+                    theMissingIdx[theMissingCnt] = theIdx;
+                    theSwappedIdx[theMissingCnt] = theCnt - (theMissingCnt + 1);
+                    theMissingCnt++;
                 }
             }
-        }
+            for (int i = 0; i < theMaxMissingCnt; i++) {
+                if (theSkipStripeIdx != theMissingIdx[i]) {
+                    mMissingIdx[mMissingCnt++] = theMissingIdx[i];
+                }
+            }
+       }
         void Get(
             Outer&   inOuter,
             Request& inRequest)
@@ -2717,12 +2764,17 @@ private:
                                     " stripe: "   << i                      <<
                                     " pos: "      << theCBuf.mBufL.GetPos() <<
                                     " size: "     << theCBuf.GetSize()      <<
+                                    " chunk: "    << theCBuf.mChunkId       <<
+                                    " version: "  << theCBuf.mChunkVersion  <<
+                                    " size: "     << theCBuf.mChunkSize     <<
                                     " chunk: "    << theBuf.mChunkId        <<
                                     " version: "  << theBuf.mChunkVersion   <<
+                                    " size: "     << theBuf.mChunkSize      <<
                                     " end:"
                                     " stripe: "   << ioEndPosIdx            <<
                                     " size: "     << ioEndPos               <<
                                     " head: "     << ioEndPosHead           <<
+                                    " eof: "      << mFileSize              <<
                                 KFS_LOG_EOM;
                                 InvalidChunkSize(inRequest, theCBuf);
                                 return false;
@@ -2746,6 +2798,8 @@ private:
                     " first recov: " << ioFirstGoodRecoveryStripeIdx <<
                     " chunk: "       << theBuf.mChunkId              <<
                     " version: "     << theBuf.mChunkVersion         <<
+                    " size: "        << theBuf.mChunkSize            <<
+                    " eof: "         << mFileSize                    <<
                 KFS_LOG_EOM;
                 InvalidChunkSize(inRequest, theBuf,
                     max(theRdSize, ioMaxRd), mStripeCount);
@@ -2753,23 +2807,63 @@ private:
             }
         } else if (ioMaxRd < theRdSize) {
             if (ioMaxRd >= 0) {
-                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "read recovery failure:"
-                    " req: "        << inRequest.mPos        <<
-                    ","             << inRequest.mSize       <<
-                    " previous short read:"
-                    " got: "        << ioMaxRd               <<
-                    " expected: "   << theRdSize             <<
-                    " stripe: "     << inIdx                 <<
-                    " pos: "        << theBuf.mBufL.GetPos() <<
-                    " size: "       << theBuf.GetSize()      <<
-                    " chunk: "      << theBuf.mChunkId       <<
-                    " version: "    << theBuf.mChunkVersion  <<
-                KFS_LOG_EOM;
-                InvalidChunkSize(inRequest, theBuf, theRdSize);
-                return false;
+                if (1 < inIdx && 0 <= ioEndPosHead &&
+                        theRdSize <= ioMaxRd + mStripeSize - ioEndPosHead &&
+                        theBuf.mChunkSize % mStripeSize == 0 &&
+                        IsTailAllZeros(
+                            theIt.GetBuffer(), theRdSize - ioMaxRd)) {
+                    // NOTE 1.
+                    // Stripe 1 cannot ever be larger than stripe 0. If the
+                    // start position of the hole is in stripe 0, then its
+                    // position cannot ever be lost, if the RS block remains
+                    // recoverable, or course, as the hole position
+                    // effectively has replication 4 due to recovery stripe
+                    // sizes matching the size of stripe 0 in the case if the
+                    // stripe 0 is partial (smaller than stripe size).
+                    //
+                    // It is possible that the original stripe containing the
+                    // hole boundary re-appeared, and the current stripe was
+                    // recovered without exact knowledge of the size of
+                    // the original stripe. In such case the stripe / chunk
+                    // must end at the stripe boundary.
+                    KFS_LOG_STREAM_INFO << mLogPrefix <<
+                        "read recovery possible zero padded larger stripe:"
+                        " req: "        << inRequest.mPos        <<
+                        ","             << inRequest.mSize       <<
+                        " previous short read:"
+                        " got: "        << ioMaxRd               <<
+                        " expected: "   << theRdSize             <<
+                        " stripe: "     << inIdx                 <<
+                        " pos: "        << theBuf.mBufL.GetPos() <<
+                        " size: "       << theBuf.GetSize()      <<
+                        " chunk: "      << theBuf.mChunkId       <<
+                        " version: "    << theBuf.mChunkVersion  <<
+                        " size: "       << theBuf.mChunkSize     <<
+                        " eof: "        << mFileSize             <<
+                    KFS_LOG_EOM;
+                    theRdSize = ioMaxRd;
+                } else {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "read recovery failure:"
+                        " req: "        << inRequest.mPos        <<
+                        ","             << inRequest.mSize       <<
+                        " previous short read:"
+                        " got: "        << ioMaxRd               <<
+                        " expected: "   << theRdSize             <<
+                        " stripe: "     << inIdx                 <<
+                        " pos: "        << theBuf.mBufL.GetPos() <<
+                        " size: "       << theBuf.GetSize()      <<
+                        " chunk: "      << theBuf.mChunkId       <<
+                        " version: "    << theBuf.mChunkVersion  <<
+                        " size: "       << theBuf.mChunkSize     <<
+                        " eof: "        << mFileSize             <<
+                    KFS_LOG_EOM;
+                    InvalidChunkSize(inRequest, theBuf, theRdSize);
+                    return false;
+                }
+            } else {
+                ioMaxRd = theRdSize;
             }
-            ioMaxRd = theRdSize;
         } else if (theRdSize + mStripeSize < ioMaxRd) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "read recovery failure:"
@@ -2783,32 +2877,81 @@ private:
                 " size: "       << theBuf.GetSize()      <<
                 " chunk: "      << theBuf.mChunkId       <<
                 " version: "    << theBuf.mChunkVersion  <<
+                " size: "       << theBuf.mChunkSize     <<
+                " eof: "        << mFileSize             <<
             KFS_LOG_EOM;
             InvalidChunkSize(inRequest, theBuf);
             return false;
         } else if (ioEndPosHead >= 0 && theRdSize > 0 &&
                 ioEndPos - ioEndPosHead < theRdSize) {
-            Buffer& theCBuf = inRequest.GetBuffer(ioEndPosIdx);
-            KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "read recovery failure:"
-                " req: "         << inRequest.mPos        <<
-                ","              << inRequest.mSize       <<
-                " previous short read:"
-                " stripe: "      << ioEndPosIdx           <<
-                " stripe head: " << ioEndPosHead          <<
-                " got: "         << ioEndPos              <<
-                " expected: "    << theRdSize             <<
-                " cur stripe: "  << inIdx                 <<
-                " pos: "         << theBuf.mBufL.GetPos() <<
-                " size: "        << theBuf.GetReadSize()  <<
-                " chunk: "       << theBuf.mChunkId       <<
-                " version: "     << theBuf.mChunkVersion  <<
-            KFS_LOG_EOM;
-            InvalidChunkSize(inRequest, theCBuf);
-            return false;
+            // If only part of the stripe is being recovered, then ioEndPosHead
+            // can be larger than ioEndPos. In other words, the stripe starts
+            // to the left from the beginning of the read buffer.
+            const int theFrontSize = max(0, ioEndPos - ioEndPosHead);
+            if (1 < inIdx &&
+                    theRdSize <= ioEndPos - ioEndPosHead + mStripeSize &&
+                    theBuf.mChunkSize % mStripeSize == 0 &&
+                    IsTailAllZeros(
+                        theIt.GetBuffer(), theRdSize - theFrontSize)) {
+                // See NOTE 1. the above, the asme applies here.
+                KFS_LOG_STREAM_INFO << mLogPrefix <<
+                    "read recovery possible zero padded larger stripe:"
+                    " req: "         << inRequest.mPos        <<
+                    ","              << inRequest.mSize       <<
+                    " previous short read:"
+                    " stripe: "      << ioEndPosIdx           <<
+                    " stripe head: " << ioEndPosHead          <<
+                    " got: "         << ioEndPos              <<
+                    " expected: "    << theRdSize             <<
+                    " cur stripe: "  << inIdx                 <<
+                    " pos: "         << theBuf.mBufL.GetPos() <<
+                    " size: "        << theBuf.GetReadSize()  <<
+                    " chunk: "       << theBuf.mChunkId       <<
+                    " version: "     << theBuf.mChunkVersion  <<
+                    " size: "        << theBuf.mChunkSize     <<
+                    " eof: "         << mFileSize             <<
+               KFS_LOG_EOM;
+                theRdSize = theFrontSize;
+            } else {
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "read recovery failure:"
+                    " req: "         << inRequest.mPos        <<
+                    ","              << inRequest.mSize       <<
+                    " previous short read:"
+                    " stripe: "      << ioEndPosIdx           <<
+                    " stripe head: " << ioEndPosHead          <<
+                    " got: "         << ioEndPos              <<
+                    " expected: "    << theRdSize             <<
+                    " cur stripe: "  << inIdx                 <<
+                    " pos: "         << theBuf.mBufL.GetPos() <<
+                    " size: "        << theBuf.GetReadSize()  <<
+                    " chunk: "       << theBuf.mChunkId       <<
+                    " version: "     << theBuf.mChunkVersion  <<
+                    " size: "        << theBuf.mChunkSize     <<
+                    " eof: "         << mFileSize             <<
+                KFS_LOG_EOM;
+                InvalidChunkSize(inRequest, inRequest.GetBuffer(ioEndPosIdx));
+                return false;
+            }
         }
         if (theRdSize >= ioRecoverySize) {
-            return true;
+            // Ensure that the chunk end position is not withing the last
+            // stripe, in the cases when recovery end position isn't stripe
+            // aligned, and/or less than stripe size, otherwise use chunk sizes
+            // to determine the stripe position where RS block ends.
+            // The two if conditions and the first part of the second if
+            // condition below is to avoid modulo operation (%), when possible.
+            if ((Offset)CHUNKSIZE <= theBuf.mChunkSize ||
+                    (0 <= ioEndPosHead &&
+                        inIdx != ioFirstGoodRecoveryStripeIdx)) {
+                return true;
+            }
+            const int theChunkPos = GetChunkPos(inRequest.mRecoveryPos);
+            if (theChunkPos + mStripeSize <= theBuf.mChunkSize ||
+                    theChunkPos - theChunkPos % mStripeSize +
+                        mStripeSize <= theBuf.mChunkSize) {
+                return true;
+            }
         }
         if (inIdx < mStripeCount) {
             if (ioEndPosHead < 0) {
@@ -2816,6 +2959,27 @@ private:
                 ioEndPos     = theRdSize;
                 ioEndPosHead =
                     (inRequest.mRecoveryPos + theRdSize) % mStripeSize;
+                if (ioEndPosHead == 0 &&
+                        theBuf.mChunkSize < (Offset)CHUNKSIZE) {
+                    // If end is stripe aligned, see if the end is in preceding
+                    // stripes. The stripe with the end that isn't stripe
+                    // aligned is where the end is. If the recovery size is less
+                    // than stripe size, the read of this stripe might not not
+                    // return less that recovery size.
+                    const Offset theMinSize = theBuf.mChunkSize + mStripeSize;
+                    for (int i = inIdx - 2; 0 <= i; i--) {
+                        const Buffer& theCBuf = inRequest.GetBuffer(i);
+                        if (! theCBuf.IsFailed() &&
+                                theCBuf.mChunkSize < theMinSize) {
+                            // Set end position to the stripe after this one,
+                            // as the read of this stripe was not less than
+                            // recovery size.
+                            // RS block should have only one partial stripe.
+                            ioEndPosIdx = i + 1;
+                            break;
+                        }
+                    }
+                }
             } else if (ioEndPosHead == 0 && ioMaxRd <= ioEndPos) {
                 if (ioEndPos != theRdSize) {
                     ioEndPosHead = mStripeSize - (ioEndPos - theRdSize);
@@ -3120,7 +3284,7 @@ private:
                     if (mBufPtr[i]) {
                         // If recovery stripe restore requested, all recovery
                         // stripe buffers must be present for rs_decode3 to
-                        // work. In this case just declare the stipe missing,
+                        // work. In this case just declare the stripe missing,
                         // rs_decode3 always recalculate all 3 recovery stripes.
                         if (mRecoverStripeIdx < mStripeCount) {
                             mBufIteratorsPtr[i].Clear();
@@ -3171,7 +3335,9 @@ private:
                 if (! theIt.IsFailure()) {
                     continue;
                 }
-                QCVERIFY(theIt.CopyIn(mBufPtr[i], theCpLen) == theCpLen);
+                if (theIt.CopyIn(mBufPtr[i], theCpLen) != theCpLen) {
+                    InternalError("invalid copy size");
+                }
             }
             thePos += theLen;
             thePrevLen = theLen;
@@ -3187,12 +3353,20 @@ private:
                 if (theBuf.mBuf.mSize <= 0) {
                     QCASSERT(
                         theBuf.mPos >= 0 &&
-                        theBuf.mPos >= theBuf.mBufL.mSize
+                        theBuf.mPos >= theBuf.mBufL.mSize &&
+                        theBuf.mBufL.mSize >= theSize
                     );
                     theBuf.mPos -= theBuf.mBufL.mSize;
-                    theBuf.mBuf.mSize = theBuf.mBufL.mSize;
+                    theBuf.mBuf.mSize = theSize;
                     theBuf.mBuf.mBuffer.Clear();
                     theBuf.mBuf.MarkFailed();
+                    // Set the right buffer size to the padded size, if any, to
+                    // ensure that the total size matches the iterator buffer
+                    // size in the case when no recovery run on this stripe, as
+                    // otherwise assertion in SetRecoveryResult() will fail.
+                    theBuf.mBufR.Clear();
+                    theBuf.mBufR.mSize = theBuf.mBufL.mSize - theSize;
+                    theBuf.mBufR.MarkFailed();
                     theBuf.mBufL.mSize = 0;
                     theBuf.mBufL.mBuffer.Clear();
                     mBufIteratorsPtr[i].SetRecoveryResult(theBuf);
@@ -3209,6 +3383,52 @@ private:
         const T&  inVal)
     {
         inBuffer.CopyIn(reinterpret_cast<const char*>(&inVal), sizeof(inVal));
+    }
+    static bool IsTailAllZeros(
+        const IOBuffer& inBuffer,
+        int             inSize)
+    {
+        int theRem = inSize;
+        IOBuffer::iterator theIt = inBuffer.end();
+        while (0 < theRem && inBuffer.begin() != theIt) {
+            --theIt;
+            const char* const theEndPtr = theIt->Producer();
+            const char*       thePtr    = theIt->Consumer();
+            if (theEndPtr <= thePtr) {
+                continue;
+            }
+            if (thePtr + theRem < theEndPtr) {
+                thePtr = theEndPtr - theRem;
+            }
+            theRem -= (int)(theEndPtr - thePtr);
+            const char*const  kNullPtr       = 0;
+            const size_t      kAlign         = 2 * sizeof(uint64_t);
+            const char* const theFrontEndPtr =
+                min(theEndPtr, thePtr + (thePtr - kNullPtr) % kAlign);
+            while (thePtr < theFrontEndPtr && *thePtr == 0) {
+                ++thePtr;
+            }
+            if (thePtr < theFrontEndPtr) {
+                return false;
+            }
+            const char* const theTailStartPtr =
+                theEndPtr - (theEndPtr - kNullPtr) % kAlign;
+            while (thePtr < theTailStartPtr &&
+                    (reinterpret_cast<const uint64_t*>(thePtr)[0] |
+                     reinterpret_cast<const uint64_t*>(thePtr)[1]) == 0) {
+                thePtr += 2 * sizeof(uint64_t);
+            }
+            if (thePtr < theTailStartPtr) {
+                return false;
+            }
+            while (thePtr < theEndPtr && *thePtr == 0) {
+                ++thePtr;
+            }
+            if (thePtr < theEndPtr) {
+                return false;
+            }
+        }
+        return (theRem <= 0);
     }
     void RequestCompletion(
         Request& inRequest)
@@ -3246,10 +3466,55 @@ private:
             return;
         }
         SetPos(inRequest.mPos);
-        int theLen = inRequest.mSize;
+        int        theLen            = inRequest.mSize;
+        bool       theEndOfBlockFlag = false;
+        const bool theOkFlag         = inRequest.mStatus == 0;
         while (theLen > 0) {
             const int theSize = min(theLen, GetStripeRemaining());
             Buffer&   theBuf  = inRequest.GetBuffer(GetStripeIdx());
+            if (theEndOfBlockFlag) {
+                // No holes withing RS blocks are currently supported, therefore
+                // all subsequent stripes must be shorter by stripe size, or
+                // zero padded.
+                if (! theBuf.mBuf.mBuffer.IsEmpty()) {
+                    if (! IsTailAllZeros(theBuf.mBuf.mBuffer,
+                            theBuf.mBuf.mBuffer.BytesConsumable())) {
+                        if (inRequest.mStatus == 0) {
+                            inRequest.mStatus = kErrorInvalChunkSize;
+                        }
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "chunk sizes mismatch detected:" <<
+                            " pos: "       << GetPos() <<
+                            " chunk: "     << theBuf.mChunkId <<
+                            " version: "   << theBuf.mChunkVersion <<
+                            " size: "      << theBuf.mChunkSize <<
+                            " chunk pos: " << GetChunkPos(GetFilePos()) <<
+                            " bytes: "     <<
+                                theBuf.mBuf.mBuffer.BytesConsumable() <<
+                            " are not all zeros,"
+                            " the previous stipe / "
+                            " chunk size might be truncated" <<
+                        KFS_LOG_EOM;
+                        InvalidChunkSize(inRequest, theBuf);
+                    } else {
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                            " pos: "       << GetPos() <<
+                            " chunk: "     << theBuf.mChunkId <<
+                            " version: "   << theBuf.mChunkVersion <<
+                            " size: "      << theBuf.mChunkSize <<
+                            " chunk pos: " << GetChunkPos(GetFilePos()) <<
+                            " bytes: "     <<
+                                theBuf.mBuf.mBuffer.BytesConsumable() <<
+                            " discarded at the end of RS block" <<
+                        KFS_LOG_EOM;
+                    }
+                    theBuf.mBuf.mBuffer.TrimAndConvertRemainderToAvailableSpace(
+                        0);
+                }
+            } else {
+                theEndOfBlockFlag = theOkFlag &&
+                    theBuf.mBuf.mBuffer.BytesConsumable() < theSize;
+            }
             theBuffer.MoveSpace(&theBuf.mBuf.mBuffer, theSize);
             theLen -= theSize;
             // The last seek sets position for the next sequential read request.

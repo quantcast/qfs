@@ -147,6 +147,10 @@ public:
         bool                  shutdownSslFlag,
         int&                  err,
         string&               errMsg);
+    static int GetResponseTimeoutSec() {
+        return sOpResponseTimeoutSec;
+    }
+    static bool IsAuthEnabled();
     bool HasAuthentication() const
         { return ! mSessionId.empty(); }
     bool GetShutdownSslFlag() const

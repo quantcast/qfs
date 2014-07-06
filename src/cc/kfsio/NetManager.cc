@@ -68,8 +68,8 @@ public:
         }
         fcntl(mPipeFds[0], F_SETFL, O_NONBLOCK);
         fcntl(mPipeFds[1], F_SETFL, O_NONBLOCK);
-        fcntl(mPipeFds[0], FD_CLOEXEC, 1);
-        fcntl(mPipeFds[1], FD_CLOEXEC, 1);
+        fcntl(mPipeFds[0], F_SETFD, FD_CLOEXEC);
+        fcntl(mPipeFds[1], F_SETFD, FD_CLOEXEC);
     }
     ~Waker() { Waker::Close(); }
     bool Sleep()
@@ -99,9 +99,16 @@ public:
         QCStMutexLocker lock(mMutex);
         mWakeFlag = true;
         if (mSleepingFlag && mWritten <= 0) {
-            mWritten++;
             const char buf = 'k';
-            write(mPipeFds[1], &buf, sizeof(buf));
+            const ssize_t res = write(mPipeFds[1], &buf, sizeof(buf));
+            if (0 < res) {
+                mWritten += res;
+            } else {
+                const int err = errno;
+                KFS_LOG_STREAM_ERROR << "wakeup: write: " <<
+                    res << " " << QCUtils::SysError(err) <<
+                KFS_LOG_EOM;
+            }
         }
     }
     int GetFd() const { return mPipeFds[0]; }

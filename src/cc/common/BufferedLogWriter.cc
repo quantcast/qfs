@@ -25,6 +25,13 @@
 //----------------------------------------------------------------------------
 
 #include "BufferedLogWriter.h"
+#include "Properties.h"
+
+#include "qcdio/QCMutex.h"
+#include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
+#include "qcdio/qcdebug.h"
+#include "qcdio/QCThread.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -44,13 +51,6 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
-
-#include "qcdio/QCMutex.h"
-#include "qcdio/QCUtils.h"
-#include "qcdio/qcstutils.h"
-#include "qcdio/qcdebug.h"
-#include "qcdio/QCThread.h"
-#include "Properties.h"
 
 namespace KFS
 {
@@ -170,9 +170,6 @@ public:
         mLastLogTm       = mTimeTm;
         GetLogTimeStampPrefixPtr(theSec);
         mNextFlushTime = Seconds(theSec) + theMicroSec + mFlushInterval;
-        if (mFd >= 0) {
-            ::fcntl(mFd, F_SETFL, O_NONBLOCK);
-        }
     }
     static const char* GetLogLevelNamePtr(
         LogLevel inLogLevel)
@@ -348,7 +345,7 @@ public:
             if (theFd < 0) {
                 return theErr;
             }
-            ::fcntl(theFd, FD_CLOEXEC, 1);
+            ::fcntl(theFd, F_SETFD, FD_CLOEXEC);
         }
         QCStMutexLocker theLocker(mMutex);
         if (theFd >= 0) {
@@ -835,6 +832,21 @@ public:
             delete &theStream;
         }
     }
+    void SetUseNonBlockingIo(
+        bool inFlag)
+    {
+        if (0 <= mFd && ! isatty(mFd)) {
+            int theFlags = fcntl(mFd, F_GETFL);
+            if (theFlags != -1) {
+                if (inFlag) {
+                    theFlags |= O_NONBLOCK;
+                } else {
+                    theFlags &= ~((int)O_NONBLOCK);
+                }
+                ::fcntl(mFd, F_SETFL, theFlags);
+            }
+        }
+    }
 private:
     typedef int64_t        Time;
     typedef uint64_t       Count;
@@ -1124,7 +1136,7 @@ private:
                     RotateLogs(theFileName, theMaxLogFiles, mMutex);
                     continue;
                 }
-                ::fcntl(theFd, FD_CLOEXEC, 1);
+                ::fcntl(theFd, F_SETFD, FD_CLOEXEC);
                 break;
             }
             while (theIt != theLogFileNames.end() &&
@@ -1509,6 +1521,13 @@ void
 BufferedLogWriter::ForkDone()
 {
     mImpl.ForkDone();
+}
+
+void
+BufferedLogWriter::SetUseNonBlockingIo(
+    bool inFlag)
+{
+    mImpl.SetUseNonBlockingIo(inFlag);
 }
 
 }

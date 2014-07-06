@@ -25,6 +25,7 @@
 //----------------------------------------------------------------------------
 
 #include "ChunkServer.h"
+#include "Replicator.h"
 #include "Logger.h"
 #include "utils.h"
 
@@ -119,6 +120,7 @@ ChunkServer::MainLoop()
     gChunkManager.Shutdown();
     RemoteSyncSM::Shutdown();
     gClientManager.Shutdown();
+    Replicator::Shutdown();
 
     return true;
 }
