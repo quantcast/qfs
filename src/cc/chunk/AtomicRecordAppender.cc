@@ -437,6 +437,8 @@ private:
     Timer                   mTimer;
     const RemoteSyncSMPtr   mPeer;
     QCMutex* const          mMutex;
+    RecordAppendOp*         mPendingSubmitQueue;
+    bool                    mFlushFlag;
     RecordAppendOp*         mReplicationList[1];
     AtomicRecordAppender*   mPrevPtr[1];
     AtomicRecordAppender*   mNextPtr[1];
@@ -726,7 +728,9 @@ AtomicRecordAppender::AtomicRecordAppender(
         gAtomicRecordAppendManager.GetCleanUpSec()
       ),
       mPeer(peer),
-      mMutex(mutex)
+      mMutex(mutex),
+      mPendingSubmitQueue(0),
+      mFlushFlag(false)
 {
     assert(
         chunkSize >= 0 &&
@@ -1546,14 +1550,32 @@ AtomicRecordAppender::AppendBegin(
     }
     // Update in flight queue to ensure that the appender cannot be deleted, by
     // re-locking when the appender's mutex released and re-acquired.
+    op->status = status;
+    if (status != 0) {
+        op->statusMsg = msg;
+    }
     mReplicationsInFlight++;
     assert(0 < mReplicationsInFlight);
     op->replicationStartTime = mLastActivityTime;
     AppendReplicationList::PushBack(mReplicationList, *op);
+    mFlushFlag = mFlushFlag || flushFlag;
+    if (! mPendingSubmitQueue) {
+        mPendingSubmitQueue = op;
+    }
     if (relockFlag) {
         Relock();
     }
-    if (flushFlag) {
+    // The first thread that gets here after re-locking does the flush, and
+    // submits all pending ops. All other threads still need to do relock, to
+    // to re-acquire the client manager's mutex before returning.
+    if (! mPendingSubmitQueue) {
+        return;
+    }
+    RecordAppendOp*       next = mPendingSubmitQueue;
+    RecordAppendOp* const last = AppendReplicationList::Back(mReplicationList);
+    assert(next && last);
+    if (mFlushFlag) {
+        mFlushFlag = false;
         // Do space accounting and flush if needed.
         if (mBuffer.BytesConsumable() >=
                 gAtomicRecordAppendManager.GetFlushLimit(*this,
@@ -1568,40 +1590,44 @@ AtomicRecordAppender::AppendBegin(
             SetCanDoLowOnBuffersFlushFlag(! mBuffer.IsEmpty());
         }
     }
-    op->status = status;
-    if (status != 0) {
-        op->statusMsg = msg;
-    }
-    WAPPEND_LOG_STREAM(status == 0 ?
-            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
-        "begin: "           << msg <<
-            (masterAckflag ? " master ack" : "") <<
-        " state: "        << GetStateAsStr() <<
-        " reserved: "     << mBytesReserved <<
-        " offset: next: " << mNextOffset <<
-        " commit: "       << mNextCommitOffset <<
-        " master: "       << mMasterCommittedOffset <<
-        " in flight:"
-        " replicaton: "   << mReplicationsInFlight <<
-        " ios: "          << mIoOpsInFlight <<
-        " status: "       << status <<
-        " " << op->Show() <<
-    KFS_LOG_EOM;
-    // Ensure that state is still open after re-locking.
-    if (op->origClnt && mState == kStateOpen) {
-        assert(status == 0);
-        if (IsMaster()) {
-            op->masterCommittedOffset = mNextCommitOffset;
-            mCommitOffsetAckSent = mNextCommitOffset;
+    mPendingSubmitQueue = 0;
+    for (; ;) {
+        RecordAppendOp& cur = *next;
+        next = &AppendReplicationList::GetNext(cur);
+        WAPPEND_LOG_STREAM(status == 0 ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+            "begin: "           << msg <<
+                (masterAckflag ? " master ack" : "") <<
+            " state: "        << GetStateAsStr() <<
+            " reserved: "     << mBytesReserved <<
+            " offset: next: " << mNextOffset <<
+            " commit: "       << mNextCommitOffset <<
+            " master: "       << mMasterCommittedOffset <<
+            " in flight:"
+            " replicaton: "   << mReplicationsInFlight <<
+            " ios: "          << mIoOpsInFlight <<
+            " status: "       << status <<
+            " " << cur.Show() <<
+        KFS_LOG_EOM;
+        // Ensure that state is still open after re-locking.
+        if (cur.origClnt && mState == kStateOpen) {
+            assert(status == 0);
+            if (IsMaster()) {
+                cur.masterCommittedOffset = mNextCommitOffset;
+                mCommitOffsetAckSent = mNextCommitOffset;
+            }
+            if (mReplicationsInFlight == 1) {
+                mTimer.ScheduleTimeoutNoLaterThanIn(
+                    gAtomicRecordAppendManager.GetReplicationTimeoutSec());
+            }
+            mFirstFwdOpFlag = false;
+            mPeer->Enqueue(&cur);
+        } else {
+            OpDone(&cur);
         }
-        if (mReplicationsInFlight == 1) {
-            mTimer.ScheduleTimeoutNoLaterThanIn(
-                gAtomicRecordAppendManager.GetReplicationTimeoutSec());
+        if (&cur == last) {
+            break;
         }
-        mFirstFwdOpFlag = false;
-        mPeer->Enqueue(op);
-    } else {
-        OpDone(op);
     }
 }
 
