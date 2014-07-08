@@ -260,7 +260,7 @@ private:
     void FinishSelf();
     void ScheduleDelete();
     inline void UpdateRecvTimeout();
-    inline static QCMutex* GetMutexPtr();
+    inline static const QCMutex* GetMutexPtr();
 
     friend class RemoteSyncSMList;
     friend class ClientThreadRemoteSyncListEntry;

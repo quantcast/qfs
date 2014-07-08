@@ -78,13 +78,13 @@ ClientThreadRemoteSyncListEntry::GetNetManager()
         mClientThreadPtr->GetNetManager() : globalNetManager());
 }
 
-inline QCMutex*
+inline const QCMutex*
 RemoteSyncSM::GetMutexPtr()
 {
     return gClientManager.GetMutexPtr();
 }
 
-inline bool IsMutexOwner(QCMutex* mutex)
+inline bool IsMutexOwner(const QCMutex* mutex)
 {
     return (! mutex || mutex->IsOwned());
 }

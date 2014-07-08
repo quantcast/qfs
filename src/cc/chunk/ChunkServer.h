@@ -33,6 +33,8 @@
 #include "MetaServerSM.h"
 #include "RemoteSyncSM.h"
 
+class QCMutex;
+
 namespace KFS
 {
 using std::string;
@@ -46,7 +48,8 @@ public:
         mOpCount(0),
         mUpdateServerIpFlag(false),
         mLocation(),
-        mRemoteSyncers()
+        mRemoteSyncers(),
+        mMutex(0)
         {}
 
     bool Init(int clientAcceptPort, const string& serverIp, int threadCount);
@@ -95,6 +98,7 @@ private:
     bool             mUpdateServerIpFlag;
     ServerLocation   mLocation;
     RemoteSyncSMList mRemoteSyncers;
+    QCMutex*         mMutex;
 private:
     // No copy.
     ChunkServer(const ChunkServer&);

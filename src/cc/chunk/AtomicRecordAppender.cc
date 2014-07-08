@@ -522,7 +522,7 @@ private:
         ServerLocation peerLoc);
     bool IsMaster() const
         { return (mReplicationPos == 0); }
-    void Relock();
+    void Relock(ClientThread& cliThread);
     void RunPendingSubmitQueue();
     bool IsMasterAck(const RecordAppendOp& op) const
     {
@@ -1256,23 +1256,21 @@ AtomicRecordAppender::UpdateMasterCommittedOffset(int64_t masterCommittedOffset)
 }
 
 void
-AtomicRecordAppender::Relock()
+AtomicRecordAppender::Relock(ClientThread& cliThread)
 {
-    QCMutex* const cliMutex = gClientManager.GetMutexPtr();
-    QCMutex* const mutex    = mMutex;
-    if (! mutex || ! cliMutex || ! mutex->IsOwned() || cliMutex->IsOwned()) {
+    if (! mMutex || ! mMutex->IsOwned()) {
         FatalError("AtomicRecordAppender::Relock: invalid mutex state");
         return;
     }
-    mutex->Unlock();
-    if (mutex->IsOwned()) {
+    mMutex->Unlock();
+    if (mMutex->IsOwned()) {
         FatalError("AtomicRecordAppender::Relock: failed to release mutex");
         return;
     }
     // Re-acquire in the same order.
-    cliMutex->Lock();
-    mutex->Lock();
-    if (mutex == mMutex) {
+    cliThread.Lock();
+    mMutex->Lock();
+    if (mState == kStateNone) {
         FatalError("AtomicRecordAppender::Relock: possible unexpected deletion");
     }
 }
@@ -1296,8 +1294,8 @@ AtomicRecordAppender::AppendBegin(
     mLastActivityTime = Now();
     CheckLeaseAndChunk("begin", op);
 
-    bool   relockFlag = false;
-    int    status     = 0;
+    ClientThread* cliThread = 0;
+    int           status    = 0;
     string msg;
     ClientSM*   client = 0;
     if (op->chunkId != mChunkId) {
@@ -1420,16 +1418,14 @@ AtomicRecordAppender::AppendBegin(
                 }
             }
         }
+
         if (status == 0) {
-            relockFlag = mMutex &&
-                gAtomicRecordAppendManager.GetAppendDropLockMinSize() <
-                (int)op->numBytes;
-            if (relockFlag) {
-                QCMutex* const mutex = gClientManager.GetMutexPtr();
-                if (mutex) {
-                    mutex->Unlock();
-                } else {
-                    relockFlag = false;
+            if (mMutex &&
+                    gAtomicRecordAppendManager.GetAppendDropLockMinSize() <
+                    (int)op->numBytes) {
+                cliThread = gClientManager.GetCurrentClientThreadPtr();
+                if (cliThread) {
+                    cliThread->Unlock();
                 }
             }
             uint32_t     checksum       = kKfsNullChecksum;
@@ -1462,8 +1458,8 @@ AtomicRecordAppender::AppendBegin(
                 if (! IsMaster()) {
                     SetState(kStateReplicationFailed);
                 }
-                if (relockFlag) {
-                    Relock();
+                if (cliThread) {
+                    Relock(*cliThread);
                 }
                 return;
             }
@@ -1567,8 +1563,8 @@ AtomicRecordAppender::AppendBegin(
     if (! mPendingSubmitQueue) {
         mPendingSubmitQueue = op;
     }
-    if (relockFlag) {
-        Relock();
+    if (cliThread) {
+        Relock(*cliThread);
     }
     RunPendingSubmitQueue();
 }
@@ -1607,7 +1603,11 @@ AtomicRecordAppender::RunPendingSubmitQueue()
     }
     mPendingSubmitQueue = 0;
     for (; ;) {
-        assert(0 < mReplicationsInFlight && mState != kStateNone);
+        if (mReplicationsInFlight <= 0 || mState == kStateNone) {
+            FatalError("AtomicRecordAppender::RunPendingSubmitQueue:"
+                " possible unexpected deletion");
+            return;
+        }
         RecordAppendOp& cur = *next;
         next = &AppendReplicationList::GetNext(cur);
         const bool statusOkFlag = 0 == cur.status;

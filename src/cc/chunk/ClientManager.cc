@@ -198,9 +198,11 @@ ClientManager::~ClientManager()
 
     bool
 ClientManager::BindAcceptor(
-    int inPort,
-    int inThreadCount)
+    int       inPort,
+    int       inThreadCount,
+    QCMutex*& outMutexPtr)
 {
+    Stop();
     delete mAcceptorPtr;
     delete [] mThreadsPtr;
     mAcceptorPtr = 0;
@@ -212,13 +214,10 @@ ClientManager::BindAcceptor(
     if (theOkFlag && 0 < mThreadCount) {
         static QCMutex sOpsMutex;
         KfsOp::SetMutex(&sOpsMutex);
-        QCStMutexLocker theLocker(ClientThread::GetMutex());
-        mThreadCount  = inThreadCount;
-        mThreadsPtr   = new ClientThread[mThreadCount];
-        mCurThreadIdx = 0;
-        for (int i = 0; i < mThreadCount; i++) {
-            mThreadsPtr[i].Start();
-        }
+        mThreadsPtr  = ClientThread::CreateThreads(inThreadCount, outMutexPtr);
+        mThreadCount = mThreadsPtr ? inThreadCount : 0;
+    } else {
+        outMutexPtr = 0;
     }
     return theOkFlag;
 }
@@ -304,7 +303,7 @@ ClientManager::GetCounters(
     outCounters = mCounters;
 }
 
-    QCMutex*
+    const QCMutex*
 ClientManager::GetMutexPtr() const
 {
     return (0 < mThreadCount ? &ClientThread::GetMutex() : 0);

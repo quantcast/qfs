@@ -104,8 +104,9 @@ public:
     ClientManager();
     virtual ~ClientManager();
     bool BindAcceptor(
-        int inPort,
-        int inThreadCount);
+        int       inPort,
+        int       inThreadCount,
+        QCMutex*& outMutexPtr);
     bool StartListening();
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnPtr);
@@ -200,7 +201,7 @@ public:
             mCounters.mDiscardedBytesCount += inByteCount;
         }
     }
-    QCMutex* GetMutexPtr() const;
+    const QCMutex* GetMutexPtr() const;
     ClientThread* GetCurrentClientThreadPtr();
     ClientThread* GetNextClientThreadPtr();
     bool IsAuthEnabled() const;

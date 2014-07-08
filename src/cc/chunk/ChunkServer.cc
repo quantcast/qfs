@@ -25,6 +25,7 @@
 //----------------------------------------------------------------------------
 
 #include "ChunkServer.h"
+#include "ClientThread.h"
 #include "Replicator.h"
 #include "Logger.h"
 #include "utils.h"
@@ -83,7 +84,7 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
             return false;
         }
     }
-    if (! gClientManager.BindAcceptor(clientAcceptPort, threadCount) ||
+    if (! gClientManager.BindAcceptor(clientAcceptPort, threadCount, mMutex) ||
             gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
             "failed to bind acceptor to port: " << clientAcceptPort <<
@@ -94,11 +95,46 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
     return true;
 }
 
+class ClientThreadVerifier : public NetManager::Dispatcher
+{
+public:
+    ClientThreadVerifier(
+        QCMutex* inMutex)
+        : mMutex(inMutex)
+        {}
+    virtual void DispatchStart()
+        { Verify("dispatch start"); }
+    virtual void DispatchEnd()
+        { Verify("dispatch end"); }
+    virtual void DispatchExit()
+        { Verify("dispatch exit"); }
+private:
+    const QCMutex* const mMutex;
+    void Verify(const char* prefix)
+    {
+        if (! mMutex) {
+            return;
+        }
+        if (! mMutex->IsOwned()) {
+            die(prefix + string(": invalid client thread mutex state"));
+        }
+        if (ClientThread::GetCurrentClientThreadPtr()) {
+            die(prefix + string(": invalid client thread pointer"));
+        }
+    }
+private:
+    ClientThreadVerifier(
+        const ClientThreadVerifier&);
+    ClientThreadVerifier& operator=(
+        const ClientThreadVerifier&);
+};
+
 bool
 ChunkServer::MainLoop()
 {
-    QCStMutexLocker lock(gClientManager.GetMutexPtr());
+    QCStMutexLocker lock(mMutex);
 
+    assert(! mMutex || ! ClientThread::GetCurrentClientThreadPtr());
     if (gChunkManager.Restart() != 0) {
         return false;
     }
@@ -112,8 +148,14 @@ ChunkServer::MainLoop()
     }
     gMetaServerSM.Init();
     {
-        QCStMutexUnlocker unlocker(gClientManager.GetMutexPtr());
-        globalNetManager().MainLoop(gClientManager.GetMutexPtr());
+        ClientThreadVerifier verifier(mMutex);
+        QCStMutexUnlocker    unlocker(mMutex);
+        const bool kWakeupAndCleanupFlag = true;
+        globalNetManager().MainLoop(
+            mMutex,
+            kWakeupAndCleanupFlag,
+            mMutex ? &verifier : 0
+        );
     }
     gClientManager.Stop();
     mRemoteSyncers.ReleaseAllServers();

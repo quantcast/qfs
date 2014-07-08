@@ -57,6 +57,10 @@ public:
             (! sCurrentClientThreadPtr && sLockCnt == 0) ||
             (&inThread == sCurrentClientThreadPtr && 0 < sLockCnt)
         );
+        if ((0 != sLockCnt ? &inThread : 0) != sCurrentClientThreadPtr) {
+            die("lock: invalid client thread lock state");
+            return;
+        }
         if (sLockCnt++ == 0) {
             sCurrentClientThreadPtr = &inThread;
         }
@@ -64,7 +68,10 @@ public:
     static void Unlock(
         Outer& inThread)
     {
-        QCASSERT(0 < sLockCnt && sCurrentClientThreadPtr == &inThread);
+        if (sLockCnt <= 0 || &inThread != sCurrentClientThreadPtr) {
+            die("unlock: invalid client thread lock state");
+            return;
+        }
         if (--sLockCnt == 0) {
             sCurrentClientThreadPtr = 0;
         }
@@ -533,18 +540,15 @@ ClientThread::~ClientThread()
 }
 
     void
-ClientThread::StMutexLocker::Lock()
+ClientThread::Lock()
 {
-    QCASSERT(mThreadPtr);
-    ClientThreadImpl::Lock(*mThreadPtr);
+    ClientThreadImpl::Lock(*this);
 }
 
     void
-ClientThread::StMutexLocker::UnlockSelf()
+ClientThread::Unlock()
 {
-    QCASSERT(mThreadPtr);
-    ClientThreadImpl::Unlock(*mThreadPtr);
-    mThreadPtr = 0;
+    ClientThreadImpl::Unlock(*this);
 }
 
     void
@@ -572,7 +576,7 @@ ClientThread::GetNetManager()
     return mImpl.GetNetManager();
 }
 
-    /* static */ QCMutex&
+    /* static */ const QCMutex&
 ClientThread::GetMutex()
 {
     return ClientThreadImpl::GetMutex();
@@ -582,6 +586,24 @@ ClientThread::GetMutex()
 ClientThread::GetCurrentClientThreadPtr()
 {
     return ClientThreadImpl::GetCurrentClientThreadPtr();
+}
+
+    /* static */ ClientThread*
+ClientThread::CreateThreads(
+    int       inThreadCount,
+    QCMutex*& outMutexPtr)
+{
+    if (inThreadCount <= 0) {
+        outMutexPtr = 0;
+        return 0;
+    }
+    outMutexPtr = &ClientThreadImpl::GetMutex();
+    QCStMutexLocker theLocker(outMutexPtr);
+    ClientThread* const theThreadsPtr = new ClientThread[inThreadCount];
+    for (int i = 0; i < inThreadCount; i++) {
+        theThreadsPtr[i].Start();
+    }
+    return theThreadsPtr;
 }
 
 }

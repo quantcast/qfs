@@ -49,7 +49,7 @@ public:
             : mThreadPtr(inThreadPtr)
         {
             if (mThreadPtr) {
-                StMutexLocker::Lock();
+                mThreadPtr->Lock();
             }
         }
         ~StMutexLocker()
@@ -57,14 +57,12 @@ public:
         void Unlock()
         {
             if (mThreadPtr) {
-                StMutexLocker::UnlockSelf();
+                mThreadPtr->Unlock();
+                mThreadPtr = 0;
             }
         }
     private:
         ClientThread* mThreadPtr;
-
-        void Lock();
-        void UnlockSelf();
     private:
         StMutexLocker(
             const StMutexLocker& inLocker);
@@ -84,8 +82,13 @@ public:
     void Finish(
         RemoteSyncSM& inSyncSM);
     NetManager& GetNetManager();
+    void Lock();
+    void Unlock();
     static ClientThread* GetCurrentClientThreadPtr();
-    static QCMutex& GetMutex();
+    static const QCMutex& GetMutex();
+    static ClientThread* CreateThreads(
+        int       inThreadCount,
+        QCMutex*& outMutexPtr);
 private:
     ClientThreadImpl& mImpl;
 
