@@ -62,7 +62,7 @@ public:
         return theUnlockedFlag;
     }
 
-    bool IsOwned()
+    bool IsOwned() const
         { return (::pthread_equal(mOwner, ::pthread_self()) != 0); }
 
 private:
