@@ -598,8 +598,6 @@ ClientSM::HandleTerminate(int code, void* data)
     assert(0 < mRecursionCnt);
     mRecursionCnt--;
     if (mRecursionCnt <= 0 && mInFlightOpCount <= 0) {
-        // all ops are done...so, now, we can nuke ourself.
-        assert(mPendingOps.empty() && mOps.empty());
         delete this;
         return 1;
     }
