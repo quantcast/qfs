@@ -526,6 +526,12 @@ ClientSM::HandleRequest(int code, void* data)
             // if there are any disk ops, wait for the ops to finish
             mNetConnection->SetOwningKfsCallbackObj(0);
             mHandleTerminateFlag = true;
+            assert(0 <= mInFlightOpCount);
+            if (mInFlightOpCount <= 0) {
+                mRecursionCnt--;
+                delete this;
+                return 1;
+            }
         }
     }
     mRecursionCnt--;
