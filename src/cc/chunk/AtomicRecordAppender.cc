@@ -438,7 +438,7 @@ private:
     const RemoteSyncSMPtr   mPeer;
     QCMutex* const          mMutex;
     RecordAppendOp*         mPendingSubmitQueue;
-    bool                    mFlushFlag;
+    int                     mFlushStartByteCount;
     RecordAppendOp*         mReplicationList[1];
     AtomicRecordAppender*   mPrevPtr[1];
     AtomicRecordAppender*   mNextPtr[1];
@@ -523,6 +523,16 @@ private:
     bool IsMaster() const
         { return (mReplicationPos == 0); }
     void Relock();
+    void RunPendingSubmitQueue();
+    bool IsMasterAck(const RecordAppendOp& op) const
+    {
+        return (
+            op.numBytes == 0 && op.writeId == -1 &&
+            (IsMaster() ?
+                ((op.origClnt ? op.origClnt : op.clnt) == this) :
+                (op.masterCommittedOffset >= 0))
+        );
+    }
     int GetCloseEmptyWidStateSec()
     {
         if (mConsecutiveOutOfSpaceCount >
@@ -730,7 +740,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mPeer(peer),
       mMutex(mutex),
       mPendingSubmitQueue(0),
-      mFlushFlag(false)
+      mFlushStartByteCount(-1)
 {
     assert(
         chunkSize >= 0 &&
@@ -1331,9 +1341,7 @@ AtomicRecordAppender::AppendBegin(
     }
 
     // Check if it is master 0 ack: no payload just commit offset.
-    const bool masterAckflag = status == 0 && op->numBytes == 0 &&
-        op->writeId == -1 &&
-        (IsMaster() ? (op->clnt == this) : (op->masterCommittedOffset >= 0));
+    const bool masterAckflag = status == 0 && IsMasterAck(*op);
     WriteIdState::iterator const widIt = (masterAckflag || status != 0) ?
         mWriteIdState.end() : mWriteIdState.find(op->writeId);
     if (masterAckflag) {
@@ -1501,9 +1509,7 @@ AtomicRecordAppender::AppendBegin(
         op->origClnt = op->clnt;
         op->clnt     = this;
     }
-    const bool flushFlag = status == 0 && ! masterAckflag;
-    int prevNumBytes;
-    if (flushFlag) {
+    if (mFlushStartByteCount < 0 && status == 0 && ! masterAckflag) {
         // Write id table is updated only in the case when execution is
         // committed. Otherwise the op is discarded, and treated like
         // it was never received.
@@ -1523,7 +1529,7 @@ AtomicRecordAppender::AppendBegin(
         // The price is "undoing" writes, which might be necessary in the case of
         // replication failure. Undoing writes is a simple truncate, besides the
         // failures aren't expected to be frequent enough to matter.
-        prevNumBytes = mBuffer.BytesConsumable();
+        mFlushStartByteCount = mBuffer.BytesConsumable();
         // Always try to append to the last buffer.
         // Flush() keeps track of the write offset and "slides" buffers
         // accordingly.
@@ -1558,24 +1564,33 @@ AtomicRecordAppender::AppendBegin(
     assert(0 < mReplicationsInFlight);
     op->replicationStartTime = mLastActivityTime;
     AppendReplicationList::PushBack(mReplicationList, *op);
-    mFlushFlag = mFlushFlag || flushFlag;
     if (! mPendingSubmitQueue) {
         mPendingSubmitQueue = op;
     }
     if (relockFlag) {
         Relock();
     }
+    RunPendingSubmitQueue();
+}
+
+void
+AtomicRecordAppender::RunPendingSubmitQueue()
+{
     // The first thread that gets here after re-locking does the flush, and
     // submits all pending ops. All other threads still need to do relock, to
     // to re-acquire the client manager's mutex before returning.
     if (! mPendingSubmitQueue) {
         return;
     }
-    RecordAppendOp*       next = mPendingSubmitQueue;
-    RecordAppendOp* const last = AppendReplicationList::Back(mReplicationList);
+    RecordAppendOp*       next                = mPendingSubmitQueue;
+    RecordAppendOp* const last                =
+        AppendReplicationList::Back(mReplicationList);
+    bool                  scheduleTimeoutFlag =
+        next == AppendReplicationList::Front(mReplicationList);
     assert(next && last);
-    if (mFlushFlag) {
-        mFlushFlag = false;
+    if (0 <= mFlushStartByteCount) {
+        const int prevNumBytes = mFlushStartByteCount;
+        mFlushStartByteCount = -1;
         // Do space accounting and flush if needed.
         if (mBuffer.BytesConsumable() >=
                 gAtomicRecordAppendManager.GetFlushLimit(*this,
@@ -1592,12 +1607,33 @@ AtomicRecordAppender::AppendBegin(
     }
     mPendingSubmitQueue = 0;
     for (; ;) {
+        assert(0 < mReplicationsInFlight && mState != kStateNone);
         RecordAppendOp& cur = *next;
         next = &AppendReplicationList::GetNext(cur);
-        WAPPEND_LOG_STREAM(status == 0 ?
+        const bool statusOkFlag = 0 == cur.status;
+        const bool enqueueFlag  = cur.origClnt && kStateOpen == mState;
+        // Ensure that state is still open after re-locking.
+        if (enqueueFlag) {
+            assert(statusOkFlag);
+            if (IsMaster()) {
+                cur.masterCommittedOffset = mNextCommitOffset;
+                mCommitOffsetAckSent = mNextCommitOffset;
+            }
+            if (scheduleTimeoutFlag) {
+                scheduleTimeoutFlag = false;
+                mTimer.ScheduleTimeoutNoLaterThanIn(
+                    gAtomicRecordAppendManager.GetReplicationTimeoutSec());
+            }
+        } else {
+            if (statusOkFlag && kStateOpen != mState) {
+                cur.status    = kErrStatusInProgress;
+                cur.statusMsg = "no longer open for append";
+            }
+        }
+        WAPPEND_LOG_STREAM(cur.status == 0 ?
                 MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
-            "begin: "           << msg <<
-                (masterAckflag ? " master ack" : "") <<
+            "begin: "           << cur.statusMsg <<
+                (statusOkFlag && IsMasterAck(cur) ? " master ack" : "") <<
             " state: "        << GetStateAsStr() <<
             " reserved: "     << mBytesReserved <<
             " offset: next: " << mNextOffset <<
@@ -1606,20 +1642,11 @@ AtomicRecordAppender::AppendBegin(
             " in flight:"
             " replicaton: "   << mReplicationsInFlight <<
             " ios: "          << mIoOpsInFlight <<
-            " status: "       << status <<
+            " last: "         << (&cur == last) <<
+            " status: "       << cur.status <<
             " " << cur.Show() <<
         KFS_LOG_EOM;
-        // Ensure that state is still open after re-locking.
-        if (cur.origClnt && mState == kStateOpen) {
-            assert(status == 0);
-            if (IsMaster()) {
-                cur.masterCommittedOffset = mNextCommitOffset;
-                mCommitOffsetAckSent = mNextCommitOffset;
-            }
-            if (mReplicationsInFlight == 1) {
-                mTimer.ScheduleTimeoutNoLaterThanIn(
-                    gAtomicRecordAppendManager.GetReplicationTimeoutSec());
-            }
+        if (enqueueFlag) {
             mFirstFwdOpFlag = false;
             mPeer->Enqueue(&cur);
         } else {
