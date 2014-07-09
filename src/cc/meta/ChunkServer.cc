@@ -400,6 +400,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mEvacuateByteRate(0.),
       mLostChunkDirs(),
       mChunkDirInfos(),
+      mMd5Sum(),
       mPeerName(peerName),
       mCryptoKeyValidFlag(false),
       mCryptoKeyId(),
@@ -1433,6 +1434,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mAuthUid = MakeAuthUid(*mHelloOp, mAuthName);
     }
     SetServerLocation(mHelloOp->location);
+    mMd5Sum = mHelloOp->md5sum;
     MetaRequest* const op = mHelloOp;
     mHelloOp = 0;
     op->authUid = mAuthUid;
@@ -2269,6 +2271,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", nlost=" << mLostChunks
         << ", nwrites=" << mNumChunkWrites
         << ", load=" << mLoadAvg
+        << ", md5sum=" << mMd5Sum
         << ", tiers="
     ;
     const char* delim = "";

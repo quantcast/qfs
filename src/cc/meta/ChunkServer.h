@@ -795,6 +795,8 @@ public:
         { return mCryptoKeyValidFlag; }
     kfsUid_t GetAuthUid() const
         { return mAuthUid; }
+    const string& GetMd5Sum() const
+        { return mMd5Sum; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -991,6 +993,7 @@ protected:
     double             mEvacuateByteRate;
     LostChunkDirs      mLostChunkDirs;
     ChunkDirInfos      mChunkDirInfos;
+    string             mMd5Sum;
     const string       mPeerName;
     bool               mCryptoKeyValidFlag;
     CryptoKeys::KeyId  mCryptoKeyId;
