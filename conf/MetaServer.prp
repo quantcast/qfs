@@ -486,6 +486,15 @@ metaServer.msgLogWriter.logLevel = INFO
 # Chunk and meta servers perform mutual authentication with authentication
 # enabled.
 #
+# Use of X509 authentication is recommended in order to avoid KDC dependency.
+# Chunk servers have to periodically request Kerberos tickets from KDC. The meta
+# server enforces Kerberos ticket expiration time, by asking chunk server to
+# re-authenticate when its ticket expires. Therefore KDC unavailability for any
+# reason, including network communication outage, might result in chunk servers
+# disconnects. Long enough KDC unavailability might result in unrecoverable data
+# loss, due to the file system unability to perform replication and recovery
+# in response to disk and node failures.
+#
 # Please see OpenSSL documentation for detailed description about X509
 # authentication configuration.
 # src/test-scripts/qfsmkcerts.sh might be used as a simple example how to create
