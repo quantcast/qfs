@@ -2348,6 +2348,7 @@ struct CSWriteExtra : public CtrWriteExtra
     {
         const ChunkServer& srv = *cs;
         writer.Write(srv.GetMd5Sum());
+        writer.Write(columnDelim);
         writer.Write(srv.GetHostPortStr());
         writer.Write(columnDelim);
         writer.Write(BoolToString(srv.IsRetiring()));
