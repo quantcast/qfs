@@ -536,6 +536,7 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
 int
 RemoteSyncSM::HandleEvent(int code, void *data)
 {
+    const SMPtr selfRef(shared_from_this());
     IOBuffer*   iobuf;
     int         msgLen = 0;
     const char* reason = "inactivity timeout";
