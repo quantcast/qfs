@@ -2316,6 +2316,7 @@ struct GetHeartbeatCounters
 };
 
 const Properties::String kCSExtraHeaders[] = {
+    "md5sum",
     "XMeta-location",
     "XMeta-retiring",
     "XMeta-restarting",
@@ -2346,6 +2347,8 @@ struct CSWriteExtra : public CtrWriteExtra
         const Properties::String&             columnDelim)
     {
         const ChunkServer& srv = *cs;
+        writer.Write(srv.GetMd5Sum());
+        writer.Write(columnDelim);
         writer.Write(srv.GetHostPortStr());
         writer.Write(columnDelim);
         writer.Write(BoolToString(srv.IsRetiring()));

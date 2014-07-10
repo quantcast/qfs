@@ -493,6 +493,10 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
 {
     assert(code == EVENT_CMD_DONE && data == &mReadOp);
 
+    if (mCancelFlag) {
+        Terminate(ECANCELED);
+        return 0;
+    }
     const int numRd = mReadOp.dataBuf.BytesConsumable();
     if (mReadOp.status < 0) {
         KFS_LOG_STREAM_INFO << "replication:"
@@ -514,9 +518,7 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
             Read();
             return 0;
         }
-    } else if (! mCancelFlag &&
-            numRd < (int)mReadOp.numBytes &&
-            mOffset + numRd < mChunkSize) {
+    } else if (numRd < (int)mReadOp.numBytes && mOffset + numRd < mChunkSize) {
         KFS_LOG_STREAM_ERROR << "replication:"
             " chunk: "    << mChunkId <<
             " peer: "     << GetPeerName() <<
@@ -526,9 +528,9 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
         KFS_LOG_EOM;
         mReadOp.status = -EINVAL;
     }
-    if (mCancelFlag || mReadOp.status < 0 || mOffset == mChunkSize) {
-        mDone = mOffset == mChunkSize && mReadOp.status >= 0 && ! mCancelFlag;
-        Terminate(mDone ? 0 : (mCancelFlag ? ECANCELED : mReadOp.status));
+    if (mReadOp.status < 0 || mChunkSize <= mOffset) {
+        mDone = mOffset == mChunkSize && 0 <= mReadOp.status;
+        Terminate(mDone ? 0 : mReadOp.status);
         return 0;
     }
 
@@ -538,7 +540,7 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
             mReadOp.checksum.size() !=
             (size_t)(numRd + kChecksumBlockSize - 1) / kChecksumBlockSize)) {
         die("replicator: invalid read completion");
-        Terminate(-EFAULT);
+        Terminate(EFAULT);
         return 0;
     }
     mWriteOp.Reset();

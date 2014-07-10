@@ -132,10 +132,14 @@ int main(int argc, char** argv)
 
     help = help || (! meta && ! chunk);
     if (help || ! server || port < 0) {
-        cout << "Usage: " << argv[0]
-             << " [-m|-c] -s <server name> -p <port> [-v]\n"
-             << "   -c : ping chunkserver.\n"
-             << "   -m : ping metaserver.\n";
+        cout << "Usage: " << argv[0] <<
+            " [-m|-c] -s <server name> -p <port> [-v]\n"
+            "Deprecated. Please use qfsadmin instead.\n"
+            "   -c : ping chunkserver. Deprecated."
+                    " Chunk server ping is not supported"
+                    " with QFS authentication.\n"
+            "   -m : ping metaserver.\n"
+        ;
 
         return 1;
     }
@@ -151,6 +155,13 @@ int main(int argc, char** argv)
     if (meta) {
         return PingMetaServer(client, loc);
     } else if (chunk) {
+        if (client.IsAuthEnabled()) {
+            KFS_LOG_STREAM_ERROR <<
+                "Chunk sever ping is not supported with QFS authentication."
+                " Please consider using qfsadmin get_chunk_servers_counters." <<
+            KFS_LOG_EOM;
+            return 1;
+        }
         return PingChunkServer(client, loc);
     }
     return 0;

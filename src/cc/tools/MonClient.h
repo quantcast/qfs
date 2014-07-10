@@ -54,6 +54,8 @@ public:
         KfsOp*    inOpPtr,
         bool      inCanceledFlag,
         IOBuffer* inBufferPtr);
+    bool IsAuthEnabled() const
+        { return mAuthContext.IsEnabled(); }
 private:
     ClientAuthContext mAuthContext;
 private:
