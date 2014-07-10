@@ -533,7 +533,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
 }
 
 int
-RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
+RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
 {
     DispatchedOps::iterator i = mDispatchedOps.end();
     int nAvail = iobuf->BytesConsumable();
@@ -554,13 +554,18 @@ RemoteSyncSM::HandleResponse(IOBuffer *iobuf, int msgLen)
         prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
         mIStream.Reset();
         iobuf->Consume(msgLen);
-        mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t) -1);
+        mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t)-1);
         if (mReplySeqNum < 0) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid or missing Cseq header: " << mReplySeqNum <<
                 ", resetting connection" <<
             KFS_LOG_EOM;
+            iobuf->Clear();
+            if (mNetConnection) {
+                mNetConnection->Close();
+            }
             HandleEvent(EVENT_NET_ERROR, 0);
+            return -1;
         }
         mReplyNumBytes = prop.getValue("Content-length", 0);
         nAvail -= msgLen;
