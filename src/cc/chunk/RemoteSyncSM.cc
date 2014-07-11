@@ -566,7 +566,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         while ((mReplyNumBytes > 0 || IsMsgAvail(&iobuf, &msgLen)) &&
                 HandleResponse(iobuf, msgLen)) {
             if (deleteNotifier.IsDeleted()) {
-                // Unwind if deleted by recursion from SubmitResponse().
+                // Unwind if deleted from SubmitResponse() invocation.
                 return 0;
             }
         }
