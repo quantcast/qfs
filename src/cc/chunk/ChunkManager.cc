@@ -63,6 +63,7 @@ namespace KFS
 {
 using std::ofstream;
 using std::ostringstream;
+using std::istringstream;
 using std::min;
 using std::max;
 using std::string;
