@@ -763,14 +763,22 @@ AtomicRecordAppender::AtomicRecordAppender(
 
 AtomicRecordAppender::~AtomicRecordAppender()
 {
-    assert(
-        mState == kStatePendingDelete &&
-        mIoOpsInFlight == 0 &&
-        mReplicationsInFlight == 0 &&
-        mWriteIdState.empty() &&
-        AppendReplicationList::IsEmpty(mReplicationList) &&
-        ! gChunkManager.IsWriteAppenderOwns(mChunkId)
-    );
+    if (mState != kStatePendingDelete ||
+            mIoOpsInFlight != 0 ||
+            mReplicationsInFlight != 0 ||
+            ! mWriteIdState.empty() ||
+            ! AppendReplicationList::IsEmpty(mReplicationList) ||
+            gChunkManager.IsWriteAppenderOwns(mChunkId)) {
+        WAPPEND_LOG_STREAM_FATAL <<
+            " invalid dtor invocation:"
+            " state: "        << GetStateAsStr() <<
+            " chunk: "        << mChunkId <<
+            " in flight: "    << mIoOpsInFlight <<
+            " replications: " << mReplicationsInFlight <<
+            " wids: "         << mWriteIdState.size() <<
+        KFS_LOG_EOM;
+        FatalError();
+    }
     WAPPEND_LOG_STREAM_DEBUG <<
         "dtor" <<
         " chunk: "  << mChunkId <<
