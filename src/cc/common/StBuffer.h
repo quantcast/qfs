@@ -319,18 +319,18 @@ public:
         return mStr;
     }
     StringBufT& Append(
-        char c)
+        char inSym)
     {
         if (mSize >= 0) {
             if ((size_t)mSize < DEFAULT_CAPACITY) {
-                mBuf[++mSize] = c;
-                mBuf[mSize]   = 0;
+                mBuf[mSize]   = inSym;
+                mBuf[++mSize] = 0;
                 return *this;
             }
             mStr.assign(mBuf, mSize);
             mSize = -1;
         }
-        mStr += c;
+        mStr += inSym;
         return *this;
     }
     StringBufT& Append(
