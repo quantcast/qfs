@@ -68,7 +68,6 @@ using std::map;
 using std::string;
 using std::ofstream;
 using std::ifstream;
-using std::istringstream;
 using std::ostringstream;
 using std::istream;
 using std::ostream;
@@ -1867,14 +1866,12 @@ StaleChunksOp::ParseContent(istream& is)
     }
     for(int i = 0; i < numStaleChunks; ++i) {
         if (! (is >> c)) {
-            ostringstream os;
-            os <<
-                "failed to parse stale chunks request:"
-                " expected: "   << numStaleChunks <<
-                " got: "        << i <<
-                " last chunk: " << c
-            ;
-            statusMsg = os.str();
+            statusMsg = "failed to parse stale chunks request: expected: ";
+            AppendDecIntToString(statusMsg, numStaleChunks)
+                .append(" got: ");
+            AppendDecIntToString(statusMsg, i)
+                .append(" last chunk: ");
+            AppendDecIntToString(statusMsg, c);
             status = -EINVAL;
             break;
         }
@@ -1962,6 +1959,43 @@ ReadOp::HandleChunkMetaReadDone(int code, void *data)
     return 0;
 }
 
+/* virtual */ bool
+ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
+{
+    const int checksumEntries = props.getValue("Checksum-entries", 0);
+    checksum.clear();
+    if (0 < checksumEntries) {
+        const Properties::String* const cks = props.getValue("Checksums");
+        if (! cks) {
+            return false;
+        }
+        const char*       ptr = cks->GetPtr();
+        const char* const end = ptr + cks->GetSize();
+        for (int i = 0; i < checksumEntries; i++) {
+            if (end <= ptr) {
+                return false;
+            }
+            uint32_t cs = 0;
+            if (! DecIntParser::Parse(ptr, end - ptr, cs)) {
+                return false;
+            }
+            checksum.push_back(cs);
+        }
+    }
+    skipVerifyDiskChecksumFlag = skipVerifyDiskChecksumFlag &&
+        props.getValue("Skip-Disk-Chksum", 0) != 0;
+    const int off = (int)(offset % IOBufferData::GetDefaultBufferSize());
+    if (0 < off) {
+        IOBuffer buf;
+        buf.ReplaceKeepBuffersFull(&iobuf, off, iobuf.BytesConsumable());
+        iobuf.Move(&buf);
+        iobuf.Consume(off);
+    } else {
+        iobuf.MakeBuffersFull();
+    }
+    return true;
+}
+
 //
 // Handling of writes is done in multiple steps:
 // 1. The client allocates a chunk from the metaserver; the metaserver
@@ -2030,10 +2064,10 @@ WriteIdAllocOp::Execute()
         // appropriate.
         gLeaseClerk.DoingWrite(chunkId);
     }
-    ostringstream os;
-    os << gChunkServer.GetMyLocation() << " " << writeId;
-    const string str = os.str();
-    writeIdStr.Copy(str.data(), str.size());
+    const ServerLocation& loc = gChunkServer.GetLocation();
+    writeIdStr.Copy(loc.hostname.data(), loc.hostname.size()).Append((char)' ');
+    AppendDecIntToString(writeIdStr, loc.port).Append((char)' ');
+    AppendDecIntToString(writeIdStr, writeId);
     if (needToForward) {
         ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
     } else {
@@ -2082,7 +2116,7 @@ WriteIdAllocOp::HandlePeerReply(int code, void *data)
     if (status != 0) {
         return Done(EVENT_CMD_DONE, &status);
     }
-    writeIdStr.Append(" ").Append(fwdedOp->writeIdStr);
+    writeIdStr.Append(' ').Append(fwdedOp->writeIdStr);
     writePrepareReplyFlag =
         writePrepareReplyFlag && fwdedOp->writePrepareReplyFlag;
     ReadChunkMetadata();

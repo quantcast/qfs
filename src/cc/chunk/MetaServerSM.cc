@@ -677,7 +677,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         int            status = prop.getValue("Status",          -1);
         string         statusMsg;
         if (status < 0) {
-            status = -KfsToSysErrno(-status);
+            status    = -KfsToSysErrno(-status);
             statusMsg = prop.getValue("Status-message", string());
         }
         mContentLength = prop.getValue("Content-length",  -1);
@@ -696,7 +696,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             if (status < 0) {
                 mAuthOp->statusMsg = statusMsg;
             }
-            if (! mAuthOp->ParseResponse(prop)) {
+            if (! mAuthOp->ParseResponse(prop, iobuf) && 0 <= status) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid meta reply response:"
                     " seq: "         << op->seq <<
@@ -782,7 +782,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         if (status < 0 && op->statusMsg.empty()) {
             op->statusMsg.swap(statusMsg);
         }
-        if (! op->ParseResponse(prop)) {
+        if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid meta reply response:"
                 " seq: "         << op->seq <<

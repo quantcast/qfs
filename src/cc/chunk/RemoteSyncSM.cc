@@ -589,6 +589,8 @@ RemoteSyncSM::HandleEvent(int code, void *data)
             mNetConnection->Close();
             mNetConnection.reset();
         }
+        mReplyNumBytes = 0;
+        mReplySeqNum   = -1;
         break;
 
     default:
@@ -614,11 +616,21 @@ RemoteSyncSM::HandleEvent(int code, void *data)
 
 }
 
+void
+RemoteSyncSM::ResetConnection()
+{
+    if (mNetConnection) {
+        mNetConnection->Close();
+        mNetConnection->GetInBuffer().Clear();
+    }
+    HandleEvent(EVENT_NET_ERROR, 0);
+}
+
 int
 RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
 {
-    DispatchedOps::iterator it = mDispatchedOps.end();
-    int nAvail = iobuf->BytesConsumable();
+    DispatchedOps::iterator it     = mDispatchedOps.end();
+    int                     nAvail = iobuf->BytesConsumable();
 
     if (mReplyNumBytes <= 0) {
         QCASSERT(msgLen >= 0 && msgLen <= nAvail);
@@ -636,70 +648,38 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
         mIStream.Reset();
         iobuf->Consume(msgLen);
+        nAvail -= msgLen;
         mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t)-1);
         if (mReplySeqNum < 0) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid or missing Cseq header: " << mReplySeqNum <<
                 ", resetting connection" <<
             KFS_LOG_EOM;
-            iobuf->Clear();
-            if (mNetConnection) {
-                mNetConnection->Close();
-            }
-            HandleEvent(EVENT_NET_ERROR, 0);
+            ResetConnection();
             return -1;
         }
         mReplyNumBytes = prop.getValue("Content-length", 0);
-        nAvail -= msgLen;
         it = mDispatchedOps.find(mReplySeqNum);
         KfsOp* const op = it != mDispatchedOps.end() ? it->second : 0;
         if (op) {
-            op->status = prop.getValue("Status", -1);
-            if (op->status < 0) {
-                op->status    = -KfsToSysErrno(-op->status);
+            const int status = prop.getValue("Status", -1);
+            if (status < 0) {
+                op->status    = -KfsToSysErrno(-status);
                 op->statusMsg = prop.getValue("Status-message", string());
+            } else {
+                op->status = status;
             }
-            if (op->op == CMD_WRITE_ID_ALLOC) {
-                WriteIdAllocOp* const wiao  = static_cast<WriteIdAllocOp*>(op);
-                wiao->writeIdStr            = prop.getValue("Write-id", string());
-                wiao->writePrepareReplyFlag =
-                    prop.getValue("Write-prepare-reply", 0) != 0;
-            } else if (op->op == CMD_READ) {
-                ReadOp* const rop = static_cast<ReadOp*>(op);
-                const int checksumEntries = prop.getValue("Checksum-entries", 0);
-                rop->checksum.clear();
-                if (checksumEntries > 0) {
-                    istringstream is(prop.getValue("Checksums", string()));
-                    uint32_t cks;
-                    for (int i = 0; i < checksumEntries; i++) {
-                        is >> cks;
-                        rop->checksum.push_back(cks);
-                    }
-                }
-                rop->skipVerifyDiskChecksumFlag =
-                    rop->skipVerifyDiskChecksumFlag &&
-                    prop.getValue("Skip-Disk-Chksum", 0) != 0;
-                const int off(rop->offset % IOBufferData::GetDefaultBufferSize());
-                if (off > 0) {
-                    IOBuffer buf;
-                    buf.ReplaceKeepBuffersFull(iobuf, off, nAvail);
-                    iobuf->Move(&buf);
-                    iobuf->Consume(off);
-                } else {
-                    iobuf->MakeBuffersFull();
-                }
-            } else if (op->op == CMD_SIZE) {
-                SizeOp* const sop = static_cast<SizeOp*>(op);
-                sop->size = prop.getValue("Size", 0);
-            } else if (op->op == CMD_GET_CHUNK_METADATA) {
-                GetChunkMetadataOp* const gcm =
-                    static_cast<GetChunkMetadataOp*>(op);
-                gcm->chunkVersion = prop.getValue("Chunk-version", 0);
-                gcm->chunkSize = prop.getValue("Size", 0);
+            if (! op->ParseResponse(prop, *iobuf) && 0 <= status) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid response:"
+                    " seq: " << op->seq <<
+                    " "      << op->Show() <<
+                KFS_LOG_EOM;
+                ResetConnection();
+                return -1;
             }
         }
     }
-
     // if we don't have all the data for the write, hold on...
     if (nAvail < mReplyNumBytes) {
         // the data isn't here yet...wait...
@@ -708,12 +688,10 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         }
         return -1;
     }
-
     // now, we got everything...
     if (mNetConnection) {
         mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
     }
-
     // find the matching op
     if (it == mDispatchedOps.end()) {
         it = mDispatchedOps.find(mReplySeqNum);
@@ -724,22 +702,14 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
             die("invalid null op");
             return -1;
         }
-        if (op->op == CMD_READ) {
-            ReadOp* const rop = static_cast<ReadOp*>(op);
-            rop->dataBuf.Move(iobuf, mReplyNumBytes);
-            rop->numBytesIO = mReplyNumBytes;
-            rop->VerifyReply();
-        } else if (op->op == CMD_GET_CHUNK_METADATA) {
-            GetChunkMetadataOp* const gcm =
-                static_cast<GetChunkMetadataOp*>(op);
-            gcm->dataBuf.Move(iobuf, mReplyNumBytes);
-        } else if (0 < mReplyNumBytes) {
+        if (! op->GetResponseContent(*iobuf, mReplyNumBytes)) {
             KFS_LOG_STREAM_ERROR <<
-                "seq: "                 << mReplySeqNum <<
-                " discarding content: " << mReplyNumBytes <<
-                op->Show() <<
+                "invalid response content:"
+                " length: " << mReplySeqNum <<
+                " " << op->Show() <<
             KFS_LOG_EOM;
-            iobuf->Consume(mReplyNumBytes);
+            ResetConnection();
+            return -1;
         }
         mReplyNumBytes = 0;
         StMutexLocker lock(*this);
@@ -750,8 +720,8 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         }
     } else {
         KFS_LOG_STREAM_DEBUG <<
-            "discarding a reply for unknown seq #: " << mReplySeqNum <<
-            " content length: "                      << mReplyNumBytes <<
+            "discarding a reply for unknown seq: " << mReplySeqNum <<
+            " content length: "                    << mReplyNumBytes <<
         KFS_LOG_EOM;
         iobuf->Consume(mReplyNumBytes);
         mReplyNumBytes = 0;

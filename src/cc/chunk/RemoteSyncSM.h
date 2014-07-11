@@ -255,6 +255,7 @@ private:
     /// response. 
     /// @retval 0 if we got the response; -1 if we need to wait
     int HandleResponse(IOBuffer *iobuf, int cmdLen);
+    void ResetConnection();
     void FailAllOps();
     bool EnqueueSelf(KfsOp* op);
     void FinishSelf();

@@ -311,8 +311,12 @@ struct KfsOp : public KfsCallbackObj
     virtual int HandleDone(int code, void *data);
     virtual int GetContentLength() const { return 0; }
     virtual bool ParseContent(istream& is) { return true; }
-    virtual bool ParseResponse(const Properties& props) { return true; }
-    virtual bool ParseResponseContent(istream& is, int len) { return false; }
+    virtual bool ParseResponse(
+        const Properties& /* props */, IOBuffer& /* iobuf */) { return true; }
+    virtual bool ParseResponseContent(istream& /* is */, int /* len */)
+        { return false; }
+    virtual bool GetResponseContent(IOBuffer& /* iobuf */, int len)
+        { return (len <= 0); }
     virtual bool IsChunkReadOp(
         int64_t& /* numBytes */, kfsChunkId_t& /* chunkId */) { return false; }
     virtual BufferManager* GetDeviceBufferManager(
@@ -1220,7 +1224,17 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
         bool                  allowCSClearTextFlag);
     int HandlePeerReply(int code, void *data);
     int Done(int code, void *data);
-
+    virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
+    {
+        const Properties::String* const wids = props.getValue("Write-id");
+        if (wids) {
+            writeIdStr = *wids;
+        } else {
+            writeIdStr.clear();
+        }
+        writePrepareReplyFlag = props.getValue("Write-prepare-reply", 0) != 0;
+        return (! writeIdStr.empty());
+    }
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -1686,6 +1700,17 @@ struct ReadOp : public KfsClientChunkOp {
         return GetDeviceBufferMangerSelf(
             findFlag, resetFlag, chunkId, devBufMgr);
     }
+    virtual bool ParseResponse(const Properties& props, IOBuffer& iobuf);
+    virtual bool GetResponseContent(IOBuffer& iobuf, int len)
+    {
+        const int nmv = dataBuf.Move(&iobuf, len);
+        if (0 <= len && nmv != len) {
+            return false;
+        }
+        numBytesIO = len;
+        VerifyReply();
+        return true;
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
@@ -1731,6 +1756,11 @@ struct SizeOp : public KfsClientChunkOp {
         ;
     }
     int HandleDone(int code, void *data);
+    virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
+    {
+        size = props.getValue("Size", int64_t(-1));
+        return (0 <= size);
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
@@ -1884,6 +1914,16 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
         outNumBytes = readVerifyFlag ? kChunkReadSize : kChunkMetaReadSize;
         return true;
     }
+    virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
+    {
+        chunkVersion = props.getValue("Chunk-version", int64_t(-1));
+        chunkSize    = props.getValue("Size",          int64_t(-1));
+        return (0 <= chunkVersion && 0 <= chunkSize);
+    }
+    virtual bool GetResponseContent(IOBuffer& iobuf, int len)
+    {
+        return (len < 0 || dataBuf.Move(&iobuf, len) == len);
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
@@ -1990,7 +2030,7 @@ struct LeaseRenewOp : public KfsOp {
           chunkAccessLength(0),
           syncReplicationAccess()
         { SET_HANDLER(this, &LeaseRenewOp::HandleDone); }
-    virtual bool ParseResponse(const Properties& props)
+    virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
         chunkAccessLength             = props.getValue("C-access-length", 0);
         chunkServerAccessValidForTime = props.getValue("CS-acess-time",   0);
@@ -2359,7 +2399,7 @@ struct AuthenticateOp : public KfsOp {
     virtual void Execute() {
         die("unexpected invocation");
     }
-    virtual bool ParseResponse(const Properties& props)
+    virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
         chosenAuthType = props.getValue("Auth-type",
             int(kAuthenticationTypeUndef));
