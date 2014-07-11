@@ -30,16 +30,16 @@
 
 #include "kfstypes.h"
 
-#include <cassert>
-#include <cerrno>
+#include "IntToString.h"
+#include "RequestParser.h"
+
+#include <ostream>
+#include <istream>
 #include <string>
-#include <sstream>
-#include <stdlib.h>
+#include <algorithm>
 
 namespace KFS
 {
-using std::ostringstream;
-using std::istringstream;
 using std::ostream;
 using std::istream;
 using std::string;
@@ -101,23 +101,47 @@ struct ServerLocation {
         return abs(hosta - hostb);
     }
     string ToString() const {
-        ostringstream os;
-        Display(os);
-        return os.str();
+        string ret;
+        ret.reserve(hostname.size() + 16);
+        ret.assign(hostname.data(), hostname.size());
+        ret.append(1, (char)' ');
+        AppendDecIntToString(ret, port);
+        return ret;
     }
     ostream& Display(ostream& os) const {
         return (os << hostname << ' ' << port);
     }
-    void FromString(const string &s) {
-        istringstream is(s);
-        if ((is >> hostname >> port)) {
-            return;
+    bool FromString(const string& s) {
+        return FromString(s.data(), s.size());
+    }
+    bool FromString(const char* str) {
+        const char* const kNull = 0;
+        return FromString(str, (kNull - 1) - str);
+    }
+    bool FromString(const char* str, size_t len) {
+        const char*       ptr = str;
+        const char* const end = ptr + len;
+        while (ptr < end && (*ptr & 0xFF) <= ' ' && *ptr) {
+            ++ptr;
         }
-        Reset(0, -1);
+        const char* const sptr = ptr;
+        while (ptr < end && (*ptr & 0xFF) > ' ') {
+            ++ptr;
+        }
+        if (ptr <= sptr || *ptr == 0) {
+            Reset(0, -1);
+            return false;
+        }
+        hostname.assign(sptr, ptr - sptr);
+        if (! DecIntParser::Parse(ptr, end - ptr, port) || port < 0) {
+            Reset(0, -1);
+            return false;
+        }
+        return true;
     }
 
     string hostname; //!< Location of the server: machine name/IP addr
-    int port; //!< Location of the server: port to connect to
+    int    port;     //!< Location of the server: port to connect to
 };
 
 inline static ostream&
