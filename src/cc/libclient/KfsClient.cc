@@ -57,6 +57,7 @@
 #include <limits>
 #include <cerrno>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -83,6 +84,7 @@ using std::transform;
 using std::numeric_limits;
 using std::unique;
 using std::find;
+using std::ostringstream;
 
 using boost::scoped_array;
 using boost::bind;
