@@ -398,7 +398,7 @@ private:
         theEntry.mOpsTailPtr = 0;
         theEntry.mFinishFlag = false;
         if (theFinishFlag) {
-            // Call Finish first, the fail pending ops, to maintain Enqueue()
+            // Call Finish first, to fail pending ops, to maintain Enqueue()
             // order.
             ClientThreadRemoteSyncListEntry::Finish(inSyncSM);
             // theEntry and inSyncSM might be deleted at this point.
