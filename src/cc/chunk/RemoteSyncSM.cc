@@ -299,6 +299,7 @@ RemoteSyncSM::RemoteSyncSM(
       mConnectCount(0),
       mDeleteFlag(false),
       mFinishRecursionCount(0),
+      mDeletedFlagPtr(0),
       mOpResponseTimeoutSec(sOpResponseTimeoutSec),
       mTraceRequestResponseFlag(sTraceRequestResponseFlag)
 {
@@ -311,12 +312,18 @@ RemoteSyncSM::~RemoteSyncSM()
 {
     if (! IsMutexOwner(GetMutexPtr()) ||
             sRemoteSyncCount <= 0 ||
+            mRecursionCount < 0 ||
+            (mRecursionCount != 0 && ! mDeletedFlagPtr) ||
             mFinishRecursionCount != 0 ||
             mNetConnection ||
             ! mDispatchedOps.empty() ||
             mList ||
             ! mDeleteFlag) {
         die("invalid remote sync destructor invocation");
+    }
+    if (mDeletedFlagPtr) {
+        *mDeletedFlagPtr = true;
+        mDeletedFlagPtr = 0;
     }
     sRemoteSyncCount--;
 }
@@ -408,6 +415,7 @@ bool
 RemoteSyncSM::EnqueueSelf(KfsOp* op)
 {
     QCASSERT(IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
+    QCStDeleteNotifier const deleteNotifier(mDeletedFlagPtr);
 
     if (0 < mFinishRecursionCount) {
         op->status    = -EHOSTUNREACH;
@@ -519,6 +527,9 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
             die("duplicate seq. number");
         }
     }
+    if (deleteNotifier.IsDeleted()) {
+        return false;
+    }
     UpdateRecvTimeout();
     if (mRecursionCount <= 0 && mNetConnection) {
         if (IsClientThread()) {
@@ -536,24 +547,32 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
 int
 RemoteSyncSM::HandleEvent(int code, void *data)
 {
-    const SMPtr selfRef(shared_from_this());
-    IOBuffer*   iobuf;
-    int         msgLen = 0;
-    const char* reason = "inactivity timeout";
+    QCStDeleteNotifier const deleteNotifier(mDeletedFlagPtr);
+    const char*              reason = "inactivity timeout";
 
     mRecursionCount++;
     QCASSERT(mRecursionCount > 0);
     switch (code) {
-    case EVENT_NET_READ:
+    case EVENT_NET_READ: {
+        if (! mNetConnection) {
+            break;
+        }
         mLastRecvTime = GetNetManager().Now();
         // We read something from the network.  Run the RPC that
         // came in if we got all the data for the RPC
-        iobuf = reinterpret_cast<IOBuffer*>(data);
-        while ((mReplyNumBytes > 0 || IsMsgAvail(iobuf, &msgLen)) &&
-                HandleResponse(iobuf, msgLen) >= 0)
-            {}
+        IOBuffer& iobuf  = mNetConnection->GetInBuffer();
+        int       msgLen = 0;
+        QCASSERT(&iobuf == data);
+        while ((mReplyNumBytes > 0 || IsMsgAvail(&iobuf, &msgLen)) &&
+                HandleResponse(iobuf, msgLen)) {
+            if (deleteNotifier.IsDeleted()) {
+                // Unwind if deleted by recursion from SubmitResponse().
+                return 0;
+            }
+        }
         UpdateRecvTimeout();
         break;
+    }
 
     case EVENT_NET_WROTE:
         // Something went out on the network.  For now, we don't
@@ -561,7 +580,6 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         // and such.
         UpdateRecvTimeout();
         break;
-
 
     case EVENT_NET_ERROR:
         if (mSslShutdownInProgressFlag &&
@@ -602,6 +620,9 @@ RemoteSyncSM::HandleEvent(int code, void *data)
         const bool connectedFlag = mNetConnection && mNetConnection->IsGood();
         if (connectedFlag) {
             mNetConnection->StartFlush();
+            if (deleteNotifier.IsDeleted()) {
+                return 0; // Unwind.
+            }
         }
         if (! connectedFlag || ! mNetConnection || ! mNetConnection->IsGood()) {
             // we are done...
@@ -626,16 +647,16 @@ RemoteSyncSM::ResetConnection()
     HandleEvent(EVENT_NET_ERROR, 0);
 }
 
-int
-RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
+bool
+RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
 {
     DispatchedOps::iterator it     = mDispatchedOps.end();
-    int                     nAvail = iobuf->BytesConsumable();
+    int                     nAvail = iobuf.BytesConsumable();
 
     if (mReplyNumBytes <= 0) {
         QCASSERT(msgLen >= 0 && msgLen <= nAvail);
         if (mTraceRequestResponseFlag) {
-            IOBuffer::IStream is(*iobuf, msgLen);
+            IOBuffer::IStream is(iobuf, msgLen);
             string            line;
             while (getline(is, line)) {
                 KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
@@ -645,9 +666,9 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         }
         Properties prop;
         const char separator(':');
-        prop.loadProperties(mIStream.Set(*iobuf, msgLen), separator, false);
+        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
         mIStream.Reset();
-        iobuf->Consume(msgLen);
+        iobuf.Consume(msgLen);
         nAvail -= msgLen;
         mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t)-1);
         if (mReplySeqNum < 0) {
@@ -669,14 +690,14 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
             } else {
                 op->status = status;
             }
-            if (! op->ParseResponse(prop, *iobuf) && 0 <= status) {
+            if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid response:"
                     " seq: " << op->seq <<
                     " "      << op->Show() <<
                 KFS_LOG_EOM;
                 ResetConnection();
-                return -1;
+                return false;
             }
         }
     }
@@ -686,7 +707,7 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         if (mNetConnection) {
             mNetConnection->SetMaxReadAhead(mReplyNumBytes - nAvail);
         }
-        return -1;
+        return false;
     }
     // now, we got everything...
     if (mNetConnection) {
@@ -700,16 +721,16 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
         KfsOp* const op = it->second;
         if (! op) {
             die("invalid null op");
-            return -1;
+            return false;
         }
-        if (! op->GetResponseContent(*iobuf, mReplyNumBytes)) {
+        if (! op->GetResponseContent(iobuf, mReplyNumBytes)) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid response content:"
                 " length: " << mReplySeqNum <<
                 " " << op->Show() <<
             KFS_LOG_EOM;
             ResetConnection();
-            return -1;
+            return false;
         }
         mReplyNumBytes = 0;
         StMutexLocker lock(*this);
@@ -723,16 +744,15 @@ RemoteSyncSM::HandleResponse(IOBuffer* iobuf, int msgLen)
             "discarding a reply for unknown seq: " << mReplySeqNum <<
             " content length: "                    << mReplyNumBytes <<
         KFS_LOG_EOM;
-        iobuf->Consume(mReplyNumBytes);
+        iobuf.Consume(mReplyNumBytes);
         mReplyNumBytes = 0;
     }
-    return 0;
+    return true;
 }
 
 // Helper functor that fails an op with an error code.
 class OpFailer
 {
-    const int errCode;
 public:
     OpFailer(int c)
         : errCode(c)
@@ -744,6 +764,8 @@ public:
         op->status = errCode;
         SubmitOpResponse(op);
     }
+private:
+    const int errCode;
 };
 
 void
@@ -765,7 +787,6 @@ RemoteSyncSM::FailAllOps()
     mDispatchedOps.swap(opsToFail);
     for_each(opsToFail.begin(), opsToFail.end(),
              OpFailer(-EHOSTUNREACH));
-    opsToFail.clear();
 }
 
 void

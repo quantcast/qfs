@@ -204,6 +204,7 @@ private:
     int                mConnectCount;
     bool               mDeleteFlag;
     int                mFinishRecursionCount;
+    bool*              mDeletedFlagPtr;
     const int          mOpResponseTimeoutSec;
     const bool         mTraceRequestResponseFlag;
 
@@ -249,12 +250,7 @@ private:
     kfsSeq_t NextSeqnum()
         { return mSeqnum++; }
     int HandleEvent(int code, void *data);
-    /// We (may) have got a response from the peer.  If we are doing
-    /// re-replication, then we need to wait until we got all the data
-    /// for the op; in such cases, we need to know if we got the full
-    /// response. 
-    /// @retval 0 if we got the response; -1 if we need to wait
-    int HandleResponse(IOBuffer *iobuf, int cmdLen);
+    bool HandleResponse(IOBuffer& iobuf, int cmdLen);
     void ResetConnection();
     void FailAllOps();
     bool EnqueueSelf(KfsOp* op);
