@@ -144,7 +144,6 @@ public:
         QCASSERT(GetMutex().IsOwned());
         if (inEntry.mNextPtr) {
             // Already in the queue, possible state change.
-            QCRTASSERT(mRSReplicatorQueueHeadPtr);
             return;
         }
         if (mRSReplicatorQueueHeadPtr) {
@@ -241,12 +240,7 @@ public:
                 ++theIt) {
             RunPending(**theIt);
         }
-        RSReplicatorEntry* theHeadPtr = mRSReplicatorQueueHeadPtr;
-        if (theHeadPtr) {
-            QCASSERT(mRSReplicatorQueueTailPtr ==
-                mRSReplicatorQueueTailPtr->mNextPtr);
-            mRSReplicatorQueueTailPtr->mNextPtr = 0;
-        }
+        RSReplicatorEntry* theNextPtr = mRSReplicatorQueueHeadPtr;
         mRSReplicatorQueueHeadPtr = 0;
         mRSReplicatorQueueTailPtr = 0;
         theLocker.Unlock();
@@ -255,9 +249,12 @@ public:
                 ++theIt) {
             GetConnection(**theIt)->StartFlush();
         }
-        while (theHeadPtr) {
-            RSReplicatorEntry& theCur = *theHeadPtr;
-            theHeadPtr = theCur.mNextPtr;
+        while (theNextPtr) {
+            RSReplicatorEntry& theCur = *theNextPtr;
+            theNextPtr = theCur.mNextPtr;
+            if (&theCur == theNextPtr) {
+                theNextPtr = 0;
+            }
             theCur.mNextPtr = 0;
             theCur.Handle();
         }
