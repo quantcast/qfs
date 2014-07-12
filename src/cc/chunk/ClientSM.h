@@ -151,7 +151,7 @@ private:
         ClientSM& inClient,
         int       inCode,
         void*     inDataPtr);
-    inline static void HandleGranted(
+    inline static int HandleGranted(
         ClientSM& inClient);
     inline static const NetConnectionPtr& GetConnection(
         const ClientSM& inClient);
@@ -397,7 +397,7 @@ private:
         IOBuffer& ioOpBuf, bool forwardFlag);
     string GetPeerName();
     int HandleRequestSelf(int code, void* data);
-    void HandleGranted();
+    int HandleGranted();
     inline time_t TimeNow() const;
     inline void SendResponse(KfsOp& op);
     inline static BufferManager& GetBufferManager();
@@ -432,11 +432,11 @@ ClientThreadListEntry::HandleRequest(
     return inClient.HandleRequest(inCode, inDataPtr);
 }
 
-inline void
+inline int
 ClientThreadListEntry::HandleGranted(
     ClientSM& inClient)
 {
-    inClient.HandleGranted();
+    return inClient.HandleGranted();
 }
 
 inline const NetConnectionPtr&

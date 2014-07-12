@@ -230,10 +230,12 @@ public:
             GetNextPtr(theCur) = 0;
             mTmpSyncSMQueue.push_back(&theCur);
         }
-        for (TmpDispatchQueue::const_iterator theIt = mTmpDispatchQueue.begin();
+        for (TmpDispatchQueue::iterator theIt = mTmpDispatchQueue.begin();
                 theIt != mTmpDispatchQueue.end();
                 ++theIt) {
-            RunPending(**theIt);
+            if (! RunPending(**theIt)) {
+                *theIt = 0;
+            }
         }
         for (TmpSyncSMQueue::const_iterator theIt = mTmpSyncSMQueue.begin();
                 theIt != mTmpSyncSMQueue.end();
@@ -247,7 +249,9 @@ public:
         for (TmpDispatchQueue::const_iterator theIt = mTmpDispatchQueue.begin();
                 theIt != mTmpDispatchQueue.end();
                 ++theIt) {
-            GetConnection(**theIt)->StartFlush();
+            if (*theIt) {
+                GetConnection(**theIt)->StartFlush();
+            }
         }
         while (theNextPtr) {
             RSReplicatorEntry& theCur = *theNextPtr;
@@ -421,7 +425,7 @@ private:
             mNetManager.Wakeup();
         }
     }
-    static void RunPending(
+    static bool RunPending(
         ClientSM& inClient)
     {
         ClientThreadListEntry& theEntry = inClient;
@@ -434,12 +438,14 @@ private:
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
-            ClientThreadListEntry::HandleRequest(
-                inClient, EVENT_CMD_DONE, &theCur);
+            if (ClientThreadListEntry::HandleRequest(
+                    inClient, EVENT_CMD_DONE, &theCur) != 0) {
+                QCRTASSERT(! thePtr);
+                return false; // Deleted.
+            }
         }
-        if (theGrantedFlag) {
-            ClientThreadListEntry::HandleGranted(inClient);
-        }
+        return (! theGrantedFlag ||
+            ClientThreadListEntry::HandleGranted(inClient) == 0);
     }
     static void RunPending(
         RemoteSyncSM& inSyncSM)

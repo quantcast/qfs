@@ -1197,14 +1197,14 @@ ClientSM::GrantedSelf(ClientSM::ByteCount byteCount, bool devBufManagerFlag)
     }
 }
 
-void
+int
 ClientSM::HandleGranted()
 {
     if (! mNetConnection->IsGood()) {
-        return;
+        return 0;
     }
     mGrantedFlag = true;
-    HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
+    return HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 
 /* virtual */ unsigned long
