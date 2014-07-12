@@ -37,16 +37,14 @@
 #include "qcdio/qcdebug.h"
 
 #include "kfsio/NetManager.h"
-#include "kfsio/ITimeout.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 
 namespace KFS
 {
-using libkfsio::globalNetManager;
 
-class ClientThreadImpl : public QCRunnable, public ITimeout
+class ClientThreadImpl : public QCRunnable, public NetManager::Dispatcher
 {
 public:
     typedef ClientThread Outer;
@@ -108,6 +106,7 @@ public:
     ClientThreadImpl(
         ClientThread& inOuter)
         : QCRunnable(),
+          Dispatcher(),
           mThread(),
           mRunFlag(false),
           mShutdownFlag(false),
@@ -156,7 +155,11 @@ public:
         inEntry.mNextPtr = &inEntry; // To detect re-queue.
     }
     virtual void Run()
-        { mNetManager.MainLoop(); }
+    {
+        QCMutex* const kNullMutexPtr         = 0;
+        bool     const kWakeupAndCleanupFlag = true;
+        mNetManager.MainLoop(kNullMutexPtr, kWakeupAndCleanupFlag, this);
+    }
     bool IsStarted() const
         { return mThread.IsStarted(); }
     void Start()
@@ -181,7 +184,11 @@ public:
         QCStMutexUnlocker theUnlocker(GetMutex());
         mThread.Join();
     }
-    virtual void Timeout()
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        { mShutdownFlag = true; }
+    virtual void DispatchStart()
     {
         if (SyncAddAndFetch(mWakeupCnt, 0) <= 0) {
             return;
@@ -371,11 +378,6 @@ public:
                 Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
             Wakeup();
         }
-    }
-    void SetShutdown()
-    {
-        QCASSERT(! mRunFlag);
-        mShutdownFlag = true;
     }
     bool IsWorkPending() const
     {
@@ -671,14 +673,11 @@ ClientThread::Stop(
     for (int i = 0; i < inThreadCount; i++) {
         inThreadsPtr[i].mImpl.Stop();
     }
-    for (int i = 0; i < inThreadCount; i++) {
-        inThreadsPtr[i].mImpl.SetShutdown();
-    }
     // Run dispatch to empty all pending queues.
     QCStMutexUnlocker theUnlocker(ClientThreadImpl::GetMutex());
     for (int k = 0; k < (1 << 10); k++) {
         for (int i = 0; i < inThreadCount; i++) {
-            inThreadsPtr[i].mImpl.Timeout();
+            inThreadsPtr[i].mImpl.DispatchStart();
         }
         int i;
         for (i = 0; i < inThreadCount; i++) {
