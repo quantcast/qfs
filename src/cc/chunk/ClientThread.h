@@ -35,6 +35,7 @@ class ClientSM;
 class RemoteSyncSM;
 class NetManager;
 class RemoteSyncSM;
+class RSReplicatorEntry;
 struct KfsOp;
 
 class ClientThreadImpl;
@@ -72,8 +73,6 @@ public:
 
     ClientThread();
     ~ClientThread();
-    void Start();
-    void Stop();
     void Add(
         ClientSM& inClient);
     void Enqueue(
@@ -81,6 +80,8 @@ public:
         KfsOp&        inOp);
     void Finish(
         RemoteSyncSM& inSyncSM);
+    void Enqueue(
+        RSReplicatorEntry& inEntry);
     NetManager& GetNetManager();
     void Lock();
     void Unlock();
@@ -89,6 +90,9 @@ public:
     static ClientThread* CreateThreads(
         int       inThreadCount,
         QCMutex*& outMutexPtr);
+    static void Stop(
+        ClientThread* inThreadsPtr,
+        int           inThreadCount);
 private:
     ClientThreadImpl& mImpl;
 

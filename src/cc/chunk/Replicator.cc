@@ -42,6 +42,7 @@
 #include "BufferManager.h"
 #include "DiskIo.h"
 #include "ClientManager.h"
+#include "ClientThread.h"
 
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
@@ -707,9 +708,27 @@ ReplicatorImpl::GetPeerName() const
     return (mPeer ? mPeer->GetLocation().ToString() : "none");
 }
 
+inline NetManager&
+RSReplicatorEntry::GetNetManager()
+{
+    return (mClientThreadPtr ?
+        mClientThreadPtr->GetNetManager() : globalNetManager());
+}
+
+class RSReplicatorEntry::StMutexLocker :
+    public ClientThread::StMutexLocker
+{
+public:
+    StMutexLocker(
+        RSReplicatorEntry& inEntry)
+        : ClientThread::StMutexLocker(inEntry.mClientThreadPtr)
+        {}
+};
+
 const char* const kRsReadMetaAuthPrefix = "chunkServer.rsReader.auth.";
 
 class RSReplicatorImpl :
+    public RSReplicatorEntry,
     public ReplicatorImpl,
     public Reader::Completion
 {
@@ -784,7 +803,8 @@ public:
         int               sessionTokenLen,
         const char*       sessionKey,
         int               sessionKeyLen)
-        : ReplicatorImpl(op, RemoteSyncSMPtr()),
+        : RSReplicatorEntry(0 /*gClientManager.GetNextClientThreadPtr() */),
+          ReplicatorImpl(op, RemoteSyncSMPtr()),
           Reader::Completion(),
           mReader(
             GetMetaserver(
@@ -794,6 +814,7 @@ public:
                 sessionKey,
                 sessionKeyLen,
                 op
+                // &GetNetManager()
             ),
             this,
             sRSReaderMaxRetryCount,
@@ -816,29 +837,13 @@ public:
     }
     virtual void Start()
     {
-        assert(mOwner);
+        assert(mOwner && mOwner->status == 0);
         mChunkMetadataOp.chunkSize         = CHUNKSIZE;
         mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
         mReadOp.status                     = 0;
         mReadOp.numBytes                   = 0;
         mReadOp.skipVerifyDiskChecksumFlag = false;
-        const bool kSkipHolesFlag                 = true;
-        const bool kUseDefaultBufferAllocatorFlag = true;
-        if (mOwner->status == 0) {
-            mChunkMetadataOp.status = mReader.Open(
-                mFileId,
-                mOwner->pathName.c_str(),
-                mOwner->fileSize,
-                mOwner->striperType,
-                mOwner->stripeSize,
-                mOwner->numStripes,
-                mOwner->numRecoveryStripes,
-                kSkipHolesFlag,
-                kUseDefaultBufferAllocatorFlag,
-                mOwner->chunkOffset
-            );
-        }
-        HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
+        Enqueue(kStart);
     }
     virtual void Done(
         Reader&           inReader,
@@ -853,7 +858,6 @@ public:
         if (&inReader != &mReader || (inBufferPtr &&
                 (inRequestId.mPtr != this ||
                     inOffset < 0 ||
-                    (mOwner && mOwner->chunkOffset + mOffset != inOffset) ||
                     inSize > (Reader::Offset)mReadOp.numBytes ||
                     ! mReadInFlightFlag))) {
             die("recovery: invalid read completion");
@@ -877,14 +881,13 @@ public:
             return;
         }
         mReadInFlightFlag = false;
-        if (! mOwner) {
-            return;
-        }
         if (mReadOp.status != 0 || (! inBufferPtr && inStatusCode == 0)) {
             return;
         }
+        mReadOp.checksum.clear();
         mReadOp.status = inStatusCode;
-        if (mReadOp.status == 0 && inBufferPtr) {
+        const bool readOkFlag = mReadOp.status == 0 && inBufferPtr;
+        if (readOkFlag) {
             if (sRSReaderMaxRecoverChunkSize < mOffset +
                     mReadTail.BytesConsumable() +
                     inBufferPtr->BytesConsumable()) {
@@ -931,8 +934,23 @@ public:
                 mReadOp.numBytes   = buf.BytesConsumable();
                 mReadOp.numBytesIO = mReadOp.numBytes;
             }
-        } else if (inStatusCode < 0 && inBufferPtr &&
-                ! inBufferPtr->IsEmpty()) {
+            if (0 < mReadOp.numBytes && ! buf.IsEmpty() &&
+                        mReadOp.offset   % (int)CHECKSUM_BLOCKSIZE == 0 &&
+                        mReadOp.numBytes % (int)CHECKSUM_BLOCKSIZE == 0) {
+                mReadOp.checksum = ComputeChecksums(&buf, mReadOp.numBytes);
+            }
+        }
+        StMutexLocker lock(*this);
+        if (! mOwner) {
+            return;
+        }
+        if (mOwner && mOwner->chunkOffset + mOffset != inOffset) {
+            die("recovery: invalid read completion");
+            mReadOp.status = -EINVAL;
+        }
+        if (! readOkFlag &&
+                (inStatusCode < 0 && inBufferPtr &&
+                ! inBufferPtr->IsEmpty())) {
             // Report invalid stripes.
             const int     ns = mOwner->numStripes + mOwner->numRecoveryStripes;
             int           n  = 0;
@@ -974,36 +992,14 @@ public:
         }
         HandleReadDone(EVENT_CMD_DONE, &mReadOp);
     }
-    static void CancelAll()
-        { StopMetaServer(); }
-    static void Shutdown()
-    {
-        CancelAll();
-        GetAuthContext().Clear();
-    }
-
-private:
-    Reader    mReader;
-    IOBuffer  mReadTail;
-    const int mReadSize;
-    bool      mReadInFlightFlag;
-    bool      mPendingCloseFlag;
-
-    virtual ~RSReplicatorImpl()
-    {
-        KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
-            " chunk: " << mChunkId <<
-        KFS_LOG_EOM;
-        mReader.Register(0);
-        mReader.Shutdown();
-    }
-    virtual void Cancel()
+    void HandleCancel()
     {
         StRef ref(*this);
 
         const int prevRef = GetRefCount();
         mReader.Unregister(this);
         mReader.Shutdown();
+        StMutexLocker lock(*this);
         ReplicatorImpl::Cancel();
         if (prevRef <= GetRefCount() && mReadInFlightFlag) {
             assert(mOwner);
@@ -1012,10 +1008,32 @@ private:
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
         }
     }
-    virtual void Read()
+    void HandleStart()
+    {
+        assert(! mCancelFlag && mOwner && mOwner->status == 0 &&
+            ! mReadInFlightFlag);
+        const bool kSkipHolesFlag                 = true;
+        const bool kUseDefaultBufferAllocatorFlag = true;
+        mChunkMetadataOp.status = mReader.Open(
+            mFileId,
+            mOwner->pathName.c_str(),
+            mOwner->fileSize,
+            mOwner->striperType,
+            mOwner->stripeSize,
+            mOwner->numStripes,
+            mOwner->numRecoveryStripes,
+            kSkipHolesFlag,
+            kUseDefaultBufferAllocatorFlag,
+            mOwner->chunkOffset
+        );
+        StMutexLocker lock(*this);
+        HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
+    }
+    void HandleRead()
     {
         assert(! mCancelFlag && mOwner && ! mReadInFlightFlag);
         if (mOffset >= mChunkSize || mReadOp.status < 0) {
+            StMutexLocker lock(*this);
             ReplicatorImpl::Read();
             return;
         }
@@ -1039,8 +1057,38 @@ private:
         if (status != 0 && mReadInFlightFlag) {
             mReadInFlightFlag = false;
             mReadOp.status = status;
+            StMutexLocker lock(*this);
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
         }
+    }
+    static void Shutdown()
+    {
+        CancelAll();
+        GetAuthContext().Clear();
+    }
+
+private:
+    Reader    mReader;
+    IOBuffer  mReadTail;
+    const int mReadSize;
+    bool      mReadInFlightFlag;
+    bool      mPendingCloseFlag;
+
+    virtual ~RSReplicatorImpl()
+    {
+        KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
+            " chunk: " << mChunkId <<
+        KFS_LOG_EOM;
+        mReader.Register(0);
+        mReader.Shutdown();
+    }
+    virtual void Cancel()
+    {
+        Enqueue(kCancel);
+    }
+    virtual void Read()
+    {
+        Enqueue(kRead);
     }
     virtual ByteCount GetBufferBytesRequired() const
     {
@@ -1279,6 +1327,70 @@ int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
 bool RSReplicatorImpl::sRSReaderPanicOnInvalidChunkFlag            = false;
 Properties RSReplicatorImpl::sAuthParams;
 
+void
+RSReplicatorEntry::Handle()
+{
+    RSReplicatorImpl& impl = *static_cast<RSReplicatorImpl*>(this);
+    switch (mState) {
+        case kCancel:
+            impl.HandleCancel();
+            break;
+        case kStart:
+            impl.HandleStart();
+            break;
+        case kRead:
+            impl.HandleRead();
+            break;
+        default:
+            die("invalid rs replicator state");
+            break;
+    }
+}
+
+void
+RSReplicatorEntry::Enqueue(
+    RSReplicatorEntry::State inState)
+{
+    if (inState == kCancel) {
+        if (mState == kNone) {
+            mState = inState;
+            assert(! mClientThreadPtr ||
+                ! ClientThread::GetCurrentClientThreadPtr());
+            Handle();
+            return;
+        }
+        if (mState == kCancel) {
+            return;
+        }
+    } else if (inState == kStart && mState != kNone) {
+        die("rs replication invalid state transtion to start");
+        return;
+    } else if (mState == kCancel) {
+        die("rs replication invalid state transtion from cancel");
+        return;
+    }
+    mState = inState;
+    if (mClientThreadPtr &&
+            mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
+        mClientThreadPtr->Enqueue(*this);
+    } else {
+        Handle();
+    }
+}
+
+RSReplicatorEntry::~RSReplicatorEntry()
+{
+    if (mNextPtr) {
+        if (mNextPtr == this) {
+            die("invalid rs replicator destructor invocation,"
+                " possible double delete");
+        } else {
+            die("invalid rs replicator destructor invocation");
+        }
+    }
+    mNextPtr = this; // To catch double delete.
+}
+
 int
 Replicator::GetNumReplications()
 {
@@ -1289,7 +1401,6 @@ void
 Replicator::CancelAll()
 {
     ReplicatorImpl::CancelAll();
-    RSReplicatorImpl::CancelAll();
 }
 
 bool

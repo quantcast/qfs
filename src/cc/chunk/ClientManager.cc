@@ -235,9 +235,7 @@ ClientManager::StartListening()
     void
 ClientManager::Stop()
 {
-    for (int i = 0; i < mThreadCount; i++) {
-        mThreadsPtr[i].Stop();
-    }
+    ClientThread::Stop(mThreadsPtr, mThreadCount);
 }
 
     /* virtual */ KfsCallbackObj*

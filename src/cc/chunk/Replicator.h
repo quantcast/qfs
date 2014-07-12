@@ -35,6 +35,7 @@ namespace KFS
 
 struct ReplicateChunkOp;
 class Properties;
+class NetManager;
 
 class Replicator
 {
@@ -69,6 +70,45 @@ public:
     static void SetParameters(const Properties& props);
     static void GetCounters(Counters& counters);
     static void Shutdown();
+};
+
+class ClientThread;
+class RSReplicatorEntry
+{
+protected:
+    enum State
+    {
+        kNone   = 0,
+        kStart  = 1,
+        kRead   = 2,
+        kCancel = 3
+    };
+    RSReplicatorEntry(
+        ClientThread* inThreadPtr)
+        : mClientThreadPtr(inThreadPtr),
+          mState(kNone),
+          mNextPtr(0)
+        {}
+    virtual ~RSReplicatorEntry();
+    inline NetManager& GetNetManager();
+    void Enqueue(
+        State inState);
+    class StMutexLocker;
+    friend class StMutexLocker;
+private:
+    ClientThread* const mClientThreadPtr;
+    State               mState;
+    RSReplicatorEntry*  mNextPtr;
+
+    void Handle();
+    static void Shutdown(
+        NetManager& inNetManager);
+private:
+    RSReplicatorEntry(
+        const RSReplicatorEntry& inEntry);
+    RSReplicatorEntry& operator=(
+        const RSReplicatorEntry& inEntry);
+friend class ClientThreadImpl;
 };
 
 }

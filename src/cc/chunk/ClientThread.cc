@@ -25,6 +25,8 @@
 
 #include "ClientThread.h"
 #include "ClientSM.h"
+#include "RemoteSyncSM.h"
+#include "Replicator.h"
 
 #include "common/kfsatomic.h"
 
@@ -107,6 +109,8 @@ public:
         ClientThread& inOuter)
         : QCRunnable(),
           mThread(),
+          mRunFlag(false),
+          mShutdownFlag(false),
           mNetManager(),
           mAddQueueTailPtr(0),
           mAddQueueHeadPtr(0),
@@ -114,11 +118,13 @@ public:
           mRunQueueHeadPtr(0),
           mSyncQueueTailPtr(0),
           mSyncQueueHeadPtr(0),
+          mRSReplicatorQueueHeadPtr(0),
+          mRSReplicatorQueueTailPtr(0),
           mTmpDispatchQueue(),
           mWakeupCnt(0),
           mOuter(inOuter)
     {
-        QCASSERT( GetMutex().IsOwned());
+        QCASSERT(GetMutex().IsOwned());
         mTmpDispatchQueue.reserve(1 << 10);
         mTmpSyncSMQueue.reserve(1 << 10);
     }
@@ -127,10 +133,28 @@ public:
     void Add(
         ClientSM& inClient)
     {
-        QCASSERT( GetMutex().IsOwned());
+        QCASSERT(GetMutex().IsOwned());
         if (Enqueue(inClient, mAddQueueHeadPtr, mAddQueueTailPtr)) {
             Wakeup();
         }
+    }
+    void Enqueue(
+        RSReplicatorEntry& inEntry)
+    {
+        QCASSERT(GetMutex().IsOwned());
+        if (inEntry.mNextPtr) {
+            // Already in the queue, possible state change.
+            QCRTASSERT(mRSReplicatorQueueHeadPtr);
+            return;
+        }
+        if (mRSReplicatorQueueHeadPtr) {
+            mRSReplicatorQueueTailPtr->mNextPtr = &inEntry;
+        } else {
+            mRSReplicatorQueueHeadPtr = &inEntry;
+            Wakeup();
+        }
+        mRSReplicatorQueueTailPtr = &inEntry;
+        inEntry.mNextPtr = &inEntry; // To detect re-queue.
     }
     virtual void Run()
         { mNetManager.MainLoop(); }
@@ -138,16 +162,17 @@ public:
         { return mThread.IsStarted(); }
     void Start()
     {
-        QCASSERT( GetMutex().IsOwned());
+        QCASSERT(GetMutex().IsOwned());
         if (! IsStarted()) {
-            mRunFlag = true;
+            mShutdownFlag = false;
+            mRunFlag      = true;
             const int kStackSize = 32 << 10;
             mThread.Start(this, kStackSize, "ClientThread");
         }
     }
     void Stop()
     {
-        QCASSERT( GetMutex().IsOwned());
+        QCASSERT(GetMutex().IsOwned());
         if (! mRunFlag) {
             return;
         }
@@ -164,6 +189,7 @@ public:
         }
         QCASSERT( ! GetMutex().IsOwned());
         StMutexLocker theLocker(mOuter);
+        QCASSERT(! mShutdownFlag || ! mRunFlag);
 
         mWakeupCnt = 0;
         ClientSM* thePtr = mAddQueueHeadPtr;
@@ -175,10 +201,14 @@ public:
             GetNextPtr(theCur) = 0;
             const NetConnectionPtr& theConnPtr = GetConnection(theCur);
             QCASSERT(theConnPtr);
-            theConnPtr->SetOwningKfsCallbackObj(&theCur);
-            mNetManager.AddConnection(theConnPtr);
+            if (mShutdownFlag) {
+                theConnPtr->HandleErrorEvent();
+            } else {
+                theConnPtr->SetOwningKfsCallbackObj(&theCur);
+                mNetManager.AddConnection(theConnPtr);
+            }
         }
-        if (! mRunFlag) {
+        if (! mRunFlag && ! mShutdownFlag) {
             mNetManager.Shutdown();
         }
         thePtr = mRunQueueHeadPtr;
@@ -211,11 +241,25 @@ public:
                 ++theIt) {
             RunPending(**theIt);
         }
+        RSReplicatorEntry* theHeadPtr = mRSReplicatorQueueHeadPtr;
+        if (theHeadPtr) {
+            QCASSERT(mRSReplicatorQueueTailPtr ==
+                mRSReplicatorQueueTailPtr->mNextPtr);
+            mRSReplicatorQueueTailPtr->mNextPtr = 0;
+        }
+        mRSReplicatorQueueHeadPtr = 0;
+        mRSReplicatorQueueTailPtr = 0;
         theLocker.Unlock();
         for (TmpDispatchQueue::const_iterator theIt = mTmpDispatchQueue.begin();
                 theIt != mTmpDispatchQueue.end();
                 ++theIt) {
             GetConnection(**theIt)->StartFlush();
+        }
+        while (theHeadPtr) {
+            RSReplicatorEntry& theCur = *theHeadPtr;
+            theHeadPtr = theCur.mNextPtr;
+            theCur.mNextPtr = 0;
+            theCur.Handle();
         }
     }
     int Handle(
@@ -282,7 +326,7 @@ public:
     void Granted(
         ClientSM& inClient)
     {
-        QCASSERT( GetMutex().IsOwned());
+        QCASSERT(GetMutex().IsOwned());
         ClientThreadListEntry& theEntry = inClient;
         if (theEntry.mGrantedFlag) {
             return;
@@ -327,6 +371,15 @@ public:
             Wakeup();
         }
     }
+    void SetShutdown()
+    {
+        QCASSERT(! mRunFlag);
+        mShutdownFlag = true;
+    }
+    bool IsWorkPending() const
+    {
+        return (0 < mWakeupCnt);
+    }
     static ClientThread* GetCurrentClientThreadPtr()
     {
         QCASSERT(GetMutex().IsOwned());
@@ -344,20 +397,23 @@ private:
     typedef vector<ClientSM*>     TmpDispatchQueue;
     typedef vector<RemoteSyncSM*> TmpSyncSMQueue;
 
-    QCThread         mThread;
-    bool             mRunFlag;
-    NetManager       mNetManager;
-    ClientSM*        mAddQueueTailPtr;
-    ClientSM*        mAddQueueHeadPtr;
-    ClientSM*        mRunQueueTailPtr;
-    ClientSM*        mRunQueueHeadPtr;
-    RemoteSyncSM*    mSyncQueueTailPtr;
-    RemoteSyncSM*    mSyncQueueHeadPtr;
-    TmpDispatchQueue mTmpDispatchQueue;
-    TmpSyncSMQueue   mTmpSyncSMQueue;
-    volatile int     mWakeupCnt;
-    ClientThread&    mOuter;
-    char             mParseBuffer[MAX_RPC_HEADER_LEN];
+    QCThread           mThread;
+    bool               mRunFlag;
+    bool               mShutdownFlag;
+    NetManager         mNetManager;
+    ClientSM*          mAddQueueTailPtr;
+    ClientSM*          mAddQueueHeadPtr;
+    ClientSM*          mRunQueueTailPtr;
+    ClientSM*          mRunQueueHeadPtr;
+    RemoteSyncSM*      mSyncQueueTailPtr;
+    RemoteSyncSM*      mSyncQueueHeadPtr;
+    RSReplicatorEntry* mRSReplicatorQueueHeadPtr;
+    RSReplicatorEntry* mRSReplicatorQueueTailPtr;
+    TmpDispatchQueue   mTmpDispatchQueue;
+    TmpSyncSMQueue     mTmpSyncSMQueue;
+    volatile int       mWakeupCnt;
+    ClientThread&      mOuter;
+    char               mParseBuffer[MAX_RPC_HEADER_LEN];
 
     static ClientThread* sCurrentClientThreadPtr;
     static int           sLockCnt;
@@ -552,22 +608,17 @@ ClientThread::Unlock()
 }
 
     void
-ClientThread::Start()
-{
-    mImpl.Start();
-}
-
-    void
-ClientThread::Stop()
-{
-    mImpl.Stop();
-}
-
-    void
 ClientThread::Add(
     ClientSM& inClient)
 {
     mImpl.Add(inClient);
+}
+
+    void
+ClientThread::Enqueue(
+    RSReplicatorEntry& inEntry)
+{
+    mImpl.Enqueue(inEntry);
 }
 
     NetManager&
@@ -601,9 +652,41 @@ ClientThread::CreateThreads(
     QCStMutexLocker theLocker(outMutexPtr);
     ClientThread* const theThreadsPtr = new ClientThread[inThreadCount];
     for (int i = 0; i < inThreadCount; i++) {
-        theThreadsPtr[i].Start();
+        theThreadsPtr[i].mImpl.Start();
     }
     return theThreadsPtr;
+}
+
+    /* static */ void
+ClientThread::Stop(
+    ClientThread* inThreadsPtr,
+    int           inThreadCount)
+{
+    if (inThreadCount <= 0) {
+        return;
+    }
+    for (int i = 0; i < inThreadCount; i++) {
+        inThreadsPtr[i].mImpl.Stop();
+    }
+    for (int i = 0; i < inThreadCount; i++) {
+        inThreadsPtr[i].mImpl.SetShutdown();
+    }
+    // Run dispatch to empty all pending queues.
+    QCStMutexUnlocker theUnlocker(ClientThreadImpl::GetMutex());
+    for (int k = 0; k < (1 << 10); k++) {
+        for (int i = 0; i < inThreadCount; i++) {
+            inThreadsPtr[i].mImpl.Timeout();
+        }
+        int i;
+        for (i = 0; i < inThreadCount; i++) {
+            if (inThreadsPtr[i].mImpl.IsWorkPending()) {
+                break;
+            }
+        }
+        if (inThreadCount <= i) {
+            break;
+        }
+    }
 }
 
 }
