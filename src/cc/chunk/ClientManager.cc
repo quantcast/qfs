@@ -67,7 +67,7 @@ public:
         Properties theParams(mParams);
         inParameters.copyWithPrefix(
             theParamName.GetPtr(), theParamName.GetSize(), theParams);
-        const bool theEnabledFlag     = mParams.getValue(
+        const bool theEnabledFlag     = theParams.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "enabled"), inAuthEnabledFlag ? 1 : 0) != 0;
         const size_t theCurLen = theParamName.Append("psk.").GetSize();
