@@ -684,7 +684,9 @@ ClientThread::Stop(
     }
     // Run dispatch to empty all pending queues.
     QCStMutexUnlocker theUnlocker(ClientThreadImpl::GetMutex());
-    for (int k = 0; k < (1 << 10); k++) {
+    const int kMaxTries = 1 << 10;
+    int k;
+    for (k = 0; k < kMaxTries; k++) {
         for (int i = 0; i < inThreadCount; i++) {
             inThreadsPtr[i].mImpl.DispatchStart();
         }
@@ -697,6 +699,14 @@ ClientThread::Stop(
         if (inThreadCount <= i) {
             break;
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "client threads: work pending attempt: " << k <<
+        KFS_LOG_EOM;
+    }
+    if (kMaxTries <= k) {
+        KFS_LOG_STREAM_ERROR <<
+            "client threads: work still pending after running" <<
+        KFS_LOG_EOM;
     }
 }
 
