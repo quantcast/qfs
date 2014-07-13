@@ -1372,23 +1372,10 @@ RSReplicatorEntry::Enqueue(
     mState = inState;
     if (mClientThreadPtr &&
             mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
-        mClientThreadPtr->Enqueue(*this);
+        Enqueue();
     } else {
         Handle();
     }
-}
-
-RSReplicatorEntry::~RSReplicatorEntry()
-{
-    if (mNextPtr) {
-        if (mNextPtr == this) {
-            die("invalid rs replicator destructor invocation,"
-                " possible double delete");
-        } else {
-            die("invalid rs replicator destructor invocation");
-        }
-    }
-    mNextPtr = this; // To catch double delete.
 }
 
 int

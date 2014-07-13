@@ -101,6 +101,7 @@ private:
     RSReplicatorEntry*  mNextPtr;
 
     void Handle();
+    void Enqueue();
     static void Shutdown(
         NetManager& inNetManager);
 private:

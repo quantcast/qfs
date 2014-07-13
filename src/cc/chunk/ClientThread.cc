@@ -141,18 +141,14 @@ public:
         RSReplicatorEntry& inEntry)
     {
         QCASSERT(GetMutex().IsOwned());
-        if (inEntry.mNextPtr) {
+        if (GetNextPtr(inEntry)) {
             // Already in the queue, possible state change.
             return;
         }
-        if (mRSReplicatorQueueHeadPtr) {
-            mRSReplicatorQueueTailPtr->mNextPtr = &inEntry;
-        } else {
-            mRSReplicatorQueueHeadPtr = &inEntry;
+        if (Enqueue(inEntry,
+                mRSReplicatorQueueHeadPtr, mRSReplicatorQueueTailPtr)) {
             Wakeup();
         }
-        mRSReplicatorQueueTailPtr = &inEntry;
-        inEntry.mNextPtr = &inEntry; // To detect re-queue.
     }
     virtual void Run()
     {
@@ -224,6 +220,9 @@ public:
         while (thePtr) {
             ClientSM& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
+            if (thePtr == &theCur) {
+                thePtr = 0;
+            }
             GetNextPtr(theCur) = 0;
             mTmpDispatchQueue.push_back(&theCur);
         }
@@ -234,6 +233,9 @@ public:
         while (theSyncPtr) {
             RemoteSyncSM& theCur = *theSyncPtr;
             theSyncPtr = GetNextPtr(theCur);
+            if (theSyncPtr == &theCur) {
+                theSyncPtr = 0;
+            }
             GetNextPtr(theCur) = 0;
             mTmpSyncSMQueue.push_back(&theCur);
         }
@@ -262,11 +264,11 @@ public:
         }
         while (theNextPtr) {
             RSReplicatorEntry& theCur = *theNextPtr;
-            theNextPtr = theCur.mNextPtr;
+            theNextPtr = GetNextPtr(theCur);
             if (&theCur == theNextPtr) {
                 theNextPtr = 0;
             }
-            theCur.mNextPtr = 0;
+            GetNextPtr(theCur) = 0;
             theCur.Handle();
         }
     }
@@ -479,17 +481,14 @@ private:
         }
     }
     static RemoteSyncSM*& GetNextPtr(
-        RemoteSyncSM& inSyncSM)
-    {
-        ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
-        return theEntry.mNextPtr;
-    }
+        ClientThreadRemoteSyncListEntry& inEntry)
+        { return inEntry.mNextPtr; }
     static ClientSM*& GetNextPtr(
-        ClientSM& inClient)
-    {
-        ClientThreadListEntry& theEntry = inClient;
-        return theEntry.mNextPtr;
-    }
+        ClientThreadListEntry& inEntry)
+        { return inEntry.mNextPtr; }
+    static RSReplicatorEntry*& GetNextPtr(
+        RSReplicatorEntry& inEntry)
+        { return inEntry.mNextPtr; }
     static KfsOp*& GetNextPtr(
         KfsOp& inOp)
         { return inOp.nextOp.mNextPtr; }
@@ -508,6 +507,7 @@ private:
             inQueueHeadPtr = &inEntry;
         }
         inQueueTailPtr = &inEntry;
+        GetNextPtr(inEntry) = &inEntry;
         return theWasEmptyFlag;
     }
     static bool AddPending(
@@ -550,6 +550,7 @@ ClientThreadListEntry::~ClientThreadListEntry()
     if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mGrantedFlag) {
         die("invalid client thread list entry destructor invocation");
     }
+    mNextPtr = static_cast<ClientSM*>(this); // To catch double delete.
 }
 
     int
@@ -574,6 +575,7 @@ ClientThreadRemoteSyncListEntry::~ClientThreadRemoteSyncListEntry()
     if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mFinishFlag) {
         die("invalid remote sync list entry destructor invocation");
     }
+    mNextPtr = static_cast<RemoteSyncSM*>(this); // To catch double delete.
 }
 
     void
@@ -589,6 +591,20 @@ ClientThreadRemoteSyncListEntry::DispatchFinish(
     RemoteSyncSM& inSyncSM)
 {
     ClientThreadImpl::GetImpl(*mClientThreadPtr).Finish(inSyncSM);
+}
+
+RSReplicatorEntry::~RSReplicatorEntry()
+{
+    if (mNextPtr) {
+        die("invalid rs replicator list entry destructor invocation");
+    }
+    mNextPtr = this; // To catch double delete.
+}
+
+    void
+RSReplicatorEntry::Enqueue()
+{
+    ClientThreadImpl::GetImpl(*mClientThreadPtr).Enqueue(*this);
 }
 
 ClientThread::ClientThread()
@@ -617,13 +633,6 @@ ClientThread::Add(
     ClientSM& inClient)
 {
     mImpl.Add(inClient);
-}
-
-    void
-ClientThread::Enqueue(
-    RSReplicatorEntry& inEntry)
-{
-    mImpl.Enqueue(inEntry);
 }
 
     NetManager&

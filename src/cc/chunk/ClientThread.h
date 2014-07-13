@@ -75,13 +75,6 @@ public:
     ~ClientThread();
     void Add(
         ClientSM& inClient);
-    void Enqueue(
-        RemoteSyncSM& inSyncSM,
-        KfsOp&        inOp);
-    void Finish(
-        RemoteSyncSM& inSyncSM);
-    void Enqueue(
-        RSReplicatorEntry& inEntry);
     NetManager& GetNetManager();
     void Lock();
     void Unlock();
