@@ -30,7 +30,6 @@
 #include "KfsClient.h"
 #include "KfsClientInt.h"
 
-#include "common/config.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/hsieh_hash.h"

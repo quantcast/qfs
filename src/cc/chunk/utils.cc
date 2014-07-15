@@ -24,14 +24,16 @@
 // 
 //----------------------------------------------------------------------------
 
-#include <sys/time.h>
-#include <unistd.h>
-
 #include "utils.h"
-#include "common/config.h"
+
 #include "common/MsgLogger.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/CryptoKeys.h"
+#include "qcdio/QCUtils.h"
+
+#include <unistd.h>
+#include <errno.h>
+#include <string>
 
 namespace KFS
 {
@@ -43,7 +45,8 @@ using std::string;
 /// @param[out] msgLen: string length of the command in the buffer
 /// @retval true if a command is present; false otherwise.
 ///
-bool IsMsgAvail(IOBuffer *iobuf, int *msgLen)
+bool
+IsMsgAvail(IOBuffer* iobuf, int* msgLen)
 {
     const int idx = iobuf->IndexOf(0, "\r\n\r\n");
     if (idx < 0) {
@@ -53,20 +56,24 @@ bool IsMsgAvail(IOBuffer *iobuf, int *msgLen)
     return true;
 }
 
-void die(const string &msg)
+void
+die(const string& msg)
 {
     string lm = "panic: " + msg;
     KFS_LOG_STREAM_FATAL << lm << KFS_LOG_EOM;
-    lm += "\n";
-    const ssize_t UNUSED_ATTR r = write(2, msg.data(), msg.size());
     MsgLogger::Stop();
+    lm += "\n";
+    if (write(2, msg.data(), msg.size()) <= 0) {
+        QCUtils::SetLastIgnoredError(errno);
+    }
     abort();
 }
 
-kfsSeq_t GetRandomSeq()
+kfsSeq_t
+GetRandomSeq()
 {
     kfsSeq_t id = 0;
-    CryptoKeys::PseudoRand(&id, int(sizeof(id)));
+    CryptoKeys::PseudoRand(&id, (int)sizeof(id));
     return ((id < 0 ? -id : id) >> 1);
 }
 

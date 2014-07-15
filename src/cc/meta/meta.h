@@ -28,7 +28,6 @@
 #include "Key.h"
 #include "MetaNode.h"
 #include "UserAndGroup.h"
-#include "common/config.h"
 #include "common/time.h"
 #include "common/hsieh_hash.h"
 #include "common/kfsdecls.h"

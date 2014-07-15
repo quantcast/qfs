@@ -242,7 +242,7 @@ panic(const string& msg, bool use_perror)
     KFS_LOG_STREAM_FATAL << msg <<
         (use_perror ? QCUtils::SysError(err, " ") : string()) <<
     KFS_LOG_EOM;
-        MsgLogger::Stop(); // Flush log.
+    MsgLogger::Stop(); // Flush log.
     abort();
 }
 

@@ -30,7 +30,6 @@
 #include <algorithm>
 #include <functional>
 #include "common/MsgLogger.h"
-#include "common/config.h"
 #include "common/time.h"
 #include "kfsio/Globals.h"
 
