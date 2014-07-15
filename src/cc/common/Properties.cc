@@ -411,10 +411,10 @@ Properties::getList(string& outBuf,
   return;
 }
 
-void
+size_t
 Properties::copyWithPrefix(const char* prefix, Properties& props) const
 {
-    copyWithPrefix(prefix, prefix ? strlen(prefix) : size_t(0), props);
+    return copyWithPrefix(prefix, prefix ? strlen(prefix) : size_t(0), props);
 }
 
 inline static bool
@@ -425,10 +425,11 @@ KeyStartsWith(const Properties::String& key,
         memcmp(key.data(), prefix, prefixLen) == 0);
 }
 
-void
+size_t
 Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
     Properties& props) const
 {
+    size_t ret = 0;
     if (prefix && 0 < prefixLen) {
         for (PropMap::const_iterator iter = propmap.lower_bound(
                     String(prefix, prefixLen));
@@ -438,8 +439,9 @@ Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
                 break;
             }
             props.propmap[key] = iter->second;
+            ret++;
         }
-        return;
+        return ret;
     }
     for (PropMap::const_iterator it = propmap.begin();
             it != propmap.end();
@@ -447,8 +449,10 @@ Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
         const String& key = it->first;
         if (prefixLen <= key.size()) {
             props.propmap[key] = it->second;
+            ret++;
         }
     }
+    return ret;
 }
 
 bool
