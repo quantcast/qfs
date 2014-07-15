@@ -39,8 +39,11 @@
 #include "qcdio/qcdebug.h"
 #include "qcdio/qcstutils.h"
 
+#include <algorithm>
+
 namespace KFS
 {
+using std::max;
 
 using libkfsio::globalNetManager;
 
@@ -182,6 +185,7 @@ ClientManager::ClientManager()
       mCounters(),
       mAuth(*(new Auth)),
       mCurThreadIdx(0),
+      mFirstClientThreadIndex(0),
       mThreadCount(0),
       mThreadsPtr(0)
 {
@@ -282,10 +286,14 @@ ClientManager::SetParameters(
         theParamName.Append(inParamsPrefixPtr);
     }
     const size_t thePrefLen = theParamName.GetSize();
-    mIoTimeoutSec   = inProps.getValue(theParamName.Append(
+    mIoTimeoutSec           = inProps.getValue(theParamName.Append(
         "ioTimeoutSec"), mIoTimeoutSec);
-    mIdleTimeoutSec = inProps.getValue(theParamName.Truncate(thePrefLen).Append(
+    mIdleTimeoutSec         =
+        inProps.getValue(theParamName.Truncate(thePrefLen).Append(
         "idleTimeoutSec"), mIdleTimeoutSec);
+    mFirstClientThreadIndex =
+        inProps.getValue(theParamName.Truncate(thePrefLen).Append(
+        "firstClientThreadIndex"), mFirstClientThreadIndex);
     mMaxClientCount = inMaxClientCount;
     return mAuth.SetParameters(
         theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(),
@@ -335,14 +343,14 @@ ClientManager::GetCurrentClientThreadPtr()
     ClientThread*
 ClientManager::GetNextClientThreadPtr()
 {
-    if (mThreadCount <= 0) {
+    if (mThreadCount <= 0 || mThreadCount <= mFirstClientThreadIndex) {
         return 0;
     }
     QCASSERT(0 <= mCurThreadIdx && mCurThreadIdx < mThreadCount);
     ClientThread* const theRetPtr = mThreadsPtr + mCurThreadIdx;
     mCurThreadIdx++;
     if (mThreadCount <= mCurThreadIdx) {
-        mCurThreadIdx = 0;
+        mCurThreadIdx = max(mFirstClientThreadIndex, 0);
     }
     return theRetPtr;
 }

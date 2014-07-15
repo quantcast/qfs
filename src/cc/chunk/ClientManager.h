@@ -227,6 +227,7 @@ private:
     Counters      mCounters;
     Auth&         mAuth;
     int           mCurThreadIdx;
+    int           mFirstClientThreadIndex;
     int           mThreadCount;
     ClientThread* mThreadsPtr;
 

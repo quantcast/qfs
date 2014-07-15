@@ -99,7 +99,7 @@ class ClientThreadVerifier : public NetManager::Dispatcher
 {
 public:
     ClientThreadVerifier(
-        QCMutex* inMutex)
+        const QCMutex* inMutex)
         : mMutex(inMutex)
         {}
     virtual void DispatchStart()
@@ -157,6 +157,7 @@ ChunkServer::MainLoop()
             mMutex ? &verifier : 0
         );
     }
+    Replicator::CancelAll();
     gClientManager.Stop();
     mRemoteSyncers.ReleaseAllServers();
     gChunkManager.Shutdown();
