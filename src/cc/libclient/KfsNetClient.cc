@@ -174,14 +174,18 @@ public:
         mTimeSecBetweenRetries = inTimeSecBetweenRetries;
         mAuthContextPtr        = inAuthContextPtr;
         return SetServer(ServerLocation(inServerName, inServerPort),
-            false, inErrMsgPtr);
+            false, inErrMsgPtr, true);
     }
     bool SetServer(
         const ServerLocation& inLocation,
-        bool                  inCancelPendingOpsFlag = true,
-        string*               inErrMsgPtr            = 0)
+        bool                  inCancelPendingOpsFlag,
+        string*               inErrMsgPtr,
+        bool                  inForceConnectFlag)
     {
         if (inLocation == mServerLocation) {
+            if (! inForceConnectFlag && mPendingOpQueue.empty()) {
+                return inLocation.IsValid();
+            }
             EnsureConnected(inErrMsgPtr);
             return (mSleepingFlag || IsConnected());
         }
@@ -195,6 +199,9 @@ public:
         mAuthFailureCount = 0;
         mRetryCount       = 0;
         mNextSeqNum += 100;
+        if (! inForceConnectFlag && mPendingOpQueue.empty()) {
+            return inLocation.IsValid();
+        }
         EnsureConnected(inErrMsgPtr);
         return (mSleepingFlag || IsConnected());
     }
@@ -1701,10 +1708,12 @@ KfsNetClient::Start(
 KfsNetClient::SetServer(
     const ServerLocation& inLocation,
     bool                  inCancelPendingOpsFlag /* = true */,
-    string*               inErrMsgPtr            /* = 0 */)
+    string*               inErrMsgPtr            /* = 0 */,
+    bool                  inForceConnectFlag     /* = true */)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.SetServer(inLocation, inCancelPendingOpsFlag, inErrMsgPtr);
+    return mImpl.SetServer(
+        inLocation, inCancelPendingOpsFlag, inErrMsgPtr, inForceConnectFlag);
 }
 
     void

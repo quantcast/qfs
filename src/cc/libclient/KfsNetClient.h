@@ -185,7 +185,8 @@ public:
     bool SetServer(
         const ServerLocation& inLocation,
         bool                  inCancelPendingOpsFlag = true,
-        string*               inErrMsgPtr            = 0);
+        string*               inErrMsgPtr            = 0,
+        bool                  inForceConnectFlag     = true);
     void SetKey(
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,
