@@ -65,7 +65,6 @@ namespace KFS
 using std::string;
 using std::string;
 using std::ostringstream;
-using std::istringstream;
 using std::pair;
 using std::make_pair;
 using std::max;
@@ -363,7 +362,7 @@ ReplicatorImpl::GetBufferBytesRequired() const
 void
 ReplicatorImpl::Granted(ByteCount byteCount)
 {
-    KFS_LOG_STREAM_INFO << "replication:" 
+    KFS_LOG_STREAM_INFO << "replication:"
         " chunk: "   << mChunkId <<
         " peer: "    << GetPeerName() <<
         " granted: " << byteCount <<
@@ -751,7 +750,7 @@ public:
         sRSReaderIdleTimeoutSec = props.getValue(
             "chunkServer.rsReader.idleTimeoutSec",
             sRSReaderIdleTimeoutSec
-        );   
+        );
         sRSReaderMaxReadSize = (max(1, props.getValue(
             "chunkServer.rsReader.maxReadSize",
             sRSReaderMaxReadSize
@@ -795,54 +794,33 @@ public:
         sRSReaderPanicOnInvalidChunkFlag = props.getValue(
             "chunkServer.rsReader.panicOnInvalidChunk",
             sRSReaderPanicOnInvalidChunkFlag ? 1 : 0) != 0;
-        props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams);
-    }
-    RSReplicatorImpl(
-        ReplicateChunkOp* op,
-        const char*       sessionToken,
-        int               sessionTokenLen,
-        const char*       sessionKey,
-        int               sessionKeyLen)
-        : RSReplicatorEntry(0 /*gClientManager.GetNextClientThreadPtr() */),
-          ReplicatorImpl(op, RemoteSyncSMPtr()),
-          Reader::Completion(),
-          mReader(
-            GetMetaserver(
-                op->location.port,
-                sessionToken,
-                sessionTokenLen,
-                sessionKey,
-                sessionKeyLen,
-                op
-                // &GetNetManager()
-            ),
-            this,
-            sRSReaderMaxRetryCount,
-            sRSReaderTimeSecBetweenRetries,
-            sRSReaderOpTimeoutSec,
-            sRSReaderIdleTimeoutSec,
-            sRSReaderMaxChunkReadSize,
-            sRSReaderLeaseRetryTimeout,
-            sRSReaderLeaseWaitTimeout,
-            MakeLogPrefix(mChunkId),
-            GetSeqNum()
-        ),
-        mReadTail(),
-        mReadSize(GetReadSize(*op)),
-        mReadInFlightFlag(false),
-        mPendingCloseFlag(false)
-    {
-        assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
-        mReadOp.clnt = 0; // Should not queue read op.
+        sMaxRecoveryThreads = props.getValue(
+            "chunkServer.rsReader.maxRecoveryThreads",
+            sMaxRecoveryThreads
+        );
+        if (0 < props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams)) {
+            sAuthUpdateCount++;
+        }
     }
     virtual void Start()
     {
         assert(mOwner && mOwner->status == 0);
         mChunkMetadataOp.chunkSize         = CHUNKSIZE;
         mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
+        mChunkMetadataOp.status            = 0;
+        mChunkMetadataOp.statusMsg.clear();
         mReadOp.status                     = 0;
+        mReadOp.statusMsg.clear();
         mReadOp.numBytes                   = 0;
         mReadOp.skipVerifyDiskChecksumFlag = false;
+        if (! mLocation.IsValid()) {
+            mChunkMetadataOp.status    = -EINVAL;
+            mChunkMetadataOp.statusMsg =
+                "invalid meta server location: " + mLocation.ToString() +
+                " or authentication";
+            HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
+            return;
+        }
         Enqueue(kStart);
     }
     virtual void Done(
@@ -886,22 +864,10 @@ public:
         }
         mReadOp.checksum.clear();
         mReadOp.status = inStatusCode;
-        const bool readOkFlag = mReadOp.status == 0 && inBufferPtr;
+        const bool readOkFlag  = mReadOp.status == 0 && inBufferPtr;
+        const int  pendingSize = readOkFlag ?
+            mReadTail.BytesConsumable() + inBufferPtr->BytesConsumable() : 0;
         if (readOkFlag) {
-            if (sRSReaderMaxRecoverChunkSize < mOffset +
-                    mReadTail.BytesConsumable() +
-                    inBufferPtr->BytesConsumable()) {
-                ostringstream os;
-                os << " recovery:"
-                    " file: "   << mFileId  <<
-                    " chunk: "  << mChunkId <<
-                    " pos: "    << mOffset  <<
-                    " + "       << mReadTail.BytesConsumable() <<
-                    " rdsize: " << inBufferPtr->BytesConsumable() <<
-                    " exceeds " << sRSReaderMaxRecoverChunkSize;
-                const string msg = os.str();
-                die(msg.c_str());
-            }
             const bool endOfChunk =
                 mReadSize > inBufferPtr->BytesConsumable() ||
                 mOffset + mReadTail.BytesConsumable() + mReadSize >= mChunkSize;
@@ -941,6 +907,19 @@ public:
             }
         }
         StMutexLocker lock(*this);
+        if (readOkFlag &&
+                sRSReaderMaxRecoverChunkSize < mOffset + pendingSize) {
+            ostringstream os;
+            os << " recovery:"
+                " file: "   << mFileId  <<
+                " chunk: "  << mChunkId <<
+                " pos: "    << mOffset  <<
+                " + "       << mReadTail.BytesConsumable() <<
+                " rdsize: " << inBufferPtr->BytesConsumable() <<
+                " exceeds " << sRSReaderMaxRecoverChunkSize;
+            const string msg = os.str();
+            die(msg);
+        }
         if (! mOwner) {
             return;
         }
@@ -951,10 +930,11 @@ public:
         if (! readOkFlag &&
                 (inStatusCode < 0 && inBufferPtr &&
                 ! inBufferPtr->IsEmpty())) {
+            mOwner->invalidStripeIdx.clear();
+            string&       str = mOwner->invalidStripeIdx;
             // Report invalid stripes.
             const int     ns = mOwner->numStripes + mOwner->numRecoveryStripes;
             int           n  = 0;
-            ostringstream os;
             while (! inBufferPtr->IsEmpty()) {
                 if (n >= ns) {
                     die("recovery: completion: invalid number of bad stripes");
@@ -972,12 +952,17 @@ public:
                     n = 0;
                     break;
                 }
-                os << (n > 0 ? " " : "") << idx <<
-                    " " << chunkId << " " << chunkVersion;
+                if (0 < n) {
+                    str += ' ';
+                }
+                AppendDecIntToString(str, idx);
+                str += ' ';
+                AppendDecIntToString(str, chunkId);
+                str += ' ';
+                AppendDecIntToString(str, chunkVersion);
                 n++;
             }
             if (n > 0) {
-                mOwner->invalidStripeIdx = os.str();
                 KFS_LOG_STREAM_ERROR << "recovery: "
                     " status: "          << inStatusCode <<
                     " invalid stripes: " << mOwner->invalidStripeIdx <<
@@ -986,7 +971,7 @@ public:
                 if (sRSReaderPanicOnInvalidChunkFlag && 0 < mOwner->fileSize) {
                     const string msg = "recovery: invalid chunk(s) detected: " +
                         mOwner->invalidStripeIdx;
-                    die(msg.c_str());
+                    die(msg);
                 }
             }
         }
@@ -1011,21 +996,66 @@ public:
     void HandleStart()
     {
         assert(! mCancelFlag && mOwner && mOwner->status == 0 &&
-            ! mReadInFlightFlag);
-        const bool kSkipHolesFlag                 = true;
-        const bool kUseDefaultBufferAllocatorFlag = true;
-        mChunkMetadataOp.status = mReader.Open(
-            mFileId,
-            mOwner->pathName.c_str(),
-            mOwner->fileSize,
-            mOwner->striperType,
-            mOwner->stripeSize,
-            mOwner->numStripes,
-            mOwner->numRecoveryStripes,
-            kSkipHolesFlag,
-            kUseDefaultBufferAllocatorFlag,
-            mOwner->chunkOffset
-        );
+            ! mReadInFlightFlag && mLocation.IsValid());
+
+        if (mAuthUpdateCount) {
+            ClientAuthContext* const authContext = mMetaServer.GetAuthContext();
+            if (authContext) {
+                // Acquire lock here to serialize access to sAuthParams.
+                StMutexLocker lock(*this);
+                if (*mAuthUpdateCount != sAuthUpdateCount) {
+                    ClientAuthContext* const kOtherCtx   = 0;
+                    const bool               kVerifyFlag = false;
+                    mChunkMetadataOp.status = authContext->SetParameters(
+                        kRsReadMetaAuthPrefix,
+                        sAuthParams,
+                        kOtherCtx,
+                        &mChunkMetadataOp.statusMsg,
+                        kVerifyFlag
+                    );
+                    *mAuthUpdateCount = sAuthUpdateCount;
+                }
+            } else {
+                die("recovery: invalid null authentication context");
+                mChunkMetadataOp.status = -EFAULT;
+            }
+        }
+        const ServerLocation& loc = mMetaServer.GetServerLocation();
+        if (mLocation != loc) {
+            if (loc.IsValid()) {
+                KFS_LOG_STREAM_INFO <<
+                    "recovery:"
+                    " meta server client address has changed"
+                    " from: " << loc <<
+                    " to: "   << mLocation <<
+                KFS_LOG_EOM;
+            }
+            const bool kCancelPendingOpsFlag = true;
+            bool       kForceConnectFlag     = false;
+            if (! mMetaServer.SetServer(
+                    mLocation,
+                    kCancelPendingOpsFlag,
+                    &mChunkMetadataOp.statusMsg,
+                    kForceConnectFlag)) {
+                mChunkMetadataOp.status = -EHOSTUNREACH;
+            }
+        }
+        if (0 <= mChunkMetadataOp.status) {
+            const bool kSkipHolesFlag                 = true;
+            const bool kUseDefaultBufferAllocatorFlag = true;
+            mChunkMetadataOp.status = mReader.Open(
+                mFileId,
+                mOwner->pathName.c_str(),
+                mOwner->fileSize,
+                mOwner->striperType,
+                mOwner->stripeSize,
+                mOwner->numStripes,
+                mOwner->numRecoveryStripes,
+                kSkipHolesFlag,
+                kUseDefaultBufferAllocatorFlag,
+                mOwner->chunkOffset
+            );
+        }
         StMutexLocker lock(*this);
         HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
     }
@@ -1061,19 +1091,97 @@ public:
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
         }
     }
+    static RSReplicatorImpl* Create(
+        ReplicateChunkOp* op,
+        const char*       sessionToken,
+        int               sessionTokenLen,
+        const char*       sessionKey,
+        int               sessionKeyLen)
+    {
+        const bool authFlag = 0 < sessionTokenLen && 0 < sessionKeyLen;
+        if (authFlag) {
+            static const Properties::String kPskKeyIdParam(
+                kRsReadMetaAuthPrefix + string("psk.keyId"));
+            static const Properties::String kPskKeyParam(
+                kRsReadMetaAuthPrefix + string("psk.key"));
+            static Properties::String tmp;
+            tmp.Copy(sessionToken, sessionTokenLen);
+            const Properties::String* val =
+                sAuthParams.getValue(kPskKeyIdParam);
+            if (! val || *val != tmp) {
+                sAuthParams.setValue(kPskKeyIdParam, tmp);
+                sAuthUpdateCount++;
+            }
+            tmp.Copy(sessionKey, sessionKeyLen);
+            if (! val || *val != tmp) {
+                sAuthParams.setValue(kPskKeyParam, tmp);
+                sAuthUpdateCount++;
+            }
+        }
+        ClientThread*                   clientThread    = 0;
+        const MetaServers::Entry* const entry           =
+            GetMetaserver(authFlag, op, clientThread);
+        if (! entry || ! entry->mMeta ||
+                (entry->mAuth != 0) != authFlag ||
+                entry->mAuth != entry->mMeta->GetAuthContext()) {
+            die("recovery: invalid meta server entry");
+        }
+        return new RSReplicatorImpl(
+            op,
+            (authFlag && entry->mAuthUpdateCount != sAuthUpdateCount) ?
+                const_cast<uint64_t*>(&entry->mAuthUpdateCount) : 0,
+            clientThread,
+            *entry->mMeta
+        );
+    }
     static void Shutdown()
     {
         CancelAll();
-        GetAuthContext().Clear();
+        StopMetaServers();
     }
 
 private:
-    Reader    mReader;
-    IOBuffer  mReadTail;
-    const int mReadSize;
-    bool      mReadInFlightFlag;
-    bool      mPendingCloseFlag;
+    KfsNetClient&            mMetaServer;
+    uint64_t* const          mAuthUpdateCount;
+    Reader                   mReader;
+    IOBuffer                 mReadTail;
+    const ServerLocation     mLocation;
+    const int                mReadSize;
+    bool                     mReadInFlightFlag;
+    bool                     mPendingCloseFlag;
 
+    RSReplicatorImpl(
+        ReplicateChunkOp* op,
+        uint64_t*         authUpdateCount,
+        ClientThread*     clientThread,
+        KfsNetClient&     metaServer)
+        : RSReplicatorEntry(clientThread),
+          ReplicatorImpl(op, RemoteSyncSMPtr()),
+          Reader::Completion(),
+          mMetaServer(metaServer),
+          mAuthUpdateCount(authUpdateCount),
+          mReader(
+            metaServer,
+            this,
+            sRSReaderMaxRetryCount,
+            sRSReaderTimeSecBetweenRetries,
+            sRSReaderOpTimeoutSec,
+            sRSReaderIdleTimeoutSec,
+            sRSReaderMaxChunkReadSize,
+            sRSReaderLeaseRetryTimeout,
+            sRSReaderLeaseWaitTimeout,
+            MakeLogPrefix(mChunkId),
+            GetSeqNum()
+        ),
+        mReadTail(),
+        mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
+        mReadSize(GetReadSize(*op)),
+        mReadInFlightFlag(false),
+        mPendingCloseFlag(false)
+    {
+        assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
+        mReadOp.clnt = 0; // Should not queue read op.
+    }
     virtual ~RSReplicatorImpl()
     {
         KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
@@ -1111,116 +1219,119 @@ private:
                 kKfsUserRoot, kKfsGroupRoot);
         }
     };
-    static void StopMetaServer()
-        { GetMetaserver(-1, 0, 0, 0, 0, 0); }
-    static ClientAuthContext& GetAuthContext()
+    static void StopMetaServers()
     {
-        static ClientAuthContext sAuthContext;
-        return sAuthContext;
+        ClientThread* clientThread = 0;
+        GetMetaserver(false, 0, clientThread);
     }
-    static KfsNetClient& GetMetaserver(
-        int               port,
-        const char*       sessionToken,
-        int               sessionTokenLen,
-        const char*       sessionKey,
-        int               sessionKeyLen,
-        ReplicateChunkOp* op)
+    class MetaServers
     {
-        static AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
-        static KfsNetClient          sMetaServerClient(
-            globalNetManager(),
-            string(), // inHost
-            0,        // inPort
-            sRSReaderMetaMaxRetryCount,
-            sRSReaderMetaTimeSecBetweenRetries,
-            sRSReaderMetaOpTimeoutSec,
-            sRSReaderMetaIdleTimeoutSec,
-            GetRandomSeq(),
-            "RSR",
-            sRSReaderMetaResetConnectionOnOpTimeoutFlag
-        );
-        static KfsNetClient          sMetaServerClientAuth(
-            globalNetManager(),
-            string(), // inHost
-            0,        // inPort
-            sRSReaderMetaMaxRetryCount,
-            sRSReaderMetaTimeSecBetweenRetries,
-            sRSReaderMetaOpTimeoutSec,
-            sRSReaderMetaIdleTimeoutSec,
-            GetRandomSeq(),
-            "RSRA",
-            sRSReaderMetaResetConnectionOnOpTimeoutFlag
-        );
-        static int sMetaPort     = -1;
-        static int sMetaAuthPort = -1;
-        if (port <= 0) {
-            sMetaPort     = -1;
-            sMetaAuthPort = -1;
-            sMetaServerClient.Stop();
-            sMetaServerClientAuth.Stop();
-            sMetaServerClientAuth.SetAuthContext(0);
-        } else {
-            if (sessionTokenLen <= 0) {
-                if (sMetaPort != port) {
-                    if (0 < sMetaPort) {
-                        KFS_LOG_STREAM_INFO << "recovery:"
-                            " meta server client port has changed"
-                            " from: " << sMetaPort <<
-                            " to: "   << port <<
-                        KFS_LOG_EOM;
-                    }
-                    sMetaPort = port;
-                    sMetaServerClient.SetServer(ServerLocation(
-                        gMetaServerSM.GetLocation().hostname, sMetaPort));
-                }
-            } else {
-                static const Properties::String kPskKeyIdParam(
-                    kRsReadMetaAuthPrefix + string("psk.keyId"));
-                static const Properties::String kPskKeyParam(
-                    kRsReadMetaAuthPrefix + string("psk.key"));
-                sAuthParams.setValue(
-                    kPskKeyIdParam,
-                    Properties::String(sessionToken, sessionTokenLen)
-                );
-                sAuthParams.setValue(
-                    kPskKeyParam,
-                    Properties::String(sessionKey, sessionKeyLen)
-                );
-                ClientAuthContext* const kOtherCtx   = 0;
-                const bool               kVerifyFlag = false;
-                static ClientAuthContext& authContext = GetAuthContext();
-                op->status = authContext.SetParameters(
-                    kRsReadMetaAuthPrefix,
-                    sAuthParams,
-                    kOtherCtx,
-                    op ? &op->statusMsg : 0,
-                    kVerifyFlag
-                );
-                sMetaServerClientAuth.SetAuthContext(&authContext);
-                if (sMetaAuthPort != port) {
-                    if (0 < sMetaAuthPort) {
-                        KFS_LOG_STREAM_INFO << "recovery:"
-                            " meta server auth client port has changed"
-                            " from: " << sMetaAuthPort <<
-                            " to: "   << port <<
-                        KFS_LOG_EOM;
-                    }
-                    sMetaAuthPort = port;
-                    sMetaServerClientAuth.SetServer(ServerLocation(
-                        gMetaServerSM.GetLocation().hostname, sMetaAuthPort));
+    public:
+        class Entry
+        {
+        public:
+            Entry()
+                : mMeta(0),
+                  mAuth(0),
+                  mAuthUpdateCount(0)
+                {}
+            KfsNetClient*      mMeta;
+            ClientAuthContext* mAuth;
+            uint64_t           mAuthUpdateCount;
+        };
+        MetaServers(const Entry* inServers, int inCount)
+            : mServers(inServers),
+              mCount(inCount)
+            {}
+        ~MetaServers()
+        {
+            MetaServers::Stop();
+            for (int i = 0; i < mCount; i++) {
+                delete mServers[i].mMeta;
+                delete mServers[i].mAuth;
+            }
+            delete [] mServers;
+        }
+        void Stop() const
+        {
+            for (int i = 0; i < mCount; i++) {
+                mServers[i].mMeta->Stop();
+                mServers[i].mMeta->SetAuthContext(0);
+                if (mServers[i].mAuth) {
+                    mServers[i].mAuth->Clear();
                 }
             }
         }
-        return (sessionTokenLen <= 0 ?
-            sMetaServerClient : sMetaServerClientAuth);
+        const Entry* const mServers;
+        const int          mCount;
+    };
+    static const MetaServers::Entry* CreateMetaServers(
+        int inMaxCount, bool authFlag)
+    {
+        MetaServers::Entry* const ret = new MetaServers::Entry[inMaxCount];
+        char                      buf[sizeof(int) * 3 + 4 + 4];
+        char* const               end = buf + sizeof(buf) / sizeof(buf[0]);
+        for (int i = 0; i < inMaxCount; i++) {
+            char* name = end;
+            *--name = 0;
+            name = IntToDecString(i, name);
+            if (authFlag) {
+                *--name = 'A';
+            }
+            *--name = 'R';
+            *--name = 'S';
+            *--name = 'R';
+            ret[i].mMeta = new KfsNetClient(
+                i == 0 ?
+                    globalNetManager() :
+                    gClientManager.GetClientThread(i)->GetNetManager(),
+                string(), // inHost
+                0,        // inPort
+                sRSReaderMetaMaxRetryCount,
+                sRSReaderMetaTimeSecBetweenRetries,
+                sRSReaderMetaOpTimeoutSec,
+                sRSReaderMetaIdleTimeoutSec,
+                GetRandomSeq(),
+                name,
+                sRSReaderMetaResetConnectionOnOpTimeoutFlag
+            );
+            ret[i].mAuth = authFlag ? new ClientAuthContext() : 0;
+            ret[i].mMeta->SetAuthContext(ret[i].mAuth);
+        }
+        return ret;
+    }
+    static const MetaServers::Entry* GetMetaserver(
+        bool              authFlag,
+        ReplicateChunkOp* op,
+        ClientThread*&    clientThread)
+    {
+        static const AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
+        static const int                   sMaxCount(
+            max(0, gClientManager.GetClientThreadCount()) + 1);
+        static const MetaServers           sMetaServers(
+            CreateMetaServers(sMaxCount, false), sMaxCount);
+        static const MetaServers           sMetaServersAuth(
+            CreateMetaServers(sMaxCount,  true), sMaxCount);
+        if (! op) {
+            sMetaServers.Stop();
+            sMetaServersAuth.Stop();
+            clientThread = 0;
+            return sMetaServers.mServers;
+        }
+        static int lastIdx = 0;
+        if (min(sMaxRecoveryThreads, sMaxCount) <= ++lastIdx) {
+            lastIdx = sMaxCount <= 1 ? 0 : 1;
+        }
+        clientThread = lastIdx <= 0 ? 0 :
+            gClientManager.GetClientThread(lastIdx - 1);
+        return ((authFlag ? sMetaServersAuth : sMetaServers
+            ).mServers + lastIdx);
     }
     static const char* MakeLogPrefix(kfsChunkId_t chunkId)
     {
-        static ostringstream os;
-        static string        pref;
-        os.str(string());
-        os << "CR: " << chunkId;
-        pref = os.str();
+        static string pref;
+        pref.assign("CR: ");
+        AppendDecIntToString(pref, chunkId);
         return pref.c_str();
     }
     static kfsSeq_t GetSeqNum()
@@ -1286,21 +1397,23 @@ private:
     static int GetLcm(int nl, int nr)
         { return ((nl == 0 || nr == 0) ? 0 : nl / GetGcd(nl, nr) * nr); }
 
-    static int  sRSReaderMaxRetryCount;
-    static int  sRSReaderTimeSecBetweenRetries;
-    static int  sRSReaderOpTimeoutSec;
-    static int  sRSReaderIdleTimeoutSec;
-    static int  sRSReaderMaxChunkReadSize;
-    static int  sRSReaderMaxReadSize;
-    static int  sRSReaderLeaseRetryTimeout;
-    static int  sRSReaderLeaseWaitTimeout;
-    static int  sRSReaderMetaMaxRetryCount;
-    static int  sRSReaderMetaTimeSecBetweenRetries;
-    static int  sRSReaderMetaOpTimeoutSec;
-    static int  sRSReaderMetaIdleTimeoutSec;
-    static int  sRSReaderMaxRecoverChunkSize;
-    static bool sRSReaderMetaResetConnectionOnOpTimeoutFlag;
-    static bool sRSReaderPanicOnInvalidChunkFlag;
+    static int        sRSReaderMaxRetryCount;
+    static int        sRSReaderTimeSecBetweenRetries;
+    static int        sRSReaderOpTimeoutSec;
+    static int        sRSReaderIdleTimeoutSec;
+    static int        sRSReaderMaxChunkReadSize;
+    static int        sRSReaderMaxReadSize;
+    static int        sRSReaderLeaseRetryTimeout;
+    static int        sRSReaderLeaseWaitTimeout;
+    static int        sRSReaderMetaMaxRetryCount;
+    static int        sRSReaderMetaTimeSecBetweenRetries;
+    static int        sRSReaderMetaOpTimeoutSec;
+    static int        sRSReaderMetaIdleTimeoutSec;
+    static int        sRSReaderMaxRecoverChunkSize;
+    static int        sMaxRecoveryThreads;
+    static bool       sRSReaderMetaResetConnectionOnOpTimeoutFlag;
+    static bool       sRSReaderPanicOnInvalidChunkFlag;
+    static uint64_t   sAuthUpdateCount;
     static Properties sAuthParams;
 private:
     // No copy.
@@ -1321,10 +1434,12 @@ int  RSReplicatorImpl::sRSReaderMetaMaxRetryCount                  = 2;
 int  RSReplicatorImpl::sRSReaderMetaTimeSecBetweenRetries          = 10;
 int  RSReplicatorImpl::sRSReaderMetaOpTimeoutSec                   = 4 * 60;
 int  RSReplicatorImpl::sRSReaderMetaIdleTimeoutSec                 = 5 * 60;
+int  RSReplicatorImpl::sMaxRecoveryThreads                         = 16;
 bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
 int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
     (int)CHUNKSIZE;
 bool RSReplicatorImpl::sRSReaderPanicOnInvalidChunkFlag            = false;
+uint64_t   RSReplicatorImpl::sAuthUpdateCount = 0;
 Properties RSReplicatorImpl::sAuthParams;
 
 void
@@ -1342,7 +1457,7 @@ RSReplicatorEntry::Handle()
             impl.HandleRead();
             break;
         default:
-            die("invalid rs replicator state");
+            die("recovery: invalid state");
             break;
     }
 }
@@ -1363,10 +1478,10 @@ RSReplicatorEntry::Enqueue(
             return;
         }
     } else if (inState == kStart && mState != kNone) {
-        die("rs replication invalid state transtion to start");
+        die("recovery: invalid state transtion to start");
         return;
     } else if (mState == kCancel) {
-        die("rs replication invalid state transtion from cancel");
+        die("recovery: invalid state transtion from cancel");
         return;
     }
     mState = inState;
@@ -1529,7 +1644,7 @@ Replicator::Run(ReplicateChunkOp* op)
             KFS_LOG_EOM;
             ReplicatorImpl::Ctrs().mRecoveryErrorCount++;
         } else {
-            impl = new RSReplicatorImpl(op, token, tokenLen, key, keyLen);
+            impl = RSReplicatorImpl::Create(op, token, tokenLen, key, keyLen);
         }
     }
     if (impl) {

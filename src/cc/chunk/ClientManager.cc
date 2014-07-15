@@ -347,4 +347,11 @@ ClientManager::GetNextClientThreadPtr()
     return theRetPtr;
 }
 
+    ClientThread*
+ClientManager::GetClientThread(
+    int inIdx)
+{
+    return ((inIdx < 0 || mThreadCount <= inIdx) ? 0 : mThreadsPtr + inIdx);
+}
+
 }

@@ -201,9 +201,13 @@ public:
             mCounters.mDiscardedBytesCount += inByteCount;
         }
     }
+    int GetClientThreadCount() const
+        { return mThreadCount; }
     const QCMutex* GetMutexPtr() const;
     ClientThread* GetCurrentClientThreadPtr();
     ClientThread* GetNextClientThreadPtr();
+    ClientThread* GetClientThread(
+        int inIdx);
     bool IsAuthEnabled() const;
     bool SetParameters(
         const char*       inParamsPrefixPtr,
