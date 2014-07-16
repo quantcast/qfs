@@ -819,7 +819,11 @@ public:
         if (! entry || ! entry->mMeta ||
                 (entry->mAuth != 0) != authFlag ||
                 entry->mAuth != entry->mMeta->GetAuthContext()) {
-            die("recovery: invalid meta server entry");
+            const char* const msg = "recovery: invalid meta server entry";
+            die(msg);
+            op->statusMsg = msg;
+            op->status    = -EFAULT;
+            return 0;
         }
         return new RSReplicatorImpl(
             op,
