@@ -76,34 +76,19 @@ class ClientThread;
 class RSReplicatorEntry
 {
 protected:
-    enum State
-    {
-        kNone   = 0,
-        kStart  = 1,
-        kRead   = 2,
-        kCancel = 3
-    };
     RSReplicatorEntry(
         ClientThread* inThreadPtr)
         : mClientThreadPtr(inThreadPtr),
-          mState(kNone),
           mNextPtr(0)
         {}
     virtual ~RSReplicatorEntry();
-    inline NetManager& GetNetManager();
-    void Enqueue(
-        State inState);
-    class StMutexLocker;
-    friend class StMutexLocker;
-private:
+    virtual void Handle() = 0;
+    void Enqueue();
+
     ClientThread* const mClientThreadPtr;
-    State               mState;
+private:
     RSReplicatorEntry*  mNextPtr;
 
-    void Handle();
-    void Enqueue();
-    static void Shutdown(
-        NetManager& inNetManager);
 private:
     RSReplicatorEntry(
         const RSReplicatorEntry& inEntry);

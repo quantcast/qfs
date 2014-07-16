@@ -707,23 +707,6 @@ ReplicatorImpl::GetPeerName() const
     return (mPeer ? mPeer->GetLocation().ToString() : "none");
 }
 
-inline NetManager&
-RSReplicatorEntry::GetNetManager()
-{
-    return (mClientThreadPtr ?
-        mClientThreadPtr->GetNetManager() : globalNetManager());
-}
-
-class RSReplicatorEntry::StMutexLocker :
-    public ClientThread::StMutexLocker
-{
-public:
-    StMutexLocker(
-        RSReplicatorEntry& inEntry)
-        : ClientThread::StMutexLocker(inEntry.mClientThreadPtr)
-        {}
-};
-
 const char* const kRsReadMetaAuthPrefix = "chunkServer.rsReader.auth.";
 
 class RSReplicatorImpl :
@@ -800,6 +783,174 @@ public:
         );
         if (0 < props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams)) {
             sAuthUpdateCount++;
+        }
+    }
+    static RSReplicatorImpl* Create(
+        ReplicateChunkOp* op,
+        const char*       sessionToken,
+        int               sessionTokenLen,
+        const char*       sessionKey,
+        int               sessionKeyLen)
+    {
+        const bool authFlag = 0 < sessionTokenLen && 0 < sessionKeyLen;
+        if (authFlag) {
+            static const Properties::String kPskKeyIdParam(
+                kRsReadMetaAuthPrefix + string("psk.keyId"));
+            static const Properties::String kPskKeyParam(
+                kRsReadMetaAuthPrefix + string("psk.key"));
+            static Properties::String tmp;
+            tmp.Copy(sessionToken, sessionTokenLen);
+            const Properties::String* val =
+                sAuthParams.getValue(kPskKeyIdParam);
+            if (! val || *val != tmp) {
+                sAuthParams.setValue(kPskKeyIdParam, tmp);
+                sAuthUpdateCount++;
+            }
+            tmp.Copy(sessionKey, sessionKeyLen);
+            val = sAuthParams.getValue(kPskKeyParam);
+            if (! val || *val != tmp) {
+                sAuthParams.setValue(kPskKeyParam, tmp);
+                sAuthUpdateCount++;
+            }
+        }
+        ClientThread*                   clientThread    = 0;
+        const MetaServers::Entry* const entry           =
+            GetMetaserver(authFlag, op, clientThread);
+        if (! entry || ! entry->mMeta ||
+                (entry->mAuth != 0) != authFlag ||
+                entry->mAuth != entry->mMeta->GetAuthContext()) {
+            die("recovery: invalid meta server entry");
+        }
+        return new RSReplicatorImpl(
+            op,
+            (authFlag && entry->mAuthUpdateCount != sAuthUpdateCount) ?
+                const_cast<uint64_t*>(&entry->mAuthUpdateCount) : 0,
+            clientThread,
+            *entry->mMeta
+        );
+    }
+    static void Shutdown()
+    {
+        CancelAll();
+        StopMetaServers();
+    }
+
+private:
+    enum State
+    {
+        kNone   = 0,
+        kStart  = 1,
+        kRead   = 2,
+        kCancel = 3
+    };
+    typedef ClientThread::StMutexLocker StMutexLocker;
+
+    State                mState;
+    KfsNetClient&        mMetaServer;
+    uint64_t* const      mAuthUpdateCount;
+    Reader               mReader;
+    IOBuffer             mReadTail;
+    const ServerLocation mLocation;
+    const int            mReadSize;
+    bool                 mReadInFlightFlag;
+    bool                 mPendingCloseFlag;
+
+    RSReplicatorImpl(
+        ReplicateChunkOp* op,
+        uint64_t*         authUpdateCount,
+        ClientThread*     clientThread,
+        KfsNetClient&     metaServer)
+        : RSReplicatorEntry(clientThread),
+          ReplicatorImpl(op, RemoteSyncSMPtr()),
+          Reader::Completion(),
+          mState(kNone),
+          mMetaServer(metaServer),
+          mAuthUpdateCount(authUpdateCount),
+          mReader(
+            metaServer,
+            this,
+            sRSReaderMaxRetryCount,
+            sRSReaderTimeSecBetweenRetries,
+            sRSReaderOpTimeoutSec,
+            sRSReaderIdleTimeoutSec,
+            sRSReaderMaxChunkReadSize,
+            sRSReaderLeaseRetryTimeout,
+            sRSReaderLeaseWaitTimeout,
+            MakeLogPrefix(mChunkId),
+            GetSeqNum()
+        ),
+        mReadTail(),
+        mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
+        mReadSize(GetReadSize(*op)),
+        mReadInFlightFlag(false),
+        mPendingCloseFlag(false)
+    {
+        assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
+        mReadOp.clnt = 0; // Should not queue read op.
+    }
+    virtual ~RSReplicatorImpl()
+    {
+        KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
+            " chunk: " << mChunkId <<
+        KFS_LOG_EOM;
+        mReader.Register(0);
+        mReader.Shutdown();
+    }
+    virtual void Cancel()
+    {
+        Enqueue(kCancel);
+    }
+    virtual void Read()
+    {
+        Enqueue(kRead);
+    }
+    virtual ByteCount GetBufferBytesRequired() const
+    {
+        return (mReadSize * (mOwner ? mOwner->numStripes + 1 : 0));
+    }
+    void Enqueue(State inState)
+    {
+        if (inState == kCancel) {
+            if (mState == kNone) {
+                mState = inState;
+                assert(! mClientThreadPtr ||
+                    ! ClientThread::GetCurrentClientThreadPtr());
+                Handle();
+                return;
+            }
+            if (mState == kCancel) {
+                return;
+            }
+        } else if (inState == kStart && mState != kNone) {
+            die("recovery: invalid state transtion to start");
+            return;
+        } else if (mState == kCancel) {
+            die("recovery: invalid state transtion from cancel");
+            return;
+        }
+        mState = inState;
+        if (mClientThreadPtr &&
+                mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
+            RSReplicatorEntry::Enqueue();
+        } else {
+            Handle();
+        }
+    }
+    virtual void Handle()
+    {
+        switch (mState) {
+            case kCancel:
+                HandleCancel();
+                break;
+            case kStart:
+                HandleStart();
+                break;
+            case kRead:
+                HandleRead();
+                break;
+            default:
+                die("recovery: invalid state");
+                break;
         }
     }
     virtual void Start()
@@ -906,7 +1057,7 @@ public:
                 mReadOp.checksum = ComputeChecksums(&buf, mReadOp.numBytes);
             }
         }
-        StMutexLocker lock(*this);
+        StMutexLocker lock(mClientThreadPtr);
         if (readOkFlag &&
                 sRSReaderMaxRecoverChunkSize < mOffset + pendingSize) {
             ostringstream os;
@@ -984,7 +1135,7 @@ public:
         const int prevRef = GetRefCount();
         mReader.Unregister(this);
         mReader.Shutdown();
-        StMutexLocker lock(*this);
+        StMutexLocker lock(mClientThreadPtr);
         ReplicatorImpl::Cancel();
         if (prevRef <= GetRefCount() && mReadInFlightFlag) {
             assert(mOwner);
@@ -1002,7 +1153,7 @@ public:
             ClientAuthContext* const authContext = mMetaServer.GetAuthContext();
             if (authContext) {
                 // Acquire lock here to serialize access to sAuthParams.
-                StMutexLocker lock(*this);
+                StMutexLocker lock(mClientThreadPtr);
                 if (*mAuthUpdateCount != sAuthUpdateCount) {
                     KFS_LOG_STREAM_DEBUG <<
                         "recovery: updating authentication context" <<
@@ -1061,14 +1212,14 @@ public:
                 mOwner->chunkOffset
             );
         }
-        StMutexLocker lock(*this);
+        StMutexLocker lock(mClientThreadPtr);
         HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
     }
     void HandleRead()
     {
         assert(! mCancelFlag && mOwner && ! mReadInFlightFlag);
         if (mOffset >= mChunkSize || mReadOp.status < 0) {
-            StMutexLocker lock(*this);
+            StMutexLocker lock(mClientThreadPtr);
             ReplicatorImpl::Read();
             return;
         }
@@ -1092,121 +1243,9 @@ public:
         if (status != 0 && mReadInFlightFlag) {
             mReadInFlightFlag = false;
             mReadOp.status = status;
-            StMutexLocker lock(*this);
+            StMutexLocker lock(mClientThreadPtr);
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
         }
-    }
-    static RSReplicatorImpl* Create(
-        ReplicateChunkOp* op,
-        const char*       sessionToken,
-        int               sessionTokenLen,
-        const char*       sessionKey,
-        int               sessionKeyLen)
-    {
-        const bool authFlag = 0 < sessionTokenLen && 0 < sessionKeyLen;
-        if (authFlag) {
-            static const Properties::String kPskKeyIdParam(
-                kRsReadMetaAuthPrefix + string("psk.keyId"));
-            static const Properties::String kPskKeyParam(
-                kRsReadMetaAuthPrefix + string("psk.key"));
-            static Properties::String tmp;
-            tmp.Copy(sessionToken, sessionTokenLen);
-            const Properties::String* val =
-                sAuthParams.getValue(kPskKeyIdParam);
-            if (! val || *val != tmp) {
-                sAuthParams.setValue(kPskKeyIdParam, tmp);
-                sAuthUpdateCount++;
-            }
-            tmp.Copy(sessionKey, sessionKeyLen);
-            val = sAuthParams.getValue(kPskKeyParam);
-            if (! val || *val != tmp) {
-                sAuthParams.setValue(kPskKeyParam, tmp);
-                sAuthUpdateCount++;
-            }
-        }
-        ClientThread*                   clientThread    = 0;
-        const MetaServers::Entry* const entry           =
-            GetMetaserver(authFlag, op, clientThread);
-        if (! entry || ! entry->mMeta ||
-                (entry->mAuth != 0) != authFlag ||
-                entry->mAuth != entry->mMeta->GetAuthContext()) {
-            die("recovery: invalid meta server entry");
-        }
-        return new RSReplicatorImpl(
-            op,
-            (authFlag && entry->mAuthUpdateCount != sAuthUpdateCount) ?
-                const_cast<uint64_t*>(&entry->mAuthUpdateCount) : 0,
-            clientThread,
-            *entry->mMeta
-        );
-    }
-    static void Shutdown()
-    {
-        CancelAll();
-        StopMetaServers();
-    }
-
-private:
-    KfsNetClient&        mMetaServer;
-    uint64_t* const      mAuthUpdateCount;
-    Reader               mReader;
-    IOBuffer             mReadTail;
-    const ServerLocation mLocation;
-    const int            mReadSize;
-    bool                 mReadInFlightFlag;
-    bool                 mPendingCloseFlag;
-
-    RSReplicatorImpl(
-        ReplicateChunkOp* op,
-        uint64_t*         authUpdateCount,
-        ClientThread*     clientThread,
-        KfsNetClient&     metaServer)
-        : RSReplicatorEntry(clientThread),
-          ReplicatorImpl(op, RemoteSyncSMPtr()),
-          Reader::Completion(),
-          mMetaServer(metaServer),
-          mAuthUpdateCount(authUpdateCount),
-          mReader(
-            metaServer,
-            this,
-            sRSReaderMaxRetryCount,
-            sRSReaderTimeSecBetweenRetries,
-            sRSReaderOpTimeoutSec,
-            sRSReaderIdleTimeoutSec,
-            sRSReaderMaxChunkReadSize,
-            sRSReaderLeaseRetryTimeout,
-            sRSReaderLeaseWaitTimeout,
-            MakeLogPrefix(mChunkId),
-            GetSeqNum()
-        ),
-        mReadTail(),
-        mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
-        mReadSize(GetReadSize(*op)),
-        mReadInFlightFlag(false),
-        mPendingCloseFlag(false)
-    {
-        assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
-        mReadOp.clnt = 0; // Should not queue read op.
-    }
-    virtual ~RSReplicatorImpl()
-    {
-        KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
-            " chunk: " << mChunkId <<
-        KFS_LOG_EOM;
-        mReader.Register(0);
-        mReader.Shutdown();
-    }
-    virtual void Cancel()
-    {
-        Enqueue(kCancel);
-    }
-    virtual void Read()
-    {
-        Enqueue(kRead);
-    }
-    virtual ByteCount GetBufferBytesRequired() const
-    {
-        return (mReadSize * (mOwner ? mOwner->numStripes + 1 : 0));
     }
     template<typename T> static void ReadVal(IOBuffer& buf, T& val)
     {
@@ -1447,57 +1486,6 @@ int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
 bool RSReplicatorImpl::sRSReaderPanicOnInvalidChunkFlag            = false;
 uint64_t   RSReplicatorImpl::sAuthUpdateCount = 0;
 Properties RSReplicatorImpl::sAuthParams;
-
-void
-RSReplicatorEntry::Handle()
-{
-    RSReplicatorImpl& impl = *static_cast<RSReplicatorImpl*>(this);
-    switch (mState) {
-        case kCancel:
-            impl.HandleCancel();
-            break;
-        case kStart:
-            impl.HandleStart();
-            break;
-        case kRead:
-            impl.HandleRead();
-            break;
-        default:
-            die("recovery: invalid state");
-            break;
-    }
-}
-
-void
-RSReplicatorEntry::Enqueue(
-    RSReplicatorEntry::State inState)
-{
-    if (inState == kCancel) {
-        if (mState == kNone) {
-            mState = inState;
-            assert(! mClientThreadPtr ||
-                ! ClientThread::GetCurrentClientThreadPtr());
-            Handle();
-            return;
-        }
-        if (mState == kCancel) {
-            return;
-        }
-    } else if (inState == kStart && mState != kNone) {
-        die("recovery: invalid state transtion to start");
-        return;
-    } else if (mState == kCancel) {
-        die("recovery: invalid state transtion from cancel");
-        return;
-    }
-    mState = inState;
-    if (mClientThreadPtr &&
-            mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
-        Enqueue();
-    } else {
-        Handle();
-    }
-}
 
 int
 Replicator::GetNumReplications()
