@@ -1141,14 +1141,14 @@ public:
     }
 
 private:
-    KfsNetClient&            mMetaServer;
-    uint64_t* const          mAuthUpdateCount;
-    Reader                   mReader;
-    IOBuffer                 mReadTail;
-    const ServerLocation     mLocation;
-    const int                mReadSize;
-    bool                     mReadInFlightFlag;
-    bool                     mPendingCloseFlag;
+    KfsNetClient&        mMetaServer;
+    uint64_t* const      mAuthUpdateCount;
+    Reader               mReader;
+    IOBuffer             mReadTail;
+    const ServerLocation mLocation;
+    const int            mReadSize;
+    bool                 mReadInFlightFlag;
+    bool                 mPendingCloseFlag;
 
     RSReplicatorImpl(
         ReplicateChunkOp* op,
