@@ -1513,7 +1513,7 @@ AtomicRecordAppender::AppendBegin(
         op->origClnt = op->clnt;
         op->clnt     = this;
     }
-    if (mFlushStartByteCount < 0 && status == 0 && ! masterAckflag) {
+    if (status == 0 && ! masterAckflag) {
         // Write id table is updated only in the case when execution is
         // committed. Otherwise the op is discarded, and treated like
         // it was never received.
@@ -1533,7 +1533,9 @@ AtomicRecordAppender::AppendBegin(
         // The price is "undoing" writes, which might be necessary in the case of
         // replication failure. Undoing writes is a simple truncate, besides the
         // failures aren't expected to be frequent enough to matter.
-        mFlushStartByteCount = mBuffer.BytesConsumable();
+        if (mFlushStartByteCount < 0) {
+            mFlushStartByteCount = mBuffer.BytesConsumable();
+        }
         // Always try to append to the last buffer.
         // Flush() keeps track of the write offset and "slides" buffers
         // accordingly.
