@@ -283,7 +283,7 @@ public:
                     ! GetConnection(inClient)->IsWriteReady();
                 const int theRet = ClientThreadListEntry::HandleRequest(
                     inClient, inCode, inDataPtr);
-                if (theFlushFlag) {
+                if (theFlushFlag && theRet == 0) {
                     GetConnection(inClient)->Flush();
                 }
                 return theRet;
@@ -328,10 +328,13 @@ public:
             }
         }
         StMutexLocker theLocker(mOuter);
-        ClientThreadListEntry::HandleRequest(inClient, inCode, inDataPtr);
+        const int theRet = ClientThreadListEntry::HandleRequest(
+            inClient, inCode, inDataPtr);
         theLocker.Unlock();
-        GetConnection(inClient)->StartFlush();
-        return 0;
+        if (theRet == 0) {
+            GetConnection(inClient)->StartFlush();
+        }
+        return theRet;
     }
     void Granted(
         ClientSM& inClient)
@@ -442,6 +445,9 @@ private:
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
+            if (&theCur == thePtr) {
+                thePtr = 0;
+            }
             if (ClientThreadListEntry::HandleRequest(
                     inClient, EVENT_CMD_DONE, &theCur) != 0) {
                 QCRTASSERT(! thePtr);
@@ -471,6 +477,9 @@ private:
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
             GetNextPtr(theCur) = 0;
+            if (&theCur == thePtr) {
+                thePtr = 0;
+            }
             if (theOkFlag) {
                 theOkFlag = ClientThreadRemoteSyncListEntry::Enqueue(
                     inSyncSM, theCur);
