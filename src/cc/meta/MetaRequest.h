@@ -1695,11 +1695,12 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     TokenSeq                            tokenSeq;
     bool                                clientCSAllowClearTextFlag;
     time_t                              issuedTime;
-    int                                 validForTime;
+    uint32_t                            validForTime;
     CryptoKeys::KeyId                   keyId;
     CryptoKeys::Key                     key;
     MetaChunkVersChange*                versChange;
     FileRecoveryInFlightCount::iterator recovIt;
+    string                              metaServerAccess;
     MetaChunkReplicate(seq_t n, const ChunkServerPtr& s,
             fid_t f, chunkId_t c, const ServerLocation& loc,
             const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier,
@@ -1726,7 +1727,8 @@ struct MetaChunkReplicate: public MetaChunkRequest {
           keyId(),
           key(),
           versChange(0),
-          recovIt(it)
+          recovIt(it),
+          metaServerAccess()
         {}
     virtual ~MetaChunkReplicate() { assert(! versChange); }
     virtual void handle();

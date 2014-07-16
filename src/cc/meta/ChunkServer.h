@@ -998,6 +998,8 @@ protected:
     bool               mCryptoKeyValidFlag;
     CryptoKeys::KeyId  mCryptoKeyId;
     CryptoKeys::Key    mCryptoKey;
+    string             mRecoveryMetaAccess;
+    time_t             mRecoveryMetaAccessEndTime;
     MetaRequest*       mPendingResponseOpsHeadPtr;
     MetaRequest*       mPendingResponseOpsTailPtr;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];

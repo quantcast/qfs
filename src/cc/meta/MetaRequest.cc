@@ -5030,17 +5030,21 @@ MetaChunkReplicate::request(ostream& os)
             );
         } else {
             rs << "CS-access: ";
-            DelegationToken::WriteTokenAndSessionKey(
-                rs,
-                authUid,
-                tokenSeq,
-                keyId,
-                issuedTime,
-                DelegationToken::kChunkServerFlag,
-                validForTime,
-                key.GetPtr(),
-                key.GetSize()
-            );
+            if (metaServerAccess.empty()) {
+                DelegationToken::WriteTokenAndSessionKey(
+                    rs,
+                    authUid,
+                    tokenSeq,
+                    keyId,
+                    issuedTime,
+                    DelegationToken::kChunkServerFlag,
+                    validForTime,
+                    key.GetPtr(),
+                    key.GetSize()
+                );
+            } else {
+                rs.write(metaServerAccess.data(), metaServerAccess.size());
+            }
         }
         rs << "\r\n";
     }

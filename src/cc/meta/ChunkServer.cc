@@ -405,6 +405,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mCryptoKeyValidFlag(false),
       mCryptoKeyId(),
       mCryptoKey(),
+      mRecoveryMetaAccess(),
+      mRecoveryMetaAccessEndTime(),
       mPendingResponseOpsHeadPtr(0),
       mPendingResponseOpsTailPtr(0),
       mStorageTiersInfo(),
@@ -1939,8 +1941,8 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     }
     if (gLayoutManager.IsClientCSAuthRequired()) {
         r->issuedTime                 = TimeNow();
-        r->validForTime               =
-            gLayoutManager.GetCSAccessValidForTime();
+        r->validForTime               = (uint32_t)max(0,
+            gLayoutManager.GetCSAccessValidForTime());
         r->clientCSAllowClearTextFlag =
             gLayoutManager.IsClientCSAllowClearText();
         if (mAuthUid == kKfsUserNone) {
@@ -1961,12 +1963,31 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
             }
         } else {
             const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
-            if (! keys || ! keys->GetCurrentKey(r->keyId, r->key)) {
+            if (! keys || ! keys->GetCurrentKey(
+                    r->keyId, r->key, r->validForTime)) {
                 r->status    = -EFAULT;
                 r->statusMsg = "has no current valid crypto key";
                 r->resume();
                 return -EFAULT;
             }
+            if (mRecoveryMetaAccess.empty() || mRecoveryMetaAccessEndTime <
+                    r->issuedTime + max(5 * 60, sReplicationTimeout * 2)) {
+                ostringstream& os = GetTmpOStringStream();
+                DelegationToken::WriteTokenAndSessionKey(
+                    os,
+                    r->authUid,
+                    r->tokenSeq,
+                    r->keyId,
+                    r->issuedTime,
+                    DelegationToken::kChunkServerFlag,
+                    r->validForTime,
+                    r->key.GetPtr(),
+                    r->key.GetSize()
+                );
+                mRecoveryMetaAccessEndTime = r->issuedTime + r->validForTime;
+                mRecoveryMetaAccess        = os.str();
+            }
+            r->metaServerAccess = mRecoveryMetaAccess;
         }
     } else {
         r->validForTime = 0;
