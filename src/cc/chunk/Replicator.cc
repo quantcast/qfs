@@ -1004,6 +1004,11 @@ public:
                 // Acquire lock here to serialize access to sAuthParams.
                 StMutexLocker lock(*this);
                 if (*mAuthUpdateCount != sAuthUpdateCount) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        "recovery: updating authentication context" <<
+                        " update count: " << *mAuthUpdateCount <<
+                        " / " << sAuthUpdateCount <<
+                    KFS_LOG_EOM;
                     ClientAuthContext* const kOtherCtx   = 0;
                     const bool               kVerifyFlag = false;
                     mChunkMetadataOp.status = authContext->SetParameters(
@@ -1113,6 +1118,7 @@ public:
                 sAuthUpdateCount++;
             }
             tmp.Copy(sessionKey, sessionKeyLen);
+            val = sAuthParams.getValue(kPskKeyParam);
             if (! val || *val != tmp) {
                 sAuthParams.setValue(kPskKeyParam, tmp);
                 sAuthUpdateCount++;
