@@ -1318,14 +1318,14 @@ private:
             clientThread = 0;
             return sMetaServers.mServers;
         }
-        static int lastIdx = 0;
-        if (min(sMaxRecoveryThreads, sMaxCount) <= ++lastIdx) {
-            lastIdx = sMaxCount <= 1 ? 0 : 1;
+        static int sLastIdx = 0;
+        if (min(sMaxRecoveryThreads, sMaxCount) <= ++sLastIdx) {
+            sLastIdx = (sMaxCount <= 1 || sMaxRecoveryThreads <= 0) ? 0 : 1;
         }
-        clientThread = lastIdx <= 0 ? 0 :
-            gClientManager.GetClientThread(lastIdx - 1);
+        clientThread = sLastIdx <= 0 ? 0 :
+            gClientManager.GetClientThread(sLastIdx - 1);
         return ((authFlag ? sMetaServersAuth : sMetaServers
-            ).mServers + lastIdx);
+            ).mServers + sLastIdx);
     }
     static const char* MakeLogPrefix(kfsChunkId_t chunkId)
     {
