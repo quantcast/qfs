@@ -47,7 +47,7 @@ public:
     ~Logger()
         {}
 
-    void Init(const string &logDir) {
+    void Init(const string& logDir) {
         mLogDir = logDir;
     }
     void Start() {}

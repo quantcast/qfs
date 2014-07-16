@@ -27,17 +27,19 @@
 #ifndef _CHUNKSERVER_H
 #define _CHUNKSERVER_H
 
-#include "ChunkManager.h"
-#include "ClientManager.h"
-#include "ClientSM.h"
-#include "MetaServerSM.h"
+#include "common/kfsdecls.h"
 #include "RemoteSyncSM.h"
+
+#include <list>
+#include <vector>
+#include <string>
 
 class QCMutex;
 
 namespace KFS
 {
 using std::string;
+using std::vector;
 using std::list;
 
 // Chunk server globals and main event loop.
@@ -53,7 +55,10 @@ public:
         {}
 
     bool Init(int clientAcceptPort, const string& serverIp, int threadCount);
-    bool MainLoop();
+    bool MainLoop(
+        const vector<string>& chunkDirs,
+        const Properties&     props,
+        const string&         logDir);
     bool IsLocalServer(const ServerLocation& location) const {
         return mLocation == location;
     }
@@ -87,7 +92,6 @@ public:
     int GetNumOps() const {
         return mOpCount;
     }
-    void SendTelemetryReport(KfsOp_t op, double timeSpent);
     bool CanUpdateServerIp() const {
         return mUpdateServerIpFlag;
     }

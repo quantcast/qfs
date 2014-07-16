@@ -30,6 +30,7 @@
 #include "Logger.h"
 #include "AtomicRecordAppender.h"
 #include "RemoteSyncSM.h"
+#include "MetaServerSM.h"
 
 #include "common/Properties.h"
 #include "common/MdStream.h"
@@ -559,10 +560,8 @@ ChunkServerMain::Run(int argc, char **argv)
                 mMD5Sum,
                 mProp) == 0 &&
             gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname,
-                mClientThreadCount) &&
-            gChunkManager.Init(mChunkDirs, mProp)) {
-        gLogger.Init(mLogDir);
-        ret = gChunkServer.MainLoop() ? 0 : 1;
+                mClientThreadCount)) {
+        ret = gChunkServer.MainLoop(mChunkDirs, mProp, mLogDir) ? 0 : 1;
     }
     NetErrorSimulatorConfigure(globalNetManager());
     err = SslFilter::Cleanup();

@@ -41,6 +41,8 @@
 #include "Logger.h"
 #include "BufferManager.h"
 #include "DiskIo.h"
+#include "ChunkManager.h"
+#include "MetaServerSM.h"
 #include "ClientManager.h"
 #include "ClientThread.h"
 

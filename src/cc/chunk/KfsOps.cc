@@ -37,7 +37,9 @@
 #include "AtomicRecordAppender.h"
 #include "ClientSM.h"
 #include "utils.h"
-
+#include "MetaServerSM.h"
+#include "ClientManager.h"
+\
 #include "common/Version.h"
 #include "common/kfstypes.h"
 #include "common/time.h"
@@ -3365,9 +3367,6 @@ WriteOp::~WriteOp()
         // writeid
         const int64_t kMicroSecs = 1000 * 1000;
         const int64_t timeSpent = int64_t(enqueueTime) * kMicroSecs - startTime;
-        if (timeSpent > 5 * kMicroSecs) {
-            gChunkServer.SendTelemetryReport(CMD_WRITE, timeSpent);
-        }
         // we don't want write id's to pollute stats
         startTime = microseconds();
         OpCounters::WriteDuration(timeSpent);

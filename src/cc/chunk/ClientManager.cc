@@ -215,7 +215,7 @@ ClientManager::BindAcceptor(
     const bool kBindOnlyFlag = true;
     mAcceptorPtr = new Acceptor(inPort, this, kBindOnlyFlag);
     const bool theOkFlag = mAcceptorPtr->IsAcceptorStarted();
-    if (theOkFlag && 0 < mThreadCount) {
+    if (theOkFlag && 0 < inThreadCount) {
         static QCMutex sOpsMutex;
         KfsOp::SetMutex(&sOpsMutex);
         mThreadsPtr  = ClientThread::CreateThreads(inThreadCount, outMutexPtr);

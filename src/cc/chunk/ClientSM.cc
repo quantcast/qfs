@@ -32,6 +32,7 @@
 #include "KfsOps.h"
 #include "AtomicRecordAppender.h"
 #include "DiskIo.h"
+#include "ClientManager.h"
 
 #include "common/MsgLogger.h"
 #include "common/time.h"

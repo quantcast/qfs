@@ -27,9 +27,13 @@
 #include "ChunkServer.h"
 #include "ClientThread.h"
 #include "Replicator.h"
+#include "ClientManager.h"
+#include "ChunkManager.h"
+#include "MetaServerSM.h"
 #include "Logger.h"
 #include "utils.h"
 
+#include "common/MsgLogger.h"
 #include "kfsio/Globals.h"
 #include "qcdio/qcstutils.h"
 
@@ -44,11 +48,6 @@ using libkfsio::globalNetManager;
 
 
 ChunkServer gChunkServer;
-
-void
-ChunkServer::SendTelemetryReport(KfsOp_t /* op */, double /* timeSpent */)
-{
-}
 
 bool
 ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
@@ -130,11 +129,18 @@ private:
 };
 
 bool
-ChunkServer::MainLoop()
+ChunkServer::MainLoop(
+    const vector<string>& chunkDirs,
+    const Properties&     props,
+    const string&         logDir)
 {
     QCStMutexLocker lock(mMutex);
 
     assert(! mMutex || ! ClientThread::GetCurrentClientThreadPtr());
+    if (! gChunkManager.Init(chunkDirs, props)) {
+        return false;
+    }
+    gLogger.Init(logDir);
     if (gChunkManager.Restart() != 0) {
         return false;
     }

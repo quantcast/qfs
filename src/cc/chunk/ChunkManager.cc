@@ -24,18 +24,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include <dirent.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <sys/types.h>
-
-#include "common/MsgLogger.h"
-#include "common/kfstypes.h"
-#include "common/nofilelimit.h"
-#include "common/IntToString.h"
-
 #include "ChunkManager.h"
 #include "ChunkServer.h"
 #include "MetaServerSM.h"
@@ -45,11 +33,26 @@
 #include "Logger.h"
 #include "DiskIo.h"
 #include "Replicator.h"
+#include "BufferManager.h"
+#include "ClientManager.h"
+#include "ClientSM.h"
+
+#include "common/MsgLogger.h"
+#include "common/kfstypes.h"
+#include "common/nofilelimit.h"
+#include "common/IntToString.h"
 
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
 #include "qcdio/QCUtils.h"
+
+#include <dirent.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 #include <fstream>
 #include <sstream>
