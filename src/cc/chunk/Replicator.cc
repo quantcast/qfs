@@ -1335,7 +1335,7 @@ private:
             ret[i].mMeta = new KfsNetClient(
                 i == 0 ?
                     globalNetManager() :
-                    gClientManager.GetClientThread(i)->GetNetManager(),
+                    gClientManager.GetClientThread(i - 1)->GetNetManager(),
                 string(), // inHost
                 0,        // inPort
                 sRSReaderMetaMaxRetryCount,
