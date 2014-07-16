@@ -41,6 +41,7 @@ using std::ifstream;
 using std::cerr;
 using std::cout;
 using std::endl;
+using std::pair;
 
 inline static int
 AsciiCharToLower(int c)
@@ -431,15 +432,21 @@ Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
 {
     size_t ret = 0;
     if (prefix && 0 < prefixLen) {
-        for (PropMap::const_iterator iter = propmap.lower_bound(
+        for (PropMap::const_iterator it = propmap.lower_bound(
                     String(prefix, prefixLen));
-                iter != propmap.end(); iter++) {
-            const String& key = iter->first;
+                it != propmap.end(); it++) {
+            const String& key = it->first;
             if (! KeyStartsWith(key, prefix, prefixLen)) {
                 break;
             }
-            props.propmap[key] = iter->second;
-            ret++;
+            pair<PropMap::iterator, bool> res = props.propmap.insert(
+                make_pair(key, it->second));
+            if (res.second) {
+                ret++;
+            } else if (res.first->second != it->second) {
+                res.first->second = it->second;
+                ret++;
+            }
         }
         return ret;
     }
@@ -448,8 +455,14 @@ Properties::copyWithPrefix(const char* prefix, size_t prefixLen,
             ++it) {
         const String& key = it->first;
         if (prefixLen <= key.size()) {
-            props.propmap[key] = it->second;
-            ret++;
+            pair<PropMap::iterator, bool> res = props.propmap.insert(
+                make_pair(key, it->second));
+            if (res.second) {
+                ret++;
+            } else if (res.first->second != it->second) {
+                res.first->second = it->second;
+                ret++;
+            }
         }
     }
     return ret;
