@@ -275,10 +275,13 @@ public:
         QCStMutexLocker lock(mMutex);
         MakeChunkStable(op);
     }
-    bool CheckChunkStable() const
+    bool IsChunkStable() const
     {
-        QCStMutexLocker lock(mMutex);
-        return IsChunkStable();
+        return (
+            mState != kStateOpen &&
+            mState != kStateClosed &&
+            mState != kStateReplicationFailed
+        );
     }
     int GetAlignmentAndFwdFlag(bool& forwardFlag) const
     {
@@ -329,11 +332,8 @@ public:
     int  EventHandler(int code, void *data);
     void DeleteChunk();
     bool Delete();
-    bool IsOpenEx() const
-    {
-        QCStMutexLocker lock(mMutex);
-        return IsOpen();
-    }
+    bool IsOpen() const
+        { return (mState == kStateOpen); }
     template<typename T>
     int  CheckParameters(
         int64_t chunkVersion, uint32_t numServers, const T& servers,
@@ -435,6 +435,7 @@ private:
     bool                    mMakeStableSucceededFlag:1;
     bool                    mFirstFwdOpFlag:1;
     bool                    mAppendInProgressFlag:1;
+    bool                    mPendingBadChecksumFlag:1;
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
     WriteIdState            mWriteIdState;
@@ -452,8 +453,6 @@ private:
     ~AtomicRecordAppender();
     static inline time_t Now()
         { return libkfsio::globalNetManager().Now(); }
-    bool IsOpen() const
-        { return (mState == kStateOpen); }
     void SetState(State state, bool notifyIfLostFlag = true);
     const char* GetStateAsStr() const
         { return GetStateAsStr(mState); }
@@ -513,14 +512,6 @@ private:
     void DecAppendersWithWidCount()
         { gAtomicRecordAppendManager.DecAppendersWithWidCount(); }
     bool DeleteSelf();
-    bool IsChunkStable() const
-    {
-        return (
-            mState != kStateOpen &&
-            mState != kStateClosed &&
-            mState != kStateReplicationFailed
-        );
-    }
     void BeginMakeStable(BeginMakeChunkStableOp* op = 0);
     void MakeChunkStable(MakeChunkStableOp* op = 0);
     void AppendBegin(RecordAppendOp *op, int replicationPos,
@@ -734,6 +725,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mMakeStableSucceededFlag(false),
       mFirstFwdOpFlag(false),
       mAppendInProgressFlag(false),
+      mPendingBadChecksumFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
       mWriteIdState(),
@@ -1323,6 +1315,9 @@ AtomicRecordAppender::AppendBegin(
     } else if (mState != kStateOpen) {
         msg    = GetStateAsStr();
         status = kErrProtocolState;
+    } else if (mPendingBadChecksumFlag) {
+        msg    = "pending replication failed";
+        status = kErrProtocolState;
     } else if (mPeerLocation != peerLoc) {
         status = kErrParameters;
         msg    = "invalid replication chain peer: " +
@@ -1502,6 +1497,9 @@ AtomicRecordAppender::AppendBegin(
                 msg += " actual: ";
                 AppendDecIntToString(msg, checksum);
                 status = kErrBadChecksum;
+                if (! IsMaster()) {
+                    mPendingBadChecksumFlag = true;
+                }
             }
         }
         if (status == 0) {
@@ -1584,12 +1582,6 @@ AtomicRecordAppender::AppendBegin(
     if (cliThread) {
         Relock(*cliThread);
     }
-    if (status == kErrBadChecksum) {
-        if (! IsMaster()) {
-            SetState(kStateReplicationFailed);
-        }
-        Cntrs().mChecksumErrorCount++;
-    }
     RunPendingSubmitQueue();
 }
 
@@ -1650,9 +1642,19 @@ AtomicRecordAppender::RunPendingSubmitQueue()
                     gAtomicRecordAppendManager.GetReplicationTimeoutSec());
             }
         } else {
-            if (statusOkFlag && kStateOpen != mState) {
-                cur.status    = kErrStatusInProgress;
-                cur.statusMsg = "no longer open for append";
+            if (statusOkFlag) {
+                if (kStateOpen != mState) {
+                    cur.status    = kErrStatusInProgress;
+                    cur.statusMsg = "no longer open for append";
+                }
+            } else {
+                if (cur.status == kErrBadChecksum) {
+                    if (! IsMaster()) {
+                        mPendingBadChecksumFlag = false;
+                        SetState(kStateReplicationFailed);
+                    }
+                    Cntrs().mChecksumErrorCount++;
+                }
             }
         }
         WAPPEND_LOG_STREAM(cur.status == 0 ?
@@ -3095,7 +3097,7 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
 {
     assert(mActiveAppendersCount >= 0);
     if (appender) {
-        if (appender->CheckChunkStable()) {
+        if (appender->IsChunkStable()) {
             assert(mActiveAppendersCount > 0);
             mActiveAppendersCount--;
         } else {
@@ -3242,7 +3244,7 @@ AtomicRecordAppendManager::AllocateChunk(
                 UpdateAppenderFlushLimit(*res);
             }
         }
-    } else if ((*res)->IsOpenEx()) {
+    } else if ((*res)->IsOpen()) {
         op->status = (*res)->CheckParameters(
             op->chunkVersion, op->numServers,
             op->servers, replicationPos, peerLoc, chunkFileHandle, op->statusMsg);
@@ -3329,7 +3331,7 @@ bool
 AtomicRecordAppendManager::IsChunkStable(kfsChunkId_t chunkId) const
 {
     AtomicRecordAppender** const appender = mAppenders.Find(chunkId);
-    return (! appender || (*appender)->CheckChunkStable());
+    return (! appender || (*appender)->IsChunkStable());
 }
 
 bool
