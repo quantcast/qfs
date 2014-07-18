@@ -188,7 +188,7 @@ public:
         { mBuf[sizeof(mBuf) / sizeof(mBuf[0]) - 1] = 0; }
     const char* GetPtr() const
         { return mPtr; }
-    size_t GetSize() const
+    unsigned long GetSize() const
         { return (mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1 - mPtr); }
 private:
     char        mBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
