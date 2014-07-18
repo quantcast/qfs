@@ -1471,7 +1471,12 @@ AtomicRecordAppender::AppendBegin(
                     " " << op->Show() <<
                 KFS_LOG_EOM;
                 FatalError();
-                op->status = kErrFailedState;
+                // The following should never be reached, unless FatalError()
+                // will be changed in the future no to abort() the process.
+                op->status = kErrBadChecksum;
+                if (! IsMaster()) {
+                    mPendingBadChecksumFlag = true;
+                }
             } else {
                 if (op->checksum == checksum) {
                     if (headChksumFlag) {
