@@ -1472,33 +1472,27 @@ AtomicRecordAppender::AppendBegin(
                 KFS_LOG_EOM;
                 FatalError();
                 op->status = kErrFailedState;
-                if (cliThread) {
-                    Relock(*cliThread);
-                }
-                if (! IsMaster()) {
-                    SetState(kStateReplicationFailed);
-                }
-                return;
-            }
-            if (op->checksum == checksum) {
-                if (headChksumFlag) {
-                    mTmpChecksums[prevSize - 1] = 0 < rem ?
-                        ChecksumBlocksCombine(
-                            lastChksum, mTmpChecksums[prevSize - 1], rem) :
-                        lastChksum;
-                }
             } else {
-                mTmpChecksums.resize(prevSize);
-                if (headChksumFlag) {
-                    mTmpChecksums[prevSize - 1] = lastChksum;
-                }
-                msg = "checksum mismatch: received: ";
-                AppendDecIntToString(msg, op->checksum);
-                msg += " actual: ";
-                AppendDecIntToString(msg, checksum);
-                status = kErrBadChecksum;
-                if (! IsMaster()) {
-                    mPendingBadChecksumFlag = true;
+                if (op->checksum == checksum) {
+                    if (headChksumFlag) {
+                        mTmpChecksums[prevSize - 1] = 0 < rem ?
+                            ChecksumBlocksCombine(
+                                lastChksum, mTmpChecksums[prevSize - 1], rem) :
+                            lastChksum;
+                    }
+                } else {
+                    mTmpChecksums.resize(prevSize);
+                    if (headChksumFlag) {
+                        mTmpChecksums[prevSize - 1] = lastChksum;
+                    }
+                    msg = "checksum mismatch: received: ";
+                    AppendDecIntToString(msg, op->checksum);
+                    msg += " actual: ";
+                    AppendDecIntToString(msg, checksum);
+                    status = kErrBadChecksum;
+                    if (! IsMaster()) {
+                        mPendingBadChecksumFlag = true;
+                    }
                 }
             }
         }
@@ -1741,7 +1735,7 @@ AtomicRecordAppender::OpDone(RecordAppendOp* op)
                 Cntrs().mReplicationErrorCount++;
             }
         }
-        KFS::SubmitOpResponse(op);
+        SubmitOpResponse(op);
     }
 }
 
@@ -2154,7 +2148,7 @@ AtomicRecordAppender::SubmitResponse(BeginMakeChunkStableOp& op)
     if (op.status < 0) {
         Cntrs().mBeginMakeStableErrorCount++;
     }
-    KFS::SubmitOpResponse(&op);
+    SubmitOpResponse(&op);
 }
 
 void
@@ -2400,7 +2394,7 @@ AtomicRecordAppender::SubmitResponse(MakeChunkStableOp& op)
                 Cntrs().mMakeStableChecksumErrorCount++;
             }
         }
-        KFS::SubmitOpResponse(&op);
+        SubmitOpResponse(&op);
     }
 }
 
@@ -2542,7 +2536,7 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
             } else {
                 Cntrs().mMakeStableCount++;
                 Cntrs().mMakeStableErrorCount++;
-                KFS::SubmitOpResponse(op);
+                SubmitOpResponse(op);
             }
             return;
         }
@@ -3514,7 +3508,7 @@ AtomicRecordAppendManager::AppendBegin(
         op->statusMsg = "chunk does not exist or not open for append";
         mCounters.mAppendCount++;
         mCounters.mAppendErrorCount++;
-        KFS::SubmitOpResponse(op);
+        SubmitOpResponse(op);
     } else {
         (*appender)->AppendChunkBegin(op, replicationPos, peerLoc);
     }
