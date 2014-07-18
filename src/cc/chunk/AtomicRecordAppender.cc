@@ -148,8 +148,6 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 #include <algorithm>
 #include <vector>
 #include <map>
-#include <iomanip>
-#include <sstream>
 #include <cerrno>
 
 namespace KFS {
@@ -160,7 +158,6 @@ using std::make_pair;
 using std::min;
 using std::max;
 using std::string;
-using std::ws;
 
 #define WAPPEND_LOG_STREAM_PREFIX << "W" << mInstanceNum << "A "
 #define WAPPEND_LOG_STREAM(pri)  KFS_LOG_STREAM(pri)  WAPPEND_LOG_STREAM_PREFIX
