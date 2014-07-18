@@ -150,7 +150,8 @@ private:
     inline static int HandleRequest(
         ClientSM& inClient,
         int       inCode,
-        void*     inDataPtr);
+        void*     inDataPtr,
+        bool&     outRecursionFlag);
     inline static int HandleGranted(
         ClientSM& inClient);
     inline static const NetConnectionPtr& GetConnection(
@@ -427,8 +428,10 @@ inline int
 ClientThreadListEntry::HandleRequest(
     ClientSM& inClient,
     int       inCode,
-    void*     inDataPtr)
+    void*     inDataPtr,
+    bool&     outRecursionFlag)
 {
+    outRecursionFlag = 0 < inClient.mRecursionCnt;
     return inClient.HandleRequest(inCode, inDataPtr);
 }
 

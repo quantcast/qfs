@@ -284,10 +284,12 @@ public:
     {
         if (inCode == EVENT_CMD_DONE) {
             if (GetCurrentClientThreadPtr() == &mOuter) {
-                const bool theFlushFlag =
+                const bool theFlushFlag    =
                     ! GetConnection(inClient)->IsWriteReady();
-                const int theRet = ClientThreadListEntry::HandleRequest(
-                    inClient, inCode, inDataPtr);
+                bool      theRecursionFlag = false;
+                const int theRet           =
+                    ClientThreadListEntry::HandleRequest(
+                        inClient, inCode, inDataPtr, theRecursionFlag);
                 if (theFlushFlag && theRet == 0) {
                     GetConnection(inClient)->Flush();
                 }
@@ -333,10 +335,11 @@ public:
             }
         }
         StMutexLocker theLocker(mOuter);
-        const int theRet = ClientThreadListEntry::HandleRequest(
-            inClient, inCode, inDataPtr);
+        bool      theRecursionFlag = false;
+        const int theRet           = ClientThreadListEntry::HandleRequest(
+            inClient, inCode, inDataPtr, theRecursionFlag);
         theLocker.Unlock();
-        if (theRet == 0) {
+        if (theRet == 0 && ! theRecursionFlag) {
             GetConnection(inClient)->StartFlush();
         }
         return theRet;
@@ -453,8 +456,9 @@ private:
             if (&theCur == thePtr) {
                 thePtr = 0;
             }
+            bool theRecursionFlag = false;
             if (ClientThreadListEntry::HandleRequest(
-                    inClient, EVENT_CMD_DONE, &theCur) != 0) {
+                    inClient, EVENT_CMD_DONE, &theCur, theRecursionFlag) != 0) {
                 QCRTASSERT(! thePtr);
                 return false; // Deleted.
             }
