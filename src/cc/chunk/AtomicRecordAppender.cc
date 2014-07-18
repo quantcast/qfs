@@ -1473,7 +1473,7 @@ AtomicRecordAppender::AppendBegin(
                 FatalError();
                 // The following should never be reached, unless FatalError()
                 // will be changed in the future no to abort() the process.
-                op->status = kErrBadChecksum;
+                status = kErrBadChecksum;
                 if (! IsMaster()) {
                     mPendingBadChecksumFlag = true;
                 }
