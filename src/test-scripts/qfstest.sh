@@ -80,6 +80,7 @@ clientrootprop="$testdir/clientroot.prp"
 certsdir=${certsdir-"$testdir/certs"}
 minrequreddiskspace=${minrequreddiskspace-6.5e9}
 minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
+chunkserverclithreads=${chunkserverclithreads-3}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -367,6 +368,7 @@ chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
+chunkServer.clientThreadCount = $chunkserverclithreads
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF

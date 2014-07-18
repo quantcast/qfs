@@ -86,6 +86,7 @@ mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 chunkdirerrsim=0
 chunkdirerrsimall=0
+chunkserverclithreads=${chunkserverclithreads-3}
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -357,6 +358,7 @@ metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 
 metaServer.appendPlacementIgnoreMasterSlave = 1
+chunkServer.clientThreadCount = $chunkserverclithreads
 EOF
 
 if [ x"$auth" = x'yes' ]; then
