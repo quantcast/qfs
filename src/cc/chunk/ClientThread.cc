@@ -128,7 +128,11 @@ public:
         mTmpSyncSMQueue.reserve(1 << 10);
     }
     ~ClientThreadImpl()
-        { ClientThreadImpl::Stop(); }
+    {
+        if (IsStarted()) {
+            ClientThreadImpl::Stop();
+        }
+    }
     void Add(
         ClientSM& inClient)
     {
@@ -178,6 +182,7 @@ public:
         Wakeup();
 
         QCStMutexUnlocker theUnlocker(GetMutex());
+        QCASSERT(! GetMutex().IsOwned());
         mThread.Join();
     }
     virtual void DispatchEnd()
