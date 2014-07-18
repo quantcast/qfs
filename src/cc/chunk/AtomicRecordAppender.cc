@@ -583,13 +583,21 @@ private:
         uint32_t numServers, const T& servers)
     {
         StringBufT<256>   ret;
-        BufferInputStream is(servers.data(), servers.size());
-        string            token;
-        for (uint32_t i = 0; is && i < numServers; ) {
-            is >> ws >> token; // Host
-            ret.Append(token).Append(" ");
-            is >> ws >> token; // Port
-            ret.Append(token).Append(++i < numServers ? " -1 " : " -1"); // Write id.
+        const char*       ptr = servers.data();
+        const char* const end = ptr + servers.size();
+        for (uint32_t i = 0; i < numServers; ) {
+            // Host Port
+            for (int k = 0; k < 2; k++) {
+                while (ptr < end && (*ptr & 0xFF) <= ' ') {
+                    ++ptr;
+                }
+                const char* const sptr = ptr;
+                while (ptr < end && ' ' < (*ptr & 0xFF)) {
+                    ++ptr;
+                }
+                ret.Append(sptr, ptr - sptr).Append(' ');
+            }
+            ret.Append(++i < numServers ? "-1 " : "-1");  // Write id.
         }
         return ret;
     }
