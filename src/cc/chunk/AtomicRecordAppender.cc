@@ -136,6 +136,7 @@ Then meta server updates list of chunk servers hosting the chunk based on the
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
 #include "common/RequestParser.h"
+#include "common/IntToString.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/ChunkAccessToken.h"
@@ -159,8 +160,6 @@ using std::make_pair;
 using std::min;
 using std::max;
 using std::string;
-using std::ostringstream;
-using std::istringstream;
 using std::ws;
 
 #define WAPPEND_LOG_STREAM_PREFIX << "W" << mInstanceNum << "A "
@@ -317,6 +316,11 @@ public:
     }
     void UpdateFlushLimit(int flushLimit)
     {
+        if (mAppendInProgressFlag) {
+            // Do not attempt to acquire the mutex, as doing so will reduce
+            // the number of concurrent checksum calculations / appends.
+            return;
+        }
         QCStMutexLocker lock(mMutex);
         if (mBuffer.BytesConsumable() > flushLimit) {
             FlushFullBlocks();
@@ -430,6 +434,7 @@ private:
     bool                    mCanDoLowOnBuffersFlushFlag:1;
     bool                    mMakeStableSucceededFlag:1;
     bool                    mFirstFwdOpFlag:1;
+    bool                    mAppendInProgressFlag:1;
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
     WriteIdState            mWriteIdState;
@@ -728,6 +733,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mCanDoLowOnBuffersFlushFlag(false),
       mMakeStableSucceededFlag(false),
       mFirstFwdOpFlag(false),
+      mAppendInProgressFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
       mWriteIdState(),
@@ -1279,7 +1285,12 @@ AtomicRecordAppender::Relock(ClientThread& cliThread)
     cliThread.Lock();
     mMutex->Lock();
     if (mState == kStateNone) {
-        FatalError("AtomicRecordAppender::Relock: possible unexpected deletion");
+        FatalError("AtomicRecordAppender::Relock:"
+            " possible unexpected deletion");
+        return;
+    }
+    if (mFlushStartByteCount < 0) {
+        mAppendInProgressFlag = false;
     }
 }
 
@@ -1433,6 +1444,9 @@ AtomicRecordAppender::AppendBegin(
                     (int)op->numBytes) {
                 cliThread = gClientManager.GetCurrentClientThreadPtr();
                 if (cliThread) {
+                    if (mFlushStartByteCount < 0) {
+                        mAppendInProgressFlag = true;
+                    }
                     cliThread->Unlock();
                 }
             }
@@ -1463,11 +1477,11 @@ AtomicRecordAppender::AppendBegin(
                 KFS_LOG_EOM;
                 FatalError();
                 op->status = kErrFailedState;
-                if (! IsMaster()) {
-                    SetState(kStateReplicationFailed);
-                }
                 if (cliThread) {
                     Relock(*cliThread);
+                }
+                if (! IsMaster()) {
+                    SetState(kStateReplicationFailed);
                 }
                 return;
             }
@@ -1483,17 +1497,11 @@ AtomicRecordAppender::AppendBegin(
                 if (headChksumFlag) {
                     mTmpChecksums[prevSize - 1] = lastChksum;
                 }
-                ostringstream os;
-                os << "checksum mismatch: "
-                    " received: " << op->checksum <<
-                    " actual: " << checksum
-                ;
-                msg    = os.str();
+                msg = "checksum mismatch: received: ";
+                AppendDecIntToString(msg, op->checksum);
+                msg += " actual: ";
+                AppendDecIntToString(msg, checksum);
                 status = kErrBadChecksum;
-                Cntrs().mChecksumErrorCount++;
-                if (! IsMaster()) {
-                    SetState(kStateReplicationFailed);
-                }
             }
         }
         if (status == 0) {
@@ -1576,6 +1584,12 @@ AtomicRecordAppender::AppendBegin(
     if (cliThread) {
         Relock(*cliThread);
     }
+    if (status == kErrBadChecksum) {
+        if (! IsMaster()) {
+            SetState(kStateReplicationFailed);
+        }
+        Cntrs().mChecksumErrorCount++;
+    }
     RunPendingSubmitQueue();
 }
 
@@ -1596,7 +1610,8 @@ AtomicRecordAppender::RunPendingSubmitQueue()
     assert(next && last);
     if (0 <= mFlushStartByteCount) {
         const int prevNumBytes = mFlushStartByteCount;
-        mFlushStartByteCount = -1;
+        mFlushStartByteCount  = -1;
+        mAppendInProgressFlag = false;
         // Do space accounting and flush if needed.
         if (mBuffer.BytesConsumable() >=
                 gAtomicRecordAppendManager.GetFlushLimit(*this,
@@ -2092,12 +2107,12 @@ AtomicRecordAppender::ComputeChecksum(
     chunkSize = info->chunkSize;
     const uint32_t* checksums = info->chunkBlockChecksum;
     // Print it as text, to make byte order independent.
-    ostringstream os;
-    for (int64_t i = 0; i < chunkSize; i += CHECKSUM_BLOCKSIZE) {
-        os << *checksums++;
+    chunkChecksum = kKfsNullChecksum;
+    for (int64_t i = 0; i < chunkSize; i += (int64_t)CHECKSUM_BLOCKSIZE) {
+        ConvertInt<uint32_t, 10> const decInt(*checksums++);
+        chunkChecksum = ComputeBlockChecksum(
+            chunkChecksum, decInt.GetPtr(), decInt.GetSize());
     }
-    const string str = os.str();
-    chunkChecksum = ComputeBlockChecksum(str.c_str(), str.length());
     return true;
 }
 
@@ -2668,6 +2683,15 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
 void
 AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
 {
+    if (0 <= mFlushStartByteCount) {
+        // Update total count to reflect pending flush, in the case when this
+        // method is invoked from GetFlushLimit() by a client thread different
+        // than the one that is about to return from re-lock.
+        const int prevNumBytes = mFlushStartByteCount;
+        mFlushStartByteCount = -1;
+        gAtomicRecordAppendManager.GetFlushLimit(
+            *this, mBuffer.BytesConsumable() - prevNumBytes);
+    }
     mLastFlushTime = Now();
     SetCanDoLowOnBuffersFlushFlag(false);
     if (mStaggerRMWInFlightFlag) {
@@ -3199,7 +3223,8 @@ AtomicRecordAppendManager::AllocateChunk(
                     if (mMutexesCount <= mCurMutexIdx) {
                         mCurMutexIdx = 0;
                     }
-                    mutex = &(mMutexes[mCurMutexIdx++]);
+                    mutex = mMutexes + mCurMutexIdx;
+                    ++mCurMutexIdx;
                 }
                 *res = new AtomicRecordAppender(
                     chunkFileHandle,
