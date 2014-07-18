@@ -48,12 +48,16 @@
 
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
-#include "qcdio/qcstutils.h"
+#include "common/IntToString.h"
+
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/Globals.h"
 #include "kfsio/ClientAuthContext.h"
 #include "kfsio/checksum.h"
+
+#include "qcdio/qcstutils.h"
+
 #include "libclient/KfsNetClient.h"
 #include "libclient/Reader.h"
 #include "libclient/KfsOps.h"
@@ -64,7 +68,6 @@
 namespace KFS
 {
 
-using std::string;
 using std::string;
 using std::ostringstream;
 using std::pair;
@@ -1356,6 +1359,14 @@ private:
         ReplicateChunkOp* op,
         ClientThread*&    clientThread)
     {
+        static int sLastIdx = -1;
+        if (sLastIdx < 0) {
+            if (! op) {
+                clientThread = 0;
+                return 0;
+            }
+            sLastIdx = 0;
+        }
         static const AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
         static const int                   sMaxCount(
             max(0, gClientManager.GetClientThreadCount()) + 1);
@@ -1367,9 +1378,9 @@ private:
             sMetaServers.Stop();
             sMetaServersAuth.Stop();
             clientThread = 0;
-            return sMetaServers.mServers;
+            sLastIdx  = -1;
+            return 0;
         }
-        static int sLastIdx = 0;
         if (min(sMaxRecoveryThreads, sMaxCount) <= ++sLastIdx) {
             sLastIdx = (sMaxCount <= 1 || sMaxRecoveryThreads <= 0) ? 0 : 1;
         }
@@ -1380,10 +1391,15 @@ private:
     }
     static const char* MakeLogPrefix(kfsChunkId_t chunkId)
     {
-        static string pref;
-        pref.assign("CR: ");
-        AppendDecIntToString(pref, chunkId);
-        return pref.c_str();
+        const size_t kSize = sizeof(kfsChunkId_t) * 3 + 5;
+        static char  buf[kSize + 1];
+        buf[kSize] = 0;
+        char* pref = IntToDecString(chunkId, buf + kSize);
+        *--pref = ' ';
+        *--pref = ':';
+        *--pref = 'R';
+        *--pref = 'C';
+        return pref;
     }
     static kfsSeq_t GetSeqNum()
     {
