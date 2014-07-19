@@ -77,6 +77,8 @@ public:
         Counter mLeaseExpiredCount;
         Counter mTimeoutLostCount;
         Counter mLostChunkCount;
+        Counter mPendingByteCount;
+        Counter mLowOnBuffersFlushCount;
 
         void Clear()
         {
@@ -110,6 +112,8 @@ public:
             mLeaseExpiredCount = 0;
             mTimeoutLostCount = 0;
             mLostChunkCount = 0;
+            mPendingByteCount = 0;
+            mLowOnBuffersFlushCount = 0;
         }
     };
     AtomicRecordAppendManager();

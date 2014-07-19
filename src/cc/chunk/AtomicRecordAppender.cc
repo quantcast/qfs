@@ -282,18 +282,15 @@ public:
     }
     int GetAlignmentAndFwdFlag(bool& forwardFlag) const
     {
-        QCStMutexLocker lock(mMutex);
         forwardFlag = IsOpen() && mPeer;
-        return (mBuffer.BytesConsumableLast() + mBufFrontPadding);
+        return mAlignment;
     }
     kfsChunkId_t GetChunkId() const
         { return mChunkId; }
     size_t SpaceReserved() const
-    {
-        QCStMutexLocker lock(mMutex);
-        return mBytesReserved;
-    }
-    bool WantsToKeepLease() const;
+        { return mBytesReserved; }
+    bool WantsToKeepLease() const
+        { return (IsMaster() && ! IsChunkStable()); }
     void AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
         ServerLocation peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     int  ChangeChunkSpaceReservaton(
@@ -419,6 +416,7 @@ private:
     // Disk write buffer.
     IOBuffer                mBuffer;
     int                     mBufFrontPadding;
+    int                     mAlignment;
     int                     mIoOpsInFlight;
     int                     mReplicationsInFlight;
     size_t                  mBytesReserved;
@@ -533,6 +531,12 @@ private:
             return gAtomicRecordAppendManager.GetCloseOutOfSpaceSec();
         }
         return gAtomicRecordAppendManager.GetCloseEmptyWidStateSec();
+    }
+    void UpdateAlignment()
+    {
+        // Front padding can only be non 0 if buffer is empty. See assertion in
+        // FlushSelf().
+        mAlignment = mBufFrontPadding + mBuffer.BytesConsumableLast();
     }
     template<typename T> bool UpdateSession(T& op, int& err, string& errMsg)
     {
@@ -717,6 +721,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mMasterCommittedOffset(-1),
       mBuffer(),
       mBufFrontPadding(0),
+      mAlignment(0),
       mIoOpsInFlight(0),
       mReplicationsInFlight(0),
       mBytesReserved(0),
@@ -1447,6 +1452,16 @@ AtomicRecordAppender::AppendBegin(
                     if (mFlushStartByteCount < 0) {
                         mAppendInProgressFlag = true;
                     }
+                    if (0 < op->numBytes) {
+                        // Update next block alignment here. In the case of
+                        // checksum mismatch RunPendingSubmitQueue() will update
+                        // it again (undo this update).
+                        // Alignment is optimization only, and, in general,
+                        // should reduce cpu utilization on slaves, or in case
+                        // of low number of concurrent appends on the master.
+                        mAlignment = (int)((mNextOffset + op->numBytes) %
+                            IOBufferData::GetDefaultBufferSize());
+                    }
                     cliThread->Unlock();
                 }
             }
@@ -1609,17 +1624,20 @@ AtomicRecordAppender::RunPendingSubmitQueue()
         mFlushStartByteCount  = -1;
         mAppendInProgressFlag = false;
         // Do space accounting and flush if needed.
-        if (mBuffer.BytesConsumable() >=
-                gAtomicRecordAppendManager.GetFlushLimit(*this,
-                    mBuffer.BytesConsumable() - prevNumBytes)) {
+        if (gAtomicRecordAppendManager.GetFlushLimit(
+                    *this, mBuffer.BytesConsumable() - prevNumBytes) <=
+                mBuffer.BytesConsumable()) {
             // Align the flush to checksum boundaries.
             FlushFullBlocks();
         } else {
-            if (! mBuffer.IsEmpty()) {
+            const int pendingBytes = mBuffer.BytesConsumable();
+            if (0 < pendingBytes) {
                 mTimer.ScheduleTimeoutNoLaterThanIn(
                     gAtomicRecordAppendManager.GetFlushIntervalSec());
             }
-            SetCanDoLowOnBuffersFlushFlag(! mBuffer.IsEmpty());
+            SetCanDoLowOnBuffersFlushFlag(
+                (int)CHECKSUM_BLOCKSIZE <= pendingBytes);
+            UpdateAlignment();
         }
     }
     mPendingSubmitQueue = 0;
@@ -1653,6 +1671,7 @@ AtomicRecordAppender::RunPendingSubmitQueue()
                 }
             } else {
                 if (cur.status == kErrBadChecksum) {
+                    UpdateAlignment();
                     if (! IsMaster()) {
                         mPendingBadChecksumFlag = false;
                         SetState(kStateReplicationFailed);
@@ -2224,13 +2243,6 @@ AtomicRecordAppender::BeginMakeStable(
     SubmitResponse(mBeginMakeChunkStableOp, mLastBeginMakeChunkStableOp);
 }
 
-bool
-AtomicRecordAppender::WantsToKeepLease() const
-{
-    QCStMutexLocker lock(mMutex);
-    return (IsMaster() && ! IsChunkStable());
-}
-
 void
 AtomicRecordAppender::Timeout()
 {
@@ -2703,6 +2715,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
     if (mStaggerRMWInFlightFlag) {
         mRestartFlushFlag    = ! mBuffer.IsEmpty();
         mFlushFullBlocksFlag = mFlushFullBlocksFlag || flushFullChecksumBlocks;
+        UpdateAlignment();
         return;
     }
     mRestartFlushFlag = false;
@@ -2710,7 +2723,8 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
             mState == kStateClosed ||
             mState == kStateReplicationFailed) {
         const int nBytes = mBuffer.BytesConsumable();
-        if (nBytes <= (flushFullChecksumBlocks ? int(CHECKSUM_BLOCKSIZE) : 0)) {
+        if (nBytes <= (flushFullChecksumBlocks ? (int)CHECKSUM_BLOCKSIZE : 0)) {
+            UpdateAlignment();
             return;
         }
         assert(! mStaggerRMWInFlightFlag);
@@ -2728,7 +2742,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
         // read modify write. Obviously two such writes withing the same block
         // need to be ordered.
         //
-        const int blkOffset(mNextWriteOffset % CHECKSUM_BLOCKSIZE);
+        const int blkOffset = (int)(mNextWriteOffset % (int)CHECKSUM_BLOCKSIZE);
         if (blkOffset > 0) {
             mStaggerRMWInFlightFlag =
                 blkOffset + bytesToFlush < CHECKSUM_BLOCKSIZE;
@@ -2795,6 +2809,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
                 " ios: "         << mIoOpsInFlight <<
             KFS_LOG_EOM;
             FatalError();
+            UpdateAlignment();
             int res = kErrParameters;
             wop->status = res;;
             wop->HandleEvent(EVENT_DISK_ERROR, &res);
@@ -2825,7 +2840,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
         mNextWriteOffset += bytesToFlush;
         mBufFrontPadding = 0;
         if (bytesToFlush < CHECKSUM_BLOCKSIZE) {
-            const int off(
+            const int off = (int)(
                 mNextWriteOffset % IOBufferData::GetDefaultBufferSize());
             if (off == 0) {
                 mBuffer.MakeBuffersFull();
@@ -2839,6 +2854,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
         if (res < 0) {
             // Failed to start write, call error handler and return immediately.
             // Assume that error handler can delete this.
+            UpdateAlignment();
             wop->status = res;
             wop->HandleEvent(EVENT_DISK_ERROR, &res);
             return;
@@ -2880,7 +2896,7 @@ AtomicRecordAppender::OpDone(WriteOp *op)
     }
     // There could be more that one write in flight, but only one stagger.
     // The stagger end, by definition, is not on checksum block boundary, but
-    // all other write should end exactly on checksum block boundary.
+    // all other writes should end exactly on checksum block boundary.
     if (mStaggerRMWInFlightFlag && end % CHECKSUM_BLOCKSIZE != 0) {
         mStaggerRMWInFlightFlag = false;
         if (mRestartFlushFlag) {
@@ -3088,8 +3104,9 @@ AtomicRecordAppendManager::GetFlushLimit(
     AtomicRecordAppender& /* appender */, int addBytes /* = 0 */)
 {
     if (addBytes != 0) {
-        assert(mTotalPendingBytes + addBytes >= 0);
+        assert(0 <= mTotalPendingBytes + addBytes);
         mTotalPendingBytes += addBytes;
+        mCounters.mPendingByteCount += addBytes;
         UpdateAppenderFlushLimit();
     }
     return mMaxAppenderBytes;
@@ -3099,15 +3116,8 @@ void
 AtomicRecordAppendManager::UpdateAppenderFlushLimit(
     const AtomicRecordAppender* appender /* = 0 */)
 {
-    assert(mActiveAppendersCount >= 0);
-    if (appender) {
-        if (appender->IsChunkStable()) {
-            assert(mActiveAppendersCount > 0);
-            mActiveAppendersCount--;
-        } else {
-            assert((size_t)mActiveAppendersCount < mAppenders.GetSize());
-            mActiveAppendersCount++;
-        }
+    if (! appender && 0 < mTotalBuffersBytes) {
+        return;
     }
     if (mTotalBuffersBytes <= 0) {
         mTotalBuffersBytes = (int64_t)(
@@ -3117,13 +3127,23 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
             mTotalBuffersBytes = mFlushLimit;
         }
     }
+    assert(0 <= mActiveAppendersCount);
+    if (appender) {
+        if (appender->IsChunkStable()) {
+            assert(mActiveAppendersCount > 0);
+            mActiveAppendersCount--;
+        } else {
+            assert((size_t)mActiveAppendersCount < mAppenders.GetSize());
+            mActiveAppendersCount++;
+        }
+    }
     const int64_t prevLimit = mMaxAppenderBytes;
-    mMaxAppenderBytes = min(int64_t(mFlushLimit),
-        (mTotalBuffersBytes + mTotalPendingBytes) /
-        max(int64_t(1), mActiveAppendersCount)
+    mMaxAppenderBytes = min(
+        int64_t(mFlushLimit),
+        mTotalBuffersBytes / max(int64_t(1), mActiveAppendersCount)
     );
-    if (mRecursionCount <= 1 &&
-            ! mCurUpdateFlush && prevLimit * 15 / 16 > mMaxAppenderBytes) {
+    if (mRecursionCount <= 1 && ! mCurUpdateFlush &&
+            mMaxAppenderBytes < prevLimit * 15 / 16) {
         mRecursionCount++;
         mCurUpdateFlush = PendingFlushList::Front(mPendingFlushList);
         while (mCurUpdateFlush) {
@@ -3315,6 +3335,9 @@ AtomicRecordAppendManager::FlushIfLowOnBuffers()
     }
     if (! DiskIo::GetBufferManager().IsLowOnBuffers()) {
         return;
+    }
+    if (mRecursionCount <= 0) {
+        mCounters.mLowOnBuffersFlushCount++;
     }
     mRecursionCount++;
     mCurUpdateLowBufFlush = PendingFlushList::Front(mPendingFlushList);

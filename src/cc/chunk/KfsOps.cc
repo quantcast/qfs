@@ -1694,6 +1694,8 @@ HeartbeatOp::Execute()
     HBAppend(os, 0, "lost", "");
     HBAppend(os, "WAppend-lost-timeouts", "tm",   wa.mTimeoutLostCount);
     HBAppend(os, "WAppend-lost-chunks",   "csum", wa.mLostChunkCount);
+    HBAppend(os, "WAppend-pending-bytes", "pbt",  wa.mPendingByteCount);
+    HBAppend(os, "WAppend-low-buf-flush", "lobf", wa.mLowOnBuffersFlushCount);
 
     const BufferManager&  bufMgr = DiskIo::GetBufferManager();
     HBAppend(os, 0, "buffers: bytes", "");
