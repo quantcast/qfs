@@ -41,8 +41,11 @@
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
 
+#include <sstream>
+
 namespace KFS
 {
+using std::ostringstream;
 
 class ClientThreadImpl : public QCRunnable, public NetManager::Dispatcher
 {
@@ -574,7 +577,16 @@ int           ClientThreadImpl::sLockCnt                = 0;
 ClientThreadListEntry::~ClientThreadListEntry()
 {
     if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mGrantedFlag) {
-        die("invalid client thread list entry destructor invocation");
+        ostringstream theStream;
+        theStream <<
+            "invalid client thread list entry destructor invocation" <<
+            " entry: "   << (const void*)this <<
+            " ops: "     << (const void*)mOpsHeadPtr <<
+            " "          << (const void*)mOpsTailPtr <<
+            " next: "    << (const void*)mNextPtr <<
+            " granted: " << mGrantedFlag
+        ;
+        die(theStream.str());
     }
     mNextPtr = static_cast<ClientSM*>(this); // To catch double delete.
 }
@@ -599,7 +611,16 @@ ClientThreadListEntry::DispatchGranted(
 ClientThreadRemoteSyncListEntry::~ClientThreadRemoteSyncListEntry()
 {
     if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mFinishFlag) {
-        die("invalid remote sync list entry destructor invocation");
+        ostringstream theStream;
+        theStream <<
+            "invalid remote sync list entry destructor invocation" <<
+            " entry: "    << (const void*)this <<
+            " ops: "      << (const void*)mOpsHeadPtr <<
+            " "           << (const void*)mOpsTailPtr <<
+            " next: "     << (const void*)mNextPtr <<
+            " finished: " << mFinishFlag
+        ;
+        die(theStream.str());
     }
     mNextPtr = static_cast<RemoteSyncSM*>(this); // To catch double delete.
 }
@@ -622,7 +643,13 @@ ClientThreadRemoteSyncListEntry::DispatchFinish(
 RSReplicatorEntry::~RSReplicatorEntry()
 {
     if (mNextPtr) {
-        die("invalid rs replicator list entry destructor invocation");
+        ostringstream theStream;
+        theStream <<
+            "invalid rs replicator list entry destructor invocation" <<
+            " entry: " << (const void*)this <<
+            " next: "  << (const void*)mNextPtr
+        ;
+        die(theStream.str());
     }
     mNextPtr = this; // To catch double delete.
 }
