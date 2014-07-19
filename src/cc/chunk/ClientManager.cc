@@ -204,6 +204,7 @@ ClientManager::~ClientManager()
 ClientManager::BindAcceptor(
     int       inPort,
     int       inThreadCount,
+    int       inFirstCpuIdx,
     QCMutex*& outMutexPtr)
 {
     Stop();
@@ -218,7 +219,8 @@ ClientManager::BindAcceptor(
     if (theOkFlag && 0 < inThreadCount) {
         static QCMutex sOpsMutex;
         KfsOp::SetMutex(&sOpsMutex);
-        mThreadsPtr  = ClientThread::CreateThreads(inThreadCount, outMutexPtr);
+        mThreadsPtr  = ClientThread::CreateThreads(
+            inThreadCount, inFirstCpuIdx, outMutexPtr);
         mThreadCount = mThreadsPtr ? inThreadCount : 0;
     } else {
         outMutexPtr = 0;

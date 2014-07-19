@@ -50,7 +50,8 @@ using libkfsio::globalNetManager;
 ChunkServer gChunkServer;
 
 bool
-ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
+ChunkServer::Init(int clientAcceptPort, const string& serverIp,
+    int threadCount, int firstCpuIdx)
 {
     if (clientAcceptPort < 0) {
         KFS_LOG_STREAM_FATAL <<
@@ -83,7 +84,8 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp, int threadCount)
             return false;
         }
     }
-    if (! gClientManager.BindAcceptor(clientAcceptPort, threadCount, mMutex) ||
+    if (! gClientManager.BindAcceptor(
+                clientAcceptPort, threadCount, firstCpuIdx, mMutex) ||
             gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
             "failed to bind acceptor to port: " << clientAcceptPort <<

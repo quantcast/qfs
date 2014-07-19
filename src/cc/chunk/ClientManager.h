@@ -106,6 +106,7 @@ public:
     bool BindAcceptor(
         int       inPort,
         int       inThreadCount,
+        int       inFirstCpuIdx,
         QCMutex*& outMutexPtr);
     bool StartListening();
     virtual KfsCallbackObj* CreateKfsCallbackObj(

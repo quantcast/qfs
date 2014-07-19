@@ -82,6 +82,7 @@ public:
     static const QCMutex& GetMutex();
     static ClientThread* CreateThreads(
         int       inThreadCount,
+        int       inFirstCpuIdx,
         QCMutex*& outMutexPtr);
     static void Stop(
         ClientThread* inThreadsPtr,

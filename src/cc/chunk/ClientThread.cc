@@ -162,14 +162,22 @@ public:
     }
     bool IsStarted() const
         { return mThread.IsStarted(); }
-    void Start()
+    void Start(
+        int inCpuIndex)
     {
         QCASSERT(GetMutex().IsOwned());
         if (! IsStarted()) {
             mShutdownFlag = false;
             mRunFlag      = true;
             const int kStackSize = 32 << 10;
-            mThread.Start(this, kStackSize, "ClientThread");
+            mThread.Start(
+                this,
+                kStackSize,
+                "ClientThread",
+                inCpuIndex < 0 ?
+                    QCThread::CpuAffinity::None() :
+                    QCThread::CpuAffinity(inCpuIndex)
+            );
         }
     }
     void Stop()
@@ -674,6 +682,7 @@ ClientThread::GetCurrentClientThreadPtr()
     /* static */ ClientThread*
 ClientThread::CreateThreads(
     int       inThreadCount,
+    int       inFirstCpuIdx,
     QCMutex*& outMutexPtr)
 {
     if (inThreadCount <= 0) {
@@ -684,7 +693,8 @@ ClientThread::CreateThreads(
     QCStMutexLocker theLocker(outMutexPtr);
     ClientThread* const theThreadsPtr = new ClientThread[inThreadCount];
     for (int i = 0; i < inThreadCount; i++) {
-        theThreadsPtr[i].mImpl.Start();
+        theThreadsPtr[i].mImpl.Start(
+            inFirstCpuIdx < 0 ? -1 : inFirstCpuIdx + i);
     }
     return theThreadsPtr;
 }
