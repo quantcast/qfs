@@ -342,12 +342,16 @@ public:
     {
         if (inCode == EVENT_CMD_DONE) {
             if (GetCurrentClientThreadPtr() == &mOuter) {
+                int theRet = DispatchGrantedIfPendingAndNoOps(inClient);
+                if (theRet != 0) {
+                    die("pending granted: invalid non zero return:"
+                        " op completion pending");
+                }
                 const bool theFlushFlag    =
                     ! GetConnection(inClient)->IsWriteReady();
                 bool      theRecursionFlag = false;
-                const int theRet           =
-                    ClientThreadListEntry::HandleRequest(
-                        inClient, inCode, inDataPtr, theRecursionFlag);
+                theRet = ClientThreadListEntry::HandleRequest(
+                    inClient, inCode, inDataPtr, theRecursionFlag);
                 if (theFlushFlag && theRet == 0) {
                     GetConnection(inClient)->Flush();
                 }
@@ -393,22 +397,12 @@ public:
             }
         }
         StMutexLocker theLocker(mOuter);
-        // If "granted" event pending, with no ops completion pending, then
-        // dispatch "granted" event before any other events, to maintain the
-        // same order as with no client threads, and ensure that if the current
-        // event is timeout or connection close / error the client is removed
-        // from the dispatch queue before processing the current event, as with
-        // no pending ops the client can simply go away by deleting self.
-        if (theEntry.mGrantedFlag && ! theEntry.mOpsHeadPtr) {
-            DispatchQueue::Remove(mDispatchQueuePtr, theEntry);
-            theEntry.mGrantedFlag = false;
-            const int theRet = ClientThreadListEntry::HandleGranted(inClient);
-            if (theRet != 0) {
-                return theRet; // Deleted.
-            }
+        int theRet = DispatchGrantedIfPendingAndNoOps(inClient);
+        if (theRet != 0) {
+            return theRet;
         }
         bool      theRecursionFlag = false;
-        const int theRet           = ClientThreadListEntry::HandleRequest(
+        theRet = ClientThreadListEntry::HandleRequest(
             inClient, inCode, inDataPtr, theRecursionFlag);
         theLocker.Unlock();
         if (theRet == 0 && ! theRecursionFlag) {
@@ -480,10 +474,6 @@ public:
     static ClientThreadImpl& GetImpl(
         ClientThread& inThread)
         { return inThread.mImpl; }
-    // For debug only, race OK.
-    bool IsInList(
-        const ClientThreadListEntry& inEntry) const
-        { return DispatchQueue::IsInList(mDispatchQueuePtr, inEntry); }
 private:
     typedef ClientThreadListEntry::DispatchQueue DispatchQueue;
     typedef vector<ClientSM*>                    TmpDispatchQueue;
@@ -573,6 +563,23 @@ private:
             }
         }
     }
+    int DispatchGrantedIfPendingAndNoOps(
+        ClientSM& inClient)
+    {
+        // If "granted" event pending, with no ops completion pending, then
+        // dispatch "granted" event before any other events, to maintain the
+        // same order as with no client threads, and ensure that if the current
+        // event is timeout or connection close / error the client is removed
+        // from the dispatch queue before processing the current event, as with
+        // no pending ops the client can simply go away by deleting self.
+        ClientThreadListEntry& theEntry = inClient;
+        if (theEntry.mGrantedFlag && ! theEntry.mOpsHeadPtr) {
+            DispatchQueue::Remove(mDispatchQueuePtr, theEntry);
+            theEntry.mGrantedFlag = false;
+            return ClientThreadListEntry::HandleGranted(inClient);
+        }
+        return 0;
+    }
     bool Enqueue(
         ClientSM& inClientSm)
     {
@@ -646,16 +653,16 @@ int           ClientThreadImpl::sLockCnt                = 0;
 ClientThreadListEntry::~ClientThreadListEntry()
 {
     if (mOpsHeadPtr || mOpsTailPtr || mGrantedFlag ||
-            (mClientThreadPtr && ClientThreadImpl::GetImpl(*mClientThreadPtr)
-                .IsInList(static_cast<ClientSM&>(*this)))) {
+            &DispatchQueue::GetPrev(*this) != this ||
+            &DispatchQueue::GetNext(*this) != this) {
         ostringstream theStream;
         theStream <<
             "invalid client thread list entry destructor invocation" <<
             " entry: "   << (const void*)this <<
             " ops: "     << (const void*)mOpsHeadPtr <<
             " "          << (const void*)mOpsTailPtr <<
-            " prev: "    << (const void*)mPrevPtr[kDispatchQueueIdx] <<
-            " next: "    << (const void*)mPrevPtr[kDispatchQueueIdx] <<
+            " prev: "    << (const void*)&DispatchQueue::GetPrev(*this) <<
+            " next: "    << (const void*)&DispatchQueue::GetNext(*this) <<
             " granted: " << mGrantedFlag
         ;
         die(theStream.str());
