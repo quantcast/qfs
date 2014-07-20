@@ -303,7 +303,11 @@ ReplicatorImpl::Run()
     pair<InFlightReplications::iterator, bool> const ret =
         sInFlightReplications.insert(make_pair(mChunkId, this));
     if (! ret.second) {
-        assert(ret.first->second && ret.first->second != this);
+        if (! ret.first->second || ret.first->second == this) {
+            die("invalid null entry or an attempt to restart replication");
+            Terminate(ECANCELED);
+            return;
+        }
         ReplicatorImpl& other = *ret.first->second;
         KFS_LOG_STREAM_INFO << "replication:"
             " chunk: "   << ret.first->first <<
@@ -324,9 +328,6 @@ ReplicatorImpl::Run()
             res.first->second = this;
         }
         if (mCancelFlag) {
-            // Non debug version -- an attempt to restart? &other == this
-            // Delete chunk and declare error.
-            mCancelFlag = false;
             Terminate(ECANCELED);
             return;
         }
@@ -916,6 +917,15 @@ private:
     }
     virtual void Read()
     {
+        assert(mState == kNone);
+        if (mPendingCancelFlag) {
+            KFS_LOG_STREAM_DEBUG <<
+                "recovery: ignoring read, cancel pending"
+                " state: "   << mState <<
+                " pending: " << IsPending() <<
+            KFS_LOG_EOM;
+            return;
+        }
         Enqueue(kRead);
     }
     virtual ByteCount GetBufferBytesRequired() const
@@ -932,8 +942,9 @@ private:
         } else if (mState != kNone) {
             ostringstream os;
             os << "recovery: invalid state transtion"
-                " from: " << (int)mState <<
-                " to: "   << (int)inState
+                " from: "    << (int)mState <<
+                " to: "      << (int)inState <<
+                " pending: " << IsPending()
             ;
             die(os.str());
             return;
@@ -983,7 +994,15 @@ private:
     }
     virtual void Start()
     {
-        assert(mOwner && mOwner->status == 0);
+        assert(mOwner && mOwner->status == 0 && mState == kNone);
+        if (mPendingCancelFlag) {
+            KFS_LOG_STREAM_DEBUG <<
+                "recovery: ignoring start, cancel pending"
+                " state: "   << mState <<
+                " pending: " << IsPending() <<
+            KFS_LOG_EOM;
+            return;
+        }
         mChunkMetadataOp.chunkSize         = CHUNKSIZE;
         mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
         mChunkMetadataOp.status            = 0;
@@ -1263,7 +1282,6 @@ private:
         assert(! mCancelFlag && mOwner && ! mReadInFlightFlag);
         if (mOffset >= mChunkSize || mReadOp.status < 0) {
             StMutexLocker lock(mClientThreadPtr);
-            mState = kNone;
             HandleCompletion(&mReadOp);
             return;
         }
