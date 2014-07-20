@@ -849,8 +849,7 @@ private:
     {
         kNone   = 0,
         kStart  = 1,
-        kRead   = 2,
-        kCancel = 3
+        kRead   = 2
     };
     typedef ClientThread::StMutexLocker StMutexLocker;
 
@@ -863,6 +862,7 @@ private:
     const int            mReadSize;
     bool                 mReadInFlightFlag;
     bool                 mPendingCloseFlag;
+    bool                 mPendingCancelFlag;
 
     RSReplicatorImpl(
         ReplicateChunkOp* op,
@@ -892,7 +892,8 @@ private:
         mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
         mReadSize(GetReadSize(*op)),
         mReadInFlightFlag(false),
-        mPendingCloseFlag(false)
+        mPendingCloseFlag(false),
+        mPendingCancelFlag(false)
     {
         assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
         mReadOp.clnt = 0; // Should not queue read op.
@@ -907,7 +908,11 @@ private:
     }
     virtual void Cancel()
     {
-        Enqueue(kCancel);
+        if (mPendingCancelFlag) {
+            return;
+        }
+        mPendingCancelFlag = true;
+        Enqueue(mState);
     }
     virtual void Read()
     {
@@ -919,25 +924,22 @@ private:
     }
     void Enqueue(State inState)
     {
-        if (inState == kCancel) {
-            if (mState == kNone) {
-                mState = inState;
-                assert(! mClientThreadPtr ||
-                    ! ClientThread::GetCurrentClientThreadPtr());
-                Handle();
+        if (mPendingCancelFlag) {
+            if (mState != inState) {
+                die("recovery: invalid cancel enqueue");
                 return;
             }
-            if (mState == kCancel) {
-                return;
-            }
-        } else if (inState == kStart && mState != kNone) {
-            die("recovery: invalid state transtion to start");
+        } else if (mState != kNone) {
+            ostringstream os;
+            os << "recovery: invalid state transtion"
+                " from: " << (int)mState <<
+                " to: "   << (int)inState
+            ;
+            die(os.str());
             return;
-        } else if (mState == kCancel) {
-            die("recovery: invalid state transtion from cancel");
-            return;
+        } else {
+            mState = inState;
         }
-        mState = inState;
         if (mClientThreadPtr &&
                 mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
             RSReplicatorEntry::Enqueue();
@@ -947,10 +949,15 @@ private:
     }
     virtual void Handle()
     {
+        // Pending cancel flag check is racy here (mutex isn't acquired).
+        // Handle cancel acquires the mutex and checks if the entry is still
+        // queued, and ignores cancellation requests until drains the queue
+        // completely.
+        if (mPendingCancelFlag) {
+            HandleCancel();
+            return;
+        }
         switch (mState) {
-            case kCancel:
-                HandleCancel();
-                break;
             case kStart:
                 HandleStart();
                 break;
@@ -960,6 +967,18 @@ private:
             default:
                 die("recovery: invalid state");
                 break;
+        }
+    }
+    void HandleCompletion(void* data)
+    {
+        if (mPendingCancelFlag) {
+            return; // Ignore completion.
+        }
+        mState = kNone;
+        if (data == &mChunkMetadataOp) {
+            HandleStartDone(EVENT_CMD_DONE, data);
+        } else {
+            HandleReadDone(EVENT_CMD_DONE, data);
         }
     }
     virtual void Start()
@@ -978,7 +997,7 @@ private:
             mChunkMetadataOp.statusMsg =
                 "invalid meta server location: " + mLocation.ToString() +
                 " or authentication";
-            HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
+            HandleCompletion(&mChunkMetadataOp);
             return;
         }
         Enqueue(kStart);
@@ -1051,7 +1070,7 @@ private:
                     kChecksumBlockSize * kChecksumBlockSize;
                 if (nmv <= 0) {
                     mReadTail.Move(inBufferPtr);
-                    Read();
+                    HandleRead();
                     return;
                 }
                 nmv -= buf.Move(&mReadTail, nmv);
@@ -1083,7 +1102,7 @@ private:
         if (! mOwner) {
             return;
         }
-        if (mOwner && mOwner->chunkOffset + mOffset != inOffset) {
+        if (mOwner->chunkOffset + mOffset != inOffset) {
             die("recovery: invalid read completion");
             mReadOp.status = -EINVAL;
         }
@@ -1135,7 +1154,7 @@ private:
                 }
             }
         }
-        HandleReadDone(EVENT_CMD_DONE, &mReadOp);
+        HandleCompletion(&mReadOp);
     }
     void HandleCancel()
     {
@@ -1144,14 +1163,29 @@ private:
         const int prevRef = GetRefCount();
         mReader.Unregister(this);
         mReader.Shutdown();
+        if (GetRefCount() < prevRef) {
+            return; // Unwind.
+        }
         StMutexLocker lock(mClientThreadPtr);
+        if (IsPending()) {
+            // Drain pending queue, cancel can be queued multiple times, due to
+            // race in between en-queue and de-queue.
+            return;
+        }
         ReplicatorImpl::Cancel();
-        if (prevRef <= GetRefCount() && mReadInFlightFlag) {
+        if (GetRefCount() < prevRef || mState == kNone) {
+            return; // Unwind.
+        }
+        if (mReadInFlightFlag) {
             assert(mOwner);
             mReadInFlightFlag = false;
             mReadOp.status = -ETIMEDOUT;
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
+            return;
         }
+        assert(mState == kStart);
+        mChunkMetadataOp.status = -ETIMEDOUT;
+        HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
     }
     void HandleStart()
     {
@@ -1222,14 +1256,15 @@ private:
             );
         }
         StMutexLocker lock(mClientThreadPtr);
-        HandleStartDone(EVENT_CMD_DONE, &mChunkMetadataOp);
+        HandleCompletion(&mChunkMetadataOp);
     }
     void HandleRead()
     {
         assert(! mCancelFlag && mOwner && ! mReadInFlightFlag);
         if (mOffset >= mChunkSize || mReadOp.status < 0) {
             StMutexLocker lock(mClientThreadPtr);
-            ReplicatorImpl::Read();
+            mState = kNone;
+            HandleCompletion(&mReadOp);
             return;
         }
 
@@ -1253,7 +1288,7 @@ private:
             mReadInFlightFlag = false;
             mReadOp.status = status;
             StMutexLocker lock(mClientThreadPtr);
-            HandleReadDone(EVENT_CMD_DONE, &mReadOp);
+            HandleCompletion(&mReadOp);
         }
     }
     template<typename T> static void ReadVal(IOBuffer& buf, T& val)

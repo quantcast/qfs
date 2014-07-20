@@ -84,6 +84,8 @@ protected:
     virtual ~RSReplicatorEntry();
     virtual void Handle() = 0;
     void Enqueue();
+    bool IsPending() const
+        { return (mNextPtr != 0); }
 
     ClientThread* const mClientThreadPtr;
 private:

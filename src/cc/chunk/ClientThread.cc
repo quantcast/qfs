@@ -172,14 +172,17 @@ public:
           mRSReplicatorQueueHeadPtr(0),
           mRSReplicatorQueueTailPtr(0),
           mTmpDispatchQueue(),
+          mTmpSyncSMQueue(),
+          mTmpRSReplicatorQueue(),
           mWakeupCnt(0),
           mOuter(inOuter)
     {
         QCASSERT(GetMutex().IsOwned());
-        mTmpDispatchQueue.reserve(2 << 10);
-        mTmpSyncSMQueue.reserve(2 << 10);
         DispatchQueue::Init(mDispatchQueuePtr);
         DispatchQueue::Init(mAddQueuePtr);
+        mTmpDispatchQueue.reserve(2 << 10);
+        mTmpSyncSMQueue.reserve(2 << 10);
+        mTmpRSReplicatorQueue.reserve(1 << 8);
     }
     ~ClientThreadImpl()
     {
@@ -317,6 +320,16 @@ public:
         RSReplicatorEntry* theNextPtr = mRSReplicatorQueueHeadPtr;
         mRSReplicatorQueueHeadPtr = 0;
         mRSReplicatorQueueTailPtr = 0;
+        mTmpRSReplicatorQueue.clear();
+        while (theNextPtr) {
+            RSReplicatorEntry& theCur = *theNextPtr;
+            theNextPtr = GetNextPtr(theCur);
+            if (&theCur == theNextPtr) {
+                theNextPtr = 0;
+            }
+            GetNextPtr(theCur) = 0;
+            mTmpRSReplicatorQueue.push_back(&theCur);
+        }
         theLocker.Unlock();
         for (TmpDispatchQueue::const_iterator theIt = mTmpDispatchQueue.begin();
                 theIt != mTmpDispatchQueue.end();
@@ -325,14 +338,11 @@ public:
                 GetConnection(**theIt)->StartFlush();
             }
         }
-        while (theNextPtr) {
-            RSReplicatorEntry& theCur = *theNextPtr;
-            theNextPtr = GetNextPtr(theCur);
-            if (&theCur == theNextPtr) {
-                theNextPtr = 0;
-            }
-            GetNextPtr(theCur) = 0;
-            theCur.Handle();
+        for (TmpRSReplicatorQueue::const_iterator theIt =
+                    mTmpRSReplicatorQueue.begin();
+                theIt != mTmpRSReplicatorQueue.end();
+                ++theIt) {
+            (*theIt)->Handle();
         }
     }
     int Handle(
@@ -478,6 +488,7 @@ private:
     typedef ClientThreadListEntry::DispatchQueue DispatchQueue;
     typedef vector<ClientSM*>                    TmpDispatchQueue;
     typedef vector<RemoteSyncSM*>                TmpSyncSMQueue;
+    typedef vector<RSReplicatorEntry*>           TmpRSReplicatorQueue;
     enum { kDispatchQueueCount = ClientThreadListEntry::kDispatchQueueCount };
 
     QCThread               mThread;
@@ -490,6 +501,7 @@ private:
     RSReplicatorEntry*     mRSReplicatorQueueTailPtr;
     TmpDispatchQueue       mTmpDispatchQueue;
     TmpSyncSMQueue         mTmpSyncSMQueue;
+    TmpRSReplicatorQueue   mTmpRSReplicatorQueue;
     volatile int           mWakeupCnt;
     ClientThread&          mOuter;
     ClientThreadListEntry* mAddQueuePtr[kDispatchQueueCount];
