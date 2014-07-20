@@ -47,6 +47,59 @@ namespace KFS
 {
 using std::ostringstream;
 
+    inline int
+ClientThreadListEntry::HandleRequest(
+    ClientSM& inClient,
+    int       inCode,
+    void*     inDataPtr,
+    bool&     outRecursionFlag)
+{
+    outRecursionFlag = 0 < inClient.mRecursionCnt;
+    return inClient.HandleRequest(inCode, inDataPtr);
+}
+
+    inline int
+ClientThreadListEntry::HandleGranted(
+    ClientSM& inClient)
+{
+    return inClient.HandleGranted();
+}
+
+    inline const NetConnectionPtr&
+ClientThreadListEntry::GetConnection(
+    const ClientSM& inClient)
+{
+    return inClient.mNetConnection;
+}
+
+    inline ClientSM&
+ClientThreadListEntry::GetClient()
+{
+    return *static_cast<ClientSM*>(this);
+}
+
+    inline bool
+ClientThreadRemoteSyncListEntry::Enqueue(
+    RemoteSyncSM& inSyncSM,
+    KfsOp&        inOp)
+{
+    return inSyncSM.EnqueueSelf(&inOp);
+}
+
+    inline void
+ClientThreadRemoteSyncListEntry::Finish(
+    RemoteSyncSM& inSyncSM)
+{
+    inSyncSM.FinishSelf();
+}
+
+    inline bool
+ClientThreadRemoteSyncListEntry::RemoveFromList(
+    RemoteSyncSM& inSyncSM)
+{
+    return inSyncSM.RemoveFromList();
+}
+
 class ClientThreadImpl : public QCRunnable, public NetManager::Dispatcher
 {
 public:
@@ -114,10 +167,6 @@ public:
           mRunFlag(false),
           mShutdownFlag(false),
           mNetManager(),
-          mAddQueueTailPtr(0),
-          mAddQueueHeadPtr(0),
-          mRunQueueTailPtr(0),
-          mRunQueueHeadPtr(0),
           mSyncQueueTailPtr(0),
           mSyncQueueHeadPtr(0),
           mRSReplicatorQueueHeadPtr(0),
@@ -127,8 +176,10 @@ public:
           mOuter(inOuter)
     {
         QCASSERT(GetMutex().IsOwned());
-        mTmpDispatchQueue.reserve(1 << 10);
-        mTmpSyncSMQueue.reserve(1 << 10);
+        mTmpDispatchQueue.reserve(2 << 10);
+        mTmpSyncSMQueue.reserve(2 << 10);
+        DispatchQueue::Init(mDispatchQueuePtr);
+        DispatchQueue::Init(mAddQueuePtr);
     }
     ~ClientThreadImpl()
     {
@@ -139,8 +190,14 @@ public:
     void Add(
         ClientSM& inClient)
     {
-        QCASSERT(GetMutex().IsOwned());
-        if (Enqueue(inClient, mAddQueueHeadPtr, mAddQueueTailPtr)) {
+        QCASSERT(
+            GetMutex().IsOwned() &&
+            ! DispatchQueue::IsInList(mAddQueuePtr,      inClient) &&
+            ! DispatchQueue::IsInList(mDispatchQueuePtr, inClient)
+        );
+        const bool theWakeupFlag = DispatchQueue::IsEmpty(mAddQueuePtr);
+        DispatchQueue::PushBack(mAddQueuePtr, inClient);
+        if (theWakeupFlag) {
             Wakeup();
         }
     }
@@ -210,13 +267,12 @@ public:
         QCASSERT(! mShutdownFlag || ! mRunFlag);
 
         mWakeupCnt = 0;
-        ClientSM* thePtr = mAddQueueHeadPtr;
-        mAddQueueTailPtr = 0;
-        mAddQueueHeadPtr = 0;
-        while (thePtr) {
-            ClientSM& theCur = *thePtr;
-            thePtr = GetNextPtr(theCur);
-            GetNextPtr(theCur) = 0;
+        ClientThreadListEntry* theAddQueuePtr[kDispatchQueueCount];
+        DispatchQueue::Init(theAddQueuePtr);
+        DispatchQueue::PushBackList(theAddQueuePtr, mAddQueuePtr);
+        ClientThreadListEntry* thePtr;
+        while ((thePtr = DispatchQueue::PopFront(theAddQueuePtr))) {
+            ClientSM& theCur = thePtr->GetClient();
             const NetConnectionPtr& theConnPtr = GetConnection(theCur);
             QCASSERT(theConnPtr);
             if (mShutdownFlag) {
@@ -229,18 +285,9 @@ public:
         if (! mRunFlag && ! mShutdownFlag) {
             mNetManager.Shutdown();
         }
-        thePtr = mRunQueueHeadPtr;
-        mRunQueueTailPtr = 0;
-        mRunQueueHeadPtr = 0;
         mTmpDispatchQueue.clear();
-        while (thePtr) {
-            ClientSM& theCur = *thePtr;
-            thePtr = GetNextPtr(theCur);
-            if (thePtr == &theCur) {
-                thePtr = 0;
-            }
-            GetNextPtr(theCur) = 0;
-            mTmpDispatchQueue.push_back(&theCur);
+        while ((thePtr = DispatchQueue::PopFront(mDispatchQueuePtr))) {
+            mTmpDispatchQueue.push_back(&thePtr->GetClient());
         }
         RemoteSyncSM* theSyncPtr = mSyncQueueHeadPtr;
         mSyncQueueHeadPtr = 0;
@@ -308,7 +355,7 @@ public:
             }
             QCASSERT(inDataPtr);
             if (AddPending(*reinterpret_cast<KfsOp*>(inDataPtr), inClient) &&
-                    Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
+                    Enqueue(inClient)) {
                 Wakeup();
             }
             return 0;
@@ -346,6 +393,20 @@ public:
             }
         }
         StMutexLocker theLocker(mOuter);
+        // If "granted" event pending, with no ops completion pending, then
+        // dispatch "granted" event before any other events, to maintain the
+        // same order as with no client threads, and ensure that if the current
+        // event is timeout or connection close / error the client is removed
+        // from the dispatch queue before processing the current event, as with
+        // no pending ops the client can simply go away by deleting self.
+        if (theEntry.mGrantedFlag && ! theEntry.mOpsHeadPtr) {
+            DispatchQueue::Remove(mDispatchQueuePtr, theEntry);
+            theEntry.mGrantedFlag = false;
+            const int theRet = ClientThreadListEntry::HandleGranted(inClient);
+            if (theRet != 0) {
+                return theRet; // Deleted.
+            }
+        }
         bool      theRecursionFlag = false;
         const int theRet           = ClientThreadListEntry::HandleRequest(
             inClient, inCode, inDataPtr, theRecursionFlag);
@@ -364,8 +425,7 @@ public:
             return;
         }
         theEntry.mGrantedFlag = true;
-        if (! theEntry.mOpsHeadPtr &&
-                Enqueue(inClient, mRunQueueHeadPtr, mRunQueueTailPtr)) {
+        if (! theEntry.mOpsHeadPtr && Enqueue(inClient)) {
             Wakeup();
         }
     }
@@ -420,27 +480,31 @@ public:
     static ClientThreadImpl& GetImpl(
         ClientThread& inThread)
         { return inThread.mImpl; }
+    // For debug only, race OK.
+    bool IsInList(
+        const ClientThreadListEntry& inEntry) const
+        { return DispatchQueue::IsInList(mDispatchQueuePtr, inEntry); }
 private:
-    typedef vector<ClientSM*>     TmpDispatchQueue;
-    typedef vector<RemoteSyncSM*> TmpSyncSMQueue;
+    typedef ClientThreadListEntry::DispatchQueue DispatchQueue;
+    typedef vector<ClientSM*>                    TmpDispatchQueue;
+    typedef vector<RemoteSyncSM*>                TmpSyncSMQueue;
+    enum { kDispatchQueueCount = ClientThreadListEntry::kDispatchQueueCount };
 
-    QCThread           mThread;
-    bool               mRunFlag;
-    bool               mShutdownFlag;
-    NetManager         mNetManager;
-    ClientSM*          mAddQueueTailPtr;
-    ClientSM*          mAddQueueHeadPtr;
-    ClientSM*          mRunQueueTailPtr;
-    ClientSM*          mRunQueueHeadPtr;
-    RemoteSyncSM*      mSyncQueueTailPtr;
-    RemoteSyncSM*      mSyncQueueHeadPtr;
-    RSReplicatorEntry* mRSReplicatorQueueHeadPtr;
-    RSReplicatorEntry* mRSReplicatorQueueTailPtr;
-    TmpDispatchQueue   mTmpDispatchQueue;
-    TmpSyncSMQueue     mTmpSyncSMQueue;
-    volatile int       mWakeupCnt;
-    ClientThread&      mOuter;
-    char               mParseBuffer[MAX_RPC_HEADER_LEN];
+    QCThread               mThread;
+    bool                   mRunFlag;
+    bool                   mShutdownFlag;
+    NetManager             mNetManager;
+    RemoteSyncSM*          mSyncQueueTailPtr;
+    RemoteSyncSM*          mSyncQueueHeadPtr;
+    RSReplicatorEntry*     mRSReplicatorQueueHeadPtr;
+    RSReplicatorEntry*     mRSReplicatorQueueTailPtr;
+    TmpDispatchQueue       mTmpDispatchQueue;
+    TmpSyncSMQueue         mTmpSyncSMQueue;
+    volatile int           mWakeupCnt;
+    ClientThread&          mOuter;
+    ClientThreadListEntry* mAddQueuePtr[kDispatchQueueCount];
+    ClientThreadListEntry* mDispatchQueuePtr[kDispatchQueueCount];
+    char                   mParseBuffer[MAX_RPC_HEADER_LEN];
 
     static ClientThread* sCurrentClientThreadPtr;
     static int           sLockCnt;
@@ -509,11 +573,16 @@ private:
             }
         }
     }
+    bool Enqueue(
+        ClientSM& inClientSm)
+    {
+        const bool theWasEmptyFlag = DispatchQueue::IsEmpty(mDispatchQueuePtr);
+        QCASSERT(! DispatchQueue::IsInList(mDispatchQueuePtr, inClientSm));
+        DispatchQueue::PushBack(mDispatchQueuePtr, inClientSm);
+        return theWasEmptyFlag;
+    }
     static RemoteSyncSM*& GetNextPtr(
         ClientThreadRemoteSyncListEntry& inEntry)
-        { return inEntry.mNextPtr; }
-    static ClientSM*& GetNextPtr(
-        ClientThreadListEntry& inEntry)
         { return inEntry.mNextPtr; }
     static RSReplicatorEntry*& GetNextPtr(
         RSReplicatorEntry& inEntry)
@@ -576,19 +645,24 @@ int           ClientThreadImpl::sLockCnt                = 0;
 
 ClientThreadListEntry::~ClientThreadListEntry()
 {
-    if (mOpsHeadPtr || mOpsTailPtr || mNextPtr || mGrantedFlag) {
+    if (mOpsHeadPtr || mOpsTailPtr || mGrantedFlag ||
+            (mClientThreadPtr && ClientThreadImpl::GetImpl(*mClientThreadPtr)
+                .IsInList(static_cast<ClientSM&>(*this)))) {
         ostringstream theStream;
         theStream <<
             "invalid client thread list entry destructor invocation" <<
             " entry: "   << (const void*)this <<
             " ops: "     << (const void*)mOpsHeadPtr <<
             " "          << (const void*)mOpsTailPtr <<
-            " next: "    << (const void*)mNextPtr <<
+            " prev: "    << (const void*)mPrevPtr[kDispatchQueueIdx] <<
+            " next: "    << (const void*)mPrevPtr[kDispatchQueueIdx] <<
             " granted: " << mGrantedFlag
         ;
         die(theStream.str());
     }
-    mNextPtr = static_cast<ClientSM*>(this); // To catch double delete.
+    // To catch double delete.
+    mPrevPtr[kDispatchQueueIdx] = 0;
+    mNextPtr[kDispatchQueueIdx] = 0;
 }
 
     int

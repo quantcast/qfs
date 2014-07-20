@@ -302,28 +302,6 @@ private:
     RemoteSyncSMList& operator=(const RemoteSyncSMList&);
 };
 
-inline bool
-ClientThreadRemoteSyncListEntry::Enqueue(
-    RemoteSyncSM& inSyncSM,
-    KfsOp&        inOp)
-{
-    return inSyncSM.EnqueueSelf(&inOp);
-}
-
-inline void
-ClientThreadRemoteSyncListEntry::Finish(
-    RemoteSyncSM& inSyncSM)
-{
-    inSyncSM.FinishSelf();
-}
-
-inline bool
-ClientThreadRemoteSyncListEntry::RemoveFromList(
-    RemoteSyncSM& inSyncSM)
-{
-    return inSyncSM.RemoveFromList();
-}
-
 }
 
 #endif // CHUNKSERVER_REMOTESYNCSM_H

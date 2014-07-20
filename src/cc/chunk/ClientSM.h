@@ -21,29 +21,33 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
-#ifndef _CLIENTSM_H
-#define _CLIENTSM_H
+#ifndef CHUNK_CLIENTSM_H
+#define CHUNK_CLIENTSM_H
+
+#include "Chunk.h"
+#include "RemoteSyncSM.h"
+#include "KfsOps.h"
+#include "BufferManager.h"
+
+#include "qcdio/QCDLList.h"
+
+#include "common/LinearHash.h"
+#include "common/StdAllocator.h"
+
+#include "kfsio/KfsCallbackObj.h"
+#include "kfsio/NetConnection.h"
+#include "kfsio/IOBuffer.h"
+#include "kfsio/SslFilter.h"
+#include "kfsio/DelegationToken.h"
 
 #include <deque>
 #include <list>
 #include <map>
 #include <algorithm>
 #include <vector>
-
-#include "common/LinearHash.h"
-#include "kfsio/KfsCallbackObj.h"
-#include "kfsio/NetConnection.h"
-#include "kfsio/IOBuffer.h"
-#include "kfsio/SslFilter.h"
-#include "kfsio/DelegationToken.h"
-#include "common/StdAllocator.h"
-#include "Chunk.h"
-#include "RemoteSyncSM.h"
-#include "KfsOps.h"
-#include "BufferManager.h"
 
 namespace KFS
 {
@@ -55,18 +59,23 @@ using std::list;
 using std::string;
 using std::vector;
 
+class ClientSM;
 class Properties;
 class ClientThread;
-
 class ClientThreadListEntry
 {
+private:
+    enum {
+        kDispatchQueueIdx   = 0,
+        kDispatchQueueCount = 1
+    };
+    typedef QCDLList<ClientThreadListEntry, kDispatchQueueIdx> DispatchQueue;
 protected:
     ClientThreadListEntry(
         ClientThread* inClientThreadPtr)
         : mClientThreadPtr(inClientThreadPtr),
           mOpsHeadPtr(0),
           mOpsTailPtr(0),
-          mNextPtr(0),
           mReceivedOpPtr(0),
           mBlocksChecksums(),
           mChecksum(0),
@@ -76,7 +85,7 @@ protected:
           mGrantedFlag(false),
           mReceiveOpFlag(false),
           mComputeChecksumFlag(false)
-        {}
+        { DispatchQueue::Init(*this); }
     ~ClientThreadListEntry();
     void ReceiveClear()
     {
@@ -133,19 +142,23 @@ protected:
     void DispatchGranted(
         ClientSM& inClient);
 private:
-    ClientThread* const mClientThreadPtr;
-    KfsOp*              mOpsHeadPtr;
-    KfsOp*              mOpsTailPtr;
-    ClientSM*           mNextPtr;
-    KfsOp*              mReceivedOpPtr;
-    vector<uint32_t>    mBlocksChecksums;
-    uint32_t            mChecksum;
-    uint32_t            mFirstChecksumBlockLen;
-    int                 mReceiveByteCount;
-    int                 mReceivedHeaderLen;
-    bool                mGrantedFlag:1;
-    bool                mReceiveOpFlag:1;
-    bool                mComputeChecksumFlag:1;
+    ClientThread* const    mClientThreadPtr;
+    KfsOp*                 mOpsHeadPtr;
+    KfsOp*                 mOpsTailPtr;
+    KfsOp*                 mReceivedOpPtr;
+    vector<uint32_t>       mBlocksChecksums;
+    uint32_t               mChecksum;
+    uint32_t               mFirstChecksumBlockLen;
+    int                    mReceiveByteCount;
+    int                    mReceivedHeaderLen;
+    bool                   mGrantedFlag:1;
+    bool                   mReceiveOpFlag:1;
+    bool                   mComputeChecksumFlag:1;
+    ClientThreadListEntry* mPrevPtr[kDispatchQueueCount];
+    ClientThreadListEntry* mNextPtr[kDispatchQueueCount];
+
+    friend class QCDLListOp<ClientThreadListEntry, kDispatchQueueIdx>;
+    friend class ClientThreadImpl;
 
     inline static int HandleRequest(
         ClientSM& inClient,
@@ -156,13 +169,12 @@ private:
         ClientSM& inClient);
     inline static const NetConnectionPtr& GetConnection(
         const ClientSM& inClient);
+    inline ClientSM& GetClient();
 private:
     ClientThreadListEntry(
         const ClientThreadListEntry& inEntry);
     ClientThreadListEntry& operator=(
         const ClientThreadListEntry& inEntry);
-
-    friend class ClientThreadImpl;
 };
 
 // KFS client protocol state machine.
@@ -178,7 +190,7 @@ public:
     ClientSM(
         const NetConnectionPtr& conn,
         ClientThread*           thread);
-    ~ClientSM(); 
+    ~ClientSM();
 
     //
     // Sequence:
@@ -189,9 +201,9 @@ public:
     //   - request handler calls the disk manager to get the size
     //   -- the request handler then runs in a loop:
     //       -- in READ START: schedule a read for 4k; transition to READ DONE
-    //       -- in READ DONE: data that was read arrives; 
+    //       -- in READ DONE: data that was read arrives;
     //            schedule that data to be sent out and transition back to READ START
-    //       
+    //
     // For daisy-chain writes, retrieve the server object for the
     // chunkserver running at the specified location.
     //
@@ -424,31 +436,6 @@ private:
     friend class ClientThreadListEntry;
 };
 
-inline int
-ClientThreadListEntry::HandleRequest(
-    ClientSM& inClient,
-    int       inCode,
-    void*     inDataPtr,
-    bool&     outRecursionFlag)
-{
-    outRecursionFlag = 0 < inClient.mRecursionCnt;
-    return inClient.HandleRequest(inCode, inDataPtr);
 }
 
-inline int
-ClientThreadListEntry::HandleGranted(
-    ClientSM& inClient)
-{
-    return inClient.HandleGranted();
-}
-
-inline const NetConnectionPtr&
-ClientThreadListEntry::GetConnection(
-    const ClientSM& inClient)
-{
-    return inClient.mNetConnection;
-}
-
-}
-
-#endif // _CLIENTSM_H
+#endif // CHUNK_CLIENTSM_H
