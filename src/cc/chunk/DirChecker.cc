@@ -961,19 +961,20 @@ private:
                     theChunkFileFsId,
                     theIoTimeSec,
                     theReadFlag
-                    ) &&
-                    0 < theChunkFileFsId) {
-                if (0 < outFileSystemId) {
-                    if (outFileSystemId != theChunkFileFsId) {
-                        KFS_LOG_STREAM_ERROR << theName <<
-                            " error: inconsistent file system id: " <<
-                            theChunkFileFsId << " vs " << outFileSystemId <<
-                        KFS_LOG_EOM;
-                        theErr = -EINVAL;
-                        break;
+                    )) {
+                if (0 < theChunkFileFsId) {
+                    if (0 < outFileSystemId) {
+                        if (outFileSystemId != theChunkFileFsId) {
+                            KFS_LOG_STREAM_ERROR << theName <<
+                                " error: inconsistent file system id: " <<
+                                theChunkFileFsId << " vs " << outFileSystemId <<
+                            KFS_LOG_EOM;
+                            theErr = -EINVAL;
+                            break;
+                        }
+                    } else {
+                        outFileSystemId = theChunkFileFsId;
                     }
-                } else {
-                    outFileSystemId = theChunkFileFsId;
                 }
                 if (0 < inIoTimeout && inIoTimeout < theIoTimeSec) {
                     KFS_LOG_STREAM_ERROR << inDirName << theName <<

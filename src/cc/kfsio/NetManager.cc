@@ -452,14 +452,14 @@ NetManager::MainLoop(
                 }
             }
         }
-        const int timeout = (! PendingReadList::IsInList(mPendingReadList)
-            && mWaker.Sleep()) ? mTimeoutMs : 0;
         if (dispatcher) {
             dispatcher->DispatchEnd();
         }
-
+        const int timeout = (! PendingReadList::IsInList(mPendingReadList)
+            && mWaker.Sleep()) ? mTimeoutMs : 0;
+        const int fdCount = mConnectionsCount + 1;
         QCStMutexUnlocker unlocker(mutex);
-        const int ret = mPoll.Poll(mConnectionsCount + 1, timeout);
+        const int ret = mPoll.Poll(fdCount, timeout);
         if (ret < 0 && ret != -EINTR && ret != -EAGAIN) {
             KFS_LOG_STREAM_ERROR <<
                 QCUtils::SysError(-ret, "poll error") <<
