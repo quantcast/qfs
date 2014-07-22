@@ -291,6 +291,7 @@ ReplicatorImpl::~ReplicatorImpl()
     if (GetByteCount() != 0 || IsWaiting() || mOwner) {
         ostringstream os;
         os << "replication: invalid destructor invocation"
+            " "        << (const void*)this <<
             " chunk: " << mChunkId <<
             " owner: " << (const void*)mOwner <<
             " bytes: " << GetByteCount() <<
