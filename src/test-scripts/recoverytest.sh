@@ -44,6 +44,7 @@ filecreateparams=${filecreateparams-'fs.createParams=1,6,3,1048576,2,15,15'}
 csstartport=${csstartport-20400}
 csendport=${csendport-`expr $csstartport + 1`}
 valgrind_cmd=${valgrind_cmd-''}
+recoveryforcetimes=${recoveryforcetimes-1}
 
 start=1
 runtest=1
@@ -337,13 +338,19 @@ for testblocksize in $testblocksizes ; do
             fi
 
             echo "forcing recovery: chunk: $chunkid port: $srvportr"
-            "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
-                -f "$clirootcfg" -a \
-                -F "Chunk=$chunkid" \
-                -F "Host=$srvhost" \
-                -F "Port=$srvportr" \
-                -F "Recovery=1" \
-                force_replication || exit
+            t=0
+            while [ $t -lt $recoveryforcetimes ]; do
+                [ $t -gt 10 ] && sleep `expr $t - 10`
+                "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
+                    -f "$clirootcfg" -a \
+                    -F "Chunk=$chunkid" \
+                    -F "Host=$srvhost" \
+                    -F "Port=$srvportr" \
+                    -F "Recovery=1" \
+                    force_replication || break
+                t=`expr $t + 1`
+            done
+            [ $t -gt 0 ] || exit
         done
         # Wait for chunk recoveries to complete.
         t=0
