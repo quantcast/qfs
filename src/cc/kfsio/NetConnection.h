@@ -336,7 +336,12 @@ public:
         }
         Update();
         if (sock) {
-            sock->Close();
+            if (mNetManagerEntry.IsPendingClose()) {
+                // Keep fd open, will be closed by pending update.
+                *sock = TcpSocket();
+            } else {
+                sock->Close();
+            }
             delete sock;
         }
     }
@@ -421,6 +426,9 @@ public:
               mAdded(false),
               mEnableReadIfOverloaded(false),
               mConnectPending(false),
+              mPendingUpdateFlag(false),
+              mPendingCloseFlag(false),
+              mPendingResetTimerFlag(false),
               mFd(-1),
               mWriteByteCount(0),
               mTimerWheelSlot(-1),
@@ -436,6 +444,7 @@ public:
         bool IsIn() const                 { return mIn; }
         bool IsOut() const                { return mOut; }
         bool IsAdded() const              { return mAdded; }
+        bool IsPendingClose() const       { return mPendingCloseFlag; }
         time_t TimeNow() const;
 
     private:
@@ -446,6 +455,9 @@ public:
         /// even when the system is overloaded?
         bool             mEnableReadIfOverloaded:1;
         bool             mConnectPending:1;
+        bool             mPendingUpdateFlag:1;
+        bool             mPendingCloseFlag:1;
+        bool             mPendingResetTimerFlag:1;
         int              mFd;
         int              mWriteByteCount;
         int              mTimerWheelSlot;
@@ -464,6 +476,10 @@ public:
                 mOut   = false;
                 mFd    = -1;
             } 
+        }
+        void SetPendingClose(const NetConnection& conn)
+        {
+            mPendingCloseFlag = conn.mOwnsSocket;
         }
         friend class NetManager;
         friend class QCDLListOp<NetManagerEntry, 0>;

@@ -145,6 +145,7 @@ NetManager::NetManager(int timeoutMs)
       mRunFlag(true),
       mShutdownFlag(false),
       mTimerRunningFlag(false),
+      mPollFlag(false),
       mTimeoutMs(timeoutMs),
       mStartTime(time(0)),
       mNow(mStartTime),
@@ -157,10 +158,12 @@ NetManager::NetManager(int timeoutMs)
       mWaker(*(new Waker())),
       mPollEventHook(0),
       mPendingReadList(),
+      mPendingUpdate(),
       mCurTimeoutHandler(0),
       mEpollError()
 {
     TimeoutHandlers::Init(mTimeoutHandlers);
+    mPendingUpdate.reserve(1 << 10);
 }
 
 NetManager::~NetManager()
@@ -306,6 +309,22 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     }
     assert(*entry.mListIt);
     NetConnection& conn = **entry.mListIt;
+    if (mPollFlag) {
+        if (0 <= entry.mFd && (fd < 0 || ! conn.IsGood())) {
+            entry.SetPendingClose(conn);
+        }
+        entry.mPendingResetTimerFlag =
+            resetTimer || entry.mPendingResetTimerFlag;
+        if (! entry.mPendingUpdateFlag) {
+            mPendingUpdate.push_back(&conn);
+            entry.mPendingUpdateFlag = true;
+        }
+        return;
+    }
+    const bool pendingCloseFlag = entry.mPendingCloseFlag;
+    entry.mPendingUpdateFlag     = false;
+    entry.mPendingCloseFlag      = false;
+    entry.mPendingResetTimerFlag = false;
     assert(fd >= 0 || ! conn.IsGood());
     // Always check if connection has to be removed: this method always
     // called before socket fd gets closed.
@@ -313,6 +332,9 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
         PendingReadList::Remove(entry);
         if (entry.mFd >= 0) {
             PollRemove(entry.mFd);
+            if (pendingCloseFlag) {
+                close(entry.mFd);
+            }
             entry.mFd = -1;
         }
         if (mTimerWheelBucketItr == entry.mListIt) {
@@ -458,6 +480,8 @@ NetManager::MainLoop(
         const int timeout = (! PendingReadList::IsInList(mPendingReadList)
             && mWaker.Sleep()) ? mTimeoutMs : 0;
         const int fdCount = mConnectionsCount + 1;
+        assert(mPendingUpdate.empty());
+        mPollFlag = true;
         QCStMutexUnlocker unlocker(mutex);
         const int ret = mPoll.Poll(fdCount, timeout);
         if (ret < 0 && ret != -EINTR && ret != -EAGAIN) {
@@ -467,9 +491,16 @@ NetManager::MainLoop(
         }
         mWaker.Wake();
         unlocker.Lock();
-
+        mPollFlag = false;
         const int64_t nowMs = ITimeout::NowMs();
         mNow = time_t(nowMs / 1000);
+        for (PendingUpdate::const_iterator it = mPendingUpdate.begin();
+                it != mPendingUpdate.end();
+                ++it) {
+            NetConnection& conn = **it;
+            conn.Update(conn.GetNetManagerEntry()->mPendingResetTimerFlag);
+        }
+        mPendingUpdate.clear();
         if (dispatcher) {
             dispatcher->DispatchStart();
         }

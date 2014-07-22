@@ -33,12 +33,16 @@
 #include "NetConnection.h"
 #include "ITimeout.h"
 
+#include <list>
+#include <vector>
+
 class QCFdPoll;
 class QCMutex;
 
 namespace KFS
 {
 using std::list;
+using std::vector;
 
 ///
 /// \file NetManager.h
@@ -202,6 +206,7 @@ private:
     typedef NetManagerEntry::List            List;
     typedef QCDLList<ITimeout>               TimeoutHandlers;
     typedef NetManagerEntry::PendingReadList PendingReadList;
+    typedef vector<NetConnection*>           PendingUpdate;
     enum { kTimerWheelSize = (1 << 8) };
 
     List            mRemove;
@@ -219,6 +224,7 @@ private:
     volatile bool   mRunFlag;
     bool            mShutdownFlag;
     bool            mTimerRunningFlag;
+    bool            mPollFlag;
     /// timeout interval specified in the call to select().
     const int       mTimeoutMs;
     const time_t    mStartTime;
@@ -232,6 +238,7 @@ private:
     Waker&          mWaker;
     PollEventHook*  mPollEventHook;
     NetManagerEntry mPendingReadList;
+    PendingUpdate   mPendingUpdate;
     /// Handlers that are notified whenever a call to select()
     /// returns.  To the handlers, the notification is a timeout signal.
     ITimeout*       mCurTimeoutHandler;
