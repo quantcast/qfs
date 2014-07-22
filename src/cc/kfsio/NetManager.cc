@@ -333,7 +333,12 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
         if (entry.mFd >= 0) {
             PollRemove(entry.mFd);
             if (pendingCloseFlag) {
-                close(entry.mFd);
+                // Create socket and close it, in order to update the socket fd
+                // counter, as the counter wasn't decremented when the fd was
+                // "detached" from the original socket by
+                // NetConnection::Close().
+                TcpSocket socket(entry.mFd);
+                socket.Close();
             }
             entry.mFd = -1;
         }
