@@ -1814,6 +1814,10 @@ HeartbeatOp::Execute()
     HBAppend(os, "Recovery-count",  "cnt",    replCntrs.mRecoveryCount);
     HBAppend(os, "Recovery-errors", "err",    replCntrs.mRecoveryErrorCount);
     HBAppend(os, "Recovery-cancel", "cancel", replCntrs.mRecoveryCanceledCount);
+    HBAppend(os, "Replicator-reads",      "rrc",  replCntrs.mReadCount);
+    HBAppend(os, "Replicator-read-bytes", "rrb",  replCntrs.mReadByteCount);
+    HBAppend(os, "Replicator-writes",      "rwc", replCntrs.mWriteCount);
+    HBAppend(os, "Replicator-write-bytes", "rwb", replCntrs.mWriteByteCount);
 
     HBAppend(os, "Ops-in-flight-count", "opsf", gChunkServer.GetNumOps());
     HBAppend(os, 0, "gcntrs", "");

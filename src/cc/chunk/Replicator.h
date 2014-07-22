@@ -51,6 +51,10 @@ public:
         Counter mRecoveryErrorCount;
         Counter mRecoveryCanceledCount;
         Counter mReplicatorCount;
+        Counter mReadCount;
+        Counter mWriteCount;
+        Counter mReadByteCount;
+        Counter mWriteByteCount;
         Counters()
             : mReplicationCount(0),
               mReplicationErrorCount(0),
@@ -58,7 +62,11 @@ public:
               mRecoveryCount(0),
               mRecoveryErrorCount(0),
               mRecoveryCanceledCount(0),
-              mReplicatorCount(0)
+              mReplicatorCount(0),
+              mReadCount(0),
+              mWriteCount(0),
+              mReadByteCount(0),
+              mWriteByteCount(0)
             {}
         void Reset()
             { *this = Counters(); }

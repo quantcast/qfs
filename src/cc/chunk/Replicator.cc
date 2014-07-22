@@ -588,7 +588,10 @@ ReplicatorImpl::HandleReadDone(int code, void* data)
     if (moveDataFlag) {
         mWriteOp.dataBuf.Move(&mReadOp.dataBuf);
     }
-
+    if (mOwner->location.IsValid()) {
+        Ctrs().mReadCount++;
+        Ctrs().mReadByteCount += numRd;
+    }
     SET_HANDLER(this, &ReplicatorImpl::HandleWriteDone);
     const int status = gChunkManager.WriteChunk(&mWriteOp, &mFileHandle);
     if (status < 0) {
@@ -622,6 +625,8 @@ ReplicatorImpl::HandleWriteDone(int code, void* data)
         return 0;
     }
     mOffset += mWriteOp.numBytesIO;
+    Ctrs().mWriteCount++;
+    Ctrs().mWriteByteCount += mWriteOp.numBytesIO;
     if (mReadOp.offset == mOffset && ! mReadOp.dataBuf.IsEmpty()) {
         assert(mReadOp.dataBuf.BytesConsumable() < (int)CHECKSUM_BLOCKSIZE);
         // Write the remaining tail.
@@ -883,6 +888,8 @@ private:
     bool                 mPendingCloseFlag;
     bool                 mPendingCancelFlag;
     bool                 mReplicationDoneFlag;
+    int64_t              mPrevReadCount;
+    int64_t              mPrevReadByteCount;
 
     RSReplicatorImpl(
         ReplicateChunkOp* op,
@@ -914,7 +921,9 @@ private:
         mReadInFlightFlag(false),
         mPendingCloseFlag(false),
         mPendingCancelFlag(false),
-        mReplicationDoneFlag(false)
+        mReplicationDoneFlag(false),
+        mPrevReadCount(0),
+        mPrevReadByteCount(0)
     {
         mChunkMetadataOp.chunkSize = -1;
         assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
@@ -1218,6 +1227,15 @@ private:
                 }
             }
         }
+        Reader::Stats       stats;
+        KfsNetClient::Stats csStats;
+        mReader.GetStats(stats, csStats);
+        Ctrs().mReadCount      += max(int64_t(0),
+            stats.mReadCount - mPrevReadCount);
+        Ctrs().mReadByteCount  += max(int64_t(0),
+            stats.mReadByteCount - mPrevReadByteCount);
+        mPrevReadCount     = stats.mReadCount;
+        mPrevReadByteCount = stats.mReadByteCount;
         // Unfref with lock held to serialize ref. count access between write
         // completion and pending close.
         UnRef();
