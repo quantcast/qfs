@@ -167,10 +167,8 @@ public:
           mRunFlag(false),
           mShutdownFlag(false),
           mNetManager(),
-          mSyncQueueTailPtr(0),
           mSyncQueueHeadPtr(0),
           mRSReplicatorQueueHeadPtr(0),
-          mRSReplicatorQueueTailPtr(0),
           mTmpDispatchQueue(),
           mTmpSyncSMQueue(),
           mTmpRSReplicatorQueue(),
@@ -212,8 +210,7 @@ public:
             // Already in the queue, possible state change.
             return;
         }
-        if (Enqueue(inEntry,
-                mRSReplicatorQueueHeadPtr, mRSReplicatorQueueTailPtr)) {
+        if (Enqueue(inEntry, mRSReplicatorQueueHeadPtr)) {
             Wakeup();
         }
     }
@@ -289,12 +286,11 @@ public:
             mNetManager.Shutdown();
         }
         mTmpDispatchQueue.clear();
-        while ((thePtr = DispatchQueue::PopFront(mDispatchQueuePtr))) {
+        while ((thePtr = DispatchQueue::PopBack(mDispatchQueuePtr))) {
             mTmpDispatchQueue.push_back(&thePtr->GetClient());
         }
         RemoteSyncSM* theSyncPtr = mSyncQueueHeadPtr;
         mSyncQueueHeadPtr = 0;
-        mSyncQueueTailPtr = 0;
         mTmpSyncSMQueue.clear();
         while (theSyncPtr) {
             RemoteSyncSM& theCur = *theSyncPtr;
@@ -305,21 +301,25 @@ public:
             GetNextPtr(theCur) = 0;
             mTmpSyncSMQueue.push_back(&theCur);
         }
-        for (TmpDispatchQueue::iterator theIt = mTmpDispatchQueue.begin();
-                theIt != mTmpDispatchQueue.end();
-                ++theIt) {
+        bool theLastFlag = true;
+        for (TmpDispatchQueue::iterator theIt = mTmpDispatchQueue.end();
+                theIt != mTmpDispatchQueue.begin(); ) {
+            --theIt;
             if (! RunPending(**theIt)) {
+                if (theLastFlag) {
+                    theIt = mTmpDispatchQueue.erase(theIt);
+                    continue;
+                }
                 *theIt = 0;
             }
+            theLastFlag = false;
         }
-        for (TmpSyncSMQueue::const_iterator theIt = mTmpSyncSMQueue.begin();
-                theIt != mTmpSyncSMQueue.end();
-                ++theIt) {
-            RunPending(**theIt);
+        while (! mTmpSyncSMQueue.empty()) {
+            RunPending(*mTmpSyncSMQueue.back());
+            mTmpSyncSMQueue.pop_back();
         }
         RSReplicatorEntry* theNextPtr = mRSReplicatorQueueHeadPtr;
         mRSReplicatorQueueHeadPtr = 0;
-        mRSReplicatorQueueTailPtr = 0;
         mTmpRSReplicatorQueue.clear();
         while (theNextPtr) {
             RSReplicatorEntry& theCur = *theNextPtr;
@@ -331,18 +331,16 @@ public:
             mTmpRSReplicatorQueue.push_back(&theCur);
         }
         theLocker.Unlock();
-        for (TmpDispatchQueue::const_iterator theIt = mTmpDispatchQueue.begin();
-                theIt != mTmpDispatchQueue.end();
-                ++theIt) {
-            if (*theIt) {
-                GetConnection(**theIt)->StartFlush();
+        while (! mTmpDispatchQueue.empty()) {
+            ClientSM* const thePtr = mTmpDispatchQueue.back();
+            if (thePtr) {
+                GetConnection(*thePtr)->StartFlush();
             }
+            mTmpDispatchQueue.pop_back();
         }
-        for (TmpRSReplicatorQueue::const_iterator theIt =
-                    mTmpRSReplicatorQueue.begin();
-                theIt != mTmpRSReplicatorQueue.end();
-                ++theIt) {
-            (*theIt)->Handle();
+        while (! mTmpRSReplicatorQueue.empty()) {
+            mTmpRSReplicatorQueue.back()->Handle();
+            mTmpRSReplicatorQueue.pop_back();
         }
     }
     int Handle(
@@ -445,7 +443,7 @@ public:
             return;
         }
         if (AddPending(inOp, inSyncSM) &&
-                Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
+                Enqueue(inSyncSM, mSyncQueueHeadPtr)) {
             Wakeup();
         }
     }
@@ -463,7 +461,7 @@ public:
         }
         inSyncSM.mFinishFlag = true;
         if (! theEntry.mOpsHeadPtr &&
-                Enqueue(inSyncSM, mSyncQueueHeadPtr, mSyncQueueTailPtr)) {
+                Enqueue(inSyncSM, mSyncQueueHeadPtr)) {
             Wakeup();
         }
     }
@@ -495,10 +493,8 @@ private:
     bool                   mRunFlag;
     bool                   mShutdownFlag;
     NetManager             mNetManager;
-    RemoteSyncSM*          mSyncQueueTailPtr;
     RemoteSyncSM*          mSyncQueueHeadPtr;
     RSReplicatorEntry*     mRSReplicatorQueueHeadPtr;
-    RSReplicatorEntry*     mRSReplicatorQueueTailPtr;
     TmpDispatchQueue       mTmpDispatchQueue;
     TmpSyncSMQueue         mTmpSyncSMQueue;
     TmpRSReplicatorQueue   mTmpRSReplicatorQueue;
@@ -612,6 +608,17 @@ private:
     template<typename T>
     static bool Enqueue(
         T&  inEntry,
+        T*& inQueueHeadPtr)
+    {
+        QCASSERT(! GetNextPtr(inEntry));
+        const bool theWasEmptyFlag = ! inQueueHeadPtr;
+        GetNextPtr(inEntry) = inQueueHeadPtr ? inQueueHeadPtr : &inEntry;
+        inQueueHeadPtr = &inEntry;
+        return theWasEmptyFlag;
+    }
+    template<typename T>
+    static bool EnqueueBack(
+        T&  inEntry,
         T*& inQueueHeadPtr,
         T*& inQueueTailPtr)
     {
@@ -633,7 +640,7 @@ private:
     {
         ClientThreadListEntry& theEntry = inClient;
         return (
-            Enqueue(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
+            EnqueueBack(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
             ! theEntry.mGrantedFlag
         );
     }
@@ -643,7 +650,7 @@ private:
     {
         ClientThreadRemoteSyncListEntry& theEntry = inSyncSM;
         return (
-            Enqueue(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
+            EnqueueBack(inOp, theEntry.mOpsHeadPtr, theEntry.mOpsTailPtr) &&
             ! theEntry.mFinishFlag
         );
     }
