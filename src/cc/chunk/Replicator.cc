@@ -882,6 +882,7 @@ private:
     bool                 mReadInFlightFlag;
     bool                 mPendingCloseFlag;
     bool                 mPendingCancelFlag;
+    bool                 mReplicationDoneFlag;
 
     RSReplicatorImpl(
         ReplicateChunkOp* op,
@@ -912,24 +913,29 @@ private:
         mReadSize(GetReadSize(*op)),
         mReadInFlightFlag(false),
         mPendingCloseFlag(false),
-        mPendingCancelFlag(false)
+        mPendingCancelFlag(false),
+        mReplicationDoneFlag(false)
     {
+        mChunkMetadataOp.chunkSize = -1;
         assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
         mReadOp.clnt = 0; // Should not queue read op.
     }
     virtual ~RSReplicatorImpl()
     {
-        KFS_LOG_STREAM_DEBUG << "~RSReplicatorImpl"
-            " chunk: " << mChunkId <<
+        KFS_LOG_STREAM_DEBUG <<
+            "~RSReplicatorImpl " << (const void*)this <<
+            " chunk: "           << mChunkId <<
         KFS_LOG_EOM;
-        if (mReader.IsActive() && globalNetManager().IsRunning()) {
-            die("recovery: invalid destructor invocation reader still active");
+        if (mPendingCloseFlag ||
+                (mReader.IsActive() && globalNetManager().IsRunning())) {
+            FatalError("invalid destructor invocation reader still active");
         }
         mReader.Register(0);
         mReader.Shutdown();
     }
     virtual void Cancel()
     {
+        assert(! mCancelFlag);
         if (mPendingCancelFlag) {
             return;
         }
@@ -938,15 +944,7 @@ private:
     }
     virtual void Read()
     {
-        assert(mState == kNone);
-        if (mPendingCancelFlag) {
-            KFS_LOG_STREAM_DEBUG <<
-                "recovery: ignoring read, cancel pending"
-                " state: "   << mState <<
-                " pending: " << IsPending() <<
-            KFS_LOG_EOM;
-            return;
-        }
+        assert(mState == kNone && ! mCancelFlag);
         Enqueue(kRead);
     }
     virtual ByteCount GetBufferBytesRequired() const
@@ -955,22 +953,20 @@ private:
     }
     void Enqueue(State inState)
     {
-        if (mPendingCancelFlag) {
-            if (mState != inState) {
-                die("recovery: invalid cancel enqueue");
+        if (mState != kNone) {
+            if (! mPendingCancelFlag || inState != mState) {
+                ostringstream os;
+                os << "recovery: invalid state transtion"
+                    " to: " << (int)inState
+                ;
+                FatalError(os.str());
                 return;
             }
-        } else if (mState != kNone) {
-            ostringstream os;
-            os << "recovery: invalid state transtion"
-                " from: "    << (int)mState <<
-                " to: "      << (int)inState <<
-                " pending: " << IsPending()
-            ;
-            die(os.str());
-            return;
         } else {
             mState = inState;
+        }
+        if (mPendingCancelFlag && IsPending()) {
+            return; // Cancel is still pending.
         }
         if (mClientThreadPtr &&
                 mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
@@ -997,7 +993,7 @@ private:
                 HandleRead();
                 break;
             default:
-                die("recovery: invalid state");
+                FatalError("invalid state");
                 break;
         }
     }
@@ -1018,6 +1014,7 @@ private:
         } else {
             HandleReadDone(EVENT_CMD_DONE, data);
         }
+        mReplicationDoneFlag = mReplicationDoneFlag || ! mOwner;
         if (mOwner || mPendingCloseFlag || mPendingCancelFlag ||
                 mState != kNone) {
             return;
@@ -1035,15 +1032,8 @@ private:
     }
     virtual void Start()
     {
-        assert(mOwner && mOwner->status == 0 && mState == kNone);
-        if (mPendingCancelFlag) {
-            KFS_LOG_STREAM_DEBUG <<
-                "recovery: ignoring start, cancel pending"
-                " state: "   << mState <<
-                " pending: " << IsPending() <<
-            KFS_LOG_EOM;
-            return;
-        }
+        assert(mOwner && mOwner->status == 0 && mState == kNone &&
+            mChunkMetadataOp.chunkSize < 0 && ! mCancelFlag);
         mChunkMetadataOp.chunkSize         = CHUNKSIZE;
         mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
         mChunkMetadataOp.status            = 0;
@@ -1052,14 +1042,6 @@ private:
         mReadOp.statusMsg.clear();
         mReadOp.numBytes                   = 0;
         mReadOp.skipVerifyDiskChecksumFlag = false;
-        if (! mLocation.IsValid()) {
-            mChunkMetadataOp.status    = -EINVAL;
-            mChunkMetadataOp.statusMsg =
-                "invalid meta server location: " + mLocation.ToString() +
-                " or authentication";
-            HandleCompletion(&mChunkMetadataOp);
-            return;
-        }
         Enqueue(kStart);
     }
     virtual void Done(
@@ -1075,7 +1057,7 @@ private:
                     inOffset < 0 ||
                     inSize > (Reader::Offset)mReadOp.numBytes ||
                     ! mReadInFlightFlag))) {
-            die("recovery: invalid read completion");
+            FatalError("invalid read completion");
             mReadOp.status = -EINVAL;
         }
         if (mPendingCloseFlag) {
@@ -1089,7 +1071,7 @@ private:
                 mReader.Shutdown();
                 // Acquire the lock as write completion can modify the ref.
                 // count from the other thread.
-                StMutexLocker lock(mClientThreadPtr);
+                StMutexLocker lock(mReplicationDoneFlag ? 0 : mClientThreadPtr);
                 UnRef();
             }
             return;
@@ -1164,15 +1146,13 @@ private:
         if (readOkFlag &&
                 sRSReaderMaxRecoverChunkSize < mOffset + pendingSize) {
             ostringstream os;
-            os << " recovery:"
-                " file: "   << mFileId  <<
-                " chunk: "  << mChunkId <<
+            os <<
                 " pos: "    << mOffset  <<
                 " + "       << mReadTail.BytesConsumable() <<
                 " rdsize: " << inBufferPtr->BytesConsumable() <<
                 " exceeds " << sRSReaderMaxRecoverChunkSize;
             const string msg = os.str();
-            die(msg);
+            FatalError(msg);
         }
         if (! mOwner) {
             lock.Unlock(); // Release lock, write cannot be in flight.
@@ -1247,11 +1227,18 @@ private:
     {
         mReader.Unregister(this);
         mReader.Shutdown();
+        assert(! mReader.IsActive());
         // Acquire the lock first, as the write can still be in flight, and write
         // completion can modify the state including the ref count.
         StMutexLocker lock(mClientThreadPtr);
         StRef         ref(*this);
-        const int     prevRef = GetRefCount();
+        if (mPendingCloseFlag) {
+            // Unregister and shutdown will cancel pending close without
+            // invoking completion method Done().
+            assert(1 < GetRefCount());
+            mPendingCloseFlag = false;
+            UnRef();
+        }
         if (IsPending()) {
             // Drain pending queue, cancel can be queued more than once, due to
             // race between en-queue and de-queue.
@@ -1260,6 +1247,7 @@ private:
         if (mCancelFlag) {
             return;
         }
+        const int prevRef = GetRefCount();
         ReplicatorImpl::Cancel();
         if (kNone == mState || GetRefCount() < prevRef) {
             return; // Unwind.
@@ -1283,8 +1271,16 @@ private:
     void HandleStart()
     {
         assert(! mCancelFlag && mOwner && mOwner->status == 0 &&
-            ! mReadInFlightFlag && mLocation.IsValid());
+            ! mReadInFlightFlag);
 
+        if (! mLocation.IsValid()) {
+            mChunkMetadataOp.status    = -EINVAL;
+            mChunkMetadataOp.statusMsg =
+                "invalid meta server location: " + mLocation.ToString() +
+                " or authentication";
+            HandleCompletion(&mChunkMetadataOp);
+            return;
+        }
         if (mAuthUpdateCount) {
             ClientAuthContext* const authContext = mMetaServer.GetAuthContext();
             if (authContext) {
@@ -1387,6 +1383,27 @@ private:
                 reinterpret_cast<char*>(&val), len)) != len) {
             die("invalid buffer size");
         }
+    }
+    void FatalError(const string& msg)
+        { FatalError(msg.c_str()); }
+    void FatalError(const char* msg)
+    {
+        ostringstream os;
+        os << "recovery: " << (msg ? msg : "") <<
+            " "                 << (const void*)this <<
+            " file: "           << mFileId <<
+            " chunk: "          << mChunkId <<
+            " owner: "          << (const void*)mOwner <<
+            " state: "          << (int)mState <<
+            " pending: "        << IsPending() <<
+            " cancel: "         << mCancelFlag <<
+            " pending cancel: " << mPendingCancelFlag <<
+            " chunk size: "     << mChunkMetadataOp.chunkSize <<
+            " pending close: "  << mPendingCloseFlag <<
+            " read in flight: " << mReadInFlightFlag <<
+            " active: "         << mReader.IsActive()
+        ;
+        FatalError(os.str());
     }
     struct AddExtraClientHeaders
     {
