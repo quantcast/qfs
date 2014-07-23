@@ -271,7 +271,9 @@ public:
         DispatchQueue::Init(theAddQueuePtr);
         DispatchQueue::PushBackList(theAddQueuePtr, mAddQueuePtr);
         ClientThreadListEntry* thePtr;
+        int theCnt = 0;
         while ((thePtr = DispatchQueue::PopFront(theAddQueuePtr))) {
+            CheckQueueSize(++theCnt, "add");
             ClientSM& theCur = thePtr->GetClient();
             const NetConnectionPtr& theConnPtr = GetConnection(theCur);
             QCASSERT(theConnPtr);
@@ -286,13 +288,17 @@ public:
             mNetManager.Shutdown();
         }
         mTmpDispatchQueue.clear();
+        theCnt = 0;
         while ((thePtr = DispatchQueue::PopBack(mDispatchQueuePtr))) {
+            CheckQueueSize(++theCnt, "sync");
             mTmpDispatchQueue.push_back(&thePtr->GetClient());
         }
         RemoteSyncSM* theSyncPtr = mSyncQueueHeadPtr;
         mSyncQueueHeadPtr = 0;
         mTmpSyncSMQueue.clear();
+        theCnt = 0;
         while (theSyncPtr) {
+            CheckQueueSize(++theCnt, "sync");
             RemoteSyncSM& theCur = *theSyncPtr;
             theSyncPtr = GetNextPtr(theCur);
             if (theSyncPtr == &theCur) {
@@ -314,6 +320,7 @@ public:
             }
             theLastFlag = false;
         }
+        theCnt = 0;
         while (! mTmpSyncSMQueue.empty()) {
             RunPending(*mTmpSyncSMQueue.back());
             mTmpSyncSMQueue.pop_back();
@@ -321,7 +328,9 @@ public:
         RSReplicatorEntry* theNextPtr = mRSReplicatorQueueHeadPtr;
         mRSReplicatorQueueHeadPtr = 0;
         mTmpRSReplicatorQueue.clear();
+        theCnt = 0;
         while (theNextPtr) {
+            CheckQueueSize(++theCnt, "replicate");
             RSReplicatorEntry& theCur = *theNextPtr;
             theNextPtr = GetNextPtr(theCur);
             if (&theCur == theNextPtr) {
@@ -507,6 +516,19 @@ private:
     static ClientThread* sCurrentClientThreadPtr;
     static int           sLockCnt;
 
+    void CheckQueueSize(
+        int         inSize,
+        const char* inNamePtr)
+    {
+        const int kMaxSize = 256 << 10;
+        if (kMaxSize < inSize) {
+            KFS_LOG_STREAM_FATAL <<
+                "queue: " << inNamePtr << " exceeded max. allowed size" <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
+            abort();
+        }
+    }
     void Wakeup()
     {
         if (SyncAddAndFetch(mWakeupCnt, 1) <= 1) {
