@@ -1290,6 +1290,7 @@ private:
                 theDoneCount <= inOp.mTmpBuffer.BytesConsumable() &&
                 inOp.contentLength <= inOp.numBytes
             );
+            mOuter.mStats.mReadCount++;
             mOuter.mStats.mReadByteCount += theDoneCount;
             if (theDoneCount < inOp.mTmpBuffer.BytesConsumable()) {
                 // Move available space, if any, to the end of the short read.
