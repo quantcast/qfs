@@ -316,6 +316,15 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
         entry.mPendingResetTimerFlag =
             resetTimer || entry.mPendingResetTimerFlag;
         if (! entry.mPendingUpdateFlag) {
+            if ((size_t)mConnectionsCount < mPendingUpdate.size()) {
+                KFS_LOG_STREAM_FATAL <<
+                    "invalid pending update list"
+                    " size: "        << mPendingUpdate.size() <<
+                    " connections: " << mConnectionsCount <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
             mPendingUpdate.push_back(&conn);
             entry.mPendingUpdateFlag = true;
         }
