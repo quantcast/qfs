@@ -251,8 +251,7 @@ public:
         OpOwner* inOwnerPtr);
     bool Cancel();
     const ServerLocation& GetServerLocation() const;
-    NetManager& GetNetManager();
-    const NetManager& GetNetManager() const;
+    NetManager& GetNetManager() const;
     void SetEventObserver(
         EventObserver* inEventObserverPtr); // Debug hook
     void SetMaxContentLength(

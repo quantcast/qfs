@@ -1692,6 +1692,7 @@ KfsNetClient::Start(
     bool               inRetryConnectOnlyFlag,
     ClientAuthContext* inAuthContextPtr)
 {
+    Impl::StRef theRef(mImpl);
     return mImpl.Start(
         inServerName,
         inServerPort,
@@ -1800,7 +1801,6 @@ KfsNetClient::Stop()
     int
 KfsNetClient::GetMaxRetryCount() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.GetMaxRetryCount();
 }
 
@@ -1815,7 +1815,6 @@ KfsNetClient::SetMaxRetryCount(
     int
 KfsNetClient::GetOpTimeoutSec() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.GetOpTimeoutSec();
 }
 
@@ -1830,7 +1829,6 @@ KfsNetClient::SetOpTimeoutSec(
     int
 KfsNetClient::GetIdleTimeoutSec() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.GetIdleTimeoutSec();
 }
 
@@ -1865,28 +1863,24 @@ KfsNetClient::IsAllDataSent() const
     bool
 KfsNetClient::IsDataReceived() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.IsDataReceived();
 }
 
     bool
 KfsNetClient::IsDataSent() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.IsDataSent();
 }
 
     bool
 KfsNetClient::IsRetryConnectOnly() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.IsRetryConnectOnly();
 }
 
     bool
 KfsNetClient::WasDisconnected() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.WasDisconnected();
 }
 
@@ -1910,7 +1904,6 @@ KfsNetClient::SetOpTimeout(
 KfsNetClient::GetStats(
     Stats& outStats) const
 {
-    Impl::StRef theRef(mImpl);
     mImpl.GetStats(outStats);
 }
 
@@ -1943,7 +1936,6 @@ KfsNetClient::Cancel()
     const ServerLocation&
 KfsNetClient::GetServerLocation() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.GetServerLocation();
 }
 
@@ -1956,16 +1948,14 @@ KfsNetClient::SetEventObserver(
 }
 
     NetManager&
-KfsNetClient::GetNetManager()
-{
-    Impl::StRef theRef(mImpl);
-    return mImpl.GetNetManager();
-}
-
-    const NetManager&
 KfsNetClient::GetNetManager() const
 {
-    Impl::StRef theRef(mImpl);
+    // This method must not change any variables including the reference count.
+    // The thread logic in chunk server relies on this, when it constructs RS
+    // replicator reader: the reader's constructor call this method, but must
+    // no modify in any way the meta server state machine state, including the
+    // ref. count, as the state machine might be running withing a different
+    // thread.
     return mImpl.GetNetManager();
 }
 
