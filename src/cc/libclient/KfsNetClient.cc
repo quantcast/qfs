@@ -561,9 +561,7 @@ public:
         { mEventObserverPtr = inEventObserverPtr; }
     time_t Now() const
         { return mNetManager.Now(); }
-    NetManager& GetNetManager()
-        { return mNetManager; }
-    const NetManager& GetNetManager() const
+    NetManager& GetNetManager() const
         { return mNetManager; }
     void SetMaxContentLength(
         int inMax)
