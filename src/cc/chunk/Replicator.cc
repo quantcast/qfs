@@ -80,8 +80,7 @@ using KFS::client::KfsNetClient;
 
 class ReplicatorImpl :
     public KfsCallbackObj,
-    public QCRefCountedObj,
-    public BufferManager::Client
+    protected BufferManager::Client
 {
 public:
     // Model for doing a chunk replication involves 3 steps:
@@ -113,27 +112,16 @@ public:
             sReadSkipDiskVerifyFlag ? 1 : 0
         ) != 0;
     }
-    static void GetCounters(Replicator::Counters& counters);
 
     ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer);
     void Run();
-    // Handle the callback for a size request
-    int HandleStartDone(int code, void* data);
-    // Handle the callback for a remote read request
-    int HandleReadDone(int code, void* data);
-    // Handle the callback for a write
-    int HandleWriteDone(int code, void* data);
-    // When replication done, we write out chunk meta-data; this is
-    // the handler that gets called when this event is done.
-    int HandleReplicationDone(int code, void* data);
-    virtual void Granted(ByteCount byteCount);
-    static Counters& Ctrs()
-        { return sCounters; };
+    static void GetCounters(Replicator::Counters& counters);
     static bool GetUseConnectionPoolFlag()
         { return sUseConnectionPoolFlag; }
     static bool CancelChunkReplication(
         kfsChunkId_t chunkId, kfsSeq_t targetVersion);
-
+    static Counters& Ctrs()
+        { return sCounters; };
 protected:
     // Inputs from the metaserver
     kfsFileId_t const     mFileId;
@@ -156,6 +144,16 @@ protected:
     bool                  mCancelFlag;
     DiskIo::FilePtr       mFileHandle;
 
+    // Handle the callback for a size request
+    int HandleStartDone(int code, void* data);
+    // Handle the callback for a remote read request
+    int HandleReadDone(int code, void* data);
+    // Handle the callback for a write
+    int HandleWriteDone(int code, void* data);
+    // When replication done, we write out chunk meta-data; this is
+    // the handler that gets called when this event is done.
+    int HandleReplicationDone(int code, void* data);
+    virtual void Granted(ByteCount byteCount);
     virtual ~ReplicatorImpl();
     // Cleanup...
     void Terminate(int status);
@@ -179,6 +177,8 @@ protected:
         }
     }
     virtual ByteCount GetBufferBytesRequired() const;
+    virtual void ReplicationDone()
+        { delete this; }
 
 private:
     typedef std::map<
@@ -256,7 +256,6 @@ void ReplicatorImpl::GetCounters(ReplicatorImpl::Counters& counters)
 
 ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer) :
     KfsCallbackObj(),
-    QCRefCountedObj(),
     BufferManager::Client(),
     mFileId(op->fid),
     mChunkId(op->chunkId),
@@ -465,7 +464,6 @@ void
 ReplicatorImpl::Read()
 {
     assert(! mCancelFlag && mOwner);
-    StRef ref(*this);
 
     if (mOffset >= mChunkSize) {
         mDone = mOffset == mChunkSize;
@@ -610,7 +608,6 @@ ReplicatorImpl::HandleWriteDone(int code, void* data)
         (code == EVENT_DISK_WROTE) ||
         (code == EVENT_CMD_DONE && data == &mWriteOp)
     );
-    StRef ref(*this);
     mWriteOp.diskIo.reset();
     mWriteOp.dataBuf.Clear();
     if (mWriteOp.status < 0) {
@@ -726,7 +723,7 @@ ReplicatorImpl::HandleReplicationDone(int code, void* data)
     Ctrs().mReplicatorCount--;
     ReplicateChunkOp* const op = mOwner;
     mOwner = 0;
-    UnRef();
+    ReplicationDone();
     SubmitOpResponse(op);
     return 0;
 }
@@ -740,9 +737,10 @@ ReplicatorImpl::GetPeerName() const
 const char* const kRsReadMetaAuthPrefix = "chunkServer.rsReader.auth.";
 
 class RSReplicatorImpl :
-    public RSReplicatorEntry,
-    public ReplicatorImpl,
-    public Reader::Completion
+    public  ReplicatorImpl,
+    private RSReplicatorEntry,
+    private QCRefCountedObj,
+    private Reader::Completion
 {
 public:
     static void SetParameters(const Properties& props)
@@ -855,13 +853,15 @@ public:
             op->status    = -EFAULT;
             return 0;
         }
-        return new RSReplicatorImpl(
+        RSReplicatorImpl* const impl = new RSReplicatorImpl(
             op,
             (authFlag && entry->mAuthUpdateCount != sAuthUpdateCount) ?
                 const_cast<uint64_t*>(&entry->mAuthUpdateCount) : 0,
             clientThread,
             *entry->mMeta
         );
+        impl->Ref();
+        return impl;
     }
     static void Shutdown()
     {
@@ -874,7 +874,8 @@ private:
     {
         kNone   = 0,
         kStart  = 1,
-        kRead   = 2
+        kRead   = 2,
+        kDone    =3
     };
     typedef ClientThread::StMutexLocker StMutexLocker;
 
@@ -897,8 +898,9 @@ private:
         uint64_t*         authUpdateCount,
         ClientThread*     clientThread,
         KfsNetClient&     metaServer)
-        : RSReplicatorEntry(clientThread),
-          ReplicatorImpl(op, RemoteSyncSMPtr()),
+        : ReplicatorImpl(op, RemoteSyncSMPtr()),
+          RSReplicatorEntry(clientThread),
+          QCRefCountedObj(),
           Reader::Completion(),
           mState(kNone),
           mMetaServer(metaServer),
@@ -915,19 +917,21 @@ private:
             sRSReaderLeaseWaitTimeout,
             MakeLogPrefix(mChunkId),
             GetSeqNum()
-        ),
-        mReadTail(),
-        mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
-        mReadSize(GetReadSize(*op)),
-        mReadInFlightFlag(false),
-        mPendingCloseFlag(false),
-        mPendingCancelFlag(false),
-        mReplicationDoneFlag(false),
-        mPrevReadCount(0),
-        mPrevReadByteCount(0)
+          ),
+          mReadTail(),
+          mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
+          mReadSize(GetReadSize(*op)),
+          mReadInFlightFlag(false),
+          mPendingCloseFlag(false),
+          mPendingCancelFlag(false),
+          mReplicationDoneFlag(false),
+          mPrevReadCount(0),
+          mPrevReadByteCount(0)
     {
+        if (mReadSize % IOBufferData::GetDefaultBufferSize() != 0) {
+            FatalError("invalid read size");
+        }
         mChunkMetadataOp.chunkSize = -1;
-        assert(mReadSize % IOBufferData::GetDefaultBufferSize() == 0);
         mReadOp.clnt = 0; // Should not queue read op.
     }
     virtual ~RSReplicatorImpl()
@@ -936,8 +940,9 @@ private:
             "~RSReplicatorImpl " << (const void*)this <<
             " chunk: "           << mChunkId <<
         KFS_LOG_EOM;
-        if (mPendingCloseFlag ||
-                (mReader.IsActive() && globalNetManager().IsRunning())) {
+        if (mPendingCloseFlag || ! mReplicationDoneFlag ||
+                (mReader.IsActive() &&
+                    mMetaServer.GetNetManager().IsRunning())) {
             FatalError("invalid destructor invocation reader still active");
         }
         mReader.Register(0);
@@ -945,17 +950,56 @@ private:
     }
     virtual void Cancel()
     {
-        assert(! mCancelFlag);
         if (mPendingCancelFlag) {
+            return; // ignore.
+        }
+        if (kNone == mState) {
+            ReplicatorImpl::Cancel();
+            return;
+        }
+        if (kDone == mState) {
+            FatalError("invalid cancel from done state");
             return;
         }
         mPendingCancelFlag = true;
+        if (IsPending()) {
+            // No need to re-queue, as the current request still pending.
+            return;
+        }
         Enqueue(mState);
+    }
+    virtual void Start()
+    {
+        if (! mOwner || mOwner->status != 0 || mState != kNone ||
+                0 <= mChunkMetadataOp.chunkSize || mCancelFlag) {
+            FatalError("invalid start invocation");
+            return;
+        }
+        mChunkMetadataOp.chunkSize         = CHUNKSIZE;
+        mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
+        mChunkMetadataOp.status            = 0;
+        mChunkMetadataOp.statusMsg.clear();
+        mReadOp.status                     = 0;
+        mReadOp.statusMsg.clear();
+        mReadOp.numBytes                   = 0;
+        mReadOp.skipVerifyDiskChecksumFlag = false;
+        Enqueue(kStart);
     }
     virtual void Read()
     {
-        assert(mState == kNone && ! mCancelFlag);
+        if (mState != kNone || mCancelFlag) {
+            FatalError("invalid read invocation");
+            return;
+        }
         Enqueue(kRead);
+    }
+    virtual void ReplicationDone()
+    {
+        if (mState != kNone) {
+            FatalError("invalid replication done invocation");
+            return;
+        }
+        Enqueue(kDone);
     }
     virtual ByteCount GetBufferBytesRequired() const
     {
@@ -976,7 +1020,7 @@ private:
             mState = inState;
         }
         if (mPendingCancelFlag && IsPending()) {
-            return; // Cancel is still pending.
+            return; // Cancel is still in the queue.
         }
         if (mClientThreadPtr &&
                 mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
@@ -991,16 +1035,22 @@ private:
         // Handle cancel acquires the mutex and checks if the entry is still
         // queued, and ignores cancellation requests until drains the queue
         // completely.
-        if (mPendingCancelFlag) {
-            HandleCancel();
-            return;
-        }
         switch (mState) {
             case kStart:
-                HandleStart();
-                break;
+                if (! mPendingCancelFlag) {
+                    HandleStart();
+                    break;
+                }
+                // Fall through
             case kRead:
-                HandleRead();
+                if (mPendingCancelFlag) {
+                    HandleCancel();
+                } else {
+                    HandleRead();
+                }
+                break;
+            case kDone:
+                HandleDone();
                 break;
             default:
                 FatalError("invalid state");
@@ -1015,44 +1065,17 @@ private:
     void HandleCompletion(void* data, StMutexLocker& lock)
     {
         if (mPendingCancelFlag) {
-            return; // Ignore completion.
+            // Ignore completion, report completion in HandleCancel().
+            // Do not change the state, to allow HandleCancel invoke the
+            // appropriate completion method.
+            return;
         }
-        StRef ref(*this);
         mState = kNone;
         if (data == &mChunkMetadataOp) {
             HandleStartDone(EVENT_CMD_DONE, data);
         } else {
             HandleReadDone(EVENT_CMD_DONE, data);
         }
-        mReplicationDoneFlag = mReplicationDoneFlag || ! mOwner;
-        if (mOwner || mPendingCloseFlag || mPendingCancelFlag ||
-                mState != kNone) {
-            return;
-        }
-        lock.Unlock();
-        // Handle write error by closing the reader if needed.
-        if (! mReader.IsActive()) {
-            return;
-        }
-        mReader.Close();
-        if (mReader.IsActive()) {
-            mPendingCloseFlag = true;
-            Ref(); // UnRef() when close completes.
-        }
-    }
-    virtual void Start()
-    {
-        assert(mOwner && mOwner->status == 0 && mState == kNone &&
-            mChunkMetadataOp.chunkSize < 0 && ! mCancelFlag);
-        mChunkMetadataOp.chunkSize         = CHUNKSIZE;
-        mChunkMetadataOp.chunkVersion      = mOwner->chunkVersion;
-        mChunkMetadataOp.status            = 0;
-        mChunkMetadataOp.statusMsg.clear();
-        mReadOp.status                     = 0;
-        mReadOp.statusMsg.clear();
-        mReadOp.numBytes                   = 0;
-        mReadOp.skipVerifyDiskChecksumFlag = false;
-        Enqueue(kStart);
     }
     virtual void Done(
         Reader&           inReader,
@@ -1079,15 +1102,14 @@ private:
                 mPendingCloseFlag = false;
                 mReader.Unregister(this);
                 mReader.Shutdown();
-                // Acquire the lock as write completion can modify the ref.
-                // count from the other thread.
-                StMutexLocker lock(mReplicationDoneFlag ? 0 : mClientThreadPtr);
-                UnRef();
+                if (mReplicationDoneFlag) {
+                    UnRef();
+                }
             }
             return;
         }
         if (! mReadInFlightFlag) {
-            // Handle recursion by assigning the status.
+            // Handle possible recursion from Close() by assigning the status.
             if (mReadOp.status >= 0 && inStatusCode < 0) {
                 mReadOp.status = inStatusCode;
             }
@@ -1097,11 +1119,7 @@ private:
         if (mReadOp.status != 0 || (! inBufferPtr && inStatusCode == 0)) {
             return; // Ignore possible synchronous reader close completion.
         }
-        // Do not increment ref count prior to pending close check, as the write
-        // and close can be both in flight simultaneously, and the write
-        // and replication completion will modify the state including the ref.
-        // count.
-        Ref();
+        StRef ref(*this);
         mReadOp.checksum.clear();
         mReadOp.status = inStatusCode;
         const bool readOkFlag  = mReadOp.status == 0 && inBufferPtr;
@@ -1122,7 +1140,6 @@ private:
                 mReader.Close();
                 if (mReader.IsActive()) {
                     mPendingCloseFlag = true;
-                    Ref();
                 } else {
                     mReader.Unregister(this);
                     mReader.Shutdown();
@@ -1134,9 +1151,6 @@ private:
                     kChecksumBlockSize * kChecksumBlockSize;
                 if (nmv <= 0) {
                     mReadTail.Move(inBufferPtr);
-                    // Unref prior to completion in order to do handle possible
-                    // recursion, and not to change ref. without lock.
-                    UnRef();
                     HandleRead();
                     return;
                 }
@@ -1152,28 +1166,8 @@ private:
                 mReadOp.checksum = ComputeChecksums(&buf, mReadOp.numBytes);
             }
         }
-        StMutexLocker lock(mClientThreadPtr);
-        if (readOkFlag &&
-                sRSReaderMaxRecoverChunkSize < mOffset + pendingSize) {
-            ostringstream os;
-            os <<
-                " pos: "    << mOffset  <<
-                " + "       << mReadTail.BytesConsumable() <<
-                " rdsize: " << inBufferPtr->BytesConsumable() <<
-                " exceeds " << sRSReaderMaxRecoverChunkSize;
-            const string msg = os.str();
-            FatalError(msg);
-        }
         if (! mOwner) {
-            lock.Unlock(); // Release lock, write cannot be in flight.
-            if (! mPendingCloseFlag && mReader.IsActive()) {
-                mReader.Close();
-                if (mReader.IsActive()) {
-                    mPendingCloseFlag = true;
-                    return; // UnRef() upon completion the above.
-                }
-            }
-            UnRef();
+            FatalError("null owner");
             return;
         }
         if (mOwner->chunkOffset + mOffset != inOffset) {
@@ -1231,15 +1225,25 @@ private:
         Reader::Stats       stats;
         KfsNetClient::Stats csStats;
         mReader.GetStats(stats, csStats);
+        // Acquire lock prior to stats update.
+        StMutexLocker lock(mClientThreadPtr);
         Ctrs().mReadCount      += max(int64_t(0),
             stats.mReadCount - mPrevReadCount);
         Ctrs().mReadByteCount  += max(int64_t(0),
             stats.mReadByteCount - mPrevReadByteCount);
         mPrevReadCount     = stats.mReadCount;
         mPrevReadByteCount = stats.mReadByteCount;
-        // Unfref with lock held to serialize ref. count access between write
-        // completion and pending close.
-        UnRef();
+        if (readOkFlag &&
+                sRSReaderMaxRecoverChunkSize < mOffset + pendingSize) {
+            ostringstream os;
+            os <<
+                " pos: "    << mOffset  <<
+                " + "       << mReadTail.BytesConsumable() <<
+                " rdsize: " << inBufferPtr->BytesConsumable() <<
+                " exceeds " << sRSReaderMaxRecoverChunkSize;
+            const string msg = os.str();
+            FatalError(msg);
+        }
         HandleCompletion(&mReadOp, lock);
     }
     void HandleCancel()
@@ -1247,39 +1251,30 @@ private:
         mReader.Unregister(this);
         mReader.Shutdown();
         assert(! mReader.IsActive());
-        // Acquire the lock first, as the write can still be in flight, and write
-        // completion can modify the state including the ref count.
+        mPendingCloseFlag = false;
+        // Unregister and shutdown will cancel pending close without
+        // invoking completion method Done().
         StMutexLocker lock(mClientThreadPtr);
-        StRef         ref(*this);
-        if (mPendingCloseFlag) {
-            // Unregister and shutdown will cancel pending close without
-            // invoking completion method Done().
-            assert(1 < GetRefCount());
-            mPendingCloseFlag = false;
-            UnRef();
+        if (GetRefCount() < 1 || mCancelFlag ||
+                (mState != kStart && mState != kRead)) {
+            FatalError("handle cancel: invalid state");
         }
         if (IsPending()) {
-            // Drain pending queue, cancel can be queued more than once, due to
-            // race between en-queue and de-queue.
+            // Drain the queue first. Due to race between Cancel() and Handdle()
+            // the pending cancel flag can appear more than once.
             return;
         }
-        if (mCancelFlag) {
-            return;
-        }
-        const int prevRef = GetRefCount();
+        // The following cancel invocation should only set the flag, and not
+        // change the state, as start or read must be in flight.
         ReplicatorImpl::Cancel();
-        if (kNone == mState || GetRefCount() < prevRef) {
-            return; // Unwind.
-        }
         if (kRead == mState) {
-            assert(mOwner || ! mReadInFlightFlag);
             mReadInFlightFlag = false;
+            mState            = kNone;
             mReadOp.status = -ECANCELED;
-            mState = kNone;
             HandleReadDone(EVENT_CMD_DONE, &mReadOp);
             return;
         }
-        if (mState != kStart) {
+        if (kStart != mState) {
             die("recovery: invalid state in cancel");
             return;
         }
@@ -1295,8 +1290,7 @@ private:
         if (! mLocation.IsValid()) {
             mChunkMetadataOp.status    = -EINVAL;
             mChunkMetadataOp.statusMsg =
-                "invalid meta server location: " + mLocation.ToString() +
-                " or authentication";
+                "invalid meta server location: " + mLocation.ToString();
             HandleCompletion(&mChunkMetadataOp);
             return;
         }
@@ -1367,7 +1361,10 @@ private:
     }
     void HandleRead()
     {
-        assert(! mCancelFlag && mOwner && ! mReadInFlightFlag);
+        if (mCancelFlag || ! mOwner || mReadInFlightFlag) {
+            FatalError("invalid handle read invocation");
+            return;
+        }
         if (mOffset >= mChunkSize || mReadOp.status < 0) {
             HandleCompletion(&mReadOp);
             return;
@@ -1395,6 +1392,23 @@ private:
             HandleCompletion(&mReadOp);
         }
     }
+    void HandleDone()
+    {
+        if (mReplicationDoneFlag) {
+            FatalError("invalid extraneous replication done invocation");
+            return;
+        }
+        mReplicationDoneFlag = true;
+        // Close reader if needed. Cancellation should already completed.
+        if (! mPendingCancelFlag) {
+            mReader.Close();
+            if (mReader.IsActive()) {
+                mPendingCloseFlag = true;
+                return;
+            }
+        }
+        UnRef(); // might delete this.
+    }
     template<typename T> static void ReadVal(IOBuffer& buf, T& val)
     {
         const int len = (int)sizeof(val);
@@ -1420,9 +1434,11 @@ private:
             " chunk size: "     << mChunkMetadataOp.chunkSize <<
             " pending close: "  << mPendingCloseFlag <<
             " read in flight: " << mReadInFlightFlag <<
-            " active: "         << mReader.IsActive()
+            " active: "         << mReader.IsActive() <<
+            " done: "           << mReplicationDoneFlag <<
+            " ref: "            << GetRefCount()
         ;
-        FatalError(os.str());
+        die(os.str());
     }
     struct AddExtraClientHeaders
     {
@@ -1824,7 +1840,6 @@ Replicator::Run(ReplicateChunkOp* op)
         }
     }
     if (impl) {
-        impl->Ref();
         impl->Run();
     } else {
         SubmitOpResponse(op);

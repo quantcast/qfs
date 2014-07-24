@@ -63,7 +63,7 @@ die(const string& msg)
     KFS_LOG_STREAM_FATAL << lm << KFS_LOG_EOM;
     MsgLogger::Stop();
     lm += "\n";
-    if (write(2, msg.data(), msg.size()) <= 0) {
+    if (write(2, lm.data(), lm.size()) <= 0) {
         QCUtils::SetLastIgnoredError(errno);
     }
     abort();
