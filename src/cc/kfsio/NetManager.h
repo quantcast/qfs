@@ -124,6 +124,8 @@ public:
         { mMaxAcceptsPerRead = maxAcceptsPerRead <= 0 ? 1 : maxAcceptsPerRead; }
     void ChildAtFork(bool onlyCloseFdFlag = true);
     void UpdateTimeNow() { mNow = time(0); }
+    int GetConnectionCount() const
+        { return mConnectionsCount; }
 
     // Primarily for debugging, to simulate network failures.
     class PollEventHook
