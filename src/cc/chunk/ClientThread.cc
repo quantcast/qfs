@@ -521,9 +521,11 @@ private:
         const char* inNamePtr)
     {
         const int kMaxSize = 256 << 10;
-        if (kMaxSize < inSize) {
+        const int theMax   = kMaxSize + mNetManager.GetConnectionCount();
+        if (theMax < inSize) {
             KFS_LOG_STREAM_FATAL <<
                 "queue: " << inNamePtr << " exceeded max. allowed size" <<
+                " connections: " << theMax - kMaxSize <<
             KFS_LOG_EOM;
             MsgLogger::Stop();
             abort();
