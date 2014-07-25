@@ -109,15 +109,14 @@ public:
         Outer& inThread)
     {
         GetMutex().Lock();
-        QCASSERT(
-            (! sCurrentClientThreadPtr && sLockCnt == 0) ||
-            (&inThread == sCurrentClientThreadPtr && 0 < sLockCnt)
-        );
         if ((0 != sLockCnt ? &inThread : 0) != sCurrentClientThreadPtr) {
-            die("lock: invalid client thread lock state");
-            return;
+            die("client thread lock: invalid client thread lock state");
         }
         if (sLockCnt++ == 0) {
+            if (! inThread.mImpl.mShutdownFlag &&
+                    ! inThread.mImpl.mThread.IsCurrentThread()) {
+                die("client thread lock: client thread is not current thread");
+            }
             sCurrentClientThreadPtr = &inThread;
         }
     }
@@ -129,6 +128,11 @@ public:
             return;
         }
         if (--sLockCnt == 0) {
+            if (! inThread.mImpl.mShutdownFlag &&
+                    ! inThread.mImpl.mThread.IsCurrentThread()) {
+                die("client thread unlock:"
+                    "client thread is not current thread");
+            }
             sCurrentClientThreadPtr = 0;
         }
         GetMutex().Unlock();

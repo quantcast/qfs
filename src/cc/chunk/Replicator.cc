@@ -1019,13 +1019,19 @@ private:
         } else {
             mState = inState;
         }
-        if (mPendingCancelFlag && IsPending()) {
-            return; // Cancel is still in the queue.
-        }
-        if (mClientThreadPtr &&
-                mClientThreadPtr != ClientThread::GetCurrentClientThreadPtr()) {
+        if (mClientThreadPtr) {
+            // Always unwind recursion here, i.e. do not attempt to optimize
+            // and invoke Handle() if the current thread is the matching client
+            // thread, in order to prevent holding mutex while running read
+            // state machine.
+            if (mPendingCancelFlag && IsPending()) {
+                return; // Cancel is still in the queue.
+            }
             RSReplicatorEntry::Enqueue();
         } else {
+            if (IsPending()) {
+                FatalError("pending with no client thread");
+            }
             Handle();
         }
     }
@@ -1062,7 +1068,7 @@ private:
         StMutexLocker lock(mClientThreadPtr);
         HandleCompletion(data, lock);
     }
-    void HandleCompletion(void* data, StMutexLocker& lock)
+    void HandleCompletion(void* data, const StMutexLocker& /* lock */)
     {
         if (mPendingCancelFlag) {
             // Ignore completion, report completion in HandleCancel().
