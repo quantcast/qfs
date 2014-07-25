@@ -131,6 +131,8 @@ public:
         { return mStartedFlag; }
     std::string GetName() const
         { return mName; }
+    bool IsCurrentThread() const
+        { return (::pthread_equal(mThread, ::pthread_self()) != 0); }
     static std::string GetErrorMsg(
         int inErrorCode);
     static int GetThreadCount();
