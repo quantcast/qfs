@@ -3078,12 +3078,16 @@ struct MetaChunkReplicationCheck : public MetaRequest {
 struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
     chunkId_t chunkId;
     bool      recoveryFlag;
+    bool      removeFlag;
+    bool      forcePastEofRecoveryFlag;
 
     MetaForceChunkReplication()
         : ServerLocation(),
           MetaRequest(META_FORCE_CHUNK_REPLICATION, false),
           chunkId(-1),
-          recoveryFlag(false)
+          recoveryFlag(false),
+          removeFlag(false),
+          forcePastEofRecoveryFlag(false)
         {}
     virtual void handle();
     virtual void response(ostream& os);
@@ -3091,9 +3095,13 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
         { return 0; }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "force recovery:"
-            " chunk: "    << chunkId <<
-            " recovery: " << recoveryFlag
+        const ServerLocation& dst = *this;
+        return os << "force replication:"
+            " chunk: "             << chunkId <<
+            " recovery: "          << recoveryFlag <<
+            " remove: "            << removeFlag <<
+            " forcePastEofRecov: " << forcePastEofRecoveryFlag <<
+            " dst: "               << dst
         ;
     }
     bool Validate()
@@ -3101,10 +3109,12 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Host",     &ServerLocation::hostname)
-        .Def("Port",     &ServerLocation::port,                    int(-1))
-        .Def("Chunk",    &MetaForceChunkReplication::chunkId,      int64_t(-1))
-        .Def("Recovery", &MetaForceChunkReplication::recoveryFlag, false)
+        .Def("Host",                 &ServerLocation::hostname)
+        .Def("Port",                 &ServerLocation::port,                              int(-1))
+        .Def("Chunk",                &MetaForceChunkReplication::chunkId,            int64_t(-1))
+        .Def("Recovery",             &MetaForceChunkReplication::recoveryFlag,             false)
+        .Def("Remove",               &MetaForceChunkReplication::removeFlag,               false)
+        .Def("ForcePastEofRecovery", &MetaForceChunkReplication::forcePastEofRecoveryFlag, false)
         ;
     }
 };

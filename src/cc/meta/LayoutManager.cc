@@ -10373,6 +10373,7 @@ LayoutManager::RebalanceCtrs::Show(
 void
 LayoutManager::Handle(MetaForceChunkReplication& op)
 {
+    // The following is intended for debug and testing purposes only.
     if (op.chunkId < 0) {
         op.status    = -EINVAL;
         op.statusMsg = "invalid chunk id";
@@ -10390,7 +10391,23 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         op.statusMsg = "file is not created with recovery";
         return;
     }
-    const ServerLocation& dst = op;
+    if (op.recoveryFlag && ! op.forcePastEofRecoveryFlag && fa->filesize <=
+            fa->ChunkPosToChunkBlkFileStartPos(entry->GetChunkInfo()->offset)) {
+        op.status    = -EINVAL;
+        op.statusMsg = "chunk block past logical end of file";
+        return;
+    }
+    if (mChunkLeases.GetWriteLease(op.chunkId)) {
+        // This check isn't sufficient with recovery, typically the size check
+        // the above would be sifficient, as logical end of file set and the end
+        // of write. If remove isn't set, then the can replicate chunk now will
+        // catch the theoretically possible corner case.
+        op.status    = -EBUSY;
+        op.statusMsg = "write lease exists";
+        return;
+    }
+    bool                  removeDstFlag = false;
+    const ServerLocation& dst           = op;
     Servers::const_iterator dstIt;
     if (dst.IsValid()) {
         dstIt = FindServer(dst);
@@ -10403,9 +10420,13 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         Servers&       servers = serversTmp.Get();
         mChunkToServerMap.GetServers(*entry, servers);
         if (find(servers.begin(), servers.end(), *dstIt) != servers.end()) {
-            op.status    = -EINVAL;
-            op.statusMsg = "chunk exists already on " + dst.ToString();
-            return;
+            if (! op.removeFlag ||
+                    (servers.size() <= size_t(1) && ! op.recoveryFlag)) {
+                op.status    = -EINVAL;
+                op.statusMsg = "chunk exists already on " + dst.ToString();
+                return;
+            }
+            removeDstFlag = true;
         }
     } else {
         dstIt = mChunkServers.end();
@@ -10421,12 +10442,28 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
             placement,
             &hibernatedReplicaCount,
             &recoveryInfo,
-            op.recoveryFlag)) {
+            op.recoveryFlag) &&
+                (! op.removeFlag || dstIt == mChunkServers.end())) {
         op.status    = -EBUSY;
         op.statusMsg = "cannot be started at the moment";
         return;
     }
+    KFS_LOG_STREAM_NOTICE <<
+        "starting: "
+        " seq: " << op.opSeqno <<
+        " "      << op.Show() <<
+    KFS_LOG_EOM;
     if (dstIt != mChunkServers.end()) {
+        if (removeDstFlag) {
+            mChunkToServerMap.RemoveServer(*dstIt, *entry);
+            ChunkServerPtr const srv = *dstIt;
+            srv->NotifyStaleChunk(op.chunkId);
+            if (srv->IsDown()) {
+                op.status    = -EFAULT;
+                op.statusMsg = "server went down";
+                return;
+            }
+        }
         StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
         vector<kfsSTier_t>&        tiers = tiersTmp.Get();
         StTmp<Servers>             candidatesTmp(mServers2Tmp);
