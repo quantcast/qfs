@@ -81,7 +81,7 @@ public:
         StRef(
             KfsClientRefCount& inObj)
             : mObj(inObj)
-            { mObj.Ref(); }
+            { mObj.Ref(1); }
         ~StRef()
             { mObj.UnRef(); }
     private:
@@ -98,12 +98,13 @@ public:
         : mRefCount(0),
           mThreadPtr(inThreadPtr)
         {}
-    void Ref()
+    void Ref(
+        int inMinRefCount = 0)
     {
         ++mRefCount;
         QCRTASSERT(
             (! mThreadPtr || mThreadPtr->IsCurrentThread()) &&
-            0 < mRefCount
+            inMinRefCount < mRefCount
         );
     }
     void UnRef()
@@ -123,7 +124,7 @@ public:
         { mThreadPtr = inThreadPtr; }
 protected:
     virtual ~KfsClientRefCount()
-        {}
+        { mRefCount = -23456; }
 private:
     int             mRefCount;
     const QCThread* mThreadPtr;
@@ -272,7 +273,7 @@ public:
     void SetAuthContext(
         ClientAuthContext* inAuthContextPtr)
         { mAuthContextPtr = inAuthContextPtr; }
-    ClientAuthContext* GetAuthContext()
+    ClientAuthContext* GetAuthContext() const
         { return mAuthContextPtr; }
     void SetKey(
         const char* inKeyIdPtr,
@@ -1849,9 +1850,8 @@ KfsNetClient::SetAuthContext(
 }
 
     ClientAuthContext*
-KfsNetClient::GetAuthContext()
+KfsNetClient::GetAuthContext() const
 {
-    Impl::StRef theRef(mImpl);
     return mImpl.GetAuthContext();
 }
 

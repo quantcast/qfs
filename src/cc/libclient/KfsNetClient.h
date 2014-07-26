@@ -220,7 +220,7 @@ public:
         SetKey(inKeyIdPtr, inKeyDataPtr, inKeyDataSize);
         return SetServer(inLocation, inCancelPendingOpsFlag);
     }
-    ClientAuthContext* GetAuthContext();
+    ClientAuthContext* GetAuthContext() const;
     void Stop();
     int GetMaxRetryCount() const;
     void SetMaxRetryCount(
