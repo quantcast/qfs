@@ -812,6 +812,13 @@ public:
         if (0 < props.copyWithPrefix(kRsReadMetaAuthPrefix, sAuthParams)) {
             sAuthUpdateCount++;
         }
+        const bool theFlag = sDebugSetThreadFlag;
+        sDebugSetThreadFlag = props.getValue(
+            "chunkServer.rsReader.debugCheckThread",
+            sDebugSetThreadFlag ? 1 : 0) != 0;
+        if (theFlag != sDebugSetThreadFlag) {
+            sDebugSetThreadUpdateCount++;
+        }
     }
     static RSReplicatorImpl* Create(
         ReplicateChunkOp* op,
@@ -844,9 +851,7 @@ public:
         ClientThread*                   clientThread    = 0;
         const MetaServers::Entry* const entry           =
             GetMetaserver(authFlag, op, clientThread);
-        if (! entry || ! entry->mMeta ||
-                (entry->mAuth != 0) != authFlag ||
-                entry->mAuth != entry->mMeta->GetAuthContext()) {
+        if (! entry || ! entry->mMeta) {
             const char* const msg = "recovery: invalid meta server entry";
             die(msg);
             op->statusMsg = msg;
@@ -858,7 +863,11 @@ public:
             (authFlag && entry->mAuthUpdateCount != sAuthUpdateCount) ?
                 const_cast<uint64_t*>(&entry->mAuthUpdateCount) : 0,
             clientThread,
-            *entry->mMeta
+            *entry->mMeta,
+            (clientThread &&
+                    entry->mDebugSetThreadUpdateCount !=
+                    sDebugSetThreadUpdateCount) ?
+                const_cast<uint64_t*>(&entry->mDebugSetThreadUpdateCount) : 0
         );
         impl->Ref();
         return impl;
@@ -882,6 +891,7 @@ private:
     State                mState;
     KfsNetClient&        mMetaServer;
     uint64_t* const      mAuthUpdateCount;
+    uint64_t*            mDebugSetThreadUpdateCount;
     Reader               mReader;
     IOBuffer             mReadTail;
     const ServerLocation mLocation;
@@ -897,7 +907,8 @@ private:
         ReplicateChunkOp* op,
         uint64_t*         authUpdateCount,
         ClientThread*     clientThread,
-        KfsNetClient&     metaServer)
+        KfsNetClient&     metaServer,
+        uint64_t*         debugSetThreadUpdateCount)
         : ReplicatorImpl(op, RemoteSyncSMPtr()),
           RSReplicatorEntry(clientThread),
           QCRefCountedObj(),
@@ -905,6 +916,7 @@ private:
           mState(kNone),
           mMetaServer(metaServer),
           mAuthUpdateCount(authUpdateCount),
+          mDebugSetThreadUpdateCount(debugSetThreadUpdateCount),
           mReader(
             metaServer,
             this,
@@ -940,6 +952,10 @@ private:
             "~RSReplicatorImpl " << (const void*)this <<
             " chunk: "           << mChunkId <<
         KFS_LOG_EOM;
+        if (mClientThreadPtr &&
+                ! mClientThreadPtr->GetThread().IsCurrentThread()) {
+            FatalError("invalid dectructor invocation from different thread");
+        }
         if (mPendingCloseFlag || ! mReplicationDoneFlag ||
                 (mReader.IsActive() &&
                     mMetaServer.GetNetManager().IsRunning())) {
@@ -1037,6 +1053,13 @@ private:
     }
     virtual void Handle()
     {
+        if (mDebugSetThreadUpdateCount) {
+            StMutexLocker lock(mClientThreadPtr);
+            *mDebugSetThreadUpdateCount = sDebugSetThreadUpdateCount;
+            mDebugSetThreadUpdateCount = 0;
+            mMetaServer.SetThread((sDebugSetThreadFlag && mClientThreadPtr) ?
+                &(mClientThreadPtr->GetThread()) : 0);
+        }
         // Pending cancel flag check is racy here (mutex isn't acquired).
         // Handle cancel acquires the mutex and checks if the entry is still
         // queued, and ignores cancellation requests until drains the queue
@@ -1468,12 +1491,12 @@ private:
         public:
             Entry()
                 : mMeta(0),
-                  mAuth(0),
-                  mAuthUpdateCount(0)
+                  mAuthUpdateCount(0),
+                  mDebugSetThreadUpdateCount(0)
                 {}
-            KfsNetClient*      mMeta;
-            ClientAuthContext* mAuth;
-            uint64_t           mAuthUpdateCount;
+            KfsNetClient* mMeta;
+            uint64_t      mAuthUpdateCount;
+            uint64_t      mDebugSetThreadUpdateCount;
         };
         MetaServers(const Entry* inServers, int inCount)
             : mServers(inServers),
@@ -1483,18 +1506,23 @@ private:
         {
             MetaServers::Stop();
             for (int i = 0; i < mCount; i++) {
+                ClientAuthContext* const authCtx =
+                     mServers[i].mMeta->GetAuthContext();
+                mServers[i].mMeta->SetAuthContext(0);
                 delete mServers[i].mMeta;
-                delete mServers[i].mAuth;
+                delete authCtx;
             }
             delete [] mServers;
         }
         void Stop() const
         {
             for (int i = 0; i < mCount; i++) {
+                mServers[i].mMeta->SetThread(0);
                 mServers[i].mMeta->Stop();
-                mServers[i].mMeta->SetAuthContext(0);
-                if (mServers[i].mAuth) {
-                    mServers[i].mAuth->Clear();
+                ClientAuthContext* const authCtx =
+                     mServers[i].mMeta->GetAuthContext();
+                if (authCtx) {
+                    authCtx->Clear();
                 }
             }
         }
@@ -1507,6 +1535,9 @@ private:
         MetaServers::Entry* const ret = new MetaServers::Entry[inMaxCount];
         char                      buf[sizeof(int) * 3 + 4 + 4];
         char* const               end = buf + sizeof(buf) / sizeof(buf[0]);
+        const int  kMaxContentLen             = MAX_RPC_HEADER_LEN;
+        const bool kFailAllOpsOnOpTimeoutFlag = false;
+        const bool kMaxOneOutstandingOpFlag   = false;
         for (int i = 0; i < inMaxCount; i++) {
             char* name = end;
             *--name = 0;
@@ -1517,10 +1548,10 @@ private:
             *--name = 'R';
             *--name = 'S';
             *--name = 'R';
+            ClientThread* const thread =
+                i == 0 ? 0 : gClientManager.GetClientThread(i - 1);
             ret[i].mMeta = new KfsNetClient(
-                i == 0 ?
-                    globalNetManager() :
-                    gClientManager.GetClientThread(i - 1)->GetNetManager(),
+                thread ? thread->GetNetManager() : globalNetManager(),
                 string(), // inHost
                 0,        // inPort
                 sRSReaderMetaMaxRetryCount,
@@ -1529,10 +1560,16 @@ private:
                 sRSReaderMetaIdleTimeoutSec,
                 GetRandomSeq(),
                 name,
-                sRSReaderMetaResetConnectionOnOpTimeoutFlag
+                sRSReaderMetaResetConnectionOnOpTimeoutFlag,
+                kMaxContentLen,
+                kFailAllOpsOnOpTimeoutFlag,
+                kMaxOneOutstandingOpFlag,
+                authFlag ? new ClientAuthContext() : 0
             );
-            ret[i].mAuth = authFlag ? new ClientAuthContext() : 0;
-            ret[i].mMeta->SetAuthContext(ret[i].mAuth);
+            if (thread && sDebugSetThreadFlag) {
+                ret[i].mMeta->SetThread(&thread->GetThread());
+            }
+            ret[i].mDebugSetThreadUpdateCount = sDebugSetThreadUpdateCount;
         }
         return ret;
     }
@@ -1662,7 +1699,9 @@ private:
     static int        sMaxRecoveryThreads;
     static bool       sRSReaderMetaResetConnectionOnOpTimeoutFlag;
     static bool       sRSReaderPanicOnInvalidChunkFlag;
+    static bool       sDebugSetThreadFlag;
     static uint64_t   sAuthUpdateCount;
+    static uint64_t   sDebugSetThreadUpdateCount;
     static Properties sAuthParams;
 private:
     // No copy.
@@ -1688,7 +1727,9 @@ bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
 int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
     (int)CHUNKSIZE;
 bool RSReplicatorImpl::sRSReaderPanicOnInvalidChunkFlag            = false;
-uint64_t   RSReplicatorImpl::sAuthUpdateCount = 0;
+bool RSReplicatorImpl::sDebugSetThreadFlag                         = false;
+uint64_t   RSReplicatorImpl::sAuthUpdateCount                      = 0;
+uint64_t   RSReplicatorImpl::sDebugSetThreadUpdateCount            = 0;
 Properties RSReplicatorImpl::sAuthParams;
 
 int

@@ -27,6 +27,7 @@
 #define CLIENT_THREAD_H
 
 class QCMutex;
+class QCThread;
 
 namespace KFS
 {
@@ -78,6 +79,7 @@ public:
     NetManager& GetNetManager();
     void Lock();
     void Unlock();
+    const QCThread& GetThread() const;
     static ClientThread* GetCurrentClientThreadPtr();
     static const QCMutex& GetMutex();
     static ClientThread* CreateThreads(

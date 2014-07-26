@@ -446,6 +446,8 @@ public:
     }
     NetManager& GetNetManager()
         { return mNetManager; }
+    const QCThread& GetThread() const
+        { return mThread; }
     void Enqueue(
         RemoteSyncSM& inSyncSM,
         KfsOp&        inOp)
@@ -820,6 +822,12 @@ ClientThread::Add(
 ClientThread::GetNetManager()
 {
     return mImpl.GetNetManager();
+}
+
+    const QCThread&
+ClientThread::GetThread() const
+{
+    return mImpl.GetThread();
 }
 
     /* static */ const QCMutex&
