@@ -848,8 +848,8 @@ public:
                 sAuthUpdateCount++;
             }
         }
-        ClientThread*                   clientThread    = 0;
-        const MetaServers::Entry* const entry           =
+        ClientThread*                   clientThread = 0;
+        const MetaServers::Entry* const entry        =
             GetMetaserver(authFlag, op, clientThread);
         if (! entry || ! entry->mMeta) {
             const char* const msg = "recovery: invalid meta server entry";
@@ -1428,7 +1428,7 @@ private:
             return;
         }
         mReplicationDoneFlag = true;
-        // Close reader if needed. Cancellation should already completed.
+        // Close reader if needed. Cancellation must already been completed.
         if (! mPendingCancelFlag) {
             mReader.Close();
             if (mReader.IsActive()) {
@@ -1436,7 +1436,7 @@ private:
                 return;
             }
         }
-        UnRef(); // might delete this.
+        UnRef(); // Might delete this.
     }
     template<typename T> static void ReadVal(IOBuffer& buf, T& val)
     {
@@ -1597,7 +1597,7 @@ private:
             sMetaServers.Stop();
             sMetaServersAuth.Stop();
             clientThread = 0;
-            sLastIdx  = -1;
+            sLastIdx = -1;
             return 0;
         }
         if (min(sMaxRecoveryThreads, sMaxCount) <= ++sLastIdx) {
