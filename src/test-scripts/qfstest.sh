@@ -368,6 +368,7 @@ chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
+chunkServer.rsReader.debugCheckThread = 1
 chunkServer.clientThreadCount = $chunkserverclithreads
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1

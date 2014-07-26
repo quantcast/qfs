@@ -159,6 +159,7 @@ if [ $start -ne 0 ]; then
         {
             echo "chunkServer.rsReader.maxRecoverChunkSize=$maxrecovsize"
             echo "chunkServer.rsReader.panicOnInvalidChunk=1"
+            echo "chunkServer.rsReader.debugCheckThread=1"
         } >> ChunkServer-recovery.prp
         $valgrind_cmd "$chunkdir"/chunkserver ChunkServer-recovery.prp \
             > chunkserver-recovery.log 2>&1 &
