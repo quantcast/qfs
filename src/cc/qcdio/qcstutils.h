@@ -301,7 +301,7 @@ public:
 
 protected:
     virtual ~QCRefCountedObj()
-        {}
+        { mRefCount = -12345; }
 
 private:
     int mRefCount;
