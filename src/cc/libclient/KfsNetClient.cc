@@ -38,6 +38,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCDLList.h"
+#include "qcdio/QCThread.h"
 #include "KfsOps.h"
 #include "utils.h"
 
@@ -71,15 +72,77 @@ const int64_t kMaxSessionTimeout             = int64_t(10) * 365 * 24 * 60 * 60;
 const int64_t kSessionUpdateResolutionSec    = LEASE_INTERVAL_SECS / 2;
 const int64_t kSessionChangeStartIntervalSec = 30 * 60;
 
+class KfsClientRefCount
+{
+public:
+    class StRef
+    {
+    public:
+        StRef(
+            KfsClientRefCount& inObj)
+            : mObj(inObj)
+            { mObj.Ref(); }
+        ~StRef()
+            { mObj.UnRef(); }
+    private:
+        KfsClientRefCount& mObj;
+    private:
+        StRef(
+            StRef& inRef);
+        StRef& operator=(
+            StRef& inRef);
+    };
+
+    KfsClientRefCount(
+        const QCThread* inThreadPtr)
+        : mRefCount(0),
+          mThreadPtr(inThreadPtr)
+        {}
+    void Ref()
+    {
+        ++mRefCount;
+        QCRTASSERT(
+            (! mThreadPtr || mThreadPtr->IsCurrentThread()) &&
+            0 < mRefCount
+        );
+    }
+    void UnRef()
+    {
+        QCRTASSERT(
+            (! mThreadPtr || mThreadPtr->IsCurrentThread()) &&
+            0 < mRefCount
+        );
+        if (--mRefCount == 0) {
+            delete this;
+        }
+    }
+    int GetRefCount() const
+        { return mRefCount; }
+    void SetThread(
+        const QCThread* inThreadPtr)
+        { mThreadPtr = inThreadPtr; }
+protected:
+    virtual ~KfsClientRefCount()
+        {}
+private:
+    int             mRefCount;
+    const QCThread* mThreadPtr;
+private:
+    KfsClientRefCount(
+        const KfsClientRefCount& inObj);
+    KfsClientRefCount& operator=(
+        const KfsClientRefCount& inObj);
+};
+
 // Generic KFS request / response protocol state machine implementation.
 class KfsNetClient::Impl :
     public KfsCallbackObj,
-    public QCRefCountedObj,
+    public KfsClientRefCount,
     private ITimeout,
     private OpOwner
 {
 public:
-    typedef QCRefCountedObj::StRef StRef;
+    typedef KfsClientRefCount::StRef StRef;
 
     Impl(
         string             inHost,
@@ -95,9 +158,10 @@ public:
         int                inMaxContentLength,
         bool               inFailAllOpsOnOpTimeoutFlag,
         bool               inMaxOneOutstandingOpFlag,
-        ClientAuthContext* inAuthContextPtr)
+        ClientAuthContext* inAuthContextPtr,
+        const QCThread*    inThreadPtr)
         : KfsCallbackObj(),
-          QCRefCountedObj(),
+          KfsClientRefCount(inThreadPtr),
           ITimeout(),
           OpOwner(),
           mServerLocation(inHost, inPort),
@@ -1637,7 +1701,8 @@ KfsNetClient::KfsNetClient(
         int                inMaxContentLength               /* = MAX_RPC_HEADER_LEN */,
         bool               inFailAllOpsOnOpTimeoutFlag      /* = false */,
         bool               inMaxOneOutstandingOpFlag        /* = false */,
-        ClientAuthContext* inAuthContextPtr                 /* = 0 */)
+        ClientAuthContext* inAuthContextPtr                 /* = 0 */,
+        const QCThread*    inThreadPtr                      /* = 0 */)
     : mImpl(*new Impl(
         inHost,
         inPort,
@@ -1652,7 +1717,8 @@ KfsNetClient::KfsNetClient(
         inMaxContentLength,
         inFailAllOpsOnOpTimeoutFlag,
         inMaxOneOutstandingOpFlag,
-        inAuthContextPtr
+        inAuthContextPtr,
+        inThreadPtr
     ))
 {
     mImpl.Ref();
@@ -1950,8 +2016,8 @@ KfsNetClient::GetNetManager() const
 {
     // This method must not change any variables including the reference count.
     // The thread logic in chunk server relies on this, when it constructs RS
-    // replicator reader: the reader's constructor call this method, but must
-    // no modify in any way the meta server state machine state, including the
+    // replicator reader: the reader's constructor calls this method, but must
+    // not modify in any way the meta server state machine state, including the
     // ref. count, as the state machine might be running withing a different
     // thread.
     return mImpl.GetNetManager();
@@ -1986,6 +2052,15 @@ KfsNetClient::SetMaxRpcHeaderLength(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetMaxRpcHeaderLength(inMaxRpcHeaderLength);
+}
+
+    void
+KfsNetClient::SetThread(
+    const QCThread* inThreadPtr)
+{
+    // Do not change ref count, in order to allow to set different thread than
+    // the current.
+    mImpl.SetThread(inThreadPtr);
 }
 
 }} /* namespace cient KFS */

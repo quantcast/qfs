@@ -32,6 +32,8 @@
 #include <string>
 #include <ostream>
 
+class QCThread;
+
 namespace KFS
 {
 
@@ -169,7 +171,8 @@ public:
         int                inMaxContentLength               = MAX_RPC_HEADER_LEN,
         bool               inFailAllOpsOnOpTimeoutFlag      = false,
         bool               inMaxOneOutstandingOpFlag        = false,
-        ClientAuthContext* mAuthContextPtr                  = 0);
+        ClientAuthContext* inAuthContextPtr                 = 0,
+        const QCThread*    inThreadPtr                      = 0);
     virtual ~KfsNetClient();
     bool IsConnected() const;
     int64_t GetDisconnectCount() const; // Used to detect disconnects
@@ -261,6 +264,9 @@ public:
         bool inFlag);
     void SetMaxRpcHeaderLength(
         int inMaxRpcHeaderLength);
+    // Debug
+    void SetThread(
+        const QCThread* inThreadPtr);
 private:
     Impl& mImpl;
 private:
