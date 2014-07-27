@@ -202,8 +202,9 @@ QCIoBufferPool::~QCIoBufferPool()
 {
     QCStMutexLocker theLock(mMutex);
     QCIoBufferPool::Destroy();
-    while (! QCIoBufferPoolClientList::IsEmpty(mClientListPtr)) {
-        Client& theClient = *QCIoBufferPoolClientList::PopBack(mClientListPtr);
+    Client* thePtr;
+    while ((thePtr = QCIoBufferPoolClientList::PopBack(mClientListPtr))) {
+        Client& theClient = *thePtr;
         QCASSERT(theClient.mPoolPtr == this);
         theClient.mPoolPtr = 0;
     }
@@ -239,8 +240,9 @@ void
 QCIoBufferPool::Destroy()
 {
     QCStMutexLocker theLock(mMutex);
-    while (! Partition::List::IsEmpty(mPartitionListPtr)) {
-        delete Partition::List::PopBack(mPartitionListPtr);
+    Partition* thePtr;
+    while ((thePtr = Partition::List::PopBack(mPartitionListPtr))) {
+        delete thePtr;
     }
     mBufferSize = 0;
     mFreeCnt    = 0;
