@@ -1722,7 +1722,7 @@ int  RSReplicatorImpl::sRSReaderMetaMaxRetryCount                  = 2;
 int  RSReplicatorImpl::sRSReaderMetaTimeSecBetweenRetries          = 10;
 int  RSReplicatorImpl::sRSReaderMetaOpTimeoutSec                   = 4 * 60;
 int  RSReplicatorImpl::sRSReaderMetaIdleTimeoutSec                 = 5 * 60;
-int  RSReplicatorImpl::sMaxRecoveryThreads                         = 16;
+int  RSReplicatorImpl::sMaxRecoveryThreads                         = 5;
 bool RSReplicatorImpl::sRSReaderMetaResetConnectionOnOpTimeoutFlag = true;
 int  RSReplicatorImpl::sRSReaderMaxRecoverChunkSize                =
     (int)CHUNKSIZE;
