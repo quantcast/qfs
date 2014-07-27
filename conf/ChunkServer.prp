@@ -58,6 +58,33 @@ chunkServer.chunkDir = chunks
 # With large requests (~1MB) two io requests in flight should be sufficient.
 # chunkServer.diskQueue.threadCount = 2
 
+# Number of "client" / network io threads used to service "client" requests,
+# including requests from other chunk servers, handle synchronous replication,
+# chunk re-replication, and chunk RS recovery. Client threads allow to use more
+# than one cpu to perform network io, encryption / decryption, request parsing,
+# checksum and RS recovery calculation.
+# Multiple "client" threads might help to increase network throughput. With
+# modern Intel CPUs, maximum single cpu throughput can be expected roughly
+# 300MB/sec (under 3Gbps network) with 1MB average write request size, and
+# approximately 150MB/sec with network encryption enabled.
+# This parameter has effect only on startup. Please see meta server
+# configuration for related parameters description. The parameters described in
+# the meta server configuration can be changed at any time, and the changes
+# will have effect without chunk server restart.
+# Default is 0. All network io, replication and recovery is handled by the
+# "main" thread.
+# chunkServer.clientThreadCount = 0
+
+# Set client thread affinity to CPU, starting from the specified CPU index. The
+# first cpu index is 0.
+# If the number of CPUs is less than start index plus the number of threads, the
+# the threads affinity at start index plus CPU count will be set to the last
+# CPU.
+# Setting affinity might help to reduce processor ram cache misses.
+# The parameter has effect only on startup, and has effect only on Linux OS.
+# Default is -1, no cpu affinity set.
+# chunkServer.clientThreadFirstCpuIndex = -1
+
 # Set the cluster / fs key, to protect against data loss and "data corruption"
 # due to connecting to a meta server hosting different file system.
 chunkServer.clusterKey = my-fs-unique-identifier

@@ -352,6 +352,15 @@ metaServer.clusterKey = my-fs-unique-identifier
 # racks.
 # metaServer.inRackPlacement = 0
 
+# Limit number of re-replications (this does not include RS chunk recovery),
+# that the given chunk server can be used as replication "source".
+# Default is 10.
+# metaServer.maxConcurrentReadReplicationsPerNode = 10
+
+# Limit max concurrent chunk re-replications and RS recoveries per chunk server.
+# Default is 5.
+# metaServer.maxConcurrentWriteReplicationsPerNode = 5
+
 #-------------------------------------------------------------------------------
 
 # Order chunk replicas locations by the chunk "load average" metric in "get
@@ -1079,4 +1088,24 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 
 # "Not available" directories rescan interval in seconds. Default is 180 sec.
 # (see comment in chunk server configuration file).
-# chunkServer.dirRecheckInterval = 180
+# chunkServer.dirRecheckInterval = 60
+
+# Has effect only if client threads enabled, i.e. if
+# chunkServer.clientThreadCount parameter set to a value greater than 0 in the
+# chunk server configuration.
+# If the value is less than chunkServer.clientThreadCount, then
+# threads in range
+# [chunkServer.client.firstClientThreadIndex, chunkServer.clientThreadCount)
+# will be used to service all requests, except RS chunk recovery, otherwise the
+# "main" thread will be used.
+# chunkServer.client.firstClientThreadIndex = 0
+
+# Has effect only if client threads enabled, i.e. if
+# chunkServer.clientThreadCount parameter set to a value greater than 0 in the
+# chunk server configuration.
+# Limit number of "client threads used for RS recovery. Each thread uses
+# single dedicated connection to the meta server to perform RS recovery.
+# If set to 0 or less, then the "main" thread is used to perform RS recovery.
+# Default is 5. The same value as
+# metaServer.maxConcurrentWriteReplicationsPerNode default.
+# chunkServer.rsReader.maxRecoveryThreads = 5
