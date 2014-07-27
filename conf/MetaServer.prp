@@ -1090,7 +1090,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # (see comment in chunk server configuration file).
 # chunkServer.dirRecheckInterval = 60
 
-# Has effect only if client threads enabled, i.e. if
+# The following parameter has effect only if client threads enabled, i.e. if
 # chunkServer.clientThreadCount parameter set to a value greater than 0 in the
 # chunk server configuration.
 # If the value is less than chunkServer.clientThreadCount, then
@@ -1100,12 +1100,15 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # "main" thread will be used.
 # chunkServer.client.firstClientThreadIndex = 0
 
-# Has effect only if client threads enabled, i.e. if
+# The following parameter has effect only if client threads enabled, i.e. if
 # chunkServer.clientThreadCount parameter set to a value greater than 0 in the
 # chunk server configuration.
-# Limit number of "client threads used for RS recovery. Each thread uses
+# Limit number of client threads used for RS recovery. Each thread uses
 # single dedicated connection to the meta server to perform RS recovery.
 # If set to 0 or less, then the "main" thread is used to perform RS recovery.
+# The client threads in the range
+# [0, min(chunkServer.rsReader.maxRecoveryThreads, chunkServer.clientThreadCount)
+# are used to preform RS recovery.
 # Default is 5. The same value as
 # metaServer.maxConcurrentWriteReplicationsPerNode default.
 # chunkServer.rsReader.maxRecoveryThreads = 5
