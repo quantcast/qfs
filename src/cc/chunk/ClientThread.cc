@@ -324,7 +324,6 @@ public:
             }
             theLastFlag = false;
         }
-        theCnt = 0;
         while (! mTmpSyncSMQueue.empty()) {
             RunPending(*mTmpSyncSMQueue.back());
             mTmpSyncSMQueue.pop_back();
