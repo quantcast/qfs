@@ -54,14 +54,12 @@
 #include <utility>
 #include <map>
 #include <deque>
-#include <sstream>
 
 namespace KFS
 {
 
 using std::pair;
 using std::make_pair;
-using std::ostringstream;
 
 class DirChecker::Impl : public QCRunnable
 {
