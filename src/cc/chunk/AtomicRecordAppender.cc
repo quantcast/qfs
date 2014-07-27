@@ -834,6 +834,11 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
     mMakeStableSucceededFlag =
         mMakeStableSucceededFlag || mState == kStateStable;
     if (nowStableFlag) {
+        const int bytes = mBuffer.BytesConsumable();
+        if (0 < bytes) {
+            // Update total.
+            gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
+        }
         mBuffer.Clear(); // no more ios.
     }
     if (mState == kStateStable) {
@@ -863,6 +868,11 @@ AtomicRecordAppender::DeleteSelf()
             FatalError();
         }
         mTimer.RemoveTimeout();
+        const int bytes = mBuffer.BytesConsumable();
+        if (0 < bytes) {
+            // Update total.
+            gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
+        }
         mBuffer.Clear();
         SetCanDoLowOnBuffersFlushFlag(false);
         if (! mWriteIdState.empty()) {
