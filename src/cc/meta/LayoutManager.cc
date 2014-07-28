@@ -2460,8 +2460,8 @@ struct CSWriteHeader
         }
     }
 private:
-    const Properties::String* const mExtraFirst; 
-    const Properties::String* const mExtraLast; 
+    const Properties::String* const mExtraFirst;
+    const Properties::String* const mExtraLast;
 };
 
 void
@@ -4866,7 +4866,7 @@ struct MetaLogChunkVersionChange : public MetaRequest, public KfsCallbackObj
         { status = 0; }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << 
+        return os <<
             "log-chunk-version-change: " <<
             alloc.Show()
         ;
@@ -6001,7 +6001,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         int  goodCnt                               = 0;
         if (0 < fa.numRecoveryStripes &&
                 CanBeRecovered(
-                    *cmi, 
+                    *cmi,
                     incompleteChunkBlockFlag,
                     &incompleteChunkBlockWriteHasLeaseFlag,
                     cblk,
