@@ -220,7 +220,7 @@ protected:
     }
 };
 
-// String buffer, with lazy conversion to string. 
+// String buffer, with lazy conversion to string.
 template<size_t DEFAULT_CAPACITY>
 class StringBufT
 {
