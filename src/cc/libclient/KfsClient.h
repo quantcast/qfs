@@ -62,8 +62,6 @@ const size_t MAX_FILENAME_LEN = 256;
 class KfsClient
 {
 public:
-    typedef client::KfsClientImpl KfsClientImpl;
-
     class ErrorHandler
     {
     public:
@@ -694,6 +692,9 @@ public:
         int16_t&    outFlags,
         uint64_t&   outIssuedTime,
         uint32_t&   outValidForSec);
+    static Properties* CreateProperties();
+    static void DisposeProperties(
+        Properties* props);
     static int LoadProperties(
         const char*  metaServerHost,
         int          metaServerPort,
@@ -704,6 +705,8 @@ public:
         int metaServerPort, const char* configFileName);
 
 private:
+    typedef client::KfsClientImpl KfsClientImpl;
+
     KfsClientImpl* const mImpl;
 };
 

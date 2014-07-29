@@ -477,7 +477,7 @@ CloseOp::Request(ostream &os)
         ;
         for (vector<WriteInfo>::const_iterator i = writeInfo.begin();
                 i < writeInfo.end(); ++i) {
-            os << " " << i->serverLoc.ToString() << " " << i->writeId;
+            os << " " << i->serverLoc << " " << i->writeId;
         }
         os << "\r\n";
     } else if (chunkServerLoc.size() > 1) {
@@ -487,7 +487,7 @@ CloseOp::Request(ostream &os)
         ;
         for (vector<ServerLocation>::const_iterator i = chunkServerLoc.begin();
                 i != chunkServerLoc.end(); ++i) {
-            os << " " << i->ToString();
+            os << " " << *i;
         }
         os << "\r\n";
     }
@@ -526,7 +526,7 @@ WriteIdAllocOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<ServerLocation>::size_type i = 0; i < chunkServerLoc.size(); ++i) {
-        os << chunkServerLoc[i].ToString() << ' ';
+        os << chunkServerLoc[i] << ' ';
     }
     os << "\r\n\r\n";
 }
@@ -544,7 +544,7 @@ ChunkSpaceReserveOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc.ToString() <<
+        os << writeInfo[i].serverLoc <<
             ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
@@ -563,7 +563,7 @@ ChunkSpaceReleaseOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc.ToString() <<
+        os << writeInfo[i].serverLoc <<
             ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
@@ -598,7 +598,7 @@ WritePrepareOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc.ToString() <<
+        os << writeInfo[i].serverLoc <<
             ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
@@ -628,7 +628,7 @@ WriteSyncOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc.ToString() <<
+        os << writeInfo[i].serverLoc <<
             ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";
@@ -728,7 +728,7 @@ RecordAppendOp::Request(ostream &os)
         "Servers:"
     ;
     for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc.ToString() <<
+        os << writeInfo[i].serverLoc <<
             ' ' << writeInfo[i].writeId << ' ';
     }
     os << "\r\n\r\n";

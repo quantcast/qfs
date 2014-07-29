@@ -957,7 +957,7 @@ struct WriteInfo {
         return *this;
     }
     ostream& Show(ostream& os) const {
-        os << " location: " << serverLoc.ToString() << " writeId: " << writeId;
+        os << " location: " << serverLoc << " writeId: " << writeId;
         return os;
     }
 };

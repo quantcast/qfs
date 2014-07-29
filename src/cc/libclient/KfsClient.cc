@@ -1056,6 +1056,19 @@ KfsClient::LoadProperties(
     return ((cfg && *cfg) ? LoadConfig(envName, cfg, properties) : 0);
 }
 
+/* static */ Properties*
+KfsClient::CreateProperties()
+{
+    return new Properties();
+}
+
+
+/* static */ void
+KfsClient::DisposeProperties(Properties* props)
+{
+    delete props;
+}
+
 namespace client
 {
 
