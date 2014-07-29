@@ -29,9 +29,6 @@
 #include "IntToString.h"
 #include "RequestParser.h"
 
-#include <stdlib.h>
-#include <ctype.h>
-
 namespace KFS
 {
 
