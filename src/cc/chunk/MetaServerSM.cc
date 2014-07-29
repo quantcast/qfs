@@ -285,7 +285,7 @@ MetaServerSM::Connect()
     }
     KFS_LOG_STREAM_INFO <<
         (ret < 0 ? "connecting" : "connected") <<
-            " to metaserver " << mLocation.ToString() <<
+            " to metaserver " << mLocation <<
     KFS_LOG_EOM;
     mNetConnection.reset(new NetConnection(sock, this));
     if (ret != 0) {
@@ -589,7 +589,7 @@ MetaServerSM::HandleRequest(int code, void* data)
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
                     MsgLogger::kLogLevelDEBUG) <<
-                mLocation.ToString() <<
+                mLocation <<
                 " closing meta server connection due to " <<
                 (code == EVENT_INACTIVITY_TIMEOUT ?
                     "inactivity timeout" : "network error") <<

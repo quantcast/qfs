@@ -1137,7 +1137,7 @@ CloseOp::ForwardToPeer(
         *this, loc, writeMasterFlag, allowCSClearTextFlag);
     if (! peer) {
         KFS_LOG_STREAM_DEBUG <<
-            "unable to forward to peer: " << loc.ToString() <<
+            "unable to forward to peer: " << loc <<
             " cmd: " << Show() <<
         KFS_LOG_EOM;
         return;
