@@ -36,6 +36,7 @@ set (lib_src
     rusage.cc
     nofilelimit.cc
     kfserrno.cc
+    kfsdecls.cc
 )
 
 # for the version file
