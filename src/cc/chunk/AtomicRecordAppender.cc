@@ -429,8 +429,10 @@ private:
     bool                    mCanDoLowOnBuffersFlushFlag:1;
     bool                    mMakeStableSucceededFlag:1;
     bool                    mFirstFwdOpFlag:1;
-    bool                    mAppendInProgressFlag:1;
     bool                    mPendingBadChecksumFlag:1;
+    // Do not use bit field for mAppendInProgressFlag, as it can be read with no
+    // mMutex acquired. See UpdateFlushLimit()
+    bool                    mAppendInProgressFlag;
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
     WriteIdState            mWriteIdState;
@@ -443,6 +445,7 @@ private:
     RecordAppendOp*         mReplicationList[1];
     AtomicRecordAppender*   mPrevPtr[1];
     AtomicRecordAppender*   mNextPtr[1];
+
     friend class QCDLListOp<AtomicRecordAppender, 0>;
 
     ~AtomicRecordAppender();
@@ -734,8 +737,8 @@ AtomicRecordAppender::AtomicRecordAppender(
       mCanDoLowOnBuffersFlushFlag(false),
       mMakeStableSucceededFlag(false),
       mFirstFwdOpFlag(false),
-      mAppendInProgressFlag(false),
       mPendingBadChecksumFlag(false),
+      mAppendInProgressFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
       mWriteIdState(),
