@@ -358,7 +358,7 @@ metaServer.rootDirGroup = `id -g`
 metaServer.rootDirMode = 0777
 
 metaServer.appendPlacementIgnoreMasterSlave = 1
-chunkServer.clientThreadCount = $chunkserverclithreads
+metaServer.startupAbortOnPanic = 1
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -454,6 +454,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
+chunkServer.clientThreadCount = $chunkserverclithreads
 EOF
 
         if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
