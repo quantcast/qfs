@@ -49,14 +49,16 @@ NetErrorSimulatorConfigure(
 }
 
 #else
+#include "NetManager.h"
+#include "Globals.h"
+#include "PrngIsaac64.h"
 
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
 #include "common/Properties.h"
+
 #include "qcdio/QCFdPoll.h"
-#include "NetManager.h"
-#include "Globals.h"
-#include "PrngIsaac64.h"
+#include "qcdio/qcdebug.h"
 
 #include <inttypes.h>
 #include <time.h>
@@ -365,7 +367,7 @@ private:
               mInterval(inInterval),
               mSleepSec(inSleepSec)
         {
-            assert(
+            QCASSERT(
                 (mSockNameRegex.empty() || ! inSockNameRegexStr.empty()) &&
                 (mPeerNameRegex.empty() || ! inPeerNameRegexStr.empty())
             );
