@@ -490,11 +490,11 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         IOBuffer::IStream is(buf, buf.BytesConsumable());
         is.ignore(headerStart);
         string line;
-        KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+        KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
             " send to: " << mLocation <<
         KFS_LOG_EOM;
         while (getline(is, line)) {
-            KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+            KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                 " request: " << line <<
             KFS_LOG_EOM;
         }
@@ -541,7 +541,8 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
             mNetConnection->StartFlush();
         }
     }
-    return (mNetConnection && mNetConnection->IsGood());
+    return (! deleteNotifier.IsDeleted() &&
+        mNetConnection && mNetConnection->IsGood());
 }
 
 int
