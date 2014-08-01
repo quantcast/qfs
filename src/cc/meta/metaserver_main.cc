@@ -25,28 +25,31 @@
 //
 //----------------------------------------------------------------------------
 
-#include "common/Properties.h"
-#include "common/MemLock.h"
-#include "kfsio/NetManager.h"
-#include "kfsio/Globals.h"
-#include "kfsio/IOBuffer.h"
-#include "kfsio/SslFilter.h"
-#include "kfsio/CryptoKeys.h"
-
 #include "NetDispatch.h"
 #include "ChunkServer.h"
 #include "LayoutManager.h"
-#include "common/MsgLogger.h"
-#include "qcdio/QCUtils.h"
-#include "qcdio/QCIoBufferPool.h"
-#include "common/MdStream.h"
-#include "common/nofilelimit.h"
 #include "Logger.h"
 #include "Checkpoint.h"
 #include "kfstree.h"
 #include "Replay.h"
 #include "Restorer.h"
 #include "AuditLog.h"
+#include "util.h"
+
+#include "common/Properties.h"
+#include "common/MemLock.h"
+#include "common/MsgLogger.h"
+#include "common/MdStream.h"
+#include "common/nofilelimit.h"
+
+#include "kfsio/NetManager.h"
+#include "kfsio/Globals.h"
+#include "kfsio/IOBuffer.h"
+#include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
+
+#include "qcdio/QCUtils.h"
+#include "qcdio/QCIoBufferPool.h"
 
 #include <sys/resource.h>
 #include <signal.h>
@@ -201,6 +204,8 @@ private:
           mMaxChunkServersSocketCount(-1),
           mMinReplicasPerFile(1),
           mIsPathToFidCacheEnabled(false),
+          mStartupAbortOnPanicFlag(false),
+          mAbortOnPanicFlag(true),
           mLogRotateIntervalSec(600),
           mMaxLockedMemorySize(0),
           mMaxFdLimit(-1)
@@ -307,6 +312,8 @@ private:
     int        mMaxChunkServersSocketCount;
     int16_t    mMinReplicasPerFile;
     bool       mIsPathToFidCacheEnabled;
+    bool       mStartupAbortOnPanicFlag;
+    bool       mAbortOnPanicFlag;
     int        mLogRotateIntervalSec;
     int64_t    mMaxLockedMemorySize;
     int        mMaxFdLimit;
@@ -453,11 +460,15 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     mLogDir = props.getValue("metaServer.logDir", mLogDir);
     mCPDir = props.getValue("metaServer.cpDir", mCPDir);
     // By default, path->fid cache is disabled.
-    mIsPathToFidCacheEnabled = (props.getValue("metaServer.enablePathToFidCache",
-        mIsPathToFidCacheEnabled ? 1 : 0)) != 0;
+    mIsPathToFidCacheEnabled = props.getValue("metaServer.enablePathToFidCache",
+        mIsPathToFidCacheEnabled ? 1 : 0) != 0;
     KFS_LOG_STREAM_INFO << "path->fid cache " <<
         (mIsPathToFidCacheEnabled ? "enabled" : "disabled") <<
     KFS_LOG_EOM;
+    mStartupAbortOnPanicFlag = props.getValue("metaServer.startupAbortOnPanic",
+        mStartupAbortOnPanicFlag ? 1 : 0) != 0;
+    mAbortOnPanicFlag        = props.getValue("metaServer.abortOnPanicFlag",
+        mAbortOnPanicFlag ? 1 : 0) != 0;
 
     // Enable directory space update by default.
     metatree.setUpdatePathSpaceUsage(true);
@@ -615,6 +626,7 @@ MetaServer::Startup(bool createEmptyFsFlag)
     logger_setup_paths(mLogDir);
     checkpointer_setup_paths(mCPDir);
 
+    setAbortOnPanic(mStartupAbortOnPanicFlag);
     int  status;
     bool rollChunkIdSeedFlag;
     if (! createEmptyFsFlag || file_exists(LASTCP)) {
@@ -685,6 +697,7 @@ MetaServer::Startup(bool createEmptyFsFlag)
     if (metatree.GetFsId() <= 0) {
         submit_request(new MetaSetFsInfo(fsid, 0));
     }
+    setAbortOnPanic(mAbortOnPanicFlag);
     gLayoutManager.InitRecoveryStartTime();
     return true;
 }

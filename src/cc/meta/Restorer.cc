@@ -480,8 +480,7 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
 {
     if (metatree.getFattr(ROOTFID)) {
         KFS_LOG_STREAM_FATAL <<
-            cpname <<
-                        ": initial fs / meta tree is not empty" <<
+            cpname << ": initial fs / meta tree is not empty" <<
         KFS_LOG_EOM;
         return false;
     }
@@ -490,8 +489,7 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
     if (file.fail()) {
         const int err = errno;
         KFS_LOG_STREAM_FATAL <<
-            cpname <<
-                        ": " << QCUtils::SysError(err) <<
+            cpname << ": " << QCUtils::SysError(err) <<
         KFS_LOG_EOM;
         return false;
     }
@@ -506,18 +504,16 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
     while (tokenizer.next(&mds)) {
         if (! entrymap.parse(tokenizer)) {
             KFS_LOG_STREAM_FATAL <<
-                cpname <<
-                                ":" << tokenizer.getEntryCount() <<
+                cpname << ":" << tokenizer.getEntryCount() <<
                 ":" << tokenizer.getEntry() <<
             KFS_LOG_EOM;
-                        is_ok = false;
-                        break;
+            is_ok = false;
+            break;
         }
         if (! restoreChecksum.empty()) {
             if (tokenizer.next()) {
                 KFS_LOG_STREAM_FATAL <<
-                    cpname <<
-                    ": entry after checksum" <<
+                    cpname << ": entry after checksum" <<
                 KFS_LOG_EOM;
                 is_ok = false;
             }
@@ -526,8 +522,7 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
     }
     if (is_ok && ! file.eof()) {
         KFS_LOG_STREAM_FATAL <<
-            "error " << cpname <<
-                        ":" << tokenizer.getEntryCount() <<
+            "error " << cpname << ":" << tokenizer.getEntryCount() <<
             ":" << tokenizer.getEntry() <<
         KFS_LOG_EOM;
         is_ok = false;

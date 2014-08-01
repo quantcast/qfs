@@ -230,6 +230,14 @@ warn(const string& msg, bool use_perror)
     KFS_LOG_EOM;
 }
 
+static bool sAbortOnPanicFlag = true;
+
+void
+setAbortOnPanic(bool flag)
+{
+    sAbortOnPanicFlag = flag;
+}
+
 /*!
  * \brief bomb out on "impossible" error
  * \param[in] msg   panic text
@@ -243,7 +251,11 @@ panic(const string& msg, bool use_perror)
         (use_perror ? QCUtils::SysError(err, " ") : string()) <<
     KFS_LOG_EOM;
     MsgLogger::Stop(); // Flush log.
-    abort();
+    if (sAbortOnPanicFlag) {
+        abort();
+    } else {
+        _exit(1);
+    }
 }
 
 const unsigned char*

@@ -133,6 +133,8 @@ private:
 /// @retval true if a message is available; false otherwise
 ///
 extern bool IsMsgAvail(IOBuffer *iobuf, int *msgLen);
+extern void setAbortOnPanic(bool flag);
+
 
 }
 #endif // !defined(KFS_UTIL_H)
