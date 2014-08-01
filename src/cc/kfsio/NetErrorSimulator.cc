@@ -218,10 +218,10 @@ public:
                     theIt != mSpecs.end();
                     ++theIt) {
                 const SimSpec& theSpec = *theIt;
-                if ((theSpec.mSockNameRegex.empty() || regex_match(
+                if ((theSpec.mSockNameRegex.empty() || regex_search(
                         theSockName,
                         theSpec.mSockNameRegex)) &&
-                    (theSpec.mPeerNameRegex.empty() || regex_match(
+                    (theSpec.mPeerNameRegex.empty() || regex_search(
                         thePeerName,
                         theSpec.mPeerNameRegex))) {
                     mConnMap.insert(std::make_pair(theConnPtr, ConnEntry(
@@ -355,14 +355,33 @@ private:
             int                inActionFlags,
             uint32_t           inInterval,
             float              inSleepSec)
-            : mSockNameRegex(inSockNameRegexStr,
-                Regex::perl + Regex::icase + Regex::no_except),
-              mPeerNameRegex(inPeerNameRegexStr,
-                Regex::perl + Regex::icase + Regex::no_except),
+            : mSockNameRegex(inSockNameRegexStr.empty() ? Regex() :
+                Regex(inSockNameRegexStr,
+                    Regex::perl + Regex::icase + Regex::no_except)),
+              mPeerNameRegex(inPeerNameRegexStr.empty() ? Regex() :
+                Regex(inPeerNameRegexStr,
+                    Regex::perl + Regex::icase + Regex::no_except)),
               mActionFlags(inActionFlags),
               mInterval(inInterval),
               mSleepSec(inSleepSec)
-            {}
+        {
+            assert(
+                (mSockNameRegex.empty() || ! inSockNameRegexStr.empty()) &&
+                (mPeerNameRegex.empty() || ! inPeerNameRegexStr.empty())
+            );
+            if (! inSockNameRegexStr.empty() && mSockNameRegex.status() != 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "error parsing socket name regular expression: " <<
+                        inSockNameRegexStr <<
+                KFS_LOG_EOM;
+            }
+            if (! inPeerNameRegexStr.empty() && mPeerNameRegex.status() != 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "error parsing peer name regular expression: " <<
+                        inPeerNameRegexStr <<
+                KFS_LOG_EOM;
+            }
+        }
         Regex    mSockNameRegex;
         Regex    mPeerNameRegex;
         int      mActionFlags;
