@@ -422,7 +422,7 @@ public:
                     mSessionExpirationTime < theNow) &&
                 ! mKeyId.empty() && theNow < mKeyExpirationTime))) {
             KFS_LOG_STREAM_INFO << mLogPrefix <<
-                " updating session by initiating re-connect" <<
+                "updating session by initiating re-connect" <<
                 " expires: +" << (mSessionExpirationTime - theNow) <<
             KFS_LOG_EOM;
             ResetConnection();
