@@ -63,7 +63,7 @@ template<typename ST, typename T, typename MT>
 DisplayWithObjMethodT<ST, T, MT> StreamDisplay(
     T&   inTarget,
     MT   inMethod,
-    bool inDisplayFlag = false,
+    bool inDisplayFlag = true,
     ST*  inStreamPtr   = 0)
 {
     return DisplayWithObjMethodT<ST, T, MT>(
