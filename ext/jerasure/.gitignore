@@ -7,7 +7,7 @@ Makefile.in
 /build-aux/
 /config.log
 /config.status
-/configure
+# /configure
 /configure.scan
 .deps/
 /include/config.h

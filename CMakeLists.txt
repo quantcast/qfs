@@ -68,6 +68,54 @@ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
 message(STATUS "Boost-includes = ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
 
+IF (${CMAKE_MAJOR_VERSION} LESS 2)
+ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+    set (HAS_EXTERNAL_PROJECT 1)
+ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
+
+IF (DEFINED HAS_EXTERNAL_PROJECT)
+    include(ExternalProject)
+    set (Gf_complete          "gf-complete")
+    set (Gf_complete_CPPFLAGS "-I${KFS_DIR_PREFIX}ext/${Gf_complete}/include")
+    set (Gf_complete_CC        ${CMAKE_C_COMPILER})
+    set (Gf_complte_PREFIX     ${CMAKE_CURRENT_BINARY_DIR}/${Gf_complete})
+    ExternalProject_Add(${Gf_complete}
+        SOURCE_DIR        ${KFS_DIR_PREFIX}ext/${Gf_complete}
+        CONFIGURE_COMMAND ${KFS_DIR_PREFIX}ext/${Gf_complete}/configure
+            CC=${Gf_complete_CC}
+            CPPFLAGS=${Gf_complete_CPPFLAGS}
+            --enable-static
+            --enable-shared
+            --prefix=${Gf_complte_PREFIX}
+        BUILD_COMMAND ${MAKE}
+    )
+    set (Gf_complte_INCLUDE ${Gf_complte_PREFIX}/include)
+    set (Gf_complte_LIB_DIR ${Gf_complte_PREFIX}/lib)
+
+    set (Jerasure          "jerasure")
+    set (Jerasure_CPPFLAGS "-I${KFS_DIR_PREFIX}ext/${Jerasure}/include -I${Gf_complte_INCLUDE}")
+    set (Jerasure_LDFLAGS  "-L${Gf_complte_LIB_DIR}")
+    set (Jerasure_CC       ${CMAKE_C_COMPILER})
+    set (Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
+    ExternalProject_Add(${Jerasure}
+        DEPENDS           ${Gf_complete}
+        SOURCE_DIR        ${KFS_DIR_PREFIX}ext/${Jerasure}
+        CONFIGURE_COMMAND ${KFS_DIR_PREFIX}ext/${Jerasure}/configure
+            CC=${Jerasure_CC}
+            CPPFLAGS=${Jerasure_CPPFLAGS}
+            LDFLAGS=${Jerasure_LDFLAGS}
+            --enable-static
+            --enable-shared
+            --prefix=${Jerasure_PREFIX}
+        BUILD_COMMAND ${MAKE}
+    )
+    set (Jerasure_INCLUDE ${Jerasure_PREFIX}/include)
+    set (Jerasure_LIB_DIR ${Jerasure_PREFIX}/lib)
+ELSE (DEFINED HAS_EXTERNAL_PROJECT)
+    message(STATUS "jerasure build requires cmake 2.8.0 or greater")
+ENDIF (DEFINED HAS_EXTERNAL_PROJECT)
+
 # Locate the path to jni.h
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
