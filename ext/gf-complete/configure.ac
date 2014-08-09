@@ -22,6 +22,8 @@ CFLAGS="-Wall -Wpointer-arith -O3 -g"
 dnl Compiling with per-target flags requires AM_PROG_CC_C_O.
 AC_PROG_CC
 
+AC_CHECK_SIZEOF(long)
+
 AX_EXT()
 
 AC_CONFIG_FILES([Makefile src/Makefile tools/Makefile test/Makefile examples/Makefile])
