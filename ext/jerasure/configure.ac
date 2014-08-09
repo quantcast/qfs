@@ -9,6 +9,9 @@ AC_CONFIG_HEADERS([include/config.h])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 
+# This prevents './configure; make' from trying to run autotools.
+AM_MAINTAINER_MODE([disable])
+
 AM_INIT_AUTOMAKE([1.13 -Wall -Wno-extra-portability])
 
 # Package default C compiler flags.
