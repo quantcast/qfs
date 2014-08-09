@@ -223,8 +223,8 @@ public:
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;
     int32_t         numReplicas:14; //!< Desired number of replicas for a file
-    int32_t         numRecoveryStripes:7;
-    int32_t         numStripes:9;
+    int32_t         numRecoveryStripes:KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH;
+    int32_t         numStripes:KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH;
     int32_t         stripeSize:27;
     int64_t         mtime; //!< modification time
     int64_t         ctime; //!< attribute change time
@@ -281,6 +281,7 @@ public:
                 stripeSize         = 0;
                 return true;
             case KFS_STRIPED_FILE_TYPE_RS:
+            case KFS_STRIPED_FILE_TYPE_RS_JERASURE:
                 striperType = KFS_STRIPED_FILE_TYPE_RS;
             break;
             default:

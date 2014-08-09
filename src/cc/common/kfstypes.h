@@ -109,14 +109,23 @@ const int EINVALCHUNKSIZE = 1007;
 
 enum StripedFileType
 {
-    KFS_STRIPED_FILE_TYPE_UNKNOWN = 0,
-    KFS_STRIPED_FILE_TYPE_NONE    = 1,
-    KFS_STRIPED_FILE_TYPE_RS      = 2
+    KFS_STRIPED_FILE_TYPE_UNKNOWN     = 0,
+    KFS_STRIPED_FILE_TYPE_NONE        = 1,
+    KFS_STRIPED_FILE_TYPE_RS          = 2,
+    KFS_STRIPED_FILE_TYPE_RS_JERASURE = 3
 };
 
-const int KFS_STRIPE_ALIGNMENT = 4096;
-const int KFS_MIN_STRIPE_SIZE  = KFS_STRIPE_ALIGNMENT;
-const int KFS_MAX_STRIPE_SIZE  = (int)CHUNKSIZE;
+const int KFS_STRIPE_ALIGNMENT          = 4096;
+const int KFS_MIN_STRIPE_SIZE           = KFS_STRIPE_ALIGNMENT;
+const int KFS_MAX_STRIPE_SIZE           = (int)CHUNKSIZE;
+// The bit fields width in the file attribute definition.
+// BaseFattr in meta/meta.h.depends on these.
+#define KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH     9
+#define KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH 7
+const int KFS_MAX_DATA_STRIPE_COUNT     =
+    (1 << (KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH)) - 1;
+const int KFS_MAX_RECOVERY_STRIPE_COUNT =
+    (1 << (KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH)) - 1;
 
 enum AuthenticationType
 {

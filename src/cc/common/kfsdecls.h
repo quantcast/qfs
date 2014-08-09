@@ -30,17 +30,15 @@
 
 #include "kfstypes.h"
 
-#include <ostream>
 #include <istream>
+#include <ostream>
 #include <string>
-#include <algorithm>
 
 namespace KFS
 {
 using std::ostream;
 using std::istream;
 using std::string;
-using std::min;
 
 ///
 /// Define a server process' location: hostname and the port at which
@@ -48,9 +46,9 @@ using std::min;
 ///
 struct ServerLocation
 {
-    ServerLocation():
-        hostname(),
-        port(-1)
+    ServerLocation()
+        : hostname(),
+          port(-1)
         {}
     ServerLocation(const ServerLocation& other)
         : hostname(other.hostname),

@@ -27,9 +27,13 @@
 #include "Writer.h"
 
 #include "qcrs/rs.h"
+
 #include "kfsio/IOBuffer.h"
 #include "kfsio/checksum.h"
+
 #include "common/MsgLogger.h"
+#include "common/StBuffer.h"
+
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCDLList.h"
 #include "qcdio/QCUtils.h"
@@ -73,7 +77,7 @@ public:
         int     inStripeCount,
         int     inRecoveryStripeCount,
         int     inStripeSize,
-        string& outErrMsg)
+        string* outErrMsgPtr = 0)
     {
         const int kChunkSize = (int)CHUNKSIZE;
         if (inStripeSize < KFS_MIN_STRIPE_SIZE ||
@@ -84,15 +88,17 @@ public:
                 inStripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
                 kChunkSize % inStripeSize != 0 ||
                 (inRecoveryStripeCount != 0 &&
-                    inRecoveryStripeCount != kMaxRecoveryStripes) ||
+                    inRecoveryStripeCount != RS_LIB_MAX_RECOVERY_BLOCKS) ||
                 (inRecoveryStripeCount > 0 && inStripeSize % kAlign != 0)) {
-            ostringstream theErrStream;
-            theErrStream << "invalid parameters:"
-                " stripe count: "          << inStripeCount <<
-                " recovery stripe count: " << inRecoveryStripeCount <<
-                " stripe size: "           << inStripeSize
-            ;
-            outErrMsg = theErrStream.str();
+            if (outErrMsgPtr) {
+                ostringstream theErrStream;
+                theErrStream << "invalid parameters:"
+                    " stripe count: "          << inStripeCount <<
+                    " recovery stripe count: " << inRecoveryStripeCount <<
+                    " stripe size: "           << inStripeSize
+                ;
+                *outErrMsgPtr = theErrStream.str();
+            }
             return false;
         }
         return true;
@@ -121,14 +127,7 @@ public:
           mBufPtr(inRecoveryStripeCount > 0 ?
             new void*[inStripeCount + inRecoveryStripeCount] : 0)
     {
-        QCRTASSERT(
-            mStripeCount > 0 &&
-            (mRecoveryStripeCount == 0 ||
-                mRecoveryStripeCount == kMaxRecoveryStripes) &&
-            mStripeSize >= KFS_MIN_STRIPE_SIZE &&
-            mStripeSize <= KFS_MAX_STRIPE_SIZE &&
-            CHUNKSIZE % mStripeSize == 0
-        );
+        QCRTASSERT(Validate(mStripeCount, mRecoveryStripeCount, mStripeSize));
     }
     virtual ~RSStriper()
     {
@@ -267,7 +266,12 @@ public:
     }
 
     enum { kAlign = 16 };
-    enum { kMaxRecoveryStripes = RS_LIB_MAX_RECOVERY_BLOCKS };
+    enum { kMaxRecoveryStripes = KFS_MAX_RECOVERY_STRIPE_COUNT };
+    typedef int16_t StripeIdx;
+    BOOST_STATIC_ASSERT(
+        (KFS_MAX_DATA_STRIPE_COUNT + KFS_MAX_RECOVERY_STRIPE_COUNT) <=
+        (1 << (sizeof(StripeIdx) * 8 - 1)) - 1
+    );
 
     const string mLogPrefix;
     const int    mStripeSize;
@@ -336,7 +340,7 @@ public:
                 inStripeCount,
                 inRecoveryStripeCount,
                 inStripeSize,
-                outErrMsg)) {
+                &outErrMsg)) {
             return 0;
         }
         outOpenChunkBlockSize =
@@ -988,7 +992,7 @@ public:
                 inStripeCount,
                 inRecoveryStripeCount,
                 inStripeSize,
-                outErrMsg)) {
+                &outErrMsg)) {
             return 0;
         }
         outOpenChunkBlockSize =
@@ -2241,14 +2245,15 @@ private:
     class RecoveryInfo
     {
     public:
-        typedef RSReadStriper Outer;
+        typedef RSReadStriper        Outer;
+        typedef RSStriper::StripeIdx StripeIdx;
 
-        IOBuffer mBuffer;
-        Offset   mPos;
-        Offset   mChunkBlockStartPos;
-        int      mSize;
-        int      mMissingCnt;
-        int      mMissingIdx[kMaxRecoveryStripes];
+        IOBuffer  mBuffer;
+        Offset    mPos;
+        Offset    mChunkBlockStartPos;
+        int       mSize;
+        int       mMissingCnt;
+        StripeIdx mMissingIdx[kMaxRecoveryStripes];
 
         RecoveryInfo()
             : mBuffer(),
@@ -2256,11 +2261,7 @@ private:
               mChunkBlockStartPos(-1),
               mSize(0),
               mMissingCnt(0)
-        {
-            for (int i = 0; i < kMaxRecoveryStripes; i++) {
-                mMissingIdx[i] = -1;
-            }
-        }
+            {}
         void ClearBuffer()
         {
             mBuffer.Clear();
@@ -2272,9 +2273,6 @@ private:
             ClearBuffer();
             mMissingCnt         = 0;
             mChunkBlockStartPos = -1;
-            for (int i = 0; i < kMaxRecoveryStripes; i++) {
-                mMissingIdx[i] = -1;
-            }
         }
         void Set(
             Outer&   inOuter,
@@ -2291,7 +2289,8 @@ private:
             mMissingCnt         = 0;
             const int theBufCount = inOuter.GetBufferCount();
             for (int i = 0;
-                    i < theBufCount && mMissingCnt < kMaxRecoveryStripes;
+                    i < theBufCount &&
+                        mMissingCnt < inOuter.mRecoveryStripeCount;
                     i++) {
                 Buffer& theBuf = inRequest.GetBuffer(i);
                 if (theBuf.IsFailed()) {
@@ -2322,10 +2321,13 @@ private:
             mPos                = inPos;
             mChunkBlockStartPos = mPos - mPos % inOuter.mChunkBlockSize;
             const int theCnt    = inOuter.GetBufferCount();
-            int       theSwappedIdx[kMaxRecoveryStripes + 1];
-            int       theMissingIdx[kMaxRecoveryStripes + 1];
+            StBufferT<StripeIdx, (32 + 1) * 2> theTmpBuf;
+            StripeIdx* const theSwappedIdx = theTmpBuf.Resize(
+                (inOuter.mRecoveryStripeCount + 1) * 2);
+            StripeIdx* const theMissingIdx = theSwappedIdx +
+                inOuter.mRecoveryStripeCount + 1;
             int       theMissingCnt    = 0;
-            int       theMaxMissingCnt = kMaxRecoveryStripes;
+            int       theMaxMissingCnt = inOuter.mRecoveryStripeCount;
             int const theSkipStripeIdx =
                 inBadStripeIdx < inOuter.mStripeCount ? inBadStripeIdx - 1 : -1;
             if (0 <= theSkipStripeIdx) {
@@ -2691,13 +2693,13 @@ private:
         if (theIt.Set(*this, theBuf, theRdSize) != inRequest.mRecoverySize &&
                 (theIt.IsRequested() ||
                 inIdx < mStripeCount ||
-                ioMissingCnt >= kMaxRecoveryStripes)) {
+                ioMissingCnt >= mRecoveryStripeCount)) {
             InternalError("invalid recovery buffer length");
             inRequest.mStatus = kErrorIO;
             return false;
         }
         if (theIt.IsFailure() || ! theIt.IsRequested()) {
-            if (ioMissingCnt >= kMaxRecoveryStripes) {
+            if (ioMissingCnt >= mRecoveryStripeCount) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix   <<
                     "read recovery failure:"
                     " req: "      << inRequest.mPos  <<
@@ -3126,18 +3128,19 @@ private:
         if (! mBufIteratorsPtr) {
             mBufIteratorsPtr = new BufIterator[theBufCount];
         }
-        int theMissingIdx[kMaxRecoveryStripes];
-        int theMissingCnt     = 0;
-        int theSize           = inRequest.mRecoverySize;
-        int thePrevLen        = 0;
-        int theMaxRd          = -1;
-        int theRecovIdx       = -1;
-        int theEndPosIdx      = mStripeCount;
-        int theEndPos         = theSize;
-        int theNextEndPos     = theSize;
-        int theRSize          = -1;
-        int theBufToCopyCount = mStripeCount;
-        int theEndPosHead     = -1;
+        StBufferT<int, 32> theTmpBuf;
+        int* const theMissingIdx     = theTmpBuf.Resize(mRecoveryStripeCount);
+        int        theMissingCnt     = 0;
+        int        theSize           = inRequest.mRecoverySize;
+        int        thePrevLen        = 0;
+        int        theMaxRd          = -1;
+        int        theRecovIdx       = -1;
+        int        theEndPosIdx      = mStripeCount;
+        int        theEndPos         = theSize;
+        int        theNextEndPos     = theSize;
+        int        theRSize          = -1;
+        int        theBufToCopyCount = mStripeCount;
+        int        theEndPosHead     = -1;
         for (int thePos = 0; thePos < theSize; ) {
             int theLen = theSize - thePos;
             if (theLen > kAlign) {
