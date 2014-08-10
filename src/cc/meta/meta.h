@@ -273,20 +273,17 @@ public:
             (chunkOff_t)CHUNKSIZE * numStripes);
     }
     bool SetStriped(int32_t t, int32_t n, int32_t nr, int32_t ss) {
-        switch ((int)t) {
-            case KFS_STRIPED_FILE_TYPE_NONE:
-                striperType        = KFS_STRIPED_FILE_TYPE_NONE;
-                numStripes         = 0;
-                numRecoveryStripes = 0;
-                stripeSize         = 0;
-                return true;
-            case KFS_STRIPED_FILE_TYPE_RS:
-            case KFS_STRIPED_FILE_TYPE_RS_JERASURE:
-                striperType = KFS_STRIPED_FILE_TYPE_RS;
-            break;
-            default:
-                return false;
+        if (t == KFS_STRIPED_FILE_TYPE_NONE) {
+            striperType        = KFS_STRIPED_FILE_TYPE_NONE;
+            numStripes         = 0;
+            numRecoveryStripes = 0;
+            stripeSize         = 0;
+            return true;
         }
+        if (! ValidateStripeParameters(t, n, nr, ss)) {
+            return false;
+        }
+        striperType = StripedFileType(t);
         numStripes = n;
         if (numStripes <= 0 || numStripes != n) {
             return false;
@@ -296,11 +293,7 @@ public:
             return false;
         }
         stripeSize = ss;
-        if (stripeSize < KFS_MIN_STRIPE_SIZE ||
-                ss > KFS_MAX_STRIPE_SIZE ||
-                stripeSize != ss ||
-                CHUNKSIZE % stripeSize != 0 ||
-                stripeSize % KFS_STRIPE_ALIGNMENT != 0) {
+        if (stripeSize != ss) {
             return false;
         }
         return true;

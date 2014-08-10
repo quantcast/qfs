@@ -40,6 +40,9 @@ set (sources
     Writer.cc
     kfsglob.cc
     KfsAttr.cc
+    ECMethod.cc
+    QCECMethod.cc
+    ECMethodJerasure.cc
 )
 
 #

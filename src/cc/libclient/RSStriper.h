@@ -23,8 +23,8 @@
 //
 //----------------------------------------------------------------------------
 
-#ifndef RSSTRIPER_H
-#define RSSTRIPER_H
+#ifndef KFS_LIBCLIENT_RSSTRIPER_H
+#define KFS_LIBCLIENT_RSSTRIPER_H
 
 #include "Writer.h"
 #include "Reader.h"
@@ -36,31 +36,39 @@ namespace client
 using std::string;
 
 Writer::Striper* RSStriperCreate(
-    Writer::Striper::StriperType inType,
-    int                          inStripeCount,
-    int                          inRecoveryStripeCount,
-    int                          inStripeSize,
-    Writer::Striper::Offset      inFileSize,
-    string                       inLogPrefix,
-    Writer::Striper::Impl&       inOuter,
-    Writer::Striper::Offset&     outOpenChunkBlockSize,
-    string&                      outErrMsg);
+    int                      inType,
+    int                      inStripeCount,
+    int                      inRecoveryStripeCount,
+    int                      inStripeSize,
+    Writer::Striper::Offset  inFileSize,
+    string                   inLogPrefix,
+    Writer::Striper::Impl&   inOuter,
+    Writer::Striper::Offset& outOpenChunkBlockSize,
+    string&                  outErrMsg);
 
 Reader::Striper* RSStriperCreate(
-    Reader::Striper::StriperType inType,
-    int                          inStripeCount,
-    int                          inRecoveryStripeCount,
-    int                          inStripeSize,
-    int                          inMaxAtomicReadRequestSize,
-    bool                         inUseDefaultBufferAllocatorFlag,
-    bool                         inFailShortReadsFlag,
-    Reader::Striper::Offset      inRecoverChunkPos,
-    Reader::Striper::Offset      inFileSize,
-    Reader::Striper::SeqNum      inInitialSeqNum,
-    string                       inLogPrefix,
-    Reader::Striper::Impl&       inOuter,
-    Reader::Striper::Offset&     outOpenChunkBlockSize,
-    string&                      outErrMsg);
+    int                      inType,
+    int                      inStripeCount,
+    int                      inRecoveryStripeCount,
+    int                      inStripeSize,
+    int                      inMaxAtomicReadRequestSize,
+    bool                     inUseDefaultBufferAllocatorFlag,
+    bool                     inFailShortReadsFlag,
+    Reader::Striper::Offset  inRecoverChunkPos,
+    Reader::Striper::Offset  inFileSize,
+    Reader::Striper::SeqNum  inInitialSeqNum,
+    string                   inLogPrefix,
+    Reader::Striper::Impl&   inOuter,
+    Reader::Striper::Offset& outOpenChunkBlockSize,
+    string&                  outErrMsg);
+
+bool RSStriperValidate(
+    int     inType,
+    int     inStripeCount,
+    int     inRecoveryStripeCount,
+    int     inStripeSize,
+    string* outErrMsgPtr);
+
 }}
 
-#endif /* RSSTRIPER_H */
+#endif /* KFS_LIBCLIENT_RSSTRIPER_H */

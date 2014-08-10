@@ -155,11 +155,6 @@ public:
     public:
         typedef Writer::Impl   Impl;
         typedef Writer::Offset Offset;
-        enum StriperType
-        {
-            kStriperTypeNone = KFS::KFS_STRIPED_FILE_TYPE_NONE,
-            kStriperTypeRS   = KFS::KFS_STRIPED_FILE_TYPE_RS
-        };
         static Striper* Create(
             int          inType,
             int          inStripeCount,

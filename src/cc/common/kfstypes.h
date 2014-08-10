@@ -107,12 +107,19 @@ const int EBADCLUSTERKEY = 1006;
 // invalid chunk size
 const int EINVALCHUNKSIZE = 1007;
 
+#define KFS_FOR_EACH_EC_METHOD(f) \
+    f(STRIPED_FILE_TYPE_RS) \
+    f(STRIPED_FILE_TYPE_RS_JERASURE)
+
 enum StripedFileType
 {
     KFS_STRIPED_FILE_TYPE_UNKNOWN     = 0,
     KFS_STRIPED_FILE_TYPE_NONE        = 1,
-    KFS_STRIPED_FILE_TYPE_RS          = 2,
-    KFS_STRIPED_FILE_TYPE_RS_JERASURE = 3
+#define ___KFS_DECLARE_EC_METHOD_ID(inType) KFS_##inType,
+    KFS_FOR_EACH_EC_METHOD(___KFS_DECLARE_EC_METHOD_ID)
+#undef ___KFS_DECLARE_EC_METHOD_ID
+    // Must be last
+    KFS_STRIPED_FILE_TYPE_COUNT
 };
 
 const int KFS_STRIPE_ALIGNMENT          = 4096;
@@ -126,6 +133,24 @@ const int KFS_MAX_DATA_STRIPE_COUNT     =
     (1 << (KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH)) - 1;
 const int KFS_MAX_RECOVERY_STRIPE_COUNT =
     (1 << (KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH)) - 1;
+
+static inline bool ValidateStripeParameters(
+    int inStipedFileType,
+    int inStripeCount,
+    int inRecoveryStripeCount,
+    int inStripeSize)
+{
+    return (inStipedFileType == KFS_STRIPED_FILE_TYPE_NONE || (
+        KFS_STRIPED_FILE_TYPE_UNKNOWN < inStipedFileType &&
+            inStipedFileType < KFS_STRIPED_FILE_TYPE_COUNT &&
+        KFS_MIN_STRIPE_SIZE <= inStripeSize &&
+            inStripeSize < KFS_MAX_STRIPE_SIZE &&
+        0 < inStripeCount &&
+        inStripeSize % KFS_STRIPE_ALIGNMENT == 0 &&
+        (int64_t)CHUNKSIZE % inStripeSize == 0 &&
+        0 <= inRecoveryStripeCount)
+    );
+}
 
 enum AuthenticationType
 {

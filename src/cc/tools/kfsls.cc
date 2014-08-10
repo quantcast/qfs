@@ -240,7 +240,7 @@ printAttrInfo(KfsClient *client, const KfsFileAttr& attr,
         cout << "/\t<dir>\t";
     } else if (attr.striperType != KFS_STRIPED_FILE_TYPE_NONE) {
         cout << "\t<r" <<
-            (attr.striperType == KFS_STRIPED_FILE_TYPE_RS ? "s " : " ") <<
+            (attr.striperType != KFS_STRIPED_FILE_TYPE_UNKNOWN ? "s " : " ") <<
             attr.numReplicas << "," <<
             attr.numStripes << "+" << attr.numRecoveryStripes <<
         ">\t";

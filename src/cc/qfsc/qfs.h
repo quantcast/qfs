@@ -35,9 +35,10 @@ extern "C" {
   struct QFS;
 
   enum qfs_striper_type {
-      KFS_STRIPED_FILE_TYPE_UNKNOWN = 0,
-      KFS_STRIPED_FILE_TYPE_NONE    = 1,
-      KFS_STRIPED_FILE_TYPE_RS      = 2
+      KFS_STRIPED_FILE_TYPE_UNKNOWN     = 0,
+      KFS_STRIPED_FILE_TYPE_NONE        = 1,
+      KFS_STRIPED_FILE_TYPE_RS          = 2,
+      KFS_STRIPED_FILE_TYPE_RS_JERASURE = 3
   };
 
 // From KfsClient.h

@@ -25,8 +25,7 @@
 
 #include "RSStriper.h"
 #include "Writer.h"
-
-#include "qcrs/rs.h"
+#include "ECMethod.h"
 
 #include "kfsio/IOBuffer.h"
 #include "kfsio/checksum.h"
@@ -74,34 +73,33 @@ public:
     };
 
     static bool Validate(
+        int     inType,
         int     inStripeCount,
         int     inRecoveryStripeCount,
         int     inStripeSize,
         string* outErrMsgPtr = 0)
     {
-        const int kChunkSize = (int)CHUNKSIZE;
-        if (inStripeSize < KFS_MIN_STRIPE_SIZE ||
-                inStripeSize > KFS_MAX_STRIPE_SIZE ||
-                inStripeCount <= 0 ||
-                (inRecoveryStripeCount != 0 &&
-                    inStripeCount > RS_LIB_MAX_DATA_BLOCKS) ||
-                inStripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
-                kChunkSize % inStripeSize != 0 ||
-                (inRecoveryStripeCount != 0 &&
-                    inRecoveryStripeCount != RS_LIB_MAX_RECOVERY_BLOCKS) ||
-                (inRecoveryStripeCount > 0 && inStripeSize % kAlign != 0)) {
+        if (inType == KFS_STRIPED_FILE_TYPE_NONE) {
             if (outErrMsgPtr) {
-                ostringstream theErrStream;
-                theErrStream << "invalid parameters:"
-                    " stripe count: "          << inStripeCount <<
-                    " recovery stripe count: " << inRecoveryStripeCount <<
-                    " stripe size: "           << inStripeSize
-                ;
-                *outErrMsgPtr = theErrStream.str();
+                *outErrMsgPtr = "invalid striper type";
             }
             return false;
         }
-        return true;
+        const bool theRet = ValidateStripeParameters(
+                inType, inStripeCount, inRecoveryStripeCount, inStripeSize) &&
+            ECMethod::IsValid(
+                inType, inStripeCount, inRecoveryStripeCount, outErrMsgPtr);
+        if (! theRet && outErrMsgPtr && outErrMsgPtr->empty()) {
+            ostringstream theErrStream;
+            theErrStream << "invalid parameters:"
+                " striper: "               << inType <<
+                " stripe count: "          << inStripeCount <<
+                " recovery stripe count: " << inRecoveryStripeCount <<
+                " stripe size: "           << inStripeSize
+            ;
+            *outErrMsgPtr = theErrStream.str();
+        }
+        return theRet;
     }
     RSStriper(
         int    inStripeSize,
@@ -126,9 +124,7 @@ public:
           mTempBufPtr(0),
           mBufPtr(inRecoveryStripeCount > 0 ?
             new void*[inStripeCount + inRecoveryStripeCount] : 0)
-    {
-        QCRTASSERT(Validate(mStripeCount, mRecoveryStripeCount, mStripeSize));
-    }
+        {}
     virtual ~RSStriper()
     {
         delete [] mTempBufAllocPtr;
@@ -266,6 +262,8 @@ public:
     }
 
     enum { kAlign = 16 };
+    BOOST_STATIC_ASSERT(
+        KFS_STRIPE_ALIGNMENT % kAlign == 0);
     enum { kMaxRecoveryStripes = KFS_MAX_RECOVERY_STRIPE_COUNT };
     typedef int16_t StripeIdx;
     BOOST_STATIC_ASSERT(
@@ -322,7 +320,7 @@ public:
     typedef RSStriper::Offset Offset;
 
     static Striper* Create(
-        StriperType              inType,
+        int                      inType,
         int                      inStripeCount,
         int                      inRecoveryStripeCount,
         int                      inStripeSize,
@@ -332,15 +330,18 @@ public:
         Writer::Striper::Offset& outOpenChunkBlockSize,
         string&                  outErrMsg)
     {
-        if (inType != kStriperTypeRS) {
-            outErrMsg = "invalid striper type";
-            return 0;
-        }
         if (! Validate(
+                inType,
                 inStripeCount,
                 inRecoveryStripeCount,
                 inStripeSize,
                 &outErrMsg)) {
+            return 0;
+        }
+        ECMethod::Encoder* const theEncoderPr = 0 < inRecoveryStripeCount ?
+            ECMethod::FindEncoder(
+                inType, inStripeCount, inRecoveryStripeCount, &outErrMsg) : 0;
+        if (0 < inRecoveryStripeCount && ! theEncoderPr) {
             return 0;
         }
         outOpenChunkBlockSize =
@@ -351,12 +352,16 @@ public:
             inRecoveryStripeCount,
             inFileSize,
             inLogPrefix,
-            inOuter
+            inOuter,
+            theEncoderPr
         );
     }
     virtual ~RSWriteStriper()
     {
         delete [] mBuffersPtr;
+        if (mEncoderPtr) {
+            mEncoderPtr->Release();
+        }
     }
     virtual int Process(
         IOBuffer& inBuffer,
@@ -386,7 +391,9 @@ public:
             if (mOffset > mFileSize) {
                 mFileSize = mOffset;
             }
-            ComputeRecovery();
+            if (! ComputeRecovery()) {
+                return kErrorIO;
+            }
             if (inBuffer.IsEmpty()) {
                 break;
             }
@@ -442,7 +449,9 @@ public:
             QCASSERT(theIoBuf.IsEmpty());
         }
         int theFrontTrim = 0;
-        ComputeRecovery(&theFrontTrim);
+        if (! ComputeRecovery(&theFrontTrim)) {
+            return kErrorIO;
+        }
         // Undo the padding and write the buffers.
         QCRTASSERT(mOffset == mRecoveryEndPos && mOffset % mStrideSize == 0);
         mOffset         -= thePaddSize;
@@ -588,21 +597,23 @@ private:
         StdFastAllocator<Offset>
     > WriteFailures;
 
-    Offset        mFileSize;
-    Offset        mPendingCount;
-    Offset        mOffset;
-    Offset        mRecoveryEndPos;
-    Offset        mLastPartialFlushPos;
-    WriteFailures mWriteFailures;
-    Buffer* const mBuffersPtr;
+    Offset                   mFileSize;
+    Offset                   mPendingCount;
+    Offset                   mOffset;
+    Offset                   mRecoveryEndPos;
+    Offset                   mLastPartialFlushPos;
+    WriteFailures            mWriteFailures;
+    Buffer* const            mBuffersPtr;
+    ECMethod::Encoder* const mEncoderPtr;
 
     RSWriteStriper(
-        int    inStripeSize,
-        int    inStripeCount,
-        int    inRecoveryStripeCount,
-        Offset inFileSize,
-        string inFilePrefix,
-        Impl&  inOuter)
+        int                inStripeSize,
+        int                inStripeCount,
+        int                inRecoveryStripeCount,
+        Offset             inFileSize,
+        string             inFilePrefix,
+        Impl&              inOuter,
+        ECMethod::Encoder* inEncoderPtr)
         : Striper(inOuter),
           RSStriper(
             inStripeSize,
@@ -615,7 +626,8 @@ private:
           mRecoveryEndPos(0),
           mLastPartialFlushPos(0),
           mWriteFailures(),
-          mBuffersPtr(new Buffer[inStripeCount + inRecoveryStripeCount])
+          mBuffersPtr(new Buffer[inStripeCount + inRecoveryStripeCount]),
+          mEncoderPtr(inEncoderPtr)
         {}
     bool IsChunkWriterFailed(
         Offset inOffset) const
@@ -760,7 +772,7 @@ private:
             " cur: "     << theCurThreshold <<
         KFS_LOG_EOM;
     }
-    void ComputeRecovery(
+    bool ComputeRecovery(
         int* ioPaddSizeWriteFrontTrimPtr = 0)
     {
         if (mRecoveryStripeCount <= 0) {
@@ -769,10 +781,14 @@ private:
                     mBuffersPtr[i].mBuffer.BytesConsumable();
             }
             mRecoveryEndPos = mOffset;
-            return;
+            return true;
+        }
+        if (! mEncoderPtr) {
+            InternalError("no encoder");
+            return false;
         }
         if (mOffset < mRecoveryEndPos + mStrideSize) {
-            return; // At least one full stride required.
+            return true; // At least one full stride required.
         }
         QCASSERT(mRecoveryEndPos % mStrideSize == 0);
         int       theStrideHead = (int)(mOffset % mStrideSize);
@@ -864,7 +880,18 @@ private:
                     " len: " << theLen <<
                 KFS_LOG_EOM;
             }
-            rs_encode(mStripeCount + mRecoveryStripeCount, theLen, mBufPtr);
+            const int theStatus = mEncoderPtr->Encode(
+                mStripeCount, mRecoveryStripeCount, theLen, mBufPtr);
+            if (theStatus != 0) {
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    " recovery:"
+                    " encode error: " << theStatus <<
+                    " off: "          << mRecoveryEndPos <<
+                    " pos: "          << thePos <<
+                    " len: "          << theLen <<
+                KFS_LOG_EOM;
+                return false;
+            }
             for (int i = mStripeCount;
                     i < mStripeCount + mRecoveryStripeCount;
                     i++) {
@@ -893,6 +920,7 @@ private:
             }
         }
         mPendingCount = thePendingCount;
+        return true;
     }
     void TrimBufferFront(
         Buffer& inBuf,
@@ -961,7 +989,7 @@ public:
     typedef RSStriper::Offset Offset;
 
     static Striper* Create(
-        StriperType              inType,
+        int                      inType,
         int                      inStripeCount,
         int                      inRecoveryStripeCount,
         int                      inStripeSize,
@@ -976,10 +1004,6 @@ public:
         Reader::Striper::Offset& outOpenChunkBlockSize,
         string&                  outErrMsg)
     {
-        if (inType != kStriperTypeRS) {
-            outErrMsg = "invalid striper type";
-            return 0;
-        }
         if (inMaxAtomicReadRequestSize <= 0) {
             outErrMsg = "invalid max. read request size";
             return 0;
@@ -989,10 +1013,17 @@ public:
             return 0;
         }
         if (! Validate(
+                inType,
                 inStripeCount,
                 inRecoveryStripeCount,
                 inStripeSize,
                 &outErrMsg)) {
+            return 0;
+        }
+        ECMethod::Decoder* const theDecoderPtr = 0 < inRecoveryStripeCount ?
+            ECMethod::FindDecoder(
+                inType, inStripeCount, inRecoveryStripeCount, &outErrMsg) : 0;
+        if (0 < inRecoveryStripeCount && ! theDecoderPtr) {
             return 0;
         }
         outOpenChunkBlockSize =
@@ -1008,7 +1039,8 @@ public:
             inFileSize,
             inInitialSeqNum,
             inLogPrefix,
-            inOuter
+            inOuter,
+            theDecoderPtr
         );
     }
     virtual ~RSReadStriper()
@@ -1025,6 +1057,9 @@ public:
         }
         delete [] mBufIteratorsPtr;
         delete mZeroBufferPtr;
+        if (mDecoderPtr) {
+            mDecoderPtr->Release();
+        }
     }
     virtual int Process(
         IOBuffer& inBuffer,
@@ -2483,34 +2518,36 @@ private:
     friend class RecoveryInfo;
 
     // Chunk read request split threshold.
-    const int     mMaxReadSize;
-    const bool    mUseDefaultBufferAllocatorFlag;
-    const bool    mFailShortReadsFlag;
-    const int     mRecoverStripeIdx;
-    const Offset  mFileSize;
-    const Offset  mRecoverBlockPos;
-    const Offset  mRecoverChunkEndPos;
-    RecoveryInfo  mRecoveryInfo;
-    BufIterator*  mBufIteratorsPtr;
-    IOBufferData* mZeroBufferPtr;
-    Offset        mPendingCount;
-    uint32_t      mNextRand;
-    Request*      mPendingQueue[1];
-    Request*      mFreeList[1];
-    Request*      mInFlightList[1];
+    const int                mMaxReadSize;
+    const bool               mUseDefaultBufferAllocatorFlag;
+    const bool               mFailShortReadsFlag;
+    const int                mRecoverStripeIdx;
+    const Offset             mFileSize;
+    const Offset             mRecoverBlockPos;
+    const Offset             mRecoverChunkEndPos;
+    RecoveryInfo             mRecoveryInfo;
+    BufIterator*             mBufIteratorsPtr;
+    IOBufferData*            mZeroBufferPtr;
+    Offset                   mPendingCount;
+    uint32_t                 mNextRand;
+    ECMethod::Decoder* const mDecoderPtr;
+    Request*                 mPendingQueue[1];
+    Request*                 mFreeList[1];
+    Request*                 mInFlightList[1];
 
     RSReadStriper(
-        int    inStripeSize,
-        int    inStripeCount,
-        int    inRecoveryStripeCount,
-        int    inMaxAtomicReadRequestSize,
-        bool   inUseDefaultBufferAllocatorFlag,
-        bool   inFailShortReadsFlag,
-        Offset inRecoverChunkPos,
-        Offset inFileSize,
-        SeqNum inInitialSeqNum,
-        string inFilePrefix,
-        Impl&  inOuter)
+        int                inStripeSize,
+        int                inStripeCount,
+        int                inRecoveryStripeCount,
+        int                inMaxAtomicReadRequestSize,
+        bool               inUseDefaultBufferAllocatorFlag,
+        bool               inFailShortReadsFlag,
+        Offset             inRecoverChunkPos,
+        Offset             inFileSize,
+        SeqNum             inInitialSeqNum,
+        string             inFilePrefix,
+        Impl&              inOuter,
+        ECMethod::Decoder* inDecoderPtr)
         : Striper(inOuter),
           RSStriper(
             inStripeSize,
@@ -2539,7 +2576,8 @@ private:
           mBufIteratorsPtr(0),
           mZeroBufferPtr(0),
           mPendingCount(0),
-          mNextRand((uint32_t)inInitialSeqNum)
+          mNextRand((uint32_t)inInitialSeqNum),
+          mDecoderPtr(inDecoderPtr)
     {
         QCASSERT(inRecoverChunkPos < 0 || inRecoverChunkPos % CHUNKSIZE == 0);
         Requests::Init(mPendingQueue);
@@ -3124,6 +3162,11 @@ private:
             }
             return;
         }
+        if (! mDecoderPtr) {
+            InternalError("no decoder");
+            inRequest.mStatus = kErrorParameters;
+            return;
+        }
         const int theBufCount = GetBufferCount();
         if (! mBufIteratorsPtr) {
             mBufIteratorsPtr = new BufIterator[theBufCount];
@@ -3316,14 +3359,27 @@ private:
                     " of: "   << theSize                <<
                 KFS_LOG_EOM;
             }
-            rs_decode3(
-                theBufCount,
+            const int theRet = mDecoderPtr->Decode(
+                mStripeCount,
+                mRecoveryStripeCount,
                 max(theLen, (int)kAlign),
-                theMissingIdx[0],
-                theMissingIdx[1],
-                theMissingIdx[2],
-                mBufPtr
+                mBufPtr,
+                theMissingIdx
             );
+            if (theRet != 0) {
+                KFS_LOG_STREAM_ERROR << mLogPrefix       <<
+                    "read reocvery decode failure"
+                    " status: " << theRet <<
+                    " req: "    << inRequest.mPos         <<
+                    ","         << inRequest.mSize        <<
+                    " pos: "    << inRequest.mRecoveryPos <<
+                    "+"         << thePos                 <<
+                    " size: "   << theLen                 <<
+                    " of: "     << theSize                <<
+                KFS_LOG_EOM;
+                inRequest.mStatus = kErrorIO;
+                return;
+            }
             for (int i = 0; i < theBufToCopyCount; i++) {
                 BufIterator& theIt = mBufIteratorsPtr[i];
                 const int theCpLen = (i < theEndPosIdx || i >= mStripeCount) ?
@@ -3601,17 +3657,17 @@ private:
         const RSReadStriper& inRSReadStriper);
 };
 
-Writer::Striper*
+    Writer::Striper*
 RSStriperCreate(
-    Writer::Striper::StriperType inType,
-    int                          inStripeCount,
-    int                          inRecoveryStripeCount,
-    int                          inStripeSize,
-    Writer::Striper::Offset      inFileSize,
-    string                       inLogPrefix,
-    Writer::Striper::Impl&       inOuter,
-    Writer::Striper::Offset&     outOpenChunkBlockSize,
-    string&                      outErrMsg)
+    int                      inType,
+    int                      inStripeCount,
+    int                      inRecoveryStripeCount,
+    int                      inStripeSize,
+    Writer::Striper::Offset  inFileSize,
+    string                   inLogPrefix,
+    Writer::Striper::Impl&   inOuter,
+    Writer::Striper::Offset& outOpenChunkBlockSize,
+    string&                  outErrMsg)
 {
     return RSWriteStriper::Create(
         inType,
@@ -3626,22 +3682,22 @@ RSStriperCreate(
     );
 }
 
-Reader::Striper*
+    Reader::Striper*
 RSStriperCreate(
-    Reader::Striper::StriperType inType,
-    int                          inStripeCount,
-    int                          inRecoveryStripeCount,
-    int                          inStripeSize,
-    int                          inMaxReadRequestSize,
-    bool                         inUseDefaultBufferAllocatorFlag,
-    bool                         inFailShortReadsFlag,
-    Reader::Striper::Offset      inRecoverChunkPos,
-    Reader::Striper::Offset      inFileSize,
-    Reader::Striper::SeqNum      inInitialSeqNum,
-    string                       inLogPrefix,
-    Reader::Striper::Impl&       inOuter,
-    Reader::Striper::Offset&     outOpenChunkBlockSize,
-    string&                      outErrMsg)
+    int                      inType,
+    int                      inStripeCount,
+    int                      inRecoveryStripeCount,
+    int                      inStripeSize,
+    int                      inMaxReadRequestSize,
+    bool                     inUseDefaultBufferAllocatorFlag,
+    bool                     inFailShortReadsFlag,
+    Reader::Striper::Offset  inRecoverChunkPos,
+    Reader::Striper::Offset  inFileSize,
+    Reader::Striper::SeqNum  inInitialSeqNum,
+    string                   inLogPrefix,
+    Reader::Striper::Impl&   inOuter,
+    Reader::Striper::Offset& outOpenChunkBlockSize,
+    string&                  outErrMsg)
 {
     return RSReadStriper::Create(
         inType,
@@ -3659,6 +3715,19 @@ RSStriperCreate(
         outOpenChunkBlockSize,
         outErrMsg
     );
+}
+
+    bool
+RSStriperValidate(
+    int     inType,
+    int     inStripeCount,
+    int     inRecoveryStripeCount,
+    int     inStripeSize,
+    string* outErrMsgPtr)
+{
+    return RSStriper::Validate(
+        inType, inStripeCount, inRecoveryStripeCount, inStripeSize,
+        outErrMsgPtr);
 }
 
 }} /* namespace client KFS */

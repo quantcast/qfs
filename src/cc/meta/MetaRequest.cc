@@ -764,7 +764,7 @@ MetaCreate::handle()
     }
     fid        = 0;
     todumpster = -1;
-    if (striperType == KFS_STRIPED_FILE_TYPE_RS && numRecoveryStripes > 0) {
+    if (striperType != KFS_STRIPED_FILE_TYPE_NONE && numRecoveryStripes > 0) {
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerRSFile());
     } else {
@@ -2313,7 +2313,7 @@ MetaChangeFileReplication::handle()
     }
     numReplicas = min(numReplicas,
         max(int16_t(fa->numReplicas),
-            (fa->striperType == KFS_STRIPED_FILE_TYPE_RS &&
+            (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
                     fa->numRecoveryStripes > 0) ?
             gLayoutManager.GetMaxReplicasPerRSFile() :
             gLayoutManager.GetMaxReplicasPerFile()

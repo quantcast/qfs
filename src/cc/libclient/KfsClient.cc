@@ -29,6 +29,10 @@
 
 #include "KfsClient.h"
 #include "KfsClientInt.h"
+#include "Path.h"
+#include "utils.h"
+#include "KfsProtocolWorker.h"
+#include "RSStriper.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -37,16 +41,14 @@
 #include "common/MdStream.h"
 #include "common/StdAllocator.h"
 #include "common/IntToString.h"
+
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
+
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/DelegationToken.h"
-#include "Path.h"
-#include "utils.h"
-#include "KfsProtocolWorker.h"
-#include "qcrs/rs.h"
 
 #include <signal.h>
 #include <stdlib.h>
@@ -87,6 +89,8 @@ using std::ostringstream;
 
 using boost::scoped_array;
 using boost::bind;
+
+using client::RSStriperValidate;
 
 const int kMaxReaddirEntries = 1 << 10;
 const int kMaxReadDirRetries = 16;
@@ -193,15 +197,8 @@ ValidateCreateParams(
     return (
         (numReplicas <= 0 ||
         (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
-            stripedType != KFS_STRIPED_FILE_TYPE_RS) ||
-        (stripedType == KFS_STRIPED_FILE_TYPE_RS &&
-                (numStripes <= 0 ||
-                stripeSize < KFS_MIN_STRIPE_SIZE ||
-                stripeSize > KFS_MAX_STRIPE_SIZE ||
-                stripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
-                (numRecoveryStripes != 0 &&
-                    (numRecoveryStripes != RS_LIB_MAX_RECOVERY_BLOCKS ||
-                    numStripes > RS_LIB_MAX_DATA_BLOCKS)))) ||
+            ! RSStriperValidate(
+                stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||
         (minSTier > maxSTier ||
             maxSTier > kKfsSTierMax ||
             minSTier > kKfsSTierMax ||
@@ -2426,15 +2423,11 @@ private:
                 outValue = inDefaultValue;
                 return;
             }
-            switch (theVal) {
-                case KFS_STRIPED_FILE_TYPE_NONE:
-                    outValue = KFS_STRIPED_FILE_TYPE_NONE;
-                    return;
-                case KFS_STRIPED_FILE_TYPE_RS:
-                    outValue = KFS_STRIPED_FILE_TYPE_RS;
-                    return;
-                default:
-                    outValue = inDefaultValue;
+            if (KFS_STRIPED_FILE_TYPE_UNKNOWN < theVal &&
+                    theVal < KFS_STRIPED_FILE_TYPE_COUNT) {
+                outValue = StripedFileType(theVal);
+            } else {
+                outValue = inDefaultValue;
             }
         }
     };
@@ -3052,38 +3045,20 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         exclusive ? NextCreateId() : -1,
         minSTier, maxSTier
     );
-    if (stripedType == KFS_STRIPED_FILE_TYPE_RS) {
-        if (numStripes <= 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                pathname << ": invalid stripe count: " << numStripes <<
+    if (stripedType != KFS_STRIPED_FILE_TYPE_NONE) {
+        string errMsg;
+        if (! RSStriperValidate(stripedType, numStripes,
+                numRecoveryStripes, stripeSize, &errMsg)) {
+            KFS_LOG_STREAM_ERROR <<
+                pathname << ": " <<
+                (errMsg.empty() ? string("invalid parameters") : errMsg) <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        if (numRecoveryStripes < 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                pathname << ": invalid recovery stripe count: " <<
-                    numRecoveryStripes <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        if (stripeSize < KFS_MIN_STRIPE_SIZE ||
-                stripeSize > KFS_MAX_STRIPE_SIZE ||
-                stripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
-                CHUNKSIZE % stripeSize != 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                pathname << ": invalid stripe size: " << stripeSize <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        op.striperType        = KFS_STRIPED_FILE_TYPE_RS;
+        op.striperType        = stripedType;
         op.numStripes         = numStripes;
         op.numRecoveryStripes = numRecoveryStripes;
         op.stripeSize         = stripeSize;
-    } else if (stripedType != KFS_STRIPED_FILE_TYPE_NONE) {
-        KFS_LOG_STREAM_DEBUG <<
-            pathname << ": invalid striped file type: " << stripedType <<
-        KFS_LOG_EOM;
-        return -EINVAL;
     }
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
@@ -3151,6 +3126,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " fileId: "   << entry.fattr.fileId <<
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
+        " striper: "  << fa.striperType <<
     KFS_LOG_EOM;
 
     return fte;
@@ -4063,7 +4039,7 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
     if (fattr.isDirectory) {
         return -EISDIR;
     }
-    if (fattr.striperType == KFS_STRIPED_FILE_TYPE_RS &&
+    if (fattr.striperType != KFS_STRIPED_FILE_TYPE_NONE &&
             0 < fattr.numStripes && 0 < fattr.stripeSize) {
         chunkOff_t const lblksz = (chunkOff_t)CHUNKSIZE * (int)fattr.numStripes;
         chunkOff_t const pblksz = (chunkOff_t)CHUNKSIZE *

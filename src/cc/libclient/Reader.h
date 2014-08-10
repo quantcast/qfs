@@ -157,11 +157,6 @@ public:
         typedef Reader::Offset    Offset;
         typedef Reader::RequestId RequestId;
         typedef int64_t           SeqNum;
-        enum StriperType
-        {
-            kStriperTypeNone = KFS::KFS_STRIPED_FILE_TYPE_NONE,
-            kStriperTypeRS   = KFS::KFS_STRIPED_FILE_TYPE_RS
-        };
         static Striper* Create(
             int     inType,
             int     inStripeCount,

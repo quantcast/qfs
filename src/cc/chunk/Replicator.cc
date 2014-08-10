@@ -1869,13 +1869,11 @@ Replicator::Run(ReplicateChunkOp* op)
         ReplicatorImpl::Ctrs().mRecoveryCount++;
         if (op->chunkOffset < 0 ||
                 op->chunkOffset % int64_t(CHUNKSIZE) != 0 ||
-                op->striperType != KFS_STRIPED_FILE_TYPE_RS ||
-                op->numStripes <= 0 ||
-                op->numRecoveryStripes <= 0 ||
-                op->stripeSize < KFS_MIN_STRIPE_SIZE ||
-                op->stripeSize > KFS_MAX_STRIPE_SIZE ||
-                CHUNKSIZE % op->stripeSize != 0 ||
-                op->stripeSize % KFS_STRIPE_ALIGNMENT != 0 ||
+                ! ValidateStripeParameters(
+                    op->striperType,
+                    op->numStripes,
+                    op->numRecoveryStripes,
+                    op->stripeSize) ||
                 op->location.port <= 0) {
             op->status = -EINVAL;
             KFS_LOG_STREAM_ERROR << "replication:"

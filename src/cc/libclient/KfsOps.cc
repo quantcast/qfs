@@ -933,16 +933,11 @@ ParseFileAttribute(const Properties &prop,
     GetTimeval(prop.getValue("C-Time",  ""), fattr.ctime);
     GetTimeval(prop.getValue("CR-Time", ""), fattr.crtime);
 
-    switch (prop.getValue("Striper-type", int(KFS_STRIPED_FILE_TYPE_NONE))) {
-        case KFS_STRIPED_FILE_TYPE_NONE:
-            fattr.striperType = KFS_STRIPED_FILE_TYPE_NONE;
-        break;
-        case KFS_STRIPED_FILE_TYPE_RS:
-            fattr.striperType = KFS_STRIPED_FILE_TYPE_RS;
-        break;
-        default:
-            fattr.striperType = KFS_STRIPED_FILE_TYPE_UNKNOWN;
-        break;
+    const int type = prop.getValue("Striper-type", int(KFS_STRIPED_FILE_TYPE_NONE));
+    if (KFS_STRIPED_FILE_TYPE_NONE <= type && type < KFS_STRIPED_FILE_TYPE_COUNT) {
+        fattr.striperType = StripedFileType(type);
+    } else {
+        fattr.striperType = KFS_STRIPED_FILE_TYPE_UNKNOWN;
     }
 
     fattr.numStripes         = (int16_t)prop.getValue("Num-stripes",          0);

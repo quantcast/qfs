@@ -2479,12 +2479,12 @@ Reader::Striper::Create(
     string&                  outErrMsg)
 {
     switch (inType) {
-        case kStriperTypeNone:
+        case KFS_STRIPED_FILE_TYPE_NONE:
             outOpenChunkBlockSize = Offset(CHUNKSIZE);
-            return 0;
-        case kStriperTypeRS:
+        break;
+        default:
             return RSStriperCreate(
-                kStriperTypeRS,
+                inType,
                 inStripeCount,
                 inRecoveryStripeCount,
                 inStripeSize,
@@ -2499,9 +2499,6 @@ Reader::Striper::Create(
                 outOpenChunkBlockSize,
                 outErrMsg
             );
-        default:
-            outErrMsg = "unsupported striper type";
-        break;
     }
     return 0;
 }
