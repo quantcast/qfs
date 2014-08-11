@@ -1681,6 +1681,7 @@ ChunkManager::Shutdown()
     // Force meta server connection down first.
     gMetaServerSM.Shutdown();
     mDirChecker.Stop();
+    gClientManager.Shutdown();
     // Run delete queue before removing chunk table entries.
     RunStaleChunksQueue();
     for (int i = 0; ;) {
@@ -1753,6 +1754,8 @@ ChunkManager::Shutdown()
         }
         usleep(10000);
     }
+    gClientManager.Shutdown();
+    DiskIo::RunIoCompletion();
     globalNetManager().UnRegisterTimeoutHandler(this);
     string errMsg;
     if (! DiskIo::Shutdown(&errMsg)) {
@@ -1760,7 +1763,6 @@ ChunkManager::Shutdown()
             "DiskIo::Shutdown failure: " << errMsg <<
         KFS_LOG_EOM;
     }
-    gClientManager.Shutdown();
 }
 
 bool
