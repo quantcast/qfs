@@ -468,7 +468,7 @@ ReplicatorImpl::Read()
     if (mOffset >= mChunkSize) {
         mDone = mOffset == mChunkSize;
         KFS_LOG_STREAM(mDone ?
-                MsgLogger::kLogLevelNOTICE :
+                MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) << "replication:"
             " chunk: "    << mChunkId <<
             " peer: "     << GetPeerName() <<
