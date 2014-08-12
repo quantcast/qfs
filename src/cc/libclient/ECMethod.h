@@ -137,6 +137,7 @@ private:
         int     inMethodType,
         string* outErrMsgPtr);
     inline static int RegisterAllMethods();
+    static int InitAllSelf();
 };
 
 #define KFS_MAKE_REGISTERED_METHOD_NAME(inType) \

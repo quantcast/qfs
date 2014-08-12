@@ -51,7 +51,7 @@ ECMethod::Find(
     int     inMethodType,
     string* outErrMsgPtr)
 {
-    InitAll();
+    InitAllSelf();
     if (inMethodType == KFS_STRIPED_FILE_TYPE_UNKNOWN ||
             inMethodType < 0 ||
             KFS_STRIPED_FILE_TYPE_COUNT <= inMethodType) {
@@ -79,6 +79,13 @@ static inline T EnsureMsg(
             inMsgPtr : "unspecified error";
     }
     return inRetVal;
+}
+
+    /* static */ int
+ECMethod::InitAll()
+{
+    QCStMutexLocker theLocker(GetMutex());
+    return InitAllSelf();
 }
 
     /* static */ bool
@@ -200,14 +207,13 @@ ECMethod::RegisterAllMethods()
     }
 
     int             theRet = 0;
-    QCStMutexLocker theLocker(GetMutex());
     KFS_FOR_EACH_EC_METHOD(__KFS_REGISTER_EXTERN_EC_METHOD)
     return theRet;
 #undef __KFS_REGISTER_EXTERN_EC_METHOD
 }
 
-    int
-ECMethod::InitAll()
+    /* static */ int
+ECMethod::InitAllSelf()
 {
     static const int sMethodCount = RegisterAllMethods();
     return sMethodCount;
