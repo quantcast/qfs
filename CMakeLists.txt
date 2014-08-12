@@ -150,17 +150,17 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
         DESTINATION lib/static
     )
     # Shared library are sym linked, install both sym link and the targets by
-    # using pattern.
+    # using pattern. Allow version suffix that follows library suffix.
     install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
         DESTINATION lib
         USE_SOURCE_PERMISSIONS
         FILES_MATCHING PATTERN
-            "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}"
+            "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
     )
 ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     IF (NOT QFS_OMIT_JERASURE)
-        message(WARNING ": Jerasure requires cmake 2.8.0 or greater")
-        message(WARNING ": Jerasure will not be compiled")
+        message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
+        message(STATUS "WARNING: Jerasure will not be compiled")
     ELSE (NOT QFS_OMIT_JERASURE)
         message(STATUS "Jerasure will not be compiled")
     ENDIF (NOT QFS_OMIT_JERASURE)
@@ -181,9 +181,9 @@ IF (NOT DEFINED OPENSSL_VERSION)
 ENDIF (NOT DEFINED OPENSSL_VERSION)
 
 IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
-    message(WARNING ": Open SSL version ${OPENSSL_VERSION}")
-    message(WARNING
-        ": QFS authentication support requires Open SSL version 1.0 or greater")
+    message(STATUS "WARNING: Open SSL version ${OPENSSL_VERSION}")
+    message(STATUS
+        "WARNING: QFS authentication support requires Open SSL version 1.0 or greater")
     message(WARNING ": QFS authentication will not work")
 ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
