@@ -61,31 +61,30 @@ set_target_properties (kfsClient-shared PROPERTIES OUTPUT_NAME "qfs_client")
 set_target_properties (kfsClient PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsClient-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-add_dependencies (kfsClient kfsCommon kfsIO qcdio kfsrs)
-# get everthing into one
-target_link_libraries (kfsClient
-    kfsCommon
+add_dependencies (kfsClient
     kfsIO
-    qcdio
-    ${OPENSSL_LIBRARIES}
     kfsrs
 )
-target_link_libraries (kfsClient-shared
-    kfsCommon-shared
+add_dependencies (kfsClient-shared
     kfsIO-shared
-    qcdio-shared
     kfsrs-shared
-    ${OPENSSL_LIBRARIES}
 )
-
-if (Jerasure_INCLUDE AND Jerasure_STATIC_LIB)
+if (NOT QFS_OMIT_JERASURE)
     add_dependencies(kfsClient        Jerasure_proj)
     add_dependencies(kfsClient-shared Jerasure_proj)
-    target_link_libraries(kfsClient
-        ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB})
-    target_link_libraries(kfsClient-shared
-        ${Gf_complete_SHARED_LIB} ${Jerasure_SHARED_LIB})
-endif (Jerasure_INCLUDE AND Jerasure_STATIC_LIB)
+endif (NOT QFS_OMIT_JERASURE)
+
+# get everthing into one
+target_link_libraries (kfsClient
+    kfsIO
+    kfsrs
+    ${JERASURE_STATIC_LIBRARIES}
+)
+target_link_libraries (kfsClient-shared
+    kfsIO-shared
+    kfsrs-shared
+    ${JERASURE_SHARED_LIBRARIES}
+)
 
 install (TARGETS kfsClient kfsClient-shared
     LIBRARY DESTINATION lib

@@ -48,21 +48,25 @@ add_executable (chunkscrubber chunkscrubber_main.cc)
 set (exe_files chunkserver chunkscrubber)
 
 foreach (exe_file ${exe_files})
-        if (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} kfsIO kfsCommon kfsClient qcdio pthread ${OPENSSL_LIBRARIES})
-           add_dependencies (${exe_file} kfsCommon kfsClient-shared kfsIO qcdio)
-        else (USE_STATIC_LIB_LINKAGE)
-           target_link_libraries (${exe_file} kfsIO-shared kfsCommon-shared kfsClient-shared qcdio-shared pthread ${OPENSSL_LIBRARIES})
-           add_dependencies (${exe_file} kfsCommon-shared kfsIO-shared kfsClient-shared qcdio-shared)
-        endif (USE_STATIC_LIB_LINKAGE)
+    if (USE_STATIC_LIB_LINKAGE)
+        target_link_libraries (${exe_file}
+            kfsClient
+        )
+        add_dependencies (${exe_file}
+            kfsClient
+        )
+    else (USE_STATIC_LIB_LINKAGE)
+        target_link_libraries (${exe_file}
+            kfsClient-shared
+        )
+        add_dependencies (${exe_file}
+            kfsClient-shared
+        )
+    endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
-if (NOT APPLE)
-  target_link_libraries(chunkserver rt)
-endif (NOT APPLE)
-
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-   target_link_libraries(chunkserver umem)
+    target_link_libraries(chunkserver umem)
 endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 #

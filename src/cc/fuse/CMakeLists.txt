@@ -29,13 +29,10 @@
 
 include_directories(${FUSE_INCLUDE_DIRS})
 add_executable (qfs_fuse kfs_fuse_main.cc)
-IF(DEFINED FUSE_LIBRARY_DIR)
-    link_directories(${FUSE_LIBRARY_DIR})
-ENDIF(DEFINED FUSE_LIBRARY_DIR)
-target_link_libraries (qfs_fuse kfsClient qcdio pthread ${FUSE_LIBRARIES})
+target_link_libraries (qfs_fuse kfsClient ${FUSE_LIBRARIES})
 
 #
 install (TARGETS qfs_fuse
-        RUNTIME DESTINATION bin
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib-static)
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib-static)

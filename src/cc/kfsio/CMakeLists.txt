@@ -52,23 +52,34 @@ set_target_properties (kfsIO-shared PROPERTIES OUTPUT_NAME "qfs_io")
 set_target_properties (kfsIO PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsIO-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-add_dependencies (kfsIO qcdio kfsCommon qfskrb)
-add_dependencies (kfsIO-shared qcdio-shared kfsCommon-shared qfskrb-shared)
-target_link_libraries (kfsIO qcdio kfsCommon qfskrb pthread z ${Boost_LIBRARIES})
-target_link_libraries (kfsIO-shared qcdio-shared kfsCommon-shared qfskrb-shared pthread z ${OPENSSL_LIBRARIES})
-
-if (NOT Boost_USE_STATIC_LIBS)
-   target_link_libraries (kfsIO-shared ${Boost_LIBRARIES})
-endif (NOT Boost_USE_STATIC_LIBS)
-
-if (NOT APPLE)
-   target_link_libraries (kfsIO rt)
-   target_link_libraries (kfsIO-shared rt)
-endif(NOT APPLE)
+add_dependencies (kfsIO
+    qcdio
+    kfsCommon
+    qfskrb
+)
+add_dependencies (kfsIO-shared
+    qcdio-shared
+    kfsCommon-shared
+    qfskrb-shared
+)
+target_link_libraries (kfsIO
+    qcdio
+    kfsCommon
+    qfskrb
+    z
+    ${OPENSSL_LIBRARIES}
+)
+target_link_libraries (kfsIO-shared
+    qcdio-shared
+    kfsCommon-shared
+    qfskrb-shared
+    z
+    ${OPENSSL_LIBRARIES}
+)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-  target_link_libraries (kfsIO nsl socket resolv)
-  target_link_libraries (kfsIO-shared nsl socket resolv)
+    target_link_libraries (kfsIO nsl socket resolv)
+    target_link_libraries (kfsIO-shared nsl socket resolv)
 endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 install (TARGETS kfsIO kfsIO-shared

@@ -27,9 +27,6 @@
 add_library (qfs_access SHARED qfs_access_jni.cc)
 add_dependencies (qfs_access kfsClient-shared)
 target_link_libraries (qfs_access kfsClient-shared)
-if (NOT APPLE)
-  target_link_libraries(qfs_access rt)
-endif (NOT APPLE)
 
 IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
    # On Solaris, cmake uses gcc to link rather than g++.  This
@@ -40,5 +37,5 @@ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 #
 install (TARGETS qfs_access
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib-static)
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib-static)

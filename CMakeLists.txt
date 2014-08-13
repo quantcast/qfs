@@ -93,6 +93,7 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     ELSE (KFS_DIR_PREFIX STREQUAL "")
         set (KFS_EXTERNAL_PROJECT_DIR ${KFS_DIR_PREFIX}ext/)
     ENDIF (KFS_DIR_PREFIX STREQUAL "")
+
     set (Gf_complete          "gf-complete")
     set (Gf_complete_CPPFLAGS
         "-I${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/include")
@@ -157,13 +158,23 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
         FILES_MATCHING PATTERN
             "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
     )
+    set (JERASURE_STATIC_LIBRARIES
+        ${Gf_complete_STATIC_LIB}
+        ${Jerasure_STATIC_LIB}
+    )
+    set (JERASURE_SHARED_LIBRARIES
+        ${Gf_complete_SHARED_LIB}
+        ${Jerasure_SHARED_LIB}
+    )
 ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     IF (NOT QFS_OMIT_JERASURE)
         message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
         message(STATUS "WARNING: Jerasure will not be compiled")
+        set (QFS_OMIT_JERASURE ON)
     ELSE (NOT QFS_OMIT_JERASURE)
         message(STATUS "Jerasure will not be compiled")
     ENDIF (NOT QFS_OMIT_JERASURE)
+    add_definitions(-DQFS_OMIT_JERASURE=1)
 ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
 
 # Locate the path to jni.h
@@ -201,6 +212,19 @@ ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 # When set to ON, we build with statically linked libraries; when off we
 # link with dynamically linked libs
 
+IF (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+    # Statically linked binaries don't work on solaris
+    set (QFS_USE_STATIC_LIB_LINKAGE NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+ENDIF  (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+
+IF (QFS_USE_STATIC_LIB_LINKAGE)
+    message (STATUS "Build binaries with statically linked libraries")
+ELSE (QFS_USE_STATIC_LIB_LINKAGE)
+    message (STATUS "Build binaries with dynamically linked libraries")
+ENDIF (QFS_USE_STATIC_LIB_LINKAGE)
+set (USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
+    "Build binaries with statically linked libraries" FORCE)
+
 IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     IF (BUILD_CPU_MODE STREQUAL "32")
         message (STATUS "Building 32-bit mode on Solaris")
@@ -216,14 +240,9 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
         set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
     ENDIF (BUILD_CPU_MODE STREQUAL "32")
-    # Statically linked binaries don't work on solaris
-    set (USE_STATIC_LIB_LINKAGE OFF CACHE BOOL
-        "Build binaries with statically linked libraries" FORCE)
     # Cmake does whacky relink on solaris and messes things up; avoid this
     set (CMAKE_SKIP_RPATH ON)
 ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    set (USE_STATIC_LIB_LINKAGE ON CACHE BOOL
-        "Build binaries with statically linked libraries" FORCE)
     IF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
         message (STATUS "Enabling largefile source flags")
         add_definitions (

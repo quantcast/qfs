@@ -55,7 +55,11 @@ if (NOT Boost_USE_STATIC_LIBS)
     target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
 endif (NOT Boost_USE_STATIC_LIBS)
 
-install (TARGETS qcdio qcdio-shared
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib/static)
+if (NOT APPLE)
+   target_link_libraries (qcdio rt)
+   target_link_libraries (qcdio-shared rt)
+endif(NOT APPLE)
 
+install (TARGETS qcdio qcdio-shared
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib/static)

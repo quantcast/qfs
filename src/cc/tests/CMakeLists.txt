@@ -24,31 +24,30 @@
 #
 
 set (exe_files
-dirfile_test
-dirscan_test
-reader_perftest
-reader_test
-readwrite_test
-recordappend_test
-seekwrite_test
-truncate_test
-writer_perftest
-writer_test
+    dirfile_test
+    dirscan_test
+    reader_perftest
+    reader_test
+    readwrite_test
+    recordappend_test
+    seekwrite_test
+    truncate_test
+    writer_perftest
+    writer_test
 )
 
 #
 # Every executable depends on its namesake source with _main.cc
 #
 foreach (exe_file ${exe_files})
-        add_executable (${exe_file} ${exe_file}_main.cc)
-        if (USE_STATIC_LIB_LINKAGE)
-                add_dependencies (${exe_file} kfsClient)
-                target_link_libraries (${exe_file} tools kfsClient qcdio pthread)
-        else (USE_STATIC_LIB_LINKAGE)
-                add_dependencies (${exe_file} kfsClient-shared)
-                target_link_libraries (${exe_file} tools-shared kfsClient-shared qcdio-shared pthread)
-        endif (USE_STATIC_LIB_LINKAGE)
-
+    add_executable (${exe_file} ${exe_file}_main.cc)
+    if (USE_STATIC_LIB_LINKAGE)
+        add_dependencies (${exe_file} kfsClient)
+        target_link_libraries (${exe_file} kfsClient)
+    else (USE_STATIC_LIB_LINKAGE)
+        add_dependencies (${exe_file} kfsClient-shared)
+        target_link_libraries (${exe_file} kfsClient-shared)
+    endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
 

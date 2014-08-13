@@ -42,27 +42,6 @@ set_target_properties (qfskrb PROPERTIES OUTPUT_NAME "qfskrb")
 
 set_target_properties (qfskrb PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfskrb-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-target_link_libraries (qfskrb ${Boost_LIBRARIES} krb5)
-
-add_executable (qfskrbtest krbtest_main.cc)
-
-set (exe_files qfskrbtest)
-
-if (NOT APPLE)
-    target_link_libraries(qfskrb rt)
-endif (NOT APPLE)
-
-foreach (exe_file ${exe_files})
-    if (USE_STATIC_LIB_LINKAGE)
-        target_link_libraries (${exe_file} qfskrb qcdio krb5 pthread
-            ${OPENSSL_LIBRARIES})
-           add_dependencies (${exe_file} qfskrb qcdio)
-    else (USE_STATIC_LIB_LINKAGE)
-        target_link_libraries (${exe_file} qfskrb-shared qcdio-shared krb5
-            pthread ${OPENSSL_LIBRARIES})
-    add_dependencies (${exe_file} qfskrb-shared qcdio-shared)
-    endif (USE_STATIC_LIB_LINKAGE)
-endforeach (exe_file)
 
 if (EXISTS "/opt/local/lib/libkrb5.dylib")
     set (KRB5_SHARED_LINK_LIB /opt/local/lib/libkrb5.dylib)
@@ -70,10 +49,34 @@ else (EXISTS "/opt/local/lib/libkrb5.dylib")
     set (KRB5_SHARED_LINK_LIB krb5)
 endif (EXISTS "/opt/local/lib/libkrb5.dylib")
 
-if (NOT Boost_USE_STATIC_LIBS)
-    target_link_libraries (qfskrb-shared
-        ${Boost_LIBRARIES} ${KRB5_SHARED_LINK_LIB})
-endif (NOT Boost_USE_STATIC_LIBS)
+target_link_libraries (qfskrb        krb5)
+target_link_libraries (qfskrb-shared ${KRB5_SHARED_LINK_LIB})
+
+add_executable (qfskrbtest krbtest_main.cc)
+
+set (exe_files qfskrbtest)
+
+foreach (exe_file ${exe_files})
+    if (USE_STATIC_LIB_LINKAGE)
+        target_link_libraries (${exe_file}
+            qfskrb
+            qcdio
+        )
+        add_dependencies (${exe_file}
+            qfskrb
+            qcdio
+        )
+    else (USE_STATIC_LIB_LINKAGE)
+        target_link_libraries (${exe_file}
+            qfskrb-shared
+            qcdio-shared
+        )
+        add_dependencies (${exe_file}
+            qfskrb-shared
+            qcdio-shared
+        )
+    endif (USE_STATIC_LIB_LINKAGE)
+endforeach (exe_file)
 
 install (TARGETS qfskrb qfskrb-shared
     LIBRARY DESTINATION lib

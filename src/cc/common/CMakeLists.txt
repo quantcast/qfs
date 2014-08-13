@@ -61,8 +61,14 @@ add_custom_target (
 
 add_library (kfsCommon-shared SHARED ${lib_src} ${VERSION_CC})
 add_library (kfsCommon STATIC ${lib_src} ${VERSION_CC})
-add_dependencies (kfsCommon-shared version)
-add_dependencies (kfsCommon version)
+add_dependencies (kfsCommon
+    version
+    qcdio
+)
+add_dependencies (kfsCommon-shared
+    version
+    qcdio-shared
+)
 set_target_properties (kfsCommon PROPERTIES OUTPUT_NAME "qfs_common")
 set_target_properties (kfsCommon-shared PROPERTIES OUTPUT_NAME "qfs_common")
 set_target_properties (kfsCommon PROPERTIES CLEAN_DIRECT_OUTPUT 1)
@@ -73,7 +79,7 @@ target_link_libraries (kfsCommon-shared qcdio-shared pthread)
 
 #
 install (TARGETS kfsCommon-shared kfsCommon
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib/static)
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib/static)
 
 install (FILES kfstypes.h kfsdecls.h DESTINATION include/kfs/common)

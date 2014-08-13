@@ -49,50 +49,58 @@ set (lib_srcs
 add_library (tools STATIC ${lib_srcs})
 set_target_properties (tools PROPERTIES OUTPUT_NAME "qfs_tools")
 set_target_properties (tools PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+add_dependencies (tools
+    kfsClient
+)
+target_link_libraries (tools
+    kfsClient
+)
 
 if (NOT USE_STATIC_LIB_LINKAGE)
     add_library (tools-shared SHARED ${lib_srcs})
     set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "qfs_tools")
     set_target_properties (tools-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-    add_dependencies (tools-shared kfsClient-shared)
-    if (NOT Boost_USE_STATIC_LIBS)
-       target_link_libraries(tools-shared kfsClient-shared kfsCommon-shared)
-    endif (NOT Boost_USE_STATIC_LIBS)
-    install (tools-shared
-            RUNTIME DESTINATION bin/tools
-            LIBRARY DESTINATION lib)
+    add_dependencies (tools-shared
+        kfsClient-shared
+    )
+    target_link_libraries (tools-shared
+        kfsClient-shared
+    )
+    install (TARGETS tools-shared
+        RUNTIME DESTINATION bin/tools
+        LIBRARY DESTINATION lib)
 endif (NOT USE_STATIC_LIB_LINKAGE)
 
 add_dependencies (tools kfsClient)
 
 set (exe_files
-cptoqfs
-cpfromqfs
-qfsshell
-qfstoggleworm
-qfsput
-qfsstats
-qfsfileenum
-qfsdataverify
-qfshibernate
-qfscat
-qfsping
-qfs
-qfsadmin
+    cptoqfs
+    cpfromqfs
+    qfsshell
+    qfstoggleworm
+    qfsput
+    qfsstats
+    qfsfileenum
+    qfsdataverify
+    qfshibernate
+    qfscat
+    qfsping
+    qfs
+    qfsadmin
 )
 
 #
 # Every executable depends on its namesake source with _main.cc
 #
 foreach (exe_file ${exe_files})
-        add_executable (${exe_file} ${exe_file}_main.cc)
-        if (USE_STATIC_LIB_LINKAGE)
-                add_dependencies (${exe_file} tools)
-                target_link_libraries (${exe_file} tools kfsClient qcdio pthread)
-        else (USE_STATIC_LIB_LINKAGE)
-                add_dependencies (${exe_file} tools-shared)
-                target_link_libraries (${exe_file} tools-shared kfsClient-shared qcdio-shared pthread)
-        endif (USE_STATIC_LIB_LINKAGE)
+    add_executable (${exe_file} ${exe_file}_main.cc)
+    if (USE_STATIC_LIB_LINKAGE)
+        add_dependencies (${exe_file} tools)
+        target_link_libraries (${exe_file} tools)
+    else (USE_STATIC_LIB_LINKAGE)
+        add_dependencies (${exe_file} tools-shared)
+        target_link_libraries (${exe_file} tools-shared)
+    endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
 #
