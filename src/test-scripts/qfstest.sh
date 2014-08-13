@@ -189,7 +189,6 @@ else
 fi
 
 for dir in  \
-        'src/cc/access' \
         'src/cc/devtools' \
         'src/cc/chunk' \
         'src/cc/meta' \
