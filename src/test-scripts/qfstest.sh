@@ -189,6 +189,7 @@ else
 fi
 
 for dir in  \
+        'src/cc/access' \
         'src/cc/devtools' \
         'src/cc/chunk' \
         'src/cc/meta' \
@@ -199,6 +200,7 @@ for dir in  \
         'src/cc/common' \
         'src/cc/qcrs' \
         'src/cc/qfsc' \
+        'src/cc/krb' \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
