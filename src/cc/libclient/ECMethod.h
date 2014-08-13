@@ -142,10 +142,11 @@ private:
 
 #define KFS_MAKE_REGISTERED_METHOD_NAME(inType) \
     ECMethod_KFS_##inType
-#define KFS_DECLARE_EXTERN_EC_METHOD(inType) \
-    extern ECMethod* const KFS_MAKE_REGISTERED_METHOD_NAME(inType)
+#define KFS_DECLARE_EC_METHOD_PTR(inType) \
+    ECMethod* const KFS_MAKE_REGISTERED_METHOD_NAME(inType)
 #define KFS_REGISTER_EC_METHOD(inType, inMethodPtr) \
-    KFS_DECLARE_EXTERN_EC_METHOD(inType) = inMethodPtr
+    extern KFS_DECLARE_EC_METHOD_PTR(inType); \
+    KFS_DECLARE_EC_METHOD_PTR(inType) = inMethodPtr
 
 }} /* namespace client KFS */
 

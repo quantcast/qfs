@@ -29,10 +29,18 @@
 
 #include "qcdio/QCUtils.h"
 
+#ifndef QFS_OMIT_JERASURE
+#   include "jerasure/reed_sol.h"
+#endif
+
 namespace KFS
 {
 namespace client
 {
+
+#ifdef QFS_OMIT_JERASURE
+KFS_REGISTER_EC_METHOD(STRIPED_FILE_TYPE_RS_JERASURE, 0);
+#else
 
 class QCECMethodJerasure : public ECMethod
 {
@@ -67,12 +75,12 @@ protected:
         int     inRecoveryStripeCount,
         string* outErrMsgPtr)
     {
-        QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
-        if (! Validate(inMethodType, inStripeCount, inRecoveryStripeCount,
-                outErrMsgPtr)) {
-            return 0;
-        }
-        return &mEncoder;
+        return GetXCoder(
+            inMethodType,
+            inStripeCount,
+            inRecoveryStripeCount,
+            outErrMsgPtr
+        );
     }
     virtual Decoder* GetDecoder(
         int     inMethodType,
@@ -80,13 +88,13 @@ protected:
         int     inRecoveryStripeCount,
         string* outErrMsgPtr)
     {
-        QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
-        if (! Validate(inMethodType, inStripeCount, inRecoveryStripeCount,
-                outErrMsgPtr)) {
-            return 0;
-        }
-        return &mDecoder;
-    };
+        return GetXCoder(
+            inMethodType,
+            inStripeCount,
+            inRecoveryStripeCount,
+            outErrMsgPtr
+        );
+    }
     virtual bool Validate(
         int     inMethodType,
         int     inStripeCount,
@@ -108,32 +116,17 @@ protected:
         return true;
     }
 private:
-    class JEncoder : public ECMethod::Encoder
+    class JXCcoder :
+        public ECMethod::Encoder,
+        public ECMethod::Decoder
     {
     public:
-        JEncoder()
-            : ECMethod::Encoder()
+        JXCcoder()
+            : ECMethod::Encoder(),
+              ECMethod::Decoder()
+              //, mMatrixPtr(0)
             {}
-        virtual ~JEncoder()
-            {}
-        virtual int Encode(
-            int    inStripeCount,
-            int    inRecoveryStripeCount,
-            int    inLength,
-            void** inBuffersPtr)
-        {
-            return 0;
-        }
-        virtual void Release()
-            {}
-    };
-    class JDecoder : public ECMethod::Decoder
-    {
-    public:
-        JDecoder()
-            : ECMethod::Decoder()
-            {}
-        virtual ~JDecoder()
+        virtual ~JXCcoder()
             {}
         virtual int Decode(
             int        inStripeCount,
@@ -144,15 +137,39 @@ private:
         {
             return 0;
         }
+        virtual int Encode(
+            int    inStripeCount,
+            int    inRecoveryStripeCount,
+            int    inLength,
+            void** inBuffersPtr)
+        {
+            return 0;
+        }
         virtual void Release()
             {}
+    private:
+        //int* mMatrixPtr;
     };
-    JEncoder mEncoder;
-    JDecoder mDecoder;
+    JXCcoder mJXCcoder;
+
+    JXCcoder* GetXCoder(
+        int     inMethodType,
+        int     inStripeCount,
+        int     inRecoveryStripeCount,
+        string* outErrMsgPtr)
+    {
+        QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
+        if (! Validate(inMethodType, inStripeCount, inRecoveryStripeCount,
+                outErrMsgPtr)) {
+            return 0;
+        }
+        return &mJXCcoder;
+    }
 };
 
 KFS_REGISTER_EC_METHOD(STRIPED_FILE_TYPE_RS_JERASURE,
     0 // FIXME: QCECMethodJerasure::GetMethod()
 );
 
+#endif /* QFS_OMIT_JERASURE */
 }} /* namespace client KFS */
