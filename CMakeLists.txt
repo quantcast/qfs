@@ -195,7 +195,7 @@ IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(STATUS "WARNING: Open SSL version ${OPENSSL_VERSION}")
     message(STATUS
         "WARNING: QFS authentication support requires Open SSL version 1.0 or greater")
-    message(WARNING ": QFS authentication will not work")
+    message(STATUS "WARNING: QFS authentication will not work")
 ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
 
 
