@@ -74,8 +74,8 @@ set_target_properties (kfsCommon-shared PROPERTIES OUTPUT_NAME "qfs_common")
 set_target_properties (kfsCommon PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsCommon-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-target_link_libraries (kfsCommon qcdio pthread)
-target_link_libraries (kfsCommon-shared qcdio-shared pthread)
+target_link_libraries (kfsCommon qcdio)
+target_link_libraries (kfsCommon-shared qcdio-shared)
 
 #
 install (TARGETS kfsCommon-shared kfsCommon
