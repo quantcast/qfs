@@ -23,15 +23,11 @@ add_executable (mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
 
 IF (USE_STATIC_LIB_LINKAGE)
     add_dependencies (mstress_client kfsClient)
-    target_link_libraries (mstress_client kfsClient qcdio pthread)
+    target_link_libraries (mstress_client kfsClient)
 ELSE (USE_STATIC_LIB_LINKAGE)
     add_dependencies (mstress_client kfsClient-shared)
-    target_link_libraries (mstress_client kfsClient-shared qcdio-shared pthread)
+    target_link_libraries (mstress_client kfsClient-shared)
 ENDIF (USE_STATIC_LIB_LINKAGE)
-
-IF (NOT APPLE)
-    target_link_libraries (mstress_client rt)
-ENDIF (NOT APPLE)
 
 add_custom_command (
     OUTPUT mstress.jar

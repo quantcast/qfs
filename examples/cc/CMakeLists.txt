@@ -25,16 +25,12 @@
 add_executable (qfssample qfssample_main.cc)
 
 if (USE_STATIC_LIB_LINKAGE)
-    target_link_libraries (qfssample kfsClient qcdio pthread)
-    add_dependencies (qfssample kfsClient qcdio)
+    add_dependencies (qfssample kfsClient)
+    target_link_libraries (qfssample kfsClient)
 else (USE_STATIC_LIB_LINKAGE)
-    target_link_libraries (qfssample kfsClient-shared qcdio-shared pthread)
-    add_dependencies (qfssample kfsClient-shared qcdio-shared)
+    target_link_libraries (qfssample kfsClient-shared)
+    add_dependencies (qfssample kfsClient-shared)
 endif (USE_STATIC_LIB_LINKAGE)
 
-if (NOT APPLE)
-    target_link_libraries(qfssample rt)
-endif (NOT APPLE)
-
 install (TARGETS qfssample
-        RUNTIME DESTINATION bin/examples)
+    RUNTIME DESTINATION bin/examples)
