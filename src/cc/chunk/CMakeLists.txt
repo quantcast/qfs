@@ -73,7 +73,6 @@ endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 # Install them
 #
 install (TARGETS ${exe_files}
-        RUNTIME DESTINATION bin
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib/static)
-
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib/static)
