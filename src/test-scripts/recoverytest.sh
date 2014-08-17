@@ -250,7 +250,8 @@ for testblocksize in $testblocksizes ; do
         break;
     }
 
-    testholesize=`expr 1024 \* 1024 \* 64 \* 6 - $testblocksize`
+    datastripes=`echo "$filecreateparams" | cut -d , -f 2`
+    testholesize=`expr 1024 \* 1024 \* 64 \* $datastripes - $testblocksize`
     testmd5=`{ \
         "$devtoolsdir"/rand-sfmt -g $testblocksize 1234 ;
         dd bs=$testholesize count=1 if=/dev/zero 2>/dev/null ;
