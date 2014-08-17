@@ -37,7 +37,11 @@ clicfg=${clicfg-"$qfstestdir"/client.prp}
 clirootcfg=${clirootcfg-"$qfstestdir"/clientroot.prp}
 metaport=${metaport-20200}
 metahost=${metahost-127.0.0.1}
-maxrecovsize=${maxrecovsize-5242880}
+if [ x = x"$filecreateparams" -a x = x"$testblocksizes" -a ]; then
+    maxrecovsize=${maxrecovsize-5242880}
+else
+    maxrecovsize=${maxrecovsize-67108864}
+fi
 testblocksizes=${testblocksizes-'26214399 26214400 29358894 26214401'}
 testtailblocksize=${testtailblocksize-1}
 filecreateparams=${filecreateparams-'fs.createParams=1,6,3,1048576,2,15,15'}
