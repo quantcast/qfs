@@ -111,6 +111,7 @@ NetConnection::HandleWriteEvent()
     mNetManagerEntry.SetConnectPending(false);
     int nwrote = 0;
     if (IsGood()) {
+        mTryWrite = false; // Reset to prevent possible recursion.
         bool forceInvokeErrHandlerFlag = false;
         nwrote = WantWrite() ? (mFilter ?
             mFilter->Write(*this, *mSock, mOutBuffer,
