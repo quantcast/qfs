@@ -324,10 +324,6 @@ include_directories(
     ${KFS_DIR_PREFIX}src/cc
 )
 
-IF (DEFINED Jerasure_INCLUDE)
-    include_directories (${Jerasure_INCLUDE})
-ENDIF (DEFINED Jerasure_INCLUDE)
-
 # get the subdirs we want
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/meta src/cc/meta)
