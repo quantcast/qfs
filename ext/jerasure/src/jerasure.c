@@ -261,7 +261,7 @@ int jerasure_matrix_decode(int k, int m, int w, int *matrix, int row_k_ones, int
   /* Finally, re-encode any erased coding devices */
 
   for (i = 0; i < m; i++) {
-    if (erased[k+i]) {
+    if (erased[k+i] && coding_ptrs[i]) {
       jerasure_matrix_dotprod(k, w, matrix+(i*k), NULL, i+k, data_ptrs, coding_ptrs, size);
     }
   }
@@ -717,7 +717,7 @@ int jerasure_bitmatrix_decode(int k, int m, int w, int *bitmatrix, int row_k_one
   }
 
   for (i = 0; i < m; i++) {
-    if (erased[k+i]) {
+    if (erased[k+i] && coding_ptrs[i]) {
       jerasure_bitmatrix_dotprod(k, w, bitmatrix+i*k*w*w, NULL, k+i, data_ptrs, coding_ptrs, size, packetsize);
     }
   }
