@@ -70,6 +70,11 @@ add_dependencies (kfsClient-shared
     kfsrs-shared
 )
 if (NOT QFS_OMIT_JERASURE)
+    include_directories (
+        ${Gf_complete_INCLUDE}
+        ${Jerasure_INCLUDE}
+        ${Jerasure_INCLUDE}/jerasure
+    )
     add_dependencies(kfsClient        Jerasure_proj)
     add_dependencies(kfsClient-shared Jerasure_proj)
 endif (NOT QFS_OMIT_JERASURE)

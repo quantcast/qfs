@@ -25,12 +25,20 @@
 
 #include "ECMethod.h"
 
+#ifndef QFS_OMIT_JERASURE
+#include "jerasure.h"
+#include "jerasure/reed_sol.h"
+
 #include "common/kfstypes.h"
+#include "common/kfsatomic.h"
+#include "common/StdAllocator.h"
 
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDLList.h"
+#include "qcdio/qcdebug.h"
 
-#ifndef QFS_OMIT_JERASURE
-#   include "jerasure/reed_sol.h"
+#include <map>
+#include <stdlib.h>
 #endif
 
 namespace KFS
@@ -42,6 +50,11 @@ namespace client
 KFS_REGISTER_EC_METHOD(STRIPED_FILE_TYPE_RS_JERASURE, 0);
 #else
 
+using std::map;
+using std::less;
+using std::pair;
+using std::make_pair;
+
 class QCECMethodJerasure : public ECMethod
 {
 public:
@@ -51,13 +64,6 @@ public:
         return &sMethod;
     }
 protected:
-    QCECMethodJerasure()
-        : ECMethod()
-        {}
-    virtual ~QCECMethodJerasure()
-    {
-        QCECMethodJerasure::Unregister(KFS_STRIPED_FILE_TYPE_RS_JERASURE);
-    }
     virtual bool Init(
         int inMethodType)
     {
@@ -116,26 +122,53 @@ protected:
         return true;
     }
 private:
-    class JXCcoder :
+    enum { kMaxCodersCacheCount = 2 << 10 };
+    class JXCoder;
+    typedef map<
+        pair<int, int>,
+        JXCoder*,
+        less<pair<int, int> >,
+        StdFastAllocator<
+            pair<const pair<int, int>, JXCoder*> >
+    > JXCoders;
+
+    class JXCoder :
         public ECMethod::Encoder,
         public ECMethod::Decoder
     {
     public:
-        JXCcoder()
+        typedef QCDLList<JXCoder, 0> List;
+
+        JXCoder(
+            int* inMatrixPtr,
+            int  inW)
             : ECMethod::Encoder(),
-              ECMethod::Decoder()
-              //, mMatrixPtr(0)
-            {}
-        virtual ~JXCcoder()
-            {}
+              ECMethod::Decoder(),
+              mMatrixPtr(inMatrixPtr),
+              mW(inW),
+              mRefCount(1),
+              mIt()
+            { List::Init(*this); }
+        virtual bool SupportsOneRecoveryStripeRebuild() const
+            { return true; }
         virtual int Decode(
             int        inStripeCount,
             int        inRecoveryStripeCount,
             int        inLength,
             void**     inBuffersPtr,
-            int const* inMissingStripesIdx)
+            int const* inMissingStripesIdxPtr)
         {
-            return 0;
+            return jerasure_matrix_decode(
+                inStripeCount,
+                inRecoveryStripeCount,
+                mW,
+                mMatrixPtr,
+                1, // row_k_ones
+                const_cast<int*>(inMissingStripesIdxPtr),
+                reinterpret_cast<char**>(inBuffersPtr),
+                reinterpret_cast<char**>(inBuffersPtr + inStripeCount),
+                inLength
+            );
         }
         virtual int Encode(
             int    inStripeCount,
@@ -143,16 +176,84 @@ private:
             int    inLength,
             void** inBuffersPtr)
         {
+            jerasure_matrix_encode(
+                inStripeCount,
+                inRecoveryStripeCount,
+                mW,
+                mMatrixPtr,
+                reinterpret_cast<char**>(inBuffersPtr),
+                reinterpret_cast<char**>(inBuffersPtr + inStripeCount),
+                inLength
+            );
             return 0;
         }
         virtual void Release()
-            {}
-    private:
-        //int* mMatrixPtr;
-    };
-    JXCcoder mJXCcoder;
+        {
+            const int theRef = SyncAddAndFetch(mRefCount, -1);
+            if (0 < theRef) {
+                return;
+            }
+            QCRTASSERT(theRef == 0);
+            delete this;
+        }
+        JXCoder* Ref()
+        {
+            if (SyncAddAndFetch(mRefCount, 1) <= 1) {
+                QCRTASSERT(! "invalid ref. count");
+            }
+            return this;
+        }
+        void SetIterator(
+            const JXCoders::iterator& inIt)
+            {  mIt = inIt; }
+        JXCoders::iterator GetIterator() const
+            {  return mIt; }
+    protected:
+        int* const mMatrixPtr;
+        int  const mW;
 
-    JXCcoder* GetXCoder(
+        virtual ~JXCoder()
+        {
+            free(mMatrixPtr);
+            mRefCount = -1000; // To catch double delete.
+        }
+    private:
+        volatile int       mRefCount;
+        JXCoders::iterator mIt;
+        JXCoder*           mPrevPtr[1];
+        JXCoder*           mNextPtr[1];
+
+        friend class QCDLListOp<JXCoder, 0>;
+    };
+    class JXCoderRaid6 : public JXCoder
+    {
+    public:
+        JXCoderRaid6(
+            int* inMatrixPtr,
+            int  inW)
+            : JXCoder(inMatrixPtr, inW)
+            {}
+        virtual int Encode(
+            int    inStripeCount,
+            int    inRecoveryStripeCount,
+            int    inLength,
+            void** inBuffersPtr)
+        {
+            return (reed_sol_r6_encode(
+                inStripeCount,
+                mW,
+                reinterpret_cast<char**>(inBuffersPtr),
+                reinterpret_cast<char**>(inBuffersPtr + inStripeCount),
+                inLength
+            ) ? 0 : -1);
+        }
+    };
+
+    typedef JXCoder::List LruList;
+    JXCoders  mJXCoders;
+    JXCoder*  mLru[1];
+
+    JXCoder* GetXCoder(
         int     inMethodType,
         int     inStripeCount,
         int     inRecoveryStripeCount,
@@ -163,12 +264,82 @@ private:
                 outErrMsgPtr)) {
             return 0;
         }
-        return &mJXCcoder;
+        JXCoders::iterator const theIt = mJXCoders.find(make_pair(
+            inStripeCount, inRecoveryStripeCount));
+        if (theIt != mJXCoders.end()) {
+            JXCoder& theXCoder = *theIt->second;
+            LruList::PushBack(mLru, theXCoder);
+            return theXCoder.Ref();
+        }
+        int theW = inStripeCount + inRecoveryStripeCount;
+        if (theW <= (int32_t(1) << 8)) {
+            theW = 8;
+        } else if (theW <= (int32_t(1) << 16)) {
+            theW = 16;
+        } else {
+            theW = 32;
+        }
+        // The [first] matrix computation for each distinct "w" creates global
+        // [read-only] structure and assigns the pointer to it to the
+        // corresponding "w" slot of the jerasure global gfp_array in galios.c
+        // The access to ECMethod class methods is serialized  by the ECMethod
+        // logic. Therefore the one time initialization of the gfp_array slot
+        // from this method should work with multple threads, assuming that the
+        // platform mutex performs "memory barrier / fence" or equivalent, if
+        // necessary.
+        // The memory allocated to hold this structure never released by
+        // jerasure library, and might be reported as "memory leak" by memory
+        // debuggers. The library api doesn't appear to offer any method to
+        // free this memory.
+        int* const theMatrixPtr = inRecoveryStripeCount != 2 ?
+            reed_sol_vandermonde_coding_matrix(
+                inStripeCount, inRecoveryStripeCount, theW) :
+            reed_sol_r6_coding_matrix(inStripeCount, theW);
+        if (! theMatrixPtr) {
+            if (outErrMsgPtr) {
+                *outErrMsgPtr = "failed to create encoding matrix";
+            }
+            return 0;
+        }
+        JXCoder& theXCoder = *(inRecoveryStripeCount != 2 ?
+            new JXCoder(theMatrixPtr, theW) :
+            static_cast<JXCoder*>(new JXCoderRaid6(theMatrixPtr, theW))
+        );
+        JXCoder* theFrontPtr;
+        while ((size_t)kMaxCodersCacheCount <= mJXCoders.size() &&
+                (theFrontPtr = LruList::PopFront(mLru))) {
+            mJXCoders.erase(theFrontPtr->GetIterator());
+            theFrontPtr->Release();
+        }
+        theXCoder.SetIterator(
+            mJXCoders.insert(make_pair(
+                make_pair(inStripeCount, inRecoveryStripeCount),
+                &theXCoder)).first
+        );
+        QCASSERT(theXCoder.GetIterator()->second == &theXCoder);
+        LruList::PushBack(mLru, theXCoder);
+        return theXCoder.Ref();
+    }
+protected:
+    QCECMethodJerasure()
+        : ECMethod(),
+          mJXCoders()
+        { LruList::Init(mLru); }
+    virtual ~QCECMethodJerasure()
+    {
+        QCECMethodJerasure::Unregister(KFS_STRIPED_FILE_TYPE_RS_JERASURE);
+        size_t   theCount = 0;
+        JXCoder* thePtr;
+        while ((thePtr = LruList::PopFront(mLru))) {
+            thePtr->Release();
+            theCount++;
+        }
+        QCRTASSERT(mJXCoders.size() == theCount);
     }
 };
 
 KFS_REGISTER_EC_METHOD(STRIPED_FILE_TYPE_RS_JERASURE,
-    0 // FIXME: QCECMethodJerasure::GetMethod()
+    QCECMethodJerasure::GetMethod()
 );
 
 #endif /* QFS_OMIT_JERASURE */

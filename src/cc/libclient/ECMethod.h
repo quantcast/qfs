@@ -70,6 +70,7 @@ public:
             void**     inBuffersPtr,
             int const* inMissingStripesIdx) = 0;
         virtual void Release() = 0;
+        virtual bool SupportsOneRecoveryStripeRebuild() const = 0;
     protected:
         Decoder()
             {}

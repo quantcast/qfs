@@ -312,6 +312,7 @@ protected:
         return (mTempBufPtr + inIndex * kTempBufSize);
     }
 };
+const char* const kNullCharPtr = 0;
 
 // Striped files with and without Reed-Solomon recovery writer implementation.
 class RSWriteStriper : public Writer::Striper, private RSStriper
@@ -863,7 +864,7 @@ private:
                 } else {
                     theBufSize -= theBufSize % kAlign;
                     theLen = min(theLen, theBufSize);
-                    if ((thePtr - (const char*)0) % kAlign != 0) {
+                    if ((thePtr - kNullCharPtr) % kAlign != 0) {
                         theLen = min((int)kTempBufSize, theLen);
                         mBufPtr[i] = memcpy(GetTempBufPtr(i), thePtr, theLen);
                     } else {
@@ -895,7 +896,7 @@ private:
             for (int i = mStripeCount;
                     i < mStripeCount + mRecoveryStripeCount;
                     i++) {
-                mBufPtr[i] = (char*)mBufPtr[i] + theLen;
+                mBufPtr[i] = reinterpret_cast<char*>(mBufPtr[i]) + theLen;
             }
             thePos += theLen;
             thePrevLen = theLen;
@@ -3099,6 +3100,7 @@ private:
         int      inIdx,
         int      inRecoverySize,
         int      inMissingCnt,
+        bool     inAllRecoveryStripesRebuildFlag,
         int&     ioRRdSize)
     {
         // Init recovery stripe buffers and iterators, if recovery stripe itself
@@ -3141,7 +3143,9 @@ private:
             int theRdSize = 0;
             QCVERIFY(theIt.Set(*this, theBuf, theRdSize) == ioRRdSize);
         } else {
-            theIt.MakeScratchBuffer(*this, ioRRdSize);
+            if (inAllRecoveryStripesRebuildFlag) {
+                theIt.MakeScratchBuffer(*this, ioRRdSize);
+            }
         }
     }
     void FinishRecovery(
@@ -3171,8 +3175,12 @@ private:
         if (! mBufIteratorsPtr) {
             mBufIteratorsPtr = new BufIterator[theBufCount];
         }
+        const bool theAllRecoveryStripesRebuildFlag =
+            mStripeCount <= mRecoverStripeIdx &&
+            ! mDecoderPtr->SupportsOneRecoveryStripeRebuild();
         StBufferT<int, 32> theTmpBuf;
-        int* const theMissingIdx     = theTmpBuf.Resize(mRecoveryStripeCount);
+        int* const theMissingIdx     =
+            theTmpBuf.Resize(mRecoveryStripeCount + 1);
         int        theMissingCnt     = 0;
         int        theSize           = inRequest.mRecoverySize;
         int        thePrevLen        = 0;
@@ -3184,6 +3192,7 @@ private:
         int        theRSize          = -1;
         int        theBufToCopyCount = mStripeCount;
         int        theEndPosHead     = -1;
+        theMissingIdx[mRecoveryStripeCount] = -1; // Jerasure end of list.
         for (int thePos = 0; thePos < theSize; ) {
             int theLen = theSize - thePos;
             if (theLen > kAlign) {
@@ -3222,7 +3231,8 @@ private:
                     }
                     if (thePos == 0) {
                         InitRecoveryStripeRestore(
-                            inRequest, i, theSize, theMissingCnt, theRSize);
+                            inRequest, i, theSize, theMissingCnt,
+                            theAllRecoveryStripesRebuildFlag, theRSize);
                         theBufToCopyCount = theBufCount;
                     }
                 }
@@ -3233,8 +3243,15 @@ private:
                 }
                 char*     thePtr = theIt.Advance(thePrevLen);
                 const int theRem = theIt.GetCurRemaining();
-                QCASSERT(thePtr);
-                if (theRem < kAlign || (thePtr - (char*)0) % kAlign != 0) {
+                if (! thePtr) {
+                    if (theRem != 0 || theAllRecoveryStripesRebuildFlag ||
+                            i < mStripeCount) {
+                        InternalError("null recovery buffer");
+                    }
+                    mBufPtr[i] = 0;
+                    continue;
+                }
+                if (theRem < kAlign || (thePtr - kNullCharPtr) % kAlign != 0) {
                     thePtr = GetTempBufPtr(i);
                     if (theLen > kTempBufSize) {
                         theLen = kTempBufSize;
@@ -3259,7 +3276,6 @@ private:
                 }
                 mBufPtr[i] = thePtr;
             }
-            const int kMissingCnt = 3;
             if (thePos == 0) {
                 if (theEndPosHead >= 0) {
                     const int    theChunkStridePos  =
@@ -3321,18 +3337,20 @@ private:
                     }
                 }
                 QCASSERT(
-                    theMissingCnt == kMissingCnt ||
+                    theMissingCnt == mRecoveryStripeCount ||
                     inRequest.mRecoveryRound > 0
                 );
                 for (int i = theBufCount - 1;
-                        theMissingCnt < kMissingCnt && i >= mStripeCount;
+                        theMissingCnt < mRecoveryStripeCount &&
+                            mStripeCount <= i;
                         i--) {
                     if (mBufPtr[i]) {
-                        // If recovery stripe restore requested, all recovery
-                        // stripe buffers must be present for rs_decode3 to
-                        // work. In this case just declare the stripe missing,
-                        // rs_decode3 always recalculate all 3 recovery stripes.
-                        if (mRecoverStripeIdx < mStripeCount) {
+                        // If recovery stripe restore requested, and all
+                        // recovery stripe buffers are *not* required to be
+                        // present for Decode() to work, then declare the stripe
+                        // missing and clear the buffers.
+                        if (! theAllRecoveryStripesRebuildFlag &&
+                                i != mRecoverStripeIdx) {
                             mBufIteratorsPtr[i].Clear();
                             mBufPtr[i] = 0;
                         }
@@ -3346,7 +3364,7 @@ private:
             QCRTASSERT(
                 theLen > 0 &&
                 (theLen % kAlign == 0 || theLen < kAlign) &&
-                theMissingCnt == kMissingCnt
+                theMissingCnt == mRecoveryStripeCount
             );
             if (thePos == 0 || thePos + theLen >= theSize) {
                 KFS_LOG_STREAM_INFO << mLogPrefix       <<
@@ -3629,7 +3647,7 @@ private:
             if (mUseDefaultBufferAllocatorFlag) {
                 mZeroBufferPtr = new IOBufferData();
                 QCASSERT(
-                    (mZeroBufferPtr->Producer() - (char*)0) % kAlign == 0 &&
+                    (mZeroBufferPtr->Producer() - kNullCharPtr) % kAlign == 0 &&
                     mZeroBufferPtr->SpaceAvailable() > 0 &&
                     mZeroBufferPtr->SpaceAvailable() % kAlign == 0
                 );

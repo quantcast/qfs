@@ -145,19 +145,21 @@ private:
             {}
         virtual ~QCRSDecoder()
             {}
+        virtual bool SupportsOneRecoveryStripeRebuild() const
+            { return false; }
         virtual int Decode(
             int        inStripeCount,
             int        inRecoveryStripeCount,
             int        inLength,
             void**     inBuffersPtr,
-            int const* inMissingStripesIdx)
+            int const* inMissingStripesIdxPtr)
         {
             rs_decode3(
                 inStripeCount + inRecoveryStripeCount,
                 inLength,
-                inMissingStripesIdx[0],
-                inMissingStripesIdx[1],
-                inMissingStripesIdx[2],
+                inMissingStripesIdxPtr[0],
+                inMissingStripesIdxPtr[1],
+                inMissingStripesIdxPtr[2],
                 inBuffersPtr
             );
             return 0;
