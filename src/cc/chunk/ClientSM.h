@@ -382,6 +382,7 @@ private:
     string                     mSessionKey;
     bool                       mHandleTerminateFlag;
 
+    static int                 sMaxCmdHeaderReadAhead;
     static bool                sTraceRequestResponseFlag;
     static bool                sEnforceMaxWaitFlag;
     static bool                sSslPskEnabledFlag;

@@ -69,8 +69,7 @@ using std::list;
 
 // KFS client protocol state machine implementation.
 
-const int kMaxCmdHeaderReadAhead = 1 << 10;
-
+int      ClientSM::sMaxCmdHeaderReadAhead    = 1 << 10;
 bool     ClientSM::sTraceRequestResponseFlag = false;
 bool     ClientSM::sEnforceMaxWaitFlag       = true;
 int      ClientSM::sMaxReqSizeDiscard        = 256 << 10;
@@ -175,6 +174,9 @@ ClientSM::SetParameters(const Properties& prop)
     sMaxAppendRequestSize = prop.getValue(
         "chunkServer.clientSM.maxAppendRequestSize",
         sMaxAppendRequestSize);
+    sMaxCmdHeaderReadAhead = prop.getValue(
+        "chunkServer.clientSM.maxCmdHeaderReadAhead",
+        sMaxCmdHeaderReadAhead);
 }
 
 ClientSM::ClientSM(
@@ -217,7 +219,7 @@ ClientSM::ClientSM(
     } else {
         SET_HANDLER(this, &ClientSM::HandleRequest);
     }
-    mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
+    mNetConnection->SetMaxReadAhead(sMaxCmdHeaderReadAhead);
     mNetConnection->SetInactivityTimeout(gClientManager.GetIdleTimeoutSec());
     SetReceiveOp();
 }
@@ -515,7 +517,7 @@ ClientSM::HandleRequest(int code, void* data)
                 mNetConnection->SetMaxReadAhead(0);
                 ReceiveClear();
             } else if (! mCurOp || ! mNetConnection->IsReadReady()) {
-                mNetConnection->SetMaxReadAhead(kMaxCmdHeaderReadAhead);
+                mNetConnection->SetMaxReadAhead(sMaxCmdHeaderReadAhead);
                 SetReceiveOp();
             }
         } else {
