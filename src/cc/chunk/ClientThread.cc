@@ -233,7 +233,7 @@ public:
         if (! IsStarted()) {
             mShutdownFlag = false;
             mRunFlag      = true;
-            const int kStackSize = 32 << 10;
+            const int kStackSize = 256 << 10;
             mThread.Start(
                 this,
                 kStackSize,
