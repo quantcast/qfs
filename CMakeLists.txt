@@ -159,12 +159,12 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
             "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
     )
     set (JERASURE_STATIC_LIBRARIES
-        ${Gf_complete_STATIC_LIB}
         ${Jerasure_STATIC_LIB}
+        ${Gf_complete_STATIC_LIB}
     )
     set (JERASURE_SHARED_LIBRARIES
-        ${Gf_complete_SHARED_LIB}
         ${Jerasure_SHARED_LIB}
+        ${Gf_complete_SHARED_LIB}
     )
 ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     IF (NOT QFS_OMIT_JERASURE)
