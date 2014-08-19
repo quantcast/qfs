@@ -4274,15 +4274,15 @@ private:
             for (int i = 0; i < inArgCount; i++) {
                 char* theEndPtr = 0;
                 const int theId = (int)strtol(inArgsPtr[i], &theEndPtr, 0);
-                if (' ' <= (*theEndPtr & 0xFF)) {
+                if ((*theEndPtr & 0xFF) <= ' ') {
                     theErrMsg.clear();
                     const string theDescription =
                         ECMethod::FindDescription(theId, &theErrMsg);
                     if (theDescription.empty()) {
-                        cerr << "id: " << theId << " " << theErrMsg;
+                        cerr << "id: " << theId << ": " << theErrMsg << "\n";
                         theRet = -EINVAL;
                     } else {
-                        cout << theDescription;
+                        cout << theDescription << "\n";
                     }
                 } else {
                     cerr << "failed to parse id: " << inArgsPtr[i] << "\n";
