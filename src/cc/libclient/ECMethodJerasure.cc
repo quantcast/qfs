@@ -347,6 +347,7 @@ protected:
             theCount++;
         }
         QCRTASSERT(mJXCoders.size() == theCount);
+        mJXCoders.clear();
     }
     static string Describe()
     {
