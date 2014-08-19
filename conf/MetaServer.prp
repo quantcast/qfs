@@ -234,13 +234,25 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is empty list. All valid file types are allowed.
 # metaServer.createFileTypeExclude =
 
-# Limit number of data stripes for all file types.
+# Limit number of data stripes for all file types.If create attempt exceeds
+# the limit the meta server returns "permission denied".
 # Default is the max supported by the compile time constants.
 # metaServer.maxDataStripeCount = 511
 
-# Limit number of recovery stripes for all file types.
+# Limit number of recovery stripes for all file types. If create attempt exceeds
+# the limit the meta server returns "permission denied".
 # Default is the max supported by the compile time constants.
 # metaServer.maxRecoveryStripeCount = 127
+
+# Max number of replicas for "regular / replicated" file with no recovery.
+# If create, or change replication requests exceeds this limit then the meta
+# server replaces the value with the value specified.
+# metaServer.maxReplicasPerFile   = 64
+
+# Max number of replicas for RS (file with recovery).
+# If create, or change replication requests exceeds this limit then the meta
+# server replaces the value with the value specified.
+# metaServer.maxReplicasPerRSFile = 64
 
 # Force effective user to root. This effectively turns off all permissions
 # control.
