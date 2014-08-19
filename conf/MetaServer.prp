@@ -228,6 +228,20 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 1 sec.
 # metaServer.MTimeUpdateResolution = 1
 
+# --------------- File create limits. ------------------------------------------
+#
+# Disallow specific file types. The list is space separate file type ids.
+# Default is empty list. All valid file types are allowed.
+# metaServer.createFileTypeExclude =
+
+# Limit number of data stripes for all file types.
+# Default is the max supported by the compile time constants.
+# metaServer.maxDataStripeCount = 511
+
+# Limit number of recovery stripes for all file types.
+# Default is the max supported by the compile time constants.
+# metaServer.maxRecoveryStripeCount = 127
+
 # Force effective user to root. This effectively turns off all permissions
 # control.
 # Default is off.
