@@ -1428,6 +1428,7 @@ public:
     bool IsDeleteChunkOnFsIdMismatch() const
         { return mDeleteChunkOnFsIdMismatchFlag; }
     void Handle(MetaForceChunkReplication& op);
+    bool Validate(MetaCreate& createOp) const;
 protected:
     typedef vector<
         int,
@@ -2066,6 +2067,11 @@ protected:
     bool              mFileSystemIdRequiredFlag;
     bool              mDeleteChunkOnFsIdMismatchFlag;
     int               mChunkAvailableUseReplicationOrRecoveryThreshold;
+
+    typedef set<int> CreateFileTypeExclude;
+    CreateFileTypeExclude mCreateFileTypeExclude;
+    int                   mMaxDataStripeCount;
+    int                   mMaxRecoveryStripeCount;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;

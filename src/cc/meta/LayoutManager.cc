@@ -1450,6 +1450,9 @@ LayoutManager::LayoutManager() :
     mFileSystemIdRequiredFlag(false),
     mDeleteChunkOnFsIdMismatchFlag(false),
     mChunkAvailableUseReplicationOrRecoveryThreshold(-1),
+    mCreateFileTypeExclude(),
+    mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
+    mMaxRecoveryStripeCount(KFS_MAX_RECOVERY_STRIPE_COUNT),
     mFileRecoveryInFlightCount(),
     mTmpParseStream(),
     mChunkInfosTmp(),
@@ -2065,6 +2068,19 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mChunkAvailableUseReplicationOrRecoveryThreshold = props.getValue(
         "metaServer.chunkAvailableUseReplicationOrRecoveryThreshold",
         mChunkAvailableUseReplicationOrRecoveryThreshold);
+    {
+        istringstream is(props.getValue("metaServer.createFileTypeExclude", ""));
+        mCreateFileTypeExclude.clear();
+        int val;
+        while ((is >> val)) {
+            mCreateFileTypeExclude.insert(val);
+        }
+    }
+    mMaxDataStripeCount = min(KFS_MAX_DATA_STRIPE_COUNT, props.getValue(
+        "metaServer.maxDataStripeCount",     mMaxDataStripeCount));
+    mMaxRecoveryStripeCount = min(KFS_MAX_RECOVERY_STRIPE_COUNT, props.getValue(
+        "metaServer.maxRecoveryStripeCount", mMaxRecoveryStripeCount));
+
     mConfig.clear();
     mConfig.reserve(10 << 10);
     props.getList(mConfig, string(), string(";"));
@@ -2126,6 +2142,28 @@ LayoutManager::Validate(MetaHello& r) const
     r.statusMsg = "MD5sum mismatch: recieved: " + r.md5sum;
     r.status    = -EBADCLUSTERKEY;
     return false;
+}
+
+bool
+LayoutManager::Validate(MetaCreate& createOp) const
+{
+    if (mCreateFileTypeExclude.end() !=
+            mCreateFileTypeExclude.find(createOp.striperType)) {
+        createOp.status    = -EPERM;
+        createOp.statusMsg = "file type is not allowed";
+        return false;
+    }
+    if (mMaxDataStripeCount < createOp.numStripes) {
+        createOp.status    = -EPERM;
+        createOp.statusMsg = "stripe count exceeds max allowed";
+        return false;
+    }
+    if (mMaxRecoveryStripeCount < createOp.numRecoveryStripes) {
+        createOp.status    = -EPERM;
+        createOp.statusMsg = "recovery stripe count exceeds max allowed";
+        return false;
+    }
+    return true;
 }
 
 LayoutManager::RackId

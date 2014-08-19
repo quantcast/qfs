@@ -778,6 +778,12 @@ MetaCreate::handle()
         statusMsg = "invalid storage tier range";
         return;
     }
+    if (! gLayoutManager.Validate(*this)) {
+        if (0 <= status) {
+            status = -EINVAL;
+        }
+        return;
+    }
     MetaFattr* fa = 0;
     status = metatree.create(
         dir,
