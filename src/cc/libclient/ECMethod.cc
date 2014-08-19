@@ -20,10 +20,10 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-//
+//ECMethod.h
 //----------------------------------------------------------------------------
 
-#include "ECMethod.h"
+#include "ECMethodDef.h"
 
 #include "common/kfstypes.h"
 
@@ -139,6 +139,21 @@ ECMethod::FindDecoder(
             inMethodType, inStripeCount, inRecoveryStripeCount, outErrMsgPtr));
 }
 
+    /* static */ string
+ECMethod::FindDescription(
+    int     inMethodType,
+    string* outErrMsgPtr)
+{
+    QCStMutexLocker theLocker(GetMutex());
+    ECMethod* const theMethodPtr = Find(inMethodType, outErrMsgPtr);
+    if (! theMethodPtr) {
+        return string();
+    }
+    const string theDescription = theMethodPtr->GetDescription();
+    return (theDescription.empty() ?
+        string("no description provided") : theDescription);
+}
+
 ECMethod::ECMethod()
 {
     GetMutex(); // Ensure mutex construction.
@@ -184,7 +199,7 @@ ECMethod::Unregister(
     int inMethodType)
 {
     QCStMutexLocker theLocker(GetMutex());
-    if (inMethodType <= 0 && inMethodType < KFS_STRIPED_FILE_TYPE_COUNT &&
+    if (0 <= inMethodType && inMethodType < KFS_STRIPED_FILE_TYPE_COUNT &&
             sECMethods[inMethodType] == this) {
         sECMethods[inMethodType] = 0;
         Release(inMethodType);
@@ -200,7 +215,7 @@ KFS_FOR_EACH_EC_METHOD(__KFS_DECLARE_EXTERN_EC_METHOD)
 ECMethod::RegisterAllMethods()
 {
 #define __KFS_REGISTER_EXTERN_EC_METHOD(inType) { \
-        ECMethod* const thePtr = KFS_MAKE_REGISTERED_METHOD_NAME(inType); \
+        ECMethod* const thePtr = KFS_MAKE_REGISTERED_EC_METHOD_NAME(inType); \
         if (thePtr && thePtr->Register(KFS_##inType)) { \
             theRet++; \
         } \

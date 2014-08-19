@@ -23,7 +23,7 @@
 //
 //----------------------------------------------------------------------------
 
-#include "ECMethod.h"
+#include "ECMethodDef.h"
 
 #ifndef QFS_OMIT_JERASURE
 #include "jerasure.h"
@@ -38,6 +38,8 @@
 #include "qcdio/qcdebug.h"
 
 #include <map>
+#include <sstream>
+
 #include <stdlib.h>
 #endif
 
@@ -54,6 +56,7 @@ using std::map;
 using std::less;
 using std::pair;
 using std::make_pair;
+using std::ostringstream;
 
 class QCECMethodJerasure : public ECMethod
 {
@@ -70,10 +73,13 @@ protected:
         QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
         return (inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
     }
+    virtual string GetDescription() const
+        { return mDescription; }
     void Release(
         int inMethodType)
     {
         QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS_JERASURE);
+        Cleanup();
     }
     virtual Encoder* GetEncoder(
         int     inMethodType,
@@ -250,8 +256,9 @@ private:
     };
 
     typedef JXCoder::List LruList;
-    JXCoders  mJXCoders;
-    JXCoder*  mLru[1];
+    const string mDescription;
+    JXCoders     mJXCoders;
+    JXCoder*     mLru[1];
 
     JXCoder* GetXCoder(
         int     inMethodType,
@@ -323,11 +330,16 @@ private:
 protected:
     QCECMethodJerasure()
         : ECMethod(),
+          mDescription(Describe()),
           mJXCoders()
         { LruList::Init(mLru); }
     virtual ~QCECMethodJerasure()
     {
         QCECMethodJerasure::Unregister(KFS_STRIPED_FILE_TYPE_RS_JERASURE);
+        Cleanup();
+    }
+    void Cleanup()
+    {
         size_t   theCount = 0;
         JXCoder* thePtr;
         while ((thePtr = LruList::PopFront(mLru))) {
@@ -335,6 +347,18 @@ protected:
             theCount++;
         }
         QCRTASSERT(mJXCoders.size() == theCount);
+    }
+    static string Describe()
+    {
+        ostringstream theStream;
+        theStream <<
+            "id: " << int(KFS_STRIPED_FILE_TYPE_RS_JERASURE) <<
+            "; jerasure"
+            "; data stripes range: [1, " << KFS_MAX_DATA_STRIPE_COUNT << "]"
+            "; recovery stripes range: [0, " <<
+                KFS_MAX_RECOVERY_STRIPE_COUNT << "]"
+        ;
+        return theStream.str();
     }
 };
 

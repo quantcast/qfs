@@ -100,6 +100,9 @@ public:
         int     inStripeCount,
         int     inRecoveryStripeCount,
         string* outErrMsgPtr);
+    static string FindDescription(
+        int     inMethodType,
+        string* outErrMsgPtr);
 protected:
     ECMethod();
     virtual ~ECMethod();
@@ -111,6 +114,7 @@ protected:
         int inMethodType) = 0;
     virtual void Release(
         int inMethodType) = 0;
+    virtual string GetDescription() const = 0;
     virtual bool Validate(
         int     inMethodType,
         int     inStripeCount,
@@ -140,14 +144,6 @@ private:
     inline static int RegisterAllMethods();
     static int InitAllSelf();
 };
-
-#define KFS_MAKE_REGISTERED_METHOD_NAME(inType) \
-    ECMethod_KFS_##inType
-#define KFS_DECLARE_EC_METHOD_PTR(inType) \
-    ECMethod* const KFS_MAKE_REGISTERED_METHOD_NAME(inType)
-#define KFS_REGISTER_EC_METHOD(inType, inMethodPtr) \
-    extern KFS_DECLARE_EC_METHOD_PTR(inType); \
-    KFS_DECLARE_EC_METHOD_PTR(inType) = inMethodPtr
 
 }} /* namespace client KFS */
 

@@ -23,7 +23,7 @@
 //
 //----------------------------------------------------------------------------
 
-#include "ECMethod.h"
+#include "ECMethodDef.h"
 
 #include "qcrs/rs.h"
 
@@ -31,10 +31,16 @@
 
 #include "qcdio/QCUtils.h"
 
+#include <sstream>
+#include <algorithm>
+
 namespace KFS
 {
 namespace client
 {
+
+using std::ostringstream;
+using std::min;
 
 class QCECMethod : public ECMethod
 {
@@ -46,7 +52,10 @@ public:
     }
 protected:
     QCECMethod()
-        : ECMethod()
+        : ECMethod(),
+          mDescription(Describe()),
+          mEncoder(),
+          mDecoder()
         {}
     virtual ~QCECMethod()
     {
@@ -58,6 +67,8 @@ protected:
         QCRTASSERT(inMethodType == KFS_STRIPED_FILE_TYPE_RS);
         return (inMethodType == KFS_STRIPED_FILE_TYPE_RS);
     }
+    virtual string GetDescription() const
+        { return mDescription; }
     void Release(
         int inMethodType)
     {
@@ -167,8 +178,24 @@ private:
         virtual void Release()
             {}
     };
-    QCRSEncoder mEncoder;
-    QCRSDecoder mDecoder;
+    const string mDescription;
+    QCRSEncoder  mEncoder;
+    QCRSDecoder  mDecoder;
+
+    static string Describe()
+    {
+        ostringstream theStream;
+        theStream <<
+            "id: " << int(KFS_STRIPED_FILE_TYPE_RS) <<
+            "; qcrs"
+            "; recovery stripes: 0 or " << RS_LIB_MAX_RECOVERY_BLOCKS <<
+            "; data stripes range: [1, " <<
+                min(RS_LIB_MAX_DATA_BLOCKS, KFS_MAX_DATA_STRIPE_COUNT)  << "]"
+            " or [1, " << KFS_MAX_DATA_STRIPE_COUNT <<
+                "] with 0 recovery stripes"
+        ;
+        return theStream.str();
+    }
 };
 
 KFS_REGISTER_EC_METHOD(STRIPED_FILE_TYPE_RS, QCECMethod::GetMethod());
