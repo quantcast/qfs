@@ -30,10 +30,14 @@
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/IntToString.h"
+
 #include "kfsio/ZlibInflate.h"
+
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
+
 #include "libclient/Path.h"
+#include "libclient/ECMethod.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -81,6 +85,7 @@ using std::noshowbase;
 using std::make_pair;
 
 using client::Path;
+using client::ECMethod;
 
 const string      kTrashCfgPrefix("fs.trash.");
 const char* const kMsgLogWriterCfgPrefix = "fs.msgLogWriter.";
@@ -624,6 +629,8 @@ public:
             }
         } else if (strcmp(theCmdPtr, "dtinfo") == 0) {
             theErr = ShowDelegationTokenInfo(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "ecinfo") == 0) {
+            theErr = ShowErasureCodecInfo(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -4248,6 +4255,43 @@ private:
         }
         return theRet;
     }
+    int ShowErasureCodecInfo(
+        char**  inArgsPtr,
+        int     inArgCount)
+    {
+        int theRet = 0;
+        if (inArgCount <= 0) {
+            for (int i = KFS_STRIPED_FILE_TYPE_NONE;
+                    i < KFS_STRIPED_FILE_TYPE_COUNT;
+                    i++) {
+                const string theDescription = ECMethod::FindDescription(i, 0);
+                if (! theDescription.empty()) {
+                    cout << theDescription << "\n";
+                }
+            }
+        } else {
+            string theErrMsg;
+            for (int i = 0; i < inArgCount; i++) {
+                char* theEndPtr = 0;
+                const int theId = (int)strtol(inArgsPtr[i], &theEndPtr, 0);
+                if (' ' <= (*theEndPtr & 0xFF)) {
+                    theErrMsg.clear();
+                    const string theDescription =
+                        ECMethod::FindDescription(theId, &theErrMsg);
+                    if (theDescription.empty()) {
+                        cerr << "id: " << theId << " " << theErrMsg;
+                        theRet = -EINVAL;
+                    } else {
+                        cout << theDescription;
+                    }
+                } else {
+                    cerr << "failed to parse id: " << inArgsPtr[i] << "\n";
+                    theRet = -EINVAL;
+                }
+            }
+        }
+        return theRet;
+    }
 private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
@@ -4289,6 +4333,8 @@ const char* const KfsTool::sHelpStrings[] =
         "stiper type:           1 no stiping, or 2 is RS\n\t\t\t"
         "min. storage tier:     15 from 0 to 15\n\t\t\t"
         "max. storage tier:     15 from 0 to 15\n\t\t"
+        "addition information about erasure coded file can be obtained\n\t\t"
+        "with -ecinfo\n\t\t"
     "fs.trash.trash           = .Trash\n\t\t\t"
         "trash directory name\n\t\t"
     "fs.trash.homesPrefix     = /user\n\t\t\t"
@@ -4527,6 +4573,9 @@ const char* const KfsTool::sHelpStrings[] =
 
     "dtinfo", "<delegation token> <delegation token> ...",
     "Show delegation and chunk access token info\n",
+
+    "ecinfo", "[<id> <id> ...]",
+    "Show QFS client's erasure codecs information.\n",
 
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"
