@@ -164,6 +164,12 @@ if [ $start -ne 0 ]; then
             echo "chunkServer.rsReader.maxRecoverChunkSize=$maxrecovsize"
             echo "chunkServer.rsReader.panicOnInvalidChunk=1"
             echo "chunkServer.rsReader.debugCheckThread=1"
+            if [ x = x"$valgrind_cmd" ]; then
+                true;
+            else
+                echo "metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 120"
+                echo "metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 120"
+            fi
         } >> ChunkServer-recovery.prp
         $valgrind_cmd "$chunkdir"/chunkserver ChunkServer-recovery.prp \
             > chunkserver-recovery.log 2>&1 &
