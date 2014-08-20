@@ -2097,7 +2097,7 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
         return ((minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) ?
             0 : -EINVAL);
     }
-    if (fa->numReplicas == numReplicas) {
+    if ((int)fa->numReplicas == numReplicas) {
         return 0;
     }
     fa->setReplication(numReplicas);

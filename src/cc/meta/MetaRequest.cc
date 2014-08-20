@@ -2327,7 +2327,7 @@ MetaChangeFileReplication::handle()
     status = metatree.changeFileReplication(
         fa, numReplicas, minSTier, maxSTier);
     if (status == 0) {
-        logFlag = numReplicas != fa->numReplicas;
+        logFlag = numReplicas != (int)fa->numReplicas;
         numReplicas = fa->numReplicas; // update for log()
         if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
             logFlag = logFlag ||

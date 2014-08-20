@@ -2635,7 +2635,7 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
         server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, "");
     }
     if (! server->IsDown()) {
-        const int srvCount = (int)mChunkToServerMap.ServerCount(c);
+        const size_t srvCount = mChunkToServerMap.ServerCount(c);
         if (fa.numReplicas <= srvCount) {
             CancelPendingMakeStable(fa.id(), ci.chunkId);
         }
@@ -2981,7 +2981,7 @@ LayoutManager::AddNotStableChunk(
     // AddServerToMakeStable() invoked already.
     // Delete the replica if sufficient number of replicas already exists.
     const MetaFattr * const fa = pinfo.GetFattr();
-    if (fa && fa->numReplicas <= (int)mChunkToServerMap.ServerCount(pinfo)) {
+    if (fa && fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
         CancelPendingMakeStable(fileId, chunkId);
         return "sufficient number of replicas exists";
     }
@@ -3203,7 +3203,7 @@ LayoutManager::Done(MetaChunkVersChange& req)
         // Went down in GetChunkSize().
         return;
     }
-    const int srvCount = (int)mChunkToServerMap.ServerCount(*cmi);
+    const size_t srvCount = mChunkToServerMap.ServerCount(*cmi);
     if (fa->numReplicas <= srvCount) {
         CancelPendingMakeStable(fileId, req.chunkId);
     }
@@ -3380,7 +3380,7 @@ LayoutManager::CanBeRecovered(
         return false;
     }
     vector<MetaChunkInfo*>::const_iterator it = cblk.begin();
-    int              stripeIdx = 0;
+    unsigned int     stripeIdx = 0;
     int              localCnt;
     int&             goodCnt   = outGoodCnt ? *outGoodCnt : localCnt;
     chunkOff_t const end       = start + fa->ChunkBlkSize();
@@ -3416,7 +3416,7 @@ LayoutManager::CanBeRecovered(
             }
         }
     }
-    return (fa->numStripes <= goodCnt);
+    return ((int)fa->numStripes <= goodCnt);
 }
 
 typedef KeyOnly<const MetaFattr*> KeyOnlyFattrPtr;
@@ -3660,7 +3660,7 @@ public:
         } else if (fa.IsStriped()) {
             mStripedFilesCount++;
         }
-        mMaxReplication  = max(mMaxReplication, fa.numReplicas);
+        mMaxReplication  = max(mMaxReplication, (int)fa.numReplicas);
         mLayoutManager.CheckFile(*this, de, fa);
         return (! mStopFlag);
     }
@@ -6021,7 +6021,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
             // transition into "lost" state.
         }
         const MetaFattr& fa     = *(cmi->GetFattr());
-        const int        srvCnt = (int)mChunkToServerMap.ServerCount(*cmi);
+        const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
         if (0 < srvCnt && (fa.numReplicas <= srvCnt ||
                 (0 <= mChunkAvailableUseReplicationOrRecoveryThreshold &&
                     fa.numReplicas <= srvCnt +
@@ -6045,7 +6045,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                     cblk,
                     &goodCnt) &&
                 0 <= mChunkAvailableUseReplicationOrRecoveryThreshold &&
-                fa.numStripes +
+                (int)fa.numStripes +
                     mChunkAvailableUseReplicationOrRecoveryThreshold <=
                     goodCnt) {
             KFS_LOG_STREAM_DEBUG <<
@@ -7570,7 +7570,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         pinfo = ci;
     }
     UpdateReplicationState(*pinfo);
-    int            numServers     = 0;
+    unsigned int   numServers     = 0;
     int            numDownServers = 0;
     ChunkServerPtr goodServer;
     StTmp<Servers> serversTmp(mServers3Tmp);
@@ -8290,7 +8290,7 @@ LayoutManager::CanReplicateChunkNow(
         const chunkOff_t end       = start + fa->ChunkBlkSize();
         int              good      = 0;
         int              notStable = 0;
-        int              stripeIdx = 0;
+        unsigned int     stripeIdx = 0;
         bool             holeFlag  = false;
         vector<MetaChunkInfo*>::const_iterator it = cblk.begin();
         StTmp<Servers> serversTmp(mServers4Tmp);
@@ -8338,7 +8338,7 @@ LayoutManager::CanReplicateChunkNow(
             ++it;
         }
         if (notStable > 0 ||
-                (notStable == 0 && good < fa->numStripes)) {
+                (notStable == 0 && good < (int)fa->numStripes)) {
             if (! servers.empty()) {
                 // Can not use recovery instead of replication.
                 SetReplicationState(c,
@@ -9097,9 +9097,9 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
     const MetaFattr* const fa = ci->GetFattr();
     if (! fa->HasRecovery() ||
             fa->striperType != req.striperType ||
-            fa->stripeSize != req.stripeSize ||
-            fa->numStripes != req.numStripes ||
-            fa->numRecoveryStripes != req.numRecoveryStripes) {
+            (int)fa->stripeSize != req.stripeSize ||
+            (int)fa->numStripes != req.numStripes ||
+            (int)fa->numRecoveryStripes != req.numRecoveryStripes) {
         return;
     }
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();

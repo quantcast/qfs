@@ -222,10 +222,10 @@ public:
         {}
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;
-    int32_t         numReplicas:14; //!< Desired number of replicas for a file
-    int32_t         numRecoveryStripes:KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH;
-    int32_t         numStripes:KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH;
-    int32_t         stripeSize:27;
+    uint32_t        numReplicas:14; //!< Desired number of replicas for a file
+    uint32_t        numRecoveryStripes:KFS_RECOVERY_STRIPE_COUNT_FIELD_BIT_WIDTH;
+    uint32_t        numStripes:KFS_DATA_STRIPE_COUNT_FIELD_BIT_WIDTH;
+    uint32_t        stripeSize:27;
     int64_t         mtime; //!< modification time
     int64_t         ctime; //!< attribute change time
     int64_t         crtime; //!< creation time
@@ -284,16 +284,16 @@ public:
             return false;
         }
         striperType = StripedFileType(t);
-        numStripes = n;
-        if (numStripes <= 0 || numStripes != n) {
+        numStripes = (uint32_t)n;
+        if (numStripes != (uint32_t)n) {
             return false;
         }
-        numRecoveryStripes = nr;
-        if (numRecoveryStripes < 0 || numRecoveryStripes != nr) {
+        numRecoveryStripes = (uint32_t)nr;
+        if (numRecoveryStripes != (uint32_t)nr) {
             return false;
         }
-        stripeSize = ss;
-        if (stripeSize != ss) {
+        stripeSize = (uint32_t)ss;
+        if (stripeSize != (uint32_t)ss) {
             return false;
         }
         return true;
