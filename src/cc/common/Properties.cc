@@ -24,13 +24,13 @@
 //
 //----------------------------------------------------------------------------
 
+#include "Properties.h"
+#include "RequestParser.h"
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
 #include <string.h>
-
-#include "Properties.h"
-#include "RequestParser.h"
 
 namespace KFS
 {
@@ -140,8 +140,8 @@ int
 Properties::loadProperties(
     const char* fileName,
     char        delimiter,
-    bool        verbose /* = false */,
-    bool        multiline /* =false */,
+    ostream*    verbose   /* = 0 */,
+    bool        multiline /* = false */,
     bool        keysAsciiToLower /* = false */)
 {
     ifstream input(fileName);
@@ -159,8 +159,8 @@ int
 Properties::loadProperties(
     istream& ist,
     char     delimiter,
-    bool     verbose,
-    bool     multiline /* = false */,
+    ostream* verbose,
+    bool     multiline        /* = false */,
     bool     keysAsciiToLower /* = false */)
 {
     string line;
@@ -188,7 +188,7 @@ Properties::loadProperties(
             propmap[key] = val;
         }
         if (verbose) {
-            cout << "Loading key " << key  <<
+            (*verbose) << "Loading key " << key  <<
                 " with value " << propmap[key] << endl;
         }
     }
@@ -200,7 +200,7 @@ Properties::loadProperties(
     const char* buf,
     size_t      len,
     char        delimiter,
-    ostream*    verbose /* = 0 */,
+    ostream*    verbose   /* = 0 */,
     bool        multiline /* = false */,
     bool        keysAsciiToLower /* = false */)
 {

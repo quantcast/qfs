@@ -163,7 +163,7 @@ public:
         Test* const res = new Test;
         const char separator = ':';
         Properties props;
-        props.loadProperties(is, separator, false);
+        props.loadProperties(is, separator);
         res->Load(props);
         return res;
     }

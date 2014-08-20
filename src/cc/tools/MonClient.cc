@@ -124,10 +124,8 @@ MonClient::SetParameters(
     Properties  theProperties;
     const char* theConfigPtr = inConfigFileNamePtr;
     if (inConfigFileNamePtr) {
-        const bool kVerboseFlag = false;
-        const char kDelimeter   = '=';
-        theStatus = theProperties.loadProperties(
-            theConfigPtr, kDelimeter, kVerboseFlag);
+        const char kDelimeter = '=';
+        theStatus = theProperties.loadProperties(theConfigPtr, kDelimeter);
     } else {
         theStatus = KfsClient::LoadProperties(
             inMetaLocation.hostname.c_str(),

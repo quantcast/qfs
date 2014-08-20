@@ -390,7 +390,7 @@ ChunkServerMain::LoadParams(const char* fileName)
         mProp.getValue("chunkServer.stderr", "")
     );
 
-    if (mProp.loadProperties(fileName, '=', false) != 0) {
+    if (mProp.loadProperties(fileName, '=') != 0) {
         KFS_LOG_STREAM_FATAL <<
             "Invalid properties file: " << fileName <<
         KFS_LOG_EOM;

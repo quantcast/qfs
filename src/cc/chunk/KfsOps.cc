@@ -3614,7 +3614,7 @@ bool
 SetProperties::ParseContent(istream& is)
 {
     properties.clear();
-    status = min(0, properties.loadProperties(is, '=', false));
+    status = min(0, properties.loadProperties(is, '='));
     if (status != 0) {
         statusMsg = "failed to parse properties";
     }

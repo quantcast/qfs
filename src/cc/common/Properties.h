@@ -27,7 +27,7 @@
 #ifndef COMMON_PROPERTIES_H
 #define COMMON_PROPERTIES_H
 
-#include <istream>
+#include <iosfwd>
 #include <string>
 #include <map>
 
@@ -40,6 +40,7 @@ namespace KFS
 using std::map;
 using std::string;
 using std::istream;
+using std::ostream;
 
 // Key: value properties.
 // Can be used to parse rfc822 style request headers, or configuration files.
@@ -83,10 +84,10 @@ public:
     iterator end() const { return propmap.end(); }
     // load the properties from a file
     int loadProperties(const char* fileName, char delimiter,
-        bool verbose, bool multiline = false, bool keysAsciiToLower = false);
+        ostream* verbose = 0, bool multiline = false, bool keysAsciiToLower = false);
     // load the properties from an in-core buffer
     int loadProperties(istream& ist, char delimiter,
-        bool verbose, bool multiline = false, bool keysAsciiToLower = false);
+        ostream* verbose = 0, bool multiline = false, bool keysAsciiToLower = false);
     int loadProperties(const char* buf, size_t len, char delimiter,
         ostream* verbose = 0, bool multiline = false,
         bool keysAsciiToLower = false);

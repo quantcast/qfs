@@ -145,7 +145,8 @@ public:
                 }
                 if (mConfig.loadProperties(
                         inArgsPtr[theArgIndex], char('='),
-                        theLogLevel == MsgLogger::kLogLevelDEBUG)) {
+                        theLogLevel == MsgLogger::kLogLevelDEBUG ?
+                        &cerr : 0)) {
                     return 1;
                 }
             } else {
@@ -4332,9 +4333,9 @@ const char* const KfsTool::sHelpStrings[] =
             "\n\t\t\t"
         "stiper type:           1 no stiping, or 2 is RS\n\t\t\t"
         "min. storage tier:     15 from 0 to 15\n\t\t\t"
-        "max. storage tier:     15 from 0 to 15\n\t\t"
-        "addition information about erasure coded file can be obtained\n\t\t"
-        "with -ecinfo\n\t\t"
+        "max. storage tier:     15 from 0 to 15\n\t\t\t"
+        "addition information about erasure coded file support\n\t\t\t"
+        "can be obtained with -ecinfo\n\t\t"
     "fs.trash.trash           = .Trash\n\t\t\t"
         "trash directory name\n\t\t"
     "fs.trash.homesPrefix     = /user\n\t\t\t"
@@ -4555,20 +4556,20 @@ const char* const KfsTool::sHelpStrings[] =
     "most recent one.\n",
 
     "runEmptier", "[interval in seconds]",
-    "run trash emptier forever\n",
+    "Run trash emptier forever\n",
 
     "delegate",
         "[<allow re-delegation>] [<max delegation validity time seconds>]",
-    "create delegation token\n",
+    "Create delegation token\n",
 
     "cancel",
         "[delegation token] [key]",
-    "cancel delegation token. If token and/or key aren't specificied then\n\t\t"
+    "Cancel delegation token. If token and/or key aren't specificied then\n\t\t"
     "token and/or key are read from standard in\n",
 
     "renew",
         "[delegation token] [key]",
-    "renew delegation token. If token and/or key aren't specificied then\n\t\t"
+    "Renew delegation token. If token and/or key aren't specificied then\n\t\t"
     "token and/or key are read from standard in\n",
 
     "dtinfo", "<delegation token> <delegation token> ...",

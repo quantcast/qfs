@@ -1714,7 +1714,7 @@ ChunkServer::ParseResponse(istream& is, Properties &prop)
         return false;
     }
     const char separator = ':';
-    prop.loadProperties(is, separator, false);
+    prop.loadProperties(is, separator);
     return true;
 }
 

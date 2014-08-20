@@ -669,7 +669,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
     } else {
         Properties prop;
         const char separator = ':';
-        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator, false);
+        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
         mIStream.Reset();
         iobuf.Consume(msgLen);
 

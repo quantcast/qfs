@@ -174,7 +174,7 @@ public:
         }
         mSetParametersFlag = false;
         const int res = mProperties.loadProperties(
-            mFileName.c_str(), '=', false);
+            mFileName.c_str(), (char)'=');
         KFS_LOG_STREAM_INFO <<
             "loading configuration from: " << mFileName <<
             (res == 0 ? "" : " failed") <<
@@ -256,7 +256,7 @@ private:
         mFileName = GetFullPath(fileName);
         if (mFileName.empty() ||
                 mStartupProperties.loadProperties(
-                    mFileName.c_str(), '=', true)) {
+                    mFileName.c_str(), '=', &cerr)) {
             cerr << "invalid properties file: " << mFileName <<  "\n";
             return false;
         }

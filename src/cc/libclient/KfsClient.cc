@@ -86,6 +86,7 @@ using std::numeric_limits;
 using std::unique;
 using std::find;
 using std::ostringstream;
+using std::cerr;
 
 using boost::scoped_array;
 using boost::bind;
@@ -98,9 +99,11 @@ const int kMaxReadDirRetries = 16;
 KfsClient*
 Connect(const char* propFile)
 {
-    bool verbose = false;
+    ostream* const verbose =
 #ifdef DEBUG
-    verbose = true;
+    &cerr;
+#else
+    0;
 #endif
     Properties p;
     if (p.loadProperties(propFile, '=', verbose) != 0) {
@@ -139,9 +142,8 @@ KfsClient::Connect(
             cfgName)) {
         return 0;
     }
-    const bool kVerboseFlag = false;
     if (configFileName &&
-            props.loadProperties(configFileName, '=', kVerboseFlag) != 0) {
+            props.loadProperties(configFileName, '=') != 0) {
         return 0;
     }
     KfsClient* const clnt = new KfsClient();
@@ -987,7 +989,7 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
     const size_t      len   = strlen(pref);
     const char        delim = (char)'=';
     if (strncmp(cfg, pref, len) == 0) {
-        if (props.loadProperties(cfg + len, delim, false) != 0) {
+        if (props.loadProperties(cfg + len, delim) != 0) {
             KFS_LOG_STREAM_INFO <<
                 "failed to load configuration from file: " << cfg <<
                 " set by environment varialbe:" << configEnvName <<

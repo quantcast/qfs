@@ -596,7 +596,6 @@ private:
         mAcceptorPtr = 0;
         string thePropsStr;
         const char kDelim = '=';
-        const bool kVerboseFlag = true;
         for (int i = 1; i < inArgsCount; ++i) {
             if (strcmp(inArgsPtr[i], "-c") == 0) {
                 if (inArgsCount <= ++i) {
@@ -604,7 +603,7 @@ private:
                     return 1;
                 }
                 if (mProperties.loadProperties(
-                        inArgsPtr[i], kDelim, kVerboseFlag)) {
+                        inArgsPtr[i], kDelim, &cout)) {
                     cerr << "error reading properties file: " <<
                         inArgsPtr[i] << "\n";
                     return 1;
@@ -624,7 +623,7 @@ private:
         if (! thePropsStr.empty()) {
             istringstream theInStream(thePropsStr);
             if (mProperties.loadProperties(
-                    theInStream, kDelim, kVerboseFlag)) {
+                    theInStream, kDelim, &cout)) {
                 cerr << "error parsing arguments\n";
                 return 1;
             }

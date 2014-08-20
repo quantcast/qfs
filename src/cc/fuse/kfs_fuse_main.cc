@@ -378,9 +378,8 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
         }
     } else {
         Properties props;
-        const bool verbose_flag = false;
         if (props.loadProperties(
-                cfg_file.c_str(), delim, verbose_flag) == 0) {
+                cfg_file.c_str(), delim) == 0) {
             client = KFS::Connect(host, port, &props);
         }
     }

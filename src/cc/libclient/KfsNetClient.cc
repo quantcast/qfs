@@ -1128,9 +1128,8 @@ private:
             mProperties.loadProperties(
                 theIt->Consumer(), (size_t)theHdrLen, theSeparator);
         } else {
-            const bool theVerboseFlag = false;
             mProperties.loadProperties(
-                mIstream.Set(inBuffer, theHdrLen), theSeparator, theVerboseFlag);
+                mIstream.Set(inBuffer, theHdrLen), theSeparator);
             mIstream.Reset();
         }
         inBuffer.Consume(theHdrLen);

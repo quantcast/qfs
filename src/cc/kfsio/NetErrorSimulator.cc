@@ -136,7 +136,7 @@ public:
             }
             std::istringstream theInStream(theSpec);
             Properties         theProps;
-            theProps.loadProperties(theInStream, '=', false);
+            theProps.loadProperties(theInStream, '=');
             int theActionFlags = 0;
             std::string theActions = theProps.getValue("a", "");
             if (theActions.find("rn") != std::string::npos) {

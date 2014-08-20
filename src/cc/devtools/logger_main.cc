@@ -59,7 +59,7 @@ main(int argc, char** argv)
     BufferedLogWriter theLogWriter(fileno(stderr), 0, 1 << 20);
     if (argc > 1) {
         Properties theProps;
-        if (theProps.loadProperties(argv[1], '=', true) != 0) {
+        if (theProps.loadProperties(argv[1], '=', &cout) != 0) {
             return 1;
         }
         theLogWriter.SetParameters(theProps, "logWriter.");

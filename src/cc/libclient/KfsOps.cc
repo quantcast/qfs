@@ -804,7 +804,7 @@ KfsOp::ParseResponseHeader(istream& is)
 {
     const char separator = ':';
     Properties prop;
-    prop.loadProperties(is, separator, false);
+    prop.loadProperties(is, separator);
     ParseResponseHeader(prop);
 }
 
