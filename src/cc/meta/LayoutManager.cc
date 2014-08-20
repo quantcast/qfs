@@ -1452,7 +1452,7 @@ LayoutManager::LayoutManager() :
     mChunkAvailableUseReplicationOrRecoveryThreshold(-1),
     mCreateFileTypeExclude(),
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
-    mMaxRecoveryStripeCount(KFS_MAX_RECOVERY_STRIPE_COUNT),
+    mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mFileRecoveryInFlightCount(),
     mTmpParseStream(),
     mChunkInfosTmp(),
