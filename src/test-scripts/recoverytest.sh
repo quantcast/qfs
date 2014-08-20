@@ -138,6 +138,8 @@ if [ $stop -ne 0 ]; then
     trap shutdown EXIT
 fi
 
+datastripes=`echo "$filecreateparams" | cut -d , -f 2`
+
 if [ $start -ne 0 ]; then
     cd "$qfstestdir"/meta || exit
     kill -KILL `cat metaserver.pid` 2>/dev/null
@@ -148,6 +150,14 @@ if [ $start -ne 0 ]; then
         echo "metaServer.panicOnInvalidChunk=1"
         echo "metaServer.csmap.unittest=0"
         echo "metaServer.recoveryInterval=0"
+        echo "metaServer.maxRecoveryStripeCount=10000"
+        echo "metaServer.maxRSDataStripeCount=10000"
+        if [ x = x"$valgrind_cmd" ]; then
+            true;
+        else
+            echo "metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 120"
+            echo "metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 120"
+        fi
     } >> MetaServer-recovery.prp
     "$metadir"/metaserver -c MetaServer-recovery.prp > metaserver-recovery.log 2>&1 &
     echo $! > metaserver.pid
@@ -158,18 +168,19 @@ if [ $start -ne 0 ]; then
         kill -KILL `cat chunkserver.pid` 2>/dev/null
         rm -f chunkserver-recovery.log
         rm -rf kfschunk*/*
-        sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
-            ChunkServer.prp > ChunkServer-recovery.prp
+        if [ $datastripes -gt 10 ]; then
+            sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
+                -e 's/^\(chunkServer.ioBufferPool.partitionBufferCount.*\)$/# \1/' \
+                -e 's/^\(chunkServer.bufferManager.maxClientQuota.*\)$/# \1/' \
+                ChunkServer.prp > ChunkServer-recovery.prp
+        else
+            sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
+                ChunkServer.prp > ChunkServer-recovery.prp
+        fi
         {
             echo "chunkServer.rsReader.maxRecoverChunkSize=$maxrecovsize"
             echo "chunkServer.rsReader.panicOnInvalidChunk=1"
             echo "chunkServer.rsReader.debugCheckThread=1"
-            if [ x = x"$valgrind_cmd" ]; then
-                true;
-            else
-                echo "metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 120"
-                echo "metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 120"
-            fi
         } >> ChunkServer-recovery.prp
         $valgrind_cmd "$chunkdir"/chunkserver ChunkServer-recovery.prp \
             > chunkserver-recovery.log 2>&1 &
@@ -260,11 +271,14 @@ for testblocksize in $testblocksizes ; do
         break;
     }
 
-    datastripes=`echo "$filecreateparams" | cut -d , -f 2`
     testholesize=`expr 1024 \* 1024 \* 64 \* $datastripes - $testblocksize`
+    ddbs=`expr 1024 \* 1024`
+    ddbc=`expr $testholesize / $ddbs`
+    ddrem=`expr $testholesize - $ddbs \* $ddbc`
     testmd5=`{ \
         "$devtoolsdir"/rand-sfmt -g $testblocksize 1234 ;
-        dd bs=$testholesize count=1 if=/dev/zero 2>/dev/null ;
+        [ $ddbc  -gt 0 ] && dd bs=$ddbs  count=$ddbc if=/dev/zero 2>/dev/null ;
+        [ $ddrem -gt 0 ] && dd bs=$ddrem count=1     if=/dev/zero 2>/dev/null ;
         "$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 ;
     } | openssl md5 | awk '{print $NF}'`
 
