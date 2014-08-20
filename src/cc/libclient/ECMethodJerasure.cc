@@ -32,6 +32,7 @@
 #include "common/kfstypes.h"
 #include "common/kfsatomic.h"
 #include "common/StdAllocator.h"
+#include "common/IntToString.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCDLList.h"
@@ -56,7 +57,6 @@ using std::map;
 using std::less;
 using std::pair;
 using std::make_pair;
-using std::ostringstream;
 
 class QCECMethodJerasure : public ECMethod
 {
@@ -259,6 +259,7 @@ private:
     const string mDescription;
     JXCoders     mJXCoders;
     JXCoder*     mLru[1];
+    bool         mInitDoneFlag;
 
     JXCoder* GetXCoder(
         int     inMethodType,
@@ -270,6 +271,36 @@ private:
         if (! Validate(inMethodType, inStripeCount, inRecoveryStripeCount,
                 outErrMsgPtr)) {
             return 0;
+        }
+        // Create global galios [read-only] structure for "w" 8, 16 and 32.
+        // Jerasure library assigns pointers to these structures to the
+        // corresponding "w" slot of the jerasure global gfp_array in galios.c
+        // The access to ECMethod class methods is serialized  by the ECMethod
+        // logic. Therefore the one time initialization of the gfp_array slot
+        // from this method should work with multple threads, assuming that the
+        // platform mutex performs "memory barrier / fence" or equivalent, if
+        // necessary.
+        // The memory allocated to hold these structures never released by
+        // jerasure library, and might be reported as "memory leak" by memory
+        // debuggers. The library api doesn't appear to offer any method to
+        // free this memory.
+        // The initialization is done here instead of Init method, is to defer
+        // the initialization to the last moment. No initialization performed
+        // if this method isn't used at all.
+        if (! mInitDoneFlag) {
+            for (int theW = 8; theW <= 32; theW *= 2) {
+                const int theRet = galois_init_default_field(theW);
+                if (theRet == 0) {
+                    continue;
+                }
+                if (outErrMsgPtr) {
+                    *outErrMsgPtr = "galios init default ";
+                    AppendDecIntToString(*outErrMsgPtr, theW) += " error: ";
+                    *outErrMsgPtr += QCUtils::SysError(theRet);
+                }
+                return 0;
+            }
+            mInitDoneFlag = true;
         }
         JXCoders::iterator const theIt = mJXCoders.find(make_pair(
             inStripeCount, inRecoveryStripeCount));
@@ -286,18 +317,6 @@ private:
         } else {
             theW = 32;
         }
-        // The [first] matrix computation for each distinct "w" creates global
-        // [read-only] structure and assigns the pointer to it to the
-        // corresponding "w" slot of the jerasure global gfp_array in galios.c
-        // The access to ECMethod class methods is serialized  by the ECMethod
-        // logic. Therefore the one time initialization of the gfp_array slot
-        // from this method should work with multple threads, assuming that the
-        // platform mutex performs "memory barrier / fence" or equivalent, if
-        // necessary.
-        // The memory allocated to hold this structure never released by
-        // jerasure library, and might be reported as "memory leak" by memory
-        // debuggers. The library api doesn't appear to offer any method to
-        // free this memory.
         int* const theMatrixPtr = inRecoveryStripeCount != 2 ?
             reed_sol_vandermonde_coding_matrix(
                 inStripeCount, inRecoveryStripeCount, theW) :
@@ -331,7 +350,8 @@ protected:
     QCECMethodJerasure()
         : ECMethod(),
           mDescription(Describe()),
-          mJXCoders()
+          mJXCoders(),
+          mInitDoneFlag(false)
         { LruList::Init(mLru); }
     virtual ~QCECMethodJerasure()
     {
@@ -351,15 +371,17 @@ protected:
     }
     static string Describe()
     {
-        ostringstream theStream;
-        theStream <<
-            "id: " << int(KFS_STRIPED_FILE_TYPE_RS_JERASURE) <<
+        string theRet;
+        theRet += "id: ";
+        AppendDecIntToString(theRet, int(KFS_STRIPED_FILE_TYPE_RS_JERASURE)) +=
             "; jerasure"
-            "; data stripes range: [1, " << KFS_MAX_DATA_STRIPE_COUNT << "]"
-            "; recovery stripes range: [0, " <<
-                KFS_MAX_RECOVERY_STRIPE_COUNT << "]"
-        ;
-        return theStream.str();
+            "; data stripes range: [1, ";
+        AppendDecIntToString(theRet, KFS_MAX_DATA_STRIPE_COUNT) +=
+            "]"
+            "; recovery stripes range: [0, ";
+        AppendDecIntToString(theRet, KFS_MAX_RECOVERY_STRIPE_COUNT) +=
+            "]";
+        return theRet;
     }
 };
 

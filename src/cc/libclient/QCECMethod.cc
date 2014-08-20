@@ -28,10 +28,10 @@
 #include "qcrs/rs.h"
 
 #include "common/kfstypes.h"
+#include "common/IntToString.h"
 
 #include "qcdio/QCUtils.h"
 
-#include <sstream>
 #include <algorithm>
 
 namespace KFS
@@ -39,7 +39,6 @@ namespace KFS
 namespace client
 {
 
-using std::ostringstream;
 using std::min;
 
 class QCECMethod : public ECMethod
@@ -184,17 +183,20 @@ private:
 
     static string Describe()
     {
-        ostringstream theStream;
-        theStream <<
-            "id: " << int(KFS_STRIPED_FILE_TYPE_RS) <<
+        string theRet;
+        theRet += "id: ";
+        AppendDecIntToString(theRet, int(KFS_STRIPED_FILE_TYPE_RS)) +=
             "; qcrs"
-            "; recovery stripes: 0 or " << RS_LIB_MAX_RECOVERY_BLOCKS <<
-            "; data stripes range: [1, " <<
-                min(RS_LIB_MAX_DATA_BLOCKS, KFS_MAX_DATA_STRIPE_COUNT)  << "]"
-            " or [1, " << KFS_MAX_DATA_STRIPE_COUNT <<
-                "] with 0 recovery stripes"
+            "; recovery stripes: 0 or ";
+        AppendDecIntToString(theRet, RS_LIB_MAX_RECOVERY_BLOCKS) +=
+            "; data stripes range: [1, ";
+        AppendDecIntToString(theRet,
+                min(RS_LIB_MAX_DATA_BLOCKS, KFS_MAX_DATA_STRIPE_COUNT)) +=
+            "] or [1, ";
+        AppendDecIntToString(theRet, KFS_MAX_DATA_STRIPE_COUNT) +=
+            "] with 0 recovery stripes"
         ;
-        return theStream.str();
+        return theRet;
     }
 };
 
