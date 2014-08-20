@@ -241,8 +241,9 @@ metaServer.clusterKey = my-fs-unique-identifier
 
 # Limit number of recovery stripes for all file types. If create attempt exceeds
 # the limit the meta server returns "permission denied".
-# Default is the max supported by the compile time constants.
-# metaServer.maxRecoveryStripeCount = 127
+# Default is 32.
+# Max supported by the compile time constants in common/kfstypes.h is 127.
+# metaServer.maxRecoveryStripeCount = 32
 
 # Max number of replicas for "regular / replicated" file with no recovery.
 # If create, or change replication requests exceeds this limit then the meta
