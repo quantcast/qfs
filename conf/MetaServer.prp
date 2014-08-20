@@ -245,6 +245,11 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Max supported by the compile time constants in common/kfstypes.h is 127.
 # metaServer.maxRecoveryStripeCount = 32
 
+# Limit number of data stripes for files with recovery.
+# Default is 64.
+# Max supported by the compile time constants in common/kfstypes.h is 511.
+# metaServer.maxRSDataStripeCount = 64
+
 # Max number of replicas for "regular / replicated" file with no recovery.
 # If create, or change replication requests exceeds this limit then the meta
 # server replaces the value with the value specified.
