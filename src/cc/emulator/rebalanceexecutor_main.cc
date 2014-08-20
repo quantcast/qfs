@@ -114,7 +114,7 @@ main(int argc, char** argv)
     Properties props;
     int status = 0;
     if ((propsFn.empty() ||
-            (status = props.loadProperties(propsFn.c_str(), char('='), false))
+            (status = props.loadProperties(propsFn.c_str(), char('=')))
                 == 0)) {
         gLayoutEmulator.SetParameters(props);
         if ((status = EmulatorSetup(logdir, cpdir, networkFn, chunkmapFn))
