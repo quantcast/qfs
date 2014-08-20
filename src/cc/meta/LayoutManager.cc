@@ -1453,6 +1453,7 @@ LayoutManager::LayoutManager() :
     mCreateFileTypeExclude(),
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
+    mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mFileRecoveryInFlightCount(),
     mTmpParseStream(),
     mChunkInfosTmp(),
@@ -2080,6 +2081,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.maxDataStripeCount",     mMaxDataStripeCount));
     mMaxRecoveryStripeCount = min(KFS_MAX_RECOVERY_STRIPE_COUNT, props.getValue(
         "metaServer.maxRecoveryStripeCount", mMaxRecoveryStripeCount));
+    mMaxRSDataStripeCount = min(KFS_MAX_DATA_STRIPE_COUNT, props.getValue(
+        "metaServer.maxRSDataStripeCount", mMaxRSDataStripeCount));
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
@@ -2161,6 +2164,13 @@ LayoutManager::Validate(MetaCreate& createOp) const
     if (mMaxRecoveryStripeCount < createOp.numRecoveryStripes) {
         createOp.status    = -EPERM;
         createOp.statusMsg = "recovery stripe count exceeds max allowed";
+        return false;
+    }
+    if (0 < createOp.numRecoveryStripes &&
+            mMaxRSDataStripeCount < createOp.numStripes) {
+        createOp.status    = -EPERM;
+        createOp.statusMsg =
+            "data stripe count exceeds max allowed for files with recovery";
         return false;
     }
     return true;

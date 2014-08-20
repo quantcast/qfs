@@ -2072,6 +2072,7 @@ protected:
     CreateFileTypeExclude mCreateFileTypeExclude;
     int                   mMaxDataStripeCount;
     int                   mMaxRecoveryStripeCount;
+    int                   mMaxRSDataStripeCount;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
