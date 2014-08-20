@@ -286,7 +286,7 @@ LayoutEmulator::GetChunkSize(const CSMap::Entry& ci) const
     const chunkOff_t strideHead     = size % strideSize;
     const chunkOff_t stripeIdx      = strideHead / fa->stripeSize;
     const int        idx            =
-            chunkStripeIdx < fa->numStripes ? chunkStripeIdx : 0;
+            chunkStripeIdx < (int)fa->numStripes ? chunkStripeIdx : 0;
     chunkOff_t       chunkSize      = strideCount * fa->stripeSize;
     if (idx < stripeIdx) {
         chunkSize += fa->stripeSize;
