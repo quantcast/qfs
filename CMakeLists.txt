@@ -105,8 +105,8 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
         CONFIGURE_COMMAND ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/configure
             CC=${Gf_complete_CC}
             CPPFLAGS=${Gf_complete_CPPFLAGS}
-            --enable-static
-            --enable-shared
+            --enable-static=yes
+            --enable-shared=yes
             --prefix=${Gf_complete_PREFIX}
         BUILD_COMMAND ${MAKE}
     )
@@ -133,8 +133,8 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
             CC=${Jerasure_CC}
             CPPFLAGS=${Jerasure_CPPFLAGS}
             LDFLAGS=${Jerasure_LDFLAGS}
-            --enable-static
-            --enable-shared
+            --enable-static=yes
+            --enable-shared=yes
             --prefix=${Jerasure_PREFIX}
         BUILD_COMMAND ${MAKE}
     )
@@ -150,22 +150,28 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     install (FILES ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB}
         DESTINATION lib/static
     )
-    # Shared library are sym linked, install both sym link and the targets by
-    # using pattern. Allow version suffix that follows library suffix.
-    install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
-        DESTINATION lib
-        USE_SOURCE_PERMISSIONS
-        FILES_MATCHING PATTERN
-            "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
-    )
     set (JERASURE_STATIC_LIBRARIES
         ${Jerasure_STATIC_LIB}
         ${Gf_complete_STATIC_LIB}
     )
-    set (JERASURE_SHARED_LIBRARIES
-        ${Jerasure_SHARED_LIB}
-        ${Gf_complete_SHARED_LIB}
-    )
+    IF (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+        # It appears that on cygwin only static libs are built, and it is
+        # possible to link client library dll against them.
+        set (JERASURE_SHARED_LIBRARIES ${JERASURE_STATIC_LIBRARIES})
+    ELSE (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+        # Shared library are sym linked, install both sym link and the targets
+        # by using pattern. Allow version suffix that follows library suffix.
+        install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
+            DESTINATION lib
+            USE_SOURCE_PERMISSIONS
+            FILES_MATCHING PATTERN
+                "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
+        )
+        set (JERASURE_SHARED_LIBRARIES
+            ${Jerasure_SHARED_LIB}
+            ${Gf_complete_SHARED_LIB}
+        )
+    ENDIF (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
 ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     IF (NOT QFS_OMIT_JERASURE)
         message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
