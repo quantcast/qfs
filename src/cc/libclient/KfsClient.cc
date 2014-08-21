@@ -92,6 +92,7 @@ using boost::scoped_array;
 using boost::bind;
 
 using client::RSStriperValidate;
+using client::KfsNetClient;
 
 const int kMaxReaddirEntries = 1 << 10;
 const int kMaxReadDirRetries = 16;
@@ -225,8 +226,8 @@ GetLogLevel(const char* logLevel)
     return MsgLogger::kLogLevelINFO;
 }
 
-KfsClient::KfsClient()
-    : mImpl(new KfsClientImpl())
+KfsClient::KfsClient(KfsNetClient* metaServer)
+    : mImpl(new KfsClientImpl(metaServer))
 {
 }
 
@@ -1357,10 +1358,11 @@ KfsClientImpl::ClientsList* KfsClientImpl::ClientsList::sInstance =
 // Now, the real work is done by the impl object....
 //
 
-KfsClientImpl::KfsClientImpl()
+KfsClientImpl::KfsClientImpl(
+    KfsNetClient* metaServer)
     : mMutex(),
       mReadCompletionMutex(),
-      mIsInitialized(false),
+      mIsInitialized(metaServer != 0),
       mMetaServerLoc(),
       mNetManager(),
       mChunkServer(mNetManager),
@@ -1418,9 +1420,14 @@ KfsClientImpl::KfsClientImpl()
       ),
       mNameBuf(new char[mNameBufSize]),
       mAuthCtx(),
-      mProtocolWorkerAuthCtx()
+      mProtocolWorkerAuthCtx(),
+      mMetaServer(metaServer)
 {
-    ClientsList::Insert(*this);
+    if (mMetaServer) {
+        mMetaServerLoc = mMetaServer->GetServerLocation();
+    } else {
+        ClientsList::Insert(*this);
+    }
 
     QCStMutexLocker l(mMutex);
 
@@ -1434,8 +1441,9 @@ KfsClientImpl::KfsClientImpl()
 
 KfsClientImpl::~KfsClientImpl()
 {
-    ClientsList::Remove(*this);
-
+    if (! mMetaServer) {
+        ClientsList::Remove(*this);
+    }
     QCStMutexLocker l(mMutex);
     KfsClientImpl::ShutdownSelf();
     FAttr* p;
@@ -1473,6 +1481,13 @@ KfsClientImpl::ShutdownSelf()
 int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     const Properties* props)
 {
+    if (mMetaServer) {
+        KFS_LOG_STREAM_ERROR <<
+            "invalid invocation: meta server already set: " <<
+                mMetaServer->GetServerLocation() <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
     if (metaServerHost.empty() || metaServerPort <= 0) {
         KFS_LOG_STREAM_ERROR <<
             "invalid metaserver location: " <<
@@ -4729,22 +4744,26 @@ KfsClientImpl::OpDone(
         inOpPtr->Show() << " status: " << inOpPtr->status <<
         " msg: " << inOpPtr->statusMsg <<
     KFS_LOG_EOM;
-    mNetManager.Shutdown(); // Exit service loop.
+    // Exit service loop.
+    if (mMetaServer) {
+        mMetaServer->GetNetManager().Shutdown();
+    }
+    mNetManager.Shutdown();
 }
 
 int
 KfsClientImpl::InitUserAndGroupMode()
 {
-    if (! mInitLookupRootFlag || ! mMetaServerLoc.IsValid()) {
+    if (! mInitLookupRootFlag ||
+            (! mMetaServerLoc.IsValid() && ! mMetaServer)) {
         return 0;
     }
-    StartProtocolWorker();
     // Root directory lookup to determine user and group mode.
     // If no root directory exists or not searchable, then the results is
     // doesn't have much effect on subsequent ops.
     LookupOp lrop(0, ROOTFID, ".");
     lrop.getAuthInfoOnlyFlag = true;
-    mProtocolWorker->ExecuteMeta(lrop);
+    ExecuteMeta(lrop);
     const time_t now = time(0);
     UpdateUserAndGroup(lrop, now);
     KFS_LOG_STREAM(0 <= lrop.status ?
@@ -4792,15 +4811,39 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
         abort();
         return;
     }
-    StartProtocolWorker();
     InitUserAndGroupMode();
-    mProtocolWorker->ExecuteMeta(*op);
+    ExecuteMeta(*op);
+}
+
+void
+KfsClientImpl::ExecuteMeta(KfsOp& op)
+{
+    if (mMetaServer) {
+        mMetaServer->GetNetManager().UpdateTimeNow();
+        if (! mMetaServer->Enqueue(&op, this)) {
+            if (0 <= op.status) {
+                op.status    = -EFAULT;
+                op.statusMsg = "failed to enqueue";
+            }
+            KFS_LOG_STREAM_ERROR << op.statusMsg <<
+                " op: " << op.Show() <<
+            KFS_LOG_EOM;
+            return;
+        }
+        const bool     kWakeupAndCleanupFlag = false;
+        QCMutex* const kNullMutexPtr         = 0;
+        mMetaServer->GetNetManager().MainLoop(
+            kNullMutexPtr, kWakeupAndCleanupFlag);
+    } else {
+        StartProtocolWorker();
+        mProtocolWorker->ExecuteMeta(op);
+    }
     KFS_LOG_STREAM_DEBUG <<
         "meta op done:" <<
-        " seq: "    << op->seq <<
-        " status: " << op->status <<
-        " msg: "    << op->statusMsg <<
-        " "         << op->Show() <<
+        " seq: "    << op.seq <<
+        " status: " << op.status <<
+        " msg: "    << op.statusMsg <<
+        " "         << op.Show() <<
     KFS_LOG_EOM;
 }
 
@@ -4811,7 +4854,8 @@ KfsClientImpl::DoChunkServerOp(const ServerLocation& loc, KfsOp& op)
 }
 
 void
-KfsClientImpl::DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op)
+KfsClientImpl::DoServerOp(
+    KfsNetClient& server, const ServerLocation& loc, KfsOp& op)
 {
     server.GetNetManager().UpdateTimeNow();
     server.SetOpTimeoutSec(mDefaultOpTimeout);
@@ -5415,7 +5459,7 @@ KfsClientImpl::CancelDelegation(
     const string& token,
     const string& key,
     string*       outErrMsg)
-{    
+{
     QCStMutexLocker l(mMutex);
 
     DelegateCancelOp delegateCancelOp(0);
@@ -6220,7 +6264,7 @@ KfsClientImpl::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
     // Even though meta server supports recursive set replication, do it one
     // file at a time, in order to prevent "DoS".
     // For this reason meta server might not support recursive version in the
-    // future releases. 
+    // future releases.
     DefaultErrHandler errorHandler;
     SetReplicationFactorFunc funct(
         *this, numReplicas, errHandler ? *errHandler : errorHandler);
@@ -6246,7 +6290,9 @@ int
 KfsClientImpl::SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
     kfsGid_t* groups, int groupsCnt)
 {
-    return ClientsList::SetEUserAndEGroup(user, group, groups, groupsCnt);
+    return (mMetaServer ? -EINVAL :
+        ClientsList::SetEUserAndEGroup(user, group, groups, groupsCnt)
+    );
 }
 
 int

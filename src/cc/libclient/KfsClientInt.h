@@ -245,7 +245,7 @@ class KfsClientImpl : private KfsNetClient::OpOwner
 public:
     typedef KfsClient::ErrorHandler ErrorHandler;
 
-    KfsClientImpl();
+    KfsClientImpl(KfsNetClient* metaServer);
     virtual ~KfsClientImpl();
 
     ///
@@ -798,6 +798,7 @@ private:
     char* const                    mNameBuf;
     ClientAuthContext              mAuthCtx;
     ClientAuthContext              mProtocolWorkerAuthCtx;
+    KfsNetClient* const            mMetaServer;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
 
@@ -907,6 +908,7 @@ private:
     /// Do the work for an op with the metaserver; if the metaserver
     /// dies in the middle, retry the op a few times before giving up.
     void DoMetaOpWithRetry(KfsOp *op);
+    void ExecuteMeta(KfsOp& op);
     void DoChunkServerOp(const ServerLocation& loc, KfsOp& op);
     void DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op);
 

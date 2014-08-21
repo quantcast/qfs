@@ -40,6 +40,7 @@ using std::vector;
 
 namespace client {
 class KfsClientImpl;
+class KfsNetClient;
 }
 
 class Properties;
@@ -73,7 +74,7 @@ public:
         ErrorHandler& operator=(const ErrorHandler&) { return *this; }
     };
 
-    KfsClient();
+    KfsClient(client::KfsNetClient* metaServer = 0);
     ~KfsClient();
 
     ///
