@@ -835,7 +835,7 @@ private:
     FAttr* NewFattr(kfsFileId_t parentFid, const string& name, const string& pathname);
     void Delete(FAttr* fa);
     bool Cache(time_t now, const string& dirname, kfsFileId_t dirFid,
-        const KfsFileAttr& attr);
+        const KfsFileAttr& attr, bool staleSubCountsFlag = false);
     int StatSelf(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize,
         string* path = 0, FAttr** fa = 0, bool validSubCountsRequiredFlag = false);
     int OpenSelf(const char *pathname, int openFlags, int numReplicas = 3,
@@ -997,7 +997,7 @@ private:
     const char* GetTmpAbsPath(const char* pathname, size_t& ioLen);
     bool InvalidateCachedAttrsWithPathPrefix(const string& path,
         const FAttr* doNotDeleteFa = 0);
-    bool UpdateFattr(
+    int UpdateFattr(
         kfsFileId_t     parentFid,
         const string&   name,
         FAttr*&         fa,

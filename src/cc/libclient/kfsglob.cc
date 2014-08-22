@@ -195,7 +195,7 @@ public:
                 mDirToReusePtr->Clear() : *(new KfsOpenDir());
             mDirToReusePtr = 0;
             const bool kComputeFileSizeFlag   = false;
-            const bool kUpdateClientCacheFlag = false;
+            const bool kUpdateClientCacheFlag = true; // Cache dirs i-nodes.
             const bool kFileIdAndTypeOnlyFalg = true;
             mError = mClientPtr->ReaddirPlus(
                 theDirNamePtr,

@@ -2600,14 +2600,23 @@ const ReaddirPlusParser::HexParser& ReaddirPlusParser::sHexParser =
 
 bool
 KfsClientImpl::Cache(time_t now, const string& dirname, kfsFileId_t dirFid,
-    const KfsFileAttr& attr)
+    const KfsFileAttr& attr, bool staleSubCountsFlag)
 {
     if (attr.filename == "." || attr.filename == "..") {
         return true;
     }
     const string path = dirname + "/" + attr.filename;
     FAttr* fa = LookupFAttr(dirFid, attr.filename);
-    return (UpdateFattr(dirFid, attr.filename, fa, path, attr, now) == 0);
+    if (fa && staleSubCountsFlag && attr.fileId == fa->fileId) {
+        return true;
+    }
+    if (UpdateFattr(dirFid, attr.filename, fa, path, attr, now) != 0) {
+        return false;
+    }
+    if (fa && staleSubCountsFlag) {
+        fa->staleSubCountsFlag = true;
+    }
+    return true;
 }
 
 class KfsClientImpl::ReadDirPlusResponseParser
@@ -2824,29 +2833,27 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             ) {
         dirname.erase(--len);
     }
-    if (! fileIdAndTypeOnly) {
-        const size_t kMaxUpdateSize = 1 << 10;
-        if (updateClientCache &&
-                result.size() <= kMaxUpdateSize &&
-                mFidNameToFAttrMap.size() < kMaxUpdateSize) {
-            InvalidateCachedAttrsWithPathPrefix(dirname);
-            for (size_t i = 0; i < result.size(); i++) {
-                if (! Cache(now, dirname, dirFid, result[i])) {
-                    break;
-                }
+    const size_t kMaxUpdateSize = 1 << 10;
+    if (updateClientCache && ! fileIdAndTypeOnly &&
+            result.size() <= kMaxUpdateSize &&
+            mFidNameToFAttrMap.size() < kMaxUpdateSize) {
+        InvalidateCachedAttrsWithPathPrefix(dirname);
+        for (size_t i = 0; i < result.size(); i++) {
+            if (! Cache(now, dirname, dirFid, result[i])) {
+                break;
             }
-        } else if (updateClientCache && parser.hasDirs) {
-            size_t dirCnt            = 0;
-            size_t kMaxDirUpdateSize = 1024;
-            InvalidateCachedAttrsWithPathPrefix(dirname);
-            for (size_t i = 0; i < result.size(); i++) {
-                if (! result[i].isDirectory) {
-                    continue;
-                }
-                if (! Cache(now, dirname, dirFid, result[i]) ||
-                        kMaxDirUpdateSize <= ++dirCnt) {
-                    break;
-                }
+        }
+    } else if (updateClientCache && parser.hasDirs) {
+        size_t dirCnt            = 0;
+        size_t kMaxDirUpdateSize = 1024;
+        InvalidateCachedAttrsWithPathPrefix(dirname);
+        for (size_t i = 0; i < result.size(); i++) {
+            if (! result[i].isDirectory) {
+                continue;
+            }
+            if (! Cache(now, dirname, dirFid, result[i], fileIdAndTypeOnly) ||
+                    kMaxDirUpdateSize <= ++dirCnt) {
+                break;
             }
         }
     }
@@ -3295,7 +3302,7 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
     return op.status;
 }
 
-bool
+int
 KfsClientImpl::UpdateFattr(
     kfsFileId_t            parentFid,
     const string&          name,
