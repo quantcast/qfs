@@ -1049,6 +1049,8 @@ private:
     IOBufferWriter writer;
     const int      maxSize;
     const bool     getLastChunkInfoOnlyIfSizeUnknown;
+    const bool     omitLastChunkInfoFlag;
+    const bool     fileIdAndTypeOnlyFlag;
     char* const    nBufEnd;
     kfsUid_t       prevUid;
     kfsGid_t       prevGid;
@@ -1175,6 +1177,10 @@ private:
         WriteInt(entry.id());
         Write(kType);
         Write(kFileType[entry.type]);
+        if (fileIdAndTypeOnlyFlag) {
+            Write(kNL);
+            return;
+        }
         Write(kMtime);
         WriteTime(entry.mtime);
         if (! ShortFormatFlag || entry.ctime != entry.crtime) {
@@ -1246,7 +1252,8 @@ private:
             Write(kMaxTier);
             WriteInt(entry.maxSTier);
         }
-        if (entry.type == KFS_DIR || entry.IsStriped() ||
+        if (omitLastChunkInfoFlag ||
+                entry.type == KFS_DIR || entry.IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
                 entry.filesize >= 0)) {
             Write(kNL);
@@ -1283,10 +1290,12 @@ private:
     ReaddirPlusWriter(const ReaddirPlusWriter&);
     ReaddirPlusWriter& operator=(const ReaddirPlusWriter&);
 public:
-    ReaddirPlusWriter(IOBuffer& b, int ms, bool f)
+    ReaddirPlusWriter(IOBuffer& b, int ms, bool f, bool olcif, bool fidtof)
         : writer(b),
           maxSize(ms),
           getLastChunkInfoOnlyIfSizeUnknown(f),
+          omitLastChunkInfoFlag(olcif),
+          fileIdAndTypeOnlyFlag(fidtof),
           nBufEnd(nBuf + kNumBufSize - 1),
           prevUid(kKfsUserNone),
           prevGid(kKfsGroupNone),
@@ -1468,9 +1477,16 @@ MetaReaddirPlus::handle()
         (size_t)((numEntries >= 0 && extSize * 2 < maxRespSize) ?
         maxRespSize - extSize : maxRespSize);
     dentries.reserve(res.size());
-    const size_t avgDirExtraSize  = numEntries < 0 ? 148 : 64;
-    const size_t avgFileExtraSize = numEntries < 0 ? 272 : 128;
-    const size_t avgChunkInfoSize = numEntries < 0 ? 82  : 24;
+    const size_t avgEntrySz[] = {
+        148, 272, 64,
+         64, 128, 24,
+         36, 36,  64,
+         28, 28,  24,
+    };
+    int idx = (fileIdAndTypeOnlyFlag ? 6 : 0) + (numEntries < 0 ? 0 : 3);
+    const size_t avgDirExtraSize  = avgEntrySz[idx++];
+    const size_t avgFileExtraSize = avgEntrySz[idx++];
+    const size_t avgChunkInfoSize = avgEntrySz[idx++];
     const size_t avgLocationSize  = 22;
     size_t responseSize = 0;
     vector<MetaDentry*>::const_iterator it;
@@ -1490,7 +1506,8 @@ MetaReaddirPlus::handle()
         responseSize += name.length() + (fa->type == KFS_DIR ?
             avgDirExtraSize : avgFileExtraSize);
         dentries.push_back(DEntry(*fa, name));
-        if (noAttrsFlag || fa->type == KFS_DIR || fa->IsStriped() ||
+        if (omitLastChunkInfoFlag || fileIdAndTypeOnlyFlag ||
+                noAttrsFlag || fa->type == KFS_DIR || fa->IsStriped() ||
                 (getLastChunkInfoOnlyIfSizeUnknown &&
                 fa->filesize >= 0)) {
             continue;
@@ -4044,14 +4061,18 @@ MetaReaddirPlus::response(ostream& os, IOBuffer& buf)
         ReaddirPlusWriter<true> writer(
             resp,
             maxRespSize,
-            getLastChunkInfoOnlyIfSizeUnknown);
+            getLastChunkInfoOnlyIfSizeUnknown,
+            omitLastChunkInfoFlag,
+            fileIdAndTypeOnlyFlag);
         entryCount = writer.Write(dentries, lastChunkInfos,
             noAttrsFlag, GetUserAndGroupNames(*this));
     } else {
         ReaddirPlusWriter<false> writer(
             resp,
             maxRespSize,
-            getLastChunkInfoOnlyIfSizeUnknown);
+            getLastChunkInfoOnlyIfSizeUnknown,
+            omitLastChunkInfoFlag,
+            fileIdAndTypeOnlyFlag);
         entryCount = writer.Write(dentries, lastChunkInfos,
             noAttrsFlag, GetUserAndGroupNames(*this));
     }

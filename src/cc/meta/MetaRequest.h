@@ -718,6 +718,8 @@ struct MetaReaddirPlus: public MetaRequest {
     int      numEntries; //!< max number of entres to return
     int      maxRespSize;
     bool     getLastChunkInfoOnlyIfSizeUnknown;
+    bool     omitLastChunkInfoFlag;
+    bool     fileIdAndTypeOnlyFlag;
     bool     hasMoreEntriesFlag;
     bool     noAttrsFlag;
     int64_t  ioBufPending;
@@ -731,6 +733,8 @@ struct MetaReaddirPlus: public MetaRequest {
           numEntries(-1),
           maxRespSize(-1),
           getLastChunkInfoOnlyIfSizeUnknown(false),
+          omitLastChunkInfoFlag(false),
+          fileIdAndTypeOnlyFlag(false),
           hasMoreEntriesFlag(false),
           noAttrsFlag(false),
           ioBufPending(0),
@@ -758,6 +762,10 @@ struct MetaReaddirPlus: public MetaRequest {
             &MetaReaddirPlus::getLastChunkInfoOnlyIfSizeUnknown, false)
         .Def("Max-entries",           &MetaReaddirPlus::numEntries,  0)
         .Def("Fname-start",           &MetaReaddirPlus::fnameStart)
+        .Def("Omit-lci",
+            &MetaReaddirPlus::omitLastChunkInfoFlag, false)
+        .Def("FidT-only",
+            &MetaReaddirPlus::fileIdAndTypeOnlyFlag, false)
         ;
     }
 };
