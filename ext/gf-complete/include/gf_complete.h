@@ -13,7 +13,12 @@
 #include <stdint.h>
 
 #ifdef INTEL_SSE4
-  #include <nmmintrin.h>
+  #ifdef __SSE4_2__
+    #include <nmmintrin.h>
+  #endif
+  #ifdef __SSE4_1__
+    #include <smmintrin.h>
+  #endif
 #endif
 
 #ifdef INTEL_SSSE3
