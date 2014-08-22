@@ -318,7 +318,8 @@ public:
     /// @retval 0 if readdirplus is successful; -errno otherwise
     ///
     int ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
-                    bool computeFilesize = true);
+        bool computeFilesize = true, bool updateClientCache = true,
+        bool fileIdAndTypeOnly = false);
 
     ///
     /// Read a directory's contents and retrieve the attributes
@@ -959,7 +960,8 @@ private:
 
     int ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
         vector<KfsFileAttr> &result,
-        bool computeFilesize = true, bool updateClientCache = true);
+        bool computeFilesize = true, bool updateClientCache = true,
+        bool fileIdAndTypeOnly = false);
 
     int Rmdirs(const string &parentDir, kfsFileId_t parentFid, const string &dirname, kfsFileId_t dirFid);
     int Remove(const string &parentDir, kfsFileId_t parentFid, const string &entryName);
@@ -975,8 +977,10 @@ private:
     void StartProtocolWorker();
     void InvalidateAllCachedAttrs();
     int GetUserAndGroup(const char* user, const char* group, kfsUid_t& uid, kfsGid_t& gid);
-    template<typename T> int RecursivelyApply(string& path, const KfsFileAttr& attr, T& functor);
-    template<typename T> int RecursivelyApply(const char* pathname, T& functor);
+    template<typename T> int RecursivelyApply(
+        string& path, const KfsFileAttr& attr, T& functor, bool fileIdAndTypeOnly = false);
+    template<typename T> int RecursivelyApply(
+        const char* pathname, T& functor, bool fileIdAndTypeOnly = false);
     const string& UidToName(kfsUid_t uid, time_t now);
     const string& GidToName(kfsUid_t uid, time_t now);
     kfsUid_t NameToUid(const string& name, time_t now);

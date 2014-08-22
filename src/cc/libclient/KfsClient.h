@@ -145,7 +145,8 @@ public:
     /// @retval 0 if readdirplus is successful; -errno otherwise
     ///
     int ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
-        bool computeFilesize = true);
+        bool computeFilesize = true, bool updateClientCache = true,
+        bool fileIdAndTypeOnly = false);
 
     ///
     /// Read a directory's contents and retrieve the attributes

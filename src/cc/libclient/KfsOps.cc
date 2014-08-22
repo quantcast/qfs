@@ -304,12 +304,17 @@ void
 ReaddirPlusOp::Request(ostream &os)
 {
     os <<
-        "READDIRPLUS \r\n"        << ReqHeaders(*this)  <<
+        "READDIRPLUS\r\n"         << ReqHeaders(*this)  <<
         "Directory File-handle: " << fid                << "\r\n"
         "GetLastChunkInfoOnlyIfSizeUnknown: " <<
             (getLastChunkInfoOnlyIfSizeUnknown ? 1 : 0) << "\r\n"
         "Max-entries: " << numEntries << "\r\n"
     ;
+    if (fileIdAndTypeOnlyFlag) {
+        os << "FidT-only: 1\r\n";
+    } else if (omitLastChunkInfoFlag) {
+        os << "Omit-lci: 1\r\n";
+    }
     if (! fnameStart.empty()) {
         os << "Fname-start: " << fnameStart << "\r\n";
     }
@@ -320,7 +325,7 @@ void
 RemoveOp::Request(ostream &os)
 {
     os <<
-        "REMOVE \r\n"          << ReqHeaders(*this) <<
+        "REMOVE\r\n"           << ReqHeaders(*this) <<
         "Pathname: "           << pathname          << "\r\n"
         "Parent File-handle: " << parentFid         << "\r\n"
         "Filename: "           << filename          << "\r\n"

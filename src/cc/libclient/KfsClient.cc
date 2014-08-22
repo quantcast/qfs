@@ -94,7 +94,9 @@ using boost::bind;
 using client::RSStriperValidate;
 using client::KfsNetClient;
 
-const int kMaxReaddirEntries = 1 << 10;
+// Set read dir limit larger than meta server's default 8K, to allow to
+// make it larger, if required, by changing the meta server configuration.
+const int kMaxReaddirEntries = 16 << 10;
 const int kMaxReadDirRetries = 16;
 
 KfsClient*
@@ -316,9 +318,10 @@ KfsClient::Readdir(const char *pathname, vector<string> &result)
 
 int
 KfsClient::ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
-    bool computeFilesize)
+    bool computeFilesize, bool updateClientCache, bool fileIdAndTypeOnly)
 {
-    return mImpl->ReaddirPlus(pathname, result, computeFilesize);
+    return mImpl->ReaddirPlus(pathname, result,
+        computeFilesize, updateClientCache, fileIdAndTypeOnly);
 }
 
 int
@@ -1926,7 +1929,7 @@ KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
     const string p = path + (path == "/" ? "" : "/") + dirname;
     // Don't compute file sizes and don't update i-node attribute cache.
     vector<KfsFileAttr> entries;
-    int res = ReaddirPlus(p, dirFid, entries, false, false);
+    int res = ReaddirPlus(p, dirFid, entries, false, false, true);
     if (res < 0) {
         if ((res = errHandler(p, res)) != 0) {
             return res;
@@ -2267,7 +2270,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
 /// @retval 0 if readdir is successful; -errno otherwise
 int
 KfsClientImpl::ReaddirPlus(const char* pathname, vector<KfsFileAttr>& result,
-    bool computeFilesize)
+    bool computeFilesize, bool updateClientCache, bool fileIdAndTypeOnly)
 {
     QCStMutexLocker l(mMutex);
 
@@ -2281,7 +2284,8 @@ KfsClientImpl::ReaddirPlus(const char* pathname, vector<KfsFileAttr>& result,
     if (! attr.isDirectory) {
         return -ENOTDIR;
     }
-    return ReaddirPlus(path, attr.fileId, result, computeFilesize);
+    return ReaddirPlus(path, attr.fileId, result,
+        computeFilesize, updateClientCache, fileIdAndTypeOnly);
 }
 
 class ReaddirPlusParser
@@ -2711,7 +2715,8 @@ private:
 
 int
 KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
-    vector<KfsFileAttr>& result, bool computeFilesize, bool updateClientCache)
+    vector<KfsFileAttr>& result, bool computeFilesize, bool updateClientCache,
+    bool fileIdAndTypeOnly)
 {
     assert(mMutex.IsOwned());
     if (pathname.empty() || pathname[0] != '/') {
@@ -2723,14 +2728,16 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
 
     time_t const                      now = time(0);
     ReadDirPlusResponseParser         parser(
-        *this, result, computeFilesize, dirFid, now);
+        *this, result, computeFilesize && ! fileIdAndTypeOnly, dirFid, now);
     const PropertiesTokenizer::Token* beginEntryToken = 0;
     const PropertiesTokenizer::Token* nameEntryToken  = 0;
     const PropertiesTokenizer::Token  nameToken("Name");
     const PropertiesTokenizer::Token  nameTokenShort("N");
     const bool                        kGetLastChunkInfoIfSizeUnknown = true;
+    const bool                        kOmitLastChunkInfo = ! computeFilesize;
     ReaddirPlusOp                     op(
-        0, dirFid, kGetLastChunkInfoIfSizeUnknown);
+        0, dirFid, kGetLastChunkInfoIfSizeUnknown, kOmitLastChunkInfo,
+        fileIdAndTypeOnly);
     ReaddirResult                     opResult;
     ReaddirResult*                    last  = &opResult;
     int                               count = 0;
@@ -2817,31 +2824,32 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             ) {
         dirname.erase(--len);
     }
-    const size_t kMaxUpdateSize = 1 << 10;
-    if (updateClientCache &&
-            result.size() <= kMaxUpdateSize &&
-            mFidNameToFAttrMap.size() < kMaxUpdateSize) {
-        InvalidateCachedAttrsWithPathPrefix(dirname);
-        for (size_t i = 0; i < result.size(); i++) {
-            if (! Cache(now, dirname, dirFid, result[i])) {
-                break;
+    if (! fileIdAndTypeOnly) {
+        const size_t kMaxUpdateSize = 1 << 10;
+        if (updateClientCache &&
+                result.size() <= kMaxUpdateSize &&
+                mFidNameToFAttrMap.size() < kMaxUpdateSize) {
+            InvalidateCachedAttrsWithPathPrefix(dirname);
+            for (size_t i = 0; i < result.size(); i++) {
+                if (! Cache(now, dirname, dirFid, result[i])) {
+                    break;
+                }
             }
-        }
-    } else if (updateClientCache && parser.hasDirs) {
-        size_t dirCnt            = 0;
-        size_t kMaxDirUpdateSize = 1024;
-        InvalidateCachedAttrsWithPathPrefix(dirname);
-        for (size_t i = 0; i < result.size(); i++) {
-            if (! result[i].isDirectory) {
-                continue;
-            }
-            if (! Cache(now, dirname, dirFid, result[i]) ||
-                    kMaxDirUpdateSize <= ++dirCnt) {
-                break;
+        } else if (updateClientCache && parser.hasDirs) {
+            size_t dirCnt            = 0;
+            size_t kMaxDirUpdateSize = 1024;
+            InvalidateCachedAttrsWithPathPrefix(dirname);
+            for (size_t i = 0; i < result.size(); i++) {
+                if (! result[i].isDirectory) {
+                    continue;
+                }
+                if (! Cache(now, dirname, dirFid, result[i]) ||
+                        kMaxDirUpdateSize <= ++dirCnt) {
+                    break;
+                }
             }
         }
     }
-
     sort(result.begin(), result.end());
     if (! op.fnameStart.empty()) {
         // The meta server doesn't guarantee that listing restarts from the
@@ -3462,7 +3470,7 @@ KfsClientImpl::OpenDirectory(const char *pathname)
     }
     assert(! entry.dirEntries);
     entry.dirEntries = new vector<KfsFileAttr>();
-    const int res = ReaddirPlus(path, entry.fattr.fileId, *entry.dirEntries, true);
+    const int res = ReaddirPlus(path, entry.fattr.fileId, *entry.dirEntries);
     if (res < 0) {
         Close(fd);
         return res;
@@ -5786,7 +5794,9 @@ KfsClientImpl::GetUserAndGroup(const char* user, const char* group,
 
 template<typename T>
 int
-KfsClientImpl::RecursivelyApply(string& path, const KfsFileAttr& attr, T& functor)
+KfsClientImpl::RecursivelyApply(
+    string& path, const KfsFileAttr& attr, T& functor,
+    bool fileIdAndTypeOnly /* = false */)
 {
     int          status   = 0;
     const size_t prevSize = path.size();
@@ -5798,7 +5808,7 @@ KfsClientImpl::RecursivelyApply(string& path, const KfsFileAttr& attr, T& functo
         // don't compute any filesize; don't update client cache
         vector<KfsFileAttr> entries;
         if ((status = ReaddirPlus(
-                path, attr.fileId, entries, false, false)) < 0) {
+                path, attr.fileId, entries, false, false, fileIdAndTypeOnly)) < 0) {
             entries.clear();
         }
         int res = 0;
@@ -5821,7 +5831,8 @@ KfsClientImpl::RecursivelyApply(string& path, const KfsFileAttr& attr, T& functo
 
 template<typename T>
 int
-KfsClientImpl::RecursivelyApply(const char* pathname, T& functor)
+KfsClientImpl::RecursivelyApply(const char* pathname, T& functor,
+    bool fileIdAndTypeOnly /* = false */)
 {
     string path;
     path.reserve(MAX_PATH_NAME_LENGTH);
@@ -5832,7 +5843,7 @@ KfsClientImpl::RecursivelyApply(const char* pathname, T& functor)
         return res;
     }
     attr.filename.clear();
-    res = RecursivelyApply(path, attr, functor);
+    res = RecursivelyApply(path, attr, functor, fileIdAndTypeOnly);
     InvalidateAllCachedAttrs();
     return res;
 }

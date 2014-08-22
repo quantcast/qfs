@@ -194,11 +194,15 @@ public:
             KfsOpenDir& theDir = mDirToReusePtr ?
                 mDirToReusePtr->Clear() : *(new KfsOpenDir());
             mDirToReusePtr = 0;
-            const bool kComputeFileSizeFlag = false;
+            const bool kComputeFileSizeFlag   = false;
+            const bool kUpdateClientCacheFlag = false;
+            const bool kFileIdAndTypeOnlyFalg = true;
             mError = mClientPtr->ReaddirPlus(
                 theDirNamePtr,
                 theDir.mDirContent,
-                kComputeFileSizeFlag
+                kComputeFileSizeFlag,
+                kUpdateClientCacheFlag,
+                kFileIdAndTypeOnlyFalg
             );
             if (mError != 0) {
                 mDirToReusePtr = &(theDir.Clear());

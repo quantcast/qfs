@@ -465,13 +465,17 @@ struct DumpChunkMapOp : public KfsOp {
 struct ReaddirPlusOp : public KfsOp {
     kfsFileId_t fid;         // fid of the directory
     bool        getLastChunkInfoOnlyIfSizeUnknown;
+    bool        omitLastChunkInfoFlag;
+    bool        fileIdAndTypeOnlyFlag;
     bool        hasMoreEntriesFlag;
     int         numEntries; // # of entries in the directory
     string      fnameStart;
-    ReaddirPlusOp(kfsSeq_t s, kfsFileId_t f, bool cif)
+    ReaddirPlusOp(kfsSeq_t s, kfsFileId_t f, bool cif, bool olcif, bool fidtof)
         : KfsOp(CMD_READDIRPLUS, s),
           fid(f),
           getLastChunkInfoOnlyIfSizeUnknown(cif),
+          omitLastChunkInfoFlag(olcif),
+          fileIdAndTypeOnlyFlag(fidtof),
           hasMoreEntriesFlag(false),
           numEntries(0),
           fnameStart()
