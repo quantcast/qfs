@@ -148,7 +148,7 @@ CpToKfs::Run(int argc, char **argv)
     int                 optchar;
 
     while ((optchar = getopt(argc, argv,
-            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:f:")) != -1) {
+            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:f:F:")) != -1) {
         switch (optchar) {
             case 'd':
                 sourcePath = optarg;
@@ -231,6 +231,9 @@ CpToKfs::Run(int argc, char **argv)
             case 'B':
                 mStartPos = (int64_t)strtoll(optarg, 0, 0);
                 break;
+            case 'F':
+                mStriperType = atoi(optarg);
+                break;
             case 'f':
                 config = optarg;
                 break;
@@ -270,6 +273,7 @@ CpToKfs::Run(int argc, char **argv)
             " [-l] -- max storage tier\n"
             " [-B] -- write from this position\n"
             " [-f] -- configuration file name\n"
+            " [-F] -- file type -- default 0 or 1 is stripe count not 0\n"
         ;
         return(-1);
     }
