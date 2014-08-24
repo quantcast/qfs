@@ -87,8 +87,9 @@ public:
         }
         const bool theRet = ValidateStripeParameters(
                 inType, inStripeCount, inRecoveryStripeCount, inStripeSize) &&
+            (inRecoveryStripeCount <= 0 ||
             ECMethod::IsValid(
-                inType, inStripeCount, inRecoveryStripeCount, outErrMsgPtr);
+                inType, inStripeCount, inRecoveryStripeCount, outErrMsgPtr));
         if (! theRet && outErrMsgPtr && outErrMsgPtr->empty()) {
             ostringstream theErrStream;
             theErrStream << "invalid parameters:"
