@@ -273,7 +273,7 @@ CpToKfs::Run(int argc, char **argv)
             " [-l] -- max storage tier\n"
             " [-B] -- write from this position\n"
             " [-f] -- configuration file name\n"
-            " [-F] -- file type -- default 0 or 1 is stripe count not 0\n"
+            " [-F] -- file type -- default 0 or 1 if stripe count not 0\n"
         ;
         return(-1);
     }
