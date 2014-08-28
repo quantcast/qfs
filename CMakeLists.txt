@@ -186,7 +186,7 @@ ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
 # Locate the path to jni.h
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
-find_package(KRB5 REQUIRED krb5)
+find_package(Krb5 REQUIRED krb5)
 
 IF (NOT KRB5_FOUND)
     iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
