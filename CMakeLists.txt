@@ -186,6 +186,17 @@ ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
 # Locate the path to jni.h
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
+find_package(KRB5 REQUIRED krb5)
+
+IF (NOT KRB5_FOUND)
+    iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set (KRB5_INSTALL_INFO
+            " Kerberos5 mac port required.")
+        set (KRB5_INSTALL_INFO
+            "${KRB5_INSTALL_INFO} To install: sudo port kerberos5")
+    ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    message(FATAL_ERROR "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
+ENDIF (NOT KRB5_FOUND)
 
 IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(
@@ -269,13 +280,6 @@ IF (ENABLE_PROFILING)
     set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
 ENDIF (ENABLE_PROFILING)
 
-# Darwin compilers need to be told about ports
-IF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I/opt/local/include")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/opt/local/lib")
-ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-
-
 # Change the line to Release to build release binaries
 # For servers, build with debugging info; for tools, build Release
 #
@@ -324,11 +328,11 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE)
 
 
-    message(STATUS "openssl includes: ${OPENSSL_INCLUDE_DIR} ${OPENSSL_LIBRARIES}")
 # include dirs
 include_directories(
     ${Boost_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIR}
+    ${KRB5_INCLUDE_DIRS}
     ${KFS_DIR_PREFIX}src/cc
 )
 

@@ -43,14 +43,8 @@ set_target_properties (qfskrb PROPERTIES OUTPUT_NAME "qfskrb")
 set_target_properties (qfskrb PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfskrb-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-if (EXISTS "/opt/local/lib/libkrb5.dylib")
-    set (KRB5_SHARED_LINK_LIB /opt/local/lib/libkrb5.dylib)
-else (EXISTS "/opt/local/lib/libkrb5.dylib")
-    set (KRB5_SHARED_LINK_LIB krb5)
-endif (EXISTS "/opt/local/lib/libkrb5.dylib")
-
-target_link_libraries (qfskrb        krb5)
-target_link_libraries (qfskrb-shared ${KRB5_SHARED_LINK_LIB})
+target_link_libraries (qfskrb        ${KRB5_LIBRARIES})
+target_link_libraries (qfskrb-shared ${KRB5_LIBRARIES})
 
 add_executable (qfskrbtest krbtest_main.cc)
 
