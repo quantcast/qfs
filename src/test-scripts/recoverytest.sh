@@ -134,6 +134,10 @@ shutdown()
     return $sstatus
 }
 
+usr=`id -un`
+[ -f "$clicfg"     ] || clicfg=/dev/null
+[ -f "$clirootcfg" ] || clirootcfg=/dev/null
+
 if [ $stop -ne 0 ]; then
     trap shutdown EXIT
 fi
@@ -228,10 +232,6 @@ verify_file()
     echo "read checsum mismath: expected: $testmd5 actual: $filemd5"
     return 1
 }
-
-usr=`id -un`
-[ -f "$clicfg"     ] || clicfg=/dev/null
-[ -f "$clirootcfg" ] || clirootcfg=/dev/null
 
 status=0
 "$toolsdir"/qfs \
