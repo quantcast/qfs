@@ -56,9 +56,9 @@ target_link_libraries (qcdio
 target_link_libraries (qcdio-shared
     pthread
 )
-if (NOT Boost_USE_STATIC_LIBS)
+if (NOT Boost_USE_STATIC_LIBS OR NOT QFS_DONT_LINK_STATIC_BOOST_LIB)
     target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
-endif (NOT Boost_USE_STATIC_LIBS)
+endif (NOT Boost_USE_STATIC_LIBS OR NOT QFS_DONT_LINK_STATIC_BOOST_LIB)
 
 if (NOT APPLE)
    target_link_libraries (qcdio rt)
