@@ -54,7 +54,7 @@ using KFS::Permissions;
 using KFS::KFS_STRIPED_FILE_TYPE_NONE;
 using KFS::Properties;
 
-static KfsClient *client;
+static KfsClient* client;
 
 static inline kfsMode_t
 mode2kfs_mode(mode_t mode)
@@ -399,7 +399,7 @@ get_fs_args(struct fuse_args* args)
     }
     args->argc = 2;
     args->argv = (char**)calloc(sizeof(char*), args->argc + 1);
-    args->argv[0] = strdup("kfs_fuse");
+    args->argv[0] = strdup("qfs_fuse");
     args->argv[1] = strdup("-obig_writes");
     args->allocated = 1;
     return args;
@@ -538,36 +538,41 @@ initfuse(char* kfs_host_address, const char* mountpoint,
 }
 
 static void
-usage(int e)
+usage(int e, const char* name)
 {
     //Undocumented option: 'rrw'. See massage_options() above.
     fprintf(stderr,
-        "usage: kfs_fuse kfshost mountpoint [-o opt1[,opt2..]]\n"
-        "       eg: kfs_fuse 127.0.0.1:20000 "
-        "/mnt/kfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n");
+        "usage: %s qfshost mountpoint [-o opt1[,opt2..]]\n"
+        "       eg: %s 127.0.0.1:20000 "
+        "/mnt/qfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n",
+        name, name
+    );
     exit(e);
 }
 
 int
 main(int argc, char **argv)
 {
-    argc--;
-    argv++;
-
+    const char* name = "qfs_fuse";
+    if (0 < argc) {
+        name = argv[0];
+        argc--;
+        argv++;
+    }
     bool fork_flag = true;
-    if (strcmp(argv[0], "-f") == 0) {
+    if (0 < argc && strcmp(argv[0], "-f") == 0) {
         argc--;
         argv++;
         fork_flag = false;
     }
-    if (argc >= 1 && (
-        !strncmp("-h", argv[0], 2) ||
-        !strncmp("-help", argv[0], 5) ||
-        !strncmp("--help", argv[0], 6))) {
-      usage(0);
+    if (0 < argc && (
+        strcmp("-h", argv[0]) == 0 ||
+        strcmp("-help", argv[0]) == 0 ||
+        strcmp("--help", argv[0]) == 0)) {
+      usage(0, name);
     }
     if (argc < 2) {
-        usage(1);
+        usage(1, name);
     }
     // Default is readonly mount,private mount.
     string options("-oro");
@@ -577,7 +582,7 @@ main(int argc, char **argv)
     if (argc > 2) {
         if (massage_options(argv + 2, argc - 2, &options, &readonly,
                 cfg_file, cfg_props) < 0) {
-            usage(1);
+            usage(1, name);
         }
     }
 
