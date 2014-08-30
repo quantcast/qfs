@@ -309,14 +309,16 @@ ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
 ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
         ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
     SET(USE_FIND_FUSE_CMAKE_MODULE TRUE)
-    find_package(FUSE)
+    IF (NOT QFS_OMIT_FUSE)
+        find_package(FUSE)
+    ENDIF (NOT QFS_OMIT_FUSE)
 ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
 
-IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
+IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE)
     IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
         INCLUDE(UsePkgConfig)
         PKGCONFIG("fuse"
-            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIR FUSE_LIBRARIES FUSE_DEFINITIONS)
+            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIRS FUSE_LIBRARIES FUSE_DEFINITIONS)
         IF (DEFINED FUSE_LIBRARIES)
             SET(FUSE_FOUND TRUE)
         ENDIF (DEFINED FUSE_LIBRARIES)
@@ -325,7 +327,27 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE)
         pkg_search_module(FUSE "fuse")
         set(FUSE_DEFINITIONS ${FUSE_CFLAGS})
     ENDIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
-ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE)
+    IF (FUSE_FOUND)
+        set(FUSE_LIBS_LIST "")
+        FOREACH(name ${FUSE_LIBRARIES})
+            # Look for this library.
+            find_library(FUSE_${name}_LIBRARY
+                NAMES ${name}
+                PATHS ${FUSE_LIBRARY_DIRS}
+            )
+            # If any library is not found then the whole package is not found.
+            IF(NOT FUSE_${name}_LIBRARY)
+                SET(FUSE_FOUND FALSE)
+            ENDIF(NOT FUSE_${name}_LIBRARY)
+            list(APPEND FUSE_LIBS_LIST "${FUSE_${name}_LIBRARY}")
+        ENDFOREACH(name)
+        IF (FUSE_FOUND)
+            set(FUSE_LIBRARIES ${FUSE_LIBS_LIST})
+        ELSE (FUSE_FOUND)
+            set(FUSE_LIBRARIES "")
+        ENDIF (FUSE_FOUND)
+    ENDIF (FUSE_FOUND)
+ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE)
 
 
 # include dirs
@@ -367,11 +389,15 @@ ELSE (JNI_FOUND)
     message(STATUS "JNI NOT found: NOT building qfs_access")
 ENDIF (JNI_FOUND)
 
-IF (FUSE_FOUND)
+IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     message(STATUS "Building qfs_fuse")
+    message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
+    message(STATUS "fuse include dirs: ${FUSE_INCLUDE_DIRS}")
+    message(STATUS "fuse definitions:  ${FUSE_DEFINITIONS}")
     add_definitions(${FUSE_DEFINITIONS})
     add_definitions(-D FUSE_USE_VERSION=26)
+    include_directories(${FUSE_INCLUDE_DIRS})
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
-ELSE  (FUSE_FOUND)
+ELSE  (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     message(STATUS "Not building qfs_fuse")
-ENDIF (FUSE_FOUND)
+ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)

@@ -27,7 +27,6 @@
 # Build the fuse binary; build it only on demand
 #
 
-include_directories(${FUSE_INCLUDE_DIRS})
 add_executable (qfs_fuse kfs_fuse_main.cc)
 target_link_libraries (qfs_fuse kfsClient ${FUSE_LIBRARIES})
 
