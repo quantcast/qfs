@@ -191,6 +191,7 @@ public:
             int64_t      inChunkSize) = 0;
         virtual bool CanCancelRead(
             RequestId inStriperRequestId) = 0;
+        virtual bool IsIdle() const = 0;
     protected:
         Striper(
             Impl& inOuter)

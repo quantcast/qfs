@@ -1174,6 +1174,13 @@ public:
         PBuffer& theBuf = *reinterpret_cast<PBuffer*>(inRequestId.mPtr);
         return theBuf.CancelRead(*this);
     }
+    virtual bool IsIdle() const
+    {
+        return (
+            Requests::IsEmpty(mPendingQueue) &&
+            Requests::IsEmpty(mInFlightList)
+        );
+    }
     int GetBufferCount() const
         { return (mStripeCount + mRecoveryStripeCount); }
 
@@ -2415,7 +2422,7 @@ private:
                     mMissingIdx[mMissingCnt++] = theMissingIdx[i];
                 }
             }
-       }
+        }
         void Get(
             Outer&   inOuter,
             Request& inRequest)

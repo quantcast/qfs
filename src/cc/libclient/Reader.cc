@@ -2291,7 +2291,8 @@ private:
         if (! inReader.IsIdle()) {
             return false;
         }
-        if (! inReader.IsOpen() || (mClosingFlag && ! mStriperPtr)) {
+        if (! inReader.IsOpen() || (mClosingFlag &&
+                (! mStriperPtr || mStriperPtr->IsIdle()))) {
             return true;
         }
         // The most recently used should always be first.
