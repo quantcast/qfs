@@ -76,8 +76,8 @@ ELSE (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
     find_package(Boost COMPONENTS regex REQUIRED)
 ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
 
-message(STATUS "Boost-includes = ${Boost_INCLUDE_DIRS}")
-message(STATUS "Boost-libs = ${Boost_LIBRARIES}")
+message(STATUS "Boost includes: ${Boost_INCLUDE_DIRS}")
+message(STATUS "Boost libs:     ${Boost_LIBRARIES}")
 
 IF (${CMAKE_MAJOR_VERSION} LESS 2)
 ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
@@ -188,6 +188,10 @@ IF (NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
     find_package(JNI)
 ENDIF (NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
 
+IF (NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
+    set(JNI_FOUND TRUE)
+ENDIF (NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
+
 IF (NOT OPENSSL_FOUND)
     find_package(OpenSSL REQUIRED)
 ENDIF (NOT OPENSSL_FOUND)
@@ -243,9 +247,9 @@ IF (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
 ENDIF  (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
 
 IF (QFS_USE_STATIC_LIB_LINKAGE)
-    message (STATUS "Build binaries with statically linked libraries")
+    message (STATUS "Build binaries with statically linked QFS libraries")
 ELSE (QFS_USE_STATIC_LIB_LINKAGE)
-    message (STATUS "Build binaries with dynamically linked libraries")
+    message (STATUS "Build binaries with dynamically linked QFS libraries")
 ENDIF (QFS_USE_STATIC_LIB_LINKAGE)
 set (USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
     "Build binaries with statically linked libraries" FORCE)
@@ -388,10 +392,6 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
-
-IF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
-    set(JNI_FOUND TRUE)
-ENDIF (NOT ${JAVA_INCLUDE_PATH} STREQUAL "" AND NOT DEFINED JNI_FOUND)
 
 IF (JNI_FOUND)
     message(STATUS "JNI found: building qfs_access")
