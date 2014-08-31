@@ -186,17 +186,20 @@ ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
 # Locate the path to jni.h
 find_package(JNI)
 find_package(OpenSSL REQUIRED)
-find_package(Krb5 REQUIRED krb5)
 
-IF (NOT KRB5_FOUND)
-    iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        set (KRB5_INSTALL_INFO
-            " Kerberos5 mac port required.")
-        set (KRB5_INSTALL_INFO
-            "${KRB5_INSTALL_INFO} To install: sudo port kerberos5")
-    ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    message(FATAL_ERROR "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
-ENDIF (NOT KRB5_FOUND)
+IF (NOT KRB5_LIBRARIES)
+    find_package(Krb5 REQUIRED krb5)
+    IF (NOT KRB5_FOUND)
+        iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            set (KRB5_INSTALL_INFO
+                " Kerberos5 mac port required.")
+            set (KRB5_INSTALL_INFO
+                "${KRB5_INSTALL_INFO} To install: sudo port kerberos5")
+        ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        message(FATAL_ERROR
+            "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
+    ENDIF (NOT KRB5_FOUND)
+ENDIF (NOT KRB5_LIBRARIES)
 
 IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(
