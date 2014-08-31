@@ -41,6 +41,7 @@
 
 #include <iostream>
 #include <cerrno>
+#include <limits>
 
 namespace KFS
 {
@@ -48,7 +49,9 @@ namespace KFS
 using std::cout;
 using std::cerr;
 using std::vector;
+using std::min;
 using std::max;
+using std::numeric_limits;
 
 class CpFromKfs
 {
@@ -59,6 +62,7 @@ public:
           mFailShortReadsFlag(true),
           mStart(-1),
           mStop(-1),
+          mMaxRead(numeric_limits<int64_t>::max()),
           mReadAhead(-1),
           mBufSize(0),
           mAllocBufSize(0),
@@ -77,8 +81,9 @@ private:
     KfsClient* mKfsClient;
     bool       mSkipHolesFlag;
     bool       mFailShortReadsFlag;
-    off_t      mStart;
-    off_t      mStop;
+    chunkOff_t mStart;
+    chunkOff_t mStop;
+    chunkOff_t mMaxRead;
     int        mReadAhead;
     int        mBufSize;
     int        mAllocBufSize;
@@ -120,7 +125,7 @@ CpFromKfs::Run(int argc, char **argv)
     const char*         config     = 0;
     int                 optchar;
 
-    while ((optchar = getopt(argc, argv, "d:hp:s:k:a:b:w:r:R:D:T:X:F:Svf:")) != -1) {
+    while ((optchar = getopt(argc, argv, "d:hp:s:k:a:b:w:r:R:D:T:X:F:Svf:M:")) != -1) {
         switch (optchar) {
             case 'd':
                 localPath = optarg;
@@ -144,10 +149,13 @@ CpFromKfs::Run(int argc, char **argv)
                 logLevel = MsgLogger::kLogLevelDEBUG;
                 break;
             case 'a':
-                mStart = (off_t)atof(optarg);
+                mStart = (chunkOff_t)atof(optarg);
                 break;
             case 'b':
-                mStop = (off_t)atof(optarg);
+                mStop = (chunkOff_t)atof(optarg);
+                break;
+            case 'M':
+                mMaxRead = (chunkOff_t)atof(optarg);
                 break;
             case 'w':
                 mBufSize = (int)atof(optarg);
@@ -204,6 +212,7 @@ CpFromKfs::Run(int argc, char **argv)
                             "default 1\n"
             " [-X n]     -- debugging: call exit(1) after n read calls\n"
             " [-f file]  -- configuration file name\n"
+            " [-M ]      -- maximum number of bytes to read per file\n"
         ;
         return (1);
     }
@@ -351,9 +360,9 @@ CpFromKfs::RestoreFile2(string kfsfilename, string localfilename)
         mAllocBufSize = theSize;
     }
 
-    off_t pos = max(off_t(0), mStart);
+    chunkOff_t pos = max(chunkOff_t(0), mStart);
     if (pos > 0) {
-        const off_t nPos = mKfsClient->Seek(kfsfd, pos, SEEK_SET);
+        const chunkOff_t nPos = mKfsClient->Seek(kfsfd, pos, SEEK_SET);
         if (nPos < 0 || nPos != pos) {
             const int err = nPos < 0 ? (int)nPos : -EINVAL;
             cerr << localfilename << ": " <<
@@ -368,9 +377,11 @@ CpFromKfs::RestoreFile2(string kfsfilename, string localfilename)
         mKfsClient->SetEOFMark(kfsfd, mStop);
     }
 
-    int err = 0;
-    for (; ;) {
-        const int nRead = mKfsClient->Read(kfsfd, mKfsBuf, mAllocBufSize);
+    chunkOff_t rem = mMaxRead;
+    int        err = 0;
+    while (0 < rem) {
+        const int nRead = mKfsClient->Read(kfsfd, mKfsBuf,
+            (size_t)min(rem, (chunkOff_t)mAllocBufSize));
         if (nRead <= 0) {
             if (nRead < 0) {
                 err = nRead;
@@ -385,6 +396,7 @@ CpFromKfs::RestoreFile2(string kfsfilename, string localfilename)
             exit(1);
         }
         pos += nRead;
+        rem -= nRead;
         for (const char* p = mKfsBuf, * const e = p + nRead; p < e; ) {
             const ssize_t n = write(localFd, p, e - p);
             if (n < 0) {
@@ -402,10 +414,15 @@ CpFromKfs::RestoreFile2(string kfsfilename, string localfilename)
         }
         if (mStop > 0 && pos >= mStop) {
             KFS_LOG_STREAM_INFO <<
-                "Stopping since: pos=" << pos << " ; mStop=" << mStop <<
+                "stopping: pos: " << pos << " stop: " << mStop <<
             KFS_LOG_EOM;
             break;
         }
+    }
+    if (rem <= 0) {
+        KFS_LOG_STREAM_INFO <<
+            "stopping: max read: " << mMaxRead <<
+        KFS_LOG_EOM;
     }
 
     mKfsClient->Close(kfsfd);
