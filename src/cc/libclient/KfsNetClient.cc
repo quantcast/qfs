@@ -1152,7 +1152,8 @@ private:
         mInFlightOpPtr =
             mCurOpIt != mPendingOpQueue.end() ? &mCurOpIt->second : 0;
         if (! mInFlightOpPtr) {
-            KFS_LOG_STREAM_INFO << mLogPrefix <<
+            // Discard canceled op reply.
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                 "no operation found with seq: " << theOpSeq <<
                 ", discarding response " <<
                 " content length: " << mContentLength <<

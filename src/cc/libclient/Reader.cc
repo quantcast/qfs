@@ -595,6 +595,14 @@ private:
         }
         void Shutdown()
         {
+            // Put lease release on the "wire", if possible, but do not
+            // wait for completion. Reset will remove the op from the
+            // meta server's queue, and reply will be discarded.
+            if (0 < mLeaseAcquireOp.chunkId &&
+                    0 <= mLeaseAcquireOp.leaseId &&
+                    &mLeaseRelinquishOp != mLastMetaOpPtr) {
+                CloseChunk();
+            }
             Reset();
             QCRTASSERT(Queue::IsEmpty(mInFlightQueue));
             Queue::PushBackList(mCompletionQueue, mPendingQueue);

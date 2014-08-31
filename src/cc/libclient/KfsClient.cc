@@ -3839,7 +3839,7 @@ KfsClientImpl::Close(int fd)
     }
     if (readCloseFlag) {
         const int ret = (int)mProtocolWorker->Execute(
-            KfsProtocolWorker::kRequestTypeReadClose,
+            KfsProtocolWorker::kRequestTypeReadShutdown,
             fileInstance + 1, // reader's instance always +1
             fileId
         );
