@@ -516,7 +516,7 @@ public:
         mHolesCnt         = 0;
         mNextIdx          = 0;
         mLastIdx          = 0;
-        mDoCompactionFlag = 0;
+        mDoCompactionFlag = false;
         return theRet;
     }
     int Add(
@@ -756,6 +756,7 @@ private:
         }
         mFdCount = k;
         mHolesCnt = 0;
+        mDoCompactionFlag = false;
         QCASSERT(int(mFdMap.size()) == mFdCount && mHolesCnt >= 0);
     }
 private:
