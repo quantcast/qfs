@@ -215,6 +215,14 @@ ENDIF (KRB5_FLAVOR)
 IF (KRB5_USE_KRB5H)
     add_definitions(-DKFS_KRB_USE_KRB5H)
 ENDIF (KRB5_USE_KRB5H)
+IF ("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
+        KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
+    add_definitions(-DKFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT)
+ENDIF ("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
+        KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
+IF (KRB5_HAS_krb5_unparse_name_flags_ext)
+    add_definitions(-DKRB5_HAS_krb5_unparse_name_flags_ext)
+ENDIF (KRB5_HAS_krb5_unparse_name_flags_ext)
 
 IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(

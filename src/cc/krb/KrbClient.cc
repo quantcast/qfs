@@ -35,14 +35,6 @@
 #include <string>
 #include <algorithm>
 
-#if defined(KFS_KRB_USE_HEIMDAL) || \
-        (! defined(_KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT) && \
-        defined(KRB5_GET_INIT_CREDS_OPT_CHG_PWD_PRMPT) && \
-        defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(_KFS_KRB_DONT_USE_KRB5_GET_INIT_CREDS_OPT))
-#   define _KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
-#endif
-
 namespace KFS
 {
 
@@ -233,7 +225,7 @@ private:
             return;
         }
         krb5_get_init_creds_opt* theInitOptionsPtr = 0;
-#ifdef _KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
+#ifdef KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
         if ((mErrCode = krb5_get_init_creds_opt_alloc(
                 mCtx, &theInitOptionsPtr))) {
             return;
@@ -263,7 +255,7 @@ private:
                         0,
                         0,
                         theInitOptionsPtr)) == 0) {
-#ifndef _KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
+#ifndef KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
                     if ((mErrCode = krb5_cc_initialize(
                                 mCtx, mCachePtr, mCreds.client)) == 0) {
                             mErrCode = krb5_cc_store_cred(
@@ -288,7 +280,7 @@ private:
                     mErrCode = theErr;
                 }
             }
-#ifdef _KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
+#ifdef KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
         }
         if (theInitOptionsPtr) {
             krb5_get_init_creds_opt_free(mCtx, theInitOptionsPtr);

@@ -161,9 +161,7 @@ public:
 namespace KFS
 {
 
-#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
+#if ! defined(KRB5_HAS_krb5_unparse_name_flags_ext)
 enum
 {
     KRB5_PRINCIPAL_UNPARSE_SHORT     = 0x1,
@@ -213,9 +211,7 @@ public:
             *inStrPtr   = 0;
             *inAllocLen = 0;
         }
-#if ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_NO_REALM) && \
-        ! defined(KRB5_PRINCIPAL_UNPARSE_DISPLAY)
+#if ! defined(KRB5_HAS_krb5_unparse_name_flags_ext)
 
         krb5_error_code theRet = krb5_unparse_name_ext(
             inCtx,
