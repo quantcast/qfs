@@ -209,6 +209,12 @@ IF (NOT KRB5_FOUND)
             "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
     ENDIF (NOT KRB5_FOUND)
 ENDIF (NOT KRB5_FOUND)
+IF (KRB5_FLAVOR)
+    add_definitions(-DKFS_KRB_USE_${KRB5_FLAVOR})
+ENDIF (KRB5_FLAVOR)
+IF (KRB5_USE_KRB5H)
+    add_definitions(-DKFS_KRB_USE_KRB5H)
+ENDIF (KRB5_USE_KRB5H)
 
 IF (NOT DEFINED OPENSSL_VERSION)
     execute_process(

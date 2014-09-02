@@ -27,16 +27,13 @@
 #ifndef KFSKRB5_H
 #define KFSKRB5_H
 
-#if defined(KFS_OS_NAME_CYGWIN)
+#if defined(KFS_KRB_USE_KRB5H)
 #   include <krb5.h>
-#   if ! defined(KFS_KRB_USE_HEIMDAL) && ! defined(KFS_KRB_USE_MIT)
-#       define KFS_KRB_USE_HEIMDAL
-#   endif
 #else
 #   include <krb5/krb5.h>
 #endif
 
-#ifdef KFS_KRB_USE_HEIMDAL
+#if defined(KFS_KRB_USE_HEIMDAL)
 
 #include <inttypes.h>
 #include <errno.h>
