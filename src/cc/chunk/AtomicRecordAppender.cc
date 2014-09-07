@@ -838,11 +838,12 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
         mMakeStableSucceededFlag || mState == kStateStable;
     if (nowStableFlag) {
         const int bytes = mBuffer.BytesConsumable();
+        mBuffer.Clear(); // no more ios.
+        mFlushStartByteCount = -1; // Prevent flush attempts.
         if (0 < bytes) {
             // Update total.
             gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
         }
-        mBuffer.Clear(); // no more ios.
     }
     if (mState == kStateStable) {
         mChunkFileHandle.reset();
@@ -1632,14 +1633,13 @@ AtomicRecordAppender::RunPendingSubmitQueue()
     bool                  scheduleTimeoutFlag =
         next == AppendReplicationList::Front(mReplicationList);
     assert(next && last);
-    if (0 <= mFlushStartByteCount) {
-        const int prevNumBytes = mFlushStartByteCount;
+    if (0 <= mFlushStartByteCount && IsOpen()) {
+        const int newBytes = mBuffer.BytesConsumable() - mFlushStartByteCount;
         mFlushStartByteCount  = -1;
         mAppendInProgressFlag = false;
         // Do space accounting and flush if needed.
-        if (gAtomicRecordAppendManager.GetFlushLimit(
-                    *this, mBuffer.BytesConsumable() - prevNumBytes) <=
-                mBuffer.BytesConsumable()) {
+        if (0 < newBytes && gAtomicRecordAppendManager.GetFlushLimit(
+                    *this, newBytes) <= mBuffer.BytesConsumable()) {
             // Align the flush to checksum boundaries.
             FlushFullBlocks();
         } else {
