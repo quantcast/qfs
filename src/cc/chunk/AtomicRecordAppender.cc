@@ -1535,7 +1535,7 @@ AtomicRecordAppender::AppendBegin(
             }
         }
         if (status == 0) {
-            assert(IsChunkOpen());
+            assert(cliThread || IsChunkOpen());
             if (IsMaster()) {
                 // Commit the execution.
                 op->fileOffset = mNextOffset;
