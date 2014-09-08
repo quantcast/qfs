@@ -1230,7 +1230,7 @@ ClientSM::GetPsk(
     );
     if (theKeyLen > 0) {
         CLIENT_SM_LOG_STREAM_DEBUG <<
-            "authentication succeeded: " <<
+            "authentication succeeded:" <<
             " delegation: " << mDelegationToken.Show() <<
         KFS_LOG_EOM;
         mSessionKey.assign(

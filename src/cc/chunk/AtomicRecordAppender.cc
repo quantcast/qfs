@@ -736,7 +736,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mFlushFullBlocksFlag(false),
       mCanDoLowOnBuffersFlushFlag(false),
       mMakeStableSucceededFlag(false),
-      mFirstFwdOpFlag(false),
+      mFirstFwdOpFlag(true),
       mPendingBadChecksumFlag(false),
       mAppendInProgressFlag(false),
       mInstanceNum(++sInstanceNum),
@@ -1045,7 +1045,8 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
             mPeer->GetShutdownSslFlag() != allowCSClearTextFlag) {
         WAPPEND_LOG_STREAM(mFirstFwdOpFlag ?
                 MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
-            "chunk: " << mChunkId <<
+            (prefix ? prefix : "") << ":"
+            " chunk: " << mChunkId <<
             " peer clear text access has changed to: " <<
             (allowCSClearTextFlag ? "allowed" : "not allowed") <<
             " state: "  << GetStateAsStr() <<
