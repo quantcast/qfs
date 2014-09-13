@@ -78,6 +78,9 @@ final public class KfsAccess
     String[][] getDataLocation(long ptr, String path, long start, long len);
 
     private final static native
+    String[][] getBlocksLocation(long ptr, String path, long start, long len);
+
+    private final static native
     short getReplication(long ptr, String path);
 
     private final static native
@@ -662,6 +665,23 @@ final public class KfsAccess
     public String[][] kfs_getDataLocation(String path, long start, long len)
     {
         return getDataLocation(cPtr, path, start, len);
+    }
+
+    // Given a starting byte offset and a length, return the location(s)
+    // of all "chunk blocks" that cover the region.
+    // The first entry always contains "chunk block" size in hex notation with
+    // leading 0 omitted, or if negative as status code, which can be converted
+    // into exceptions with kfs_retToIOException()
+    public String[][] kfs_getBlocksLocation(String path, long start, long len)
+    {
+        final String[][] ret = getBlocksLocation(cPtr, path, start, len);
+        if (ret == null) {
+            throw new OutOfMemoryError();
+        }
+        if (ret.length < 1 || ret[0].length != 1) {
+            throw new Error("getBlocksLocation internal error");
+        }
+        return ret;
     }
 
     // Return the degree of replication for this file

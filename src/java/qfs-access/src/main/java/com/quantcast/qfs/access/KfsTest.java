@@ -222,6 +222,27 @@ public class KfsTest
                 System.out.println();
             }
 
+            if ((locs = kfsAccess.kfs_getBlocksLocation(path, 10, 512)) == null) {
+                System.out.println("kfs_getBlocksLocation failed");
+                System.exit(1);
+            }
+            if (locs.length < 1 || locs[0].length != 1) {
+                System.out.println("kfs_getBlocksLocation invalid first slot length");
+                System.exit(1);
+            }
+            final long blockSize = Long.parseLong(locs[0][0], 16);
+            if (blockSize < 0) {
+                kfsAccess.kfs_retToIOException((int)blockSize, path);
+            }
+            System.out.println("block size: " + blockSize);
+            for (int i = 1; i < locs.length; i++) {
+                System.out.print("chunk " + (i-1) + " : ");
+                for (int j = 0; j < locs[i].length; j++) {
+                    System.out.print(locs[i][j] + " ");
+                }
+                System.out.println();
+            }
+
             long sz = kfsAccess.kfs_filesize(path);
 
             if (sz != buf.length) {
