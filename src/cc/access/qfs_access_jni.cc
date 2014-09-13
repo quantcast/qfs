@@ -97,6 +97,9 @@ extern "C" {
     jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen);
 
+    jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getBlocksLocation(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen);
+
     jshort Java_com_quantcast_qfs_access_KfsAccess_getReplication(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
@@ -883,25 +886,10 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
     return 0;
 }
 
-jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen)
+static jobjectArray CreateLocations(
+    JNIEnv *jenv, vector< vector<string> > entries, const char* blockSize)
 {
-    if (! jptr) {
-        return NULL;
-    }
-    KfsClient* const clnt = (KfsClient*)jptr;
-
-    // for each block, there could be multiple locations due to replication; return them all here
-
-    string path;
-    setStr(path, jenv, jpath);
-
-    vector< vector<string> > entries;
-    const int res = clnt->GetDataLocation(path.c_str(), jstart, jlen, entries);
-    if (res < 0) {
-        return 0;
-    }
-    jclass jstrArrClass = jenv->FindClass("[Ljava/lang/String;");
+    jclass const jstrArrClass = jenv->FindClass("[Ljava/lang/String;");
     if (! jstrArrClass) {
         jclass excl = jenv->FindClass("java/lang/ClassNotFoundException");
         if (excl) {
@@ -909,8 +897,8 @@ jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
         }
         return 0;
     }
-    jclass jstrClass = jenv->FindClass("java/lang/String");
-    if (! jstrArrClass) {
+    jclass const jstrClass = jenv->FindClass("java/lang/String");
+    if (! jstrClass) {
         jclass excl = jenv->FindClass("java/lang/ClassNotFoundException");
         if (excl) {
             jenv->ThrowNew(excl, 0);
@@ -918,30 +906,90 @@ jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
         return 0;
     }
     // For each block, return its location(s)
-    const jsize sz = (jsize)entries.size();
+    const jsize sz = (jsize)entries.size() + (blockSize ? 1 : 0);
     jobjectArray jentries = jenv->NewObjectArray(sz, jstrArrClass, 0);
     if (! jentries) {
         return 0;
     }
-    for (jsize i = 0; i < sz; i++) {
-        const jsize lsz = (jsize)entries[i].size();
+    for (jsize i = 0, k = 0; k < sz; k++) {
+        const jsize lsz =
+            (k == 0 && blockSize) ? (jsize)1 : (jsize)entries[i].size();
         jobjectArray jlocs = jenv->NewObjectArray(lsz, jstrClass, 0);
         if (! jlocs) {
             return 0;
         }
         for (jsize j = 0; j < lsz; j++) {
-            jstring s = jenv->NewStringUTF(entries[i][j].c_str());
+            jstring s = jenv->NewStringUTF(
+                (k == 0 && blockSize) ? blockSize : entries[i][j].c_str());
             if (! s) {
                 return 0;
             }
             jenv->SetObjectArrayElement(jlocs, j, s);
             jenv->DeleteLocalRef(s);
         }
-        jenv->SetObjectArrayElement(jentries, i, jlocs);
+        jenv->SetObjectArrayElement(jentries, k, jlocs);
         jenv->DeleteLocalRef(jlocs);
+        if (! blockSize || 1 < k) {
+            i++;
+        }
     }
-
     return jentries;
+}
+
+jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getDataLocation(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen)
+{
+    if (! jptr) {
+        return 0;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string path;
+    setStr(path, jenv, jpath);
+    vector< vector<string> > entries;
+    const int res = clnt->GetDataLocation(path.c_str(), jstart, jlen, entries, 0);
+    if (res < 0) {
+        return 0;
+    }
+    return CreateLocations(jenv, entries, 0);
+}
+
+jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getBlocksLocation(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jstart, jlong jlen)
+{
+    if (! jptr) {
+        return 0;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string path;
+    setStr(path, jenv, jpath);
+    vector< vector<string> > entries;
+    chunkOff_t               blockSize = 0;
+    int64_t                  res       = clnt->GetDataLocation(
+        path.c_str(), jstart, jlen, entries, &blockSize);
+    if (0 <= res) {
+        res = blockSize;
+        if (res <= 0) {
+            res = (int64_t)CHUNKSIZE;
+        }
+    }
+    uint64_t     val     = (uint64_t)(res < 0 ? -res : res);
+    const size_t kBufLen = sizeof(val) * 2 + 2;
+    char         buf[kBufLen];
+    char*        ptr     = buf + kBufLen;
+    *--ptr = 0;
+    if (val == 0) {
+        *--ptr = '0';
+    }
+    while (val != 0 && buf < ptr) {
+        *--ptr = "0123456789ABCDEF"[val & 0xF];
+        val >>= 4;
+    }
+    if (res < 0) {
+        *--ptr = '-';
+    }
+    return CreateLocations(jenv, entries, ptr);
 }
 
 jshort Java_com_quantcast_qfs_access_KfsAccess_getReplication(
