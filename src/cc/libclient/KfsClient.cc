@@ -736,16 +736,30 @@ KfsClient::PruneFromHead(int fd, chunkOff_t offset)
 
 int
 KfsClient::GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
-                           vector< vector <string> > &locations)
+        vector< vector <string> >& locations)
 {
-    return mImpl->GetDataLocation(pathname, start, len, locations);
+    return mImpl->GetDataLocation(pathname, start, len, locations, 0);
+}
+
+int
+KfsClient::GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
+        vector< vector <string> >& locations, chunkOff_t* outBlkSize)
+{
+    return mImpl->GetDataLocation(pathname, start, len, locations, outBlkSize);
 }
 
 int
 KfsClient::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
-                           vector< vector <string> > &locations)
+    vector< vector <string> >& locations)
 {
-    return mImpl->GetDataLocation(fd, start, len, locations);
+    return mImpl->GetDataLocation(fd, start, len, locations, 0);
+}
+
+int
+KfsClient::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
+    vector< vector <string> >& locations, chunkOff_t* outBlkSize)
+{
+    return mImpl->GetDataLocation(fd, start, len, locations, outBlkSize);
 }
 
 int16_t
@@ -4008,8 +4022,12 @@ KfsClientImpl::PruneFromHead(int fd, chunkOff_t offset)
 }
 
 int
-KfsClientImpl::GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
-                           vector< vector <string> > &locations)
+KfsClientImpl::GetDataLocation(
+    const char*                pathname,
+    chunkOff_t                 start,
+    chunkOff_t                 len,
+    vector< vector <string> >& locations,
+    chunkOff_t*                outBlkSize)
 {
     QCStMutexLocker l(mMutex);
 
@@ -4018,17 +4036,17 @@ KfsClientImpl::GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_
     if (fd < 0) {
         return fd;
     }
-    const int ret = GetDataLocationSelf(fd, start, len, locations);
+    const int ret = GetDataLocationSelf(fd, start, len, locations, outBlkSize);
     ReleaseFileTableEntry(fd);
     return ret;
 }
 
 int
 KfsClientImpl::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
-                               vector< vector <string> > &locations)
+        vector< vector <string> >& locations, chunkOff_t* outBlkSize)
 {
     QCStMutexLocker l(mMutex);
-    return GetDataLocationSelf(fd, start, len, locations);
+    return GetDataLocationSelf(fd, start, len, locations, outBlkSize);
 }
 
 int
@@ -4060,7 +4078,7 @@ KfsClientImpl::AddChunkLocation(
 
 int
 KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
-    vector<vector<string> >& locations)
+    vector<vector<string> >& locations, chunkOff_t* outBlkSize)
 {
     assert(mMutex.IsOwned());
 
@@ -4074,6 +4092,12 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
     if (fattr.striperType != KFS_STRIPED_FILE_TYPE_NONE &&
             0 < fattr.numStripes && 0 < fattr.stripeSize) {
         chunkOff_t const lblksz = (chunkOff_t)CHUNKSIZE * (int)fattr.numStripes;
+        if (outBlkSize) {
+            *outBlkSize = lblksz;
+        }
+        if (fattr.fileSize < start || len <= 0) {
+            return 0;
+        }
         chunkOff_t const pblksz = (chunkOff_t)CHUNKSIZE *
             (int)(fattr.numStripes + max(0, (int)fattr.numRecoveryStripes));
         chunkOff_t const fstart = max(chunkOff_t(0), start);
@@ -4085,14 +4109,24 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
         chunkOff_t cpos         = pbpos + idx * (chunkOff_t)CHUNKSIZE;
         chunkOff_t pos          = fstart - fstart % fattr.stripeSize;
         chunkOff_t const end    = min(fstart + len, fattr.fileSize);
-        chunkOff_t inspos       = fstart;
-        chunkOff_t pinspos      = inspos - (chunkOff_t)CHUNKSIZE;
+        chunkOff_t const locbsz = outBlkSize ? lblksz : (chunkOff_t)CHUNKSIZE;
+        chunkOff_t inspos       = fstart - fstart % locbsz;
+        chunkOff_t pinspos      = inspos - locbsz;
+        KFS_LOG_STREAM_DEBUG <<
+            "get data location:"
+            " fid: "        << fattr.fileId <<
+            " begin: "      << pos <<
+            " end: "        << end <<
+            " block size:"
+            " logical: "    << lblksz <<
+            " physical: "   << pblksz <<
+            " location: "   << locbsz <<
+        KFS_LOG_EOM;
         while (pos < end) {
             lbpos += lblksz;
             const int sidx = idx;
             do {
-                const bool newEntryFlag =
-                    pinspos + (chunkOff_t)CHUNKSIZE <= inspos;
+                const bool newEntryFlag = pinspos + locbsz <= inspos;
                 if (newEntryFlag) {
                     pinspos = inspos;
                 }
@@ -4117,21 +4151,27 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
                 break;
             }
             assert(! locations.empty());
-            inspos = max(inspos, lbpos - lblksz + (chunkOff_t)CHUNKSIZE);
+            inspos = max(inspos, lbpos - lblksz + locbsz);
             // Duplicating the last entry is rough approximation, sufficient for
             // location hints. It is possible to query precise location by
             // specifying smaller length and/or aligning start position.
             while (inspos < lbpos && inspos < end) {
                 locations.push_back(locations.back());
-                inspos += (chunkOff_t)CHUNKSIZE;
+                inspos += locbsz;
             }
-            pinspos = inspos - (chunkOff_t)CHUNKSIZE;
+            pinspos = inspos - locbsz;
             pbpos += pblksz;
             cpos = pbpos;
             idx = 0;
             pos = lbpos;
         }
     } else {
+        if (outBlkSize) {
+            *outBlkSize = (chunkOff_t)CHUNKSIZE;
+        }
+        if (fattr.fileSize < start || len <= 0) {
+            return 0;
+        }
         for (chunkOff_t pos = max(chunkOff_t(0), start) /
                         (chunkOff_t)CHUNKSIZE * (chunkOff_t)CHUNKSIZE,
                     end = min(start + len, fattr.fileSize);

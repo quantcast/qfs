@@ -530,10 +530,10 @@ public:
     /// @retval status: 0 on success; -errno otherwise
     ///
     int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
-                        vector<vector<string> > &locations);
+        vector<vector<string> >& locations, chunkOff_t* outBlkSize);
 
     int GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
-                        vector<vector<string> > &locations);
+        vector<vector<string> > &locations, chunkOff_t* outBlkSize);
 
     ///
     /// Get the degree of replication for the pathname.
@@ -846,7 +846,7 @@ private:
         kfsMode_t mode = kKfsModeUndef, string* path = 0);
     int CacheAttributes(const char* pathname);
     int GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
-                        vector<vector<string> > &locations);
+        vector<vector<string> >& locations, chunkOff_t* outBlkSize);
     int TruncateSelf(int fd, chunkOff_t offset);
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,

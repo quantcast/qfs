@@ -528,10 +528,16 @@ public:
     /// @retval status: 0 on success; -errno otherwise
     ///
     int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
-                        vector< vector <string> > &locations);
+        vector< vector <string> >& locations);
 
     int GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
-                        vector< vector <string> > &locations);
+        vector< vector <string> >& locations);
+
+    int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
+        vector< vector <string> >& locations, chunkOff_t* outBlkSize);
+
+    int GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
+        vector< vector <string> >& locations, chunkOff_t* outBlkSize);
 
     ///
     /// Get the degree of replication for the pathname.
