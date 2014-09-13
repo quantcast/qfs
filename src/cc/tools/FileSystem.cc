@@ -771,7 +771,8 @@ public:
         const string   inPath,
         int64_t        /* inStartPos */,
         int64_t        /* inLength */,
-        DataLocations& outLocations)
+        DataLocations& outLocations,
+        int64_t&       outBlockSize)
     {
         StatBuf theStat;
         const int theStatus = Stat(inPath, theStat);
@@ -780,6 +781,7 @@ public:
         }
         outLocations.push_back(DataLocations::value_type());
         outLocations.back().push_back(string("localhost"));
+        outBlockSize = theStat.st_blksize;
         return 0;
     }
 private:
@@ -1332,14 +1334,19 @@ public:
         const string   inPath,
         int64_t        inStartPos,
         int64_t        inLength,
-        DataLocations& outLocations)
+        DataLocations& outLocations,
+        int64_t&       outBlockSize)
     {
-        return KfsClient::GetDataLocation(
+        chunkOff_t theBlockSize = 0;
+        const int theRet = KfsClient::GetDataLocation(
             inPath.c_str(),
             inStartPos,
             inLength,
-            outLocations
+            outLocations,
+            &theBlockSize
         );
+        outBlockSize = theBlockSize;
+        return theRet;
     }
 private:
     const bool mSkipHolesFlag;

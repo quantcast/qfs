@@ -4168,16 +4168,21 @@ private:
             ErrorReporter& /* inErrorReporter */)
         {
             mLocations.clear();
+            chunkOff_t theBlkSize = 0;
             const int theErr = inFs.GetDataLocation(
-                inPath, mStartPos, mLength, mLocations);
+                inPath, mStartPos, mLength, mLocations, theBlkSize);
             if (theErr != 0) {
                 return theErr;
             }
             mOutStream <<
                 "Uri: " << inFs.GetUri() << inPath << "\n";
+            int64_t thePos = mStartPos;
             for (Locations::const_iterator theIt = mLocations.begin();
                     theIt != mLocations.end();
                     ++theIt) {
+                if (0 < theBlkSize) {
+                    mOutStream << setw(12) << thePos << ": ";
+                }
                 for (Locations::value_type::const_iterator
                         theLIt = theIt->begin();
                         theLIt != theIt->end();
@@ -4188,6 +4193,12 @@ private:
                     mOutStream << *theLIt;
                 }
                 mOutStream << "\n";
+                if (0 < theBlkSize) {
+                    if (thePos == mStartPos) {
+                        thePos = mStartPos / theBlkSize * theBlkSize;
+                    }
+                    thePos += theBlkSize;
+                }
             }
             return theErr;
         }

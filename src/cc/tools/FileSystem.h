@@ -232,7 +232,8 @@ public:
         const string   inPath,
         int64_t        inStartPos,
         int64_t        inLength,
-        DataLocations& outLocations) = 0;
+        DataLocations& outLocations,
+        int64_t&       outBlockSize) = 0;
     virtual int GetDelegationTokenInfo(
         const char* inTokenStrPtr,
         kfsUid_t&   outUid,
