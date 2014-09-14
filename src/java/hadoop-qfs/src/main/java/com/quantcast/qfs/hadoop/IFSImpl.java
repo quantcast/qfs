@@ -55,6 +55,8 @@ interface IFSImpl {
            throws IOException;
   public String[][] getDataLocation(String path, long start, long len)
            throws IOException;
+  public String[][] getBlocksLocation(String path, long start, long len)
+           throws IOException;
 
   public long getModificationTime(String path) throws IOException;
   public FSDataOutputStream create(String path, short replication,
@@ -65,6 +67,8 @@ interface IFSImpl {
            throws IOException;
   public void setPermission(String path, int mode) throws IOException;
   public void setOwner(String path, String username, String groupname)
+           throws IOException;
+  public void retToIoException(int ret)
            throws IOException;
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
            throws IOException;

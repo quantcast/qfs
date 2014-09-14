@@ -140,17 +140,33 @@ public class QFSEmulationImpl implements IFSImpl {
 
   public String[][] getDataLocation(String path, long start, long len)
     throws IOException {
-    BlockLocation[] blkLocations = localFS.getFileBlockLocations(
+    final BlockLocation[] blkLocations = localFS.getFileBlockLocations(
       localFS.getFileStatus(new Path(path)), start, len);
     if ((blkLocations == null) || (blkLocations.length == 0)) {
       return new String[0][];
     }
-    int blkCount = blkLocations.length;
-    String[][]hints = new String[blkCount][];
+    final int blkCount = blkLocations.length;
+    final String[][]hints = new String[blkCount][];
     for (int i=0; i < blkCount ; i++) {
-      String[] hosts = blkLocations[i].getHosts();
-      hints[i] = new String[hosts.length];
-      hints[i] = hosts;
+      hints[i] = blkLocations[i].getHosts();;
+    }
+    return hints;
+  }
+
+  public String[][] getBlocksLocation(String path, long start, long len)
+    throws IOException {
+    final BlockLocation[] blkLocations = localFS.getFileBlockLocations(
+      localFS.getFileStatus(new Path(path)), start, len);
+    if ((blkLocations == null) || (blkLocations.length == 0)) {
+      return new String[0][];
+    }
+    final int blkCount = blkLocations.length + 1;
+    final String[][]hints = new String[blkCount][];
+    hints[0]    = new String[1];
+    hints[0][0] =  Long.toHexString(
+      blkCount <= 0 ? 1L : blkLocations[0].getLength());
+    for (int i=1; i < blkCount ; i++) {
+      hints[i] = blkLocations[i].getHosts();;
     }
     return hints;
   }
@@ -192,5 +208,12 @@ public class QFSEmulationImpl implements IFSImpl {
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
     throws IOException {
     return null;
+  }
+
+  public void retToIoException(int status)
+    throws IOException {
+    if (status < 0) {
+      throw new IOException("IO exception status: " + status);
+    }
   }
 }

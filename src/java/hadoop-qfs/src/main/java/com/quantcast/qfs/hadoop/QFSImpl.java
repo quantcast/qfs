@@ -171,6 +171,11 @@ class QFSImpl implements IFSImpl {
     return kfsAccess.kfs_getDataLocation(path, start, len);
   }
 
+  public String[][] getBlocksLocation(String path, long start, long len)
+    throws IOException {
+    return kfsAccess.kfs_getBlocksLocation(path, start, len);
+  }
+
   public long getModificationTime(String path) throws IOException {
     return kfsAccess.kfs_getModificationTime(path);
   }
@@ -206,6 +211,11 @@ class QFSImpl implements IFSImpl {
     throws IOException {
     kfsAccess.kfs_retToIOException(kfsAccess.kfs_chown(
       path, username, groupname), path);
+  }
+
+  public void retToIoException(int ret)
+    throws IOException {
+    kfsAccess.kfs_retToIOException(ret);
   }
 
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)

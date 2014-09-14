@@ -22,6 +22,8 @@ import java.io.DataOutput;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.lang.Math;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -236,27 +238,69 @@ public class QuantcastFileSystem extends FileSystem {
   @Override
   public BlockLocation[] getFileBlockLocations(FileStatus file,
     long start, long len) throws IOException {
-
-    if (file == null) {
+    if (file == null || start < 0 || len < 0) {
+      throw new IllegalArgumentException(
+        "file: "    + file +
+        " start: "  + start +
+        " length: " + len
+      );
+    }
+    final String srep = makeAbsolute(file.getPath()).toUri().getPath();
+    if (! file.isFile()) {
+      throw new IOException(srep + ": not a file");
+    }
+    final String[][] hints = qfsImpl.getBlocksLocation(srep, start, len);
+    if (hints == null || hints.length < 1 || hints[0].length != 1) {
+      throw new Error(srep + ": getBlocksLocation internal error");
+    }
+    final long blockSize = Long.parseLong(hints[0][0], 16);
+    if (blockSize < 0) {
+      try {
+        qfsImpl.retToIoException((int)blockSize);
+      } catch (FileNotFoundException ex) {
+      }
       return null;
     }
-    String srep = makeAbsolute(file.getPath()).toUri().getPath();
-    String[][] hints = qfsImpl.getDataLocation(srep, start, len);
-    if (hints == null) {
-      return null;
+    if (blockSize == 0) {
+      throw new Error(srep +
+        ": getBlocksLocation internal error: 0 block size");
     }
-    BlockLocation[] result = new BlockLocation[hints.length];
-    long blockSize = getDefaultBlockSize();
-    long length = len;
-    long blockStart = start;
-    for(int i=0; i < result.length; ++i) {
+    final long end = Math.min(file.getLen(), start + len);
+    if (hints.length <= 1 || end <= start) {
+      // Return an emtpy host list, as hadoop expects at least one location.
+      final BlockLocation[] result = new BlockLocation[1];
+      result[0] = new BlockLocation(
+        null, null, start, Math.max(0L, end - start));
+      return result;
+    }
+    final int               blkcnt =
+        (int)((end - 1) / blockSize - start / blockSize + 1);
+    final BlockLocation[]   result = new BlockLocation[blkcnt];
+    final ArrayList<String> hlist  = new ArrayList<String>();
+    long                    pos    = start - start % blockSize;
+    for(int i = 0, m = 1; i < blkcnt; ++i) {
+      hlist.clear();
+      if (m < hints.length) {
+        final String[] locs = hints[m++];
+        hlist.ensureCapacity(locs.length);
+        for(int k = 0; k < locs.length; ++k) {
+          final int    idx  = locs[k].lastIndexOf(':');
+          final String host = 0 < idx ? locs[k].substring(0, idx) : locs[k];
+          if (! hlist.contains(host)) {
+              hlist.add(host);
+          }
+        }
+      }
+      final long lpos = pos < start ? start : pos;
+      final long bend = pos + blockSize;
+      final int  hsz  = hlist.size();
       result[i] = new BlockLocation(
-                      null,
-                      hints[i],
-                      blockStart,
-                      length < blockSize ? length : blockSize);
-      blockStart += blockSize;
-      length -= blockSize;
+        null,
+        hsz <= 0 ? null : hlist.toArray(new String[hsz]),
+        lpos,
+        (bend < end ? bend : end) - lpos
+      );
+      pos = bend;
     }
     return result;
   }
