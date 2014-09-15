@@ -123,6 +123,29 @@ def check_ports(config):
         check_port(p)
 
 
+def kill_running_program_pid(binaryPath, runDir):
+    if binaryPath == Globals.METASERVER:
+        name = 'metaserver'
+    elif binaryPath == Globals.CHUNKSERVER:
+        name = 'chunkserver'
+    elif binaryPath == Globals.WEBSERVER:
+        name = 'webui'
+    else:
+        name = ''
+    if 0 < len(name) and 0 < len(runDir):
+        try:
+            pidf = '%s/%s.pid' % (runDir, name)
+            f = open(pidf, 'r')
+            line = f.readline()
+            f.close()
+            os.unlink(pidf)
+            pid = int(line.strip())
+            os.kill(pid, signal.SIGTERM)
+        except:
+            pass
+    else:
+        kill_running_program(binaryPath)
+
 def kill_running_program(binaryPath):
     if sys.platform in ('darwin', 'Darwin'):
         checkPath = os.path.split(binaryPath)[1]
@@ -328,7 +351,7 @@ def do_cleanup(config, doUninstall):
     if config.has_section('metaserver'):
         metaRunDir = config.get('metaserver', 'rundir')
         if metaRunDir:
-            kill_running_program(Globals.METASERVER)
+            kill_running_program_pid(Globals.METASERVER, metaRunDir)
             if doUninstall and os.path.isdir(metaRunDir):
                 rm_tree(metaRunDir)
 
@@ -336,14 +359,14 @@ def do_cleanup(config, doUninstall):
         if section.startswith('chunkserver'):
             chunkRunDir = config.get(section, 'rundir')
             if chunkRunDir:
-                kill_running_program(Globals.CHUNKSERVER)
+                kill_running_program_pid(Globals.CHUNKSERVER, chunkRunDir)
                 if doUninstall and os.path.isdir(chunkRunDir):
                     rm_tree(chunkRunDir)
 
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
         if webDir:
-            kill_running_program(Globals.WEBSERVER)
+            kill_running_program_pid(Globals.WEBSERVER, webDir)
             if doUninstall and os.path.isdir(webDir):
                 rm_tree(webDir)
     if doUninstall:
@@ -429,6 +452,7 @@ def setup_config_files(config):
     print >> metaFile, 'metaServer.rootDirUser = %d' % os.getuid()
     print >> metaFile, 'metaServer.rootDirGroup = %d' % os.getgid()
     print >> metaFile, 'metaServer.rootDirMode = 0777'
+    print >> metaFile, 'metaServer.pidFile = %s/metaserver.pid' % metaRunDir
     metaFile.close()
 
     # Chunkservers.
@@ -450,6 +474,7 @@ def setup_config_files(config):
                 print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
+                print >> chunkFile, 'chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir
                 chunkFile.close()
 
     # Webserver.
@@ -467,6 +492,7 @@ def setup_config_files(config):
     print >> webFile, 'webServer.docRoot = %s/docroot' % webDir
     print >> webFile, 'webServer.allmachinesfn = /dev/null'
     print >> webFile, 'webServer.displayPorts = True'
+    print >> webFile, 'webServer.pidFile = %s/webui.pid' % webDir
     print >> webFile, '[chunk]'
     print >> webFile, 'refreshInterval = 5'
     print >> webFile, 'currentSize = 30'
@@ -501,8 +527,8 @@ def start_servers(config, whichServers = 'all'):
 
     if startMeta:
         startWeb = True
-        kill_running_program(Globals.METASERVER)
         metaRunDir = config.get('metaserver', 'rundir')
+        kill_running_program_pid(Globals.METASERVER, metaRunDir)
         if metaRunDir:
             metaConf = metaRunDir + '/conf/MetaServer.prp'
             metaLog  = metaRunDir + '/MetaServer.log'
@@ -521,10 +547,10 @@ def start_servers(config, whichServers = 'all'):
                     config.getint('metaserver', 'clientport'))
 
     if startChunk:
-        kill_running_program(Globals.CHUNKSERVER)
         for section in config.sections():
             if section.startswith('chunkserver'):
                 chunkRunDir = config.get(section, 'rundir')
+                kill_running_program_pid(chunkRunDir, chunkRunDir)
                 if chunkRunDir:
                     chunkConf = chunkRunDir + '/conf/ChunkServer.prp'
                     chunkLog  = chunkRunDir + '/ChunkServer.log'
@@ -539,8 +565,8 @@ def start_servers(config, whichServers = 'all'):
                         error = 1
 
     if startWeb:
-        kill_running_program(Globals.WEBSERVER)
         webDir = config.get('webui', 'rundir')
+        kill_running_program_pid(Globals.WEBSERVER, webDir)
         if webDir:
             webConf = webDir + '/conf/WebUI.cfg'
             webLog  = webDir + '/webui.log'
