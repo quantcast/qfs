@@ -51,6 +51,9 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCIoBufferPool.h"
 
+#include <fstream>
+#include <iostream>
+
 #include <sys/resource.h>
 #include <signal.h>
 #include <unistd.h>
@@ -62,6 +65,7 @@ namespace KFS
 {
 
 using std::cerr;
+using std::ofstream;
 using libkfsio::globalNetManager;
 using libkfsio::SetIOBufferAllocator;
 
@@ -626,6 +630,31 @@ MetaServer::Startup(bool createEmptyFsFlag)
     logger_setup_paths(mLogDir);
     checkpointer_setup_paths(mCPDir);
 
+    const char* const pidFileName = mStartupProperties.getValue(
+        "metaServer.pidFile",
+        ""
+    );
+    if (pidFileName && *pidFileName) {
+        ofstream pidf(pidFileName,
+            ofstream::out | ofstream::trunc | ofstream::binary);
+        if (pidf) {
+            pidf << getpid() << "\n";
+            pidf.close();
+            if (pidf.fail()) {
+                const int err = errno;
+                KFS_LOG_STREAM_FATAL << "failed to write pid file " <<
+                    pidFileName << ": " << QCUtils::SysError(err) <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        } else {
+            const int err = errno;
+            KFS_LOG_STREAM_FATAL << "failed to create pid file " <<
+                pidFileName << ": " << QCUtils::SysError(err) <<
+            KFS_LOG_EOM;
+            return false;
+        }
+    }
     setAbortOnPanic(mStartupAbortOnPanicFlag);
     int  status;
     bool rollChunkIdSeedFlag;
