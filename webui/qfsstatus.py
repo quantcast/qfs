@@ -1939,6 +1939,16 @@ if __name__ == '__main__':
     socket.setdefaulttimeout(socketTimeout)
     SocketServer.TCPServer.allow_reuse_address = True
     httpd = ThreadedTCPServer((HOST, PORT), Pinger)
+    pidf = ''
+    try:
+        pidf = config.get('webserver', 'webServer.pidFile')
+    except:
+        pass
+    if 0 < len(pidf):
+        f = open(pidf, 'w')
+        f.write('%d\n' % os.getpid())
+        f.close()
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
