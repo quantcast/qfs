@@ -65,6 +65,7 @@ using std::vector;
 using std::cout;
 using std::cerr;
 using std::fstream;
+using std::ofstream;
 using std::ostream;
 using std::istringstream;
 using std::min;
@@ -484,6 +485,31 @@ ChunkServerMain::LoadParams(const char* fileName)
                 err, "lock process memory") : string()) <<
         KFS_LOG_EOM;
         return false;
+    }
+    const char* const pidFileName = mProp.getValue(
+        "chunkServer.pidFile",
+        ""
+    );
+    if (pidFileName && *pidFileName) {
+        ofstream pidf(pidFileName,
+            ofstream::out | ofstream::trunc | ofstream::binary);
+        if (pidf) {
+            pidf << getpid() << "\n";
+            pidf.close();
+            if (pidf.fail()) {
+                const int err = errno;
+                KFS_LOG_STREAM_FATAL << "failed to write pid file " <<
+                    pidFileName << ": " << QCUtils::SysError(err) <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        } else {
+            const int err = errno;
+            KFS_LOG_STREAM_FATAL << "failed to create pid file " <<
+                pidFileName << ": " << QCUtils::SysError(err) <<
+            KFS_LOG_EOM;
+            return false;
+        }
     }
     return true;
 }
