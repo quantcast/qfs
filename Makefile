@@ -54,7 +54,7 @@ hadoop-jars: release
 		./src/java/javabuild.sh 1.0.2  &&     \
 		./src/java/javabuild.sh 1.0.4  &&     \
 		./src/java/javabuild.sh 1.1.0  &&     \
-		./src/java/javabuild.sh 2.0.2-alpha   \
+		./src/java/javabuild.sh 2.5.1         \
 	; fi
 
 tarball: hadoop-jars
