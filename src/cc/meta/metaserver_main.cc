@@ -665,6 +665,9 @@ MetaServer::Startup(bool createEmptyFsFlag)
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
         rollChunkIdSeedFlag = true;
     } else {
+        KFS_LOG_STREAM_INFO <<
+            "creating new empty file system" <<
+        KFS_LOG_EOM;
         metatree.SetFsInfo(fsid, microseconds());
         status = metatree.new_tree(
             mStartupProperties.getValue(
