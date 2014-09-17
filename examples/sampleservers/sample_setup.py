@@ -58,13 +58,15 @@ webui-run-dir/docroot/
 import sys, os, os.path, shutil, errno, signal, posix, re, socket
 import ConfigParser
 import subprocess
+import getpass
 
 from optparse import OptionParser, OptionGroup, IndentedHelpFormatter
 
 class Globals():
-    METASERVER  = None
-    CHUNKSERVER = None
-    WEBSERVER   = None
+    METASERVER  = 'metaserver'
+    CHUNKSERVER = 'chunkserver'
+    WEBSERVER   = 'qfsstatus.py'
+    MKCERTS     = None
 
 def get_size_in_bytes(str):
     if not str:
@@ -85,7 +87,10 @@ def get_size_in_bytes(str):
         mul = 1000000000
     return val * mul
 
-def check_binaries(releaseDir, sourceDir):
+def shell_quote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+def check_binaries(releaseDir, sourceDir, authFlag):
     if not os.path.exists(releaseDir + '/bin/metaserver'):
         sys.exit('Metaserver missing in build directory')
     Globals.METASERVER = releaseDir + '/bin/metaserver'
@@ -100,6 +105,12 @@ def check_binaries(releaseDir, sourceDir):
         Globals.WEBSERVER = sourceDir + '/webui/qfsstatus.py'
     else:
         sys.exit('Webserver missing in build and source directories')
+    if authFlag:
+        mkcerts = sourceDir + '/src/test-scripts/qfsmkcerts.sh'
+        if os.path.exists(mkcerts):
+            Globals.MKCERTS = mkcerts
+        else:
+            sys.exit('qfsmkcerts.sh missing in source directories')
     print 'Binaries presence checking - OK.'
 
 def check_port(port):
@@ -261,6 +272,9 @@ def parse_command_line():
     parser.add_option('-s', '--source-dir', action='store',
         default=defaultSrcDir, metavar='DIR', help='QFS source directory.')
 
+    parser.add_option('-u', '--auth', action='store_true',
+        help="Configure QFS authentication.")
+
     parser.add_option('-h', '--help', action='store_true',
         help="Print this help message and exit.")
 
@@ -369,6 +383,14 @@ def do_cleanup(config, doUninstall):
             kill_running_program_pid(Globals.WEBSERVER, webDir)
             if doUninstall and os.path.isdir(webDir):
                 rm_tree(webDir)
+    if config.has_section('certs'):
+        certsDir = config.get('certs', 'rundir')
+        if doUninstall and os.path.isdir(certsDir):
+            rm_tree(certsDir)
+    if config.has_section('client'):
+        clientDir = config.get('client', 'rundir')
+        if doUninstall and os.path.isdir(clientDir):
+            rm_tree(clientDir)
     if doUninstall:
         qfsbase = os.path.expanduser('~/qfsbase')
         if os.path.isdir(qfsbase):
@@ -377,7 +399,7 @@ def do_cleanup(config, doUninstall):
     else:
         print 'Stop servers - OK.'
 
-def setup_directories(config):
+def setup_directories(config, authFlag):
     if config.has_section('metaserver'):
         metaRunDir = config.get('metaserver', 'rundir')
         if metaRunDir:
@@ -399,6 +421,11 @@ def setup_directories(config):
                         mkdir_p(cd)
                 else:
                     mkdir_p(chunkRunDir + '/chunkdir')
+
+    if authFlag and config.has_section('client'):
+        clientDir = config.get('client', 'rundir')
+        if clientDir:
+            mkdir_p(clientDir)
 
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
@@ -423,7 +450,27 @@ def check_directories(config):
     print 'Check directories - OK.'
 
 
-def setup_config_files(config):
+def setup_config_files(config, authFlag):
+    if authFlag:
+        if 'certs' not in config.sections():
+            sys.exit('Required metaserver certs not found in config')
+        certsDir =  config.get('certs', 'rundir')
+        if not certsDir:
+            sys.exit('Required certs certsdir not found in config')
+        if run_command('%s %s meta root %s' % (
+                shell_quote(Globals.MKCERTS),
+                shell_quote(certsDir),
+                shell_quote(getpass.getuser()))) != 0:
+            sys.exit('Create X509 certs failure')
+        if config.has_section('client'):
+            clientDir = config.get('client', 'rundir')
+            if clientDir:
+                clientFile = open(clientDir + '/client.prp', 'w')
+                print >> clientFile, 'client.auth.X509.X509PemFile = %s/root.crt' % certsDir
+                print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/root.key' % certsDir
+                print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+                clientFile.close()
+
     if 'metaserver' not in config.sections():
         sys.exit('Required metaserver section not found in config')
     metaRunDir = config.get('metaserver', 'rundir')
@@ -453,6 +500,15 @@ def setup_config_files(config):
     print >> metaFile, 'metaServer.rootDirGroup = %d' % os.getgid()
     print >> metaFile, 'metaServer.rootDirMode = 0777'
     print >> metaFile, 'metaServer.pidFile = %s/metaserver.pid' % metaRunDir
+    if authFlag:
+        print >> metaFile, 'metaServer.clientAuthentication.X509.X509PemFile = %s/meta.crt' % certsDir
+        print >> metaFile, 'metaServer.clientAuthentication.X509.PKeyPemFile = %s/meta.key' % certsDir
+        print >> metaFile, 'metaServer.clientAuthentication.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+        print >> metaFile, 'metaServer.clientAuthentication.whiteList        = %s root' % getpass.getuser()
+        print >> metaFile, 'metaServer.CSAuthentication.X509.X509PemFile     = %s/meta.crt' % certsDir
+        print >> metaFile, 'metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir
+        print >> metaFile, 'metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir
+        print >> metaFile, 'metaServer.CSAuthentication.blackList            = none'
     metaFile.close()
 
     # Chunkservers.
@@ -462,6 +518,12 @@ def setup_config_files(config):
             chunkDirs = config.get(section, 'chunkdirs')
             chunkRunDir = config.get(section, 'rundir')
             if chunkRunDir:
+                if authFlag:
+                    if run_command('%s %s chunk%d' % (
+                            shell_quote(Globals.MKCERTS),
+                            shell_quote(certsDir),
+                            chunkClientPort)) != 0:
+                        sys.exit('Create X509 failure')
                 chunkFile = open(chunkRunDir + '/conf/ChunkServer.prp', 'w')
                 print >> chunkFile, 'chunkServer.metaServer.hostname = %s' % metaserverHostname
                 print >> chunkFile, 'chunkServer.metaServer.port = %d' % metaserverChunkPort
@@ -475,6 +537,10 @@ def setup_config_files(config):
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
                 print >> chunkFile, 'chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir
+                if authFlag:
+                    print >> chunkFile, 'chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort)
+                    print >> chunkFile, 'chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort)
+                    print >> chunkFile, 'chunkserver.meta.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
                 chunkFile.close()
 
     # Webserver.
@@ -522,7 +588,6 @@ def start_servers(config, whichServers = 'all'):
     startMeta  = whichServers in ('meta', 'all')
     startChunk = whichServers in ('chunk', 'all')
     startWeb   = whichServers in ('web', 'all')
-
     errors = 0
 
     if startMeta:
@@ -533,11 +598,17 @@ def start_servers(config, whichServers = 'all'):
             metaConf = metaRunDir + '/conf/MetaServer.prp'
             metaLog  = metaRunDir + '/MetaServer.log'
             metaOut  = metaRunDir + '/MetaServer.out'
-            command = '%s -c %s %s > %s 2>&1 &' % (
-                                    Globals.METASERVER,
-                                    metaConf,
-                                    metaLog,
-                                    metaOut)
+            if not os.listdir(metaRunDir + '/checkpoints') and \
+                    not os.listdir(metaRunDir + '/logs'):
+                createEmptyFs = '-c'
+            else:
+                createEmptyFs = ''
+            command = '%s %s %s %s > %s 2>&1 &' % (
+                                    shell_quote(Globals.METASERVER),
+                                    createEmptyFs,
+                                    shell_quote(metaConf),
+                                    shell_quote(metaLog),
+                                    shell_quote(metaOut))
             if run_command(command) > 0:
                 print '*** metaserver failed to start'
                 error = 1
@@ -556,10 +627,10 @@ def start_servers(config, whichServers = 'all'):
                     chunkLog  = chunkRunDir + '/ChunkServer.log'
                     chunkOut  = chunkRunDir + '/ChunkServer.out'
                     command = '%s %s %s > %s 2>&1 &' % (
-                                            Globals.CHUNKSERVER,
-                                            chunkConf,
-                                            chunkLog,
-                                            chunkOut)
+                                            shell_quote(Globals.CHUNKSERVER),
+                                            shell_quote(chunkConf),
+                                            shell_quote(chunkLog),
+                                            shell_quote(chunkOut))
                     if run_command(command) > 0:
                         print '*** chunkserver failed to start'
                         error = 1
@@ -570,7 +641,10 @@ def start_servers(config, whichServers = 'all'):
         if webDir:
             webConf = webDir + '/conf/WebUI.cfg'
             webLog  = webDir + '/webui.log'
-            command = '%s %s > %s 2>&1 &' % (Globals.WEBSERVER, webConf, webLog)
+            command = '%s %s > %s 2>&1 &' % (
+                shell_quote(Globals.WEBSERVER),
+                shell_quote(webConf),
+                shell_quote(webLog))
             if run_command(command) > 0:
                 print '*** chunkserver failed to start'
                 error = 1
@@ -601,16 +675,15 @@ if __name__ == '__main__':
     opts = parse_command_line()
     config = parse_config(opts.config_file)
 
-    check_binaries(opts.release_dir, opts.source_dir)
-
     if opts.action in ('uninstall', 'stop'):
         do_cleanup(config, opts.action == 'uninstall')
         posix._exit(0)
 
+    check_binaries(opts.release_dir, opts.source_dir, opts.auth)
     check_ports(config)
     if opts.action == 'install':
-        setup_directories(config)
-        setup_config_files(config)
+        setup_directories(config, opts.auth)
+        setup_config_files(config, opts.auth)
         copy_files(config, opts.source_dir)
     elif opts.action == 'start':
         check_directories(config)
