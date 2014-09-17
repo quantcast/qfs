@@ -140,10 +140,12 @@ ChunkServer::MainLoop(
 
     assert(! mMutex || ! ClientThread::GetCurrentClientThreadPtr());
     if (! gChunkManager.Init(chunkDirs, props)) {
+        gClientManager.Shutdown();
         return false;
     }
     gLogger.Init(logDir);
     if (gChunkManager.Restart() != 0) {
+        gClientManager.Shutdown();
         return false;
     }
     gLogger.Start();
@@ -152,6 +154,7 @@ ChunkServer::MainLoop(
         KFS_LOG_STREAM_FATAL <<
             "failed to start acceptor on port: " << gClientManager.GetPort() <<
         KFS_LOG_EOM;
+        gClientManager.Shutdown();
         return false;
     }
     gMetaServerSM.Init();
@@ -172,7 +175,6 @@ ChunkServer::MainLoop(
     RemoteSyncSM::Shutdown();
     gClientManager.Shutdown();
     Replicator::Shutdown();
-
     return true;
 }
 

@@ -25,7 +25,6 @@
 //----------------------------------------------------------------------------
 
 #include "ChunkServer.h"
-#include "ClientManager.h"
 #include "ChunkManager.h"
 #include "Logger.h"
 #include "AtomicRecordAppender.h"
