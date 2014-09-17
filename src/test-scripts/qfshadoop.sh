@@ -53,10 +53,10 @@ else
             cat << EOF
 This script is intended to be executed in hadoops install directory, in place
 of bin/hadoop with "jar" and "fs" arguments.
-The assumption is that the sample saervers are already succeffully installed and
-ruuning, for example using the following:
+The assumption is that the sample servers are already successfully installed and
+running, for example using the following:
      ${myqfssrc}/examples/sampleservers/sample_setup.py \
--r ${myqfssrc}/build/release -a install
+-r ${myqfssrc}/build/release C-a install
 The following can be used to build required QFS executables and jar files:
     cd ${myqfssrc} && make hadoop-jars
 EOF
