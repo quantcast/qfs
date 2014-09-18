@@ -1005,7 +1005,7 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
 {
     const char* const pref  = "FILE:";
     const size_t      len   = strlen(pref);
-    const char        delim = (char)'=';
+    char              delim = (char)'=';
     if (strncmp(cfg, pref, len) == 0) {
         if (props.loadProperties(cfg + len, delim) != 0) {
             KFS_LOG_STREAM_INFO <<
@@ -1019,10 +1019,18 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
             " set by environment varialbe:" << configEnvName <<
         KFS_LOG_EOM;
     } else {
+        const char* const pref = "DELIM:";
+        const size_t      len  = strlen(pref);
+        int               sep  = 0;
+        if (strncmp(cfg, pref, len) == 0 &&
+                cfg[len] != 0 && cfg[len + 1] != 0) {
+            delim = cfg[len];
+            sep   = cfg[len + 1] & 0xFF;
+        }
         string val;
         for (const char* p = cfg; *p; ++p) {
             int cur = *p & 0xFF;
-            if (cur <= ' ' || cur == ';') {
+            if ((sep == 0 ? (cur <= ' ' || cur == ';') : cur == sep)) {
                 cur = '\n';
             }
             val.push_back((char)cur);
