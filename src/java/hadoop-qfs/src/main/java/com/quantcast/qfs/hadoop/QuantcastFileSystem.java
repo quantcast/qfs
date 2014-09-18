@@ -246,8 +246,8 @@ public class QuantcastFileSystem extends FileSystem {
       );
     }
     final String srep = makeAbsolute(file.getPath()).toUri().getPath();
-    if (! file.isFile()) {
-      throw new IOException(srep + ": not a file");
+    if (file.isDir()) {
+      throw new IOException(srep + ": is a directory");
     }
     final String[][] hints = qfsImpl.getBlocksLocation(srep, start, len);
     if (hints == null || hints.length < 1 || hints[0].length != 1) {
