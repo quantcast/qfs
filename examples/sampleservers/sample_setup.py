@@ -66,6 +66,7 @@ class Globals():
     METASERVER  = 'metaserver'
     CHUNKSERVER = 'chunkserver'
     WEBSERVER   = 'qfsstatus.py'
+    QFSTOOL     = None
     MKCERTS     = None
 
 def get_size_in_bytes(str):
@@ -91,23 +92,26 @@ def shell_quote(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 def check_binaries(releaseDir, sourceDir, authFlag):
-    if not os.path.exists(releaseDir + '/bin/metaserver'):
+    if not os.path.isfile(releaseDir + '/bin/metaserver'):
         sys.exit('Metaserver missing in build directory')
     Globals.METASERVER = releaseDir + '/bin/metaserver'
 
-    if not os.path.exists(releaseDir + '/bin/chunkserver'):
+    if not os.path.isfile(releaseDir + '/bin/chunkserver'):
         sys.exit('Chunkserver missing in build directory')
     Globals.CHUNKSERVER = releaseDir + '/bin/chunkserver'
 
-    if os.path.exists(releaseDir + '/webui/qfsstatus.py'):
+    if os.path.isfile(releaseDir + '/bin/tools/qfs'):
+        Globals.QFSTOOL = releaseDir + '/bin/tools/qfs'
+
+    if os.path.isfile(releaseDir + '/webui/qfsstatus.py'):
         Globals.WEBSERVER = releaseDir + '/webui/qfsstatus.py'
-    elif os.path.exists(sourceDir + '/webui/qfsstatus.py'):
+    elif os.path.isfile(sourceDir + '/webui/qfsstatus.py'):
         Globals.WEBSERVER = sourceDir + '/webui/qfsstatus.py'
     else:
         sys.exit('Webserver missing in build and source directories')
     if authFlag:
         mkcerts = sourceDir + '/src/test-scripts/qfsmkcerts.sh'
-        if os.path.exists(mkcerts):
+        if os.path.isfile(mkcerts):
             Globals.MKCERTS = mkcerts
         else:
             sys.exit('qfsmkcerts.sh missing in source directories')
@@ -310,7 +314,7 @@ Hello World example of a client session:
 Use qfs to manipulate files the same way you would use 'hadoop fs':
   # Set qfs command alias.
   alias qfs='<QFS_INSTALL_PATH>/bin/tools/qfs \
-      -cfg ./examples/sampleservers/sample_qfs_tool.cfg'
+-cfg ./examples/sampleservers/sample_qfs_tool.cfg'
 
   qfs -h
   qfs -stat /
@@ -451,25 +455,37 @@ def check_directories(config):
 
 
 def setup_config_files(config, authFlag):
+    if config.has_section('client'):
+        clientDir = config.get('client', 'rundir')
+    else:
+        clientDir = None
     if authFlag:
         if 'certs' not in config.sections():
             sys.exit('Required metaserver certs not found in config')
         certsDir =  config.get('certs', 'rundir')
         if not certsDir:
             sys.exit('Required certs certsdir not found in config')
+        defaultUser = getpass.getuser()
         if run_command('%s %s meta root %s' % (
                 shell_quote(Globals.MKCERTS),
                 shell_quote(certsDir),
-                shell_quote(getpass.getuser()))) != 0:
+                shell_quote(defaultUser))) != 0:
             sys.exit('Create X509 certs failure')
-        if config.has_section('client'):
-            clientDir = config.get('client', 'rundir')
-            if clientDir:
-                clientFile = open(clientDir + '/client.prp', 'w')
-                print >> clientFile, 'client.auth.X509.X509PemFile = %s/root.crt' % certsDir
-                print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/root.key' % certsDir
-                print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
-                clientFile.close()
+        if clientDir:
+            clientFile = open(clientDir + '/client.prp', 'w')
+            print >> clientFile, 'client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser)
+            print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser)
+            print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+            clientFile.close()
+    if clientDir:
+        defaultConfig = clientDir + '/clidefault.prp'
+        clientFile = open(defaultConfig, 'w')
+        print >> clientFile, 'fs.default = qfs://localhost:20000'
+        if authFlag:
+            print >> clientFile, 'client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser)
+            print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser)
+            print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+        clientFile.close()
 
     if 'metaserver' not in config.sections():
         sys.exit('Required metaserver section not found in config')
@@ -504,7 +520,7 @@ def setup_config_files(config, authFlag):
         print >> metaFile, 'metaServer.clientAuthentication.X509.X509PemFile = %s/meta.crt' % certsDir
         print >> metaFile, 'metaServer.clientAuthentication.X509.PKeyPemFile = %s/meta.key' % certsDir
         print >> metaFile, 'metaServer.clientAuthentication.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
-        print >> metaFile, 'metaServer.clientAuthentication.whiteList        = %s root' % getpass.getuser()
+        print >> metaFile, 'metaServer.clientAuthentication.whiteList        = %s root' % defaultUser
         print >> metaFile, 'metaServer.CSAuthentication.X509.X509PemFile     = %s/meta.crt' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir
@@ -537,6 +553,7 @@ def setup_config_files(config, authFlag):
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
                 print >> chunkFile, 'chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir
+                print >> chunkFile, 'chunkServer.clientThreadCount = 3'
                 if authFlag:
                     print >> chunkFile, 'chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort)
                     print >> chunkFile, 'chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort)
@@ -584,7 +601,7 @@ def copy_files(config, sourceDir):
             webSrc = sourceDir + '/webui/files'
             duplicate_tree(webSrc, webDst)
 
-def start_servers(config, whichServers = 'all'):
+def start_servers(config, whichServers, createNewFsFlag, authFlag):
     startMeta  = whichServers in ('meta', 'all')
     startChunk = whichServers in ('chunk', 'all')
     startWeb   = whichServers in ('web', 'all')
@@ -598,14 +615,15 @@ def start_servers(config, whichServers = 'all'):
             metaConf = metaRunDir + '/conf/MetaServer.prp'
             metaLog  = metaRunDir + '/MetaServer.log'
             metaOut  = metaRunDir + '/MetaServer.out'
-            if not os.listdir(metaRunDir + '/checkpoints') and \
+            if createNewFsFlag and \
+                    not os.listdir(metaRunDir + '/checkpoints') and \
                     not os.listdir(metaRunDir + '/logs'):
-                createEmptyFs = '-c'
+                createNewEmptyFs = ' -c'
             else:
-                createEmptyFs = ''
-            command = '%s %s %s %s > %s 2>&1 &' % (
+                createNewEmptyFs = ''
+            command = '%s%s %s %s > %s 2>&1 &' % (
                                     shell_quote(Globals.METASERVER),
-                                    createEmptyFs,
+                                    createNewEmptyFs,
                                     shell_quote(metaConf),
                                     shell_quote(metaLog),
                                     shell_quote(metaOut))
@@ -646,13 +664,36 @@ def start_servers(config, whichServers = 'all'):
                 shell_quote(webConf),
                 shell_quote(webLog))
             if run_command(command) > 0:
-                print '*** chunkserver failed to start'
+                print '*** web ui failed to start'
                 error = 1
-
+            else:
+                print 'Web ui  started: http://localhost:%d' % (
+                   config.getint('webui', 'webport'))
     if errors > 0:
         print 'Started servers - FAILED.'
     else:
         print 'Started servers - OK.'
+        defaultConfig=None
+        if config.has_section('client'):
+            clientDir = config.get('client', 'rundir')
+            if authFlag and os.path.isfile(clientDir + '/client.prp'):
+                print 'QFS authentication required.'
+            defaultConfig = clientDir + '/clidefault.prp'
+            if os.path.isfile(defaultConfig):
+                print 'Default QFS client configuration file: %s' % defaultConfig
+        if createNewFsFlag and Globals.QFSTOOL:
+            if defaultConfig:
+                cfgOpt =  " -cfg %s" % shell_quote(defaultConfig)
+            command = '%s%s -mkdir %s' % (
+                shell_quote(Globals.QFSTOOL),
+                cfgOpt,
+                shell_quote('/user/' + getpass.getuser()),
+            )
+            print 'Creating default user directory by executing:\n%s' % command
+            if run_command(command) != 0:
+                print '*** failed to created user directory'
+            else:
+                print '- OK.'
 
 # Need to massage the ~ in the config file paths. Otherwise a directory
 # with name "~" would get created at $CWD.
@@ -687,4 +728,4 @@ if __name__ == '__main__':
         copy_files(config, opts.source_dir)
     elif opts.action == 'start':
         check_directories(config)
-    start_servers(config)
+    start_servers(config, 'all', opts.action == 'install', opts.auth)
