@@ -195,9 +195,9 @@ inline static bool
 IsValidMode(kfsMode_t mode, bool dirFlag)
 {
     return (mode != kKfsModeUndef &&
-        (mode & ~kfsMode_t(dirFlag ?
-            Permissions::kDirModeMask :
-            Permissions::kFileModeMask)) == 0
+        (mode & ~(dirFlag ?
+            kfsMode_t(Permissions::kDirModeMask) :
+            kfsMode_t(Permissions::kFileModeMask))) == 0
     );
 }
 
