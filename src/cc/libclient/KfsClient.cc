@@ -1695,6 +1695,10 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
 
     QCStMutexLocker l(mMutex);
 
+    KFS_LOG_STREAM_DEBUG <<
+        "mkdirs: " << pathname <<
+        " mode: "  << oct << mode <<
+    KFS_LOG_EOM;
     //
     // Walk from the root down to the last part of the path making the
     // directory hierarchy along the way.  If any of the components of
@@ -2934,6 +2938,9 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
     if (! *pathname) {
         return -EINVAL;
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "stat self: " << pathname <<
+    KFS_LOG_EOM;
     if (pathname[0] == '/') {
         mTmpAbsPathStr = pathname;
     } else {
