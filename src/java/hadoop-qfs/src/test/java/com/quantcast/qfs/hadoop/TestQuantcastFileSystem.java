@@ -45,7 +45,7 @@ public class TestQuantcastFileSystem extends TestCase {
     Configuration conf = new Configuration();
 
     qfsEmul = new QFSEmulationImpl(conf);
-    quantcastFileSystem = new QuantcastFileSystem(qfsEmul);
+    quantcastFileSystem = new QuantcastFileSystem(qfsEmul, null);
     // a dummy URI; we are not connecting to any setup here
     quantcastFileSystem.initialize(URI.create("qfs:///"), conf);
     baseDir = new Path(System.getProperty("test.build.data", "/tmp" ) +

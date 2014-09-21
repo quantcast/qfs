@@ -61,6 +61,9 @@ interface IFSImpl {
   public long getModificationTime(String path) throws IOException;
   public FSDataOutputStream create(String path, short replication,
            int bufferSize, boolean overwrite, int mode) throws IOException;
+  public FSDataOutputStream create(String path, short replication,
+            int bufferSize, boolean overwrite, int mode,
+            boolean append) throws IOException;
   public FSDataOutputStream append(String path, short replication,
            int bufferSize) throws IOException;
   public FSDataInputStream open(String path, int bufferSize)

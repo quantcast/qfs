@@ -49,12 +49,12 @@ debug: prep
 hadoop-jars: release
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh clean &&      \
-		./src/java/javabuild.sh 0.23.4 &&     \
-		./src/java/javabuild.sh 1.0.2  &&     \
-		./src/java/javabuild.sh 1.0.4  &&     \
-		./src/java/javabuild.sh 1.1.0  &&     \
-		./src/java/javabuild.sh 2.5.1         \
+		./src/java/javabuild.sh clean   && \
+		./src/java/javabuild.sh 0.23.4  && \
+		./src/java/javabuild.sh 0.23.11 && \
+		./src/java/javabuild.sh 1.0.4   && \
+		./src/java/javabuild.sh 1.1.2   && \
+		./src/java/javabuild.sh 2.5.1      \
 	; fi
 
 tarball: hadoop-jars

@@ -184,6 +184,12 @@ class QFSImpl implements IFSImpl {
                                    int bufferSize, boolean overwrite,
                                    int mode) throws IOException {
     final boolean append = false;
+    return create(path, replication, bufferSize, overwrite, mode, append);
+  }
+
+  public FSDataOutputStream create(String path, short replication,
+        int bufferSize, boolean overwrite, int mode,
+        boolean append) throws IOException {
     return new FSDataOutputStream(new QFSOutputStream(
       kfsAccess, path, replication, overwrite, append, mode), statistics);
   }

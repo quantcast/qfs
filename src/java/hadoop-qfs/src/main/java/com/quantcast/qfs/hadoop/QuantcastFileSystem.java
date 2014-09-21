@@ -35,23 +35,28 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.fs.UnresolvedLinkException;
+import org.apache.hadoop.fs.UnsupportedFileSystemException;
+import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
 
 import com.quantcast.qfs.access.KfsFileAttr;
 
 public class QuantcastFileSystem extends FileSystem {
 
-  private FileSystem localFs;
-  private IFSImpl qfsImpl = null;
-  private URI uri;
-  private Path workingDir = new Path("/");
+  private FileSystem localFs    = null;
+  private IFSImpl    qfsImpl    = null;
+  private URI        uri        = null;
+  private Path       workingDir = null;
 
   public QuantcastFileSystem() {
 
   }
 
-  QuantcastFileSystem(IFSImpl fsimpl) {
+  QuantcastFileSystem(IFSImpl fsimpl, URI uri) {
     this.qfsImpl = fsimpl;
+    this.uri     = uri;
   }
 
   public URI getUri() {
@@ -77,7 +82,7 @@ public class QuantcastFileSystem extends FileSystem {
       this.uri = URI.create(uri.getScheme() + "://" +
           (uri.getAuthority() == null ? "/" : uri.getAuthority()));
       this.workingDir = new Path("/user", System.getProperty("user.name")
-                                ).makeQualified(this);
+                                ).makeQualified(uri, null);
     } catch (Exception e) {
       e.printStackTrace();
       System.out.println("Unable to initialize QFS");
@@ -90,12 +95,18 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   public void setWorkingDirectory(Path dir) {
-    workingDir = makeAbsolute(dir);
+    try {
+        workingDir = makeAbsolute(dir).makeQualified(uri, null);
+    } catch (IOException ex) {
+    }
   }
 
-  private Path makeAbsolute(Path path) {
+  private Path makeAbsolute(Path path) throws IOException {
     if (path.isAbsolute()) {
       return path;
+    }
+    if (null == workingDir) {
+      throw new IOException(path + ": absolute path required");
     }
     return new Path(workingDir, path);
   }
@@ -122,7 +133,7 @@ public class QuantcastFileSystem extends FileSystem {
 
   public FileStatus[] listStatus(Path path) throws IOException {
     try {
-      final Path absolute = makeAbsolute(path).makeQualified(this);
+      final Path absolute = makeAbsolute(path).makeQualified(uri, null);
       final FileStatus fs = qfsImpl.stat(absolute);
       return fs.isDir() ?
         qfsImpl.readdirplus(absolute) :
@@ -246,7 +257,7 @@ public class QuantcastFileSystem extends FileSystem {
       );
     }
     final String srep = makeAbsolute(file.getPath()).toUri().getPath();
-    if (file.isDir()) {
+    if (file.isDirectory()) {
       throw new IOException(srep + ": is a directory");
     }
     final String[][] hints = qfsImpl.getBlocksLocation(srep, start, len);
@@ -407,4 +418,20 @@ public class QuantcastFileSystem extends FileSystem {
     }
     return new ContentSummary(stat.filesize, 1, 0);
   }
+
+  public Token<?> getDelegationToken(String renewer) throws IOException {
+    return null;
+  }
+
+  // The following two methods are needed to compile Qfs.java with hadoop 0.23.x
+  public FileStatus getFileLinkStatus(Path path)
+      throws AccessControlException, FileNotFoundException,
+      UnsupportedFileSystemException, IOException {
+    return getFileStatus(path);
+  }
+
+  public boolean supportsSymlinks() {
+    return false;
+  }
+
 }

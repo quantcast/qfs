@@ -76,9 +76,9 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
-    FileStatus fs = localFS.getFileStatus(path);
+    FileStatus fs = localFS.getFileStatus(new Path(path.toUri().getPath()));
     KfsFileAttr fa = new KfsFileAttr();
-    fa.filename = fs.getPath().toString();
+    fa.filename = fs.getPath().toUri().getPath();
     fa.isDirectory = fs.isDir();
     fa.filesize = fs.getLen();
     fa.replication = fs.getReplication();
@@ -177,6 +177,13 @@ public class QFSEmulationImpl implements IFSImpl {
       return 0;
     }
     return s.getModificationTime();
+  }
+
+  public FSDataOutputStream create(String path, short replication,
+    int bufferSize, boolean overwrite, int mode, boolean append) throws IOException {
+    // besides path/overwrite, the other args don't matter for
+    // testing purposes.
+    return localFS.create(new Path(path));
   }
 
   public FSDataOutputStream create(String path, short replication,
