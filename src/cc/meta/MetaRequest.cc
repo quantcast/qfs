@@ -192,10 +192,13 @@ IsValidGroup(kfsGid_t group)
 }
 
 inline static bool
-IsValidMode(kfsMode_t mode)
+IsValidMode(kfsMode_t mode, bool dirFlag)
 {
     return (mode != kKfsModeUndef &&
-        (mode & ~((kfsMode_t(1) << 3 * 3) - 1)) == 0);
+        (mode & ~kfsMode_t(dirFlag ?
+            Permissions::kDirModeMask :
+            Permissions::kFileModeMask)) == 0
+    );
 }
 
 inline static bool
@@ -612,7 +615,7 @@ CheckUserAndGroup(T& req)
 }
 
 template<typename T> inline static bool
-CheckCreatePerms(T& req)
+CheckCreatePerms(T& req, bool dirFlag)
 {
     if (req.authUid == kKfsUserNone) {
         if (req.euser == kKfsUserNone) {
@@ -640,7 +643,7 @@ CheckCreatePerms(T& req)
             gLayoutManager.GetDefaultDirMode() :
             gLayoutManager.GetDefaultFileMode();
     }
-    if (! IsValidMode(req.mode)) {
+    if (! IsValidMode(req.mode, dirFlag)) {
         req.status    = -EINVAL;
         req.statusMsg = "invalid mode";
         return false;
@@ -751,7 +754,8 @@ MetaCreate::handle()
         minSTier     = kKfsSTierMax;
         maxSTier     = kKfsSTierMax;
     } else {
-        if (! CheckCreatePerms(*this)) {
+        const bool kDirFlag = false;
+        if (! CheckCreatePerms(*this, kDirFlag)) {
             return;
         }
     }
@@ -815,7 +819,8 @@ MetaMkdir::handle()
     if (! SetUserAndGroup(*this)) {
         return;
     }
-    if (! CheckCreatePerms(*this)) {
+    const bool kDirFlag = true;
+    if (! CheckCreatePerms(*this, kDirFlag)) {
         return;
     }
     fid = 0;
@@ -2561,7 +2566,7 @@ MetaChmod::handle()
         status = -ENOENT;
         return;
     }
-    if (IsValidMode(mode)) {
+    if (IsValidMode(mode, fa->type == KFS_DIR)) {
         status = -EINVAL;
     }
     SetEUserAndEGroup(*this);
