@@ -407,7 +407,7 @@ def do_cleanup(config, doUninstall):
             rm_tree(clientDir)
     if doUninstall:
         qfsbase = os.path.expanduser('~/qfsbase')
-        if os.path.isdir(qfsbase):
+        if os.path.isdir(qfsbase) and not os.path.islink(qfsbase):
             os.rmdir(qfsbase)
         print 'Uninstall - OK.'
     else:
