@@ -292,13 +292,13 @@ Actions:
     sampleSession = """
 Hello World example of a client session:
   # Install sample server setup, only needed once.
-  ./examples/sampleservers/sample_setup.py -a install
-  PATH=<bin-tools-path>:${PATH}
+  %s/examples/sampleservers/sample_setup.py -a install
+  PATH="%s:${PATH}"
   # Make temp directory.
   qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
   # Create file containing Hello World, Reed-Solomon encoded, replication 1.
   echo 'Hello World' \
-    | cptoqfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
+| cptoqfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
   # Cat file content.
   qfscat -s localhost -p 20000 /qfs/tmp/helloworld
   # Stat file to see encoding (RS or not), replication level, mtime.
@@ -308,13 +308,12 @@ Hello World example of a client session:
   # Remove file from QFS.
   qfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
   # Stop the server and remove the custom install.
-  ./examples/sampleservers/sample_setup.py -a stop
-  ./examples/sampleservers/sample_setup.py -a uninstall
+  %s/examples/sampleservers/sample_setup.py -a stop
+  %s/examples/sampleservers/sample_setup.py -a uninstall
 
 Use qfs to manipulate files the same way you would use 'hadoop fs':
   # Set qfs command alias.
-  alias qfs='<QFS_INSTALL_PATH>/bin/tools/qfs \
--cfg ./examples/sampleservers/sample_qfs_tool.cfg'
+  alias qfs='%s/bin/tools/qfs -cfg ~/qfsbase/client/clidefault.prp'
 
   qfs -h
   qfs -stat /
@@ -322,12 +321,23 @@ Use qfs to manipulate files the same way you would use 'hadoop fs':
   qfs -ls /
 
   Did you notice how fast it is? :)
+
+Run the following to test with hadoop:
+    %s/src/test-scripts/qfshadoop.sh
 """
 
     # An install sets up all config files and (re)starts the servers.
     # An uninstall stops the servers and removes the config files.
     # A stop stops the servers.
     opts, args = parser.parse_args()
+    sampleSession = sampleSession % (
+        opts.source_dir,
+        opts.release_dir,
+        opts.source_dir,
+        opts.source_dir,
+        opts.release_dir,
+        opts.source_dir
+    )
 
     if opts.help:
         parser.print_help()
