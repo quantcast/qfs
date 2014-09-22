@@ -44,7 +44,9 @@ interface IFSImpl {
   public KfsFileAttr fullStat(Path path) throws IOException;
 
   public int mkdirs(String path, int mode) throws IOException;
+  public int mkdir(String path, int mode) throws IOException;
   public int rename(String source, String dest) throws IOException;
+  public int rename2(String source, String dest, boolean overwrite) throws IOException;
 
   public int rmdir(String path) throws IOException;
   public int rmdirs(String path) throws IOException;

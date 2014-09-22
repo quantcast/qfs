@@ -186,7 +186,10 @@ public class Qfs extends AbstractFileSystem {
   public void mkdir(Path dir, FsPermission permission, boolean createParent)
       throws IOException, UnresolvedLinkException {
     qfsImpl.retToIoException(
-      qfsImpl.mkdirs(getUriPath(dir), permission.toShort()));
+      createParent ?
+        qfsImpl.mkdirs(getUriPath(dir), permission.toShort()) :
+        qfsImpl.mkdir(getUriPath(dir), permission.toShort())
+    );
   }
 
   @Override
@@ -198,8 +201,11 @@ public class Qfs extends AbstractFileSystem {
   @Override
   public void renameInternal(Path src, Path dst)
       throws IOException, UnresolvedLinkException {
+    final boolean kOverwriteDestinationFlag = false;
     qfsImpl.retToIoException(
-      qfsImpl.rename(getUriPath(src), getUriPath(dst)));
+      qfsImpl.rename2(getUriPath(src), getUriPath(dst),
+        kOverwriteDestinationFlag)
+    );
   }
 
   @Override

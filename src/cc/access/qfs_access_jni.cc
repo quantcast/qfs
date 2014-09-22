@@ -57,6 +57,9 @@ extern "C" {
     jint Java_com_quantcast_qfs_access_KfsAccess_cd(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
+    jint Java_com_quantcast_qfs_access_KfsAccess_mkdir(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode);
+
     jint Java_com_quantcast_qfs_access_KfsAccess_mkdirs(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode);
 
@@ -317,6 +320,19 @@ jint Java_com_quantcast_qfs_access_KfsAccess_cd(
     string path;
     setStr(path, jenv, jpath);
     return clnt->Cd(path.c_str());
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_mkdir(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint mode)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string path;
+    setStr(path, jenv, jpath);
+    return clnt->Mkdir(path.c_str(), (kfsMode_t)mode);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_mkdirs(

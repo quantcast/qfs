@@ -124,6 +124,15 @@ class QFSImpl implements IFSImpl {
     return kfsAccess.kfs_mkdirs(path, mode);
   }
 
+  public int mkdir(String path, int mode) throws IOException {
+    return kfsAccess.kfs_mkdir(path, mode);
+  }
+
+  public int rename2(String source, String dest, boolean overwrite)
+      throws IOException {
+    return kfsAccess.kfs_rename(source, dest, overwrite);
+  }
+
   public int rename(String source, String dest) throws IOException {
     // QFS rename does not have mv semantics.
     // To move /a/b under /c/, you must ask for "rename /a/b /c/b"

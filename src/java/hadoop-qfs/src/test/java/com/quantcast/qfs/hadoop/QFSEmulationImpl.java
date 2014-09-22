@@ -86,6 +86,13 @@ public class QFSEmulationImpl implements IFSImpl {
     return fa;
   }
 
+  public int mkdir(String path, int mode) throws IOException {
+    if (localFS.mkdirs(new Path(path))) {
+      return 0;
+    }
+    return -1;
+  }
+
   public int mkdirs(String path, int mode) throws IOException {
     if (localFS.mkdirs(new Path(path))) {
       return 0;
@@ -94,6 +101,14 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public int rename(String source, String dest) throws IOException {
+    if (localFS.rename(new Path(source), new Path(dest))) {
+      return 0;
+    }
+    return -1;
+  }
+
+  public int rename2(String source, String dest,
+      boolean overwrite) throws IOException {
     if (localFS.rename(new Path(source), new Path(dest))) {
       return 0;
     }

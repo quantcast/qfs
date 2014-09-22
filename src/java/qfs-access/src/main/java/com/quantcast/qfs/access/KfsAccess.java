@@ -63,6 +63,9 @@ final public class KfsAccess
     int cd(long ptr, String  path);
 
     private final static native
+    int mkdir(long ptr, String  path, int mode);
+
+    private final static native
     int mkdirs(long ptr, String  path, int mode);
 
     private final static native
@@ -261,6 +264,12 @@ final public class KfsAccess
     public int kfs_mkdirs(String path, int mode)
     {
         return mkdirs(cPtr, path, mode);
+    }
+
+    // make the directory hierarchy for path
+    public int kfs_mkdir(String path, int mode)
+    {
+        return mkdir(cPtr, path, mode);
     }
 
     // remove the directory specified by path; remove will succeed only if path is empty.
