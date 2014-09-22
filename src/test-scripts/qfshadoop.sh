@@ -41,26 +41,26 @@ showhelp()
 
 Usage: "$0" {fs|jar|-env|-h}
 
-This script is intended to be executed in Hadoop install directory, in place
-    of bin/hadoop with "jar" and "fs" arguments.
+This script is intended to be executed in Hadoop install directory
+    \$HADOOP_HOME, in place of \$$HADOOP_HOME/bin/hadoop with "jar" and "fs"
+    arguments.
 
 The assumption is that the sample servers are already successfully installed,
     and running.
 
     QFS servers can be started by the following:
-     ${myqfssrc}/examples/sampleservers/sample_setup.py \
--r ${myqfssrc}/build/release -a install
+     ${myqfssrc}/examples/sampleservers/sample_setup.py -a install
     With sample_setup.py an optional --auth parameter can be used in order to
     configure and use QFS authentication.
 
 The following can be used to build required QFS executables and jar files:
     cd ${myqfssrc} && make hadoop-jars
 
-The following envoronment variable can be set prior to this script
-    invocation in order to enbable QFS client debug level:
+The following environment variable can be set prior to this script
+    invocation in order to enable QFS client debug level:
     QFS_CLIENT_LOG_LEVEL=DEBUG
 
--env command line option can be used to emit environment vairlabes that have to
+-env command line option can be used to emit environment variables that have to
     be added to \$HADOOP_HOME/conf/hadoop-env.sh
     [or \$HADOOP_HOME/etc/hadoop/hadoop-env.sh] file in order to
     make Hadoop work with QFS in pseudo distributed mode.
@@ -69,7 +69,7 @@ The following envoronment variable can be set prior to this script
     trackers with \$HADOOP_HOME/bin/start-mapred.sh
     [or \$HADOOP_HOME/sbin/start-yarn.sh]
 
-    For pseudo distributed mode to work with Hadoop 1.x, the follwoing
+    For pseudo distributed mode to work with Hadoop 1.x, the following
     properties need to be set in \$HADOOP_HOME/core-site.xml
 
     <property>
@@ -85,12 +85,12 @@ The following envoronment variable can be set prior to this script
     \$HADOOP_HOME/etc/hadoop/core-site.xml and property name "fs.defaultFS"
     should be used in place of "fs.default.name".
 
-  *** Yarn support is not complete yet*: AM / container succeeds, but the map
-    tasks appears to fail for no obvious reason.
+  *** Yarn support is not complete yet*: AM / container launch succeeds,
+    but all the map tasks appears to fail for no obvious reason.
 
     The following notes are primarily intended for myself, if/when I will have
     time to experiment with yarn again.
-    Passing envoronment variables, including delegation token, and QFS client
+    Passing environment variables, including delegation token, and QFS client
     trace log level using property "mapred.child.env" does not seem to work
     with yarn.
     Setting \$HADOOP_CLASSPATH in is not sufficient to make yarn work.
@@ -98,7 +98,7 @@ The following envoronment variable can be set prior to this script
     \$HADOOP_HOME/share/hadoop/common (\$HADOOP_HOME/lib is not in yarn
     default).
     To experiment with yarn the following has to be added to
-    etc/hadoop/core-site.xml
+    \$HADOOP_HOME/etc/hadoop/core-site.xml
 
     <property>
         <name>fs.AbstractFileSystem.qfs.impl</name>
@@ -168,8 +168,8 @@ if grep -v '#' "$myhadoop" | grep "JAVA_LIBRARY_PATH=''" > /dev/null; then
         true
     else
         cat << EOF
-The follwoing line in $myhadoop script has to be commented out, or qfs native
-libraries, have to be sym linked or copied to the platfrom native libraries
+The following line in $myhadoop script has to be commented out, or qfs native
+libraries, have to be sym linked or copied to the platform native libraries
 directory.
     JAVA_LIBRARY_PATH=''
 EOF
