@@ -426,7 +426,7 @@ def setup_directories(config, authFlag):
                 else:
                     mkdir_p(chunkRunDir + '/chunkdir')
 
-    if authFlag and config.has_section('client'):
+    if config.has_section('client'):
         clientDir = config.get('client', 'rundir')
         if clientDir:
             mkdir_p(clientDir)
