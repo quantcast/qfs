@@ -829,6 +829,17 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
         gAtomicRecordAppendManager.DecOpenAppenderCount();
     }
     if (wasStableFlag != nowStableFlag) {
+        if (nowStableFlag) {
+            const int bytes = mFlushStartByteCount < 0 ?
+                mBuffer.BytesConsumable() : mFlushStartByteCount;
+            mBuffer.Clear(); // no more ios.
+            mFlushStartByteCount  = -1; // Prevent flush attempts.
+            mAppendInProgressFlag = false;
+            if (0 < bytes) {
+                // Update total.
+                gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
+            }
+        }
         gAtomicRecordAppendManager.UpdateAppenderFlushLimit(this);
     }
     if (mState == kStateStable || mState == kStateChunkLost) {
@@ -836,15 +847,6 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
     }
     mMakeStableSucceededFlag =
         mMakeStableSucceededFlag || mState == kStateStable;
-    if (nowStableFlag) {
-        const int bytes = mBuffer.BytesConsumable();
-        mBuffer.Clear(); // no more ios.
-        mFlushStartByteCount = -1; // Prevent flush attempts.
-        if (0 < bytes) {
-            // Update total.
-            gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
-        }
-    }
     if (mState == kStateStable) {
         mChunkFileHandle.reset();
     } else if (mState == kStateChunkLost) {
@@ -872,12 +874,15 @@ AtomicRecordAppender::DeleteSelf()
             FatalError();
         }
         mTimer.RemoveTimeout();
-        const int bytes = mBuffer.BytesConsumable();
+        const int bytes = mFlushStartByteCount < 0 ?
+            mBuffer.BytesConsumable() : mFlushStartByteCount;
+        mBuffer.Clear();
+        mFlushStartByteCount  = -1;
+        mAppendInProgressFlag = false;
         if (0 < bytes) {
             // Update total.
             gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
         }
-        mBuffer.Clear();
         SetCanDoLowOnBuffersFlushFlag(false);
         if (! mWriteIdState.empty()) {
             DecAppendersWithWidCount();
