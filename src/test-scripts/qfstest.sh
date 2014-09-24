@@ -236,7 +236,7 @@ else
     mindiskspace=$minrequreddiskspace
 fi
 
-df -k "$testdir" | awk -v msp="${mindiskspace}" '
+df -P -k "$testdir" | awk -v msp="${mindiskspace}" '
     { lns = lns $0 "\n" }
     /^\// {
     if ($4 * 1024 < msp) {
