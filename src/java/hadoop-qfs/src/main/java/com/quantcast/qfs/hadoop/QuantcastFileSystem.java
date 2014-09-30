@@ -51,7 +51,6 @@ public class QuantcastFileSystem extends FileSystem {
   private Path       workingDir = null;
 
   public QuantcastFileSystem() {
-
   }
 
   QuantcastFileSystem(IFSImpl fsimpl, URI uri) {
@@ -70,11 +69,11 @@ public class QuantcastFileSystem extends FileSystem {
     try {
       if (qfsImpl == null) {
         if (uri.getHost() == null) {
-          qfsImpl = new QFSImpl(conf.get("fs.qfs.metaServerHost", ""),
+          qfsImpl = createIFSImpl(conf.get("fs.qfs.metaServerHost", ""),
                                 conf.getInt("fs.qfs.metaServerPort", -1),
                                 statistics);
         } else {
-          qfsImpl = new QFSImpl(uri.getHost(), uri.getPort(), statistics);
+          qfsImpl = createIFSImpl(uri.getHost(), uri.getPort(), statistics);
         }
       }
 
@@ -88,6 +87,11 @@ public class QuantcastFileSystem extends FileSystem {
       System.out.println("Unable to initialize QFS");
       System.exit(-1);
     }
+  }
+
+  protected IFSImpl createIFSImpl(String metaServerHost, int metaServerPort,
+                               FileSystem.Statistics stats) throws IOException {
+    return new QFSImpl(metaServerHost, metaServerPort, stats);
   }
 
   public Path getWorkingDirectory() {

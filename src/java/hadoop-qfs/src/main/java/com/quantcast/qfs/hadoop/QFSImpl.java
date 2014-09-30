@@ -33,7 +33,7 @@ import com.quantcast.qfs.access.KfsFileAttr;
 import java.util.ArrayList;
 
 class QFSImpl implements IFSImpl {
-  private KfsAccess kfsAccess = null;
+  protected KfsAccess kfsAccess = null;
   private FileSystem.Statistics statistics;
   private final long BLOCK_SIZE  = 1 << 26;
   private final long ACCESS_TIME = 0;
@@ -199,13 +199,13 @@ class QFSImpl implements IFSImpl {
   public FSDataOutputStream create(String path, short replication,
         int bufferSize, boolean overwrite, int mode,
         boolean append) throws IOException {
-    return new FSDataOutputStream(new QFSOutputStream(
+    return new FSDataOutputStream(createQFSOutputStream(
       kfsAccess, path, replication, overwrite, append, mode), statistics);
   }
 
   public FSDataInputStream open(String path, int bufferSize)
     throws IOException {
-      return new FSDataInputStream(new QFSInputStream(kfsAccess, path,
+      return new FSDataInputStream(createQFSInputStream(kfsAccess, path,
                                                       statistics));
   }
 
@@ -214,7 +214,7 @@ class QFSImpl implements IFSImpl {
     final boolean append    = true;
     final boolean overwrite = false;
     final int     mode      = 0666;
-    return new FSDataOutputStream(new QFSOutputStream(
+    return new FSDataOutputStream(createQFSOutputStream(
       kfsAccess, path, replication, overwrite, append, mode), statistics);
   }
 
@@ -231,6 +231,17 @@ class QFSImpl implements IFSImpl {
   public void retToIoException(int ret)
     throws IOException {
     kfsAccess.kfs_retToIOException(ret);
+  }
+
+  protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
+                                                  short replication, boolean overwrite,
+                                                  boolean append, int mode) throws IOException {
+    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode);
+  }
+
+  protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess, String path,
+                                                FileSystem.Statistics stats) throws IOException {
+    return new QFSInputStream(kfsAccess, path, stats);
   }
 
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
