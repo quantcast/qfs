@@ -799,6 +799,19 @@ KfsClient::GetDefaultIOTimeout() const
     return mImpl->GetDefaultIOTimeout();
 }
 
+
+void
+KfsClient::SetDefaultMetaOpTimeout(int nsecs)
+{
+    mImpl->SetDefaultMetaOpTimeout(nsecs);
+}
+
+int
+KfsClient::GetDefaultMetaOpTimeout() const
+{
+    return mImpl->GetDefaultMetaOpTimeout();
+}
+
 void
 KfsClient::SetRetryDelay(int nsecs)
 {
@@ -1416,6 +1429,7 @@ KfsClientImpl::KfsClientImpl(
       mMaxNumRetriesPerOp(DEFAULT_NUM_RETRIES_PER_OP),
       mRetryDelaySec(RETRY_DELAY_SECS),
       mDefaultOpTimeout(30),
+      mDefaultMetaOpTimeout(120),
       mFreeCondVarsHead(0),
       mEUser(kKfsUserNone),
       mEGroup(kKfsGroupNone),
@@ -4249,7 +4263,6 @@ KfsClientImpl::SetDefaultIOTimeout(int nsecs)
     mDefaultOpTimeout = timeout;
     if (mProtocolWorker) {
         mProtocolWorker->SetOpTimeoutSec(mDefaultOpTimeout);
-        mProtocolWorker->SetMetaOpTimeoutSec(mDefaultOpTimeout);
     }
 }
 
@@ -4258,6 +4271,28 @@ KfsClientImpl::GetDefaultIOTimeout() const
 {
     QCStMutexLocker l(const_cast<KfsClientImpl*>(this)->mMutex);
     return mDefaultOpTimeout;
+}
+
+void
+KfsClientImpl::SetDefaultMetaOpTimeout(int nsecs)
+{
+    QCStMutexLocker l(mMutex);
+    const int kMaxTimeout = numeric_limits<int>::max() / 1000;
+    const int timeout = nsecs >= 0 ? min(kMaxTimeout, nsecs) : kMaxTimeout;
+    if (timeout == mDefaultMetaOpTimeout) {
+        return;
+    }
+    mDefaultMetaOpTimeout = timeout;
+    if (mProtocolWorker) {
+        mProtocolWorker->SetMetaOpTimeoutSec(mDefaultMetaOpTimeout);
+    }
+}
+
+int
+KfsClientImpl::GetDefaultMetaOpTimeout() const
+{
+    QCStMutexLocker l(const_cast<KfsClientImpl*>(this)->mMutex);
+    return mDefaultMetaOpTimeout;
 }
 
 void

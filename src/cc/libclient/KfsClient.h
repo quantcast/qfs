@@ -565,6 +565,8 @@ public:
     ///
     void SetDefaultIOTimeout(int nsecs);
     int  GetDefaultIOTimeout() const;
+    void SetDefaultMetaOpTimeout(int nsecs);
+    int  GetDefaultMetaOpTimeout() const;
 
     void SetRetryDelay(int nsecs);
     int  GetRetryDelay() const;

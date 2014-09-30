@@ -555,6 +555,8 @@ public:
 
     void SetDefaultIOTimeout(int nsecs);
     int  GetDefaultIOTimeout() const;
+    void SetDefaultMetaOpTimeout(int nsecs);
+    int  GetDefaultMetaOpTimeout() const;
     void SetRetryDelay(int nsecs);
     int  GetRetryDelay() const;
     void SetMaxRetryPerOp(int retryCount);
@@ -773,6 +775,7 @@ private:
     int                            mMaxNumRetriesPerOp;
     int                            mRetryDelaySec;
     int                            mDefaultOpTimeout;
+    int                            mDefaultMetaOpTimeout;
     ReadRequestCondVar*            mFreeCondVarsHead;
     kfsUid_t                       mEUser;
     kfsGid_t                       mEGroup;
