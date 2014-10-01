@@ -35,9 +35,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.fs.UnresolvedLinkException;
-import org.apache.hadoop.fs.UnsupportedFileSystemException;
-import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
 
@@ -257,7 +254,7 @@ public class QuantcastFileSystem extends FileSystem {
       );
     }
     final String srep = makeAbsolute(file.getPath()).toUri().getPath();
-    if (file.isDirectory()) {
+    if (file.isDir()) {
       throw new IOException(srep + ": is a directory");
     }
     final String[][] hints = qfsImpl.getBlocksLocation(srep, start, len);
@@ -425,8 +422,7 @@ public class QuantcastFileSystem extends FileSystem {
 
   // The following two methods are needed to compile Qfs.java with hadoop 0.23.x
   public FileStatus getFileLinkStatus(Path path)
-      throws AccessControlException, FileNotFoundException,
-      UnsupportedFileSystemException, IOException {
+      throws IOException {
     return getFileStatus(path);
   }
 

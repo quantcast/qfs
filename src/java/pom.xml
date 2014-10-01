@@ -55,4 +55,12 @@ permissions and limitations under the License.
     <module>qfs-access</module>
     <module>hadoop-qfs</module>
   </modules>
+  <profiles>
+    <profile>
+      <id>hadoop_trunk_profile_2</id>
+        <modules>
+          <module>hadoop-qfs-2</module>
+        </modules>
+    </profile>
+  </profiles>
 </project>

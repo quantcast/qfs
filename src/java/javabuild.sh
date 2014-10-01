@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Author: Thilee Subramaniam
 #
@@ -47,10 +47,15 @@ if [ $# -eq 1 ]; then
     if [ x"$1" = x'clean' ]; then
         mvn clean
         exit 0
-    elif [[ $(echo $1 | cut -d. -f 1-2) == "1.0"  || $(echo $1 | cut -d. -f 1-2) == "1.1" ]]; then
+    fi
+    myversion="`echo "$1" | cut -d. -f 1-2`"
+    myversionmaj="`echo "$1" | cut -d. -f 1`"
+    if [ x"$myversion" = x"1.0"  -o  x"$myversion" = x"1.1" ]; then
         hadoop_qfs_profile="hadoop_branch1_profile"
-    elif [[ $(echo $1 | cut -d. -f 1-2) == "0.23" || $(echo $1 | cut -d. -f 1) == "2" ]]; then
+    elif [ x"$myversion" = x"0.23" ]; then
         hadoop_qfs_profile="hadoop_trunk_profile"
+    elif [  x"$myversionmaj" = x"2" ]; then
+        hadoop_qfs_profile="hadoop_trunk_profile,hadoop_trunk_profile_2"
     else
         echo "Unsupported Hadoop release version."
         exit 1
@@ -59,7 +64,7 @@ fi
 
 qfs_release_version=`sh ../cc/common/buildversgit.sh -v | head -1`
 qfs_source_revision=`sh ../cc/common/buildversgit.sh -v | tail -1`
-if [ -z "$qfs_source_revision" ]; then
+if [ x"$qfs_source_revision" = x ]; then
     qfs_source_revision="00000000"
 fi
 
