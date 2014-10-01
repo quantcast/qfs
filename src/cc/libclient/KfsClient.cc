@@ -4351,7 +4351,7 @@ KfsClientImpl::StartProtocolWorker()
         &params
     );
     mProtocolWorker->SetOpTimeoutSec(mDefaultOpTimeout);
-    mProtocolWorker->SetMetaOpTimeoutSec(mDefaultOpTimeout);
+    mProtocolWorker->SetMetaOpTimeoutSec(mDefaultMetaOpTimeout);
     mProtocolWorker->SetMaxRetryCount(mMaxNumRetriesPerOp);
     mProtocolWorker->SetMetaMaxRetryCount(mMaxNumRetriesPerOp);
     mProtocolWorker->SetTimeSecBetweenRetries(mRetryDelaySec);
