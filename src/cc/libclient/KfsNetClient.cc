@@ -401,6 +401,8 @@ public:
     void SetOpTimeout(
         int inOpTimeoutSec)
         { mOpTimeoutSec = inOpTimeoutSec; }
+    int GetOpTimeout() const
+        { return mOpTimeoutSec; }
     void GetStats(
         Stats& outStats) const
         { outStats = mStats; }
@@ -1954,6 +1956,12 @@ KfsNetClient::SetRetryConnectOnly(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetRetryConnectOnly(inFlag);
+}
+
+    int
+KfsNetClient::GetOpTimeout() const
+{
+    return mImpl.GetOpTimeout();
 }
 
     void

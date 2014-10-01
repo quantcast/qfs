@@ -102,6 +102,10 @@ public:
             false,  // inMaxOneOutstandingOpFlag
             inParameters.mAuthContextPtr
           ),
+          mMetaOpTimeout(mMetaServer.GetOpTimeout()),
+          mMetaTimeBetweenRetries(mMetaServer.GetTimeSecBetweenRetries()),
+          mMetaMaxRetryCount(mMetaServer.GetMaxRetryCount()),
+          mMetaParamsUpdateFlag(false),
           mWorkers(),
           mMaxRetryCount(inParameters.mMaxRetryCount),
           mTimeSecBetweenRetries(inParameters.mTimeSecBetweenRetries),
@@ -178,6 +182,12 @@ public:
             QCStMutexLocker theLock(mMutex);
             theWorkQueue[0] = mWorkQueue[0];
             WorkQueue::Init(mWorkQueue);
+            if (mMetaParamsUpdateFlag) {
+                mMetaServer.SetOpTimeoutSec(mMetaOpTimeout);
+                mMetaServer.SetTimeSecBetweenRetries(mMetaTimeBetweenRetries);
+                mMetaServer.SetMaxRetryCount(mMetaMaxRetryCount);
+                mMetaParamsUpdateFlag = false;
+            }
         }
         bool theShutdownFlag = false;
         Request* theReqPtr;
@@ -416,13 +426,21 @@ public:
         int inMaxRetryCount)
     {
         QCStMutexLocker theLock(mMutex);
-        mMetaServer.SetMaxRetryCount(inMaxRetryCount);
+        if (mMetaMaxRetryCount != inMaxRetryCount) {
+            mMetaMaxRetryCount = inMaxRetryCount;
+            mMetaParamsUpdateFlag = true;
+            mNetManager.Wakeup();
+        }
     }
     void SetMetaTimeSecBetweenRetries(
         int inSecs)
     {
         QCStMutexLocker theLock(mMutex);
-        mMetaServer.SetTimeSecBetweenRetries(inSecs);
+        if (mMetaTimeBetweenRetries != inSecs) {
+            mMetaTimeBetweenRetries = inSecs;
+            mMetaParamsUpdateFlag = true;
+            mNetManager.Wakeup();
+        }
     }
     void SetMaxRetryCount(
         int inMaxRetryCount)
@@ -440,7 +458,11 @@ public:
         int inSecs)
     {
         QCStMutexLocker theLock(mMutex);
-        mMetaServer.SetOpTimeoutSec(inSecs);
+        if (mMetaOpTimeout != inSecs) {
+            mMetaOpTimeout = inSecs;
+            mMetaParamsUpdateFlag = true;
+            mNetManager.Wakeup();
+        }
     }
     void SetOpTimeoutSec(
         int inSecs)
@@ -1513,6 +1535,10 @@ private:
 
     NetManager        mNetManager;
     MetaServer        mMetaServer;
+    int               mMetaOpTimeout;
+    int               mMetaTimeBetweenRetries;
+    int               mMetaMaxRetryCount;
+    int               mMetaParamsUpdateFlag;
     Workers           mWorkers;
     int               mMaxRetryCount;
     int               mTimeSecBetweenRetries;

@@ -228,6 +228,7 @@ public:
     int GetOpTimeoutSec() const;
     void SetOpTimeoutSec(
         int inTimeout);
+    int GetOpTimeout() const;
     int GetIdleTimeoutSec() const;
     void SetIdleTimeoutSec(
         int inTimeout);
