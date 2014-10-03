@@ -29,6 +29,13 @@ mydir="`dirname "$0"`"
 mydir="`cd "$mydir" && pwd`"
 myqfssrc="`cd "$mydir/../.." > /dev/null && pwd`"
 
+myhadoophomebin='bin/hadoop'
+if [ x"$HADOOP_HOME" = x ]; then
+    true
+else
+    myhadoophomebin="$HADOOP_HOME/$myhadoophomebin"
+fi
+
 metaserverhost=${metaserverhost-127.0.0.1}
 metaserverport=${metaserverport-20000}
 clientconfig=${clientconfig-"$HOME/qfsbase/client/client.prp"}
@@ -37,12 +44,15 @@ hadoopbin=${hadoopbin-bin/hadoop}
 
 showhelp()
 {
+    if [ x"$HADOOP_HOME" = x ]; then
+        HADOOP_HOME='$HADOOP_HOME'
+    fi
     cat << EOF
 
 Usage: "$0" {fs|jar|-env|-h}
 
 This script is intended to be executed in Hadoop install directory
-    \$HADOOP_HOME, in place of \$$HADOOP_HOME/bin/hadoop with "jar" and "fs"
+    $HADOOP_HOME, in place of $HADOOP_HOME/bin/hadoop with "jar" and "fs"
     arguments.
 
 The assumption is that the sample servers are already successfully installed,
@@ -61,16 +71,16 @@ The following environment variable can be set prior to this script
     QFS_CLIENT_LOG_LEVEL=DEBUG
 
 -env command line option can be used to emit environment variables that have to
-    be added to \$HADOOP_HOME/conf/hadoop-env.sh
-    [or \$HADOOP_HOME/etc/hadoop/hadoop-env.sh] file in order to
+    be added to $HADOOP_HOME/conf/hadoop-env.sh
+    [or $HADOOP_HOME/etc/hadoop/hadoop-env.sh with hadoop 2.x] file in order to
     make Hadoop work with QFS in pseudo distributed mode.
     This option should be used only *after* [re]configuring and starting QFS
     file system with sample_setup.py, and *before* starting haddop job and task
-    trackers with \$HADOOP_HOME/bin/start-mapred.sh
-    [or \$HADOOP_HOME/sbin/start-yarn.sh]
+    trackers with $HADOOP_HOME/bin/start-mapred.sh
+    [or $HADOOP_HOME/sbin/start-yarn.sh with hadoop 2.x]
 
     For pseudo distributed mode to work with Hadoop 1.x, the following
-    properties need to be set in \$HADOOP_HOME/core-site.xml
+    properties need to be set in $HADOOP_HOME/conf/core-site.xml
 
     <property>
         <name>fs.default.name</name>
@@ -82,7 +92,7 @@ The following environment variable can be set prior to this script
     </property>
 
     For hadoop 2.x the the above properties should be set in the
-    \$HADOOP_HOME/etc/hadoop/core-site.xml and property name "fs.defaultFS"
+    $HADOOP_HOME/etc/hadoop/core-site.xml and property name "fs.defaultFS"
     should be used in place of "fs.default.name".
 
   *** Yarn support is not complete yet*: AM / container launch succeeds,
@@ -95,10 +105,10 @@ The following environment variable can be set prior to this script
     with yarn.
     Setting \$HADOOP_CLASSPATH in is not sufficient to make yarn work.
     One way around this is to sym link qfs and qfs hadoop jars to
-    \$HADOOP_HOME/share/hadoop/common (\$HADOOP_HOME/lib is not in yarn
+    $HADOOP_HOME/share/hadoop/common ($HADOOP_HOME/lib is not in yarn
     default).
     To experiment with yarn the following has to be added to
-    \$HADOOP_HOME/etc/hadoop/core-site.xml
+    $HADOOP_HOME/etc/hadoop/core-site.xml
 
     <property>
         <name>fs.AbstractFileSystem.qfs.impl</name>
@@ -173,19 +183,19 @@ libraries, have to be sym linked or copied to the platform native libraries
 directory.
     JAVA_LIBRARY_PATH=''
 EOF
-        if tty -s ; then
-            echo "Would you like to comment out the line?(Y/n)"
-            read ln
-            if [ x"$ln" = x'Y' -o x"$ln" = x'y' -o x"$ln" = x \
-                    -o x"$ln" = x'yes' ]; then
-                mytemp="$myhadoop.$$.tmp"
-                sed -e 's/\(JAVA_LIBRARY_PATH='\'''\''*.$\)/# \1/' \
-                    "$myhadoop" > "$mytemp"         || exit
-                chmod +x "$mytemp"                  || exit
-                mv "$myhadoop" "$myhadoop.qfs.orig" || exit
-                mv "$mytemp"   "$myhadoop"          || exit
-            else
-                exit 1
+    if tty -s ; then
+        echo "Would you like to comment out the line?(Y/n)"
+        read ln
+        if [ x"$ln" = x'Y' -o x"$ln" = x'y' -o x"$ln" = x \
+                -o x"$ln" = x'yes' ]; then
+            mytemp="$myhadoop.$$.tmp"
+            sed -e 's/\(JAVA_LIBRARY_PATH='\'''\''*.$\)/# \1/' \
+                "$myhadoop" > "$mytemp"         || exit
+            chmod +x "$mytemp"                  || exit
+            mv "$myhadoop" "$myhadoop.qfs.orig" || exit
+            mv "$mytemp"   "$myhadoop"          || exit
+        else
+            exit 1
             fi
         else
             exit 1
@@ -281,7 +291,7 @@ if [ -f "$clientconfig" ]; then
             BEGIN {
                 tok="";
                 key="";
-	    }
+            }
             /^Token:/{ tok = $2; }
             /^Key:/  { key = $2; }
             END      {
@@ -312,8 +322,10 @@ fi
 
 if echo "$myhadoopvers" | awk -F . '{exit(2 <= $1 ? 0 : 1);}'; then
     myfsdefault='fs.defaultFS'
+    myabstractfs='-Dfs.AbstractFileSystem.qfs.impl=com.quantcast.qfs.hadoop.Qfs'
 else
     myfsdefault='fs.default.name'
+    unset myabstractfs
 fi
 
 if [ x"$QFS_CLIENT_LOG_LEVEL" = x ]; then
@@ -333,7 +345,7 @@ QFS_CLIENT_CONFIG="$myenvqfscliconfig" \
     ${myjarname+"$myjarname"} \
     ${myprogname+"$myprogname"} \
     -Dfs.qfs.impl=com.quantcast.qfs.hadoop.QuantcastFileSystem  \
-    -Dfs.AbstractFileSystem.qfs.impl=com.quantcast.qfs.hadoop.Qfs  \
+    ${myabstractfs+"$myabstractfs"}  \
     -D"${myfsdefault}=qfs://${metaserverhost}:${metaserverport}" \
     ${mychildenv+"-Dmapred.child.env=${mychildenv}"} \
     ${1+"$@"}
