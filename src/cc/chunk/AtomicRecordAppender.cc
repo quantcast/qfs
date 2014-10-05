@@ -435,6 +435,7 @@ private:
     bool                    mAppendInProgressFlag;
     const uint64_t          mInstanceNum;
     int                     mConsecutiveOutOfSpaceCount;
+    int                     mWritableWidCount;
     WriteIdState            mWriteIdState;
     vector<uint32_t>        mTmpChecksums;
     Timer                   mTimer;
@@ -529,8 +530,11 @@ private:
     }
     int GetCloseEmptyWidStateSec()
     {
-        if (mConsecutiveOutOfSpaceCount >
-                gAtomicRecordAppendManager.GetCloseOutOfSpaceThreshold()) {
+        if (gAtomicRecordAppendManager.GetCloseOutOfSpaceThreshold() <
+                    mConsecutiveOutOfSpaceCount ||
+                (mBytesReserved <= 0 &&
+                    gAtomicRecordAppendManager.GetCloseMinChunkSize() <=
+                    mNextOffset)) {
             return gAtomicRecordAppendManager.GetCloseOutOfSpaceSec();
         }
         return gAtomicRecordAppendManager.GetCloseEmptyWidStateSec();
@@ -609,6 +613,22 @@ private:
     static const char* const sStateNames[kNumStates];
     static AtomicRecordAppendManager::Counters& Cntrs()
         { return gAtomicRecordAppendManager.Cntrs(); }
+    bool MasterUseShortCloseTimeout() const
+    {
+        return (mWritableWidCount <= 0 ||
+            (mBytesReserved <= 0 &&
+                gAtomicRecordAppendManager.GetCloseMinChunkSize() <=
+                    mNextOffset)
+        );
+    }
+    void DecrementWritableWidCount()
+    {
+        mWritableWidCount--;
+        if (mWritableWidCount <= 0) {
+            assert(mWritableWidCount == 0);
+            DecAppendersWithWidCount();
+        }
+    }
 private:
     // No copy.
     AtomicRecordAppender(const AtomicRecordAppender&);
@@ -741,6 +761,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mAppendInProgressFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
+      mWritableWidCount(0),
       mWriteIdState(),
       mTmpChecksums(),
       mTimer(
@@ -822,6 +843,7 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
             " chunk: "     << mChunkId <<
             " offset: "    << mNextOffset <<
             " wid count: " << mWriteIdState.size() <<
+            " / "          << mWritableWidCount <<
         KFS_LOG_EOM;
         FatalError();
     }
@@ -884,10 +906,11 @@ AtomicRecordAppender::DeleteSelf()
             gAtomicRecordAppendManager.GetFlushLimit(*this, -bytes);
         }
         SetCanDoLowOnBuffersFlushFlag(false);
-        if (! mWriteIdState.empty()) {
+        mWriteIdState.clear();
+        if (0 < mWritableWidCount) {
+            mWritableWidCount = 0;
             DecAppendersWithWidCount();
         }
-        mWriteIdState.clear();
         gAtomicRecordAppendManager.Detach(*this);
         SetState(kStatePendingDelete);
     }
@@ -951,6 +974,7 @@ AtomicRecordAppender::DeleteChunk()
         " state: "      << GetStateAsStr() <<
         " offset: "     << mNextOffset <<
         " wid count: "  << mWriteIdState.size() <<
+        " / "           << mWritableWidCount <<
     KFS_LOG_EOM;
     if (mState == kStatePendingDelete) {
         // Only AtomicRecordAppendManager calls this method.
@@ -1110,7 +1134,6 @@ AtomicRecordAppender::AllocateWriteId(
         msg    = "too many write ids";
         status = kErrOutOfSpace;
     } else {
-        const bool waEmptyFlag = mWriteIdState.empty();
         pair<WriteIdState::iterator, bool> res = mWriteIdState.insert(
             make_pair(op->writeId, WIdState()));
         if (! res.second) {
@@ -1120,7 +1143,8 @@ AtomicRecordAppender::AllocateWriteId(
             FatalError();
         } else {
             res.first->second.mSeq = op->clientSeq;
-            if (waEmptyFlag) {
+            mWritableWidCount++;
+            if (mWritableWidCount == 1) {
                 IncAppendersWithWidCount();
             }
             op->appendPeer = mPeer;
@@ -1137,6 +1161,7 @@ AtomicRecordAppender::AllocateWriteId(
         " state: "     << GetStateAsStr() <<
         " chunk: "     << mChunkId <<
         " wid count: " << mWriteIdState.size() <<
+        " / "          << mWritableWidCount <<
         " offset: "    << mNextOffset <<
         " reserved: "  << mBytesReserved <<
         " writeId: "   << op->writeId <<
@@ -1211,9 +1236,12 @@ AtomicRecordAppender::ChangeChunkSpaceReservaton(
     if (errMsg) {
         (*errMsg) += msg;
     }
-    if (mBytesReserved <= 0) {
-        mTimer.ScheduleTimeoutNoLaterThanIn(
-            gAtomicRecordAppendManager.GetCleanUpSec());
+    if (status == 0 && mBytesReserved <= 0) {
+        mBytesReserved = 0;
+        mTimer.ScheduleTimeoutNoLaterThanIn(Timer::MinTimeout(
+            gAtomicRecordAppendManager.GetCleanUpSec(),
+            GetCloseEmptyWidStateSec()
+        ));
     }
     WAPPEND_LOG_STREAM(status == 0 ?
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
@@ -1243,9 +1271,7 @@ AtomicRecordAppender::InvalidateWriteId(int64_t writeId, bool declareFailureFlag
         // Entry with no appends, clean it up.
         // This is not orderly close, do not shorten close timeout.
         mWriteIdState.erase(it);
-        if (mWriteIdState.empty()) {
-            DecAppendersWithWidCount();
-        }
+        DecrementWritableWidCount();
         if (declareFailureFlag && mState == kStateOpen) {
             SetState(kStateReplicationFailed);
         }
@@ -1979,8 +2005,12 @@ AtomicRecordAppender::GetOpStatus(GetRecordAppendOpStatus* op)
                 mBytesReserved = 0;
             }
             ws.mBytesReserved = 0;
+            const bool readOnlyFlag = ws.mReadOnlyFlag;
             ws.mReadOnlyFlag  = true;
             op->widReadOnlyFlag = ws.mReadOnlyFlag;
+            if (! readOnlyFlag) {
+                DecrementWritableWidCount();
+            }
         }
     }
     op->status = status;
@@ -2052,13 +2082,15 @@ AtomicRecordAppender::CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag
                 } else {
                     mBytesReserved = 0;
                 }
+                const bool readOnlyFlag = widIt->second.mReadOnlyFlag;
                 mWriteIdState.erase(widIt);
-                if (mWriteIdState.empty()) {
-                    DecAppendersWithWidCount();
+                if (! readOnlyFlag) {
+                    DecrementWritableWidCount();
                 }
                 if (IsMaster() && mState == kStateOpen &&
-                        mWriteIdState.empty()) {
-                    // For orderly close case shorten close timeout.
+                        MasterUseShortCloseTimeout()) {
+                    // For orderly close case, and when chunk over min size
+                    // shorten close timeout.
                     mTimer.ScheduleTimeoutNoLaterThanIn(Timer::MinTimeout(
                         gAtomicRecordAppendManager.GetCleanUpSec(),
                         GetCloseEmptyWidStateSec()
@@ -2302,16 +2334,15 @@ AtomicRecordAppender::Timeout()
             }
         }
         // If no activity, and no reservations, then master closes the chunk.
-        const int closeTimeout = mWriteIdState.empty() ? Timer::MinTimeout(
-                cleanupTimeout,
-                GetCloseEmptyWidStateSec()
-            ) : cleanupTimeout;
-        if (closeTimeout >= 0 && mState == kStateOpen &&
-                (mBytesReserved <= 0 || (cleanupSec >= 0 &&
+        const int closeTimeout = MasterUseShortCloseTimeout() ?
+            Timer::MinTimeout(cleanupTimeout, GetCloseEmptyWidStateSec()) :
+            cleanupTimeout;
+        if (mState == kStateOpen && 0 <= closeTimeout &&
+                (mBytesReserved <= 0 || (0 <= cleanupSec &&
                     mLastAppendActivityTime +
                     min(int64_t(cleanupSec) * kMasterMaxIdleRatio,
                         int64_t(cleanupSec) * (int64_t)CHUNKSIZE /
-                            max(int64_t(1), mNextWriteOffset)) <= now))) {
+                            max(int64_t(1), mNextOffset)) <= now))) {
             if (mLastAppendActivityTime + closeTimeout <= now) {
                 if (! TryToCloseChunk()) {
                     // TryToCloseChunk hasn't scheduled new activity, most
@@ -2354,8 +2385,10 @@ AtomicRecordAppender::Timeout()
                 "timeout: deleting write appender"
                 " chunk: "     << mChunkId <<
                 " state: "     << GetStateAsStr() <<
-                " size: "      << mNextWriteOffset << " / " << mChunkSize <<
+                " size: "      << mNextWriteOffset <<
+                " / "          << mChunkSize <<
                 " wid count: " << mWriteIdState.size() <<
+                " / "          << mWritableWidCount <<
             KFS_LOG_EOM;
             if (! mMakeStableSucceededFlag) {
                 Cntrs().mTimeoutLostCount++;
@@ -2966,7 +2999,7 @@ AtomicRecordAppender::TryToCloseChunk()
         return false;
     }
     SendCommitAck();
-    if (mState == kStateOpen && mReplicationsInFlight > 0) {
+    if (mState == kStateOpen && 0 < mReplicationsInFlight) {
         return false;
     }
     if (mState == kStateOpen || mState == kStateReplicationFailed) {
@@ -3017,12 +3050,15 @@ void
 AtomicRecordAppender::SendCommitAck()
 {
     // Use write offset as seq. # for debugging
-    RecordAppendOp* const op = new RecordAppendOp(mNextWriteOffset);
+    RecordAppendOp* const op = (
+            ! IsMaster() ||
+            mState != kStateOpen ||
+            mNumServers <= 1 ||
+            0 < mReplicationsInFlight ||
+            mNextCommitOffset <= mCommitOffsetAckSent
+        ) ? 0 : new RecordAppendOp(mNextWriteOffset);
     CheckLeaseAndChunk("send commit ack", op);
-    if (! IsMaster() || mState != kStateOpen ||
-            mNumServers <= 1 || mReplicationsInFlight > 0 ||
-            mNextCommitOffset <= mCommitOffsetAckSent) {
-        delete op;
+    if (! op) {
         return;
     }
     WAPPEND_LOG_STREAM_DEBUG <<
@@ -3062,6 +3098,8 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mCloseOutOfSpaceSec(5),
       mRecursionCount(0),
       mAppendDropLockMinSize((4 << 10) - 1),
+      mCloseMinChunkSize(
+        (chunkOff_t)CHUNKSIZE - (chunkOff_t)CHECKSUM_BLOCKSIZE),
       mMutexesCount(-1),
       mCurMutexIdx(0),
       mMutexes(0),
@@ -3112,6 +3150,8 @@ AtomicRecordAppendManager::SetParameters(const Properties& props)
         "chunkServer.recAppender.closeOutOfSpaceSec", mCloseOutOfSpaceSec);
     mAppendDropLockMinSize  = max(0, props.getValue(
         "chunkServer.recAppender.dropLockMinSize",    mAppendDropLockMinSize));
+    mCloseMinChunkSize  = max((chunkOff_t)CHECKSUM_BLOCKSIZE, props.getValue(
+        "chunkServer.recAppender.closeMinChunkSize",  mCloseMinChunkSize));
     mTotalBuffersBytes       = 0;
     if (! mAppenders.IsEmpty()) {
         UpdateAppenderFlushLimit();

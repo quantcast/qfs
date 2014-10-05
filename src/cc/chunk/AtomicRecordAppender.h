@@ -118,23 +118,35 @@ public:
     };
     AtomicRecordAppendManager();
     ~AtomicRecordAppendManager();
-    void    SetParameters(const Properties& props);
-    void    AllocateChunk(AllocChunkOp *op, int replicationPos,
+    void SetParameters(const Properties& props);
+    void AllocateChunk(AllocChunkOp *op, int replicationPos,
         const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
-    void    AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
+    void AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
         const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
-    int    GetCleanUpSec()               const { return mCleanUpSec;               }
-    int    GetCloseEmptyWidStateSec()    const { return mCloseEmptyWidStateSec;    }
-    int    GetFlushIntervalSec()         const { return mFlushIntervalSec;         }
-    int    GetSendCommitAckTimeoutSec()  const { return mSendCommitAckTimeoutSec;  }
-    int    GetReplicationTimeoutSec()    const { return mReplicationTimeoutSec;    }
-    int    GetMetaMinUptimeSec()         const { return mMinMetaUptimeSec;         }
-    int    GetFlushLimit()               const { return mFlushLimit;               }
-    double GetBufferLimitRatio()         const { return mBufferLimitRatio;         }
-    int    GetMaxWriteIdsPerChunk()      const { return mMaxWriteIdsPerChunk;      }
-    int    GetCloseOutOfSpaceThreshold() const { return mCloseOutOfSpaceThreshold; }
-    int    GetCloseOutOfSpaceSec()       const { return mCloseOutOfSpaceSec;       }
-    bool   IsChunkStable(kfsChunkId_t chunkId) const;
+    int GetCleanUpSec() const
+        { return mCleanUpSec; }
+    int GetCloseEmptyWidStateSec() const
+        { return mCloseEmptyWidStateSec; }
+    int GetFlushIntervalSec() const
+        { return mFlushIntervalSec; }
+    int GetSendCommitAckTimeoutSec() const
+        { return mSendCommitAckTimeoutSec; }
+    int GetReplicationTimeoutSec() const
+        { return mReplicationTimeoutSec; }
+    int GetMetaMinUptimeSec() const
+        { return mMinMetaUptimeSec; }
+    int GetFlushLimit() const { return mFlushLimit; }
+    double GetBufferLimitRatio() const
+        { return mBufferLimitRatio; }
+    int GetMaxWriteIdsPerChunk() const
+        { return mMaxWriteIdsPerChunk; }
+    int GetCloseOutOfSpaceThreshold() const
+        { return mCloseOutOfSpaceThreshold; }
+    int GetCloseOutOfSpaceSec()       const
+        { return mCloseOutOfSpaceSec; }
+    chunkOff_t GetCloseMinChunkSize() const
+        { return mCloseMinChunkSize; }
+    bool IsChunkStable(kfsChunkId_t chunkId) const;
     /// For record appends, (1) clients will reserve space in a chunk and
     /// then write and (2) clients can release their reserved space.
     /// As long as space is reserved on a chunk, the chunkserver will
@@ -144,10 +156,13 @@ public:
     /// @param[in] nbytes  # of bytes of space reservation/release
     /// @retval status code
     ///
-    int    ChunkSpaceReserve(kfsChunkId_t chunkId, int64_t writeId, size_t nBytes, std::string* errMsg = 0);
-    int    ChunkSpaceRelease(kfsChunkId_t chunkId, int64_t writeId, size_t nBytes, std::string* errMsg = 0);
-    int    InvalidateWriteId(kfsChunkId_t chunkId, int64_t writeId, bool declareFailureFlag = false);
-    int    InvalidateWriteIdDeclareFailure(kfsChunkId_t chunkId, int64_t writeId) {
+    int ChunkSpaceReserve(kfsChunkId_t chunkId, int64_t writeId,
+        size_t nBytes, std::string* errMsg = 0);
+    int ChunkSpaceRelease(kfsChunkId_t chunkId, int64_t writeId,
+        size_t nBytes, std::string* errMsg = 0);
+    int InvalidateWriteId(kfsChunkId_t chunkId, int64_t writeId,
+        bool declareFailureFlag = false);
+    int InvalidateWriteIdDeclareFailure(kfsChunkId_t chunkId, int64_t writeId) {
         return InvalidateWriteId(chunkId, writeId, true);
     }
     int64_t GetOpenAppendersCount() const {
@@ -156,27 +171,27 @@ public:
     int64_t GetAppendersWithWidCount() const {
         return mAppendersWithWidCount;
     }
-    bool   IsSpaceReservedInChunk(kfsChunkId_t chunkId);
-    int    GetAlignmentAndFwdFlag(kfsChunkId_t chunkId, bool& forwardFlag) const;
-    bool   CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag);
-    bool   BeginMakeChunkStable(BeginMakeChunkStableOp* op);
-    bool   MakeChunkStable(MakeChunkStableOp* op);
-    void   AppendBegin(RecordAppendOp* op, int replicationPos,
+    bool IsSpaceReservedInChunk(kfsChunkId_t chunkId);
+    int GetAlignmentAndFwdFlag(kfsChunkId_t chunkId, bool& forwardFlag) const;
+    bool CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag);
+    bool BeginMakeChunkStable(BeginMakeChunkStableOp* op);
+    bool MakeChunkStable(MakeChunkStableOp* op);
+    void AppendBegin(RecordAppendOp* op, int replicationPos,
         const ServerLocation& peerLoc);
-    void   GetOpStatus(GetRecordAppendOpStatus* op);
-    bool   WantsToKeepLease(kfsChunkId_t chunkId) const;
-    void   Timeout();
-    void   FlushIfLowOnBuffers();
-    void   DeleteChunk(kfsChunkId_t chunkId);
-    void   Shutdown();
+    void GetOpStatus(GetRecordAppendOpStatus* op);
+    bool WantsToKeepLease(kfsChunkId_t chunkId) const;
+    void Timeout();
+    void FlushIfLowOnBuffers();
+    void DeleteChunk(kfsChunkId_t chunkId);
+    void Shutdown();
     size_t GetAppendersCount() const
         { return mAppenders.GetSize(); }
-    void   GetCounters(Counters& outCounters)
+    void GetCounters(Counters& outCounters)
         { outCounters = mCounters; }
 
-    void   UpdateAppenderFlushLimit(const AtomicRecordAppender* appender = 0);
-    int    GetFlushLimit(AtomicRecordAppender& appender, int addBytes = 0);
-    int    GetAppendDropLockMinSize() const
+    void UpdateAppenderFlushLimit(const AtomicRecordAppender* appender = 0);
+    int GetFlushLimit(AtomicRecordAppender& appender, int addBytes = 0);
+    int GetAppendDropLockMinSize() const
         { return mAppendDropLockMinSize; }
     inline void UpdatePendingFlush(AtomicRecordAppender& appender);
     inline void Detach(AtomicRecordAppender& appender);
@@ -217,6 +232,7 @@ private:
     int                   mCloseOutOfSpaceSec;
     int                   mRecursionCount;
     int                   mAppendDropLockMinSize;
+    chunkOff_t            mCloseMinChunkSize;
     int                   mMutexesCount;
     int                   mCurMutexIdx;
     QCMutex*              mMutexes;
