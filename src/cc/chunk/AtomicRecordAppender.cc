@@ -3052,13 +3052,17 @@ AtomicRecordAppender::SendCommitAck()
     // Use write offset as seq. # for debugging
     RecordAppendOp* const op = (
             ! IsMaster() ||
-            mState != kStateOpen ||
+            kStateOpen != mState ||
             mNumServers <= 1 ||
             0 < mReplicationsInFlight ||
             mNextCommitOffset <= mCommitOffsetAckSent
         ) ? 0 : new RecordAppendOp(mNextWriteOffset);
     CheckLeaseAndChunk("send commit ack", op);
     if (! op) {
+        return;
+    }
+    if (kStateOpen != mState) {
+        delete op;
         return;
     }
     WAPPEND_LOG_STREAM_DEBUG <<
