@@ -804,7 +804,11 @@ private:
                 i++) {
             IOBufferData theBuf = NewDataBuffer(theSize);
             mBufPtr[i] = theBuf.Producer();
-            theBuf.Fill(theSize);
+            if (IOBuffer::IsDebugVerify()) {
+                thePendingCount += theSize;
+            } else {
+                theBuf.Fill(theSize);
+            }
             if (mBuffersPtr[i].mBuffer.IsEmpty()) {
                 const Offset thePos = mBuffersPtr[i - 1].mEndPos + CHUNKSIZE;
                 mBuffersPtr[i].mEndPos = thePos;
@@ -901,6 +905,19 @@ private:
             }
             thePos += theLen;
             thePrevLen = theLen;
+        }
+        if (IOBuffer::IsDebugVerify()) {
+            for (int i = mStripeCount;
+                    i < mStripeCount + mRecoveryStripeCount;
+                    i++) {
+                IOBuffer&          theBuf = mBuffersPtr[i].mBuffer;
+                IOBuffer::iterator theIt  = theBuf.end();
+                QCVERIFY(
+                    theIt-- != theBuf.begin() &&
+                    theSize == mBuffersPtr[i].mBuffer.CopyInOnlyIntoBufferAtPos(
+                        theIt->Producer(), theSize, theIt
+                ));
+            }
         }
         mRecoveryEndPos += theTotalSize;
         if (mLastPartialFlushPos + mStrideSize > mRecoveryEndPos) {
@@ -2142,8 +2159,20 @@ private:
             Outer& inOuter,
             int    inSize)
         {
-            return MakeScratchBuffer(inOuter.mUseDefaultBufferAllocatorFlag ?
-                IOBufferData() : NewDataBuffer(4096 / kAlign * kAlign), inSize);
+            mReadFailureFlag = true;
+            mSize            = inSize;
+            mBuffer.Clear();
+            if (IOBuffer::IsDebugVerify()) {
+                if (inOuter.mUseDefaultBufferAllocatorFlag) {
+                    mBuffer.EnsureSpaceAvailable(mSize);
+                } else {
+                    mBuffer.Append(NewDataBuffer(mSize));
+                }
+            } else {
+                MakeScratchBuffer(inOuter.mUseDefaultBufferAllocatorFlag ?
+                    IOBufferData() : NewDataBuffer(4096 / kAlign * kAlign));
+            }
+            return Reset();
         }
         char* Advance(
             int inLen)
@@ -2246,13 +2275,9 @@ private:
                 mEndPtr += mCurIt->SpaceAvailable();
             }
         }
-        int MakeScratchBuffer(
-            const IOBufferData& inBuf,
-            int                 inSize)
+        void MakeScratchBuffer(
+            const IOBufferData& inBuf)
         {
-            mReadFailureFlag = true;
-            mSize = inSize;
-            mBuffer.Clear();
             const int theAvail = inBuf.SpaceAvailable();
             QCASSERT(theAvail % kAlign == 0);
             for (int theRem = mSize; theRem > 0; theRem -= theAvail) {
@@ -2265,7 +2290,6 @@ private:
                     break;
                 }
             }
-            return Reset();
         }
         int Reset()
         {

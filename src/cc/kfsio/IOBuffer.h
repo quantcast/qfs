@@ -438,12 +438,17 @@ public:
         { return mBuf.empty() ? true : mBuf.back().IsFull(); }
 
     /// Remove all data.
+#ifdef DEBUG_IOBuffer
+    void Clear();
+    static bool IsDebugVerify() { return true; }
+#else
     void Clear()
     {
         mBuf.clear();
         mByteCount = 0;
     }
-
+    static bool IsDebugVerify() { return false; }
+#endif
     /// Buffer list iterator.
     /// Do not modify IOBufferData pointed by the iterator, or its content.
     iterator begin() const { return mBuf.begin(); }

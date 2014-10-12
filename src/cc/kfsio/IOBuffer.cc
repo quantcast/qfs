@@ -385,6 +385,15 @@ IOBuffer::DebugVerify(bool updateChecksum)
 inline void IOBuffer::DebugVerify() const
 { const_cast<IOBuffer*>(this)->DebugVerify(false); }
 
+void
+IOBuffer::Clear()
+{
+    DebugVerify();
+    mBuf.clear();
+    mByteCount = 0;
+    DebugVerify(true);
+}
+
 #else
 inline void IOBuffer::DebugChecksum(const char* buf, int len)          {}
 inline void IOBuffer::DebugChecksum(const IOBufferData& buf)           {}
