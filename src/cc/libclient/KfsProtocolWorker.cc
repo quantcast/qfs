@@ -1439,6 +1439,16 @@ private:
             RequestId inRequestId)
         {
             QCRTASSERT(&inReader == &mReader);
+            const int theBufSize =
+                inBufferPtr ? inBufferPtr->BytesConsumable() : 0;
+            if (inBufferPtr) {
+                // De-reference buffer data, as completion can free the buffer.
+                // The reference counter will not have effect after this point,
+                // as the buffer was allocated by the caller, and
+                // no op  / "do not de-allocate" de-allocator is used by the
+                // reader to pass the buffer.
+                inBufferPtr->Clear();
+            }
             if (IsDeleteScheduled()) {
                 return;
             }
@@ -1467,7 +1477,7 @@ private:
                     theReq.mStatus =
                         inStatusCode <= 0 ? inStatusCode : -inStatusCode;
                 } else if (inBufferPtr && theReq.mStatus >= 0) {
-                    theReq.mStatus += inBufferPtr->BytesConsumable();
+                    theReq.mStatus += theBufSize;
                     QCRTASSERT(theReq.mStatus <= theReq.mSize);
                 }
                 if (theReq.mMaxPendingOrEndPos <= 0) {
