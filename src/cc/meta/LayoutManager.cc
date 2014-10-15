@@ -106,6 +106,12 @@ GetInitialWriteLeaseExpireTime()
     return (TimeNow() + 10 * 365 * 24 * 60 * 60);
 }
 
+inline static int
+AsciiCharToLower(int c)
+{
+    return ((c >= 'A' && c <= 'Z') ? 'a' + (c - 'A') : c);
+}
+
 static inline void
 UpdatePendingRecovery(CSMap& csmap, CSMap::Entry& ent)
 {
@@ -2086,7 +2092,53 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
-    props.getList(mConfig, string(), string(";"));
+    StBufferT<PropertiesTokenizer::Token, 4> configFilter;
+    for (const char* ptr = props.getValue(
+                "metaServer.pingDoNotShow",
+                    " metaServer.clientAuthentication."
+                    " metaServer.CSAuthentication."
+                ); ;) {
+        while ((*ptr & 0xFF) <= ' ' && *ptr) {
+            ++ptr;
+        }
+        const char* const s = ptr;
+        while (' ' < (*ptr & 0xFF)) {
+            ++ptr;
+        }
+        if (ptr <= s) {
+            break;
+        }
+        configFilter.Append(PropertiesTokenizer::Token(s, ptr - s));
+    }
+    for (Properties::iterator it = props.begin(); it != props.end(); ++it) {
+        const PropertiesTokenizer::Token*       pref = configFilter.GetPtr();
+        const PropertiesTokenizer::Token* const pend =
+            pref + configFilter.GetSize();
+        for (; pref < pend; ++pref) {
+            if (pref->mLen <= it->first.size()) {
+                const char*       pp  = pref->mPtr;
+                const char*       ptr = it->first.data();
+                const char* const end = ptr + pref->mLen;
+                while (ptr < end &&
+                        AsciiCharToLower(*ptr & 0xFF) ==
+                        AsciiCharToLower(*pp  & 0xFF)) {
+                    ++pp;
+                    ++ptr;
+                }
+                if (end <= ptr) {
+                    break;
+                }
+            }
+        }
+        mConfig.append(it->first.data(), it->first.size());
+        mConfig += '=';
+        if (pref < pend) {
+            mConfig += 'x';
+        } else {
+            mConfig.append(it->second.data(), it->second.size());
+        }
+        mConfig += ';';
+    }
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
