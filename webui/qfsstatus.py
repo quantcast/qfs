@@ -36,6 +36,7 @@ from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaDa
 from chart import ChartData, ChartServerData, ChartHTML
 from browse import QFSBrowser
 import threading
+from get_config import get_config
 
 gJsonSupported = True
 try:
@@ -65,6 +66,7 @@ kMeta=2
 kChart=3
 kBrowse=4
 kChunkDirs=5
+cMeta=6
 
 class ServerLocation:
     def __init__(self, **kwds):
@@ -184,7 +186,8 @@ class Status:
     <div id="container">
       <div id="mainContent">
         <h1> QFS Status ''', displayName, '''</h1>
-        <P> <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        <P> <A href="/meta-conf">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/chunkdir-it">Chunk Directories Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             %s
@@ -1729,7 +1732,11 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
             status  = None
             reqType = None
-            if self.path.startswith('/chunk-it') :
+            if self.path.startswith('/meta-conf') :
+                print >> txtStream, get_config(metaserverHost, metaserverPort)
+                self.path = '/'
+                reqType = cMeta
+            elif self.path.startswith('/chunk-it') :
                 self.path = '/'
                 reqType = kChunks
             elif self.path.startswith('/meta-it') :
@@ -1763,7 +1770,7 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                                            txtStream) == 0:
                     self.send_error(404, 'Not found')
                     return
-            else:
+            elif not reqType == cMeta:
                 status = Status()
                 ping(status, metaserver)
                 printStyle(txtStream)
@@ -1783,7 +1790,10 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                         refresh = str(autoRefresh) + ' ; URL=http://' + reqHost + self.path
 
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            if reqType != cMeta:
+                self.send_header('Content-type', 'text/html')
+            else:
+                self.send_header('Content-type', 'application/json')
             self.send_header('Content-length', txtStream.tell())
             if refresh is not None:
                 self.send_header('Refresh', refresh)
