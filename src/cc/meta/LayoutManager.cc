@@ -1380,7 +1380,7 @@ LayoutManager::LayoutManager() :
     mAllowLocalPlacementForAppendFlag(false),
     mInRackPlacementForAppendFlag(false),
     mInRackPlacementFlag(false),
-    mAppendPlacementIgnoreMasterSlaveFlag(false),
+    mAppendPlacementIgnoreMasterSlaveFlag(true),
     mAllocateDebugVerifyFlag(false),
     mChunkEntryToChange(0),
     mFattrToChangeTo(0),

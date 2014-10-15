@@ -122,6 +122,19 @@ metaServer.createEmptyFs = 1
 # system considered fully functional.
 metaServer.recoveryInterval = 30
 
+# Ignore master/slave chunk server assignment for write append.
+# Master/slave assignment can help with append replication 2, so avoid
+# theoretically possible IO buffers resource deadlock when chunk server A is a
+# in one "AB" synchronous append replication chain, and chunk server B is a 
+# master in another chunk "BA" synchronous replication.
+# In practice such deadlocks should be rare enough to matter, and, if occur,
+# are resolve with replication timeout mechanism.
+# The downside of using master/slave assignment is that presently it only works
+# with replication 3, and only half of the chunk server population will be
+# accepting client's append requests.
+# Default is "on" -- ignore.
+# metaServer.appendPlacementIgnoreMasterSlave = 1
+
 # For write append use the low order bit of the IP address for the chunk servers
 # master/slave assignment. This scheme is works well if least significant bit of
 # ip address uniformly distributes masters and slaves withing the rack,
