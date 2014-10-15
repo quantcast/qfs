@@ -405,7 +405,8 @@ MetaServerSM::SendHello()
         mHelloOp = new HelloMetaOp(
             nextSeq(), gChunkServer.GetLocation(),
             mClusterKey, mMD5Sum, mRackId);
-        mHelloOp->clnt = this;
+        mHelloOp->noFidsFlag = mNoFidsFlag;
+        mHelloOp->clnt       = this;
         // Send the op and wait for the reply.
         SubmitOp(mHelloOp);
     }
@@ -1135,7 +1136,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag = mNoFidsFlag;
-    mHelloOp->clnt = this;
+    mHelloOp->clnt       = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }
