@@ -67,6 +67,7 @@ kChart=3
 kBrowse=4
 kChunkDirs=5
 cMeta=6
+kConfig=7
 
 class ServerLocation:
     def __init__(self, **kwds):
@@ -186,10 +187,11 @@ class Status:
     <div id="container">
       <div id="mainContent">
         <h1> QFS Status ''', displayName, '''</h1>
-        <P> <A href="/meta-conf">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+        <P>
             <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/chunkdir-it">Chunk Directories Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/meta-conf-html">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             %s
         </P>
         <div class="info-table">
@@ -502,7 +504,7 @@ class Status:
         </html>'''
 
 # beginning of html
-def printStyle(buffer):
+def printStyle(buffer, title):
     print >> buffer, '''
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -510,7 +512,7 @@ def printStyle(buffer):
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
 <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
-<title>Chunk Servers Status ''',  displayName, '''</title>
+<title>''',  title, displayName, '''</title>
 </head>
 '''
 
@@ -1193,18 +1195,6 @@ def splitThousands( s, tSep=',', dSep='.'):
 
     return lhs + splt[ :-1 ] + rhs
 
-def printStyle(buffer):
-    print >> buffer, '''
-    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<link rel="stylesheet" type="text/css" href="files/qfsstyle.css"/>
-<script type="text/javascript" src="files/sorttable/sorttable.js"></script>
-<title>QFS Status ''',  displayName, '''</title>
-</head>
-'''
-
 def printRackViewHTML(rack, servers, buffer):
     '''Print out all the servers in the specified rack'''
     print >> buffer, '''
@@ -1732,8 +1722,48 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
             status  = None
             reqType = None
-            if self.path.startswith('/meta-conf') :
-                print >> txtStream, get_config(metaserverHost, metaserverPort)
+            if self.path.startswith('/meta-conf-html') :
+                config = get_config(metaserverHost, metaserverPort)
+                title='Meta server configuration'
+                printStyle(txtStream, title)
+                print >> txtStream, '''
+                    <body class="oneColLiqCtr">
+                    <div id="container">
+                    <div id="mainContent">
+                        <h1>''', title, displayName, '''</h1>
+                        <P> <A href="/">Back</A>
+                        </P>
+                        <div class="floatleft">
+                        <table class="sortable network-status-table" id="configtable">
+                        <caption> Meta server configuration </caption>
+                        <thead>
+                        <tr>
+                        <th>Parameter Name</th>
+                        <th>Value</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        '''
+                for k in config:
+                    print >> txtStream, '<tr><td>', k, '</td><td>', config[k], '</td></tr>'
+                print >> txtStream, '''
+                        </tbody>
+                        </table>
+                        </div>
+                    </div>
+                    </div>
+                    </body>
+                    </html>
+                '''
+                self.path = '/'
+                reqType = kConfig
+            elif self.path.startswith('/meta-conf') :
+                if gJsonSupported:
+                    print >> txtStream, json.dumps(
+                        get_config(metaserverHost, metaserverPort), sort_keys=True, indent=0
+                    )
+                else:
+                    print >> txtStream, get_config(metaserverHost, metaserverPort)
                 self.path = '/'
                 reqType = cMeta
             elif self.path.startswith('/chunk-it') :
@@ -1770,10 +1800,10 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                                            txtStream) == 0:
                     self.send_error(404, 'Not found')
                     return
-            elif not reqType == cMeta:
+            elif reqType != cMeta and reqType != kConfig:
                 status = Status()
                 ping(status, metaserver)
-                printStyle(txtStream)
+                printStyle(txtStream, 'QFS Status')
 
             refresh = None
 

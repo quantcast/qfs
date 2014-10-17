@@ -59,7 +59,7 @@ font-size:12px;
 	font-family:Verdana, Arial, Helvetica, sans-serif;
 	border-collapse:collapse;
 	width: auto;
-	font-size:9px;
+	font-size:12px;
         float: left;
         margin-right:15px;
 }
@@ -136,8 +136,7 @@ background-color:#FFFF66;
 background-color:#FF9933;
 }
 
-.status-table caption, .status-table-span caption {
-font-size:9px;
+.status-table caption, .status-table-span caption, .network-status-table caption {
 font-weight:bold;
 }
 
