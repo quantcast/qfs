@@ -69,6 +69,18 @@ kChunkDirs=5
 cMeta=6
 kConfig=7
 
+kHtmlEscapeTable = {
+    "&": "&amp;",
+    '"': "&quot;",
+    "'": "&apos;",
+    ">": "&gt;",
+    "<": "&lt;",
+}
+
+def htmlEscape(text):
+    """Produce entities within text."""
+    return "".join(kHtmlEscapeTable.get(c,c) for c in text)
+
 class ServerLocation:
     def __init__(self, **kwds):
         self.__dict__.update(kwds)
@@ -1745,7 +1757,8 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                         <tbody>
                         '''
                 for k in config:
-                    print >> txtStream, '<tr><td>', k, '</td><td>', config[k], '</td></tr>'
+                    print >> txtStream, '<tr><td>', htmlEscape(k), '</td><td>',\
+                        htmlEscape(config[k]), '</td></tr>'
                 print >> txtStream, '''
                         </tbody>
                         </table>
