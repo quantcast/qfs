@@ -5713,6 +5713,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         if (req->appendRecoveryLocations.empty()) {
             assert(cs);
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
+            if (req->chunkAccess.IsEmpty()) {
+                req->statusMsg = "no chunk server keys available";
+                return -EAGAIN;
+            }
         } else {
             // Ensure that the client isn't trying to get recovery for in flight
             // allocations.
@@ -5786,6 +5790,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
                 req->authUid != kKfsUserNone) {
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
+            if (req->chunkAccess.IsEmpty()) {
+                req->statusMsg = "no chunk server keys available";
+                return -EAGAIN;
+            }
         }
         return 0;
     }
