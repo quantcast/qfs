@@ -1064,7 +1064,7 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion);
-    void GetLyout(
+    void GetLayout(
         GetLayoutOp& inOp);
     int AddChunkLocation(
         int                      inFd,

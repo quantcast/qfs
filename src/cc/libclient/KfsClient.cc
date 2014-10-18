@@ -4665,17 +4665,18 @@ KfsClientImpl::UpdateFilesize(int fd)
         }
     }
     const chunkOff_t res = ComputeFilesize(entry.fattr.fileId);
-    if (res >= 0) {
-        FdAttr(fd)->fileSize = res;
-        if (fa) {
-            fa->fileSize = res;
-        }
+    if (res < 0) {
+        return (int)res;
+    }
+    FdAttr(fd)->fileSize = res;
+    if (fa) {
+        fa->fileSize = res;
     }
     return 0;
 }
 
 void
-KfsClientImpl::GetLyout(GetLayoutOp& inOp)
+KfsClientImpl::GetLayout(GetLayoutOp& inOp)
 {
     inOp.chunks.clear();
     inOp.maxChunks = 384;
@@ -4715,14 +4716,42 @@ chunkOff_t
 KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
 {
     GetLayoutOp lop(0, kfsfid);
-    lop.lastChunkOnlyFlag = true;
-    GetLyout(lop);
+    time_t       startTime = time(0);
+    time_t const endTime   = startTime + mRetryDelaySec * mMaxNumRetriesPerOp;
+    for (int retry = 0; ; retry++) {
+        lop.lastChunkOnlyFlag = true;
+        GetLayout(lop);
+        if (mMaxNumRetriesPerOp <= retry || lop.status != -EAGAIN) {
+            break;
+        }
+        time_t const curTime = time(0);
+        if (endTime <= curTime) {
+            break;
+        }
+        KFS_LOG_STREAM_INFO <<
+            " compute file size:"
+            " fid: "    << kfsfid <<
+            " retry: "  << retry <<
+            " status: " << lop.status <<
+            " "         << lop.statusMsg <<
+        KFS_LOG_EOM;
+        startTime += mRetryDelaySec;
+        if (curTime < startTime) {
+            Sleep((int)(startTime - curTime));
+        } else {
+            startTime = curTime;
+        }
+        lop.status = 0;
+        lop.statusMsg.clear();
+    }
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "failed to compute filesize fid: " << kfsfid <<
+            "failed to compute file size:"
+            " fid: "    << kfsfid <<
             " status: " << lop.status <<
+            " "         << lop.statusMsg <<
         KFS_LOG_EOM;
-        return -1;
+        return lop.status;
     }
     if (lop.chunks.empty()) {
         return 0;
@@ -5403,7 +5432,7 @@ KfsClientImpl::GetReplication(const char* pathname,
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = 0 < attr.numRecoveryStripes;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLyout(lop);
+    GetLayout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
@@ -5633,7 +5662,7 @@ KfsClientImpl::EnumerateBlocks(
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = true;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLyout(lop);
+    GetLayout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
@@ -5741,7 +5770,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
 {
     GetLayoutOp lop(0, fileId);
     lop.continueIfNoReplicasFlag = true;
-    GetLyout(lop);
+    GetLayout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
              << ErrorCodeToStr(lop.status) <<
@@ -6424,7 +6453,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = true;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLyout(lop);
+    GetLayout(lop);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
             ErrorCodeToStr(lop.status) <<
