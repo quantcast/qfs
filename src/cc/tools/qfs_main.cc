@@ -4358,8 +4358,8 @@ const char* const KfsTool::sHelpStrings[] =
     "verbose -- set qfs log level debug",
 
     "cfg", "<configuration file name>",
-    "Qfs configuration: key value pairs separated with = like\n\t\t"
-    "with -D option below",
+    "Qfs configuration: key value pairs separated with =\n\t\t"
+    "like with -D option below",
 
     "D", "key=value",
     "Define qfs key value configuration pair\n\t\t"
@@ -4407,8 +4407,12 @@ const char* const KfsTool::sHelpStrings[] =
             "boundaries can be \"rounded\" to stripe size by zero\n\t\t"
             "filling the \"tail\" of the stripe.\n\t\t"
     "fs.readFullSparseFileSupport = 0\n\t\t\t"
-        "zero fill holes, instead of declaring an error.\n\t\t"
-        "Only has effect with QFS.\n"
+        "zero fill holes, instead of declaring an error.\n\t\t\t"
+        "Only has effect with QFS.\n\t\t"
+    "client.* QFS client parameters.\n\t\t\t"
+        "Client parameter's decription, including client's\n\t\t\t"
+        "authentication parameters [client.auth.] description\n\t\t\t"
+        "can be found in in the client annotated sample configuration file.\n"
     ,
 
     "fs", "[local | <file system URI>]",
