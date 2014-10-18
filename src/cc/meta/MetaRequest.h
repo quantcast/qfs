@@ -2953,11 +2953,12 @@ struct MetaLeaseAcquire: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "lease acquire:"
+            (leaseType == READ_LEASE ? "read" : "write") <<
+            " lease acquire:"
             " chunkId: " << chunkId <<
-            " " << pathname <<
-            (leaseType == READ_LEASE ? " read lease " : " write lease ") <<
-            (flushFlag ? " flush" : "")
+            (flushFlag ? " flush" : "") <<
+            " caccess: " << chunkAccess.GetSize() <<
+            " "          << pathname
         ;
     }
     bool Validate()

@@ -5703,7 +5703,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         if (! mClientCSAuthRequiredFlag || req->authUid == kKfsUserNone) {
             return 0;
         }
-        // Leases are irrelevant, the client just need to talk to the write
+        // Leases are irrelevant, the client just needs to talk to the write
         // slaves to recover the its last append rpc status.
         // To avoid lease lookup, and to handle the case where no write lease
         // exists return access tokes to all servers. It is possible that one of
@@ -5787,8 +5787,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
                 req->chunkId,
                 TimeNow() + req->leaseTimeout,
                 req->leaseId))) {
-        if (0 < req->leaseTimeout && mClientCSAuthRequiredFlag &&
-                req->authUid != kKfsUserNone) {
+        if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
             if (req->chunkAccess.IsEmpty()) {
                 req->statusMsg = "no chunk server keys available";
