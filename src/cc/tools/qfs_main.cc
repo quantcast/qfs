@@ -207,6 +207,14 @@ public:
             theErr = List(theArgsPtr, theArgCnt, kRecursiveFlag);
         } else if (strcmp(theCmdPtr, "lss") == 0) {
             theErr = DirSummary(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "lst") == 0) {
+            if (theArgCnt < 3) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                theErr = DirSummary(theArgsPtr + 2, theArgCnt - 2,
+                    atoi(theArgsPtr[0]), atoi(theArgsPtr[1]));
+            }
         } else if (strcmp(theCmdPtr, "mkdir") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -1115,7 +1123,9 @@ private:
             const char* inOutStreamNamePtr,
             ostream&    inErrorStream,
             bool        inRecursiveFlag,
-            bool        inDirSummaryFlag = false)
+            bool        inDirSummaryFlag    = false,
+            int         inDirSummaryMinTier = 1 << (sizeof(int) * 8 - 1),
+            int         inDirSummaryMaxTier = ~(1 << (sizeof(int) * 8 - 1)))
             : mOutStream(inOutStream),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
@@ -1137,6 +1147,8 @@ private:
               mMaxFileSize(0),
               mDirListEntries(),
               mDirSummaryFlag(inDirSummaryFlag),
+              mDirSummaryMinTier(inDirSummaryMinTier),
+              mDirSummaryMaxTier(inDirSummaryMaxTier),
               mDirSummaryEntries(),
               mNullStat(),
               mTime(0),
@@ -1291,8 +1303,14 @@ private:
             }
             DirSummaryEntry& Add(
                 const FileSystem::StatBuf& inStat,
-                time_t                     inAbandonedModTime)
+                time_t                     inAbandonedModTime,
+                int                        inDirSummaryMinTier,
+                int                        inDirSummaryMaxTier)
             {
+                if (inStat.mMaxSTier < inDirSummaryMinTier ||
+                        inDirSummaryMaxTier < inStat.mMinSTier) {
+                    return *this;
+                }
                 mFileCount++;
                 if (inStat.st_size > 0) {
                     mSize += inStat.st_size;
@@ -1353,6 +1371,8 @@ private:
         int64_t                   mMaxFileSize;
         DirListEntries            mDirListEntries;
         bool const                mDirSummaryFlag;
+        int const                 mDirSummaryMinTier;
+        int const                 mDirSummaryMaxTier;
         DirSummaryEntries         mDirSummaryEntries;
         const FileSystem::StatBuf mNullStat;
         time_t                    mTime;
@@ -1423,7 +1443,12 @@ private:
                 }
                 mDirSummaryEntries.back().Add(theSubDir);
             } else {
-                mDirSummaryEntries.back().Add(inStat, mAbandonedModTime);
+                mDirSummaryEntries.back().Add(
+                    inStat,
+                    mAbandonedModTime,
+                    mDirSummaryMinTier,
+                    mDirSummaryMaxTier
+                );
             }
         }
         void PrintDirSummary(
@@ -1549,6 +1574,19 @@ private:
         const bool kDirSummaryFlag = true;
         ListFunctor theFunc(
             cout, "stdout", cerr, kRecursiveFlag, kDirSummaryFlag);
+        return Apply(inArgsPtr, inArgCount, theFunc);
+    }
+    int DirSummary(
+        char** inArgsPtr,
+        int    inArgCount,
+        int    inMinTier,
+        int    inMaxTier)
+    {
+        const bool kRecursiveFlag  = true;
+        const bool kDirSummaryFlag = true;
+        ListFunctor theFunc(
+            cout, "stdout", cerr, kRecursiveFlag,
+            kDirSummaryFlag, inMinTier, inMaxTier);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     class DefaultInitFunctor
@@ -4400,6 +4438,14 @@ const char* const KfsTool::sHelpStrings[] =
     "lss", "<path>",
     "Recursively list the contents that match the specified\n\t\t"
     "file pattern, and print summary for each directory in the subtree:\n\t\t"
+    "<directory count> <file count> <logical size> <chunk count>"
+    " <empty file count> <abandoned file count> <path>\n",
+
+    "lst", "<min tier> <max tier> <path>",
+    "Recursively list the contents that match the specified\n\t\t"
+    "file pattern, and print summary for each directory in the subtree\n\t\t"
+    "considering only files with tier range that intersect the specified\n\t\t"
+    "tier range:\n\t\t"
     "<directory count> <file count> <logical size> <chunk count>"
     " <empty file count> <abandoned file count> <path>\n",
 
