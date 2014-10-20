@@ -515,7 +515,6 @@ def setup_config_files(config, authFlag):
     print >> metaFile, 'metaServer.clusterKey = %s' % clusterKey
     print >> metaFile, 'metaServer.cpDir = %s/checkpoints' % metaRunDir
     print >> metaFile, 'metaServer.logDir = %s/logs' % metaRunDir
-    print >> metaFile, 'metaServer.createEmptyFs = 1'
     print >> metaFile, 'metaServer.recoveryInterval = 1'
     print >> metaFile, 'metaServer.msgLogWriter.logLevel = DEBUG'
     print >> metaFile, 'metaServer.msgLogWriter.maxLogFileSize = 1e6'
