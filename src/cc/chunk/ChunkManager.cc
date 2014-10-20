@@ -2334,6 +2334,10 @@ ChunkManager::AllocChunk(
         // error code
         return ret;
     }
+    if (! cih->IsFileOpen()) {
+        die("chunk is not open after successful OpenChunk invocation");
+        return -EFAULT;
+    }
     if (outCih) {
         *outCih = cih;
     }
