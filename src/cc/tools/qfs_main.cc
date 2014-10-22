@@ -97,6 +97,7 @@ public:
         : mIoBufferSize(6 << 20),
           mIoBufferPtr(new char[mIoBufferSize]),
           mDefaultCreateParams("S"), // RS 6+3 64K stripe
+          mDelimeter(' '),
           mConfig()
         {}
     ~KfsTool()
@@ -175,6 +176,42 @@ public:
                 cerr << theUri << ": " <<
                     FileSystem::GetStrError(theErr) << "\n";
                 return 1;
+            }
+        }
+        const char* const kNummStrPtr  = 0;
+        const char* const kDelimStrPtr = mConfig.getValue(
+            "fs.columnSeparator", kNummStrPtr);
+        if (kDelimStrPtr) {
+            if ((kDelimStrPtr[0] & 0xFF) == '\\') {
+                if (kDelimStrPtr[1] != 0 &&
+                        (kDelimStrPtr[2] & 0xFF) <= ' ') {
+                    switch (kDelimStrPtr[1] & 0xFF) {
+                        case 'a':  mDelimeter = '\a'; break;
+                        case 'b':  mDelimeter = '\b'; break;
+                        case 'f':  mDelimeter = '\f'; break;
+                        case 'n':  mDelimeter = '\n'; break;
+                        case 'r':  mDelimeter = '\r'; break;
+                        case 't':  mDelimeter = '\t'; break;
+                        case 'v':  mDelimeter = '\v'; break;
+                        case '\\': mDelimeter = '\\'; break;
+                        case '\'': mDelimeter = '\''; break;
+                        case '"':  mDelimeter = '\"'; break;
+                        case '?':  mDelimeter = '\?'; break;
+                        case '0':  mDelimeter = '\0'; break;
+                        default:
+                            mDelimeter = kDelimStrPtr[1]; break;
+                    }
+                } else {
+                    const long theDelim = strtol(kDelimStrPtr + 1, 0, 0);
+                    if (0 <= theDelim && theDelim <= 0xFF) {
+                        mDelimeter = (char)theDelim;
+                    } else {
+                        cerr << "ignoring invalid column separator: " <<
+                            kDelimStrPtr << "\n";
+                    }
+                }
+            } else {
+                mDelimeter = kDelimStrPtr[0] & 0xFF;
             }
         }
         mDefaultCreateParams = mConfig.getValue(
@@ -1119,13 +1156,15 @@ private:
     {
     public:
         ListFunctor(
+            char        inDelimeter,
             ostream&    inOutStream,
             const char* inOutStreamNamePtr,
             ostream&    inErrorStream,
             bool        inRecursiveFlag,
             bool        inDirSummaryFlag    = false,
             int         inDirSummaryMinTier = 1 << (sizeof(int) * 8 - 1),
-            int         inDirSummaryMaxTier = ~(1 << (sizeof(int) * 8 - 1)))
+            int         inDirSummaryMaxTier =
+                ~(1 << (sizeof(int) * 8 - 1)))
             : mOutStream(inOutStream),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
@@ -1152,8 +1191,11 @@ private:
               mDirSummaryEntries(),
               mNullStat(),
               mTime(0),
-              mAbandonedModTime(inDirSummaryFlag ? (time(0) - 2 * 60 * 60) : 0)
-            { mTmBuf[0] = 0; }
+              mAbandonedModTime(inDirSummaryFlag ? (time(0) - 2 * 60 * 60) : 0),
+              mDelimeter(inDelimeter)
+        {
+            mTmBuf[0] = 0;
+        }
         bool Init(
             int&              /* ioGlobError */,
             const GlobResult& /* inGlobResult */,
@@ -1328,14 +1370,15 @@ private:
                 return *this;
             }
             ostream& Display(
-                ostream& inOutStream) const
+                ostream&   inOutStream,
+                const char inDelimeter) const
             {
                 return (inOutStream << right <<
-                    setw(12) << mDirCount       << " " <<
-                    setw(12) << mFileCount      << " " <<
-                    setw(18) << mSize           << " " <<
-                    setw(12) << mChunkCount     << " " <<
-                    setw(12) << mEmptyFileCount << " " <<
+                    setw(12) << mDirCount       << inDelimeter <<
+                    setw(12) << mFileCount      << inDelimeter <<
+                    setw(18) << mSize           << inDelimeter <<
+                    setw(12) << mChunkCount     << inDelimeter <<
+                    setw(12) << mEmptyFileCount << inDelimeter <<
                     setw(12) << mAbandonedFileCount
                 );
             }
@@ -1377,6 +1420,7 @@ private:
         const FileSystem::StatBuf mNullStat;
         time_t                    mTime;
         time_t const              mAbandonedModTime;
+        char const                mDelimeter;
         char                      mTmBuf[kTmBufLen];
 
         void Reset()
@@ -1457,8 +1501,8 @@ private:
             const string&              inName,
             const FileSystem::StatBuf& /* inStat */)
         {
-            mDirSummaryEntries.back().Display(mOutStream);
-            mOutStream << " " << left;
+            mDirSummaryEntries.back().Display(mOutStream, mDelimeter);
+            mOutStream << mDelimeter << left;
             if (mShowFsUriFlag) {
                 mOutStream << inFs.GetUri();
             }
@@ -1492,28 +1536,31 @@ private:
                     mOutStream << ((inEntry.mMode & 1) != 0 ? "t" : "T");
                 }
             }
-            mOutStream << " " << setw((int)mReplicasWidth) << right;
+            mOutStream << mDelimeter << setw((int)mReplicasWidth) << right;
             if (S_ISDIR(inEntry.mMode)) {
                 mOutStream << "-";
             } else {
                 mOutStream << inEntry.mNumReplicas;
             }
             mOutStream <<
-                " " << setw((int)mMaxOwnerWidth) << left << inEntry.mOwner <<
-                " " << setw((int)mMaxGroupWidth) << left << inEntry.mGroup <<
-                " " << setw((int)mFileSizeWidth) << right << inEntry.mSize;
+                mDelimeter << setw((int)mMaxOwnerWidth) << left <<
+                    inEntry.mOwner <<
+                mDelimeter << setw((int)mMaxGroupWidth) << left <<
+                    inEntry.mGroup <<
+                mDelimeter << setw((int)mFileSizeWidth) << right <<
+                    inEntry.mSize;
             if (mTmBuf[0] == 0 || mTime != inEntry.mMTime) {
                 struct tm theLocalTime = {0};
                 localtime_r(&inEntry.mMTime, &theLocalTime);
                 mTmBuf[0] = 0;
                 const size_t theLen = strftime(
-                    mTmBuf, kTmBufLen, "%Y-%m-%d %H:%M ", &theLocalTime);
+                    mTmBuf, kTmBufLen, "%Y-%m-%d %H:%M", &theLocalTime);
                 if (theLen <= 0) {
                     strncpy(mTmBuf, "-", kTmBufLen);
                 }
                 mTime = inEntry.mMTime;
             }
-            mOutStream << " " << mTmBuf;
+            mOutStream << mDelimeter << mTmBuf << mDelimeter;
             if (mShowFsUriFlag) {
                 mOutStream << inFs.GetUri();
             }
@@ -1563,7 +1610,7 @@ private:
         int    inArgCount,
         bool   inRecursiveFlag)
     {
-        ListFunctor theFunc(cout, "stdout", cerr, inRecursiveFlag);
+        ListFunctor theFunc(mDelimeter, cout, "stdout", cerr, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DirSummary(
@@ -1573,7 +1620,7 @@ private:
         const bool kRecursiveFlag  = true;
         const bool kDirSummaryFlag = true;
         ListFunctor theFunc(
-            cout, "stdout", cerr, kRecursiveFlag, kDirSummaryFlag);
+            mDelimeter, cout, "stdout", cerr, kRecursiveFlag, kDirSummaryFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DirSummary(
@@ -1585,7 +1632,7 @@ private:
         const bool kRecursiveFlag  = true;
         const bool kDirSummaryFlag = true;
         ListFunctor theFunc(
-            cout, "stdout", cerr, kRecursiveFlag,
+            mDelimeter, cout, "stdout", cerr, kRecursiveFlag,
             kDirSummaryFlag, inMinTier, inMaxTier);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
@@ -3112,9 +3159,11 @@ private:
     {
     public:
         CountFunctor(
+            char     inDelimeter,
             bool     inShowQuotaFlag,
             ostream& inOutStream)
             : mShowQuotaFlag(inShowQuotaFlag),
+              mDelimeter(inDelimeter),
               mOutStream(inOutStream),
               mStat()
             {}
@@ -3149,6 +3198,7 @@ private:
         }
     private:
         const bool          mShowQuotaFlag;
+        const char          mDelimeter;
         ostream&            mOutStream;
         FileSystem::StatBuf mStat;
 
@@ -3159,19 +3209,19 @@ private:
             if (mShowQuotaFlag) {
                 // Quota currently not supported.
                 mOutStream << right <<
-                    setw(12) << "none" << " " <<
-                    setw(12) << "inf"  << " " <<
-                    setw(12) << "none" << " " <<
-                    setw(12) << "inf"  << " " <<
-                    setw(12) << mStat.mSubCount2 << " " <<
-                    setw(12) << mStat.mSubCount1 << " " <<
-                    setw(12) << mStat.st_size    << " " <<
+                    setw(12) << "none" << mDelimeter <<
+                    setw(12) << "inf"  << mDelimeter <<
+                    setw(12) << "none" << mDelimeter <<
+                    setw(12) << "inf"  << mDelimeter <<
+                    setw(12) << mStat.mSubCount2 << mDelimeter <<
+                    setw(12) << mStat.mSubCount1 << mDelimeter <<
+                    setw(12) << mStat.st_size    << mDelimeter <<
                     inFs.GetUri() << inPath << "\n";
             } else {
                 mOutStream << right <<
-                    setw(12) << mStat.mSubCount2 << " " <<
-                    setw(12) << mStat.mSubCount1 << " " <<
-                    setw(12) << mStat.st_size    << " " <<
+                    setw(12) << mStat.mSubCount2 << mDelimeter <<
+                    setw(12) << mStat.mSubCount1 << mDelimeter <<
+                    setw(12) << mStat.st_size    << mDelimeter <<
                     inFs.GetUri() << inPath << "\n";
             }
         }
@@ -3186,7 +3236,7 @@ private:
         int    inArgCount,
         bool   inShowQuotaFlag)
     {
-        CountFunctor theCountFunc(inShowQuotaFlag, cout);
+        CountFunctor theCountFunc(mDelimeter, inShowQuotaFlag, cout);
         return ApplyT(inArgsPtr, inArgCount, theCountFunc);
     }
     class TouchzFunctor
@@ -4346,6 +4396,7 @@ private:
     size_t const mIoBufferSize;
     char* const  mIoBufferPtr;
     string       mDefaultCreateParams;
+    char         mDelimeter;
     Properties   mConfig;
 private:
     KfsTool(const KfsTool& inTool);
@@ -4409,6 +4460,9 @@ const char* const KfsTool::sHelpStrings[] =
     "fs.readFullSparseFileSupport = 0\n\t\t\t"
         "zero fill holes, instead of declaring an error.\n\t\t\t"
         "Only has effect with QFS.\n\t\t"
+    "fs.columnSeparator\n\t\t\t"
+        "set -ls[rst]* and -count column delimiter (single character).\n\t\t\t"
+        "C escape sequences can be used to specify character code.\n\t\t"
     "client.* QFS client parameters.\n\t\t\t"
         "Client parameter's decription, including client's\n\t\t\t"
         "authentication parameters [client.auth.] description\n\t\t\t"
