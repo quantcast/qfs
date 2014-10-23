@@ -800,6 +800,7 @@ private:
     int        mDirCheckerIoTimeoutSec;
     int        mDirCheckFailureSimulatorInterval;
     bool       mChunkSizeSkipHeaderVerifyFlag;
+    bool       mVersionChangePermitWritesInFlightFlag;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

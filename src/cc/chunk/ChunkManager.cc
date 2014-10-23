@@ -1662,6 +1662,7 @@ ChunkManager::ChunkManager()
       mDirCheckerIoTimeoutSec(-1),
       mDirCheckFailureSimulatorInterval(-1),
       mChunkSizeSkipHeaderVerifyFlag(false),
+      mVersionChangePermitWritesInFlightFlag(true),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -1991,6 +1992,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mChunkSizeSkipHeaderVerifyFlag = prop.getValue(
         "chunkServer.chunkSizeSkipHeaderVerifyFlag",
         mChunkSizeSkipHeaderVerifyFlag ? 1 : 0);
+    mVersionChangePermitWritesInFlightFlag = prop.getValue(
+        "chunkServer.versionChangePermitWritesInFlight",
+        mVersionChangePermitWritesInFlightFlag ? 1 : 0);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
@@ -2929,7 +2933,7 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
         op->status    = -EINVAL;
         return op->status;
     }
-    if (cih->HasWritesInFlight()) {
+    if (! mVersionChangePermitWritesInFlightFlag && cih->HasWritesInFlight()) {
         op->statusMsg = "writes in flight";
         op->status    = -EINVAL;
         return op->status;
