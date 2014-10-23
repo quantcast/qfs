@@ -1991,10 +1991,10 @@ ChunkManager::SetParameters(const Properties& prop)
         mDirCheckFailureSimulatorInterval);
     mChunkSizeSkipHeaderVerifyFlag = prop.getValue(
         "chunkServer.chunkSizeSkipHeaderVerifyFlag",
-        mChunkSizeSkipHeaderVerifyFlag ? 1 : 0);
+        mChunkSizeSkipHeaderVerifyFlag ? 1 : 0) != 0;
     mVersionChangePermitWritesInFlightFlag = prop.getValue(
         "chunkServer.versionChangePermitWritesInFlight",
-        mVersionChangePermitWritesInFlightFlag ? 1 : 0);
+        mVersionChangePermitWritesInFlightFlag ? 1 : 0) != 0;
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
