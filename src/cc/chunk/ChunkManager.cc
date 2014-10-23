@@ -535,7 +535,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                     mChunkDir.stopTime) << "\r\n"
             "Start-count: "        << mChunkDir.startCount             << "\r\n"
             "Chunks: "             << mChunkDir.chunkCount             << "\r\n"
-            "Chunks-available"     << mChunkDir.availableChunks.GetSize() <<
+            "Chunks-writable: "    << mChunkDir.notStableOpenCount     << "\r\n"
+            "Chunks-available: "   << mChunkDir.availableChunks.GetSize() <<
                 "\r\n"
             "Space-avail: "        << mChunkDir.availableSpace         << "\r\n"
             "Space-total: "        << mChunkDir.totalSpace             << "\r\n"
@@ -543,6 +544,9 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 (100. * max(int64_t(0), mChunkDir.totalSpace -
                     mChunkDir.availableSpace) /
                     (double)max(int64_t(1), mChunkDir.totalSpace))     << "\r\n"
+            "Space-used: "         << (mChunkDir.usedSpace +
+                    mChunkDir.chunkCount * KFS_CHUNK_HEADER_SIZE)      << "\r\n"
+            "Space-not-stable: "   << mChunkDir.notStableSpace         << "\r\n"
             "Evacuate: "           << (mChunkDir.evacuateFlag ? 1 : 0) << "\r\n"
             "Evacuate-in-flight: " << mChunkDir.evacuateInFlightCount  << "\r\n"
             "Read-time-pct: " << timeUtilMicroPct * max(int64_t(0),
