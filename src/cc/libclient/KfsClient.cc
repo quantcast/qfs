@@ -4721,7 +4721,8 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     for (int retry = 0; ; retry++) {
         lop.lastChunkOnlyFlag = true;
         GetLayout(lop);
-        if (mMaxNumRetriesPerOp <= retry || lop.status != -EAGAIN) {
+        if (mMaxNumRetriesPerOp <= retry ||
+                (lop.status != -EAGAIN && lop.status != -EHOSTUNREACH)) {
             break;
         }
         time_t const curTime = time(0);
