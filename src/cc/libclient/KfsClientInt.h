@@ -701,6 +701,8 @@ private:
     };
     typedef FAttr::List FAttrLru;
 
+    inline void Validate(const FAttr* fa) const;
+
     /// keep a table of open files/directory handles.
     typedef vector<FileTableEntry*> FileTable;
     typedef PoolAllocator <
@@ -757,9 +759,11 @@ private:
     NameToFAttrMap::iterator const mPathCacheNone;
     FAttrPool                      mFAttrPool;
     FAttr*                         mFAttrLru[1];
+    FAttr**                        mDeleteClearFattr;
     FreeFileTableEntires           mFreeFileTableEntires;
     unsigned int                   mFattrCacheSkipValidateCnt;
     int                            mFileAttributeRevalidateTime;
+    int                            mFileAttributeRevalidateScan;
     unsigned int                   mFAttrCacheGeneration;
     TmpPath                        mTmpPath;
     string                         mTmpAbsPathStr;

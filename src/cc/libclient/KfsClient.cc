@@ -1172,6 +1172,7 @@ private:
         kfsGid_t         mEGroup;
         vector<kfsGid_t> mGroups;
         int              mDefaultFileAttributeRevalidateTime;
+        int              mDefaultFileAttributeRevalidateScan;
 
         static const Globals& Get()
             { return GetInstance(); }
@@ -1187,7 +1188,8 @@ private:
               mEUser(geteuid()),
               mEGroup(getegid()),
               mGroups(),
-              mDefaultFileAttributeRevalidateTime(30)
+              mDefaultFileAttributeRevalidateTime(30),
+              mDefaultFileAttributeRevalidateScan(64)
         {
             signal(SIGPIPE, SIG_IGN);
             libkfsio::InitGlobals();
@@ -1225,9 +1227,16 @@ private:
             }
             if (p) {
                 char* e = 0;
-                const long v = strtol(p, &e, 10);
-                if (p < e && (*e & 0xFF) <= ' ') {
+                long  v = strtol(p, &e, 10);
+                if (p < e && ((*e & 0xFF) <= ' ' || (*e & 0xFF) == ':')) {
                     mDefaultFileAttributeRevalidateTime = (int)v;
+                    if ((*e & 0xFF) == ':') {
+                        p = e + 1;
+                        v = strtol(p, &e, 10);
+                        if (p < e && (*e & 0xFF) <= ' ') {
+                            mDefaultFileAttributeRevalidateScan = (int)v;
+                        }
+                    }
                 }
             }
         }
@@ -1306,6 +1315,8 @@ private:
         client.mUMask  = globals.mUMask;
         client.mFileAttributeRevalidateTime =
             globals.mDefaultFileAttributeRevalidateTime;
+        client.mFileAttributeRevalidateScan =
+            globals.mDefaultFileAttributeRevalidateScan;
     }
     void RemoveSelf(KfsClientImpl& client)
     {
@@ -1392,6 +1403,27 @@ KfsClientImpl::ClientsList::Instance()
 KfsClientImpl::ClientsList* KfsClientImpl::ClientsList::sInstance =
     &KfsClientImpl::ClientsList::Instance();
 
+inline void
+KfsClientImpl::Validate(
+    const KfsClientImpl::FAttr* fa) const
+{
+    if (fa && (
+            ! FAttrLru::IsInList(mFAttrLru, *fa) ||
+            fa != fa->fidNameIt->second ||
+            (fa->nameIt != mPathCacheNone && fa != fa->nameIt->second))) {
+        KFS_LOG_STREAM_FATAL << "invalid FAttr:" <<
+            " " << (const void*)this <<
+            " prev: "         << (const void*)&FAttrLru::GetPrev(*fa) <<
+            " next: "         << (const void*)&FAttrLru::GetNext(*fa) <<
+            " fileId: "       << fa->fileId <<
+            " gen: "          << fa->generation <<
+            " validateTime: " << fa->validatedTime <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        abort();
+    }
+}
+
 //
 // Now, the real work is done by the impl object....
 //
@@ -1411,10 +1443,12 @@ KfsClientImpl::KfsClientImpl(
       mPathCacheNone(mPathCache.insert(
         make_pair(string(), static_cast<KfsClientImpl::FAttr*>(0))).first),
       mFAttrPool(),
+      mDeleteClearFattr(0),
       mFreeFileTableEntires(),
       mFattrCacheSkipValidateCnt(0),
       mFileAttributeRevalidateTime(30),
-      mFAttrCacheGeneration(0),
+      mFileAttributeRevalidateScan(64),
+      mFAttrCacheGeneration(1),
       mTmpPath(),
       mTmpAbsPathStr(),
       mTmpAbsPath(),
@@ -2970,8 +3004,12 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
         string      filename;
         string      tmpPath;
         string&     fpath = path ? *path : tmpPath;
+        mDeleteClearFattr = &fa;
         int res = GetPathComponents(
             mTmpAbsPathStr.c_str(), &parentFid, filename, &fpath);
+        assert(mDeleteClearFattr ? *mDeleteClearFattr == fa : ! fa);
+        Validate(fa);
+        mDeleteClearFattr = 0;
         if (res == 0) {
             res = LookupAttr(parentFid, filename, fa, computeFilesize, fpath,
                 validSubCountsRequiredFlag);
@@ -3237,7 +3275,7 @@ KfsClientImpl::InvalidateCachedAttrsWithPathPrefix(
     const KfsClientImpl::FAttr* faDoNotDelete)
 {
     if (mPathCache.size() <= 1) {
-        QCASSERT(mPathCache.begin() == mPathCacheNone);
+        assert(mPathCache.begin() == mPathCacheNone);
         return true;
     }
     const size_t len = path.length();
@@ -3355,6 +3393,7 @@ KfsClientImpl::UpdateFattr(
     time_t                 now,
     bool                   copyPathFlag)
 {
+    Validate(fa);
     if (fa) {
         if (fattr.fileId != fa->fileId &&
                 (fa->isDirectory || fattr.isDirectory)) {
@@ -5082,9 +5121,10 @@ KfsClientImpl::FAttr*
 KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
     const string& pathname)
 {
-    if (mFidNameToFAttrMap.size() > 128 && ++mFattrCacheSkipValidateCnt > 512) {
+    if (mFidNameToFAttrMap.size() > mFileAttributeRevalidateScan * 2 &&
+            ++mFattrCacheSkipValidateCnt > mFileAttributeRevalidateScan * 8) {
         mFattrCacheSkipValidateCnt = 0;
-        ValidateFAttrCache(time(0), 64);
+        ValidateFAttrCache(time(0), mFileAttributeRevalidateScan);
     }
     const size_t kMaxInodeCacheSize = 16 << 10;
     for (size_t sz = mFidNameToFAttrMap.size();
@@ -5155,11 +5195,16 @@ KfsClientImpl::Delete(KfsClientImpl::FAttr* fa)
     if (! fa) {
         return;
     }
+    Validate(fa);
     mFidNameToFAttrMap.erase(fa->fidNameIt);
     if (fa->nameIt != mPathCacheNone) {
         mPathCache.erase(fa->nameIt);
     }
     FAttrLru::Remove(mFAttrLru, *fa);
+    if (mDeleteClearFattr && fa == *mDeleteClearFattr) {
+        *mDeleteClearFattr = 0;
+        mDeleteClearFattr = 0;
+    }
     fa->~FAttr();
     mFAttrPool.Deallocate(fa);
 }
@@ -5213,6 +5258,7 @@ void
 KfsClientImpl::UpdatePath(KfsClientImpl::FAttr* fa, const string& path,
     bool copyPathFlag)
 {
+    Validate(fa);
     if (! fa || fa->nameIt->first == path) {
         return;
     }
