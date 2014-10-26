@@ -155,11 +155,11 @@ public:
     }
 
     static NodeT& GetPrev(
-        NodeT& inNode)
+        const NodeT& inNode)
         { return ListOp::GetPrev(inNode); }
 
     static NodeT& GetNext(
-        NodeT& inNode)
+        const NodeT& inNode)
         { return ListOp::GetNext(inNode); }
 
     static void PushBack(
