@@ -1412,7 +1412,7 @@ KfsClientImpl::Validate(
             fa != fa->fidNameIt->second ||
             (fa->nameIt != mPathCacheNone && fa != fa->nameIt->second))) {
         KFS_LOG_STREAM_FATAL << "invalid FAttr:" <<
-            " " << (const void*)this <<
+            " "               << (const void*)fa <<
             " prev: "         << (const void*)&FAttrLru::GetPrev(*fa) <<
             " next: "         << (const void*)&FAttrLru::GetNext(*fa) <<
             " fileId: "       << fa->fileId <<
