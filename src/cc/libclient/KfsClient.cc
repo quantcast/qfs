@@ -1172,7 +1172,7 @@ private:
         kfsGid_t         mEGroup;
         vector<kfsGid_t> mGroups;
         int              mDefaultFileAttributeRevalidateTime;
-        int              mDefaultFileAttributeRevalidateScan;
+        unsigned int     mDefaultFileAttributeRevalidateScan;
 
         static const Globals& Get()
             { return GetInstance(); }
@@ -1233,8 +1233,8 @@ private:
                     if ((*e & 0xFF) == ':') {
                         p = e + 1;
                         v = strtol(p, &e, 10);
-                        if (p < e && (*e & 0xFF) <= ' ') {
-                            mDefaultFileAttributeRevalidateScan = (int)v;
+                        if (0 <= v && p < e && (*e & 0xFF) <= ' ') {
+                            mDefaultFileAttributeRevalidateScan = (unsigned int)v;
                         }
                     }
                 }

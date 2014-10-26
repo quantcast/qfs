@@ -763,7 +763,7 @@ private:
     FreeFileTableEntires           mFreeFileTableEntires;
     unsigned int                   mFattrCacheSkipValidateCnt;
     int                            mFileAttributeRevalidateTime;
-    int                            mFileAttributeRevalidateScan;
+    unsigned int                   mFileAttributeRevalidateScan;
     unsigned int                   mFAttrCacheGeneration;
     TmpPath                        mTmpPath;
     string                         mTmpAbsPathStr;
