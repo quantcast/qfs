@@ -67,11 +67,7 @@ Checkpoint::write_leaves(ostream& os)
     Meta *m = li.current();
     int status = 0;
     while (status == 0 && m) {
-        if (m->skip()) {
-            m->clearskip();
-        } else {
-            status = m->checkpoint(os);
-        }
+        status = m->checkpoint(os);
         li.next();
         Node* const p = li.parent();
         m = p ? li.current() : 0;

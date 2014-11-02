@@ -34,11 +34,8 @@
 namespace KFS {
 
 // MetaNode flag values
-static const int META_CPBIT = 1;//!< CP parity bit
-static const int META_NEW = 2;  //!< new since start of CP
 static const int META_ROOT = 4; //!< root node
 static const int META_LEVEL1 = 8; //!< children are leaves
-static const int META_SKIP = 16; //!< exclude from current CP
 
 /*!
  * \brief base class for both internal and leaf nodes

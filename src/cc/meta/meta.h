@@ -71,9 +71,6 @@ protected:
     ~Meta() { }
 public:
     Meta(MetaType t): MetaNode(t) { }
-    bool skip() const { return testflag(META_SKIP); }
-    void markskip() { setflag(META_SKIP); }
-    void clearskip() { clearflag(META_SKIP); }
     int checkpoint(ostream &file) const
     {
         show(file) << '\n';

@@ -115,14 +115,6 @@ public:
     bool isroot() const { return testflag(META_ROOT); }
     bool isfull() const { return (count == NKEY); } //!< full
     bool isdepleted() const { return (count < NFEWEST); } //!< underfull
-    int cpbit() const { return testflag(META_CPBIT) ? 1 : 0; }
-    void markparity(int count)
-    {
-        if (count & 1)
-            setflag(META_CPBIT);
-        else
-            clearflag(META_CPBIT);
-    }
     /*!
     * \brief binary search to locate key within node
     * \param[in] test   the key that we are looking for
