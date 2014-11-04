@@ -368,16 +368,7 @@ public:
     int GetMaxDirCheckDiskTimeouts() const
         { return mMaxDirCheckDiskTimeouts; }
     void MetaServerConnectionLost();
-    void SetChunkSize(ChunkInfo_t& ci, int64_t chunkSize)
-    {
-        if (ci.chunkSize > 0) {
-            mUsedSpace = mUsedSpace >= ci.chunkSize ?
-                mUsedSpace - ci.chunkSize : 0;
-        }
-        ci.chunkSize = chunkSize > 0 ? chunkSize : 0;
-        mUsedSpace += ci.chunkSize;
-    }
-
+    void SetChunkSize(ChunkInfo_t& ci, int64_t chunkSize);
     enum { kChunkInfoHandleListCount = 1 };
     enum ChunkListType
     {

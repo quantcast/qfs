@@ -3062,10 +3062,28 @@ ChunkManager::UpdateDirSpace(ChunkInfoHandle* cih, int64_t nbytes)
     if (dir.usedSpace < 0) {
         dir.usedSpace = 0;
     }
-    dir.UpdateAvailableSpace(nbytes);
+    if (0 < nbytes || cih->IsStable()) {
+        dir.UpdateAvailableSpace(nbytes);
+    }
     if (! cih->IsStable()) {
         dir.UpdateNotStableSpace(nbytes);
     }
+}
+
+void
+ChunkManager::SetChunkSize(ChunkInfo_t& ci, int64_t chunkSize)
+{
+    ci.chunkSize = max(int64_t(0), ci.chunkSize);
+    int64_t const           delta = max(int64_t(0), chunkSize) - ci.chunkSize;
+    ChunkInfoHandle** const ch    = mChunkTable.Find(ci.chunkId);
+    if (ch && 0 <= (*ch)->GetDirInfo().availableSpace) {
+        mUsedSpace += delta;
+        if (mUsedSpace < 0) {
+            mUsedSpace = 0;
+        }
+        UpdateDirSpace(*ch, delta);
+    }
+    ci.chunkSize += delta;
 }
 
 template<typename T>
@@ -5387,7 +5405,7 @@ ChunkManager::ChunkDirInfo::FsSpaceAvailDone(int code, void* data)
                 availableSpace = max(
                     int64_t(0), availableSpace - pendingSpaceReservationSize);
             } else {
-                // Virtually reserve 64MB + 8K for each not stable chunk.
+                // Virtually reserve 64MB + 16K for each not stable chunk.
                 const ChunkDirInfo& dir = dirCountSpaceAvailable ?
                     *dirCountSpaceAvailable : *this;
                 availableSpace = min(totalSpace,
