@@ -193,7 +193,7 @@ public:
         const struct timeval& inMTime) = 0;
     virtual int SetReplication(
         const string& inPath,
-        const int     inReplication,
+        int           inReplication,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr) = 0;
     virtual int GetReplication(
@@ -201,6 +201,10 @@ public:
         StatBuf&      outStat,
         int&          outMinReplication,
         int&          outMaxReplication) = 0;
+    virtual int SetStorageTierRange(
+        const string& inPath,
+        int           inMinSTier,
+        int           inMaxSTier) = 0;
     virtual int GetHomeDirectory(
         string& outHomeDir) = 0;
     virtual string StrError(

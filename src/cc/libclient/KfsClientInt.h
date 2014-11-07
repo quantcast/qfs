@@ -540,7 +540,7 @@ public:
     /// @param[in] pathname The full pathname of the file such as /../foo
     /// @retval count
     ///
-    int16_t GetReplicationFactor(const char *pathname);
+    int GetReplicationFactor(const char *pathname);
 
     ///
     /// Set the degree of replication for the pathname.
@@ -548,10 +548,13 @@ public:
     /// @param[in] numReplicas  The desired degree of replication.
     /// @retval -1 on failure; on success, the # of replicas that will be made.
     ///
-    int16_t SetReplicationFactor(const char *pathname, int16_t numReplicas);
+    int SetReplicationFactor(const char *pathname, int16_t numReplicas);
     // Recursive version.
-    int16_t SetReplicationFactorR(const char *pathname, int16_t numReplicas,
+    int SetReplicationFactorR(const char *pathname, int16_t numReplicas,
         ErrorHandler* errHandler = 0);
+
+    int SetStorageTierRange(
+        const char *pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier);
 
     void SetDefaultIOTimeout(int nsecs);
     int  GetDefaultIOTimeout() const;

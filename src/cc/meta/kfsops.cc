@@ -264,6 +264,8 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     }
     UpdateNumFiles(1);
     updateCounts(fa, 0, 1, 0);
+    fa->minSTier = parent->minSTier;
+    fa->maxSTier = parent->maxSTier;
     if (newFattr) {
         *newFattr = fa;
     }
@@ -487,6 +489,10 @@ Tree::mkdir(fid_t dir, const string& dname,
         return status;
     }
     updateCounts(fattr, 0, 0, 1);
+    if (parent) {
+        fattr->minSTier = parent->minSTier;
+        fattr->maxSTier = parent->maxSTier;
+    }
     UpdateNumDirs(1);
 
     *newFid = myID;
@@ -2070,7 +2076,10 @@ int
 Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
     kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
-    if (fa->type != KFS_FILE) {
+    if (fa->type != KFS_FILE && 0 < numReplicas) {
+        // Allow to change directory tiers, sot that the tiers can be
+        // "inherited" by sub directories and files, but do not allow to change
+        // directory replication.
         return -EISDIR;
     }
     if (((minSTier != kKfsSTierUndef &&

@@ -76,13 +76,9 @@ handleFstat(KfsClient* kfsClient, const vector<string>& args)
             "Owner:            " << attr.user << "\n"
             "Group:            " << attr.group << "\n"
             "Mode:             " << oct << attr.mode << dec << "\n"
-        ;
-        if (! attr.isDirectory) {
-            cout <<
             "MinTier:          " << (int)attr.minSTier << "\n"
             "MaxTier:          " << (int)attr.maxSTier << "\n"
-            ;
-        }
+        ;
         if (attr.striperType == KFS_STRIPED_FILE_TYPE_NONE) {
             continue;
         }

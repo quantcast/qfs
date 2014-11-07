@@ -807,9 +807,14 @@ MetaCreate::handle()
         egroup,
         &fa
     );
-    if (status == 0 && minSTier < kKfsSTierMax) {
-        fa->minSTier = minSTier;
-        fa->maxSTier = maxSTier;
+    if (status == 0) {
+        if (minSTier < kKfsSTierMax) {
+            fa->minSTier = minSTier;
+            fa->maxSTier = maxSTier;
+        } else {
+            minSTier = fa->minSTier;
+            maxSTier = fa->maxSTier;
+        }
     }
 }
 
@@ -2339,24 +2344,39 @@ MetaChangeFileReplication::handle()
         status = -EACCES;
         return;
     }
-    numReplicas = min(numReplicas,
-        max(int16_t(fa->numReplicas),
-            (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
-                    fa->numRecoveryStripes > 0) ?
-            gLayoutManager.GetMaxReplicasPerRSFile() :
-            gLayoutManager.GetMaxReplicasPerFile()
-    ));
+    if (fa->type == KFS_DIR) {
+        if (euser != kKfsUserRoot) {
+            status    = -EACCES;
+            statusMsg = "root privileges are"
+                " required to change directory storage tiers";
+            return;
+        }
+    } else {
+        numReplicas = min(numReplicas,
+            max(int16_t(fa->numReplicas),
+                (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
+                        fa->numRecoveryStripes > 0) ?
+                gLayoutManager.GetMaxReplicasPerRSFile() :
+                gLayoutManager.GetMaxReplicasPerFile()
+        ));
+    }
+    kfsSTier_t const prevMinSTier = fa->minSTier;
+    kfsSTier_t const prevMaxSTier = fa->maxSTier;
+    int16_t    const prevRepl     = (int16_t)fa->numReplicas;
     status = metatree.changeFileReplication(
         fa, numReplicas, minSTier, maxSTier);
     if (status == 0) {
-        logFlag = numReplicas != (int)fa->numReplicas;
-        numReplicas = fa->numReplicas; // update for log()
-        if (minSTier != kKfsSTierUndef || maxSTier != kKfsSTierUndef) {
-            logFlag = logFlag ||
-                (minSTier != kKfsSTierUndef && minSTier != fa->minSTier) ||
-                (maxSTier != kKfsSTierUndef && maxSTier != fa->maxSTier);
+        numReplicas = fa->type == KFS_DIR ?
+            (int16_t)0 : (int16_t)fa->numReplicas; // update for log()
+        logFlag = fa->type != KFS_DIR && numReplicas != prevRepl;
+        if (fa->minSTier != prevMinSTier || fa->maxSTier != prevMaxSTier) {
+            logFlag = true;
             minSTier = fa->minSTier;
             maxSTier = fa->maxSTier;
+        } else if (logFlag) {
+            // No change, do not log tiers.
+            minSTier = kKfsSTierUndef;
+            maxSTier = kKfsSTierUndef;
         }
     } else {
         logFlag = false;

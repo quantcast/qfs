@@ -677,6 +677,28 @@ public:
             theErr = ShowDelegationTokenInfo(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "ecinfo") == 0) {
             theErr = ShowErasureCodecInfo(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "sstr") == 0) {
+            if (theArgCnt < 3) {
+                theErr = EINVAL;
+            } else {
+                char*     theEndPtr   = 0;
+                const int theMinSTier = strtoll(theArgsPtr[0], &theEndPtr, 0);
+                if (' ' < (*theEndPtr & 0xFF)) {
+                    theErr = EINVAL;
+                } else {
+                    const int theMaxSTier = strtoll(theArgsPtr[1], &theEndPtr, 0);
+                    if (' ' < (*theEndPtr & 0xFF)) {
+                        theErr = EINVAL;
+                    } else {
+                        theErr = SetTierRange(
+                            theArgsPtr + 2, theArgCnt - 2,
+                            theMinSTier, theMaxSTier);
+                    }
+                }
+            }
+            if (theErr == EINVAL) {
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            }
         } else if (strcmp(theCmdPtr, "help") == 0) {
             theErr = LongHelp(cout, theArgsPtr, theArgCnt);
         } else {
@@ -4219,10 +4241,12 @@ private:
                 "Recovery stripes: " << mStat.mNumRecoveryStripes << "\n"
                 "Striper type:     " << mStat.mStriperType        << "\n"
                 "Stripe size:      " << mStat.mStripeSize         << "\n"
-                "Min. tier:        " << mStat.mMinSTier           << "\n"
-                "Max. tier:        " << mStat.mMaxSTier           << "\n"
                 ;
             }
+            mOutStream <<
+            "Min. tier:        " << mStat.mMinSTier           << "\n"
+            "Max. tier:        " << mStat.mMaxSTier           << "\n"
+            ;
             return theErr;
         }
     private:
@@ -4391,6 +4415,54 @@ private:
             }
         }
         return theRet;
+    }
+    class SetStorageTierRangeFunctor
+    {
+    public:
+        SetStorageTierRangeFunctor(
+            int inMinSTier,
+            int inMaxSTier)
+            : mMinSTier(inMinSTier),
+              mMaxSTier(inMaxSTier)
+            {}
+        int operator()(
+            FileSystem&    inFs,
+            const string&  inPath,
+            ErrorReporter& /* inErrorReporter */)
+        {
+            return inFs.SetStorageTierRange(
+                inPath, mMinSTier, mMaxSTier);
+        }
+    private:
+        const int mMinSTier;
+        const int mMaxSTier;
+
+        SetStorageTierRangeFunctor(
+            const SetStorageTierRangeFunctor& inFunctor);
+        SetStorageTierRangeFunctor& operator=(
+            const SetStorageTierRangeFunctor& inFunctor);
+    };
+    int SetTierRange(
+        char** inArgsPtr,
+        int    inArgCount,
+        int    inMinSTier,
+        int    inMaxSTier)
+    {
+        if (inArgCount <= 0) {
+            return -EINVAL;
+        }
+        GlobResult theResult;
+        bool       theMoreThanOneFsFlag = false;
+        int        theErr               = Glob(
+            inArgsPtr,
+            inArgCount,
+            cerr,
+            theResult,
+            theMoreThanOneFsFlag
+        );
+        SetStorageTierRangeFunctor theSetTierRangeFunc(inMinSTier, inMaxSTier);
+        FunctorT<SetStorageTierRangeFunctor> theFunc(theSetTierRangeFunc, cerr);
+        return Apply(theResult, theMoreThanOneFsFlag, theErr, theFunc);
     }
 private:
     size_t const mIoBufferSize;
@@ -4692,6 +4764,9 @@ const char* const KfsTool::sHelpStrings[] =
 
     "ecinfo", "[<id> <id> ...]",
     "Show QFS client's erasure codecs information.\n",
+
+    "sstr", "<min storage tier> <max storage tier> <glob> [<glob>...]",
+    "set storage tier range",
 
     "help", "[cmd]",
     "Displays help for given command or all commands if none\n\t\t"

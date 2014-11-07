@@ -643,10 +643,12 @@ replay_setrep(DETokenizer& c)
         }
         maxSTier = (kfsSTier_t)k;
     }
-    if (ok) {
-        metatree.changePathReplication(fid, numReplicas, minSTier, maxSTier);
+    if (! ok) {
+        return ok;
     }
-    return ok;
+    MetaFattr* const fa = metatree.getFattr(fid);
+    return (fa && metatree.changeFileReplication(
+        fa, numReplicas, minSTier, maxSTier) == 0);
 }
 
 /*!

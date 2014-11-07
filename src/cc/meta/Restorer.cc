@@ -220,7 +220,7 @@ restore_fattr(DETokenizer& c)
             return false;
         }
         f->mode = (kfsMode_t)n;
-        if (type == KFS_FILE && ! c.empty()) {
+        if ((type == KFS_FILE || type == KFS_DIR) && ! c.empty()) {
             if (! pop_num(n, "minTier", c, ok)) {
                 f->destroy();
                 return false;

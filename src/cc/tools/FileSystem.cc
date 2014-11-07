@@ -629,7 +629,7 @@ public:
     }
     virtual int SetReplication(
         const string& inPath,
-        const int     inReplication,
+        int           inReplication,
         bool          /* inRecursiveFlag */,
         ErrorHandler* /* inErrorHandlerPtr */)
     {
@@ -656,6 +656,14 @@ public:
         outMinReplication = 1;
         outMaxReplication = 1;
         return theRet;
+    }
+    virtual int SetStorageTierRange(
+        const string& inPath,
+        int           /* inMinSTier */,
+        int           /* inMaxSTier */)
+    {
+        StatBuf theStat;
+        return Stat(inPath, theStat);
     }
     virtual string StrError(
         int inError) const
@@ -1191,7 +1199,7 @@ public:
     }
     virtual int SetReplication(
         const string& inPath,
-        const int     inReplication,
+        int           inReplication,
         bool          inRecursiveFlag,
         ErrorHandler* inErrorHandlerPtr)
     {
@@ -1224,6 +1232,14 @@ public:
             outStat.Reset();
         }
         return theRet;
+    }
+    virtual int SetStorageTierRange(
+        const string& inPath,
+        int           inMinSTier,
+        int           inMaxSTier)
+    {
+        return KfsClient::SetStorageTierRange(
+            inPath.c_str(), inMinSTier, inMaxSTier);
     }
     virtual int Glob(
         const string& inPattern,

@@ -762,23 +762,30 @@ KfsClient::GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
     return mImpl->GetDataLocation(fd, start, len, locations, outBlkSize);
 }
 
-int16_t
+int
 KfsClient::GetReplicationFactor(const char *pathname)
 {
     return mImpl->GetReplicationFactor(pathname);
 }
 
-int16_t
+int
 KfsClient::SetReplicationFactor(const char *pathname, int16_t numReplicas)
 {
     return mImpl->SetReplicationFactor(pathname, numReplicas);
 }
 
-int16_t
+int
 KfsClient::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
     ErrorHandler* errHandler)
 {
     return mImpl->SetReplicationFactorR(pathname, numReplicas, errHandler);
+}
+
+int
+KfsClient::SetStorageTierRange(
+    const char *pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier)
+{
+    return mImpl->SetStorageTierRange(pathname, minSTier, maxSTier);
 }
 
 ServerLocation
@@ -4256,7 +4263,7 @@ KfsClientImpl::GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
     return 0;
 }
 
-int16_t
+int
 KfsClientImpl::GetReplicationFactor(const char *pathname)
 {
     KfsFileAttr attr;
@@ -4270,7 +4277,7 @@ KfsClientImpl::GetReplicationFactor(const char *pathname)
     return attr.numReplicas;
 }
 
-int16_t
+int
 KfsClientImpl::SetReplicationFactor(const char *pathname, int16_t numReplicas)
 {
     QCStMutexLocker l(mMutex);
@@ -4285,6 +4292,30 @@ KfsClientImpl::SetReplicationFactor(const char *pathname, int16_t numReplicas)
         return -EISDIR;
     }
     ChangeFileReplicationOp op(0, attr.fileId, numReplicas);
+    DoMetaOpWithRetry(&op);
+    InvalidateAttributeAndCounts(path);
+    return (op.status <= 0 ? op.status : -op.status);
+}
+
+int
+KfsClientImpl::SetStorageTierRange(
+    const char *pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier)
+{
+    QCStMutexLocker l(mMutex);
+
+    KfsFileAttr attr;
+    string      path;
+    const int res = StatSelf(pathname, attr, false, &path);
+    if (res != 0) {
+        return (res < 0 ? res : -res);
+    }
+    ChangeFileReplicationOp op(0, attr.fileId, 0);
+    if (0 <= minSTier) {
+        op.minSTier = (kfsSTier_t)minSTier;
+    }
+    if (0 <= maxSTier) {
+        op.maxSTier = (kfsSTier_t)maxSTier;
+    }
     DoMetaOpWithRetry(&op);
     InvalidateAttributeAndCounts(path);
     return (op.status <= 0 ? op.status : -op.status);
@@ -6439,7 +6470,7 @@ private:
     ErrorHandler&  mErrHandler;
 };
 
-int16_t
+int
 KfsClientImpl::SetReplicationFactorR(const char *pathname, int16_t numReplicas,
     KfsClientImpl::ErrorHandler* errHandler)
 {
