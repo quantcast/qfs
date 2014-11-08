@@ -321,6 +321,8 @@ struct MkdirOp : public KfsOp {
     Permissions permissions;
     kfsSeq_t    reqId;
     kfsFileId_t fileId; // result
+    kfsSTier_t  minSTier;
+    kfsSTier_t  maxSTier;
     string      userName;
     string      groupName;
     MkdirOp(kfsSeq_t s, kfsFileId_t p, const char* d,
@@ -331,6 +333,8 @@ struct MkdirOp : public KfsOp {
           permissions(perms),
           reqId(id),
           fileId(-1),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax),
           userName(),
           groupName()
         {}

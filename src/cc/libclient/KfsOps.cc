@@ -867,11 +867,13 @@ CreateOp::ParseResponseHeaderSelf(const Properties &prop)
     metaStriperType   = prop.getValue("Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
     if (0 <= status) {
-        permissions.user  = prop.getValue("User",  permissions.user);
-        permissions.group = prop.getValue("Group", permissions.group);
-        permissions.mode  = prop.getValue("Mode",  permissions.mode);
-        userName          = prop.getValue("UName", string());
-        groupName         = prop.getValue("GName", string());
+        permissions.user  = prop.getValue("User",     permissions.user);
+        permissions.group = prop.getValue("Group",    permissions.group);
+        permissions.mode  = prop.getValue("Mode",     permissions.mode);
+        userName          = prop.getValue("UName",    string());
+        groupName         = prop.getValue("GName",    string());
+        minSTier          = prop.getValue("Min-tier", minSTier);
+        maxSTier          = prop.getValue("Max-tier", maxSTier);
     }
 }
 
@@ -909,11 +911,13 @@ MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     fileId = prop.getValue("File-handle", (kfsFileId_t) -1);
     if (0 <= status) {
-        permissions.user  = prop.getValue("User",  permissions.user);
-        permissions.group = prop.getValue("Group", permissions.group);
-        permissions.mode  = prop.getValue("Mode",  permissions.mode);
-        userName          = prop.getValue("UName", string());
-        groupName         = prop.getValue("GName", string());
+        permissions.user  = prop.getValue("User",     permissions.user);
+        permissions.group = prop.getValue("Group",    permissions.group);
+        permissions.mode  = prop.getValue("Mode",     permissions.mode);
+        userName          = prop.getValue("UName",    string());
+        groupName         = prop.getValue("GName",    string());
+        minSTier          = prop.getValue("Min-tier", minSTier);
+        maxSTier          = prop.getValue("Max-tier", maxSTier);
     }
 }
 

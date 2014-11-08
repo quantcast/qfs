@@ -3219,6 +3219,8 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     fa.fileId      = op.fileId;
     fa.numReplicas = numReplicas;
     fa.fileSize    = 0; // presently CreateOp always deletes file if exists.
+    fa.minSTier    = op.minSTier;
+    fa.maxSTier    = op.maxSTier;
     if (op.metaStriperType != KFS_STRIPED_FILE_TYPE_NONE) {
         fa.numStripes         = (int16_t)numStripes;
         fa.numRecoveryStripes = (int16_t)numRecoveryStripes;

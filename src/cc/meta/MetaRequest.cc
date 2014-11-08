@@ -829,7 +829,13 @@ MetaMkdir::handle()
         return;
     }
     fid = 0;
-    status = metatree.mkdir(dir, name, user, group, mode, euser, egroup, &fid);
+    MetaFattr* fa = 0;
+    status = metatree.mkdir(
+        dir, name, user, group, mode, euser, egroup, &fid, &fa);
+    if (status == 0 && fa) {
+        minSTier = fa->minSTier;
+        maxSTier = fa->maxSTier;
+    }
 }
 
 static int
@@ -1256,7 +1262,8 @@ private:
         WriteInt(entry.filesize);
         Write(kRepl);
         WriteInt(entry.numReplicas);
-        if (entry.type == KFS_FILE && entry.minSTier < kKfsSTierMax) {
+        if (entry.minSTier < kKfsSTierMax &&
+                (entry.type == KFS_FILE || entry.type == KFS_DIR)) {
             Write(kMinTier);
             WriteInt(entry.minSTier);
             Write(kMaxTier);
@@ -4027,6 +4034,11 @@ MetaCreate::response(ostream &os)
     "Group: " << group <<  "\r\n"
     "Mode: "  << mode  <<  "\r\n"
     ;
+    if (minSTier < kKfsSTierMax) {
+        os <<
+        "Min-tier: " << (int)minSTier << "\r\n"
+        "Max-tier: " << (int)maxSTier << "\r\n";
+    }
     UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
     "\r\n";
 }
@@ -4049,6 +4061,11 @@ MetaMkdir::response(ostream &os)
     "Group: "       << group << "\r\n"
     "Mode: "        << mode  << "\r\n"
     ;
+    if (minSTier < kKfsSTierMax) {
+        os <<
+        "Min-tier: " << (int)minSTier << "\r\n"
+        "Max-tier: " << (int)maxSTier << "\r\n";
+    }
     UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
     "\r\n";
 }

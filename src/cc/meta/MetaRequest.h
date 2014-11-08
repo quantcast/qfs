@@ -486,15 +486,17 @@ struct MetaCreate: public MetaRequest {
  * \brief create a directory
  */
 struct MetaMkdir: public MetaRequest {
-    fid_t     dir;  //!< parent directory fid
-    fid_t     fid;  //!< file ID of new directory
-    kfsUid_t  user;
-    kfsGid_t  group;
-    kfsMode_t mode;
-    seq_t     reqId;
-    string    name; //!< name to create
-    string    ownerName;
-    string    groupName;
+    fid_t      dir;  //!< parent directory fid
+    fid_t      fid;  //!< file ID of new directory
+    kfsUid_t   user;
+    kfsGid_t   group;
+    kfsMode_t  mode;
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
+    seq_t      reqId;
+    string     name; //!< name to create
+    string     ownerName;
+    string     groupName;
     MetaMkdir()
         : MetaRequest(META_MKDIR, true),
           dir(-1),
@@ -502,6 +504,8 @@ struct MetaMkdir: public MetaRequest {
           user(kKfsUserNone),
           group(kKfsGroupNone),
           mode(kKfsModeUndef),
+          minSTier(kKfsSTierMax),
+          maxSTier(kKfsSTierMax),
           reqId(-1),
           name(),
           ownerName(),
