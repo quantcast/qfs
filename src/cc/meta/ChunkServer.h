@@ -126,6 +126,23 @@ private:
             mSet = 0;
         }
     }
+    void SetIndex(CSMapServerInfo& other, bool debugTrackChunkIdFlag) {
+        delete mSet;
+        mIndex      = other.mIndex;
+        mChunkCount = other.mChunkCount;
+        mSet        = other.mSet;
+        other.mIndex      = -1;
+        other.mChunkCount = 0;
+        other.mSet        = 0;
+        if (debugTrackChunkIdFlag) {
+             if (! mSet) {
+                mSet = new Set();
+            }
+        } else {
+            delete mSet;
+            mSet = 0;
+        }
+    }
 
 private:
     // The set here is for CSMap debugging only, see

@@ -636,6 +636,29 @@ public:
         RemoveServerScanFirst();
         return true;
     }
+    bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
+        if (! server || /* idx < 0 ||*/ idx >= Entry::kMaxServers) {
+            return false;
+        }
+        Validate();
+        if (! ClearHibernated(idx)) {
+            return false;
+        }
+        assert(! mServers[idx] && 0 < mServerCount);
+        mServers[idx] = server;
+        server->SetIndex(idx, mDebugValidateFlag);
+        return true;
+    }
+    bool ReplaceServerWith(const ChunkServerPtr& server,
+            const ChunkServerPtr& serverToReplaceWith) {
+        if (Validate(server) || ! serverToReplaceWith ||
+                0 <= serverToReplaceWith->GetIndex()) {
+            return false;
+        }
+        mServers[server->GetIndex()] = serverToReplaceWith;
+        serverToReplaceWith->SetIndex(*server, mDebugValidateFlag);
+        return true;
+    }
     size_t GetServerCount() const {
         return mServerCount;
     }
