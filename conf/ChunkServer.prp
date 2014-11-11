@@ -33,6 +33,12 @@ chunkServer.metaServer.port     = 30000
 # Port to open for client connections
 chunkServer.clientPort = 22000
 
+# Chunk server's rack id. Has effect only if meta server rack prefixes
+# (metaServer.rackPrefixes) are nots set, or chunk server's ip do not match
+# any of the prefix.
+# Default is no rack assigned.
+# chunkServer.rackId = -1
+
 # Space separated list of directories to store chunks (blocks).
 # Usually one directory per physical disk. More than one directory can
 # be used in the cases where the host file system has problems / limitations
