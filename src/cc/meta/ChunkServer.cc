@@ -652,11 +652,24 @@ ChunkServer::HandleRequest(int code, void *data)
 
     case EVENT_CMD_DONE: {
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
-        assert(data && (mHelloDone || mAuthenticateOp == op));
+        assert(data && (mHelloDone || op == mAuthenticateOp));
         const bool deleteOpFlag = op != mAuthenticateOp;
-        // nothing left to be done...get rid of it
+        const bool helloOpFlag  = op->op == META_HELLO;
+        if (! mDown && helloOpFlag) {
+            // Re-evaluate hello done status.
+            mHelloDone = op->status == 0;
+        }
         if (SendResponse(op) && deleteOpFlag) {
             delete op;
+        }
+        if (helloOpFlag && ! mDown && mHelloDone && ! mHeartbeatSent) {
+            mLastHeartbeatSent = mLastHeard;
+            mHeartbeatSent     = true;
+            Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
+                    IsRetiring() ? int64_t(1) :
+                        (int64_t)mChunksToEvacuate.Size()),
+                2 * sHeartbeatTimeout
+            );
         }
         break;
     }
@@ -1231,9 +1244,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             }
         }
         if (mHelloOp->status == 0 &&
-                mHelloOp->contentLength > 0 &&
-                iobuf->BytesConsumable() <
-                    mHelloOp->contentLength &&
+                0 < mHelloOp->contentLength &&
+                iobuf->BytesConsumable() < mHelloOp->contentLength &&
                 GetHelloBytes(mHelloOp) < 0) {
             KFS_LOG_STREAM_INFO << GetPeerName() <<
                 " hello content length: " <<
@@ -1420,12 +1432,6 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     UpdateChunkWritesPerDrive((int)(mHelloOp->notStableAppendChunks.size() +
         mHelloOp->notStableChunks.size()), mNumWritableDrives);
-    mLastHeartbeatSent = mLastHeard;
-    mHeartbeatSent     = true;
-    Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
-            IsRetiring() ? int64_t(1) :
-                (int64_t)mChunksToEvacuate.Size()),
-        2 * sHeartbeatTimeout);
     // Emit message to time parse.
     KFS_LOG_STREAM_INFO << GetPeerName() <<
         " submit hello" <<
@@ -1473,6 +1479,9 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
         return -1;
     }
     if (op->op == META_HELLO) {
+        KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+            " unexpected hello op: " << op->Show() <<
+        KFS_LOG_EOM;
         delete op;
         return -1;
     }
