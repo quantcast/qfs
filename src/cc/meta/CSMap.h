@@ -610,13 +610,13 @@ public:
         RemoveServerScanFirst();
         return true;
     }
-    bool SetHibernated(const ChunkServerPtr& server, size_t& idx) {
+    bool SetHibernated(const ChunkServerPtr& server, CSMapServerInfo& info) {
         if (! server || ! Validate(server) ||
                 ! SetHibernated(server->GetIndex())) {
             return false;
         }
         mServers[server->GetIndex()].reset();
-        idx = server->GetIndex();
+        info = *server;
         server->SetIndex(-1, mDebugValidateFlag);
         Validate();
         return true;
@@ -636,17 +636,20 @@ public:
         RemoveServerScanFirst();
         return true;
     }
-    bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
-        if (! server || /* idx < 0 ||*/ idx >= Entry::kMaxServers) {
+    bool ReplaceHibernatedServer(const ChunkServerPtr& server,
+            CSMapServerInfo& info) {
+        if (! server || info.GetIndex() < 0 ||
+                info.GetIndex() >= Entry::kMaxServers) {
             return false;
         }
         Validate();
+        const size_t idx = info.GetIndex();
         if (! ClearHibernated(idx)) {
             return false;
         }
         assert(! mServers[idx] && 0 < mServerCount);
         mServers[idx] = server;
-        server->SetIndex(idx, mDebugValidateFlag);
+        server->SetIndex(info, mDebugValidateFlag);
         return true;
     }
     bool ReplaceServerWith(const ChunkServerPtr& server,

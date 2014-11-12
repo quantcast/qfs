@@ -87,11 +87,10 @@ public:
     CSMapServerInfo()
         : mIndex(-1),
           mChunkCount(0),
-          mSet(0)
+          mSet()
         {}
-    ~CSMapServerInfo() {
-        delete mSet;
-    }
+    ~CSMapServerInfo()
+        {}
     int GetIndex() const { return mIndex; }
     size_t GetChunkCount() const { return mChunkCount; }
 private:
@@ -119,28 +118,21 @@ private:
         mIndex = idx;
         if (debugTrackChunkIdFlag) {
              if (! mSet) {
-                mSet = new Set();
+                assert(mChunkCount == 0);
+                mSet.reset(new Set());
             }
         } else {
-            delete mSet;
-            mSet = 0;
+            mSet.reset();
         }
     }
     void SetIndex(CSMapServerInfo& other, bool debugTrackChunkIdFlag) {
-        delete mSet;
-        mIndex      = other.mIndex;
-        mChunkCount = other.mChunkCount;
-        mSet        = other.mSet;
-        other.mIndex      = -1;
-        other.mChunkCount = 0;
-        other.mSet        = 0;
+        *this = other;
         if (debugTrackChunkIdFlag) {
-             if (! mSet) {
-                mSet = new Set();
+             if (! mSet && mChunkCount == 0) {
+                mSet.reset(new Set());
             }
         } else {
-            delete mSet;
-            mSet = 0;
+            mSet.reset();
         }
     }
 
@@ -157,7 +149,8 @@ private:
         >,
         StdFastAllocator<KeyVal>
     > Set;
-    Set* mSet;
+    typedef boost::shared_ptr<Set> SetPtr;
+    SetPtr mSet;
 
     void AddHosted(chunkId_t chunkId, int index) {
         bool newEntryFlag = false;
@@ -183,9 +176,6 @@ private:
         return ((mSet && mSet->Find(chunkId)) ? &mIndex : 0);
     }
     friend class CSMap;
-private:
-    CSMapServerInfo(const CSMapServerInfo&);
-    CSMapServerInfo& operator=(const CSMapServerInfo&);
 };
 
 class ChunkServer :
