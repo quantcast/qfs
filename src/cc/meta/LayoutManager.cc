@@ -4156,13 +4156,12 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     if (isHibernating) {
         HibernatingServerInfo_t& hsi = *hs;
         const bool   wasHibernatedFlag = hsi.IsHibernated();
-        const size_t prevIdx           = hsi.GetIndex();
-        if (mChunkToServerMap.SetHibernated(server, hsi.csmapInfo)) {
+        const size_t prevIdx           = hsi.csmapIdx;
+        if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
             if (! wasHibernatedFlag) {
                 reason = "Hibernated";
             } else {
-                if (! mChunkToServerMap.RemoveHibernatedServer(
-                        prevIdx)) {
+                if (! mChunkToServerMap.RemoveHibernatedServer(prevIdx)) {
                     panic("failed to update hibernated server index");
                 }
                 KFS_LOG_STREAM_ERROR <<
@@ -4170,7 +4169,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
                     " failure " <<
                     " location: " << loc <<
                     " index: "    << prevIdx <<
-                    " -> "        << hsi.GetIndex() <<
+                    " -> "        << hsi.csmapIdx <<
                     " blocks: "   << blockCount <<
                 KFS_LOG_EOM;
                 reason = "Reconnect failed";
@@ -4213,8 +4212,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
                 mHibernatingServers.back();
             hsi.location     = loc;
             hsi.sleepEndTime = TimeNow() + replicationDelay;
-            if (! mChunkToServerMap.SetHibernated(
-                    server, hsi.csmapInfo)) {
+            if (! mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
                 panic("failed to initiate hibernation");
             }
             isHibernating = true;
@@ -8607,8 +8605,7 @@ LayoutManager::CheckHibernatingServersStatus()
                 " is NOT back as promised" <<
             KFS_LOG_EOM;
         }
-        if (! mChunkToServerMap.RemoveHibernatedServer(
-                iter->GetIndex())) {
+        if (! mChunkToServerMap.RemoveHibernatedServer(iter->csmapIdx)) {
             panic("failed to remove hibernated server");
         }
         iter = mHibernatingServers.erase(iter);
@@ -10308,21 +10305,20 @@ LayoutManager::CSMapUnitTest(const Properties& props)
         }
     }
     cid = 1000000;
-    vector<CSMapServerInfo> idxs;
+    vector<size_t> idxs;
     for (int i = 30; i < kServers && i < 60; i++) {
         if (i == 10) {
             continue;
         }
-        CSMapServerInfo info;
-        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], info)) {
+        size_t idx = 0;
+        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], idx)) {
             panic("failed to hibernate server");
-            return;
         }
-        idxs.push_back(info);
+        idxs.push_back(idx);
         if (mChunkToServerMap.RemoveServerCleanup(1)) {
             KFS_LOG_STREAM_DEBUG <<
                 "hibernate more cleanup: " << i <<
-                " server: " << info.GetIndex() <<
+                " server: " << idx <<
             KFS_LOG_EOM;
         }
         bool newEntryFlag = false;
@@ -10355,7 +10351,7 @@ LayoutManager::CSMapUnitTest(const Properties& props)
         panic("invalid hibernated servers count");
     }
     for (size_t i = 0; i < idxs.size(); i++) {
-        if (! mChunkToServerMap.RemoveHibernatedServer(idxs[i].GetIndex())) {
+        if (! mChunkToServerMap.RemoveHibernatedServer(idxs[i])) {
             panic("failed to remove hibernated server");
         }
     }

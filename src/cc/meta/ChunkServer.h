@@ -87,12 +87,23 @@ public:
     CSMapServerInfo()
         : mIndex(-1),
           mChunkCount(0),
-          mSet()
+          mSet(0)
         {}
-    ~CSMapServerInfo()
-        {}
+    ~CSMapServerInfo() {
+        delete mSet;
+    }
     int GetIndex() const { return mIndex; }
     size_t GetChunkCount() const { return mChunkCount; }
+protected:
+    void RemoveHosted(chunkId_t chunkId, int index) {
+        if (mIndex < 0 || index != mIndex) {
+            panic("invalid index", false);
+        }
+        if (mSet && mSet->Erase(chunkId) <= 0) {
+            panic("no such chunk", false);
+        }
+        RemoveHosted();
+    }
 private:
     int    mIndex;
     size_t mChunkCount;
@@ -118,25 +129,30 @@ private:
         mIndex = idx;
         if (debugTrackChunkIdFlag) {
              if (! mSet) {
-                assert(mChunkCount == 0);
-                mSet.reset(new Set());
+                mSet = new Set();
             }
         } else {
-            mSet.reset();
+            delete mSet;
+            mSet = 0;
         }
     }
     void SetIndex(CSMapServerInfo& other, bool debugTrackChunkIdFlag) {
-        *this = other;
+        delete mSet;
+        mIndex      = other.mIndex;
+        mChunkCount = other.mChunkCount;
+        mSet        = other.mSet;
+        other.mIndex      = -1;
+        other.mChunkCount = 0;
+        other.mSet        = 0;
         if (debugTrackChunkIdFlag) {
-             if (! mSet && mChunkCount == 0) {
-                mSet.reset(new Set());
+             if (! mSet) {
+                mSet = new Set();
             }
         } else {
-            mSet.reset();
+            delete mSet;
+            mSet = 0;
         }
     }
-
-private:
     // The set here is for CSMap debugging only, see
     // CSMap::SetDebugValidate()
     typedef KeyOnly<chunkId_t> KeyVal;
@@ -149,8 +165,7 @@ private:
         >,
         StdFastAllocator<KeyVal>
     > Set;
-    typedef boost::shared_ptr<Set> SetPtr;
-    SetPtr mSet;
+    Set* mSet;
 
     void AddHosted(chunkId_t chunkId, int index) {
         bool newEntryFlag = false;
@@ -163,19 +178,13 @@ private:
         }
         AddHosted();
     }
-    void RemoveHosted(chunkId_t chunkId, int index) {
-        if (mIndex < 0 || index != mIndex) {
-            panic("invalid index", false);
-        }
-        if (mSet && mSet->Erase(chunkId) <= 0) {
-            panic("no such chunk", false);
-        }
-        RemoveHosted();
-    }
     const int* HostedIdx(chunkId_t chunkId) const {
         return ((mSet && mSet->Find(chunkId)) ? &mIndex : 0);
     }
     friend class CSMap;
+private:
+    CSMapServerInfo(const CSMapServerInfo&);
+    CSMapServerInfo& operator=(const CSMapServerInfo&);
 };
 
 class ChunkServer :
@@ -804,6 +813,9 @@ public:
         { return mAuthUid; }
     const string& GetMd5Sum() const
         { return mMd5Sum; }
+    typedef ChunkIdQueue InFlightChunks;
+    void GetInFlightChunks(InFlightChunks& chunks);
+
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -1009,6 +1021,7 @@ protected:
     time_t             mRecoveryMetaAccessEndTime;
     MetaRequest*       mPendingResponseOpsHeadPtr;
     MetaRequest*       mPendingResponseOpsTailPtr;
+    InFlightChunks     mLastChunksInFlight;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1139,6 +1152,34 @@ protected:
         const char* statusMsg);
     void ReleasePendingResponses(bool sendResponseFlag = false);
 };
+
+class HibernatedChunkServer : public CSMapServerInfo
+{
+public:
+    typedef ChunkIdQueue                DeletedChunks;
+    typedef ChunkServer::InFlightChunks InFlightChunks;
+
+    HibernatedChunkServer(
+        ChunkServer& server)
+        : CSMapServerInfo(),
+          mDeletedChunks(),
+          mInFlightChunks()
+        { server.GetInFlightChunks(mInFlightChunks); }
+    const DeletedChunks& GetDeletedChunks() const
+        { return mDeletedChunks; }
+    const DeletedChunks& GetInFlightChunks() const
+        { return mInFlightChunks; }
+private:
+    void RemoveHosted(chunkId_t chunkId, int index) {
+        mDeletedChunks.PushBack(chunkId);
+        CSMapServerInfo::RemoveHosted(chunkId, index);
+    }
+private:
+    DeletedChunks  mDeletedChunks;
+    InFlightChunks mInFlightChunks;
+friend class CSMap;
+};
+typedef boost::shared_ptr<HibernatedChunkServer> HibernatedChunkServerPtr;
 
 } // namespace KFS
 

@@ -409,6 +409,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mRecoveryMetaAccessEndTime(),
       mPendingResponseOpsHeadPtr(0),
       mPendingResponseOpsTailPtr(0),
+      mLastChunksInFlight(),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -2215,10 +2216,16 @@ ChunkServer::FailDispatchedOps()
     ReqsTimeoutQueue reqTimeouts;
     mReqsTimeoutQueue.swap(reqTimeouts);
     mDispatchedReqs.swap(reqs);
+    mLastChunksInFlight.Clear();
     // Get all ops out of the in flight global queue first.
+    // Remember all chunk ids that were in flight, for now do not filter
+    // possible duplicate chunk id. Duplicate chunk ids should occur in
+    // extremely rare cases if ever, as meta server logic typically issues
+    // no more than one chunk op per chunk id / chunk server pair.
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
+        mLastChunksInFlight.PushBack(it->second.second->first);
         sChunkOpsInFlight.erase(it->second.second);
     }
     // Fail in the same order as these were queued.
@@ -2618,6 +2625,21 @@ ChunkServer::Verify(
         }
     }
     return true;
+}
+
+void
+ChunkServer::GetInFlightChunks(ChunkServer::InFlightChunks& chunks)
+{
+    if (chunks.IsEmpty()) {
+        chunks.Swap(mLastChunksInFlight);
+    } else {
+        InFlightChunks::ConstIterator it(mLastChunksInFlight);
+        const chunkId_t* p;
+        while ((p = it.Next())) {
+            chunks.PushBack(*p);
+        }
+        mLastChunksInFlight.Clear();
+    }
 }
 
 } // namespace KFS

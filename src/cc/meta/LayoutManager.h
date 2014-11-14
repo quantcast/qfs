@@ -714,16 +714,15 @@ struct HibernatingServerInfo_t
     HibernatingServerInfo_t()
         : location(),
           sleepEndTime(),
-          csmapInfo()
+          csmapIdx(~size_t(0))
           {}
-    bool IsHibernated() const { return (0 <= csmapInfo.GetIndex()); }
-    int  GetIndex()     const { return csmapInfo.GetIndex(); };
+    bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
     // the server we put in hibernation
     ServerLocation location;
     // when is it likely to wake up
     time_t sleepEndTime;
-    // CSMap server info.
-    CSMapServerInfo csmapInfo;
+    // CSMap server index to remove hibernated server.
+    size_t csmapIdx;
 };
 typedef vector<
     HibernatingServerInfo_t,

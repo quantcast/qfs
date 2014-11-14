@@ -101,7 +101,7 @@ public:
         MetaFattr* GetFattr() const { return fattr; }
         void SetFattr(MetaFattr* fa) {
             if (! fa) {
-                panic("SetFattr: null argument", false);
+                InternalError("SetFattr: null argument");
                 return;
             }
             fattr = fa;
@@ -538,7 +538,8 @@ public:
           mRemoveServerScanPtr(0),
           mCachedEntry(0),
           mCachedChunkId(-1),
-          mDebugValidateFlag(false)
+          mDebugValidateFlag(false),
+          mHibernatedServers()
     {
         for (int i = 0; i < Entry::kStateCount; i++) {
             mCounts[i]  = 0;
@@ -549,7 +550,6 @@ public:
             EList::Insert(mLists[i+1], mLists[i]);
         }
         mMap.SetDeleteObserver(this);
-        memset(mHibernatedIndexes, 0, sizeof(mHibernatedIndexes));
     }
     ~CSMap()
     {
@@ -574,17 +574,22 @@ public:
         if (! server || Validate(server)) {
             return false;
         }
-        if (mServerCount + mPendingRemove.size() >=
-                Entry::kMaxServers) {
+        if (Entry::kMaxServers <= mServerCount + mPendingRemove.size()) {
+            return false;
+        }
+        if (mHibernatedServers.size() != mServers.size()) {
+            InternalError("invalid hibernated servers slot count");
             return false;
         }
         if (mNullSlots.empty()) {
             server->SetIndex(mServers.size(), mDebugValidateFlag);
             mServers.push_back(server);
+            mHibernatedServers.push_back(HibernatedChunkServerPtr());
         } else {
             Entry::AllocIdx const idx = mNullSlots.back();
             mNullSlots.pop_back();
-            if (idx >= mServers.size() || mServers[idx]) {
+            if (mServers.size() <= idx || mServers[idx] ||
+                    mHibernatedServers[idx]) {
                 InternalError("invalid null slots");
                 return false;
             }
@@ -610,14 +615,27 @@ public:
         RemoveServerScanFirst();
         return true;
     }
-    bool SetHibernated(const ChunkServerPtr& server, CSMapServerInfo& info) {
-        if (! server || ! Validate(server) ||
-                ! SetHibernated(server->GetIndex())) {
+    bool SetHibernated(const ChunkServerPtr& server, size_t& idx) {
+        if (! server || ! Validate(server)) {
             return false;
         }
-        mServers[server->GetIndex()].reset();
-        info = *server;
-        server->SetIndex(-1, mDebugValidateFlag);
+        idx = server->GetIndex();
+        if (IsHibernated(idx)) {
+            InternalError("invalid hibernated server index");
+            return false;
+        }
+        mHibernatedCount++;
+        assert(0 < mHibernatedCount);
+        if (mHibernatedServers.size() != mServers.size()) {
+            InternalError("invalid hibernated servers slot count");
+            return false;
+        }
+        ChunkServerPtr& srv = mServers[idx];
+        HibernatedChunkServer* const hsrv = new HibernatedChunkServer(*server);
+        mHibernatedServers[idx].reset(hsrv);
+        hsrv->SetIndex(*srv, mDebugValidateFlag);
+        assert((size_t)hsrv->GetIndex() == idx);
+        srv.reset();
         Validate();
         return true;
     }
@@ -629,37 +647,41 @@ public:
         if (! ClearHibernated(idx)) {
             return false;
         }
-        assert(! mServers[idx] && mServerCount > 0);
+        assert(! mServers[idx] && 0 < mServerCount);
         mPendingRemove.push_back(idx);
         mServerCount--;
         // Start or restart full scan.
         RemoveServerScanFirst();
         return true;
     }
-    bool ReplaceHibernatedServer(const ChunkServerPtr& server,
-            CSMapServerInfo& info) {
-        if (! server || info.GetIndex() < 0 ||
-                info.GetIndex() >= Entry::kMaxServers) {
+    const HibernatedChunkServer* GetHiberantedServer(size_t idx) const {
+        if (! IsHibernated(idx)) {
+            return 0;
+        }
+        return &*(mHibernatedServers[idx]);
+    }
+    bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
+        if (! server || Validate(server)) {
             return false;
         }
         Validate();
-        const size_t idx = info.GetIndex();
-        if (! ClearHibernated(idx)) {
+        HibernatedChunkServerPtr srv;
+        if (! ClearHibernated(idx, &srv)) {
             return false;
         }
-        assert(! mServers[idx] && 0 < mServerCount);
+        assert(srv && ! mServers[idx] && 0 < mServerCount);
         mServers[idx] = server;
-        server->SetIndex(info, mDebugValidateFlag);
+        server->SetIndex(*srv, mDebugValidateFlag);
         return true;
     }
     bool ReplaceServerWith(const ChunkServerPtr& server,
-            const ChunkServerPtr& serverToReplaceWith) {
-        if (Validate(server) || ! serverToReplaceWith ||
-                0 <= serverToReplaceWith->GetIndex()) {
+            const ChunkServerPtr& replacement) {
+        if (Validate(server) || ! replacement || Validate(replacement)) {
             return false;
         }
-        mServers[server->GetIndex()] = serverToReplaceWith;
-        serverToReplaceWith->SetIndex(*server, mDebugValidateFlag);
+        replacement->SetIndex(*server, mDebugValidateFlag);
+        assert(replacement->GetIndex() == server->GetIndex());
+        mServers[replacement->GetIndex()] = replacement;
         return true;
     }
     size_t GetServerCount() const {
@@ -735,7 +757,7 @@ public:
                 count++;
             } else {
                 if (mHibernatedCount <= 0) {
-                    panic("invalid server index", false);
+                    InternalError("invalid server index");
                 }
                 hibernatedCount++;
             }
@@ -1106,25 +1128,25 @@ private:
         kHibernatedBitShift = 3,
         kHibernatedBitMask  = (1 << kHibernatedBitShift) - 1
     };
+    typedef vector<HibernatedChunkServerPtr> HibernatedServers;
+    
 
-    Map            mMap;
-    Servers        mServers;
-    SlotIndexes    mPendingRemove;
-    SlotIndexes    mNullSlots;
-    size_t         mServerCount;
-    size_t         mHibernatedCount;
-    Entry*         mRemoveServerScanPtr;
-    Entry*         mCachedEntry;
-    chunkId_t      mCachedChunkId;
-    bool           mDebugValidateFlag;
-    Entry*         mPrevPtr[Entry::kStateCount];
-    Entry*         mNextPtr[Entry::kStateCount];
-    size_t         mCounts[Entry::kStateCount];
-    Entry          mLists[Entry::kStateCount + 1];
-    Entry          mNextEnd[Entry::kStateCount];
-    HibernatedBits mHibernatedIndexes[
-        (Entry::kMaxServers + kHibernatedBitMask) /
-        (1 << kHibernatedBitShift)];
+    Map               mMap;
+    Servers           mServers;
+    SlotIndexes       mPendingRemove;
+    SlotIndexes       mNullSlots;
+    size_t            mServerCount;
+    size_t            mHibernatedCount;
+    Entry*            mRemoveServerScanPtr;
+    Entry*            mCachedEntry;
+    chunkId_t         mCachedChunkId;
+    bool              mDebugValidateFlag;
+    HibernatedServers mHibernatedServers;
+    Entry*            mPrevPtr[Entry::kStateCount];
+    Entry*            mNextPtr[Entry::kStateCount];
+    size_t            mCounts[Entry::kStateCount];
+    Entry             mLists[Entry::kStateCount + 1];
+    Entry             mNextEnd[Entry::kStateCount];
 
     void Erasing(Entry& entry) {
         if (EList::IsInList(entry)) {
@@ -1221,11 +1243,17 @@ private:
             const ChunkServerPtr& srv = mServers[idx];
             if (srv) {
                 if (mDebugValidateFlag) {
-                    srv->RemoveHosted(
-                        entry.GetChunkId(), idx);
+                    srv->RemoveHosted(entry.GetChunkId(), idx);
                 } else {
                     srv->RemoveHosted();
                 }
+            } else {
+                const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
+                if (! srv) {
+                    InternalError("invalid server index");
+                    continue;
+                }
+                srv->RemoveHosted(entry.GetChunkId(), idx);
             }
         }
     }
@@ -1325,8 +1353,7 @@ private:
     }
     void RemoveServerScanNext() {
         for (; ;) {
-            if (&mLists[Entry::kStateNone] ==
-                    mRemoveServerScanPtr) {
+            if (&mLists[Entry::kStateNone] == mRemoveServerScanPtr) {
                 mRemoveServerScanPtr = 0;
                 Validate();
                 if (mNullSlots.empty()) {
@@ -1340,8 +1367,7 @@ private:
                 }
                 return;
             }
-            mRemoveServerScanPtr = &EList::GetPrev(
-                *mRemoveServerScanPtr);
+            mRemoveServerScanPtr = &EList::GetPrev(*mRemoveServerScanPtr);
             if (! IsHead(*mRemoveServerScanPtr) &&
                     ! IsNextEnd(*mRemoveServerScanPtr)) {
                 break;
@@ -1376,32 +1402,19 @@ private:
         EList::Insert(entry, EList::GetPrev(mLists[state + 1]));
     }
     bool IsHibernated(size_t idx) const {
-        return (mHibernatedIndexes[idx >> kHibernatedBitShift] &
-            (HibernatedBits(1) << (idx & kHibernatedBitMask))) != 0;
+        return (idx < mHibernatedServers.size() && mHibernatedServers[idx]);
     }
-    bool SetHibernated(size_t idx) {
-        HibernatedBits&      bits = mHibernatedIndexes[
-            idx >> kHibernatedBitShift];
-        const HibernatedBits bit  = HibernatedBits(1) <<
-            (idx & kHibernatedBitMask);
-        if ((bits & bit) != 0) {
+    bool ClearHibernated(size_t idx, HibernatedChunkServerPtr* srv = 0) {
+        if (! IsHibernated(idx)) {
             return false;
         }
-        bits |= bit;
-        mHibernatedCount++;
-        assert(mHibernatedCount > 0);
-        return true;
-    }
-    bool ClearHibernated(size_t idx) {
-        HibernatedBits&      bits = mHibernatedIndexes[
-            idx >> kHibernatedBitShift];
-        const HibernatedBits bit  = HibernatedBits(1) <<
-            (idx & kHibernatedBitMask);
-        if ((bits & bit) == 0) {
-            return false;
+        if (srv) {
+            mHibernatedServers[idx].swap(*srv);
         }
-        bits &= ~bit;
-        assert(mHibernatedCount > 0);
+        mHibernatedServers[idx].reset();
+        if (mHibernatedCount <= 0) {
+            InternalError("clear hibernated: invalid hibernated count");
+        }
         mHibernatedCount--;
         return true;
     }
