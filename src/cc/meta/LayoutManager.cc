@@ -8593,6 +8593,8 @@ LayoutManager::CheckHibernatingServersStatus()
                         " hibernation" <<
                     KFS_LOG_EOM;
                     iter = mHibernatingServers.erase(iter);
+                } else {
+                    ++iter;
                 }
                 continue;
             }
