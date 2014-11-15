@@ -4151,7 +4151,8 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     KFS_LOG_EOM;
 
     // check if this server was sent to hibernation
-    HibernatingServerInfo_t* const hs = FindHibernatingServer(loc);
+    HibernatedServerInfos::iterator it;
+    HibernatingServerInfo_t* const hs = FindHibernatingServer(loc, &it);
     bool isHibernating = hs != 0;
     if (isHibernating) {
         HibernatingServerInfo_t& hsi = *hs;
@@ -4199,22 +4200,19 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
             mDownServers.size() - mMaxDownServersHistorySize);
     }
 
-    if (! isHibernating && server->GetChunkCount() > 0) {
+    if (! isHibernating && 0 < server->GetChunkCount()) {
         const int kMinReplicationDelay = 15;
         const int replicationDelay     = mServerDownReplicationDelay -
             server->TimeSinceLastHeartbeat();
         if (replicationDelay > kMinReplicationDelay) {
             // Delay replication by marking server as hibernated,
             // to allow the server to reconnect back.
-            mHibernatingServers.push_back(
-                HibernatingServerInfo_t());
-            HibernatingServerInfo_t& hsi =
-                mHibernatingServers.back();
-            hsi.location     = loc;
-            hsi.sleepEndTime = TimeNow() + replicationDelay;
-            if (! mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
+            size_t idx = ~size_t(0);
+            if (! mChunkToServerMap.SetHibernated(server, idx)) {
                 panic("failed to initiate hibernation");
             }
+            mHibernatingServers.insert(it, HibernatingServerInfo_t(
+                loc, TimeNow() + replicationDelay, idx));
             isHibernating = true;
         }
     }
@@ -4254,13 +4252,18 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
 }
 
 HibernatingServerInfo_t*
-LayoutManager::FindHibernatingServer(const ServerLocation& loc)
+LayoutManager::FindHibernatingServer(const ServerLocation& loc,
+    HibernatedServerInfos::iterator* outIt)
 {
-    HibernatedServerInfos::iterator const it = find_if(
+    HibernatedServerInfos::iterator const it = lower_bound(
         mHibernatingServers.begin(), mHibernatingServers.end(),
-        bind(&HibernatingServerInfo_t::location, _1) == loc
+        loc, bind(&HibernatingServerInfo_t::location, _1) < loc
     );
-    return (it != mHibernatingServers.end() ? &(*it) : 0);
+    if (outIt) {
+        *outIt = it;
+    }
+    return ((it != mHibernatingServers.end() && loc == it->location) ?
+        &(*it) : 0);
 }
 
 int
@@ -4298,15 +4301,14 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
     }
 
     server->SetRetiring();
-    if (downtime > 0) {
-        HibernatingServerInfo_t* const hs = FindHibernatingServer(loc);
+    if (0 < downtime) {
+        HibernatedServerInfos::iterator it;
+        HibernatingServerInfo_t* const hs = FindHibernatingServer(loc, &it);
         if (hs) {
             hs->sleepEndTime = TimeNow() + downtime;
         } else {
-            mHibernatingServers.push_back(HibernatingServerInfo_t());
-            HibernatingServerInfo_t& hsi = mHibernatingServers.back();
-            hsi.location     = loc;
-            hsi.sleepEndTime = TimeNow() + downtime;
+            mHibernatingServers.insert(it, HibernatingServerInfo_t(
+                loc, TimeNow() + downtime));
         }
         KFS_LOG_STREAM_INFO << "hibernating server: " << loc <<
             " down time: " << downtime <<
@@ -8569,15 +8571,14 @@ LayoutManager::CheckHibernatingServersStatus()
 {
     const time_t now = TimeNow();
 
-    for (HibernatedServerInfos::iterator
-            iter = mHibernatingServers.begin();
+    for (HibernatedServerInfos::iterator iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
             ) {
         Servers::const_iterator const i = FindServer(iter->location);
         if (i == mChunkServers.end() && now < iter->sleepEndTime) {
             // within the time window where the server is sleeping
             // so, move on
-            iter++;
+            ++iter;
             continue;
         }
         if (i != mChunkServers.end()) {
@@ -8590,6 +8591,8 @@ LayoutManager::CheckHibernatingServersStatus()
                         " hibernation" <<
                     KFS_LOG_EOM;
                     iter = mHibernatingServers.erase(iter);
+                } else {
+                    ++iter;
                 }
                 continue;
             }

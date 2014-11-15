@@ -410,6 +410,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mPendingResponseOpsHeadPtr(0),
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
+      mLastChunksInFlightDelete(),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -2225,7 +2226,30 @@ ChunkServer::FailDispatchedOps()
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
-        mLastChunksInFlight.PushBack(it->second.second->first);
+        const MetaChunkRequest& op = *(it->second.first->second);
+        if (op.op == META_CHUNK_STALENOTIFY) {
+            const MetaChunkStaleNotify& sop =
+                static_cast<const MetaChunkStaleNotify&>(op);
+            ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
+            const chunkId_t*            id;
+            while ((id = it.Next())) {
+                if (sop.hasAvailChunksSeqFlag) {
+                    mLastChunksInFlightDelete.Erase(*id);
+                    mLastChunksInFlight.Insert(*id);
+                } else {
+                    mLastChunksInFlight.Erase(*id);
+                    mLastChunksInFlightDelete.Insert(*id);
+                }
+            }
+        } else if (0 <= op.chunkId) {
+            if (op.op == META_CHUNK_DELETE) {
+                mLastChunksInFlight.Erase(op.chunkId);
+                mLastChunksInFlightDelete.Insert(op.chunkId);
+            } else {
+                mLastChunksInFlightDelete.Erase(op.chunkId);
+                mLastChunksInFlight.Insert(op.chunkId);
+            }
+        }
         sChunkOpsInFlight.erase(it->second.second);
     }
     // Fail in the same order as these were queued.
@@ -2628,18 +2652,25 @@ ChunkServer::Verify(
 }
 
 void
-ChunkServer::GetInFlightChunks(ChunkServer::InFlightChunks& chunks)
+ChunkServer::GetInFlightChunks(ChunkServer::InFlightChunks& chunks,
+    ChunkIdQueue& chunksDelete)
 {
     if (chunks.IsEmpty()) {
         chunks.Swap(mLastChunksInFlight);
     } else {
-        InFlightChunks::ConstIterator it(mLastChunksInFlight);
-        const chunkId_t* p;
-        while ((p = it.Next())) {
-            chunks.PushBack(*p);
+        const chunkId_t* id;
+        mLastChunksInFlight.First();
+        while ((id = mLastChunksInFlight.Next())) {
+            chunks.Insert(*id);
         }
         mLastChunksInFlight.Clear();
     }
+    const chunkId_t* id;
+    mLastChunksInFlightDelete.First();
+    while ((id = mLastChunksInFlightDelete.Next())) {
+        chunksDelete.PushBack(*id);
+    }
+    mLastChunksInFlightDelete.Clear();
 }
 
 } // namespace KFS

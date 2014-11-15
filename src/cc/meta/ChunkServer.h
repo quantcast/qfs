@@ -87,6 +87,7 @@ public:
     CSMapServerInfo()
         : mIndex(-1),
           mChunkCount(0),
+          mCIdChecksum(kCIdNullChecksum),
           mSet(0)
         {}
     ~CSMapServerInfo() {
@@ -94,6 +95,7 @@ public:
     }
     int GetIndex() const { return mIndex; }
     size_t GetChunkCount() const { return mChunkCount; }
+    CIdChecksum_t GetChecksum() const { return mCIdChecksum; }
 protected:
     void RemoveHosted(chunkId_t chunkId, int index) {
         if (mIndex < 0 || index != mIndex) {
@@ -102,25 +104,29 @@ protected:
         if (mSet && mSet->Erase(chunkId) <= 0) {
             panic("no such chunk", false);
         }
-        RemoveHosted();
+        RemoveHosted(chunkId);
     }
 private:
-    int    mIndex;
-    size_t mChunkCount;
+    int           mIndex;
+    size_t        mChunkCount;
+    CIdChecksum_t mCIdChecksum;
 
-    void AddHosted() {
+    void AddHosted(chunkId_t chunkId) {
         mChunkCount++;
         assert(mChunkCount > 0);
+        mCIdChecksum = CIdsChecksumAdd(chunkId, mCIdChecksum);
     }
-    void RemoveHosted() {
+    void RemoveHosted(chunkId_t chunkId) {
         if (mChunkCount <= 0) {
             panic("no hosted chunks", false);
             return;
         }
         mChunkCount--;
+        mCIdChecksum = CIdsChecksumRemove(chunkId, mCIdChecksum);
     }
     void ClearHosted() {
-        mChunkCount = 0;
+        mChunkCount  = 0;
+        mCIdChecksum = kCIdNullChecksum;
         if (mSet) {
             mSet->Clear();
         }
@@ -138,14 +144,16 @@ private:
     }
     void SetIndex(CSMapServerInfo& other, bool debugTrackChunkIdFlag) {
         delete mSet;
-        mIndex      = other.mIndex;
-        mChunkCount = other.mChunkCount;
-        mSet        = other.mSet;
-        other.mIndex      = -1;
-        other.mChunkCount = 0;
-        other.mSet        = 0;
+        mIndex       = other.mIndex;
+        mChunkCount  = other.mChunkCount;
+        mSet         = other.mSet;
+        mCIdChecksum = other.mCIdChecksum;
+        other.mIndex       = -1;
+        other.mChunkCount  = 0;
+        other.mSet         = 0;
+        other.mCIdChecksum = kCIdNullChecksum;
         if (debugTrackChunkIdFlag) {
-             if (! mSet) {
+             if (! mSet && mChunkCount == 0) {
                 mSet = new Set();
             }
         } else {
@@ -176,7 +184,7 @@ private:
                 ! newEntryFlag)) {
             panic("duplicate chunk id", false);
         }
-        AddHosted();
+        AddHosted(chunkId);
     }
     const int* HostedIdx(chunkId_t chunkId) const {
         return ((mSet && mSet->Find(chunkId)) ? &mIndex : 0);
@@ -813,8 +821,9 @@ public:
         { return mAuthUid; }
     const string& GetMd5Sum() const
         { return mMd5Sum; }
-    typedef ChunkIdQueue InFlightChunks;
-    void GetInFlightChunks(InFlightChunks& chunks);
+
+    typedef ChunkIdSet InFlightChunks;
+    void GetInFlightChunks(InFlightChunks& chunks, ChunkIdQueue& chunksDelete);
 
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1022,6 +1031,7 @@ protected:
     MetaRequest*       mPendingResponseOpsHeadPtr;
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
+    InFlightChunks     mLastChunksInFlightDelete;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1164,13 +1174,14 @@ public:
         : CSMapServerInfo(),
           mDeletedChunks(),
           mInFlightChunks()
-        { server.GetInFlightChunks(mInFlightChunks); }
+        { server.GetInFlightChunks(mInFlightChunks, mDeletedChunks); }
     const DeletedChunks& GetDeletedChunks() const
         { return mDeletedChunks; }
-    const DeletedChunks& GetInFlightChunks() const
+    const InFlightChunks& GetInFlightChunks() const
         { return mInFlightChunks; }
 private:
     void RemoveHosted(chunkId_t chunkId, int index) {
+        mInFlightChunks.Erase(chunkId);
         mDeletedChunks.PushBack(chunkId);
         CSMapServerInfo::RemoveHosted(chunkId, index);
     }

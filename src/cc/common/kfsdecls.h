@@ -198,6 +198,16 @@ public:
 
 typedef PermissionsT<UserAndGroupNone> Permissions;
 
+// Chunks id checksum.
+typedef uint64_t CIdChecksum_t;
+const CIdChecksum_t kCIdNullChecksum = 1;
+static inline CIdChecksum_t
+CIdsChecksumAdd(chunkId_t chunkId, CIdChecksum_t checksum)
+    { return (checksum + (CIdChecksum_t)chunkId); }
+static inline CIdChecksum_t
+CIdsChecksumRemove(chunkId_t chunkId, CIdChecksum_t checksum)
+    { return (checksum - (CIdChecksum_t)chunkId); }
+
 }
 
 #endif // COMMON_KFSDECLS_H

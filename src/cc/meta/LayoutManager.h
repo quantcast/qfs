@@ -711,18 +711,21 @@ typedef map<
 //
 struct HibernatingServerInfo_t
 {
-    HibernatingServerInfo_t()
-        : location(),
-          sleepEndTime(),
-          csmapIdx(~size_t(0))
+    HibernatingServerInfo_t(
+            const ServerLocation& loc     = ServerLocation(),
+            time_t                endTime = time_t(),
+            size_t                idx     = ~size_t(0))
+        : location(loc),
+          sleepEndTime(size_t(0)),
+          csmapIdx(idx)
           {}
     bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
     // the server we put in hibernation
     ServerLocation location;
     // when is it likely to wake up
-    time_t sleepEndTime;
+    time_t         sleepEndTime;
     // CSMap server index to remove hibernated server.
-    size_t csmapIdx;
+    size_t         csmapIdx;
 };
 typedef vector<
     HibernatingServerInfo_t,
@@ -2216,7 +2219,8 @@ protected:
         vector<MetaChunkInfo*>& cblk,
         int*                    outGoodCnt = 0) const;
     HibernatingServerInfo_t* FindHibernatingServer(
-        const ServerLocation& loc);
+        const ServerLocation&            loc,
+        HibernatedServerInfos::iterator* outIt = 0);
     void CSMapUnitTest(const Properties& props);
     int64_t GetMaxCSUptime() const;
     bool ReadRebalancePlan(size_t nread);

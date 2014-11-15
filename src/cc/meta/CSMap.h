@@ -1121,13 +1121,7 @@ public:
         return mMap.GetAllocator().GetAllocator();
     }
 private:
-    typedef vector<Entry::AllocIdx> SlotIndexes;
-    typedef uint8_t                 HibernatedBits;
-    enum
-    {
-        kHibernatedBitShift = 3,
-        kHibernatedBitMask  = (1 << kHibernatedBitShift) - 1
-    };
+    typedef vector<Entry::AllocIdx>          SlotIndexes;
     typedef vector<HibernatedChunkServerPtr> HibernatedServers;
     
 
@@ -1213,8 +1207,7 @@ private:
             const size_t          idx = entry.IndexAt(i);
             const ChunkServerPtr& srv = mServers[idx];
             if (srv) {
-                const int* const cur = srv->HostedIdx(
-                    entry.GetChunkId());
+                const int* const cur = srv->HostedIdx(entry.GetChunkId());
                 if (! cur || *cur != (int)idx) {
                     InternalError("hosted mismatch");
                     return false;
@@ -1245,7 +1238,7 @@ private:
                 if (mDebugValidateFlag) {
                     srv->RemoveHosted(entry.GetChunkId(), idx);
                 } else {
-                    srv->RemoveHosted();
+                    srv->RemoveHosted(entry.GetChunkId());
                 }
             } else {
                 const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
@@ -1259,19 +1252,17 @@ private:
     }
     void AddHosted(const ChunkServerPtr& server, const Entry& entry) const {
         if (mDebugValidateFlag) {
-            server->AddHosted(
-                entry.GetChunkId(), server->GetIndex());
+            server->AddHosted(entry.GetChunkId(), server->GetIndex());
         } else {
-            server->AddHosted();
+            server->AddHosted(entry.GetChunkId());
         }
     }
     void RemoveHosted(const ChunkServerPtr& server,
             const Entry& entry) const {
         if (mDebugValidateFlag) {
-            server->RemoveHosted(
-                entry.GetChunkId(), server->GetIndex());
+            server->RemoveHosted(entry.GetChunkId(), server->GetIndex());
         } else {
-            server->RemoveHosted();
+            server->RemoveHosted(entry.GetChunkId());
         }
     }
     bool Validate() const {
