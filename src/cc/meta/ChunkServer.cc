@@ -26,6 +26,7 @@
 //----------------------------------------------------------------------------
 
 #include "ChunkServer.h"
+#include "CSMap.h"
 #include "LayoutManager.h"
 #include "NetDispatch.h"
 #include "kfstree.h"
@@ -472,11 +473,11 @@ ChunkServer::AddToPendingHelloList()
     if (PendingHelloList::IsInList(sChunkServersPtr, *this)) {
         return;
     }
-    if (! mHelloOp || mHelloOp->contentLength <= 0) {
+    if (! mHelloOp || mHelloOp->bufferBytes <= 0) {
         sMinHelloWaitingBytes = 0;
     } else if (sPendingHelloCount <= 0 ||
-            mHelloOp->contentLength < sMinHelloWaitingBytes) {
-        sMinHelloWaitingBytes = mHelloOp->contentLength;
+            mHelloOp->bufferBytes < sMinHelloWaitingBytes) {
+        sMinHelloWaitingBytes = mHelloOp->bufferBytes;
     }
     sPendingHelloCount++;
     assert(sPendingHelloCount > 0);
@@ -515,9 +516,9 @@ ChunkServer::RunHelloBufferQueue()
                 ptr->mNetConnection &&
                 ptr->mNetConnection->IsGood() &&
                 ptr->mHelloOp &&
-                bytesAvail < ptr->mHelloOp->contentLength) {
-            if (ptr->mHelloOp->contentLength < minHelloSize) {
-                minHelloSize = ptr->mHelloOp->contentLength;
+                bytesAvail < ptr->mHelloOp->bufferBytes) {
+            if (ptr->mHelloOp->bufferBytes < minHelloSize) {
+                minHelloSize = ptr->mHelloOp->bufferBytes;
             }
             --maxScan;
         }
@@ -552,7 +553,7 @@ ChunkServer::GetHelloBytes(MetaHello* req /* = 0 */)
     if (! req) {
         return avail;
     }
-    if (req->contentLength <= 0) {
+    if (req->bufferBytes <= 0) {
         return 0;
     }
     if (req->bytesReceived < 0) {
@@ -561,10 +562,10 @@ ChunkServer::GetHelloBytes(MetaHello* req /* = 0 */)
     if (avail <= 0) {
         return avail;
     }
-    if (avail >= req->contentLength) {
-        sHelloBytesCommitted += req->contentLength;
+    if (avail >= req->bufferBytes) {
+        sHelloBytesCommitted += req->bufferBytes;
     }
-    return (avail - req->contentLength);
+    return (avail - req->bufferBytes);
 }
 
 /* static */ void
@@ -573,11 +574,11 @@ ChunkServer::PutHelloBytes(MetaHello* req)
     if (! req || req->bytesReceived < 0) {
         return;
     }
-    if (sHelloBytesCommitted < req->contentLength) {
+    if (sHelloBytesCommitted < req->bufferBytes) {
         panic("invalid hello request byte counter");
         sHelloBytesCommitted = 0;
     } else {
-        sHelloBytesCommitted -= req->contentLength;
+        sHelloBytesCommitted -= req->bufferBytes;
     }
     if (sHelloBytesInFlight < req->bytesReceived) {
         panic("invalid hello received byte counter");
@@ -659,7 +660,7 @@ ChunkServer::HandleRequest(int code, void *data)
         const bool helloOpFlag  = op->op == META_HELLO;
         if (! mDown && helloOpFlag) {
             // Re-evaluate hello done status.
-            mHelloDone = op->status == 0;
+            mHelloDone = ! static_cast<const MetaHello*>(op)->helloNextFlag;
         }
         if (SendResponse(op) && deleteOpFlag) {
             delete op;
@@ -1187,6 +1188,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 mHelloOp->location.hostname.assign(mPeerName.data(), pos);
             }
         }
+        mHelloOp->bufferBytes = mHelloOp->contentLength;
         if (! gLayoutManager.Validate(*mHelloOp)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"
@@ -1212,9 +1214,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return -1;
         }
         if (mHelloOp->status == 0 &&
-                sMaxHelloBufferBytes < mHelloOp->contentLength) {
+                sMaxHelloBufferBytes < mHelloOp->bufferBytes) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " hello content length: " << mHelloOp->contentLength <<
+                " hello buffer bytes: "   << mHelloOp->bufferBytes <<
+                " content length: "       << mHelloOp->contentLength <<
                 " exceeds max. allowed: " << sMaxHelloBufferBytes <<
             KFS_LOG_EOM;
             mHelloOp = 0;
@@ -1246,12 +1249,12 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             }
         }
         if (mHelloOp->status == 0 &&
-                0 < mHelloOp->contentLength &&
-                iobuf->BytesConsumable() < mHelloOp->contentLength &&
+                0 < mHelloOp->bufferBytes &&
+                iobuf->BytesConsumable() < mHelloOp->bufferBytes &&
                 GetHelloBytes(mHelloOp) < 0) {
             KFS_LOG_STREAM_INFO << GetPeerName() <<
-                " hello content length: " <<
-                    mHelloOp->contentLength <<
+                " hello buffer bytes: " <<
+                    mHelloOp->bufferBytes <<
                 " adding to pending list"
                 " ops: "       << sPendingHelloCount <<
                 " bytes:"
@@ -1277,14 +1280,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 mHelloOp->contentLength -= nAvail;
                 iobuf->Clear(); // Discard content.
             } else if (nAvail > mHelloOp->bytesReceived) {
-                sHelloBytesInFlight +=
-                    nAvail - mHelloOp->bytesReceived;
+                sHelloBytesInFlight += nAvail - mHelloOp->bytesReceived;
                 mHelloOp->bytesReceived = nAvail;
             }
             mNetConnection->SetMaxReadAhead(max(kMaxReadAhead,
                 mHelloOp->status == 0 ?
                     mHelloOp->contentLength - nAvail :
-                kMaxRequestResponseHeader
+                    kMaxRequestResponseHeader
             ));
             return 1;
         }
@@ -1293,9 +1295,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             // Emit log message to have time stamp of when hello is
             // fully received, and parsing of chunk lists starts.
             KFS_LOG_STREAM_INFO << GetPeerName() <<
-                " receiving hello: " <<
-                    contentLength <<
-                " bytes done" <<
+                " receiving hello: " << contentLength << " bytes done" <<
             KFS_LOG_EOM;
             PutHelloBytes(mHelloOp);
         }
@@ -2651,9 +2651,9 @@ ChunkServer::Verify(
     return true;
 }
 
-void
-ChunkServer::GetInFlightChunks(ChunkServer::InFlightChunks& chunks,
-    ChunkIdQueue& chunksDelete)
+inline void
+ChunkServer::GetInFlightChunks(const CSMap& csMap,
+    ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete)
 {
     if (chunks.IsEmpty()) {
         chunks.Swap(mLastChunksInFlight);
@@ -2667,10 +2667,44 @@ ChunkServer::GetInFlightChunks(ChunkServer::InFlightChunks& chunks,
     }
     const chunkId_t* id;
     mLastChunksInFlightDelete.First();
+    ChunkServerPtr const srv = shared_from_this();
     while ((id = mLastChunksInFlightDelete.Next())) {
-        chunksDelete.PushBack(*id);
+        const CSMap::Entry* const entry = csMap.Find(*id);
+        if (entry && csMap.HasServer(srv, *entry)) {
+            chunks.Insert(*id);
+        } else {
+            chunksDelete.PushBack(*id);
+        }
     }
     mLastChunksInFlightDelete.Clear();
 }
+
+HibernatedChunkServer::HibernatedChunkServer(
+    ChunkServer& server,
+    const CSMap& csMap)
+    : CSMapServerInfo(),
+      mDeletedChunks(),
+      mModifiedChunks(),
+      mListsSize(0)
+{
+    server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks);
+    const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
+    mListsSize = 1 + size;
+    sValidCount++;
+    sChunkListsSize += size;
+}
+
+/* static */ void
+HibernatedChunkServer::SetParameters(const Properties& props)
+{
+    sMaxChunkListsSize = props.getValue(
+        "metaServer.maxHibernatedChunkListSize",
+        sMaxChunkListsSize * 2
+    ) / 2;
+}
+
+size_t HibernatedChunkServer::sValidCount(0);
+size_t HibernatedChunkServer::sChunkListsSize(0);
+size_t HibernatedChunkServer::sMaxChunkListsSize(size_t(16) << 20);
 
 } // namespace KFS

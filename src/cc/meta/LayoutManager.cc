@@ -1797,6 +1797,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mRackPrefixUsePortFlag = props.getValue(
         "metaServer.rackPrefixUsePort",
         mRackPrefixUsePortFlag ? 1 : 0) != 0;
+    HibernatedChunkServer::SetParameters(props);
 
     mRackPrefixes.clear();
     {
@@ -2174,7 +2175,7 @@ LayoutManager::UpdateReplicationsThreshold()
  *  matches one of the acceptable md5's.
  */
 bool
-LayoutManager::Validate(MetaHello& r) const
+LayoutManager::Validate(MetaHello& r)
 {
     if (! r.location.IsValid()) {
         r.statusMsg = "invalid chunk server location: " + r.location.ToString();
@@ -2188,15 +2189,46 @@ LayoutManager::Validate(MetaHello& r) const
         r.status = -EBADCLUSTERKEY;
         return false;
     }
-    if (mChunkServerMd5sums.empty() || find(
+    if (! mChunkServerMd5sums.empty() && find(
                 mChunkServerMd5sums.begin(),
                 mChunkServerMd5sums.end(),
-                r.md5sum) != mChunkServerMd5sums.end()) {
-        return true;
+                r.md5sum) == mChunkServerMd5sums.end()) {
+        r.statusMsg = "MD5sum mismatch: recieved: " + r.md5sum;
+        r.status    = -EBADCLUSTERKEY;
+        return false;
     }
-    r.statusMsg = "MD5sum mismatch: recieved: " + r.md5sum;
-    r.status    = -EBADCLUSTERKEY;
-    return false;
+    if (0 <= r.resumeStep) {
+        const HibernatingServerInfo_t* const hs =
+            FindHibernatingServer(r.location);
+        const HibernatedChunkServer*   const cs = (hs && hs->IsHibernated()) ?
+            mChunkToServerMap.GetHiberantedServer(hs->csmapIdx) : 0;
+        if (cs) {
+            if (cs->CanBeResumed()) {
+                const size_t kChunkIdReplayBytes = 17; // Hex encoded.
+                r.bufferBytes = max(r.bufferBytes,
+                    (int)(cs->GetChunkListsSize() * kChunkIdReplayBytes));
+            } else {
+                r.statusMsg = "resume not possible,"
+                    ", no valid hibernated info exists";
+                r.status    = -ENOENT;
+            }
+        } else {
+            Servers::const_iterator const it = FindServer(r.location);
+            if (it != mChunkServers.end()) {
+                if ((*it)->IsDown()) {
+                    r.statusMsg = "down server exists";
+                } else {
+                    r.statusMsg = "up server exists";
+                }
+                r.statusMsg += ", retry resume later";
+                r.status    = -EAGAIN;
+            } else {
+                r.statusMsg = "resume not possible, no hibernated info exists";
+                r.status    = -ENOENT;
+            }
+        }
+    }
+    return true;
 }
 
 bool
@@ -2728,11 +2760,23 @@ LayoutManager::AddNewServer(MetaHello *r)
         srvId, bind(&ChunkServer::GetServerLocation, _1) < srvId);
     if (existing != mChunkServers.end() &&
             (*existing)->GetServerLocation() == srvId) {
-        KFS_LOG_STREAM_DEBUG << "duplicate server: " << srvId <<
-            " possible reconnect, taking: " <<
-                (const void*)existing->get() << " down " <<
-            " replacing with: " << (const void*)&srv <<
+        KFS_LOG_STREAM_DEBUG <<
+            "duplicate server: " << srvId <<
+            " possible reconnect:"
+            " existing: " << (const void*)existing->get() <<
+            " new: "      << (const void*)&srv <<
+            " resume: "   << r->resumeStep <<
         KFS_LOG_EOM;
+        if (0 <= r->resumeStep) {
+            if ((*existing)->IsDown()) {
+                r->statusMsg = "down server exists";
+            } else {
+                r->statusMsg = "up server exists";
+            }
+            r->statusMsg += ", retry resume later";
+            r->status    = -EAGAIN;
+            return;
+        }
         ServerDown(*existing);
         if (srv.IsDown()) {
             return;
@@ -2748,18 +2792,37 @@ LayoutManager::AddNewServer(MetaHello *r)
         }
     }
 
-    // Add server first, then add chunks, otherwise if/when the server goes
-    // down in the process of adding chunks, taking out server from chunk
-    // info will not work in ServerDown().
-    if ( ! mChunkToServerMap.AddServer(r->server)) {
-        KFS_LOG_STREAM_WARN <<
-            "failed to add server: " << srvId <<
-            " no slots available "
-            " servers: " << mChunkToServerMap.GetServerCount() <<
-            " / " << mChunkServers.size() <<
-        KFS_LOG_EOM;
-        srv.ForceDown();
-        return;
+    if (0 <= r->resumeStep) {
+        const HibernatingServerInfo_t* const hs =
+            FindHibernatingServer(r->location);
+        const HibernatedChunkServer*   const cs = (hs && hs->IsHibernated()) ?
+            mChunkToServerMap.GetHiberantedServer(hs->csmapIdx) : 0;
+        if (! cs || cs->CanBeResumed()) {
+            r->statusMsg   = "resume not possible, no";
+            if (cs) {
+                r->statusMsg += " valid";
+            }
+            r->statusMsg += " hibernated info exists";
+            r->status = -ENOENT;
+            return;
+        }
+        if (r->resumeStep < 1) {
+            return;
+        }
+    } else {
+        // Add server first, then add chunks, otherwise if/when the server goes
+        // down in the process of adding chunks, taking out server from chunk
+        // info will not work in ServerDown().
+        if ( ! mChunkToServerMap.AddServer(r->server)) {
+            KFS_LOG_STREAM_WARN <<
+                "failed to add server: " << srvId <<
+                " no slots available "
+                " servers: " << mChunkToServerMap.GetServerCount() <<
+                " / " << mChunkServers.size() <<
+            KFS_LOG_EOM;
+            srv.ForceDown();
+            return;
+        }
     }
     mChunkServers.insert(existing, r->server);
 
@@ -4155,25 +4218,25 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     HibernatingServerInfo_t* const hs = FindHibernatingServer(loc, &it);
     bool isHibernating = hs != 0;
     if (isHibernating) {
-        HibernatingServerInfo_t& hsi = *hs;
-        const bool   wasHibernatedFlag = hsi.IsHibernated();
-        const size_t prevIdx           = hsi.csmapIdx;
+        HibernatingServerInfo_t& hsi               = *hs;
+        const bool               wasHibernatedFlag = hsi.IsHibernated();
+        const size_t             prevIdx           = hsi.csmapIdx;
         if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
-            if (! wasHibernatedFlag) {
-                reason = "Hibernated";
-            } else {
-                if (! mChunkToServerMap.RemoveHibernatedServer(prevIdx)) {
+            if (wasHibernatedFlag) {
+                if (prevIdx == hsi.csmapIdx ||
+                        ! mChunkToServerMap.RemoveHibernatedServer(prevIdx)) {
                     panic("failed to update hibernated server index");
                 }
                 KFS_LOG_STREAM_ERROR <<
-                    "hibernated server reconnect "
-                    " failure " <<
+                    "hibernated server reconnect failure:"
                     " location: " << loc <<
                     " index: "    << prevIdx <<
                     " -> "        << hsi.csmapIdx <<
                     " blocks: "   << blockCount <<
                 KFS_LOG_EOM;
                 reason = "Reconnect failed";
+            } else {
+                reason = "Hibernated";
             }
         } else {
             reason = "Hibernated";
@@ -6858,6 +6921,10 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             if (r->servers.size() != (size_t)r->numReplicas) {
                 CheckReplication(*ci);
             }
+        } else {
+            // Version change succeeded, verify chunk versions when hibernated
+            // server(s) re-connect.
+            mChunkToServerMap.NotifyHibernated(*ci);
         }
         if (r->appendChunk) {
             // Insert pending make stable entry here, to ensure that

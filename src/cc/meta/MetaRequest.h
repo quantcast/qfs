@@ -1394,6 +1394,9 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            fileSystemId;
     int64_t            metaFileSystemId;
     bool               noFidsFlag;
+    bool               helloNextFlag;
+    int                resumeStep;
+    int                bufferBytes;
 
     MetaHello()
         : MetaRequest(META_HELLO, false),
@@ -1425,7 +1428,10 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           deleteAllChunksFlag(false),
           fileSystemId(-1),
           metaFileSystemId(-1),
-          noFidsFlag(false)
+          noFidsFlag(false),
+          helloNextFlag(false),
+          resumeStep(-1),
+          bufferBytes(0)
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1462,6 +1468,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("CKey",                         &MetaHello::cryptoKey)
         .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
         .Def("NoFids",                       &MetaHello::noFidsFlag,                false)
+        .Def("Resume",                       &MetaHello::resumeStep,                   -1)
         ;
     }
 };

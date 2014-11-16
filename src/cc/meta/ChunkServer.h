@@ -80,6 +80,7 @@ using std::set;
 ///
 struct ChunkRecoveryInfo;
 struct MetaHello;
+class  CSMap;
 
 class CSMapServerInfo
 {
@@ -823,7 +824,8 @@ public:
         { return mMd5Sum; }
 
     typedef ChunkIdSet InFlightChunks;
-    void GetInFlightChunks(InFlightChunks& chunks, ChunkIdQueue& chunksDelete);
+    inline void GetInFlightChunks(const CSMap& caMap,
+        InFlightChunks& chunks, ChunkIdQueue& chunksDelete);
 
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1167,27 +1169,76 @@ class HibernatedChunkServer : public CSMapServerInfo
 {
 public:
     typedef ChunkIdQueue                DeletedChunks;
-    typedef ChunkServer::InFlightChunks InFlightChunks;
+    typedef ChunkServer::InFlightChunks ModifiedChunks;
 
     HibernatedChunkServer(
-        ChunkServer& server)
-        : CSMapServerInfo(),
-          mDeletedChunks(),
-          mInFlightChunks()
-        { server.GetInFlightChunks(mInFlightChunks, mDeletedChunks); }
+        ChunkServer& server,
+        const CSMap& csMap);
+    ~HibernatedChunkServer()
+        { HibernatedChunkServer::Clear(); }
     const DeletedChunks& GetDeletedChunks() const
         { return mDeletedChunks; }
-    const InFlightChunks& GetInFlightChunks() const
-        { return mInFlightChunks; }
+    const ModifiedChunks& GetModifiedChunks() const
+        { return mModifiedChunks; }
+    bool CanBeResumed() const
+        { return (0 < mListsSize); }
+    size_t GetChunkListsSize() const
+        { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
+    static void SetParameters(const Properties& props);
 private:
     void RemoveHosted(chunkId_t chunkId, int index) {
-        mInFlightChunks.Erase(chunkId);
-        mDeletedChunks.PushBack(chunkId);
+        if (0 < mListsSize) {
+            if (! mModifiedChunks.Erase(chunkId)) {
+                mListsSize++;;
+                sChunkListsSize++;
+                Prune();
+            }
+            if (0 < mListsSize) {
+                mDeletedChunks.PushBack(chunkId);
+            }
+        }
         CSMapServerInfo::RemoveHosted(chunkId, index);
+    }
+    void Modified(chunkId_t chunkId) {
+        if (0 < mListsSize && mModifiedChunks.Insert(chunkId)) {
+            sChunkListsSize++;
+            Prune();
+        }
+    }
+    void Prune() {
+        if (sChunkListsSize <= sMaxChunkListsSize ||
+                (uint64_t)sValidCount * (mListsSize - 1) < sMaxChunkListsSize) {
+            return;
+        }
+        Clear();
+    }
+    void Clear() {
+        mDeletedChunks.Clear();
+        mModifiedChunks.Clear();
+        if (mListsSize <= 0) {
+            return;
+        }
+        if (sValidCount <= 0 || sChunkListsSize < mListsSize - 1) {
+            panic("invalid hibernated chunk list counts");
+            sValidCount     = 0;
+            sChunkListsSize = 0;
+        } else {
+            sValidCount--;
+            sChunkListsSize -= mListsSize - 1;
+        }
+        mListsSize = 0;
     }
 private:
     DeletedChunks  mDeletedChunks;
-    InFlightChunks mInFlightChunks;
+    ModifiedChunks mModifiedChunks;
+    size_t         mListsSize;
+
+    static size_t sValidCount;
+    static size_t sChunkListsSize;
+    static size_t sMaxChunkListsSize;
+private:
+    HibernatedChunkServer(const HibernatedChunkServer&);
+    HibernatedChunkServer& operator=(const HibernatedChunkServer&);
 friend class CSMap;
 };
 typedef boost::shared_ptr<HibernatedChunkServer> HibernatedChunkServerPtr;

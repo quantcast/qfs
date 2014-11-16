@@ -131,13 +131,17 @@ public:
             map.RemoveHosted(*this);
             ClearServers();
         }
-        bool HasServer(const CSMap& map,
-                const ServerLocation& loc) const {
+        bool HasServer(const CSMap& map, const ServerLocation& loc) const {
             return map.HasServer(loc, *this);
         }
-        bool HasServer(const CSMap& map,
-                const ChunkServerPtr& srv) const {
+        bool HasServer(const CSMap& map, const ChunkServerPtr& srv) const {
             return map.HasServer(srv, *this);
+        }
+        bool HasHibernatedServer(const CSMap& map, size_t idx) const {
+            return map.HasHibernatedServer(idx, *this);
+        }
+        bool NotifyHibernated(const CSMap& map) const {
+            return map.NotifyHibernated(*this);
         }
         ChunkServerPtr GetServer(const CSMap& map,
                 const ServerLocation& loc) const {
@@ -285,15 +289,11 @@ public:
             if (IsAddr()) {
                 return AddrHasIndex((AllocIdx)(idx + 1));
             }
-            for (IdxData id = IdxData(idx + 1) <<
-                        kFirstIdxShift,
-                    data = mIdxData &
-                        ~IdxData(kOtherBitsMask),
-                    mask = IdxData(kIdxMask) <<
-                        kFirstIdxShift;
+            for (IdxData id = IdxData(idx + 1) << kFirstIdxShift,
+                        data = mIdxData & ~IdxData(kOtherBitsMask),
+                        mask = IdxData(kIdxMask) << kFirstIdxShift;
                     (data & mask) != 0;
-                    id   >>= kIdxBits,
-                    mask >>= kIdxBits) {
+                    id >>= kIdxBits, mask >>= kIdxBits) {
                 if ((data & mask) == id) {
                     return true;
                 }
@@ -308,13 +308,10 @@ public:
             if (IsAddr()) {
                 return AddrAddIndex(index);
             }
-            for (IdxData id = IdxData(index) <<
-                        kFirstIdxShift,
-                    mask = IdxData(kIdxMask) <<
-                        kFirstIdxShift;
+            for (IdxData id = IdxData(index) << kFirstIdxShift,
+                        mask = IdxData(kIdxMask) << kFirstIdxShift;
                     mask >= IdxData(kIdxMask);
-                    id   >>= kIdxBits,
-                    mask >>= kIdxBits) {
+                    id >>= kIdxBits, mask >>= kIdxBits) {
                 if ((mIdxData & mask) == 0) {
                     mIdxData |= id;
                     return true;
@@ -335,16 +332,11 @@ public:
                 return AddrRemoveIndex(index);
             }
             int shift = kFirstIdxShift;
-            for (IdxData id = IdxData(index) <<
-                        kFirstIdxShift,
-                    data = mIdxData &
-                        ~IdxData(kOtherBitsMask),
-                    mask = IdxData(kIdxMask) <<
-                        kFirstIdxShift;
+            for (IdxData id = IdxData(index) << kFirstIdxShift,
+                        data = mIdxData & ~IdxData(kOtherBitsMask),
+                        mask = IdxData(kIdxMask) << kFirstIdxShift;
                     (data & mask) != 0;
-                    id   >>= kIdxBits,
-                    mask >>= kIdxBits,
-                    shift -= kIdxBits) {
+                    id >>= kIdxBits, mask >>= kIdxBits, shift -= kIdxBits) {
                 if ((data & mask) == id) {
                     const IdxData lm =
                         (IdxData(1) << shift) - 1;
@@ -624,14 +616,15 @@ public:
             InternalError("invalid hibernated server index");
             return false;
         }
-        mHibernatedCount++;
-        assert(0 < mHibernatedCount);
         if (mHibernatedServers.size() != mServers.size()) {
             InternalError("invalid hibernated servers slot count");
             return false;
         }
         ChunkServerPtr& srv = mServers[idx];
-        HibernatedChunkServer* const hsrv = new HibernatedChunkServer(*server);
+        HibernatedChunkServer* const hsrv =
+            new HibernatedChunkServer(*server, *this);
+        mHibernatedCount++;
+        assert(0 < mHibernatedCount);
         mHibernatedServers[idx].reset(hsrv);
         hsrv->SetIndex(*srv, mDebugValidateFlag);
         assert((size_t)hsrv->GetIndex() == idx);
@@ -660,6 +653,28 @@ public:
         }
         return &*(mHibernatedServers[idx]);
     }
+    bool NotifyHibernated(chunkId_t chunkId) const {
+        if (mHibernatedCount <= 0) {
+            return false;
+        }
+        const Entry* const entry = Find(chunkId);
+        return (entry && NotifyHibernated(*entry));
+    }
+    bool NotifyHibernated(const Entry& entry) const {
+        if (mHibernatedCount <= 0) {
+            return false;
+        }
+        bool ret = false;
+        for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
+            const HibernatedChunkServerPtr& srv =
+                mHibernatedServers[entry.IndexAt(i)];
+            if (srv) {
+                srv->Modified(entry.GetChunkId());
+                ret = true;
+            }
+        }
+        return ret;
+    }
     bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
         if (! server || Validate(server)) {
             return false;
@@ -672,6 +687,7 @@ public:
         assert(srv && ! mServers[idx] && 0 < mServerCount);
         mServers[idx] = server;
         server->SetIndex(*srv, mDebugValidateFlag);
+        srv->Clear();
         return true;
     }
     bool ReplaceServerWith(const ChunkServerPtr& server,
@@ -697,9 +713,7 @@ public:
         ValidateHosted(entry);
         if (mHibernatedCount > 0) {
             size_t ret = 0;
-            for (size_t i = 0, e = entry.ServerCount();
-                    i < e;
-                    i++) {
+            for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
                 if (IsHibernated(entry.IndexAt(i))) {
                     continue;
                 }
@@ -722,6 +736,13 @@ public:
         }
         ValidateHosted(entry);
         return entry.HasServers();
+    }
+    bool HasHibernatedServer(size_t idx, chunkId_t chunkId) const {
+        const Entry* const entry = 0 < mHibernatedCount ? Find(chunkId) : 0;
+        return (entry && HasHibernatedServer(idx, *entry));
+    }
+    bool HasHibernatedServer(size_t idx, const Entry& entry) const {
+        return (IsHibernated(idx) && entry.HasIndex(idx));
     }
     Servers GetServers(chunkId_t chunkId) const {
         const Entry* const entry = Find(chunkId);
@@ -772,11 +793,8 @@ public:
         }
         ValidateHosted(entry);
         if (mHibernatedCount > 0) {
-            for (size_t i = 0, e = entry.ServerCount();
-                    i < e;
-                    i++) {
-                const ChunkServerPtr& srv =
-                    mServers[entry.IndexAt(i)];
+            for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
+                const ChunkServerPtr& srv = mServers[entry.IndexAt(i)];
                 if (srv) {
                     return srv;
                 }
@@ -1292,8 +1310,7 @@ private:
         return (! mDebugValidateFlag ||
             (Validate(entry) && ValidateServers(entry)));
     }
-    size_t CleanupStaleServers(const Entry& entry,
-            Servers* servers = 0) const {
+    size_t CleanupStaleServers(const Entry& entry, Servers* servers = 0) const {
         size_t hibernatedCount = 0;
         return CleanupStaleServers(entry, servers, hibernatedCount);
     }
