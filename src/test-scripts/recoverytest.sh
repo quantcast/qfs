@@ -163,7 +163,12 @@ if [ $start -ne 0 ]; then
             echo "metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 120"
         fi
     } >> MetaServer-recovery.prp
-    "$metadir"/metaserver -c MetaServer-recovery.prp > metaserver-recovery.log 2>&1 &
+    "$metadir"/metaserver -c MetaServer-recovery.prp > metaserver-recovery.log 2>&1 || {
+        status=$?
+        cat metaserver-recovery.log
+        exit $status
+    }
+    "$metadir"/metaserver MetaServer-recovery.prp > metaserver-recovery.log 2>&1 &
     echo $! > metaserver.pid
     cd ../..
     i=$csstartport

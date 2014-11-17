@@ -385,7 +385,19 @@ EOF
 fi
 
 rm -f *.log*
-./"$metaserverbin" -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+if [ -f "kfscp/latest" ]; then
+    true
+else
+    if ./"$metaserverbin" -c "$metasrvprop" > "${metasrvout}" 2>&1; then
+        true
+    else
+        status=$?
+        cat "${metasrvout}"
+        exit $status
+    fi
+fi
+
+./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 echo $! > "$metasrvpid"
 
 if [ -d "$wdir" ]; then
