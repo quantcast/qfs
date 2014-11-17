@@ -38,7 +38,7 @@ metaServer.cpDir = meta/checkpoint
 # automatically creating an empty fs will have the same effect as conventional
 # "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint
 # and logs later won't be sufficient to recover the data.
-metaServer.createEmptyFs = 1
+# metaServer.createEmptyFs = 0
 
 # Root directory permissions -- used only when the new file system created.
 # metaServer.rootDirUser  = 0
