@@ -1184,6 +1184,7 @@ public:
         { return (0 < mListsSize); }
     size_t GetChunkListsSize() const
         { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
+    bool HelloResumeReply(MetaHello& r) const;
     static void SetParameters(const Properties& props);
 private:
     void RemoveHosted(chunkId_t chunkId, int index) {

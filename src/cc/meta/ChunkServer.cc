@@ -2694,6 +2694,20 @@ HibernatedChunkServer::HibernatedChunkServer(
     sChunkListsSize += size;
 }
 
+bool
+HibernatedChunkServer::HelloResumeReply(MetaHello& r) const
+{
+    if (r.resumeStep != 0 || r.status != 0) {
+        return false;
+    }
+    if (! CanBeResumed()) {
+        r.statusMsg = "no valid hibernated server resume state exists";
+        r.status    = -ENOENT;
+        return true;
+    }
+    return true;
+}
+
 /* static */ void
 HibernatedChunkServer::SetParameters(const Properties& props)
 {

@@ -2218,9 +2218,10 @@ protected:
         bool*                   incompleteChunkBlockWriteHasLeaseFlag,
         vector<MetaChunkInfo*>& cblk,
         int*                    outGoodCnt = 0) const;
-    HibernatingServerInfo_t* FindHibernatingServer(
+    HibernatingServerInfo_t* FindHibernatingCSInfo(
         const ServerLocation&            loc,
         HibernatedServerInfos::iterator* outIt = 0);
+    const HibernatedChunkServer* FindHibernatingCS(const ServerLocation& loc);
     void CSMapUnitTest(const Properties& props);
     int64_t GetMaxCSUptime() const;
     bool ReadRebalancePlan(size_t nread);

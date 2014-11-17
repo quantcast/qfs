@@ -2198,10 +2198,7 @@ LayoutManager::Validate(MetaHello& r)
         return false;
     }
     if (0 <= r.resumeStep) {
-        const HibernatingServerInfo_t* const hs =
-            FindHibernatingServer(r.location);
-        const HibernatedChunkServer*   const cs = (hs && hs->IsHibernated()) ?
-            mChunkToServerMap.GetHiberantedServer(hs->csmapIdx) : 0;
+        const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
         if (cs) {
             if (cs->CanBeResumed()) {
                 const size_t kChunkIdReplayBytes = 17; // Hex encoded.
@@ -2774,7 +2771,7 @@ LayoutManager::AddNewServer(MetaHello *r)
                 r->statusMsg = "up server exists";
             }
             r->statusMsg += ", retry resume later";
-            r->status    = -EAGAIN;
+            r->status = -EAGAIN;
             return;
         }
         ServerDown(*existing);
@@ -2793,20 +2790,13 @@ LayoutManager::AddNewServer(MetaHello *r)
     }
 
     if (0 <= r->resumeStep) {
-        const HibernatingServerInfo_t* const hs =
-            FindHibernatingServer(r->location);
-        const HibernatedChunkServer*   const cs = (hs && hs->IsHibernated()) ?
-            mChunkToServerMap.GetHiberantedServer(hs->csmapIdx) : 0;
-        if (! cs || cs->CanBeResumed()) {
-            r->statusMsg   = "resume not possible, no";
-            if (cs) {
-                r->statusMsg += " valid";
-            }
-            r->statusMsg += " hibernated info exists";
-            r->status = -ENOENT;
+        const HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
+        if (! cs) {
+            r->statusMsg = "resume not possible, no hibernated info exists";
+            r->status    = -ENOENT;
             return;
         }
-        if (r->resumeStep < 1) {
+        if (cs->HelloResumeReply(*r)) {
             return;
         }
     } else {
@@ -4215,7 +4205,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
 
     // check if this server was sent to hibernation
     HibernatedServerInfos::iterator it;
-    HibernatingServerInfo_t* const hs = FindHibernatingServer(loc, &it);
+    HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, &it);
     bool isHibernating = hs != 0;
     if (isHibernating) {
         HibernatingServerInfo_t& hsi               = *hs;
@@ -4315,7 +4305,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
 }
 
 HibernatingServerInfo_t*
-LayoutManager::FindHibernatingServer(const ServerLocation& loc,
+LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
     HibernatedServerInfos::iterator* outIt)
 {
     HibernatedServerInfos::iterator const it = lower_bound(
@@ -4327,6 +4317,16 @@ LayoutManager::FindHibernatingServer(const ServerLocation& loc,
     }
     return ((it != mHibernatingServers.end() && loc == it->location) ?
         &(*it) : 0);
+}
+
+const HibernatedChunkServer*
+LayoutManager::FindHibernatingCS(const ServerLocation& loc)
+{
+    const HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc);
+    if (! hs || ! hs->IsHibernated()) {
+        return 0;
+    }
+    return mChunkToServerMap.GetHiberantedServer(hs->csmapIdx);
 }
 
 int
@@ -4341,7 +4341,7 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
     if (si == mChunkServers.end() || (*si)->IsDown()) {
         // Update down time, and let hibernation status check to
         // take appropriate action.
-        HibernatingServerInfo_t* const hs = FindHibernatingServer(loc);
+        HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc);
         if (hs) {
             hs->sleepEndTime = TimeNow() + max(0, downtime);
             return 0;
@@ -4366,7 +4366,7 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
     server->SetRetiring();
     if (0 < downtime) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo_t* const hs = FindHibernatingServer(loc, &it);
+        HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, &it);
         if (hs) {
             hs->sleepEndTime = TimeNow() + downtime;
         } else {
