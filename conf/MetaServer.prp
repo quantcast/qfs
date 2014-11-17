@@ -38,7 +38,9 @@ metaServer.cpDir = meta/checkpoint
 # automatically creating an empty fs will have the same effect as conventional
 # "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint
 # and logs later won't be sufficient to recover the data.
-metaServer.createEmptyFs = 1
+# Use "-c" command line option to create new empty file system. For exampe:
+# metaserver -c MetaServer.prp
+# metaServer.createEmptyFs = 0
 
 # Root directory permissions -- used only when the new file system created.
 # metaServer.rootDirUser  = 0

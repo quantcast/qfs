@@ -293,7 +293,7 @@ private:
         string ret = cwd;
         return (ret + "/" + fileName);
     }
-    bool Startup(bool createEmptyFsFlag);
+    bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag);
 
     // This is to get settings from the core file.
     string     mFileName;
@@ -513,12 +513,17 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         globalNetManager().RegisterTimeoutHandler(this);
         okFlag = gNetDispatch.Bind(mClientPort, mChunkServerPort);
         if (okFlag) {
-            KFS_LOG_STREAM_INFO << "starting metaserver" << KFS_LOG_EOM;
-            if ((okFlag = Startup(createEmptyFsFlag ||
+            KFS_LOG_STREAM_INFO << (createEmptyFsFlag ?
+                "creating empty file system" :
+                "starting metaserver") <<
+            KFS_LOG_EOM;
+            if ((okFlag = Startup(createEmptyFsFlag,
                     props.getValue("metaServer.createEmptyFs", 0) != 0))) {
-                KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
-                // The following only returns after receiving SIGQUIT.
-                okFlag = gNetDispatch.Start();
+                if (! createEmptyFsFlag) {
+                    KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
+                    // The following only returns after receiving SIGQUIT.
+                    okFlag = gNetDispatch.Start();
+                }
             }
         } else {
             KFS_LOG_STREAM_FATAL <<
@@ -604,7 +609,7 @@ private:
 };
 
 bool
-MetaServer::Startup(bool createEmptyFsFlag)
+MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
 {
     if (! CheckDirWritable("log directory: ", mLogDir) ||
             ! CheckDirWritable("checkpoint directory: ", mCPDir)) {
@@ -658,7 +663,15 @@ MetaServer::Startup(bool createEmptyFsFlag)
     setAbortOnPanic(mStartupAbortOnPanicFlag);
     int  status;
     bool rollChunkIdSeedFlag;
-    if (! createEmptyFsFlag || file_exists(LASTCP)) {
+    if (createEmptyFsFlag && file_exists(LASTCP)) {
+        KFS_LOG_STREAM_INFO <<
+            "failed to crete empty files system:"
+            " checkpoint already exists: " << LASTCP <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (! createEmptyFsFlag &&
+            (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
         // Init fs id if needed, leave create time 0, restorer will set these
         // unless fsinfo entry doesn't exit.
         Restorer r;

@@ -67,6 +67,7 @@ metasrvprop='MetaServer.prp'
 metasrvlog='metaserver.log'
 pidsuf='.pid'
 metasrvpid="metaserver${pidsuf}"
+metaservercreatefsout='metaservercreatefs.out'
 metasrvout='metaserver.out'
 chunksrvprop='ChunkServer.prp'
 chunksrvlog='chunkserver.log'
@@ -283,7 +284,6 @@ metaServer.chunkServer.heartbeatTimeout  = 20
 metaServer.chunkServer.heartbeatInterval = 50
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
-metaServer.csmap.unittest = 1
 metaServer.rebalancingEnabled = 1
 metaServer.allocateDebugVerify = 1
 metaServer.panicOnInvalidChunk = 1
@@ -327,7 +327,17 @@ metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
 fi
 
-myrunprog metaserver -c "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+metaserver -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
+    status=$?
+    cat "${metaservercreatefsout}"
+    exit $status
+}
+
+cat >> "$metasrvprop" << EOF
+metaServer.csmap.unittest = 1
+EOF
+
+myrunprog metaserver "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 metapid=$!
 echo "$metapid" > "$metasrvpid"
 

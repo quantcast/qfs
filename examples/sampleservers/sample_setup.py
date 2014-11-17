@@ -627,22 +627,26 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
             if createNewFsFlag and \
                     not os.listdir(metaRunDir + '/checkpoints') and \
                     not os.listdir(metaRunDir + '/logs'):
-                createNewEmptyFs = ' -c'
-            else:
-                createNewEmptyFs = ''
-            command = '%s%s %s %s > %s 2>&1 &' % (
-                                    shell_quote(Globals.METASERVER),
-                                    createNewEmptyFs,
-                                    shell_quote(metaConf),
-                                    shell_quote(metaLog),
-                                    shell_quote(metaOut))
-            if run_command(command) > 0:
-                print '*** metaserver failed to start'
-                error = 1
-            else:
-                print 'Meta server started, listening on %s:%d' %(
-                    config.get('metaserver', 'hostname'),
-                    config.getint('metaserver', 'clientport'))
+                command = '%s -c %s > %s 2>&1' % (
+                                shell_quote(Globals.METASERVER),
+                                shell_quote(metaConf),
+                                shell_quote(metaOut))
+                if run_command(command) > 0:
+                    print '*** metaserver failed create empty file system'
+                    errors = errors + 1
+            if errors == 0:
+                command = '%s %s %s > %s 2>&1 &' % (
+                                        shell_quote(Globals.METASERVER),
+                                        shell_quote(metaConf),
+                                        shell_quote(metaLog),
+                                        shell_quote(metaOut))
+                if run_command(command) > 0:
+                    print '*** metaserver failed to start'
+                    errors = errors + 1
+                else:
+                    print 'Meta server started, listening on %s:%d' %(
+                        config.get('metaserver', 'hostname'),
+                        config.getint('metaserver', 'clientport'))
 
     if startChunk:
         for section in config.sections():
@@ -660,7 +664,7 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                                             shell_quote(chunkOut))
                     if run_command(command) > 0:
                         print '*** chunkserver failed to start'
-                        error = 1
+                        errors = errors + 1
 
     if startWeb:
         webDir = config.get('webui', 'rundir')
@@ -674,7 +678,7 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                 shell_quote(webLog))
             if run_command(command) > 0:
                 print '*** web ui failed to start'
-                error = 1
+                errors = errors + 1
             else:
                 print 'Web ui  started: http://localhost:%d' % (
                    config.getint('webui', 'webport'))
