@@ -1173,7 +1173,8 @@ public:
 
     HibernatedChunkServer(
         ChunkServer& server,
-        const CSMap& csMap);
+        const CSMap& csMap,
+        chunkId_t    ioLastResumeModifiedChunk);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
     const DeletedChunks& GetDeletedChunks() const
@@ -1184,7 +1185,10 @@ public:
         { return (0 < mListsSize); }
     size_t GetChunkListsSize() const
         { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
-    bool HelloResumeReply(MetaHello& r) const;
+    bool HelloResumeReply(MetaHello& r,
+        ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
+    void ResumeRestart(
+        ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
     static void SetParameters(const Properties& props);
 private:
     void RemoveHosted(chunkId_t chunkId, int index) {

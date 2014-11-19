@@ -1297,6 +1297,8 @@ LayoutManager::LayoutManager() :
     mCheckpoint(5 * 1000),
     mMinChunkserversToExitRecovery(1),
     mChunkServers(),
+    mHibernatingServers(),
+    mLastResumeModifiedChunk(-1),
     mMastersCount(0),
     mSlavesCount(0),
     mAssignMasterByIpFlag(false),
@@ -2745,7 +2747,7 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (r->server->IsDown()) {
         return;
     }
-    ChunkServer&          srv   = *r->server.get();
+    ChunkServer&          srv   = *(r->server);
     const ServerLocation& srvId = srv.GetServerLocation();
     if (srvId != r->location || ! srvId.IsValid()) {
         panic("invalid server location");
@@ -2789,16 +2791,30 @@ LayoutManager::AddNewServer(MetaHello *r)
         }
     }
 
+    ChunkIdQueue                          staleChunkIds;
+    HibernatedChunkServer::ModifiedChunks modififedChunks;
+    size_t                                hibernatedIdx = ~size_t(0);
     if (0 <= r->resumeStep) {
-        const HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
+        HibernatedServerInfos::iterator it;
+        HibernatedChunkServer* const    cs =
+            FindHibernatingCS(r->location, &it);
         if (! cs) {
             r->statusMsg = "resume not possible, no hibernated info exists";
             r->status    = -ENOENT;
             return;
         }
-        if (cs->HelloResumeReply(*r)) {
+        if (cs->HelloResumeReply(*r, staleChunkIds, modififedChunks)) {
             return;
         }
+        hibernatedIdx = it->csmapIdx;
+        assert((int)hibernatedIdx == cs->GetIndex());
+        if (! mChunkToServerMap.ReplaceHibernatedServer(
+                r->server, hibernatedIdx)) {
+            panic("failed to replace hibernated server");
+            srv.ForceDown();
+            return;
+        }
+        mHibernatingServers.erase(it);
     } else {
         // Add server first, then add chunks, otherwise if/when the server goes
         // down in the process of adding chunks, taking out server from chunk
@@ -2873,8 +2889,8 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (! mChunkServersProps.empty() && ! srv.IsDown()) {
         srv.SetProperties(mChunkServersProps);
     }
+    mLastResumeModifiedChunk = -1;
     int maxLogInfoCnt = 32;
-    ChunkIdQueue staleChunkIds;
     for (MetaHello::ChunkInfos::const_iterator it = r->chunks.begin();
             it != r->chunks.end() && ! srv.IsDown();
             ++it) {
@@ -2882,29 +2898,35 @@ LayoutManager::AddNewServer(MetaHello *r)
         const char*         staleReason  = 0;
         CSMap::Entry* const cmi          = mChunkToServerMap.Find(chunkId);
         seq_t               chunkVersion = -1;
+        mLastResumeModifiedChunk = -1;
         if (cmi) {
-            CSMap::Entry&        c      = *cmi;
+            CSMap::Entry& c = *cmi;
+            if (0 < r->resumeStep) {
+                const bool removedFlag = c.Remove(mChunkToServerMap, r->server);
+                if (modififedChunks.Erase(it->chunkId)) {
+                    if (removedFlag) {
+                        panic("invalid modified chunk list");
+                    }
+                    mLastResumeModifiedChunk = chunkId;
+                }
+            }
             const fid_t          fileId = c.GetFileId();
             const ChunkServerPtr cs     = c.GetServer(
                 mChunkToServerMap, srv.GetServerLocation());
             if (cs) {
+                if (&*cs != &srv) {
+                    panic("invalid duplicate chunk to server mapping");
+                }
                 KFS_LOG_STREAM_ERROR << srvId <<
-                    " stable chunk: <" <<
-                        fileId << "," <<
-                        chunkId << ">" <<
-                    " already hosted on: " <<
-                        (const void*)cs.get() <<
-                    " new server: " <<
-                        (const void*)&srv <<
-                    " has the same location: " <<
-                        srv.GetServerLocation() <<
-                    (cs.get() == &srv ?
+                    " stable chunk: <"     << fileId << "," << chunkId << ">" <<
+                    " already hosted on: " << (const void*)&*cs <<
+                    " new server: "        << (const void*)&srv <<
+                    " has the same location: " << srv.GetServerLocation() <<
+                    (&*cs == &srv ?
                         " duplicate chunk entry" :
-                        " possible stale chunk to"
-                        " server mapping entry"
-                    ) <<
+                        " possible stale chunk to server mapping entry") <<
                 KFS_LOG_EOM;
-                if (cs.get() == &srv) {
+                if (&*cs == &srv) {
                     // Ignore duplicate chunk inventory entries.
                     continue;
                 }
@@ -2913,8 +2935,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             chunkVersion = ci.chunkVersion;
             if (chunkVersion > it->chunkVersion) {
                 staleReason = "lower chunk version";
-            } else if (chunkVersion +
-                    GetChunkVersionRollBack(chunkId) <
+            } else if (chunkVersion + GetChunkVersionRollBack(chunkId) <
                     it->chunkVersion) {
                 staleReason = "higher chunk version";
             } else {
@@ -2933,8 +2954,7 @@ LayoutManager::AddNewServer(MetaHello *r)
                 }
                 const ChunkLeases::WriteLease* const wl =
                     mChunkLeases.GetWriteLease(chunkId);
-                if (wl && wl->allocInFlight &&
-                        wl->allocInFlight->status == 0) {
+                if (wl && wl->allocInFlight && wl->allocInFlight->status == 0) {
                     staleReason = "chunk allocation in flight";
                 } else {
                     // This chunk is non-stale. Check replication,
@@ -2944,6 +2964,9 @@ LayoutManager::AddNewServer(MetaHello *r)
                 }
             }
         } else {
+            if (0 < r->resumeStep && modififedChunks.Find(it->chunkId)) {
+                panic("invalid modified chunk list");
+            }
             staleReason = "no chunk mapping exists";
         }
         if (staleReason) {
@@ -2962,7 +2985,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             mStaleChunkCount->Update(1);
         }
     }
-
+    mLastResumeModifiedChunk = -1;
     for (int i = 0; i < 2; i++) {
         const MetaHello::ChunkInfos& chunks = i == 0 ?
             r->notStableAppendChunks : r->notStableChunks;
@@ -2970,13 +2993,35 @@ LayoutManager::AddNewServer(MetaHello *r)
         for (MetaHello::ChunkInfos::const_iterator it = chunks.begin();
                 it != chunks.end() && ! srv.IsDown();
                 ++it) {
-            const char* const staleReason = AddNotStableChunk(
-                r->server,
-                it->chunkId,
-                it->chunkVersion,
-                i == 0,
-                srvId
-            );
+            const char* staleReason = 0;
+            if (0 < r->resumeStep) {
+                mLastResumeModifiedChunk = -1;
+                CSMap::Entry* const cmi = mChunkToServerMap.Find(it->chunkId);
+                if (cmi) {
+                    const bool removedFlag =
+                        cmi->Remove(mChunkToServerMap, r->server);
+                    if (modififedChunks.Erase(it->chunkId)) {
+                        if (! removedFlag) {
+                            panic("invalid modified chunk list");
+                        }
+                        mLastResumeModifiedChunk = it->chunkId;
+                    }
+                } else {
+                    if (modififedChunks.Find(it->chunkId)) {
+                        panic("invalid modified chunk list");
+                    }
+                    staleReason = "no chunk mapping exists";
+                }
+            }
+            if (! staleReason) {
+                staleReason = AddNotStableChunk(
+                    r->server,
+                    it->chunkId,
+                    it->chunkVersion,
+                    i == 0,
+                    srvId
+                );
+            }
             maxLogInfoCnt--;
             KFS_LOG_STREAM((maxLogInfoCnt > 0) ?
                     MsgLogger::kLogLevelINFO :
@@ -2996,24 +3041,59 @@ LayoutManager::AddNewServer(MetaHello *r)
             // MakeChunkStableDone will process pending recovery.
         }
     }
+    mLastResumeModifiedChunk = -1;
     const size_t staleCnt = staleChunkIds.GetSize();
     if (! staleChunkIds.IsEmpty() && ! srv.IsDown()) {
         srv.NotifyStaleChunks(staleChunkIds);
+        staleChunkIds.Clear();
+    }
+    if (0 < r->resumeStep) {
+        modififedChunks.First();
+        const chunkId_t* id = modififedChunks.Next();
+        while (id && ! srv.IsDown()) {
+            const chunkId_t chunkId = *id;
+            id = modififedChunks.Next();
+            modififedChunks.Erase(chunkId);
+            CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
+            if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
+                panic("invalid modified chunk list");
+                continue;
+            }
+            seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
+            mLastResumeModifiedChunk = chunkId;
+            bool kMakeStableFlag = false;
+            bool kPendingAddFlag = true;
+            srv.NotifyChunkVersChange(
+                cmi->GetFileId(),
+                chunkId,
+                chunkVersion, // Verify chunk version version.
+                chunkVersion,
+                kMakeStableFlag,
+                kPendingAddFlag
+            );
+        }
+        mLastResumeModifiedChunk = -1;
     }
     // All ops are queued at this point, make sure that the server is still up.
     if (srv.IsDown()) {
+        if (0 < r->resumeStep) {
+            HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
+            if (cs && cs->GetIndex() == (int)hibernatedIdx) {
+                cs->ResumeRestart(staleChunkIds, modififedChunks);
+            }
+        }
         KFS_LOG_STREAM_ERROR << srvId <<
             ": went down in the process of adding it" <<
         KFS_LOG_EOM;
         return;
     }
+    r->resumeStep = -1; // Hello done.
 
     // Update the list since a new server is in
     CheckHibernatingServersStatus();
 
     const char* msg = "added";
-    if (IsChunkServerRestartAllowed() &&
-            mCSToRestartCount < mMaxCSRestarting) {
+    if (IsChunkServerRestartAllowed() && mCSToRestartCount < mMaxCSRestarting) {
         if (srv.Uptime() >= GetMaxCSUptime() &&
                 ! srv.IsDown() &&
                 ! srv.IsRestartScheduled()) {
@@ -3248,14 +3328,15 @@ LayoutManager::Done(MetaChunkVersChange& req)
         return;
     }
     UpdateReplicationState(*cmi);
-
+    const bool verifyVersionFlag =
+        req.chunkVersion == req.fromVersion && ! req.makeStableFlag;
     if (req.status != 0) {
-        KFS_LOG_STREAM_ERROR    << req.Show() <<
+        KFS_LOG_STREAM_ERROR << req.Show() <<
             " status: "     << req.status <<
             " msg: "        << req.statusMsg <<
             " pendingAdd: " << req.pendingAddFlag <<
         KFS_LOG_EOM;
-        if (! req.pendingAddFlag) {
+        if (! req.pendingAddFlag || verifyVersionFlag) {
             ChunkCorrupt(req.chunkId, req.server);
         }
         return;
@@ -3272,10 +3353,11 @@ LayoutManager::Done(MetaChunkVersChange& req)
     // Non stable replica add path, uses another code path, which ends
     // with make chunk stable.
     // Ensure that no write lease exists.
-    if (GetChunkVersionRollBack(req.chunkId) <= 0 ||
+    if ((GetChunkVersionRollBack(req.chunkId) <= 0) != verifyVersionFlag ||
             mChunkLeases.GetWriteLease(req.chunkId)) {
         KFS_LOG_STREAM_INFO << req.Show() <<
-            " no version roll back or write lese exists,"
+            (verifyVersionFlag ? "" : " no") <<
+            " version roll back or write lese exists,"
             " declaring stale replica" <<
         KFS_LOG_EOM;
         req.server->NotifyStaleChunk(req.chunkId);
@@ -3304,12 +3386,10 @@ LayoutManager::Done(MetaChunkVersChange& req)
     const MetaFattr* const fa     = cmi->GetFattr();
     const fid_t            fileId = fa->id();
     if (! fa->IsStriped() &&
-            ci->offset + (chunkOff_t)CHUNKSIZE >=
-                fa->nextChunkOffset() &&
+            ci->offset + (chunkOff_t)CHUNKSIZE >= fa->nextChunkOffset() &&
             fa->filesize < 0) {
         KFS_LOG_STREAM_DEBUG <<
-            " get chunk size: <" << fileId <<
-            "," << req.chunkId << ">" <<
+            " get chunk size: <" << fileId << "," << req.chunkId << ">" <<
         KFS_LOG_EOM;
         req.server->GetChunkSize(
             fileId, req.chunkId, req.chunkVersion, string());
@@ -4211,7 +4291,9 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
         HibernatingServerInfo_t& hsi               = *hs;
         const bool               wasHibernatedFlag = hsi.IsHibernated();
         const size_t             prevIdx           = hsi.csmapIdx;
-        if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
+        if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx,
+                mLastResumeModifiedChunk)) {
+            mLastResumeModifiedChunk = -1;
             if (wasHibernatedFlag) {
                 if (prevIdx == hsi.csmapIdx ||
                         ! mChunkToServerMap.RemoveHibernatedServer(prevIdx)) {
@@ -4261,9 +4343,11 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
             // Delay replication by marking server as hibernated,
             // to allow the server to reconnect back.
             size_t idx = ~size_t(0);
-            if (! mChunkToServerMap.SetHibernated(server, idx)) {
+            if (! mChunkToServerMap.SetHibernated(server, idx,
+                    mLastResumeModifiedChunk)) {
                 panic("failed to initiate hibernation");
             }
+            mLastResumeModifiedChunk = -1;
             mHibernatingServers.insert(it, HibernatingServerInfo_t(
                 loc, TimeNow() + replicationDelay, idx));
             isHibernating = true;
@@ -4319,10 +4403,11 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
         &(*it) : 0);
 }
 
-const HibernatedChunkServer*
-LayoutManager::FindHibernatingCS(const ServerLocation& loc)
+HibernatedChunkServer*
+LayoutManager::FindHibernatingCS(const ServerLocation& loc,
+    HibernatedServerInfos::iterator* outIt)
 {
-    const HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc);
+    const HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, outIt);
     if (! hs || ! hs->IsHibernated()) {
         return 0;
     }
@@ -10381,7 +10466,7 @@ LayoutManager::CSMapUnitTest(const Properties& props)
             continue;
         }
         size_t idx = 0;
-        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], idx)) {
+        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], idx, -1)) {
             panic("failed to hibernate server");
         }
         idxs.push_back(idx);

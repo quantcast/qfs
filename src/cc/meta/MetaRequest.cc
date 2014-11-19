@@ -4513,7 +4513,7 @@ MetaCoalesceBlocks::response(ostream &os)
 }
 
 void
-MetaHello::response(ostream &os)
+MetaHello::response(ostream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4524,7 +4524,21 @@ MetaHello::response(ostream &os)
             os << "Delete-all-chunks: " << metaFileSystemId << "\r\n";
         }
     }
-    os << "\r\n";
+    if (0 < resumeStep) {
+        os <<
+            "Resume: "         << resumeStep                    << "\r\n"
+            "Deleted: "        << deletedCount                  << "\r\n"
+            "Modified: "       << modifiedCount                 << "\r\n"
+            "Chunks: "         << chunkCount                    << "\r\n"
+            "Checksum: "       << checksum                      << "\r\n"
+            "Content-length: " << responseBuf.BytesConsumable() << "\r\n"
+            "\r\n"
+        ;
+        os.flush();
+        buf.Move(&responseBuf);
+    } else {
+        os << "\r\n";
+    }
 }
 
 void

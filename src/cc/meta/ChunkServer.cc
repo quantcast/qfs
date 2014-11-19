@@ -660,7 +660,7 @@ ChunkServer::HandleRequest(int code, void *data)
         const bool helloOpFlag  = op->op == META_HELLO;
         if (! mDown && helloOpFlag) {
             // Re-evaluate hello done status.
-            mHelloDone = ! static_cast<const MetaHello*>(op)->helloNextFlag;
+            mHelloDone = static_cast<const MetaHello*>(op)->resumeStep < 0;
         }
         if (SendResponse(op) && deleteOpFlag) {
             delete op;
@@ -1399,7 +1399,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mHelloOp->status = 0;
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         mOstream.Set(ioBuf);
-        mHelloOp->response(mOstream);
+        mHelloOp->response(mOstream, ioBuf);
         if (gLayoutManager.IsRetireOnCSRestart()) {
             MetaChunkRetire retire(
                 NextSeq(), shared_from_this());
@@ -2681,13 +2681,17 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
 
 HibernatedChunkServer::HibernatedChunkServer(
     ChunkServer& server,
-    const CSMap& csMap)
+    const CSMap& csMap,
+    chunkId_t    lastResumeModifiedChunk)
     : CSMapServerInfo(),
       mDeletedChunks(),
       mModifiedChunks(),
       mListsSize(0)
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks);
+    if (0 <= lastResumeModifiedChunk) {
+        mModifiedChunks.Insert(lastResumeModifiedChunk);
+    }
     const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
     mListsSize = 1 + size;
     sValidCount++;
@@ -2695,9 +2699,12 @@ HibernatedChunkServer::HibernatedChunkServer(
 }
 
 bool
-HibernatedChunkServer::HelloResumeReply(MetaHello& r) const
+HibernatedChunkServer::HelloResumeReply(
+    MetaHello&                             r,
+    ChunkIdQueue&                          staleChunkIds,
+    HibernatedChunkServer::ModifiedChunks& modifiedChunks)
 {
-    if (r.resumeStep != 0 || r.status != 0) {
+    if ( r.status != 0 || r.resumeStep < 0) {
         return false;
     }
     if (! CanBeResumed()) {
@@ -2705,7 +2712,118 @@ HibernatedChunkServer::HelloResumeReply(MetaHello& r) const
         r.status    = -ENOENT;
         return true;
     }
+    if (0 < r.resumeStep) {
+        const size_t deletedCount = mDeletedChunks.GetSize();
+        if (r.chunkCount < GetChunkCount() ||
+                deletedCount < r.deletedCount ||
+                r.chunkCount + r.deletedCount != GetChunkCount() +
+                    deletedCount) {
+            r.statusMsg = "invalid resume response";
+            r.status    = -EINVAL;
+        } else {
+            r.statusMsg.clear();
+        }
+        KFS_LOG_STREAM(r.status == 0 ?
+                MsgLogger::kLogLevelINFO :
+                MsgLogger::kLogLevelERROR) <<
+            r.statusMsg <<
+            " server: "   << r.server->GetServerLocation() <<
+            " resume: "   << r.resumeStep <<
+            " chunks: "   << r.chunkCount <<
+            " => "        << GetChunkCount() <<
+            " deleted: "  << r.deletedCount <<
+            " => "        << mDeletedChunks.GetSize() <<
+            " modified: " << r.modifiedCount <<
+            " => "        << mModifiedChunks.Size() <<
+        KFS_LOG_EOM;
+        if (r.status != 0) {
+            return true;
+        }
+        if (r.deletedCount <= 0 && staleChunkIds.IsEmpty()) {
+            staleChunkIds.Swap(mDeletedChunks);
+        } else {
+            for (size_t i = r.deletedCount; i < deletedCount; i++) {
+                staleChunkIds.PushBack(mDeletedChunks[i]);
+            }
+        }
+        modifiedChunks.Swap(mModifiedChunks);
+        return false;
+    }
+    r.deletedCount  = 0;
+    r.modifiedCount = 0;
+    r.chunkCount    = GetChunkCount();
+    r.checksum      = GetChecksum();
+    if (mListsSize <= 1) {
+        return true;
+    }
+    r.responseBuf.Clear();
+    static IOBuffer::WOStream sOstream;
+    ostream& os = sOstream.Set(r.responseBuf);
+    ChunkIdQueue::ConstIterator it(mDeletedChunks);
+    const chunkId_t* id;
+    os << hex;
+    while ((id = it.Next())) {
+        os << ' ' << *id;
+        r.deletedCount++;
+    }
+    os << '\n';
+    mModifiedChunks.First();
+    while ((id = mModifiedChunks.Next())) {
+        os << ' ' << *id;
+        r.modifiedCount++ ;
+    }
     return true;
+}
+
+void
+HibernatedChunkServer::ResumeRestart(
+    ChunkIdQueue&                          staleChunkIds,
+    HibernatedChunkServer::ModifiedChunks& modifiedChunks)
+{
+    if (! CanBeResumed()) {
+        return;
+    }
+    size_t size = 0;
+    if (! staleChunkIds.IsEmpty()) {
+        if (mDeletedChunks.IsEmpty()) {
+            mDeletedChunks.Swap(staleChunkIds);
+            size += mDeletedChunks.GetSize();
+        } else {
+            const size_t sz = staleChunkIds.GetSize();
+            if (size_t(32) < sz && mDeletedChunks.GetSize() * 2 < sz * 3) {
+                mDeletedChunks.Swap(staleChunkIds);
+            }
+            ChunkIdQueue::ConstIterator it(staleChunkIds);
+            const chunkId_t* id;
+            while ((id = it.Next())) {
+                mDeletedChunks.PushBack(*id);
+                size++;
+            }
+            staleChunkIds.Clear();
+            size += sz;
+        }
+    }
+    if (! modifiedChunks.IsEmpty()) {
+        if (mModifiedChunks.IsEmpty()) {
+            mModifiedChunks.Swap(modifiedChunks);
+            size += mModifiedChunks.Size();
+        } else {
+            const size_t sz = modifiedChunks.Size();
+            if (size_t(32) < sz && mModifiedChunks.Size() * 2 < sz * 3) {
+                mDeletedChunks.Swap(staleChunkIds);
+            }
+            modifiedChunks.First();
+            const chunkId_t* id;
+            while ((id = modifiedChunks.Next())) {
+                if (mModifiedChunks.Insert(*id)) {
+                    size++;
+                }
+            }
+            modifiedChunks.Clear();
+        }
+    }
+    mListsSize += size;
+    sChunkListsSize += size;
 }
 
 /* static */ void

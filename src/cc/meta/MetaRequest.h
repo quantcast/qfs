@@ -1394,9 +1394,13 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            fileSystemId;
     int64_t            metaFileSystemId;
     bool               noFidsFlag;
-    bool               helloNextFlag;
     int                resumeStep;
     int                bufferBytes;
+    size_t             deletedCount;
+    size_t             modifiedCount;
+    size_t             chunkCount;
+    CIdChecksum_t      checksum;
+    IOBuffer           responseBuf;
 
     MetaHello()
         : MetaRequest(META_HELLO, false),
@@ -1429,13 +1433,17 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           fileSystemId(-1),
           metaFileSystemId(-1),
           noFidsFlag(false),
-          helloNextFlag(false),
           resumeStep(-1),
-          bufferBytes(0)
+          bufferBytes(0),
+          deletedCount(0),
+          modifiedCount(0),
+          chunkCount(0),
+          checksum(0),
+          responseBuf()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
-    virtual void response(ostream &os);
+    virtual void response(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "Chunkserver hello";
@@ -1469,6 +1477,10 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
         .Def("NoFids",                       &MetaHello::noFidsFlag,                false)
         .Def("Resume",                       &MetaHello::resumeStep,                   -1)
+        .Def("Deleted",                      &MetaHello::deletedCount,          size_t(0))
+        .Def("Modified",                     &MetaHello::modifiedCount,         size_t(0))
+        .Def("Chunks",                       &MetaHello::chunkCount,            size_t(0))
+        .Def("Checksum",                     &MetaHello::checksum,       CIdChecksum_t(0))
         ;
     }
 };

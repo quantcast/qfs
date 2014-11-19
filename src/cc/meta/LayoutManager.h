@@ -1810,6 +1810,7 @@ protected:
     /// to take a node down for maintenance and bring it back up
     /// without incurring re-replication overheads.
     HibernatedServerInfos mHibernatingServers;
+    chunkId_t             mLastResumeModifiedChunk;
 
     /// Track when servers went down so we can report it
     typedef deque<string> DownServers;
@@ -2218,10 +2219,10 @@ protected:
         bool*                   incompleteChunkBlockWriteHasLeaseFlag,
         vector<MetaChunkInfo*>& cblk,
         int*                    outGoodCnt = 0) const;
-    HibernatingServerInfo_t* FindHibernatingCSInfo(
-        const ServerLocation&            loc,
+    HibernatingServerInfo_t* FindHibernatingCSInfo(const ServerLocation& loc,
         HibernatedServerInfos::iterator* outIt = 0);
-    const HibernatedChunkServer* FindHibernatingCS(const ServerLocation& loc);
+    HibernatedChunkServer* FindHibernatingCS(const ServerLocation& loc,
+        HibernatedServerInfos::iterator* outIt = 0);
     void CSMapUnitTest(const Properties& props);
     int64_t GetMaxCSUptime() const;
     bool ReadRebalancePlan(size_t nread);
