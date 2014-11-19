@@ -2933,6 +2933,19 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
         op->status    = -EINVAL;
         return op->status;
     }
+    if (! op->makeStableFlag && op->fromChunkVersion == op->chunkVersion) {
+        // No-op to verify stable chunk version.
+        if (! stableFlag) {
+            op->statusMsg = "chunk is not stable";
+            op->status    = -EINVAL;
+            return op->status;
+        }
+        // Invoke successful completion.
+        int res = 0;
+        op->HandleEvent(cih->IsRenameInFlight() ?
+            EVENT_DISK_RENAME_DONE : EVENT_DISK_WROTE, &res);
+        return 0;
+    }
     if (! mVersionChangePermitWritesInFlightFlag && cih->HasWritesInFlight()) {
         op->statusMsg = "writes in flight";
         op->status    = -EINVAL;
