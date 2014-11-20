@@ -2044,11 +2044,12 @@ ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 void
 ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers,
     seq_t fromVersion, bool makeStableFlag, bool pendingAddFlag,
-    MetaChunkReplicate* replicate)
+    MetaChunkReplicate* replicate, bool verifyExistsFlag)
 {
     Enqueue(new MetaChunkVersChange(
         NextSeq(), shared_from_this(), fid, chunkId, chunkVers,
-        fromVersion, makeStableFlag, pendingAddFlag, replicate),
+        fromVersion, makeStableFlag, pendingAddFlag, replicate,
+        verifyExistsFlag),
         sMakeStableTimeout);
 }
 

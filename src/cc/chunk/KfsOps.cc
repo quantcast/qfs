@@ -1413,20 +1413,23 @@ MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
 void
 ChangeChunkVersOp::Execute()
 {
-    if (! makeStableFlag && chunkVersion == fromChunkVersion) {
+    if (verifyStableFlag) {
         // Bypass meta data load, if only chunk version check is required.
         const ChunkInfo_t* const ci = gChunkManager.GetChunkInfo(chunkId);
         if (! ci || gChunkManager.IsChunkReadable(chunkId)) {
             if (! ci) {
                 statusMsg = "no such chunk";
                 status    = -ENOENT;
-            } else if (ci->chunkVersion != chunkVersion) {
-                statusMsg = "version mismatch";
+            } else if (ci->chunkVersion < fromChunkVersion ||
+                    chunkVersion < ci->chunkVersion) {
+                statusMsg = "version out of range";
                 status    = -EINVAL;
             } else {
                 status = 0;
             }
-            gLogger.Submit(this);
+            if (status != 0 || chunkVersion == ci->chunkVersion) {
+                gLogger.Submit(this);
+            }
         }
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);

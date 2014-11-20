@@ -1777,6 +1777,7 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     seq_t               fromVersion;
     bool                makeStableFlag;
     bool                pendingAddFlag;
+    bool                verifyStableFlag;
     MetaChunkReplicate* replicate;
 
     MetaChunkVersChange(
@@ -1788,13 +1789,15 @@ struct MetaChunkVersChange: public MetaChunkRequest {
         seq_t                 fromVers,
         bool                  mkStableFlag,
         bool                  pendAddFlag,
-        MetaChunkReplicate*   repl = 0)
+        MetaChunkReplicate*   repl,
+        bool                  verifyStblFlag)
         : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, false, s, c),
           fid(f),
           chunkVersion(v),
           fromVersion(fromVers),
           makeStableFlag(mkStableFlag),
           pendingAddFlag(pendAddFlag),
+          verifyStableFlag(verifyStblFlag),
           replicate(repl)
     {
         if (replicate) {

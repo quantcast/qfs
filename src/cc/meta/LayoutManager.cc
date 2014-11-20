@@ -2933,25 +2933,25 @@ LayoutManager::AddNewServer(MetaHello *r)
             }
             const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
             chunkVersion = ci.chunkVersion;
-            if (chunkVersion > it->chunkVersion) {
-                staleReason = "lower chunk version";
-            } else if (chunkVersion + GetChunkVersionRollBack(chunkId) <
-                    it->chunkVersion) {
-                staleReason = "higher chunk version";
-            } else {
-                if (chunkVersion != it->chunkVersion) {
+            if (chunkVersion != it->chunkVersion) {
+                if (it->chunkVersion < chunkVersion) {
+                    staleReason = "lower chunk version";
+                } else if (chunkVersion + GetChunkVersionRollBack(chunkId) <
+                        it->chunkVersion) {
+                    staleReason = "higher chunk version";
+                } else {
                     bool kMakeStableFlag = false;
                     bool kPendingAddFlag = true;
                     srv.NotifyChunkVersChange(
                         fileId,
                         chunkId,
-                        chunkVersion,
-                        it->chunkVersion,
+                        chunkVersion,     // to
+                        it->chunkVersion, // from
                         kMakeStableFlag,
                         kPendingAddFlag
                     );
-                    continue;
                 }
+            } else {
                 const ChunkLeases::WriteLease* const wl =
                     mChunkLeases.GetWriteLease(chunkId);
                 if (wl && wl->allocInFlight && wl->allocInFlight->status == 0) {
@@ -3061,15 +3061,19 @@ LayoutManager::AddNewServer(MetaHello *r)
             }
             seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
             mLastResumeModifiedChunk = chunkId;
-            bool kMakeStableFlag = false;
-            bool kPendingAddFlag = true;
+            bool                kMakeStableFlag   = false;
+            bool                kPendingAddFlag   = true;
+            bool                kVerifyStableFlag = true;
+            MetaChunkReplicate* kReplicateOp      = 0;
             srv.NotifyChunkVersChange(
                 cmi->GetFileId(),
                 chunkId,
-                chunkVersion, // Verify chunk version version.
-                chunkVersion,
+                chunkVersion, // to.
+                chunkVersion + GetChunkVersionRollBack(chunkId),
                 kMakeStableFlag,
-                kPendingAddFlag
+                kPendingAddFlag,
+                kReplicateOp,
+                kVerifyStableFlag
             );
         }
         mLastResumeModifiedChunk = -1;
@@ -3328,15 +3332,17 @@ LayoutManager::Done(MetaChunkVersChange& req)
         return;
     }
     UpdateReplicationState(*cmi);
-    const bool verifyVersionFlag =
-        req.chunkVersion == req.fromVersion && ! req.makeStableFlag;
     if (req.status != 0) {
         KFS_LOG_STREAM_ERROR << req.Show() <<
             " status: "     << req.status <<
             " msg: "        << req.statusMsg <<
             " pendingAdd: " << req.pendingAddFlag <<
         KFS_LOG_EOM;
-        if (! req.pendingAddFlag || verifyVersionFlag) {
+        if (req.pendingAddFlag) {
+            if (! req.server->IsDown()) {
+                req.server->NotifyStaleChunk(req.chunkId);
+            }
+        } else {
             ChunkCorrupt(req.chunkId, req.server);
         }
         return;
@@ -3352,13 +3358,12 @@ LayoutManager::Done(MetaChunkVersChange& req)
     // This replica is assumed to be stable.
     // Non stable replica add path, uses another code path, which ends
     // with make chunk stable.
-    // Ensure that no write lease exists.
-    if ((GetChunkVersionRollBack(req.chunkId) <= 0) != verifyVersionFlag ||
-            mChunkLeases.GetWriteLease(req.chunkId)) {
+    // Ensure that no re-allocation is in flight.
+    const ChunkLeases::WriteLease* const wl =
+        mChunkLeases.GetWriteLease(req.chunkId);
+    if (wl && wl->allocInFlight && wl->allocInFlight->status == 0) {
         KFS_LOG_STREAM_INFO << req.Show() <<
-            (verifyVersionFlag ? "" : " no") <<
-            " version roll back or write lese exists,"
-            " declaring stale replica" <<
+            " chunk allocation in flight, declaring stale replica" <<
         KFS_LOG_EOM;
         req.server->NotifyStaleChunk(req.chunkId);
         return;
@@ -7066,12 +7071,19 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         return;
     }
     // Roll back to the initial chunk version, and make chunk stable.
+    mChunkToServerMap.NotifyHibernated(*ci);
     StTmp<Servers> serversTmp(mServers3Tmp);
     Servers&       srvs = serversTmp.Get();
     mChunkToServerMap.GetServers(*ci, srvs);
     const bool kMakeStableFlag = true;
-    for (Servers::const_iterator
-            it = srvs.begin(); it != srvs.end(); ++it) {
+    for (Servers::const_iterator it = srvs.begin(); it != srvs.end(); ++it) {
+        if ((*it)->IsDown() ||
+                find(r->servers.begin(), r->servers.end(), *it) ==
+                r->servers.end()) {
+            // Roll back only with servers that are not down, and were in
+            // instructed to "re-allocate" / advance chunk versions.
+            continue;
+        }
         (*it)->NotifyChunkVersChange(
             r->fid,
             r->chunkId,
@@ -8024,8 +8036,7 @@ LayoutManager::WritePendingMakeStable(ostream& os) const
 void
 LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
 {
-    PendingMakeStableMap::iterator const it =
-        mPendingMakeStable.find(chunkId);
+    PendingMakeStableMap::iterator const it = mPendingMakeStable.find(chunkId);
     if (it == mPendingMakeStable.end()) {
         return;
     }

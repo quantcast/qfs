@@ -2919,12 +2919,39 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
     if (! ci) {
         return -EBADF;
     }
-    ChunkInfoHandle* const cih = *ci;
-    bool stableFlag = cih->IsStable();
+    ChunkInfoHandle* const cih        = *ci;
+    bool                   stableFlag = cih->IsStable();
+    kfsSeq_t               targetVers = -1;
     if (cih->IsRenameInFlight()) {
-        if (op->fromChunkVersion != cih->GetTargetStateAndVersion(stableFlag)) {
+        if (op->verifyStableFlag) {
+            targetVers = cih->GetTargetStateAndVersion(stableFlag);
+            if (! stableFlag) {
+                op->statusMsg = "chunk is not stable";
+                op->status    = -EINVAL;
+                return op->status;
+            }
+            if (targetVers < op->fromChunkVersion ||
+                    op->chunkVersion < targetVers) {
+                op->statusMsg = "target version is out of range";
+                op->status    = -EINVAL;
+                return op->status;
+            }
+        } else if (op->fromChunkVersion != cih->GetTargetStateAndVersion(stableFlag)) {
             op->statusMsg = (stableFlag ? "" : "not ");
             op->statusMsg += "stable target version mismatch";
+            op->status    = -EINVAL;
+            return op->status;
+        }
+    } else if (op->verifyStableFlag) {
+        if (! stableFlag) {
+            op->statusMsg = "chunk is not stable";
+            op->status    = -EINVAL;
+            return op->status;
+        }
+        targetVers = cih->chunkInfo.chunkVersion;
+        if (targetVers < op->fromChunkVersion ||
+                op->chunkVersion < targetVers) {
+            op->statusMsg = "version is out of range";
             op->status    = -EINVAL;
             return op->status;
         }
@@ -2933,14 +2960,8 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
         op->status    = -EINVAL;
         return op->status;
     }
-    if (! op->makeStableFlag && op->fromChunkVersion == op->chunkVersion) {
-        // No-op to verify stable chunk version.
-        if (! stableFlag) {
-            op->statusMsg = "chunk is not stable";
-            op->status    = -EINVAL;
-            return op->status;
-        }
-        // Invoke successful completion.
+    if (op->verifyStableFlag && stableFlag && targetVers == op->chunkVersion) {
+        // Nothing to do, invoke successful completion.
         int res = 0;
         op->HandleEvent(cih->IsRenameInFlight() ?
             EVENT_DISK_RENAME_DONE : EVENT_DISK_WROTE, &res);

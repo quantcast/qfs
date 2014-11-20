@@ -5013,6 +5013,9 @@ MetaChunkVersChange::request(ostream &os)
     if (makeStableFlag) {
         os << "Make-stable: 1\r\n";
     }
+    if (verifyStableFlag) {
+        os << "Verify: 1\r\n";
+    }
     os << "\r\n";
 }
 

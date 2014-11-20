@@ -645,6 +645,7 @@ struct ChangeChunkVersOp : public KfsOp {
     int64_t      chunkVersion;     // input
     int64_t      fromChunkVersion; // input
     bool         makeStableFlag;
+    bool         verifyStableFlag;
 
     ChangeChunkVersOp(kfsSeq_t s = 0)
         : KfsOp(CMD_CHANGE_CHUNK_VERS, s),
@@ -652,7 +653,8 @@ struct ChangeChunkVersOp : public KfsOp {
           chunkId(-1),
           chunkVersion(-1),
           fromChunkVersion(-1),
-          makeStableFlag(false)
+          makeStableFlag(false),
+          verifyStableFlag(false)
         {}
     void Execute();
     // handler for reading in the chunk meta-data
@@ -665,7 +667,8 @@ struct ChangeChunkVersOp : public KfsOp {
             " fileid: "      << fileId <<
             " chunkid: "     << chunkId <<
             " chunkvers: "   << chunkVersion <<
-            " make stable: " << makeStableFlag
+            " make stable: " << makeStableFlag <<
+            " verify: "      << verifyStableFlag
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -676,6 +679,7 @@ struct ChangeChunkVersOp : public KfsOp {
         .Def("Chunk-version",      &ChangeChunkVersOp::chunkVersion,     int64_t(-1))
         .Def("From-chunk-version", &ChangeChunkVersOp::fromChunkVersion, int64_t(-1))
         .Def("Make-stable",        &ChangeChunkVersOp::makeStableFlag,   false)
+        .Def("Verify",             &ChangeChunkVersOp::verifyStableFlag, false)
         ;
     }
 };
