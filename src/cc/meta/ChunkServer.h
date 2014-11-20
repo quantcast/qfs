@@ -549,7 +549,7 @@ public:
     /// the version # to what is passed in.
     void NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers,
         seq_t fromVersion, bool makeStableFlag, bool pendingAddFlag = false,
-        MetaChunkReplicate* replicate = 0, bool verifyExistsFlag = false);
+        MetaChunkReplicate* replicate = 0, bool verifyStableFlag = false);
 
     /// Accessor method to get the host name/port
     const ServerLocation& GetServerLocation() const {
