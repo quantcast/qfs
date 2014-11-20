@@ -159,10 +159,6 @@ Verify(const MySet& set, MySLH& ht)
 int
 main(int argc, char** argv)
 {
-    if (argc <= 1 || (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        return 0;
-    }
-
     MySLH ht;
     bool inserted = false;
     // Unit test.

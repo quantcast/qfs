@@ -47,10 +47,6 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-    if (argc <= 1 || (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        return 0;
-    }
-
     clock_t s = clock();
     MySet ht;
     int k = 0;
