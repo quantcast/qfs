@@ -672,47 +672,42 @@ public:
         string        responseAccessStr;
         friend class ARAChunkCache;
     };
-    typedef map <fid_t, Entry, less<fid_t>,
-        StdFastAllocator<
-                pair<const fid_t, Entry> >
-    > Map;
-    typedef Map::const_iterator const_iterator;
-    typedef Map::iterator       iterator;
 
     ARAChunkCache()
-        : mMap()
+        : mMap(),
+          mTmpClear()
         {}
     ~ARAChunkCache()
-        { mMap.clear(); }
+        { mMap.Clear(); }
     void RequestNew(MetaAllocate& req);
     void RequestDone(const MetaAllocate& req);
     void Timeout(time_t now);
     inline bool Invalidate(fid_t fid);
     inline bool Invalidate(fid_t fid, chunkId_t chunkId);
-    inline bool Invalidate(iterator it);
-    iterator Find(fid_t fid) {
-        return mMap.find(fid);
-    }
-    const_iterator Find(fid_t fid) const {
-        return mMap.find(fid);
-    }
-    const Entry* Get(const_iterator it) const {
-        return (it == mMap.end() ? 0 : &it->second);
-    }
-    Entry* Get(iterator it) {
-        return (it == mMap.end() ? 0 : &it->second);
-    }
+
     const Entry* Get(fid_t fid) const {
-        return Get(Find(fid));
+        return mMap.Find(fid);
     }
     Entry* Get(fid_t fid) {
-        return Get(Find(fid));
+        return mMap.Find(fid);
     }
     size_t GetSize() const {
-        return mMap.size();
+        return mMap.GetSize();
     }
 private:
-    Map mMap;
+    typedef vector<fid_t> TmpClear;
+    typedef KVPair<fid_t, Entry> KVEntry;
+    typedef LinearHash <
+        KVEntry,
+        KeyCompare<KVEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<KVEntry>*,
+            9 // 2^9
+        >,
+        StdFastAllocator<KVEntry>
+    > Map;
+    Map      mMap;
+    TmpClear mTmpClear;
 };
 
 // Run operation on a timer.

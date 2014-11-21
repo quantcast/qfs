@@ -188,32 +188,19 @@ LayoutManager::IsChunkServerRestartAllowed() const
 }
 
 inline bool
-ARAChunkCache::Invalidate(iterator it)
-{
-    assert(it != mMap.end() && ! mMap.empty());
-    mMap.erase(it);
-    return true;
-}
-
-inline bool
 ARAChunkCache::Invalidate(fid_t fid)
 {
-    iterator const it = mMap.find(fid);
-    if (it == mMap.end()) {
-        return false;
-    }
-    mMap.erase(it);
-    return true;
+    return (mMap.Erase(fid) > 0);
 }
 
 inline bool
 ARAChunkCache::Invalidate(fid_t fid, chunkId_t chunkId)
 {
-    iterator const it = mMap.find(fid);
-    if (it == mMap.end() || it->second.chunkId != chunkId) {
+    Entry* const it = mMap.Find(fid);
+    if (! it || it->chunkId != chunkId) {
         return false;
     }
-    mMap.erase(it);
+    mMap.Erase(fid);
     return true;
 }
 
@@ -230,7 +217,7 @@ ARAChunkCache::RequestNew(MetaAllocate& req)
     while (last->next) {
         last = last->next;
     }
-    mMap[req.fid] = Entry(
+    const Entry entry(
         req.chunkId,
         req.chunkVersion,
         req.offset,
@@ -238,6 +225,11 @@ ARAChunkCache::RequestNew(MetaAllocate& req)
         last,
         req.permissions
     );
+    bool insertedFlag = false;
+    Entry* res = mMap.Insert(req.fid, entry, insertedFlag);
+    if (! insertedFlag) {
+        *res = entry;
+    }
 }
 
 bool
@@ -277,17 +269,17 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
 {
     assert(req.appendChunk);
 
-    iterator const it = mMap.find(req.fid);
-    if (it == mMap.end()) {
+    Entry* const it = mMap.Find(req.fid);
+    if (! it) {
         return;
     }
-    Entry& entry = it->second;
+    Entry& entry = *it;
     if (entry.chunkId != req.chunkId) {
         return;
     }
     if (req.status != 0) {
         // Failure, invalidate the cache.
-        mMap.erase(it);
+        mMap.Erase(req.fid);
         return;
     }
     entry.lastAccessedTime = TimeNow();
@@ -305,15 +297,20 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
 void
 ARAChunkCache::Timeout(time_t minTime)
 {
-    for (iterator it = mMap.begin(); it != mMap.end(); ) {
-        const Entry& entry = it->second;
-        if (entry.lastAccessedTime >= minTime ||
-                entry.lastPendingRequest) {
-            ++it; // valid entry; keep going
-        } else {
-            mMap.erase(it++);
+    mTmpClear.clear();
+    mMap.First();
+    const KVEntry* it;
+    while ((it = mMap.Next())) {
+        const Entry& entry = it->GetVal();
+        if (entry.lastAccessedTime < minTime && ! entry.lastPendingRequest) {
+            mTmpClear.push_back(it->GetKey());
         }
     }
+    for (TmpClear::const_iterator
+            it = mTmpClear.begin(); it != mTmpClear.end(); ++it) {
+        mMap.Erase(*it);
+    }
+    mTmpClear.clear();
 }
 
 ChunkLeases::ChunkLeases()
@@ -5441,8 +5438,7 @@ LayoutManager::IsAllocationAllowed(MetaAllocate* req)
 int
 LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
 {
-    ARAChunkCache::iterator const it    = mARAChunkCache.Find(req->fid);
-    ARAChunkCache::Entry* const   entry = mARAChunkCache.Get(it);
+    ARAChunkCache::Entry* const entry = mARAChunkCache.Get(req->fid);
     if (! entry) {
         return -1;
     }
@@ -5476,7 +5472,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     // wants a new chunk, and when the allocation finishes it will get the
     // new chunk.
     if (entry->offset < req->offset && ! entry->IsAllocationPending()) {
-        mARAChunkCache.Invalidate(it);
+        mARAChunkCache.Invalidate(req->fid);
         return -1;
     }
     // Ensure that master is still good.
@@ -5492,7 +5488,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                 " exceeds: " <<
                     mCSMaxGoodMasterCandidateLoadAvg <<
             KFS_LOG_EOM;
-            mARAChunkCache.Invalidate(it);
+            mARAChunkCache.Invalidate(req->fid);
             return -1;
         }
     }
@@ -5508,7 +5504,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     const time_t now = TimeNow();
     if (entry->IsAllocationPending()) {
         if (entry->lastDecayTime + mAllocAppendReuseInFlightTimeoutSec < now) {
-            mARAChunkCache.Invalidate(it);
+            mARAChunkCache.Invalidate(req->fid);
             return -1;
         }
     } else if (mReservationDecayStep > 0 &&
@@ -5533,7 +5529,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     const ChunkLeases::WriteLease* const wl =
         mChunkLeases.RenewValidWriteLease(entry->chunkId, *req);
     if (! wl) {
-        mARAChunkCache.Invalidate(it);
+        mARAChunkCache.Invalidate(req->fid);
         return -1;
     }
     // valid write lease; so, tell the client where to go
@@ -5554,7 +5550,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
             " chunk: "  << entry->chunkId <<
             " offset: " << entry->offset <<
         KFS_LOG_EOM;
-        mARAChunkCache.Invalidate(it);
+        mARAChunkCache.Invalidate(req->fid);
         return -1;
     }
     if (! req->responseAccessStr.empty()) {
@@ -5593,7 +5589,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                 " offset: " << entry->offset <<
             KFS_LOG_EOM;
             req->responseAccessStr.clear();
-            mARAChunkCache.Invalidate(it);
+            mARAChunkCache.Invalidate(req->fid);
             return -1;
         }
     }
@@ -5608,7 +5604,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
         " access: size: " << req->responseAccessStr.size() <<
     KFS_LOG_EOM;
     if (mMaxAppendersPerChunk <= entry->numAppendersInChunk) {
-        mARAChunkCache.Invalidate(it);
+        mARAChunkCache.Invalidate(req->fid);
     }
     return 0;
 }
