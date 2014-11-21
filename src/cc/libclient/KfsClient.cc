@@ -4661,7 +4661,8 @@ KfsClientImpl::SetFileAttributeRevalidateTime(int secs)
 /// that chunk could be the 10th chunk in the file---the first 9
 /// chunks are just holes.
 //
-struct RespondingServer {
+struct RespondingServer
+{
     KfsClientImpl&         client;
     const ChunkLayoutInfo& layout;
     int&                   status;
@@ -4672,18 +4673,21 @@ struct RespondingServer {
         {}
     bool operator() (ServerLocation loc)
     {
-        size = client.GetChunkSize(loc, layout.chunkId, layout.chunkVersion);
+        bool usedLeaseLocationsFlag = false;
+        size = client.GetChunkSize(
+            loc, layout.chunkId, layout.chunkVersion, &usedLeaseLocationsFlag);
         if (size < 0) {
             status = (int)size;
             size = -1;
         } else {
             status = 0;
         }
-        return (status == 0);
+        return (status == 0 || usedLeaseLocationsFlag);
     }
 };
 
-struct RespondingServer2 {
+struct RespondingServer2
+{
     KfsClientImpl&         client;
     const ChunkLayoutInfo& layout;
     RespondingServer2(KfsClientImpl& cli, const ChunkLayoutInfo& lay)
@@ -6749,10 +6753,13 @@ KfsClientImpl::GetChunkAccess(
     const ServerLocation& inLocation,
     kfsChunkId_t          inChunkId,
     string&               outAccess,
-    int64_t&              outLeaseId)
+    int64_t&              outLeaseId,
+    ChunkServerAccess*    outAccessPtr)
 {
     outLeaseId = -1;
-    ChunkServerAccess theChunkServerAccess;
+    ChunkServerAccess  theCSAccess;
+    ChunkServerAccess& theChunkServerAccess =
+        outAccessPtr ? *outAccessPtr : theCSAccess;
     if (! mUseOsUserAndGroupFlag && mAuthCtx.IsEnabled()) {
         // Get chunk server and chunk access if authenticated.
         int const         kLeaseTime   = -1;
@@ -6776,16 +6783,46 @@ chunkOff_t
 KfsClientImpl::GetChunkSize(
     const ServerLocation& inLocation,
     kfsChunkId_t          inChunkId,
-    int64_t               inChunkVersion)
+    int64_t               inChunkVersion,
+    bool*                 outUsedLeaseLocationsFlagPtr)
 {
     SizeOp theSizeOp(0, inChunkId, inChunkVersion);
-    int64_t theLeaseId = -1;
-    int     theStatus  = GetChunkAccess(
-        inLocation, inChunkId, theSizeOp.access, theLeaseId);
+    int64_t           theLeaseId = -1;
+    ChunkServerAccess theAccess;
+    int               theStatus  = GetChunkAccess(
+        inLocation, inChunkId, theSizeOp.access, theLeaseId, &theAccess);
     if (theStatus < 0) {
-        return theStatus;
+        if (outUsedLeaseLocationsFlagPtr && ! theAccess.IsEmpty()) {
+            *outUsedLeaseLocationsFlagPtr = true;
+            ServerLocation theLocation;
+            for (size_t i = 0; ; i++) {
+                CryptoKeys::Key theKey;
+                const ChunkServerAccess::Entry* const thePtr = theAccess.Get(
+                    i, theLocation, inChunkId, theKey);
+                if (! thePtr) {
+                    break;
+                }
+                mChunkServer.SetKey(
+                    thePtr->chunkServerAccessId.mPtr,
+                    thePtr->chunkServerAccessId.mLen,
+                    theKey.GetPtr(),
+                    theKey.GetSize()
+                );
+                theSizeOp.access.assign(
+                    thePtr->chunkAccess.mPtr, thePtr->chunkAccess.mLen);
+                theSizeOp.status = 0;
+                theSizeOp.statusMsg.clear();
+                DoChunkServerOp(theLocation, theSizeOp);
+                if (0 <= theSizeOp.status) {
+                    break;
+                }
+            }
+        } else {
+            theSizeOp.status = theStatus;
+        }
+    } else {
+        DoChunkServerOp(inLocation, theSizeOp);
     }
-    DoChunkServerOp(inLocation, theSizeOp);
     if (0 <= theLeaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, inChunkId, theLeaseId);
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
