@@ -430,14 +430,14 @@ private:
         EntryT& operator=(const EntryT&);
     };
     typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
-    typedef LinearHash <
+    typedef LinearHash<
         REntry,
         KeyCompare<REntry::Key>,
         DynamicArray<SingleLinkedList<REntry>*, 13>,
         StdFastAllocator<REntry>
     > ReadLeases;
     typedef EntryT<chunkId_t, WriteLease> WEntry;
-    typedef LinearHash <
+    typedef LinearHash<
         WEntry,
         KeyCompare<WEntry::Key>,
         DynamicArray<SingleLinkedList<WEntry>*, 13>,
@@ -697,7 +697,7 @@ public:
 private:
     typedef vector<fid_t> TmpClear;
     typedef KVPair<fid_t, Entry> KVEntry;
-    typedef LinearHash <
+    typedef LinearHash<
         KVEntry,
         KeyCompare<KVEntry::Key>,
         DynamicArray<
@@ -1745,7 +1745,7 @@ protected:
         MakeChunkStableInfo(
             int    nServers        = 0,
             bool   beginMakeStable = false,
-            string name        = string(),
+            string name            = string(),
             seq_t  cvers           = -1,
             bool   stripedFile     = false,
             bool   updateMTime     = false)
@@ -1776,7 +1776,7 @@ protected:
         MetaRequest* pendingReqHead;
     };
     typedef KVPair<chunkId_t, MakeChunkStableInfo> NonStableChunkKVEntry;
-    typedef LinearHash <
+    typedef LinearHash<
         NonStableChunkKVEntry,
         KeyCompare<NonStableChunkKVEntry::Key>,
         DynamicArray<
@@ -1810,7 +1810,7 @@ protected:
         seq_t      mChunkVersion;
     };
     typedef KVPair<chunkId_t, PendingMakeStableEntry> PendingMakeStableKVEntry;
-    typedef LinearHash <
+    typedef LinearHash<
         PendingMakeStableKVEntry,
         KeyCompare<PendingMakeStableKVEntry::Key>,
         DynamicArray<
