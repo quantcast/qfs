@@ -3208,11 +3208,11 @@ LayoutManager::AddNotStableChunk(
         const bool beginMakeStableFlag = msi->mSize < 0;
         if (beginMakeStableFlag) {
             AddHosted(chunkId, pinfo, server);
-            if (InRecoveryPeriod() ||
-                    ! mPendingBeginMakeStable.empty()) {
+            if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty()) {
                 // Allow chunk servers to connect back.
-                mPendingBeginMakeStable.insert(
-                    make_pair(chunkId, chunkVersion));
+                bool insertedFlag = false;
+                mPendingBeginMakeStable.Insert(
+                    chunkId, chunkVersion, insertedFlag);
                 return 0;
             }
             assert(! wl || ! wl->stripedFileFlag);
@@ -3418,18 +3418,17 @@ LayoutManager::Done(MetaChunkVersChange& req)
 void
 LayoutManager::ProcessPendingBeginMakeStable()
 {
-    if (mPendingBeginMakeStable.empty()) {
+    if (mPendingBeginMakeStable.IsEmpty()) {
         return;
     }
     PendingBeginMakeStable pendingBeginMakeStable;
-    pendingBeginMakeStable.swap(mPendingBeginMakeStable);
+    pendingBeginMakeStable.Swap(mPendingBeginMakeStable);
     const bool kBeginMakeStableFlag = true;
     const bool kStripedFileFlag     = false;
-    for (PendingBeginMakeStable::const_iterator
-            it = pendingBeginMakeStable.begin();
-            it != pendingBeginMakeStable.end();
-            ++it) {
-        CSMap::Entry* const cmi = mChunkToServerMap.Find(it->first);
+    const PendingBeginMakeStableKVEntry* it;
+    pendingBeginMakeStable.First();
+    while ((it = pendingBeginMakeStable.Next())) {
+        CSMap::Entry* const cmi = mChunkToServerMap.Find(it->GetKey());
         if (! cmi) {
             continue;
         }
@@ -3437,7 +3436,7 @@ LayoutManager::ProcessPendingBeginMakeStable()
         const bool    leaseRelinquishFlag = false;
         MakeChunkStableInit(
             *cmi,
-            it->second,
+            it->GetVal(),
             string(),
             kBeginMakeStableFlag,
             -1,
@@ -5922,15 +5921,15 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     // the client read from servers where the data is stable, but that
     // requires more book-keeping; so, we'll defer for now.
     //
-    NonStableChunksMap::iterator const it = mNonStableChunks.find(req->chunkId);
-    if (it != mNonStableChunks.end()) {
+    MakeChunkStableInfo* const it = mNonStableChunks.Find(req->chunkId);
+    if (it) {
         if (req->fromChunkServerFlag || req->leaseTimeout <= 0) {
             req->statusMsg = "not yet stable";
             return -EBUSY;
         }
         req->suspended = true;
-        req->next = it->second.pendingReqHead;
-        it->second.pendingReqHead = req;
+        req->next = it->pendingReqHead;
+        it->pendingReqHead = req;
         KFS_LOG_STREAM_INFO << "chunk: " << req->chunkId <<
             " " << "not yet stable suspending read lease acquire request" <<
         KFS_LOG_EOM;
@@ -6353,7 +6352,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
         }
     }
     mARAChunkCache.Invalidate(fid, chunkId);
-    mPendingBeginMakeStable.erase(chunkId);
+    mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
     mChunkVersionRollBack.erase(chunkId);
@@ -6392,7 +6391,7 @@ LayoutManager::InvalidateAllChunkReplicas(
     mChunkToServerMap.GetServers(*ci, c);
     ci->RemoveAllServers(mChunkToServerMap);
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
-    mPendingBeginMakeStable.erase(chunkId);
+    mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
     mChunkVersionRollBack.erase(chunkId);
@@ -7292,8 +7291,8 @@ LayoutManager::MakeChunkStableInit(
             return;
         }
     }
-    pair<NonStableChunksMap::iterator, bool> const ret =
-        mNonStableChunks.insert(make_pair(chunkId,
+    bool nonStableInsertedFlag = false;
+    MakeChunkStableInfo* const ret = mNonStableChunks.Insert(chunkId,
             MakeChunkStableInfo(
                 serversCnt,
                 beginMakeStableFlag,
@@ -7301,8 +7300,8 @@ LayoutManager::MakeChunkStableInit(
                 chunkVersion,
                 stripedFileFlag,
                 leaseRelinquishFlag && serversCnt > 0
-        )));
-    if (! ret.second) {
+        ), nonStableInsertedFlag);
+    if (! nonStableInsertedFlag) {
         KFS_LOG_STREAM_INFO << logPrefix <<
             " <" << fid << "," << chunkId << ">"
             " name: " << pathname <<
@@ -7356,7 +7355,7 @@ LayoutManager::MakeChunkStableInit(
             KFS_LOG_EOM;
             *entry = pmse;
         }
-        ret.first->second.logMakeChunkStableFlag = true;
+        ret->logMakeChunkStableFlag = true;
         submit_request(new MetaLogMakeChunkStable(
             fid, chunkId, chunkVersion,
             chunkSize, hasChunkChecksum, chunkChecksum, chunkId
@@ -7381,11 +7380,11 @@ LayoutManager::AddServerToMakeStable(
     const char*&   errMsg)
 {
     errMsg = 0;
-    NonStableChunksMap::iterator const it = mNonStableChunks.find(chunkId);
-    if (it == mNonStableChunks.end()) {
+    MakeChunkStableInfo* const it = mNonStableChunks.Find(chunkId);
+    if (! it) {
         return false; // Not in progress
     }
-    MakeChunkStableInfo& info = it->second;
+    MakeChunkStableInfo& info = *it;
     if (info.chunkVersion != chunkVersion) {
         errMsg = "version mismatch";
         return false;
@@ -7440,20 +7439,18 @@ LayoutManager::AddServerToMakeStable(
 void
 LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
 {
-    const char* const                  logPrefix = "BMCS: done";
-    NonStableChunksMap::iterator const it        =
-        mNonStableChunks.find(req->chunkId);
-    if (it == mNonStableChunks.end() || ! it->second.beginMakeStableFlag) {
+    const char* const          logPrefix = "BMCS: done";
+    MakeChunkStableInfo* const it        = mNonStableChunks.Find(req->chunkId);
+    if (! it || ! it->beginMakeStableFlag) {
         KFS_LOG_STREAM_DEBUG << logPrefix <<
             " <" << req->fid << "," << req->chunkId << ">"
             " " << req->Show() <<
             " ignored: " <<
-            (it == mNonStableChunks.end() ?
-                "not in progress" : "MCS in progress") <<
+            (it ? "MCS in progress" : "not in progress") <<
         KFS_LOG_EOM;
         return;
     }
-    MakeChunkStableInfo& info = it->second;
+    MakeChunkStableInfo& info = *it;
     KFS_LOG_STREAM_DEBUG << logPrefix <<
         " <" << req->fid << "," << req->chunkId << ">"
         " name: "     << info.pathname <<
@@ -7500,7 +7497,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             " <" << req->fid << "," << req->chunkId  << ">"
             " no such chunk, cleaning up" <<
         KFS_LOG_EOM;
-        DeleteNonStableEntry(it, -EINVAL, "no such chunk");
+        DeleteNonStableEntry(req->chunkId, it, -EINVAL, "no such chunk");
         mPendingMakeStable.Erase(req->chunkId);
         return;
     }
@@ -7557,7 +7554,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             KFS_LOG_EOM;
         }
         // Try again later.
-        DeleteNonStableEntry(it, -EAGAIN, "no servers");
+        DeleteNonStableEntry(req->chunkId, it, -EAGAIN, "no servers");
         UpdateReplicationState(*ci);
         return;
     }
@@ -7571,10 +7568,9 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
 void
 LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
 {
-    const char* const                  logPrefix = "LMCS: done";
-    NonStableChunksMap::iterator const it        =
-        mNonStableChunks.find(req->chunkId);
-    if (it == mNonStableChunks.end()) {
+    const char* const          logPrefix = "LMCS: done";
+    MakeChunkStableInfo* const it        = mNonStableChunks.Find(req->chunkId);
+    if (! it) {
         KFS_LOG_STREAM_DEBUG << logPrefix <<
             " <" << req->fid << "," << req->chunkId  << ">"
             " " << req->Show() <<
@@ -7584,17 +7580,17 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
         ChangeChunkReplication(req->chunkId);
         return;
     }
-    if (! it->second.logMakeChunkStableFlag) {
+    if (! it->logMakeChunkStableFlag) {
         KFS_LOG_STREAM_ERROR << logPrefix <<
             " <" << req->fid << "," << req->chunkId  << ">"
             " " << req->Show() <<
             " ignored: " <<
-                (it->second.beginMakeStableFlag ? "B" : "") <<
+                (it->beginMakeStableFlag ? "B" : "") <<
                 "MCS in progress" <<
         KFS_LOG_EOM;
         return;
     }
-    MakeChunkStableInfo& info = it->second;
+    MakeChunkStableInfo& info = *it;
     CSMap::Entry* const  ci   = mChunkToServerMap.Find(req->chunkId);
     if (! ci || ! mChunkToServerMap.HasServers(*ci)) {
         KFS_LOG_STREAM_INFO << logPrefix <<
@@ -7613,7 +7609,7 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
             mPendingMakeStable.Erase(req->chunkId);
         }
         DeleteNonStableEntry(
-            it,
+            req->chunkId, it,
             ci ? -EINVAL         : -EAGAIN,
             ci ? "no such chunk" : "no replicas available"
         );
@@ -7662,13 +7658,13 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
 void
 LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
 {
-    const char* const                  logPrefix       = "MCS: done";
-    string                             pathname;
-    CSMap::Entry*                      pinfo           = 0;
-    bool                               updateSizeFlag  = false;
-    bool                               updateMTimeFlag = false;
-    NonStableChunksMap::iterator const it              =
-        mNonStableChunks.find(req->chunkId);
+    const char* const          logPrefix       = "MCS: done";
+    string                     pathname;
+    CSMap::Entry*              pinfo           = 0;
+    bool                       updateSizeFlag  = false;
+    bool                       updateMTimeFlag = false;
+    MakeChunkStableInfo* const it              =
+        mNonStableChunks.Find(req->chunkId);
     if (req->addPending) {
         // Make chunk stable started in AddNotStableChunk() is now
         // complete. Sever can be added if nothing has changed since
@@ -7680,7 +7676,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         const char*                    res             = 0;
         PendingMakeStableEntry*        msi             = 0;
         ChunkLeases::WriteLease const* li              = 0;
-        if (it != mNonStableChunks.end()) {
+        if (it) {
             res = "not stable again";
         } else {
             msi = mPendingMakeStable.Find(req->chunkId);
@@ -7749,16 +7745,16 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
             return;
         }
     } else {
-        if (it == mNonStableChunks.end() ||
-                it->second.beginMakeStableFlag ||
-                it->second.logMakeChunkStableFlag) {
+        if (! it ||
+                it->beginMakeStableFlag ||
+                it->logMakeChunkStableFlag) {
             KFS_LOG_STREAM_ERROR << "MCS"
                 " " << req->Show() <<
                 " ignored: BMCS in progress" <<
             KFS_LOG_EOM;
             return;
         }
-        MakeChunkStableInfo& info = it->second;
+        MakeChunkStableInfo& info = *it;
         KFS_LOG_STREAM_DEBUG << logPrefix <<
             " <" << req->fid << "," << req->chunkId  << ">"
             " name: "     << info.pathname <<
@@ -7784,7 +7780,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         pathname = info.pathname;
         updateSizeFlag  = ! info.stripedFileFlag;
         updateMTimeFlag = info.updateMTimeFlag;
-        DeleteNonStableEntry(it);
+        DeleteNonStableEntry(req->chunkId, it);
         // "&info" is invalid at this point.
     }
     if (! pinfo) {
@@ -7979,12 +7975,13 @@ LayoutManager::ReplayPendingMakeStable(
 
 void
 LayoutManager::DeleteNonStableEntry(
-    NonStableChunksMap::iterator it,
-    int                          status    /* = 0 */,
-    const char*                  statusMsg /* = 0 */)
+    chunkId_t                           chunkId,
+    LayoutManager::MakeChunkStableInfo* it,
+    int                                 status    /* = 0 */,
+    const char*                         statusMsg /* = 0 */)
 {
-    MetaRequest* next = it->second.pendingReqHead;
-    mNonStableChunks.erase(it);
+    MetaRequest* next = it->pendingReqHead;
+    mNonStableChunks.Erase(chunkId);
     // Submit requests in the same order they came in.
     MetaRequest* head = 0;
     while (next) {
@@ -8033,14 +8030,14 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
     if (! it) {
         return;
     }
-    NonStableChunksMap::iterator const nsi = mNonStableChunks.find(chunkId);
-    if (nsi != mNonStableChunks.end()) {
+    MakeChunkStableInfo* const nsi = mNonStableChunks.Find(chunkId);
+    if (nsi) {
         KFS_LOG_STREAM_ERROR <<
             "delete pending MCS:"
             " <" << fid << "," << chunkId << ">" <<
             " attempt to delete while " <<
-            (nsi->second.beginMakeStableFlag ? "B" :
-                (nsi->second.logMakeChunkStableFlag ? "L" : "")) <<
+            (nsi->beginMakeStableFlag ? "B" :
+                (nsi->logMakeChunkStableFlag ? "L" : "")) <<
             "MCS is in progress denied" <<
         KFS_LOG_EOM;
         return;
@@ -8056,7 +8053,7 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
             it->mChecksum, chunkId
         );
     mPendingMakeStable.Erase(chunkId);
-    mPendingBeginMakeStable.erase(chunkId);
+    mPendingBeginMakeStable.Erase(chunkId);
     KFS_LOG_STREAM_DEBUG <<
         "delete pending MCS:"
         " <" << fid << "," << chunkId << ">" <<
@@ -8143,7 +8140,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
 bool
 LayoutManager::IsChunkStable(chunkId_t chunkId)
 {
-    return (mNonStableChunks.find(chunkId) == mNonStableChunks.end());
+    return (! mNonStableChunks.Find(chunkId));
 }
 
 int
@@ -9007,7 +9004,7 @@ struct EvacuateChunkChecker
 void
 LayoutManager::ChunkReplicationChecker()
 {
-    if (! mPendingBeginMakeStable.empty() && ! InRecoveryPeriod()) {
+    if (! mPendingBeginMakeStable.IsEmpty() && ! InRecoveryPeriod()) {
         ProcessPendingBeginMakeStable();
     }
     const bool    recoveryFlag  = InRecovery();

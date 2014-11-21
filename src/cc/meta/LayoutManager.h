@@ -514,61 +514,6 @@ private:
         const ChunkLeases&);
 };
 
-// Chunks are made stable by a message from the metaserver ->
-// chunkservers.  To prevent clients from seeing non-stable chunks, the
-// metaserver delays issuing a read lease to a client if there is a make
-// stable message in-flight.  Whenever the metaserver receives acks for
-// the make stable message, it needs to update its state. This structure
-// tracks the # of messages sent out and how many have been ack'ed.
-// When all the messages have been ack'ed the entry for a particular
-// chunk can be cleaned up.
-struct MakeChunkStableInfo
-{
-    MakeChunkStableInfo(
-        int    nServers        = 0,
-        bool   beginMakeStable = false,
-        string name        = string(),
-        seq_t  cvers           = -1,
-        bool   stripedFile     = false,
-        bool   updateMTime     = false)
-        : beginMakeStableFlag(beginMakeStable),
-          logMakeChunkStableFlag(false),
-          serverAddedFlag(false),
-          stripedFileFlag(stripedFile),
-          updateMTimeFlag(updateMTime),
-          numServers(nServers),
-          numAckMsg(0),
-          pathname(name),
-          chunkChecksum(0),
-          chunkSize(-1),
-          chunkVersion(cvers),
-          pendingReqHead(0)
-        {}
-    bool         beginMakeStableFlag:1;
-    bool         logMakeChunkStableFlag:1;
-    bool         serverAddedFlag:1;
-    const bool   stripedFileFlag:1;
-    const bool   updateMTimeFlag:1;
-    int          numServers;
-    int          numAckMsg;
-    const string pathname;
-    uint32_t     chunkChecksum;
-    chunkOff_t   chunkSize;
-    seq_t        chunkVersion;
-    MetaRequest* pendingReqHead;
-};
-typedef map <chunkId_t, MakeChunkStableInfo,
-    less<chunkId_t>,
-    StdFastAllocator<
-        pair<const chunkId_t, MakeChunkStableInfo> >
-> NonStableChunksMap;
-
-typedef map <chunkId_t, seq_t,
-    less<chunkId_t>,
-    StdFastAllocator<
-        pair<const chunkId_t, seq_t> >
-> PendingBeginMakeStable;
-
 // "Rack" (failure group) state aggregation for rack aware replica placement.
 class RackInfo
 {
@@ -1058,10 +1003,6 @@ public:
         seq_t      chunkVersion);
     int WritePendingChunkVersionChange(ostream& os) const;
     int WritePendingMakeStable(ostream& os);
-    void DeleteNonStableEntry(
-        NonStableChunksMap::iterator it,
-        int                          status    = 0,
-        const char*                  statusMsg = 0);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
     int GetChunkSizeDone(MetaChunkSize* req);
     bool IsChunkStable(chunkId_t chunkId);
@@ -1806,6 +1747,60 @@ protected:
     /// chunk of the file that we can use for subsequent allocations
     ARAChunkCache mARAChunkCache;
 
+    // Chunks are made stable by a message from the metaserver ->
+    // chunkservers.  To prevent clients from seeing non-stable chunks, the
+    // metaserver delays issuing a read lease to a client if there is a make
+    // stable message in-flight.  Whenever the metaserver receives acks for
+    // the make stable message, it needs to update its state. This structure
+    // tracks the # of messages sent out and how many have been ack'ed.
+    // When all the messages have been ack'ed the entry for a particular
+    // chunk can be cleaned up.
+    struct MakeChunkStableInfo
+    {
+        MakeChunkStableInfo(
+            int    nServers        = 0,
+            bool   beginMakeStable = false,
+            string name        = string(),
+            seq_t  cvers           = -1,
+            bool   stripedFile     = false,
+            bool   updateMTime     = false)
+            : beginMakeStableFlag(beginMakeStable),
+              logMakeChunkStableFlag(false),
+              serverAddedFlag(false),
+              stripedFileFlag(stripedFile),
+              updateMTimeFlag(updateMTime),
+              numServers(nServers),
+              numAckMsg(0),
+              pathname(name),
+              chunkChecksum(0),
+              chunkSize(-1),
+              chunkVersion(cvers),
+              pendingReqHead(0)
+            {}
+        bool         beginMakeStableFlag:1;
+        bool         logMakeChunkStableFlag:1;
+        bool         serverAddedFlag:1;
+        const bool   stripedFileFlag:1;
+        const bool   updateMTimeFlag:1;
+        int          numServers;
+        int          numAckMsg;
+        const string pathname;
+        uint32_t     chunkChecksum;
+        chunkOff_t   chunkSize;
+        seq_t        chunkVersion;
+        MetaRequest* pendingReqHead;
+    };
+    typedef KVPair<chunkId_t, MakeChunkStableInfo> NonStableChunkKVEntry;
+    typedef LinearHash <
+        NonStableChunkKVEntry,
+        KeyCompare<NonStableChunkKVEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<NonStableChunkKVEntry>*,
+            9 // 2^9
+        >,
+        StdFastAllocator<NonStableChunkKVEntry>
+    > NonStableChunks;
+
     /// Set of chunks that are in the process being made stable: a
     /// message has been sent to the associated chunkservers which are
     /// flushing out data to disk.
@@ -1839,7 +1834,19 @@ protected:
         >,
         StdFastAllocator<PendingMakeStableKVEntry>
     > PendingMakeStable;
-    NonStableChunksMap     mNonStableChunks;
+
+    typedef KVPair<chunkId_t, seq_t> PendingBeginMakeStableKVEntry;
+    typedef LinearHash<
+        PendingBeginMakeStableKVEntry,
+        KeyCompare<PendingBeginMakeStableKVEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<PendingBeginMakeStableKVEntry>*,
+            9 // 2^9
+        >,
+        StdFastAllocator<PendingBeginMakeStableKVEntry>
+    > PendingBeginMakeStable;
+
+    NonStableChunks        mNonStableChunks;
     PendingBeginMakeStable mPendingBeginMakeStable;
     PendingMakeStable      mPendingMakeStable;
     /// In memory representation of chunk versions roll back.
@@ -2110,6 +2117,11 @@ protected:
     double          mTiersTotalWritableDrivesMult[kKfsSTierCount];
     int             mTierCandidatesCount[kKfsSTierCount];
 
+    void DeleteNonStableEntry(
+        chunkId_t            chunkId,
+        MakeChunkStableInfo* it,
+        int                  status    = 0,
+        const char*          statusMsg = 0);
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk
     /// if it is currently being written to (i.e., if a write lease
