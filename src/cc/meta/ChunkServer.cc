@@ -308,6 +308,21 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
+inline void
+ChunkServer::HelloDone(MetaHello& /* r */)
+{
+    if (mHelloDone) {
+        return;
+    }
+    mHelloDone         = true;
+    mHeartbeatSent     = true;
+    mLastHeartbeatSent = TimeNow();
+    Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
+            IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
+        2 * sHeartbeatTimeout
+    );
+}
+
 /* static */ KfsCallbackObj*
 ChunkServer::Create(const NetConnectionPtr &conn)
 {
@@ -655,24 +670,11 @@ ChunkServer::HandleRequest(int code, void *data)
 
     case EVENT_CMD_DONE: {
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
-        assert(data && (mHelloDone || op == mAuthenticateOp));
+        assert(data &&
+            (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
         const bool deleteOpFlag = op != mAuthenticateOp;
-        const bool helloOpFlag  = op->op == META_HELLO;
-        if (! mDown && helloOpFlag) {
-            // Re-evaluate hello done status.
-            mHelloDone = static_cast<const MetaHello*>(op)->resumeStep < 0;
-        }
         if (SendResponse(op) && deleteOpFlag) {
             delete op;
-        }
-        if (helloOpFlag && ! mDown && mHelloDone && ! mHeartbeatSent) {
-            mLastHeartbeatSent = mLastHeard;
-            mHeartbeatSent     = true;
-            Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
-                    IsRetiring() ? int64_t(1) :
-                        (int64_t)mChunksToEvacuate.Size()),
-                2 * sHeartbeatTimeout
-            );
         }
         break;
     }
@@ -1420,12 +1422,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         return 0;
     }
     mNetConnection->SetMaxReadAhead(kMaxReadAhead);
-    // Hello done.
     mHelloOp->peerName        = GetPeerName();
     mHelloOp->clnt            = this;
     mHelloOp->server          = shared_from_this();
-    mHelloDone                = true;
     mLastHeard                = TimeNow();
+    mLastHeartbeatSent        = mLastHeard;
     mUptime                   = mHelloOp->uptime;
     mNumAppendsWithWid        = mHelloOp->numAppendsWithWid;
     mStaleChunksHexFormatFlag = mHelloOp->staleChunksHexFormatFlag;
@@ -1445,10 +1446,16 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     SetServerLocation(mHelloOp->location);
     mMd5Sum = mHelloOp->md5sum;
-    MetaRequest* const op = mHelloOp;
+    const bool helloDoneFlag = mHelloOp->resumeStep < 0;
+    if (helloDoneFlag) {
+    }
+    MetaHello& op = *mHelloOp;
     mHelloOp = 0;
-    op->authUid = mAuthUid;
-    submit_request(op);
+    op.authUid = mAuthUid;
+    if (op.resumeStep < 0) {
+        HelloDone(op);
+    }
+    submit_request(&op);
     return 0;
 }
 
@@ -2705,7 +2712,14 @@ HibernatedChunkServer::HelloResumeReply(
     ChunkIdQueue&                          staleChunkIds,
     HibernatedChunkServer::ModifiedChunks& modifiedChunks)
 {
-    if ( r.status != 0 || r.resumeStep < 0) {
+    if (! r.server) {
+        panic("invalid hello, null server");
+        return false;
+    }
+    if (r.status != 0 || r.resumeStep < 0) {
+        if (r.status == 0 && r.resumeStep < 0) {
+            r.server->HelloDone(r);
+        }
         return false;
     }
     if (! CanBeResumed()) {
@@ -2748,6 +2762,7 @@ HibernatedChunkServer::HelloResumeReply(
             }
         }
         modifiedChunks.Swap(mModifiedChunks);
+        r.server->HelloDone(r);
         return false;
     }
     r.deletedCount  = 0;
