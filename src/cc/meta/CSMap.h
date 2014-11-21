@@ -121,8 +121,9 @@ public:
         void SetServers(CSMap& map, const Servers& servers) {
             return map.SetServers(servers, *this);
         }
-        bool Add(const CSMap& map, const ChunkServerPtr& server) {
-            return map.AddServer(server, *this);
+        bool Add(const CSMap& map, const ChunkServerPtr& server,
+                size_t* srvCount = 0) {
+            return map.AddServer(server, *this, srvCount);
         }
         bool Remove(const CSMap& map, const ChunkServerPtr& server) {
             return map.RemoveServer(server, *this);
@@ -822,7 +823,8 @@ public:
             AddServer(*it, entry);
         }
     }
-    bool AddServer(const ChunkServerPtr& server, Entry& entry) const {
+    bool AddServer(const ChunkServerPtr& server, Entry& entry,
+            size_t* srvCount = 0) const {
         if (! Validate(server)) {
             return false;
         }
@@ -832,6 +834,9 @@ public:
         ValidateHosted(entry);
         if (! entry.AddIndex(server->GetIndex())) {
             return false;
+        }
+        if (srvCount) {
+            *srvCount = entry.ServerCount();
         }
         AddHosted(server, entry);
         ValidateServers(entry);
@@ -1150,7 +1155,6 @@ public:
 private:
     typedef vector<Entry::AllocIdx>          SlotIndexes;
     typedef vector<HibernatedChunkServerPtr> HibernatedServers;
-    
 
     Map               mMap;
     Servers           mServers;

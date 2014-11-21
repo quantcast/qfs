@@ -569,32 +569,6 @@ typedef map <chunkId_t, seq_t,
         pair<const chunkId_t, seq_t> >
 > PendingBeginMakeStable;
 
-// Pending make stable -- chunks with no replicas at the moment.
-// Persistent across restarts -- serialized onto transaction log and
-// checkpoint. See make stable protocol description in LayoutManager.cc
-struct PendingMakeStableEntry
-{
-    PendingMakeStableEntry(
-        chunkOff_t size        = -1,
-        bool       hasChecksum = false,
-        uint32_t   checksum    = 0,
-        seq_t      version     = -1)
-        : mSize(size),
-          mHasChecksum(hasChecksum),
-          mChecksum(checksum),
-          mChunkVersion(version)
-        {}
-    chunkOff_t mSize;
-    bool       mHasChecksum;
-    uint32_t   mChecksum;
-    seq_t      mChunkVersion;
-};
-typedef map <chunkId_t, PendingMakeStableEntry,
-    less<chunkId_t>,
-    StdFastAllocator<
-        pair<const chunkId_t, PendingMakeStableEntry> >
-> PendingMakeStableMap;
-
 // "Rack" (failure group) state aggregation for rack aware replica placement.
 class RackInfo
 {
@@ -1083,7 +1057,7 @@ public:
         chunkId_t  chunkId,
         seq_t      chunkVersion);
     int WritePendingChunkVersionChange(ostream& os) const;
-    int WritePendingMakeStable(ostream& os) const;
+    int WritePendingMakeStable(ostream& os);
     void DeleteNonStableEntry(
         NonStableChunksMap::iterator it,
         int                          status    = 0,
@@ -1835,9 +1809,39 @@ protected:
     /// Set of chunks that are in the process being made stable: a
     /// message has been sent to the associated chunkservers which are
     /// flushing out data to disk.
+    // Pending make stable -- chunks with no replicas at the moment.
+    // Persistent across restarts -- serialized onto transaction log and
+    // checkpoint. See make stable protocol description in LayoutManager.cc
+    struct PendingMakeStableEntry
+    {
+        PendingMakeStableEntry(
+            chunkOff_t size        = -1,
+            bool       hasChecksum = false,
+            uint32_t   checksum    = 0,
+            seq_t      version     = -1)
+            : mSize(size),
+              mHasChecksum(hasChecksum),
+              mChecksum(checksum),
+              mChunkVersion(version)
+            {}
+        chunkOff_t mSize;
+        bool       mHasChecksum;
+        uint32_t   mChecksum;
+        seq_t      mChunkVersion;
+    };
+    typedef KVPair<chunkId_t, PendingMakeStableEntry> PendingMakeStableKVEntry;
+    typedef LinearHash <
+        PendingMakeStableKVEntry,
+        KeyCompare<PendingMakeStableKVEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<PendingMakeStableKVEntry>*,
+            9 // 2^9
+        >,
+        StdFastAllocator<PendingMakeStableKVEntry>
+    > PendingMakeStable;
     NonStableChunksMap     mNonStableChunks;
     PendingBeginMakeStable mPendingBeginMakeStable;
-    PendingMakeStableMap   mPendingMakeStable;
+    PendingMakeStable      mPendingMakeStable;
     /// In memory representation of chunk versions roll back.
     ChunkVersionRollBack mChunkVersionRollBack;
 
@@ -2188,8 +2192,10 @@ protected:
 
     inline bool IsChunkServerRestartAllowed() const;
     void ScheduleChunkServersRestart();
-    inline bool AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c);
-    inline bool AddHosted(chunkId_t chunkId, CSMap::Entry& entry, const ChunkServerPtr& c);
+    inline bool AddHosted(
+        CSMap::Entry& entry, const ChunkServerPtr& c, size_t* srvCount = 0);
+    inline bool AddHosted(
+        chunkId_t chunkId, CSMap::Entry& entry, const ChunkServerPtr& c);
     bool AddReplica(CSMap::Entry& entry, const ChunkServerPtr& c);
     void CheckChunkReplication(CSMap::Entry& entry);
     inline void UpdateReplicationState(CSMap::Entry& entry);

@@ -1161,7 +1161,8 @@ LayoutManager::UpdatePendingRecovery(CSMap::Entry& ent)
 }
 
 inline bool
-LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c)
+LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c,
+    size_t* srvCount)
 {
     // Schedule replication even if the server went down, let recovery
     // logic decide what to do.
@@ -1172,11 +1173,12 @@ LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c)
     if (c->IsEvacuationScheduled(entry.GetChunkId())) {
         CheckReplication(entry);
     }
-    return mChunkToServerMap.AddServer(c, entry);
+    return mChunkToServerMap.AddServer(c, entry, srvCount);
 }
 
 inline bool
-LayoutManager::AddHosted(chunkId_t chunkId, CSMap::Entry& entry, const ChunkServerPtr& c)
+LayoutManager::AddHosted(
+    chunkId_t chunkId, CSMap::Entry& entry, const ChunkServerPtr& c)
 {
     if (chunkId != entry.GetChunkId()) {
         panic("add hosted chunk id mismatch");
@@ -2714,7 +2716,8 @@ LayoutManager::HasWriteAppendLease(chunkId_t chunkId) const
 bool
 LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
 {
-    const bool res = AddHosted(c, server);
+    size_t     srvCount = 0;
+    const bool res      = AddHosted(c, server, &srvCount);
     if (! res) {
         return res;
     }
@@ -2728,8 +2731,8 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
         server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, "");
     }
     if (! server->IsDown()) {
-        const size_t srvCount = mChunkToServerMap.ServerCount(c);
-        if (fa.numReplicas <= srvCount) {
+        if (fa.numReplicas <= (0 < mChunkToServerMap.GetHibernatedCount() ?
+                mChunkToServerMap.ServerCount(c) : srvCount)) {
             CancelPendingMakeStable(fa.id(), ci.chunkId);
         }
         if (fa.numReplicas != srvCount) {
@@ -3194,15 +3197,15 @@ LayoutManager::AddNotStableChunk(
         return (appendFlag ? "not append lease" : "append lease");
     }
     if ((! wl || wl->relinquishedFlag) && appendFlag) {
-        PendingMakeStableMap::iterator const msi =
-                mPendingMakeStable.find(chunkId);
-        if (msi == mPendingMakeStable.end()) {
+        const PendingMakeStableEntry* const msi =
+            mPendingMakeStable.Find(chunkId);
+        if (! msi) {
             return "no make stable info";
         }
-        if (chunkVersion != msi->second.mChunkVersion) {
+        if (chunkVersion != msi->mChunkVersion) {
             return "pending make stable chunk version mismatch";
         }
-        const bool beginMakeStableFlag = msi->second.mSize < 0;
+        const bool beginMakeStableFlag = msi->mSize < 0;
         if (beginMakeStableFlag) {
             AddHosted(chunkId, pinfo, server);
             if (InRecoveryPeriod() ||
@@ -3232,16 +3235,14 @@ LayoutManager::AddNotStableChunk(
         const bool kPendingAddFlag = true;
         server->MakeChunkStable(
             fileId, chunkId, chunkVersion,
-            msi->second.mSize,
-            msi->second.mHasChecksum,
-            msi->second.mChecksum,
+            msi->mSize,
+            msi->mHasChecksum,
+            msi->mChecksum,
             kPendingAddFlag
         );
         return 0;
     }
-    if (! wl && ! appendFlag &&
-            mPendingMakeStable.find(chunkId) !=
-            mPendingMakeStable.end()) {
+    if (! wl && ! appendFlag && mPendingMakeStable.Find(chunkId)) {
         return "chunk was open for append";
     }
     const seq_t curChunkVersion = pinfo.GetChunkInfo()->chunkVersion;
@@ -3379,7 +3380,8 @@ LayoutManager::Done(MetaChunkVersChange& req)
         req.server->NotifyStaleChunk(req.chunkId);
         return;
     }
-    if (! AddHosted(*cmi, req.server)) {
+    size_t srvCount = 0;
+    if (! AddHosted(*cmi, req.server, &srvCount)) {
         KFS_LOG_STREAM_ERROR << req.Show() <<
             " no such server, or mappings update failed" <<
         KFS_LOG_EOM;
@@ -3403,8 +3405,9 @@ LayoutManager::Done(MetaChunkVersChange& req)
         // Went down in GetChunkSize().
         return;
     }
-    const size_t srvCount = mChunkToServerMap.ServerCount(*cmi);
-    if (fa->numReplicas <= srvCount) {
+    // Cancel pending make stable not counting hibernated servers.
+    if (fa->numReplicas <= (0 < mChunkToServerMap.GetHibernatedCount() ?
+            mChunkToServerMap.ServerCount(*cmi) : srvCount)) {
         CancelPendingMakeStable(fileId, req.chunkId);
     }
     if (fa->numReplicas != srvCount) {
@@ -6351,7 +6354,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
     }
     mARAChunkCache.Invalidate(fid, chunkId);
     mPendingBeginMakeStable.erase(chunkId);
-    mPendingMakeStable.erase(chunkId);
+    mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
     mChunkVersionRollBack.erase(chunkId);
 
@@ -6390,7 +6393,7 @@ LayoutManager::InvalidateAllChunkReplicas(
     ci->RemoveAllServers(mChunkToServerMap);
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
     mPendingBeginMakeStable.erase(chunkId);
-    mPendingMakeStable.erase(chunkId);
+    mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
     mChunkVersionRollBack.erase(chunkId);
     const bool kEvacuateChunkFlag = false;
@@ -7025,10 +7028,11 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             const chunkOff_t kSize            = -1;
             const bool       kHasChecksumFlag = false;
             const uint32_t   kChecksum        = 0;
-            mPendingMakeStable.insert(make_pair(
-                r->chunkId, PendingMakeStableEntry(
-                    kSize, kHasChecksumFlag, kChecksum, r->chunkVersion)
-            ));
+            bool             insertedFlag     = false;
+            mPendingMakeStable.Insert(r->chunkId, PendingMakeStableEntry(
+                    kSize, kHasChecksumFlag, kChecksum, r->chunkVersion),
+                insertedFlag
+            );
         }
         return;
     }
@@ -7264,11 +7268,11 @@ LayoutManager::MakeChunkStableInit(
             // stable.
             // Append allocations are marked as such, and log replay
             // adds begin make stable entries if necessary.
-            pair<PendingMakeStableMap::iterator, bool> const res =
-                mPendingMakeStable.insert(make_pair(
-                    chunkId, PendingMakeStableEntry()));
-            if (res.second) {
-                res.first->second.mChunkVersion = chunkVersion;
+            bool insertedFlag = false;
+            PendingMakeStableEntry* const entry = mPendingMakeStable.Insert(
+                    chunkId, PendingMakeStableEntry(), insertedFlag);
+            if (insertedFlag) {
+                entry->mChunkVersion = chunkVersion;
             }
         }
         // If no servers, MCS with append (checksum and size) still
@@ -7328,31 +7332,29 @@ LayoutManager::MakeChunkStableInit(
             chunkChecksum,
             chunkVersion
         );
-        pair<PendingMakeStableMap::iterator, bool> const res =
-            mPendingMakeStable.insert(make_pair(chunkId, pmse));
-        if (! res.second) {
-            KFS_LOG_STREAM((res.first->second.mSize >= 0 ||
-                    res.first->second.mHasChecksum) ?
+        bool insertedFlag = false;
+        PendingMakeStableEntry* const entry =
+            mPendingMakeStable.Insert(chunkId, pmse, insertedFlag);
+        if (! insertedFlag) {
+            KFS_LOG_STREAM((entry->mSize >= 0 || entry->mHasChecksum) ?
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 logPrefix <<
                 " <" << fid << "," << chunkId << ">"
                 " updating existing pending MCS: " <<
                 " chunkId: "  << chunkId <<
-                " version: "  <<
-                    res.first->second.mChunkVersion <<
+                " version: "  << entry->mChunkVersion <<
                 "=>"          << pmse.mChunkVersion <<
-                " size: "     << res.first->second.mSize <<
+                " size: "     << entry->mSize <<
                 "=>"          << pmse.mSize <<
-                " checksum: " <<
-                    (res.first->second.mHasChecksum ?
-                    int64_t(res.first->second.mChecksum) :
+                " checksum: " << (entry->mHasChecksum ?
+                    int64_t(entry->mChecksum) :
                     int64_t(-1)) <<
                 "=>"          << (pmse.mHasChecksum ?
                     int64_t(pmse.mChecksum) :
                     int64_t(-1)) <<
             KFS_LOG_EOM;
-            res.first->second = pmse;
+            *entry = pmse;
         }
         ret.first->second.logMakeChunkStableFlag = true;
         submit_request(new MetaLogMakeChunkStable(
@@ -7499,7 +7501,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
             " no such chunk, cleaning up" <<
         KFS_LOG_EOM;
         DeleteNonStableEntry(it, -EINVAL, "no such chunk");
-        mPendingMakeStable.erase(req->chunkId);
+        mPendingMakeStable.Erase(req->chunkId);
         return;
     }
     info.beginMakeStableFlag    = false;
@@ -7512,17 +7514,17 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
         info.chunkChecksum,
         req->chunkVersion
     );
-    pair<PendingMakeStableMap::iterator, bool> const res =
-        mPendingMakeStable.insert(make_pair(req->chunkId, pmse));
+    bool insertedFlag = false;
+    PendingMakeStableEntry* const entry =
+        mPendingMakeStable.Insert(req->chunkId, pmse, insertedFlag);
     assert(
-        res.second ||
-        (res.first->second.mSize < 0 &&
-        res.first->second.mChunkVersion == pmse.mChunkVersion)
+        insertedFlag ||
+        (entry->mSize < 0 && entry->mChunkVersion == pmse.mChunkVersion)
     );
-    if (! res.second && pmse.mSize >= 0) {
-        res.first->second = pmse;
+    if (! insertedFlag && pmse.mSize >= 0) {
+        *entry = pmse;
     }
-    if (res.first->second.mSize < 0) {
+    if (entry->mSize < 0) {
         int numUpServers = 0;
         StTmp<Servers> serversTmp(mServers3Tmp);
         Servers&       servers = serversTmp.Get();
@@ -7551,7 +7553,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
                 " internal error:"
                 " up servers: "         << numUpServers <<
                 " invalid chunk size: " <<
-                    res.first->second.mSize <<
+                    entry->mSize <<
             KFS_LOG_EOM;
         }
         // Try again later.
@@ -7608,7 +7610,7 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
             // If chunk was deleted, do not emit mkstabledone log
             // entry. Only ensure that no stale pending make stable
             // entry exists.
-            mPendingMakeStable.erase(req->chunkId);
+            mPendingMakeStable.Erase(req->chunkId);
         }
         DeleteNonStableEntry(
             it,
@@ -7676,31 +7678,28 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         // servers hosting the chunk before declaring chunk stale.
         bool                           notifyStaleFlag = true;
         const char*                    res             = 0;
+        PendingMakeStableEntry*        msi             = 0;
         ChunkLeases::WriteLease const* li              = 0;
-        PendingMakeStableMap::iterator msi;
         if (it != mNonStableChunks.end()) {
             res = "not stable again";
         } else {
-            msi = mPendingMakeStable.find(req->chunkId);
+            msi = mPendingMakeStable.Find(req->chunkId);
         }
         if (res) {
             // Has already failed.
         } else if (req->chunkSize >= 0 || req->hasChunkChecksum) {
-            if (msi == mPendingMakeStable.end()) {
+            if (! msi) {
                 // Chunk went away, or already sufficiently
                 // replicated.
                 res = "no pending make stable info";
-            } else if (msi->second.mChunkVersion !=
-                        req->chunkVersion ||
-                    msi->second.mSize != req->chunkSize ||
-                    msi->second.mHasChecksum !=
-                        req->hasChunkChecksum ||
-                    msi->second.mChecksum !=
-                        req->chunkChecksum) {
+            } else if (msi->mChunkVersion != req->chunkVersion ||
+                    msi->mSize            != req->chunkSize ||
+                    msi->mHasChecksum     != req->hasChunkChecksum ||
+                    msi->mChecksum        != req->chunkChecksum) {
                 // Stale request.
                 res = "pending make stable info has changed";
             }
-        } else if (msi != mPendingMakeStable.end()) {
+        } else if (msi) {
             res = "pending make stable info now exists";
         }
         if (req->server->IsDown()) {
@@ -7910,70 +7909,65 @@ LayoutManager::ReplayPendingMakeStable(
             chunkChecksum,
             chunkVersion
         );
-        pair<PendingMakeStableMap::iterator, bool> const res =
-            mPendingMakeStable.insert(make_pair(chunkId, entry));
-        if (! res.second) {
-            KFS_LOG_STREAM((res.first->second.mHasChecksum ||
-                    res.first->second.mSize >= 0) ?
+        bool insertedFlag = false;
+        PendingMakeStableEntry* const res =
+            mPendingMakeStable.Insert(chunkId, entry, insertedFlag);
+        if (! insertedFlag) {
+            KFS_LOG_STREAM((res->mHasChecksum || res->mSize >= 0) ?
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS add:" <<
                 " update:"
                 " chunkId: "  << chunkId <<
-                " version: "  <<
-                    res.first->second.mChunkVersion <<
+                " version: "  << res->mChunkVersion <<
                 "=>"          << entry.mChunkVersion <<
-                " size: "     << res.first->second.mSize <<
+                " size: "     << res->mSize <<
                 "=>"          << entry.mSize <<
-                " checksum: " <<
-                    (res.first->second.mHasChecksum ?
-                    int64_t(res.first->second.mChecksum) :
+                " checksum: " << (res->mHasChecksum ?
+                    int64_t(res->mChecksum) :
                     int64_t(-1)) <<
                 "=>"          << (entry.mHasChecksum ?
                     int64_t(entry.mChecksum) :
                     int64_t(-1)) <<
             KFS_LOG_EOM;
-            res.first->second = entry;
+            *res = entry;
         }
     } else {
-        PendingMakeStableMap::iterator const it =
-            mPendingMakeStable.find(chunkId);
-        if (it == mPendingMakeStable.end()) {
+        PendingMakeStableEntry* const it = mPendingMakeStable.Find(chunkId);
+        if (! it) {
             res      = "no such entry";
             logLevel = MsgLogger::kLogLevelERROR;
         } else {
             const bool warn =
-                it->second.mChunkVersion != chunkVersion ||
-                (it->second.mSize >= 0 && (
-                    it->second.mSize != chunkSize ||
-                    it->second.mHasChecksum !=
-                        hasChunkChecksum ||
-                    (hasChunkChecksum &&
-                    it->second.mChecksum != chunkChecksum
-                )));
+                it->mChunkVersion != chunkVersion ||
+                (it->mSize >= 0 && (
+                    it->mSize != chunkSize ||
+                    it->mHasChecksum != hasChunkChecksum ||
+                    (hasChunkChecksum && it->mChecksum != chunkChecksum)
+                ));
             KFS_LOG_STREAM(warn ?
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS remove:"
                 " chunkId: "  << chunkId <<
-                " version: "  << it->second.mChunkVersion <<
+                " version: "  << it->mChunkVersion <<
                 "=>"          << chunkVersion <<
-                " size: "     << it->second.mSize <<
+                " size: "     << it->mSize <<
                 "=>"          << chunkSize <<
-                " checksum: " << (it->second.mHasChecksum ?
-                    int64_t(it->second.mChecksum) :
+                " checksum: " << (it->mHasChecksum ?
+                    int64_t(it->mChecksum) :
                     int64_t(-1)) <<
                 "=>"          << (hasChunkChecksum ?
                     int64_t(chunkChecksum) : int64_t(-1)) <<
             KFS_LOG_EOM;
-            mPendingMakeStable.erase(it);
+            mPendingMakeStable.Erase(chunkId);
         }
     }
     KFS_LOG_STREAM(logLevel) <<
         "replay MCS: " <<
         (addFlag ? "add" : "remove") <<
         " "           << (res ? res : "ok") <<
-        " total: "    << mPendingMakeStable.size() <<
+        " total: "    << mPendingMakeStable.GetSize() <<
         " chunkId: "  << chunkId <<
         " version: "  << chunkVersion <<
         " cur vers: " << curChunkVersion <<
@@ -8014,20 +8008,19 @@ LayoutManager::DeleteNonStableEntry(
 }
 
 int
-LayoutManager::WritePendingMakeStable(ostream& os) const
+LayoutManager::WritePendingMakeStable(ostream& os)
 {
     // Write all entries in restore_makestable() format.
-    for (PendingMakeStableMap::const_iterator it =
-                mPendingMakeStable.begin();
-            it != mPendingMakeStable.end() && os;
-            ++it) {
+    const PendingMakeStableKVEntry* it;
+    mPendingMakeStable.First();
+    while ((it = mPendingMakeStable.Next()) && os) {
         os <<
             "mkstable"
-            "/chunkId/"      << it->first <<
-            "/chunkVersion/" << it->second.mChunkVersion  <<
-            "/size/"         << it->second.mSize <<
-            "/checksum/"     << it->second.mChecksum <<
-            "/hasChecksum/"  << (it->second.mHasChecksum ? 1 : 0) <<
+            "/chunkId/"      << it->GetKey() <<
+            "/chunkVersion/" << it->GetVal().mChunkVersion  <<
+            "/size/"         << it->GetVal().mSize <<
+            "/checksum/"     << it->GetVal().mChecksum <<
+            "/hasChecksum/"  << (it->GetVal().mHasChecksum ? 1 : 0) <<
         "\n";
     }
     return (os ? 0 : -EIO);
@@ -8036,8 +8029,8 @@ LayoutManager::WritePendingMakeStable(ostream& os) const
 void
 LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
 {
-    PendingMakeStableMap::iterator const it = mPendingMakeStable.find(chunkId);
-    if (it == mPendingMakeStable.end()) {
+    PendingMakeStableEntry* const it = mPendingMakeStable.Find(chunkId);
+    if (! it) {
         return;
     }
     NonStableChunksMap::iterator const nsi = mNonStableChunks.find(chunkId);
@@ -8056,18 +8049,18 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
     // Do not write if begin make stable wasn't started before the
     // chunk got deleted.
     MetaLogMakeChunkStableDone* const op =
-        (it->second.mSize < 0 || it->second.mChunkVersion < 0) ? 0 :
+        (it->mSize < 0 || it->mChunkVersion < 0) ? 0 :
         new MetaLogMakeChunkStableDone(
-            fid, chunkId, it->second.mChunkVersion,
-            it->second.mSize, it->second.mHasChecksum,
-            it->second.mChecksum, chunkId
+            fid, chunkId, it->mChunkVersion,
+            it->mSize, it->mHasChecksum,
+            it->mChecksum, chunkId
         );
-    mPendingMakeStable.erase(it);
+    mPendingMakeStable.Erase(chunkId);
     mPendingBeginMakeStable.erase(chunkId);
     KFS_LOG_STREAM_DEBUG <<
         "delete pending MCS:"
         " <" << fid << "," << chunkId << ">" <<
-        " total: " << mPendingMakeStable.size() <<
+        " total: " << mPendingMakeStable.GetSize() <<
         " " << MetaRequest::ShowReq(op) <<
     KFS_LOG_EOM;
     if (op) {
