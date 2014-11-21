@@ -609,15 +609,6 @@ private:
     StorageTierInfo mStorageTierInfo[kKfsSTierCount];
 };
 
-typedef map<
-    chunkId_t,
-    seq_t,
-    less<chunkId_t>,
-    StdFastAllocator<
-        pair<const chunkId_t, seq_t>
-    >
-> ChunkVersionRollBack;
-
 //
 // For maintenance reasons, we'd like to schedule downtime for a server.
 // When the server is taken down, a promise is made---the server will go
@@ -1001,7 +992,7 @@ public:
         fid_t      fid,
         chunkId_t  chunkId,
         seq_t      chunkVersion);
-    int WritePendingChunkVersionChange(ostream& os) const;
+    int WritePendingChunkVersionChange(ostream& os);
     int WritePendingMakeStable(ostream& os);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
     int GetChunkSizeDone(MetaChunkSize* req);
@@ -1849,7 +1840,18 @@ protected:
     NonStableChunks        mNonStableChunks;
     PendingBeginMakeStable mPendingBeginMakeStable;
     PendingMakeStable      mPendingMakeStable;
+
     /// In memory representation of chunk versions roll back.
+    typedef KVPair<chunkId_t, seq_t> ChunkVersionRollBackEntry;
+    typedef LinearHash<
+        ChunkVersionRollBackEntry,
+        KeyCompare<ChunkVersionRollBackEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<ChunkVersionRollBackEntry>*,
+            9 // 2^9
+        >,
+        StdFastAllocator<ChunkVersionRollBackEntry>
+    > ChunkVersionRollBack;
     ChunkVersionRollBack mChunkVersionRollBack;
 
     /// Counters to track chunk replications

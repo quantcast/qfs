@@ -1217,20 +1217,19 @@ LayoutManager::CheckReplication(CSMap::Entry& entry)
 inline seq_t
 LayoutManager::GetChunkVersionRollBack(chunkId_t chunkId)
 {
-    ChunkVersionRollBack::iterator const it =
-        mChunkVersionRollBack.find(chunkId);
-    if (it != mChunkVersionRollBack.end()) {
-        if (it->second <= 0) {
+    seq_t* const it = mChunkVersionRollBack.Find(chunkId);
+    if (it) {
+        if (*it <= 0) {
             ostringstream os;
             os <<
             "invalid chunk roll back entry:"
-            " chunk: "             << it->first <<
-            " version increment: " << it->second;
+            " chunk: "             << chunkId <<
+            " version increment: " << *it;
             const string msg = os.str();
             panic(msg.c_str());
-            mChunkVersionRollBack.erase(it);
+            mChunkVersionRollBack.Erase(chunkId);
         } else {
-            return it->second;
+            return *it;
         }
     }
     return 0;
@@ -1239,20 +1238,20 @@ LayoutManager::GetChunkVersionRollBack(chunkId_t chunkId)
 inline seq_t
 LayoutManager::IncrementChunkVersionRollBack(chunkId_t chunkId)
 {
-    pair<ChunkVersionRollBack::iterator, bool> const res =
-        mChunkVersionRollBack.insert(make_pair(chunkId, 0));
-    if (! res.second && res.first->second <= 0) {
+    bool insertedFlag = false;
+    seq_t* const res = mChunkVersionRollBack.Insert(chunkId, 0, insertedFlag);
+    if (! insertedFlag && *res <= 0) {
         ostringstream os;
         os <<
         "invalid chunk roll back entry:"
-        " chunk: "             << res.first->first <<
-        " version increment: " << res.first->second;
+        " chunk: "             << chunkId <<
+        " version increment: " << *res;
         const string msg = os.str();
         panic(msg.c_str());
-        res.first->second = 0;
+        *res = 0;
     }
-    ++(res.first->second);
-    return res.first->second;
+    ++(*res);
+    return *res;
 }
 
 int64_t
@@ -5163,7 +5162,12 @@ LayoutManager::ReplayBeginChangeChunkVersion(
         err = "invalid version transition";
     }
     if (! err) {
-        mChunkVersionRollBack[chunkId] = chunkVersion - vers;
+        bool insertedFlag = false;
+        seq_t* const res = mChunkVersionRollBack.Insert(
+            chunkId, chunkVersion - vers, insertedFlag);
+        if (! insertedFlag) {
+            *res = chunkVersion - vers;
+        }
     }
     KFS_LOG_STREAM(err ?
         MsgLogger::kLogLevelWARN :
@@ -5178,35 +5182,34 @@ LayoutManager::ReplayBeginChangeChunkVersion(
 }
 
 int
-LayoutManager::WritePendingChunkVersionChange(ostream& os) const
+LayoutManager::WritePendingChunkVersionChange(ostream& os)
 {
-    for (ChunkVersionRollBack::const_iterator
-            it = mChunkVersionRollBack.begin();
-            it != mChunkVersionRollBack.end() && os;
-            ++it) {
-        if (it->second <= 0) {
+    const ChunkVersionRollBackEntry* it;
+    mChunkVersionRollBack.First();
+    while ((it = mChunkVersionRollBack.Next()) && os) {
+        if (it->GetVal() <= 0) {
             KFS_LOG_STREAM_ERROR <<
                 "version change invalid chunk roll back entry:"
-                " chunk: "             << it->first <<
-                " version increment: " << it->second <<
+                " chunk: "             << it->GetKey() <<
+                " version increment: " << it->GetVal() <<
             KFS_LOG_EOM;
             continue;
         }
-        const CSMap::Entry* const ci = mChunkToServerMap.Find(it->first);
+        const CSMap::Entry* const ci = mChunkToServerMap.Find(it->GetKey());
         if (! ci) {
             // Stale mapping.
             KFS_LOG_STREAM_ERROR <<
                 "version change failed to get chunk mapping:"
-                " chunk: "             << it->first <<
-                " version increment: " << it->second <<
+                " chunk: "             << it->GetKey() <<
+                " version increment: " << it->GetVal() <<
             KFS_LOG_EOM;
             continue;
         }
         const seq_t vers = ci->GetChunkInfo()->chunkVersion;
         os << "beginchunkversionchange"
             "/file/"         << ci->GetFileId() <<
-            "/chunkId/"      << it->first <<
-            "/chunkVersion/" << (vers + it->second) <<
+            "/chunkId/"      << it->GetKey() <<
+            "/chunkVersion/" << (vers + it->GetVal()) <<
         "\n";
     }
     return (os ? 0 : -EIO);
@@ -6355,7 +6358,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
     mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
-    mChunkVersionRollBack.erase(chunkId);
+    mChunkVersionRollBack.Erase(chunkId);
 
     // submit an RPC request
     for_each(cs.begin(), cs.end(),
@@ -6394,7 +6397,7 @@ LayoutManager::InvalidateAllChunkReplicas(
     mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(chunkId);
-    mChunkVersionRollBack.erase(chunkId);
+    mChunkVersionRollBack.Erase(chunkId);
     const bool kEvacuateChunkFlag = false;
     for_each(c.begin(), c.end(), bind(&ChunkServer::NotifyStaleChunk,
         _1, chunkId, kEvacuateChunkFlag));
@@ -6418,7 +6421,7 @@ LayoutManager::AddChunkToServerMapping(MetaFattr* fattr,
     }
     // Chunk allocation log or checkpoint entry resets chunk version roll
     // back.
-    mChunkVersionRollBack.erase(chunkId);
+    mChunkVersionRollBack.Erase(chunkId);
     return ret->GetChunkInfo();
 }
 
@@ -6975,7 +6978,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         }
         // AddChunkToServerMapping() should delete version roll back for
         // new chunks.
-        if (mChunkVersionRollBack.erase(r->chunkId) > 0 &&
+        if (mChunkVersionRollBack.Erase(r->chunkId) > 0 &&
                 r->initialChunkVersion < 0) {
             panic("chunk version roll back still exists");
             r->statusMsg = "internal error:"
@@ -7041,7 +7044,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     if (! mChunkLeases.DeleteWriteLease(r->chunkId, r->leaseId)) {
         if (! mChunkToServerMap.Find(r->chunkId)) {
             // Chunk does not exist, deleted.
-            mChunkVersionRollBack.erase(r->chunkId);
+            mChunkVersionRollBack.Erase(r->chunkId);
             for_each(r->servers.begin(), r->servers.end(),
                 bind(&ChunkServer::DeleteChunk, _1, r->chunkId));
             return;
@@ -7056,7 +7059,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     }
     CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
     if (! ci) {
-        mChunkVersionRollBack.erase(r->chunkId);
+        mChunkVersionRollBack.Erase(r->chunkId);
         for_each(r->servers.begin(), r->servers.end(),
             bind(&ChunkServer::DeleteChunk, _1, r->chunkId));
         return;
