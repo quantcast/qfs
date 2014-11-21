@@ -4291,12 +4291,12 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
 
     // check if this server was sent to hibernation
     HibernatedServerInfos::iterator it;
-    HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, &it);
+    HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, &it);
     bool isHibernating = hs != 0;
     if (isHibernating) {
-        HibernatingServerInfo_t& hsi               = *hs;
-        const bool               wasHibernatedFlag = hsi.IsHibernated();
-        const size_t             prevIdx           = hsi.csmapIdx;
+        HibernatingServerInfo& hsi               = *hs;
+        const bool             wasHibernatedFlag = hsi.IsHibernated();
+        const size_t           prevIdx           = hsi.csmapIdx;
         if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx,
                 mLastResumeModifiedChunk)) {
             mLastResumeModifiedChunk = -1;
@@ -4354,7 +4354,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
                 panic("failed to initiate hibernation");
             }
             mLastResumeModifiedChunk = -1;
-            mHibernatingServers.insert(it, HibernatingServerInfo_t(
+            mHibernatingServers.insert(it, HibernatingServerInfo(
                 loc, TimeNow() + replicationDelay, idx));
             isHibernating = true;
         }
@@ -4394,13 +4394,13 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     ScheduleCleanup();
 }
 
-HibernatingServerInfo_t*
+LayoutManager::HibernatingServerInfo*
 LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
-    HibernatedServerInfos::iterator* outIt)
+    LayoutManager::HibernatedServerInfos::iterator* outIt)
 {
     HibernatedServerInfos::iterator const it = lower_bound(
         mHibernatingServers.begin(), mHibernatingServers.end(),
-        loc, bind(&HibernatingServerInfo_t::location, _1) < loc
+        loc, bind(&HibernatingServerInfo::location, _1) < loc
     );
     if (outIt) {
         *outIt = it;
@@ -4411,9 +4411,9 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
 
 HibernatedChunkServer*
 LayoutManager::FindHibernatingCS(const ServerLocation& loc,
-    HibernatedServerInfos::iterator* outIt)
+    LayoutManager::HibernatedServerInfos::iterator* outIt)
 {
-    const HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, outIt);
+    const HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, outIt);
     if (! hs || ! hs->IsHibernated()) {
         return 0;
     }
@@ -4432,7 +4432,7 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
     if (si == mChunkServers.end() || (*si)->IsDown()) {
         // Update down time, and let hibernation status check to
         // take appropriate action.
-        HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc);
+        HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc);
         if (hs) {
             hs->sleepEndTime = TimeNow() + max(0, downtime);
             return 0;
@@ -4457,11 +4457,11 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
     server->SetRetiring();
     if (0 < downtime) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo_t* const hs = FindHibernatingCSInfo(loc, &it);
+        HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, &it);
         if (hs) {
             hs->sleepEndTime = TimeNow() + downtime;
         } else {
-            mHibernatingServers.insert(it, HibernatingServerInfo_t(
+            mHibernatingServers.insert(it, HibernatingServerInfo(
                 loc, TimeNow() + downtime));
         }
         KFS_LOG_STREAM_INFO << "hibernating server: " << loc <<

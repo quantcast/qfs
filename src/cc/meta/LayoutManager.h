@@ -335,7 +335,7 @@ private:
             n = &c;
         }
     }
-    typedef LinearHash <
+    typedef LinearHash<
         RLEntry,
         KeyCompare<RLEntry::Key>,
         StBufferT<SingleLinkedList<RLEntry>*, 4>,
@@ -608,39 +608,6 @@ private:
     int             mTierCandidateCount[kKfsSTierCount];
     StorageTierInfo mStorageTierInfo[kKfsSTierCount];
 };
-
-//
-// For maintenance reasons, we'd like to schedule downtime for a server.
-// When the server is taken down, a promise is made---the server will go
-// down now and come back up by a specified time. During this window, we
-// are willing to tolerate reduced # of copies for a block.  Now, if the
-// server doesn't come up by the promised time, the metaserver will
-// initiate re-replication of blocks on that node.  This ability allows
-// us to schedule downtime on a node without having to incur the
-// overhead of re-replication.
-//
-struct HibernatingServerInfo_t
-{
-    HibernatingServerInfo_t(
-            const ServerLocation& loc     = ServerLocation(),
-            time_t                endTime = time_t(),
-            size_t                idx     = ~size_t(0))
-        : location(loc),
-          sleepEndTime(size_t(0)),
-          csmapIdx(idx)
-          {}
-    bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
-    // the server we put in hibernation
-    ServerLocation location;
-    // when is it likely to wake up
-    time_t         sleepEndTime;
-    // CSMap server index to remove hibernated server.
-    size_t         csmapIdx;
-};
-typedef vector<
-    HibernatingServerInfo_t,
-    StdAllocator<HibernatingServerInfo_t>
-> HibernatedServerInfos;
 
 // Atomic record append (write append) chunk allocation cache.
 // The cache includes completed and in-flight chunk allocation requests.
@@ -1710,6 +1677,38 @@ protected:
     /// List of connected chunk servers.
     Servers mChunkServers;
 
+    //
+    // For maintenance reasons, we'd like to schedule downtime for a server.
+    // When the server is taken down, a promise is made---the server will go
+    // down now and come back up by a specified time. During this window, we
+    // are willing to tolerate reduced # of copies for a block.  Now, if the
+    // server doesn't come up by the promised time, the metaserver will
+    // initiate re-replication of blocks on that node.  This ability allows
+    // us to schedule downtime on a node without having to incur the
+    // overhead of re-replication.
+    //
+    struct HibernatingServerInfo
+    {
+        HibernatingServerInfo(
+                const ServerLocation& loc     = ServerLocation(),
+                time_t                endTime = time_t(),
+                size_t                idx     = ~size_t(0))
+            : location(loc),
+              sleepEndTime(size_t(0)),
+              csmapIdx(idx)
+              {}
+        bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
+        // the server we put in hibernation
+        ServerLocation location;
+        // when is it likely to wake up
+        time_t         sleepEndTime;
+        // CSMap server index to remove hibernated server.
+        size_t         csmapIdx;
+    };
+    typedef vector<
+        HibernatingServerInfo,
+        StdAllocator<HibernatingServerInfo>
+    > HibernatedServerInfos;
     /// List of servers that are hibernating; if they don't wake up
     /// the time the hibernation period ends, the blocks on those
     /// nodes needs to be re-replicated.  This provides us the ability
@@ -2239,7 +2238,7 @@ protected:
         bool*                   incompleteChunkBlockWriteHasLeaseFlag,
         vector<MetaChunkInfo*>& cblk,
         int*                    outGoodCnt = 0) const;
-    HibernatingServerInfo_t* FindHibernatingCSInfo(const ServerLocation& loc,
+    HibernatingServerInfo* FindHibernatingCSInfo(const ServerLocation& loc,
         HibernatedServerInfos::iterator* outIt = 0);
     HibernatedChunkServer* FindHibernatingCS(const ServerLocation& loc,
         HibernatedServerInfos::iterator* outIt = 0);
