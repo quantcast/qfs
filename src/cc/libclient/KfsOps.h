@@ -741,6 +741,30 @@ public:
         }
         return &entry;
     }
+    const Entry* Get(
+        size_t           i,
+        ServerLocation&  location,
+        kfsChunkId_t     chunkId,
+        CryptoKeys::Key& outKey) const
+    {
+        Access::const_iterator it = mAccess.begin();
+        for (size_t k = 0; it != mAccess.end() && k < i; k++) {
+            ++it;
+        }
+        if (it == mAccess.end()) {
+            return 0;
+        }
+        location.hostname.assign(
+            it->first.first.first.mPtr, it->first.first.first.mLen);
+        location.port = it->first.second;
+        const Entry& entry = it->second;
+        if (! outKey.Parse(
+                entry.chunkServerKey.mPtr,
+                entry.chunkServerKey.mLen)) {
+            return 0;
+        }
+        return &entry;
+    }
     void Clear()
     {
         mAccess.clear();

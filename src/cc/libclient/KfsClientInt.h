@@ -1066,11 +1066,13 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         string&               outAccess,
-        int64_t&              outLeaseId);
+        int64_t&              outLeaseId,
+        ChunkServerAccess*    outAccessPtr = 0);
     chunkOff_t GetChunkSize(
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
-        int64_t               inChunkVersion);
+        int64_t               inChunkVersion,
+        bool*                 inUsedLeaseLocationsFlagPtr = 0);
     void GetLayout(
         GetLayoutOp& inOp);
     int AddChunkLocation(
