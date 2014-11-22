@@ -362,6 +362,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mLastHeartbeatSent(TimeNow()),
       mCanBeChunkMaster(false),
       mIsRetiring(false),
+      mDisconnectReason(),
       mRetireStartTime(0),
       mLastHeard(),
       mChunksToMove(),
@@ -758,10 +759,9 @@ ChunkServer::HandleRequest(int code, void *data)
             ReleasePendingResponses(kSendResponseFlag);
             break;
         }
-        if (! mHelloDone &&
-                mNetConnection && ! mNetConnection->IsWriteReady()) {
-            Error(
-                "hello authentication error, cluster key, or md5sum mismatch");
+        if (mNetConnection && ! mDisconnectReason.empty() &&
+                ! mNetConnection->IsWriteReady()) {
+            Error(mDisconnectReason.c_str());
         }
         // Something went out on the network.
         break;
@@ -1108,6 +1108,9 @@ ChunkServer::DeclareHelloError(
     mNetConnection->GetInBuffer().Clear();
     mNetConnection->SetMaxReadAhead(0);
     mNetConnection->SetInactivityTimeout(sRequestTimeout);
+    if (mDisconnectReason.empty()) {
+        mDisconnectReason = mHelloOp->statusMsg;
+    }
     if (SendResponse(mHelloOp)) {
         delete mHelloOp;
     }
@@ -1120,7 +1123,7 @@ ChunkServer::DeclareHelloError(
 int
 ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
 {
-    assert(!mHelloDone);
+    assert(! mHelloDone);
 
     const bool hasHelloOpFlag = mHelloOp != 0;
     if (! hasHelloOpFlag) {
@@ -1388,9 +1391,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 mHelloOp = 0;
                 return -1;
             }
+        } else {
+            iobuf->Consume(contentLength);
         }
     }
-    if (mHelloOp->status != 0) {
+    if (mHelloOp->status == -EBADCLUSTERKEY) {
         iobuf->Clear();
         if (! mNetConnection) {
             delete mHelloOp;
@@ -1414,10 +1419,12 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             MetaChunkRetire retire(
                 NextSeq(), shared_from_this());
             ChunkServerRequest(retire, mOstream, ioBuf);
+            mDisconnectReason = "retiring chunk server";
         } else {
             MetaChunkServerRestart restart(
                 NextSeq(), shared_from_this());
             ChunkServerRequest(restart, mOstream, ioBuf);
+            mDisconnectReason = "restarting chunk server";
         }
         mOstream.Reset();
         mNetConnection->SetMaxReadAhead(0);
@@ -1446,6 +1453,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     // Emit message to time parse.
     KFS_LOG_STREAM_INFO << GetPeerName() <<
         " submit hello" <<
+        " resume: " << mHelloOp->resumeStep <<
+        " status: " << mHelloOp->status <<
+        " "         << mHelloOp->statusMsg <<
     KFS_LOG_EOM;
     if (mAuthName.empty()) {
         mAuthUid = kKfsUserNone;

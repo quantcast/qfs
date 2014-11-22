@@ -883,6 +883,7 @@ protected:
 
     /// is the server being retired
     bool mIsRetiring;
+    string mDisconnectReason;
     /// when we did we get the retire request
     time_t mRetireStartTime;
 
