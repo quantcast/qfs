@@ -2205,9 +2205,9 @@ LayoutManager::Validate(MetaHello& r)
                 r.bufferBytes = max(r.bufferBytes,
                     (int)(cs->GetChunkListsSize() * kChunkIdReplayBytes));
             } else {
-                r.statusMsg = "resume not possible,"
+                r.statusMsg = "resume not possible"
                     ", no valid hibernated info exists";
-                r.status    = -ENOENT;
+                r.status    = -EAGAIN;
             }
         } else {
             Servers::const_iterator const it = FindServer(r.location);
@@ -2218,10 +2218,10 @@ LayoutManager::Validate(MetaHello& r)
                     r.statusMsg = "up server exists";
                 }
                 r.statusMsg += ", retry resume later";
-                r.status    = -EAGAIN;
+                r.status    = -EEXIST;
             } else {
                 r.statusMsg = "resume not possible, no hibernated info exists";
-                r.status    = -ENOENT;
+                r.status    = -EAGAIN;
             }
         }
     }
@@ -2799,7 +2799,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             FindHibernatingCS(r->location, &it);
         if (! cs) {
             r->statusMsg = "resume not possible, no hibernated info exists";
-            r->status    = -ENOENT;
+            r->status    = -EAGAIN;
             return;
         }
         if (cs->HelloResumeReply(*r, staleChunkIds, modififedChunks)) {

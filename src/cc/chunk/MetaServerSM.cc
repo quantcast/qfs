@@ -719,18 +719,22 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 return false;
             }
             mCounters.mHelloCount++;
-            const bool err =
-                seq != mHelloOp->seq || status != 0 || 0 < mContentLength;
+            const bool err = seq != mHelloOp->seq ||
+                (status != 0 && 0 < mContentLength) ||
+                (mHelloOp->resumeStep != 0 && 0 < mContentLength) ||
+                (mHelloOp->resumeStep < 0 && status != 0) ||
+                (0 <= mHelloOp->resumeStep && (status != 0 && status != -EAGAIN));
             if (err) {
                 KFS_LOG_STREAM_ERROR <<
                     "hello response error:"
                     " seq: "         << seq << " => " << mHelloOp->seq <<
                     " status: "      << status <<
                     " msg: "         << statusMsg <<
+                    " resume: "      << mHelloOp->resumeStep <<
                     " content len: " << mContentLength <<
                 KFS_LOG_EOM;
                 mCounters.mHelloErrorCount++;
-            } else {
+            } else if (status == 0) {
                 mHelloOp->metaFileSystemId =
                     prop.getValue("File-system-id", int64_t(-1));
                 const int64_t deleteAllChunksId =
@@ -745,52 +749,73 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                         mHelloOp->metaFileSystemId,
                         mHelloOp->deleteAllChunksFlag);
                 }
+                mHelloOp->resumeStep =
+                    prop.getValue("Resume", int(-1));
+                if (mHelloOp->resumeStep == 0) {
+                    mHelloOp->deletedCount  =
+                        prop.getValue("Deleted",  int64_t(-1));
+                    mHelloOp->modifiedCount =
+                        prop.getValue("Modified", int64_t(-1));
+                    mHelloOp->chunkCount    =
+                        prop.getValue("Chunks",   int64_t(-1));
+                    mHelloOp->checksum      =
+                        prop.getValue("Checksum", uint64_t(0));
+                    mHelloOp->resumeStep = 1;
+                }
+            } else {
+                mHelloOp->resumeStep = -1;
+                SubmitOp(mHelloOp); // Resumibt hello.
+                return true;
             }
-            HelloMetaOp::LostChunkDirs lostDirs;
-            lostDirs.swap(mHelloOp->lostChunkDirs);
-            mUpdateCurrentKeyFlag = err == 0 && mHelloOp->sendCurrentKeyFlag;
-            if (mUpdateCurrentKeyFlag) {
-                mCurrentKeyId = mHelloOp->currentKeyId;
+            if (err || mHelloOp->resumeStep != 1) {
+                HelloMetaOp::LostChunkDirs lostDirs;
+                lostDirs.swap(mHelloOp->lostChunkDirs);
+                mUpdateCurrentKeyFlag = err == 0 &&
+                    mHelloOp->sendCurrentKeyFlag;
+                if (mUpdateCurrentKeyFlag) {
+                    mCurrentKeyId = mHelloOp->currentKeyId;
+                }
+                delete mHelloOp;
+                mHelloOp = 0;
+                if (err) {
+                    HandleRequest(EVENT_NET_ERROR, 0);
+                    return false;
+                }
+                mConnectedTime = globalNetManager().Now();
+                ResubmitOps();
+                for (HelloMetaOp::LostChunkDirs::const_iterator
+                        it = lostDirs.begin();
+                        it != lostDirs.end();
+                        ++it) {
+                    EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
+                }
+                return true;
             }
-            delete mHelloOp;
-            mHelloOp = 0;
-            if (err) {
+        } else {
+            iter = mDispatchedOps.find(seq);
+            if (iter == mDispatchedOps.end()) {
+                string reply;
+                prop.getList(reply, string(), string(" "));
+                KFS_LOG_STREAM_ERROR << "meta reply:"
+                    " no op found for: " << reply <<
+                KFS_LOG_EOM;
                 HandleRequest(EVENT_NET_ERROR, 0);
                 return false;
             }
-            mConnectedTime = globalNetManager().Now();
-            ResubmitOps();
-            for (HelloMetaOp::LostChunkDirs::const_iterator
-                    it = lostDirs.begin();
-                    it != lostDirs.end();
-                    ++it) {
-                EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
+            op = iter->second;
+            op->status = status;
+            if (status < 0 && op->statusMsg.empty()) {
+                op->statusMsg.swap(statusMsg);
             }
-            return true;
-        }
-        iter = mDispatchedOps.find(seq);
-        if (iter == mDispatchedOps.end()) {
-            string reply;
-            prop.getList(reply, string(), string(" "));
-            KFS_LOG_STREAM_ERROR << "meta reply:"
-                " no op found for: " << reply <<
-            KFS_LOG_EOM;
-            HandleRequest(EVENT_NET_ERROR, 0);
-            return false;
-        }
-        op = iter->second;
-        op->status = status;
-        if (status < 0 && op->statusMsg.empty()) {
-            op->statusMsg.swap(statusMsg);
-        }
-        if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid meta reply response:"
-                " seq: "         << op->seq <<
-                " "              << op->Show() <<
-            KFS_LOG_EOM;
-            HandleRequest(EVENT_NET_ERROR, 0);
-            return false;
+            if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid meta reply response:"
+                    " seq: "         << op->seq <<
+                    " "              << op->Show() <<
+                KFS_LOG_EOM;
+                HandleRequest(EVENT_NET_ERROR, 0);
+                return false;
+            }
         }
     }
     if (0 < mContentLength) {
@@ -810,7 +835,12 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         iobuf.Consume(mContentLength);
         const int len = mContentLength;
         mContentLength = 0;
-        if (! ok) {
+        if (ok) {
+            if (op == mHelloOp) {
+                SubmitOp(mHelloOp); // Resumibt hello.
+                return true;
+           }
+        } else {
             KFS_LOG_STREAM_ERROR <<
                 "invalid meta reply response content:"
                 " seq: "         << op->seq <<

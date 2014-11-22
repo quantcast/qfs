@@ -1233,7 +1233,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return -1;
         }
         if (mHelloOp->fileSystemId <= 0 &&
-                (0 < mHelloOp->numChunks ||
+                (0 <= mHelloOp->resumeStep ||
+                    0 < mHelloOp->numChunks ||
                     0 < mHelloOp->numNotStableAppendChunks ||
                     0 < mHelloOp->numNotStableChunks) &&
                 gLayoutManager.IsFileSystemIdRequired()) {
@@ -1252,6 +1253,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 mHelloOp->numChunks                = 0;
                 mHelloOp->numNotStableAppendChunks = 0;
                 mHelloOp->numNotStableChunks       = 0;
+                mHelloOp->resumeStep               = -1;
             } else {
                 return DeclareHelloError(-EINVAL, "file system id mismatch");
             }
@@ -2725,7 +2727,7 @@ HibernatedChunkServer::HelloResumeReply(
     }
     if (! CanBeResumed()) {
         r.statusMsg = "no valid hibernated server resume state exists";
-        r.status    = -ENOENT;
+        r.status    = -EAGAIN;
         return true;
     }
     if (0 < r.resumeStep) {

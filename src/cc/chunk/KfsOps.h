@@ -2138,6 +2138,11 @@ struct HelloMetaOp : public KfsOp {
     int64_t           metaFileSystemId;
     bool              deleteAllChunksFlag;
     bool              noFidsFlag;
+    int               resumeStep;
+    int64_t           deletedCount;
+    int64_t           modifiedCount;
+    int64_t           chunkCount;
+    CIdChecksum_t     checksum;
 
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
@@ -2157,7 +2162,12 @@ struct HelloMetaOp : public KfsOp {
           fileSystemId(-1),
           metaFileSystemId(-1),
           deleteAllChunksFlag(false),
-          noFidsFlag(false)
+          noFidsFlag(false),
+          resumeStep(-1),
+          deletedCount(0),
+          modifiedCount(0),
+          chunkCount(0),
+          checksum(0)
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);

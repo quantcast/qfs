@@ -3603,6 +3603,18 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
     for (int i = 0; i < kChunkListCount; i++) {
         contentLength += chunkLists[i].ioBuf.BytesConsumable();
     }
+    if (0 <= resumeStep) {
+        os << "Resume: " << resumeStep << "\r\n";
+    }
+    if (1 == resumeStep) {
+        os <<
+            "Deleted: "  << deletedCount  << "\r\n"
+            "Modified: " << modifiedCount << "\r\n"
+            "Chunks: "   << chunkCount    << "\r\n"
+            "Checksum: " << checksum      << "\r\n"
+            "\r\n"
+        ;
+    }
     os << "Content-length: " << contentLength << "\r\n\r\n";
     os.flush();
     // Order matters. The meta server expects the lists to be in this order.
@@ -3676,6 +3688,7 @@ HelloMetaOp::Execute()
     int     evacuateChunks       = 0;
     int64_t evacuateByteCount    = 0;
     totalFsSpace = 0;
+    lostChunkDirs.clear();
     totalSpace = gChunkManager.GetTotalSpace(
         totalFsSpace, chunkDirs, numEvacuateInFlight, numWritableChunkDirs,
         evacuateChunks, evacuateByteCount, 0, 0, &lostChunkDirs);
@@ -3683,6 +3696,8 @@ HelloMetaOp::Execute()
     IOBuffer::WOStream            streams[kChunkListCount];
     ChunkManager::HostedChunkList lists[kChunkListCount];
     for (int i = 0; i < kChunkListCount; i++) {
+        chunkLists[i].count = 0;
+        chunkLists[i].ioBuf.Clear();
         lists[i].first  = &(chunkLists[i].count);
         lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
     }
