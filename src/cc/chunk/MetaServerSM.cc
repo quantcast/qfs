@@ -719,12 +719,16 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 return false;
             }
             mCounters.mHelloCount++;
+            const int resumeStep = status == 0 ?
+                prop.getValue("Resume", int(-1)) : -1;
             const bool err = seq != mHelloOp->seq ||
                 (status != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep < 0 && status != 0) ||
                 (0 <= mHelloOp->resumeStep &&
-                    (status != 0 && status != -EAGAIN));
+                    (status != 0 && status != -EAGAIN)) ||
+                (0 <= mHelloOp->resumeStep &&
+                    resumeStep != mHelloOp->resumeStep);
             if (err) {
                 KFS_LOG_STREAM_ERROR <<
                     "hello response error:"
@@ -732,6 +736,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     " status: "      << status <<
                     " msg: "         << statusMsg <<
                     " resume: "      << mHelloOp->resumeStep <<
+                    " / "            << resumeStep <<
                     " content len: " << mContentLength <<
                 KFS_LOG_EOM;
                 mCounters.mHelloErrorCount++;
@@ -750,8 +755,6 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                         mHelloOp->metaFileSystemId,
                         mHelloOp->deleteAllChunksFlag);
                 }
-                mHelloOp->resumeStep    =
-                    prop.getValue("Resume",       int(-1));
                 mHelloOp->deletedCount  =
                     prop.getValue("Deleted",  uint64_t(0));
                 mHelloOp->modifiedCount =
