@@ -3628,6 +3628,50 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
     }
 }
 
+bool
+HelloMetaOp::ParseResponseContent(istream& is, int len)
+{
+    resumeModified.clear();
+    resumeDeleted.clear();
+    if (status < 0) {
+        return false;
+    }
+    if (len <= 0) {
+        return (deletedCount <= 0 && modifiedCount <= 0);
+    }
+    const uint64_t kMinEntrySize = 2 ;
+    if ((uint64_t)len / kMinEntrySize + (1 << 10) <
+            deletedCount + modifiedCount) {
+        statusMsg = "parse response: invalid chunk counts";
+        statusMsg = -EINVAL;
+        return false;
+    }
+    kfsChunkId_t chunkId = -1;
+    uint64_t     i;
+    resumeDeleted.reserve(deletedCount);
+    for (i = 0; i < deletedCount && (chunkId << is) && 0 <= chunkId; i++) {
+        resumeDeleted.push_back(chunkId);
+    }
+    if (i < deletedCount) {
+        statusMsg = "parse response: invalid deleted count";
+        statusMsg = -EINVAL;
+        resumeDeleted.clear();
+        return false;
+    }
+    resumeModified.reserve(deletedCount);
+    for (i = 0; i < modifiedCount && (chunkId << is) && 0 <= chunkId; i++) {
+        resumeModified.push_back(chunkId);
+    }
+    if (i < modifiedCount) {
+        statusMsg = "parse response: invalid modified count";
+        statusMsg = -EINVAL;
+        resumeDeleted.clear();
+        resumeModified.clear();
+        return false;
+    }
+    return true;
+}
+
 void
 SetProperties::Request(ostream& os)
 {
@@ -3687,6 +3731,7 @@ HelloMetaOp::Execute()
     int     numWritableChunkDirs = 0;
     int     evacuateChunks       = 0;
     int64_t evacuateByteCount    = 0;
+    status = 0;
     totalFsSpace = 0;
     lostChunkDirs.clear();
     totalSpace = gChunkManager.GetTotalSpace(
@@ -3714,7 +3759,6 @@ HelloMetaOp::Execute()
     sendCurrentKeyFlag = sendCurrentKeyFlag &&
         gChunkManager.GetCryptoKeys().GetCurrentKey(currentKeyId, currentKey);
     fileSystemId = gChunkManager.GetFileSystemId();
-    status = 0;
     gLogger.Submit(this);
 }
 

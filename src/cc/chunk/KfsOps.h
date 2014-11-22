@@ -2104,7 +2104,8 @@ struct LeaseRelinquishOp : public KfsOp {
 
 // This is just a helper op for building a hello request to the metaserver.
 struct HelloMetaOp : public KfsOp {
-    typedef vector<string> LostChunkDirs;
+    typedef vector<string>       LostChunkDirs;
+    typedef vector<kfsChunkId_t> ChunkIds;
     struct ChunkList
     {
         int64_t  count;
@@ -2139,10 +2140,12 @@ struct HelloMetaOp : public KfsOp {
     bool              deleteAllChunksFlag;
     bool              noFidsFlag;
     int               resumeStep;
-    int64_t           deletedCount;
-    int64_t           modifiedCount;
-    int64_t           chunkCount;
+    uint64_t          deletedCount;
+    uint64_t          modifiedCount;
+    uint64_t          chunkCount;
     CIdChecksum_t     checksum;
+    ChunkIds          resumeModified;
+    ChunkIds          resumeDeleted;
 
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
@@ -2167,7 +2170,9 @@ struct HelloMetaOp : public KfsOp {
           deletedCount(0),
           modifiedCount(0),
           chunkCount(0),
-          checksum(0)
+          checksum(0),
+          resumeModified(),
+          resumeDeleted()
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);
@@ -2187,9 +2192,11 @@ struct HelloMetaOp : public KfsOp {
             " append: "      << chunkLists[kNotStableAppendChunkList].count <<
             " fsid: "        << fileSystemId <<
             " metafsid: "    << metaFileSystemId <<
-            " delete flag: " << deleteAllChunksFlag
+            " delete flag: " << deleteAllChunksFlag <<
+            " resume: "      << resumeStep
         ;
     }
+    virtual bool ParseResponseContent(istream& is, int len);
 };
 
 struct CorruptChunkOp : public KfsOp {

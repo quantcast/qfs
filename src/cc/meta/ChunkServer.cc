@@ -1261,6 +1261,23 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return DeclareHelloError(-EINVAL, "file system id mismatch");
             }
         }
+        const uint64_t kMinEntrySize = 2;
+        if (mHelloOp->status == 0 && mHelloOp->contentLength + (1 << 10) <
+                kMinEntrySize * (
+                    (uint64_t)max(0, mHelloOp->numChunks) +
+                    (uint64_t)max(0, mHelloOp->numNotStableAppendChunks) +
+                    (uint64_t)max(0, mHelloOp->numNotStableChunks))) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " malformed hello:"
+                " content length: "       << mHelloOp->contentLength <<
+                " invalid chunk counts: " << mHelloOp->numChunks <<
+                " + "                     << mHelloOp->numNotStableAppendChunks <<
+                " + "                     << mHelloOp->numNotStableChunks <<
+            KFS_LOG_EOM;
+            mHelloOp = 0;
+            delete op;
+            return -1;
+        }
         if (mHelloOp->status == 0 &&
                 0 < mHelloOp->bufferBytes &&
                 iobuf->BytesConsumable() < mHelloOp->bufferBytes &&
