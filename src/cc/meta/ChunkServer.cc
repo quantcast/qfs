@@ -309,14 +309,20 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 }
 
 inline void
-ChunkServer::HelloDone(MetaHello& /* r */)
+ChunkServer::HelloDone(MetaHello& r)
 {
+    if (this != &*(r.server) || this != r.clnt) {
+        panic("invalid hello done invocation");
+    }
     if (mHelloDone) {
         return;
     }
     mHelloDone         = true;
     mHeartbeatSent     = true;
     mLastHeartbeatSent = TimeNow();
+    if (mDown) {
+        return;
+    }
     Enqueue(new MetaChunkHeartbeat(NextSeq(), shared_from_this(),
             IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
         2 * sHeartbeatTimeout
@@ -1445,13 +1451,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mAuthUid = MakeAuthUid(*mHelloOp, mAuthName);
     }
     SetServerLocation(mHelloOp->location);
+    mHelloOp->authUid = mAuthUid;
     mMd5Sum = mHelloOp->md5sum;
-    const bool helloDoneFlag = mHelloOp->resumeStep < 0;
-    if (helloDoneFlag) {
-    }
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
-    op.authUid = mAuthUid;
     if (op.resumeStep < 0) {
         HelloDone(op);
     }
@@ -2226,11 +2229,9 @@ ChunkServer::FailDispatchedOps()
     mReqsTimeoutQueue.swap(reqTimeouts);
     mDispatchedReqs.swap(reqs);
     mLastChunksInFlight.Clear();
+    mLastChunksInFlightDelete.Clear();
     // Get all ops out of the in flight global queue first.
-    // Remember all chunk ids that were in flight, for now do not filter
-    // possible duplicate chunk id. Duplicate chunk ids should occur in
-    // extremely rare cases if ever, as meta server logic typically issues
-    // no more than one chunk op per chunk id / chunk server pair.
+    // Remember all chunk ids that were in flight.
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {

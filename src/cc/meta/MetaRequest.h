@@ -2059,7 +2059,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
             const Properties& props)
         : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, false, s, -1),
           serverProps(Properties2Str(props))
-    {}
+        {}
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
