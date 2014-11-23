@@ -2271,7 +2271,7 @@ ChunkServer::FailDispatchedOps()
             ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
             const chunkId_t*            id;
             while ((id = it.Next())) {
-                if (sop.hasAvailChunksSeqFlag) {
+                if (sop.hasAvailChunksSeqFlag || sop.evacuatedFlag) {
                     mLastChunksInFlightDelete.Erase(*id);
                     mLastChunksInFlight.Insert(*id);
                 } else {
