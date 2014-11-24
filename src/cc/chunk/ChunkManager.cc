@@ -1663,6 +1663,7 @@ ChunkManager::ChunkManager()
       mDirCheckFailureSimulatorInterval(-1),
       mChunkSizeSkipHeaderVerifyFlag(false),
       mVersionChangePermitWritesInFlightFlag(true),
+      mMinChunkCountForHelloResume(1 << 10),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -1995,6 +1996,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mVersionChangePermitWritesInFlightFlag = prop.getValue(
         "chunkServer.versionChangePermitWritesInFlight",
         mVersionChangePermitWritesInFlightFlag ? 1 : 0) != 0;
+    mMinChunkCountForHelloResume = prop.getValue(
+        "chunkServer.minChunkCountForHelloResume",
+        mMinChunkCountForHelloResume);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
@@ -4615,7 +4619,7 @@ ChunkManager::Restore()
 }
 
 static inline void
-AppendToHostedList(
+AppendToHostedListSelf(
     const ChunkManager::HostedChunkList& list,
     const ChunkInfo_t&                   chunkInfo,
     kfsSeq_t                             chunkVersion,
@@ -4630,6 +4634,133 @@ AppendToHostedList(
         chunkInfo.chunkId << ' ' <<
         chunkVersion      << ' '
     ;
+}
+
+inline void
+ChunkManager::AppendToHostedList(
+    const ChunkInfoHandle&               cih,
+    const ChunkManager::HostedChunkList& stable,
+    const ChunkManager::HostedChunkList& notStableAppend,
+    const ChunkManager::HostedChunkList& notStable,
+    bool                                 noFidsFlag)
+{
+    if (cih.IsRenameInFlight()) {
+        // Tell meta server the target version. It comes here when the
+        // meta server connection breaks while make stable or version change
+        // is in flight.
+        // Report the target version and status, otherwise meta server might
+        // think that this is stale chunk copy, and delete it.
+        // This creates time gap with the client: the chunk still might be
+        // transitioning when the read comes. In such case the chunk will
+        // not be "readable" and the client will be asked to come back later.
+        bool stableFlag = false;
+        const kfsSeq_t vers = cih.GetTargetStateAndVersion(stableFlag);
+        AppendToHostedListSelf(
+            stableFlag ? stable :
+                (cih.IsWriteAppenderOwns() ?
+                    notStableAppend : notStable),
+                cih.chunkInfo,
+                vers,
+                noFidsFlag
+        );
+    } else {
+        AppendToHostedListSelf(
+            IsChunkStable(&cih) ?
+                stable :
+                (cih.IsWriteAppenderOwns() ?
+                    notStableAppend :
+                    notStable),
+            cih.chunkInfo,
+            cih.chunkInfo.chunkVersion,
+            noFidsFlag
+        );
+    }
+}
+
+void
+ChunkManager::GetHostedChunksResume(
+    HelloMetaOp&                         hello,
+    const ChunkManager::HostedChunkList& stable,
+    const ChunkManager::HostedChunkList& notStableAppend,
+    const ChunkManager::HostedChunkList& notStable,
+    const ChunkManager::HostedChunkList& missing,
+    bool                                 noFidsFlag)
+{
+    mCounters.mHelloResumeCount++;
+    CIdChecksum_t checksum = kCIdNullChecksum;
+    uint64_t      count    = 0;
+    mChunkTable.First();
+    const CMapEntry* p;
+    while ((p = mChunkTable.Next())) {
+        const ChunkInfoHandle* const cih = p->GetVal();
+        if (cih->IsBeingReplicated()) {
+            continue;
+        }
+        checksum = CIdsChecksumAdd(p->GetKey(), checksum);
+        count++;
+    }
+    CIdChecksum_t helloChecksum = hello.checksum;
+    uint64_t      helloCount    = hello.chunkCount;
+    for (int pass = 0; pass < 2; pass++) {
+        const HelloMetaOp::ChunkIds& ids = pass == 0 ?
+            hello.resumeDeleted : hello.resumeModified;
+        for (HelloMetaOp::ChunkIds::const_iterator
+                it = ids.begin(); it != ids.end(); ++it) {
+            if (0 < pass) {
+                helloChecksum = CIdsChecksumRemove(*it, helloChecksum);
+                helloCount--;
+            }
+            ChunkInfoHandle** const cih = mChunkTable.Find(*it);
+            if (! cih || (*cih)->IsBeingReplicated()) {
+                if (0 < pass) {
+                    (*missing.first)++;
+                    (*missing.second) << *it << ' ';
+                }
+                continue;
+            }
+            checksum = CIdsChecksumRemove(*it, checksum);
+            count--;
+            AppendToHostedList(
+                **cih, stable, notStableAppend, notStable, noFidsFlag);
+        }
+    }
+    if (count != helloCount || checksum != helloChecksum) {
+        mCounters.mHelloResumeFailedCount++;
+        KFS_LOG_STREAM_ERROR <<
+            "hello resume failure:"
+            " chunks: "   << count <<
+            " / "         << helloCount <<
+            " / "         << hello.chunkCount <<
+            " checksum: " << checksum <<
+            " / "         << helloChecksum <<
+            " / "         << hello.checksum <<
+            " deleted: "  << hello.resumeDeleted.size() <<
+            " modified: " << hello.resumeModified.size() <<
+        KFS_LOG_EOM;
+        hello.resumeStep         = -1;
+        hello.status             = 0;
+        *(stable.first)          = 0;
+        *(notStableAppend.first) = 0;
+        *(notStable.first)       = 0;
+        *(missing.first)         = 0;
+        return;
+    }
+    KFS_LOG_STREAM_NOTICE <<
+        "hello resume succeeded:"
+        " chunks: "   << count <<
+        " / "         << hello.chunkCount <<
+        " checksum: " << checksum <<
+        " / "         << hello.checksum <<
+        " deleted: "  << hello.resumeDeleted.size() <<
+        " modified: " << hello.resumeModified.size() <<
+    KFS_LOG_EOM;
+    hello.resumeStep = 1;
+}
+
+bool
+ChunkManager::CanBeResumed(HelloMetaOp& /* hello */)
+{
+    return (mMinChunkCountForHelloResume < (int64_t)mChunkTable.GetSize());
 }
 
 void
@@ -4649,37 +4780,8 @@ ChunkManager::GetHostedChunks(
             // on reconnect.
             continue;
         }
-        if (cih->IsRenameInFlight()) {
-            // Tell meta server the target version. It comes here when the
-            // meta server connection breaks while make stable or version change
-            // is in flight.
-            // Report the target version and status, otherwise meta server might
-            // think that this is stale chunk copy, and delete it.
-            // This creates time gap with the client: the chunk still might be
-            // transitioning when the read comes. In such case the chunk will
-            // not be "readable" and the client will be asked to come back later.
-            bool stableFlag = false;
-            const kfsSeq_t vers = cih->GetTargetStateAndVersion(stableFlag);
-            AppendToHostedList(
-                stableFlag ? stable :
-                    (cih->IsWriteAppenderOwns() ?
-                        notStableAppend : notStable),
-                    cih->chunkInfo,
-                    vers,
-                    noFidsFlag
-            );
-        } else {
-            AppendToHostedList(
-                IsChunkStable(cih) ?
-                    stable :
-                    (cih->IsWriteAppenderOwns() ?
-                        notStableAppend :
-                        notStable),
-                cih->chunkInfo,
-                cih->chunkInfo.chunkVersion,
-                noFidsFlag
-            );
-        }
+        AppendToHostedList(
+            *cih, stable, notStableAppend, notStable, noFidsFlag);
     }
 }
 

@@ -434,6 +434,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
       mLastChunksInFlightDelete(),
+      mHelloResumeCount(0),
+      mHelloResumeFailedCount(0),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -1034,7 +1036,8 @@ public:
           mVal(0),
           mPrevSpaceFlag(true),
           mStartFieldIdx(noFidsFlag ? 1 : 0),
-          mFieldIdx(mStartFieldIdx)
+          mFieldIdx(mStartFieldIdx),
+          mIdOnlyFlag(false)
         {}
     const ChunkInfo* Next()
     {
@@ -1049,8 +1052,14 @@ public:
                 }
                 mPrevSpaceFlag = true;
                 switch (mFieldIdx) {
-                    case 0:                         ; break;
-                    case 1: mCur.chunkId      = mVal; break;
+                    case 0: break;
+                    case 1: mCur.chunkId = mVal;
+                        if (mIdOnlyFlag) {
+                            mFieldIdx = 1;
+                            mVal      = 0;
+                            return &mCur;
+                        }
+                        break;
                     case 2: mCur.chunkVersion = mVal;
                         mFieldIdx = mStartFieldIdx;
                         mVal      = 0;
@@ -1077,14 +1086,21 @@ public:
         }
         return 0;
     }
-    bool IsError() const { return (mFieldIdx != 0); }
+    void SetIdOnly(bool flag)
+    {
+        mFieldIdx      = 1;
+        mStartFieldIdx = 1;
+        mIdOnlyFlag    = flag;
+    }
+    bool IsError() const { return (mFieldIdx != mStartFieldIdx); }
 private:
     IOBuffer::ByteIterator mIt;
     ChunkInfo              mCur;
     int64_t                mVal;
     bool                   mPrevSpaceFlag;
-    const int              mStartFieldIdx;
+    int                    mStartFieldIdx;
     int                    mFieldIdx;
+    bool                   mIdOnlyFlag;
 
     static const unsigned char* const sC2HexTable;
 };
@@ -1261,18 +1277,20 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return DeclareHelloError(-EINVAL, "file system id mismatch");
             }
         }
-        const uint64_t kMinEntrySize = 2;
+        const uint64_t kMinEntrySize = 4;
         if (mHelloOp->status == 0 && mHelloOp->contentLength + (1 << 10) <
                 kMinEntrySize * (
                     (uint64_t)max(0, mHelloOp->numChunks) +
                     (uint64_t)max(0, mHelloOp->numNotStableAppendChunks) +
-                    (uint64_t)max(0, mHelloOp->numNotStableChunks))) {
+                    (uint64_t)max(0, mHelloOp->numNotStableChunks) +
+                    (uint64_t)max(0, mHelloOp->numMissingChunks))) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " malformed hello:"
                 " content length: "       << mHelloOp->contentLength <<
                 " invalid chunk counts: " << mHelloOp->numChunks <<
                 " + "                     << mHelloOp->numNotStableAppendChunks <<
                 " + "                     << mHelloOp->numNotStableChunks <<
+                " + "                     << mHelloOp->numMissingChunks <<
             KFS_LOG_EOM;
             mHelloOp = 0;
             delete op;
@@ -1343,7 +1361,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             // get the chunkids
             istream& is = mIStream.Set(iobuf, contentLength);
             HexChunkInfoParser hexParser(*iobuf, mHelloOp->noFidsFlag);
-            for (int j = 0; j < 3; ++j) {
+            for (int j = 0; j < 3 && ! hexParser.IsError(); ++j) {
                 MetaHello::ChunkInfos& chunks = j == 0 ?
                     mHelloOp->chunks : (j == 1 ?
                     mHelloOp->notStableAppendChunks :
@@ -1379,22 +1397,43 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     }
                 }
             }
+            mHelloOp->missingChunks.clear();
+            const size_t numMissing = max(0, mHelloOp->numMissingChunks);
+            if (0 < numMissing && ! hexParser.IsError()) {
+                mHelloOp->missingChunks.reserve(numMissing);
+                int i = mHelloOp->numMissingChunks;
+                if (mHelloOp->contentIntBase == 16) {
+                    hexParser.SetIdOnly(true);
+                    const MetaHello::ChunkInfo* c;
+                    while (i-- > 0 && (c = hexParser.Next())) {
+                        mHelloOp->missingChunks.push_back(c->chunkId);
+                    }
+                } else {
+                    chunkId_t chunkId;
+                    while (i-- > 0 && (is >> chunkId) && 0 <= chunkId) {
+                        mHelloOp->missingChunks.push_back(chunkId);
+                    }
+                }
+            }
             mIStream.Reset();
             iobuf->Consume(contentLength);
             if (mHelloOp->chunks.size() != numStable ||
                     mHelloOp->notStableAppendChunks.size() !=
-                    nonStableAppendNum ||
-                    mHelloOp->notStableChunks.size() !=
-                    nonStableNum) {
+                        nonStableAppendNum ||
+                    mHelloOp->notStableChunks.size() != nonStableNum ||
+                    numMissing != mHelloOp->missingChunks.size() ||
+                    hexParser.IsError()) {
                 KFS_LOG_STREAM_ERROR << GetPeerName() <<
                     " invalid or short chunk list:"
                     " expected: " << mHelloOp->numChunks <<
                     "/"      << mHelloOp->numNotStableAppendChunks <<
                     "/"      << mHelloOp->numNotStableChunks <<
+                    "/"      << mHelloOp->numMissingChunks <<
                     " got: " << mHelloOp->chunks.size() <<
                     "/"      <<
                         mHelloOp->notStableAppendChunks.size() <<
                     "/"      << mHelloOp->notStableChunks.size() <<
+                    "/"      << mHelloOp->missingChunks.size() <<
                     " last good chunk: " <<
                         (mHelloOp->chunks.empty() ? -1 :
                         mHelloOp->chunks.back().chunkId) <<
@@ -1402,6 +1441,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                         mHelloOp->notStableAppendChunks.back().chunkId) <<
                     "/" << (mHelloOp->notStableChunks.empty() ? -1 :
                         mHelloOp->notStableChunks.back().chunkId) <<
+                    "/" << (mHelloOp->missingChunks.empty() ? -1 :
+                        mHelloOp->missingChunks.back()) <<
                     " content length: " << contentLength <<
                 KFS_LOG_EOM;
                 delete mHelloOp;
@@ -1481,7 +1522,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     SetServerLocation(mHelloOp->location);
     mHelloOp->authUid = mAuthUid;
-    mMd5Sum = mHelloOp->md5sum;
+    mMd5Sum                 = mHelloOp->md5sum;
+    mHelloResumeCount       = mHelloOp->helloResumeCount;
+    mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
     if (op.resumeStep < 0) {
@@ -2803,21 +2846,25 @@ HibernatedChunkServer::HelloResumeReply(
         return true;
     }
     r.responseBuf.Clear();
-    static IOBuffer::WOStream sOstream;
-    ostream& os = sOstream.Set(r.responseBuf);
-    ChunkIdQueue::ConstIterator it(mDeletedChunks);
+    IOBufferWriter writer(r.responseBuf);
     const chunkId_t* id;
-    os << hex;
+    char tbuf[sizeof(*id) * 8 / 4 + sizeof(char) * 4];
+    char* const bend = tbuf + sizeof(tbuf) / sizeof(tbuf[0]) - 1;
+    *bend = ' ';
+    ChunkIdQueue::ConstIterator it(mDeletedChunks);
     while ((id = it.Next())) {
-        os << ' ' << *id;
+        const char* const ptr = IntToHexString(*id, bend);
+        writer.Write(ptr, bend - ptr + 1);
         r.deletedCount++;
     }
-    os << '\n';
+    writer.Write("\n", 1);
     mModifiedChunks.First();
     while ((id = mModifiedChunks.Next())) {
-        os << ' ' << *id;
+        const char* const ptr = IntToHexString(*id, bend);
+        writer.Write(ptr, bend - ptr + 1);
         r.modifiedCount++ ;
     }
+    writer.Close();
     return true;
 }
 

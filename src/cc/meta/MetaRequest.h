@@ -1365,6 +1365,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         seq_t     chunkVersion;
     };
     typedef vector<ChunkInfo, StdAllocator<ChunkInfo> > ChunkInfos;
+    typedef vector<chunkId_t>                           MissingChunks;
 
     ChunkServerPtr     server;                   //!< The chunkserver that sent the hello message
     ServerLocation&    location;                 //<! Location of this server
@@ -1382,17 +1383,21 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int                numChunks;                //!< # of chunks hosted on this server
     int                numNotStableAppendChunks; //!< # of not stable append chunks hosted on this server
     int                numNotStableChunks;       //!< # of not stable chunks hosted on this server
+    int                numMissingChunks;
     int                contentLength;            //!< Length of the message body
     int64_t            numAppendsWithWid;
     int                contentIntBase;
     ChunkInfos         chunks;                   //!< Chunks  hosted on this server
     ChunkInfos         notStableChunks;
     ChunkInfos         notStableAppendChunks;
+    MissingChunks      missingChunks;
     int                bytesReceived;
     bool               staleChunksHexFormatFlag;
     bool               deleteAllChunksFlag;
     int64_t            fileSystemId;
     int64_t            metaFileSystemId;
+    int64_t            helloResumeCount;
+    int64_t            helloResumeFailedCount;
     bool               noFidsFlag;
     int                resumeStep;
     int                bufferBytes;
@@ -1421,17 +1426,21 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           numChunks(0),
           numNotStableAppendChunks(0),
           numNotStableChunks(0),
+          numMissingChunks(0),
           contentLength(0),
           numAppendsWithWid(0),
           contentIntBase(10),
           chunks(),
           notStableChunks(),
           notStableAppendChunks(),
+          missingChunks(),
           bytesReceived(0),
           staleChunksHexFormatFlag(false),
           deleteAllChunksFlag(false),
           fileSystemId(-1),
           metaFileSystemId(-1),
+          helloResumeCount(0),
+          helloResumeFailedCount(0),
           noFidsFlag(false),
           resumeStep(-1),
           bufferBytes(0),
@@ -1476,11 +1485,14 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("CKey",                         &MetaHello::cryptoKey)
         .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
         .Def("NoFids",                       &MetaHello::noFidsFlag,                false)
-        .Def("Resume",                       &MetaHello::resumeStep,                   -1)
-        .Def("Deleted",                      &MetaHello::deletedCount,          size_t(0))
-        .Def("Modified",                     &MetaHello::modifiedCount,         size_t(0))
-        .Def("Chunks",                       &MetaHello::chunkCount,            size_t(0))
-        .Def("Checksum",                     &MetaHello::checksum,       CIdChecksum_t(0))
+        .Def("Resume",                       &MetaHello::resumeStep,              int(-1))
+        .Def("Deleted",                      &MetaHello::deletedCount                    )
+        .Def("Modified",                     &MetaHello::modifiedCount                   )
+        .Def("Chunks",                       &MetaHello::chunkCount                      )
+        .Def("Checksum",                     &MetaHello::checksum                        )
+        .Def("Num-missing",                  &MetaHello::numMissingChunks                )
+        .Def("Num-resume",                   &MetaHello::helloResumeCount                )
+        .Def("Num-resume-fail",              &MetaHello::helloResumeFailedCount          )
         ;
     }
 };

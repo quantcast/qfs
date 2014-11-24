@@ -91,6 +91,8 @@ public:
         Counter mReadSkipDiskVerifyErrorCount;
         Counter mReadSkipDiskVerifyByteCount;
         Counter mReadSkipDiskVerifyChecksumByteCount;
+        Counter mHelloResumeCount;
+        Counter mHelloResumeFailedCount;
 
         void Clear()
         {
@@ -109,6 +111,8 @@ public:
             mReadSkipDiskVerifyErrorCount        = 0;
             mReadSkipDiskVerifyByteCount         = 0;
             mReadSkipDiskVerifyChecksumByteCount = 0;
+            mHelloResumeCount                    = 0;
+            mHelloResumeFailedCount              = 0;
         }
     };
 
@@ -256,8 +260,16 @@ public:
     /// is not there on disk, etc.).
     int Restart();
 
+    bool CanBeResumed(HelloMetaOp& hello);
     /// Retrieve the chunks hosted on this chunk server.
     typedef pair<int64_t*, ostream*> HostedChunkList;
+    void GetHostedChunksResume(
+        HelloMetaOp&                         hello,
+        const ChunkManager::HostedChunkList& stable,
+        const ChunkManager::HostedChunkList& notStableAppend,
+        const ChunkManager::HostedChunkList& notStable,
+        const ChunkManager::HostedChunkList& missing,
+        bool                                 noFidsFlag);
     void GetHostedChunks(
         const HostedChunkList& stable,
         const HostedChunkList& notStableAppend,
@@ -792,6 +804,7 @@ private:
     int        mDirCheckFailureSimulatorInterval;
     bool       mChunkSizeSkipHeaderVerifyFlag;
     bool       mVersionChangePermitWritesInFlightFlag;
+    int64_t    mMinChunkCountForHelloResume;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
@@ -873,6 +886,12 @@ private:
     void SetBufferedIo(const Properties& props);
     void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
+    void AppendToHostedList(
+        const ChunkInfoHandle&               cih,
+        const ChunkManager::HostedChunkList& stable,
+        const ChunkManager::HostedChunkList& notStableAppend,
+        const ChunkManager::HostedChunkList& notStable,
+        bool                                 noFidsFlag);
 
     static bool sExitDebugCheckFlag;
 private:

@@ -2120,7 +2120,8 @@ struct HelloMetaOp : public KfsOp {
         kStableChunkList          = 0,
         kNotStableAppendChunkList = 1,
         kNotStableChunkList       = 2,
-        kChunkListCount           = 3
+        kMissingList              = 3,
+        kChunkListCount           = 4
     };
 
     ServerLocation    myLocation;
@@ -2146,6 +2147,8 @@ struct HelloMetaOp : public KfsOp {
     CIdChecksum_t     checksum;
     ChunkIds          resumeModified;
     ChunkIds          resumeDeleted;
+    int64_t           helloResumeCount;
+    int64_t           helloResumeFailedCount;
 
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
@@ -2172,7 +2175,9 @@ struct HelloMetaOp : public KfsOp {
           chunkCount(0),
           checksum(0),
           resumeModified(),
-          resumeDeleted()
+          resumeDeleted(),
+          helloResumeCount(0),
+          helloResumeFailedCount(0)
         {}
     void Execute();
     void Request(ostream& os, IOBuffer& buf);

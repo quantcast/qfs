@@ -3588,8 +3588,13 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
             gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n"
         "Num-re-replications: " << Replicator::GetNumReplications() << "\r\n"
         "Stale-chunks-hex-format: 1\r\n"
+        "Num-resume: "     << helloResumeCount  << "\r\n"
+        "Num-resume-fail:" << helloResumeFailedCount << "\r\n"
         "Content-int-base: 16\r\n"
     ;
+    if (0 < chunkLists[kMissingList].count) {
+        os << "Num-missing: " << chunkLists[kMissingList].count;
+    }
     if (noFidsFlag) {
         os << "NoFids: 1\r\n";
     }
@@ -3621,7 +3626,8 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
     const int kChunkListsOrder[kChunkListCount] = {
         kStableChunkList,
         kNotStableAppendChunkList,
-        kNotStableChunkList
+        kNotStableChunkList,
+        kMissingList
     };
     for (int i = 0; i < kChunkListCount; i++) {
         buf.Move(&chunkLists[kChunkListsOrder[i]].ioBuf);
@@ -3639,6 +3645,12 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     if (len <= 0) {
         return (deletedCount <= 0 && modifiedCount <= 0);
     }
+    if (chunkCount < modifiedCount) {
+        statusMsg = "parse response:"
+            " invalid chunk count less than modified count";
+        statusMsg = -EINVAL;
+        return false;
+    }
     const uint64_t kMinEntrySize = 2 ;
     if ((uint64_t)len / kMinEntrySize + (1 << 10) <
             deletedCount + modifiedCount) {
@@ -3649,6 +3661,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     kfsChunkId_t chunkId = -1;
     uint64_t     i;
     resumeDeleted.reserve(deletedCount);
+    is >> hex;
     for (i = 0; i < deletedCount && (chunkId << is) && 0 <= chunkId; i++) {
         resumeDeleted.push_back(chunkId);
     }
@@ -3738,24 +3751,51 @@ HelloMetaOp::Execute()
         totalFsSpace, chunkDirs, numEvacuateInFlight, numWritableChunkDirs,
         evacuateChunks, evacuateByteCount, 0, 0, &lostChunkDirs);
     usedSpace = gChunkManager.GetUsedSpace();
-    IOBuffer::WOStream            streams[kChunkListCount];
-    ChunkManager::HostedChunkList lists[kChunkListCount];
-    for (int i = 0; i < kChunkListCount; i++) {
-        chunkLists[i].count = 0;
-        chunkLists[i].ioBuf.Clear();
-        lists[i].first  = &(chunkLists[i].count);
-        lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
+    if (0 <= resumeStep && ! gChunkManager.CanBeResumed(*this)) {
+        resumeStep = -1;
     }
-    gChunkManager.GetHostedChunks(
-        lists[kStableChunkList],
-        lists[kNotStableAppendChunkList],
-        lists[kNotStableChunkList],
-        noFidsFlag
-    );
-    for (int i = 0; i < kChunkListCount; i++) {
-        lists[i].second->flush();
-        streams[i].Reset();
+    if (resumeStep != 0) {
+        IOBuffer::WOStream            streams[kChunkListCount];
+        ChunkManager::HostedChunkList lists[kChunkListCount];
+        for (int i = 0; i < kChunkListCount; i++) {
+            chunkLists[i].count = 0;
+            chunkLists[i].ioBuf.Clear();
+            lists[i].first  = &(chunkLists[i].count);
+            lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
+        }
+        if (resumeStep < 0) {
+            gChunkManager.GetHostedChunks(
+                lists[kStableChunkList],
+                lists[kNotStableAppendChunkList],
+                lists[kNotStableChunkList],
+                noFidsFlag
+            );
+        } else if (resumeStep == 1) {
+            gChunkManager.GetHostedChunksResume(
+                *this,
+                lists[kStableChunkList],
+                lists[kNotStableAppendChunkList],
+                lists[kNotStableChunkList],
+                lists[kMissingList],
+                noFidsFlag
+            );
+            if (resumeStep < 0) {
+                HelloMetaOp::Execute(); // Tail recursion.
+                return;
+            }
+        }
+        for (int i = 0; i < kChunkListCount; i++) {
+            lists[i].second->flush();
+            streams[i].Reset();
+            if (chunkLists[i].count <= 0) {
+                chunkLists[i].ioBuf.Clear();
+            }
+        }
     }
+    ChunkManager::Counters cm;
+    gChunkManager.GetCounters(cm);
+    helloResumeCount       = cm.mHelloResumeCount;
+    helloResumeFailedCount = cm.mHelloResumeFailedCount;
     sendCurrentKeyFlag = sendCurrentKeyFlag &&
         gChunkManager.GetCryptoKeys().GetCurrentKey(currentKeyId, currentKey);
     fileSystemId = gChunkManager.GetFileSystemId();

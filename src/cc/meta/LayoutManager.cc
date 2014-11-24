@@ -1460,6 +1460,7 @@ LayoutManager::LayoutManager() :
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
+    mDebugPanicOnHelloResumeFailureCount(-1),
     mFileRecoveryInFlightCount(),
     mTmpParseStream(),
     mChunkInfosTmp(),
@@ -2090,6 +2091,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.maxRecoveryStripeCount", mMaxRecoveryStripeCount));
     mMaxRSDataStripeCount = min(KFS_MAX_DATA_STRIPE_COUNT, props.getValue(
         "metaServer.maxRSDataStripeCount", mMaxRSDataStripeCount));
+    mDebugPanicOnHelloResumeFailureCount = props.getValue(
+        "metaServer.debugPanicOnHelloResumeFailureCount",
+        mDebugPanicOnHelloResumeFailureCount);
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
@@ -2196,6 +2200,10 @@ LayoutManager::Validate(MetaHello& r)
         r.statusMsg = "MD5sum mismatch: recieved: " + r.md5sum;
         r.status    = -EBADCLUSTERKEY;
         return false;
+    }
+    if (0 <= mDebugPanicOnHelloResumeFailureCount &&
+            mDebugPanicOnHelloResumeFailureCount < r.helloResumeFailedCount) {
+        panic("hello resume failure detected: " + r.location.ToString());
     }
     if (0 <= r.resumeStep) {
         const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
@@ -2446,6 +2454,8 @@ struct GetHeartbeatCounters
 
 const Properties::String kCSExtraHeaders[] = {
     "md5sum",
+    "Hello-resume",
+    "Hello-resume-fail",
     "XMeta-location",
     "XMeta-retiring",
     "XMeta-restarting",
@@ -2477,6 +2487,8 @@ struct CSWriteExtra : public CtrWriteExtra
     {
         const ChunkServer& srv = *cs;
         writer.Write(srv.GetMd5Sum());
+        Write(writer, srv.GetHelloResumeCount());
+        Write(writer, srv.GetHelloResumeFailedCount());
         writer.Write(columnDelim);
         writer.Write(srv.GetHostPortStr());
         writer.Write(columnDelim);
@@ -2902,8 +2914,8 @@ LayoutManager::AddNewServer(MetaHello *r)
             CSMap::Entry& c = *cmi;
             if (0 < r->resumeStep) {
                 const bool removedFlag = c.Remove(mChunkToServerMap, r->server);
-                if (modififedChunks.Erase(it->chunkId)) {
-                    if (removedFlag) {
+                if (0 < modififedChunks.Erase(it->chunkId)) {
+                    if (! removedFlag) {
                         panic("invalid modified chunk list");
                     }
                     mLastResumeModifiedChunk = chunkId;
@@ -3047,11 +3059,26 @@ LayoutManager::AddNewServer(MetaHello *r)
         staleChunkIds.Clear();
     }
     if (0 < r->resumeStep) {
-        modififedChunks.First();
-        const chunkId_t* id = modififedChunks.Next();
-        while (id && ! srv.IsDown()) {
+        for (MetaHello::MissingChunks::const_iterator
+                it = r->missingChunks.begin();
+                it != r->missingChunks.end();
+                ++it) {
+            const chunkId_t chunkId = *it;
+            if (modififedChunks.Erase(chunkId) <= 0) {
+                continue;
+            }
+            CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
+            if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
+                panic("invalid modified chunk list");
+            }
+        }
+        while (! srv.IsDown()) {
+            modififedChunks.First();
+            const chunkId_t* id = modififedChunks.Next();
+            if (! id) {
+                break;
+            }
             const chunkId_t chunkId = *id;
-            id = modififedChunks.Next();
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
             if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {

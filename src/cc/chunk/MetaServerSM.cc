@@ -406,6 +406,7 @@ MetaServerSM::SendHello()
             nextSeq(), gChunkServer.GetLocation(),
             mClusterKey, mMD5Sum, mRackId);
         mHelloOp->noFidsFlag = mNoFidsFlag;
+        mHelloOp->resumeStep = 0;
         mHelloOp->clnt       = this;
         // Send the op and wait for the reply.
         SubmitOp(mHelloOp);
@@ -727,7 +728,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 (mHelloOp->resumeStep < 0 && status != 0) ||
                 (0 <= mHelloOp->resumeStep &&
                     (status != 0 && status != -EAGAIN)) ||
-                (0 <= mHelloOp->resumeStep &&
+                (0 <= mHelloOp->resumeStep && status == 0 &&
                     resumeStep != mHelloOp->resumeStep);
             if (err) {
                 KFS_LOG_STREAM_ERROR <<
@@ -765,6 +766,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     prop.getValue("Checksum", uint64_t(0));
             } else {
                 mHelloOp->resumeStep = -1;
+                mSentHello = false;
                 SubmitOp(mHelloOp); // Re-submit hello.
                 return true;
             }
@@ -851,6 +853,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         if (mHelloOp->resumeStep == 0) {
             mHelloOp->resumeStep = 1;
         }
+        mSentHello = false;
         SubmitOp(mHelloOp); // Re-submit hello.
         return true;
     }
@@ -1168,8 +1171,9 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->sendCurrentKeyFlag = true;
-    mHelloOp->noFidsFlag = mNoFidsFlag;
-    mHelloOp->clnt       = this;
+    mHelloOp->noFidsFlag         = mNoFidsFlag;
+    mHelloOp->resumeStep         = 0;
+    mHelloOp->clnt               = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }

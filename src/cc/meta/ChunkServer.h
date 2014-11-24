@@ -822,6 +822,10 @@ public:
         { return mAuthUid; }
     const string& GetMd5Sum() const
         { return mMd5Sum; }
+    int64_t GetHelloResumeCount() const
+        { return mHelloResumeCount; }
+    int64_t GetHelloResumeFailedCount() const
+        { return mHelloResumeFailedCount; }
 
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
@@ -1036,6 +1040,8 @@ protected:
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mLastChunksInFlightDelete;
+    int64_t            mHelloResumeCount;
+    int64_t            mHelloResumeFailedCount;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];

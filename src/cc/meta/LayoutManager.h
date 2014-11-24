@@ -2084,6 +2084,7 @@ protected:
     int                   mMaxDataStripeCount;
     int                   mMaxRecoveryStripeCount;
     int                   mMaxRSDataStripeCount;
+    int64_t               mDebugPanicOnHelloResumeFailureCount;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
