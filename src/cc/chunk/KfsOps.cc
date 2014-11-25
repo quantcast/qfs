@@ -3662,7 +3662,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     uint64_t     i;
     resumeDeleted.reserve(deletedCount);
     is >> hex;
-    for (i = 0; i < deletedCount && (chunkId << is) && 0 <= chunkId; i++) {
+    for (i = 0; i < deletedCount && (is >> chunkId) && 0 <= chunkId; i++) {
         resumeDeleted.push_back(chunkId);
     }
     if (i < deletedCount) {
@@ -3672,7 +3672,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
         return false;
     }
     resumeModified.reserve(deletedCount);
-    for (i = 0; i < modifiedCount && (chunkId << is) && 0 <= chunkId; i++) {
+    for (i = 0; i < modifiedCount && (is >> chunkId) && 0 <= chunkId; i++) {
         resumeModified.push_back(chunkId);
     }
     if (i < modifiedCount) {
