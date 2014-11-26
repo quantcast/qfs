@@ -6064,18 +6064,31 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 /// from chunk id->chunkserver that we know has it.
 ///
 void
-LayoutManager::ChunkCorrupt(MetaChunkCorrupt *r)
+LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
 {
-    if (! r->isChunkLost) {
-        r->server->IncCorruptChunks();
+    const char* p = r->chunkIdsStr.GetPtr();
+    const char* e = p + r->chunkIdsStr.GetSize();
+    for (int i = -1; i < 0 || i < r->chunkCount; i++) {
+        chunkId_t chunkId = i < 0 ? r->chunkId : chunkId_t(-1);
+        if (0 <= i && ! ValueParser::ParseInt(p, e - p, chunkId)) {
+            r->status    = -EINVAL;
+            r->statusMsg = "chunk id list parse error";
+            KFS_LOG_STREAM_ERROR <<  r->Show() << " : " <<
+                r->statusMsg <<
+            KFS_LOG_EOM;
+            break;
+        }
+        if (! r->isChunkLost) {
+            r->server->IncCorruptChunks();
+        }
+        KFS_LOG_STREAM_INFO <<
+            "server " << r->server->GetServerLocation() <<
+            " claims chunk: <" <<
+            r->fid << "," << chunkId <<
+            "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
+        KFS_LOG_EOM;
+        ChunkCorrupt(chunkId, r->server, false);
     }
-    KFS_LOG_STREAM_INFO <<
-        "server " << r->server->GetServerLocation() <<
-        " claims chunk: <" <<
-        r->fid << "," << r->chunkId <<
-        "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
-    KFS_LOG_EOM;
-    ChunkCorrupt(r->chunkId, r->server, false);
 }
 
 void

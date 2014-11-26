@@ -3479,12 +3479,13 @@ LeaseRelinquishOp::HandleDone(int code, void* data)
 void
 CorruptChunkOp::Request(ostream& os)
 {
+    if (kMaxChunkIds < chunkCount) {
+        die("invalid corrupt chunk RPC");
+    }
     os <<
     "CORRUPT_CHUNK\r\n"
-    "Version: " << KFS_VERSION_STR << "\r\n"
-    "Cseq: " << seq << "\r\n"
-    "File-handle: " << fid << "\r\n"
-    "Chunk-handle: " << chunkId << "\r\n"
+    "Version: "       << KFS_VERSION_STR << "\r\n"
+    "Cseq: "          << seq << "\r\n"
     "Is-chunk-lost: " << (isChunkLost ? 1 : 0) << "\r\n"
     ;
     if (noReply) {
@@ -3496,6 +3497,15 @@ CorruptChunkOp::Request(ostream& os)
         "Dir-ok: "    << (dirOkFlag ? 1 : 0) << "\r\n"
         ;
     }
+    if (0 < chunkCount) {
+        os <<
+            "Num-chunks: " << chunkCount << "\r\n"
+            "Ids:";
+        for (int i = 0; i < chunkCount; i++) {
+            os << ' ' << chunkIds[i];
+        }
+        os << "\r\n";
+    }
     os << "\r\n";
 }
 
@@ -3505,7 +3515,9 @@ CorruptChunkOp::HandleDone(int code, void* data)
     if (code != EVENT_CMD_DONE || data != this) {
         die("CorruptChunkOp: invalid completion");
     }
-    UnRef();
+    if (notifyChunkManagerFlag) {
+        gChunkManager.NotifyStaleChunkDone(*this);
+    }
     return 0;
 }
 
@@ -3765,6 +3777,7 @@ HelloMetaOp::Execute()
         }
         if (resumeStep < 0) {
             gChunkManager.GetHostedChunks(
+                *this,
                 lists[kStableChunkList],
                 lists[kNotStableAppendChunkList],
                 lists[kNotStableChunkList],
@@ -3800,6 +3813,13 @@ HelloMetaOp::Execute()
         gChunkManager.GetCryptoKeys().GetCurrentKey(currentKeyId, currentKey);
     fileSystemId = gChunkManager.GetFileSystemId();
     gLogger.Submit(this);
+}
+
+HelloMetaOp::~HelloMetaOp()
+{
+    if (pendingNotifyLostChunks) {
+        gChunkManager.HelloDone(*this);
+    }
 }
 
 void

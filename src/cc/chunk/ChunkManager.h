@@ -271,6 +271,7 @@ public:
         const ChunkManager::HostedChunkList& missing,
         bool                                 noFidsFlag);
     void GetHostedChunks(
+        HelloMetaOp&           hello,
         const HostedChunkList& stable,
         const HostedChunkList& notStableAppend,
         const HostedChunkList& notStable,
@@ -421,6 +422,8 @@ public:
         { return mRand.Rand(); }
     int GetDirCheckFailureSimulatorInterval() const
         { return mDirCheckFailureSimulatorInterval; }
+    void NotifyStaleChunkDone(CorruptChunkOp& op);
+    void HelloDone(HelloMetaOp& hello);
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -806,6 +809,9 @@ private:
     bool       mVersionChangePermitWritesInFlightFlag;
     int64_t    mMinChunkCountForHelloResume;
 
+    PendingNotifyLostChunks* mPendingNotifyLostChunks;
+    CorruptChunkOp           mCorruptChunkOp;
+
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -892,6 +898,8 @@ private:
         const ChunkManager::HostedChunkList& notStableAppend,
         const ChunkManager::HostedChunkList& notStable,
         bool                                 noFidsFlag);
+    inline bool NotifyLostChunk(kfsChunkId_t chunkId);
+    inline bool ScheduleNotifyLostChunk();
 
     static bool sExitDebugCheckFlag;
 private:

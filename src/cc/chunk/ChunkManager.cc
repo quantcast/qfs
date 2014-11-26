@@ -77,6 +77,7 @@ using std::unique;
 using std::greater;
 using std::set;
 using std::binary_function;
+using std::lower_bound;
 using boost::bind;
 
 using namespace KFS::libkfsio;
@@ -1179,6 +1180,142 @@ private:
     ChunkInfoHandle& operator=(const  ChunkInfoHandle&);
 };
 
+class PendingNotifyLostChunks : public LinearHash<
+    KeyOnly<kfsChunkId_t>,
+    KeyCompare<kfsChunkId_t>,
+    DynamicArray<
+        SingleLinkedList<KeyOnly<kfsChunkId_t> >*,
+        10
+    >,
+    StdFastAllocator<KeyOnly<kfsChunkId_t> >
+> {
+public:
+    typedef KeyOnly<kfsChunkId_t> Entry;
+
+    static void Move(
+        PendingNotifyLostChunks*& dst,
+        PendingNotifyLostChunks*& src)
+    {
+        if (! src) {
+            return;
+        }
+        if (dst) {
+            PendingNotifyLostChunks* small;
+            PendingNotifyLostChunks* large;
+            if (src->GetSize() < dst->GetSize()) {
+                small = src;
+                large = dst;
+            } else {
+                small = dst;
+                large = src;
+            }
+            small->First();
+            const Entry* p;
+            while ((p = small->Next())) {
+                bool insertedFlag = 0;
+                large->Insert(p->GetKey(), p->GetVal(), insertedFlag);
+            }
+            if (large == src) {
+                delete dst;
+                dst = src;
+            } else {
+                delete src;
+            }
+        } else {
+            dst = src;
+        }
+        src = 0;
+    }
+    static bool Remove(
+        PendingNotifyLostChunks*& list,
+        kfsChunkId_t              chunkId)
+    {
+        if (list && 0 < list->Erase(chunkId)) {
+            if (list->IsEmpty()) {
+                delete list;
+                list = 0;
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
+inline bool
+ChunkManager::NotifyLostChunk(kfsChunkId_t chunkId)
+{
+    if (chunkId <= 0) {
+        return false;
+    }
+    bool insertedFlag = false;
+    if (! mPendingNotifyLostChunks) {
+        mPendingNotifyLostChunks = new PendingNotifyLostChunks();
+    }
+    if (! mPendingNotifyLostChunks->Insert(chunkId, chunkId, insertedFlag)) {
+        die("failed to insert chunk entry in pending notify list");
+    }
+    return insertedFlag;
+}
+
+inline bool
+ChunkManager::ScheduleNotifyLostChunk()
+{
+    if (! mPendingNotifyLostChunks ||
+            mCorruptChunkOp.notifyChunkManagerFlag || // In flight.
+            ! gMetaServerSM.IsUp()) {
+        return false;
+    }
+    mCorruptChunkOp.noReply     = false;
+    mCorruptChunkOp.noRetry     = true;
+    mCorruptChunkOp.isChunkLost = true;
+    mPendingNotifyLostChunks->First();
+    const PendingNotifyLostChunks::Entry* p;
+    for (mCorruptChunkOp.chunkCount = 0;
+            mCorruptChunkOp.chunkCount < CorruptChunkOp::kMaxChunkIds &&
+                ((p = mPendingNotifyLostChunks->Next()));
+            mCorruptChunkOp.chunkCount++) {
+        mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount] = p->GetKey();
+    }
+    if (mCorruptChunkOp.chunkCount <= 0) {
+        return false;
+    }
+    mCorruptChunkOp.notifyChunkManagerFlag = true;
+    gMetaServerSM.EnqueueOp(&mCorruptChunkOp);
+    return true;
+}
+
+void
+ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
+{
+    if (&op != &mCorruptChunkOp || ! mCorruptChunkOp.notifyChunkManagerFlag) {
+        die("invalid corrupt chunk op completion");
+        return;
+    }
+    mCorruptChunkOp.notifyChunkManagerFlag = false;
+    if (! gMetaServerSM.IsUp()) {
+        return;
+    }
+    if (! mPendingNotifyLostChunks) {
+        return;
+    }
+    while (0 < mCorruptChunkOp.chunkCount) {
+        mPendingNotifyLostChunks->Erase(
+            mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount--]);
+    }
+    if (mPendingNotifyLostChunks->IsEmpty()) {
+        delete mPendingNotifyLostChunks;
+        mPendingNotifyLostChunks = 0;
+    }
+}
+
+void
+ChunkManager::HelloDone(HelloMetaOp& hello)
+{
+    PendingNotifyLostChunks::Move(
+        mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
+    ScheduleNotifyLostChunk();
+}
+
 inline ChunkInfoHandle*
 ChunkManager::AddMapping(ChunkInfoHandle* cih)
 {
@@ -1188,6 +1325,11 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
     if (! ci) {
         die("add mapping failure");
         return 0; // Eliminate lint warning.
+    }
+    if (PendingNotifyLostChunks::Remove(
+            mPendingNotifyLostChunks, cih->chunkInfo.chunkId) &&
+            ! newEntryFlag) {
+        die("chunk entry was in pending lost notify chunks");
     }
     if (! newEntryFlag) {
         return *ci;
@@ -1664,6 +1806,8 @@ ChunkManager::ChunkManager()
       mChunkSizeSkipHeaderVerifyFlag(false),
       mVersionChangePermitWritesInFlightFlag(true),
       mMinChunkCountForHelloResume(1 << 10),
+      mPendingNotifyLostChunks(0),
+      mCorruptChunkOp(0, -1),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -1679,6 +1823,7 @@ ChunkManager::~ChunkManager()
 {
     assert(mChunkTable.IsEmpty());
     globalNetManager().UnRegisterTimeoutHandler(this);
+    delete mPendingNotifyLostChunks;
 }
 
 void
@@ -2337,6 +2482,7 @@ ChunkManager::AllocChunk(
         cih->Delete(mChunkInfoLists);
         return -EFAULT;
     }
+    PendingNotifyLostChunks::Remove(mPendingNotifyLostChunks, chunkId);
     KFS_LOG_STREAM_INFO << "Creating chunk: " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
     int ret = OpenChunk(cih, O_RDWR | O_CREAT);
@@ -2833,7 +2979,7 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
                 // The meta server must explicitly tell to delete this chunk by
                 // setting chunk available rpc sequence number in stale chunk
                 // request.
-                // The available chunks rpc sequence numbers is used here to
+                // The available chunks rpc sequence numbers are used here to
                 // disambiguate possible stale chunks requests sent in response
                 // to other "events". In particular in response to chunk
                 // replication or recovery, or version change completion
@@ -4209,10 +4355,8 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
     KFS_LOG_EOM;
 
     // This op will get deleted when we get an ack from the metaserver
-    CorruptChunkOp* const op = new CorruptChunkOp(
-        0, cih->chunkInfo.fileId, cih->chunkInfo.chunkId);
-    op->isChunkLost = err == 0;
-    gMetaServerSM.EnqueueOp(op);
+    NotifyLostChunk(cih->chunkInfo.chunkId);
+    ScheduleNotifyLostChunk();
     // Meta server automatically cleans up leases for corrupted chunks.
     gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId);
 }
@@ -4283,8 +4427,6 @@ ChunkManager::NotifyMetaChunksLost(
         (dir.evacuateDoneFlag ? "evacuate done: " : "lost") <<
         " chunk directory: " << dir.dirname <<
     KFS_LOG_EOM;
-    CorruptChunkOp* op    = 0;
-    const string*   dname = &(dir.dirname);
     for (int i = 0; i < ChunkDirInfo::kChunkDirListCount; i++) {
         ChunkDirInfo::ChunkLists& list = dir.chunkLists[i];
         ChunkInfoHandle* cih;
@@ -4294,52 +4436,33 @@ ChunkManager::NotifyMetaChunksLost(
             // get rid of chunkid from our list
             const bool staleFlag = staleChunksFlag || cih->IsStale();
             ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
-            if (ci && *ci == cih) {
-                if (mChunkTable.Erase(chunkId) <= 0) {
-                    die("corrupted chunk table");
-                }
+            if (ci && *ci == cih && mChunkTable.Erase(chunkId) <= 0) {
+                die("corrupted chunk table");
+                continue;
             }
             const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
             UpdateDirSpace(cih, -size);
             mUsedSpace -= size;
             Delete(*cih);
-            if (staleFlag) {
+            if (staleFlag || ! ci || *ci != cih) {
                 continue;
             }
-            KFS_LOG_STREAM_INFO <<
-                "lost chunk: " << chunkId <<
-                " file: " << fileId <<
-            KFS_LOG_EOM;
-            mCounters.mDirLostChunkCount++;
-            if (! gMetaServerSM.IsConnected()) {
-                // If no connection exists then the meta server assumes that
-                // the chunks are lost anyway, and the inventory synchronization
-                // in the meta hello is sufficient on re-connect.
-                continue;
-            }
-            if (! op) {
-                op = new CorruptChunkOp(0, fileId, chunkId, dname);
-                // Do not count as corrupt.
-                op->isChunkLost = true;
-                dname = 0;
-            } else {
-                op->fid     = fileId;
-                op->chunkId = chunkId;
-                op->chunkDir.clear();
-            }
-            const int ref = op->Ref();
-            gMetaServerSM.EnqueueOp(op);
-            assert(op->GetRef() >= ref);
-            if (op->GetRef() > ref) {
-                // Op in flight / queued allocate a new one.
-                op->UnRef();
-                op = 0;
+            if (NotifyLostChunk(chunkId)) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "lost chunk: " << chunkId <<
+                    " file: "      << fileId <<
+                KFS_LOG_EOM;
+                mCounters.mDirLostChunkCount++;
             }
         }
     }
-    if (op) {
-        op->UnRef();
+    if (gMetaServerSM.IsConnected()) {
+        CorruptChunkOp* const op = new CorruptChunkOp(0, -1, &dir.dirname);
+        // Do not count as corrupt.
+        op->isChunkLost = true;
+        gMetaServerSM.EnqueueOp(op);
     }
+    ScheduleNotifyLostChunk();
     if (! dir.evacuateDoneFlag) {
         mCounters.mChunkDirLostCount++;
     }
@@ -4687,8 +4810,31 @@ ChunkManager::GetHostedChunksResume(
     bool                                 noFidsFlag)
 {
     mCounters.mHelloResumeCount++;
-    CIdChecksum_t checksum = kCIdNullChecksum;
-    uint64_t      count    = 0;
+    PendingNotifyLostChunks::Move(
+        mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
+    kfsChunkId_t lastLostIds[CorruptChunkOp::kMaxChunkIds];
+    int           lastLostChunkCnt = 0;
+    CIdChecksum_t checksum         = kCIdNullChecksum;
+    uint64_t      count            = 0;
+    if (mPendingNotifyLostChunks) {
+        while (lastLostChunkCnt < mCorruptChunkOp.chunkCount) {
+            const kfsChunkId_t chunkId =
+                mCorruptChunkOp.chunkIds[lastLostChunkCnt];
+            if (mPendingNotifyLostChunks->Find(chunkId)) {
+                lastLostIds[lastLostChunkCnt] =
+                    mCorruptChunkOp.chunkIds[lastLostChunkCnt];
+                lastLostChunkCnt++;
+            }
+        }
+        sort(lastLostIds, lastLostIds + lastLostChunkCnt);
+        // Add all pending notify lost chunks. The chunks should not be
+        // in the chunk table: AddMapping() deletes pending lost notify entries.
+        mPendingNotifyLostChunks->First();
+        const PendingNotifyLostChunks::Entry* p;
+        while ((p = mPendingNotifyLostChunks->Next())) {
+            checksum = CIdsChecksumAdd(p->GetKey(), checksum);
+        }
+    }
     mChunkTable.First();
     const CMapEntry* p;
     while ((p = mChunkTable.Next())) {
@@ -4706,7 +4852,20 @@ ChunkManager::GetHostedChunksResume(
             hello.resumeDeleted : hello.resumeModified;
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = ids.begin(); it != ids.end(); ++it) {
+            if (0 < lastLostChunkCnt) {
+                // Remove from the last lost set.
+                kfsChunkId_t* p = lower_bound(
+                    lastLostIds, lastLostIds + lastLostChunkCnt, *it);
+                if (p != lastLostIds + lastLostChunkCnt && *it == *p) {
+                    while (p != lastLostIds + lastLostChunkCnt) {
+                        *p = *(p+1);
+                        ++p;
+                    }
+                }
+            }
             if (0 < pass) {
+                // Modified chunks are included into the meta server's
+                // checksum.
                 helloChecksum = CIdsChecksumRemove(*it, helloChecksum);
                 helloCount--;
             }
@@ -4724,6 +4883,17 @@ ChunkManager::GetHostedChunksResume(
                 **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
+    if (count != helloCount && count + lastLostChunkCnt == helloCount) {
+        // Remove the remaining last in flight lost chunks, if any.
+        // Do not add these to the missing list, meta server will be notified
+        // onece pending lost queue is restarted.
+        for (const kfsChunkId_t* p = lastLostIds;
+                p != lastLostIds + lastLostChunkCnt;
+                ++p) {
+            helloChecksum = CIdsChecksumRemove(*p, helloChecksum);
+            helloCount--;
+        }
+    }
     if (count != helloCount || checksum != helloChecksum) {
         mCounters.mHelloResumeFailedCount++;
         KFS_LOG_STREAM_ERROR <<
@@ -4736,6 +4906,8 @@ ChunkManager::GetHostedChunksResume(
             " / "         << hello.checksum <<
             " deleted: "  << hello.resumeDeleted.size() <<
             " modified: " << hello.resumeModified.size() <<
+            " lastlost: " << lastLostChunkCnt <<
+            ": / "        << mCorruptChunkOp.chunkCount <<
         KFS_LOG_EOM;
         hello.resumeStep         = -1;
         hello.status             = 0;
@@ -4753,6 +4925,9 @@ ChunkManager::GetHostedChunksResume(
         " / "         << hello.checksum <<
         " deleted: "  << hello.resumeDeleted.size() <<
         " modified: " << hello.resumeModified.size() <<
+        " lastlost: " << lastLostChunkCnt <<
+        " lastlost: " << lastLostChunkCnt <<
+        ": / "        << mCorruptChunkOp.chunkCount <<
     KFS_LOG_EOM;
     hello.resumeStep = 1;
 }
@@ -4765,6 +4940,7 @@ ChunkManager::CanBeResumed(HelloMetaOp& /* hello */)
 
 void
 ChunkManager::GetHostedChunks(
+    HelloMetaOp&                         hello,
     const ChunkManager::HostedChunkList& stable,
     const ChunkManager::HostedChunkList& notStableAppend,
     const ChunkManager::HostedChunkList& notStable,
@@ -4783,6 +4959,8 @@ ChunkManager::GetHostedChunks(
         AppendToHostedList(
             *cih, stable, notStableAppend, notStable, noFidsFlag);
     }
+    PendingNotifyLostChunks::Move(
+        hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
 }
 
 int
@@ -5729,7 +5907,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
             notifyAvailableChunksStartFlag = false;
             availableChunksOp.status = 0;
         }
-        if (availableChunksOp.status >= 0 || availableChunksOp.numChunks <= 0) {
+        if (0 <= availableChunksOp.status || availableChunksOp.numChunks <= 0) {
             availableChunksOp.numChunks = 0;
             while (! availableChunks.IsEmpty() &&
                     availableChunksOp.numChunks <
@@ -5879,7 +6057,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
         die("AvailableChunksDone invalid completion");
     }
     availableChunksOpInFlightFlag = false;
-    if (availableChunksOp.status < 0 && availableSpace >= 0 &&
+    if (availableChunksOp.status < 0 && 0 <= availableSpace &&
             ! notifyAvailableChunksStartFlag &&
             ! gMetaServerSM.IsConnected()) {
         // Meta server disconnect.
@@ -6225,7 +6403,7 @@ ChunkManager::CheckChunkDirs()
                 getFsSpaceAvailFlag = true;
                 // Notify meta serve that directory is now in use.
                 gMetaServerSM.EnqueueOp(
-                    new CorruptChunkOp(0, -1, -1, &(it->dirname), true));
+                    new CorruptChunkOp(0, -1, &(it->dirname), true));
                 it->Start();
                 continue;
             }

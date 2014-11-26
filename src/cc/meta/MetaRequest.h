@@ -2726,20 +2726,26 @@ struct MetaDelegateCancel : public MetaRequest {
  * \brief Op for handling a notify of a corrupt chunk
  */
 struct MetaChunkCorrupt: public MetaRequest {
+    typedef StringBufT<256> ChunkIds;
+
     fid_t          fid;         //!< input
     chunkId_t      chunkId;     //!< input
+    ChunkIds       chunkIdsStr; //!< input
     bool           isChunkLost; //!< input
     bool           noReplyFlag; //!< input
     bool           dirOkFlag;   //!< input
+    int            chunkCount;  //!< input
     string         chunkDir;    //!< input
     ChunkServerPtr server;      //!< The chunkserver that sent us this message
     MetaChunkCorrupt(seq_t s = -1, fid_t f = -1, chunkId_t c = -1)
         : MetaRequest(META_CHUNK_CORRUPT, false, s),
           fid(f),
           chunkId(c),
+          chunkIdsStr(),
           isChunkLost(false),
           noReplyFlag(false),
           dirOkFlag(false),
+          chunkCount(0),
           chunkDir(),
           server()
         {}
@@ -2768,6 +2774,8 @@ struct MetaChunkCorrupt: public MetaRequest {
         .Def("No-reply",      &MetaChunkCorrupt::noReplyFlag,         false)
         .Def("Chunk-dir",     &MetaChunkCorrupt::chunkDir)
         .Def("Dir-ok",        &MetaChunkCorrupt::dirOkFlag,           false)
+        .Def("Num-chunks",    &MetaChunkCorrupt::chunkCount,              0)
+        .Def("Ids",           &MetaChunkCorrupt::chunkIdsStr)
         ;
     }
 };

@@ -264,9 +264,9 @@ MetaServerSM::Connect()
     if (mHelloOp) {
         return 0;
     }
+    CleanupOpInFlight();
     delete mAuthOp;
     mAuthOp = 0;
-    CleanupOpInFlight();
     DiscardPendingResponses();
     mContentLength = 0;
     mCounters.mConnectCount++;
@@ -577,15 +577,15 @@ MetaServerSM::HandleRequest(int code, void* data)
         }
         break;
 
-    case EVENT_INACTIVITY_TIMEOUT:
     case EVENT_NET_ERROR:
         if (mAuthOp && ! mOp && IsUp() && ! mNetConnection->GetFilter()) {
             HandleAuthResponse(mNetConnection->GetInBuffer());
             return 0;
         }
+    case EVENT_INACTIVITY_TIMEOUT:
+        CleanupOpInFlight();
         delete mAuthOp;
         mAuthOp = 0;
-        CleanupOpInFlight();
         DiscardPendingResponses();
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
@@ -606,6 +606,9 @@ MetaServerSM::HandleRequest(int code, void* data)
             gChunkManager.MetaServerConnectionLost();
         }
         FailOps(! globalNetManager().IsRunning());
+        delete mHelloOp;
+        mHelloOp = 0;
+        mSentHello = false;
         break;
 
     default:
@@ -771,27 +774,26 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 return true;
             }
             if (err || mHelloOp->resumeStep != 0) {
-                HelloMetaOp::LostChunkDirs lostDirs;
-                lostDirs.swap(mHelloOp->lostChunkDirs);
-                mUpdateCurrentKeyFlag = ! err &&
-                    mHelloOp->sendCurrentKeyFlag;
+                mUpdateCurrentKeyFlag = ! err && mHelloOp->sendCurrentKeyFlag;
                 if (mUpdateCurrentKeyFlag) {
                     mCurrentKeyId = mHelloOp->currentKeyId;
                 }
-                delete mHelloOp;
-                mHelloOp = 0;
                 if (err) {
                     HandleRequest(EVENT_NET_ERROR, 0);
                     return false;
                 }
                 mConnectedTime = globalNetManager().Now();
-                ResubmitOps();
+                HelloMetaOp* const helloOp = mHelloOp;
+                mHelloOp = 0; // Set to 0 to make stated "Up"
+                assert(IsHandshakeDone() || ! IsConnected());
                 for (HelloMetaOp::LostChunkDirs::const_iterator
-                        it = lostDirs.begin();
-                        it != lostDirs.end();
+                        it = helloOp->lostChunkDirs.begin();
+                        it != helloOp->lostChunkDirs.end() && IsConnected();
                         ++it) {
-                    EnqueueOp(new CorruptChunkOp(0, -1, -1, &(*it), false));
+                    EnqueueOp(new CorruptChunkOp(0, -1, &(*it), false));
                 }
+                delete helloOp;
+                ResubmitOps();
                 return true;
             }
         } else {

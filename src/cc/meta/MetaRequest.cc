@@ -2650,7 +2650,7 @@ MetaChunkCorrupt::handle()
         if (! chunkDir.empty()) {
             server->SetChunkDirStatus(chunkDir, dirOkFlag);
         }
-        if (chunkId > 0) {
+        if (0 < chunkId || 0 < chunkCount) {
             gLayoutManager.ChunkCorrupt(this);
         }
     } else {

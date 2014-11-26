@@ -2102,6 +2102,8 @@ struct LeaseRelinquishOp : public KfsOp {
     }
 };
 
+class PendingNotifyLostChunks;
+
 // This is just a helper op for building a hello request to the metaserver.
 struct HelloMetaOp : public KfsOp {
     typedef vector<string>       LostChunkDirs;
@@ -2124,31 +2126,32 @@ struct HelloMetaOp : public KfsOp {
         kChunkListCount           = 4
     };
 
-    ServerLocation    myLocation;
-    string            clusterKey;
-    string            md5sum;
-    int               rackId;
-    int64_t           totalSpace;
-    int64_t           totalFsSpace;
-    int64_t           usedSpace;
-    LostChunkDirs     lostChunkDirs;
-    ChunkList         chunkLists[kChunkListCount];
-    bool              sendCurrentKeyFlag;
-    CryptoKeys::KeyId currentKeyId;
-    CryptoKeys::Key   currentKey;
-    int64_t           fileSystemId;
-    int64_t           metaFileSystemId;
-    bool              deleteAllChunksFlag;
-    bool              noFidsFlag;
-    int               resumeStep;
-    uint64_t          deletedCount;
-    uint64_t          modifiedCount;
-    uint64_t          chunkCount;
-    CIdChecksum_t     checksum;
-    ChunkIds          resumeModified;
-    ChunkIds          resumeDeleted;
-    int64_t           helloResumeCount;
-    int64_t           helloResumeFailedCount;
+    ServerLocation           myLocation;
+    string                   clusterKey;
+    string                   md5sum;
+    int                      rackId;
+    int64_t                  totalSpace;
+    int64_t                  totalFsSpace;
+    int64_t                  usedSpace;
+    LostChunkDirs            lostChunkDirs;
+    ChunkList                chunkLists[kChunkListCount];
+    bool                     sendCurrentKeyFlag;
+    CryptoKeys::KeyId        currentKeyId;
+    CryptoKeys::Key          currentKey;
+    int64_t                  fileSystemId;
+    int64_t                  metaFileSystemId;
+    bool                     deleteAllChunksFlag;
+    bool                     noFidsFlag;
+    int                      resumeStep;
+    uint64_t                 deletedCount;
+    uint64_t                 modifiedCount;
+    uint64_t                 chunkCount;
+    CIdChecksum_t            checksum;
+    ChunkIds                 resumeModified;
+    ChunkIds                 resumeDeleted;
+    int64_t                  helloResumeCount;
+    int64_t                  helloResumeFailedCount;
+    PendingNotifyLostChunks* pendingNotifyLostChunks;
 
     HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
             const string& k, const string& m, int r)
@@ -2177,8 +2180,10 @@ struct HelloMetaOp : public KfsOp {
           resumeModified(),
           resumeDeleted(),
           helloResumeCount(0),
-          helloResumeFailedCount(0)
+          helloResumeFailedCount(0),
+          pendingNotifyLostChunks(0)
         {}
+    virtual ~HelloMetaOp();
     void Execute();
     void Request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
@@ -2205,34 +2210,32 @@ struct HelloMetaOp : public KfsOp {
 };
 
 struct CorruptChunkOp : public KfsOp {
-    kfsFileId_t  fid;     // input: fid whose chunk is bad
-    kfsChunkId_t chunkId; // input: chunkid of the corrupted chunk
+    enum { kMaxChunkIds = 128 };
+    kfsChunkId_t chunkIds[kMaxChunkIds];
+    int          chunkCount;
     // input: set if chunk was lost---happens when we disconnect from metaserver and miss messages
     bool         isChunkLost;
     bool         dirOkFlag;
+    bool         notifyChunkManagerFlag;
     string       chunkDir;
 
-    CorruptChunkOp(kfsSeq_t s, kfsFileId_t f, kfsChunkId_t c,
+    CorruptChunkOp(kfsSeq_t s, kfsChunkId_t c,
             const string* cDir = 0, bool dOkFlag = false)
         : KfsOp(CMD_CORRUPT_CHUNK, s),
-          fid(f),
-          chunkId(c),
+          chunkCount(0),
           isChunkLost(false),
           dirOkFlag(dOkFlag),
-          chunkDir(cDir ? *cDir : string()),
-          refCount(1)
+          notifyChunkManagerFlag(false),
+          chunkDir(cDir ? *cDir : string())
     {
+        chunkIds[0] = c;
+        if (0 <= c) {
+            chunkCount = 1;
+        }
         noReply = true;
         noRetry = true;
         SET_HANDLER(this, &CorruptChunkOp::HandleDone);
     }
-    int Ref() { return refCount++; }
-    void UnRef() {
-        if (--refCount <= 0) {
-            delete this;
-        }
-    }
-    int GetRef() const { return refCount; }
     void Request(ostream &os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
@@ -2242,12 +2245,10 @@ struct CorruptChunkOp : public KfsOp {
         return os <<
             "corrupt chunk:"
             " seq: "     << seq <<
-            " fileid: "  << fid <<
-            " chunkid: " << chunkId
+            " count: "   << chunkCount <<
+            " chunkid: " << chunkIds[0]
         ;
     }
-private:
-    int refCount;
 };
 
 struct EvacuateChunksOp : public KfsOp {
