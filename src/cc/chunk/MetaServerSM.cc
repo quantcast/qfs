@@ -59,6 +59,14 @@ using KFS::libkfsio::globalNetManager;
 
 MetaServerSM gMetaServerSM;
 
+template<typename T> inline static void
+DetachAndDeleteOp(T*& op)
+{
+    T* const cur = op;
+    op = 0;
+    delete cur;
+}
+
 MetaServerSM::MetaServerSM()
     : KfsCallbackObj(),
       ITimeout(),
@@ -149,10 +157,8 @@ MetaServerSM::Shutdown()
     CleanupOpInFlight();
     DiscardPendingResponses();
     FailOps(true);
-    delete mHelloOp;
-    mHelloOp = 0;
-    delete mAuthOp;
-    mHelloOp = 0;
+    DetachAndDeleteOp(mHelloOp);
+    DetachAndDeleteOp(mAuthOp);
     mAuthContext.Clear();
     if (mLocation.IsValid()) {
         mLocation.port = -mLocation.port;
@@ -235,8 +241,7 @@ MetaServerSM::Timeout()
             if (! mSentHello) {
                 return; // Wait for hello to come back.
             }
-            delete mHelloOp;
-            mHelloOp   = 0;
+            DetachAndDeleteOp(mHelloOp);
             mSentHello = false;
         }
         if (mLastConnectTime + 1 < now) {
@@ -265,8 +270,7 @@ MetaServerSM::Connect()
         return 0;
     }
     CleanupOpInFlight();
-    delete mAuthOp;
-    mAuthOp = 0;
+    DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
     mContentLength = 0;
     mCounters.mConnectCount++;
@@ -439,8 +443,7 @@ MetaServerSM::Authenticate()
             "authentication request failure: " <<
             errMsg <<
         KFS_LOG_EOM;
-        delete mAuthOp;
-        mAuthOp = 0;
+        DetachAndDeleteOp(mAuthOp);
         HandleRequest(EVENT_NET_ERROR, 0);
         return true;
     }
@@ -461,10 +464,8 @@ MetaServerSM::DispatchHello()
     }
     if (! IsConnected()) {
         // don't have a connection...so, need to start the process again...
-        delete mAuthOp;
-        mAuthOp = 0;
-        delete mHelloOp;
-        mHelloOp = 0;
+        DetachAndDeleteOp(mAuthOp);
+        DetachAndDeleteOp(mHelloOp);
         mSentHello = false;
         mUpdateCurrentKeyFlag = false;
         return;
@@ -584,8 +585,7 @@ MetaServerSM::HandleRequest(int code, void* data)
         }
     case EVENT_INACTIVITY_TIMEOUT:
         CleanupOpInFlight();
-        delete mAuthOp;
-        mAuthOp = 0;
+        DetachAndDeleteOp(mAuthOp);
         DiscardPendingResponses();
         if (mNetConnection) {
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
@@ -606,8 +606,7 @@ MetaServerSM::HandleRequest(int code, void* data)
             gChunkManager.MetaServerConnectionLost();
         }
         FailOps(! globalNetManager().IsRunning());
-        delete mHelloOp;
-        mHelloOp = 0;
+        DetachAndDeleteOp(mHelloOp);
         mSentHello = false;
         break;
 
@@ -725,7 +724,9 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             mCounters.mHelloCount++;
             const int resumeStep = status == 0 ?
                 prop.getValue("Resume", int(-1)) : -1;
-            const bool err = seq != mHelloOp->seq ||
+            const bool errorFlag =
+                seq != mHelloOp->seq ||
+                0 < mHelloOp->resumeStep ||
                 (status != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep < 0 && status != 0) ||
@@ -733,7 +734,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     (status != 0 && status != -EAGAIN)) ||
                 (0 <= mHelloOp->resumeStep && status == 0 &&
                     resumeStep != mHelloOp->resumeStep);
-            if (err) {
+            if (errorFlag) {
                 KFS_LOG_STREAM_ERROR <<
                     "hello response error:"
                     " seq: "         << seq << " => " << mHelloOp->seq <<
@@ -773,18 +774,19 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 SubmitOp(mHelloOp); // Re-submit hello.
                 return true;
             }
-            if (err || mHelloOp->resumeStep != 0) {
-                mUpdateCurrentKeyFlag = ! err && mHelloOp->sendCurrentKeyFlag;
+            if (errorFlag || mHelloOp->resumeStep != 0) {
+                mUpdateCurrentKeyFlag =
+                    ! errorFlag && mHelloOp->sendCurrentKeyFlag;
                 if (mUpdateCurrentKeyFlag) {
                     mCurrentKeyId = mHelloOp->currentKeyId;
                 }
-                if (err) {
+                if (errorFlag) {
                     HandleRequest(EVENT_NET_ERROR, 0);
                     return false;
                 }
                 mConnectedTime = globalNetManager().Now();
                 HelloMetaOp* const helloOp = mHelloOp;
-                mHelloOp = 0; // Set to 0 to make stated "Up"
+                mHelloOp = 0; // Set to 0 to make state "Up"
                 assert(IsHandshakeDone() || ! IsConnected());
                 for (HelloMetaOp::LostChunkDirs::const_iterator
                         it = helloOp->lostChunkDirs.begin();
@@ -1082,8 +1084,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
 {
     if (! mAuthOp || ! mNetConnection) {
         die("handle auth response: invalid invocation");
-        delete mAuthOp;
-        mAuthOp = 0;
+        DetachAndDeleteOp(mAuthOp);
         HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
@@ -1139,8 +1140,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
         " filter: "  <<
             reinterpret_cast<const void*>(mNetConnection->GetFilter()) <<
     KFS_LOG_EOM;
-    delete mAuthOp;
-    mAuthOp = 0;
+    DetachAndDeleteOp(mAuthOp);
     if (! okFlag) {
         HandleRequest(EVENT_NET_ERROR, 0);
         return;
