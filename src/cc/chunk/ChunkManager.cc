@@ -4847,8 +4847,9 @@ ChunkManager::GetHostedChunksResume(
     mCounters.mHelloResumeCount++;
     PendingNotifyLostChunks::Move(
         mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
-    CIdChecksum_t checksum = kCIdNullChecksum;
-    uint64_t      count    = 0;
+    LastPendingInFlight lastPendingReported;
+    CIdChecksum_t       checksum = kCIdNullChecksum;
+    uint64_t            count    = 0;
     if (mPendingNotifyLostChunks) {
         // Add all pending notify lost chunks. The chunks should not be
         // in the chunk table: AddMapping() deletes pending lost notify entries.
@@ -4916,6 +4917,34 @@ ChunkManager::GetHostedChunksResume(
                 AppendToHostedList(
                     **cih, stable, notStableAppend, notStable, noFidsFlag);
             }
+            if (chksumExcludeFlag) {
+                // Deleted are reported implicitly.
+                bool insertedFlag = false;
+                lastPendingReported.Insert(chunkId, chunkId, insertedFlag);
+            }
+        }
+    }
+    if (lastPendingReported.GetSize() < mLastPendingInFlight.GetSize()) {
+        // Report last pending in flight here in order to insure that
+        // meta server has no stale entries, in the cases where available
+        // chunks become un-available again.
+        mLastPendingInFlight.First();
+        const LastPendingInFlightEntry* p;
+        while ((p = mLastPendingInFlight.Next())) {
+            const kfsChunkId_t chunkId = p->GetKey();
+            if (lastPendingReported.Find(chunkId) ||
+                    (mPendingNotifyLostChunks &&
+                        mPendingNotifyLostChunks->Find(chunkId))) {
+                continue;
+            }
+            ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
+            if (! cih || (*cih)->IsBeingReplicated()) {
+                (*missing.first)++;
+                (*missing.second) << chunkId << ' ';
+                continue;
+            }
+            AppendToHostedList(
+                **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
     if (count != helloCount || checksum != helloChecksum) {

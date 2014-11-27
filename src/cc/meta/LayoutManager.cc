@@ -3071,7 +3071,8 @@ LayoutManager::AddNewServer(MetaHello *r)
                 continue;
             }
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
-            if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
+            if ((! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) &&
+                    0 < modififedChunks.Erase(chunkId)) {
                 panic("invalid modified chunk list");
             }
         }
