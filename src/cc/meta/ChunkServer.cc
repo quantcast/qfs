@@ -2805,10 +2805,7 @@ HibernatedChunkServer::HelloResumeReply(
         // Ensure that next step has correct counts. The counts should
         // correspond to the counts sent on the previous step.
         const size_t deletedCount = mDeletedChunks.GetSize();
-        if (r.chunkCount < GetChunkCount() ||
-                deletedCount < r.deletedCount ||
-                r.chunkCount + r.deletedCount != GetChunkCount() +
-                    deletedCount) {
+        if (deletedCount < r.deletedCount) {
             r.statusMsg = "invalid resume response";
             r.status    = -EINVAL;
         } else {
@@ -2852,6 +2849,12 @@ HibernatedChunkServer::HelloResumeReply(
             it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
         if (! csMap.HasHibernatedServer(GetIndex(), *it)) {
             continue;
+        }
+        if (r.chunkCount <= 0) {
+            r.statusMsg = "invalid missing chunk list:"
+                " possible duplicate entries";
+            r.status    = -EINVAL;
+            return false;
         }
         r.chunkCount--;
         r.checksum = CIdsChecksumRemove(*it, r.checksum);
