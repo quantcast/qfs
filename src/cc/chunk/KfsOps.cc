@@ -3783,7 +3783,7 @@ HelloMetaOp::Execute()
                 lists[kNotStableChunkList],
                 noFidsFlag
             );
-        } else if (resumeStep == 1) {
+        } else if (resumeStep <= 1) {
             gChunkManager.GetHostedChunksResume(
                 *this,
                 lists[kStableChunkList],

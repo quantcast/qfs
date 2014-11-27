@@ -1193,7 +1193,7 @@ public:
         { return (0 < mListsSize); }
     size_t GetChunkListsSize() const
         { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
-    bool HelloResumeReply(MetaHello& r,
+    bool HelloResumeReply(MetaHello& r, const CSMap& csMap,
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
     void ResumeRestart(
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);

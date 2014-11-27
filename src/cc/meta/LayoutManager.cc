@@ -2816,7 +2816,8 @@ LayoutManager::AddNewServer(MetaHello *r)
             r->status    = -EAGAIN;
             return;
         }
-        if (cs->HelloResumeReply(*r, staleChunkIds, modififedChunks)) {
+        if (cs->HelloResumeReply(
+                *r, mChunkToServerMap, staleChunkIds, modififedChunks)) {
             return;
         }
         hibernatedIdx = it->csmapIdx;

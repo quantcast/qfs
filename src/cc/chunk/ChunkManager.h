@@ -424,6 +424,7 @@ public:
         { return mDirCheckFailureSimulatorInterval; }
     void NotifyStaleChunkDone(CorruptChunkOp& op);
     void HelloDone(HelloMetaOp& hello);
+    inline bool InsertLastInFlight(kfsChunkId_t chunkId);
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -811,6 +812,18 @@ private:
 
     PendingNotifyLostChunks* mPendingNotifyLostChunks;
     CorruptChunkOp           mCorruptChunkOp;
+
+    typedef KeyOnly<kfsChunkId_t> LastPendingInFlightEntry;
+    typedef LinearHash<
+        LastPendingInFlightEntry,
+        KeyCompare<kfsChunkId_t>,
+        DynamicArray<
+            SingleLinkedList<LastPendingInFlightEntry>*,
+            9
+        >,
+        StdFastAllocator<LastPendingInFlightEntry>
+    > LastPendingInFlight;
+    LastPendingInFlight mLastPendingInFlight;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

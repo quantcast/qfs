@@ -726,7 +726,6 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 prop.getValue("Resume", int(-1)) : -1;
             const bool errorFlag =
                 seq != mHelloOp->seq ||
-                0 < mHelloOp->resumeStep ||
                 (status != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep != 0 && 0 < mContentLength) ||
                 (mHelloOp->resumeStep < 0 && status != 0) ||

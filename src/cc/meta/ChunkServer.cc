@@ -1350,6 +1350,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mHelloOp->chunks.clear();
         mHelloOp->notStableChunks.clear();
         mHelloOp->notStableAppendChunks.clear();
+        mHelloOp->missingChunks.clear();
         if (mHelloOp->status == 0) {
             const size_t numStable(max(0, mHelloOp->numChunks));
             mHelloOp->chunks.reserve(mHelloOp->numChunks);
@@ -1397,7 +1398,6 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     }
                 }
             }
-            mHelloOp->missingChunks.clear();
             const size_t numMissing = max(0, mHelloOp->numMissingChunks);
             if (0 < numMissing && ! hexParser.IsError()) {
                 mHelloOp->missingChunks.reserve(numMissing);
@@ -2782,6 +2782,7 @@ HibernatedChunkServer::HibernatedChunkServer(
 bool
 HibernatedChunkServer::HelloResumeReply(
     MetaHello&                             r,
+    const CSMap&                           csMap,
     ChunkIdQueue&                          staleChunkIds,
     HibernatedChunkServer::ModifiedChunks& modifiedChunks)
 {
@@ -2801,6 +2802,8 @@ HibernatedChunkServer::HelloResumeReply(
         return true;
     }
     if (0 < r.resumeStep) {
+        // Ensure that next step has correct counts. The counts should
+        // correspond to the counts sent on the previous step.
         const size_t deletedCount = mDeletedChunks.GetSize();
         if (r.chunkCount < GetChunkCount() ||
                 deletedCount < r.deletedCount ||
@@ -2830,6 +2833,7 @@ HibernatedChunkServer::HelloResumeReply(
         if (r.deletedCount <= 0 && staleChunkIds.IsEmpty()) {
             staleChunkIds.Swap(mDeletedChunks);
         } else {
+            // Copy chunks deleted since hello resume was started.
             for (size_t i = r.deletedCount; i < deletedCount; i++) {
                 staleChunkIds.PushBack(mDeletedChunks[i]);
             }
@@ -2842,6 +2846,16 @@ HibernatedChunkServer::HelloResumeReply(
     r.modifiedCount = 0;
     r.chunkCount    = GetChunkCount();
     r.checksum      = GetChecksum();
+    // Chunk server assumes responsibility for ensuring no duplicate list
+    // entries.
+    for (MetaHello::MissingChunks::const_iterator
+            it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
+        if (! csMap.HasHibernatedServer(GetIndex(), *it)) {
+            continue;
+        }
+        r.chunkCount--;
+        r.checksum = CIdsChecksumRemove(*it, r.checksum);
+    }
     if (mListsSize <= 1) {
         return true;
     }

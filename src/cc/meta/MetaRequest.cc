@@ -4524,7 +4524,7 @@ MetaHello::response(ostream& os, IOBuffer& buf)
             os << "Delete-all-chunks: " << metaFileSystemId << "\r\n";
         }
     }
-    if (0 < resumeStep) {
+    if (0 <= resumeStep) {
         os <<
             "Resume: "         << resumeStep                    << "\r\n"
             "Deleted: "        << deletedCount                  << "\r\n"
