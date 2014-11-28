@@ -913,6 +913,7 @@ private:
         bool                                 noFidsFlag);
     inline bool NotifyLostChunk(kfsChunkId_t chunkId);
     inline bool ScheduleNotifyLostChunk();
+    inline bool IsTargetChunkVersionStable(const ChunkInfoHandle& cih) const;
 
     static bool sExitDebugCheckFlag;
 private:

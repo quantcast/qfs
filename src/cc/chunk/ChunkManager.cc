@@ -4825,6 +4825,20 @@ ChunkManager::AppendToHostedList(
     }
 }
 
+bool
+ChunkManager::IsTargetChunkVersionStable(const ChunkInfoHandle& cih) const
+{
+    if (cih.IsBeingReplicated()) {
+        return false;
+    }
+    if (cih.IsRenameInFlight()) {
+        bool stableFlag = false;
+        cih.GetTargetStateAndVersion(stableFlag);
+        return stableFlag;
+    }
+    return IsChunkStable(&cih);
+}
+
 void
 ChunkManager::GetHostedChunksResume(
     HelloMetaOp&                         hello,
@@ -4850,11 +4864,10 @@ ChunkManager::GetHostedChunksResume(
                 continue;
             }
             const ChunkInfoHandle* const cih = c->GetVal();
-            if (cih->IsBeingReplicated() || IsChunkStable(cih)) {
-                continue;
+            if (! cih || ! IsTargetChunkVersionStable(*cih)) {
+                (*missing.first)++;
+                (*missing.second) << p->GetKey() << ' ';
             }
-            (*missing.first)++;
-            (*missing.second) << p->GetKey() << ' ';
         }
         return;
     }
@@ -4874,6 +4887,10 @@ ChunkManager::GetHostedChunksResume(
             if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
             }
+            ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
+            if (! cih || IsTargetChunkVersionStable(**cih)) {
+                continue;
+            }
             checksum = CIdsChecksumAdd(chunkId, checksum);
             count++;
         }
@@ -4888,7 +4905,7 @@ ChunkManager::GetHostedChunksResume(
         if (cih->IsBeingReplicated()) {
             continue;
         }
-        if (! IsChunkStable(cih)) {
+        if (! IsTargetChunkVersionStable(*cih)) {
             AppendToHostedList(
                 *cih, stable, notStableAppend, notStable, noFidsFlag);
             continue;
@@ -4924,6 +4941,14 @@ ChunkManager::GetHostedChunksResume(
                 // list.
                 // Chunk server either needs to "add" those to its inventory, or
                 // "subtract" from the meta server inventory.
+                if (helloCount <= 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "invalid meta server chunk count or delete or modified"
+                        " lists" <<
+                    KFS_LOG_EOM;
+                    hello.resumeStep = -1;
+                    break;
+                }
                 helloChecksum = CIdsChecksumRemove(chunkId, helloChecksum);
                 helloCount--;
             }
@@ -4935,19 +4960,27 @@ ChunkManager::GetHostedChunksResume(
                 }
                 continue;
             }
+            if (! IsTargetChunkVersionStable(**cih)) {
+                // Only report "modified" stable chunks here, all unstable are
+                // reported already the above.
+                continue;
+           }
             if (! inFlightFlag) {
+                if (count <= 0) {
+                    die("invalid CS chunk inventory count");
+                    hello.resumeStep = -1;
+                    break;
+                }
                 checksum = CIdsChecksumRemove(chunkId, checksum);
                 count--;
             }
-            if (0 < pass && IsChunkStable(*cih)) {
-                // Only report "modified" stable chunks here, all unstable are
-                // reported already the above.
+            if (0 < pass) {
                 AppendToHostedList(
                     **cih, stable, notStableAppend, notStable, noFidsFlag);
             }
         }
     }
-    if (! mLastPendingInFlight.IsEmpty()) {
+    if (0 <= hello.resumeStep && ! mLastPendingInFlight.IsEmpty()) {
         // Report last pending in flight here in order to insure that
         // meta server has no stale entries, in the cases where available
         // chunks become un-available again.
@@ -4967,7 +5000,8 @@ ChunkManager::GetHostedChunksResume(
                 **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
-    if (count != helloCount || checksum != helloChecksum) {
+    if (hello.resumeStep < 0 ||
+            (count != helloCount || checksum != helloChecksum)) {
         mCounters.mHelloResumeFailedCount++;
         KFS_LOG_STREAM_ERROR <<
             "hello resume failure:"
