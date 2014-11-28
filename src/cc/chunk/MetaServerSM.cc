@@ -797,6 +797,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 ResubmitOps();
                 return true;
             }
+            op = mHelloOp;
+            assert(op);
         } else {
             iter = mDispatchedOps.find(seq);
             if (iter == mDispatchedOps.end()) {
