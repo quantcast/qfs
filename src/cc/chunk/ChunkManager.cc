@@ -1202,8 +1202,8 @@ public:
     typedef KeyOnly<kfsChunkId_t> Entry;
 
     static void Move(
-        PendingNotifyLostChunks*& dst,
-        PendingNotifyLostChunks*& src)
+        PendingNotifyLostChunks*& src,
+        PendingNotifyLostChunks*& dst)
     {
         if (! src) {
             return;
@@ -1333,7 +1333,7 @@ void
 ChunkManager::HelloDone(HelloMetaOp& hello)
 {
     PendingNotifyLostChunks::Move(
-        mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
+        hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
     if (gMetaServerSM.IsUp() && hello.resumeStep != 0) {
         mLastPendingInFlight.Clear();
     }
@@ -4835,10 +4835,24 @@ ChunkManager::GetHostedChunksResume(
     bool                                 noFidsFlag)
 {
     if (hello.resumeStep == 0) {
-        // Tell meta server to exclude these from checksum.
+        // Tell meta server to exclude last in flight and all non stable chunks
+        // from checksum.
         mLastPendingInFlight.First();
         const LastPendingInFlightEntry* p;
         while ((p = mLastPendingInFlight.Next())) {
+            (*missing.first)++;
+            (*missing.second) << p->GetKey() << ' ';
+        }
+        mChunkTable.First();
+        const CMapEntry* c;
+        while ((c = mChunkTable.Next())) {
+            if (mLastPendingInFlight.Find(c->GetKey())) {
+                continue;
+            }
+            const ChunkInfoHandle* const cih = c->GetVal();
+            if (cih->IsBeingReplicated() || IsChunkStable(cih)) {
+                continue;
+            }
             (*missing.first)++;
             (*missing.second) << p->GetKey() << ' ';
         }
@@ -4872,6 +4886,11 @@ ChunkManager::GetHostedChunksResume(
         }
         const ChunkInfoHandle* const cih = p->GetVal();
         if (cih->IsBeingReplicated()) {
+            continue;
+        }
+        if (! IsChunkStable(cih)) {
+            AppendToHostedList(
+                *cih, stable, notStableAppend, notStable, noFidsFlag);
             continue;
         }
         checksum = CIdsChecksumAdd(p->GetKey(), checksum);
@@ -4915,8 +4934,9 @@ ChunkManager::GetHostedChunksResume(
             }
             checksum = CIdsChecksumRemove(chunkId, checksum);
             count--;
-            if (0 < pass) {
-                // Only report "modified" chunks.
+            if (0 < pass && IsChunkStable(*cih)) {
+                // Only report "modified" stable chunks here, all unstable are
+                // reported already the above.
                 AppendToHostedList(
                     **cih, stable, notStableAppend, notStable, noFidsFlag);
             }
