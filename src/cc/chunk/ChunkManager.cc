@@ -4910,11 +4910,14 @@ ChunkManager::GetHostedChunksResume(
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId = *it;
             // Meta server excludes pending in flight.
-            if (lastPendingNotReported.IsEmpty() &&
-                    mLastPendingInFlight.Find(chunkId)) {
-                lastPendingNotReported = mLastPendingInFlight;
+            const bool inFlightFlag = mLastPendingInFlight.Find(chunkId) != 0;
+            if (inFlightFlag) {
+                if (lastPendingNotReported.IsEmpty()) {
+                    lastPendingNotReported = mLastPendingInFlight;
+                }
+                lastPendingNotReported.Erase(chunkId);
             }
-            if (lastPendingNotReported.Erase(chunkId) <= 0 && 0 < pass) {
+            if (0 < pass && ! inFlightFlag) {
                 // Modified chunks are included into the meta server's checksum,
                 // unless meta server was told to exclude them. In the later
                 // case the chunks are present in the last pending in flight
@@ -4932,8 +4935,10 @@ ChunkManager::GetHostedChunksResume(
                 }
                 continue;
             }
-            checksum = CIdsChecksumRemove(chunkId, checksum);
-            count--;
+            if (! inFlightFlag) {
+                checksum = CIdsChecksumRemove(chunkId, checksum);
+                count--;
+            }
             if (0 < pass && IsChunkStable(*cih)) {
                 // Only report "modified" stable chunks here, all unstable are
                 // reported already the above.
@@ -4946,11 +4951,11 @@ ChunkManager::GetHostedChunksResume(
         // Report last pending in flight here in order to insure that
         // meta server has no stale entries, in the cases where available
         // chunks become un-available again.
-        LastPendingInFlight& list = lastPendingNotReported.IsEmpty() ?
+        LastPendingInFlight& pending = lastPendingNotReported.IsEmpty() ?
             mLastPendingInFlight : lastPendingNotReported;
-        list.First();
+        pending.First();
         const LastPendingInFlightEntry* p;
-        while ((p = list.Next())) {
+        while ((p = pending.Next())) {
             const kfsChunkId_t chunkId = p->GetKey();
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
