@@ -4847,7 +4847,7 @@ ChunkManager::GetHostedChunksResume(
     mCounters.mHelloResumeCount++;
     PendingNotifyLostChunks::Move(
         mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
-    LastPendingInFlight lastPendingReported;
+    LastPendingInFlight lastPendingNotReported;
     CIdChecksum_t       checksum = kCIdNullChecksum;
     uint64_t            count    = 0;
     if (mPendingNotifyLostChunks) {
@@ -4891,12 +4891,17 @@ ChunkManager::GetHostedChunksResume(
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId = *it;
             // Meta server excludes pending in flight.
-            const bool chksumExcludeFlag =
-                mLastPendingInFlight.Find(chunkId) != 0;
-            if (0 < pass && chksumExcludeFlag) {
-                // Modified chunks are included into the meta server's
-                // checksum. Chunk server either needs to "add" those to its.
-                // inventory, or "subtract" from the meta server inventory.
+            if (lastPendingNotReported.IsEmpty() &&
+                    mLastPendingInFlight.Find(chunkId)) {
+                lastPendingNotReported = mLastPendingInFlight;
+            }
+            if (lastPendingNotReported.Erase(chunkId) <= 0 && 0 < pass) {
+                // Modified chunks are included into the meta server's checksum,
+                // unless meta server was told to exclude them. In the later
+                // case the chunks are present in the last pending in flight
+                // list.
+                // Chunk server either needs to "add" those to its inventory, or
+                // "subtract" from the meta server inventory.
                 helloChecksum = CIdsChecksumRemove(chunkId, helloChecksum);
                 helloCount--;
             }
@@ -4908,35 +4913,25 @@ ChunkManager::GetHostedChunksResume(
                 }
                 continue;
             }
-            if (chksumExcludeFlag) {
-                checksum = CIdsChecksumRemove(chunkId, checksum);
-                count--;
-            }
+            checksum = CIdsChecksumRemove(chunkId, checksum);
+            count--;
             if (0 < pass) {
                 // Only report "modified" chunks.
                 AppendToHostedList(
                     **cih, stable, notStableAppend, notStable, noFidsFlag);
             }
-            if (chksumExcludeFlag) {
-                // Deleted are reported implicitly.
-                bool insertedFlag = false;
-                lastPendingReported.Insert(chunkId, chunkId, insertedFlag);
-            }
         }
     }
-    if (lastPendingReported.GetSize() < mLastPendingInFlight.GetSize()) {
+    if (! mLastPendingInFlight.IsEmpty()) {
         // Report last pending in flight here in order to insure that
         // meta server has no stale entries, in the cases where available
         // chunks become un-available again.
-        mLastPendingInFlight.First();
+        LastPendingInFlight& list = lastPendingNotReported.IsEmpty() ?
+            mLastPendingInFlight : lastPendingNotReported;
+        list.First();
         const LastPendingInFlightEntry* p;
-        while ((p = mLastPendingInFlight.Next())) {
+        while ((p = list.Next())) {
             const kfsChunkId_t chunkId = p->GetKey();
-            if (lastPendingReported.Find(chunkId) ||
-                    (mPendingNotifyLostChunks &&
-                        mPendingNotifyLostChunks->Find(chunkId))) {
-                continue;
-            }
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
                 (*missing.first)++;
@@ -4960,7 +4955,7 @@ ChunkManager::GetHostedChunksResume(
             " deleted: "   << hello.resumeDeleted.size() <<
             " modified: "  << hello.resumeModified.size() <<
             " lastInflt: " << mLastPendingInFlight.GetSize() <<
-            ": / "         << mCorruptChunkOp.chunkCount <<
+            " / "          << mCorruptChunkOp.chunkCount <<
         KFS_LOG_EOM;
         hello.resumeStep         = -1;
         hello.status             = 0;
@@ -4979,7 +4974,7 @@ ChunkManager::GetHostedChunksResume(
         " deleted: "   << hello.resumeDeleted.size() <<
         " modified: "  << hello.resumeModified.size() <<
         " lastInflt: " << mLastPendingInFlight.GetSize() <<
-        ": / "         << mCorruptChunkOp.chunkCount <<
+        " / "          << mCorruptChunkOp.chunkCount <<
     KFS_LOG_EOM;
     hello.resumeStep = 1;
 }
