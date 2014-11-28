@@ -2200,6 +2200,7 @@ struct HelloMetaOp : public KfsOp {
             " chunks: "      << chunkLists[kStableChunkList].count <<
             " not-stable: "  << chunkLists[kNotStableChunkList].count <<
             " append: "      << chunkLists[kNotStableAppendChunkList].count <<
+            " missing: "     << chunkLists[kMissingList].count <<
             " fsid: "        << fileSystemId <<
             " metafsid: "    << metaFileSystemId <<
             " delete flag: " << deleteAllChunksFlag <<

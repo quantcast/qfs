@@ -4946,12 +4946,14 @@ ChunkManager::GetHostedChunksResume(
         mCounters.mHelloResumeFailedCount++;
         KFS_LOG_STREAM_ERROR <<
             "hello resume failure:"
-            " chunks: "    << count <<
-            " / "          << helloCount <<
-            " / "          << hello.chunkCount <<
+            " chunks:"
+            " all: "       << mChunkTable.GetSize() <<
+            " cs: "        << count <<
+            " meta: "      << helloCount <<
+            " hello: "     << hello.chunkCount <<
             " checksum: "  << checksum <<
-            " / "          << helloChecksum <<
-            " / "          << hello.checksum <<
+            " meta: "      << helloChecksum <<
+            " hello: "     << hello.checksum <<
             " deleted: "   << hello.resumeDeleted.size() <<
             " modified: "  << hello.resumeModified.size() <<
             " lastInflt: " << mLastPendingInFlight.GetSize() <<
