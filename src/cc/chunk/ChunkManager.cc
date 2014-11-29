@@ -4870,7 +4870,8 @@ ChunkManager::GetHostedChunksResume(
                 continue;
             }
             const ChunkInfoHandle* const cih = p->GetVal();
-            if (! cih || ! IsTargetChunkVersionStable(*cih)) {
+            if (! cih->IsBeingReplicated() &&
+                    ! IsTargetChunkVersionStable(*cih)) {
                 (*missing.first)++;
                 (*missing.second) << chunkId << ' ';
             }
@@ -4880,30 +4881,8 @@ ChunkManager::GetHostedChunksResume(
     mCounters.mHelloResumeCount++;
     PendingNotifyLostChunks::Move(
         mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
-    LastPendingInFlight lastPendingNotReported;
-    CIdChecksum_t       checksum = kCIdNullChecksum;
-    uint64_t            count    = 0;
-    if (mPendingNotifyLostChunks) {
-        // Add all pending notify lost chunks. The chunks should not be
-        // in the chunk table: AddMapping() deletes pending lost notify entries.
-        for (mPendingNotifyLostChunks->First(); ;) {
-            const PendingNotifyLostChunks::Entry* const p =
-                mPendingNotifyLostChunks->Next();
-            if (! p) {
-                break;
-            }
-            const kfsChunkId_t chunkId = p->GetKey();
-            if (mLastPendingInFlight.Find(chunkId)) {
-                continue;
-            }
-            ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
-            if (! cih || IsTargetChunkVersionStable(**cih)) {
-                continue;
-            }
-            checksum = CIdsChecksumAdd(chunkId, checksum);
-            count++;
-        }
-    }
+    CIdChecksum_t checksum = kCIdNullChecksum;
+    uint64_t      count    = 0;
     for (mChunkTable.First(); ;) {
         const CMapEntry* const p = mChunkTable.Next();
         if (! p) {
@@ -4924,13 +4903,35 @@ ChunkManager::GetHostedChunksResume(
         checksum = CIdsChecksumAdd(p->GetKey(), checksum);
         count++;
     }
+    if (mPendingNotifyLostChunks) {
+        // Add all pending notify lost chunks. The chunks should not be
+        // in the chunk table: AddMapping() deletes pending lost notify entries.
+        for (mPendingNotifyLostChunks->First(); ;) {
+            const PendingNotifyLostChunks::Entry* const p =
+                mPendingNotifyLostChunks->Next();
+            if (! p) {
+                break;
+            }
+            const kfsChunkId_t chunkId = p->GetKey();
+            if (mLastPendingInFlight.Find(chunkId)) {
+                continue;
+            }
+            ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
+            if (cih && ! IsTargetChunkVersionStable(**cih)) {
+                continue;
+            }
+            checksum = CIdsChecksumAdd(chunkId, checksum);
+            count++;
+        }
+    }
     // Do not deleted chunks just yet. just exclude those from checksum,and do
     // not report those back to the meta server, as the meta server will
     // explicitly delete those after hello completion.
     // Pending in flight will be re-submitted again after hello completion,
     // just exclude these from the checksums.
-    CIdChecksum_t helloChecksum = hello.checksum;
-    uint64_t      helloCount    = hello.chunkCount;
+    CIdChecksum_t       helloChecksum = hello.checksum;
+    uint64_t            helloCount    = hello.chunkCount;
+    LastPendingInFlight lastPendingNotReported;
     for (int pass = 0; pass < 2; pass++) {
         const HelloMetaOp::ChunkIds& ids = pass == 0 ?
             hello.resumeDeleted : hello.resumeModified;
@@ -5013,44 +5014,112 @@ ChunkManager::GetHostedChunksResume(
                 **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
-    if (hello.resumeStep < 0 ||
-            (count != helloCount || checksum != helloChecksum)) {
-        mCounters.mHelloResumeFailedCount++;
-        KFS_LOG_STREAM_ERROR <<
-            "hello resume failure:"
-            " chunks:"
-            " all: "       << mChunkTable.GetSize() <<
-            " cs: "        << count <<
-            " meta: "      << helloCount <<
-            " hello: "     << hello.chunkCount <<
+    if (0 <= hello.resumeStep &&
+            count == helloCount && checksum == helloChecksum) {
+         KFS_LOG_STREAM_NOTICE <<
+            "hello resume succeeded:"
+            " chunks: "    << count <<
+            " / "          << hello.chunkCount <<
             " checksum: "  << checksum <<
-            " meta: "      << helloChecksum <<
-            " hello: "     << hello.checksum <<
+            " / "          << hello.checksum <<
             " deleted: "   << hello.resumeDeleted.size() <<
             " modified: "  << hello.resumeModified.size() <<
             " lastInflt: " << mLastPendingInFlight.GetSize() <<
             " / "          << mCorruptChunkOp.chunkCount <<
         KFS_LOG_EOM;
-        hello.resumeStep         = -1;
-        hello.status             = 0;
-        *(stable.first)          = 0;
-        *(notStableAppend.first) = 0;
-        *(notStable.first)       = 0;
-        *(missing.first)         = 0;
+        hello.resumeStep = 1;
         return;
     }
-    KFS_LOG_STREAM_NOTICE <<
-        "hello resume succeeded:"
-        " chunks: "    << count <<
-        " / "          << hello.chunkCount <<
+    mCounters.mHelloResumeFailedCount++;
+    KFS_LOG_STREAM_ERROR <<
+        "hello resume failure:"
+        " chunks:"
+        " all: "       << mChunkTable.GetSize() <<
+        " cs: "        << count <<
+        " meta: "      << helloCount <<
+        " hello: "     << hello.chunkCount <<
         " checksum: "  << checksum <<
-        " / "          << hello.checksum <<
+        " meta: "      << helloChecksum <<
+        " hello: "     << hello.checksum <<
         " deleted: "   << hello.resumeDeleted.size() <<
         " modified: "  << hello.resumeModified.size() <<
         " lastInflt: " << mLastPendingInFlight.GetSize() <<
         " / "          << mCorruptChunkOp.chunkCount <<
+        " resume: "    << hello.resumeStep <<
     KFS_LOG_EOM;
-    hello.resumeStep = 1;
+    KFS_LOG_STREAM_START(MsgLogger::kLogLevelDEBUG, logStream);
+        ostream& os = logStream.GetStream();
+        os << "last pending in flight[" <<
+            mLastPendingInFlight.GetSize() <<
+        "]:";
+        for (mLastPendingInFlight.First(); os;) {
+            const LastPendingInFlightEntry* const p =
+                mLastPendingInFlight.Next();
+            if (! p) {
+                break;
+            }
+            os << ' ' << p->GetKey();
+        }
+        os << "\nchunks[" << mChunkTable.GetSize() << "]:\n";
+        for (mChunkTable.First(); os; ) {
+            const CMapEntry* const p = mChunkTable.Next();
+            if (! p) {
+                break;
+            }
+            const kfsChunkId_t           chunkId = p->GetKey();
+            const ChunkInfoHandle* const cih     = p->GetVal();
+            if (cih->IsBeingReplicated()) {
+                os << "R " << chunkId <<
+                    " " << cih->chunkInfo.chunkVersion;
+            } else if (cih->IsRenameInFlight()) {
+                bool stableFlag = false;
+                kfsSeq_t const vers =
+                    cih->GetTargetStateAndVersion(stableFlag);
+                os << (stableFlag ? "N " : "S ") <<
+                    chunkId << " " << vers;
+            } else {
+                os << (IsChunkStable(cih) ? "S " : "N ") <<
+                    chunkId << " " << cih->chunkInfo.chunkVersion;
+            }
+            os << "\n";
+        }
+        if (mPendingNotifyLostChunks) {
+            os << "\npending lost[" <<
+                mPendingNotifyLostChunks->GetSize() <<
+            "]:";
+            for (mPendingNotifyLostChunks->First(); os; ) {
+                const PendingNotifyLostChunks::Entry* const p =
+                    mPendingNotifyLostChunks->Next();
+                if (! p) {
+                    break;
+                }
+                os << ' ' << p->GetKey();
+            }
+            os << "\n";
+        }
+        os << "hello mod[" << hello.resumeModified.size() << "]:";
+        for (HelloMetaOp::ChunkIds::const_iterator
+                it = hello.resumeModified.begin();
+                it != hello.resumeModified.end() && os;
+                ++it) {
+            os << ' ' << *it;
+        }
+        os << "\n"
+            "hello del[" << hello.resumeDeleted.size() << "]:";
+        for (HelloMetaOp::ChunkIds::const_iterator
+                it = hello.resumeDeleted.begin();
+                it != hello.resumeDeleted.end() && os;
+                ++it) {
+            os << ' ' << *it;
+        }
+        os << "\n";
+    KFS_LOG_STREAM_END;
+    hello.resumeStep         = -1;
+    hello.status             = 0;
+    *(stable.first)          = 0;
+    *(notStableAppend.first) = 0;
+    *(notStable.first)       = 0;
+    *(missing.first)         = 0;
 }
 
 bool
