@@ -4851,22 +4851,28 @@ ChunkManager::GetHostedChunksResume(
     if (hello.resumeStep == 0) {
         // Tell meta server to exclude last in flight and all non stable chunks
         // from checksum.
-        mLastPendingInFlight.First();
-        const LastPendingInFlightEntry* p;
-        while ((p = mLastPendingInFlight.Next())) {
+        for (mLastPendingInFlight.First(); ;) {
+            const LastPendingInFlightEntry* const p =
+                mLastPendingInFlight.Next();
+            if (! p) {
+                break;
+            }
             (*missing.first)++;
             (*missing.second) << p->GetKey() << ' ';
         }
-        mChunkTable.First();
-        const CMapEntry* c;
-        while ((c = mChunkTable.Next())) {
-            if (mLastPendingInFlight.Find(c->GetKey())) {
+        for (mChunkTable.First(); ;) {
+            const CMapEntry* const p = mChunkTable.Next();
+            if (! p) {
+                break;
+            }
+            const kfsChunkId_t chunkId = p->GetKey();
+            if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
             }
-            const ChunkInfoHandle* const cih = c->GetVal();
+            const ChunkInfoHandle* const cih = p->GetVal();
             if (! cih || ! IsTargetChunkVersionStable(*cih)) {
                 (*missing.first)++;
-                (*missing.second) << p->GetKey() << ' ';
+                (*missing.second) << chunkId << ' ';
             }
         }
         return;
@@ -4880,9 +4886,12 @@ ChunkManager::GetHostedChunksResume(
     if (mPendingNotifyLostChunks) {
         // Add all pending notify lost chunks. The chunks should not be
         // in the chunk table: AddMapping() deletes pending lost notify entries.
-        mPendingNotifyLostChunks->First();
-        const PendingNotifyLostChunks::Entry* p;
-        while ((p = mPendingNotifyLostChunks->Next())) {
+        for (mPendingNotifyLostChunks->First(); ;) {
+            const PendingNotifyLostChunks::Entry* const p =
+                mPendingNotifyLostChunks->Next();
+            if (! p) {
+                break;
+            }
             const kfsChunkId_t chunkId = p->GetKey();
             if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
@@ -4895,9 +4904,11 @@ ChunkManager::GetHostedChunksResume(
             count++;
         }
     }
-    mChunkTable.First();
-    const CMapEntry* p;
-    while ((p = mChunkTable.Next())) {
+    for (mChunkTable.First(); ;) {
+        const CMapEntry* const p = mChunkTable.Next();
+        if (! p) {
+            break;
+        }
         if (mLastPendingInFlight.Find(p->GetKey())) {
             continue;
         }
@@ -4986,9 +4997,11 @@ ChunkManager::GetHostedChunksResume(
         // chunks become un-available again.
         LastPendingInFlight& pending = lastPendingNotReported.IsEmpty() ?
             mLastPendingInFlight : lastPendingNotReported;
-        pending.First();
-        const LastPendingInFlightEntry* p;
-        while ((p = pending.Next())) {
+        for (pending.First(); ;) {
+            const LastPendingInFlightEntry* const p = pending.Next();
+            if (! p) {
+                break;
+            }
             const kfsChunkId_t chunkId = p->GetKey();
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
