@@ -1277,7 +1277,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return DeclareHelloError(-EINVAL, "file system id mismatch");
             }
         }
-        const uint64_t kMinEntrySize = 4;
+        const int64_t kMinEntrySize = 4;
         if (mHelloOp->status == 0 && mHelloOp->contentLength + (1 << 10) <
                 kMinEntrySize * (
                     (int64_t)max(0, mHelloOp->numChunks) +
