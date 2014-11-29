@@ -847,6 +847,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             KFS_LOG_STREAM_ERROR <<
                 "invalid meta reply response content:"
                 " seq: "         << op->seq <<
+                " msg: "         << op->statusMsg <<
                 " "              << op->Show() <<
                 " content len: " << len <<
             KFS_LOG_EOM;
