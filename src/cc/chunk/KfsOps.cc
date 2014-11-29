@@ -3751,60 +3751,58 @@ RestartChunkServerOp::Execute()
 void
 HelloMetaOp::Execute()
 {
+    if (0 <= resumeStep && ! gChunkManager.CanBeResumed(*this)) {
+        resumeStep = -1;
+    }
+    status       = 0;
+    totalFsSpace = 0;
+    lostChunkDirs.clear();
+    IOBuffer::WOStream            streams[kChunkListCount];
+    ChunkManager::HostedChunkList lists[kChunkListCount];
+    for (int i = 0; i < kChunkListCount; i++) {
+        chunkLists[i].count = 0;
+        chunkLists[i].ioBuf.Clear();
+        lists[i].first  = &(chunkLists[i].count);
+        lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
+    }
+    if (resumeStep < 0) {
+        gChunkManager.GetHostedChunks(
+            *this,
+            lists[kStableChunkList],
+            lists[kNotStableAppendChunkList],
+            lists[kNotStableChunkList],
+            noFidsFlag
+        );
+    } else {
+        gChunkManager.GetHostedChunksResume(
+            *this,
+            lists[kStableChunkList],
+            lists[kNotStableAppendChunkList],
+            lists[kNotStableChunkList],
+            lists[kMissingList],
+            noFidsFlag
+        );
+        if (resumeStep < 0) {
+            HelloMetaOp::Execute(); // Tail recursion.
+            return;
+        }
+    }
+    for (int i = 0; i < kChunkListCount; i++) {
+        lists[i].second->flush();
+        streams[i].Reset();
+        if (chunkLists[i].count <= 0) {
+            chunkLists[i].ioBuf.Clear();
+        }
+    }
     int     chunkDirs            = 0;
     int     numEvacuateInFlight  = 0;
     int     numWritableChunkDirs = 0;
     int     evacuateChunks       = 0;
     int64_t evacuateByteCount    = 0;
-    status = 0;
-    totalFsSpace = 0;
-    lostChunkDirs.clear();
     totalSpace = gChunkManager.GetTotalSpace(
         totalFsSpace, chunkDirs, numEvacuateInFlight, numWritableChunkDirs,
         evacuateChunks, evacuateByteCount, 0, 0, &lostChunkDirs);
     usedSpace = gChunkManager.GetUsedSpace();
-    if (0 <= resumeStep && ! gChunkManager.CanBeResumed(*this)) {
-        resumeStep = -1;
-    }
-    if (resumeStep != 0) {
-        IOBuffer::WOStream            streams[kChunkListCount];
-        ChunkManager::HostedChunkList lists[kChunkListCount];
-        for (int i = 0; i < kChunkListCount; i++) {
-            chunkLists[i].count = 0;
-            chunkLists[i].ioBuf.Clear();
-            lists[i].first  = &(chunkLists[i].count);
-            lists[i].second = &(streams[i].Set(chunkLists[i].ioBuf) << hex);
-        }
-        if (resumeStep < 0) {
-            gChunkManager.GetHostedChunks(
-                *this,
-                lists[kStableChunkList],
-                lists[kNotStableAppendChunkList],
-                lists[kNotStableChunkList],
-                noFidsFlag
-            );
-        } else if (resumeStep <= 1) {
-            gChunkManager.GetHostedChunksResume(
-                *this,
-                lists[kStableChunkList],
-                lists[kNotStableAppendChunkList],
-                lists[kNotStableChunkList],
-                lists[kMissingList],
-                noFidsFlag
-            );
-            if (resumeStep < 0) {
-                HelloMetaOp::Execute(); // Tail recursion.
-                return;
-            }
-        }
-        for (int i = 0; i < kChunkListCount; i++) {
-            lists[i].second->flush();
-            streams[i].Reset();
-            if (chunkLists[i].count <= 0) {
-                chunkLists[i].ioBuf.Clear();
-            }
-        }
-    }
     ChunkManager::Counters cm;
     gChunkManager.GetCounters(cm);
     helloResumeCount       = cm.mHelloResumeCount;
