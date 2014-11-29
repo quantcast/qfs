@@ -2734,21 +2734,25 @@ ChunkServer::Verify(
 
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
-    ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete)
+    ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
+    chunkId_t lastResumeModifiedChunk)
 {
-    if (chunks.IsEmpty()) {
-        chunks.Swap(mLastChunksInFlight);
-    } else {
-        const chunkId_t* id;
-        mLastChunksInFlight.First();
-        while ((id = mLastChunksInFlight.Next())) {
-            chunks.Insert(*id);
-        }
-        mLastChunksInFlight.Clear();
+    if (0 <= lastResumeModifiedChunk) {
+        mLastChunksInFlight.Insert(lastResumeModifiedChunk);
     }
-    const chunkId_t* id;
-    mLastChunksInFlightDelete.First();
     ChunkServerPtr const srv = shared_from_this();
+    const chunkId_t* id;
+    mLastChunksInFlight.First();
+    while ((id = mLastChunksInFlight.Next())) {
+        const CSMap::Entry* const entry = csMap.Find(*id);
+        if (entry && csMap.HasServer(srv, *entry)) {
+            chunks.Insert(*id);
+            mLastChunksInFlightDelete.Erase(*id);
+        } else if (! mLastChunksInFlightDelete.Find(*id)) {
+            chunksDelete.PushBack(*id);
+        }
+    }
+    mLastChunksInFlightDelete.First();
     while ((id = mLastChunksInFlightDelete.Next())) {
         const CSMap::Entry* const entry = csMap.Find(*id);
         if (entry && csMap.HasServer(srv, *entry)) {
@@ -2757,6 +2761,7 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
             chunksDelete.PushBack(*id);
         }
     }
+    mLastChunksInFlight.Clear();
     mLastChunksInFlightDelete.Clear();
 }
 
@@ -2769,10 +2774,8 @@ HibernatedChunkServer::HibernatedChunkServer(
       mModifiedChunks(),
       mListsSize(0)
 {
-    server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks);
-    if (0 <= lastResumeModifiedChunk) {
-        mModifiedChunks.Insert(lastResumeModifiedChunk);
-    }
+    server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
+        lastResumeModifiedChunk);
     const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
     mListsSize = 1 + size;
     sValidCount++;
@@ -2920,7 +2923,7 @@ HibernatedChunkServer::ResumeRestart(
         } else {
             const size_t sz = modifiedChunks.Size();
             if (size_t(32) < sz && mModifiedChunks.Size() * 2 < sz * 3) {
-                mDeletedChunks.Swap(staleChunkIds);
+                modifiedChunks.Swap(modifiedChunks);
             }
             modifiedChunks.First();
             const chunkId_t* id;

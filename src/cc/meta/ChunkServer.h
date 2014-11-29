@@ -829,7 +829,8 @@ public:
 
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
-        InFlightChunks& chunks, ChunkIdQueue& chunksDelete);
+        InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
+        chunkId_t lastResumeModifiedChunk);
     inline void HelloDone(MetaHello& r);
 
     static void SetMaxChunkServerCount(int count)
