@@ -2203,6 +2203,17 @@ LayoutManager::Validate(MetaHello& r)
     }
     if (0 <= mDebugPanicOnHelloResumeFailureCount &&
             mDebugPanicOnHelloResumeFailureCount < r.helloResumeFailedCount) {
+        const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
+        if (cs && cs->CanBeResumed()) {
+            KFS_LOG_STREAM_FATAL <<
+                "server: " << r.location << "\n" <<
+                HibernatedChunkServer::Display(*cs, mChunkToServerMap) <<
+            KFS_LOG_EOM;
+        } else {
+            KFS_LOG_STREAM_FATAL <<
+                (cs ? "no hibernated state" : "no valid hibernated state") <<
+            KFS_LOG_EOM;
+        }
         panic("hello resume failure detected: " + r.location.ToString());
     }
     if (0 <= r.resumeStep) {

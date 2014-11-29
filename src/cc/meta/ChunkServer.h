@@ -1173,6 +1173,7 @@ protected:
     void ReleasePendingResponses(bool sendResponseFlag = false);
 };
 
+class CSMap;
 class HibernatedChunkServer : public CSMapServerInfo
 {
 public:
@@ -1198,6 +1199,20 @@ public:
     void ResumeRestart(
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
     static void SetParameters(const Properties& props);
+    class Display
+    {
+    public:
+        Display(const HibernatedChunkServer& hcs, CSMap& csMap)
+            : mHcs(hcs),
+              mCsMap(csMap)
+            {}
+        ostream& Show(ostream& os) const
+            { return mHcs.DisplaySelf(os, mCsMap); }
+    private:
+        const HibernatedChunkServer& mHcs;
+        CSMap&                       mCsMap;
+    };
+    ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
 private:
     void RemoveHosted(chunkId_t chunkId, int index) {
         if (0 < mListsSize) {
@@ -1255,6 +1270,10 @@ private:
 friend class CSMap;
 };
 typedef boost::shared_ptr<HibernatedChunkServer> HibernatedChunkServerPtr;
+
+inline static ostream& 
+operator<<(ostream& os, const HibernatedChunkServer::Display& disp)
+{ return disp.Show(os); }
 
 } // namespace KFS
 

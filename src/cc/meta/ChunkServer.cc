@@ -2936,6 +2936,69 @@ HibernatedChunkServer::ResumeRestart(
     sChunkListsSize += size;
 }
 
+ostream&
+HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
+{
+    const int idx      = GetIndex();
+    size_t    count    = 0;
+    size_t    modCount = 0;
+    for (csMap.First(); os;) {
+        const CSMap::Entry* p = csMap.Next();
+        if (! p) {
+            break;
+        }
+        const chunkId_t chunkId = p->GetChunkId();
+        if (! csMap.HasHibernatedServer(idx, chunkId)) {
+            continue;
+        }
+        const bool modFlag = mModifiedChunks.Find(chunkId) != 0;
+        os << (modFlag ? "M " : "  ") <<
+            chunkId << " " << p->GetChunkInfo()->chunkVersion <<
+        "\n";
+        count++;
+        if (modFlag) {
+            modCount++;
+        }
+    }
+    if (modCount != mModifiedChunks.Size()) {
+        os <<
+            "INVALID modififed set"
+            "["    << mModifiedChunks.Size() <<
+            " != " << modCount <<
+            "]:";
+        HibernatedChunkServer& self =
+            *const_cast<HibernatedChunkServer*>(this);
+        for (self.mModifiedChunks.First(); os;) {
+            const chunkId_t* const id = self.mModifiedChunks.Next();
+            if (! id) {
+                break;
+            }
+            os << ' ' << *id;
+        }
+        os << "\n";
+    }
+    if (! mDeletedChunks.IsEmpty()) {
+        os << "delted[" << mDeletedChunks.GetSize() << "]:";
+        for (ChunkIdQueue::ConstIterator it(mDeletedChunks); os;) {
+            const chunkId_t* const id = it.Next();
+            if (! id) {
+                break;
+            }
+            if (csMap.HasHibernatedServer(idx, *id)) {
+                os << " invalid:";
+            }
+            os << ' ' << *id;
+        }
+        os << "\n";
+    }
+    os <<
+        "count: "    << GetChunkCount() <<
+        " / "        << count <<
+        "checksum: " << GetChecksum() <<
+    "\n";
+    return os;
+}
+
 /* static */ void
 HibernatedChunkServer::SetParameters(const Properties& props)
 {
