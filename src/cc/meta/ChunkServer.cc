@@ -2992,9 +2992,10 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
         os << "\n";
     }
     os <<
-        "count: "    << GetChunkCount() <<
-        " / "        << count <<
-        "checksum: " << GetChecksum() <<
+        "count: "     << GetChunkCount() <<
+        " / "         << count <<
+        " checksum: " << GetChecksum() <<
+        " modified: " << modCount <<
     "\n";
     return os;
 }
