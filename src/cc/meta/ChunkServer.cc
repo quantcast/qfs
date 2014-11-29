@@ -1280,10 +1280,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         const uint64_t kMinEntrySize = 4;
         if (mHelloOp->status == 0 && mHelloOp->contentLength + (1 << 10) <
                 kMinEntrySize * (
-                    (uint64_t)max(0, mHelloOp->numChunks) +
-                    (uint64_t)max(0, mHelloOp->numNotStableAppendChunks) +
-                    (uint64_t)max(0, mHelloOp->numNotStableChunks) +
-                    (uint64_t)max(0, mHelloOp->numMissingChunks))) {
+                    (int64_t)max(0, mHelloOp->numChunks) +
+                    (int64_t)max(0, mHelloOp->numNotStableAppendChunks) +
+                    (int64_t)max(0, mHelloOp->numNotStableChunks) +
+                    (int64_t)max(0, mHelloOp->numMissingChunks))) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " malformed hello:"
                 " content length: "       << mHelloOp->contentLength <<
