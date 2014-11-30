@@ -2850,7 +2850,9 @@ HibernatedChunkServer::HelloResumeReply(
     // entries.
     for (MetaHello::MissingChunks::const_iterator
             it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
-        if (! csMap.HasHibernatedServer(GetIndex(), *it)) {
+        const chunkId_t chunkId = *it;
+        if (mModifiedChunks.Find(chunkId) ||
+                ! csMap.HasHibernatedServer(GetIndex(), chunkId)) {
             continue;
         }
         if (r.chunkCount <= 0) {
@@ -2860,7 +2862,7 @@ HibernatedChunkServer::HelloResumeReply(
             return false;
         }
         r.chunkCount--;
-        r.checksum = CIdsChecksumRemove(*it, r.checksum);
+        r.checksum = CIdsChecksumRemove(chunkId, r.checksum);
     }
     if (mListsSize <= 1) {
         return true;

@@ -4976,7 +4976,7 @@ ChunkManager::GetHostedChunksResume(
                 // Only report "modified" stable chunks here, all unstable are
                 // reported already the above.
                 continue;
-           }
+            }
             if (! inFlightFlag) {
                 if (count <= 0) {
                     die("invalid CS chunk inventory count");
