@@ -822,6 +822,8 @@ public:
         { return mAuthUid; }
     const string& GetMd5Sum() const
         { return mMd5Sum; }
+    int64_t GetHelloDoneCount() const
+        { return mHelloDoneCount; }
     int64_t GetHelloResumeCount() const
         { return mHelloResumeCount; }
     int64_t GetHelloResumeFailedCount() const
@@ -1041,6 +1043,7 @@ protected:
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mLastChunksInFlightDelete;
+    int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];

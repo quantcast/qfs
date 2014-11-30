@@ -434,6 +434,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
       mLastChunksInFlightDelete(),
+      mHelloDoneCount(0),
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
       mStorageTiersInfo(),
@@ -1523,6 +1524,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     SetServerLocation(mHelloOp->location);
     mHelloOp->authUid = mAuthUid;
     mMd5Sum                 = mHelloOp->md5sum;
+    mHelloDoneCount         = mHelloOp->helloDoneCount;
     mHelloResumeCount       = mHelloOp->helloResumeCount;
     mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
     MetaHello& op = *mHelloOp;

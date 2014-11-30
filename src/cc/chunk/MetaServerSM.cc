@@ -406,14 +406,7 @@ MetaServerSM::SendHello()
         }
     }
     if (! Authenticate()) {
-        mHelloOp = new HelloMetaOp(
-            nextSeq(), gChunkServer.GetLocation(),
-            mClusterKey, mMD5Sum, mRackId);
-        mHelloOp->noFidsFlag = mNoFidsFlag;
-        mHelloOp->resumeStep = 0;
-        mHelloOp->clnt       = this;
-        // Send the op and wait for the reply.
-        SubmitOp(mHelloOp);
+        SubmitHello();
     }
     return 0;
 }
@@ -784,17 +777,19 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     return false;
                 }
                 mConnectedTime = globalNetManager().Now();
-                HelloMetaOp* const helloOp = mHelloOp;
-                mHelloOp = 0; // Set to 0 to make state "Up"
-                assert(IsHandshakeDone() || ! IsConnected());
-                for (HelloMetaOp::LostChunkDirs::const_iterator
-                        it = helloOp->lostChunkDirs.begin();
-                        it != helloOp->lostChunkDirs.end() && IsConnected();
-                        ++it) {
-                    EnqueueOp(new CorruptChunkOp(0, -1, &(*it), false));
+                HelloMetaOp::LostChunkDirs lostDirs;
+                lostDirs.swap(mHelloOp->lostChunkDirs);
+                DetachAndDeleteOp(mHelloOp);
+                if (IsUp()) {
+                    mCounters.mHelloDoneCount++;
+                    for (HelloMetaOp::LostChunkDirs::const_iterator
+                            it = lostDirs.begin();
+                            it != lostDirs.end() && IsConnected();
+                            ++it) {
+                        EnqueueOp(new CorruptChunkOp(0, -1, &(*it), false));
+                    }
+                    ResubmitOps();
                 }
-                delete helloOp;
-                ResubmitOps();
                 return true;
             }
             op = mHelloOp;
@@ -1172,11 +1167,22 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
         die("non empty pending responses");
         DiscardPendingResponses();
     }
+    SubmitHello();
+}
+
+void
+MetaServerSM::SubmitHello()
+{
+    if (mHelloOp) {
+        die("invalid submit hello invocation");
+        return;
+    }
     mHelloOp = new HelloMetaOp(
         nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
-    mHelloOp->resumeStep         = 0;
+    mHelloOp->helloDoneCount     = mCounters.mHelloDoneCount;
+    mHelloOp->resumeStep         = 0 < mCounters.mHelloDoneCount ? -1 : 0;
     mHelloOp->clnt               = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);

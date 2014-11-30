@@ -2149,6 +2149,7 @@ struct HelloMetaOp : public KfsOp {
     CIdChecksum_t            checksum;
     ChunkIds                 resumeModified;
     ChunkIds                 resumeDeleted;
+    int64_t                  helloDoneCount;
     int64_t                  helloResumeCount;
     int64_t                  helloResumeFailedCount;
     PendingNotifyLostChunks* pendingNotifyLostChunks;
@@ -2179,6 +2180,7 @@ struct HelloMetaOp : public KfsOp {
           checksum(0),
           resumeModified(),
           resumeDeleted(),
+          helloDoneCount(0),
           helloResumeCount(0),
           helloResumeFailedCount(0),
           pendingNotifyLostChunks(0)

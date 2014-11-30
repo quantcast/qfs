@@ -2465,6 +2465,7 @@ struct GetHeartbeatCounters
 
 const Properties::String kCSExtraHeaders[] = {
     "md5sum",
+    "Hello-done",
     "Hello-resume",
     "Hello-resume-fail",
     "XMeta-location",
@@ -2498,6 +2499,8 @@ struct CSWriteExtra : public CtrWriteExtra
     {
         const ChunkServer& srv = *cs;
         writer.Write(srv.GetMd5Sum());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetHelloDoneCount());
         writer.Write(columnDelim);
         Write(writer, srv.GetHelloResumeCount());
         writer.Write(columnDelim);

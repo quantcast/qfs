@@ -62,6 +62,7 @@ public:
         Counter mConnectCount;
         Counter mHelloCount;
         Counter mHelloErrorCount;
+        Counter mHelloDoneCount;
         Counter mAllocCount;
         Counter mAllocErrorCount;
 
@@ -70,6 +71,7 @@ public:
             mConnectCount    = 0;
             mHelloCount      = 0;
             mHelloErrorCount = 0;
+            mHelloDoneCount  = 0;
             mAllocCount      = 0;
             mAllocErrorCount = 0;
         }
@@ -255,6 +257,7 @@ private:
     void CleanupOpInFlight();
     bool Authenticate();
     void DiscardPendingResponses();
+    void SubmitHello();
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);

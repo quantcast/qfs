@@ -1396,6 +1396,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     bool               deleteAllChunksFlag;
     int64_t            fileSystemId;
     int64_t            metaFileSystemId;
+    int64_t            helloDoneCount;
     int64_t            helloResumeCount;
     int64_t            helloResumeFailedCount;
     bool               noFidsFlag;
@@ -1439,6 +1440,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           deleteAllChunksFlag(false),
           fileSystemId(-1),
           metaFileSystemId(-1),
+          helloDoneCount(0),
           helloResumeCount(0),
           helloResumeFailedCount(0),
           noFidsFlag(false),
@@ -1491,6 +1493,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("Chunks",                       &MetaHello::chunkCount                      )
         .Def("Checksum",                     &MetaHello::checksum                        )
         .Def("Num-missing",                  &MetaHello::numMissingChunks                )
+        .Def("Num-hello-done",               &MetaHello::helloDoneCount                  )
         .Def("Num-resume",                   &MetaHello::helloResumeCount                )
         .Def("Num-resume-fail",              &MetaHello::helloResumeFailedCount          )
         ;

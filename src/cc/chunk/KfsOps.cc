@@ -3600,6 +3600,7 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
             gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n"
         "Num-re-replications: " << Replicator::GetNumReplications() << "\r\n"
         "Stale-chunks-hex-format: 1\r\n"
+        "Num-hello-done: "  << helloDoneCount << "\r\n"
         "Num-resume: "      << helloResumeCount  << "\r\n"
         "Num-resume-fail: " << helloResumeFailedCount << "\r\n"
         "Content-int-base: 16\r\n"
