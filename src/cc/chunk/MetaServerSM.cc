@@ -1182,7 +1182,7 @@ MetaServerSM::SubmitHello()
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
     mHelloOp->helloDoneCount     = mCounters.mHelloDoneCount;
-    mHelloOp->resumeStep         = 0 < mCounters.mHelloDoneCount ? -1 : 0;
+    mHelloOp->resumeStep         = 0 < mCounters.mHelloDoneCount ? 0 : -1;
     mHelloOp->clnt               = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
