@@ -4913,11 +4913,8 @@ ChunkManager::GetHostedChunksResume(
                 break;
             }
             const kfsChunkId_t chunkId = p->GetKey();
-            if (mLastPendingInFlight.Find(chunkId)) {
-                continue;
-            }
-            ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
-            if (cih && ! IsTargetChunkVersionStable(**cih)) {
+            if (mLastPendingInFlight.Find(chunkId) ||
+                    mChunkTable.Find(chunkId)) {
                 continue;
             }
             checksum = CIdsChecksumAdd(chunkId, checksum);
@@ -4969,6 +4966,16 @@ ChunkManager::GetHostedChunksResume(
                 if (0 < pass) {
                     (*missing.first)++;
                     (*missing.second) << chunkId << ' ';
+                }
+                if (! cih && ! inFlightFlag && mPendingNotifyLostChunks &&
+                        mPendingNotifyLostChunks->Find(chunkId)) {
+                    if (count <= 0) {
+                        die("invalid CS chunk inventory count");
+                        hello.resumeStep = -1;
+                        break;
+                    }
+                    checksum = CIdsChecksumRemove(chunkId, checksum);
+                    count--;
                 }
                 continue;
             }
