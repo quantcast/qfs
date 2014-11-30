@@ -2750,8 +2750,8 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
         if (entry && csMap.HasServer(srv, *entry)) {
             chunks.Insert(*id);
             mLastChunksInFlightDelete.Erase(*id);
-        } else if (! mLastChunksInFlightDelete.Find(*id)) {
-            chunksDelete.PushBack(*id);
+        } else {
+            mLastChunksInFlightDelete.Insert(*id);
         }
     }
     mLastChunksInFlightDelete.First();
