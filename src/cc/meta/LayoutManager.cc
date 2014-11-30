@@ -3167,7 +3167,8 @@ LayoutManager::AddNewServer(MetaHello *r)
             srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " rack: "            << r->rackId << " => " << rackId <<
-        " chunks: stable: "  << r->chunks.size() <<
+        " chunks:"           << r->server->GetChunkCount() << 
+        " stable: "          << r->chunks.size() <<
         " not stable: "      << r->notStableChunks.size() <<
         " append: "          << r->notStableAppendChunks.size() <<
         " +wid: "            << r->numAppendsWithWid <<

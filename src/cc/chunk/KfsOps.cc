@@ -3619,10 +3619,6 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
     if (sendCurrentKeyFlag) {
         SendCryptoKey(os, currentKeyId, currentKey);
     }
-    int64_t contentLength = 0;
-    for (int i = 0; i < kChunkListCount; i++) {
-        contentLength += chunkLists[i].ioBuf.BytesConsumable();
-    }
     if (0 <= resumeStep) {
         os << "Resume: " << resumeStep << "\r\n";
     }
@@ -3632,8 +3628,11 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
             "Modified: " << modifiedCount << "\r\n"
             "Chunks: "   << chunkCount    << "\r\n"
             "Checksum: " << checksum      << "\r\n"
-            "\r\n"
         ;
+    }
+    int64_t contentLength = 0;
+    for (int i = 0; i < kChunkListCount; i++) {
+        contentLength += chunkLists[i].ioBuf.BytesConsumable();
     }
     os << "Content-length: " << contentLength << "\r\n"
     "\r\n";
