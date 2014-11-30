@@ -6102,7 +6102,8 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
             r->fid << "," << chunkId <<
             "> to be " << (r->isChunkLost ? "lost" : "corrupt") <<
         KFS_LOG_EOM;
-        ChunkCorrupt(chunkId, r->server, false);
+        const bool notifyStaleFlag = false;
+        ChunkCorrupt(chunkId, r->server, notifyStaleFlag);
     }
 }
 
@@ -6112,6 +6113,9 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
 {
     CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
     if (! ci) {
+        if (server && ! server->IsDown()) {
+            server->NotifyStaleChunk(chunkId);
+        }
         return;
     }
     const bool removedFlag = ci->Remove(mChunkToServerMap, server);
