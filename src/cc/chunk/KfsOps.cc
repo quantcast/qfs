@@ -3579,34 +3579,36 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
 {
     os <<
         "HELLO \r\n"
-        "Version: " << KFS_VERSION_STR << "\r\n"
-        "Cseq: " << seq << "\r\n"
-        "Chunk-server-name: " << myLocation.hostname << "\r\n"
-        "Chunk-server-port: " << myLocation.port << "\r\n"
-        "Cluster-key: " << clusterKey << "\r\n"
-        "MD5Sum: " << md5sum << "\r\n"
-        "Rack-id: " << rackId << "\r\n"
-        "Total-space: " << totalSpace << "\r\n"
-        "Total-fs-space: " << totalFsSpace << "\r\n"
-        "Used-space: " << usedSpace << "\r\n"
-        "Uptime: " << globalNetManager().UpTime() << "\r\n"
-        "Num-chunks: " <<
-            chunkLists[kStableChunkList].count << "\r\n"
+        "Version: "                      << KFS_VERSION_STR        << "\r\n"
+        "Cseq: "                         << seq                    << "\r\n"
+        "Chunk-server-name: "            << myLocation.hostname    << "\r\n"
+        "Chunk-server-port: "            << myLocation.port        << "\r\n"
+        "Cluster-key: "                  << clusterKey             << "\r\n"
+        "MD5Sum: "                       << md5sum                 << "\r\n"
+        "Rack-id: "                      << rackId                 << "\r\n"
+        "Total-space: "                  << totalSpace             << "\r\n"
+        "Total-fs-space: "               << totalFsSpace           << "\r\n"
+        "Used-space: "                   << usedSpace              << "\r\n"
+        "Uptime: "                       <<
+            globalNetManager().UpTime()                            << "\r\n"
+        "Num-chunks: "                   <<
+            chunkLists[kStableChunkList].count                     << "\r\n"
         "Num-not-stable-append-chunks: " <<
-            chunkLists[kNotStableAppendChunkList].count << "\r\n"
-        "Num-not-stable-chunks: " <<
-            chunkLists[kNotStableChunkList].count << "\r\n"
-        "Num-appends-with-wids: " <<
-            gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n"
-        "Num-re-replications: " << Replicator::GetNumReplications() << "\r\n"
+            chunkLists[kNotStableAppendChunkList].count            << "\r\n"
+        "Num-not-stable-chunks: "        <<
+            chunkLists[kNotStableChunkList].count                  << "\r\n"
+        "Num-appends-with-wids: "        <<
+            gAtomicRecordAppendManager.GetAppendersWithWidCount()  << "\r\n"
+        "Num-re-replications: "          <<
+            Replicator::GetNumReplications()                       << "\r\n"
         "Stale-chunks-hex-format: 1\r\n"
-        "Num-hello-done: "  << helloDoneCount << "\r\n"
-        "Num-resume: "      << helloResumeCount  << "\r\n"
-        "Num-resume-fail: " << helloResumeFailedCount << "\r\n"
+        "Num-hello-done: "               << helloDoneCount         << "\r\n"
+        "Num-resume: "                   << helloResumeCount       << "\r\n"
+        "Num-resume-fail: "              << helloResumeFailedCount << "\r\n"
         "Content-int-base: 16\r\n"
     ;
     if (0 < chunkLists[kMissingList].count) {
-        os << "Num-missing: " << chunkLists[kMissingList].count;
+        os << "Num-missing: " << chunkLists[kMissingList].count << "\r\n";
     }
     if (noFidsFlag) {
         os << "NoFids: 1\r\n";
@@ -3633,7 +3635,8 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
             "\r\n"
         ;
     }
-    os << "Content-length: " << contentLength << "\r\n\r\n";
+    os << "Content-length: " << contentLength << "\r\n"
+    "\r\n";
     os.flush();
     // Order matters. The meta server expects the lists to be in this order.
     const int kChunkListsOrder[kChunkListCount] = {
