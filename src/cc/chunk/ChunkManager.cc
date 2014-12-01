@@ -4921,11 +4921,12 @@ ChunkManager::GetHostedChunksResume(
             count++;
         }
     }
-    // Do not deleted chunks just yet. just exclude those from checksum,and do
-    // not report those back to the meta server, as the meta server will
+    // Do not delete chunks just yet, exclude those from checksum, and
+    // report those back to the meta server, as the meta server will
     // explicitly delete those after hello completion.
     // Pending in flight will be re-submitted again after hello completion,
-    // just exclude these from the checksums.
+    // in flight chunks have already been removed from inventory count and
+    // checksum.
     CIdChecksum_t       helloChecksum = hello.checksum;
     uint64_t            helloCount    = hello.chunkCount;
     LastPendingInFlight lastPendingNotReported;
