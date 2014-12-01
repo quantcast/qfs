@@ -2931,9 +2931,9 @@ LayoutManager::AddNewServer(MetaHello *r)
             CSMap::Entry& c = *cmi;
             if (0 < r->resumeStep) {
                 const bool removedFlag = c.Remove(mChunkToServerMap, r->server);
-                if (0 < modififedChunks.Erase(it->chunkId)) {
+                if (modififedChunks.Erase(it->chunkId)) {
                     if (! removedFlag) {
-                        panic("invalid modified chunk list");
+                        panic("stable: invalid modified chunk list");
                     }
                     mLastResumeModifiedChunk = chunkId;
                 }
@@ -3030,13 +3030,19 @@ LayoutManager::AddNewServer(MetaHello *r)
                         cmi->Remove(mChunkToServerMap, r->server);
                     if (modififedChunks.Erase(it->chunkId)) {
                         if (! removedFlag) {
-                            panic("invalid modified chunk list");
+                            panic(string("not stable") +
+                                (i == 0 ? "append" : "") +
+                                ": invalid modified chunk list"
+                            );
                         }
                         mLastResumeModifiedChunk = it->chunkId;
                     }
                 } else {
                     if (modififedChunks.Find(it->chunkId)) {
-                        panic("invalid modified chunk list");
+                        panic(string("not stable") +
+                            (i == 0 ? "append" : "") +
+                            ": invalid modified chunk list"
+                        );
                     }
                     staleReason = "no chunk mapping exists";
                 }
@@ -3081,10 +3087,11 @@ LayoutManager::AddNewServer(MetaHello *r)
                 it != r->missingChunks.end() && ! srv.IsDown();
                 ++it) {
             const chunkId_t chunkId = *it;
+            const bool      modFlag = modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
             if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
-                if (modififedChunks.Erase(chunkId)) {
-                    panic("invalid modified chunk list");
+                if (modFlag) {
+                    panic("missing chunks: invalid modified chunk list");
                 }
                 continue;
             }
