@@ -2747,12 +2747,12 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
     }
     const MetaFattr&     fa = *(c.GetFattr());
     const MetaChunkInfo& ci = *(c.GetChunkInfo());
-    if (! fa.IsStriped() && fa.filesize < 0 &&
+    if (! server->IsDown() && ! fa.IsStriped() && fa.filesize < 0 &&
             ci.offset + (chunkOff_t)CHUNKSIZE >= fa.nextChunkOffset()) {
         KFS_LOG_STREAM_DEBUG << server->GetServerLocation() <<
             " chunk size: <" << fa.id() << "," << ci.chunkId << ">" <<
         KFS_LOG_EOM;
-        server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, "");
+        server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, string());
     }
     if (! server->IsDown()) {
         if (fa.numReplicas <= (0 < mChunkToServerMap.GetHibernatedCount() ?
@@ -3081,12 +3081,19 @@ LayoutManager::AddNewServer(MetaHello *r)
                 it != r->missingChunks.end();
                 ++it) {
             const chunkId_t chunkId = *it;
-            if (modififedChunks.Erase(chunkId) <= 0) {
-                continue;
-            }
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
             if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
-                panic("invalid modified chunk list");
+                if (modififedChunks.Erase(chunkId)) {
+                    panic("invalid modified chunk list");
+                }
+                continue;
+            }
+            if (srv.IsDown()) {
+                continue;
+            }
+            const MetaFattr& fa = *(cmi->GetFattr());
+            if (fa.numReplicas != mChunkToServerMap.AllServerCount(*cmi)) {
+                CheckReplication(*cmi);
             }
         }
         while (! srv.IsDown()) {

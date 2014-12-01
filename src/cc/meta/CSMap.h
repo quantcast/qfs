@@ -716,6 +716,14 @@ public:
     size_t GetHibernatedCount() const {
         return mHibernatedCount;
     }
+    size_t AllServerCount(const Entry& entry) const {
+        if (mRemoveServerScanPtr) {
+            size_t hibernatedCount = 0;
+            const size_t cnt = CleanupStaleServers(entry, 0, hibernatedCount);
+            return (cnt + hibernatedCount);
+        }
+        return entry.ServerCount();
+    }
     size_t ServerCount(const Entry& entry) const {
         if (mRemoveServerScanPtr) {
             return CleanupStaleServers(entry);
