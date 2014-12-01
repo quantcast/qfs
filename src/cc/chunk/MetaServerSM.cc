@@ -753,13 +753,15 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                         mHelloOp->deleteAllChunksFlag);
                 }
                 mHelloOp->deletedCount  =
-                    prop.getValue("Deleted",  uint64_t(0));
+                    prop.getValue("Deleted",        uint64_t(0));
                 mHelloOp->modifiedCount =
-                    prop.getValue("Modified", uint64_t(0));
+                    prop.getValue("Modified",       uint64_t(0));
                 mHelloOp->chunkCount    =
-                    prop.getValue("Chunks",   uint64_t(0));
+                    prop.getValue("Chunks",         uint64_t(0));
                 mHelloOp->checksum      =
-                    prop.getValue("Checksum", uint64_t(0));
+                    prop.getValue("Checksum",       uint64_t(0));
+                mHelloOp->deletedReport =
+                    prop.getValue("Deleted-report", mHelloOp->deletedCount);
             } else {
                 mHelloOp->resumeStep = -1;
                 mSentHello = false;

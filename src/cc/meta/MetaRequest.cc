@@ -4528,6 +4528,7 @@ MetaHello::response(ostream& os, IOBuffer& buf)
         os <<
             "Resume: "         << resumeStep                    << "\r\n"
             "Deleted: "        << deletedCount                  << "\r\n"
+            "Deleted-report: " << deletedReportCount           << "\r\n"
             "Modified: "       << modifiedCount                 << "\r\n"
             "Chunks: "         << chunkCount                    << "\r\n"
             "Checksum: "       << checksum                      << "\r\n"

@@ -1399,6 +1399,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            helloDoneCount;
     int64_t            helloResumeCount;
     int64_t            helloResumeFailedCount;
+    int64_t            deletedReportCount;
     bool               noFidsFlag;
     int                resumeStep;
     int                bufferBytes;
@@ -1443,6 +1444,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           helloDoneCount(0),
           helloResumeCount(0),
           helloResumeFailedCount(0),
+          deletedReportCount(0),
           noFidsFlag(false),
           resumeStep(-1),
           bufferBytes(0),

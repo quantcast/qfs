@@ -1262,6 +1262,7 @@ private:
 private:
     DeletedChunks  mDeletedChunks;
     ModifiedChunks mModifiedChunks;
+    size_t         mDeletedReportCount;
     size_t         mListsSize;
 
     static size_t sValidCount;

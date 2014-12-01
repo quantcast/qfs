@@ -2754,11 +2754,13 @@ HibernatedChunkServer::HibernatedChunkServer(
     : CSMapServerInfo(),
       mDeletedChunks(),
       mModifiedChunks(),
+      mDeletedReportCount(0),
       mListsSize(0)
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
         lastResumeModifiedChunk);
-    const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
+    mDeletedReportCount = mDeletedChunks.GetSize();
+    const size_t size = mModifiedChunks.Size() + mDeletedReportCount;
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
@@ -2832,10 +2834,11 @@ HibernatedChunkServer::HelloResumeReply(
         r.server->HelloDone(r);
         return false;
     }
-    r.deletedCount  = 0;
-    r.modifiedCount = 0;
-    r.chunkCount    = GetChunkCount();
-    r.checksum      = GetChecksum();
+    r.deletedCount       = 0;
+    r.modifiedCount      = 0;
+    r.chunkCount         = GetChunkCount();
+    r.checksum           = GetChecksum();
+    r.deletedReportCount = mDeletedReportCount;
     // Chunk server assumes responsibility for ensuring no duplicate list
     // entries.
     for (MetaHello::MissingChunks::const_iterator

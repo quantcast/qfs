@@ -4931,8 +4931,11 @@ ChunkManager::GetHostedChunksResume(
     uint64_t            helloCount    = hello.chunkCount;
     LastPendingInFlight lastPendingNotReported;
     for (int pass = 0; pass < 2; pass++) {
-        const HelloMetaOp::ChunkIds& ids = pass == 0 ?
-            hello.resumeDeleted : hello.resumeModified;
+        const HelloMetaOp::ChunkIds&                ids       =
+            pass == 0 ? hello.resumeDeleted : hello.resumeModified;
+        HelloMetaOp::ChunkIds::const_iterator const reportEnd =
+            (pass == 0 && hello.deletedReport < ids.size()) ?
+                ids.begin() + hello.deletedReport : ids.end();
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId = *it;
@@ -4994,8 +4997,17 @@ ChunkManager::GetHostedChunksResume(
                 checksum = CIdsChecksumRemove(chunkId, checksum);
                 count--;
             }
-            AppendToHostedList(
-                **cih, stable, notStableAppend, notStable, noFidsFlag);
+            if (it < reportEnd) {
+                AppendToHostedList(
+                    **cih, stable, notStableAppend, notStable, noFidsFlag);
+            } else {
+                const bool forceDeleteFlag = true;
+                StaleChunk(*cih, forceDeleteFlag);
+                if(inFlightFlag) {
+                    mLastPendingInFlight.Erase(chunkId);
+                    lastPendingNotReported.Erase(chunkId);
+                }
+            }
         }
     }
     if (0 <= hello.resumeStep && ! mLastPendingInFlight.IsEmpty()) {
@@ -5048,6 +5060,7 @@ ChunkManager::GetHostedChunksResume(
         " meta: "      << helloChecksum <<
         " hello: "     << hello.checksum <<
         " deleted: "   << hello.resumeDeleted.size() <<
+        " report: "    << hello.deletedReport <<
         " modified: "  << hello.resumeModified.size() <<
         " lastInflt: " << mLastPendingInFlight.GetSize() <<
         " / "          << mCorruptChunkOp.chunkCount <<

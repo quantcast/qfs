@@ -2993,7 +2993,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             }
         } else {
             if (0 < r->resumeStep && modififedChunks.Find(it->chunkId)) {
-                panic("invalid modified chunk list");
+                panic("stable: invalid modified chunk list");
             }
             staleReason = "no chunk mapping exists";
         }
