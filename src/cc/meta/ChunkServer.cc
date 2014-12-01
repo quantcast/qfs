@@ -2333,6 +2333,13 @@ ChunkServer::FailDispatchedOps()
                 mLastChunksInFlight.Insert(op.chunkId);
             }
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "fail:"
+            " chunkId: "  << op.chunkId <<
+            " inflight: " << mLastChunksInFlight.Size() <<
+            " delete: "   << mLastChunksInFlightDelete.Size() <<
+            " op: "       << op.Show() <<
+        KFS_LOG_EOM;
         sChunkOpsInFlight.erase(it->second.second);
     }
     // Fail in the same order as these were queued.
@@ -2739,6 +2746,11 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
     chunkId_t lastResumeModifiedChunk)
 {
+    KFS_LOG_STREAM_DEBUG <<
+        " last chunk id: " << lastResumeModifiedChunk <<
+        " inflight: "      << mLastChunksInFlight.Size() <<
+        " delete: "        << mLastChunksInFlightDelete.Size() <<
+    KFS_LOG_EOM;
     if (0 <= lastResumeModifiedChunk) {
         mLastChunksInFlight.Insert(lastResumeModifiedChunk);
     }
@@ -2779,6 +2791,11 @@ HibernatedChunkServer::HibernatedChunkServer(
     server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
         lastResumeModifiedChunk);
     const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
+    KFS_LOG_STREAM_DEBUG <<
+        " hibernated: " << server.GetServerLocation() <<
+        " modified: "   << mModifiedChunks.Size() <<
+        " delete: "     << mDeletedChunks.GetSize() <<
+    KFS_LOG_EOM;
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
@@ -2959,8 +2976,8 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
             continue;
         }
         const bool modFlag = mModifiedChunks.Find(chunkId) != 0;
-        os << (modFlag ? "M " : "  ") <<
-            chunkId << " " << p->GetChunkInfo()->chunkVersion <<
+        os << chunkId << " " << p->GetChunkInfo()->chunkVersion <<
+            (modFlag ? " M" : " S") <<
         "\n";
         count++;
         if (modFlag) {
@@ -2991,10 +3008,11 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
             if (! id) {
                 break;
             }
+            os << "\n";
             if (csMap.HasHibernatedServer(idx, *id)) {
                 os << " invalid:";
             }
-            os << ' ' << *id;
+            os << *id;
         }
         os << "\n";
     }
