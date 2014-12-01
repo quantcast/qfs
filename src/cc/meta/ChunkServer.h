@@ -1042,7 +1042,6 @@ protected:
     MetaRequest*       mPendingResponseOpsHeadPtr;
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
-    InFlightChunks     mLastChunksInFlightDelete;
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;

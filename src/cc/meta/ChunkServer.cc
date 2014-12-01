@@ -433,7 +433,6 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mPendingResponseOpsHeadPtr(0),
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
-      mLastChunksInFlightDelete(),
       mHelloDoneCount(0),
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
@@ -2303,7 +2302,6 @@ ChunkServer::FailDispatchedOps()
     mReqsTimeoutQueue.swap(reqTimeouts);
     mDispatchedReqs.swap(reqs);
     mLastChunksInFlight.Clear();
-    mLastChunksInFlightDelete.Clear();
     // Get all ops out of the in flight global queue first.
     // Remember all chunk ids that were in flight.
     for (DispatchedReqs::iterator it = reqs.begin();
@@ -2316,30 +2314,11 @@ ChunkServer::FailDispatchedOps()
             ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
             const chunkId_t*            id;
             while ((id = it.Next())) {
-                if (sop.hasAvailChunksSeqFlag || sop.evacuatedFlag) {
-                    mLastChunksInFlightDelete.Erase(*id);
-                    mLastChunksInFlight.Insert(*id);
-                } else {
-                    mLastChunksInFlight.Erase(*id);
-                    mLastChunksInFlightDelete.Insert(*id);
-                }
+                mLastChunksInFlight.Insert(*id);
             }
         } else if (0 <= op.chunkId) {
-            if (op.op == META_CHUNK_DELETE) {
-                mLastChunksInFlight.Erase(op.chunkId);
-                mLastChunksInFlightDelete.Insert(op.chunkId);
-            } else {
-                mLastChunksInFlightDelete.Erase(op.chunkId);
-                mLastChunksInFlight.Insert(op.chunkId);
-            }
+            mLastChunksInFlight.Insert(op.chunkId);
         }
-        KFS_LOG_STREAM_DEBUG <<
-            "fail:"
-            " chunkId: "  << op.chunkId <<
-            " inflight: " << mLastChunksInFlight.Size() <<
-            " delete: "   << mLastChunksInFlightDelete.Size() <<
-            " op: "       << op.Show() <<
-        KFS_LOG_EOM;
         sChunkOpsInFlight.erase(it->second.second);
     }
     // Fail in the same order as these were queued.
@@ -2747,9 +2726,9 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     chunkId_t lastResumeModifiedChunk)
 {
     KFS_LOG_STREAM_DEBUG <<
-        " last chunk id: " << lastResumeModifiedChunk <<
-        " inflight: "      << mLastChunksInFlight.Size() <<
-        " delete: "        << mLastChunksInFlightDelete.Size() <<
+        " server: "           << GetServerLocation() <<
+        " in flight chunks: " << mLastChunksInFlight.Size() <<
+        " last chunk id: "    << lastResumeModifiedChunk <<
     KFS_LOG_EOM;
     if (0 <= lastResumeModifiedChunk) {
         mLastChunksInFlight.Insert(lastResumeModifiedChunk);
@@ -2761,22 +2740,11 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
         const CSMap::Entry* const entry = csMap.Find(*id);
         if (entry && csMap.HasServer(srv, *entry)) {
             chunks.Insert(*id);
-            mLastChunksInFlightDelete.Erase(*id);
-        } else {
-            mLastChunksInFlightDelete.Insert(*id);
-        }
-    }
-    mLastChunksInFlightDelete.First();
-    while ((id = mLastChunksInFlightDelete.Next())) {
-        const CSMap::Entry* const entry = csMap.Find(*id);
-        if (entry && csMap.HasServer(srv, *entry)) {
-            chunks.Insert(*id);
         } else {
             chunksDelete.PushBack(*id);
         }
     }
     mLastChunksInFlight.Clear();
-    mLastChunksInFlightDelete.Clear();
 }
 
 HibernatedChunkServer::HibernatedChunkServer(
@@ -2791,14 +2759,17 @@ HibernatedChunkServer::HibernatedChunkServer(
     server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
         lastResumeModifiedChunk);
     const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
-    KFS_LOG_STREAM_DEBUG <<
-        " hibernated: " << server.GetServerLocation() <<
-        " modified: "   << mModifiedChunks.Size() <<
-        " delete: "     << mDeletedChunks.GetSize() <<
-    KFS_LOG_EOM;
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
+    KFS_LOG_STREAM_INFO <<
+        " hibernated: " << server.GetServerLocation() <<
+        " modified: "   << mModifiedChunks.Size() <<
+        " delete: "     << mDeletedChunks.GetSize() <<
+        " hibernated total:"
+        " valid: "      << sValidCount <<
+        " chunks: "     << sChunkListsSize <<
+    KFS_LOG_EOM;
 }
 
 bool
