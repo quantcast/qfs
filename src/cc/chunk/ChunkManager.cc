@@ -4980,7 +4980,7 @@ ChunkManager::GetHostedChunksResume(
                 continue;
             }
             if (! IsTargetChunkVersionStable(**cih)) {
-                // Only report "modified" stable chunks here, all unstable are
+                // Only report stable chunks here, all unstable are
                 // reported already the above.
                 continue;
             }
@@ -4993,10 +4993,8 @@ ChunkManager::GetHostedChunksResume(
                 checksum = CIdsChecksumRemove(chunkId, checksum);
                 count--;
             }
-            if (0 < pass) {
-                AppendToHostedList(
-                    **cih, stable, notStableAppend, notStable, noFidsFlag);
-            }
+            AppendToHostedList(
+                **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
     if (0 <= hello.resumeStep && ! mLastPendingInFlight.IsEmpty()) {
