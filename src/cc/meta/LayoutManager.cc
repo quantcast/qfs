@@ -3078,7 +3078,7 @@ LayoutManager::AddNewServer(MetaHello *r)
     if (0 < r->resumeStep) {
         for (MetaHello::MissingChunks::const_iterator
                 it = r->missingChunks.begin();
-                it != r->missingChunks.end();
+                it != r->missingChunks.end() && ! srv.IsDown();
                 ++it) {
             const chunkId_t chunkId = *it;
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
@@ -3086,9 +3086,6 @@ LayoutManager::AddNewServer(MetaHello *r)
                 if (modififedChunks.Erase(chunkId)) {
                     panic("invalid modified chunk list");
                 }
-                continue;
-            }
-            if (srv.IsDown()) {
                 continue;
             }
             const MetaFattr& fa = *(cmi->GetFattr());
