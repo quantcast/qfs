@@ -1429,6 +1429,7 @@ ChangeChunkVersOp::Execute()
             }
             if (status != 0 || chunkVersion == ci->chunkVersion) {
                 gLogger.Submit(this);
+                return;
             }
         }
     }
