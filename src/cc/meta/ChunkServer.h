@@ -1200,7 +1200,9 @@ public:
     bool HelloResumeReply(MetaHello& r, const CSMap& csMap,
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
     void ResumeRestart(
-        ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
+        ChunkIdQueue&   staleChunkIds,
+        ModifiedChunks& modifiedChunks,
+        int64_t         deletedReportCount);
     static void SetParameters(const Properties& props);
     class Display
     {

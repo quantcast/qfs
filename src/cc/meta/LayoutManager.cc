@@ -3148,7 +3148,8 @@ LayoutManager::AddNewServer(MetaHello *r)
         if (0 < r->resumeStep) {
             HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
             if (cs && cs->GetIndex() == (int)hibernatedIdx) {
-                cs->ResumeRestart(staleChunkIds, modififedChunks);
+                cs->ResumeRestart(
+                    staleChunkIds, modififedChunks, r->deletedReportCount);
             }
         }
         KFS_LOG_STREAM_ERROR << srvId <<

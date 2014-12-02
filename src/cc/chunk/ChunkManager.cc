@@ -4930,6 +4930,7 @@ ChunkManager::GetHostedChunksResume(
     CIdChecksum_t       helloChecksum = hello.checksum;
     uint64_t            helloCount    = hello.chunkCount;
     LastPendingInFlight lastPendingNotReported;
+    LastPendingInFlight deleteReported;
     for (int pass = 0; pass < 2; pass++) {
         const HelloMetaOp::ChunkIds&                ids       =
             pass == 0 ? hello.resumeDeleted : hello.resumeModified;
@@ -4939,6 +4940,10 @@ ChunkManager::GetHostedChunksResume(
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId = *it;
+            bool  uniqueFlag = reportEnd <= it; // don't check stale chunks.
+            if (! uniqueFlag) {
+                deleteReported.Insert(chunkId, chunkId, uniqueFlag);
+            }
             // Meta server excludes pending in flight.
             const bool inFlightFlag = mLastPendingInFlight.Find(chunkId) != 0;
             if (inFlightFlag) {
@@ -4964,6 +4969,9 @@ ChunkManager::GetHostedChunksResume(
                 }
                 helloChecksum = CIdsChecksumRemove(chunkId, helloChecksum);
                 helloCount--;
+            }
+            if (! uniqueFlag) {
+                continue; // already reported.
             }
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {

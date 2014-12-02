@@ -2850,7 +2850,7 @@ HibernatedChunkServer::HelloResumeReply(
     r.modifiedCount      = 0;
     r.chunkCount         = GetChunkCount();
     r.checksum           = GetChecksum();
-    r.deletedReportCount = mDeletedReportCount;
+    r.deletedReportCount = (int64_t)mDeletedReportCount;
     // Chunk server assumes responsibility for ensuring no duplicate list
     // entries.
     for (MetaHello::MissingChunks::const_iterator
@@ -2898,17 +2898,18 @@ HibernatedChunkServer::HelloResumeReply(
 void
 HibernatedChunkServer::ResumeRestart(
     ChunkIdQueue&                          staleChunkIds,
-    HibernatedChunkServer::ModifiedChunks& modifiedChunks)
+    HibernatedChunkServer::ModifiedChunks& modifiedChunks,
+    int64_t                                deletedReportCount)
 {
     if (! CanBeResumed()) {
         return;
     }
     size_t size = 0;
-    if (staleChunkIds.IsEmpty()) {
-        mDeletedReportCount = 0;
-    } else {
-        if (staleChunkIds.GetSize() < mDeletedReportCount) {
-            mDeletedReportCount = 0;
+    if (! staleChunkIds.IsEmpty()) {
+        const size_t delReportCount =
+            (size_t)max(int64_t(0), deletedReportCount);
+        if (delReportCount < staleChunkIds.GetSize()) {
+            mDeletedReportCount += delReportCount;
         }
         if (mDeletedChunks.IsEmpty()) {
             mDeletedChunks.Swap(staleChunkIds);
