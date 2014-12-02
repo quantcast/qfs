@@ -536,7 +536,7 @@ public:
     /// notify the chunk server of the stale data.
     void NotifyStaleChunks(ChunkIdQueue& staleChunks,
         bool evacuatedFlag = false, bool clearStaleChunksFlag = true,
-        const MetaChunkAvailable* ca = 0);
+        const MetaChunkAvailable* ca = 0, size_t skipFront = 0);
     void NotifyStaleChunks(
         ChunkIdQueue&             staleChunks,
         const MetaChunkAvailable& ca)

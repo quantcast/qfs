@@ -1915,6 +1915,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     bool         hexFormatFlag;
     bool         hasAvailChunksSeqFlag;
     seq_t        availChunksSeq;
+    size_t       skipFront;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag, const seq_t* acSeq)
         : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, false, s, -1),
@@ -1922,7 +1923,8 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
           evacuatedFlag(evacFlag),
           hexFormatFlag(hexFmtFlag),
           hasAvailChunksSeqFlag(acSeq != 0),
-          availChunksSeq(acSeq ? *acSeq : -1)
+          availChunksSeq(acSeq ? *acSeq : -1),
+          skipFront(0)
         {}
     virtual void request(ostream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const

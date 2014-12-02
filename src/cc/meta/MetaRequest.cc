@@ -4940,7 +4940,13 @@ ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
 void
 MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
 {
-    const size_t count = staleChunkIds.GetSize();
+    size_t count = staleChunkIds.GetSize();
+    size_t skip  = skipFront;
+    if (skip <= count) {
+        count -= skip;
+    } else {
+        skip = 0;
+    }
     os <<
         "STALE_CHUNKS \r\n"
         "Cseq: " << opSeqno << "\r\n"
@@ -4959,7 +4965,7 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
     char* const end = tmpBuf + kBufEnd;
-    if (count <= 1) {
+    if (skip <= 0 && count <= 1) {
         char* const p   = count < 1 ? end :
             ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
         size_t      len = end - p;
@@ -4974,6 +4980,10 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     IOBufferWriter              writer(ioBuf);
     tmpBuf[kBufEnd] = (char)' ';
     while ((id = it.Next())) {
+        if (0 < skip) {
+            --skip;
+            continue;
+        }
         char* const p = ChunkIdToString(*id, hexFormatFlag, end);
         writer.Write(p, (int)(end - p + 1));
     }

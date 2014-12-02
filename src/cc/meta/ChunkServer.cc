@@ -2094,20 +2094,32 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag, const MetaChunkAvailable* ca)
+    bool evacuatedFlag, bool clearStaleChunksFlag, const MetaChunkAvailable* ca,
+    size_t skipFront)
 {
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(), shared_from_this(), evacuatedFlag,
         mStaleChunksHexFormatFlag, ca ? &ca->opSeqno : 0);
+    r->skipFront = skipFront;
     if (clearStaleChunksFlag) {
         r->staleChunkIds.Swap(staleChunkIds);
     } else {
         r->staleChunkIds = staleChunkIds;
     }
-    ChunkIdQueue::ConstIterator it(r->staleChunkIds);
-    const chunkId_t*            id;
-    while ((id = it.Next())) {
-        mChunksToEvacuate.Erase(*id);
+    if (! mChunksToEvacuate.IsEmpty()) {
+        size_t skip = 0;
+        if (0 < skipFront && skipFront <= r->staleChunkIds.GetSize()) {
+            skip = skipFront;
+        }
+        ChunkIdQueue::ConstIterator it(r->staleChunkIds);
+        const chunkId_t*            id;
+        while ((id = it.Next())) {
+            if (0 < skip) {
+                --skip;
+                continue;
+            }
+            mChunksToEvacuate.Erase(*id);
+        }
     }
     Enqueue(r);
 
@@ -2892,7 +2904,12 @@ HibernatedChunkServer::ResumeRestart(
         return;
     }
     size_t size = 0;
-    if (! staleChunkIds.IsEmpty()) {
+    if (staleChunkIds.IsEmpty()) {
+        mDeletedReportCount = 0;
+    } else {
+        if (staleChunkIds.GetSize() < mDeletedReportCount) {
+            mDeletedReportCount = 0;
+        }
         if (mDeletedChunks.IsEmpty()) {
             mDeletedChunks.Swap(staleChunkIds);
             size += mDeletedChunks.GetSize();

@@ -3077,8 +3077,19 @@ LayoutManager::AddNewServer(MetaHello *r)
     }
     mLastResumeModifiedChunk = -1;
     const size_t staleCnt = staleChunkIds.GetSize();
-    if (! staleChunkIds.IsEmpty() && ! srv.IsDown()) {
-        srv.NotifyStaleChunks(staleChunkIds);
+    if (0 < staleCnt && ! srv.IsDown()) {
+        size_t skipFront = 0;
+        if (0 < r->resumeStep &&
+                (size_t)max(int64_t(0), r->deletedReportCount) <= staleCnt) {
+            skipFront = r->deletedReportCount;
+        }
+        if (skipFront < staleCnt) {
+            const bool                      kEvacuatedFlag        = false;
+            const bool                      kClearStaleChunksFlag = true;
+            const MetaChunkAvailable* const ca                    = 0;
+            srv.NotifyStaleChunks(staleChunkIds,
+                kEvacuatedFlag, kClearStaleChunksFlag, ca, skipFront);
+        }
         staleChunkIds.Clear();
     }
     if (0 < r->resumeStep) {
@@ -3186,6 +3197,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         " writes: "          << srv.GetNumChunkWrites() <<
         " +wid: "            << srv.GetNumAppendsWithWid() <<
         " stale: "           << staleCnt <<
+        " - "                << r->deletedReportCount <<
         " masters: "         << mMastersCount <<
         " slaves: "          << mSlavesCount <<
         " total: "           << mChunkServers.size() <<
