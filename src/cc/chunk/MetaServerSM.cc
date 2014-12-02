@@ -59,9 +59,12 @@ using KFS::libkfsio::globalNetManager;
 
 MetaServerSM gMetaServerSM;
 
-template<typename T> inline static void
-DetachAndDeleteOp(T*& op)
+template<typename T> inline void
+MetaServerSM::DetachAndDeleteOp(T*& op)
 {
+    if (op == mOp) {
+        mOp = 0;
+    }
     T* const cur = op;
     op = 0;
     delete cur;
@@ -100,6 +103,7 @@ MetaServerSM::MetaServerSM()
       mCurrentKeyId(),
       mUpdateCurrentKeyFlag(false),
       mNoFidsFlag(true),
+      mHelloResume(1),
       mOp(0),
       mRequestFlag(false),
       mContentLength(0),
@@ -174,6 +178,8 @@ MetaServerSM::SetParameters(const Properties& prop)
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
     mNoFidsFlag        = prop.getValue(
         "chunkServer.meta.noFids",            mNoFidsFlag ? 1 : 0) != 0;
+    mHelloResume       = prop.getValue(
+        "chunkServer.meta.helloResume",       mHelloResume);
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
         "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
@@ -1184,7 +1190,8 @@ MetaServerSM::SubmitHello()
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
     mHelloOp->helloDoneCount     = mCounters.mHelloDoneCount;
-    mHelloOp->resumeStep         = 0 < mCounters.mHelloDoneCount ? 0 : -1;
+    mHelloOp->resumeStep         = (mHelloResume < 0 ||
+        (mHelloResume != 0 && 0 < mCounters.mHelloDoneCount)) ? 0 : -1;
     mHelloOp->clnt               = this;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);

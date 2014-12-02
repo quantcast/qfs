@@ -223,6 +223,7 @@ private:
     kfsKeyId_t                    mCurrentKeyId;
     bool                          mUpdateCurrentKeyFlag;
     bool                          mNoFidsFlag;
+    int                           mHelloResume;
     KfsOp*                        mOp;
     bool                          mRequestFlag;
     int                           mContentLength;
@@ -258,6 +259,7 @@ private:
     bool Authenticate();
     void DiscardPendingResponses();
     void SubmitHello();
+    template<typename T> inline void DetachAndDeleteOp(T*& op);
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);
