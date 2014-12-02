@@ -122,7 +122,7 @@ MetaServerSM::~MetaServerSM()
 void
 MetaServerSM::CleanupOpInFlight()
 {
-    if (mRequestFlag) {
+    if (mRequestFlag && mOp != mHelloOp && mOp != mAuthOp) {
         delete mOp;
     }
     mOp = 0;
