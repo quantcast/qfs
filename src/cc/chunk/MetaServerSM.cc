@@ -770,7 +770,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     prop.getValue("Deleted-report", mHelloOp->deletedCount);
             } else {
                 mHelloOp->resumeStep = -1;
-                mSentHello = false;
+                mSentHello    = false;
+                mHelloOp->seq = nextSeq(),
                 SubmitOp(mHelloOp); // Re-submit hello.
                 return true;
             }
@@ -862,7 +863,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         if (mHelloOp->resumeStep == 0) {
             mHelloOp->resumeStep = 1;
         }
-        mSentHello = false;
+        mSentHello    = false;
+        mHelloOp->seq = nextSeq(),
         SubmitOp(mHelloOp); // Re-submit hello.
         return true;
     }

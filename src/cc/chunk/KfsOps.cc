@@ -3760,6 +3760,7 @@ HelloMetaOp::Execute()
     }
     status       = 0;
     totalFsSpace = 0;
+    statusMsg.clear();
     lostChunkDirs.clear();
     IOBuffer::WOStream            streams[kChunkListCount];
     ChunkManager::HostedChunkList lists[kChunkListCount];

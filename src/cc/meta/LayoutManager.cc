@@ -2755,11 +2755,11 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
         server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, string());
     }
     if (! server->IsDown()) {
-        if (fa.numReplicas <= (0 < mChunkToServerMap.GetHibernatedCount() ?
-                mChunkToServerMap.ServerCount(c) : srvCount)) {
+        if (fa.numReplicas <= srvCount) {
             CancelPendingMakeStable(fa.id(), ci.chunkId);
         }
-        if (fa.numReplicas != srvCount) {
+        if (fa.numReplicas != (0 < mChunkToServerMap.GetHibernatedCount() ?
+                mChunkToServerMap.ServerCount(c) : srvCount)) {
             CheckReplication(c);
         }
     }
