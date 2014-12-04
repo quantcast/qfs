@@ -2869,6 +2869,15 @@ HibernatedChunkServer::HelloResumeReply(
         r.chunkCount--;
         r.checksum = CIdsChecksumRemove(chunkId, r.checksum);
     }
+    KFS_LOG_STREAM_INFO <<
+        " server: "   << r.server->GetServerLocation() <<
+        " resume: "   << r.resumeStep <<
+        " chunks: "   << r.chunkCount <<
+        " deleted: "  << mModifiedChunks.Size() <<
+        " => "        << mDeletedChunks.GetSize() <<
+        " modified: " << r.modifiedCount <<
+        " => "        << mModifiedChunks.Size() <<
+    KFS_LOG_EOM;
     if (mListsSize <= 1) {
         if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
             panic("hibernated server invalid lists size");

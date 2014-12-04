@@ -1222,7 +1222,7 @@ private:
     void RemoveHosted(chunkId_t chunkId, int index) {
         if (0 < mListsSize) {
             if (! mModifiedChunks.Erase(chunkId)) {
-                mListsSize++;;
+                mListsSize++;
                 sChunkListsSize++;
                 Prune();
             }
@@ -1234,6 +1234,7 @@ private:
     }
     void Modified(chunkId_t chunkId) {
         if (0 < mListsSize && mModifiedChunks.Insert(chunkId)) {
+            mListsSize++;
             sChunkListsSize++;
             Prune();
         }
