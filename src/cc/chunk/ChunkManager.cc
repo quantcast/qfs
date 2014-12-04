@@ -4952,11 +4952,10 @@ ChunkManager::GetHostedChunksResume(
                 }
                 lastPendingNotReported.Erase(chunkId);
             }
-            if (0 < pass && ! inFlightFlag) {
+            if (0 < pass) {
                 // Modified chunks are included into the meta server's checksum,
-                // unless meta server was told to exclude them. In the later
-                // case the chunks are present in the last pending in flight
-                // list.
+                // even if meta server was told to exclude them, i.e. if the
+                // chunks are present in the last pending in flight list.
                 // Chunk server either needs to "add" those to its inventory, or
                 // "subtract" from the meta server inventory.
                 if (helloCount <= 0) {

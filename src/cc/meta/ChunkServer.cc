@@ -2870,6 +2870,9 @@ HibernatedChunkServer::HelloResumeReply(
         r.checksum = CIdsChecksumRemove(chunkId, r.checksum);
     }
     if (mListsSize <= 1) {
+        if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
+            panic("hibernated server invalid lists size");
+        }
         return true;
     }
     r.responseBuf.Clear();
@@ -2908,7 +2911,10 @@ HibernatedChunkServer::ResumeRestart(
     if (! staleChunkIds.IsEmpty()) {
         const size_t delReportCount =
             (size_t)max(int64_t(0), deletedReportCount);
-        if (delReportCount < staleChunkIds.GetSize()) {
+        if (delReportCount <= staleChunkIds.GetSize()) {
+            if(mDeletedReportCount != mDeletedChunks.GetSize()) {
+                panic("invalid delete report count");
+            }
             mDeletedReportCount += delReportCount;
         }
         if (mDeletedChunks.IsEmpty()) {
