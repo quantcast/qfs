@@ -756,7 +756,7 @@ public:
         }
         location.hostname.assign(
             it->first.first.first.mPtr, it->first.first.first.mLen);
-        location.port = it->first.second;
+        location.port = it->first.first.second;
         const Entry& entry = it->second;
         if (! outKey.Parse(
                 entry.chunkServerKey.mPtr,
