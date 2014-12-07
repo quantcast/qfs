@@ -1011,7 +1011,7 @@ MetaRequest*
 ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
 {
     MetaRequest* op = 0;
-    if (ParseCommand(iobuf, msgLen, &op) >= 0) {
+    if (ParseCommand(iobuf, msgLen, &op, 0, false) >= 0) {
         op->setChunkServer(shared_from_this());
         return op;
     }

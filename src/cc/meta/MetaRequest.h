@@ -265,12 +265,12 @@ struct MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
-        .Def("Cseq",                    &MetaRequest::opSeqno,         seq_t(-1))
-        .Def("Client-Protocol-Version", &MetaRequest::clientProtoVers,    int(0))
-        .Def("From-chunk-server",       &MetaRequest::fromChunkServerFlag, false)
-        .Def("UserId",                  &MetaRequest::euser,  kKfsUserNone)
-        .Def("GroupId",                 &MetaRequest::egroup, kKfsGroupNone)
-        .Def("Max-wait-ms",             &MetaRequest::maxWaitMillisec, int64_t(-1))
+        .Def2("Cseq",                    "c", &MetaRequest::opSeqno,           seq_t(-1))
+        .Def2("Client-Protocol-Version", "p", &MetaRequest::clientProtoVers,      int(0))
+        .Def2("From-chunk-server",       "s", &MetaRequest::fromChunkServerFlag,   false)
+        .Def2("UserId",                  "u", &MetaRequest::euser,          kKfsUserNone)
+        .Def2("GroupId",                 "g", &MetaRequest::egroup,        kKfsGroupNone)
+        .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -345,10 +345,10 @@ struct MetaLookup: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaLookup::dir,              fid_t(-1))
-        .Def("Filename",           &MetaLookup::name              )
-        .Def("Auth-type",          &MetaLookup::authType,         int(kAuthenticationTypeUndef))
-        .Def("Auth-info-only",     &MetaLookup::authInfoOnlyFlag, false)
+        .Def2("Parent File-handle", "P", &MetaLookup::dir,              fid_t(-1))
+        .Def2("Filename",           "N", &MetaLookup::name              )
+        .Def2("Auth-type",          "A", &MetaLookup::authType,         int(kAuthenticationTypeUndef))
+        .Def2("Auth-info-only",     "I", &MetaLookup::authInfoOnlyFlag, false)
         ;
     }
     bool IsAuthNegotiation() const
@@ -389,8 +389,8 @@ struct MetaLookupPath: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Root File-handle", &MetaLookupPath::root, fid_t(-1))
-        .Def("Pathname",         &MetaLookupPath::path           )
+        .Def2("Root File-handle", "P", &MetaLookupPath::root, fid_t(-1))
+        .Def2("Pathname",         "N", &MetaLookupPath::path           )
         ;
     }
 };
@@ -462,22 +462,22 @@ struct MetaCreate: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle",   &MetaCreate::dir,                fid_t(-1))
-        .Def("Num-replicas",         &MetaCreate::numReplicas,        int16_t( 1))
-        .Def("Striper-type",         &MetaCreate::striperType,        int32_t(KFS_STRIPED_FILE_TYPE_NONE))
-        .Def("Num-stripes",          &MetaCreate::numStripes,         int32_t(0))
-        .Def("Num-recovery-stripes", &MetaCreate::numRecoveryStripes, int32_t(0))
-        .Def("Stripe-size",          &MetaCreate::stripeSize,         int32_t(0))
-        .Def("Exclusive",            &MetaCreate::exclusive,          false)
-        .Def("Filename",             &MetaCreate::name                     )
-        .Def("Owner",                &MetaCreate::user,               kKfsUserNone)
-        .Def("Group",                &MetaCreate::group,              kKfsGroupNone)
-        .Def("Mode",                 &MetaCreate::mode,               kKfsModeUndef)
-        .Def("ReqId",                &MetaCreate::reqId,              seq_t(-1))
-        .Def("Min-tier",             &MetaCreate::minSTier,           kKfsSTierMax)
-        .Def("Max-tier",             &MetaCreate::maxSTier,           kKfsSTierMax)
-        .Def("OName",                &MetaCreate::ownerName)
-        .Def("GName",                &MetaCreate::groupName)
+        .Def2("Parent File-handle",   "P",  &MetaCreate::dir,                fid_t(-1))
+        .Def2("Num-replicas",         "R",  &MetaCreate::numReplicas,        int16_t( 1))
+        .Def2("Striper-type",         "ST", &MetaCreate::striperType,        int32_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def2("Num-stripes",          "SN", &MetaCreate::numStripes,         int32_t(0))
+        .Def2("Num-recovery-stripes", "SR", &MetaCreate::numRecoveryStripes, int32_t(0))
+        .Def2("Stripe-size",          "SS", &MetaCreate::stripeSize,         int32_t(0))
+        .Def2("Exclusive",            "E",  &MetaCreate::exclusive,          false)
+        .Def2("Filename",             "N",  &MetaCreate::name                     )
+        .Def2("Owner",                "O",  &MetaCreate::user,               kKfsUserNone)
+        .Def2("Group",                "G",  &MetaCreate::group,              kKfsGroupNone)
+        .Def2("Mode",                 "M",  &MetaCreate::mode,               kKfsModeUndef)
+        .Def2("ReqId",                "RI", &MetaCreate::reqId,              seq_t(-1))
+        .Def2("Min-tier",             "TL", &MetaCreate::minSTier,           kKfsSTierMax)
+        .Def2("Max-tier",             "TH", &MetaCreate::maxSTier,           kKfsSTierMax)
+        .Def2("OName",                "ON", &MetaCreate::ownerName)
+        .Def2("GName",                "GN", &MetaCreate::groupName)
         ;
     }
 };
@@ -534,14 +534,14 @@ struct MetaMkdir: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaMkdir::dir, fid_t(-1))
-        .Def("Directory",          &MetaMkdir::name          )
-        .Def("Owner",              &MetaMkdir::user,   kKfsUserNone)
-        .Def("Group",              &MetaMkdir::group,  kKfsGroupNone)
-        .Def("Mode",               &MetaMkdir::mode,   kKfsModeUndef)
-        .Def("ReqId",              &MetaMkdir::reqId,  seq_t(-1))
-        .Def("OName",              &MetaMkdir::ownerName)
-        .Def("GName",              &MetaMkdir::groupName)
+        .Def2("Parent File-handle", "P",  &MetaMkdir::dir, fid_t(-1))
+        .Def2("Directory",          "D",  &MetaMkdir::name          )
+        .Def2("Owner",              "O",  &MetaMkdir::user,   kKfsUserNone)
+        .Def2("Group",              "G",  &MetaMkdir::group,  kKfsGroupNone)
+        .Def2("Mode",               "M",  &MetaMkdir::mode,   kKfsModeUndef)
+        .Def2("ReqId",              "RI", &MetaMkdir::reqId,  seq_t(-1))
+        .Def2("OName",              "ON", &MetaMkdir::ownerName)
+        .Def2("GName",              "GN", &MetaMkdir::groupName)
         ;
     }
 };
@@ -581,9 +581,9 @@ struct MetaRemove: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaRemove::dir, fid_t(-1))
-        .Def("Filename",           &MetaRemove::name          )
-        .Def("Pathname",           &MetaRemove::pathname      )
+        .Def2("Parent File-handle", "P",  &MetaRemove::dir, fid_t(-1))
+        .Def2("Filename",           "N",  &MetaRemove::name          )
+        .Def2("Pathname",           "PN", &MetaRemove::pathname      )
         ;
     }
 };
@@ -620,9 +620,9 @@ struct MetaRmdir: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaRmdir::dir, fid_t(-1))
-        .Def("Directory",          &MetaRmdir::name          )
-        .Def("Pathname",           &MetaRmdir::pathname      )
+        .Def2("Parent File-handle", "P",  &MetaRmdir::dir, fid_t(-1))
+        .Def2("Directory",          "N",  &MetaRmdir::name          )
+        .Def2("Pathname",           "PN", &MetaRmdir::pathname      )
         ;
     }
 };
@@ -658,9 +658,9 @@ struct MetaReaddir: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Directory File-handle", &MetaReaddir::dir,       fid_t(-1))
-        .Def("Max-entries",           &MetaReaddir::numEntries,        0)
-        .Def("Fname-start",           &MetaReaddir::fnameStart)
+        .Def2("Directory File-handle", "P", &MetaReaddir::dir,       fid_t(-1))
+        .Def2("Max-entries",           "M", &MetaReaddir::numEntries,        0)
+        .Def2("Fname-start",           "S", &MetaReaddir::fnameStart)
         ;
     }
 };
@@ -761,14 +761,14 @@ struct MetaReaddirPlus: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Directory File-handle", &MetaReaddirPlus::dir, fid_t(-1))
-        .Def("GetLastChunkInfoOnlyIfSizeUnknown",
+        .Def2("Directory File-handle", "P", &MetaReaddirPlus::dir, fid_t(-1))
+        .Def2("GetLastChunkInfoOnlyIfSizeUnknown", "LC",
             &MetaReaddirPlus::getLastChunkInfoOnlyIfSizeUnknown, false)
-        .Def("Max-entries",           &MetaReaddirPlus::numEntries,  0)
-        .Def("Fname-start",           &MetaReaddirPlus::fnameStart)
-        .Def("Omit-lci",
+        .Def2("Max-entries", "M", &MetaReaddirPlus::numEntries,  0)
+        .Def2("Fname-start", "S", &MetaReaddirPlus::fnameStart)
+        .Def2("Omit-lci", "O",
             &MetaReaddirPlus::omitLastChunkInfoFlag, false)
-        .Def("FidT-only",
+        .Def2("FidT-only", "F",
             &MetaReaddirPlus::fileIdAndTypeOnlyFlag, false)
         ;
     }
@@ -814,9 +814,9 @@ struct MetaGetalloc: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",  &MetaGetalloc::fid,          fid_t(-1))
-        .Def("Chunk-offset", &MetaGetalloc::offset,  chunkOff_t(-1))
-        .Def("Pathname",     &MetaGetalloc::pathname               )
+        .Def2("File-handle",  "P", &MetaGetalloc::fid,          fid_t(-1))
+        .Def2("Chunk-offset", "O", &MetaGetalloc::offset,  chunkOff_t(-1))
+        .Def2("Pathname",     "N", &MetaGetalloc::pathname               )
         ;
     }
 };
@@ -862,12 +862,12 @@ struct MetaGetlayout: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",             &MetaGetlayout::fid,                      fid_t(-1))
-        .Def("Start-offset",            &MetaGetlayout::startOffset,              chunkOff_t(0))
-        .Def("Omit-locations",          &MetaGetlayout::omitLocationsFlag,        false)
-        .Def("Last-chunk-only",         &MetaGetlayout::lastChunkInfoOnlyFlag,    false)
-        .Def("Max-chunks",              &MetaGetlayout::maxResCnt,                -1)
-        .Def("Continue-if-no-replicas", &MetaGetlayout::continueIfNoReplicasFlag, false)
+        .Def2("File-handle",             "P", &MetaGetlayout::fid,                      fid_t(-1))
+        .Def2("Start-offset",            "S", &MetaGetlayout::startOffset,              chunkOff_t(0))
+        .Def2("Omit-locations",          "O", &MetaGetlayout::omitLocationsFlag,        false)
+        .Def2("Last-chunk-only",         "L", &MetaGetlayout::lastChunkInfoOnlyFlag,    false)
+        .Def2("Max-chunks",              "M", &MetaGetlayout::maxResCnt,                -1)
+        .Def2("Continue-if-no-replicas", "R", &MetaGetlayout::continueIfNoReplicasFlag, false)
         ;
     }
 };
@@ -922,11 +922,11 @@ struct MetaLeaseRelinquish: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Lease-type",     &MetaLeaseRelinquish::leaseTypeStr                 )
-        .Def("Chunk-handle",   &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
-        .Def("Lease-id",       &MetaLeaseRelinquish::leaseId,          int64_t(-1))
-        .Def("Chunk-size",     &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
-        .Def("Chunk-checksum", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
+        .Def2("Lease-type",     "T", &MetaLeaseRelinquish::leaseTypeStr                 )
+        .Def2("Chunk-handle",   "P", &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
+        .Def2("Lease-id",       "L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
+        .Def2("Chunk-size",     "S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
+        .Def2("Chunk-checksum", "K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
         ;
     }
 private:
@@ -1057,14 +1057,14 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",              &MetaAllocate::fid,                   fid_t(-1))
-        .Def("Chunk-append",             &MetaAllocate::appendChunk,               false)
-        .Def("Chunk-offset",             &MetaAllocate::offset,           chunkOff_t(-1))
-        .Def("Pathname",                 &MetaAllocate::pathname                        )
-        .Def("Client-host",              &MetaAllocate::clientHost                      )
-        .Def("Space-reserve",            &MetaAllocate::spaceReservationSize, int(1<<20))
-        .Def("Max-appenders",            &MetaAllocate::maxAppendersPerChunk,    int(64))
-        .Def("Invalidate-all",           &MetaAllocate::invalidateAllFlag,         false)
+        .Def2("File-handle",    "P", &MetaAllocate::fid,                   fid_t(-1))
+        .Def2("Chunk-append",   "A", &MetaAllocate::appendChunk,               false)
+        .Def2("Chunk-offset",   "S", &MetaAllocate::offset,           chunkOff_t(-1))
+        .Def2("Pathname",       "N", &MetaAllocate::pathname                        )
+        .Def2("Client-host",    "H", &MetaAllocate::clientHost                      )
+        .Def2("Space-reserve",  "R", &MetaAllocate::spaceReservationSize, int(1<<20))
+        .Def2("Max-appenders",  "M", &MetaAllocate::maxAppendersPerChunk,    int(64))
+        .Def2("Invalidate-all", "I", &MetaAllocate::invalidateAllFlag,         false)
         ;
     }
 };
@@ -1114,13 +1114,13 @@ struct MetaTruncate: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",     &MetaTruncate::fid,                  fid_t(-1))
-        .Def("Offset",          &MetaTruncate::offset,          chunkOff_t(-1))
-        .Def("Pathname",        &MetaTruncate::pathname                       )
-        .Def("Prune-from-head", &MetaTruncate::pruneBlksFromHead,        false)
-        .Def("End-offset",      &MetaTruncate::endOffset,       chunkOff_t(-1))
-        .Def("Set-eof",         &MetaTruncate::setEofHintFlag,            true)
-        .Def("Check-perms",     &MetaTruncate::checkPermsFlag,           false)
+        .Def2("File-handle",     "P", &MetaTruncate::fid,                  fid_t(-1))
+        .Def2("Offset",          "S", &MetaTruncate::offset,          chunkOff_t(-1))
+        .Def2("Pathname",        "N", &MetaTruncate::pathname                       )
+        .Def2("Prune-from-head", "H", &MetaTruncate::pruneBlksFromHead,        false)
+        .Def2("End-offset",      "E", &MetaTruncate::endOffset,       chunkOff_t(-1))
+        .Def2("Set-eof",         "O", &MetaTruncate::setEofHintFlag,            true)
+        .Def2("Check-perms",     "M", &MetaTruncate::checkPermsFlag,           false)
         ;
     }
 };
@@ -1164,11 +1164,11 @@ struct MetaRename: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Parent File-handle", &MetaRename::dir,   fid_t(-1))
-        .Def("Old-name",           &MetaRename::oldname         )
-        .Def("New-path",           &MetaRename::newname         )
-        .Def("Old-path",           &MetaRename::oldpath         )
-        .Def("Overwrite",          &MetaRename::overwrite, false)
+        .Def2("Parent File-handle", "P", &MetaRename::dir,   fid_t(-1))
+        .Def2("Old-name",           "O", &MetaRename::oldname         )
+        .Def2("New-path",           "N", &MetaRename::newname         )
+        .Def2("Old-path",           "F", &MetaRename::oldpath         )
+        .Def2("Overwrite",          "R", &MetaRename::overwrite, false)
         ;
     }
 };
@@ -1207,9 +1207,9 @@ struct MetaSetMtime: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Mtime-sec",  &MetaSetMtime::sec     )
-        .Def("Mtime-usec", &MetaSetMtime::usec    )
-        .Def("Pathname",   &MetaSetMtime::pathname)
+        .Def2("Mtime-sec",  "S", &MetaSetMtime::sec     )
+        .Def2("Mtime-usec", "F", &MetaSetMtime::usec    )
+        .Def2("Pathname",   "N", &MetaSetMtime::pathname)
         ;
     }
 private:
@@ -1254,10 +1254,10 @@ struct MetaChangeFileReplication: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",  &MetaChangeFileReplication::fid,         fid_t(-1))
-        .Def("Num-replicas", &MetaChangeFileReplication::numReplicas, int16_t(1))
-        .Def("Min-tier",     &MetaChangeFileReplication::minSTier,    kKfsSTierUndef)
-        .Def("Max-tier",     &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
+        .Def2("File-handle",  "P",  &MetaChangeFileReplication::fid,         fid_t(-1))
+        .Def2("Num-replicas", "R",  &MetaChangeFileReplication::numReplicas, int16_t(1))
+        .Def2("Min-tier",     "TL", &MetaChangeFileReplication::minSTier,    kKfsSTierUndef)
+        .Def2("Max-tier",     "TH", &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
         ;
     }
 };
@@ -1304,8 +1304,8 @@ struct MetaCoalesceBlocks: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Src-path",  &MetaCoalesceBlocks::srcPath)
-        .Def("Dest-path", &MetaCoalesceBlocks::dstPath)
+        .Def2("Src-path",  "S", &MetaCoalesceBlocks::srcPath)
+        .Def2("Dest-path", "D", &MetaCoalesceBlocks::dstPath)
         ;
     }
 };
@@ -1349,9 +1349,9 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Chunk-server-name", &ServerLocation::hostname            )
-        .Def("Chunk-server-port", &ServerLocation::port,             -1)
-        .Def("Downtime",          &MetaRetireChunkserver::nSecsDown, -1)
+        .Def2("Chunk-server-name", "H", &ServerLocation::hostname            )
+        .Def2("Chunk-server-port", "P", &ServerLocation::port,             -1)
+        .Def2("Downtime",          "D", &MetaRetireChunkserver::nSecsDown, -1)
         ;
     }
 };
@@ -1401,6 +1401,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            helloResumeFailedCount;
     int64_t            deletedReportCount;
     bool               noFidsFlag;
+    bool               shortRpcFormatFlag;
     int                resumeStep;
     int                bufferBytes;
     size_t             deletedCount;
@@ -1446,6 +1447,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           helloResumeFailedCount(0),
           deletedReportCount(0),
           noFidsFlag(false),
+          shortRpcFormatFlag(false),
           resumeStep(-1),
           bufferBytes(0),
           deletedCount(0),
@@ -1498,6 +1500,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("Num-hello-done",               &MetaHello::helloDoneCount                  )
         .Def("Num-resume",                   &MetaHello::helloResumeCount                )
         .Def("Num-resume-fail",              &MetaHello::helloResumeFailedCount          )
+        .Def("Short-rpc-fmt",                &MetaHello::shortRpcFormatFlag              )
         ;
     }
 };
@@ -1547,8 +1550,8 @@ struct MetaGetPathName: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",  &MetaGetPathName::fid,     fid_t(-1))
-        .Def("Chunk-handle", &MetaGetPathName::chunkId, chunkId_t(-1))
+        .Def2("File-handle",  "P", &MetaGetPathName::fid,     fid_t(-1))
+        .Def2("Chunk-handle", "H", &MetaGetPathName::chunkId, chunkId_t(-1))
         ;
     }
 };
@@ -1578,8 +1581,8 @@ struct MetaChmod: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",  &MetaChmod::fid,    fid_t(-1))
-        .Def("Mode",         &MetaChmod::mode,   kKfsModeUndef)
+        .Def2("File-handle", "P", &MetaChmod::fid,  fid_t(-1))
+        .Def2("Mode",        "M", &MetaChmod::mode, kKfsModeUndef)
         ;
     }
 };
@@ -1618,11 +1621,11 @@ struct MetaChown: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle", &MetaChown::fid,        fid_t(-1))
-        .Def("Owner",       &MetaChown::user,       kKfsUserNone)
-        .Def("Group",       &MetaChown::group,      kKfsGroupNone)
-        .Def("OName",       &MetaChown::ownerName)
-        .Def("GName",       &MetaChown::groupName)
+        .Def2("File-handle", "P",  &MetaChown::fid,   fid_t(-1))
+        .Def2("Owner",       "O",  &MetaChown::user,  kKfsUserNone)
+        .Def2("Group",       "G",  &MetaChown::group, kKfsGroupNone)
+        .Def2("OName",       "ON", &MetaChown::ownerName)
+        .Def2("GName",       "GN", &MetaChown::groupName)
         ;
     }
 };
@@ -2189,7 +2192,7 @@ struct MetaToggleWORM: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Toggle-WORM", &MetaToggleWORM::value, false)
+        .Def2("Toggle-WORM", "T", &MetaToggleWORM::value, false)
         ;
     }
 };
@@ -2362,7 +2365,7 @@ struct MetaFsck: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Report-Abandoned-Files", &MetaFsck::reportAbandonedFilesFlag)
+        .Def2("Report-Abandoned-Files", "A", &MetaFsck::reportAbandonedFilesFlag)
         ;
     }
     static void SetParameters(const Properties& props);
@@ -2655,8 +2658,8 @@ struct MetaAuthenticate : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Auth-type",       &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
-        .Def("Content-length",  &MetaAuthenticate::contentLength, int(0))
+        .Def2("Auth-type",       "A", &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
+        .Def2("Content-length",  "L", &MetaAuthenticate::contentLength, int(0))
         ;
     }
 };
@@ -2692,10 +2695,10 @@ struct MetaDelegate : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Valid-for-time",   &MetaDelegate::validForTime, uint32_t(0))
-        .Def("Allow-delegation", &MetaDelegate::allowDelegationFlag, false)
-        .Def("Renew-token",      &MetaDelegate::renewTokenStr)
-        .Def("Renew-key",        &MetaDelegate::renewKeyStr)
+        .Def2("Valid-for-time",   "V", &MetaDelegate::validForTime, uint32_t(0))
+        .Def2("Allow-delegation", "D", &MetaDelegate::allowDelegationFlag, false)
+        .Def2("Renew-token",      "T", &MetaDelegate::renewTokenStr)
+        .Def2("Renew-key",        "K", &MetaDelegate::renewKeyStr)
         ;
     }
 };
@@ -2723,8 +2726,8 @@ struct MetaDelegateCancel : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Token", &MetaDelegateCancel::tokenStr)
-        .Def("Key",   &MetaDelegateCancel::tokenKeyStr)
+        .Def2("Token", "T", &MetaDelegateCancel::tokenStr)
+        .Def2("Key",   "K", &MetaDelegateCancel::tokenKeyStr)
         ;
     }
 };
@@ -2775,14 +2778,14 @@ struct MetaChunkCorrupt: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("File-handle",   &MetaChunkCorrupt::fid,             fid_t(-1))
-        .Def("Chunk-handle",  &MetaChunkCorrupt::chunkId,     chunkId_t(-1))
-        .Def("Is-chunk-lost", &MetaChunkCorrupt::isChunkLost,         false)
-        .Def("No-reply",      &MetaChunkCorrupt::noReplyFlag,         false)
-        .Def("Chunk-dir",     &MetaChunkCorrupt::chunkDir)
-        .Def("Dir-ok",        &MetaChunkCorrupt::dirOkFlag,           false)
-        .Def("Num-chunks",    &MetaChunkCorrupt::chunkCount,              0)
-        .Def("Ids",           &MetaChunkCorrupt::chunkIdsStr)
+        .Def2("File-handle",   "P", &MetaChunkCorrupt::fid,             fid_t(-1))
+        .Def2("Chunk-handle",  "H", &MetaChunkCorrupt::chunkId,     chunkId_t(-1))
+        .Def2("Is-chunk-lost", "L", &MetaChunkCorrupt::isChunkLost,         false)
+        .Def2("No-reply",      "R", &MetaChunkCorrupt::noReplyFlag,         false)
+        .Def2("Chunk-dir",     "D", &MetaChunkCorrupt::chunkDir)
+        .Def2("Dir-ok",        "O", &MetaChunkCorrupt::dirOkFlag,           false)
+        .Def2("Num-chunks",    "C", &MetaChunkCorrupt::chunkCount,              0)
+        .Def2("Ids",           "I", &MetaChunkCorrupt::chunkIdsStr)
         ;
     }
 };
@@ -2841,14 +2844,14 @@ struct MetaChunkEvacuate: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Chunk-ids",      &MetaChunkEvacuate::chunkIds)
-        .Def("Total-space",    &MetaChunkEvacuate::totalSpace,      int64_t(-1))
-        .Def("Total-fs-space", &MetaChunkEvacuate::totalFsSpace,    int64_t(-1))
-        .Def("Used-space",     &MetaChunkEvacuate::usedSpace,       int64_t(-1))
-        .Def("Num-drives",     &MetaChunkEvacuate::numDrives,           int(-1))
-        .Def("Num-wr-drives",  &MetaChunkEvacuate::numWritableDrives,   int(-1))
-        .Def("Num-evacuate",   &MetaChunkEvacuate::numEvacuateInFlight, int(-1))
-        .Def("Storage-tiers:", &MetaChunkEvacuate::storageTiersInfo)
+        .Def2("Chunk-ids",      "I", &MetaChunkEvacuate::chunkIds)
+        .Def2("Total-space",    "T", &MetaChunkEvacuate::totalSpace,      int64_t(-1))
+        .Def2("Total-fs-space", "F", &MetaChunkEvacuate::totalFsSpace,    int64_t(-1))
+        .Def2("Used-space",     "U", &MetaChunkEvacuate::usedSpace,       int64_t(-1))
+        .Def2("Num-drives",     "D", &MetaChunkEvacuate::numDrives,           int(-1))
+        .Def2("Num-wr-drives",  "W", &MetaChunkEvacuate::numWritableDrives,   int(-1))
+        .Def2("Num-evacuate",   "E", &MetaChunkEvacuate::numEvacuateInFlight, int(-1))
+        .Def2("Storage-tiers:", "S", &MetaChunkEvacuate::storageTiersInfo)
         ;
     }
 };
@@ -2881,7 +2884,7 @@ struct MetaChunkAvailable : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Chunk-ids-vers", &MetaChunkAvailable::chunkIdAndVers)
+        .Def2("Chunk-ids-vers", "I", &MetaChunkAvailable::chunkIdAndVers)
         ;
     }
 };
@@ -2936,9 +2939,9 @@ struct MetaChunkDirInfo : public MetaRequest {
         // Make sure that all "unwanted" fields that aren't counters are added
         // to the parser.
         return MetaRequest::ParserDef(parser)
-        .Def("No-reply", &MetaChunkDirInfo::noReplyFlag)
-        .Def("Dir-name", &MetaChunkDirInfo::dirName)
-        .Def("Version",  &MetaChunkDirInfo::kfsVersion)
+        .Def2("No-reply", "R", &MetaChunkDirInfo::noReplyFlag)
+        .Def2("Dir-name", "D", &MetaChunkDirInfo::dirName)
+        .Def2("Version",  "V", &MetaChunkDirInfo::kfsVersion)
         ;
     }
 };
@@ -3021,14 +3024,14 @@ struct MetaLeaseAcquire: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Pathname",            &MetaLeaseAcquire::pathname                         )
-        .Def("Chunk-handle",        &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
-        .Def("Flush-write-lease",   &MetaLeaseAcquire::flushFlag,    false              )
-        .Def("Lease-timeout",       &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
-        .Def("Chunk-ids",           &MetaLeaseAcquire::chunkIds)
-        .Def("Get-locations",       &MetaLeaseAcquire::getChunkLocationsFlag,      false)
-        .Def("Append-recovery",     &MetaLeaseAcquire::appendRecoveryFlag,         false)
-        .Def("Append-recovery-loc", &MetaLeaseAcquire::appendRecoveryLocations)
+        .Def2("Pathname",            "N", &MetaLeaseAcquire::pathname                         )
+        .Def2("Chunk-handle",        "H", &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def2("Flush-write-lease",   "F", &MetaLeaseAcquire::flushFlag,    false              )
+        .Def2("Lease-timeout",       "T", &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
+        .Def2("Chunk-ids",           "I", &MetaLeaseAcquire::chunkIds)
+        .Def2("Get-locations",       "L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def2("Append-recovery",     "A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::appendRecoveryLocations)
         ;
     }
 };
@@ -3092,10 +3095,10 @@ struct MetaLeaseRenew: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Lease-type",   &MetaLeaseRenew::leaseTypeStr          )
-        .Def("Lease-id",     &MetaLeaseRenew::leaseId,   int64_t(-1))
-        .Def("Chunk-handle", &MetaLeaseRenew::chunkId, chunkId_t(-1))
-        .Def("CS-access",    &MetaLeaseRenew::emitCSAccessFlag)
+        .Def2("Lease-type",   "T", &MetaLeaseRenew::leaseTypeStr          )
+        .Def2("Lease-id",     "L", &MetaLeaseRenew::leaseId,   int64_t(-1))
+        .Def2("Chunk-handle", "H", &MetaLeaseRenew::chunkId, chunkId_t(-1))
+        .Def2("CS-access",    "A", &MetaLeaseRenew::emitCSAccessFlag)
         ;
     }
 private:
@@ -3171,18 +3174,18 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Host",                 &ServerLocation::hostname)
-        .Def("Port",                 &ServerLocation::port,                              int(-1))
-        .Def("Chunk",                &MetaForceChunkReplication::chunkId,            int64_t(-1))
-        .Def("Recovery",             &MetaForceChunkReplication::recoveryFlag,             false)
-        .Def("Remove",               &MetaForceChunkReplication::removeFlag,               false)
-        .Def("ForcePastEofRecovery", &MetaForceChunkReplication::forcePastEofRecoveryFlag, false)
+        .Def2("Host",                 "H", &ServerLocation::hostname)
+        .Def2("Port",                 "P", &ServerLocation::port,                              int(-1))
+        .Def2("Chunk",                "C", &MetaForceChunkReplication::chunkId,            int64_t(-1))
+        .Def2("Recovery",             "R", &MetaForceChunkReplication::recoveryFlag,             false)
+        .Def2("Remove",               "X", &MetaForceChunkReplication::removeFlag,               false)
+        .Def2("ForcePastEofRecovery", "E", &MetaForceChunkReplication::forcePastEofRecoveryFlag, false)
         ;
     }
 };
 
 int ParseCommand(const IOBuffer& buf, int len, MetaRequest **res,
-    char* threadParseBuffer = 0);
+    char* threadParseBuffer, bool shortRpcFmtFlag);
 
 void printleaves();
 

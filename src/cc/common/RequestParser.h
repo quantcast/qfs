@@ -512,7 +512,10 @@ private:
 
 // Create parser for object fields, and invoke appropriate parsers based on the
 // request header names.
-template <typename OBJ, typename VALUE_PARSER=ValueParser>
+template <
+    typename OBJ,
+    typename VALUE_PARSER=ValueParser,
+    bool     SHORT_NAMES=false>
 class ObjectParser
 {
 public:
@@ -549,6 +552,16 @@ public:
             abort();
         }
         return *this;
+    }
+    template<typename T, typename OT>
+    ObjectParser& Def2(
+        const char* inLongNamePtr,
+        const char* inShortNamePtr,
+        T OT::*     inFieldPtr,
+        T           inDefault = T())
+    {
+        return Def(SHORT_NAMES ? inShortNamePtr : inLongNamePtr,
+            inFieldPtr, inDefault);
     }
     ObjectParser& DefDone()
     {
@@ -654,16 +667,20 @@ public:
 };
 
 // Create concrete object and invoke corresponding parser.
-template <typename ABSTRACT_OBJ, typename OBJ, typename VALUE_PARSER=ValueParser>
+template <
+    typename ABSTRACT_OBJ,
+    typename OBJ,
+    typename VALUE_PARSER=ValueParser,
+    bool     SHORT_NAMES=false>
 class RequestParser :
     public AbstractRequestParser<ABSTRACT_OBJ>,
-    public ObjectParser<OBJ, VALUE_PARSER>
+    public ObjectParser<OBJ, VALUE_PARSER, SHORT_NAMES>
 {
 public:
-    typedef PropertiesTokenizer                 Tokenizer;
-    typedef AbstractRequestParser<ABSTRACT_OBJ> Super;
-    typedef ObjectParser<OBJ, VALUE_PARSER>     ObjParser;
-    typedef typename Super::Checksum            Checksum;
+    typedef PropertiesTokenizer                          Tokenizer;
+    typedef AbstractRequestParser<ABSTRACT_OBJ>          Super;
+    typedef ObjectParser<OBJ, VALUE_PARSER, SHORT_NAMES> ObjParser;
+    typedef typename Super::Checksum                     Checksum;
 
     RequestParser()
         : Super(),
@@ -707,6 +724,16 @@ public:
         ObjParser::Def(inNamePtr, inFieldPtr, inDefault);
         return *this;
     }
+    template<typename T, typename OT>
+    RequestParser& Def2(
+        const char* inLongNamePtr,
+        const char* inShortNamePtr,
+        T OT::*     inFieldPtr,
+        T           inDefault = T())
+    {
+        ObjParser::Def2(inLongNamePtr, inShortNamePtr, inFieldPtr, inDefault);
+        return *this;
+    }
     RequestParser& DefDone()
     {
         ObjParser::DefDone();
@@ -715,7 +742,10 @@ public:
 };
 
 // Invoke appropriate request parser based on RPC name.
-template <typename ABSTRACT_OBJ, typename VALUE_PARSER=ValueParser>
+template <
+    typename ABSTRACT_OBJ,
+    typename VALUE_PARSER=ValueParser,
+    bool     SHORT_NAMES=false>
 class RequestHandler
 {
 public:
@@ -770,10 +800,12 @@ public:
         );
     }
     template <typename OBJ>
-    RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER>& BeginMakeParser(
+    RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER, SHORT_NAMES>&
+    BeginMakeParser(
         const OBJ* inNullPtr = 0)
     {
-        static RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER> sParser;
+        static RequestParser<
+            ABSTRACT_OBJ, OBJ, VALUE_PARSER, SHORT_NAMES> sParser;
         return sParser;
     }
     template <typename T>

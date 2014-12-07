@@ -515,7 +515,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 {
     assert(! IsOverPendingOpsLimit() && mNetConnection);
     MetaRequest* op = 0;
-    if (ParseCommand(iobuf, cmdLen, &op, mParseBuffer) != 0) {
+    if (ParseCommand(iobuf, cmdLen, &op, mParseBuffer, false) != 0) {
         IOBuffer::IStream is(iobuf, cmdLen);
         char buf[128];
         int  maxLines = 16;
