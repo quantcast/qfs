@@ -1,0 +1,9 @@
+[Unit]
+Description=QFS metaserver
+After=network.target rpcbind.service
+
+[Service]
+ExecStart=/usr/bin/metaserver /etc/qfs/MetaServer.prp
+
+[Install]
+WantedBy=multi-user.target

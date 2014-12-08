@@ -1,0 +1,12 @@
+.TH "qfs_fuse" "1" "" "" "QFS"
+.SH "NAME"
+qfs_fuse \- 
+.SH "SYNOPSIS"
+.B qfs_fuse
+.RI [ options ] " files" ...
+.SH "DESCRIPTION"
+.SH "OPTIONS"
+.TP
+.B \-?, \-\-help
+Show summary of options.
+.SH "SEE ALSO"

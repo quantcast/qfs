@@ -1,0 +1,624 @@
+Last-Update: 2014-12-04
+Forwarded: not-needed
+Author: Dmitry Smirnov <onlyjob@member.fsf.org>
+Description: don't build static libs; install libs to private directory.
+
+--- a/src/cc/access/CMakeLists.txt
++++ b/src/cc/access/CMakeLists.txt
+@@ -26,8 +26,9 @@
+ # Take all the .cc files and build a library out of them
+ add_library (qfs_access SHARED qfs_access_jni.cc)
+ add_dependencies (qfs_access kfsClient-shared)
+ target_link_libraries (qfs_access kfsClient-shared)
++set_target_properties(qfs_access PROPERTIES INSTALL_RPATH "$ORIGIN")
+ 
+ IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+    # On Solaris, cmake uses gcc to link rather than g++.  This
+    #  prevents linking with libstdc++ which prevents Java from loading
+@@ -36,6 +37,6 @@
+ ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+ 
+ #
+ install (TARGETS qfs_access
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib-static)
++    LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/chunk/CMakeLists.txt
++++ b/src/cc/chunk/CMakeLists.txt
+@@ -55,8 +55,9 @@
+         add_dependencies (${exe_file}
+             kfsClient
+         )
+     else (USE_STATIC_LIB_LINKAGE)
++        set_target_properties(${exe_file} PROPERTIES INSTALL_RPATH "/usr/lib/qfs")
+         target_link_libraries (${exe_file}
+             kfsClient-shared
+         )
+         add_dependencies (${exe_file}
+@@ -73,6 +74,6 @@
+ # Install them
+ #
+ install (TARGETS ${exe_files}
+     RUNTIME DESTINATION bin
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++    LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/common/CMakeLists.txt
++++ b/src/cc/common/CMakeLists.txt
+@@ -59,27 +59,28 @@
+     VERBATIM
+ )
+ 
+ add_library (kfsCommon-shared SHARED ${lib_src} ${VERSION_CC})
+-add_library (kfsCommon STATIC ${lib_src} ${VERSION_CC})
+-add_dependencies (kfsCommon
+-    version
+-    qcdio
+-)
++#add_library (kfsCommon STATIC ${lib_src} ${VERSION_CC})
++#add_dependencies (kfsCommon
++#    version
++#    qcdio
++#)
+ add_dependencies (kfsCommon-shared
+     version
+     qcdio-shared
+ )
+-set_target_properties (kfsCommon PROPERTIES OUTPUT_NAME "qfs_common")
++#set_target_properties (kfsCommon PROPERTIES OUTPUT_NAME "qfs_common")
+ set_target_properties (kfsCommon-shared PROPERTIES OUTPUT_NAME "qfs_common")
+-set_target_properties (kfsCommon PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (kfsCommon PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (kfsCommon-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++set_target_properties(kfsCommon-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
+ 
+-target_link_libraries (kfsCommon qcdio)
++#target_link_libraries (kfsCommon qcdio)
+ target_link_libraries (kfsCommon-shared qcdio-shared)
+ 
+ #
+-install (TARGETS kfsCommon-shared kfsCommon
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++install (TARGETS kfsCommon-shared
++    LIBRARY DESTINATION lib/qfs
++)
+ 
+ install (FILES kfstypes.h kfsdecls.h DESTINATION include/kfs/common)
+--- a/src/cc/emulator/CMakeLists.txt
++++ b/src/cc/emulator/CMakeLists.txt
+@@ -31,33 +31,35 @@
+     LayoutEmulator.cc
+     emulator_setup.cc
+ )
+ 
+-add_library (kfsEmulator STATIC ${lib_srcs})
+-set_target_properties (kfsEmulator PROPERTIES OUTPUT_NAME "qfs_emulator")
+-set_target_properties (kfsEmulator PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+-add_dependencies (kfsEmulator
+-    kfsMeta
+-)
+-target_link_libraries(kfsEmulator
+-    kfsMeta
+-)
++#add_library (kfsEmulator STATIC ${lib_srcs})
++#set_target_properties (kfsEmulator PROPERTIES OUTPUT_NAME "qfs_emulator")
++#set_target_properties (kfsEmulator PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#add_dependencies (kfsEmulator
++#    kfsMeta
++#)
++#target_link_libraries(kfsEmulator
++#    kfsMeta
++#)
+ 
+ if (NOT USE_STATIC_LIB_LINKAGE)
+     add_library (kfsEmulator-shared SHARED ${lib_srcs})
+     set_target_properties (kfsEmulator-shared
+         PROPERTIES OUTPUT_NAME "qfs_emulator")
+     set_target_properties (kfsEmulator-shared
+         PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++    set_target_properties(kfsEmulator-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
++
+     add_dependencies (kfsEmulator-shared
+         kfsMeta-shared
+     )
+     target_link_libraries(kfsEmulator-shared
+         kfsMeta-shared
+     )
+     install (TARGETS kfsEmulator-shared
+         RUNTIME DESTINATION bin/emulator
+-        LIBRARY DESTINATION lib)
++        LIBRARY DESTINATION lib/qfs)
+ endif (NOT USE_STATIC_LIB_LINKAGE)
+ 
+ set (exe_files rebalanceplanner rebalanceexecutor replicachecker)
+ foreach (exe_file ${exe_files})
+@@ -85,9 +87,9 @@
+ 
+ #
+ # Install them
+ #
+-install (TARGETS ${exe_files} kfsEmulator
++install (TARGETS ${exe_files} kfsEmulator-shared
+     RUNTIME DESTINATION bin/emulator
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++    LIBRARY DESTINATION lib/qfs
++)
+ 
+--- a/src/cc/fuse/CMakeLists.txt
++++ b/src/cc/fuse/CMakeLists.txt
+@@ -27,11 +27,12 @@
+ # Build the fuse binary; build it only on demand
+ #
+ 
+ add_executable (qfs_fuse kfs_fuse_main.cc)
+-target_link_libraries (qfs_fuse kfsClient ${FUSE_LIBRARIES})
++target_link_libraries (qfs_fuse kfsClient-shared ${FUSE_LIBRARIES})
++set_target_properties(qfs_fuse PROPERTIES INSTALL_RPATH "/usr/lib/qfs")
+ 
+ #
+ install (TARGETS qfs_fuse
+     RUNTIME DESTINATION bin
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib-static)
++    LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/kfsio/CMakeLists.txt
++++ b/src/cc/kfsio/CMakeLists.txt
+@@ -43,33 +43,35 @@
+     ChunkAccessToken.cc
+     PrngIsaac64.cc
+ )
+ 
+-add_library (kfsIO STATIC ${sources})
++#add_library (kfsIO STATIC ${sources})
+ add_library (kfsIO-shared SHARED ${sources})
+-set_target_properties (kfsIO PROPERTIES OUTPUT_NAME "qfs_io")
++#set_target_properties (kfsIO PROPERTIES OUTPUT_NAME "qfs_io")
+ set_target_properties (kfsIO-shared PROPERTIES OUTPUT_NAME "qfs_io")
+ 
+-set_target_properties (kfsIO PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (kfsIO PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (kfsIO-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ 
+-add_dependencies (kfsIO
+-    qcdio
+-    kfsCommon
+-    qfskrb
+-)
++set_target_properties(kfsIO-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
++
++#add_dependencies (kfsIO
++#    qcdio
++#    kfsCommon
++#    qfskrb
++#)
+ add_dependencies (kfsIO-shared
+     qcdio-shared
+     kfsCommon-shared
+     qfskrb-shared
+ )
+-target_link_libraries (kfsIO
+-    qcdio
+-    kfsCommon
+-    qfskrb
+-    z
+-    ${OPENSSL_LIBRARIES}
+-)
++#target_link_libraries (kfsIO
++#    qcdio
++#    kfsCommon
++#    qfskrb
++#    z
++#    ${OPENSSL_LIBRARIES}
++#)
+ target_link_libraries (kfsIO-shared
+     qcdio-shared
+     kfsCommon-shared
+     qfskrb-shared
+@@ -81,7 +83,7 @@
+     target_link_libraries (kfsIO nsl socket resolv)
+     target_link_libraries (kfsIO-shared nsl socket resolv)
+ endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+ 
+-install (TARGETS kfsIO kfsIO-shared
+-        LIBRARY DESTINATION lib
+-        ARCHIVE DESTINATION lib/static)
++install (TARGETS kfsIO-shared
++        LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/krb/CMakeLists.txt
++++ b/src/cc/krb/CMakeLists.txt
+@@ -30,21 +30,22 @@
+ #
+ # Build a static and a dynamically linked libraries.  Both libraries
+ # should have the same root name, but installed in different places
+ #
+-add_library (qfskrb STATIC ${sources})
++#add_library (qfskrb STATIC ${sources})
+ add_library (qfskrb-shared SHARED ${sources})
+ set_target_properties (qfskrb-shared PROPERTIES OUTPUT_NAME "qfskrb")
+-set_target_properties (qfskrb PROPERTIES OUTPUT_NAME "qfskrb")
++#set_target_properties (qfskrb PROPERTIES OUTPUT_NAME "qfskrb")
+ 
+ #
+ # Since the objects have to be built twice, set this up so they don't
+ # clobber each other.
+ 
+-set_target_properties (qfskrb PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (qfskrb PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (qfskrb-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++set_target_properties(qfskrb-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
+ 
+-target_link_libraries (qfskrb        ${KRB5_LIBRARIES})
++#target_link_libraries (qfskrb        ${KRB5_LIBRARIES})
+ target_link_libraries (qfskrb-shared ${KRB5_LIBRARIES})
+ 
+ add_executable (qfskrbtest krbtest_main.cc)
+ 
+@@ -71,8 +72,8 @@
+         )
+     endif (USE_STATIC_LIB_LINKAGE)
+ endforeach (exe_file)
+ 
+-install (TARGETS qfskrb qfskrb-shared
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++install (TARGETS qfskrb-shared
++    LIBRARY DESTINATION lib/qfs
++)
+ 
+--- a/src/cc/libclient/CMakeLists.txt
++++ b/src/cc/libclient/CMakeLists.txt
+@@ -48,24 +48,25 @@
+ #
+ # Build a static and a dynamically linked libraries.  Both libraries
+ # should have the same root name, but installed in different places
+ #
+-add_library (kfsClient STATIC ${sources})
++#add_library (kfsClient STATIC ${sources})
+ add_library (kfsClient-shared SHARED ${sources})
+-set_target_properties (kfsClient PROPERTIES OUTPUT_NAME "qfs_client")
++#set_target_properties (kfsClient PROPERTIES OUTPUT_NAME "qfs_client")
+ set_target_properties (kfsClient-shared PROPERTIES OUTPUT_NAME "qfs_client")
+ 
+ #
+ # Since the objects have to be built twice, set this up so they don't
+ # clobber each other.
+ 
+-set_target_properties (kfsClient PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (kfsClient PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (kfsClient-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++set_target_properties(kfsClient-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
+ 
+-add_dependencies (kfsClient
+-    kfsIO
+-    kfsrs
+-)
++#add_dependencies (kfsClient
++#    kfsIO
++#    kfsrs
++#)
+ add_dependencies (kfsClient-shared
+     kfsIO-shared
+     kfsrs-shared
+ )
+@@ -75,20 +76,20 @@
+         /usr/include/jerasure
+     )
+ 
+ # get everthing into one
+-target_link_libraries (kfsClient
+-    kfsIO
+-    kfsrs
+-    Jerasure
+-)
++#target_link_libraries (kfsClient
++#    kfsIO
++#    kfsrs
++#    Jerasure
++#)
+ target_link_libraries (kfsClient-shared
+     kfsIO-shared
+     kfsrs-shared
+     Jerasure
+ )
+ 
+-install (TARGETS kfsClient kfsClient-shared
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++install (TARGETS kfsClient-shared
++    LIBRARY DESTINATION lib/qfs
++)
+ 
+ install (FILES KfsAttr.h KfsClient.h DESTINATION include/kfs)
+--- a/src/cc/meta/CMakeLists.txt
++++ b/src/cc/meta/CMakeLists.txt
+@@ -46,25 +46,27 @@
+     UserAndGroup.cc
+     MetaRequestHandler.cc
+ )
+ 
+-add_library (kfsMeta STATIC ${lib_srcs})
+-set_target_properties (kfsMeta PROPERTIES OUTPUT_NAME "qfs_meta")
+-set_target_properties (kfsMeta PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+-target_link_libraries(kfsMeta
+-    kfsIO
+-)
++#add_library (kfsMeta STATIC ${lib_srcs})
++#set_target_properties (kfsMeta PROPERTIES OUTPUT_NAME "qfs_meta")
++#set_target_properties (kfsMeta PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#target_link_libraries(kfsMeta
++#    kfsIO
++#)
+ 
+ if (NOT USE_STATIC_LIB_LINKAGE)
+     add_library (kfsMeta-shared SHARED ${lib_srcs} layoutmanager_instance.cc)
+     set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "qfs_meta")
+     set_target_properties (kfsMeta-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++    set_target_properties(kfsMeta-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
++
+     target_link_libraries(kfsMeta-shared
+         kfsIO-shared
+     )
+     install (TARGETS kfsMeta-shared
+         RUNTIME DESTINATION bin
+-        LIBRARY DESTINATION lib)
++        LIBRARY DESTINATION lib/qfs)
+ endif (NOT USE_STATIC_LIB_LINKAGE)
+ 
+ set (exe_files metaserver logcompactor filelister qfsfsck)
+ foreach (exe_file ${exe_files})
+@@ -84,8 +86,9 @@
+     else (USE_STATIC_LIB_LINKAGE)
+         add_executable (${exe_file}
+             ${exe_file}_main.cc
+         )
++        set_target_properties(${exe_file} PROPERTIES INSTALL_RPATH "/usr/lib/qfs")
+         target_link_libraries (${exe_file}
+             kfsMeta-shared
+             tools-shared
+         )
+@@ -105,9 +108,9 @@
+ 
+ #
+ # Install them
+ #
+-install (TARGETS ${exe_files} kfsMeta
++install (TARGETS ${exe_files} kfsMeta-shared
+     RUNTIME DESTINATION bin
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++    LIBRARY DESTINATION lib/qfs
++)
+ 
+--- a/src/cc/qcdio/CMakeLists.txt
++++ b/src/cc/qcdio/CMakeLists.txt
+@@ -37,34 +37,36 @@
+ #
+ # Build a static and a dynamically linked libraries.  Both libraries
+ # should have the same root name, but installed in different places
+ #
+-add_library (qcdio STATIC ${sources})
++#add_library (qcdio STATIC ${sources})
+ add_library (qcdio-shared SHARED ${sources})
+ set_target_properties (qcdio-shared PROPERTIES OUTPUT_NAME "qfs_qcdio")
+-set_target_properties (qcdio PROPERTIES OUTPUT_NAME "qfs_qcdio")
++#set_target_properties (qcdio PROPERTIES OUTPUT_NAME "qfs_qcdio")
+ 
+ #
+ # Since the objects have to be built twice, set this up so they don't
+ # clobber each other.
+ 
+-set_target_properties (qcdio PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (qcdio PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (qcdio-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+-target_link_libraries (qcdio
+-    pthread
+-    ${Boost_LIBRARIES}
+-)
++set_target_properties(qcdio-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
++
++#target_link_libraries (qcdio
++#    pthread
++#    ${Boost_LIBRARIES}
++#)
+ target_link_libraries (qcdio-shared
+     pthread
+ )
+ if (NOT Boost_USE_STATIC_LIBS OR NOT QFS_DONT_LINK_STATIC_BOOST_LIB)
+     target_link_libraries (qcdio-shared ${Boost_LIBRARIES})
+ endif (NOT Boost_USE_STATIC_LIBS OR NOT QFS_DONT_LINK_STATIC_BOOST_LIB)
+ 
+ if (NOT APPLE)
+-   target_link_libraries (qcdio rt)
++#   target_link_libraries (qcdio rt)
+    target_link_libraries (qcdio-shared rt)
+ endif(NOT APPLE)
+ 
+-install (TARGETS qcdio qcdio-shared
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++install (TARGETS qcdio-shared
++    LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/qcrs/CMakeLists.txt
++++ b/src/cc/qcrs/CMakeLists.txt
+@@ -31,17 +31,19 @@
+ )
+ 
+ add_library (kfsrs STATIC ${sources})
+ add_library (kfsrs-shared SHARED ${sources})
+-set_target_properties (kfsrs PROPERTIES OUTPUT_NAME "qfs_qcrs")
++#set_target_properties (kfsrs PROPERTIES OUTPUT_NAME "qfs_qcrs")
+ set_target_properties (kfsrs-shared PROPERTIES OUTPUT_NAME "qfs_qcrs")
+ 
+ #
+ # Since the objects have to be built twice, set this up so they don't
+ # clobber each other.
+ 
+-set_target_properties (kfsrs PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (kfsrs PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (kfsrs-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++set_target_properties(kfsrs-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
++
+ 
+ # If vector mode is not defined, attempt to detect it
+ if (NOT DEFINED vectormode)
+     message(STATUS "System name: ${CMAKE_SYSTEM_NAME}")
+@@ -152,7 +154,7 @@
+ target_link_libraries (${rstestbin} kfsrs)
+ add_dependencies (${rstestbin} kfsrs)
+ add_dependencies (${rsmktablebin} kfsrs)
+ 
+-install (TARGETS kfsrs kfsrs-shared
+-        LIBRARY DESTINATION lib
+-        ARCHIVE DESTINATION lib/static)
++install (TARGETS kfsrs-shared
++        LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/qfsc/CMakeLists.txt
++++ b/src/cc/qfsc/CMakeLists.txt
+@@ -21,24 +21,25 @@
+ # permissions and limitations under the License.
+ #
+ #
+ 
+-add_library (qfsc STATIC qfsc.cc)
++#add_library (qfsc STATIC qfsc.cc)
+ add_library (qfsc-shared SHARED qfsc.cc)
+-set_target_properties (qfsc PROPERTIES OUTPUT_NAME "qfsc")
++#set_target_properties (qfsc PROPERTIES OUTPUT_NAME "qfsc")
+ set_target_properties (qfsc-shared PROPERTIES OUTPUT_NAME "qfsc")
+-set_target_properties (qfsc PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#set_target_properties (qfsc PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+ set_target_properties (qfsc-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++set_target_properties(qfsc-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
+ 
+-add_dependencies (qfsc
+-    kfsClient
+-)
++#add_dependencies (qfsc
++#    kfsClient
++#)
+ add_dependencies (qfsc-shared
+     kfsClient-shared
+ )
+-target_link_libraries (qfsc
+-    kfsClient
+-)
++#target_link_libraries (qfsc
++#    kfsClient
++#)
+ target_link_libraries (qfsc-shared
+     kfsClient-shared
+ )
+ 
+@@ -52,9 +53,9 @@
+     add_dependencies (test-qfsc qfsc-shared)
+     target_link_libraries (test-qfsc qfsc-shared)
+ endif (USE_STATIC_LIB_LINKAGE)
+ 
+-install (TARGETS qfsc qfsc-shared
+-    LIBRARY DESTINATION lib
+-    ARCHIVE DESTINATION lib/static)
++install (TARGETS qfsc-shared
++    LIBRARY DESTINATION lib/qfs
++)
+ install (FILES qfs.h DESTINATION include/kfs/c)
+ 
+--- a/src/cc/tools/CMakeLists.txt
++++ b/src/cc/tools/CMakeLists.txt
+@@ -45,34 +45,35 @@
+     FileSystem.cc
+     Trash.cc
+ )
+ 
+-add_library (tools STATIC ${lib_srcs})
+-set_target_properties (tools PROPERTIES OUTPUT_NAME "qfs_tools")
+-set_target_properties (tools PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+-add_dependencies (tools
+-    kfsClient
+-)
+-target_link_libraries (tools
+-    kfsClient
+-)
++#add_library (tools STATIC ${lib_srcs})
++#set_target_properties (tools PROPERTIES OUTPUT_NAME "qfs_tools")
++#set_target_properties (tools PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++#add_dependencies (tools
++#    kfsClient
++#)
++#target_link_libraries (tools
++#    kfsClient
++#)
+ 
+ if (NOT USE_STATIC_LIB_LINKAGE)
+     add_library (tools-shared SHARED ${lib_srcs})
+     set_target_properties (tools-shared PROPERTIES OUTPUT_NAME "qfs_tools")
+     set_target_properties (tools-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
++    set_target_properties(tools-shared PROPERTIES INSTALL_RPATH "$ORIGIN")
+     add_dependencies (tools-shared
+         kfsClient-shared
+     )
+     target_link_libraries (tools-shared
+         kfsClient-shared
+     )
+     install (TARGETS tools-shared
+         RUNTIME DESTINATION bin/tools
+-        LIBRARY DESTINATION lib)
++        LIBRARY DESTINATION lib/qfs)
+ endif (NOT USE_STATIC_LIB_LINKAGE)
+ 
+-add_dependencies (tools kfsClient)
++add_dependencies (tools-shared kfsClient-shared)
+ 
+ set (exe_files
+     cptoqfs
+     cpfromqfs
+@@ -97,14 +98,15 @@
+     if (USE_STATIC_LIB_LINKAGE)
+         add_dependencies (${exe_file} tools)
+         target_link_libraries (${exe_file} tools)
+     else (USE_STATIC_LIB_LINKAGE)
++        set_target_properties(${exe_file} PROPERTIES INSTALL_RPATH "/usr/lib/qfs")
+         add_dependencies (${exe_file} tools-shared)
+         target_link_libraries (${exe_file} tools-shared)
+     endif (USE_STATIC_LIB_LINKAGE)
+ endforeach (exe_file)
+ 
+ #
+-install (TARGETS ${exe_files} tools
++install (TARGETS ${exe_files} tools-shared
+         RUNTIME DESTINATION bin/tools
+-        LIBRARY DESTINATION lib
+-        ARCHIVE DESTINATION lib/static)
++        LIBRARY DESTINATION lib/qfs
++)
+--- a/src/cc/access/kfs_setup.py
++++ b/src/cc/access/kfs_setup.py
+@@ -54,8 +54,9 @@
+         'qfs_qcdio',
+         'qfs_qcrs'
+     ],
+     library_dirs = [
++        'debian/tmp/usr/lib/qfs',
+         'src/cc/libclient',
+         'src/cc/common',
+         'src/cc/kfsio',
+         'src/cc/qcdio',
+--- a/webui/browse.py
++++ b/webui/browse.py
+@@ -23,8 +23,9 @@
+ #
+ 
+ import os
+ import sys
++sys.path.append("/usr/lib/qfs")
+ import stat
+ import platform
+ 
+ gBrowsable = True

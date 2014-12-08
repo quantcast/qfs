@@ -1,0 +1,16 @@
+.TH "qfsdataverify" "1" "" "" "QFS"
+.SH "NAME"
+qfsdataverify \- Verify the replication data of a given file in QFS
+.SH "SYNOPSIS"
+.B qfsdataverify
+.RI [ options ] " files" ...
+.SH "DESCRIPTION"
+Verify the replication data of a given file in QFS.
+.SH "OPTIONS"
+The \-c option compares the checksums of all replicas. The \-d option
+verifies that all N copies of each chunk are identical. Note that for files
+with replication 1, this tool performs no verification.
+.TP
+.B \-?, \-\-help
+Show summary of options.
+.SH "SEE ALSO"

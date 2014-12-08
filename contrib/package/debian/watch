@@ -1,0 +1,7 @@
+# uscan(1) configuration file.
+version=3
+
+opts=\
+dversionmangle=s{\+dfsg\d*}{},\
+ https://github.com/quantcast/qfs/releases \
+ .*/archive/(\d[-\d\.]+)\.tar\.gz

@@ -1,0 +1,96 @@
+Source: qfs
+Section: admin
+Priority: optional
+Maintainer: Dmitry Smirnov <onlyjob@debian.org>
+Build-Depends: debhelper (>= 9), python-dev, dh-python, dh-systemd (>= 1.5)
+              ,cmake
+              ,libboost-regex-dev
+              ,libfuse-dev (>= 2.9.0)
+              ,libjerasure-dev
+              ,libgf-complete-dev
+              ,libkrb5-dev
+              ,libssl-dev
+              ,pkg-config
+              ,uuid-dev
+#              ,xfslibs-dev
+# valgrind is only used in post-build tests, enable on available architectures
+ ,valgrind [amd64 armhf i386 powerpc]
+Standards-Version: 3.9.6
+X-Python-Version: >= 2.7 << 3.0
+Homepage: https://github.com/quantcast/qfs
+Vcs-Browser: http://anonscm.debian.org/cgit/collab-maint/qfs.git
+Vcs-Git: git://anonscm.debian.org/collab-maint/qfs.git
+
+Package: qfs-metaserver
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+        ,qfs-common (= ${binary:Version})
+Recommends: logrotate
+           ,qfs-webui
+Description: Quantcast Distributed Filesystem meta server
+ This package contains the executables required to run the Quantcast File System
+ metaserver service, which tracks the location of data chunks distributed across
+ QFS chunkservers.
+ .
+ Quantcast File System (QFS) is a high-performance, fault-tolerant,
+ distributed file system developed to support MapReduce processing, or other
+ applications reading and writing large files sequentially.
+
+Package: qfs-chunkserver
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+        ,qfs-common (= ${binary:Version})
+Recommends: logrotate
+Description: Quantcast Distributed Filesystem - chunk server
+ The QFS chunkserver service hosts the binary contents of the QFS distributed
+ filesystem.  A metaserver coordinates many data nodes running this service,
+ replicating data amongst chunkservers in a redundant fashion.
+ .
+ Quantcast File System (QFS) is a high-performance, fault-tolerant,
+ distributed file system developed to support MapReduce processing, or other
+ applications reading and writing large files sequentially.
+
+Package: qfs-client
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+        ,qfs-common (= ${binary:Version})
+        ,fuse
+Description: Quantcast Distributed Filesystem - client tools and libraries
+ This package contains the qfs_fuse executable which is required when mounting
+ QFS distributed filesystems under FUSE.
+ .
+ Quantcast File System (QFS) is a high-performance, fault-tolerant,
+ distributed file system developed to support MapReduce processing, or other
+ applications reading and writing large files sequentially.
+
+Package: qfs-common
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Quantcast Distributed Filesystem - libs
+ This package contains QFS private libraries.
+ .
+ Quantcast File System (QFS) is a high-performance, fault-tolerant,
+ distributed file system developed to support MapReduce processing, or other
+ applications reading and writing large files sequentially.
+
+Package: qfs-webui
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}
+Recommends: qfs-common (= ${binary:Version})
+           ,logrotate
+Description: Quantcast Distributed Filesystem - metaserver/chunkserver web frontend
+ This package contains several Python scripts which provide a simple Hadoop-like
+ Web UI for viewing Quantcast File Server chunkserver and metaserver status.
+ .
+ Quantcast File System (QFS) is a high-performance, fault-tolerant,
+ distributed file system developed to support MapReduce processing, or other
+ applications reading and writing large files sequentially.
+
+#Package: qfs-dbg
+#Section: debug
+#Priority: extra
+#Architecture: any
+#Depends: ${misc:Depends}
+#Description: qfs filesystem (debugging symbols)
+# Provide debugging information for the various qfs packages.
+

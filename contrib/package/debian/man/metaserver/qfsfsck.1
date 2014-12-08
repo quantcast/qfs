@@ -1,0 +1,43 @@
+.TH "qfsfsck" "1" "" "" "QFS"
+.SH "NAME"
+qfsfsck \- QFS Integrity checker
+.SH "SYNOPSIS"
+.B qfsfsck
+.RI [ options ] ...
+.SH "DESCRIPTION"
+The
+.B qfsfsck
+tool can be employed in three ways:
+ * Verify the integrity of a running file system by identifying lost files and/or files with chunk placement/replication problems.
+ * Validate the active checkpoint and transaction logs of a running file system.
+ * Check the integrity of a file system archive/backup (checkpoint plus a set of transaction logs).
+.SH "OPTIONS"
+Usage: ./qfsfsck
+[{-s|-m} <metahost>]
+.TP
+[\-p <metaport>]
+.TP
+[\-L <lockfile>]
+.TP
+[\-l <logdir>]
+.TP
+[\-c <cpdir>]
+.TP
+[\-a {0|1} report abandoned files (default 1)]
+.TP
+[\-t <timeout seconds> default 25 min]
+.TP
+[\-e {0|1} allow empty checkpoint]
+.TP
+[\-f <config file>]
+.TP
+.B \-h
+Show summary of options.
+.SH "Examples"
+Running File System:
+    qfsfsck \-m metaServer.hostname \-p metaServer.port
+.TP
+Active Checkpoint and Transaction Logs:
+    qfsfsck \-L metaServer.checkpoint.lockFileName \-l metaServer.logDir \-c metaServer.cpDir
+.SH "SEE ALSO"
+.B qfsfsck
