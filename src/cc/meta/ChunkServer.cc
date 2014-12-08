@@ -1212,7 +1212,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     0 < mHelloOp->numNotStableChunks) &&
                 gLayoutManager.IsFileSystemIdRequired()) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " hello: invalid file sytem id" <<
+                " hello: invalid file system id" <<
             KFS_LOG_EOM;
             mHelloOp = 0;
             delete op;

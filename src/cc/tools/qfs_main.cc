@@ -4638,7 +4638,7 @@ const char* const KfsTool::sHelpStrings[] =
 
     "get", "[-ignoreCrc] [-crc] <src> <localdst>",
     "Copy files that match the file pattern <src>\n\t\t"
-    "to the local name.  <src> is kept.  When copying mutiple,\n\t\t"
+    "to the local name.  <src> is kept.  When copying multiple,\n\t\t"
     "files, the destination must be a directory.\n\t\t"
     "-crc and -ignoreCrc options are ignored.\n",
 /*
@@ -4710,7 +4710,7 @@ const char* const KfsTool::sHelpStrings[] =
     "MODE\tMode is same as mode used for chmod shell command.\n\t\t"
     "Only letters recognized are 'rwxX'. E.g. a+r,g-w,+rwx,o=r\n"
     "\n\t"
-    "OCTALMODE\tMode specifed in 3 digits. Unlike shell command,\n\t\t"
+    "OCTALMODE\tMode specified in 3 digits. Unlike shell command,\n\t\t"
     "this requires all three digits.\n\t\t"
     "E.g. 754 is same as u=rwx,g=rx,o=r\n"
     "\n\t\t"
