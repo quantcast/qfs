@@ -627,6 +627,8 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     if (op->dispatch(*this)) {
         return;
     }
+    mFirstOpFlag = false;
+    op->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (mAuthUid == kKfsUserNone && mAuthContext.IsAuthRequired(*op)) {
         op->status    = -EPERM;
         op->statusMsg = "authentication required";
