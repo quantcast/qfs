@@ -436,6 +436,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mHelloDoneCount(0),
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
+      mShortRpcFormatFlag(false),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -1011,7 +1012,7 @@ MetaRequest*
 ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
 {
     MetaRequest* op = 0;
-    if (ParseCommand(iobuf, msgLen, &op, 0, false) >= 0) {
+    if (0 <= ParseCommand(iobuf, msgLen, &op, 0, mShortRpcFormatFlag)) {
         op->setChunkServer(shared_from_this());
         return op;
     }
@@ -1149,6 +1150,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return -1;
         }
         if (! mAuthenticateOp && op->op == META_AUTHENTICATE) {
+            mShortRpcFormatFlag = op->shortRpcFormatFlag;
             mReAuthSentFlag = false;
             mAuthenticateOp = static_cast<MetaAuthenticate*>(op);
         }
@@ -1526,6 +1528,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mHelloDoneCount         = mHelloOp->helloDoneCount;
     mHelloResumeCount       = mHelloOp->helloResumeCount;
     mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
+    mShortRpcFormatFlag     = mHelloOp->shortRpcFormatFlag;
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
     if (op.resumeStep < 0) {
@@ -1579,9 +1582,10 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     if (mAuthenticateOp) {
         return Authenticate(*iobuf);
     }
-    op->fromClientSMFlag = false;
-    op->clnt             = this;
-    op->authUid          = mAuthUid;
+    op->fromClientSMFlag   = false;
+    op->clnt               = this;
+    op->authUid            = mAuthUid;
+    op->shortRpcFormatFlag = mShortRpcFormatFlag;
     submit_request(op);
     return 0;
 }
@@ -1633,7 +1637,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     // We got a response for a command we previously
     // sent.  So, match the response to its request and
     // resume request processing.
-    Properties prop;
+    Properties prop(mShortRpcFormatFlag ? 16 : 10);
     const bool ok = ParseResponse(mIStream.Set(iobuf, msgLen), prop);
     mIStream.Reset();
     if (! ok) {
@@ -1793,7 +1797,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
 /// @param[out] prop  Properties object with the response header/values
 ///
 bool
-ChunkServer::ParseResponse(istream& is, Properties &prop)
+ChunkServer::ParseResponse(istream& is, Properties& prop)
 {
     string token;
     is >> token;

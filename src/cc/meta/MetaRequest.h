@@ -198,6 +198,7 @@ struct MetaRequest {
     bool            fromChunkServerFlag;
     bool            validDelegationFlag;
     bool            fromClientSMFlag;
+    bool            shortRpcFormatFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -223,6 +224,7 @@ struct MetaRequest {
           fromChunkServerFlag(false),
           validDelegationFlag(false),
           fromClientSMFlag(false),
+          shortRpcFormatFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -345,6 +347,7 @@ struct MetaLookup: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
+        .Def2("Short-rpc-fmt",      "f", &MetaRequest::shortRpcFormatFlag)
         .Def2("Parent File-handle", "P", &MetaLookup::dir,              fid_t(-1))
         .Def2("Filename",           "N", &MetaLookup::name              )
         .Def2("Auth-type",          "A", &MetaLookup::authType,         int(kAuthenticationTypeUndef))
@@ -1401,7 +1404,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            helloResumeFailedCount;
     int64_t            deletedReportCount;
     bool               noFidsFlag;
-    bool               shortRpcFormatFlag;
     int                resumeStep;
     int                bufferBytes;
     size_t             deletedCount;
@@ -1447,7 +1449,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           helloResumeFailedCount(0),
           deletedReportCount(0),
           noFidsFlag(false),
-          shortRpcFormatFlag(false),
           resumeStep(-1),
           bufferBytes(0),
           deletedCount(0),
@@ -1471,6 +1472,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
+        .Def("Short-rpc-fmt",                &MetaRequest::shortRpcFormatFlag            )
         .Def("Chunk-server-name",            &ServerLocation::hostname                   )
         .Def("Chunk-server-port",            &ServerLocation::port,               int(-1))
         .Def("Cluster-key",                  &MetaHello::clusterKey                      )
@@ -1500,7 +1502,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def("Num-hello-done",               &MetaHello::helloDoneCount                  )
         .Def("Num-resume",                   &MetaHello::helloResumeCount                )
         .Def("Num-resume-fail",              &MetaHello::helloResumeFailedCount          )
-        .Def("Short-rpc-fmt",                &MetaHello::shortRpcFormatFlag              )
         ;
     }
 };
@@ -2658,6 +2659,7 @@ struct MetaAuthenticate : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
+        .Def2("Short-rpc-fmt",   "f", &MetaRequest::shortRpcFormatFlag)
         .Def2("Auth-type",       "A", &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
         .Def2("Content-length",  "L", &MetaAuthenticate::contentLength, int(0))
         ;

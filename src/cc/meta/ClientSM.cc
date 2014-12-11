@@ -145,6 +145,8 @@ ClientSM::ClientSM(
       mClientProtoVers(KFS_CLIENT_PROTO_VERS),
       mDisconnectFlag(false),
       mDelegationValidFlag(false),
+      mShortRpcFormatFlag(false),
+      mFirstOpFlag(true),
       mLastReadLeft(0),
       mAuthenticateOp(0),
       mAuthUid(kKfsUserNone),
@@ -515,7 +517,8 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 {
     assert(! IsOverPendingOpsLimit() && mNetConnection);
     MetaRequest* op = 0;
-    if (ParseCommand(iobuf, cmdLen, &op, mParseBuffer, false) != 0) {
+    if (ParseCommand(
+            iobuf, cmdLen, &op, mParseBuffer, mShortRpcFormatFlag) != 0) {
         IOBuffer::IStream is(iobuf, cmdLen);
         char buf[128];
         int  maxLines = 16;
@@ -647,6 +650,10 @@ bool
 ClientSM::Handle(MetaAuthenticate& op)
 {
     assert(! mAuthenticateOp);
+    if (mFirstOpFlag) {
+        mShortRpcFormatFlag = op.shortRpcFormatFlag;
+        mFirstOpFlag        = false;
+    }
     mAuthenticateOp = &op;
     HandleAuthenticate(mNetConnection->GetInBuffer());
     return true;
@@ -663,6 +670,10 @@ ClientSM::Handle(MetaDelegate& op)
 bool
 ClientSM::Handle(MetaLookup& op)
 {
+    if (mFirstOpFlag) {
+        mShortRpcFormatFlag = op.shortRpcFormatFlag;
+        mFirstOpFlag        = false;
+    }
     if (! op.authInfoOnlyFlag) {
         if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
             return false;

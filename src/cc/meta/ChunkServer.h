@@ -1045,6 +1045,7 @@ protected:
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;
+    bool               mShortRpcFormatFlag;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];

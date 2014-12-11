@@ -115,6 +115,8 @@ private:
     int                                mClientProtoVers;
     bool                               mDisconnectFlag:1;
     bool                               mDelegationValidFlag:1;
+    bool                               mShortRpcFormatFlag:1;
+    bool                               mFirstOpFlag:1;
     int                                mLastReadLeft;
     MetaAuthenticate*                  mAuthenticateOp;
     kfsUid_t                           mAuthUid;
