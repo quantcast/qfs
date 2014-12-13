@@ -70,6 +70,7 @@ using std::min;
 using std::max;
 using std::make_pair;
 using std::numeric_limits;
+using std::hex;
 using KFS::libkfsio::globals;
 
 static bool    gWormMode = false;
@@ -138,33 +139,43 @@ setChunkmapDumpDir(string d)
 inline static bool
 OkHeader(const MetaRequest* op, ostream &os, bool checkStatus = true)
 {
+    if (op->shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "OK\r\n"
-        "Cseq: " << op->opSeqno
+        (op->shortRpcFormatFlag ?
+            "OK\r\n"
+            "c:" :
+            "OK\r\n"
+            "Cseq: ") << op->opSeqno
     ;
     if (op->status == 0 && op->statusMsg.empty()) {
-        os <<
+        os << (op->shortRpcFormatFlag ?
+            "\r\n"
+            "s:0\r\n" :
             "\r\n"
             "Status: 0\r\n"
-        ;
+        );
         return true;
     }
     os <<
+        (op->shortRpcFormatFlag ?
         "\r\n"
-        "Status: " << (op->status >= 0 ? op->status :
+        "s:" :
+        "\r\n"
+        "Status: "
+        ) << (op->status >= 0 ? op->status :
             -SysToKfsErrno(-op->status)) << "\r\n"
     ;
     if (! op->statusMsg.empty()) {
-        const size_t p = op->statusMsg.find('\r');
-        assert(
-            string::npos == p &&
-            op->statusMsg.find('\n') == string::npos
-        );
-        os << "Status-message: " <<
-            (p == string::npos ?
-                op->statusMsg :
-                op->statusMsg.substr(0, p)) <<
-        "\r\n";
+        if (op->statusMsg.find('\r') != string::npos ||
+                op->statusMsg.find('\n') != string::npos) {
+            panic("invalid status message RPC field: " + op->statusMsg);
+        } else {
+            os << (op->shortRpcFormatFlag ? "m:" : "Status-message: ") <<
+                op->statusMsg <<
+            "\r\n";
+        }
     }
     if (checkStatus && op->status < 0) {
         os << "\r\n";
@@ -321,18 +332,19 @@ UserAndGroupNamesReply(
     const UserAndGroupNames* ugn,
     kfsUid_t                 user,
     kfsGid_t                 group,
+    bool                     shortRpcFmtFlag,
     const char* const        prefix = "")
 {
     if (ugn) {
         const string* name = ugn->GetUserName(user);
-        os << prefix << "UName: ";
+        os << prefix << (shortRpcFmtFlag ? "UN:" : "UName: ");
         if (name && ! name->empty()) {
             os << *name;
         } else {
             os << user;
         }
         os << "\r\n"
-            << prefix << "GName: ";
+            << prefix << (shortRpcFmtFlag ? "GN:" : "GName: ");
         name = ugn->GetGroupName(group);
         if (name && ! name->empty()) {
             os << *name;
@@ -345,40 +357,50 @@ UserAndGroupNamesReply(
 }
 
 inline static ostream&
-FattrReply(ostream& os, const MFattr& fa, const UserAndGroupNames* ugn)
+FattrReply(ostream& os, const MFattr& fa, const UserAndGroupNames* ugn,
+    bool shortRpcFmtFlag)
 {
     os <<
-    "File-handle: " << fa.id()         << "\r\n"
-    "Type: "        << ftypes[fa.type] << "\r\n"
-    "File-size: "   << fa.filesize     << "\r\n"
-    "Replication: " << fa.numReplicas  << "\r\n";
+    (shortRpcFmtFlag ? "P:" : "File-handle: ") << fa.id()         << "\r\n" <<
+    (shortRpcFmtFlag ? "T:" : "Type: ")        << ftypes[fa.type] << "\r\n" <<
+    (shortRpcFmtFlag ? "S:" : "File-size: ")   << fa.filesize     << "\r\n" <<
+    (shortRpcFmtFlag ? "R:" : "Replication: ") << fa.numReplicas  << "\r\n";
     if (fa.type == KFS_FILE) {
-        os << "Chunk-count: " << fa.chunkcount() << "\r\n";
+        os << (shortRpcFmtFlag ? "C:" : "Chunk-count: ") <<
+            fa.chunkcount() << "\r\n";
     } else if (fa.type == KFS_DIR) {
         os <<
-        "File-count: " << fa.fileCount() << "\r\n"
-        "Dir-count: "  << fa.dirCount()  << "\r\n";
+        (shortRpcFmtFlag ? "FC:" : "File-count: ") <<
+            fa.fileCount() << "\r\n" <<
+        (shortRpcFmtFlag ? "DC:" : "Dir-count: ")  <<
+            fa.dirCount()  << "\r\n";
     }
-    sendtime(os, "M-Time: ",  fa.mtime,  "\r\n");
-    sendtime(os, "C-Time: ",  fa.ctime,  "\r\n");
-    sendtime(os, "CR-Time: ", fa.crtime, "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "MT:" : "M-Time: "),  fa.mtime,  "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "CT:" : "C-Time: "),  fa.ctime,  "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "CR:" : "CR-Time: "), fa.crtime, "\r\n");
     if (fa.IsStriped()) {
         os <<
-        "Striper-type: "         << int32_t(fa.striperType) << "\r\n"
-        "Num-stripes: "          << fa.numStripes           << "\r\n"
-        "Num-recovery-stripes: " << fa.numRecoveryStripes   << "\r\n"
-        "Stripe-size: "          << fa.stripeSize           << "\r\n";
+        (shortRpcFmtFlag ? "ST:" : "Striper-type: ") <<
+            int32_t(fa.striperType) << "\r\n" <<
+        (shortRpcFmtFlag ? "SN:" : "Num-stripes: ") <<
+            fa.numStripes << "\r\n" <<
+        (shortRpcFmtFlag ? "SR:" : "Num-recovery-stripes: ") <<
+            fa.numRecoveryStripes << "\r\n" <<
+        (shortRpcFmtFlag ? "SS:" : "Stripe-size: ") <<
+            fa.stripeSize << "\r\n";
     }
     os <<
-    "User: "  << fa.user  << "\r\n"
-    "Group: " << fa.group << "\r\n"
-    "Mode: "  << fa.mode  << "\r\n";
+    (shortRpcFmtFlag ? "U:" : "User: ")  << fa.user  << "\r\n" <<
+    (shortRpcFmtFlag ? "G:" : "Group: ") << fa.group << "\r\n" <<
+    (shortRpcFmtFlag ? "M:" : "Mode: ")  << fa.mode  << "\r\n";
     if (fa.minSTier < kKfsSTierMax) {
         os <<
-        "Min-tier: " << (int)fa.minSTier << "\r\n"
-        "Max-tier: " << (int)fa.maxSTier << "\r\n";
+        (shortRpcFmtFlag ? "TL:" : "Min-tier: ") <<
+            (int)fa.minSTier << "\r\n" <<
+        (shortRpcFmtFlag ? "TH:" : "Max-tier: ") <<
+            (int)fa.maxSTier << "\r\n";
     }
-    return UserAndGroupNamesReply(os, ugn, fa.user, fa.group);
+    return UserAndGroupNamesReply(os, ugn, fa.user, fa.group, shortRpcFmtFlag);
 }
 
 template<typename CondT>
@@ -3986,23 +4008,27 @@ MetaLookup::response(ostream& os)
         return;
     }
     if (authType != kAuthenticationTypeUndef) {
-        os << "Auth-type: " << authType << "\r\n\r\n";
+        os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
+            authType << "\r\n\r\n";
         return;
     }
     os <<
-        "EUserId: "  << euser  << "\r\n"
-        "EGroupId: " << egroup << "\r\n"
+        (shortRpcFormatFlag ? "EU:" : "EUserId: ")  << euser  << "\r\n" <<
+        (shortRpcFormatFlag ? "EG:" : "EGroupId: ") << egroup << "\r\n"
     ;
     if (authInfoOnlyFlag) {
         os <<
-            "User: "  << authUid  << "\r\n"
-            "Group: " << authGid << "\r\n"
+            (shortRpcFormatFlag ? "U:" : "User: ")  << authUid  << "\r\n" <<
+            (shortRpcFormatFlag ? "G:" : "Group: ") << authGid << "\r\n"
         ;
         const UserAndGroupNames* const ugn = GetUserAndGroupNames(*this);
-        UserAndGroupNamesReply(os, ugn, euser,   egroup, "E");
-        UserAndGroupNamesReply(os, ugn, authUid, authGid) << "\r\n";
+        UserAndGroupNamesReply(os, ugn, euser,   egroup, shortRpcFormatFlag,
+            "E");
+        UserAndGroupNamesReply(os, ugn, authUid, authGid, shortRpcFormatFlag) <<
+            "\r\n";
     } else {
-        FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
+        FattrReply(os, fattr, GetUserAndGroupNames(*this),
+            shortRpcFormatFlag) << "\r\n";
     }
 }
 
@@ -4013,10 +4039,11 @@ MetaLookupPath::response(ostream &os)
         return;
     }
     os <<
-        "EUserId: "  << euser  << "\r\n"
-        "EGroupId: " << egroup << "\r\n"
+        (shortRpcFormatFlag ? "Eu:" : "EUserId: ") << euser  << "\r\n" <<
+        (shortRpcFormatFlag ? "Eg:" : "EGroupId: ") << egroup << "\r\n"
     ;
-    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
+    FattrReply(os, fattr, GetUserAndGroupNames(*this),
+        shortRpcFormatFlag) << "\r\n";
 }
 
 void
@@ -4025,22 +4052,24 @@ MetaCreate::response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "File-handle: "  << fid << "\r\n";
+    os << (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n";
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
-        os << "Striper-type: " << striperType << "\r\n";
+        os << (shortRpcFormatFlag ? "ST:" : "Striper-type: ") <<
+            striperType << "\r\n";
     }
     os <<
-    "User: "  << user  <<  "\r\n"
-    "Group: " << group <<  "\r\n"
-    "Mode: "  << mode  <<  "\r\n"
+    (shortRpcFormatFlag ? "u:" : "User: ")  << user  <<  "\r\n" <<
+    (shortRpcFormatFlag ? "g:" : "Group: ") << group <<  "\r\n" <<
+    (shortRpcFormatFlag ? "M:" : "Mode: ")  << mode  <<  "\r\n"
     ;
     if (minSTier < kKfsSTierMax) {
         os <<
-        "Min-tier: " << (int)minSTier << "\r\n"
-        "Max-tier: " << (int)maxSTier << "\r\n";
+        (shortRpcFormatFlag ? "TL:" : "Min-tier: ") << (int)minSTier <<
+            "\r\n" <<
+        (shortRpcFormatFlag ? "TH:" : "Max-tier: ") << (int)maxSTier << "\r\n";
     }
-    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
-    "\r\n";
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group,
+        shortRpcFormatFlag) << "\r\n";
 }
 
 void
@@ -4056,18 +4085,19 @@ MetaMkdir::response(ostream &os)
         return;
     }
     os <<
-    "File-handle: " << fid   << "\r\n"
-    "User: "        << user  << "\r\n"
-    "Group: "       << group << "\r\n"
-    "Mode: "        << mode  << "\r\n"
+    (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid   << "\r\n" <<
+    (shortRpcFormatFlag ? "u:" : "User: ")        << user  << "\r\n" <<
+    (shortRpcFormatFlag ? "g:" : "Group: ")       << group << "\r\n" <<
+    (shortRpcFormatFlag ? "M:" : "Mode: ")        << mode  << "\r\n"
     ;
     if (minSTier < kKfsSTierMax) {
         os <<
-        "Min-tier: " << (int)minSTier << "\r\n"
-        "Max-tier: " << (int)maxSTier << "\r\n";
+        (shortRpcFormatFlag ? "TL:" : "Min-tier: ") << (int)minSTier <<
+            "\r\n" <<
+        (shortRpcFormatFlag ? "TH:" : "Max-tier: ") << (int)maxSTier << "\r\n";
     }
-    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
-    "\r\n";
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group,
+        shortRpcFormatFlag) << "\r\n";
 }
 
 void
@@ -4083,9 +4113,12 @@ MetaReaddir::response(ostream& os, IOBuffer& buf)
         return;
     }
     os <<
-        "Num-Entries: "      << numEntries << "\r\n"
-        "Has-more-entries: " << (hasMoreEntriesFlag ? 1 : 0) << "\r\n"
-        "Content-length: "   << resp.BytesConsumable() << "\r\n"
+        (shortRpcFormatFlag ? "EC:" : "Num-Entries: ") << numEntries <<
+            "\r\n" <<
+        (shortRpcFormatFlag ? "EM:" : "Has-more-entries: ") <<
+            (hasMoreEntriesFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ")
+            << resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&resp);
@@ -4133,9 +4166,12 @@ MetaReaddirPlus::response(ostream& os, IOBuffer& buf)
         return;
     }
     os <<
-        "Num-Entries: "      << entryCount << "\r\n"
-        "Has-more-entries: " << (hasMoreEntriesFlag ? 1 : 0) << "\r\n"
-        "Content-length: "   << resp.BytesConsumable() << "\r\n"
+        (shortRpcFormatFlag ? "EC:" : "Num-Entries: ")
+            << entryCount << "\r\n" <<
+        (shortRpcFormatFlag ? "EM:" : "Has-more-entries: ") <<
+            (hasMoreEntriesFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "L" : "Content-length: ")
+            << resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&resp);
@@ -4160,16 +4196,16 @@ MetaGetalloc::response(ostream& os)
         return;
     }
     os <<
-        "Chunk-handle: " << chunkId << "\r\n"
-        "Chunk-version: " << chunkVersion << "\r\n";
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion <<
+        "\r\n";
     if (replicasOrderedFlag) {
-        os << "Replicas-ordered: 1\r\n";
+        os << (shortRpcFormatFlag ? "O: 1\r\n" : "Replicas-ordered: 1\r\n");
     }
-    os << "Num-replicas: " << locations.size() << "\r\n";
-
+    os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+        locations.size() << "\r\n";
     assert(locations.size() > 0);
-
-    os << "Replicas:";
+    os << (shortRpcFormatFlag ? "S:" : "Replicas:");
     for_each(locations.begin(), locations.end(), ListServerLocations(os));
     os << "\r\n\r\n";
 }
@@ -4181,14 +4217,15 @@ MetaGetlayout::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (hasMoreChunksFlag) {
-        os << "Has-more-chunks:  1\r\n";
+        os << (shortRpcFormatFlag ? "MC:1\r\n" : "Has-more-chunks:  1\r\n");
     }
     if (0 <= fileSize) {
-        os << "File-size: " << fileSize << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "File-size: ") << fileSize << "\r\n";
     }
     os <<
-        "Num-chunks: "     << numChunks << "\r\n"
-        "Content-length: " << resp.BytesConsumable() << "\r\n"
+        (shortRpcFormatFlag ? "C:" : "Num-chunks: ") << numChunks << "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&resp);
@@ -4217,13 +4254,18 @@ MetaAllocate::writeChunkAccess(ostream& os)
     if (validForTime <= 0) {
         return;
     }
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     if (clientCSAllowClearTextFlag) {
-        os << "CS-clear-text: 1\r\n";
+        os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
     }
     os <<
-        "CS-acess-issued: " << issuedTime   << "\r\n"
-        "CS-acess-time: "   << validForTime << "\r\n"
-        "CS-access: ";
+        (shortRpcFormatFlag ? "SI:" : "CS-acess-issued: ") <<
+            issuedTime   << "\r\n" <<
+        (shortRpcFormatFlag ? "ST:" : "CS-acess-time: ") <<
+            validForTime << "\r\n" <<
+        (shortRpcFormatFlag ? "SA:" : "CS-access: ");
     const int16_t kDelegationFlags = 0;
     DelegationToken::WriteTokenAndSessionKey(
         os,
@@ -4237,8 +4279,8 @@ MetaAllocate::writeChunkAccess(ostream& os)
         writeMasterKey.GetSize()
     );
     os <<
-        "\r\n"
-        "C-access: ";
+        "\r\n" <<
+        (shortRpcFormatFlag ? "C:" : "C-access: ");
     ChunkAccessToken::WriteToken(
         os,
         chunkId,
@@ -4262,23 +4304,29 @@ MetaAllocate::responseSelf(ostream& os)
     if (status < 0) {
         return;
     }
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     if (! responseStr.empty()) {
         os.write(responseStr.data(), responseStr.size());
         return;
     }
     os <<
-        "Chunk-handle: "  << chunkId      << "\r\n"
-        "Chunk-version: " << chunkVersion << "\r\n";
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n";
     if (appendChunk) {
-        os << "Chunk-offset: " << offset << "\r\n";
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
+            offset << "\r\n";
     }
     assert((! servers.empty() && master) || invalidateAllFlag);
-    if (master) {
+    if (! shortRpcFormatFlag && master) {
         os << "Master: " << master->GetServerLocation() << "\r\n";
     }
-    os << "Num-replicas: " << servers.size() << "\r\n";
+    os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+        servers.size() << "\r\n";
     if (! servers.empty()) {
-        os << "Replicas:";
+        os << (shortRpcFormatFlag ? "S:" : "Replicas:");
         for_each(servers.begin(), servers.end(),
             PrintChunkServerLocations(os));
     }
@@ -4300,21 +4348,23 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (leaseId >= 0) {
-        os << "Lease-id: " << leaseId << "\r\n";
+        os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") << leaseId << "\r\n";
     }
     if (clientCSAllowClearTextFlag) {
-        os << "CS-clear-text: 1\r\n";
+        os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
     }
     if (0 < count) {
-        os << "CS-access: " << count << "\r\n";
+        os << (shortRpcFormatFlag ? "SA:" : "CS-access: ") << count << "\r\n";
     }
     if (0 < validForTime) {
         os <<
-            "CS-acess-issued: " << issuedTime   << "\r\n"
-            "CS-acess-time: "   << validForTime << "\r\n";
+            (shortRpcFormatFlag ? "SI:" : "CS-acess-issued: ") <<
+                issuedTime   << "\r\n" <<
+            (shortRpcFormatFlag ? "ST:" : "CS-acess-time: ")   <<
+                validForTime << "\r\n";
     }
     if (! getChunkLocationsFlag && ! responseBuf.IsEmpty()) {
-        os << "Lease-ids:";
+        os << (shortRpcFormatFlag ? "LS:" : "Lease-ids:");
         os.flush();
         responseBuf.CopyIn("\r\n", 2);
         buf.Move(&responseBuf);
@@ -4384,8 +4434,8 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
     char* const pe  = end - 4;
     memcpy(pe, "\r\n\r\n", end - pe);
     char* const pn = IntToDecString(len, pe);
-    char* const p  = pn - 16;
-    memcpy(p, "Content-length: ", pn - p);
+    char* const p  = pn - (shortRpcFormatFlag ? 2 : 16);
+    memcpy(p, shortRpcFormatFlag ? "l:" : "Content-length: ", pn - p);
     buf.CopyIn(p, end - p);
     buf.Move(&responseBuf);
     return;
@@ -4398,7 +4448,7 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (clientCSAllowClearTextFlag) {
-        os << "CS-clear-text: 1\r\n";
+        os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
     }
     const size_t count = chunkAccess.GetSize();
     if (count <= 0) {
@@ -4407,8 +4457,10 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     }
     if (0 < validForTime) {
         os <<
-            "CS-acess-issued: " << issuedTime   << "\r\n"
-            "CS-acess-time: "   << validForTime << "\r\n";
+            (shortRpcFormatFlag ? "SI:" : "CS-acess-issued: ") <<
+                issuedTime   << "\r\n" <<
+            (shortRpcFormatFlag ? "ST:" : "CS-acess-time: ")   <<
+                validForTime << "\r\n";
     }
     IOBuffer                     iobuf;
     IntIOBufferWriter            writer(iobuf);
@@ -4461,7 +4513,8 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     }
     if (leaseType == WRITE_LEASE && 0 < validForTime &&
             (ptr = chunkAccess.GetPtr()) < end) {
-        os << "C-access-length: " << writer.GetTotalSize() << "\r\n";
+        os << (shortRpcFormatFlag ? "AL:" : "C-access-length: ") <<
+            writer.GetTotalSize() << "\r\n";
         DelegationToken::Subject* const kNoSubjectPtr = 0;
         const ChunkAccessInfo* prev = 0;
         do {
@@ -4487,8 +4540,9 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
     }
     writer.Close();
     os <<
-        "C-access: "       << count                   << "\r\n"
-        "Content-length: " << iobuf.BytesConsumable() << "\r\n"
+        (shortRpcFormatFlag ? "C:" : "C-access: ") << count << "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            iobuf.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&iobuf);
@@ -4507,8 +4561,10 @@ MetaCoalesceBlocks::response(ostream &os)
         return;
     }
     os <<
-        "Dst-start-offset: " << dstStartOffset  << "\r\n"
-        "M-Time: "           << ShowTime(mtime) << "\r\n"
+        (shortRpcFormatFlag ? "O:" : "Dst-start-offset: ") <<
+            dstStartOffset  << "\r\n" <<
+        (shortRpcFormatFlag ? "MT:" : "M-Time: ") <<
+            ShowTime(mtime) << "\r\n"
     "\r\n";
 }
 
@@ -4519,20 +4575,29 @@ MetaHello::response(ostream& os, IOBuffer& buf)
         return;
     }
     if (0 <= metaFileSystemId) {
-        os << "File-system-id: " << metaFileSystemId << "\r\n";
+        os << (shortRpcFormatFlag ? "FI:" : "File-system-id: ") <<
+            metaFileSystemId << "\r\n";
         if (deleteAllChunksFlag) {
-            os << "Delete-all-chunks: " << metaFileSystemId << "\r\n";
+            os << (shortRpcFormatFlag ? "DA:" : "Delete-all-chunks: ") <<
+                metaFileSystemId << "\r\n";
         }
     }
     if (0 <= resumeStep) {
         os <<
-            "Resume: "         << resumeStep                    << "\r\n"
-            "Deleted: "        << deletedCount                  << "\r\n"
-            "Deleted-report: " << deletedReportCount            << "\r\n"
-            "Modified: "       << modifiedCount                 << "\r\n"
-            "Chunks: "         << chunkCount                    << "\r\n"
-            "Checksum: "       << checksum                      << "\r\n"
-            "Content-length: " << responseBuf.BytesConsumable() << "\r\n"
+            (shortRpcFormatFlag ? "R:" : "Resume: ")  <<
+                resumeStep   << "\r\n" <<
+            (shortRpcFormatFlag ? "D:" : "Deleted: ") <<
+                deletedCount << "\r\n" <<
+            (shortRpcFormatFlag ? "DR:" : "Deleted-report: ") <<
+                deletedReportCount << "\r\n" <<
+            (shortRpcFormatFlag ? "M:" : "Modified: ") <<
+                modifiedCount << "\r\n" <<
+            (shortRpcFormatFlag ? "C:" : "Chunks: ") <<
+                chunkCount << "\r\n" <<
+            (shortRpcFormatFlag ? "CS:" : "Checksum: ") <<
+                checksum << "\r\n" <<
+            (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+                responseBuf.BytesConsumable() << "\r\n"
             "\r\n"
         ;
         os.flush();
@@ -4579,7 +4644,8 @@ MetaTruncate::response(ostream &os)
         return;
     }
     if (endOffset >= 0) {
-        os << "End-offset: " << endOffset << "\r\n";
+        os << (shortRpcFormatFlag ? "O:" : "End-offset: ") <<
+            endOffset << "\r\n";
     }
     os << "\r\n";
 }
@@ -4588,7 +4654,8 @@ void
 MetaChangeFileReplication::response(ostream &os)
 {
     PutHeader(this, os) <<
-        "Num-replicas: " << numReplicas << "\r\n\r\n";
+        (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+        numReplicas << "\r\n\r\n";
 }
 
 void
@@ -4619,7 +4686,8 @@ MetaUpServers::response(ostream& os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        resp.BytesConsumable() << "\r\n\r\n";
     os.flush();
     buf.Move(&resp);
 }
@@ -4739,7 +4807,8 @@ MetaGetPathName::response(ostream& os)
         return;
     }
     os << result;
-    FattrReply(os, fattr, GetUserAndGroupNames(*this)) << "\r\n";
+    FattrReply(os, fattr, GetUserAndGroupNames(*this),
+        shortRpcFormatFlag) << "\r\n";
 }
 
 void
@@ -4755,11 +4824,11 @@ MetaChown::response(ostream& os)
         return;
     }
     os <<
-    "User: "  << user  << "\r\n"
-    "Group: " << group << "\r\n"
+    (shortRpcFormatFlag ? "U:" : "User: ")  << user  << "\r\n" <<
+    (shortRpcFormatFlag ? "G:" : "Group: ") << group << "\r\n"
     ;
-    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group) <<
-    "\r\n";
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group,
+        shortRpcFormatFlag) << "\r\n";
 }
 
 /* virtual */ bool
@@ -4775,16 +4844,21 @@ MetaAuthenticate::response(ostream& os)
         return;
     }
     os <<
-        "Auth-type: " << responseAuthType               << "\r\n"
-        "Use-ssl: "   << (filter ? 1 : 0)               << "\r\n"
-        "Curtime: "   << (int64_t)time(0)               << "\r\n"
-        "Endtime: "   << (int64_t)sessionExpirationTime << "\r\n"
+        (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
+            responseAuthType << "\r\n" <<
+        (shortRpcFormatFlag ? "US:" : "Use-ssl: ") <<
+            (filter ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "CT:" : "Curtime: ") <<
+            (int64_t)time(0) << "\r\n" <<
+        (shortRpcFormatFlag ? "ET:" : "Endtime: ") <<
+            (int64_t)sessionExpirationTime << "\r\n"
     ;
     if (responseContentLen <= 0) {
         os << "\r\n";
         return;
     }
-    os << "Content-length: " << responseContentLen << "\r\n"
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        responseContentLen << "\r\n"
     "\r\n";
     os.write(responseContentPtr, responseContentLen);
 }
@@ -4827,12 +4901,15 @@ MetaDelegate::response(ostream& os)
         return;
     }
     os <<
-        "Issued-time: "    << issuedTime   << "\r\n"
-        "Valid-for-time: " << validForTime << "\r\n";
+        (shortRpcFormatFlag ? "TI:" : "Issued-time: ") <<
+            issuedTime << "\r\n" <<
+        (shortRpcFormatFlag ? "TV:" : "Valid-for-time: ") <<
+            validForTime << "\r\n";
     if (keyValidForSec < validForTime) {
-        os << "Token-valid-for-time: " << keyValidForSec << "\r\n";
+        os << (shortRpcFormatFlag ? "TT:" : "Token-valid-for-time: ") <<
+            keyValidForSec << "\r\n";
     }
-    os << "Access: ";
+    os << (shortRpcFormatFlag ? "A:" : "Access: ");
     DelegationToken::WriteTokenAndSessionKey(
         os,
         renewTokenStr.empty() ? authUid : renewToken.GetUid(),
@@ -4861,25 +4938,38 @@ MetaChunkAllocate::request(ostream &os)
 {
     assert(req && ! req->servers.empty());
 
-    os << "ALLOCATE \r\n"
-        "Cseq: "          << opSeqno           << "\r\n"
-        "Version: KFS/1.0\r\n"
-        "File-handle: "   << req->fid          << "\r\n"
-        "Chunk-handle: "  << req->chunkId      << "\r\n"
-        "Chunk-version: " << req->chunkVersion << "\r\n"
-        "Min-tier: "      << (int)minSTier     << "\r\n"
-        "Max-tier: "      << (int)maxSTier     << "\r\n"
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os << "ALLOCATE \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") <<
+            req->fid << "\r\n" <<
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
+            req->chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            req->chunkVersion << "\r\n" <<
+        (shortRpcFormatFlag ? "TL:" : "Min-tier: ") <<
+            (int)minSTier << "\r\n" <<
+        (shortRpcFormatFlag ? "TH:" : "Max-tier: ") <<
+            (int)maxSTier     << "\r\n"
     ;
     if (0 <= leaseId) {
-        os << "Lease-id: " << leaseId << "\r\n";
+        os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") << leaseId << "\r\n";
         if (req->clientCSAllowClearTextFlag) {
-            os << "CS-clear-text: 1\r\n";
+            os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
         }
     }
     os <<
-        "Chunk-append: " << (req->appendChunk ? 1 : 0) << "\r\n"
-        "Num-servers: "  << req->servers.size()        << "\r\n"
-        "Servers:"
+        (shortRpcFormatFlag ? "CA:" : "Chunk-append: ") <<
+            (req->appendChunk ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "SC:" : "Num-servers: ") <<
+            req->servers.size() << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Servers: ")
     ;
     for_each(req->servers.begin(), req->servers.end(),
             PrintChunkServerLocations(os));
@@ -4890,14 +4980,17 @@ MetaChunkAllocate::request(ostream &os)
         return;
     }
     os <<
-        "\r\n"
-        "Content-length: " << len << "\r\n";
+        "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ") << len << "\r\n";
     if (cAccessLen < len) {
-        os << "C-access-length: " << cAccessLen << "\r\n";
+        os << (shortRpcFormatFlag ? "AL:" : "C-access-length: ") <<
+            cAccessLen << "\r\n";
         if (0 < req->validForTime) {
             os <<
-                "CS-acess-issued: " << req->issuedTime   << "\r\n"
-                "CS-acess-time: "   << req->validForTime << "\r\n";
+                (shortRpcFormatFlag ? "CI:" : "CS-acess-issued: ") <<
+                    req->issuedTime   << "\r\n" <<
+                (shortRpcFormatFlag ? "SI:" : "CS-acess-time: ") <<
+                    req->validForTime << "\r\n";
         }
     }
     os << "\r\n";
@@ -4908,27 +5001,36 @@ MetaChunkAllocate::request(ostream &os)
 void
 MetaChunkDelete::request(ostream &os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os << "DELETE \r\n";
-    os << "Cseq: " << opSeqno << "\r\n";
-    os << "Version: KFS/1.0\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
+        chunkId << "\r\n\r\n";
 }
 
 void
 MetaChunkHeartbeat::request(ostream &os)
 {
-    os <<
-    "HEARTBEAT \r\n"
-    "Cseq: " << opSeqno << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "Num-evacuate: " << evacuateCount << "\r\n"
-    ;
-    if (reAuthenticateFlag) {
-        os << "Authenticate: 1\r\n";
+    if (shortRpcFormatFlag) {
+        os << hex;
     }
     os <<
-    "\r\n"
-    ;
+    "HEARTBEAT \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << (shortRpcFormatFlag ? "EC:" : "Num-evacuate: ") <<
+        evacuateCount << "\r\n";
+    if (reAuthenticateFlag) {
+        os << (shortRpcFormatFlag ? "A:1\r\n" : "Authenticate: 1\r\n");
+    }
+    os << "\r\n";
 }
 
 static inline char*
@@ -4947,20 +5049,25 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     } else {
         skip = 0;
     }
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "STALE_CHUNKS \r\n"
-        "Cseq: " << opSeqno << "\r\n"
-        "Version: KFS/1.0\r\n"
-        "Num-chunks: " << count << "\r\n"
-    ;
+        "STALE_CHUNKS \r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+        if (! shortRpcFormatFlag) {
+            os << "Version: KFS/1.0\r\n";
+        }
+        os << (shortRpcFormatFlag ? "CC:" : "Num-chunks: ") << count << "\r\n";
     if (evacuatedFlag) {
-        os << "Evacuated: 1\r\n";
+        os << (shortRpcFormatFlag ? "E:1\r\n" : "Evacuated: 1\r\n");
     }
     if (hexFormatFlag) {
-        os << "HexFormat: 1\r\n";
+        os << (shortRpcFormatFlag ? "HF:1\r\n" : "HexFormat: 1\r\n");
     }
     if (hasAvailChunksSeqFlag) {
-        os << "AvailChunksSeq: " << availChunksSeq << "\r\n";
+        os << (shortRpcFormatFlag ? "AC:" : "AvailChunksSeq: ") <<
+            availChunksSeq << "\r\n";
     }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
@@ -4969,7 +5076,8 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
         char* const p   = count < 1 ? end :
             ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
         size_t      len = end - p;
-        os << "Content-length: " << len << "\r\n\r\n";
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            len << "\r\n\r\n";
         os.write(p, len);
         return;
     }
@@ -4989,7 +5097,8 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     }
     writer.Close();
     const int len = ioBuf.BytesConsumable();
-    os << "Content-length: " << len << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        len << "\r\n\r\n";
     IOBuffer::iterator const bi = ioBuf.begin();
     const int defsz = IOBufferData::GetDefaultBufferSize();
     if (len < defsz - defsz / 4 &&
@@ -5004,28 +5113,43 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
 void
 MetaChunkRetire::request(ostream &os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os << "RETIRE \r\n";
-    os << "Cseq: " << opSeqno << "\r\n";
-    os << "Version: KFS/1.0\r\n\r\n";
+    os << (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << "\r\n";
 }
 
 void
 MetaChunkVersChange::request(ostream &os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "CHUNK_VERS_CHANGE \r\n"
-    "Cseq: "               << opSeqno      << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "File-handle: "        << fid          << "\r\n"
-    "Chunk-handle: "       << chunkId      << "\r\n"
-    "From-chunk-version: " << fromVersion  << "\r\n"
-    "Chunk-version: "      << chunkVersion << "\r\n"
-    ;
+    "CHUNK_VERS_CHANGE \r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") <<
+            fid << "\r\n" <<
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  <<
+            chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "VF:" : "From-chunk-version: ") <<
+            fromVersion  << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n";
     if (makeStableFlag) {
-        os << "Make-stable: 1\r\n";
+        os << (shortRpcFormatFlag ? "MC:1\r\n" : "Make-stable: 1\r\n");
     }
     if (verifyStableFlag) {
-        os << "Verify: 1\r\n";
+        os << (shortRpcFormatFlag ? "VV:1\r\n" : "Verify: 1\r\n");
     }
     os << "\r\n";
 }
@@ -5033,27 +5157,42 @@ MetaChunkVersChange::request(ostream &os)
 void
 MetaBeginMakeChunkStable::request(ostream &os)
 {
-    os << "BEGIN_MAKE_CHUNK_STABLE\r\n"
-        "Cseq: "          << opSeqno      << "\r\n"
-        "Version: KFS/1.0\r\n"
-        "File-handle: "   << fid          << "\r\n"
-        "Chunk-handle: "  << chunkId      << "\r\n"
-        "Chunk-version: " << chunkVersion << "\r\n"
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os << "BEGIN_MAKE_CHUNK_STABLE\r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid << "\r\n" <<
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n"
     "\r\n";
 }
 
 void
 MetaChunkMakeStable::request(ostream &os)
 {
-    os << "MAKE_CHUNK_STABLE \r\n";
-    os << "Cseq: " << opSeqno << "\r\n";
-    os << "Version: KFS/1.0\r\n";
-    os << "File-handle: " << fid << "\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n";
-    os << "Chunk-size: " << chunkSize << "\r\n";
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os << "MAKE_CHUNK_STABLE \r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid << "\r\n" <<
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Chunk-size: ") << chunkSize << "\r\n";
     if (hasChunkChecksum) {
-        os << "Chunk-checksum: " << chunkChecksum << "\r\n";
+        os << (shortRpcFormatFlag ? "CS:" : "Chunk-checksum: ") <<
+            chunkChecksum << "\r\n";
     }
     os << "\r\n";
 }
@@ -5066,37 +5205,52 @@ MetaChunkReplicate::request(ostream& os)
     // OK to use global here as chunk server state machine runs in the main
     // thread.
     ostringstream& rs = GetTmpOStringStream();
+    if (shortRpcFormatFlag) {
+        rs << hex;
+    }
     rs <<
-    "Cseq: "          << opSeqno      << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "File-handle: "   << fid          << "\r\n"
-    "Chunk-handle: "  << chunkId      << "\r\n"
-    "Min-tier: "      << (int)minSTier << "\r\n"
-    "Max-tier: "      << (int)maxSTier << "\r\n"
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        rs << "Version: KFS/1.0\r\n";
+    }
+    rs <<
+    (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "TL:" : "Min-tier: ") << (int)minSTier << "\r\n" <<
+    (shortRpcFormatFlag ? "TH:" : "Max-tier: ") << (int)maxSTier << "\r\n"
     ;
     if (numRecoveryStripes > 0) {
         rs <<
-        "Chunk-version: 0\r\n"
-        "Chunk-offset: "         << chunkOffset          << "\r\n"
-        "Striper-type: "         << striperType          << "\r\n"
-        "Num-stripes: "          << numStripes           << "\r\n"
-        "Num-recovery-stripes: " << numRecoveryStripes   << "\r\n"
-        "Stripe-size: "          << stripeSize           << "\r\n"
-        "Meta-port: "            << srcLocation.port     << "\r\n"
-        "Target-version: "       << chunkVersion         << "\r\n"
+        (shortRpcFormatFlag ? "V:0\r\n" : "Chunk-version: 0\r\n") <<
+        (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
+            chunkOffset << "\r\n" <<
+        (shortRpcFormatFlag ? "ST:" : "Striper-type: ") <<
+            striperType << "\r\n" <<
+        (shortRpcFormatFlag ? "SN:" : "Num-stripes: " ) <<
+            numStripes << "\r\n" <<
+        (shortRpcFormatFlag ? "SR:" : "Num-recovery-stripes: ") <<
+            numRecoveryStripes   << "\r\n" <<
+        (shortRpcFormatFlag ? "SS:" : "Stripe-size: ") <<
+            stripeSize << "\r\n" <<
+        (shortRpcFormatFlag ? "MP:" : "Meta-port: ") <<
+            srcLocation.port << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Target-version: ") <<
+            chunkVersion << "\r\n"
         ;
-        if (fileSize > 0) {
-            rs << "File-size: " << fileSize << "\r\n";
+        if (0 < fileSize) {
+            rs << (shortRpcFormatFlag ? "S:" : "File-size: ") <<
+                fileSize << "\r\n";
         }
     } else {
-        rs << "Chunk-location: " << srcLocation << "\r\n";
+        rs << (shortRpcFormatFlag ? "SC:" : "Chunk-location: ") <<
+            srcLocation << "\r\n";
     }
     if (0 < validForTime) {
         if (clientCSAllowClearTextFlag) {
-            rs << "CS-clear-text: 1\r\n";
+            rs << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
         }
         if (dataServer) {
-            rs << "CS-access: ";
+            rs << (shortRpcFormatFlag ? "SA:" : "CS-access: ");
             DelegationToken::WriteTokenAndSessionKey(
                 rs,
                 authUid,
@@ -5108,8 +5262,11 @@ MetaChunkReplicate::request(ostream& os)
                 key.GetPtr(),
                 key.GetSize()
             );
-            rs << "\r\n"
-                "C-access: ";
+            rs << (shortRpcFormatFlag ?
+                "\r\n"
+                "C:" :
+                "\r\n"
+                "C-access: ");
             ChunkAccessToken::WriteToken(
                 rs,
                 chunkId,
@@ -5126,7 +5283,7 @@ MetaChunkReplicate::request(ostream& os)
                 key.GetSize()
             );
         } else {
-            rs << "CS-access: ";
+            rs << (shortRpcFormatFlag ? "SA:" : "CS-access: ");
             if (metaServerAccess.empty()) {
                 DelegationToken::WriteTokenAndSessionKey(
                     rs,
@@ -5160,7 +5317,8 @@ void
 MetaChunkReplicate::handleReply(const Properties& prop)
 {
     if (status == 0) {
-        const seq_t cVers = prop.getValue("Chunk-version", seq_t(0));
+        const seq_t cVers = prop.getValue(
+            shortRpcFormatFlag ? "V:" : "Chunk-version", seq_t(0));
         if (numRecoveryStripes <= 0) {
             chunkVersion = cVers;
         } else if (cVers != 0) {
@@ -5169,13 +5327,14 @@ MetaChunkReplicate::handleReply(const Properties& prop)
             return;
         }
     }
-    fid = prop.getValue("File-handle", fid_t(0));
+    fid = prop.getValue((shortRpcFormatFlag ? "P" : "File-handle"), fid_t(0));
     invalidStripes.clear();
     const int sc = numStripes + numRecoveryStripes;
     if (status == 0 || sc <= 0) {
         return;
     }
-    const string idxStr(prop.getValue("Invalid-stripes", string()));
+    const string idxStr(prop.getValue(
+        shortRpcFormatFlag ? "IS:" : "Invalid-stripes", string()));
     if (idxStr.empty()) {
         return;
     }
@@ -5216,11 +5375,17 @@ MetaChunkSize::request(ostream &os)
 void
 MetaChunkSetProperties::request(ostream &os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "CMD_SET_PROPERTIES\r\n"
-    "Cseq: " << opSeqno << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "Content-length: " << serverProps.length() << "\r\n\r\n" <<
+    "CMD_SET_PROPERTIES\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        serverProps.length() << "\r\n\r\n" <<
     serverProps
     ;
 }
@@ -5229,11 +5394,12 @@ void
 MetaChunkServerRestart::request(ostream &os)
 {
     os <<
-    "RESTART_CHUNK_SERVER\r\n"
-    "Cseq: " << opSeqno << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "\r\n"
-    ;
+    "RESTART_CHUNK_SERVER\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << "\r\n";
 }
 
 int
