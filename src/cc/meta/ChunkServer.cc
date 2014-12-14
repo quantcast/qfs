@@ -1855,6 +1855,7 @@ ChunkServer::TimeSinceLastHeartbeat() const
 void
 ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
 {
+    r->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (r->submitCount++ == 0) {
         r->submitTime = microseconds();
     }
@@ -1867,8 +1868,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
             r->opSeqno,
             make_pair(
                 mReqsTimeoutQueue.insert(make_pair(
-                    TimeNow() + (timeout < 0 ?
-                        sRequestTimeout : timeout),
+                    TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
                     r
                 )),
                 sChunkOpsInFlight.insert(make_pair(

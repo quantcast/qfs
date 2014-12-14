@@ -5060,10 +5060,10 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     os <<
         "STALE_CHUNKS \r\n" <<
         (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
-        if (! shortRpcFormatFlag) {
-            os << "Version: KFS/1.0\r\n";
-        }
-        os << (shortRpcFormatFlag ? "CC:" : "Num-chunks: ") << count << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os << (shortRpcFormatFlag ? "CC:" : "Num-chunks: ") << count << "\r\n";
     if (evacuatedFlag) {
         os << (shortRpcFormatFlag ? "E:1\r\n" : "Evacuated: 1\r\n");
     }
