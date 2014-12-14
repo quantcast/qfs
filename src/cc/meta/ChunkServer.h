@@ -198,7 +198,6 @@ private:
 
 class ChunkServer :
     public KfsCallbackObj,
-    public boost::enable_shared_from_this<ChunkServer>,
     public CSMapServerInfo,
     private SslFilterVerifyPeer {
 public:
@@ -828,6 +827,8 @@ public:
         { return mHelloResumeCount; }
     int64_t GetHelloResumeFailedCount() const
         { return mHelloResumeFailedCount; }
+    const ChunkServerPtr& GetSharedPtr() const
+        { return mSelfPtr; }
 
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,

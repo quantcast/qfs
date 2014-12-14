@@ -227,7 +227,7 @@ public:
             while (mCandidatePos < mServerExcludes.Size()) {
                 ChunkServer& srv = *(mServerExcludes.Get(mCandidatePos++));
                 if (IsCandidateServer(srv)) {
-                    return srv.shared_from_this();
+                    return srv.GetSharedPtr();
                 }
             }
             if (mMaxSTier <= mCurSTier) {
@@ -252,7 +252,7 @@ public:
         // Random shuffle chosen servers, such that the servers with
         // smaller "load" go before the servers with larger load.
         if (mCandidatePos == 1) {
-            return mCandidates[--mCandidatePos].second->shared_from_this();
+            return mCandidates[--mCandidatePos].second->GetSharedPtr();
         }
         assert(mLoadAvgSum > 0);
         int64_t rnd = Rand(mLoadAvgSum);
@@ -266,7 +266,7 @@ public:
         iter_swap(mCandidates.begin() + mCandidatePos,
             mCandidates.begin() + ri);
         mLoadAvgSum -= load;
-        return mCandidates[mCandidatePos].second->shared_from_this();
+        return mCandidates[mCandidatePos].second->GetSharedPtr();
     }
 
     bool IsUsingServerExcludes() const
