@@ -964,9 +964,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int                  maxAppendersPerChunk;
     //!< Server(s) on which this chunk has been placed
     Servers              servers;
-    //!< For replication, the master that runs the transaction
-    //!< for completing the write.
-    ChunkServerPtr       master;
     uint32_t             numServerReplies;
     int                  firstFailedServerIdx;
     bool                 logFlag;
@@ -1010,7 +1007,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           spaceReservationSize(1 << 20),
           maxAppendersPerChunk(64),
           servers(),
-          master(),
           numServerReplies(0),
           firstFailedServerIdx(-1),
           logFlag(true),

@@ -2098,10 +2098,13 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     // Clone status for all ops in the queue.
     // Submit the replies in the same order as requests.
     // "this" might get deleted after submit_request()
-    MetaAllocate*         n     = this;
-    const string          ra    = responseAccessStr;
-    const kfsUid_t        rauid = authUid;
-    const CryptoKeys::Key wmkey = writeMasterKey;
+    MetaAllocate*         n           = this;
+    const string          ra          = responseAccessStr;
+    const kfsUid_t        rauid       = authUid;
+    const CryptoKeys::Key wmkey       = writeMasterKey;
+    const bool            shorFmtFlag = shortRpcFormatFlag;
+    const string          respStr     = responseStr;
+    const Servers         srvs        = servers;
     do {
         MetaAllocate& c = *n;
         n = c.next;
@@ -2122,10 +2125,11 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             q.appendChunk      = c.appendChunk;
             q.stripedFileFlag  = c.stripedFileFlag;
             q.numServerReplies = c.numServerReplies;
-            q.responseStr      = c.responseStr;
+            if (shorFmtFlag == q.shortRpcFormatFlag) {
+                q.responseStr = respStr;
+            }
             if (q.responseStr.empty()) {
-                q.servers = c.servers;
-                q.master  = c.master;
+                q.servers = srvs;
             }
             q.writeMasterKeyValidFlag = c.writeMasterKeyValidFlag;
             if (q.writeMasterKeyValidFlag) {
@@ -2134,7 +2138,8 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 q.issuedTime                 = c.issuedTime;
                 q.validForTime               = c.validForTime;
                 q.writeMasterKeyId           = c.writeMasterKeyId;
-                if (ra.empty() || rauid != c.authUid) {
+                if (ra.empty() || rauid != c.authUid ||
+                        shorFmtFlag != q.shortRpcFormatFlag) {
                     q.writeMasterKey = wmkey;
                 } else {
                     q.responseAccessStr = ra;
@@ -4319,9 +4324,9 @@ MetaAllocate::responseSelf(ostream& os)
         os << (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
             offset << "\r\n";
     }
-    assert((! servers.empty() && master) || invalidateAllFlag);
-    if (! shortRpcFormatFlag && master) {
-        os << "Master: " << master->GetServerLocation() << "\r\n";
+    assert(! servers.empty() || invalidateAllFlag);
+    if (! shortRpcFormatFlag && servers.front()) {
+        os << "Master: " << servers.front()->GetServerLocation() << "\r\n";
     }
     os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
         servers.size() << "\r\n";

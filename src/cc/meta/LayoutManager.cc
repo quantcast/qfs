@@ -239,10 +239,14 @@ ARAChunkCache::Entry::AddPending(MetaAllocate& req)
 
     if (! lastPendingRequest || ! req.appendChunk) {
         if (req.appendChunk) {
-            req.responseStr = responseStr;
-            if (req.authUid == authUid) {
-                req.responseAccessStr = responseAccessStr;
-                req.issuedTime        = issuedTime;
+            if (shortRpcFormatFlag == req.shortRpcFormatFlag) {
+                req.responseStr = responseStr;
+                if (req.authUid == authUid) {
+                    req.responseAccessStr = responseAccessStr;
+                    req.issuedTime        = issuedTime;
+                }
+            } else {
+                req.servers = servers;
             }
         }
         return false;
@@ -287,8 +291,9 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
     if (entry.lastPendingRequest) {
         // Transition from pending to complete.
         // Cache the response. Restart decay timer.
-        entry.responseStr   = req.responseStr;
-        entry.lastDecayTime = entry.lastAccessedTime;
+        entry.shortRpcFormatFlag = req.shortRpcFormatFlag;
+        entry.responseStr        = req.responseStr;
+        entry.lastDecayTime      = entry.lastAccessedTime;
         entry.SetResponseAccess(req);
         entry.lastPendingRequest = 0;
     }
@@ -5140,7 +5145,6 @@ LayoutManager::AllocateChunk(
         r->servers.size() <= (size_t)r->numReplicas &&
         r->servers.size() == tiers.size()
     );
-    r->master = r->servers[0];
 
     if (! mChunkLeases.NewWriteLease(*r)) {
         panic("failed to get write lease for a new chunk");
@@ -5399,8 +5403,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         if (ret < 0) {
             isNewLease = false;
             r->servers.clear();
-            mChunkToServerMap.GetServers(*ci, r->servers);
-            r->master = l->chunkServer;
             return ret;
         }
         // Delete the lease to force version number bump.
@@ -5455,8 +5457,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     if (! mChunkLeases.NewWriteLease(*r)) {
         panic("failed to get write lease for a chunk");
     }
-
-    r->master = r->servers[0];
     KFS_LOG_STREAM_INFO <<
         "new write"
         " lease:"    << r->leaseId <<
@@ -5521,7 +5521,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     KFS_LOG_EOM;
 
     if (entry->offset < 0 || (entry->offset % CHUNKSIZE) != 0 ||
-            ! entry->master) {
+            entry->servers.empty()) {
         panic("invalid write append cache entry");
         mARAChunkCache.Invalidate(req->fid);
         return -1;
@@ -5547,13 +5547,13 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     // Ensure that master is still good.
     if (entry->numAppendersInChunk > mMinAppendersPerChunk) {
         UpdateGoodCandidateLoadAvg();
-        if (entry->master->GetLoadAvg() >
+        if (entry->servers.front()->GetLoadAvg() >
                 mCSMaxGoodMasterCandidateLoadAvg) {
             KFS_LOG_STREAM_INFO <<
                 "invalidating append cache entry: " <<
                 req->fid <<
-                " " << entry->master->GetServerLocation() <<
-                " load: " << entry->master->GetLoadAvg() <<
+                " " << entry->servers.front()->GetServerLocation() <<
+                " load: " << entry->servers.front()->GetLoadAvg() <<
                 " exceeds: " <<
                     mCSMaxGoodMasterCandidateLoadAvg <<
             KFS_LOG_EOM;
@@ -5609,7 +5609,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     entry->lastAccessedTime = now;
     entry->spaceReservationSize += reservationSize;
     const bool pending = entry->AddPending(*req);
-    if (! pending && req->responseStr.empty()) {
+    if (! pending && req->responseStr.empty() && req->servers.empty()) {
         // The cached response will have or already has all the info.
         // Presently it should never get here.
         KFS_LOG_STREAM_WARN <<
@@ -5634,8 +5634,9 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                         LEASE_INTERVAL_SECS * 2 / 3) < now))) {
         // 2/3 of the lease time implicitly assumes that the chunk access token
         // life time is double of more of the lease time.
-        if (entry->master &&
-                (req->writeMasterKeyValidFlag = entry->master->GetCryptoKey(
+        if (! entry->servers.empty() &&
+                (req->writeMasterKeyValidFlag =
+                    entry->servers.front()->GetCryptoKey(
                         req->writeMasterKeyId, req->writeMasterKey))) {
             req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
             req->issuedTime                 = now;
@@ -7037,7 +7038,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     }
     if (mClientCSAuthRequiredFlag && 0 <= r->status) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        if ((r->writeMasterKeyValidFlag = r->master->GetCryptoKey(
+        if ((r->writeMasterKeyValidFlag = r->servers.front()->GetCryptoKey(
                 r->writeMasterKeyId, r->writeMasterKey))) {
             r->issuedTime   = TimeNow();
             r->validForTime = mCSAccessValidForTimeSec;

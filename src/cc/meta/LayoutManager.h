@@ -617,7 +617,8 @@ private:
 class ARAChunkCache
 {
 public:
-    typedef FAPermissions Permissions;
+    typedef FAPermissions  Permissions;
+    typedef CSMap::Servers Servers;
     struct Entry {
         Entry(
             chunkId_t           cid   = -1,
@@ -634,12 +635,13 @@ public:
               spaceReservationSize(0),
               numAppendersInChunk(0),
               permissions(perms),
-              master(req ? req->master : ChunkServerPtr()),
+              servers(req ? req->servers : Servers()),
               issuedTime(req ? req->issuedTime : time_t(0)),
               authUid(req ? req->authUid : kKfsUserNone),
               lastPendingRequest(req),
               responseStr(),
-              responseAccessStr()
+              responseAccessStr(),
+              shortRpcFormatFlag(false)
             {}
         bool AddPending(MetaAllocate& req);
         bool IsAllocationPending() const {
@@ -663,13 +665,14 @@ public:
         // # of appenders to which this chunk was used for allocation
         int                numAppendersInChunk;
         const Permissions* permissions;
-        ChunkServerPtr     master;
+        Servers            servers;
     private:
         time_t        issuedTime;
         kfsUid_t      authUid;
         MetaAllocate* lastPendingRequest;
         string        responseStr;
         string        responseAccessStr;
+        bool          shortRpcFormatFlag;
         friend class ARAChunkCache;
     };
 
