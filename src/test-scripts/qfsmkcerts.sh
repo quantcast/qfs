@@ -73,16 +73,16 @@ else
     private_key    = \$dir/private/cakey.pem# CA private key
     RANDFILE       = \$dir/private/.rand    # random number file
 
-    default_days   = 3650                  # how long to certify for
-    default_crl_days= 30                   # how long before next CRL
-    default_md     = md5                   # md to use
+    default_days     = 3650                 # how long to certify for
+    default_crl_days = 30                   # how long before next CRL
+    default_md       = sha1                 # md to use
 
-    policy         = policy_any            # default policy
-    email_in_dn    = no                    # Don't add the email into cert DN
+    policy           = policy_any           # default policy
+    email_in_dn      = no                   # Don't add the email into cert DN
 
-    name_opt       = ca_default            # Subject name display option
-    cert_opt       = ca_default            # Certificate display option
-    copy_extensions = none                 # Don't copy extensions from request
+    name_opt         = ca_default           # Subject name display option
+    cert_opt         = ca_default           # Certificate display option
+    copy_extensions  = none                 # Don't copy extensions from request
 
     [ policy_any ]
     countryName            = supplied
