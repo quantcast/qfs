@@ -4972,7 +4972,7 @@ MetaChunkAllocate::request(ostream &os)
     os <<
         (shortRpcFormatFlag ? "CA:" : "Chunk-append: ") <<
             (req->appendChunk ? 1 : 0) << "\r\n" <<
-        (shortRpcFormatFlag ? "SC:" : "Num-servers: ") <<
+        (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
             req->servers.size() << "\r\n" <<
         (shortRpcFormatFlag ? "S:" : "Servers: ")
     ;
@@ -4992,9 +4992,9 @@ MetaChunkAllocate::request(ostream &os)
             cAccessLen << "\r\n";
         if (0 < req->validForTime) {
             os <<
-                (shortRpcFormatFlag ? "CI:" : "CS-acess-issued: ") <<
+                (shortRpcFormatFlag ? "SI:" : "CS-acess-issued: ") <<
                     req->issuedTime   << "\r\n" <<
-                (shortRpcFormatFlag ? "SI:" : "CS-acess-time: ") <<
+                (shortRpcFormatFlag ? "ST:" : "CS-acess-time: ") <<
                     req->validForTime << "\r\n";
         }
     }
@@ -5030,7 +5030,7 @@ MetaChunkHeartbeat::request(ostream &os)
     if (! shortRpcFormatFlag) {
         os << "Version: KFS/1.0\r\n";
     }
-    os << (shortRpcFormatFlag ? "EC:" : "Num-evacuate: ") <<
+    os << (shortRpcFormatFlag ? "E:" : "Num-evacuate: ") <<
         evacuateCount << "\r\n";
     if (reAuthenticateFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "Authenticate: 1\r\n");
@@ -5063,7 +5063,7 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
     if (! shortRpcFormatFlag) {
         os << "Version: KFS/1.0\r\n";
     }
-    os << (shortRpcFormatFlag ? "CC:" : "Num-chunks: ") << count << "\r\n";
+    os << (shortRpcFormatFlag ? "C:" : "Num-chunks: ") << count << "\r\n";
     if (evacuatedFlag) {
         os << (shortRpcFormatFlag ? "E:1\r\n" : "Evacuated: 1\r\n");
     }
@@ -5151,7 +5151,7 @@ MetaChunkVersChange::request(ostream &os)
         (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
             chunkVersion << "\r\n";
     if (makeStableFlag) {
-        os << (shortRpcFormatFlag ? "MC:1\r\n" : "Make-stable: 1\r\n");
+        os << (shortRpcFormatFlag ? "MS:1\r\n" : "Make-stable: 1\r\n");
     }
     if (verifyStableFlag) {
         os << (shortRpcFormatFlag ? "VV:1\r\n" : "Verify: 1\r\n");
@@ -5239,7 +5239,7 @@ MetaChunkReplicate::request(ostream& os)
             stripeSize << "\r\n" <<
         (shortRpcFormatFlag ? "MP:" : "Meta-port: ") <<
             srcLocation.port << "\r\n" <<
-        (shortRpcFormatFlag ? "V:" : "Target-version: ") <<
+        (shortRpcFormatFlag ? "VT:" : "Target-version: ") <<
             chunkVersion << "\r\n"
         ;
         if (0 < fileSize) {
