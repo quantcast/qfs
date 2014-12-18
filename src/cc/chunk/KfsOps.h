@@ -278,6 +278,7 @@ struct KfsOp : public KfsCallbackObj
     bool            noReply:1;
     bool            noRetry:1;
     bool            clientSMFlag:1;
+    bool            shortRpcFormatFlag:1;
     int64_t         maxWaitMillisec;
     string          statusMsg; // output, optional, mostly for debugging
     KfsCallbackObj* clnt;
@@ -347,8 +348,8 @@ struct KfsOp : public KfsCallbackObj
     template<typename T> static T& ParserDef(T& parser)
     {
         return parser
-        .Def("Cseq",        &KfsOp::seq,            kfsSeq_t(-1))
-        .Def("Max-wait-ms", &KfsOp::maxWaitMillisec, int64_t(-1))
+        .Def2("Cseq",       "c", &KfsOp::seq,            kfsSeq_t(-1))
+        .Def2("Max-wait-ms","w", &KfsOp::maxWaitMillisec, int64_t(-1))
         ;
     }
     static inline BufferManager* GetDeviceBufferMangerSelf(
@@ -379,7 +380,6 @@ protected:
     virtual ostream& ShowSelf(ostream& os) const = 0;
     static const KfsOp& GetNullOp();
     class NullOp;
-    friend class NullOp;
 private:
     typedef QCDLList<KfsOp> OpsList;
     KfsOp* mPrevPtr[1];
@@ -388,13 +388,7 @@ private:
     static KfsOp*   sOpsList[1];
     static int64_t  sOpsCount;
     static QCMutex* sMutex;
-    class CleanupChecker
-    {
-    public:
-        CleanupChecker()
-            { assert(sOpsCount == 0); }
-        ~CleanupChecker();
-    };
+    class CleanupChecker;;
     friend class QCDLListOp<KfsOp>;
 private:
     KfsOp(const KfsOp&);
@@ -425,12 +419,12 @@ struct KfsClientChunkOp : public KfsOp
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
-        .Def("C-access",     &KfsClientChunkOp::chunkAccessVal)
-        .Def("Subject-id",   &KfsClientChunkOp::subjectId, int64_t(-1))
+        .Def2("Chunk-handle", "H",  &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
+        .Def2("C-access",     "C",  &KfsClientChunkOp::chunkAccessVal)
+        .Def2("Subject-id",   "SI", &KfsClientChunkOp::subjectId, int64_t(-1))
         ;
     }
-    inline bool Validate();
+    bool Validate();
     virtual bool CheckAccess(ClientSM& sm);
 private:
     TokenValue chunkAccessVal;
@@ -453,8 +447,8 @@ struct ChunkAccessRequestOp : public KfsClientChunkOp
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("C-access-req",  &ChunkAccessRequestOp::createChunkAccessFlag)
-        .Def("CS-access-req", &ChunkAccessRequestOp::createChunkServerAccessFlag)
+        .Def2("C-access-req",  "CR", &ChunkAccessRequestOp::createChunkAccessFlag)
+        .Def2("CS-access-req", "SR", &ChunkAccessRequestOp::createChunkServerAccessFlag)
         ;
     }
     virtual bool CheckAccess(ClientSM& sm);
@@ -531,20 +525,20 @@ struct AllocChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",     &AllocChunkOp::fileId,         kfsFileId_t(-1))
-        .Def("Chunk-handle",    &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
-        .Def("Chunk-version",   &AllocChunkOp::chunkVersion,   int64_t(-1))
-        .Def("Lease-id",        &AllocChunkOp::leaseId,        int64_t(-1))
-        .Def("Chunk-append",    &AllocChunkOp::appendFlag,     false)
-        .Def("Num-servers",     &AllocChunkOp::numServers)
-        .Def("Servers",         &AllocChunkOp::servers)
-        .Def("Min-tier",        &AllocChunkOp::minStorageTier, kKfsSTierUndef)
-        .Def("Max-tier",        &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
-        .Def("Content-length",  &AllocChunkOp::contentLength,  0)
-        .Def("CS-clear-text",   &AllocChunkOp::allowCSClearTextFlag)
-        .Def("C-access-length", &AllocChunkOp::chunkAccessLength)
-        .Def("CS-acess-time",   &AllocChunkOp::chunkServerAccessValidForTime)
-        .Def("CS-acess-issued", &AllocChunkOp::chunkServerAccessIssuedTime)
+        .Def2("File-handle",     "P",  &AllocChunkOp::fileId,         kfsFileId_t(-1))
+        .Def2("Chunk-handle",    "H",  &AllocChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def2("Chunk-version",   "V",  &AllocChunkOp::chunkVersion,   int64_t(-1))
+        .Def2("Lease-id",        "L",  &AllocChunkOp::leaseId,        int64_t(-1))
+        .Def2("Chunk-append",    "CA", &AllocChunkOp::appendFlag,     false)
+        .Def2("Num-servers",     "SC", &AllocChunkOp::numServers)
+        .Def2("Servers",         "S",  &AllocChunkOp::servers)
+        .Def2("Min-tier",        "TL", &AllocChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def2("Max-tier",        "TH", &AllocChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def2("Content-length",  "l",  &AllocChunkOp::contentLength,  0)
+        .Def2("CS-clear-text",   "CT", &AllocChunkOp::allowCSClearTextFlag)
+        .Def2("C-access-length", "AL", &AllocChunkOp::chunkAccessLength)
+        .Def2("CS-acess-time",   "ST", &AllocChunkOp::chunkServerAccessValidForTime)
+        .Def2("CS-acess-issued", "SI", &AllocChunkOp::chunkServerAccessIssuedTime)
         ;
     }
 };
@@ -582,9 +576,9 @@ struct BeginMakeChunkStableOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",   &BeginMakeChunkStableOp::fileId,       kfsFileId_t(-1))
-        .Def("Chunk-handle",  &BeginMakeChunkStableOp::chunkId,      kfsChunkId_t(-1))
-        .Def("Chunk-version", &BeginMakeChunkStableOp::chunkVersion, int64_t(-1))
+        .Def2("File-handle",   "P", &BeginMakeChunkStableOp::fileId,       kfsFileId_t(-1))
+        .Def2("Chunk-handle",  "H", &BeginMakeChunkStableOp::chunkId,      kfsChunkId_t(-1))
+        .Def2("Chunk-version", "V", &BeginMakeChunkStableOp::chunkVersion, int64_t(-1))
         ;
     }
 };
@@ -630,11 +624,11 @@ struct MakeChunkStableOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",    &MakeChunkStableOp::fileId,        kfsFileId_t(-1))
-        .Def("Chunk-handle",   &MakeChunkStableOp::chunkId,       kfsChunkId_t(-1))
-        .Def("Chunk-version",  &MakeChunkStableOp::chunkVersion,  int64_t(-1))
-        .Def("Chunk-size",     &MakeChunkStableOp::chunkSize,     int64_t(-1))
-        .Def("Chunk-checksum", &MakeChunkStableOp::checksumStr)
+        .Def2("File-handle",    "P",  &MakeChunkStableOp::fileId,        kfsFileId_t(-1))
+        .Def2("Chunk-handle",   "H",  &MakeChunkStableOp::chunkId,       kfsChunkId_t(-1))
+        .Def2("Chunk-version",  "V",  &MakeChunkStableOp::chunkVersion,  int64_t(-1))
+        .Def2("Chunk-size",     "S",  &MakeChunkStableOp::chunkSize,     int64_t(-1))
+        .Def2("Chunk-checksum", "CS", &MakeChunkStableOp::checksumStr)
         ;
     }
 };
@@ -674,12 +668,12 @@ struct ChangeChunkVersOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",        &ChangeChunkVersOp::fileId,           kfsFileId_t(-1))
-        .Def("Chunk-handle",       &ChangeChunkVersOp::chunkId,          kfsChunkId_t(-1))
-        .Def("Chunk-version",      &ChangeChunkVersOp::chunkVersion,     int64_t(-1))
-        .Def("From-chunk-version", &ChangeChunkVersOp::fromChunkVersion, int64_t(-1))
-        .Def("Make-stable",        &ChangeChunkVersOp::makeStableFlag,   false)
-        .Def("Verify",             &ChangeChunkVersOp::verifyStableFlag, false)
+        .Def2("File-handle",        "P",  &ChangeChunkVersOp::fileId,           kfsFileId_t(-1))
+        .Def2("Chunk-handle",       "H",  &ChangeChunkVersOp::chunkId,          kfsChunkId_t(-1))
+        .Def2("Chunk-version",      "V",  &ChangeChunkVersOp::chunkVersion,     int64_t(-1))
+        .Def2("From-chunk-version", "VF", &ChangeChunkVersOp::fromChunkVersion, int64_t(-1))
+        .Def2("Make-stable",        "MS", &ChangeChunkVersOp::makeStableFlag,   false)
+        .Def2("Verify",             "VV", &ChangeChunkVersOp::verifyStableFlag, false)
         ;
     }
 };
@@ -702,7 +696,7 @@ struct DeleteChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &DeleteChunkOp::chunkId, kfsChunkId_t(-1))
+        .Def2("Chunk-handle", "H", &DeleteChunkOp::chunkId, kfsChunkId_t(-1))
         ;
     }
 };
@@ -731,8 +725,8 @@ struct TruncateChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &TruncateChunkOp::chunkId,   kfsChunkId_t(-1))
-        .Def("Chunk-size",   &TruncateChunkOp::chunkSize, size_t(0))
+        .Def2("Chunk-handle", "H", &TruncateChunkOp::chunkId,   kfsChunkId_t(-1))
+        .Def2("Chunk-size",   "S", &TruncateChunkOp::chunkSize, size_t(0))
         ;
     }
 };
@@ -818,24 +812,24 @@ struct ReplicateChunkOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("File-handle",          &ReplicateChunkOp::fid,            kfsFileId_t(-1))
-        .Def("Chunk-handle",         &ReplicateChunkOp::chunkId,        kfsChunkId_t(-1))
-        .Def("Chunk-version",        &ReplicateChunkOp::chunkVersion,   int64_t(-1))
-        .Def("Target-version",       &ReplicateChunkOp::targetVersion,  int64_t(-1))
-        .Def("Chunk-location",       &ReplicateChunkOp::locationStr)
-        .Def("Meta-port",            &ReplicateChunkOp::metaPort,       int(-1))
-        .Def("Chunk-offset",         &ReplicateChunkOp::chunkOffset,    int64_t(-1))
-        .Def("Striper-type",         &ReplicateChunkOp::striperType,    int16_t(KFS_STRIPED_FILE_TYPE_NONE))
-        .Def("Num-stripes",          &ReplicateChunkOp::numStripes)
-        .Def("Num-recovery-stripes", &ReplicateChunkOp::numRecoveryStripes)
-        .Def("Stripe-size",          &ReplicateChunkOp::stripeSize)
-        .Def("Pathname",             &ReplicateChunkOp::pathName)
-        .Def("File-size",            &ReplicateChunkOp::fileSize,       int64_t(-1))
-        .Def("Min-tier",             &ReplicateChunkOp::minStorageTier, kKfsSTierUndef)
-        .Def("Max-tier",             &ReplicateChunkOp::maxStorageTier, kKfsSTierUndef)
-        .Def("C-access",             &ReplicateChunkOp::chunkAccess)
-        .Def("CS-access",            &ReplicateChunkOp::chunkServerAccess)
-        .Def("CS-clear-text",        &ReplicateChunkOp::allowCSClearTextFlag)
+        .Def2("File-handle",          "P",  &ReplicateChunkOp::fid,            kfsFileId_t(-1))
+        .Def2("Chunk-handle",         "H",  &ReplicateChunkOp::chunkId,        kfsChunkId_t(-1))
+        .Def2("Chunk-version",        "V",  &ReplicateChunkOp::chunkVersion,   int64_t(-1))
+        .Def2("Target-version",       "VT", &ReplicateChunkOp::targetVersion,  int64_t(-1))
+        .Def2("Chunk-location",       "SC", &ReplicateChunkOp::locationStr)
+        .Def2("Meta-port",            "MP", &ReplicateChunkOp::metaPort,       int(-1))
+        .Def2("Chunk-offset",         "O",  &ReplicateChunkOp::chunkOffset,    int64_t(-1))
+        .Def2("Striper-type",         "ST", &ReplicateChunkOp::striperType,    int16_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def2("Num-stripes",          "SN", &ReplicateChunkOp::numStripes)
+        .Def2("Num-recovery-stripes", "SR", &ReplicateChunkOp::numRecoveryStripes)
+        .Def2("Stripe-size",          "SS", &ReplicateChunkOp::stripeSize)
+        .Def2("Pathname",             "PN", &ReplicateChunkOp::pathName)
+        .Def2("File-size",            "S",  &ReplicateChunkOp::fileSize,       int64_t(-1))
+        .Def2("Min-tier",             "TL", &ReplicateChunkOp::minStorageTier, kKfsSTierUndef)
+        .Def2("Max-tier",             "TH", &ReplicateChunkOp::maxStorageTier, kKfsSTierUndef)
+        .Def2("C-access",             "C",  &ReplicateChunkOp::chunkAccess)
+        .Def2("CS-access",            "SA", &ReplicateChunkOp::chunkServerAccess)
+        .Def2("CS-clear-text",        "CT", &ReplicateChunkOp::allowCSClearTextFlag)
         ;
     }
 };
@@ -874,8 +868,8 @@ struct HeartbeatOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Num-evacuate", &HeartbeatOp::metaEvacuateCount, int64_t(-1))
-        .Def("Authenticate", &HeartbeatOp::authenticateFlag, false)
+        .Def2("Num-evacuate", "E", &HeartbeatOp::metaEvacuateCount, int64_t(-1))
+        .Def2("Authenticate", "A", &HeartbeatOp::authenticateFlag, false)
         ;
     }
 };
@@ -912,11 +906,11 @@ struct StaleChunksOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Content-length", &StaleChunksOp::contentLength)
-        .Def("Num-chunks",     &StaleChunksOp::numStaleChunks)
-        .Def("Evacuated",      &StaleChunksOp::evacuatedFlag,  false)
-        .Def("HexFormat",      &StaleChunksOp::hexFormatFlag,  false)
-        .Def("AvailChunksSeq", &StaleChunksOp::availChunksSeq, kfsSeq_t(-1))
+        .Def2("Content-length", "l",  &StaleChunksOp::contentLength)
+        .Def2("Num-chunks",     "C",  &StaleChunksOp::numStaleChunks)
+        .Def2("Evacuated",      "E",  &StaleChunksOp::evacuatedFlag,  false)
+        .Def2("HexFormat",      "HF", &StaleChunksOp::hexFormatFlag,  false)
+        .Def2("AvailChunksSeq", "AC", &StaleChunksOp::availChunksSeq, kfsSeq_t(-1))
         ;
     }
 };
@@ -1004,13 +998,13 @@ struct CloseOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Num-servers",      &CloseOp::numServers)
-        .Def("Servers",          &CloseOp::servers)
-        .Def("Need-ack",         &CloseOp::needAck,         true)
-        .Def("Has-write-id",     &CloseOp::hasWriteId,      false)
-        .Def("Master-committed", &CloseOp::masterCommitted, int64_t(-1))
-        .Def("C-access-length",  &CloseOp::chunkAccessLength)
-        .Def("Content-length",   &CloseOp::contentLength)
+        .Def2("Num-servers",      "R",  &CloseOp::numServers)
+        .Def2("Servers",          "S",  &CloseOp::servers)
+        .Def2("Need-ack",         "A",  &CloseOp::needAck,         true)
+        .Def2("Has-write-id",     "W",  &CloseOp::hasWriteId,      false)
+        .Def2("Master-committed", "M",  &CloseOp::masterCommitted, int64_t(-1))
+        .Def2("C-access-length",  "AL", &CloseOp::chunkAccessLength)
+        .Def2("Content-length",   "l",  &CloseOp::contentLength)
         ;
     }
 };
@@ -1069,17 +1063,17 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
-        .Def("Chunk-version",     &RecordAppendOp::chunkVersion,          int64_t(-1))
-        .Def("Offset",            &RecordAppendOp::offset,                int64_t(-1))
-        .Def("File-offset",       &RecordAppendOp::fileOffset,            int64_t(-1))
-        .Def("Num-bytes",         &RecordAppendOp::numBytes)
-        .Def("Num-servers",       &RecordAppendOp::numServers)
-        .Def("Servers",           &RecordAppendOp::servers)
-        .Def("Checksum",          &RecordAppendOp::checksum)
-        .Def("Client-cseq",       &RecordAppendOp::clientSeqVal)
-        .Def("Master-committed",  &RecordAppendOp::masterCommittedOffset, int64_t(-1))
-        .Def("Access-fwd-length", &RecordAppendOp::accessFwdLength, 0)
-        .Def("C-access-length",   &RecordAppendOp::chunkAccessLength)
+        .Def2("Chunk-version",     "V",  &RecordAppendOp::chunkVersion,          int64_t(-1))
+        .Def2("Offset",            "O",  &RecordAppendOp::offset,                int64_t(-1))
+        .Def2("File-offset",       "FO", &RecordAppendOp::fileOffset,            int64_t(-1))
+        .Def2("Num-bytes",         "B",  &RecordAppendOp::numBytes)
+        .Def2("Num-servers",       "R",  &RecordAppendOp::numServers)
+        .Def2("Servers",           "S",  &RecordAppendOp::servers)
+        .Def2("Checksum",          "CS", &RecordAppendOp::checksum)
+        .Def2("Client-cseq",       "Cc", &RecordAppendOp::clientSeqVal)
+        .Def2("Master-committed",  "MC", &RecordAppendOp::masterCommittedOffset, int64_t(-1))
+        .Def2("Access-fwd-length", "AF", &RecordAppendOp::accessFwdLength, 0)
+        .Def2("C-access-length",   "AL", &RecordAppendOp::chunkAccessLength)
         ;
     }
 private:
@@ -1149,8 +1143,8 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Chunk-version", &GetRecordAppendOpStatus::chunkVersion, int64_t(-1))
-        .Def("Write-id",      &GetRecordAppendOpStatus::writeId,      int64_t(-1))
+        .Def2("Chunk-version", "V", &GetRecordAppendOpStatus::chunkVersion, int64_t(-1))
+        .Def2("Write-id",      "W", &GetRecordAppendOpStatus::writeId,      int64_t(-1))
         ;
     }
 };
@@ -1230,13 +1224,15 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     int Done(int code, void *data);
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
-        const Properties::String* const wids = props.getValue("Write-id");
+        const Properties::String* const wids = props.getValue(
+            shortRpcFormatFlag ? "W" : "Write-id");
         if (wids) {
             writeIdStr = *wids;
         } else {
             writeIdStr.clear();
         }
-        writePrepareReplyFlag = props.getValue("Write-prepare-reply", 0) != 0;
+        writePrepareReplyFlag = props.getValue(
+            shortRpcFormatFlag ? "WR" : "Write-prepare-reply", 0) != 0;
         return (! writeIdStr.empty());
     }
     virtual ostream& ShowSelf(ostream& os) const
@@ -1256,16 +1252,16 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
-        .Def("Chunk-version",       &WriteIdAllocOp::chunkVersion,      int64_t(-1))
-        .Def("Offset",              &WriteIdAllocOp::offset)
-        .Def("Num-bytes",           &WriteIdAllocOp::numBytes)
-        .Def("Num-servers",         &WriteIdAllocOp::numServers)
-        .Def("Servers",             &WriteIdAllocOp::servers)
-        .Def("For-record-append",   &WriteIdAllocOp::isForRecordAppend, false)
-        .Def("Client-cseq",         &WriteIdAllocOp::clientSeqVal)
-        .Def("Write-prepare-reply", &WriteIdAllocOp::writePrepareReplyFlag)
-        .Def("Content-length",      &WriteIdAllocOp::contentLength, 0)
-        .Def("C-access-length",     &WriteIdAllocOp::chunkAccessLength)
+        .Def2("Chunk-version",       "V",  &WriteIdAllocOp::chunkVersion,      int64_t(-1))
+        .Def2("Offset",              "O",  &WriteIdAllocOp::offset)
+        .Def2("Num-bytes",           "B",  &WriteIdAllocOp::numBytes)
+        .Def2("Num-servers",         "R",  &WriteIdAllocOp::numServers)
+        .Def2("Servers",             "S",  &WriteIdAllocOp::servers)
+        .Def2("For-record-append",   "A",  &WriteIdAllocOp::isForRecordAppend, false)
+        .Def2("Client-cseq",         "Cc", &WriteIdAllocOp::clientSeqVal)
+        .Def2("Write-prepare-reply", "WR", &WriteIdAllocOp::writePrepareReplyFlag)
+        .Def2("Content-length",      "l",  &WriteIdAllocOp::contentLength, 0)
+        .Def2("C-access-length",     "AL", &WriteIdAllocOp::chunkAccessLength)
         ;
     }
 private:
@@ -1346,15 +1342,15 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
-        .Def("Chunk-version",     &WritePrepareOp::chunkVersion, int64_t(-1))
-        .Def("Offset",            &WritePrepareOp::offset)
-        .Def("Num-bytes",         &WritePrepareOp::numBytes)
-        .Def("Num-servers",       &WritePrepareOp::numServers)
-        .Def("Servers",           &WritePrepareOp::servers)
-        .Def("Checksum",          &WritePrepareOp::checksum)
-        .Def("Reply",             &WritePrepareOp::replyRequestedFlag)
-        .Def("Access-fwd-length", &WritePrepareOp::accessFwdLength, 0)
-        .Def("C-access-length",   &WritePrepareOp::chunkAccessLength)
+        .Def2("Chunk-version",     "V",  &WritePrepareOp::chunkVersion, int64_t(-1))
+        .Def2("Offset",            "O",  &WritePrepareOp::offset)
+        .Def2("Num-bytes",         "B",  &WritePrepareOp::numBytes)
+        .Def2("Num-servers",       "R",  &WritePrepareOp::numServers)
+        .Def2("Servers",           "S",  &WritePrepareOp::servers)
+        .Def2("Checksum",          "CS", &WritePrepareOp::checksum)
+        .Def2("Reply",             "RR", &WritePrepareOp::replyRequestedFlag)
+        .Def2("Access-fwd-length", "AF", &WritePrepareOp::accessFwdLength, 0)
+        .Def2("C-access-length",   "AL", &WritePrepareOp::chunkAccessLength)
         ;
     }
 };
@@ -1557,15 +1553,15 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
-        .Def("Chunk-version",    &WriteSyncOp::chunkVersion, int64_t(-1))
-        .Def("Offset",           &WriteSyncOp::offset)
-        .Def("Num-bytes",        &WriteSyncOp::numBytes)
-        .Def("Num-servers",      &WriteSyncOp::numServers)
-        .Def("Servers",          &WriteSyncOp::servers)
-        .Def("Checksum-entries", &WriteSyncOp::checksumsCnt)
-        .Def("Checksums",        &WriteSyncOp::checksumsStr)
-        .Def("Content-length",   &WriteSyncOp::contentLength, 0)
-        .Def("C-access-length",  &WriteSyncOp::chunkAccessLength)
+        .Def2("Chunk-version",    "V",  &WriteSyncOp::chunkVersion, int64_t(-1))
+        .Def2("Offset",           "O",  &WriteSyncOp::offset)
+        .Def2("Num-bytes",        "B",  &WriteSyncOp::numBytes)
+        .Def2("Num-servers",      "R",  &WriteSyncOp::numServers)
+        .Def2("Servers",          "S",  &WriteSyncOp::servers)
+        .Def2("Checksum-entries", "CE", &WriteSyncOp::checksumsCnt)
+        .Def2("Checksums",        "CS", &WriteSyncOp::checksumsStr)
+        .Def2("Content-length",   "l",  &WriteSyncOp::contentLength, 0)
+        .Def2("C-access-length",  "AL", &WriteSyncOp::chunkAccessLength)
         ;
     }
 };
@@ -1718,10 +1714,10 @@ struct ReadOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Chunk-version",    &ReadOp::chunkVersion, int64_t(-1))
-        .Def("Offset",           &ReadOp::offset)
-        .Def("Num-bytes",        &ReadOp::numBytes)
-        .Def("Skip-Disk-Chksum", &ReadOp::skipVerifyDiskChecksumFlag, false)
+        .Def2("Chunk-version",    "V",  &ReadOp::chunkVersion, int64_t(-1))
+        .Def2("Offset",           "O",  &ReadOp::offset)
+        .Def2("Num-bytes",        "B",  &ReadOp::numBytes)
+        .Def2("Skip-Disk-Chksum", "SS", &ReadOp::skipVerifyDiskChecksumFlag, false)
         ;
     }
 };
@@ -1762,14 +1758,14 @@ struct SizeOp : public KfsClientChunkOp {
     int HandleDone(int code, void *data);
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
-        size = props.getValue("Size", int64_t(-1));
+        size = props.getValue(shortRpcFormatFlag ? "S" : "Size", int64_t(-1));
         return (0 <= size);
     }
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("File-handle",   &SizeOp::fileId,       kfsFileId_t(-1))
-        .Def("Chunk-version", &SizeOp::chunkVersion, int64_t(-1))
+        .Def2("File-handle",   "P", &SizeOp::fileId,       kfsFileId_t(-1))
+        .Def2("Chunk-version", "V", &SizeOp::chunkVersion, int64_t(-1))
         ;
     }
 };
@@ -1815,9 +1811,9 @@ struct ChunkSpaceReserveOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Num-bytes",    &ChunkSpaceReserveOp::nbytes)
-        .Def("Num-servers",  &ChunkSpaceReserveOp::numServers)
-        .Def("Servers",      &ChunkSpaceReserveOp::servers)
+        .Def2("Num-bytes",    "B", &ChunkSpaceReserveOp::nbytes)
+        .Def2("Num-servers",  "R", &ChunkSpaceReserveOp::numServers)
+        .Def2("Servers",      "S", &ChunkSpaceReserveOp::servers)
         ;
     }
 };
@@ -1857,9 +1853,9 @@ struct ChunkSpaceReleaseOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Num-bytes",    &ChunkSpaceReleaseOp::nbytes)
-        .Def("Num-servers",  &ChunkSpaceReleaseOp::numServers)
-        .Def("Servers",      &ChunkSpaceReleaseOp::servers)
+        .Def2("Num-bytes",    "B", &ChunkSpaceReleaseOp::nbytes)
+        .Def2("Num-servers",  "R", &ChunkSpaceReleaseOp::numServers)
+        .Def2("Servers",      "S", &ChunkSpaceReleaseOp::servers)
         ;
     }
 };
@@ -1920,8 +1916,10 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     }
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
-        chunkVersion = props.getValue("Chunk-version", int64_t(-1));
-        chunkSize    = props.getValue("Size",          int64_t(-1));
+        chunkVersion = props.getValue(
+            shortRpcFormatFlag ? "V" : "Chunk-version", int64_t(-1));
+        chunkSize    = props.getValue(
+            shortRpcFormatFlag ? "S" : "Size",          int64_t(-1));
         return (0 <= chunkVersion && 0 <= chunkSize);
     }
     virtual bool GetResponseContent(IOBuffer& iobuf, int len)
@@ -1931,7 +1929,7 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def("Read-verify",  &GetChunkMetadataOp::readVerifyFlag)
+        .Def2("Read-verify",  "RV", &GetChunkMetadataOp::readVerifyFlag)
         ;
     }
 };
@@ -2036,10 +2034,14 @@ struct LeaseRenewOp : public KfsOp {
         { SET_HANDLER(this, &LeaseRenewOp::HandleDone); }
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
-        chunkAccessLength             = props.getValue("C-access-length", 0);
-        chunkServerAccessValidForTime = props.getValue("CS-acess-time",   0);
-        chunkServerAccessIssuedTime   = props.getValue("CS-acess-issued", 0);
-        allowCSClearTextFlag          = props.getValue("CS-clear-text", 0) != 0;
+        chunkAccessLength             = props.getValue(
+            shortRpcFormatFlag ? "AL" : "C-access-length", 0);
+        chunkServerAccessValidForTime = props.getValue(
+            shortRpcFormatFlag ? "ST" : "CS-acess-time",   0);
+        chunkServerAccessIssuedTime   = props.getValue(
+            shortRpcFormatFlag ? "SI" : "CS-acess-issued", 0);
+        allowCSClearTextFlag          = props.getValue(
+            shortRpcFormatFlag ? "CT" : "CS-clear-text", 0) != 0;
         return true;
     }
     virtual bool ParseResponseContent(istream& is, int len)
@@ -2385,7 +2387,7 @@ struct SetProperties : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Content-length", &SetProperties::contentLength)
+        .Def2("Content-length", "l", &SetProperties::contentLength)
         ;
     }
 };
@@ -2433,9 +2435,11 @@ struct AuthenticateOp : public KfsOp {
     }
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
-        chosenAuthType = props.getValue("Auth-type",
+        chosenAuthType = props.getValue(
+            shortRpcFormatFlag ? "A" : "Auth-type",
             int(kAuthenticationTypeUndef));
-        useSslFlag     = props.getValue("Use-ssl", 0) != 0;
+        useSslFlag     = props.getValue(
+            shortRpcFormatFlag ? "US" : "Use-ssl", 0) != 0;
         return true;
     }
     virtual void Request(ostream& os, IOBuffer& buf);
@@ -2453,9 +2457,10 @@ private:
     int responseBufPos;
 };
 
-extern int ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res);
+extern int ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
+    bool shortRpcFmtFlag);
 extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    char* tmpBuf = 0);
+    bool shortRpcFmtFlag, char* tmpBuf = 0);
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
 

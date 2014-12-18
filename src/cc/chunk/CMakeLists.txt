@@ -42,6 +42,7 @@ add_executable (chunkserver
     DirChecker.cc
     Chunk.cc
     ClientThread.cc
+    KfsOpsHandler.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
 

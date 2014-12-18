@@ -821,7 +821,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             mIStream.Reset();
         }
         mContentReceivedFlag = false;
-        if (! op && ParseClientCommand(iobuf, cmdLen, &op) != 0) {
+        if (! op && ParseClientCommand(iobuf, cmdLen, &op, false) != 0) {
             assert(! op);
             istream& is = mIStream.Set(iobuf, cmdLen);
             string line;

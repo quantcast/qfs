@@ -409,6 +409,29 @@ KfsOp::GetNullOp()
     return sNullOp;
 }
 
+class KfsOp::CleanupChecker
+{
+public:
+    CleanupChecker()
+        { assert(KfsOp::GetOpsCount() == 0); }
+    ~CleanupChecker()
+    {
+        const int64_t cnt = KfsOp::GetOpsCount();
+        if (cnt == 0) {
+            return;
+        }
+        char buffer[] = { "error: ops count at extit 000000000000000\n" };
+        const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
+        IntToDecString(cnt, buffer + sz - 1);
+        if (write(2, buffer, sizeof(buffer))) {
+            QCUtils::SetLastIgnoredError(errno);
+        }
+        if (ChunkManager::GetExitDebugCheckFlag()) {
+            abort();
+        }
+    }
+};
+
 QCMutex* KfsOp::sMutex      = 0;
 int64_t  KfsOp::sOpsCount   = 0;
 KfsOp*   KfsOp::sOpsList[1] = {0};
@@ -424,6 +447,7 @@ KfsOp::KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c)
       noReply(false),
       noRetry(false),
       clientSMFlag(false),
+      shortRpcFormatFlag(false),
       maxWaitMillisec(-1),
       statusMsg(),
       clnt(c),
@@ -452,22 +476,6 @@ KfsOp::~KfsOp()
     const_cast<KfsOp_t&>(op) = CMD_UNKNOWN; // To catch double delete.
 }
 
-KfsOp::CleanupChecker::~CleanupChecker()
-{
-    if (sOpsCount == 0) {
-        return;
-    }
-    char buffer[] = { "error: ops count at extit 000000000000000\n" };
-    const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
-    IntToDecString(sOpsCount, buffer + sz - 1);
-    if (write(2, buffer, sizeof(buffer))) {
-        QCUtils::SetLastIgnoredError(errno);
-    }
-    if (ChunkManager::GetExitDebugCheckFlag()) {
-        abort();
-    }
-}
-
 /* static */ uint32_t
 KfsOp::Checksum(
     const char* name,
@@ -491,7 +499,7 @@ KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
     return gChunkManager.FindDeviceBufferManager(chunkId);
 }
 
-inline bool
+bool
 KfsClientChunkOp::Validate()
 {
     if (! KfsOp::Validate()) {
@@ -606,127 +614,6 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
         );
         os << "\r\n";
     }
-}
-
-typedef RequestHandler<KfsOp> ChunkRequestHandler;
-
-static ChunkRequestHandler&
-MakeCommonRequestHandler(
-    ChunkRequestHandler& handler)
-{
-    return handler
-    .MakeParser<SizeOp>("SIZE")
-    ;
-}
-
-static const ChunkRequestHandler&
-MakeClientRequestHandler()
-{
-    static ChunkRequestHandler sHandler;
-    return MakeCommonRequestHandler(sHandler)
-    .MakeParser<CloseOp                 >("CLOSE")
-    .MakeParser<ReadOp                  >("READ")
-    .MakeParser<WriteIdAllocOp          >("WRITE_ID_ALLOC")
-    .MakeParser<WritePrepareOp          >("WRITE_PREPARE")
-    .MakeParser<WriteSyncOp             >("WRITE_SYNC")
-    .MakeParser<RecordAppendOp          >("RECORD_APPEND")
-    .MakeParser<GetRecordAppendOpStatus >("GET_RECORD_APPEND_OP_STATUS")
-    .MakeParser<ChunkSpaceReserveOp     >("CHUNK_SPACE_RESERVE")
-    .MakeParser<ChunkSpaceReleaseOp     >("CHUNK_SPACE_RELEASE")
-    .MakeParser<GetChunkMetadataOp      >("GET_CHUNK_METADATA")
-    .MakeParser<PingOp                  >("PING")
-    .MakeParser<DumpChunkMapOp          >("DUMP_CHUNKMAP")
-    .MakeParser<StatsOp                 >("STATS")
-    ;
-}
-
-
-static const ChunkRequestHandler&
-MakeMetaRequestHandler()
-{
-    static ChunkRequestHandler sHandler;
-    return MakeCommonRequestHandler(sHandler)
-    .MakeParser<AllocChunkOp            >("ALLOCATE")
-    .MakeParser<DeleteChunkOp           >("DELETE")
-    .MakeParser<TruncateChunkOp         >("TRUNCATE")
-    .MakeParser<ReplicateChunkOp        >("REPLICATE")
-    .MakeParser<HeartbeatOp             >("HEARTBEAT")
-    .MakeParser<StaleChunksOp           >("STALE_CHUNKS")
-    .MakeParser<ChangeChunkVersOp       >("CHUNK_VERS_CHANGE")
-    .MakeParser<BeginMakeChunkStableOp  >("BEGIN_MAKE_CHUNK_STABLE")
-    .MakeParser<MakeChunkStableOp       >("MAKE_CHUNK_STABLE")
-    .MakeParser<RetireOp                >("RETIRE")
-    .MakeParser<SetProperties           >("CMD_SET_PROPERTIES")
-    .MakeParser<RestartChunkServerOp    >("RESTART_CHUNK_SERVER")
-    ;
-}
-
-static const ChunkRequestHandler& sClientRequestHandler =
-    MakeClientRequestHandler();
-static const ChunkRequestHandler& sMetaRequestHandler   =
-    MakeMetaRequestHandler();
-
-///
-/// Given a command in a buffer, parse it out and build a "Command"
-/// structure which can then be executed.  For parsing, we take the
-/// string representation of a command and build a Properties object
-/// out of it; we can then pull the various headers in whatever order
-/// we choose.
-/// Commands are of the form:
-/// <COMMAND NAME> \r\n
-/// {header: value \r\n}+\r\n
-///
-///  The general model in parsing the client command:
-/// 1. Each command has its own parser
-/// 2. Extract out the command name and find the parser for that
-/// command
-/// 3. Dump the header/value pairs into a properties object, so that we
-/// can extract the header/value fields in any order.
-/// 4. Finally, call the parser for the command sent by the client.
-///
-/// @param[in] cmdBuf: buffer containing the request sent by the client
-/// @param[in] cmdLen: length of cmdBuf
-/// @param[out] res: A piece of memory allocated by calling new that
-/// contains the data for the request.  It is the caller's
-/// responsibility to delete the memory returned in res.
-/// @retval 0 on success;  -1 if there is an error
-///
-static int
-ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    const ChunkRequestHandler& requestHandlers, char* tmpBuf)
-{
-    // Main thread's buffer
-    static char tempBuf[MAX_RPC_HEADER_LEN];
-
-    *res = 0;
-    if (len <= 0 || len > MAX_RPC_HEADER_LEN) {
-        return -1;
-    }
-    // Copy if request header spans two or more buffers.
-    // Requests on average are over a magnitude shorter than single
-    // io buffer (4K page), thus the copy should be infrequent, and
-    // small enough. With modern cpu the copy should be take less
-    // cpu cycles than buffer boundary handling logic (or one symbol
-    // per call processing), besides the request headers are small
-    // enough to fit into cpu cache.
-    int               reqLen = len;
-    const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
-        tmpBuf ? tmpBuf : tempBuf, reqLen);
-    assert(reqLen == len);
-    *res = reqLen == len ? requestHandlers.Handle(buf, reqLen) : 0;
-    return (*res ? 0 : -1);
-}
-
-int
-ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res)
-{
-    return ParseCommand(ioBuf, len, res, sMetaRequestHandler, 0);
-}
-
-int
-ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res, char* tmpBuf)
-{
-    return ParseCommand(ioBuf, len, res, sClientRequestHandler, tmpBuf);
 }
 
 ClientSM*
@@ -1990,10 +1877,12 @@ ReadOp::HandleChunkMetaReadDone(int code, void *data)
 /* virtual */ bool
 ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
 {
-    const int checksumEntries = props.getValue("Checksum-entries", 0);
+    const int checksumEntries = props.getValue(
+        shortRpcFormatFlag ? "CE" : "Checksum-entries", 0);
     checksum.clear();
     if (0 < checksumEntries) {
-        const Properties::String* const cks = props.getValue("Checksums");
+        const Properties::String* const cks = props.getValue(
+            shortRpcFormatFlag ? "CS" : "Checksums");
         if (! cks) {
             return false;
         }
@@ -2011,7 +1900,7 @@ ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
         }
     }
     skipVerifyDiskChecksumFlag = skipVerifyDiskChecksumFlag &&
-        props.getValue("Skip-Disk-Chksum", 0) != 0;
+        props.getValue(shortRpcFormatFlag ? "SS" : "Skip-Disk-Chksum", 0) != 0;
     const int off = (int)(offset % IOBufferData::GetDefaultBufferSize());
     if (0 < off) {
         IOBuffer buf;

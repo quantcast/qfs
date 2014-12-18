@@ -106,6 +106,7 @@ MetaServerSM::MetaServerSM()
       mHelloResume(1),
       mOp(0),
       mRequestFlag(false),
+      mShortRpcFmtFlag(false),
       mContentLength(0),
       mCounters(),
       mIStream(),
@@ -896,7 +897,7 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
 {
     KfsOp* op = mOp;
     mOp = 0;
-    if (! op && ParseMetaCommand(iobuf, cmdLen, &op) != 0) {
+    if (! op && ParseMetaCommand(iobuf, cmdLen, &op, mShortRpcFmtFlag) != 0) {
         IOBuffer::IStream is(iobuf, cmdLen);
         const string peer = IsConnected() ?
             mNetConnection->GetPeerName() : string("not connected");

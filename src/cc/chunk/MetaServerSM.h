@@ -226,6 +226,7 @@ private:
     int                           mHelloResume;
     KfsOp*                        mOp;
     bool                          mRequestFlag;
+    bool                          mShortRpcFmtFlag;
     int                           mContentLength;
     PendingResponses              mPendingResponses;
     Counters                      mCounters;

@@ -399,6 +399,7 @@ public:
                         theBuf,
                         theEntry.mReceivedHeaderLen,
                         &theEntry.mReceivedOpPtr,
+                        false,
                         mParseBuffer) != 0) {
                     theEntry.ReceiveClear();
                 }
