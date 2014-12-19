@@ -277,12 +277,14 @@ inline static void
 WriteSyncReplicationAccess(
     const SyncReplicationAccess& sra,
     ostream&                     os,
-    const char*                  contentLengthHeader = "Content-length: ")
+    bool                         shortFmtFlag,
+    const char*                  contentLengthHeader)
 {
     const SRChunkAccess::Token* cFwd = 0;
     if (sra.chunkAccess) {
         const SRChunkAccess& ra = *sra.chunkAccess;
-        os << "C-access: "; os.write(ra.token.mPtr, ra.token.mLen) << "\r\n";
+        os << (shortFmtFlag ? "C:" : "C-access: ");
+            os.write(ra.token.mPtr, ra.token.mLen) << "\r\n";
         cFwd = &ra.fwd;
     }
     const SRChunkServerAccess::Token* csFwd = sra.chunkServerAccess ?
@@ -290,7 +292,8 @@ WriteSyncReplicationAccess(
     int         len = (csFwd && 0 < csFwd->mLen) ? csFwd->mLen : 0;
     const char* sep = 0;
     if (cFwd && 0 < cFwd->mLen) {
-        os << "C-access-length: " << cFwd->mLen << "\r\n";
+        os << (shortFmtFlag ? "AL:" : "C-access-length: ") <<
+            cFwd->mLen << "\r\n";
         if (0 < len &&
                 ' ' < (cFwd->mPtr[cFwd->mLen] & 0xFF) &&
                 ' ' < (csFwd->mPtr[0] & 0xFF)) {
@@ -565,10 +568,11 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
     }
     const time_t now = globalNetManager().Now();
     os <<
-        "Acess-issued: " << now         << "\r\n"
-        "Acess-time: "   << validForSec << "\r\n";
+        (shortRpcFormatFlag ? "SI:" : "Acess-issued: ") << now << "\r\n" <<
+        (shortRpcFormatFlag ? "ST:" : "Acess-time: ")   <<
+            validForSec << "\r\n";
     if (createChunkAccessFlag) {
-        os << "C-access: ";
+        os << (shortRpcFormatFlag ? "C:" : "C-access: ");
         ChunkAccessToken::WriteToken(
             os,
             chunkId,
@@ -590,7 +594,7 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
         os << "\r\n";
     }
     if (createChunkServerAccessFlag) {
-        os << "CS-access: ";
+        os << (shortRpcFormatFlag ? "SA:" : "CS-access: ");
         // Session key must not be empty if communication is in clear text, in
         // order to encrypt the newly issued session key.
         // The ClientSM saves session key only for clear text sessions.
@@ -2815,16 +2819,21 @@ StatsOp::Execute()
 inline static bool
 OkHeader(const KfsOp* op, ostream &os, bool checkStatus = true)
 {
+    if (op->shortRpcFormatFlag) {
+        os << hex;
+    }
     os << "OK\r\n";
-    os << "Cseq: "   << op->seq << "\r\n";
-    os << "Status: " << (op->status >= 0 ? op->status :
-        -SysToKfsErrno(-op->status)) << "\r\n";
+    os << (op->shortRpcFormatFlag ? "c:" : "Cseq: ") << op->seq << "\r\n";
+    os << (op->shortRpcFormatFlag ? "s:" : "Status: ") <<
+        (op->status >= 0 ? op->status : -SysToKfsErrno(-op->status)) << "\r\n";
     if (! op->statusMsg.empty()) {
-        const size_t p = op->statusMsg.find('\r');
-        assert(string::npos == p && op->statusMsg.find('\n') == string::npos);
-        os << "Status-message: " <<
-            (p == string::npos ? op->statusMsg : op->statusMsg.substr(0, p)) <<
-        "\r\n";
+        if (op->statusMsg.find('\r') != string::npos ||
+                op->statusMsg.find('\n') != string::npos) {
+            die("invalid RPC status message");
+        } else {
+            os << (op->shortRpcFormatFlag ? "m:" : "Status-message: ") <<
+                op->statusMsg << "\r\n";
+        }
     }
     if (checkStatus && op->status < 0) {
         os << "\r\n";
@@ -2864,7 +2873,7 @@ SizeOp::Response(ostream &os)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Size: " << size << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "S:" : "Size: ") << size << "\r\n\r\n";
 }
 
 void
@@ -2874,10 +2883,10 @@ GetChunkMetadataOp::Response(ostream &os)
         return;
     }
     os <<
-        "Chunk-handle: "   << chunkId      << "\r\n"
-        "Chunk-version: "  << chunkVersion << "\r\n"
-        "Size: "           << chunkSize    << "\r\n"
-        "Content-length: " << numBytesIO   << "\r\n"
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "S:" : "Size: ")          << chunkSize    << "\r\n" <<
+    (shortRpcFormatFlag ? "l:" : "Content-length: ") << numBytesIO  << "\r\n"
     "\r\n";
 }
 
@@ -2889,21 +2898,27 @@ ReadOp::Response(ostream &os)
         os << "\r\n";
         return;
     }
-
-    os << "DiskIOtime: " << (diskIOTime * 1e-6) << "\r\n";
-    os << "Checksum-entries: " << checksum.size() << "\r\n";
+    if (shortRpcFormatFlag) {
+        os << "D:" << diskIOTime << "\r\n";
+    } else {
+        os << "DiskIOtime: " << (diskIOTime * 1e-6) << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "CE:" : "Checksum-entries: ") <<
+        checksum.size() << "\r\n";
     if (skipVerifyDiskChecksumFlag) {
-        os << "Skip-Disk-Chksum: 1\r\n";
+        os << (shortRpcFormatFlag ? "SS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
     if (checksum.size() == 0) {
-        os << "Checksums: " << 0 << "\r\n";
+        os << (shortRpcFormatFlag ? "CS:0\r\n" : "Checksums: 0\r\n");
     } else {
-        os << "Checksums: ";
-        for (uint32_t i = 0; i < checksum.size(); i++)
-            os << checksum[i] << ' ';
+        os << (shortRpcFormatFlag ? "CS:" : "Checksums:");
+        for (size_t i = 0; i < checksum.size(); i++) {
+            os << ' ' << checksum[i];
+        }
         os << "\r\n";
     }
-    os << "Content-length: " << numBytesIO << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        numBytesIO << "\r\n\r\n";
 }
 
 void
@@ -2913,10 +2928,10 @@ WriteIdAllocOp::Response(ostream &os)
         return;
     }
     if (writePrepareReplyFlag) {
-        os << "Write-prepare-reply: 1\r\n";
+        os << (shortRpcFormatFlag ? "WR:1\r\n" : "Write-prepare-reply: 1\r\n");
     }
     WriteChunkAccessResponse(os, writeId, ChunkAccessToken::kUsesWriteIdFlag);
-    os << "Write-id: " << writeIdStr <<  "\r\n"
+    os << (shortRpcFormatFlag ? "W:" : "Write-id: ") << writeIdStr <<  "\r\n"
     "\r\n";
 }
 
@@ -2937,29 +2952,38 @@ RecordAppendOp::Response(ostream &os)
         return;
     }
     WriteChunkAccessResponse(os, writeId, ChunkAccessToken::kUsesWriteIdFlag);
-    os << "File-offset: " << fileOffset << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "FO:" : "File-offset: ") << fileOffset <<
+    "\r\n\r\n";
 }
 
 void
 RecordAppendOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "RECORD_APPEND \r\n"
-        "Cseq: "             << seq                   << "\r\n"
-        "Version: "          << KFS_VERSION_STR       << "\r\n"
-        "Chunk-handle: "     << chunkId               << "\r\n"
-        "Chunk-version: "    << chunkVersion          << "\r\n"
-        "Offset: "           << offset                << "\r\n"
-        "File-offset: "      << fileOffset            << "\r\n"
-        "Num-bytes: "        << numBytes              << "\r\n"
-        "Checksum: "         << checksum              << "\r\n"
-        "Num-servers: "      << numServers            << "\r\n"
-        "Client-cseq: "      << clientSeq             << "\r\n"
-        "Servers: "          << servers               << "\r\n"
-        "Master-committed: " << masterCommittedOffset << "\r\n"
+    "RECORD_APPEND \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n"
     ;
-    WriteSyncReplicationAccess(
-        syncReplicationAccess, os, "Access-fwd-length: ");
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")<< chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:"  : "Offset: ")       << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "FO:" : "File-offset: ")  << fileOffset   << "\r\n" <<
+    (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "CS:" : "Checksum: ")     << checksum     << "\r\n" <<
+    (shortRpcFormatFlag ? "R:"  : "Num-servers: ")  << numServers   << "\r\n" <<
+    (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
+    (shortRpcFormatFlag ? "S:"  : "Servers: ")      << servers      << "\r\n" <<
+    (shortRpcFormatFlag ? "MC:" : "Master-committed: ") <<
+        masterCommittedOffset << "\r\n"
+    ;
+    WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
+        shortRpcFormatFlag ? "AF:" : "Access-fwd-length: ");
 }
 
 void
@@ -3022,7 +3046,8 @@ CloseOp::Request(ostream& os)
     if (masterCommitted >= 0) {
         os  << "Master-committed: " << masterCommitted << "\r\n";
     }
-    WriteSyncReplicationAccess(syncReplicationAccess, os);
+    WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
+        shortRpcFormatFlag ? "l:" : "Content-length: ");
 }
 
 void
@@ -3090,7 +3115,8 @@ WriteIdAllocOp::Request(ostream& os)
         "Num-servers: "       << numServers                  << "\r\n"
         "Servers: "           << servers                     << "\r\n"
     ;
-    WriteSyncReplicationAccess(syncReplicationAccess, os);
+    WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
+        shortRpcFormatFlag ? "l:" : "Content-length: ");
 }
 
 void
@@ -3109,8 +3135,9 @@ WritePrepareFwdOp::Request(ostream& os)
     "Reply: "         << (owner.replyRequestedFlag ? 1 : 0) << "\r\n"
     "Servers: "       << owner.servers << "\r\n"
     ;
-    WriteSyncReplicationAccess(
-        owner.syncReplicationAccess, os, "Access-fwd-length: ");
+    WriteSyncReplicationAccess(owner.syncReplicationAccess, os,
+        shortRpcFormatFlag,
+        shortRpcFormatFlag ? "AF:" : "Access-fwd-length: ");
 }
 
 void
@@ -3134,7 +3161,8 @@ WriteSyncOp::Request(ostream& os)
     }
     os << "Num-servers: " << numServers << "\r\n";
     os << "Servers: " << servers << "\r\n";
-    WriteSyncReplicationAccess(syncReplicationAccess, os);
+    WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
+        shortRpcFormatFlag ? "l:" : "Content-length: ");
 }
 
 static void
