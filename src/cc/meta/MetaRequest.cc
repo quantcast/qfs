@@ -4325,7 +4325,7 @@ MetaAllocate::responseSelf(ostream& os)
             offset << "\r\n";
     }
     assert(! servers.empty() || invalidateAllFlag);
-    if (! shortRpcFormatFlag && servers.front()) {
+    if (! shortRpcFormatFlag && ! servers.empty() && servers.front()) {
         os << "Master: " << servers.front()->GetServerLocation() << "\r\n";
     }
     os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
