@@ -2898,7 +2898,7 @@ LayoutManager::AddNewServer(MetaHello *r)
 
     if (mAssignMasterByIpFlag) {
         // if the server node # is odd, it is master; else slave
-        string ipaddr = r->peerName;
+        string            ipaddr   = r->peerName;
         string::size_type delimPos = ipaddr.rfind(':');
         if (delimPos != string::npos) {
             ipaddr.erase(delimPos);
@@ -2906,22 +2906,20 @@ LayoutManager::AddNewServer(MetaHello *r)
         delimPos = ipaddr.rfind('.');
         int64_t lastByte = -1;
         if (delimPos == string::npos) {
-            if (ipaddr.empty() && (*ipaddr.rbegin() & 0xFF) == ']') {
+            if (! ipaddr.empty() && (*ipaddr.rbegin() & 0xFF) == ']') {
                 ipaddr.erase(ipaddr.size() - 1);
                 if ((delimPos = ipaddr.rfind(':')) != string::npos &&
-                        delimPos + 1 < ipaddr.length()) {
+                        delimPos + 1 < ipaddr.size()) {
                     lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
                 } else {
                     lastByte = toNumber(ipaddr.c_str());
                 }
-            } else {
-                srv.SetCanBeChunkMaster(Rand(2) != 0);
             }
         } else if (delimPos + 1 < ipaddr.length()) {
             lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
         }
         if (lastByte < 0) {
-            srv.SetCanBeChunkMaster(Rand(2) != 0);
+            srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
         } else {
             srv.SetCanBeChunkMaster((lastByte % 2) != 0);
         }
