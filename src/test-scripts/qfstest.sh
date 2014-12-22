@@ -23,14 +23,26 @@
 #
 #
 
-if [ $# -ge 1 -a x"$1" = x'-valgrind' ]; then
+while [ $# -ge 1 ]; do
+    if [ x"$1" = x'-valgrind' ]; then
+        myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
+        GLIBCPP_FORCE_NEW=1
+        export GLIBCPP_FORCE_NEW
+        GLIBCXX_FORCE_NEW=1
+        export GLIBCXX_FORCE_NEW
+    elif [ x"$1" = x'-ipv6' ]; then
+        testipv6='yes'
+    elif [ x"$1" = x'-noauth' ]; then
+        auth='no'
+    elif [ x"$1" = x'-auth' ]; then
+        auth='no'
+    else
+        echo "unsupported option: $1" 1>&2
+        echo "Usage: %1 [-valgrind] [-ipv6] [-noauth] [-auth]"
+        exit 1
+    fi
     shift
-    myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
-    GLIBCPP_FORCE_NEW=1
-    export GLIBCPP_FORCE_NEW
-    GLIBCXX_FORCE_NEW=1
-    export GLIBCXX_FORCE_NEW
-fi
+done
 export myvalgrind
 
 exec </dev/null
@@ -45,11 +57,25 @@ if [ x"$auth" = x'yes' ]; then
     echo "Authentication on"
 fi
 
+if [ x"$testipv6" = x'yes' ]; then
+    metahost='::1'
+    metahosturl="[$metahost]"
+    iptobind='::'
+else
+    metahost='127.0.0.1'
+    metahosturl=$metahost
+    iptobind='0.0.0.0'
+fi
+
 clientuser=${clientuser-"`id -un`"}
 
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
+
+export metahost
+export metasrvport
+export metahosturl
 
 unset QFS_CLIENT_CONFIG
 unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
@@ -73,7 +99,6 @@ chunksrvprop='ChunkServer.prp'
 chunksrvlog='chunkserver.log'
 chunksrvpid="chunkserver${pidsuf}"
 chunksrvout='chunkserver.out'
-metahost='127.0.0.1'
 csallowcleartext=${csallowcleartext-1}
 clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
@@ -269,12 +294,14 @@ else
     trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser 2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT INT HUP
 fi
 
-echo "Starting meta server $metahost:$metasrvport"
+echo "Starting meta server $metahosturl:$metasrvport"
 
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
 mkdir kfslog || exit
 cat > "$metasrvprop" << EOF
+metaServer.clientIp = $iptobind
+metaServer.chunkServerIp = $iptobind
 metaServer.clientPort = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 metaServer.clusterKey = $clustername
@@ -364,6 +391,7 @@ while [ $i -lt $e ]; do
     mkdir "$dir/kfschunk" || exit
     mkdir "$dir/kfschunk-tier0" || exit
     cat > "$dir/$chunksrvprop" << EOF
+chunkServer.clientIp = $iptobind
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
 chunkServer.clientPort = $i
@@ -412,7 +440,7 @@ done
 
 if [ x"$auth" = x'yes' ]; then
     clientdelegation=`qfs \
-        -fs "qfs://${metahost}:${metasrvport}" \
+        -fs "qfs://${metahosturl}:${metasrvport}" \
         -cfg "${clientprop}" -delegate | awk '
     { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
     END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
@@ -452,7 +480,7 @@ else
 fi
 
 qfstoolpidf="qfstooltest${pidsuf}"
-qfstoolmeta="$metahost:$metasrvport" \
+qfstoolmeta="$metahosturl:$metasrvport" \
 qfstooltrace=on \
 qfstoolrootauthcfg=$qfstoolrootauthcfg \
 qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' 1>qfs_tool-test.out 2>qfs_tool-test.log &

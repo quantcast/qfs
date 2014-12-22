@@ -202,10 +202,11 @@ ClientManager::~ClientManager()
 
     bool
 ClientManager::BindAcceptor(
-    int       inPort,
-    int       inThreadCount,
-    int       inFirstCpuIdx,
-    QCMutex*& outMutexPtr)
+    const ServerLocation& clientListener,
+    bool                  ipV6OnlyFlag,
+    int                   inThreadCount,
+    int                   inFirstCpuIdx,
+    QCMutex*&             outMutexPtr)
 {
     Stop();
     delete mAcceptorPtr;
@@ -214,7 +215,8 @@ ClientManager::BindAcceptor(
     mThreadsPtr  = 0;
     mThreadCount = 0;
     const bool kBindOnlyFlag = true;
-    mAcceptorPtr = new Acceptor(inPort, this, kBindOnlyFlag);
+    mAcceptorPtr = new Acceptor(
+        globalNetManager(), clientListener, ipV6OnlyFlag, this, kBindOnlyFlag);
     const bool theOkFlag = mAcceptorPtr->IsAcceptorStarted();
     if (theOkFlag && 0 < inThreadCount) {
         static QCMutex sOpsMutex;

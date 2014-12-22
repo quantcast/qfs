@@ -21,7 +21,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #include "ChunkServer.h"
@@ -166,7 +166,7 @@ public:
                     execpath += "/";
                 }
                 execpath += mArgs[0];
-            } 
+            }
             if (::stat(execpath.c_str(), &res) != 0) {
                 return QCUtils::SysError(errno, execpath.c_str());
             }
@@ -267,7 +267,7 @@ static Restarter sRestarter;
 string RestartChunkServer()
 {
     return sRestarter.Restart();
-} 
+}
 
 class StdErrAndOutRedirector
 {
@@ -320,7 +320,8 @@ public:
           mChunkDirs(),
           mMD5Sum(),
           mMetaServerLoc(),
-          mChunkServerClientPort(-1), 
+          mClientListener(),
+          mClientListenerIpV6OnlyFlag(false),
           mClientThreadCount(0),
           mFirstCpuIndex(-1),
           mChunkServerHostname(),
@@ -336,10 +337,11 @@ private:
     vector<string> mChunkDirs;
     string         mMD5Sum;
     ServerLocation mMetaServerLoc;
-    int            mChunkServerClientPort;   // Port at which kfs clients connect to us
+    ServerLocation mClientListener;
+    bool           mClientListenerIpV6OnlyFlag;
     int            mClientThreadCount;
     int            mFirstCpuIndex;
-    string         mChunkServerHostname;     // Our hostname to use (instead of using gethostname() )
+    string         mChunkServerHostname;
     string         mClusterKey;
     int            mChunkServerRackId;
     int64_t        mMaxLockedMemorySize;
@@ -419,15 +421,21 @@ ChunkServerMain::LoadParams(const char* fileName)
         return false;
     }
 
-    mChunkServerClientPort = mProp.getValue(
-        "chunkServer.clientPort", mChunkServerClientPort);
-    if (mChunkServerClientPort < 0) {
-        KFS_LOG_STREAM_FATAL << "invalid client port: " << mChunkServerClientPort <<
+    mClientListener.port = mProp.getValue(
+        "chunkServer.clientPort", mClientListener.port);
+    if (mClientListener.port < 0) {
+        KFS_LOG_STREAM_FATAL << "invalid client listener: " <<
+            mClientListener <<
         KFS_LOG_EOM;
         return false;
     }
-    KFS_LOG_STREAM_INFO << "chunk server client port: " <<
-        mChunkServerClientPort <<
+    mClientListener.hostname = mProp.getValue(
+        "chunkServer.clientIp", mClientListener.hostname);
+    mClientListenerIpV6OnlyFlag = mProp.getValue(
+        "chunkServer.clientIpV6Only", mClientListenerIpV6OnlyFlag ? 1 : 0) != 0;
+    KFS_LOG_STREAM_INFO << "chunk server client listener: " <<
+        mClientListener <<
+        (mClientListenerIpV6OnlyFlag ? " ipv6 only" : "") <<
     KFS_LOG_EOM;
     mClientThreadCount = mProp.getValue(
         "chunkServer.clientThreadCount", mClientThreadCount);
@@ -437,7 +445,8 @@ ChunkServerMain::LoadParams(const char* fileName)
         mClientThreadCount <<  " first cpu: " << mFirstCpuIndex <<
     KFS_LOG_EOM;
 
-    mChunkServerHostname = mProp.getValue("chunkServer.hostname", mChunkServerHostname);
+    mChunkServerHostname = mProp.getValue("chunkServer.hostname",
+        mChunkServerHostname);
     if (! mChunkServerHostname.empty()) {
         KFS_LOG_STREAM_INFO << "chunk server hostname: " <<
             mChunkServerHostname <<
@@ -588,8 +597,12 @@ ChunkServerMain::Run(int argc, char **argv)
                 mChunkServerRackId,
                 mMD5Sum,
                 mProp) == 0 &&
-            gChunkServer.Init(mChunkServerClientPort, mChunkServerHostname,
-                mClientThreadCount, mFirstCpuIndex)) {
+            gChunkServer.Init(
+                mClientListener,
+                mClientListenerIpV6OnlyFlag,
+                mChunkServerHostname,
+                mClientThreadCount,
+                mFirstCpuIndex)) {
         ret = gChunkServer.MainLoop(mChunkDirs, mProp, mLogDir) ? 0 : 1;
     }
     NetErrorSimulatorConfigure(globalNetManager());

@@ -30,6 +30,17 @@
 chunkServer.metaServer.hostname = localhost
 chunkServer.metaServer.port     = 30000
 
+# Client connection listener ip address to bind to.
+# Use :: to bind to ipv6 address any.
+# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
+# parameter chunkServer.clientIpV6Only set to 1
+# chunkServer.clientIp =
+
+# Accept ipv4 chunk servers connections.
+# Default is 0, enable acception ipv4 connection. Only has effect if
+# chunkServer.clientIp left empty, or set to ::
+# chunkServer.clientIpV6Only = 0
+
 # Port to open for client connections
 chunkServer.clientPort = 22000
 

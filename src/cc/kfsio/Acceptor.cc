@@ -26,20 +26,24 @@
 
 #include "Acceptor.h"
 #include "NetManager.h"
-#include "Globals.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
+
 #include <stdlib.h>
 
 namespace KFS
 {
-using namespace KFS::libkfsio;
 ///
 /// Create a TCP socket, bind it to the port, and listen for incoming connections.
 ///
-Acceptor::Acceptor(NetManager& netManager, int port, IAcceptorOwner* owner,
-    bool bindOnlyFlag /* = false */)
-    : mPort(port),
+Acceptor::Acceptor(
+    NetManager&           netManager,
+    const ServerLocation& location,
+    bool                  ipV6OnlyFlag,
+    IAcceptorOwner*       owner,
+    bool                  bindOnlyFlag)
+    : mLocation(location),
+      mIpV6OnlyFlag(ipV6OnlyFlag),
       mAcceptorOwner(owner),
       mConn(),
       mNetManager(netManager)
@@ -51,12 +55,16 @@ Acceptor::Acceptor(NetManager& netManager, int port, IAcceptorOwner* owner,
     }
 }
 
-Acceptor::Acceptor(int port, IAcceptorOwner *owner,
-    bool bindOnlyFlag /* = false */)
-    : mPort(port),
+Acceptor::Acceptor(
+    NetManager&     netManager,
+    int             port,
+    IAcceptorOwner* owner,
+    bool            bindOnlyFlag /* = false */)
+    : mLocation(string(), port),
+      mIpV6OnlyFlag(false),
       mAcceptorOwner(owner),
       mConn(),
-      mNetManager(globalNetManager())
+      mNetManager(netManager)
 {
     SET_HANDLER(this, &Acceptor::RecvConnection);
     Acceptor::Bind();
@@ -84,20 +92,29 @@ Acceptor::Bind()
         mConn.reset();
     }
     TcpSocket* const sock = new TcpSocket();
-    const int res = sock->Bind(mPort);
+    const int res = sock->Bind(
+        mLocation,
+        (mLocation.hostname.empty() && mIpV6OnlyFlag) ?
+            TcpSocket::kTypeIpV6 : TcpSocket::kTypeIpV4,
+        mIpV6OnlyFlag
+    );
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "failed to bind to port: " << mPort <<
+            "failed to bind to: " << mLocation <<
             " error: " << QCUtils::SysError(-res) <<
         KFS_LOG_EOM;
         delete sock;
         return;
     }
-    if (mPort == 0) {
-        const string sockName = sock->GetSockName();
-        const size_t pos = sockName.rfind(":");
-        if (pos != string::npos) {
-            mPort = atoi(sockName.c_str() + pos + 1);
+    if (mLocation.port == 0) {
+        ServerLocation loc;
+        const int err = sock->GetSockLocation(loc);
+        if (err) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to get socket address: " << QCUtils::SysError(err) <<
+            KFS_LOG_EOM;
+        } else {
+            mLocation.port = loc.port;
         }
     }
     const bool kListenOnlyFlag = true;
@@ -137,7 +154,7 @@ Acceptor::RecvConnection(int code, void* data)
             // Under normal circumstances it would come up here only with the
             // error simulator enabled.
             KFS_LOG_STREAM_INFO <<
-                "acceptor on port: " << mPort <<
+                "acceptor on: " << mLocation <<
                 " error: " <<
                     QCUtils::SysError(mConn ? mConn->GetSocketError() : 0) <<
                 (mNetManager.IsRunning() ? ", restarting" : ", exiting") <<
@@ -151,7 +168,7 @@ Acceptor::RecvConnection(int code, void* data)
                 StartListening();
                 if (! IsAcceptorStarted()) {
                     KFS_LOG_STREAM_FATAL <<
-                        "failed to restart acceptor on port: " << mPort <<
+                        "failed to restart acceptor on: " << mLocation <<
                     KFS_LOG_EOM;
                     MsgLogger::Stop();
                     abort();

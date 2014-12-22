@@ -199,8 +199,10 @@ private:
           mSetParametersFlag(false),
           mRestartChunkServersFlag(false),
           mSetParametersCount(0),
-          mClientPort(-1),
-          mChunkServerPort(-1),
+          mClientListenerLocation(),
+          mChunkServerListenerLocation(),
+          mClientListenerIpV6OnlyFlag(false),
+          mChunkServerListenerIpV6OnlyFlag(false),
           mLogDir(),
           mCPDir(),
           mMinChunkservers(1),
@@ -296,31 +298,33 @@ private:
     bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag);
 
     // This is to get settings from the core file.
-    string     mFileName;
-    Properties mProperties;
-    Properties mStartupProperties;
-    bool       mCheckpointFlag;
-    bool       mSetParametersFlag;
-    bool       mRestartChunkServersFlag;
-    int        mSetParametersCount;
+    string         mFileName;
+    Properties     mProperties;
+    Properties     mStartupProperties;
+    bool           mCheckpointFlag;
+    bool           mSetParametersFlag;
+    bool           mRestartChunkServersFlag;
+    int            mSetParametersCount;
     // Port at which KFS clients connect and send RPCs
-    int        mClientPort;
+    ServerLocation mClientListenerLocation;
     // Port at which Chunk servers connect
-    int        mChunkServerPort;
+    ServerLocation mChunkServerListenerLocation;
+    bool           mClientListenerIpV6OnlyFlag;
+    bool           mChunkServerListenerIpV6OnlyFlag;
     // paths for logs and checkpoints
-    string     mLogDir;
-    string     mCPDir;
+    string         mLogDir;
+    string         mCPDir;
     // min # of chunk servers to exit recovery mode
-    uint32_t   mMinChunkservers;
-    int        mMaxChunkServers;
-    int        mMaxChunkServersSocketCount;
-    int16_t    mMinReplicasPerFile;
-    bool       mIsPathToFidCacheEnabled;
-    bool       mStartupAbortOnPanicFlag;
-    bool       mAbortOnPanicFlag;
-    int        mLogRotateIntervalSec;
-    int64_t    mMaxLockedMemorySize;
-    int        mMaxFdLimit;
+    uint32_t       mMinChunkservers;
+    int            mMaxChunkServers;
+    int            mMaxChunkServersSocketCount;
+    int16_t        mMinReplicasPerFile;
+    bool           mIsPathToFidCacheEnabled;
+    bool           mStartupAbortOnPanicFlag;
+    bool           mAbortOnPanicFlag;
+    int            mLogRotateIntervalSec;
+    int64_t        mMaxLockedMemorySize;
+    int            mMaxFdLimit;
 
     static MetaServer sInstance;
 } MetaServer::sInstance;
@@ -440,26 +444,41 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         KFS_LOG_EOM;
         return false;
     }
-    mClientPort = props.getValue("metaServer.clientPort", mClientPort);
-    if (mClientPort < 0) {
+    mClientListenerLocation.port = props.getValue("metaServer.clientPort",
+        mClientListenerLocation.port);
+    if (mClientListenerLocation.port < 0) {
         KFS_LOG_STREAM_FATAL <<
-            "invalid client port: " << mClientPort <<
+            "invalid client port: " << mClientListenerLocation.port <<
         KFS_LOG_EOM;
         return false;
     }
-    KFS_LOG_STREAM_INFO << "Using meta server client port: " <<
-        mClientPort <<
+    mClientListenerLocation.hostname = props.getValue("metaServer.clientIp",
+        mClientListenerLocation.hostname);
+    mClientListenerIpV6OnlyFlag =
+        props.getValue("metaServer.clientIpV6Only",
+        mClientListenerIpV6OnlyFlag ? 1 : 0) != 0;
+    KFS_LOG_STREAM_INFO << "meta server client listner: " <<
+        mClientListenerLocation <<
+        (mClientListenerIpV6OnlyFlag ? " ipv6 only" : "") <<
     KFS_LOG_EOM;
-    mChunkServerPort =
-        props.getValue("metaServer.chunkServerPort", mChunkServerPort);
-    if (mChunkServerPort < 0) {
+    mChunkServerListenerLocation.port =
+        props.getValue("metaServer.chunkServerPort",
+        mChunkServerListenerLocation.port);
+    if (mChunkServerListenerLocation.port < 0) {
         KFS_LOG_STREAM_FATAL << "invalid chunk server port: " <<
-            mChunkServerPort <<
+            mChunkServerListenerLocation.port <<
         KFS_LOG_EOM;
         return false;
     }
-    KFS_LOG_STREAM_INFO << "Using meta server chunk server port: " <<
-        mChunkServerPort <<
+    mChunkServerListenerLocation.hostname =
+        props.getValue("metaServer.chunkServerIp",
+        mChunkServerListenerLocation.hostname);
+    mChunkServerListenerIpV6OnlyFlag =
+        props.getValue("metaServer.chunkServerIpV6Only",
+        mChunkServerListenerIpV6OnlyFlag ? 1 : 0) != 0;
+    KFS_LOG_STREAM_INFO << "meta server chunk server listener: " <<
+        mChunkServerListenerLocation <<
+        (mChunkServerListenerIpV6OnlyFlag ? " ipv6 only" : "") <<
     KFS_LOG_EOM;
     mLogDir = props.getValue("metaServer.logDir", mLogDir);
     mCPDir = props.getValue("metaServer.cpDir", mCPDir);
@@ -508,10 +527,16 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     gNetDispatch.SetMaxClientSockets(maxClientSocketCount);
 
     gLayoutManager.SetBufferPool(&GetIoBufAllocator().GetBufferPool());
-    bool okFlag = gLayoutManager.SetParameters(props, mClientPort);
+    bool okFlag = gLayoutManager.SetParameters(
+        props, mClientListenerLocation.port);
     if (okFlag) {
         globalNetManager().RegisterTimeoutHandler(this);
-        okFlag = gNetDispatch.Bind(mClientPort, mChunkServerPort);
+        okFlag = gNetDispatch.Bind(
+            mClientListenerLocation,
+            mClientListenerIpV6OnlyFlag,
+            mChunkServerListenerLocation,
+            mChunkServerListenerIpV6OnlyFlag
+        );
         if (okFlag) {
             KFS_LOG_STREAM_INFO << (createEmptyFsFlag ?
                 "creating empty file system" :
@@ -527,8 +552,8 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
             }
         } else {
             KFS_LOG_STREAM_FATAL <<
-                "failed to bind to port " <<
-                mClientPort << " or " << mChunkServerPort <<
+                "failed to bind to " << mClientListenerLocation <<
+                " or " << mChunkServerListenerLocation <<
             KFS_LOG_EOM;
         }
     } else {

@@ -35,8 +35,10 @@
 #include "qcdio/QCDLList.h"
 
 #include <time.h>
-#include <boost/shared_ptr.hpp>
+#include <errno.h>
+
 #include <list>
+#include <boost/shared_ptr.hpp>
 
 namespace KFS
 {
@@ -247,6 +249,14 @@ public:
 
     string GetSockName() const {
         return (IsGood() ? mSock->GetSockName() : string("not connected"));
+    }
+
+    int GetPeerLocation(ServerLocation& loc) const {
+        return (IsGood() ? mSock->GetPeerLocation(loc) : -ENOTCONN);
+    }
+
+    int GetSockLocation(ServerLocation& loc) const {
+        return (IsGood() ? mSock->GetSockLocation(loc) : -ENOTCONN);
     }
 
     /// Enqueue data to be sent out.

@@ -2802,11 +2802,26 @@ LayoutManager::AddNewServer(MetaHello *r)
             ipaddr.erase(delimPos);
         }
         delimPos = ipaddr.rfind('.');
+        int64_t lastByte = -1;
         if (delimPos == string::npos) {
+            if (ipaddr.empty() && (ipaddr.back() & 0xFF) == ']') {
+                ipaddr.pop_back();
+                if ((delimPos = ipaddr.rfind(':')) != string::npos &&
+                        delimPos + 1 < ipaddr.length()) {
+                    lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
+                } else {
+                    lastByte = toNumber(ipaddr.c_str());
+                }
+            } else {
+                srv.SetCanBeChunkMaster(Rand(2) != 0);
+            }
+        } else if (delimPos + 1 < ipaddr.length()) {
+            lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
+        }
+        if (lastByte < 0) {
             srv.SetCanBeChunkMaster(Rand(2) != 0);
         } else {
-            string nodeNumStr = ipaddr.substr(delimPos + 1);
-            srv.SetCanBeChunkMaster((toNumber(nodeNumStr) % 2) != 0);
+            srv.SetCanBeChunkMaster((lastByte % 2) != 0);
         }
     } else {
         srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);

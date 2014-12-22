@@ -333,10 +333,17 @@ NetDispatch::~NetDispatch()
 }
 
 bool
-NetDispatch::Bind(int clientAcceptPort, int chunkServerAcceptPort)
+NetDispatch::Bind(
+    const ServerLocation& clientListenerLocation,
+    bool                  clientListenerIpV6OnlyFlag,
+    const ServerLocation& chunkServerListenerLocation,
+    bool                  chunkServerListenerIpV6OnlyFlag)
 {
-    return (mClientManager.Bind(clientAcceptPort) &&
-        mChunkServerFactory.Bind(chunkServerAcceptPort));
+    return (mClientManager.Bind(
+            clientListenerLocation, clientListenerIpV6OnlyFlag) &&
+        mChunkServerFactory.Bind(globalNetManager(),
+            chunkServerListenerLocation, chunkServerListenerIpV6OnlyFlag)
+    );
 }
 
 int
@@ -933,7 +940,7 @@ public:
           mPrepareToForkCnt(0)
         {};
     virtual ~Impl();
-    bool Bind(int port);
+    bool Bind(const ServerLocation& location, bool ipV6OnlyFlag);
     bool StartAcceptor(int threadCount, int startCpuAffinity);
     virtual KfsCallbackObj* CreateKfsCallbackObj(NetConnectionPtr &conn);
     void Shutdown();
@@ -1318,12 +1325,13 @@ ClientManager::Impl::~Impl()
 }
 
 bool
-ClientManager::Impl::Bind(int port)
+ClientManager::Impl::Bind(const ServerLocation& location, bool ipV6OnlyFlag)
 {
     delete mAcceptor;
     mAcceptor = 0;
     const bool kBindOnlyFlag = true;
-    mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
+    mAcceptor = new Acceptor(
+        globalNetManager(), location, ipV6OnlyFlag, this, kBindOnlyFlag);
     return mAcceptor->IsAcceptorStarted();
 }
 
@@ -1446,9 +1454,11 @@ ClientManager::~ClientManager()
 };
 
 bool
-ClientManager::Bind(int port)
+ClientManager::Bind(
+    const ServerLocation& location,
+    bool                  ipV6OnlyFlag)
 {
-    return mImpl.Bind(port);
+    return mImpl.Bind(location, ipV6OnlyFlag);
 }
 
 

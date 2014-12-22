@@ -27,6 +27,7 @@
 #ifndef _LIBIO_ACCEPTOR_H
 #define _LIBIO_ACCEPTOR_H
 
+#include "common/kfsdecls.h"
 #include "KfsCallbackObj.h"
 #include "NetConnection.h"
 
@@ -81,9 +82,17 @@ public:
     /// connections.
     /// @param owner The IAcceptorOwner object that "owns" this Acceptor.
     ///
-    Acceptor(int port, IAcceptorOwner* owner, bool bindOnlyFlag = false);
-    Acceptor(NetManager& netManager, int port, IAcceptorOwner* owner,
-        bool bindOnlyFlag = false);
+    Acceptor(
+        NetManager&     netManager,
+        int             port,
+        IAcceptorOwner* owner,
+        bool            bindOnlyFlag = false);
+    Acceptor(
+        NetManager&           netManager,
+        const ServerLocation& location,
+        bool                  ipV6OnlyFlag,
+        IAcceptorOwner*       owner,
+        bool                  bindOnlyFlag);
     ~Acceptor();
     void StartListening();
 
@@ -100,13 +109,16 @@ public:
     ///
     int RecvConnection(int code, void *data);
     int GetPort() const
-        { return mPort; }
+        { return mLocation.port; }
+    const ServerLocation& GetLocation() const
+        { return mLocation; }
 private:
     ///
     /// The encapsulated connection object that corresponds to the TCP
     /// port on which the Acceptor is listening for connections.
     ///
-    int                   mPort;
+    ServerLocation        mLocation;
+    bool                  mIpV6OnlyFlag;
     IAcceptorOwner* const mAcceptorOwner;
     NetConnectionPtr      mConn;
     NetManager&           mNetManager;

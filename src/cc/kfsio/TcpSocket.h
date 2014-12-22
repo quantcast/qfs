@@ -31,10 +31,6 @@
 #include <boost/shared_ptr.hpp>
 #include <string>
 
-struct timeval;
-struct sockaddr_in;
-struct sockaddr;
-
 namespace KFS
 {
 using std::string;
@@ -44,26 +40,32 @@ struct ServerLocation;
 class TcpSocket
 {
 public:
-    typedef sockaddr_in Address;
-    TcpSocket()
-        : mSockFd(-1)
+    enum Type
+    {
+        kTypeNone = 0x0,
+        kTypeIpV4 = 0x1,
+        kTypeIpV6 = 0x2
+    };
+    TcpSocket(
+        Type type = kTypeNone)
+        : mSockFd(-1),
+          mType(type)
         {}
     /// Wrap the passed in file descriptor in a TcpSocket
     /// @param[in] fd file descriptor corresponding to a TCP socket.
-    TcpSocket(int fd)
-        : mSockFd(fd)
+    TcpSocket(
+        int  fd,
+        Type type = kTypeNone)
+        : mSockFd(fd),
+          mType(type)
         {}
     ~TcpSocket();
 
     /// Setup and bind TCP socket to the port specified.
-    int Bind(int port);
+    int Bind(const ServerLocation& location, Type type, bool ipV6OnlyFlag);
 
     /// Start listening;
-    int StartListening(bool nonBlockingAccept = false);
-
-    /// Setup a TCP socket that listens for connections
-    /// @param port Port on which to listen for incoming connections
-    int Listen(int port, bool nonBlockingAccept = false);
+    int StartListening(bool nonBlockingAccept, int maxQueue = 8192);
 
     /// Accept connection on a socket.
     /// @retval A TcpSocket pointer that contains the accepted
@@ -74,23 +76,11 @@ public:
 
     /// Connect to the remote address.  If non-blocking connect is
     /// set, the socket is first marked non-blocking and then we do
-    /// the connect call.  Then, you use select() to check for connect() completion
+    /// the connect call.  Then, you use select() to check for connect()
+    /// completion
     /// @retval 0 on success; -1 on failure; -EINPROGRESS if we do a
     /// nonblockingConnect and connect returned that error code
-    int Connect(const Address* remoteAddr, bool nonblockingConnect = false);
-    int Connect(const ServerLocation& location, bool nonblockingConnect = false);
-
-    /// Do block-IO's, where # of bytes to be send/recd is the length
-    /// of the buffer.
-    /// @retval Returns # of bytes sent or -1 if there was an error.
-    int DoSynchSend(const char *buf, int bufLen);
-
-    /// For recv/peek, specify a timeout within which data should be received.
-    int DoSynchRecv(char *buf, int bufLen, timeval& timeout);
-    int DoSynchPeek(char *buf, int bufLen, timeval& timeout);
-
-    /// Discard a bunch of bytes that are coming down the pipe.
-    int DoSynchDiscard(int len, timeval& timeout);
+    int Connect(const ServerLocation& location, bool nonblockingConnect);
 
     /// Peek to see if any data is available.  This call will not
     /// remove the data from the underlying socket buffers.
@@ -98,18 +88,16 @@ public:
     int Peek(char *buf, int bufLen);
 
     /// Get the file descriptor associated with this socket.
-    inline int GetFd() { return mSockFd; };
+    int GetFd() { return mSockFd; };
 
     /// Return true if socket is good for read/write. false otherwise.
-    bool IsGood() const {
-        return (mSockFd >= 0);
-    }
+    bool IsGood() const { return (mSockFd >= 0); }
 
-    /// pass in the length of the buffer pointed to by peerAddr
-    int GetPeerName(sockaddr *peerAddr, int len) const;
-    /// Return the peer's IP address as a string
+    /// Return the peer's IP address and port as a string
     string GetPeerName() const;
     string GetSockName() const;
+    int GetPeerLocation(ServerLocation& location) const;
+    int GetSockLocation(ServerLocation& location) const;
 
     /// Sends at-most the specified # of bytes.
     /// @retval Returns the result of calling send().
@@ -126,19 +114,29 @@ public:
     int Shutdown() { return Shutdown(true, true); }
     /// Get and clear pending socket error: getsockopt(SO_ERROR)
     int GetSocketError() const;
-    static string ToString(const Address& addr);
+    Type GetType() const { return mType; }
+    static int Validate(const string& address);
     static int GetDefaultRecvBufSize() { return sRecvBufSize; }
     static int GetDefaultSendBufSize() { return sSendBufSize; }
     static void SetDefaultRecvBufSize(int size) { sRecvBufSize = size; }
     static void SetDefaultSendBufSize(int size) { sSendBufSize = size; }
     static void SetOpenLimit(int limit) { sMaxOpenSockets = limit; }
-private:
-    int mSockFd;
 
+private:
+    int  mSockFd;
+    Type mType;
+
+    struct Address;
+    int GetPeerName(Address& peerAddr) const;
+    static string ToString(const Address& addr);
+    int Connect(const Address& remoteAddr, bool nonblockingConnect);
     void SetupSocket();
     int Perror(const char* msg) const;
     int Perror(const Address& addr) const;
     int Perror(const char* msg, int err) const;
+    int PerrorFatal(const char* msg);
+    int PerrorFatal(const char* msg, int err);
+    int PerrorFatal(const Address& saddr);
 
     static int sRecvBufSize;
     static int sSendBufSize;
