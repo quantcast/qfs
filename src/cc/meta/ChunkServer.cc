@@ -1224,7 +1224,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         if (mHelloOp->location.hostname == kAddrAny) {
             // Use peer name.
             mHelloOp->location.hostname.clear();
-            const size_t pos = mPeerName.find_last_of((char)':');
+            const size_t pos = mPeerName.rfind(':');
             if (pos != string::npos) {
                 mHelloOp->location.hostname.assign(mPeerName.data(), pos);
             }

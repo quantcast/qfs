@@ -895,8 +895,17 @@ public:
         const string&     inHostPort,
         const Properties* inPropertiesPtr)
     {
-        int          thePort = 20000;
-        const size_t thePos  = inHostPort.find(':');
+        int          thePort     = 20000;
+        const bool   theIpV6Flag = ! inHostPort.empty() &&
+            (inHostPort.front() & 0xFF) == '[';
+        if ((theIpV6Flag && inHostPort.length() < 2) ||
+                (inHostPort[1] & 0xFF) == 'v') {
+            // Future ip version is not supported.
+            return -EINVAL;
+        }
+        size_t thePos            =
+            (theIpV6Flag && (inHostPort.back() & 0xFF) == ']') ?
+                string::npos : inHostPort.rfind(':');
         if (thePos != string::npos) {
             char* theEndPtr = 0;
             thePort = (int)strtol(
@@ -904,9 +913,24 @@ public:
             if (! theEndPtr || *theEndPtr != 0) {
                 return -EINVAL;
             }
+            if (theIpV6Flag) {
+                thePos--;
+                if (thePos <= 1 || (inHostPort[thePos] & 0xFF) != ']') {
+                    return -EINVAL;
+                }
+            }
+        } else if (theIpV6Flag) {
+            if ((inHostPort.back() & 0xFF) != ']') {
+                return -EINVAL;
+            }
+            thePos = inHostPort.length() - 1;
+            if (thePos <= 0) {
+                return -EINVAL;
+            }
         }
         // Load properties set by env. vars, if any.
-        const string theMetaHost       = inHostPort.substr(0, thePos);
+        const string theMetaHost       = inHostPort.substr(
+            theIpV6Flag ? 1 : 0, thePos - (theIpV6Flag ? 1 : 0));
         const char*  kEnvPrefixPtr     = 0; // use default
         const char*  theConfigValuePtr = 0;
         Properties   theProperties;

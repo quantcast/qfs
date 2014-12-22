@@ -51,7 +51,11 @@ public:
     ~NetDispatch();
     void SetMaxClientSockets(int count);
     int GetMaxClientCount() const;
-    bool Bind(int clientAcceptPort, int chunkServerAcceptPort);
+    bool Bind(
+        const ServerLocation& clientListenerLocation,
+        bool                  clientListenerIpV6OnlyFlag,
+        const ServerLocation& chunkServerListenerLocation,
+        bool                  chunkServerListenerIpV6OnlyFlag);
     bool Start();
     //!< Dispatch completed request.
     void Dispatch(MetaRequest* r);

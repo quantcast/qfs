@@ -359,7 +359,7 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
 {
     char *cp;
 
-    if (! (cp = strchr(addr, ':'))) {
+    if (! (cp = strrchr(addr, ':'))) {
         fatal("bad address: %s", addr);
         return;
     }

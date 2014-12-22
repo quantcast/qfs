@@ -54,8 +54,12 @@ public:
         mMutex(0)
         {}
 
-    bool Init(int clientAcceptPort, const string& serverIp,
-        int threadCount, int firstCpuIdx);
+    bool Init(
+        const ServerLocation& clientListener,
+        bool                  ipV6OnlyFlag,
+        const string&         serverIp,
+        int                   threadCount,
+        int                   firstCpuIdx);
     bool MainLoop(
         const vector<string>& chunkDirs,
         const Properties&     props,

@@ -37,10 +37,6 @@
 #include "kfsio/Globals.h"
 #include "qcdio/qcstutils.h"
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 namespace KFS {
 
 using std::string;
@@ -50,18 +46,22 @@ using libkfsio::globalNetManager;
 ChunkServer gChunkServer;
 
 bool
-ChunkServer::Init(int clientAcceptPort, const string& serverIp,
-    int threadCount, int firstCpuIdx)
+ChunkServer::Init(
+    const ServerLocation& clientListener,
+    bool                  ipV6OnlyFlag,
+    const string&         serverIp,
+    int                   threadCount,
+    int                   firstCpuIdx)
 {
-    if (clientAcceptPort < 0) {
+    if (clientListener.port < 0) {
         KFS_LOG_STREAM_FATAL <<
-            "invalid client port: " << clientAcceptPort <<
+            "invalid client listener: " << clientListener <<
         KFS_LOG_EOM;
         return false;
     }
     mUpdateServerIpFlag = serverIp.empty();
     if (! mUpdateServerIpFlag) {
-        // For now support only ipv4 addresses.
+        // For now support only ipv[46] addresses.
         // The ip does not have to be assigned to any local NICs.
         // The ip is valid as long as the clients can reach this particular
         // process using this ip.
@@ -76,19 +76,24 @@ ChunkServer::Init(int clientAcceptPort, const string& serverIp,
         // The server ip can also be used for the testing purposes, so that the
         // clients always fail to connect to the chunk server, but the meta
         // server considers this server operational.
-        struct in_addr addr;
-        if (! inet_aton(serverIp.c_str(), &addr)) {
+        const int err = TcpSocket::Validate(serverIp);
+        if (err) {
             KFS_LOG_STREAM_FATAL <<
                 "invalid server ip: " << serverIp <<
+                " " <<
             KFS_LOG_EOM;
             return false;
         }
     }
     if (! gClientManager.BindAcceptor(
-                clientAcceptPort, threadCount, firstCpuIdx, mMutex) ||
+                clientListener,
+                ipV6OnlyFlag,
+                threadCount,
+                firstCpuIdx,
+                mMutex) ||
             gClientManager.GetPort() <= 0) {
         KFS_LOG_STREAM_FATAL <<
-            "failed to bind acceptor to port: " << clientAcceptPort <<
+            "failed to bind acceptor to: " << clientListener <<
         KFS_LOG_EOM;
         return false;
     }
