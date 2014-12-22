@@ -2804,8 +2804,8 @@ LayoutManager::AddNewServer(MetaHello *r)
         delimPos = ipaddr.rfind('.');
         int64_t lastByte = -1;
         if (delimPos == string::npos) {
-            if (ipaddr.empty() && (ipaddr.back() & 0xFF) == ']') {
-                ipaddr.pop_back();
+            if (ipaddr.empty() && (*ipaddr.rbegin() & 0xFF) == ']') {
+                ipaddr.erase(ipaddr.size() - 1);
                 if ((delimPos = ipaddr.rfind(':')) != string::npos &&
                         delimPos + 1 < ipaddr.length()) {
                     lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
