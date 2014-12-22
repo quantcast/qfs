@@ -920,7 +920,7 @@ public:
                 }
             }
         } else if (theIpV6Flag) {
-            if ((inHostPort.back() & 0xFF) != ']') {
+            if ((*inHostPort.rbegin() & 0xFF) != ']') {
                 return -EINVAL;
             }
             thePos = inHostPort.length() - 1;
