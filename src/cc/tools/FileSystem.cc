@@ -897,14 +897,14 @@ public:
     {
         int          thePort     = 20000;
         const bool   theIpV6Flag = ! inHostPort.empty() &&
-            (inHostPort.front() & 0xFF) == '[';
+            (*inHostPort.begin() & 0xFF) == '[';
         if ((theIpV6Flag && inHostPort.length() < 2) ||
                 (inHostPort[1] & 0xFF) == 'v') {
             // Future ip version is not supported.
             return -EINVAL;
         }
         size_t thePos            =
-            (theIpV6Flag && (inHostPort.back() & 0xFF) == ']') ?
+            (theIpV6Flag && (*inHostPort.rbegin() & 0xFF) == ']') ?
                 string::npos : inHostPort.rfind(':');
         if (thePos != string::npos) {
             char* theEndPtr = 0;
