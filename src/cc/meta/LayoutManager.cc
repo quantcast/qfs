@@ -2898,30 +2898,34 @@ LayoutManager::AddNewServer(MetaHello *r)
 
     if (mAssignMasterByIpFlag) {
         // if the server node # is odd, it is master; else slave
-        string            ipaddr   = r->peerName;
-        string::size_type delimPos = ipaddr.rfind(':');
-        if (delimPos != string::npos) {
-            ipaddr.erase(delimPos);
-        }
-        delimPos = ipaddr.rfind('.');
-        int64_t lastByte = -1;
-        if (delimPos == string::npos) {
-            if (! ipaddr.empty() && (*ipaddr.rbegin() & 0xFF) == ']') {
-                ipaddr.erase(ipaddr.size() - 1);
-                if ((delimPos = ipaddr.rfind(':')) != string::npos &&
-                        delimPos + 1 < ipaddr.size()) {
-                    lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
-                } else {
-                    lastByte = toNumber(ipaddr.c_str());
+        const string&     ipaddr   = r->peerName;
+        string::size_type pos      = ipaddr.rfind(':');
+        int               lastBits = -1;
+        if (pos != string::npos && 0 < pos) {
+            int sym = ipaddr[--pos] & 0xFF;
+            if (sym == ']') {
+                // Get last hex digit of ipv6 notation.
+                if (0 < pos) {
+                    sym = ipaddr[--pos] & 0xFF;
+                    if (sym == ':') {
+                        lastBits = 0;
+                    } else {
+                        lastBits = HexIntParser::GetChar2Hex()[sym] & 0xFF;
+                        if (0xF < lastBits || lastBits < 0) {
+                            lastBits = -1;
+                        }
+                    }
+                }
+            } else {
+                if (0 <= sym && sym <= '9') {
+                    lastBits = sym - '0';
                 }
             }
-        } else if (delimPos + 1 < ipaddr.length()) {
-            lastByte = toNumber(ipaddr.c_str() + delimPos + 1);
         }
-        if (lastByte < 0) {
+        if (lastBits < 0) {
             srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
         } else {
-            srv.SetCanBeChunkMaster((lastByte % 2) != 0);
+            srv.SetCanBeChunkMaster((lastBits & 0x1) != 0);
         }
     } else {
         srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
