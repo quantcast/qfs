@@ -1869,7 +1869,8 @@ struct MetaChunkSize: public MetaChunkRequest {
     virtual void request(ostream &os);
     virtual void handleReply(const Properties& prop)
     {
-        chunkSize = prop.getValue("Size", (chunkOff_t) -1);
+        chunkSize = prop.getValue(
+            shortRpcFormatFlag ? "S" : "Size", (chunkOff_t) -1);
     }
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1952,8 +1953,10 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     virtual void request(ostream &os);
     virtual void handleReply(const Properties& prop)
     {
-        chunkSize     =           prop.getValue("Chunk-size",     (int64_t) -1);
-        chunkChecksum = (uint32_t)prop.getValue("Chunk-checksum", (uint64_t)0);
+        chunkSize     =           prop.getValue(
+            shortRpcFormatFlag ? "S" : "Chunk-size",     (int64_t) -1);
+        chunkChecksum = (uint32_t)prop.getValue(
+            shortRpcFormatFlag ? "K" : "Chunk-checksum", (uint64_t)0);
     }
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
@@ -2779,7 +2782,7 @@ struct MetaChunkCorrupt: public MetaRequest {
         .Def2("File-handle",   "P", &MetaChunkCorrupt::fid,             fid_t(-1))
         .Def2("Chunk-handle",  "H", &MetaChunkCorrupt::chunkId,     chunkId_t(-1))
         .Def2("Is-chunk-lost", "L", &MetaChunkCorrupt::isChunkLost,         false)
-        .Def2("No-reply",      "R", &MetaChunkCorrupt::noReplyFlag,         false)
+        .Def2("No-reply",      "N", &MetaChunkCorrupt::noReplyFlag,         false)
         .Def2("Chunk-dir",     "D", &MetaChunkCorrupt::chunkDir)
         .Def2("Dir-ok",        "O", &MetaChunkCorrupt::dirOkFlag,           false)
         .Def2("Num-chunks",    "C", &MetaChunkCorrupt::chunkCount,              0)

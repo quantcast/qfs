@@ -1372,9 +1372,10 @@ HBAppend(ostream** os, const char* key1, const char* key2, T val)
 }
 
 inline static void
-AppendStorageTiersInfo(ostream& os, const ChunkManager::StorageTiersInfo& tiersInfo)
+AppendStorageTiersInfo(const char* prefix, ostream& os,
+    const ChunkManager::StorageTiersInfo& tiersInfo)
 {
-    os << "Storage-tiers:";
+    os << prefix;
     for (ChunkManager::StorageTiersInfo::const_iterator it = tiersInfo.begin();
             it != tiersInfo.end();
             ++it) {
@@ -1424,6 +1425,9 @@ HeartbeatOp::Execute()
     static ostringstream      sOs;
     ostream* os[2];
     os[0] = &sWOs.Set(response);
+    if (shortRpcFormatFlag) {
+        *(os[0]) << hex;
+    }
     if (MsgLogger::GetLogger() &&
             MsgLogger::GetLogger()->IsLogLevelEnabled(
                 MsgLogger::kLogLevelDEBUG)) {
@@ -1455,7 +1459,7 @@ HeartbeatOp::Execute()
     HBAppend(os, "Evacuate-done",         "evac-d",   evacuateDoneChunkCount);
     HBAppend(os, "Evacuate-done-bytes",   "evac-d-b", evacuateDoneByteCount);
     HBAppend(os, "Evacuate-in-flight",    "evac-fl",  evacuateInFlightCount);
-    AppendStorageTiersInfo(*os[0], tiersInfo);
+    AppendStorageTiersInfo("Storage-tiers:", *os[0], tiersInfo);
     HBAppend(os, "Num-random-writes",     "rwr",  writeCount);
     HBAppend(os, "Num-appends",           "awr",  writeAppendCount);
     HBAppend(os, "Num-re-replications",   "rep",  replicationCount);
@@ -1882,11 +1886,11 @@ ReadOp::HandleChunkMetaReadDone(int code, void *data)
 ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
 {
     const int checksumEntries = props.getValue(
-        shortRpcFormatFlag ? "CE" : "Checksum-entries", 0);
+        shortRpcFormatFlag ? "KC" : "Checksum-entries", 0);
     checksum.clear();
     if (0 < checksumEntries) {
         const Properties::String* const cks = props.getValue(
-            shortRpcFormatFlag ? "CS" : "Checksums");
+            shortRpcFormatFlag ? "K" : "Checksums");
         if (! cks) {
             return false;
         }
@@ -2903,15 +2907,15 @@ ReadOp::Response(ostream &os)
     } else {
         os << "DiskIOtime: " << (diskIOTime * 1e-6) << "\r\n";
     }
-    os << (shortRpcFormatFlag ? "CE:" : "Checksum-entries: ") <<
+    os << (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
         checksum.size() << "\r\n";
     if (skipVerifyDiskChecksumFlag) {
         os << (shortRpcFormatFlag ? "SS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
-    if (checksum.size() == 0) {
-        os << (shortRpcFormatFlag ? "CS:0\r\n" : "Checksums: 0\r\n");
+    if (checksum.empty()) {
+        os << (shortRpcFormatFlag ? "K:0\r\n" : "Checksums: 0\r\n");
     } else {
-        os << (shortRpcFormatFlag ? "CS:" : "Checksums:");
+        os << (shortRpcFormatFlag ? "K:" : "Checksums:");
         for (size_t i = 0; i < checksum.size(); i++) {
             os << ' ' << checksum[i];
         }
@@ -2975,7 +2979,7 @@ RecordAppendOp::Request(ostream& os)
     (shortRpcFormatFlag ? "O:"  : "Offset: ")       << offset       << "\r\n" <<
     (shortRpcFormatFlag ? "FO:" : "File-offset: ")  << fileOffset   << "\r\n" <<
     (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
-    (shortRpcFormatFlag ? "CS:" : "Checksum: ")     << checksum     << "\r\n" <<
+    (shortRpcFormatFlag ? "K:"  : "Checksum: ")     << checksum     << "\r\n" <<
     (shortRpcFormatFlag ? "R:"  : "Num-servers: ")  << numServers   << "\r\n" <<
     (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
     (shortRpcFormatFlag ? "S:"  : "Servers: ")      << servers      << "\r\n" <<
@@ -2989,11 +2993,14 @@ RecordAppendOp::Request(ostream& os)
 void
 GetRecordAppendOpStatus::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "GET_RECORD_APPEND_OP_STATUS \r\n"
-        "Cseq: "          << seq     << "\r\n"
-        "Chunk-handle: "  << chunkId << "\r\n"
-        "Write-id: "      << writeId << "\r\n"
+    "GET_RECORD_APPEND_OP_STATUS \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ")          << seq     << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "W:" : "Write-id: ")      << writeId << "\r\n"
     "\r\n";
 }
 
@@ -3002,49 +3009,72 @@ GetRecordAppendOpStatus::Response(ostream &os)
 {
     PutHeader(this, os);
     os <<
-        "Chunk-version: "         << chunkVersion       << "\r\n"
-        "Op-seq: "                << opSeq              << "\r\n"
-        "Op-status: "             <<
-            (opStatus < 0 ? -SysToKfsErrno(-opStatus) : opStatus) << "\r\n"
-        "Op-offset: "             << opOffset           << "\r\n"
-        "Op-length: "             << opLength           << "\r\n"
-        "Wid-append-count: "      << widAppendCount     << "\r\n"
-        "Wid-bytes-reserved: "    << widBytesReserved   << "\r\n"
-        "Chunk-bytes-reserved: "  << chunkBytesReserved << "\r\n"
-        "Remaining-lease-time: "  << remainingLeaseTime << "\r\n"
-        "Master-commit-offset: "  << masterCommitOffset << "\r\n"
-        "Next-commit-offset: "    << nextCommitOffset   << "\r\n"
-        "Wid-read-only: "         << (widReadOnlyFlag    ? 1 : 0) << "\r\n"
-        "Wid-was-read-only: "     << (widWasReadOnlyFlag ? 1 : 0) << "\r\n"
-        "Chunk-master: "          << (masterFlag         ? 1 : 0) << "\r\n"
-        "Stable-flag: "           << (stableFlag         ? 1 : 0) << "\r\n"
-        "Open-for-append-flag: "  << (openForAppendFlag  ? 1 : 0) << "\r\n"
-        "Appender-state: "        << appenderState      << "\r\n"
-        "Appender-state-string: " << appenderStateStr   << "\r\n"
+        (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")         <<
+            chunkVersion << "\r\n" <<
+        (shortRpcFormatFlag ? "Oc:" : "Op-seq: ")
+            << opSeq << "\r\n" <<
+        (shortRpcFormatFlag ? "Os:" : "Op-status: ") <<
+            (opStatus < 0 ? -SysToKfsErrno(-opStatus) : opStatus) << "\r\n" <<
+        (shortRpcFormatFlag ? "OO:" : "Op-offset: ")             <<
+            opOffset << "\r\n" <<
+        (shortRpcFormatFlag ? "OL:" : "Op-length: ")             <<
+            opLength << "\r\n" <<
+        (shortRpcFormatFlag ? "AC:" : "Wid-append-count: ")      <<
+            widAppendCount << "\r\n" <<
+        (shortRpcFormatFlag ? "RW:" : "Wid-bytes-reserved: ")    <<
+            widBytesReserved << "\r\n" <<
+        (shortRpcFormatFlag ? "RB:" : "Chunk-bytes-reserved: ")  <<
+            chunkBytesReserved << "\r\n" <<
+        (shortRpcFormatFlag ? "LR:" : "Remaining-lease-time: ")  <<
+            remainingLeaseTime << "\r\n" <<
+        (shortRpcFormatFlag ? "CO:" : "Master-commit-offset: ")  <<
+            masterCommitOffset << "\r\n" <<
+        (shortRpcFormatFlag ? "CN:" : "Next-commit-offset: ")    <<
+            nextCommitOffset << "\r\n" <<
+        (shortRpcFormatFlag ? "WR:" : "Wid-read-only: ")         <<
+            (widReadOnlyFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "WP:" : "Wid-was-read-only: ")     <<
+            (widWasReadOnlyFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "MC:" : "Chunk-master: ")          <<
+            (masterFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "SC:" : "Stable-flag: ")           <<
+            (stableFlag ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "AO:" : "Open-for-append-flag: ")  <<
+            (openForAppendFlag  ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "AS:" : "Appender-state: ")        <<
+            appenderState << "\r\n" <<
+        (shortRpcFormatFlag ? "As:" : "Appender-state-string: ") <<
+            appenderStateStr << "\r\n"
     "\r\n";
 }
 
 void
 CloseOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "CLOSE \r\n"
-        "Cseq: "     << seq               << "\r\n"
-        "Version: "  << KFS_VERSION_STR   << "\r\n"
-        "Need-ack: " << (needAck ? 1 : 0) << "\r\n"
-    ;
+        "CLOSE \r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "A:" : "Need-ack: ") <<
+        (needAck ? 1 : 0) << "\r\n";
     if (numServers > 0) {
         os <<
-            "Num-servers: " << numServers << "\r\n"
-            "Servers: "     << servers    << "\r\n"
+        (shortRpcFormatFlag ? "R:" : "Num-servers: ") << numServers << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Servers: ")     << servers    << "\r\n"
         ;
     }
-    os << "Chunk-handle: " << chunkId << "\r\n";
+    os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n";
     if (hasWriteId) {
-        os << "Has-write-id: " << 1 << "\r\n";
+        os << (shortRpcFormatFlag ? "W:1\r\n" : "Has-write-id: 1\r\n");
     }
     if (masterCommitted >= 0) {
-        os  << "Master-committed: " << masterCommitted << "\r\n";
+        os  << (shortRpcFormatFlag ? "MC:" : "Master-committed: ") <<
+            masterCommitted << "\r\n";
     }
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "l:" : "Content-length: ");
@@ -3053,27 +3083,41 @@ CloseOp::Request(ostream& os)
 void
 SizeOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "SIZE\r\n"
-        "Cseq: "          << seq             << "\r\n"
-        "Version: "       << KFS_VERSION_STR << "\r\n"
-        "Chunk-handle: "  << chunkId         << "\r\n"
-        "Chunk-version: " << chunkVersion    << "\r\n"
+    "SIZE\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion    << "\r\n"
     "\r\n";
 }
 
 void
 GetChunkMetadataOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "GET_CHUNK_METADATA\r\n"
-        "Cseq: "         << seq                      << "\r\n"
-        "Version: "      << KFS_VERSION_STR          << "\r\n"
-        "Chunk-handle: " << chunkId                  << "\r\n"
-        "Read-verify: "  << (readVerifyFlag ? 1 : 0) << "\r\n"
+    "GET_CHUNK_METADATA\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "RV:" : "Read-verify: ")  <<
+        (readVerifyFlag ? 1 : 0) << "\r\n"
     ;
     if (requestChunkAccess) {
-        os << "C-access: " << requestChunkAccess << "\r\n";
+        os << (shortRpcFormatFlag ? "C:" : "C-access: ") <<
+            requestChunkAccess << "\r\n";
     }
     os << "\r\n";
 }
@@ -3081,20 +3125,27 @@ GetChunkMetadataOp::Request(ostream& os)
 void
 ReadOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "READ\r\n"
-        "Cseq: "          << seq             << "\r\n"
-        "Version: "       << KFS_VERSION_STR << "\r\n"
-        "Chunk-handle: "  << chunkId         << "\r\n"
-        "Chunk-version: " << chunkVersion    << "\r\n"
-        "Offset: "        << offset          << "\r\n"
-        "Num-bytes: "     << numBytes        << "\r\n"
+    "READ\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n"
     ;
     if (skipVerifyDiskChecksumFlag) {
-        os << "Skip-Disk-Chksum: 1\r\n";
+        os << (shortRpcFormatFlag ? "SS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
     if (requestChunkAccess) {
-        os << "C-access: " << requestChunkAccess << "\r\n";
+        os << (shortRpcFormatFlag ? "C:" : "C-access: ") <<
+            requestChunkAccess << "\r\n";
     }
     os << "\r\n";
 }
@@ -3102,18 +3153,25 @@ ReadOp::Request(ostream& os)
 void
 WriteIdAllocOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "WRITE_ID_ALLOC\r\n"
-        "Version: "           << KFS_VERSION_STR             << "\r\n"
-        "Cseq: "              << seq                         << "\r\n"
-        "Chunk-handle: "      << chunkId                     << "\r\n"
-        "Chunk-version: "     << chunkVersion                << "\r\n"
-        "Offset: "            << offset                      << "\r\n"
-        "Num-bytes: "         << numBytes                    << "\r\n"
-        "For-record-append: " << (isForRecordAppend ? 1 : 0) << "\r\n"
-        "Client-cseq: "       << clientSeq                   << "\r\n"
-        "Num-servers: "       << numServers                  << "\r\n"
-        "Servers: "           << servers                     << "\r\n"
+    "WRITE_ID_ALLOC\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "A:" : "For-record-append: ") <<
+        (isForRecordAppend ? 1 : 0) << "\r\n" <<
+    (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ")   << numServers   << "\r\n" <<
+    (shortRpcFormatFlag ? "S:" : "Servers: ")       << servers      << "\r\n"
     ;
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "l:" : "Content-length: ");
@@ -3122,18 +3180,32 @@ WriteIdAllocOp::Request(ostream& os)
 void
 WritePrepareFwdOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "WRITE_PREPARE\r\n"
-    "Version: "       << KFS_VERSION_STR << "\r\n"
-    "Cseq: "          << seq << "\r\n"
-    "Chunk-handle: "  << owner.chunkId << "\r\n"
-    "Chunk-version: " << owner.chunkVersion << "\r\n"
-    "Offset: "        << owner.offset << "\r\n"
-    "Num-bytes: "     << owner.numBytes << "\r\n"
-    "Checksum: "      << owner.checksum << "\r\n"
-    "Num-servers: "   << owner.numServers << "\r\n"
-    "Reply: "         << (owner.replyRequestedFlag ? 1 : 0) << "\r\n"
-    "Servers: "       << owner.servers << "\r\n"
+    "WRITE_PREPARE\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ")  <<
+        owner.chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ") <<
+        owner.chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:"  : "Offset: ")        <<
+        owner.offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")     <<
+        owner.numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "K:" : "Checksum: ")      <<
+        owner.checksum     << "\r\n" <<
+    (shortRpcFormatFlag ? "RR:" : "Reply: ")         <<
+        (owner.replyRequestedFlag ? 1 : 0) << "\r\n" <<
+    (shortRpcFormatFlag ? "R:"  : "Num-servers: ")   <<
+        owner.numServers   << "\r\n" <<
+    (shortRpcFormatFlag ? "S:"  : "Servers: ")       <<
+        owner.servers      << "\r\n"
     ;
     WriteSyncReplicationAccess(owner.syncReplicationAccess, os,
         shortRpcFormatFlag,
@@ -3143,24 +3215,34 @@ WritePrepareFwdOp::Request(ostream& os)
 void
 WriteSyncOp::Request(ostream& os)
 {
-    os << "WRITE_SYNC\r\n";
-    os << "Version: " << KFS_VERSION_STR << "\r\n";
-    os << "Cseq: " << seq << "\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n";
-    os << "Chunk-version: " << chunkVersion << "\r\n";
-    os << "Offset: " << offset << "\r\n";
-    os << "Num-bytes: " << numBytes << "\r\n";
-    os << "Checksum-entries: " << checksums.size() << "\r\n";
-    if (checksums.size() == 0) {
-        os << "Checksums: " << 0 << "\r\n";
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os <<
+    "WRITE_SYNC\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")<< chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:"  : "Offset: ")       << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
+        checksums.size() << "\r\n";
+    if (checksums.empty()) {
+        os << (shortRpcFormatFlag ? "K:0\r\n" : "Checksums: 0\r\n");
     } else {
-        os << "Checksums: ";
-        for (uint32_t i = 0; i < checksums.size(); i++)
-            os << checksums[i] << ' ';
+        os << (shortRpcFormatFlag ? "K:" : "Checksums:");
+        for (size_t i = 0; i < checksums.size(); i++) {
+            os << ' ' << checksums[i];
+        }
         os << "\r\n";
     }
-    os << "Num-servers: " << numServers << "\r\n";
-    os << "Servers: " << servers << "\r\n";
+    os <<
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ")   << numServers   << "\r\n" <<
+    (shortRpcFormatFlag ? "S:" : "Servers: ")       << servers      << "\r\n";
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "l:" : "Content-length: ");
 }
@@ -3187,11 +3269,12 @@ void
 ReplicateChunkOp::Response(ostream &os)
 {
     PutHeader(this, os) <<
-        "File-handle: "   << fid          << "\r\n"
-        "Chunk-version: " << chunkVersion << "\r\n"
+    (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid          << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n"
     ;
     if (! invalidStripeIdx.empty()) {
-        os << "Invalid-stripes: " << invalidStripeIdx << "\r\n";
+        os << (shortRpcFormatFlag ? "IS:" : "Invalid-stripes: ") <<
+            invalidStripeIdx << "\r\n";
     }
     os << "\r\n";
 }
@@ -3219,8 +3302,8 @@ BeginMakeChunkStableOp::Response(ostream& os)
         return;
     }
     os <<
-        "Chunk-size: "     << chunkSize     << "\r\n"
-        "Chunk-checksum: " << chunkChecksum << "\r\n"
+    (shortRpcFormatFlag ? "S:" : "Chunk-size: ")     << chunkSize << "\r\n" <<
+    (shortRpcFormatFlag ? "K:" : "Chunk-checksum: ") << chunkChecksum << "\r\n"
     "\r\n";
 }
 
@@ -3230,7 +3313,9 @@ DumpChunkMapOp::Response(ostream &os)
     ostringstream v;
     gChunkManager.DumpChunkMap(v);
     PutHeader(this, os) <<
-        "Content-length: " << v.str().length() << "\r\n\r\n";
+    (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        v.str().length() << "\r\n"
+    "\r\n";
     if (v.str().length() > 0) {
        os << v.str();
     }
@@ -3343,16 +3428,22 @@ WriteSyncOp::~WriteSyncOp()
 void
 LeaseRenewOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "LEASE_RENEW\r\n"
-        "Version: "      << KFS_VERSION_STR << "\r\n"
-        "Cseq: "         << seq             << "\r\n"
-        "Chunk-handle: " << chunkId         << "\r\n"
-        "Lease-id: "     << leaseId         << "\r\n"
-        "Lease-type: "   << leaseType       << "\r\n"
+    "LEASE_RENEW\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId   << "\r\n" <<
+    (shortRpcFormatFlag ? "L:" : "Lease-id: ")     << leaseId   << "\r\n" <<
+    (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << leaseType << "\r\n"
     ;
     if (emitCSAceessFlag) {
-        os << "CS-access: 1\r\n";
+        os << (shortRpcFormatFlag ? "A:1\r\n" : "CS-access: 1\r\n");
     }
     os << "\r\n";
 }
@@ -3367,19 +3458,27 @@ LeaseRenewOp::HandleDone(int code, void* data)
 void
 LeaseRelinquishOp::Request(ostream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "LEASE_RELINQUISH\r\n"
-        "Version: "        << KFS_VERSION_STR << "\r\n"
-        "Cseq: "           << seq             << "\r\n"
-        "Chunk-handle: "   << chunkId         << "\r\n"
-        "Lease-id: "       << leaseId         << "\r\n"
-        "Lease-type: "     << leaseType       << "\r\n"
+    "LEASE_RELINQUISH\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId   << "\r\n" <<
+    (shortRpcFormatFlag ? "L:" : "Lease-id: ")     << leaseId   << "\r\n" <<
+    (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << leaseType << "\r\n"
     ;
     if (chunkSize >= 0) {
-        os << "Chunk-size: " << chunkSize << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "Chunk-size: ") <<
+            chunkSize << "\r\n";
     }
     if (hasChecksum) {
-        os << "Chunk-checksum: " << chunkChecksum << "\r\n";
+        os << (shortRpcFormatFlag ? "K:" : "Chunk-checksum: ") <<
+            chunkChecksum << "\r\n";
     }
     os << "\r\n";
 }
@@ -3400,25 +3499,31 @@ CorruptChunkOp::Request(ostream& os)
     if (kMaxChunkIds < chunkCount) {
         die("invalid corrupt chunk RPC");
     }
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "CORRUPT_CHUNK\r\n"
-    "Version: "       << KFS_VERSION_STR << "\r\n"
-    "Cseq: "          << seq << "\r\n"
-    "Is-chunk-lost: " << (isChunkLost ? 1 : 0) << "\r\n"
-    ;
+    "CORRUPT_CHUNK\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "L:" : "Is-chunk-lost: ") <<
+        (isChunkLost ? 1 : 0) << "\r\n";
     if (noReply) {
-        os << "No-reply: 1\r\n";
+        os << (shortRpcFormatFlag ? "N:1\r\n" : "No-reply: 1\r\n");
     }
     if (! chunkDir.empty()) {
         os <<
-        "Chunk-dir: " << chunkDir            << "\r\n"
-        "Dir-ok: "    << (dirOkFlag ? 1 : 0) << "\r\n"
+        (shortRpcFormatFlag ? "D:" : "Chunk-dir: ") << chunkDir << "\r\n" <<
+        (shortRpcFormatFlag ? "O:" : "Dir-ok: ") <<
+            (dirOkFlag ? 1 : 0) << "\r\n"
         ;
     }
     if (0 < chunkCount) {
         os <<
-            "Num-chunks: " << chunkCount << "\r\n"
-            "Ids:";
+        (shortRpcFormatFlag ? "C:" : "Num-chunks: ") << chunkCount << "\r\n" <<
+        (shortRpcFormatFlag ? "I:" : "Ids:");
         for (int i = 0; i < chunkCount; i++) {
             os << ' ' << chunkIds[i];
         }
@@ -3444,28 +3549,38 @@ EvacuateChunksOp::Request(ostream& os)
 {
     assert(numChunks <= kMaxChunkIds);
 
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "EVACUATE_CHUNK\r\n"
-    "Version: " << KFS_VERSION_STR << "\r\n"
-    "Cseq: "    << seq             << "\r\n"
-    ;
+    "EVACUATE_CHUNK\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
     if (totalSpace >= 0) {
-        os << "Total-space: " << totalSpace << "\r\n";
+        os << (shortRpcFormatFlag ? "T:" : "Total-space: ") <<
+            totalSpace << "\r\n";
     }
     if (usedSpace >= 0) {
-        os << "Used-space: " << usedSpace << "\r\n";
+        os << (shortRpcFormatFlag ? "U:" : "Used-space: ") <<
+            usedSpace << "\r\n";
     }
     if (chunkDirs >= 0) {
-        os << "Num-drives: " << chunkDirs << "\r\n";
+        os << (shortRpcFormatFlag ? "D:" : "Num-drives: ") <<
+            chunkDirs << "\r\n";
     }
     if (writableChunkDirs >= 0) {
-        os << "Num-wr-drives: " << writableChunkDirs << "\r\n";
-        AppendStorageTiersInfo(os, tiersInfo);
+        os << (shortRpcFormatFlag ? "W:" : "Num-wr-drives: ") <<
+            writableChunkDirs << "\r\n";
+        AppendStorageTiersInfo(
+            shortRpcFormatFlag ? "S" : "Storage-tiers:", os, tiersInfo);
     }
     if (evacuateInFlightCount >= 0) {
-        os << "Num-evacuate: " << evacuateInFlightCount << "\r\n";
+        os << (shortRpcFormatFlag ? "E:" : "Num-evacuate: ") <<
+            evacuateInFlightCount << "\r\n";
     }
-    os << "Chunk-ids:";
+    os << (shortRpcFormatFlag ? "I:" : "Chunk-ids:");
     for (int i = 0; i < numChunks; i++) {
         os << " " << chunkIds[i];
     }
@@ -3478,23 +3593,29 @@ AvailableChunksOp::Request(ostream& os)
     if (numChunks <= 0 && noReply) {
         return;
     }
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "AVAILABLE_CHUNK\r\n"
-    "Version: " << KFS_VERSION_STR << "\r\n"
-    "Cseq: "    << seq             << "\r\n"
-    ;
-    os << "Chunk-ids-vers:";
+    "AVAILABLE_CHUNK\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "I:" : "Chunk-ids-vers:");
     os << hex;
     for (int i = 0; i < numChunks; i++) {
         os << ' ' << chunks[i].first << ' ' << chunks[i].second;
     }
-    os << dec;
     os << "\r\n\r\n";
 }
 
 void
 HelloMetaOp::Request(ostream& os, IOBuffer& buf)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
         "HELLO \r\n"
         "Version: "                      << KFS_VERSION_STR        << "\r\n"
@@ -3525,6 +3646,9 @@ HelloMetaOp::Request(ostream& os, IOBuffer& buf)
         "Num-resume-fail: "              << helloResumeFailedCount << "\r\n"
         "Content-int-base: 16\r\n"
     ;
+    if (reqShortRpcFmtFlag || shortRpcFormatFlag) {
+        os << "Short-rpc-fmt: 1\r\n";
+    }
     if (0 < chunkLists[kMissingList].count) {
         os << "Num-missing: " << chunkLists[kMissingList].count << "\r\n";
     }
@@ -3622,12 +3746,18 @@ void
 SetProperties::Request(ostream& os)
 {
     string content;
-    properties.getList(content, "");
+    properties.getList(content, string());
     contentLength = content.length();
-    os << "CMD_SET_PROPERTIES \r\n";
-    os << "Version: " << KFS_VERSION_STR << "\r\n";
-    os << "Cseq: " << seq << "\r\n";
-    os << "Content-length: " << contentLength << "\r\n\r\n";
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os << "CMD_SET_PROPERTIES \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        contentLength << "\r\n\r\n";
     os << content;
 }
 
@@ -3746,14 +3876,24 @@ HelloMetaOp::~HelloMetaOp()
 void
 AuthenticateOp::Request(ostream& os, IOBuffer& buf)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-        "AUTHENTICATE\r\n"
-        "Version: "   << KFS_VERSION_STR   << "\r\n"
-        "Cseq: "      << seq               << "\r\n"
-        "Auth-type: " << requestedAuthType << "\r\n"
+    "AUTHENTICATE\r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " << KFS_VERSION_STR << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
+        requestedAuthType << "\r\n"
     ;
+    if (shortRpcFormatFlag) {
+        os << "f:1\r\n";
+    }
     if (0 < contentLength) {
-        os << "Content-length: " << contentLength << "\r\n";
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            contentLength << "\r\n";
     }
     os << "\r\n";
     os.flush();

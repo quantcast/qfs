@@ -4599,7 +4599,7 @@ MetaHello::response(ostream& os, IOBuffer& buf)
                 modifiedCount << "\r\n" <<
             (shortRpcFormatFlag ? "C:" : "Chunks: ") <<
                 chunkCount << "\r\n" <<
-            (shortRpcFormatFlag ? "CS:" : "Checksum: ") <<
+            (shortRpcFormatFlag ? "K:" : "Checksum: ") <<
                 checksum << "\r\n" <<
             (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
                 responseBuf.BytesConsumable() << "\r\n"
@@ -5323,7 +5323,7 @@ MetaChunkReplicate::handleReply(const Properties& prop)
 {
     if (status == 0) {
         const seq_t cVers = prop.getValue(
-            shortRpcFormatFlag ? "V:" : "Chunk-version", seq_t(0));
+            shortRpcFormatFlag ? "V" : "Chunk-version", seq_t(0));
         if (numRecoveryStripes <= 0) {
             chunkVersion = cVers;
         } else if (cVers != 0) {
@@ -5339,7 +5339,7 @@ MetaChunkReplicate::handleReply(const Properties& prop)
         return;
     }
     const string idxStr(prop.getValue(
-        shortRpcFormatFlag ? "IS:" : "Invalid-stripes", string()));
+        shortRpcFormatFlag ? "IS" : "Invalid-stripes", string()));
     if (idxStr.empty()) {
         return;
     }

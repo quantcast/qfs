@@ -480,7 +480,7 @@ struct AllocChunkOp : public KfsOp {
     SyncReplicationAccess syncReplicationAccess;
     DiskIoPtr             diskIo;
 
-    AllocChunkOp(kfsSeq_t s = 0)
+    AllocChunkOp(kfsSeq_t s = -1)
         : KfsOp(CMD_ALLOC_CHUNK, s),
           fileId(-1),
           chunkId(-1),
@@ -551,7 +551,7 @@ struct BeginMakeChunkStableOp : public KfsOp {
     uint32_t                chunkChecksum; // output
     BeginMakeChunkStableOp* next;
 
-    BeginMakeChunkStableOp(kfsSeq_t s = 0)
+    BeginMakeChunkStableOp(kfsSeq_t s = -1)
         : KfsOp(CMD_BEGIN_MAKE_CHUNK_STABLE, s),
           fileId(-1),
           chunkId(-1),
@@ -593,7 +593,7 @@ struct MakeChunkStableOp : public KfsOp {
     StringBufT<32>     checksumStr;
     MakeChunkStableOp* next;
 
-    MakeChunkStableOp(kfsSeq_t s = 0)
+    MakeChunkStableOp(kfsSeq_t s = -1)
         : KfsOp(CMD_MAKE_CHUNK_STABLE, s),
           fileId(-1),
           chunkId(-1),
@@ -641,7 +641,7 @@ struct ChangeChunkVersOp : public KfsOp {
     bool         makeStableFlag;
     bool         verifyStableFlag;
 
-    ChangeChunkVersOp(kfsSeq_t s = 0)
+    ChangeChunkVersOp(kfsSeq_t s = -1)
         : KfsOp(CMD_CHANGE_CHUNK_VERS, s),
           fileId(-1),
           chunkId(-1),
@@ -681,7 +681,7 @@ struct ChangeChunkVersOp : public KfsOp {
 struct DeleteChunkOp : public KfsOp {
     kfsChunkId_t chunkId; // input
 
-    DeleteChunkOp(kfsSeq_t s = 0)
+    DeleteChunkOp(kfsSeq_t s = -1)
        : KfsOp(CMD_DELETE_CHUNK, s),
          chunkId(-1)
         {}
@@ -705,7 +705,7 @@ struct TruncateChunkOp : public KfsOp {
     kfsChunkId_t chunkId;  // input
     size_t       chunkSize; // size to which file should be truncated to
 
-    TruncateChunkOp(kfsSeq_t s = 0)
+    TruncateChunkOp(kfsSeq_t s = -1)
         : KfsOp(CMD_TRUNCATE_CHUNK, s),
           chunkId(-1),
           chunkSize(0)
@@ -757,7 +757,7 @@ struct ReplicateChunkOp : public KfsOp {
     StringBufT<148> chunkServerAccess;
     StringBufT<64>  chunkAccess;
 
-    ReplicateChunkOp(kfsSeq_t s = 0) :
+    ReplicateChunkOp(kfsSeq_t s = -1) :
         KfsOp(CMD_REPLICATE_CHUNK, s),
         fid(-1),
         chunkId(-1),
@@ -843,7 +843,7 @@ struct HeartbeatOp : public KfsOp {
     CryptoKeys::KeyId currentKeyId;
     CryptoKeys::Key   currentKey;
 
-    HeartbeatOp(kfsSeq_t s = 0)
+    HeartbeatOp(kfsSeq_t s = -1)
         : KfsOp(CMD_HEARTBEAT, s),
           metaEvacuateCount(-1),
           authenticateFlag(false),
@@ -883,7 +883,7 @@ struct StaleChunksOp : public KfsOp {
     kfsSeq_t      availChunksSeq;
     StaleChunkIds staleChunkIds; /* data we parse out */
 
-    StaleChunksOp(kfsSeq_t s = 0)
+    StaleChunksOp(kfsSeq_t s = -1)
         : KfsOp(CMD_STALE_CHUNKS, s),
           contentLength(0),
           numStaleChunks(0),
@@ -916,7 +916,7 @@ struct StaleChunksOp : public KfsOp {
 };
 
 struct RetireOp : public KfsOp {
-    RetireOp(kfsSeq_t s = 0)
+    RetireOp(kfsSeq_t s = -1)
         : KfsOp(CMD_RETIRE, s)
         {}
     void Execute();
@@ -1359,7 +1359,7 @@ struct WritePrepareFwdOp : public KfsOp {
     const WritePrepareOp& owner;
 
     WritePrepareFwdOp(WritePrepareOp& o)
-        : KfsOp(CMD_WRITE_PREPARE_FWD, 0),
+        : KfsOp(CMD_WRITE_PREPARE_FWD, -1),
           owner(o)
         {}
     void Request(ostream &os);
@@ -1408,7 +1408,7 @@ struct WriteOp : public KfsOp {
     time_t           enqueueTime;
 
     WriteOp(kfsChunkId_t c, int64_t v)
-        : KfsOp(CMD_WRITE, 0),
+        : KfsOp(CMD_WRITE, -1),
           chunkId(c),
           chunkVersion(v),
           offset(0),
@@ -1574,7 +1574,7 @@ struct ReadChunkMetaOp : public KfsOp {
     list<KfsOp*, StdFastAllocator<KfsOp*> > waiters;
 
     ReadChunkMetaOp(kfsChunkId_t c, KfsCallbackObj *o)
-        : KfsOp(CMD_READ_CHUNKMETA, 0, o),
+        : KfsOp(CMD_READ_CHUNKMETA, -1, o),
           chunkId(c),
           diskIo(),
           waiters()
@@ -1941,7 +1941,7 @@ struct PingOp : public KfsOp {
     int64_t totalFsSpace;
     int     evacuateInFlightCount;
 
-    PingOp(kfsSeq_t s = 0)
+    PingOp(kfsSeq_t s = -1)
         : KfsOp(CMD_PING, s),
           totalSpace(-1),
           usedSpace(-1),
@@ -1966,7 +1966,7 @@ struct PingOp : public KfsOp {
 
 // used to dump chunk map
 struct DumpChunkMapOp : public KfsOp {
-    DumpChunkMapOp(kfsSeq_t s = 0)
+    DumpChunkMapOp(kfsSeq_t s = -1)
        : KfsOp(CMD_DUMP_CHUNKMAP, s)
        {}
     void Response(ostream &os);
@@ -1989,7 +1989,7 @@ struct DumpChunkMapOp : public KfsOp {
 struct StatsOp : public KfsOp {
     string stats; // result
 
-    StatsOp(kfsSeq_t s = 0)
+    StatsOp(kfsSeq_t s = -1)
         : KfsOp(CMD_STATS, s),
           stats()
         {}
@@ -2138,6 +2138,7 @@ struct HelloMetaOp : public KfsOp {
     LostChunkDirs            lostChunkDirs;
     ChunkList                chunkLists[kChunkListCount];
     bool                     sendCurrentKeyFlag;
+    bool                     reqShortRpcFmtFlag;
     CryptoKeys::KeyId        currentKeyId;
     CryptoKeys::Key          currentKey;
     int64_t                  fileSystemId;
@@ -2170,6 +2171,7 @@ struct HelloMetaOp : public KfsOp {
           lostChunkDirs(),
           chunkLists(),
           sendCurrentKeyFlag(false),
+          reqShortRpcFmtFlag(false),
           currentKeyId(),
           currentKey(),
           fileSystemId(-1),
@@ -2294,7 +2296,7 @@ struct EvacuateChunksOp : public KfsOp {
     int64_t          evacuateByteCount;
     StorageTiersInfo tiersInfo;
 
-    EvacuateChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
+    EvacuateChunksOp(kfsSeq_t s = -1, KfsCallbackObj* c = 0)
         : KfsOp(CMD_EVACUATE_CHUNKS, s, c),
           numChunks(0),
           chunkDirs(-1),
@@ -2335,7 +2337,7 @@ struct AvailableChunksOp : public KfsOp {
     Chunks chunks[kMaxChunkIds];
     int    numChunks;
 
-    AvailableChunksOp(kfsSeq_t s = 0, KfsCallbackObj* c = 0)
+    AvailableChunksOp(kfsSeq_t s = -1, KfsCallbackObj* c = 0)
         : KfsOp(CMD_AVAILABLE_CHUNKS, s, c),
           numChunks(0)
     {
@@ -2365,7 +2367,7 @@ struct SetProperties : public KfsOp {
     int        contentLength;
     Properties properties; // input
 
-    SetProperties(kfsSeq_t seq = 0)
+    SetProperties(kfsSeq_t seq = -1)
         : KfsOp(CMD_SET_PROPERTIES, seq),
           contentLength(0),
           properties()
@@ -2379,7 +2381,8 @@ struct SetProperties : public KfsOp {
         return os <<
             "set-properties: " <<
             " seq: " << seq <<
-            list
+            " len: " << contentLength <<
+            " "      << list
         ;
     }
     virtual int GetContentLength() const { return contentLength; }
@@ -2393,7 +2396,7 @@ struct SetProperties : public KfsOp {
 };
 
 struct RestartChunkServerOp : public KfsOp {
-    RestartChunkServerOp(kfsSeq_t seq = 0)
+    RestartChunkServerOp(kfsSeq_t seq = -1)
         : KfsOp(CMD_RESTART_CHUNK_SERVER, seq)
         {}
     virtual void Execute();
