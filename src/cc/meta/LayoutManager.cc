@@ -2796,37 +2796,28 @@ LayoutManager::AddNewServer(MetaHello *r)
 
     if (mAssignMasterByIpFlag) {
         // if the server node # is odd, it is master; else slave
-        const string&     ipaddr   = r->peerName;
-        string::size_type pos      = ipaddr.rfind(':');
-        int               lastBits = -1;
-        if (pos != string::npos && 0 < pos) {
-            int sym = ipaddr[--pos] & 0xFF;
-            if (sym == ']') {
-                // Get last hex digit of ipv6 notation.
-                if (0 < pos) {
-                    sym = ipaddr[--pos] & 0xFF;
-                    if (sym == ':') {
-                        lastBits = 0;
-                    } else {
-                        lastBits = HexIntParser::GetChar2Hex()[sym] & 0xFF;
-                        if (0xF < lastBits || lastBits < 0) {
-                            lastBits = -1;
-                        }
-                    }
-                }
-            } else {
-                if (0 <= sym && sym <= '9') {
-                    lastBits = sym - '0';
-                }
+        const string&           ipaddr    = r->location.hostname;
+        string::size_type const len       = ipaddr.length();
+        int                     lastDigit = -1;
+        if (0 < len) {
+            const int sym = ipaddr[len - 1] & 0xFF;
+            if ('0' <= sym && sym <= '9') {
+                lastDigit = sym - '0'; // ipv4 or ipv6 last digit
+            } else if (sym == ':' ) {
+                lastDigit = 0; // ipv6 16 bit 0
+            } else if ('a' <= sym && sym <= 'f') {
+                lastDigit = lastDigit = sym - 'a' + 10; // ipv6 last digit
+            } else if ('A' <= sym && sym <= 'F') {
+                lastDigit = lastDigit = sym - 'A' + 10; // ipv6 last digit
             }
         }
-        if (lastBits < 0) {
-            srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
+        if (lastDigit < 0) {
+            srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
         } else {
-            srv.SetCanBeChunkMaster((lastBits & 0x1) != 0);
+            srv.SetCanBeChunkMaster((lastDigit & 0x1) != 0);
         }
     } else {
-        srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
+        srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
     }
     if (srv.CanBeChunkMaster()) {
         mMastersCount++;
