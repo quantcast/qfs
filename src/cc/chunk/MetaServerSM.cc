@@ -1215,7 +1215,7 @@ MetaServerSM::SubmitHello()
         (mHelloResume != 0 && 0 < mCounters.mHelloDoneCount)) ? 0 : -1;
     mHelloOp->clnt               = this;
     mHelloOp->shortRpcFormatFlag = mShortRpcFmtFlag;
-    mHelloOp->reqShortRpcFmtFlag = false; // ! mShortRpcFmtFlag;
+    mHelloOp->reqShortRpcFmtFlag = ! mShortRpcFmtFlag;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }

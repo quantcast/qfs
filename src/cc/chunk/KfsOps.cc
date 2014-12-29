@@ -185,6 +185,7 @@ private:
 
 template <typename T> inline static bool
 needToForwardToPeer(
+    bool            shortRpcFormatFlag,
     T&              serverInfo,
     uint32_t        numServers,
     int&            myPos,
@@ -198,6 +199,9 @@ needToForwardToPeer(
     bool              foundLocal    = false;
     bool              needToForward = false;
 
+    if (shortRpcFormatFlag) {
+        ist >> hex;
+    }
     // the list of servers is ordered: we forward to the next one
     // in the list.
     for (uint32_t i = 0; i < numServers; i++) {
@@ -964,7 +968,7 @@ CloseOp::Execute()
     ServerLocation peerLoc;
     int            myPos         = -1;
     int64_t        writeId       = -1;
-    bool           needToForward = needToForwardToPeer(
+    bool           needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
@@ -1056,7 +1060,7 @@ AllocChunkOp::Execute()
     int            myPos   = -1;
     int64_t        writeId = -1;
     ServerLocation peerLoc;
-    needToForwardToPeer(
+    needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, false, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
@@ -1146,7 +1150,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
                 int            myPos   = -1;
                 int64_t        writeId = -1;
                 ServerLocation peerLoc;
-                needToForwardToPeer(
+                needToForwardToPeer(shortRpcFormatFlag,
                     servers, numServers, myPos, peerLoc, false, writeId);
                 assert(myPos >= 0);
                 gChunkManager.AllocChunkForAppend(this, myPos, peerLoc);
@@ -1425,9 +1429,6 @@ HeartbeatOp::Execute()
     static ostringstream      sOs;
     ostream* os[2];
     os[0] = &sWOs.Set(response);
-    if (shortRpcFormatFlag) {
-        *(os[0]) << hex;
-    }
     if (MsgLogger::GetLogger() &&
             MsgLogger::GetLogger()->IsLogLevelEnabled(
                 MsgLogger::kLogLevelDEBUG)) {
@@ -1957,7 +1958,7 @@ WriteIdAllocOp::Execute()
     int64_t        dummyWriteId  = -1;
     int            myPos         = -1;
     ServerLocation peerLoc;
-    const bool     needToForward = needToForwardToPeer(
+    const bool     needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, false, dummyWriteId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
@@ -2103,7 +2104,7 @@ WritePrepareOp::Execute()
     // check if we need to forward anywhere
     ServerLocation peerLoc;
     int            myPos         = -1;
-    const bool     needToForward = needToForwardToPeer(
+    const bool     needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, true, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
@@ -2273,7 +2274,7 @@ WriteSyncOp::Execute()
     ServerLocation peerLoc;
     int            myPos = -1;
     // check if we need to forward anywhere
-    const bool needToForward = needToForwardToPeer(
+    const bool needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, true, writeId);
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
@@ -2518,7 +2519,8 @@ RecordAppendOp::Execute()
 {
     ServerLocation peerLoc;
     int            myPos = -1;
-    needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    needToForwardToPeer(shortRpcFormatFlag,
+        servers, numServers, myPos, peerLoc, true, writeId);
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             subjectId != writeId) {
@@ -2577,7 +2579,8 @@ ChunkSpaceReserveOp::Execute()
     ServerLocation peerLoc;
     int myPos = -1;
 
-    needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    needToForwardToPeer(shortRpcFormatFlag,
+        servers, numServers, myPos, peerLoc, true, writeId);
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             subjectId != writeId) {
@@ -2619,7 +2622,8 @@ ChunkSpaceReleaseOp::Execute()
     ServerLocation peerLoc;
     int myPos = -1;
 
-    needToForwardToPeer(servers, numServers, myPos, peerLoc, true, writeId);
+    needToForwardToPeer(shortRpcFormatFlag,
+        servers, numServers, myPos, peerLoc, true, writeId);
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             subjectId != writeId) {

@@ -1656,7 +1656,8 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     // Message is ready to be pushed down.  So remove it.
     iobuf->Consume(msgLen);
 
-    const seq_t             cseq = prop.getValue("Cseq", (seq_t) -1);
+    const seq_t             cseq = prop.getValue(
+        mShortRpcFormatFlag ? "c" : "Cseq", (seq_t) -1);
     MetaChunkRequest* const op   = FindMatchingRequest(cseq);
     if (! op) {
         // Most likely op was timed out, or chunk server sent response
@@ -1668,13 +1669,15 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     }
 
     mLastHeard = TimeNow();
-    op->statusMsg = prop.getValue("Status-message", "");
-    op->status    = prop.getValue("Status",         -1);
+    op->statusMsg = prop.getValue(
+        mShortRpcFormatFlag ? "m" : "Status-message", string());
+    op->status    = prop.getValue(mShortRpcFormatFlag ? "s" : "Status", -1);
     if (op->status < 0) {
         op->status = -KfsToSysErrno(-op->status);
     }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
+        prop.setIntBase(10);
         mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
         mTotalFsSpace      = prop.getValue("Total-fs-space",       int64_t(-1));
         mUsedSpace         = prop.getValue("Used-space",            int64_t(0));

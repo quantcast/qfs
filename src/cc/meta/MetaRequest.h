@@ -2940,9 +2940,9 @@ struct MetaChunkDirInfo : public MetaRequest {
         // Make sure that all "unwanted" fields that aren't counters are added
         // to the parser.
         return MetaRequest::ParserDef(parser)
-        .Def2("No-reply", "R", &MetaChunkDirInfo::noReplyFlag)
-        .Def2("Dir-name", "D", &MetaChunkDirInfo::dirName)
-        .Def2("Version",  "V", &MetaChunkDirInfo::kfsVersion)
+        .Def("No-reply", &MetaChunkDirInfo::noReplyFlag)
+        .Def("Dir-name", &MetaChunkDirInfo::dirName)
+        .Def("Version",  &MetaChunkDirInfo::kfsVersion)
         ;
     }
 };

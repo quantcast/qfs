@@ -530,7 +530,7 @@ struct AllocChunkOp : public KfsOp {
         .Def2("Chunk-version",   "V",  &AllocChunkOp::chunkVersion,   int64_t(-1))
         .Def2("Lease-id",        "L",  &AllocChunkOp::leaseId,        int64_t(-1))
         .Def2("Chunk-append",    "CA", &AllocChunkOp::appendFlag,     false)
-        .Def2("Num-servers",     "SC", &AllocChunkOp::numServers)
+        .Def2("Num-servers",     "R",  &AllocChunkOp::numServers)
         .Def2("Servers",         "S",  &AllocChunkOp::servers)
         .Def2("Min-tier",        "TL", &AllocChunkOp::minStorageTier, kKfsSTierUndef)
         .Def2("Max-tier",        "TH", &AllocChunkOp::maxStorageTier, kKfsSTierUndef)

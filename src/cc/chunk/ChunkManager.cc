@@ -525,6 +525,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             "CHUNKDIR_INFO\r\n"
             "Version: "            << KFS_VERSION_STR                  << "\r\n"
             "Cseq: "               << seq                              << "\r\n"
+            "c:"                   << hex << seq << dec                << "\r\n"
             "No-reply: "           << (noReply ? 1 : 0)                << "\r\n"
             "Dir-name: "           << mChunkDir.dirname                << "\r\n"
             "Dev-id: "             << mChunkDir.deviceId               << "\r\n"
