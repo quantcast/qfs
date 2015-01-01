@@ -2908,7 +2908,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             } else if (sym == ':' ) {
                 lastDigit = 0; // ipv6 16 bit 0
             } else if ('a' <= sym && sym <= 'f') {
-                lastDigit = lastDigit = sym - 'a' + 10; // ipv6 last digit
+                lastDigit = sym - 'a' + 10; // ipv6 last digit
             } else if ('A' <= sym && sym <= 'F') {
                 lastDigit = lastDigit = sym - 'A' + 10; // ipv6 last digit
             }
