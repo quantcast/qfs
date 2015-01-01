@@ -2910,7 +2910,7 @@ LayoutManager::AddNewServer(MetaHello *r)
             } else if ('a' <= sym && sym <= 'f') {
                 lastDigit = sym - 'a' + 10; // ipv6 last digit
             } else if ('A' <= sym && sym <= 'F') {
-                lastDigit = lastDigit = sym - 'A' + 10; // ipv6 last digit
+                lastDigit = sym - 'A' + 10; // ipv6 last digit
             }
         }
         if (lastDigit < 0) {
