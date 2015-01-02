@@ -282,8 +282,8 @@ ClientSM::SendResponseSelf(KfsOp& op)
         (tooLong ? " RPC too long " : " took: ") <<
             timespent << " usec." <<
     KFS_LOG_EOM;
-
-    op.Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    ReqOstream ros(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    op.Response(ros);
     mWOStream.Reset();
 
     IOBuffer* iobuf = 0;
@@ -388,7 +388,8 @@ ClientSM::HandleRequest(int code, void* data)
         op->done = true;
         if (sTraceRequestResponseFlag) {
             IOBuffer::OStream os;
-            op->Response(os);
+            ReqOstream ros(os);
+            op->Response(ros);
             IOBuffer::IStream is(os);
             string line;
             while (getline(is, line)) {

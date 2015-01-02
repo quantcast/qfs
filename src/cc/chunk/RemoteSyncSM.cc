@@ -483,7 +483,8 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
     KFS_LOG_EOM;
     IOBuffer& buf         = mNetConnection->GetOutBuffer();
     const int headerStart = buf.BytesConsumable();
-    op->Request(mWOStream.Set(buf), buf);
+    ReqOstream ros(mWOStream.Set(buf));
+    op->Request(ros, buf);
     mWOStream.Reset();
     const int headerEnd   = buf.BytesConsumable();
     if (mTraceRequestResponseFlag) {

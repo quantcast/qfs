@@ -271,7 +271,15 @@ static seq_t RandomSeqNo()
 inline void
 ChunkServerRequest(MetaChunkRequest& req, ostream& os, IOBuffer& buf)
 {
-    req.request(os, buf);
+    ReqOstream ros(os);
+    req.request(ros, buf);
+}
+
+inline void
+ChunkServerResponse(MetaRequest& req, ostream& os, IOBuffer& buf)
+{
+    ReqOstream ros(os);
+    req.response(ros, buf);
 }
 
 inline void
@@ -1486,7 +1494,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mHelloOp->status = 0;
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         mOstream.Set(ioBuf);
-        mHelloOp->response(mOstream, ioBuf);
+        ChunkServerResponse(*mHelloOp, mOstream, ioBuf);
         if (gLayoutManager.IsRetireOnCSRestart()) {
             MetaChunkRetire retire(NextSeq(), mSelfPtr);
             ChunkServerRequest(retire, mOstream, ioBuf);
@@ -2484,7 +2492,7 @@ ChunkServer::SendResponse(MetaRequest* op)
         return false;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
-    op->response(mOstream.Set(buf), buf);
+    ChunkServerResponse(*op, mOstream.Set(buf), buf);
     mOstream.Reset();
     if (mRecursionCount <= 0) {
         mNetConnection->StartFlush();

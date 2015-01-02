@@ -158,18 +158,6 @@ IsMsgAvail(IOBuffer* iobuf, int* msgLen)
     return true;
 }
 
-/*!
- * A helper function to print out a timeval into a string buffer with
- * a prefix/suffix string around the time values.
- */
-void
-sendtime(ostream& os, const string& prefix, int64_t t, const string& suffix)
-{
-    const int64_t kMicroseconds = 1000 * 1000;
-    os << prefix << (t / kMicroseconds) <<
-        " " <<  (t % kMicroseconds) << suffix;
-}
-
 ostream&
 DisplayDateTime::display(ostream& os) const
 {

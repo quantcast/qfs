@@ -438,7 +438,8 @@ MetaServerSM::Authenticate()
     }
     IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
     mAuthOp->shortRpcFormatFlag = mShortRpcFmtFlag;
-    mAuthOp->Request(mWOStream.Set(ioBuf), ioBuf);
+    ReqOstream ros(mWOStream.Set(ioBuf));
+    mAuthOp->Request(ros, ioBuf);
     mWOStream.Reset();
     KFS_LOG_STREAM_INFO << "started: " << mAuthOp->Show() << KFS_LOG_EOM;
     return true;
@@ -463,7 +464,8 @@ MetaServerSM::DispatchHello()
     mSentHello = true;
     IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
     mHelloOp->shortRpcFormatFlag = mShortRpcFmtFlag;
-    mHelloOp->Request(mWOStream.Set(ioBuf), ioBuf);
+    ReqOstream ros(mWOStream.Set(ioBuf));
+    mHelloOp->Request(ros, ioBuf);
     mWOStream.Reset();
     KFS_LOG_STREAM_INFO <<
         "Sending hello to meta server: " << mHelloOp->Show() <<
@@ -988,7 +990,8 @@ MetaServerSM::EnqueueOp(KfsOp* op)
         }
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         op->shortRpcFormatFlag = mShortRpcFmtFlag;
-        op->Request(mWOStream.Set(ioBuf), ioBuf);
+        ReqOstream ros(mWOStream.Set(ioBuf));
+        op->Request(ros, ioBuf);
         mWOStream.Reset();
         op->status = 0;
         if (op->noReply) {
@@ -1041,7 +1044,8 @@ MetaServerSM::SendResponse(KfsOp* op)
             mCounters.mAllocErrorCount++;
         }
     }
-    op->Response(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    ReqOstream ros(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    op->Response(ros);
     mWOStream.Reset();
     IOBuffer* iobuf = 0;
     int       len   = 0;
@@ -1077,7 +1081,8 @@ MetaServerSM::DispatchOps()
         KFS_LOG_EOM;
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         op->shortRpcFormatFlag = mShortRpcFmtFlag;
-        op->Request(mWOStream.Set(ioBuf), ioBuf);
+        ReqOstream ros(mWOStream.Set(ioBuf));
+        op->Request(ros, ioBuf);
         mWOStream.Reset();
     }
     while (! mDispatchedNoReplyOps.empty()) {
@@ -1094,8 +1099,8 @@ MetaServerSM::ResubmitOps()
     if (mDispatchedOps.empty()) {
         return;
     }
-    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-    ostream&  os    = mWOStream.Set(ioBuf);
+    IOBuffer&  ioBuf = mNetConnection->GetOutBuffer();
+    ReqOstream os(mWOStream.Set(ioBuf));
     for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
             it != mDispatchedOps.end();
             ++it) {
@@ -1215,7 +1220,7 @@ MetaServerSM::SubmitHello()
         (mHelloResume != 0 && 0 < mCounters.mHelloDoneCount)) ? 0 : -1;
     mHelloOp->clnt               = this;
     mHelloOp->shortRpcFormatFlag = mShortRpcFmtFlag;
-    mHelloOp->reqShortRpcFmtFlag = ! mShortRpcFmtFlag;
+    mHelloOp->reqShortRpcFmtFlag = false; //! mShortRpcFmtFlag;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }

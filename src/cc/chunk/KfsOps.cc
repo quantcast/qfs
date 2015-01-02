@@ -183,9 +183,9 @@ private:
     }
 }* OpCounters::sInstance(OpCounters::MakeInstance());
 
-template <typename T> inline static bool
+template <typename T, typename VP> inline static bool
 needToForwardToPeer(
-    bool            shortRpcFormatFlag,
+    const VP*       /* parserType */,
     T&              serverInfo,
     uint32_t        numServers,
     int&            myPos,
@@ -193,22 +193,30 @@ needToForwardToPeer(
     bool            isWriteIdPresent,
     int64_t&        writeId)
 {
-    BufferInputStream ist(serverInfo.data(), serverInfo.size());
+    const char*       ptr = serverInfo.data();
+    const char* const end = ptr + serverInfo.size();
     ServerLocation    loc;
     int64_t           id;
     bool              foundLocal    = false;
     bool              needToForward = false;
 
-    if (shortRpcFormatFlag) {
-        ist >> hex;
-    }
     // the list of servers is ordered: we forward to the next one
     // in the list.
     for (uint32_t i = 0; i < numServers; i++) {
-        ist >> loc.hostname;
-        ist >> loc.port;
-        if (isWriteIdPresent) {
-            ist >> id;
+        while (ptr < end && (*ptr & 0xFF) <= ' ') {
+            ptr++;
+        }
+        const char* const s = ptr;
+        while (ptr < end && ' ' < (*ptr & 0xFF)) {
+            ptr++;
+        }
+        if (ptr <= s) {
+            break;
+        }
+        loc.hostname.assign(s, ptr - s);
+        if (! VP::Parse(ptr, end - ptr, loc.port) ||
+                (isWriteIdPresent && ! VP::Parse(ptr, end - ptr, id))) {
+            break;
         }
         if (gChunkServer.IsLocalServer(loc)) {
             // return the position of where this server is present in the list
@@ -227,6 +235,35 @@ needToForwardToPeer(
     }
     peerLoc = loc;
     return needToForward;
+}
+
+template <typename T> inline static bool
+needToForwardToPeer(
+    bool            shortRpcFormatFlag,
+    T&              serverInfo,
+    uint32_t        numServers,
+    int&            myPos,
+    ServerLocation& peerLoc,
+    bool            isWriteIdPresent,
+    int64_t&        writeId)
+{
+    return (shortRpcFormatFlag ?
+        needToForwardToPeer(
+            static_cast<const HexIntParser*>(0),
+            serverInfo,
+            numServers,
+            myPos,
+            peerLoc,
+            isWriteIdPresent,
+            writeId) :
+        needToForwardToPeer(
+            static_cast<const DecIntParser*>(0),
+            serverInfo,
+            numServers,
+            myPos,
+            peerLoc,
+            isWriteIdPresent,
+            writeId));
 }
 
 template<typename T> static inline RemoteSyncSMPtr
@@ -280,7 +317,7 @@ SubmitOpResponse(KfsOp *op)
 inline static void
 WriteSyncReplicationAccess(
     const SyncReplicationAccess& sra,
-    ostream&                     os,
+    ReqOstream&                  os,
     bool                         shortFmtFlag,
     const char*                  contentLengthHeader)
 {
@@ -544,7 +581,7 @@ ChunkAccessRequestOp::CheckAccess(ClientSM& sm)
 
 void
 ChunkAccessRequestOp::WriteChunkAccessResponse(
-    ostream& os, int64_t subjectId, int accessTokenFlags)
+    ReqOstream& os, int64_t subjectId, int accessTokenFlags)
 {
     if (status < 0 ||
             ! hasChunkAccessTokenFlag ||
@@ -578,7 +615,7 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
     if (createChunkAccessFlag) {
         os << (shortRpcFormatFlag ? "C:" : "C-access: ");
         ChunkAccessToken::WriteToken(
-            os,
+            os.Get(),
             chunkId,
             token.GetUid(),
             tokenSeq++,
@@ -606,7 +643,7 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
         DelegationToken::Subject* kSubjectPtr   = 0;
         kfsKeyId_t                kSessionKeyId = 0;
         DelegationToken::WriteTokenAndSessionKey(
-            os,
+            os.Get(),
             token.GetUid(),
             tokenSeq,
             keyId,
@@ -1375,8 +1412,9 @@ HBAppend(ostream** os, const char* key1, const char* key2, T val)
     }
 }
 
+template<typename T>
 inline static void
-AppendStorageTiersInfo(const char* prefix, ostream& os,
+AppendStorageTiersInfo(const char* prefix, T& os,
     const ChunkManager::StorageTiersInfo& tiersInfo)
 {
     os << prefix;
@@ -2825,7 +2863,7 @@ StatsOp::Execute()
 }
 
 inline static bool
-OkHeader(const KfsOp* op, ostream &os, bool checkStatus = true)
+OkHeader(const KfsOp* op, ReqOstream& os, bool checkStatus = true)
 {
     if (op->shortRpcFormatFlag) {
         os << hex;
@@ -2849,8 +2887,8 @@ OkHeader(const KfsOp* op, ostream &os, bool checkStatus = true)
     return (op->status >= 0);
 }
 
-inline static ostream&
-PutHeader(const KfsOp* op, ostream &os)
+inline static ReqOstream&
+PutHeader(const KfsOp* op, ReqOstream &os)
 {
     OkHeader(op, os, false);
     return os;
@@ -2860,13 +2898,13 @@ PutHeader(const KfsOp* op, ostream &os)
 /// Generate response for an op based on the KFS protocol.
 ///
 void
-KfsOp::Response(ostream &os)
+KfsOp::Response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-ChunkAccessRequestOp::Response(ostream &os)
+ChunkAccessRequestOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2876,7 +2914,7 @@ ChunkAccessRequestOp::Response(ostream &os)
 }
 
 void
-SizeOp::Response(ostream &os)
+SizeOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2885,7 +2923,7 @@ SizeOp::Response(ostream &os)
 }
 
 void
-GetChunkMetadataOp::Response(ostream &os)
+GetChunkMetadataOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2899,7 +2937,7 @@ GetChunkMetadataOp::Response(ostream &os)
 }
 
 void
-ReadOp::Response(ostream &os)
+ReadOp::Response(ReqOstream& os)
 {
     PutHeader(this, os);
     if (status < 0) {
@@ -2930,7 +2968,7 @@ ReadOp::Response(ostream &os)
 }
 
 void
-WriteIdAllocOp::Response(ostream &os)
+WriteIdAllocOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2944,7 +2982,7 @@ WriteIdAllocOp::Response(ostream &os)
 }
 
 void
-WritePrepareOp::Response(ostream &os)
+WritePrepareOp::Response(ReqOstream& os)
 {
     if (! replyRequestedFlag) {
         // no reply for a prepare...the reply is covered by sync
@@ -2954,7 +2992,7 @@ WritePrepareOp::Response(ostream &os)
 }
 
 void
-RecordAppendOp::Response(ostream &os)
+RecordAppendOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -2965,7 +3003,7 @@ RecordAppendOp::Response(ostream &os)
 }
 
 void
-RecordAppendOp::Request(ostream& os)
+RecordAppendOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -2995,7 +3033,7 @@ RecordAppendOp::Request(ostream& os)
 }
 
 void
-GetRecordAppendOpStatus::Request(ostream& os)
+GetRecordAppendOpStatus::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3009,7 +3047,7 @@ GetRecordAppendOpStatus::Request(ostream& os)
 }
 
 void
-GetRecordAppendOpStatus::Response(ostream &os)
+GetRecordAppendOpStatus::Response(ReqOstream& os)
 {
     PutHeader(this, os);
     os <<
@@ -3053,7 +3091,7 @@ GetRecordAppendOpStatus::Response(ostream &os)
 }
 
 void
-CloseOp::Request(ostream& os)
+CloseOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3085,7 +3123,7 @@ CloseOp::Request(ostream& os)
 }
 
 void
-SizeOp::Request(ostream& os)
+SizeOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3103,7 +3141,7 @@ SizeOp::Request(ostream& os)
 }
 
 void
-GetChunkMetadataOp::Request(ostream& os)
+GetChunkMetadataOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3127,7 +3165,7 @@ GetChunkMetadataOp::Request(ostream& os)
 }
 
 void
-ReadOp::Request(ostream& os)
+ReadOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3155,7 +3193,7 @@ ReadOp::Request(ostream& os)
 }
 
 void
-WriteIdAllocOp::Request(ostream& os)
+WriteIdAllocOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3182,7 +3220,7 @@ WriteIdAllocOp::Request(ostream& os)
 }
 
 void
-WritePrepareFwdOp::Request(ostream& os)
+WritePrepareFwdOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3217,7 +3255,7 @@ WritePrepareFwdOp::Request(ostream& os)
 }
 
 void
-WriteSyncOp::Request(ostream& os)
+WriteSyncOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3252,7 +3290,7 @@ WriteSyncOp::Request(ostream& os)
 }
 
 static void
-SendCryptoKey(ostream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key)
+SendCryptoKey(ReqOstream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key)
 {
     os <<
         "CKeyId: " << keyId << "\r\n"
@@ -3261,7 +3299,7 @@ SendCryptoKey(ostream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key)
 }
 
 void
-HeartbeatOp::Response(ostream& os)
+HeartbeatOp::Response(ReqOstream& os)
 {
     OkHeader(this, os);
     if (sendCurrentKeyFlag) {
@@ -3270,7 +3308,7 @@ HeartbeatOp::Response(ostream& os)
 }
 
 void
-ReplicateChunkOp::Response(ostream &os)
+ReplicateChunkOp::Response(ReqOstream& os)
 {
     PutHeader(this, os) <<
     (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid          << "\r\n" <<
@@ -3284,7 +3322,7 @@ ReplicateChunkOp::Response(ostream &os)
 }
 
 void
-PingOp::Response(ostream &os)
+PingOp::Response(ReqOstream& os)
 {
     ServerLocation loc = gMetaServerSM.GetLocation();
 
@@ -3300,7 +3338,7 @@ PingOp::Response(ostream &os)
 }
 
 void
-BeginMakeChunkStableOp::Response(ostream& os)
+BeginMakeChunkStableOp::Response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -3312,7 +3350,7 @@ BeginMakeChunkStableOp::Response(ostream& os)
 }
 
 void
-DumpChunkMapOp::Response(ostream &os)
+DumpChunkMapOp::Response(ReqOstream& os)
 {
     ostringstream v;
     gChunkManager.DumpChunkMap(v);
@@ -3326,7 +3364,7 @@ DumpChunkMapOp::Response(ostream &os)
 }
 
 void
-StatsOp::Response(ostream &os)
+StatsOp::Response(ReqOstream& os)
 {
     PutHeader(this, os) << stats << "\r\n";
 }
@@ -3430,7 +3468,7 @@ WriteSyncOp::~WriteSyncOp()
 }
 
 void
-LeaseRenewOp::Request(ostream& os)
+LeaseRenewOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3444,7 +3482,7 @@ LeaseRenewOp::Request(ostream& os)
     os <<
     (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId   << "\r\n" <<
     (shortRpcFormatFlag ? "L:" : "Lease-id: ")     << leaseId   << "\r\n" <<
-    (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << leaseType << "\r\n"
+    (shortRpcFormatFlag ? "T:" : "Lease-type: ")   << leaseType << "\r\n"
     ;
     if (emitCSAceessFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "CS-access: 1\r\n");
@@ -3460,7 +3498,7 @@ LeaseRenewOp::HandleDone(int code, void* data)
 }
 
 void
-LeaseRelinquishOp::Request(ostream& os)
+LeaseRelinquishOp::Request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3498,7 +3536,7 @@ LeaseRelinquishOp::HandleDone(int code, void* data)
 }
 
 void
-CorruptChunkOp::Request(ostream& os)
+CorruptChunkOp::Request(ReqOstream& os)
 {
     if (kMaxChunkIds < chunkCount) {
         die("invalid corrupt chunk RPC");
@@ -3549,7 +3587,7 @@ CorruptChunkOp::HandleDone(int code, void* data)
 }
 
 void
-EvacuateChunksOp::Request(ostream& os)
+EvacuateChunksOp::Request(ReqOstream& os)
 {
     assert(numChunks <= kMaxChunkIds);
 
@@ -3592,7 +3630,7 @@ EvacuateChunksOp::Request(ostream& os)
 }
 
 void
-AvailableChunksOp::Request(ostream& os)
+AvailableChunksOp::Request(ReqOstream& os)
 {
     if (numChunks <= 0 && noReply) {
         return;
@@ -3615,7 +3653,7 @@ AvailableChunksOp::Request(ostream& os)
 }
 
 void
-HelloMetaOp::Request(ostream& os, IOBuffer& buf)
+HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -3747,7 +3785,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
 }
 
 void
-SetProperties::Request(ostream& os)
+SetProperties::Request(ReqOstream& os)
 {
     string content;
     properties.getList(content, string());
@@ -3878,7 +3916,7 @@ HelloMetaOp::~HelloMetaOp()
 }
 
 void
-AuthenticateOp::Request(ostream& os, IOBuffer& buf)
+AuthenticateOp::Request(ReqOstream& os, IOBuffer& buf)
 {
     if (shortRpcFormatFlag) {
         os << hex;

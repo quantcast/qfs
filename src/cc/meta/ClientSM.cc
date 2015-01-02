@@ -215,9 +215,8 @@ ClientSM::SendResponse(MetaRequest *op)
     if (op->op == META_DISCONNECT) {
         mDisconnectFlag = true;
     }
-    op->response(
-        mOstream.Set(mNetConnection->GetOutBuffer()),
-        mNetConnection->GetOutBuffer());
+    ReqOstream ros(mOstream.Set(mNetConnection->GetOutBuffer()));
+    op->response(ros, mNetConnection->GetOutBuffer());
     mOstream.Reset();
     if (mRecursionCnt <= 0) {
         mNetConnection->StartFlush();

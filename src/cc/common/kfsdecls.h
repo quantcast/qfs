@@ -30,14 +30,10 @@
 
 #include "kfstypes.h"
 
-#include <istream>
-#include <ostream>
 #include <string>
 
 namespace KFS
 {
-using std::ostream;
-using std::istream;
 using std::string;
 
 ///
@@ -88,7 +84,8 @@ struct ServerLocation
         return (! hostname.empty() && port > 0);
     }
     string ToString() const;
-    ostream& Display(ostream& os) const
+    template<typename T>
+    T& Display(T& os) const
         { return (os << hostname << ' ' << port); }
     bool FromString(const string& s)
         { return FromString(s.data(), s.size()); }
@@ -102,12 +99,14 @@ struct ServerLocation
     int    port;     //!< Location of the server: port to connect to
 };
 
-inline static ostream&
-operator<<(ostream& os, const ServerLocation& loc)
+template<typename T>
+inline static T&
+operator<<(T& os, const ServerLocation& loc)
     { return loc.Display(os); }
 
-inline static istream&
-operator>>(istream& is, ServerLocation& loc)
+template<typename T>
+inline static T&
+operator>>(T& is, ServerLocation& loc)
     { return (is >> loc.hostname >> loc.port); }
 
 // I-node (file / directory) permissions.

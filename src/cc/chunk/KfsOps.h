@@ -39,6 +39,7 @@
 #include "common/time.h"
 #include "common/StBuffer.h"
 #include "common/RequestParser.h"
+#include "common/ReqOstream.h"
 
 #include "qcdio/QCDLList.h"
 
@@ -252,6 +253,8 @@ public:
     bool Parse(istream& is, int chunkAccessLength, int len);
 };
 
+typedef ReqOstreamT<ostream> ReqOstream;
+
 struct KfsOp : public KfsCallbackObj
 {
     class Display
@@ -293,13 +296,13 @@ struct KfsOp : public KfsCallbackObj
     }
     // to allow dynamic-type-casting, make the destructor virtual
     virtual ~KfsOp();
-    virtual void Request(ostream& os, IOBuffer& /* buf */) {
+    virtual void Request(ReqOstream& os, IOBuffer& /* buf */) {
         Request(os);
     }
     // After an op finishes execution, this method generates the
     // response that should be sent back to the client.  The response
     // string that is generated is based on the KFS protocol.
-    virtual void Response(ostream& os);
+    virtual void Response(ReqOstream& os);
     virtual void ResponseContent(IOBuffer*& buf, int& size) {
         buf  = 0;
         size = 0;
@@ -374,7 +377,7 @@ struct KfsOp : public KfsCallbackObj
         { return (op ? Display(*op) : Display(GetNullOp())); }
     virtual bool CheckAccess(ClientSM& sm);
 protected:
-    virtual void Request(ostream& /* os */) {
+    virtual void Request(ReqOstream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
     };
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -443,7 +446,7 @@ struct ChunkAccessRequestOp : public KfsClientChunkOp
           writeId(-1)
           {}
     void WriteChunkAccessResponse(
-        ostream& os, int64_t subjectId, int accessTokenFlags);
+        ReqOstream& os, int64_t subjectId, int accessTokenFlags);
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
@@ -452,7 +455,7 @@ struct ChunkAccessRequestOp : public KfsClientChunkOp
         ;
     }
     virtual bool CheckAccess(ClientSM& sm);
-    virtual void Response(ostream &os);
+    virtual void Response(ReqOstream& os);
 };
 
 //
@@ -561,7 +564,7 @@ struct BeginMakeChunkStableOp : public KfsOp {
           next(0)
         {}
     void Execute();
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "begin-make-chunk-stable:"
@@ -781,7 +784,7 @@ struct ReplicateChunkOp : public KfsOp {
         chunkAccess()
         {}
     void Execute();
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "replicate-chunk:" <<
@@ -854,7 +857,7 @@ struct HeartbeatOp : public KfsOp {
           currentKey()
         {}
     void Execute();
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         if (cmdShow.empty()) {
             return os << "heartbeat";
@@ -984,8 +987,8 @@ struct CloseOp : public KfsClientChunkOp {
         ;
     }
     // if there was a daisy chain for this chunk, forward the close down the chain
-    void Request(ostream &os);
-    void Response(ostream &os) {
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os) {
         if (needAck) {
             KfsOp::Response(os);
         }
@@ -1049,8 +1052,8 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, accessFwdLength);
     }
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const;
     bool Validate();
@@ -1124,8 +1127,8 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
           widWasReadOnlyFlag(false),
           widReadOnlyFlag(false)
         {}
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1208,8 +1211,8 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, contentLength);
     }
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void Execute();
     // should the chunk metadata get paged out, then we use the
     // write-id alloc op as a hint to page the data back in---writes
@@ -1315,7 +1318,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, accessFwdLength);
     }
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     void Execute();
     void ForwardToPeer(
         const ServerLocation& loc,
@@ -1362,7 +1365,7 @@ struct WritePrepareFwdOp : public KfsOp {
         : KfsOp(CMD_WRITE_PREPARE_FWD, -1),
           owner(o)
         {}
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // nothing to do...we send the data to peer and wait. have a
     // decl. to keep compiler happy
     void Execute() {}
@@ -1457,7 +1460,7 @@ struct WriteOp : public KfsOp {
         status = numBytesIO = 0;
         SET_HANDLER(this, &WriteOp::HandleWriteDone);
     }
-    void Response(ostream &os) {}
+    void Response(ReqOstream& os) {}
     void Execute();
 
     // for record appends, this handler will be called back; on the
@@ -1531,7 +1534,7 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, contentLength);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     void Execute();
     void ForwardToPeer(
         const ServerLocation& loc,
@@ -1668,8 +1671,8 @@ struct ReadOp : public KfsClientChunkOp {
         scrubOp = sop;
         SET_HANDLER(this, &ReadOp::HandleScrubReadDone);
     }
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void ResponseContent(IOBuffer*& buf, int& size) {
         buf  = status >= 0 ? &dataBuf : 0;
         size = buf ? numBytesIO : 0;
@@ -1741,8 +1744,8 @@ struct SizeOp : public KfsClientChunkOp {
         SET_HANDLER(this, &SizeOp::HandleChunkMetaReadDone);
     }
 
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void Execute();
     int HandleChunkMetaReadDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const
@@ -1893,8 +1896,8 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     // the values to the client
     int HandleScrubReadDone(int code, void *data);
 
-    void Request(ostream &os);
-    void Response(ostream &os);
+    void Request(ReqOstream& os);
+    void Response(ReqOstream& os);
     void ResponseContent(IOBuffer*& buf, int& size) {
         buf  = status >= 0 ? &dataBuf : 0;
         size = buf ? numBytesIO : 0;
@@ -1948,7 +1951,7 @@ struct PingOp : public KfsOp {
           totalFsSpace(-1),
           evacuateInFlightCount(-1)
         {}
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1969,7 +1972,7 @@ struct DumpChunkMapOp : public KfsOp {
     DumpChunkMapOp(kfsSeq_t s = -1)
        : KfsOp(CMD_DUMP_CHUNKMAP, s)
        {}
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1993,7 +1996,7 @@ struct StatsOp : public KfsOp {
         : KfsOp(CMD_STATS, s),
           stats()
         {}
-    void Response(ostream &os);
+    void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2049,7 +2052,7 @@ struct LeaseRenewOp : public KfsOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, len);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
@@ -2086,7 +2089,7 @@ struct LeaseRelinquishOp : public KfsOp {
     {
         SET_HANDLER(this, &LeaseRelinquishOp::HandleDone);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
@@ -2193,7 +2196,7 @@ struct HelloMetaOp : public KfsOp {
         {}
     virtual ~HelloMetaOp();
     void Execute();
-    void Request(ostream& os, IOBuffer& buf);
+    void Request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -2245,7 +2248,7 @@ struct CorruptChunkOp : public KfsOp {
         noRetry = true;
         SET_HANDLER(this, &CorruptChunkOp::HandleDone);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data);
     void Execute() {}
@@ -2311,7 +2314,7 @@ struct EvacuateChunksOp : public KfsOp {
     {
         SET_HANDLER(this, &EvacuateChunksOp::HandleDone);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data) {
         if (clnt) {
@@ -2343,7 +2346,7 @@ struct AvailableChunksOp : public KfsOp {
     {
         SET_HANDLER(this, &AvailableChunksOp::HandleDone);
     }
-    void Request(ostream &os);
+    void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
     int HandleDone(int code, void *data) {
         if (clnt) {
@@ -2372,7 +2375,7 @@ struct SetProperties : public KfsOp {
           contentLength(0),
           properties()
         {}
-    virtual void Request(ostream &os);
+    virtual void Request(ReqOstream& os);
     virtual void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2445,7 +2448,7 @@ struct AuthenticateOp : public KfsOp {
             shortRpcFormatFlag ? "US" : "Use-ssl", 0) != 0;
         return true;
     }
-    virtual void Request(ostream& os, IOBuffer& buf);
+    virtual void Request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const {
         return os << "authenticate:"
             " requested: " << requestedAuthType <<

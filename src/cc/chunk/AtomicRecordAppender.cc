@@ -262,7 +262,7 @@ public:
         int64_t                chunkVersion,
         uint32_t               numServers,
         const T&               servers,
-        ServerLocation         peerLoc,
+        const ServerLocation&  peerLoc,
         int                    replicationPos,
         int64_t                chunkSize,
         const RemoteSyncSMPtr& peer,
@@ -292,12 +292,12 @@ public:
     bool WantsToKeepLease() const
         { return (IsMaster() && ! IsChunkStable()); }
     void AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
-        ServerLocation peerLoc, const DiskIo::FilePtr& chunkFileHandle);
+        const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     int  ChangeChunkSpaceReservaton(
         int64_t writeId, size_t nBytesIn, bool releaseFlag, string* errMsg);
     int  InvalidateWriteId(int64_t writeId, bool declareFailureFlag);
     void AppendChunkBegin(RecordAppendOp *op, int replicationPos,
-        ServerLocation peerLoc)
+        const ServerLocation& peerLoc)
     {
         QCStMutexLocker lock(mMutex);
         AppendBegin(op, replicationPos, peerLoc);
@@ -331,7 +331,7 @@ public:
     template<typename T>
     int  CheckParameters(
         int64_t chunkVersion, uint32_t numServers, const T& servers,
-        int replicationPos, ServerLocation peerLoc,
+        int replicationPos, const ServerLocation& peerLoc,
         const DiskIo::FilePtr& fileHandle, string& msg);
     static bool ComputeChecksum(
         kfsChunkId_t chunkId, int64_t chunkVersion,
@@ -514,7 +514,7 @@ private:
     void BeginMakeStable(BeginMakeChunkStableOp* op = 0);
     void MakeChunkStable(MakeChunkStableOp* op = 0);
     void AppendBegin(RecordAppendOp *op, int replicationPos,
-        ServerLocation peerLoc);
+        const ServerLocation& peerLoc);
     bool IsMaster() const
         { return (mReplicationPos == 0); }
     void Relock(ClientThread& cliThread);
@@ -716,7 +716,7 @@ AtomicRecordAppender::AtomicRecordAppender(
     int64_t                chunkVersion,
     uint32_t               numServers,
     const T&               servers,
-    ServerLocation         peerLoc,
+    const ServerLocation&  peerLoc,
     int                    replicationPos,
     int64_t                chunkSize,
     const RemoteSyncSMPtr& peer,
@@ -924,7 +924,7 @@ AtomicRecordAppender::DeleteSelf()
 template<typename T> int
 AtomicRecordAppender::CheckParameters(
     int64_t chunkVersion, uint32_t numServers, const T& servers,
-    int replicationPos, ServerLocation peerLoc,
+    int replicationPos, const ServerLocation& peerLoc,
     const DiskIo::FilePtr& fileHandle, string& msg)
 {
     QCStMutexLocker lock(mMutex);
@@ -1091,7 +1091,7 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
 
 void
 AtomicRecordAppender::AllocateWriteId(
-    WriteIdAllocOp *op, int replicationPos, ServerLocation peerLoc,
+    WriteIdAllocOp *op, int replicationPos, const ServerLocation& peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     QCStMutexLocker lock(mMutex);
@@ -1344,7 +1344,7 @@ AtomicRecordAppender::Relock(ClientThread& cliThread)
 
 void
 AtomicRecordAppender::AppendBegin(
-    RecordAppendOp* op, int replicationPos, ServerLocation peerLoc)
+    RecordAppendOp* op, int replicationPos, const ServerLocation& peerLoc)
 {
     if (op->numBytes < size_t(op->dataBuf.BytesConsumable()) ||
             op->origClnt) {

@@ -5654,7 +5654,8 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                 req->responseAccessStr.clear();
                 req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
                 ostringstream os;
-                req->writeChunkAccess(os);
+                ReqOstream ros(os);
+                req->writeChunkAccess(ros);
                 req->responseAccessStr = os.str();
                 entry->SetResponseAccess(*req);
             }
@@ -5758,7 +5759,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
         0 < req.leaseTimeout && mClientCSAuthRequiredFlag;
     while (p < e) {
         chunkId_t chunkId;
-        if (! ValueParser::ParseInt(p, e - p, chunkId)) {
+        if (! req.ParseInt(p, e - p, chunkId)) {
             while (p < e && *p <= ' ') {
                 p++;
             }
@@ -6119,7 +6120,7 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
     const char* e = p + r->chunkIdsStr.GetSize();
     for (int i = -1; i < 0 || i < r->chunkCount; i++) {
         chunkId_t chunkId = i < 0 ? r->chunkId : chunkId_t(-1);
-        if (0 <= i && ! ValueParser::ParseInt(p, e - p, chunkId)) {
+        if (0 <= i && ! r->ParseInt(p, e - p, chunkId)) {
             r->status    = -EINVAL;
             r->statusMsg = "chunk id list parse error";
             KFS_LOG_STREAM_ERROR <<  r->Show() << " : " <<
@@ -6190,7 +6191,7 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
     const char*         e     = p + r->chunkIds.GetSize();
     while (p < e) {
         chunkId_t chunkId;
-        if (! ValueParser::ParseInt(p, e - p, chunkId)) {
+        if (! r->ParseInt(p, e - p, chunkId)) {
             while (p < e && *p <= ' ') {
                 p++;
             }

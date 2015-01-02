@@ -137,7 +137,7 @@ setChunkmapDumpDir(string d)
 }
 
 inline static bool
-OkHeader(const MetaRequest* op, ostream &os, bool checkStatus = true)
+OkHeader(const MetaRequest* op, ReqOstream &os, bool checkStatus = true)
 {
     if (op->shortRpcFormatFlag) {
         os << hex;
@@ -183,8 +183,8 @@ OkHeader(const MetaRequest* op, ostream &os, bool checkStatus = true)
     return (op->status >= 0);
 }
 
-inline static ostream&
-PutHeader(const MetaRequest* op, ostream &os)
+inline static ReqOstream&
+PutHeader(const MetaRequest* op, ReqOstream &os)
 {
     OkHeader(op, os, false);
     return os;
@@ -326,9 +326,9 @@ FattrReply(const MetaFattr* fa, MFattr& ofa)
     }
 }
 
-inline static ostream&
+inline static ReqOstream&
 UserAndGroupNamesReply(
-    ostream&                 os,
+    ReqOstream&              os,
     const UserAndGroupNames* ugn,
     kfsUid_t                 user,
     kfsGid_t                 group,
@@ -356,8 +356,8 @@ UserAndGroupNamesReply(
     return os;
 }
 
-inline static ostream&
-FattrReply(ostream& os, const MFattr& fa, const UserAndGroupNames* ugn,
+inline static ReqOstream&
+FattrReply(ReqOstream& os, const MFattr& fa, const UserAndGroupNames* ugn,
     bool shortRpcFmtFlag)
 {
     os <<
@@ -1045,9 +1045,9 @@ public:
 
 class ListServerLocations
 {
-    ostream& os;
+    ReqOstream& os;
 public:
-    ListServerLocations(ostream &out)
+    ListServerLocations(ReqOstream &out)
         : os(out)
         {}
     void operator()(const ServerLocation& s) const
@@ -2054,13 +2054,15 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         if (0 <= status) {
             if (responseStr.empty()) {
                 ostringstream& os = GetTmpOStringStream();
-                responseSelf(os);
+                ReqOstream ros(os);
+                responseSelf(ros);
                 responseStr = os.str();
             }
             if (writeMasterKeyValidFlag && responseAccessStr.empty()) {
                 tokenSeq = (TokenSeq)gLayoutManager.GetRandom().Rand();
                 ostringstream& os = GetTmpOStringStream();
-                writeChunkAccess(os);
+                ReqOstream ros(os);
+                writeChunkAccess(ros);
                 responseAccessStr = os.str();
             }
         }
@@ -2554,9 +2556,9 @@ MetaLeaseCleanup::handle()
 }
 
 class PrintChunkServerLocations {
-    ostream &os;
+    ReqOstream &os;
 public:
-    PrintChunkServerLocations(ostream &out): os(out) { }
+    PrintChunkServerLocations(ReqOstream &out): os(out) { }
     void operator () (const ChunkServerPtr &s)
     {
         os << ' ' <<  s->GetServerLocation();
@@ -2566,7 +2568,8 @@ public:
 /* virtual */ void
 MetaGetPathName::handle()
 {
-    ostringstream& os = GetTmpOStringStream();
+    ostringstream& oss = GetTmpOStringStream();
+    ReqOstream os(oss);
     const MetaFattr* fa = 0;
     if (fid < 0) {
         const MetaChunkInfo*   chunkInfo = 0;
@@ -2609,7 +2612,7 @@ MetaGetPathName::handle()
         os << "Path-name: " << metatree.getPathname(fa) << "\r\n";
         FattrReply(fa, fattr);
     }
-    result = os.str();
+    result = oss.str();
 }
 
 /* virtual */ void
@@ -4007,7 +4010,7 @@ bool MetaCreate::Validate()
  * @param[out] os: A string stream that contains the response.
  */
 void
-MetaLookup::response(ostream& os)
+MetaLookup::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4038,7 +4041,7 @@ MetaLookup::response(ostream& os)
 }
 
 void
-MetaLookupPath::response(ostream &os)
+MetaLookupPath::response(ReqOstream &os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4052,7 +4055,7 @@ MetaLookupPath::response(ostream &os)
 }
 
 void
-MetaCreate::response(ostream &os)
+MetaCreate::response(ReqOstream &os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4078,13 +4081,13 @@ MetaCreate::response(ostream &os)
 }
 
 void
-MetaRemove::response(ostream &os)
+MetaRemove::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaMkdir::response(ostream &os)
+MetaMkdir::response(ReqOstream &os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4106,13 +4109,13 @@ MetaMkdir::response(ostream &os)
 }
 
 void
-MetaRmdir::response(ostream &os)
+MetaRmdir::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaReaddir::response(ostream& os, IOBuffer& buf)
+MetaReaddir::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4130,7 +4133,7 @@ MetaReaddir::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaReaddirPlus::response(ostream& os, IOBuffer& buf)
+MetaReaddirPlus::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4183,19 +4186,19 @@ MetaReaddirPlus::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaRename::response(ostream &os)
+MetaRename::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaSetMtime::response(ostream &os)
+MetaSetMtime::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaGetalloc::response(ostream& os)
+MetaGetalloc::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4216,7 +4219,7 @@ MetaGetalloc::response(ostream& os)
 }
 
 void
-MetaGetlayout::response(ostream& os, IOBuffer& buf)
+MetaGetlayout::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4237,7 +4240,7 @@ MetaGetlayout::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaAllocate::response(ostream& os)
+MetaAllocate::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4247,7 +4250,7 @@ MetaAllocate::response(ostream& os)
 }
 
 void
-MetaAllocate::writeChunkAccess(ostream& os)
+MetaAllocate::writeChunkAccess(ReqOstream& os)
 {
     if (authUid == kKfsUserNone) {
         return;
@@ -4273,7 +4276,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
         (shortRpcFormatFlag ? "SA:" : "CS-access: ");
     const int16_t kDelegationFlags = 0;
     DelegationToken::WriteTokenAndSessionKey(
-        os,
+        os.Get(),
         authUid,
         tokenSeq,
         writeMasterKeyId,
@@ -4287,7 +4290,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
         "\r\n" <<
         (shortRpcFormatFlag ? "C:" : "C-access: ");
     ChunkAccessToken::WriteToken(
-        os,
+        os.Get(),
         chunkId,
         authUid,
         tokenSeq,
@@ -4304,7 +4307,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
 }
 
 void
-MetaAllocate::responseSelf(ostream& os)
+MetaAllocate::responseSelf(ReqOstream& os)
 {
     if (status < 0) {
         return;
@@ -4339,7 +4342,7 @@ MetaAllocate::responseSelf(ostream& os)
 }
 
 void
-MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
+MetaLeaseAcquire::response(ReqOstream& os, IOBuffer& buf)
 {
     DelegationToken::TokenSeq tokenSeq =
         (DelegationToken::TokenSeq)(leaseId >> 1);
@@ -4447,7 +4450,7 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
+MetaLeaseRenew::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4554,13 +4557,13 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaLeaseRelinquish::response(ostream &os)
+MetaLeaseRelinquish::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaCoalesceBlocks::response(ostream &os)
+MetaCoalesceBlocks::response(ReqOstream &os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4574,7 +4577,7 @@ MetaCoalesceBlocks::response(ostream &os)
 }
 
 void
-MetaHello::response(ostream& os, IOBuffer& buf)
+MetaHello::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4613,7 +4616,7 @@ MetaHello::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaChunkCorrupt::response(ostream &os)
+MetaChunkCorrupt::response(ReqOstream &os)
 {
     if (noReplyFlag) {
         return;
@@ -4622,19 +4625,19 @@ MetaChunkCorrupt::response(ostream &os)
 }
 
 void
-MetaChunkEvacuate::response(ostream& os)
+MetaChunkEvacuate::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaChunkAvailable::response(ostream& os)
+MetaChunkAvailable::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaChunkDirInfo::response(ostream& os)
+MetaChunkDirInfo::response(ReqOstream& os)
 {
     if (noReplyFlag) {
         return;
@@ -4643,7 +4646,7 @@ MetaChunkDirInfo::response(ostream& os)
 }
 
 void
-MetaTruncate::response(ostream &os)
+MetaTruncate::response(ReqOstream &os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4656,7 +4659,7 @@ MetaTruncate::response(ostream &os)
 }
 
 void
-MetaChangeFileReplication::response(ostream &os)
+MetaChangeFileReplication::response(ReqOstream &os)
 {
     PutHeader(this, os) <<
         (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
@@ -4664,19 +4667,19 @@ MetaChangeFileReplication::response(ostream &os)
 }
 
 void
-MetaRetireChunkserver::response(ostream &os)
+MetaRetireChunkserver::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaToggleWORM::response(ostream &os)
+MetaToggleWORM::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaPing::response(ostream &os, IOBuffer& buf)
+MetaPing::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4686,7 +4689,7 @@ MetaPing::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaUpServers::response(ostream& os, IOBuffer& buf)
+MetaUpServers::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4698,31 +4701,31 @@ MetaUpServers::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaStats::response(ostream &os)
+MetaStats::response(ReqOstream &os)
 {
     PutHeader(this, os) << stats << "\r\n";
 }
 
 void
-MetaCheckLeases::response(ostream &os)
+MetaCheckLeases::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaRecomputeDirsize::response(ostream &os)
+MetaRecomputeDirsize::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaDumpChunkToServerMap::response(ostream &os)
+MetaDumpChunkToServerMap::response(ReqOstream &os)
 {
     PutHeader(this, os) << "Filename: " << chunkmapFile << "\r\n\r\n";
 }
 
 void
-MetaDumpChunkReplicationCandidates::response(ostream &os, IOBuffer& buf)
+MetaDumpChunkReplicationCandidates::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4737,7 +4740,7 @@ MetaDumpChunkReplicationCandidates::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaFsck::response(ostream &os, IOBuffer& buf)
+MetaFsck::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4748,7 +4751,7 @@ MetaFsck::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaOpenFiles::response(ostream& os, IOBuffer& buf)
+MetaOpenFiles::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4763,13 +4766,13 @@ MetaOpenFiles::response(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaSetChunkServersProperties::response(ostream &os)
+MetaSetChunkServersProperties::response(ReqOstream &os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaGetChunkServersCounters::response(ostream &os, IOBuffer& buf)
+MetaGetChunkServersCounters::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4780,7 +4783,7 @@ MetaGetChunkServersCounters::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaGetChunkServerDirsCounters::response(ostream &os, IOBuffer& buf)
+MetaGetChunkServerDirsCounters::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4791,7 +4794,7 @@ MetaGetChunkServerDirsCounters::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaGetRequestCounters::response(ostream &os, IOBuffer& buf)
+MetaGetRequestCounters::response(ReqOstream &os, IOBuffer& buf)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4806,7 +4809,7 @@ MetaGetRequestCounters::response(ostream &os, IOBuffer& buf)
 }
 
 void
-MetaGetPathName::response(ostream& os)
+MetaGetPathName::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4817,13 +4820,13 @@ MetaGetPathName::response(ostream& os)
 }
 
 void
-MetaChmod::response(ostream& os)
+MetaChmod::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
 
 void
-MetaChown::response(ostream& os)
+MetaChown::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4843,7 +4846,7 @@ MetaAuthenticate::dispatch(ClientSM& sm)
 }
 
 void
-MetaAuthenticate::response(ostream& os)
+MetaAuthenticate::response(ReqOstream& os)
 {
     if (! OkHeader(this, os)) {
         return;
@@ -4875,7 +4878,7 @@ MetaDelegate::dispatch(ClientSM& sm)
 }
 
 void
-MetaDelegate::response(ostream& os)
+MetaDelegate::response(ReqOstream& os)
 {
     if (status == 0 && validForTime <= 0) {
         status    = -EINVAL;
@@ -4916,7 +4919,7 @@ MetaDelegate::response(ostream& os)
     }
     os << (shortRpcFormatFlag ? "A:" : "Access: ");
     DelegationToken::WriteTokenAndSessionKey(
-        os,
+        os.Get(),
         renewTokenStr.empty() ? authUid : renewToken.GetUid(),
         tokenSeq,
         keyId,
@@ -4939,7 +4942,7 @@ MetaDelegate::response(ostream& os)
  * @param[out] os: A string stream that contains the response.
  */
 void
-MetaChunkAllocate::request(ostream &os)
+MetaChunkAllocate::request(ReqOstream& os)
 {
     assert(req && ! req->servers.empty());
 
@@ -5004,7 +5007,7 @@ MetaChunkAllocate::request(ostream &os)
 }
 
 void
-MetaChunkDelete::request(ostream &os)
+MetaChunkDelete::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5019,7 +5022,7 @@ MetaChunkDelete::request(ostream &os)
 }
 
 void
-MetaChunkHeartbeat::request(ostream &os)
+MetaChunkHeartbeat::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5045,7 +5048,7 @@ ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
 }
 
 void
-MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
+MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
 {
     size_t count = staleChunkIds.GetSize();
     size_t skip  = skipFront;
@@ -5116,7 +5119,7 @@ MetaChunkStaleNotify::request(ostream& os, IOBuffer& buf)
 }
 
 void
-MetaChunkRetire::request(ostream &os)
+MetaChunkRetire::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5130,7 +5133,7 @@ MetaChunkRetire::request(ostream &os)
 }
 
 void
-MetaChunkVersChange::request(ostream &os)
+MetaChunkVersChange::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5160,7 +5163,7 @@ MetaChunkVersChange::request(ostream &os)
 }
 
 void
-MetaBeginMakeChunkStable::request(ostream &os)
+MetaBeginMakeChunkStable::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5179,7 +5182,7 @@ MetaBeginMakeChunkStable::request(ostream &os)
 }
 
 void
-MetaChunkMakeStable::request(ostream &os)
+MetaChunkMakeStable::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5205,7 +5208,7 @@ MetaChunkMakeStable::request(ostream &os)
 static const string sReplicateCmdName("REPLICATE");
 
 void
-MetaChunkReplicate::request(ostream& os)
+MetaChunkReplicate::request(ReqOstream& os)
 {
     // OK to use global here as chunk server state machine runs in the main
     // thread.
@@ -5365,20 +5368,26 @@ MetaChunkReplicate::handleReply(const Properties& prop)
 }
 
 void
-MetaChunkSize::request(ostream &os)
+MetaChunkSize::request(ReqOstream& os)
 {
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     os <<
-    "SIZE \r\n"
-    "Cseq: "          << opSeqno      << "\r\n"
-    "Version: KFS/1.0\r\n"
-    "File-handle: "   << fid          << "\r\n"
-    "Chunk-version: " << chunkVersion << "\r\n"
-    "Chunk-handle: "  << chunkId      << "\r\n"
+    "SIZE \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << opSeqno << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: KFS/1.0\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid          << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n"
     "\r\n";
 }
 
 void
-MetaChunkSetProperties::request(ostream &os)
+MetaChunkSetProperties::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
         os << hex;
@@ -5396,7 +5405,7 @@ MetaChunkSetProperties::request(ostream &os)
 }
 
 void
-MetaChunkServerRestart::request(ostream &os)
+MetaChunkServerRestart::request(ReqOstream& os)
 {
     os <<
     "RESTART_CHUNK_SERVER\r\n" <<
@@ -5486,7 +5495,7 @@ MetaDelegateCancel::Validate()
 }
 
 void
-MetaDelegateCancel::response(ostream& os)
+MetaDelegateCancel::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }
@@ -5501,7 +5510,7 @@ MetaForceChunkReplication::handle()
 }
 
 void
-MetaForceChunkReplication::response(ostream& os)
+MetaForceChunkReplication::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
 }

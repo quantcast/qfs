@@ -52,8 +52,14 @@ extern void warn(const string& s, bool use_perror = false);
 extern void panic(const string& s, bool use_perror = false);
 extern const unsigned char* char2HexTable();
 
-extern void sendtime(ostream &os, const string &prefix,
-             int64_t t, const string &suffix);
+template<typename T>
+static inline T&
+sendtime(T& os, const string& prefix, int64_t t, const string& suffix)
+{
+    const int64_t kMicroseconds = 1000 * 1000;
+    return (os << prefix << (t / kMicroseconds) <<
+        " " <<  (t % kMicroseconds) << suffix);
+}
 extern ostream& resetOStream(ostream& os);
 
 class DisplayDateTime

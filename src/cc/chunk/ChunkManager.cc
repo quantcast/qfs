@@ -434,10 +434,10 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 mTimeMicrosec += max(int64_t(0), inTimeMicrosec);
             }
         }
-        ostream& Display(
+        ReqOstream& Display(
             const char* inPrefixPtr,
             const char* inSuffixPtr,
-            ostream&    inStream) const
+            ReqOstream& inStream) const
         {
             return (inStream <<
             inPrefixPtr << "io: "                << mIoCount <<
@@ -501,7 +501,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             gMetaServerSM.EnqueueOp(this);
         }
         void Request(
-            ostream& inStream)
+            ReqOstream& inStream)
         {
             if (mResetCountersFlag) {
                 mLastReadCounters.Reset();
