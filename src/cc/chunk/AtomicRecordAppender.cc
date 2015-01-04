@@ -969,7 +969,7 @@ AtomicRecordAppender::DeleteChunk()
 {
     QCStMutexLocker lock(mMutex);
     WAPPEND_LOG_STREAM_DEBUG <<
-        "delete: " <<
+        "delete:"
         " chunk: "      << mChunkId <<
         " state: "      << GetStateAsStr() <<
         " offset: "     << mNextOffset <<

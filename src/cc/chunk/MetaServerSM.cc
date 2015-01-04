@@ -101,6 +101,7 @@ MetaServerSM::MetaServerSM()
       mHelloResume(1),
       mOp(0),
       mRequestFlag(false),
+      mTraceRequestResponseFlag(false),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
       mCounters(),
@@ -168,14 +169,17 @@ MetaServerSM::Shutdown()
 int
 MetaServerSM::SetParameters(const Properties& prop)
 {
-    mInactivityTimeout = prop.getValue(
+    mInactivityTimeout        = prop.getValue(
         "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     mMaxReadAhead      = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
-    mNoFidsFlag        = prop.getValue(
+    mNoFidsFlag               = prop.getValue(
         "chunkServer.meta.noFids",            mNoFidsFlag ? 1 : 0) != 0;
-    mHelloResume       = prop.getValue(
+    mHelloResume              = prop.getValue(
         "chunkServer.meta.helloResume",       mHelloResume);
+    mTraceRequestResponseFlag = prop.getValue(
+        "chunkServer.meta.traceRequestResponseFlag",
+        mTraceRequestResponseFlag ? 1 : 0) != 0;
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
         "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
@@ -436,11 +440,7 @@ MetaServerSM::Authenticate()
         HandleRequest(EVENT_NET_ERROR, 0);
         return true;
     }
-    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-    mAuthOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-    ReqOstream ros(mWOStream.Set(ioBuf));
-    mAuthOp->Request(ros, ioBuf);
-    mWOStream.Reset();
+    Request(*mAuthOp);
     KFS_LOG_STREAM_INFO << "started: " << mAuthOp->Show() << KFS_LOG_EOM;
     return true;
 }
@@ -462,13 +462,9 @@ MetaServerSM::DispatchHello()
         return;
     }
     mSentHello = true;
-    IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-    mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-    ReqOstream ros(mWOStream.Set(ioBuf));
-    mHelloOp->Request(ros, ioBuf);
-    mWOStream.Reset();
+    Request(*mHelloOp);
     KFS_LOG_STREAM_INFO <<
-        "Sending hello to meta server: " << mHelloOp->Show() <<
+        "sending hello to meta server: " << mHelloOp->Show() <<
     KFS_LOG_EOM;
     mNetConnection->StartFlush();
 }
@@ -664,6 +660,15 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
     if (op) {
         mOp = 0;
     } else {
+        if (mTraceRequestResponseFlag) {
+            IOBuffer::IStream is(iobuf, msgLen);
+            string            line;
+            while (getline(is, line)) {
+                KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+                    " " << mLocation << " meta response: " << line <<
+                KFS_LOG_EOM;
+            }
+        }
         Properties prop(kRpcFormatShort == mRpcFormat ? 16 : 10);
         const char separator = ':';
         prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
@@ -976,6 +981,38 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
 }
 
 void
+MetaServerSM::Request(KfsOp& op)
+{
+    op.shortRpcFormatFlag        = kRpcFormatShort == mRpcFormat;
+    op.initialShortRpcFormatFlag = op.shortRpcFormatFlag;
+    op.status                    = 0;
+    KFS_LOG_STREAM_DEBUG <<
+        "meta request:"
+        " seq: " << op.seq <<
+        " "      << op.Show() <<
+    KFS_LOG_EOM;
+    IOBuffer&  ioBuf = mNetConnection->GetOutBuffer();
+    ReqOstream ros(mWOStream.Set(ioBuf));
+    const int reqStart = ioBuf.BytesConsumable();
+    op.Request(ros, ioBuf);
+    mWOStream.Reset();
+    if (mTraceRequestResponseFlag) {
+        IOBuffer::IStream is(ioBuf, ioBuf.BytesConsumable());
+        is.ignore(reqStart);
+        const void* const self = this;
+        string            line;
+        KFS_LOG_STREAM_DEBUG << self <<
+            " meta request: " << mLocation <<
+        KFS_LOG_EOM;
+        while (getline(is, line)) {
+            KFS_LOG_STREAM_DEBUG << self <<
+                " request: " << line <<
+            KFS_LOG_EOM;
+        }
+    }
+}
+
+void
 MetaServerSM::EnqueueOp(KfsOp* op)
 {
     op->seq = nextSeq();
@@ -984,12 +1021,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
-        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-        op->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-        ReqOstream ros(mWOStream.Set(ioBuf));
-        op->Request(ros, ioBuf);
-        mWOStream.Reset();
-        op->status = 0;
+        Request(*op);
         if (op->noReply) {
             SubmitOpResponse(op);
         }
@@ -1070,16 +1102,7 @@ MetaServerSM::DispatchOps()
         } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
-        KFS_LOG_STREAM_DEBUG <<
-            "send meta cmd:"
-            " seq: " << op->seq <<
-            " "      << op->Show() <<
-        KFS_LOG_EOM;
-        IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-        op->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-        ReqOstream ros(mWOStream.Set(ioBuf));
-        op->Request(ros, ioBuf);
-        mWOStream.Reset();
+        Request(*op);
     }
     while (! mDispatchedNoReplyOps.empty()) {
         KfsOp* const op = mDispatchedNoReplyOps.front();
@@ -1092,18 +1115,11 @@ MetaServerSM::DispatchOps()
 void
 MetaServerSM::ResubmitOps()
 {
-    if (mDispatchedOps.empty()) {
-        return;
-    }
-    IOBuffer&  ioBuf = mNetConnection->GetOutBuffer();
-    ReqOstream os(mWOStream.Set(ioBuf));
     for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
             it != mDispatchedOps.end();
             ++it) {
-        it->second->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-        it->second->Request(os, ioBuf);
+        Request(*(it->second));
     }
-    mWOStream.Reset();
 }
 
 void
@@ -1217,7 +1233,7 @@ MetaServerSM::SubmitHello()
         (mHelloResume != 0 && 0 < mCounters.mHelloDoneCount)) ? 0 : -1;
     mHelloOp->clnt               = this;
     mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
-    mHelloOp->reqShortRpcFmtFlag = false; // kRpcFormatShort != mRpcFormat;
+    mHelloOp->reqShortRpcFmtFlag = kRpcFormatShort != mRpcFormat;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }

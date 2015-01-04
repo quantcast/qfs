@@ -61,31 +61,29 @@ private:
     ST& InsertSignedInt(VT inVal)
     {
         typename T::fmtflags const theFlags = mStream.flags();
-        if ((theFlags & T::hex) != 0) {
-            char*             thePtr     = mBuf + kBufSize - 1;
-            const char* const theHexPtr  = (theFlags & T::uppercase) != 0 ?
-                "0123456789ABCDEF" : "0123456789abcdef";
-            const bool        theNegFlag = inVal < 0;
-            if (theNegFlag) {
-                inVal = -inVal;
-            } else if (inVal == 0) {
-                *--thePtr = '0';
-            }
-            while (0 < inVal) {
-                *--thePtr = theHexPtr[inVal & 0xF];
-                inVal >>= 4;
-            }
-            if (theFlags & T::showbase) {
-                *--thePtr = 'x';
-                *--thePtr = '0';
-            }
-            if (theNegFlag) {
-                *--thePtr = '-';
-            }
-            mStream << thePtr;
+        if ((theFlags & T::hex) == 0) {
+            mStream << inVal;
             return *this;
         }
-        mStream << inVal;
+        char*             thePtr     = mBuf + kBufSize - 1;
+        const char* const theHexPtr  = (theFlags & T::uppercase) != 0 ?
+            "0123456789ABCDEF" : "0123456789abcdef";
+        const bool        theNegFlag = inVal < 0;
+        if (theNegFlag) {
+            inVal = -inVal;
+        }
+        do {
+            *--thePtr = theHexPtr[inVal & 0xF];
+            inVal >>= 4;
+        } while (0 < inVal);
+        if (theFlags & T::showbase) {
+            *--thePtr = 'x';
+            *--thePtr = '0';
+        }
+        if (theNegFlag) {
+            *--thePtr = '-';
+        }
+        mStream << thePtr;
         return *this;
     }
 };

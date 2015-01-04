@@ -23,6 +23,10 @@
 #
 #
 
+twrsync=${twrsync-0}
+csrpctrace=${rpctrace-0}
+trdverify=${trdverify-0}
+
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
         myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
@@ -36,9 +40,14 @@ while [ $# -ge 1 ]; do
         auth='no'
     elif [ x"$1" = x'-auth' ]; then
         auth='no'
+    elif [ x"$1" = x'-twrsync' ]; then
+        twrsync=1
+    elif [ x"$1" = x'-csrpctrace' ]; then
+        csrpctrace=1
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: %1 [-valgrind] [-ipv6] [-noauth] [-auth]"
+        echo "Usage: %1 [-valgrind] [-ipv6] [-noauth] [-auth]"\
+            "[-twrsync] [-csrpctrace] [-trdverify]"
         exit 1
     fi
     shift
@@ -410,8 +419,11 @@ chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
 chunkServer.rsReader.debugCheckThread = 1
 chunkServer.clientThreadCount = $chunkserverclithreads
-# chunkServer.forceVerifyDiskReadChecksum = 1
-# chunkServer.debugTestWriteSync = 1
+chunkServer.forceVerifyDiskReadChecksum = $trdverify
+chunkServer.debugTestWriteSync = $twsync
+chunkServer.clientSM.traceRequestResponse   = $csrpctrace
+chunkServer.remoteSync.traceRequestResponse = $csrpctrace
+chunkServer.meta.traceRequestResponseFlag   = $csrpctrace
 EOF
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit

@@ -237,7 +237,8 @@ needToForwardToPeer(
     return needToForward;
 }
 
-template <typename T> inline static bool
+template <typename T>
+inline static bool
 needToForwardToPeer(
     bool            shortRpcFormatFlag,
     T&              serverInfo,
@@ -266,15 +267,15 @@ needToForwardToPeer(
             writeId));
 }
 
-template<typename VP, typename T>
+template<typename VP, typename ST, typename CT>
 inline static void
-WriteServersT(const VP* /* parserType */,
-    ReqOstream& os, const T& op, bool writeIdPresentFlag)
+ConvertServersSelf(const VP* /* parserType */,
+    ST& os, const char* str, size_t len, CT numServers, bool writeIdPresentFlag)
 {
     // Port numbers and write id radix conversion.
-    const char*       ptr = op.servers.data();
-    const char* const end = ptr + op.servers.size();
-    for (uint32_t i = 0; i < op.numServers; i++) {
+    const char*       ptr = str;
+    const char* const end = ptr + len;
+    for (CT i = 0; i < numServers; i++) {
         const char* const s = ptr;
         while (ptr < end && (*ptr & 0xFF) <= ' ') {
             ptr++;
@@ -298,14 +299,70 @@ WriteServersT(const VP* /* parserType */,
         os.write(s, e - s);
         os << port;
         if (writeIdPresentFlag) {
-            os << ' ' << id;
+            os.write(" ", 1);
+            os << id;
         }
     }
 }
 
-template<typename T>
-inline static ReqOstream&
-WriteServers(ReqOstream& os, const T& op,
+template<typename ST, typename CT>
+inline static void
+ConvertServers(bool initialShortRpcFormatFlag,
+    ST& os, const char* str, size_t len, CT numServers, bool writeIdPresentFlag)
+{
+    if (initialShortRpcFormatFlag) {
+        ConvertServersSelf(static_cast<const HexIntParser*>(0),
+            os, str, len, numServers, writeIdPresentFlag);
+    } else {
+        ConvertServersSelf(static_cast<const DecIntParser*>(0),
+            os, str, len, numServers, writeIdPresentFlag);
+    }
+}
+
+template<typename T, int TRadix>
+class StringAppender
+{
+public:
+    StringAppender(T& str)
+        : mString(str)
+        {}
+    template<typename TI>
+    StringAppender<T, TRadix>& operator<<(TI val)
+    {
+        IntToString<TRadix>::Append(mString, val);
+        return *this;
+    }
+    StringAppender<T, TRadix>& write(const char* ptr, size_t len)
+    {
+        mString.append(ptr, len);
+        return *this;
+    }
+private:
+    T& mString;
+};
+
+template<typename TD, typename TS, typename SC>
+inline static TD&
+AppendServers(TD& dst, const TS& src, SC numServers,
+    bool dstShortFmtFlag, bool srcShortFmtFlag, bool writeIdPresentFlag = true)
+{
+    if (dstShortFmtFlag == srcShortFmtFlag) {
+        dst.append(src.data(), src.size());
+    } else if (dstShortFmtFlag) {
+        StringAppender<TD, 16> os(dst);
+        ConvertServers(srcShortFmtFlag,
+            os, src.data(), src.size(), numServers, writeIdPresentFlag);
+    } else {
+        StringAppender<TD, 10> os(dst);
+        ConvertServers(srcShortFmtFlag,
+            os, src.data(), src.size(), numServers, writeIdPresentFlag);
+    }
+    return dst;
+}
+
+template<typename ST, typename T>
+inline static ST&
+WriteServers(ST& os, const T& op,
     bool shortRpcFormatFlag, bool writeIdPresentFlag)
 {
     os << (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
@@ -317,13 +374,9 @@ WriteServers(ReqOstream& os, const T& op,
     if (shortRpcFormatFlag == op.initialShortRpcFormatFlag) {
         os << op.servers;
     } else {
-        if (op.initialShortRpcFormatFlag) {
-            WriteServersT(static_cast<const HexIntParser*>(0),
-                os, op, writeIdPresentFlag);
-        } else {
-            WriteServersT(static_cast<const DecIntParser*>(0),
-                os, op, writeIdPresentFlag);
-        }
+        ConvertServers(op.initialShortRpcFormatFlag,
+            os, op.servers.data(), op.servers.size(), op.numServers,
+            writeIdPresentFlag);
     }
     return (os << "\r\n");
 }
@@ -335,7 +388,8 @@ WriteServers(ReqOstream& os, const T& op, bool writeIdPresentFlag = true)
     return WriteServers(os, op, op.shortRpcFormatFlag, writeIdPresentFlag);
 }
 
-template<typename T> static inline RemoteSyncSMPtr
+template<typename T>
+static inline RemoteSyncSMPtr
 FindPeer(
     T&                    op,
     const ServerLocation& loc,
@@ -2018,7 +2072,7 @@ ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
         }
     }
     skipVerifyDiskChecksumFlag = skipVerifyDiskChecksumFlag &&
-        props.getValue(shortRpcFormatFlag ? "SS" : "Skip-Disk-Chksum", 0) != 0;
+        props.getValue(shortRpcFormatFlag ? "KS" : "Skip-Disk-Chksum", 0) != 0;
     const int off = (int)(offset % IOBufferData::GetDefaultBufferSize());
     if (0 < off) {
         IOBuffer buf;
@@ -2101,8 +2155,13 @@ WriteIdAllocOp::Execute()
     }
     const ServerLocation& loc = gChunkServer.GetLocation();
     writeIdStr.Copy(loc.hostname.data(), loc.hostname.size()).Append((char)' ');
-    AppendDecIntToString(writeIdStr, loc.port).Append((char)' ');
-    AppendDecIntToString(writeIdStr, writeId);
+    if (initialShortRpcFormatFlag) {
+        AppendHexIntToString(writeIdStr, loc.port).Append((char)' ');
+        AppendHexIntToString(writeIdStr, writeId);
+    } else {
+        AppendDecIntToString(writeIdStr, loc.port).Append((char)' ');
+        AppendDecIntToString(writeIdStr, writeId);
+    }
     if (needToForward) {
         ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
     } else {
@@ -2135,7 +2194,7 @@ WriteIdAllocOp::ForwardToPeer(
     // When forwarded op completes, call this op HandlePeerReply.
     fwdedOp->clnt                  = this;
     SET_HANDLER(this, &WriteIdAllocOp::HandlePeerReply);
-
+    peerShortRpcFormatFlag = peer->IsShortRpcFormat();
     peer->Enqueue(fwdedOp);
 }
 
@@ -2152,7 +2211,9 @@ WriteIdAllocOp::HandlePeerReply(int code, void *data)
     if (status != 0) {
         return Done(EVENT_CMD_DONE, &status);
     }
-    writeIdStr.Append(' ').Append(fwdedOp->writeIdStr);
+    writeIdStr.Append(' ');
+    AppendServers(writeIdStr, fwdedOp->writeIdStr, fwdedOp->numServers,
+        initialShortRpcFormatFlag, peerShortRpcFormatFlag);
     writePrepareReplyFlag =
         writePrepareReplyFlag && fwdedOp->writePrepareReplyFlag;
     ReadChunkMetadata();
@@ -3026,7 +3087,7 @@ ReadOp::Response(ReqOstream& os)
     os << (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
         checksum.size() << "\r\n";
     if (skipVerifyDiskChecksumFlag) {
-        os << (shortRpcFormatFlag ? "SS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
+        os << (shortRpcFormatFlag ? "KS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
     if (checksum.empty()) {
         os << (shortRpcFormatFlag ? "K:0\r\n" : "Checksums: 0\r\n");
@@ -3253,7 +3314,7 @@ ReadOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n"
     ;
     if (skipVerifyDiskChecksumFlag) {
-        os << (shortRpcFormatFlag ? "SS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
+        os << (shortRpcFormatFlag ? "KS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
     if (requestChunkAccess) {
         os << (shortRpcFormatFlag ? "C:" : "C-access: ") <<

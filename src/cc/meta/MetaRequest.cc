@@ -5199,7 +5199,7 @@ MetaChunkMakeStable::request(ReqOstream& os)
             chunkVersion << "\r\n" <<
         (shortRpcFormatFlag ? "S:" : "Chunk-size: ") << chunkSize << "\r\n";
     if (hasChunkChecksum) {
-        os << (shortRpcFormatFlag ? "CS:" : "Chunk-checksum: ") <<
+        os << (shortRpcFormatFlag ? "K:" : "Chunk-checksum: ") <<
             chunkChecksum << "\r\n";
     }
     os << "\r\n";

@@ -226,6 +226,7 @@ private:
     int                           mHelloResume;
     KfsOp*                        mOp;
     bool                          mRequestFlag;
+    bool                          mTraceRequestResponseFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
     PendingResponses              mPendingResponses;
@@ -260,6 +261,7 @@ private:
     bool Authenticate();
     void DiscardPendingResponses();
     void SubmitHello();
+    void Request(KfsOp& op);
     template<typename T> inline void DetachAndDeleteOp(T*& op);
 private:
     // No copy.

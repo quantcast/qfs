@@ -1077,7 +1077,7 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
         .Def2("Num-bytes",         "B",  &RecordAppendOp::numBytes)
         .Def2("Num-servers",       "R",  &RecordAppendOp::numServers)
         .Def2("Servers",           "S",  &RecordAppendOp::servers)
-        .Def2("Checksum",          "CS", &RecordAppendOp::checksum)
+        .Def2("Checksum",          "K",  &RecordAppendOp::checksum)
         .Def2("Client-cseq",       "Cc", &RecordAppendOp::clientSeqVal)
         .Def2("Master-committed",  "MC", &RecordAppendOp::masterCommittedOffset, int64_t(-1))
         .Def2("Access-fwd-length", "AF", &RecordAppendOp::accessFwdLength, 0)
@@ -1168,6 +1168,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     WriteIdAllocOp*       fwdedOp;           /* if we did any fwd'ing, this is the op that tracks it */
     bool                  isForRecordAppend; /* set if the write-id-alloc is for a record append that will follow */
     bool                  writePrepareReplyFlag; /* write prepare reply supported */
+    bool                  peerShortRpcFormatFlag;
     int                   contentLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
@@ -1185,6 +1186,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           fwdedOp(0),
           isForRecordAppend(false),
           writePrepareReplyFlag(true),
+          peerShortRpcFormatFlag(false),
           contentLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
@@ -1202,6 +1204,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           fwdedOp(0),
           isForRecordAppend(other.isForRecordAppend),
           writePrepareReplyFlag(other.writePrepareReplyFlag),
+          peerShortRpcFormatFlag(false),
           contentLength(other.contentLength),
           chunkAccessLength(other.chunkAccessLength),
           syncReplicationAccess(other.syncReplicationAccess),
@@ -1359,7 +1362,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         .Def2("Num-bytes",         "B",  &WritePrepareOp::numBytes)
         .Def2("Num-servers",       "R",  &WritePrepareOp::numServers)
         .Def2("Servers",           "S",  &WritePrepareOp::servers)
-        .Def2("Checksum",          "CS", &WritePrepareOp::checksum)
+        .Def2("Checksum",          "K",  &WritePrepareOp::checksum)
         .Def2("Reply",             "RR", &WritePrepareOp::replyRequestedFlag)
         .Def2("Access-fwd-length", "AF", &WritePrepareOp::accessFwdLength, 0)
         .Def2("C-access-length",   "AL", &WritePrepareOp::chunkAccessLength)
@@ -1573,8 +1576,8 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
         .Def2("Num-bytes",        "B",  &WriteSyncOp::numBytes)
         .Def2("Num-servers",      "R",  &WriteSyncOp::numServers)
         .Def2("Servers",          "S",  &WriteSyncOp::servers)
-        .Def2("Checksum-entries", "CE", &WriteSyncOp::checksumsCnt)
-        .Def2("Checksums",        "CS", &WriteSyncOp::checksumsStr)
+        .Def2("Checksum-entries", "KC", &WriteSyncOp::checksumsCnt)
+        .Def2("Checksums",        "K",  &WriteSyncOp::checksumsStr)
         .Def2("Content-length",   "l",  &WriteSyncOp::contentLength, 0)
         .Def2("C-access-length",  "AL", &WriteSyncOp::chunkAccessLength)
         ;
@@ -1734,7 +1737,7 @@ struct ReadOp : public KfsClientChunkOp {
         .Def2("Chunk-version",    "V",  &ReadOp::chunkVersion, int64_t(-1))
         .Def2("Offset",           "O",  &ReadOp::offset)
         .Def2("Num-bytes",        "B",  &ReadOp::numBytes)
-        .Def2("Skip-Disk-Chksum", "SS", &ReadOp::skipVerifyDiskChecksumFlag, false)
+        .Def2("Skip-Disk-Chksum", "KS", &ReadOp::skipVerifyDiskChecksumFlag, false)
         ;
     }
 };

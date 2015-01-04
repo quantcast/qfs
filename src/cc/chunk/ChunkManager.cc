@@ -2931,8 +2931,8 @@ ChunkManager::MarkChunkStale(ChunkInfoHandle* cih, KfsCallbackObj* cb)
     const int ret = DiskIo::Rename(
         s.c_str(), staleChunkPathname.c_str(), cb, &err) ? 0 : -1;
     KFS_LOG_STREAM_INFO <<
-        "Moving chunk " << cih->chunkInfo.chunkId <<
-        " to staleChunks dir " << staleChunkPathname <<
+        "moving chunk " << cih->chunkInfo.chunkId <<
+        " to stale chunks dir " << staleChunkPathname <<
         (ret == 0 ? " ok" : " error:") << err <<
     KFS_LOG_EOM;
     return ret;
@@ -4374,7 +4374,7 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         " chunk: "     << cih->chunkInfo.chunkId <<
         " file: "      << cih->chunkInfo.fileId <<
         " error: "     << err <<
-        (err ? string() : QCUtils::SysError(-err, " ")) <<
+        (err ? QCUtils::SysError(-err, " ") : string()) <<
         " dir: "       << cih->GetDirname() <<
         " total:"
         " lost: "      << mCounters.mLostChunksCount <<
