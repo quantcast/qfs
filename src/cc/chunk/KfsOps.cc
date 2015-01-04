@@ -190,7 +190,7 @@ needToForwardToPeer(
     uint32_t        numServers,
     int&            myPos,
     ServerLocation& peerLoc,
-    bool            isWriteIdPresent,
+    bool            writeIdPresentFlag,
     int64_t&        writeId)
 {
     const char*       ptr = serverInfo.data();
@@ -215,14 +215,14 @@ needToForwardToPeer(
         }
         loc.hostname.assign(s, ptr - s);
         if (! VP::Parse(ptr, end - ptr, loc.port) ||
-                (isWriteIdPresent && ! VP::Parse(ptr, end - ptr, id))) {
+                (writeIdPresentFlag && ! VP::Parse(ptr, end - ptr, id))) {
             break;
         }
         if (gChunkServer.IsLocalServer(loc)) {
             // return the position of where this server is present in the list
             myPos = i;
             foundLocal = true;
-            if (isWriteIdPresent) {
+            if (writeIdPresentFlag) {
                 writeId = id;
             }
             continue;
@@ -244,7 +244,7 @@ needToForwardToPeer(
     uint32_t        numServers,
     int&            myPos,
     ServerLocation& peerLoc,
-    bool            isWriteIdPresent,
+    bool            writeIdPresentFlag,
     int64_t&        writeId)
 {
     return (shortRpcFormatFlag ?
@@ -254,7 +254,7 @@ needToForwardToPeer(
             numServers,
             myPos,
             peerLoc,
-            isWriteIdPresent,
+            writeIdPresentFlag,
             writeId) :
         needToForwardToPeer(
             static_cast<const DecIntParser*>(0),
@@ -262,8 +262,77 @@ needToForwardToPeer(
             numServers,
             myPos,
             peerLoc,
-            isWriteIdPresent,
+            writeIdPresentFlag,
             writeId));
+}
+
+template<typename VP, typename T>
+inline static void
+WriteServersT(const VP* /* parserType */,
+    ReqOstream& os, const T& op, bool writeIdPresentFlag)
+{
+    // Port numbers and write id radix conversion.
+    const char*       ptr = op.servers.data();
+    const char* const end = ptr + op.servers.size();
+    for (uint32_t i = 0; i < op.numServers; i++) {
+        const char* const s = ptr;
+        while (ptr < end && (*ptr & 0xFF) <= ' ') {
+            ptr++;
+        }
+        while (ptr < end && ' ' < (*ptr & 0xFF)) {
+            ptr++;
+        }
+        while (ptr < end && (*ptr & 0xFF) <= ' ') {
+            ptr++;
+        }
+        if (ptr <= s) {
+            break;
+        }
+        const char* const e    = ptr;
+        int               port = -1;
+        int64_t           id   = -1;
+        if (! VP::Parse(ptr, end - ptr, port) ||
+                (writeIdPresentFlag && ! VP::Parse(ptr, end - ptr, id))) {
+            break;
+        }
+        os.write(s, e - s);
+        os << port;
+        if (writeIdPresentFlag) {
+            os << ' ' << id;
+        }
+    }
+}
+
+template<typename T>
+inline static ReqOstream&
+WriteServers(ReqOstream& os, const T& op,
+    bool shortRpcFormatFlag, bool writeIdPresentFlag)
+{
+    os << (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+        op.numServers << "\r\n";
+    if (op.numServers <= 0) {
+        return os;
+    }
+    os << (shortRpcFormatFlag ? "S:" : "Servers: ");
+    if (shortRpcFormatFlag == op.initialShortRpcFormatFlag) {
+        os << op.servers;
+    } else {
+        if (op.initialShortRpcFormatFlag) {
+            WriteServersT(static_cast<const HexIntParser*>(0),
+                os, op, writeIdPresentFlag);
+        } else {
+            WriteServersT(static_cast<const DecIntParser*>(0),
+                os, op, writeIdPresentFlag);
+        }
+    }
+    return (os << "\r\n");
+}
+
+template<typename T>
+inline static ReqOstream&
+WriteServers(ReqOstream& os, const T& op, bool writeIdPresentFlag = true)
+{
+    return WriteServers(os, op, op.shortRpcFormatFlag, writeIdPresentFlag);
 }
 
 template<typename T> static inline RemoteSyncSMPtr
@@ -295,6 +364,7 @@ FindPeer(
         key.mLen,
         writeMasterFlag,
         allowCSClearTextFlag,
+        op.shortRpcFormatFlag,
         op.status,
         op.statusMsg
     );
@@ -492,6 +562,7 @@ KfsOp::KfsOp(KfsOp_t o)
       noRetry(false),
       clientSMFlag(false),
       shortRpcFormatFlag(false),
+      initialShortRpcFormatFlag(false),
       maxWaitMillisec(-1),
       statusMsg(),
       clnt(0),
@@ -1079,7 +1150,7 @@ CloseOp::ForwardToPeer(
     fwdedOp->needAck = false;
     // this op goes to the remote-sync SM and after it is sent, comes right back
     // to be deleted.
-    fwdedOp->clnt = fwdedOp;
+    fwdedOp->clnt    = fwdedOp;
     SET_HANDLER(fwdedOp, &CloseOp::HandlePeerReply);
     peer->Enqueue(fwdedOp);
 }
@@ -2059,9 +2130,10 @@ WriteIdAllocOp::ForwardToPeer(
         return;
     }
     fwdedOp = new WriteIdAllocOp(*this);
-    fwdedOp->writePrepareReplyFlag = false; // set by the next one in the chain.
+    // set by the next one in the chain.
+    fwdedOp->writePrepareReplyFlag = false;
     // When forwarded op completes, call this op HandlePeerReply.
-    fwdedOp->clnt = this;
+    fwdedOp->clnt                  = this;
     SET_HANDLER(this, &WriteIdAllocOp::HandlePeerReply);
 
     peer->Enqueue(fwdedOp);
@@ -2489,10 +2561,12 @@ WriteSyncOp::ForwardToPeer(
         return;
     }
     fwdedOp = new WriteSyncOp(chunkId, chunkVersion, offset, numBytes);
-    fwdedOp->numServers            = numServers;
-    fwdedOp->servers               = servers;
-    fwdedOp->clnt                  = this;
-    fwdedOp->syncReplicationAccess = syncReplicationAccess;
+    fwdedOp->numServers                = numServers;
+    fwdedOp->servers                   = servers;
+    fwdedOp->clnt                      = this;
+    fwdedOp->syncReplicationAccess     = syncReplicationAccess;
+    fwdedOp->shortRpcFormatFlag        = shortRpcFormatFlag;
+    fwdedOp->initialShortRpcFormatFlag = initialShortRpcFormatFlag;
     SET_HANDLER(fwdedOp, &KfsOp::HandleDone);
 
     if (writeMaster) {
@@ -3022,12 +3096,11 @@ RecordAppendOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "FO:" : "File-offset: ")  << fileOffset   << "\r\n" <<
     (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
     (shortRpcFormatFlag ? "K:"  : "Checksum: ")     << checksum     << "\r\n" <<
-    (shortRpcFormatFlag ? "R:"  : "Num-servers: ")  << numServers   << "\r\n" <<
     (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
-    (shortRpcFormatFlag ? "S:"  : "Servers: ")      << servers      << "\r\n" <<
     (shortRpcFormatFlag ? "MC:" : "Master-committed: ") <<
         masterCommittedOffset << "\r\n"
     ;
+    WriteServers(os, *this);
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "AF:" : "Access-fwd-length: ");
 }
@@ -3105,10 +3178,7 @@ CloseOp::Request(ReqOstream& os)
     os << (shortRpcFormatFlag ? "A:" : "Need-ack: ") <<
         (needAck ? 1 : 0) << "\r\n";
     if (numServers > 0) {
-        os <<
-        (shortRpcFormatFlag ? "R:" : "Num-servers: ") << numServers << "\r\n" <<
-        (shortRpcFormatFlag ? "S:" : "Servers: ")     << servers    << "\r\n"
-        ;
+        WriteServers(os, *this, hasWriteId);
     }
     os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n";
     if (hasWriteId) {
@@ -3211,10 +3281,10 @@ WriteIdAllocOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
     (shortRpcFormatFlag ? "A:" : "For-record-append: ") <<
         (isForRecordAppend ? 1 : 0) << "\r\n" <<
-    (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
-    (shortRpcFormatFlag ? "R:" : "Num-servers: ")   << numServers   << "\r\n" <<
-    (shortRpcFormatFlag ? "S:" : "Servers: ")       << servers      << "\r\n"
+    (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n"
     ;
+    const bool kHasWriteId = false;
+    WriteServers(os, *this, kHasWriteId);
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "l:" : "Content-length: ");
 }
@@ -3243,12 +3313,10 @@ WritePrepareFwdOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "K:" : "Checksum: ")      <<
         owner.checksum     << "\r\n" <<
     (shortRpcFormatFlag ? "RR:" : "Reply: ")         <<
-        (owner.replyRequestedFlag ? 1 : 0) << "\r\n" <<
-    (shortRpcFormatFlag ? "R:"  : "Num-servers: ")   <<
-        owner.numServers   << "\r\n" <<
-    (shortRpcFormatFlag ? "S:"  : "Servers: ")       <<
-        owner.servers      << "\r\n"
+        (owner.replyRequestedFlag ? 1 : 0) << "\r\n"
     ;
+    const bool kHasWriteIdFlag = true;
+    WriteServers(os, owner, shortRpcFormatFlag, kHasWriteIdFlag);
     WriteSyncReplicationAccess(owner.syncReplicationAccess, os,
         shortRpcFormatFlag,
         shortRpcFormatFlag ? "AF:" : "Access-fwd-length: ");
@@ -3282,9 +3350,7 @@ WriteSyncOp::Request(ReqOstream& os)
         }
         os << "\r\n";
     }
-    os <<
-    (shortRpcFormatFlag ? "R:" : "Num-servers: ")   << numServers   << "\r\n" <<
-    (shortRpcFormatFlag ? "S:" : "Servers: ")       << servers      << "\r\n";
+    WriteServers(os, *this);
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,
         shortRpcFormatFlag ? "l:" : "Content-length: ");
 }

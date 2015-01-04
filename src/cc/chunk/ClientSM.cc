@@ -1164,6 +1164,7 @@ ClientSM::FindServer(
     int                   sessionKeyLen,
     bool                  writeMasterFlag,
     bool                  shutdownSslFlag,
+    bool                  shortRpcFmtFlag,
     int&                  err,
     string&               errMsg)
 {
@@ -1179,6 +1180,7 @@ ClientSM::FindServer(
         writeMasterFlag ?
             shutdownSslFlag :
             mNetConnection && ! mNetConnection->GetFilter(),
+        shortRpcFmtFlag,
         err,
         errMsg
     );

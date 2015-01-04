@@ -282,6 +282,7 @@ struct KfsOp : public KfsCallbackObj
     bool            noRetry:1;
     bool            clientSMFlag:1;
     bool            shortRpcFormatFlag:1;
+    bool            initialShortRpcFormatFlag:1;
     int64_t         maxWaitMillisec;
     string          statusMsg; // output, optional, mostly for debugging
     KfsCallbackObj* clnt;
@@ -965,7 +966,11 @@ struct CloseOp : public KfsClientChunkOp {
           chunkAccessLength    (op.chunkAccessLength),
           contentLength        (op.contentLength),
           syncReplicationAccess(op.syncReplicationAccess)
-        { chunkId = op.chunkId; }
+    {
+        chunkId                   = op.chunkId;
+        shortRpcFormatFlag        = op.shortRpcFormatFlag;
+        initialShortRpcFormatFlag = op.initialShortRpcFormatFlag;
+    }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is)
     {
@@ -1202,7 +1207,11 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           syncReplicationAccess(other.syncReplicationAccess),
           appendPeer(),
           clientSeqVal()
-        { chunkId = other.chunkId; }
+    {
+        shortRpcFormatFlag        = other.shortRpcFormatFlag;
+        initialShortRpcFormatFlag = other.initialShortRpcFormatFlag;
+        chunkId                   = other.chunkId;
+    }
     ~WriteIdAllocOp();
 
     virtual int GetContentLength() const { return contentLength; }
@@ -1364,7 +1373,10 @@ struct WritePrepareFwdOp : public KfsOp {
     WritePrepareFwdOp(WritePrepareOp& o)
         : KfsOp(CMD_WRITE_PREPARE_FWD),
           owner(o)
-        {}
+    {
+        shortRpcFormatFlag        = o.shortRpcFormatFlag;
+        initialShortRpcFormatFlag = o.initialShortRpcFormatFlag;
+    }
     void Request(ReqOstream& os);
     // nothing to do...we send the data to peer and wait. have a
     // decl. to keep compiler happy

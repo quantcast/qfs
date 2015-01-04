@@ -275,6 +275,7 @@ RemoteSyncSM::Shutdown()
 // State machine for communication with other chunk servers.
 RemoteSyncSM::RemoteSyncSM(
     const ServerLocation& location,
+    bool                  shortRpcFormatFlag,
     ClientThread*         thread)
     : KfsCallbackObj(),
       ClientThreadRemoteSyncListEntry(thread),
@@ -297,6 +298,7 @@ RemoteSyncSM::RemoteSyncSM(
       mList(0),
       mListIt(),
       mConnectCount(0),
+      mShortRpcFormatFlag(shortRpcFormatFlag),
       mDeleteFlag(false),
       mFinishRecursionCount(0),
       mDeletedFlagPtr(0),
@@ -484,7 +486,10 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
     IOBuffer& buf         = mNetConnection->GetOutBuffer();
     const int headerStart = buf.BytesConsumable();
     ReqOstream ros(mWOStream.Set(buf));
+    const bool prevShortRpcFormatFlag = op->shortRpcFormatFlag;
+    op->shortRpcFormatFlag = mShortRpcFormatFlag;
     op->Request(ros, buf);
+    op->shortRpcFormatFlag = prevShortRpcFormatFlag;
     mWOStream.Reset();
     const int headerEnd   = buf.BytesConsumable();
     if (mTraceRequestResponseFlag) {
@@ -666,13 +671,14 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
                 KFS_LOG_EOM;
             }
         }
-        Properties prop;
+        Properties prop(mShortRpcFormatFlag ? 16 : 10);
         const char separator(':');
         prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
         mIStream.Reset();
         iobuf.Consume(msgLen);
         nAvail -= msgLen;
-        mReplySeqNum = prop.getValue("Cseq", (kfsSeq_t)-1);
+        mReplySeqNum = prop.getValue(
+            mShortRpcFormatFlag ? "c" : "Cseq", (kfsSeq_t)-1);
         if (mReplySeqNum < 0) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid or missing Cseq header: " << mReplySeqNum <<
@@ -681,18 +687,25 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             ResetConnection();
             return -1;
         }
-        mReplyNumBytes = prop.getValue("Content-length", 0);
+        mReplyNumBytes = prop.getValue(
+            mShortRpcFormatFlag ? "l" : "Content-length", 0);
         it = mDispatchedOps.find(mReplySeqNum);
         KfsOp* const op = it != mDispatchedOps.end() ? it->second : 0;
         if (op) {
-            const int status = prop.getValue("Status", -1);
+            const int status = prop.getValue(
+                mShortRpcFormatFlag ? "s" : "Status", -1);
             if (status < 0) {
                 op->status    = -KfsToSysErrno(-status);
-                op->statusMsg = prop.getValue("Status-message", string());
+                op->statusMsg = prop.getValue(
+                    mShortRpcFormatFlag ? "m" : "Status-message", string());
             } else {
                 op->status = status;
             }
-            if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
+            const bool prevShortRpcFormatFlag = op->shortRpcFormatFlag;
+            op->shortRpcFormatFlag = mShortRpcFormatFlag;
+            const bool okFlag = op->ParseResponse(prop, iobuf);
+            op->shortRpcFormatFlag = prevShortRpcFormatFlag;
+            if (! okFlag && 0 <= status) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid response:"
                     " seq: " << op->seq <<
@@ -725,7 +738,11 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             die("invalid null op");
             return false;
         }
-        if (! op->GetResponseContent(iobuf, mReplyNumBytes)) {
+        const bool prevShortRpcFormatFlag = op->shortRpcFormatFlag;
+        op->shortRpcFormatFlag = mShortRpcFormatFlag;
+        const bool okFlag = op->GetResponseContent(iobuf, mReplyNumBytes);
+        op->shortRpcFormatFlag = prevShortRpcFormatFlag;
+        if (! okFlag) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid response content:"
                 " length: " << mReplySeqNum <<
@@ -933,6 +950,7 @@ RemoteSyncSM::Create(
     int                   sessionKeyLen,
     bool                  writeMasterFlag,
     bool                  shutdownSslFlag,
+    bool                  shortRpcFormatFlag,
     int&                  err,
     string&               errMsg,
     bool                  connectFlag,
@@ -944,7 +962,8 @@ RemoteSyncSM::Create(
     SMPtr peer;
     if (sessionKeyLen <= 0) {
         peer.reset(new RemoteSyncSM(
-            location, GetClientThread(forceUseClientThreadFlag)),
+                location, shortRpcFormatFlag,
+                GetClientThread(forceUseClientThreadFlag)),
             RemoteSyncSMCleanupFunctor());
     } else if (sessionTokenLen <= 0) {
         err    = -EINVAL;
@@ -974,7 +993,8 @@ RemoteSyncSM::Create(
                 }
                 if (! err) {
                     peer.reset(new RemoteSyncSM(
-                        location, GetClientThread(forceUseClientThreadFlag)),
+                            location, shortRpcFormatFlag,
+                            GetClientThread(forceUseClientThreadFlag)),
                         RemoteSyncSMCleanupFunctor());
                     peer->SetSessionKey(sessionTokenPtr, sessionTokenLen, key);
                     peer->SetShutdownSslFlag(shutdownSslFlag);
@@ -1005,14 +1025,17 @@ class RemoteSyncSMMatcher
     const ServerLocation& mLocation;
     const bool            mAuthFlag;
     const bool            mShutdownSslFlag;
+    const bool            mShortRpcFormatFlag;
 public:
     RemoteSyncSMMatcher(
         const ServerLocation& loc,
         bool                  authFlag,
-        bool                  shutdownSslFlag)
+        bool                  shutdownSslFlag,
+        bool                  shortRpcFormatFlag)
         :  mLocation(loc),
            mAuthFlag(authFlag),
-           mShutdownSslFlag(shutdownSslFlag)
+           mShutdownSslFlag(shutdownSslFlag),
+           mShortRpcFormatFlag(shortRpcFormatFlag)
         {}
     bool operator() (const RemoteSyncSMPtr& other) const
     {
@@ -1020,7 +1043,8 @@ public:
         return (
             sm.GetLocation()       == mLocation &&
             sm.HasAuthentication() == mAuthFlag &&
-            (! mAuthFlag || sm.GetShutdownSslFlag() == mShutdownSslFlag)
+            (! mAuthFlag || sm.GetShutdownSslFlag() == mShutdownSslFlag) &&
+            sm.IsShortRpcFormat() == mShortRpcFormatFlag
         );
     }
 };
@@ -1036,6 +1060,7 @@ RemoteSyncSM::FindServer(
     int                   sessionKeyLen,
     bool                  writeMasterFlag,
     bool                  shutdownSslFlag,
+    bool                  shortRpcFormatFlag,
     int&                  err,
     string&               errMsg)
 {
@@ -1045,7 +1070,8 @@ RemoteSyncSM::FindServer(
         RemoteSyncSMMatcher(
             location,
             0 < sessionKeyLen,
-            shutdownSslFlag
+            shutdownSslFlag,
+            shortRpcFormatFlag
     ));
     if (res) {
         if (0 < sessionKeyLen) {
@@ -1072,6 +1098,7 @@ RemoteSyncSM::FindServer(
         err    = -ENOENT;
         return res;
     }
+    const bool kForceToUseClientThreadFlag = false;
     RemoteSyncSMPtr const peer = RemoteSyncSM::Create(
         location,
         sessionTokenPtr,
@@ -1080,9 +1107,11 @@ RemoteSyncSM::FindServer(
         sessionKeyLen,
         writeMasterFlag,
         shutdownSslFlag,
+        shortRpcFormatFlag,
         err,
         errMsg,
-        connectFlag
+        connectFlag,
+        kForceToUseClientThreadFlag
     );
     if (peer) {
         return remoteSyncers.PutInList(*peer);

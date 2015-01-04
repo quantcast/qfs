@@ -126,10 +126,11 @@ public:
         int                   sessionKeyLen,
         bool                  writeMasterFlag,
         bool                  shutdownSslFlag,
+        bool                  shortRpcFormatFlag,
         int&                  err,
         string&               errMsg,
-        bool                  connectFlag              = false,
-        bool                  forceUseClientThreadFlag = false);
+        bool                  connectFlag,
+        bool                  forceUseClientThreadFlag);
     static bool SetParameters(
         const char*       prefix,
         const Properties& props,
@@ -145,6 +146,7 @@ public:
         int                   sessionKeyLen,
         bool                  writeMasterFlag,
         bool                  shutdownSslFlag,
+        bool                  shortRpcFormatFlag,
         int&                  err,
         string&               errMsg);
     static int GetResponseTimeoutSec() {
@@ -159,6 +161,8 @@ public:
         { mShutdownSslFlag = inFlag; }
     const ServerLocation& GetLocation() const
         { return mLocation; }
+    bool IsShortRpcFormat() const
+        { return mShortRpcFormatFlag; }
     void Enqueue(
         KfsOp* op);
     void Finish();
@@ -202,6 +206,7 @@ private:
     SMList*            mList;
     SMList::iterator   mListIt;
     int                mConnectCount;
+    const bool         mShortRpcFormatFlag;
     bool               mDeleteFlag;
     int                mFinishRecursionCount;
     bool*              mDeletedFlagPtr;
@@ -216,6 +221,7 @@ private:
     ~RemoteSyncSM();
     RemoteSyncSM(
         const ServerLocation& location,
+        bool                  shortRpcFormatFlag,
         ClientThread*         thread);
 
     void SetSessionKey(

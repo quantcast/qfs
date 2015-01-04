@@ -1091,7 +1091,7 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
 
 void
 AtomicRecordAppender::AllocateWriteId(
-    WriteIdAllocOp *op, int replicationPos, const ServerLocation& peerLoc,
+    WriteIdAllocOp* op, int replicationPos, const ServerLocation& peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
     QCStMutexLocker lock(mMutex);
@@ -3054,6 +3054,7 @@ AtomicRecordAppender::SendCommitAck()
             ! IsMaster() ||
             kStateOpen != mState ||
             mNumServers <= 1 ||
+            ! mPeer ||
             0 < mReplicationsInFlight ||
             mNextCommitOffset <= mCommitOffsetAckSent
         ) ? 0 : new RecordAppendOp(mNextWriteOffset);
@@ -3072,12 +3073,14 @@ AtomicRecordAppender::SendCommitAck()
         " size: "     << mNextCommitOffset <<
         " unacked: "  << (mNextCommitOffset - mCommitOffsetAckSent) <<
     KFS_LOG_EOM;
-    op->clnt         = this;
-    op->chunkId      = mChunkId;
-    op->chunkVersion = mChunkVersion;
-    op->numServers   = mNumServers;
-    op->servers      = mCommitAckServers;
-    op->numBytes     = 0;
+    op->clnt                      = this;
+    op->chunkId                   = mChunkId;
+    op->chunkVersion              = mChunkVersion;
+    op->numServers                = mNumServers;
+    op->servers                   = mCommitAckServers;
+    op->numBytes                  = 0;
+    op->initialShortRpcFormatFlag = mPeer->IsShortRpcFormat();
+    op->shortRpcFormatFlag        = op->initialShortRpcFormatFlag;
     AppendBegin(op, mReplicationPos, mPeerLocation);
 }
 
@@ -3284,6 +3287,7 @@ AtomicRecordAppendManager::AllocateChunk(
                     key.mLen,
                     replicationPos == 0,
                     op->allowCSClearTextFlag,
+                    op->shortRpcFormatFlag,
                     op->status,
                     op->statusMsg,
                     kConnectFlag,

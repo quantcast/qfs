@@ -199,6 +199,7 @@ ChunkServer::FindServer(
     int                   sessionKeyLen,
     bool                  writeMasterFlag,
     bool                  shutdownSslFlag,
+    bool                  shortRpcFmtFlag,
     int&                  err,
     string&               errMsg)
 {
@@ -212,6 +213,7 @@ ChunkServer::FindServer(
         sessionKeyLen,
         writeMasterFlag,
         shutdownSslFlag,
+        shortRpcFmtFlag,
         err,
         errMsg
     );

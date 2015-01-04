@@ -1826,6 +1826,7 @@ Replicator::Run(ReplicateChunkOp* op)
                 keyLen,
                 kKeyIsNotEncryptedFlag,
                 op->allowCSClearTextFlag,
+                op->shortRpcFormatFlag,
                 op->status,
                 op->statusMsg
             );
@@ -1844,6 +1845,7 @@ Replicator::Run(ReplicateChunkOp* op)
                 keyLen,
                 kKeyIsNotEncryptedFlag,
                 op->allowCSClearTextFlag,
+                op->shortRpcFormatFlag,
                 op->status,
                 op->statusMsg,
                 theConnectFlag,

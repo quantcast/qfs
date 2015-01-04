@@ -220,6 +220,7 @@ public:
         int                   sessionKeyLen,
         bool                  writeMasterFlag,
         bool                  shutdownSslFlag,
+        bool                  shortRpcFmtFlag,
         int&                  err,
         string&               errMsg);
 
