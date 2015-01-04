@@ -121,10 +121,11 @@ static const ChunkRequestHandlerShort& sMetaRequestHandlerShort   =
 /// @retval 0 on success; -1 if there is an error
 ///
 
-template <typename T>
+template <typename TS, typename T>
 static int
-ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    const T& requestHandlers, char* tmpBuf)
+ParseCommand(const TS& shortRequestHandlers, const T& requestHandlers,
+    char* tmpBuf, RpcFormat& ioRpcFormat,
+    const IOBuffer& ioBuf, int len, KfsOp** res)
 {
     *res = 0;
     if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
@@ -140,8 +141,35 @@ ParseCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
     int               reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(tmpBuf, reqLen);
     assert(reqLen == len);
-    *res = reqLen == len ? requestHandlers.Handle(buf, reqLen) : 0;
-    return (*res ? 0 : -1);
+    if (reqLen != len) {
+        return -1;
+    }
+    if (ioRpcFormat != kRpcFormatLong) {
+        *res = shortRequestHandlers.Handle(buf, reqLen);
+        if (*res) {
+            if (kRpcFormatUndef != ioRpcFormat || 0 <= (*res)->seq) {
+                if (kRpcFormatUndef == ioRpcFormat) {
+                    ioRpcFormat = kRpcFormatShort;
+                }
+                (*res)->shortRpcFormatFlag = true;
+                return 0;
+            }
+            delete *res;
+            *res = 0;
+        }
+        if (kRpcFormatUndef != ioRpcFormat) {
+            return -1;
+        }
+    }
+    *res = requestHandlers.Handle(buf, reqLen);
+    if (! *res) {
+        return -1;
+    }
+    if (kRpcFormatUndef == ioRpcFormat) {
+        ioRpcFormat = kRpcFormatLong;
+    }
+    (*res)->shortRpcFormatFlag = false;
+    return 0;
 }
 
 // Main thread's buffer
@@ -149,24 +177,20 @@ static char sTempParseBuf[MAX_RPC_HEADER_LEN];
 
 int
 ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-     bool shortRpcFmtFlag)
+     RpcFormat& ioRpcFormat)
 {
-    return (shortRpcFmtFlag ?
-        ParseCommand(ioBuf, len, res, sMetaRequestHandlerShort, sTempParseBuf) :
-        ParseCommand(ioBuf, len, res, sMetaRequestHandler,      sTempParseBuf)
-    );     
+    return ParseCommand(sMetaRequestHandlerShort, sMetaRequestHandler,
+        sTempParseBuf, ioRpcFormat, ioBuf, len, res);
 }
 
 int
 ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    bool shortRpcFmtFlag, char* tmpBuf)
+    RpcFormat& ioRpcFormat, char* tmpBuf)
 {
-    char* const buf = tmpBuf ? tmpBuf : sTempParseBuf;
-    return (shortRpcFmtFlag ?
-        ParseCommand(ioBuf, len, res, sClientRequestHandlerShort, buf) :
-        ParseCommand(ioBuf, len, res, sClientRequestHandler,      buf)
-    );
+    return ParseCommand(sClientRequestHandlerShort, sClientRequestHandler,
+        tmpBuf ? tmpBuf : sTempParseBuf, ioRpcFormat, ioBuf, len, res);
 }
+
 
 } // namespace KFS
 

@@ -254,21 +254,21 @@ void ReplicatorImpl::GetCounters(ReplicatorImpl::Counters& counters)
     counters = sCounters;
 }
 
-ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp *op, const RemoteSyncSMPtr &peer) :
-    KfsCallbackObj(),
-    BufferManager::Client(),
-    mFileId(op->fid),
-    mChunkId(op->chunkId),
-    mChunkVersion(op->chunkVersion),
-    mOwner(op),
-    mOffset(0),
-    mPeer(peer),
-    mChunkMetadataOp(0),
-    mReadOp(0),
-    mWriteOp(op->chunkId, op->chunkVersion),
-    mDone(false),
-    mCancelFlag(false),
-    mFileHandle()
+ReplicatorImpl::ReplicatorImpl(ReplicateChunkOp* op, const RemoteSyncSMPtr& peer)
+    : KfsCallbackObj(),
+      BufferManager::Client(),
+      mFileId(op->fid),
+      mChunkId(op->chunkId),
+      mChunkVersion(op->chunkVersion),
+      mOwner(op),
+      mOffset(0),
+      mPeer(peer),
+      mChunkMetadataOp(),
+      mReadOp(),
+      mWriteOp(op->chunkId, op->chunkVersion),
+      mDone(false),
+      mCancelFlag(false),
+      mFileHandle()
 {
     mReadOp.chunkId = op->chunkId;
     mReadOp.chunkVersion = op->chunkVersion;

@@ -290,7 +290,7 @@ struct KfsOp : public KfsCallbackObj
     BufferBytes     bufferBytes;
     NextOp          nextOp;
 
-    KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0);
+    KfsOp(KfsOp_t o);
     void Cancel() {
         cancelled = true;
     }
@@ -409,8 +409,8 @@ struct KfsClientChunkOp : public KfsOp
     uint16_t     chunkAccessFlags;
     kfsUid_t     chunkAccessUid;
 
-    KfsClientChunkOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
-        : KfsOp(o, s, c),
+    KfsClientChunkOp(KfsOp_t o)
+        : KfsOp(o),
           chunkId(-1),
           subjectId(-1),
           hasChunkAccessTokenFlag(false),
@@ -439,8 +439,8 @@ struct ChunkAccessRequestOp : public KfsClientChunkOp
     bool    createChunkServerAccessFlag;
     int64_t writeId;
 
-    ChunkAccessRequestOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c = 0)
-        : KfsClientChunkOp(o, s, c),
+    ChunkAccessRequestOp(KfsOp_t o)
+        : KfsClientChunkOp(o),
           createChunkAccessFlag(false),
           createChunkServerAccessFlag(false),
           writeId(-1)
@@ -483,8 +483,8 @@ struct AllocChunkOp : public KfsOp {
     SyncReplicationAccess syncReplicationAccess;
     DiskIoPtr             diskIo;
 
-    AllocChunkOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_ALLOC_CHUNK, s),
+    AllocChunkOp()
+        : KfsOp(CMD_ALLOC_CHUNK),
           fileId(-1),
           chunkId(-1),
           chunkVersion(-1),
@@ -554,8 +554,8 @@ struct BeginMakeChunkStableOp : public KfsOp {
     uint32_t                chunkChecksum; // output
     BeginMakeChunkStableOp* next;
 
-    BeginMakeChunkStableOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_BEGIN_MAKE_CHUNK_STABLE, s),
+    BeginMakeChunkStableOp()
+        : KfsOp(CMD_BEGIN_MAKE_CHUNK_STABLE),
           fileId(-1),
           chunkId(-1),
           chunkVersion(-1),
@@ -596,8 +596,8 @@ struct MakeChunkStableOp : public KfsOp {
     StringBufT<32>     checksumStr;
     MakeChunkStableOp* next;
 
-    MakeChunkStableOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_MAKE_CHUNK_STABLE, s),
+    MakeChunkStableOp()
+        : KfsOp(CMD_MAKE_CHUNK_STABLE),
           fileId(-1),
           chunkId(-1),
           chunkVersion(-1),
@@ -644,8 +644,8 @@ struct ChangeChunkVersOp : public KfsOp {
     bool         makeStableFlag;
     bool         verifyStableFlag;
 
-    ChangeChunkVersOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_CHANGE_CHUNK_VERS, s),
+    ChangeChunkVersOp()
+        : KfsOp(CMD_CHANGE_CHUNK_VERS),
           fileId(-1),
           chunkId(-1),
           chunkVersion(-1),
@@ -684,8 +684,8 @@ struct ChangeChunkVersOp : public KfsOp {
 struct DeleteChunkOp : public KfsOp {
     kfsChunkId_t chunkId; // input
 
-    DeleteChunkOp(kfsSeq_t s = -1)
-       : KfsOp(CMD_DELETE_CHUNK, s),
+    DeleteChunkOp()
+       : KfsOp(CMD_DELETE_CHUNK),
          chunkId(-1)
         {}
     void Execute();
@@ -708,8 +708,8 @@ struct TruncateChunkOp : public KfsOp {
     kfsChunkId_t chunkId;  // input
     size_t       chunkSize; // size to which file should be truncated to
 
-    TruncateChunkOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_TRUNCATE_CHUNK, s),
+    TruncateChunkOp()
+        : KfsOp(CMD_TRUNCATE_CHUNK),
           chunkId(-1),
           chunkSize(0)
         {}
@@ -760,8 +760,8 @@ struct ReplicateChunkOp : public KfsOp {
     StringBufT<148> chunkServerAccess;
     StringBufT<64>  chunkAccess;
 
-    ReplicateChunkOp(kfsSeq_t s = -1) :
-        KfsOp(CMD_REPLICATE_CHUNK, s),
+    ReplicateChunkOp() :
+        KfsOp(CMD_REPLICATE_CHUNK),
         fid(-1),
         chunkId(-1),
         location(),
@@ -846,8 +846,8 @@ struct HeartbeatOp : public KfsOp {
     CryptoKeys::KeyId currentKeyId;
     CryptoKeys::Key   currentKey;
 
-    HeartbeatOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_HEARTBEAT, s),
+    HeartbeatOp()
+        : KfsOp(CMD_HEARTBEAT),
           metaEvacuateCount(-1),
           authenticateFlag(false),
           response(),
@@ -886,8 +886,8 @@ struct StaleChunksOp : public KfsOp {
     kfsSeq_t      availChunksSeq;
     StaleChunkIds staleChunkIds; /* data we parse out */
 
-    StaleChunksOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_STALE_CHUNKS, s),
+    StaleChunksOp()
+        : KfsOp(CMD_STALE_CHUNKS),
           contentLength(0),
           numStaleChunks(0),
           evacuatedFlag(false),
@@ -919,8 +919,8 @@ struct StaleChunksOp : public KfsOp {
 };
 
 struct RetireOp : public KfsOp {
-    RetireOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_RETIRE, s)
+    RetireOp()
+        : KfsOp(CMD_RETIRE)
         {}
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
@@ -944,8 +944,8 @@ struct CloseOp : public KfsClientChunkOp {
     int                   contentLength;
     SyncReplicationAccess syncReplicationAccess;
 
-    CloseOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_CLOSE, s),
+    CloseOp()
+        : KfsClientChunkOp(CMD_CLOSE),
           numServers           (0u),
           needAck              (true),
           hasWriteId           (false),
@@ -955,8 +955,8 @@ struct CloseOp : public KfsClientChunkOp {
           contentLength        (0),
           syncReplicationAccess()
         {}
-    CloseOp(kfsSeq_t s, const CloseOp& op)
-        : KfsClientChunkOp(CMD_CLOSE, s),
+    CloseOp(const CloseOp& op)
+        : KfsClientChunkOp(CMD_CLOSE),
           numServers           (op.numServers),
           needAck              (op.needAck),
           hasWriteId           (op.hasWriteId),
@@ -1043,7 +1043,7 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
     RecordAppendOp* mPrevPtr[1];
     RecordAppendOp* mNextPtr[1];
 
-    RecordAppendOp(kfsSeq_t s = 0);
+    RecordAppendOp(kfsSeq_t s = -1);
     virtual ~RecordAppendOp();
 
     virtual int GetContentLength() const { return accessFwdLength; }
@@ -1105,8 +1105,8 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
     bool         widWasReadOnlyFlag;
     bool         widReadOnlyFlag;
 
-    GetRecordAppendOpStatus(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_GET_RECORD_APPEND_STATUS, s),
+    GetRecordAppendOpStatus()
+        : KfsClientChunkOp(CMD_GET_RECORD_APPEND_STATUS),
           writeId(-1),
           opSeq(-1),
           chunkVersion(-1),
@@ -1168,8 +1168,8 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     SyncReplicationAccess syncReplicationAccess;
     RemoteSyncSMPtr       appendPeer;
 
-    WriteIdAllocOp(kfsSeq_t s = 0)
-        : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC, s),
+    WriteIdAllocOp()
+        : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC),
           clientSeq(-1),
           chunkVersion(-1),
           offset(0),
@@ -1186,8 +1186,8 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           appendPeer(),
           clientSeqVal()
         { SET_HANDLER(this, &WriteIdAllocOp::Done); }
-    WriteIdAllocOp(kfsSeq_t s, const WriteIdAllocOp& other)
-        : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC, s),
+    WriteIdAllocOp(const WriteIdAllocOp& other)
+        : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC),
           clientSeq(other.clientSeq),
           chunkVersion(other.chunkVersion),
           offset(other.offset),
@@ -1290,8 +1290,8 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     uint32_t              receivedChecksum;
     vector<uint32_t>      blocksChecksums;
 
-    WritePrepareOp(kfsSeq_t s = 0)
-        : ChunkAccessRequestOp(CMD_WRITE_PREPARE, s),
+    WritePrepareOp()
+        : ChunkAccessRequestOp(CMD_WRITE_PREPARE),
           chunkVersion(-1),
           offset(0),
           numBytes(0),
@@ -1362,7 +1362,7 @@ struct WritePrepareFwdOp : public KfsOp {
     const WritePrepareOp& owner;
 
     WritePrepareFwdOp(WritePrepareOp& o)
-        : KfsOp(CMD_WRITE_PREPARE_FWD, -1),
+        : KfsOp(CMD_WRITE_PREPARE_FWD),
           owner(o)
         {}
     void Request(ReqOstream& os);
@@ -1411,7 +1411,7 @@ struct WriteOp : public KfsOp {
     time_t           enqueueTime;
 
     WriteOp(kfsChunkId_t c, int64_t v)
-        : KfsOp(CMD_WRITE, -1),
+        : KfsOp(CMD_WRITE),
           chunkId(c),
           chunkVersion(v),
           offset(0),
@@ -1429,9 +1429,9 @@ struct WriteOp : public KfsOp {
           writeId(-1),
           enqueueTime()
         { SET_HANDLER(this, &WriteOp::HandleWriteDone); }
-    WriteOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, int64_t o, size_t n,
+    WriteOp(kfsChunkId_t c, int64_t v, int64_t o, size_t n,
             int64_t id)
-        : KfsOp(CMD_WRITE, s),
+        : KfsOp(CMD_WRITE),
           chunkId(c),
           chunkVersion(v),
           offset(o),
@@ -1505,9 +1505,9 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
 
-    WriteSyncOp(kfsSeq_t s = 0, kfsChunkId_t c = -1,
+    WriteSyncOp(kfsChunkId_t c = -1,
             int64_t v = -1, int64_t o = 0, size_t n = 0)
-        : ChunkAccessRequestOp(CMD_WRITE_SYNC, s),
+        : ChunkAccessRequestOp(CMD_WRITE_SYNC),
           chunkVersion(v),
           offset(o),
           numBytes(n),
@@ -1577,11 +1577,12 @@ struct ReadChunkMetaOp : public KfsOp {
     list<KfsOp*, StdFastAllocator<KfsOp*> > waiters;
 
     ReadChunkMetaOp(kfsChunkId_t c, KfsCallbackObj *o)
-        : KfsOp(CMD_READ_CHUNKMETA, -1, o),
+        : KfsOp(CMD_READ_CHUNKMETA),
           chunkId(c),
           diskIo(),
           waiters()
     {
+        clnt = o;
         SET_HANDLER(this, &ReadChunkMetaOp::HandleDone);
     }
 
@@ -1625,8 +1626,8 @@ struct ReadOp : public KfsClientChunkOp {
     GetChunkMetadataOp* scrubOp;
     BufferManager*      devBufMgr;
 
-    ReadOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_READ, s),
+    ReadOp()
+        : KfsClientChunkOp(CMD_READ),
           chunkVersion(-1),
           offset(0),
           numBytes(0),
@@ -1643,7 +1644,7 @@ struct ReadOp : public KfsClientChunkOp {
           devBufMgr(0)
         { SET_HANDLER(this, &ReadOp::HandleDone); }
     ReadOp(WriteOp* w, int64_t o, size_t n)
-        : KfsClientChunkOp(CMD_READ, w->seq),
+        : KfsClientChunkOp(CMD_READ),
           chunkVersion(w->chunkVersion),
           offset(o),
           numBytes(n),
@@ -1659,6 +1660,7 @@ struct ReadOp : public KfsClientChunkOp {
           scrubOp(0),
           devBufMgr(0)
     {
+        seq     = w->seq;
         clnt    = w;
         chunkId = w->chunkId;
         SET_HANDLER(this, &ReadOp::HandleDone);
@@ -1731,11 +1733,10 @@ struct SizeOp : public KfsClientChunkOp {
     int64_t     chunkVersion;
     int64_t     size; /* result */
     SizeOp(
-        kfsSeq_t     s   = 0,
         kfsFileId_t  fid = -1,
         kfsChunkId_t c   = -1,
         int64_t      v   = -1)
-        : KfsClientChunkOp(CMD_SIZE, s),
+        : KfsClientChunkOp(CMD_SIZE),
           fileId(fid),
           chunkVersion(v),
           size(-1)
@@ -1786,15 +1787,15 @@ struct ChunkSpaceReserveOp : public KfsClientChunkOp {
     //
     size_t        nbytes;
 
-    ChunkSpaceReserveOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_SPC_RESERVE, s),
+    ChunkSpaceReserveOp()
+        : KfsClientChunkOp(CMD_SPC_RESERVE),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(0)
         {}
-    ChunkSpaceReserveOp(kfsSeq_t s, kfsChunkId_t c, size_t n)
-        : KfsClientChunkOp(CMD_SPC_RESERVE, s),
+    ChunkSpaceReserveOp(kfsChunkId_t c, size_t n)
+        : KfsClientChunkOp(CMD_SPC_RESERVE),
           writeId(-1),
           servers(),
           numServers(0),
@@ -1828,15 +1829,15 @@ struct ChunkSpaceReleaseOp : public KfsClientChunkOp {
     uint32_t        numServers; /* input */
     size_t          nbytes;
 
-    ChunkSpaceReleaseOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_SPC_RELEASE, s),
+    ChunkSpaceReleaseOp()
+        : KfsClientChunkOp(CMD_SPC_RELEASE),
           writeId(-1),
           servers(),
           numServers(0),
           nbytes(0)
         {}
-    ChunkSpaceReleaseOp(kfsSeq_t s, kfsChunkId_t c, int n)
-        : KfsClientChunkOp(CMD_SPC_RELEASE, s),
+    ChunkSpaceReleaseOp(kfsChunkId_t c, int n)
+        : KfsClientChunkOp(CMD_SPC_RELEASE),
           writeId(-1),
           servers(),
           numServers(0),
@@ -1874,14 +1875,14 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     const char*  requestChunkAccess;
     enum { kChunkReadSize = 1 << 20, kChunkMetaReadSize = 16 << 10 };
 
-    GetChunkMetadataOp(kfsSeq_t s = 0)
-        : KfsClientChunkOp(CMD_GET_CHUNK_METADATA, s),
+    GetChunkMetadataOp()
+        : KfsClientChunkOp(CMD_GET_CHUNK_METADATA),
           chunkVersion(0),
           readVerifyFlag(false),
           chunkSize(0),
           dataBuf(),
           numBytesIO(0),
-          readOp(0),
+          readOp(),
           numBytesScrubbed(0),
           requestChunkAccess(0)
         {}
@@ -1944,8 +1945,8 @@ struct PingOp : public KfsOp {
     int64_t totalFsSpace;
     int     evacuateInFlightCount;
 
-    PingOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_PING, s),
+    PingOp()
+        : KfsOp(CMD_PING),
           totalSpace(-1),
           usedSpace(-1),
           totalFsSpace(-1),
@@ -1969,8 +1970,8 @@ struct PingOp : public KfsOp {
 
 // used to dump chunk map
 struct DumpChunkMapOp : public KfsOp {
-    DumpChunkMapOp(kfsSeq_t s = -1)
-       : KfsOp(CMD_DUMP_CHUNKMAP, s)
+    DumpChunkMapOp()
+       : KfsOp(CMD_DUMP_CHUNKMAP)
        {}
     void Response(ReqOstream& os);
     void Execute();
@@ -1992,8 +1993,8 @@ struct DumpChunkMapOp : public KfsOp {
 struct StatsOp : public KfsOp {
     string stats; // result
 
-    StatsOp(kfsSeq_t s = -1)
-        : KfsOp(CMD_STATS, s),
+    StatsOp()
+        : KfsOp(CMD_STATS),
           stats()
         {}
     void Response(ReqOstream& os);
@@ -2023,8 +2024,8 @@ struct LeaseRenewOp : public KfsOp {
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
 
-    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t, bool a)
-        : KfsOp(CMD_LEASE_RENEW, s),
+    LeaseRenewOp(kfsChunkId_t c, int64_t l, const string& t, bool a)
+        : KfsOp(CMD_LEASE_RENEW),
           chunkId(c),
           leaseId(l),
           leaseType(t),
@@ -2078,8 +2079,8 @@ struct LeaseRelinquishOp : public KfsOp {
     uint32_t     chunkChecksum;
     bool         hasChecksum;
 
-    LeaseRelinquishOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
-        : KfsOp(CMD_LEASE_RELINQUISH, s),
+    LeaseRelinquishOp(kfsChunkId_t c, int64_t l, const string& t)
+        : KfsOp(CMD_LEASE_RELINQUISH),
           chunkId(c),
           leaseId(l),
           leaseType(t),
@@ -2161,9 +2162,9 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  helloResumeFailedCount;
     PendingNotifyLostChunks* pendingNotifyLostChunks;
 
-    HelloMetaOp(kfsSeq_t s, const ServerLocation& l,
+    HelloMetaOp(const ServerLocation& l,
             const string& k, const string& m, int r)
-        : KfsOp(CMD_META_HELLO, s),
+        : KfsOp(CMD_META_HELLO),
           myLocation(l),
           clusterKey(k),
           md5sum(m),
@@ -2231,9 +2232,9 @@ struct CorruptChunkOp : public KfsOp {
     bool         notifyChunkManagerFlag;
     string       chunkDir;
 
-    CorruptChunkOp(kfsSeq_t s, kfsChunkId_t c,
+    CorruptChunkOp(kfsChunkId_t c,
             const string* cDir = 0, bool dOkFlag = false)
-        : KfsOp(CMD_CORRUPT_CHUNK, s),
+        : KfsOp(CMD_CORRUPT_CHUNK),
           chunkCount(0),
           isChunkLost(false),
           dirOkFlag(dOkFlag),
@@ -2299,8 +2300,8 @@ struct EvacuateChunksOp : public KfsOp {
     int64_t          evacuateByteCount;
     StorageTiersInfo tiersInfo;
 
-    EvacuateChunksOp(kfsSeq_t s = -1, KfsCallbackObj* c = 0)
-        : KfsOp(CMD_EVACUATE_CHUNKS, s, c),
+    EvacuateChunksOp(KfsCallbackObj* c = 0)
+        : KfsOp(CMD_EVACUATE_CHUNKS),
           numChunks(0),
           chunkDirs(-1),
           writableChunkDirs(-1),
@@ -2312,6 +2313,7 @@ struct EvacuateChunksOp : public KfsOp {
           evacuateByteCount(-1),
           tiersInfo()
     {
+        clnt = c;
         SET_HANDLER(this, &EvacuateChunksOp::HandleDone);
     }
     void Request(ReqOstream& os);
@@ -2340,10 +2342,11 @@ struct AvailableChunksOp : public KfsOp {
     Chunks chunks[kMaxChunkIds];
     int    numChunks;
 
-    AvailableChunksOp(kfsSeq_t s = -1, KfsCallbackObj* c = 0)
-        : KfsOp(CMD_AVAILABLE_CHUNKS, s, c),
+    AvailableChunksOp(KfsCallbackObj* c = 0)
+        : KfsOp(CMD_AVAILABLE_CHUNKS),
           numChunks(0)
     {
+        clnt = c;
         SET_HANDLER(this, &AvailableChunksOp::HandleDone);
     }
     void Request(ReqOstream& os);
@@ -2370,8 +2373,8 @@ struct SetProperties : public KfsOp {
     int        contentLength;
     Properties properties; // input
 
-    SetProperties(kfsSeq_t seq = -1)
-        : KfsOp(CMD_SET_PROPERTIES, seq),
+    SetProperties()
+        : KfsOp(CMD_SET_PROPERTIES),
           contentLength(0),
           properties()
         {}
@@ -2399,8 +2402,8 @@ struct SetProperties : public KfsOp {
 };
 
 struct RestartChunkServerOp : public KfsOp {
-    RestartChunkServerOp(kfsSeq_t seq = -1)
-        : KfsOp(CMD_RESTART_CHUNK_SERVER, seq)
+    RestartChunkServerOp()
+        : KfsOp(CMD_RESTART_CHUNK_SERVER)
         {}
     virtual void Execute();
     virtual ostream& ShowSelf(ostream& os) const
@@ -2423,8 +2426,8 @@ struct AuthenticateOp : public KfsOp {
     const char* reqBuf;
     char*       responseBuf;
 
-    AuthenticateOp(kfsSeq_t s = 0, int authType = kAuthenticationTypeUndef)
-        : KfsOp (CMD_AUTHENTICATE, s),
+    AuthenticateOp(int authType = kAuthenticationTypeUndef)
+        : KfsOp (CMD_AUTHENTICATE),
           requestedAuthType(authType),
           chosenAuthType(kAuthenticationTypeUndef),
           useSslFlag(false),
@@ -2463,10 +2466,17 @@ private:
     int responseBufPos;
 };
 
+enum RpcFormat
+{
+    kRpcFormatUndef = 0,
+    kRpcFormatShort = 1,
+    kRpcFormatLong  = 2
+};
+
 extern int ParseMetaCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    bool shortRpcFmtFlag);
+    RpcFormat& rpcFormat);
 extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
-    bool shortRpcFmtFlag, char* tmpBuf = 0);
+    RpcFormat& rpcFormat, char* tmpBuf = 0);
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
 

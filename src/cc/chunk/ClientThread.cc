@@ -399,7 +399,7 @@ public:
                         theBuf,
                         theEntry.mReceivedHeaderLen,
                         &theEntry.mReceivedOpPtr,
-                        false,
+                        theEntry.mRpcFormat,
                         mParseBuffer) != 0) {
                     theEntry.ReceiveClear();
                 }
@@ -408,11 +408,13 @@ public:
                     return 0;
                 }
                 if (theEntry.mComputeChecksumFlag) {
-                    theEntry.mBlocksChecksums = ComputeChecksums(
-                        &theBuf,
+                    theEntry.mBlocksChecksums.clear();
+                    AppendToChecksumVector(
+                        theBuf,
                         theEntry.mReceiveByteCount,
                         &theEntry.mChecksum,
-                        theEntry.mFirstChecksumBlockLen
+                        theEntry.mFirstChecksumBlockLen,
+                        theEntry.mBlocksChecksums
                     );
                 }
             }

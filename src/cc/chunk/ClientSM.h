@@ -82,6 +82,7 @@ protected:
           mFirstChecksumBlockLen(CHECKSUM_BLOCKSIZE),
           mReceiveByteCount(-1),
           mReceivedHeaderLen(0),
+          mRpcFormat(kRpcFormatUndef),
           mGrantedFlag(false),
           mReceiveOpFlag(false),
           mComputeChecksumFlag(false)
@@ -123,6 +124,8 @@ protected:
         mComputeChecksumFlag   =
             0 <= mReceiveByteCount && inComputeChecksumFlag;
     }
+    RpcFormat& GetRpcFormat()
+        { return mRpcFormat; }
     KfsOp* GetReceivedOp() const
         { return mReceivedOpPtr; }
     vector<uint32_t>& GetBlockChecksums()
@@ -151,6 +154,7 @@ private:
     uint32_t               mFirstChecksumBlockLen;
     int                    mReceiveByteCount;
     int                    mReceivedHeaderLen;
+    RpcFormat              mRpcFormat;
     bool                   mGrantedFlag:1;
     bool                   mReceiveOpFlag:1;
     bool                   mComputeChecksumFlag:1;

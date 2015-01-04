@@ -101,7 +101,7 @@ MetaServerSM::MetaServerSM()
       mHelloResume(1),
       mOp(0),
       mRequestFlag(false),
-      mShortRpcFmtFlag(false),
+      mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
       mCounters(),
       mIStream(),
@@ -276,7 +276,7 @@ MetaServerSM::Connect()
     DiscardPendingResponses();
     mContentLength = 0;
     mCounters.mConnectCount++;
-    mShortRpcFmtFlag      = false;
+    mRpcFormat            = kRpcFormatUndef;
     mSentHello            = false;
     mUpdateCurrentKeyFlag = false;
     TcpSocket * const sock = new TcpSocket();
@@ -437,7 +437,7 @@ MetaServerSM::Authenticate()
         return true;
     }
     IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-    mAuthOp->shortRpcFormatFlag = mShortRpcFmtFlag;
+    mAuthOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
     ReqOstream ros(mWOStream.Set(ioBuf));
     mAuthOp->Request(ros, ioBuf);
     mWOStream.Reset();
@@ -463,7 +463,7 @@ MetaServerSM::DispatchHello()
     }
     mSentHello = true;
     IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-    mHelloOp->shortRpcFormatFlag = mShortRpcFmtFlag;
+    mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
     ReqOstream ros(mWOStream.Set(ioBuf));
     mHelloOp->Request(ros, ioBuf);
     mWOStream.Reset();
@@ -664,27 +664,31 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
     if (op) {
         mOp = 0;
     } else {
-        Properties prop(mShortRpcFmtFlag ? 16 : 10);
+        Properties prop(kRpcFormatShort == mRpcFormat ? 16 : 10);
         const char separator = ':';
         prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
         mIStream.Reset();
         iobuf.Consume(msgLen);
-        if (mHelloOp && mHelloOp->reqShortRpcFmtFlag && ! mShortRpcFmtFlag) {
-            mShortRpcFmtFlag = ! prop.getValue("Cseq") && prop.getValue("c");
-            prop.setIntBase(16);
+        if (mHelloOp && mHelloOp->reqShortRpcFmtFlag &&
+                kRpcFormatUndef == mRpcFormat) {
+            if (! prop.getValue("Cseq") && prop.getValue("c")) {
+                mRpcFormat = kRpcFormatShort;
+                prop.setIntBase(16);
+            }
         }
         const kfsSeq_t seq    = prop.getValue(
-            mShortRpcFmtFlag ? "c" : "Cseq", (kfsSeq_t)-1);
+            kRpcFormatShort == mRpcFormat ? "c" : "Cseq", kfsSeq_t(-1));
         int            status = prop.getValue(
-            mShortRpcFmtFlag ? "s" : "Status",          -1);
+            kRpcFormatShort == mRpcFormat ? "s" : "Status",    int(-1));
         string         statusMsg;
         if (status < 0) {
             status    = -KfsToSysErrno(-status);
             statusMsg = prop.getValue(
-                mShortRpcFmtFlag ? "m" : "Status-message", string());
+                kRpcFormatShort == mRpcFormat ? "m" : "Status-message",
+                string());
         }
         mContentLength = prop.getValue(
-            mShortRpcFmtFlag ? "l" : "Content-length",  -1);
+            kRpcFormatShort == mRpcFormat ? "l" : "Content-length",  -1);
         if (mAuthOp && (! IsHandshakeDone() || seq == mAuthOp->seq)) {
             if (seq != mAuthOp->seq) {
                 KFS_LOG_STREAM_ERROR <<
@@ -723,7 +727,8 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             mCounters.mHelloCount++;
             const int resumeStep = status == 0 ?
-                prop.getValue(mShortRpcFmtFlag ? "R" : "Resume", int(-1)) : -1;
+                prop.getValue(kRpcFormatShort == mRpcFormat ? "R" : "Resume",
+                    int(-1)) : -1;
             const bool errorFlag =
                 seq != mHelloOp->seq ||
                 (status != 0 && 0 < mContentLength) ||
@@ -746,9 +751,11 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 mCounters.mHelloErrorCount++;
             } else if (status == 0) {
                 mHelloOp->metaFileSystemId      = prop.getValue(
-                    mShortRpcFmtFlag ? "FI" : "File-system-id", int64_t(-1));
+                    kRpcFormatShort == mRpcFormat ? "FI" : "File-system-id",
+                        int64_t(-1));
                 const int64_t deleteAllChunksId = prop.getValue(
-                    mShortRpcFmtFlag ? "DA" : "Delete-all-chunks", (int64_t)-1);
+                    kRpcFormatShort == mRpcFormat ? "DA" : "Delete-all-chunks",
+                        (int64_t)-1);
                 mHelloOp->deleteAllChunksFlag =
                     0 < mHelloOp->metaFileSystemId &&
                     deleteAllChunksId == mHelloOp->metaFileSystemId &&
@@ -760,16 +767,20 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                         mHelloOp->deleteAllChunksFlag);
                 }
                 mHelloOp->deletedCount  = prop.getValue(
-                    mShortRpcFmtFlag ? "D" : "Deleted",        uint64_t(0));
+                    kRpcFormatShort == mRpcFormat ? "D" : "Deleted",
+                        uint64_t(0));
                 mHelloOp->modifiedCount = prop.getValue(
-                    mShortRpcFmtFlag ? "M" : "Modified",       uint64_t(0));
+                    kRpcFormatShort == mRpcFormat ? "M" : "Modified",
+                        uint64_t(0));
                 mHelloOp->chunkCount    = prop.getValue(
-                    mShortRpcFmtFlag ? "C" : "Chunks",         uint64_t(0));
+                    kRpcFormatShort == mRpcFormat ? "C" : "Chunks",
+                        uint64_t(0));
                 mHelloOp->checksum      = prop.getValue(
-                    mShortRpcFmtFlag ? "K" : "Checksum",       uint64_t(0));
+                    kRpcFormatShort == mRpcFormat ? "K" : "Checksum",
+                        uint64_t(0));
                 mHelloOp->deletedReport = prop.getValue(
-                    mShortRpcFmtFlag ? "DR": "Deleted-report",
-                    mHelloOp->deletedCount);
+                    kRpcFormatShort == mRpcFormat ? "DR": "Deleted-report",
+                        mHelloOp->deletedCount);
             } else {
                 mHelloOp->resumeStep = -1;
                 mSentHello    = false;
@@ -797,7 +808,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                             it = lostDirs.begin();
                             it != lostDirs.end() && IsConnected();
                             ++it) {
-                        EnqueueOp(new CorruptChunkOp(0, -1, &(*it), false));
+                        EnqueueOp(new CorruptChunkOp(-1, &(*it), false));
                     }
                     ResubmitOps();
                 }
@@ -899,7 +910,7 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
     KfsOp* op = mOp;
     mOp = 0;
     if (! op) {
-        if (ParseMetaCommand(iobuf, cmdLen, &op, mShortRpcFmtFlag) != 0) {
+        if (ParseMetaCommand(iobuf, cmdLen, &op, mRpcFormat) != 0) {
             IOBuffer::IStream is(iobuf, cmdLen);
             const string peer = IsConnected() ?
                 mNetConnection->GetPeerName() : string("not connected");
@@ -915,21 +926,6 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
             // got a bogus command
             return false;
         }
-        if (! mShortRpcFmtFlag &&
-                mHelloOp &&
-                mHelloOp->reqShortRpcFmtFlag &&
-                op->seq < 0) {
-            KfsOp* sop = 0;
-            if (ParseMetaCommand(iobuf, cmdLen, &sop, true) == 0 &&
-                    0 <= sop->seq) {
-                delete op;
-                op = sop;
-                mShortRpcFmtFlag = true;
-            } else {
-                delete sop;
-            }
-        }
-        op->shortRpcFormatFlag = mShortRpcFmtFlag;
         iobuf.Consume(cmdLen);
     }
     mContentLength = op->GetContentLength();
@@ -989,7 +985,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
             die("duplicate seq. number");
         }
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-        op->shortRpcFormatFlag = mShortRpcFmtFlag;
+        op->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
         ReqOstream ros(mWOStream.Set(ioBuf));
         op->Request(ros, ioBuf);
         mWOStream.Reset();
@@ -1080,7 +1076,7 @@ MetaServerSM::DispatchOps()
             " "      << op->Show() <<
         KFS_LOG_EOM;
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
-        op->shortRpcFormatFlag = mShortRpcFmtFlag;
+        op->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
         ReqOstream ros(mWOStream.Set(ioBuf));
         op->Request(ros, ioBuf);
         mWOStream.Reset();
@@ -1104,7 +1100,7 @@ MetaServerSM::ResubmitOps()
     for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
             it != mDispatchedOps.end();
             ++it) {
-        it->second->shortRpcFormatFlag = mShortRpcFmtFlag;
+        it->second->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
         it->second->Request(os, ioBuf);
     }
     mWOStream.Reset();
@@ -1212,15 +1208,16 @@ MetaServerSM::SubmitHello()
         return;
     }
     mHelloOp = new HelloMetaOp(
-        nextSeq(), gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
+        gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
+    mHelloOp->seq                = nextSeq();
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
     mHelloOp->helloDoneCount     = mCounters.mHelloDoneCount;
     mHelloOp->resumeStep         = (mHelloResume < 0 ||
         (mHelloResume != 0 && 0 < mCounters.mHelloDoneCount)) ? 0 : -1;
     mHelloOp->clnt               = this;
-    mHelloOp->shortRpcFormatFlag = mShortRpcFmtFlag;
-    mHelloOp->reqShortRpcFmtFlag = false; //! mShortRpcFmtFlag;
+    mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
+    mHelloOp->reqShortRpcFmtFlag = false; // kRpcFormatShort != mRpcFormat;
     // Send the op and wait for the reply.
     SubmitOp(mHelloOp);
 }

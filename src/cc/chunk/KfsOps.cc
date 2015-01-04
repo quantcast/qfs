@@ -435,7 +435,7 @@ class KfsOp::NullOp : public KfsOp
 {
 protected:
     NullOp()
-        : KfsOp(CMD_NULL, 0)
+        : KfsOp(CMD_NULL)
         {}
     virtual void Execute()
         {}
@@ -480,11 +480,11 @@ QCMutex* KfsOp::sMutex      = 0;
 int64_t  KfsOp::sOpsCount   = 0;
 KfsOp*   KfsOp::sOpsList[1] = {0};
 
-KfsOp::KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c)
+KfsOp::KfsOp(KfsOp_t o)
     : KfsCallbackObj(),
       op(o),
       type(OP_REQUEST),
-      seq(s),
+      seq(-1),
       status(0),
       cancelled(false),
       done(false),
@@ -494,7 +494,7 @@ KfsOp::KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c)
       shortRpcFormatFlag(false),
       maxWaitMillisec(-1),
       statusMsg(),
-      clnt(c),
+      clnt(0),
       startTime(microseconds()),
       bufferBytes(),
       nextOp()
@@ -1074,7 +1074,7 @@ CloseOp::ForwardToPeer(
         KFS_LOG_EOM;
         return;
     }
-    CloseOp* const fwdedOp = new CloseOp(0, *this);
+    CloseOp* const fwdedOp = new CloseOp(*this);
     // don't need an ack back
     fwdedOp->needAck = false;
     // this op goes to the remote-sync SM and after it is sent, comes right back
@@ -2058,7 +2058,7 @@ WriteIdAllocOp::ForwardToPeer(
         Done(EVENT_CMD_DONE, &status);
         return;
     }
-    fwdedOp = new WriteIdAllocOp(0, *this);
+    fwdedOp = new WriteIdAllocOp(*this);
     fwdedOp->writePrepareReplyFlag = false; // set by the next one in the chain.
     // When forwarded op completes, call this op HandlePeerReply.
     fwdedOp->clnt = this;
@@ -2488,7 +2488,7 @@ WriteSyncOp::ForwardToPeer(
         }
         return;
     }
-    fwdedOp = new WriteSyncOp(0, chunkId, chunkVersion, offset, numBytes);
+    fwdedOp = new WriteSyncOp(chunkId, chunkVersion, offset, numBytes);
     fwdedOp->numServers            = numServers;
     fwdedOp->servers               = servers;
     fwdedOp->clnt                  = this;

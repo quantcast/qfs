@@ -304,7 +304,7 @@ LeaseClerk::Timeout()
         }
         // The metaserverSM will fill seq#.
         LeaseRenewOp* const op = new LeaseRenewOp(
-            -1, chunkId, lease.leaseId, kWriteLease,
+            chunkId, lease.leaseId, kWriteLease,
             lease.syncReplicationAccess.chunkServerAccess &&
                 lease.syncReplicationExpirationTime <= now
         );
@@ -345,7 +345,7 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t size,
     // in flight, then delete the lease.
     const LeaseInfo_t& lease = *it;
     LeaseRelinquishOp* const op = new LeaseRelinquishOp(
-        -1, chunkId, lease.leaseId, kWriteLease);
+        chunkId, lease.leaseId, kWriteLease);
     KFS_LOG_STREAM_INFO <<
         "sending lease relinquish for:"
         " chunk: "      << chunkId <<

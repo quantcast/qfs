@@ -152,8 +152,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           evacuateChunksCb(),
           renameEvacuateFileCb(),
           availableChunksCb(),
-          evacuateChunksOp(0, &evacuateChunksCb),
-          availableChunksOp(0, &availableChunksCb),
+          evacuateChunksOp(&evacuateChunksCb),
+          availableChunksOp(&availableChunksCb),
           chunkDirInfoOp(*this)
     {
         fsSpaceAvailCb.SetHandler(this,
@@ -473,7 +473,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     public:
         ChunkDirInfoOp(
             const ChunkDirInfo& chunkDir)
-            : KfsOp(CMD_CHUNKDIR_INFO, 0),
+            : KfsOp(CMD_CHUNKDIR_INFO),
               mChunkDir(chunkDir),
               mInFlightFlag(false),
               mResetCountersFlag(false),
@@ -776,7 +776,7 @@ struct WriteChunkMetaOp : public KfsOp
         bool            rename,
         bool            stable,
         kfsSeq_t        version)
-        : KfsOp(CMD_WRITE_CHUNKMETA, 0, o),
+        : KfsOp(CMD_WRITE_CHUNKMETA),
           chunkId(c),
           diskIo(d),
           dataBuf(),
@@ -786,6 +786,7 @@ struct WriteChunkMetaOp : public KfsOp
           renameFlag(rename),
           stableFlag(stable)
     {
+        clnt = o;
         SET_HANDLER(this, &WriteChunkMetaOp::HandleDone);
     }
     ~WriteChunkMetaOp()
@@ -1832,7 +1833,7 @@ ChunkManager::ChunkManager()
       mVersionChangePermitWritesInFlightFlag(true),
       mMinChunkCountForHelloResume(1 << 10),
       mPendingNotifyLostChunks(0),
-      mCorruptChunkOp(0, -1),
+      mCorruptChunkOp(-1),
       mLastPendingInFlight(),
       mRand(),
       mChunkHeaderBuffer()
@@ -4483,7 +4484,7 @@ ChunkManager::NotifyMetaChunksLost(
         }
     }
     if (gMetaServerSM.IsConnected()) {
-        CorruptChunkOp* const op = new CorruptChunkOp(0, -1, &dir.dirname);
+        CorruptChunkOp* const op = new CorruptChunkOp(-1, &dir.dirname);
         // Do not count as corrupt.
         op->isChunkLost = true;
         gMetaServerSM.EnqueueOp(op);
@@ -5228,9 +5229,10 @@ ChunkManager::AllocateWriteId(
             wi->status = -EAGAIN;
         } else {
             WriteOp* const op = new WriteOp(
-                wi->seq, wi->chunkId, wi->chunkVersion,
+                wi->chunkId, wi->chunkVersion,
                 wi->offset, wi->numBytes, mWriteId
             );
+            op->seq             = wi->seq;
             op->enqueueTime     = globalNetManager().Now();
             op->isWriteIdHolder = true;
             mPendingWrites.push_back(op);
@@ -5273,8 +5275,10 @@ ChunkManager::CloneWriteOp(int64_t writeId)
     // Since we are cloning, "touch" the time
     other->enqueueTime = globalNetManager().Now();
     // offset/size/buffer are to be filled in
-    return new WriteOp(other->seq, other->chunkId, other->chunkVersion,
-                     0, 0, other->writeId);
+    WriteOp* const ret = new WriteOp(other->chunkId, other->chunkVersion,
+        0, 0, other->writeId);
+    ret->seq = other->seq;
+    return ret;
 }
 
 void
@@ -6634,7 +6638,7 @@ ChunkManager::CheckChunkDirs()
                 getFsSpaceAvailFlag = true;
                 // Notify meta serve that directory is now in use.
                 gMetaServerSM.EnqueueOp(
-                    new CorruptChunkOp(0, -1, &(it->dirname), true));
+                    new CorruptChunkOp(-1, &(it->dirname), true));
                 it->Start();
                 continue;
             }

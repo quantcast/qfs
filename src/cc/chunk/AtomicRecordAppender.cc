@@ -170,7 +170,7 @@ using std::string;
 typedef QCDLList<RecordAppendOp> AppendReplicationList;
 
 RecordAppendOp::RecordAppendOp(kfsSeq_t s)
-    : ChunkAccessRequestOp(CMD_RECORD_APPEND, s),
+    : ChunkAccessRequestOp(CMD_RECORD_APPEND),
       clientSeq(s),
       chunkVersion(-1),
       numBytes(0),
@@ -2119,7 +2119,7 @@ AtomicRecordAppender::CloseChunk(CloseOp* op, int64_t writeId, bool& forwardFlag
     }
     if (forwardFlag && mPeer) {
         forwardFlag = false;
-        CloseOp* const fwdOp = new CloseOp(0, *op);
+        CloseOp* const fwdOp = new CloseOp(*op);
         fwdOp->needAck = false;
         const bool allowCSClearTextFlag = op->chunkAccessTokenValidFlag &&
             (op->chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
@@ -2654,7 +2654,7 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
                 " current size: " << mNextWriteOffset << " / " << mChunkSize <<
             KFS_LOG_EOM;
             if (newSize > 0 && newSize % CHECKSUM_BLOCKSIZE != 0) {
-                ReadOp* const rop = new ReadOp(0);
+                ReadOp* const rop = new ReadOp();
                 rop->chunkId      = mChunkId;
                 rop->chunkVersion = mChunkVersion;
                 rop->offset       =
@@ -3025,7 +3025,7 @@ AtomicRecordAppender::TrimToLastCommit(
         " size: "    << mNextCommitOffset <<
     KFS_LOG_EOM;
     // Trim the chunk on failure to the last committed offset, if needed.
-    MakeChunkStableOp* const op = new MakeChunkStableOp(0);
+    MakeChunkStableOp* const op = new MakeChunkStableOp();
     op->chunkId      = mChunkId;
     op->chunkVersion = mChunkVersion;
     op->clnt         = this;
