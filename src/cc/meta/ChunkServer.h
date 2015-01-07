@@ -829,6 +829,8 @@ public:
         { return mHelloResumeFailedCount; }
     const ChunkServerPtr& GetSharedPtr() const
         { return mSelfPtr; }
+    bool IsShortRpcFormat() const
+        { return mShortRpcFormatFlag; }
 
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,

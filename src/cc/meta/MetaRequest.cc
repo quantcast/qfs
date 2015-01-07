@@ -4334,6 +4334,9 @@ MetaAllocate::responseSelf(ReqOstream& os)
     os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
         servers.size() << "\r\n";
     if (! servers.empty()) {
+        if (shortRpcFormatFlag && ! allChunkServersShortRpcFlag) {
+            os << "LF:1\r\n";
+        }
         os << (shortRpcFormatFlag ? "S:" : "Replicas:");
         for_each(servers.begin(), servers.end(),
             PrintChunkServerLocations(os));
@@ -4972,6 +4975,9 @@ MetaChunkAllocate::request(ReqOstream& os)
             os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
         }
     }
+    if (shortRpcFormatFlag && ! req->allChunkServersShortRpcFlag) {
+        os << "LF:1\r\n";
+    }
     os <<
         (shortRpcFormatFlag ? "CA:" : "Chunk-append: ") <<
             (req->appendChunk ? 1 : 0) << "\r\n" <<
@@ -5252,6 +5258,9 @@ MetaChunkReplicate::request(ReqOstream& os)
     } else {
         rs << (shortRpcFormatFlag ? "SC:" : "Chunk-location: ") <<
             srcLocation << "\r\n";
+    }
+    if (shortRpcFormatFlag && longRpcFormatFlag) {
+        os << "LF:1\r\n";
     }
     if (0 < validForTime) {
         if (clientCSAllowClearTextFlag) {

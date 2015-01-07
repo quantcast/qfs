@@ -5171,6 +5171,15 @@ LayoutManager::AllocateChunk(
     } else {
         r->validForTime = 0;
     }
+    r->allChunkServersShortRpcFlag = true;
+    for (Servers::const_iterator it = r->servers.begin();
+            it != r->servers.end();
+            ++it) {
+        if (! (*it)->IsShortRpcFormat()) {
+            r->allChunkServersShortRpcFlag = false;
+            break;
+        }
+    }
     for (size_t i = r->servers.size(); i-- > 0; ) {
         r->servers[i]->AllocateChunk(r, i == 0 ? r->leaseId : -1, tiers[i]);
     }
@@ -5451,9 +5460,13 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EDATAUNAVAIL;
     }
     // Need space on the servers..otherwise, fail it
-    Servers::size_type i;
-    for (i = 0; i < r->servers.size(); i++) {
-        if (r->servers[i]->GetAvailSpace() < mChunkAllocMinAvailSpace) {
+    r->allChunkServersShortRpcFlag = true;
+    for (Servers::const_iterator it = r->servers.begin();
+            it != r->servers.end();
+            ++it) {
+        r->allChunkServersShortRpcFlag =
+            r->allChunkServersShortRpcFlag && (*it)->IsShortRpcFormat();
+        if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
             return -ENOSPC;
         }
     }

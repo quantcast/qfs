@@ -262,6 +262,7 @@ public:
         int64_t                chunkVersion,
         uint32_t               numServers,
         const T&               servers,
+        bool                   shortAllocRpcFormatFlag,
         const ServerLocation&  peerLoc,
         int                    replicationPos,
         int64_t                chunkSize,
@@ -430,6 +431,7 @@ private:
     bool                    mMakeStableSucceededFlag:1;
     bool                    mFirstFwdOpFlag:1;
     bool                    mPendingBadChecksumFlag:1;
+    bool const              mCommitAckServersShortRpcFmtFlag:1;
     // Do not use bit field for mAppendInProgressFlag, as it can be read with no
     // mMutex acquired. See UpdateFlushLimit()
     bool                    mAppendInProgressFlag;
@@ -716,6 +718,7 @@ AtomicRecordAppender::AtomicRecordAppender(
     int64_t                chunkVersion,
     uint32_t               numServers,
     const T&               servers,
+    bool                   shortAllocRpcFormatFlag,
     const ServerLocation&  peerLoc,
     int                    replicationPos,
     int64_t                chunkSize,
@@ -758,6 +761,7 @@ AtomicRecordAppender::AtomicRecordAppender(
       mMakeStableSucceededFlag(false),
       mFirstFwdOpFlag(true),
       mPendingBadChecksumFlag(false),
+      mCommitAckServersShortRpcFmtFlag(shortAllocRpcFormatFlag),
       mAppendInProgressFlag(false),
       mInstanceNum(++sInstanceNum),
       mConsecutiveOutOfSpaceCount(0),
@@ -3079,7 +3083,7 @@ AtomicRecordAppender::SendCommitAck()
     op->numServers                = mNumServers;
     op->servers                   = mCommitAckServers;
     op->numBytes                  = 0;
-    op->initialShortRpcFormatFlag = mPeer->IsShortRpcFormat();
+    op->initialShortRpcFormatFlag = mCommitAckServersShortRpcFmtFlag;
     op->shortRpcFormatFlag        = op->initialShortRpcFormatFlag;
     AppendBegin(op, mReplicationPos, mPeerLocation);
 }
@@ -3287,7 +3291,7 @@ AtomicRecordAppendManager::AllocateChunk(
                     key.mLen,
                     replicationPos == 0,
                     op->allowCSClearTextFlag,
-                    op->shortRpcFormatFlag,
+                    op->shortRpcFormatFlag && ! op->longRpcFormatFlag,
                     op->status,
                     op->statusMsg,
                     kConnectFlag,
@@ -3325,6 +3329,7 @@ AtomicRecordAppendManager::AllocateChunk(
                     op->chunkVersion,
                     op->numServers,
                     op->servers,
+                    op->shortRpcFormatFlag,
                     peerLoc,
                     replicationPos,
                     info->chunkSize,

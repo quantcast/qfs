@@ -98,6 +98,7 @@ private:
         bool                  appendFlag:1;
         bool                  invalidFlag:1;
         bool                  allowCSClearTextFlag:1;
+        bool                  shortRpcFormatFlag:1;
         time_t                syncReplicationExpirationTime;
         SyncReplicationAccess syncReplicationAccess;
     };

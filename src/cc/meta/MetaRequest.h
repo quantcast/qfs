@@ -992,6 +992,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     string               responseAccessStr;
     bool                 writeMasterKeyValidFlag;
     bool                 clientCSAllowClearTextFlag;
+    bool                 allChunkServersShortRpcFlag;
     TokenSeq             tokenSeq;
     time_t               issuedTime;
     int                  validForTime;
@@ -1035,6 +1036,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           responseAccessStr(),
           writeMasterKeyValidFlag(false),
           clientCSAllowClearTextFlag(false),
+          allChunkServersShortRpcFlag(false),
           tokenSeq(),
           issuedTime(),
           validForTime(0),
@@ -1755,6 +1757,7 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     kfsSTier_t                          maxSTier;
     TokenSeq                            tokenSeq;
     bool                                clientCSAllowClearTextFlag;
+    bool                                longRpcFormatFlag;
     time_t                              issuedTime;
     uint32_t                            validForTime;
     CryptoKeys::KeyId                   keyId;
@@ -1783,6 +1786,7 @@ struct MetaChunkReplicate: public MetaChunkRequest {
           maxSTier(maxTier),
           tokenSeq(),
           clientCSAllowClearTextFlag(false),
+          longRpcFormatFlag(false),
           issuedTime(),
           validForTime(0),
           keyId(),

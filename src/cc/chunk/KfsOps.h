@@ -471,6 +471,7 @@ struct AllocChunkOp : public KfsOp {
     int64_t               chunkVersion;
     int64_t               leaseId;
     bool                  appendFlag;
+    bool                  longRpcFormatFlag;
     StringBufT<256>       servers;
     uint32_t              numServers;
     bool                  mustExistFlag;
@@ -491,6 +492,7 @@ struct AllocChunkOp : public KfsOp {
           chunkVersion(-1),
           leaseId(-1),
           appendFlag(false),
+          longRpcFormatFlag(false),
           servers(),
           numServers(0),
           mustExistFlag(false),
@@ -543,6 +545,7 @@ struct AllocChunkOp : public KfsOp {
         .Def2("C-access-length", "AL", &AllocChunkOp::chunkAccessLength)
         .Def2("CS-acess-time",   "ST", &AllocChunkOp::chunkServerAccessValidForTime)
         .Def2("CS-acess-issued", "SI", &AllocChunkOp::chunkServerAccessIssuedTime)
+        .Def2("Long-rpc-fmt",    "LF", &AllocChunkOp::longRpcFormatFlag)
         ;
     }
 };
@@ -757,6 +760,7 @@ struct ReplicateChunkOp : public KfsOp {
     string          invalidStripeIdx;
     int             metaPort;
     bool            allowCSClearTextFlag;
+    bool            longRpcFormatFlag;
     StringBufT<64>  locationStr;
     StringBufT<148> chunkServerAccess;
     StringBufT<64>  chunkAccess;
@@ -780,6 +784,7 @@ struct ReplicateChunkOp : public KfsOp {
         invalidStripeIdx(),
         metaPort(-1),
         allowCSClearTextFlag(false),
+        longRpcFormatFlag(false),
         locationStr(),
         chunkServerAccess(),
         chunkAccess()
@@ -834,6 +839,7 @@ struct ReplicateChunkOp : public KfsOp {
         .Def2("C-access",             "C",  &ReplicateChunkOp::chunkAccess)
         .Def2("CS-access",            "SA", &ReplicateChunkOp::chunkServerAccess)
         .Def2("CS-clear-text",        "CT", &ReplicateChunkOp::allowCSClearTextFlag)
+        .Def2("Long-rpc-fmt",         "LF", &ReplicateChunkOp::longRpcFormatFlag)
         ;
     }
 };

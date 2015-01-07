@@ -2056,7 +2056,10 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         r->fileSize           = recoveryInfo.fileSize;
         r->dataServer.reset();
         r->srcLocation.hostname.clear();
-        r->srcLocation.port = sMetaClientPort;
+        r->srcLocation.port   = sMetaClientPort;
+        r->longRpcFormatFlag  = false;
+    } else {
+        r->longRpcFormatFlag = ! dataServer->IsShortRpcFormat();
     }
     if (gLayoutManager.IsClientCSAuthRequired()) {
         r->issuedTime                 = TimeNow();

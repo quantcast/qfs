@@ -61,16 +61,20 @@ LeaseClerk::RegisterLease(const AllocChunkOp& op)
 {
     // Get replace the old lease if there is one
     bool insertedFlag = false;
-    LeaseInfo_t& lease = *mLeases.Insert(op.chunkId, LeaseInfo_t(), insertedFlag);
+    LeaseInfo_t& lease = *mLeases.Insert(
+        op.chunkId, LeaseInfo_t(), insertedFlag);
     lease.leaseId                       = op.leaseId;
     lease.lastWriteTime                 = Now();
-    lease.expires                       = lease.lastWriteTime + LEASE_INTERVAL_SECS;
+    lease.expires                       =
+        lease.lastWriteTime + LEASE_INTERVAL_SECS;
     lease.leaseRenewSent                = false;
     lease.invalidFlag                   = false;
     lease.allowCSClearTextFlag          = op.allowCSClearTextFlag;
     lease.appendFlag                    = op.appendFlag;
     lease.syncReplicationExpirationTime = -LEASE_INTERVAL_SECS;
     lease.syncReplicationAccess         = op.syncReplicationAccess;
+    lease.shortRpcFormatFlag            =
+        op.shortRpcFormatFlag && ! op.longRpcFormatFlag;
     if (0 < op.chunkServerAccessValidForTime) {
         lease.syncReplicationExpirationTime += (time_t)(
             op.chunkServerAccessIssuedTime + op.chunkServerAccessValidForTime);
