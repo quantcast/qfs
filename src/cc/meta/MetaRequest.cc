@@ -5228,8 +5228,8 @@ MetaChunkReplicate::request(ReqOstream& os)
         rs << "Version: KFS/1.0\r\n";
     }
     rs <<
-    (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n" <<
-    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "P:"  : "File-handle: ")  << fid << "\r\n" <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId << "\r\n" <<
     (shortRpcFormatFlag ? "TL:" : "Min-tier: ") << (int)minSTier << "\r\n" <<
     (shortRpcFormatFlag ? "TH:" : "Max-tier: ") << (int)maxSTier << "\r\n"
     ;

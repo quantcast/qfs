@@ -52,7 +52,8 @@ public:
         const char* /* header */,
         size_t      /* headerLen */,
         bool        /* hasChecksum */,
-        uint32_t    /* checksum */)
+        uint32_t    /* checksum */,
+        bool        /* shortFieldNamesFlag */)
         { return true; }
     bool HandleUnknownField(
         const char* /* key */, size_t /* keyLen */,

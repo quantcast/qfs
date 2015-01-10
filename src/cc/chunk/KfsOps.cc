@@ -790,44 +790,21 @@ KfsOp::GetClientSM()
 }
 
 bool
-WriteIdAllocOp::Validate()
-{
-    ValueParser::SetValue(
-        clientSeqVal.mPtr,
-        clientSeqVal.mLen,
-        seq,
-        clientSeq
-    );
-    clientSeqVal.clear();
-    return KfsClientChunkOp::Validate();
-}
-
-bool
-RecordAppendOp::Validate()
-{
-    ValueParser::SetValue(
-        clientSeqVal.mPtr,
-        clientSeqVal.mLen,
-        seq,
-        clientSeq
-    );
-    clientSeqVal.clear();
-    return KfsClientChunkOp::Validate();
-}
-
-bool
 WriteSyncOp::Validate()
 {
     if (checksumsCnt <= 0) {
-        return KfsClientChunkOp::Validate();
+        checksumsVal.clear();
+        return ChunkAccessRequestOp::Validate();
     }
-    const char*       ptr = checksumsStr.GetPtr();
-    const char* const end = ptr + checksumsStr.GetSize();
+    const char*       ptr = checksumsVal.mPtr;
+    const char* const end = ptr + checksumsVal.mLen;
     checksums.clear();
     checksums.reserve(checksumsCnt);
     for (int i = 0; i < checksumsCnt; i++) {
         uint32_t cksum = 0;
-        if (! ValueParser::ParseInt(ptr, end - ptr, cksum)) {
+        if (! (initialShortRpcFormatFlag ?
+                ValueParserT<HexIntParser>::ParseInt(ptr, end - ptr, cksum) :
+                ValueParserT<DecIntParser>::ParseInt(ptr, end - ptr, cksum))) {
             return false;
         }
         checksums.push_back(cksum);
@@ -835,21 +812,32 @@ WriteSyncOp::Validate()
             ++ptr;
         }
     }
-    return KfsClientChunkOp::Validate();
+    checksumsVal.clear();
+    return ChunkAccessRequestOp::Validate();
 }
 
 bool MakeChunkStableOp::Validate()
 {
-    hasChecksum = ! checksumStr.empty();
+    hasChecksum = 0 < checksumVal.mLen;
     if (hasChecksum) {
-        ValueParser::SetValue(
-            checksumStr.GetPtr(),
-            checksumStr.GetSize(),
-            uint32_t(0),
-            chunkChecksum
-        );
+        if (initialShortRpcFormatFlag) {
+            ValueParserT<HexIntParser>::SetValue(
+                checksumVal.mPtr,
+                checksumVal.mLen,
+                uint32_t(0),
+                chunkChecksum
+            );
+        } else {
+            ValueParserT<DecIntParser>::SetValue(
+                checksumVal.mPtr,
+                checksumVal.mLen,
+                uint32_t(0),
+                chunkChecksum
+            );
+        }
+        checksumVal.clear();
     }
-    return true;
+    return KfsOp::Validate();
 }
 
 ///
@@ -962,7 +950,7 @@ ReadOp::VerifyReply()
             &dataBuf, numBytesIO);
         if (datacksums.size() > checksum.size()) {
             KFS_LOG_STREAM_INFO <<
-                "Checksum number of entries mismatch in re-replication: "
+                "checksum number of entries mismatch in re-replication: "
                 " expect: " << datacksums.size() <<
                 " got: " << checksum.size() <<
             KFS_LOG_EOM;
@@ -2072,7 +2060,9 @@ ReadOp::ParseResponse(const Properties& props, IOBuffer& iobuf)
                 return false;
             }
             uint32_t cs = 0;
-            if (! DecIntParser::Parse(ptr, end - ptr, cs)) {
+            if (!(shortRpcFormatFlag ?
+                    HexIntParser::Parse(ptr, end - ptr, cs) :
+                    DecIntParser::Parse(ptr, end - ptr, cs))) {
                 return false;
             }
             checksum.push_back(cs);
@@ -3159,13 +3149,16 @@ RecordAppendOp::Request(ReqOstream& os)
     }
     os <<
     (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId      << "\r\n" <<
-    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")<< chunkVersion << "\r\n" <<
-    (shortRpcFormatFlag ? "O:"  : "Offset: ")       << offset       << "\r\n" <<
-    (shortRpcFormatFlag ? "FO:" : "File-offset: ")  << fileOffset   << "\r\n" <<
+    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")<< chunkVersion << "\r\n";
+    if (0 <= offset || ! shortRpcFormatFlag) {
+        os << (shortRpcFormatFlag ? "O:"  : "Offset: ") << offset << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "F:"  : "File-offset: ")  << fileOffset   << "\r\n" <<
     (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
     (shortRpcFormatFlag ? "K:"  : "Checksum: ")     << checksum     << "\r\n" <<
     (shortRpcFormatFlag ? "Cc:" : "Client-cseq: ")  << clientSeq    << "\r\n" <<
-    (shortRpcFormatFlag ? "MC:" : "Master-committed: ") <<
+    (shortRpcFormatFlag ? "M:"  : "Master-committed: ") <<
         masterCommittedOffset << "\r\n"
     ;
     WriteServers(os, *this);
@@ -3253,7 +3246,7 @@ CloseOp::Request(ReqOstream& os)
         os << (shortRpcFormatFlag ? "W:1\r\n" : "Has-write-id: 1\r\n");
     }
     if (masterCommitted >= 0) {
-        os  << (shortRpcFormatFlag ? "MC:" : "Master-committed: ") <<
+        os  << (shortRpcFormatFlag ? "M:" : "Master-committed: ") <<
             masterCommitted << "\r\n";
     }
     WriteSyncReplicationAccess(syncReplicationAccess, os, shortRpcFormatFlag,

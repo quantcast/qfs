@@ -87,14 +87,14 @@ struct ServerLocation
     template<typename T>
     T& Display(T& os) const
         { return (os << hostname << ' ' << port); }
-    bool FromString(const string& s)
-        { return FromString(s.data(), s.size()); }
-    bool FromString(const char* str)
+    bool FromString(const string& s, bool hexFormatFlag)
+        { return FromString(s.data(), s.size(), hexFormatFlag); }
+    bool FromString(const char* str, bool hexFormatFlag)
     {
         const char* const kNull = 0;
-        return FromString(str, str - kNull);
+        return FromString(str, str - kNull, hexFormatFlag);
     }
-    bool FromString(const char* str, size_t len);
+    bool FromString(const char* str, size_t len, bool hexFormatFlag);
     string hostname; //!< Location of the server: machine name/IP addr
     int    port;     //!< Location of the server: port to connect to
 };

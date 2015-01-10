@@ -44,7 +44,7 @@ ServerLocation::ToString() const
 }
 
     bool
-ServerLocation::FromString(const char* str, size_t len)
+ServerLocation::FromString(const char* str, size_t len, bool hexFormatFlag)
 {
     const char*       ptr = str;
     const char* const end = ptr + len;
@@ -60,7 +60,10 @@ ServerLocation::FromString(const char* str, size_t len)
         return false;
     }
     hostname.assign(sptr, ptr - sptr);
-    if (! DecIntParser::Parse(ptr, end - ptr, port) || port < 0) {
+    port = -1;
+    if (! (hexFormatFlag ?
+            HexIntParser::Parse(ptr, end - ptr, port) :
+            DecIntParser::Parse(ptr, end - ptr, port)) || port < 0) {
         Reset(0, -1);
         return false;
     }

@@ -333,8 +333,11 @@ struct KfsOp : public KfsCallbackObj
         const char* header,
         size_t      headerLen,
         bool        hasChecksum,
-        uint32_t    checksum)
+        uint32_t    checksum,
+        bool        shortFieldNamesFlag)
     {
+        initialShortRpcFormatFlag = shortFieldNamesFlag;
+        shortRpcFormatFlag        = shortFieldNamesFlag;
         return (! hasChecksum ||
                 Checksum(name, nameLen, header, headerLen) == checksum);
     }
@@ -423,9 +426,9 @@ struct KfsClientChunkOp : public KfsOp
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def2("Chunk-handle", "H",  &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
-        .Def2("C-access",     "C",  &KfsClientChunkOp::chunkAccessVal)
-        .Def2("Subject-id",   "SI", &KfsClientChunkOp::subjectId, int64_t(-1))
+        .Def2("Chunk-handle", "H", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
+        .Def2("C-access",     "C", &KfsClientChunkOp::chunkAccessVal)
+        .Def2("Subject-id",   "I", &KfsClientChunkOp::subjectId, int64_t(-1))
         ;
     }
     bool Validate();
@@ -597,7 +600,6 @@ struct MakeChunkStableOp : public KfsOp {
     int64_t            chunkSize;     // input
     uint32_t           chunkChecksum; // input
     bool               hasChecksum;
-    StringBufT<32>     checksumStr;
     MakeChunkStableOp* next;
 
     MakeChunkStableOp()
@@ -608,8 +610,8 @@ struct MakeChunkStableOp : public KfsOp {
           chunkSize(-1),
           chunkChecksum(0),
           hasChecksum(false),
-          checksumStr(),
-          next(0)
+          next(0),
+          checksumVal()
         {}
     void Execute();
     int HandleChunkMetaReadDone(int code, void *data);
@@ -635,9 +637,11 @@ struct MakeChunkStableOp : public KfsOp {
         .Def2("Chunk-handle",   "H",  &MakeChunkStableOp::chunkId,       kfsChunkId_t(-1))
         .Def2("Chunk-version",  "V",  &MakeChunkStableOp::chunkVersion,  int64_t(-1))
         .Def2("Chunk-size",     "S",  &MakeChunkStableOp::chunkSize,     int64_t(-1))
-        .Def2("Chunk-checksum", "CS", &MakeChunkStableOp::checksumStr)
+        .Def2("Chunk-checksum", "CS", &MakeChunkStableOp::checksumVal)
         ;
     }
+private:
+    TokenValue checksumVal;
 };
 
 struct ChangeChunkVersOp : public KfsOp {
@@ -814,7 +818,8 @@ struct ReplicateChunkOp : public KfsOp {
         if (locationStr.empty()) {
             location.port = metaPort;
         } else {
-            location.FromString(locationStr.GetStr());
+            location.FromString(
+                locationStr.GetStr(), initialShortRpcFormatFlag);
         }
         return true;
     }
@@ -1067,7 +1072,13 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
     void Response(ReqOstream& os);
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const;
-    bool Validate();
+    bool Validate()
+    {
+        if (clientSeq == -1) {
+            clientSeq  = seq;
+        }
+        return ChunkAccessRequestOp::Validate();
+    }
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
     {
@@ -1079,19 +1090,17 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
         return ChunkAccessRequestOp::ParserDef(parser)
         .Def2("Chunk-version",     "V",  &RecordAppendOp::chunkVersion,          int64_t(-1))
         .Def2("Offset",            "O",  &RecordAppendOp::offset,                int64_t(-1))
-        .Def2("File-offset",       "FO", &RecordAppendOp::fileOffset,            int64_t(-1))
+        .Def2("File-offset",       "F",  &RecordAppendOp::fileOffset,            int64_t(-1))
         .Def2("Num-bytes",         "B",  &RecordAppendOp::numBytes)
         .Def2("Num-servers",       "R",  &RecordAppendOp::numServers)
         .Def2("Servers",           "S",  &RecordAppendOp::servers)
         .Def2("Checksum",          "K",  &RecordAppendOp::checksum)
-        .Def2("Client-cseq",       "Cc", &RecordAppendOp::clientSeqVal)
-        .Def2("Master-committed",  "MC", &RecordAppendOp::masterCommittedOffset, int64_t(-1))
+        .Def2("Client-cseq",       "Cc", &RecordAppendOp::clientSeq)
+        .Def2("Master-committed",  "M",  &RecordAppendOp::masterCommittedOffset, int64_t(-1))
         .Def2("Access-fwd-length", "AF", &RecordAppendOp::accessFwdLength, 0)
         .Def2("C-access-length",   "AL", &RecordAppendOp::chunkAccessLength)
         ;
     }
-private:
-    TokenValue clientSeqVal;
 };
 
 struct GetRecordAppendOpStatus : public KfsClientChunkOp
@@ -1196,8 +1205,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           contentLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
-          appendPeer(),
-          clientSeqVal()
+          appendPeer()
         { SET_HANDLER(this, &WriteIdAllocOp::Done); }
     WriteIdAllocOp(const WriteIdAllocOp& other)
         : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC),
@@ -1214,8 +1222,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           contentLength(other.contentLength),
           chunkAccessLength(other.chunkAccessLength),
           syncReplicationAccess(other.syncReplicationAccess),
-          appendPeer(),
-          clientSeqVal()
+          appendPeer()
     {
         shortRpcFormatFlag        = other.shortRpcFormatFlag;
         initialShortRpcFormatFlag = other.initialShortRpcFormatFlag;
@@ -1269,7 +1276,13 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
             " msg: "          << statusMsg
         ;
     }
-    bool Validate();
+    bool Validate()
+    {
+        if (clientSeq == -1) {
+            clientSeq  = seq;
+        }
+        return KfsClientChunkOp::Validate();
+    }
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
@@ -1279,14 +1292,12 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
         .Def2("Num-servers",         "R",  &WriteIdAllocOp::numServers)
         .Def2("Servers",             "S",  &WriteIdAllocOp::servers)
         .Def2("For-record-append",   "A",  &WriteIdAllocOp::isForRecordAppend, false)
-        .Def2("Client-cseq",         "Cc", &WriteIdAllocOp::clientSeqVal)
+        .Def2("Client-cseq",         "Cc", &WriteIdAllocOp::clientSeq)
         .Def2("Write-prepare-reply", "WR", &WriteIdAllocOp::writePrepareReplyFlag)
         .Def2("Content-length",      "l",  &WriteIdAllocOp::contentLength, 0)
         .Def2("C-access-length",     "AL", &WriteIdAllocOp::chunkAccessLength)
         ;
     }
-private:
-    TokenValue clientSeqVal;
 };
 
 struct WritePrepareOp : public ChunkAccessRequestOp {
@@ -1521,7 +1532,6 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
                                        // wait for local to be done
     bool                  writeMaster; // infer from the server list if we are the "master" for doing the writes
     int                   checksumsCnt;
-    StringBufT<256>       checksumsStr;
     int                   contentLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
@@ -1540,10 +1550,10 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
           numDone(0),
           writeMaster(false),
           checksumsCnt(0),
-          checksumsStr(),
           contentLength(0),
           chunkAccessLength(0),
-          syncReplicationAccess()
+          syncReplicationAccess(),
+          checksumsVal()
     {
         chunkId = c;
         SET_HANDLER(this, &WriteSyncOp::Done);
@@ -1583,11 +1593,13 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
         .Def2("Num-servers",      "R",  &WriteSyncOp::numServers)
         .Def2("Servers",          "S",  &WriteSyncOp::servers)
         .Def2("Checksum-entries", "KC", &WriteSyncOp::checksumsCnt)
-        .Def2("Checksums",        "K",  &WriteSyncOp::checksumsStr)
+        .Def2("Checksums",        "K",  &WriteSyncOp::checksumsVal)
         .Def2("Content-length",   "l",  &WriteSyncOp::contentLength, 0)
         .Def2("C-access-length",  "AL", &WriteSyncOp::chunkAccessLength)
         ;
     }
+private:
+    TokenValue checksumsVal;
 };
 
 struct ReadChunkMetaOp : public KfsOp {

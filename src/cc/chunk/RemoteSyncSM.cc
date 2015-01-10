@@ -603,7 +603,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
             SYNC_SM_LOG_STREAM(mNetConnection->GetFilter() ?
                     MsgLogger::kLogLevelERROR :
                     MsgLogger::kLogLevelDEBUG)
-                " ssl shutdown completion:"
+                "ssl shutdown completion:"
                 " filter: " << reinterpret_cast<const void*>(
                     mNetConnection->GetFilter()) <<
             KFS_LOG_EOM;
@@ -675,7 +675,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             string            line;
             while (getline(is, line)) {
                 SYNC_SM_LOG_STREAM_DEBUG <<
-                    " response: " << line <<
+                    "response: " << line <<
                 KFS_LOG_EOM;
             }
         }

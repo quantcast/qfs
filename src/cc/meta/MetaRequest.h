@@ -254,8 +254,10 @@ struct MetaRequest {
         const char* header,
         size_t      headerLen,
         bool        hasChecksum,
-        uint32_t    checksum)
+        uint32_t    checksum,
+        bool        shortFieldNamesFlag)
     {
+        shortRpcFormatFlag = shortFieldNamesFlag;
         return (
             hasChecksum ?
             (! sVerifyHeaderChecksumFlag ||

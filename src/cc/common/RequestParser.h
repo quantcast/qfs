@@ -703,7 +703,8 @@ public:
                 inBufferPtr,
                 inLen,
                 inHasHeaderChecksumFlag,
-                inChecksum)) {
+                inChecksum,
+                SHORT_NAMES)) {
             delete theObjPtr;
             return 0;
         }

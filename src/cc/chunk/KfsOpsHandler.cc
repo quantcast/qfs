@@ -151,8 +151,6 @@ ParseCommand(const TS& shortRequestHandlers, const T& requestHandlers,
                 if (kRpcFormatUndef == ioRpcFormat) {
                     ioRpcFormat = kRpcFormatShort;
                 }
-                (*res)->shortRpcFormatFlag        = true;
-                (*res)->initialShortRpcFormatFlag = true;
                 return 0;
             }
             delete *res;
@@ -169,8 +167,6 @@ ParseCommand(const TS& shortRequestHandlers, const T& requestHandlers,
     if (kRpcFormatUndef == ioRpcFormat) {
         ioRpcFormat = kRpcFormatLong;
     }
-    (*res)->shortRpcFormatFlag        = false;
-    (*res)->initialShortRpcFormatFlag = false;
     return 0;
 }
 
