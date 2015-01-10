@@ -61,6 +61,21 @@ using std::string;
 using std::make_pair;
 using libkfsio::globalNetManager;
 
+#define SYNC_SM_LOG_STREAM_PREFIX \
+    << "R" << mInstanceNum << "S " << mLocation << " "
+#define SYNC_SM_LOG_STREAM(pri)  \
+    KFS_LOG_STREAM(pri)  SYNC_SM_LOG_STREAM_PREFIX
+#define SYNC_SM_LOG_STREAM_DEBUG \
+    KFS_LOG_STREAM_DEBUG SYNC_SM_LOG_STREAM_PREFIX
+#define SYNC_SM_LOG_STREAM_WARN  \
+    KFS_LOG_STREAM_WARN  SYNC_SM_LOG_STREAM_PREFIX
+#define SYNC_SM_LOG_STREAM_INFO  \
+    KFS_LOG_STREAM_INFO  SYNC_SM_LOG_STREAM_PREFIX
+#define SYNC_SM_LOG_STREAM_ERROR \
+    KFS_LOG_STREAM_ERROR SYNC_SM_LOG_STREAM_PREFIX
+#define SYNC_SM_LOG_STREAM_FATAL \
+    KFS_LOG_STREAM_FATAL SYNC_SM_LOG_STREAM_PREFIX
+
 class ClientThreadRemoteSyncListEntry::StMutexLocker :
     public ClientThread::StMutexLocker
 {
@@ -253,7 +268,7 @@ RemoteSyncSM::SetParameters(
             "traceRequestResponse"), sTraceRequestResponseFlag ? 1 : 0) != 0;
     sOpResponseTimeoutSec = props.getValue(
         name.Truncate(len).Append(
-            "traceRequestResponse"), sOpResponseTimeoutSec);
+            "responseTimeoutSec"), sOpResponseTimeoutSec);
     if (! sAuthPtr) {
         sAuthPtr = new Auth();
     }
@@ -272,6 +287,8 @@ RemoteSyncSM::Shutdown()
     sAuthPtr = 0;
 }
 
+uint64_t RemoteSyncSM::sInstanceNum = 10000;
+
 // State machine for communication with other chunk servers.
 RemoteSyncSM::RemoteSyncSM(
     const ServerLocation& location,
@@ -281,6 +298,7 @@ RemoteSyncSM::RemoteSyncSM(
       ClientThreadRemoteSyncListEntry(thread),
       mNetConnection(),
       mLocation(location),
+      mInstanceNum(sInstanceNum++),
       mSeqnum(GetRandomSeq()),
       mDispatchedOps(),
       mReplySeqNum(-1),
@@ -308,10 +326,12 @@ RemoteSyncSM::RemoteSyncSM(
     QCASSERT(IsMutexOwner(GetMutexPtr()));
     SET_HANDLER(this, &RemoteSyncSM::HandleEvent);
     sRemoteSyncCount++;
+    SYNC_SM_LOG_STREAM_DEBUG << "RemoteSyncSM" << KFS_LOG_EOM;
 }
 
 RemoteSyncSM::~RemoteSyncSM()
 {
+    SYNC_SM_LOG_STREAM_DEBUG << "~RemoteSyncSM" << KFS_LOG_EOM;
     if (! IsMutexOwner(GetMutexPtr()) ||
             sRemoteSyncCount <= 0 ||
             mRecursionCount < 0 ||
@@ -336,14 +356,13 @@ RemoteSyncSM::Connect()
     QCASSERT(! mNetConnection && IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
 
     mConnectCount++;
-    KFS_LOG_STREAM_DEBUG <<
-        "trying to connect to: " << mLocation <<
+    SYNC_SM_LOG_STREAM_DEBUG <<
+        "initiating connection" <<
     KFS_LOG_EOM;
 
     if (! GetNetManager().IsRunning()) {
-        KFS_LOG_STREAM_DEBUG <<
-            "net manager shutdown, failing connection attempt to: " <<
-                mLocation <<
+        SYNC_SM_LOG_STREAM_DEBUG <<
+            "net manager shutdown, failing connection attempt" <<
         KFS_LOG_EOM;
         return false;
     }
@@ -351,17 +370,15 @@ RemoteSyncSM::Connect()
     // do a non-blocking connect
     const int res = sock->Connect(mLocation, true);
     if (res < 0 && res != -EINPROGRESS) {
-        KFS_LOG_STREAM_INFO <<
-            "connection to remote server " << mLocation <<
-            " failed: status: " << res <<
+        SYNC_SM_LOG_STREAM_INFO <<
+            "connection to remote server failed: status: " << res <<
+            " " << QCUtils::SysError(-res) <<
         KFS_LOG_EOM;
         delete sock;
         return false;
     }
-
-    KFS_LOG_STREAM_INFO <<
-        "connection to remote server " << mLocation <<
-        " succeeded, status: " << res <<
+    SYNC_SM_LOG_STREAM_INFO <<
+        "connection to remote server succeeded, status: " << res <<
     KFS_LOG_EOM;
 
     mCurrentSessionExpirationTime = mSessionExpirationTime;
@@ -377,12 +394,12 @@ RemoteSyncSM::Connect()
                 (noFilterFlag = ! mNetConnection->GetFilter()) ||
                 (mShutdownSslFlag && (err = mNetConnection->Shutdown()) != 0)) {
             if (err) {
-                KFS_LOG_STREAM_ERROR <<
-                    mLocation << ": ssl shutdown failed status: " << err <<
+                SYNC_SM_LOG_STREAM_ERROR <<
+                    "ssl shutdown failed status: " << err <<
                 KFS_LOG_EOM;
             } else if (noFilterFlag) {
-                KFS_LOG_STREAM_ERROR <<
-                    mLocation << ": auth context configuration error" <<
+                SYNC_SM_LOG_STREAM_ERROR <<
+                    "auth context configuration error" <<
                 KFS_LOG_EOM;
             }
             mNetConnection.reset();
@@ -426,9 +443,8 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         return false;
     }
     if (mNetConnection && ! mNetConnection->IsGood()) {
-        KFS_LOG_STREAM_INFO <<
-            "lost connection to peer " << mLocation <<
-            " failed; failing ops" <<
+        SYNC_SM_LOG_STREAM_INFO <<
+            "lost connection to peer, failing ops" <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         mNetConnection.reset();
@@ -445,18 +461,16 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
                     kSessionUpdateResolutionSec < mSessionExpirationTime) ||
                 mCurrentSessionExpirationTime <= now) &&
                 now < mSessionExpirationTime) {
-            KFS_LOG_STREAM_INFO <<
-                "peer: " << mLocation <<
-                " session is about to expiere, forcing re-connect" <<
+            SYNC_SM_LOG_STREAM_INFO <<
+                "session is about to expiere, forcing re-connect" <<
             KFS_LOG_EOM;
             mNetConnection->Close();
             mNetConnection.reset();
             mCurrentSessionExpirationTime = mSessionExpirationTime;
         }
         if (mCurrentSessionExpirationTime <= now) {
-            KFS_LOG_STREAM_INFO <<
-                "peer: " << mLocation <<
-                " current session has expired" <<
+            SYNC_SM_LOG_STREAM_INFO <<
+                "current session has expired" <<
                 " ops in flight: " << mDispatchedOps.size() <<
             KFS_LOG_EOM;
             op->status    = -EPERM;
@@ -466,9 +480,8 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         }
     }
     if (! mNetConnection && ! Connect()) {
-        KFS_LOG_STREAM_INFO <<
-            "connection to peer " << mLocation <<
-            " failed; failing ops" <<
+        SYNC_SM_LOG_STREAM_INFO <<
+            "connection failed; failing ops" <<
         KFS_LOG_EOM;
         if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
@@ -479,9 +492,8 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
     if (mDispatchedOps.empty()) {
         mLastRecvTime = now;
     }
-    KFS_LOG_STREAM_DEBUG <<
-        "forwarding to " << mLocation <<
-        " " << op->Show() <<
+    SYNC_SM_LOG_STREAM_DEBUG <<
+        "forwarding  " << op->Show() <<
     KFS_LOG_EOM;
     IOBuffer& buf         = mNetConnection->GetOutBuffer();
     const int headerStart = buf.BytesConsumable();
@@ -496,12 +508,9 @@ RemoteSyncSM::EnqueueSelf(KfsOp* op)
         IOBuffer::IStream is(buf, buf.BytesConsumable());
         is.ignore(headerStart);
         string line;
-        KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
-            " send to: " << mLocation <<
-        KFS_LOG_EOM;
         while (getline(is, line)) {
-            KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
-                " request: " << line <<
+            SYNC_SM_LOG_STREAM_DEBUG <<
+                "request: " << line <<
             KFS_LOG_EOM;
         }
     }
@@ -591,9 +600,9 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     case EVENT_NET_ERROR:
         if (mSslShutdownInProgressFlag &&
                 mNetConnection && mNetConnection->IsGood()) {
-            KFS_LOG_STREAM(mNetConnection->GetFilter() ?
+            SYNC_SM_LOG_STREAM(mNetConnection->GetFilter() ?
                     MsgLogger::kLogLevelERROR :
-                    MsgLogger::kLogLevelDEBUG) << mLocation <<
+                    MsgLogger::kLogLevelDEBUG)
                 " ssl shutdown completion:"
                 " filter: " << reinterpret_cast<const void*>(
                     mNetConnection->GetFilter()) <<
@@ -607,8 +616,7 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     case EVENT_INACTIVITY_TIMEOUT:
         // If there is an error or there is no activity on the socket
         // for N mins, we close the connection.
-        KFS_LOG_STREAM_INFO << "Closing connection to peer: " <<
-            mLocation << " due to " << reason <<
+        SYNC_SM_LOG_STREAM_INFO << "closing connection due to " << reason <<
         KFS_LOG_EOM;
         if (mNetConnection) {
             mNetConnection->Close();
@@ -666,8 +674,8 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             IOBuffer::IStream is(iobuf, msgLen);
             string            line;
             while (getline(is, line)) {
-                KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
-                    " " << mLocation << " response: " << line <<
+                SYNC_SM_LOG_STREAM_DEBUG <<
+                    " response: " << line <<
                 KFS_LOG_EOM;
             }
         }
@@ -680,7 +688,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
         mReplySeqNum = prop.getValue(
             mShortRpcFormatFlag ? "c" : "Cseq", (kfsSeq_t)-1);
         if (mReplySeqNum < 0) {
-            KFS_LOG_STREAM_ERROR <<
+            SYNC_SM_LOG_STREAM_ERROR <<
                 "invalid or missing Cseq header: " << mReplySeqNum <<
                 ", resetting connection" <<
             KFS_LOG_EOM;
@@ -706,7 +714,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             const bool okFlag = op->ParseResponse(prop, iobuf);
             op->shortRpcFormatFlag = prevShortRpcFormatFlag;
             if (! okFlag && 0 <= status) {
-                KFS_LOG_STREAM_ERROR <<
+                SYNC_SM_LOG_STREAM_ERROR <<
                     "invalid response:"
                     " seq: " << op->seq <<
                     " "      << op->Show() <<
@@ -743,7 +751,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
         const bool okFlag = op->GetResponseContent(iobuf, mReplyNumBytes);
         op->shortRpcFormatFlag = prevShortRpcFormatFlag;
         if (! okFlag) {
-            KFS_LOG_STREAM_ERROR <<
+            SYNC_SM_LOG_STREAM_ERROR <<
                 "invalid response content:"
                 " length: " << mReplySeqNum <<
                 " " << op->Show() <<
@@ -759,7 +767,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             SubmitOpResponse(op);
         }
     } else {
-        KFS_LOG_STREAM_DEBUG <<
+        SYNC_SM_LOG_STREAM_DEBUG <<
             "discarding a reply for unknown seq: " << mReplySeqNum <<
             " content length: "                    << mReplyNumBytes <<
         KFS_LOG_EOM;

@@ -3699,7 +3699,7 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
         Release(*cih);
     } else {
         KFS_LOG_STREAM_INFO <<
-            "Didn't release chunk " << cih->chunkInfo.chunkId <<
+            "did not release chunk " << cih->chunkInfo.chunkId <<
             " on close;  might give up lease" <<
         KFS_LOG_EOM;
         gLeaseClerk.RelinquishLease(

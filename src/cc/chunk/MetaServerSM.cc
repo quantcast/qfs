@@ -931,6 +931,15 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
             // got a bogus command
             return false;
         }
+        if (mTraceRequestResponseFlag) {
+            IOBuffer::IStream is(iobuf, cmdLen);
+            string            line;
+            while (getline(is, line)) {
+                KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+                    " " << mLocation << " meta request: " << line <<
+                KFS_LOG_EOM;
+            }
+        }
         iobuf.Consume(cmdLen);
     }
     mContentLength = op->GetContentLength();
@@ -987,7 +996,7 @@ MetaServerSM::Request(KfsOp& op)
     op.initialShortRpcFormatFlag = op.shortRpcFormatFlag;
     op.status                    = 0;
     KFS_LOG_STREAM_DEBUG <<
-        "meta request:"
+        "cs request:"
         " seq: " << op.seq <<
         " "      << op.Show() <<
     KFS_LOG_EOM;
@@ -1002,7 +1011,7 @@ MetaServerSM::Request(KfsOp& op)
         const void* const self = this;
         string            line;
         KFS_LOG_STREAM_DEBUG << self <<
-            " meta request: " << mLocation <<
+            " cs request: " << mLocation <<
         KFS_LOG_EOM;
         while (getline(is, line)) {
             KFS_LOG_STREAM_DEBUG << self <<
@@ -1072,12 +1081,24 @@ MetaServerSM::SendResponse(KfsOp* op)
             mCounters.mAllocErrorCount++;
         }
     }
-    ReqOstream ros(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    IOBuffer& buf    = mNetConnection->GetOutBuffer();
+    const int reqPos = buf.BytesConsumable();
+    ReqOstream ros(mWOStream.Set(buf));
     op->Response(ros);
     mWOStream.Reset();
     IOBuffer* iobuf = 0;
     int       len   = 0;
     op->ResponseContent(iobuf, len);
+    if (mTraceRequestResponseFlag) {
+        IOBuffer::IStream is(buf, buf.BytesConsumable());
+        is.ignore(reqPos);
+        string line;
+        while (getline(is, line)) {
+            KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+                " " << mLocation << " cs response: " << line <<
+            KFS_LOG_EOM;
+        }
+    }
     mNetConnection->Write(iobuf, len);
     globalNetManager().Wakeup();
     return true;

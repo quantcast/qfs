@@ -46,7 +46,7 @@
 #include <sstream>
 
 #define CLIENT_SM_LOG_STREAM_PREFIX \
-    << "I" << mInstanceNum << "I " << GetPeerName() << " "
+    << "C" << mInstanceNum << "C " << GetPeerName() << " "
 #define CLIENT_SM_LOG_STREAM(pri)  \
     KFS_LOG_STREAM(pri)  CLIENT_SM_LOG_STREAM_PREFIX
 #define CLIENT_SM_LOG_STREAM_DEBUG \
@@ -222,15 +222,17 @@ ClientSM::ClientSM(
     mNetConnection->SetMaxReadAhead(sMaxCmdHeaderReadAhead);
     mNetConnection->SetInactivityTimeout(gClientManager.GetIdleTimeoutSec());
     SetReceiveOp();
+    CLIENT_SM_LOG_STREAM_DEBUG << "ClientSM" << KFS_LOG_EOM;
 }
 
 ClientSM::~ClientSM()
 {
+    CLIENT_SM_LOG_STREAM_DEBUG << "~ClientSM" << KFS_LOG_EOM;
     if (mRecursionCnt != 0) {
         die("~ClientSM: invalid recursion count");
         return;
     }
-    if (mInstanceNum <= 0 || sInstanceNum < mInstanceNum) {
+    if (mInstanceNum <= 0) {
         die("~ClientSM: invalid instance");
         return;
     }
@@ -282,9 +284,21 @@ ClientSM::SendResponseSelf(KfsOp& op)
         (tooLong ? " RPC too long " : " took: ") <<
             timespent << " usec." <<
     KFS_LOG_EOM;
-    ReqOstream ros(mWOStream.Set(mNetConnection->GetOutBuffer()));
+    IOBuffer& buf    = mNetConnection->GetOutBuffer();
+    const int reqPos = buf.BytesConsumable();
+    ReqOstream ros(mWOStream.Set(buf));
     op.Response(ros);
     mWOStream.Reset();
+    if (sTraceRequestResponseFlag) {
+        IOBuffer::IStream is(buf, buf.BytesConsumable());
+        is.ignore(reqPos);
+        string line;
+        while (getline(is, line)) {
+            CLIENT_SM_LOG_STREAM_DEBUG <<
+                "response: " << line <<
+            KFS_LOG_EOM;
+        }
+    }
 
     IOBuffer* iobuf = 0;
     int       len   = 0;
@@ -386,18 +400,6 @@ ClientSM::HandleRequest(int code, void* data)
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
         gChunkServer.OpFinished();
         op->done = true;
-        if (sTraceRequestResponseFlag) {
-            IOBuffer::OStream os;
-            ReqOstream ros(os);
-            op->Response(ros);
-            IOBuffer::IStream is(os);
-            string line;
-            while (getline(is, line)) {
-                CLIENT_SM_LOG_STREAM_DEBUG <<
-                    "response: " << line <<
-                KFS_LOG_EOM;
-            }
-        }
         if (! IsDependingOpType(*op)) {
             SendResponse(*op);
             OpFinished(op);

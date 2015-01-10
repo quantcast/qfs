@@ -198,7 +198,6 @@ needToForwardToPeer(
     ServerLocation    loc;
     int64_t           id;
     bool              foundLocal    = false;
-    bool              needToForward = false;
 
     // the list of servers is ordered: we forward to the next one
     // in the list.
@@ -218,23 +217,21 @@ needToForwardToPeer(
                 (writeIdPresentFlag && ! VP::Parse(ptr, end - ptr, id))) {
             break;
         }
+        // forward if we are not the last in the list
+        if (foundLocal) {
+            peerLoc = loc;
+            return true;
+        }
         if (gChunkServer.IsLocalServer(loc)) {
             // return the position of where this server is present in the list
             myPos = i;
-            foundLocal = true;
             if (writeIdPresentFlag) {
                 writeId = id;
             }
-            continue;
-        }
-        // forward if we are not the last in the list
-        if (foundLocal) {
-            needToForward = true;
-            break;
+            foundLocal = true;
         }
     }
-    peerLoc = loc;
-    return needToForward;
+    return false;
 }
 
 template <typename T>
@@ -1169,8 +1166,18 @@ CloseOp::Execute()
             // manager.  the chunk manager can reject a close if the
             // chunk is being written to by multiple record appenders
             if (hasWriteId && ! gChunkManager.IsValidWriteId(writeId)) {
-                statusMsg = "invalid write id";
-                status    = -EINVAL;
+                if (needAck) {
+                    status    = -EINVAL;
+                    statusMsg = "invalid write id ";
+                    AppendDecIntToString(statusMsg, writeId);
+                    KFS_LOG_STREAM_ERROR <<
+                        "seq: "    << seq <<
+                        " "        << statusMsg  <<
+                        " wid: "   << writeId <<
+                        " mypos: " << myPos <<
+                        " peer: "  << peerLoc <<
+                    KFS_LOG_EOM;
+                }
             } else {
                 needToForward = gChunkManager.CloseChunk(chunkId) == 0 &&
                     needToForward;
