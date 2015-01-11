@@ -253,7 +253,7 @@ RemoteSyncSM::SetParameters(
             "traceRequestResponse"), sTraceRequestResponseFlag ? 1 : 0) != 0;
     sOpResponseTimeoutSec = props.getValue(
         name.Truncate(len).Append(
-            "traceRequestResponse"), sOpResponseTimeoutSec);
+            "responseTimeoutSec"), sOpResponseTimeoutSec);
     if (! sAuthPtr) {
         sAuthPtr = new Auth();
     }
