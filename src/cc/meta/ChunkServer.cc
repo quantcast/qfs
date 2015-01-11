@@ -1220,7 +1220,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return DeclareHelloError(-EPERM, "authentication required");
         }
         if (! mAuthName.empty()) {
-            if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey)) {
+            if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey,
+                    mShortRpcFormatFlag)) {
                 mHelloOp = 0;
                 delete op;
                 return -1;
@@ -1631,7 +1632,8 @@ ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
         wrDrives = mNumDrives;
     }
     if (wrDrives >= 0) {
-        UpdateStorageTiers(op.GetStorageTiersInfo(), wrDrives, mNumChunkWrites);
+        UpdateStorageTiers(op.GetStorageTiersInfo(), wrDrives, mNumChunkWrites,
+            mShortRpcFormatFlag);
         UpdateChunkWritesPerDrive(mNumChunkWrites, wrDrives);
         gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
     }
@@ -1703,14 +1705,15 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
         const int numWrChunks = prop.getValue("Num-writable-chunks", 0);
         const int numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        const bool kHexFormatFlag = false;
         UpdateStorageTiers(prop.getValue("Storage-tiers"),
-            numWrDrives, numWrChunks);
+            numWrDrives, numWrChunks, kHexFormatFlag);
         UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);
         const Properties::String* const cryptoKey = prop.getValue("CKey");
         if (cryptoKey) {
             const Properties::String* const keyId = prop.getValue("CKeyId");
             if (! keyId ||
-                    ! ParseCryptoKey(*keyId, *cryptoKey) ||
+                    ! ParseCryptoKey(*keyId, *cryptoKey, kHexFormatFlag) ||
                     ! mCryptoKeyValidFlag) {
                 KFS_LOG_STREAM_ERROR << GetServerLocation() <<
                     " invalid heartbeat: invalid crypto key or id"
@@ -2557,7 +2560,8 @@ ChunkServer::UpdateStorageTiersSelf(
     const char* buf,
     size_t      len,
     int         deviceCount,
-    int         writableChunkCount)
+    int         writableChunkCount,
+    bool        hexFormatFlag)
 {
     bool clearFlags[kKfsSTierCount];
     for (size_t i = 0; i < kKfsSTierCount; i++) {
@@ -2573,13 +2577,19 @@ ChunkServer::UpdateStorageTiersSelf(
         int64_t    totalSpace;
         const char*       p = buf;
         const char* const e = p + len;
-        while (p < e &&
+        while (p < e && (hexFormatFlag ? (
                 DecIntParser::Parse(p, e - p, tier) &&
                 DecIntParser::Parse(p, e - p, deviceCount) &&
                 DecIntParser::Parse(p, e - p, notStableOpenCount) &&
                 DecIntParser::Parse(p, e - p, chunkCount) &&
                 DecIntParser::Parse(p, e - p, spaceAvailable) &&
-                DecIntParser::Parse(p, e - p, totalSpace)) {
+                DecIntParser::Parse(p, e - p, totalSpace)) : (
+                HexIntParser::Parse(p, e - p, tier) &&
+                HexIntParser::Parse(p, e - p, deviceCount) &&
+                HexIntParser::Parse(p, e - p, notStableOpenCount) &&
+                HexIntParser::Parse(p, e - p, chunkCount) &&
+                HexIntParser::Parse(p, e - p, spaceAvailable) &&
+                HexIntParser::Parse(p, e - p, totalSpace)))) {
             if (tier == kKfsSTierUndef) {
                 continue;
             }
@@ -2679,7 +2689,8 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
 bool
 ChunkServer::ParseCryptoKey(
     const Properties::String& keyId,
-    const Properties::String& key)
+    const Properties::String& key,
+    bool                      hexFormatFlag)
 {
     mCryptoKeyValidFlag = false;
     if (keyId.empty() && key.empty()) {
@@ -2693,7 +2704,9 @@ ChunkServer::ParseCryptoKey(
         return false;
     }
     const char* p = keyId.GetPtr();
-    if (! DecIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId)) {
+    if (! (hexFormatFlag ? 
+            HexIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId) :
+            DecIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId))) {
         KFS_LOG_STREAM_ERROR << GetPeerName() << " " << GetServerLocation() <<
             " failed to parse cryto key id: " << keyId <<
         KFS_LOG_EOM;

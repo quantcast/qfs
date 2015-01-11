@@ -1157,23 +1157,26 @@ protected:
     void UpdateStorageTiers(
         const T* tiers,
         int      deviceCount,
-        int      writableChunkCount)
+        int      writableChunkCount,
+        bool     hexFormatFlag)
     {
         UpdateStorageTiersSelf(
             tiers ? tiers->GetPtr()  : 0,
             tiers ? tiers->GetSize() : size_t(0),
             deviceCount,
-            writableChunkCount
+            writableChunkCount,
+            hexFormatFlag
         );
     }
     void ClearStorageTiers()
-        { UpdateStorageTiersSelf("", 0, 0, 0); }
+        { UpdateStorageTiersSelf("", 0, 0, 0, true); }
     void UpdateStorageTiersSelf(const char* buf, size_t len,
-        int deviceCount, int writableChunkCount);
+        int deviceCount, int writableChunkCount, bool hexFormatFlag);
     int Authenticate(IOBuffer& iobuf);
     bool ParseCryptoKey(
         const Properties::String& keyId,
-        const Properties::String& key);
+        const Properties::String& key,
+        bool                      hexFormatFlag);
     int DeclareHelloError(
         int         status,
         const char* statusMsg);

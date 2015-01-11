@@ -2453,16 +2453,18 @@ struct RestartChunkServerOp : public KfsOp {
 struct AuthenticateOp : public KfsOp {
     int         requestedAuthType;
     int         chosenAuthType;
+    bool        reqShortRpcFmtFlag;
     bool        useSslFlag;
     int         contentLength;
     int         responseContentLength;
     const char* reqBuf;
     char*       responseBuf;
 
-    AuthenticateOp(int authType = kAuthenticationTypeUndef)
-        : KfsOp (CMD_AUTHENTICATE),
-          requestedAuthType(authType),
+    AuthenticateOp()
+        : KfsOp(CMD_AUTHENTICATE),
+          requestedAuthType(kAuthenticationTypeUndef),
           chosenAuthType(kAuthenticationTypeUndef),
+          reqShortRpcFmtFlag(false),
           useSslFlag(false),
           contentLength(0),
           responseContentLength(-1),

@@ -3785,10 +3785,15 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
     if (shortRpcFormatFlag) {
         os << hex;
     }
+    os << "HELLO \r\n";
+    if (shortRpcFormatFlag) {
+        os << "c:" << seq << "\r\n";
+    } else {
+        os <<
+        "Version: " << KFS_VERSION_STR << "\r\n"
+        "Cseq: "    << seq             << "\r\n";
+    }
     os <<
-        "HELLO \r\n"
-        "Version: "                      << KFS_VERSION_STR        << "\r\n"
-        "Cseq: "                         << seq                    << "\r\n"
         "Chunk-server-name: "            << myLocation.hostname    << "\r\n"
         "Chunk-server-port: "            << myLocation.port        << "\r\n"
         "Cluster-key: "                  << clusterKey             << "\r\n"
@@ -3813,7 +3818,7 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         "Num-hello-done: "               << helloDoneCount         << "\r\n"
         "Num-resume: "                   << helloResumeCount       << "\r\n"
         "Num-resume-fail: "              << helloResumeFailedCount << "\r\n"
-        "Content-int-base: 16\r\n"
+        "Content-int-base: "             << 16                     << "\r\n"
     ;
     if (reqShortRpcFmtFlag || shortRpcFormatFlag) {
         os << "Short-rpc-fmt: 1\r\n";
@@ -4053,6 +4058,9 @@ AuthenticateOp::Request(ReqOstream& os, IOBuffer& buf)
     (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
     if (! shortRpcFormatFlag) {
         os << "Version: " << KFS_VERSION_STR << "\r\n";
+        if (reqShortRpcFmtFlag) {
+            os << "Short-rpc-fmt: 1\r\n";
+        }
     }
     os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
         requestedAuthType << "\r\n"

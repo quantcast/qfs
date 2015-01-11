@@ -421,7 +421,9 @@ MetaServerSM::Authenticate()
         die("invalid authenticate invocation: auth is in flight");
         return true;
     }
-    mAuthOp = new AuthenticateOp(nextSeq());
+    mAuthOp = new AuthenticateOp();
+    mAuthOp->seq                = nextSeq();
+    mAuthOp->reqShortRpcFmtFlag = kRpcFormatShort != mRpcFormat;
     string    errMsg;
     const int err = mAuthContext.Request(
         mAuthType,
@@ -674,10 +676,16 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
         mIStream.Reset();
         iobuf.Consume(msgLen);
-        if (mHelloOp && mHelloOp->reqShortRpcFmtFlag &&
-                kRpcFormatUndef == mRpcFormat) {
+        if (kRpcFormatUndef == mRpcFormat && (
+                (mHelloOp && mHelloOp->reqShortRpcFmtFlag) ||
+                (mAuthOp && mAuthOp->reqShortRpcFmtFlag))) {
             if (! prop.getValue("Cseq") && prop.getValue("c")) {
                 mRpcFormat = kRpcFormatShort;
+                KfsOp& cur = *(mAuthOp ?
+                    static_cast<KfsOp*>(mAuthOp) :
+                    static_cast<KfsOp*>(mHelloOp));
+                cur.initialShortRpcFormatFlag = true;
+                cur.shortRpcFormatFlag        = true;
                 prop.setIntBase(16);
             }
         }

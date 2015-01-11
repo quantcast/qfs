@@ -4178,7 +4178,7 @@ MetaReaddirPlus::response(ReqOstream& os, IOBuffer& buf)
             << entryCount << "\r\n" <<
         (shortRpcFormatFlag ? "EM:" : "Has-more-entries: ") <<
             (hasMoreEntriesFlag ? 1 : 0) << "\r\n" <<
-        (shortRpcFormatFlag ? "L" : "Content-length: ")
+        (shortRpcFormatFlag ? "l:" : "Content-length: ")
             << resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
@@ -4735,8 +4735,9 @@ MetaDumpChunkReplicationCandidates::response(ReqOstream &os, IOBuffer& buf)
     }
     os <<
         "Num-replication: "       << numReplication         << "\r\n"
-        "Num-pending-recovery: "  << numPendingRecovery     << "\r\n"
-        "Content-length: "        << resp.BytesConsumable() << "\r\n"
+        "Num-pending-recovery: "  << numPendingRecovery     << "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ")
+            << resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&resp);
@@ -4748,7 +4749,8 @@ MetaFsck::response(ReqOstream &os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
-    os  << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os  << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        resp.BytesConsumable() << "\r\n\r\n";
     os.flush();
     buf.Move(&resp);
 }
@@ -4761,8 +4763,9 @@ MetaOpenFiles::response(ReqOstream& os, IOBuffer& buf)
     }
     os <<
         "Read: "  << openForReadCnt  << "\r\n"
-        "Write: " << openForWriteCnt << "\r\n"
-        "Content-length: " << resp.BytesConsumable() << "\r\n"
+        "Write: " << openForWriteCnt << "\r\n" <<
+        (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            resp.BytesConsumable() << "\r\n"
     "\r\n";
     os.flush();
     buf.Move(&resp);
@@ -4780,7 +4783,8 @@ MetaGetChunkServersCounters::response(ReqOstream &os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        resp.BytesConsumable() << "\r\n\r\n";
     os.flush();
     buf.Move(&resp);
 }
@@ -4791,7 +4795,8 @@ MetaGetChunkServerDirsCounters::response(ReqOstream &os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
-    os << "Content-length: " << resp.BytesConsumable() << "\r\n\r\n";
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        resp.BytesConsumable() << "\r\n\r\n";
     os.flush();
     buf.Move(&resp);
 }
@@ -4803,7 +4808,8 @@ MetaGetRequestCounters::response(ReqOstream &os, IOBuffer& buf)
         return;
     }
     os <<
-        "Content-length: " << resp.BytesConsumable()  << "\r\n"
+        (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            resp.BytesConsumable()  << "\r\n"
         "User-cpu-micro-sec: "  << userCpuMicroSec    << "\r\n"
         "System-cpu-mcro-sec: " << systemCpuMicroSec  << "\r\n"
     "\r\n";

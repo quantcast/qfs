@@ -2679,7 +2679,7 @@ struct MetaAuthenticate : public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def2("Short-rpc-fmt",   "f", &MetaRequest::shortRpcFormatFlag)
         .Def2("Auth-type",       "A", &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
-        .Def2("Content-length",  "L", &MetaAuthenticate::contentLength, int(0))
+        .Def2("Content-length",  "l", &MetaAuthenticate::contentLength, int(0))
         ;
     }
 };
