@@ -1600,6 +1600,10 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
                 mCryptoKeyValidFlag = false;
                 return -1;
             }
+            // Remove both crypto key and key ids from chunk server properties,
+            // in order to prevent displaying these as counters.
+            prop.remove("CKeyId");
+            prop.remove("CKey");
         }
         if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();
