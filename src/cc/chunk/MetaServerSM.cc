@@ -1097,6 +1097,7 @@ MetaServerSM::SendResponse(KfsOp* op)
     IOBuffer* iobuf = 0;
     int       len   = 0;
     op->ResponseContent(iobuf, len);
+    mNetConnection->Write(iobuf, len);
     if (mTraceRequestResponseFlag) {
         IOBuffer::IStream is(buf, buf.BytesConsumable());
         is.ignore(reqPos);
@@ -1107,7 +1108,6 @@ MetaServerSM::SendResponse(KfsOp* op)
             KFS_LOG_EOM;
         }
     }
-    mNetConnection->Write(iobuf, len);
     globalNetManager().Wakeup();
     return true;
 }

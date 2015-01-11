@@ -1687,6 +1687,8 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     }
     op->handleReply(prop);
     if (op->op == META_CHUNK_HEARTBEAT) {
+        // Heartbeat response uses decimal notation, except key id, to make
+        // chunk server counters response backward compatible.
         prop.setIntBase(10);
         mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
         mTotalFsSpace      = prop.getValue("Total-fs-space",       int64_t(-1));
@@ -1713,7 +1715,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         if (cryptoKey) {
             const Properties::String* const keyId = prop.getValue("CKeyId");
             if (! keyId ||
-                    ! ParseCryptoKey(*keyId, *cryptoKey, kHexFormatFlag) ||
+                    ! ParseCryptoKey(*keyId, *cryptoKey, mShortRpcFormatFlag) ||
                     ! mCryptoKeyValidFlag) {
                 KFS_LOG_STREAM_ERROR << GetServerLocation() <<
                     " invalid heartbeat: invalid crypto key or id"
@@ -1722,6 +1724,10 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
                 mCryptoKeyValidFlag = false;
                 return -1;
             }
+            // Remove both crypto key and key ids from chunk server properties,
+            // in order to prevent displaying these as counters.
+            prop.remove("CKeyId");
+            prop.remove("CKey");
         }
         if (mEvacuateInFlight == 0) {
             mChunksToEvacuate.Clear();

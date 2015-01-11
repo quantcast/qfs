@@ -4065,7 +4065,7 @@ AuthenticateOp::Request(ReqOstream& os, IOBuffer& buf)
     os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
         requestedAuthType << "\r\n"
     ;
-    if (shortRpcFormatFlag) {
+    if (shortRpcFormatFlag && reqShortRpcFmtFlag) {
         os << "f:1\r\n";
     }
     if (0 < contentLength) {
