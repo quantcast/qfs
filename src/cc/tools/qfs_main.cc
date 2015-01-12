@@ -801,18 +801,19 @@ private:
         ErrorReporter(
             FileSystem& inFs,
             ostream&    inErrorStream,
-            bool        inStopOnErrorFlag = false)
+            bool        inStopOnErrorFlag   = false,
+            bool        inNormalizePathFlag = false)
             : mFs(inFs),
               mErrorStream(inErrorStream),
               mStopOnErrorFlag(inStopOnErrorFlag),
+              mNormalizePathFlag(inNormalizePathFlag),
               mStatus(0)
             {}
         virtual int operator()(
             const string& inPath,
             int           inStatus)
         {
-            mErrorStream << mFs.GetUri() << inPath << ": " <<
-                mFs.StrError(inStatus) << "\n";
+            Prefix(inPath) << ": " << mFs.StrError(inStatus) << "\n";
             if (inStatus != 0) {
                 mStatus = inStatus;
             }
@@ -822,9 +823,16 @@ private:
             const string& inPath,
             const char*   inMsgPtr)
         {
-            mErrorStream << mFs.GetUri() << inPath << ": " <<
-                (inMsgPtr ? inMsgPtr : "") << "\n";
+            Prefix(inPath) << ": " << (inMsgPtr ? inMsgPtr : "") << "\n";
             return 0;
+        }
+        int CopyStatus(
+            const ErrorReporter& inReporter)
+        {
+            if (mStatus == 0) {
+                mStatus = inReporter.GetStatus();
+            }
+            return (mStopOnErrorFlag ? mStatus : 0);
         }
         int GetStatus() const
             { return mStatus; }
@@ -836,7 +844,21 @@ private:
         FileSystem& mFs;
         ostream&    mErrorStream;
         const bool  mStopOnErrorFlag;
+        const bool  mNormalizePathFlag;
         int         mStatus;
+    ostream& Prefix(
+        const string& inPath)
+    {
+        mErrorStream << mFs.GetUri();
+        if (mNormalizePathFlag) {
+            Path theFsPath;
+            if (theFsPath.Set(inPath.c_str(), inPath.length()) &&
+                    ! theFsPath.IsNormalized()) {
+                return (mErrorStream << theFsPath.NormPath());
+            }
+        }
+        return (mErrorStream << inPath);
+    }
     private:
         ErrorReporter(
             const ErrorReporter& inReporter);
@@ -2195,10 +2217,15 @@ private:
                 while (theSPtr < thePtr && thePtr[-1] != '/') {
                     --thePtr;
                 }
-                if (thePtr < theEndPtr || *thePtr != '/') {
-                    mDstName.append(thePtr, theEndPtr - thePtr + 1);
+                mCheckDestFlag = false;
+                if (*thePtr != '/') {
+                    const size_t theLen = theEndPtr - thePtr + 1;
+                    if (2 < theLen || (thePtr[0] & 0xFF) != '.' ||
+                            (theLen == 2 && (thePtr[1] & 0xFF) != '.')) {
+                        mDstName.append(thePtr, theLen);
+                        mCheckDestFlag = true;
+                    }
                 }
-                mCheckDestFlag = true;
             }
             FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
             int theStatus;
@@ -2242,7 +2269,8 @@ private:
                     kCreateAllFlag
                 );
                 theSetModeFlag = theStatus == 0;
-                if ((theStatus == -EEXIST || theStatus == 0) &&
+                if ((theStatus == -EEXIST || theStatus == 0 ||
+                        theStatus == -EISDIR) &&
                         (theStatus = theDstFs.Stat(
                             mDstName, mDstDirStat)) == 0 &&
                         ! S_ISDIR(mDstDirStat.st_mode)) {
@@ -2278,7 +2306,9 @@ private:
                         theStat.st_mode & (0777 | S_ISVTX), false, 0)) != 0) {
                 theStatus = theDstErrorReporter(mDstName, theStatus);
             }
-            return theStatus;
+            const int theDstStatus =
+                inErrorReporter.CopyStatus(theDstErrorReporter);
+            return (theStatus == 0 ? theDstStatus : theStatus);
         }
         void SetDest(
             TGetGlobLastEntry& inDest)
@@ -2306,10 +2336,11 @@ private:
         int    inArgCount)
     {
         CpFunctor theCopyFunc(mDefaultCreateParams);
-        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        const bool kNormalizePathFlag = false;
+        return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
     }
     static int AbsPath(
         FileSystem& inFs,
@@ -2351,30 +2382,42 @@ private:
         theGlob.resize(1);
         thePath.clear();
         theGlob.front().first = theFsPtr;
+        ErrorReporter theErrReporter(*theFsPtr, cerr);
+        size_t        thePathLen = 0;
         for (int i = 0; i < inArgCount - 1; i++) {
             const char* thePtr = inArgsPtr[i];
             if (! thePtr || ! *thePtr) {
-                theErr = -EINVAL;
-                inErrorStream << (thePtr ? thePtr : "null") <<
-                    ": " << FileSystem::GetStrError(theErr) << "\n";
-                return theErr;
+                if ((theErr = theErrReporter(
+                        thePtr ? thePtr : "null", -EINVAL)) != 0) {
+                    return theErr;
+                }
+                continue;
             }
+            const string theName = thePath + thePtr;
             if (*thePtr != '/') {
-                if (thePath.empty()) {
-                    theErr = theFsPtr->GetCwd(thePath);
-                    if (theErr != 0) {
-                        inErrorStream << thePtr <<
-                            ": " << FileSystem::GetStrError(theErr) << "\n";
-                        return theErr;
+                if (thePathLen <= 0) {
+                    const int theStatus = AbsPath(*theFsPtr, thePath);
+                    if (theStatus != 0) {
+                        if ((theErr = theErrReporter(thePtr, theStatus)) != 0) {
+                            return theErr;
+                        }
+                        continue;
                     }
                     if (*(thePath.rbegin()) != '/') {
                         thePath += "/";
                     }
+                    thePathLen = thePath.length();
+                } else {
+                    thePath.erase(thePathLen);
                 }
-                theGlob.front().second.push_back(thePath + thePtr);
+                thePath += thePtr;
+                theGlob.front().second.push_back(thePath);
             } else {
                 theGlob.front().second.push_back(thePtr);
             }
+        }
+        if (theGlob.empty()) {
+            return theErrReporter.GetStatus();
         }
         theUri = inArgsPtr[inArgCount - 1];
         thePath.clear();
@@ -2398,11 +2441,11 @@ private:
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
         CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
-        return Apply(theGlob, theGlob.front().first != theFsPtr, theErr,
-            theFunc);
+        return Apply(theGlob, theGlob.front().first != theFsPtr,
+            theErrReporter.GetStatus(), theFunc);
     }
     int CopyToLocal(
         char**   inArgsPtr,
@@ -2461,7 +2504,7 @@ private:
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
         CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(theGlob, theGlob.front().first != theFsPtr, theErr,
@@ -2510,14 +2553,20 @@ private:
         {
             return (
                 S_ISDIR(inSrcStat.st_mode) ?
-                    CopyDir(inSrcPath, inDstPath) :
+                    CopyDir(inSrcPath, inDstPath, inSrcStat) :
                     CopyFile(inSrcPath, inDstPath, inSrcStat)
             );
         }
         int CopyDir(
-            const string& inSrcPath,
-            const string& inDstPath)
+            const string&              inSrcPath,
+            const string&              inDstPath,
+            const FileSystem::StatBuf& inSrcStat)
         {
+            if (IsSameInode(mSrcFs, inSrcPath, mDstFs, inDstPath,
+                    &inSrcStat)) {
+                return mSrcErrorReporter(inSrcPath,
+                    "is identical to destination (not copied).");
+            }
             FileSystem::DirIterator* theDirIt             = 0;
             const bool               kFetchAttributesFlag = true;
             int                      theStatus            =
@@ -2579,7 +2628,11 @@ private:
                         }
                         break;
                     }
-                    if ((theStatus = CopyDir(mSrcName, mDstName)) != 0) {
+                    if ((theStatus = CopyDir(
+                            mSrcName, mDstName, theStat)) != 0) {
+                        if (mDstErrorReporter(mDstName, theStatus) == 0) {
+                            continue;
+                        }
                         break;
                     }
                     if (theCreatedFlag && (theStat.st_mode & 0600) != 0600) {
@@ -2597,6 +2650,9 @@ private:
                 } else {
                     if ((theStatus = CopyFile(
                             mSrcName, mDstName, theStat)) != 0) {
+                        if (mDstErrorReporter(mDstName, theStatus) == 0) {
+                            continue;
+                        }
                         break;
                     }
                 }
@@ -2831,10 +2887,11 @@ private:
     {
         const bool kMoveFlag = true;
         CpFunctor theMoveFunctor(mDefaultCreateParams, kMoveFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, true, false>
+        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
             theFunc(theMoveFunctor, cerr);
         theMoveFunctor.SetDest(theFunc.GetInit());
-        return Apply(inArgsPtr, inArgCount, theFunc);
+        const bool kNormalizePathFlag = false;
+        return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
     }
     static const char* SizeToHumanReadable(
         int64_t inSize,
