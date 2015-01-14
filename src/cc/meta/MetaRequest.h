@@ -553,7 +553,7 @@ struct MetaMkdir: public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P",  &MetaMkdir::dir, fid_t(-1))
-        .Def2("Directory",          "D",  &MetaMkdir::name          )
+        .Def2("Directory",          "N",  &MetaMkdir::name          )
         .Def2("Owner",              "O",  &MetaMkdir::user,   kKfsUserNone)
         .Def2("Group",              "G",  &MetaMkdir::group,  kKfsGroupNone)
         .Def2("Mode",               "M",  &MetaMkdir::mode,   kKfsModeUndef)
@@ -1184,7 +1184,7 @@ struct MetaRename: public MetaRequest {
         .Def2("Old-name",           "O", &MetaRename::oldname         )
         .Def2("New-path",           "N", &MetaRename::newname         )
         .Def2("Old-path",           "F", &MetaRename::oldpath         )
-        .Def2("Overwrite",          "R", &MetaRename::overwrite, false)
+        .Def2("Overwrite",          "W", &MetaRename::overwrite, false)
         ;
     }
 };
@@ -1224,7 +1224,7 @@ struct MetaSetMtime: public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Mtime-sec",  "S", &MetaSetMtime::sec     )
-        .Def2("Mtime-usec", "F", &MetaSetMtime::usec    )
+        .Def2("Mtime-usec", "U", &MetaSetMtime::usec    )
         .Def2("Pathname",   "N", &MetaSetMtime::pathname)
         ;
     }

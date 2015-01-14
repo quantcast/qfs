@@ -52,6 +52,7 @@ using std::istream;
 using std::string;
 using std::min;
 using std::max;
+using std::hex;
 
 static const char* InitHostName()
 {
@@ -63,6 +64,7 @@ static const char* InitHostName()
 static const char* const sHostName(InitHostName());
 
 string KfsOp::sExtraHeaders;
+string KfsOp::sShortExtraHeaders;
 
 class KfsOp::ReqHeaders
 {
@@ -72,14 +74,20 @@ public:
         {}
     ostream& Insert(ostream& os) const
     {
-        os <<
-            "Cseq: "                    << op.seq                << "\r\n"
-            "Version: "                    "KFS/1.0"                "\r\n"
-            "Client-Protocol-Version: " << KFS_CLIENT_PROTO_VERS << "\r\n"
-            << KfsOp::sExtraHeaders
-        ;
-        if (op.maxWaitMillisec > 0) {
-            os << "Max-wait-ms: " << op.maxWaitMillisec << "\r\n";
+        if (op.shortRpcFormatFlag) {
+            os << hex;
+        }
+        os << (op.shortRpcFormatFlag ? "c:" : "Cseq: ") << op.seq << "\r\n";
+        if (! op.shortRpcFormatFlag) {
+            os << "Version: " "KFS/1.0" "\r\n";
+        }
+        os << (op.shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
+            KFS_CLIENT_PROTO_VERS << "\r\n";
+        os << (op.shortRpcFormatFlag ?
+            KfsOp::sShortExtraHeaders : KfsOp::sExtraHeaders);
+        if (0 < op.maxWaitMillisec) {
+            os << (op.shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
+                op.maxWaitMillisec << "\r\n";
         }
         return os;
     }
@@ -91,16 +99,21 @@ inline ostream& operator<<(ostream& os, const KfsOp::ReqHeaders& hdrs) {
     return hdrs.Insert(os);
 }
 
-inline ostream& PutPermissions(ostream& os, const Permissions& permissions)
+inline ostream&
+PutPermissions(bool shortRpcFormatFlag,
+    ostream& os, const Permissions& permissions)
 {
     if (permissions.user != kKfsUserNone) {
-        os << "Owner: " << permissions.user << "\r\n";
+        os << (shortRpcFormatFlag ? "O:" : "Owner: ") <<
+            permissions.user << "\r\n";
     }
     if (permissions.group != kKfsGroupNone) {
-        os << "Group: " << permissions.group << "\r\n";
+        os << (shortRpcFormatFlag ? "G:" : "Group: ") <<
+            permissions.group << "\r\n";
     }
     if (permissions.mode != kKfsModeUndef) {
-        os << "Mode: "  << permissions.mode << "\r\n";
+        os << (shortRpcFormatFlag ? "M:" : "Mode: ")  <<
+            permissions.mode << "\r\n";
     }
     return os;
 }
@@ -185,29 +198,39 @@ void
 CreateOp::Request(ostream &os)
 {
     os <<
-        "CREATE \r\n"               << ReqHeaders(*this)     <<
-        "Parent File-handle: "      << parentFid             << "\r\n"
-        "Filename: "                << filename              << "\r\n"
-        "Num-replicas: "            << numReplicas           << "\r\n"
-        "Exclusive: "               << (exclusive ? 1 : 0)   << "\r\n"
+        "CREATE \r\n"               << ReqHeaders(*this) <<
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ")
+            << parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Filename: ") <<
+            filename << "\r\n" <<
+        (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+            numReplicas << "\r\n" <<
+        (shortRpcFormatFlag ? "E:" : "Exclusive: ") <<
+            (exclusive ? 1 : 0)   << "\r\n"
     ;
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE &&
             striperType != KFS_STRIPED_FILE_TYPE_UNKNOWN) {
         os <<
-            "Striper-type: "         << striperType        << "\r\n"
-            "Num-stripes: "          << numStripes         << "\r\n"
-            "Num-recovery-stripes: " << numRecoveryStripes << "\r\n"
-            "Stripe-size: "          << stripeSize         << "\r\n"
+            (shortRpcFormatFlag ? "ST:" : "Striper-type: ") <<
+                striperType << "\r\n" <<
+            (shortRpcFormatFlag ? "SN:" : "Num-stripes: ") <<
+                numStripes << "\r\n" <<
+            (shortRpcFormatFlag ? "SR:" : "Num-recovery-stripes: ") <<
+                numRecoveryStripes << "\r\n" <<
+            (shortRpcFormatFlag ? "SS:" : "Stripe-size: ") <<
+                stripeSize << "\r\n"
         ;
     }
-    PutPermissions(os, permissions);
+    PutPermissions(shortRpcFormatFlag, os, permissions);
     if (reqId >= 0) {
-        os << "ReqId: " << reqId << "\r\n";
+        os << (shortRpcFormatFlag ? "RI:" : "ReqId: ") << reqId << "\r\n";
     }
     if (minSTier < kKfsSTierMax) {
         os <<
-            "Min-tier: " << (int)minSTier << "\r\n"
-            "Max-tier: " << (int)maxSTier << "\r\n";
+            (shortRpcFormatFlag ? "TL:" : "Min-tier: ") <<
+                (int)minSTier << "\r\n" <<
+            (shortRpcFormatFlag ? "TH:" : "Max-tier: ") <<
+                (int)maxSTier << "\r\n";
     }
     os << "\r\n";
 }
@@ -217,12 +240,14 @@ MkdirOp::Request(ostream &os)
 {
     os <<
         "MKDIR \r\n"           << ReqHeaders(*this) <<
-        "Parent File-handle: " << parentFid         << "\r\n"
-        "Directory: "          << dirname           << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Directory: ") <<
+            dirname << "\r\n"
     ;
-    PutPermissions(os, permissions);
+    PutPermissions(shortRpcFormatFlag, os, permissions);
     if (reqId >= 0) {
-        os << "ReqId: " << reqId << "\r\n";
+        os << (shortRpcFormatFlag ? "RI:" : "ReqId: ") << reqId << "\r\n";
     }
     os << "\r\n";
 }
@@ -232,9 +257,10 @@ RmdirOp::Request(ostream &os)
 {
     os <<
         "RMDIR \r\n"           << ReqHeaders(*this) <<
-        "Parent File-handle: " << parentFid         << "\r\n"
-        "Pathname: "           << pathname          << "\r\n"
-        "Directory: "          << dirname           << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "PN:" : "Pathname: ") << pathname << "\r\n" <<
+        (shortRpcFormatFlag ? "N:"  : "Directory: ") << dirname << "\r\n"
     "\r\n";
 }
 
@@ -243,11 +269,16 @@ RenameOp::Request(ostream &os)
 {
     os <<
         "RENAME \r\n"          << ReqHeaders(*this)   <<
-        "Parent File-handle: " << parentFid           << "\r\n"
-        "Old-name: "           << oldname             << "\r\n"
-        "New-path: "           << newpath             << "\r\n"
-        "Old-path: "           << oldpath             << "\r\n"
-        "Overwrite: "          << (overwrite ? 1 : 0) << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "O:" : "Old-name: ") <<
+            oldname << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "New-path: ") <<
+            newpath << "\r\n" <<
+        (shortRpcFormatFlag ? "O:" : "Old-path: ") <<
+            oldpath << "\r\n" <<
+        (shortRpcFormatFlag ? "W:" : "Overwrite: ") <<
+            (overwrite ? 1 : 0) << "\r\n"
     "\r\n";
 }
 
@@ -256,11 +287,14 @@ ReaddirOp::Request(ostream &os)
 {
     os <<
         "READDIR \r\n"            << ReqHeaders(*this) <<
-        "Directory File-handle: " << fid               << "\r\n"
-        "Max-entries: "           << numEntries        << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Directory File-handle: ") <<
+            fid << "\r\n" <<
+        (shortRpcFormatFlag ? "M:" : "Max-entries: ") <<
+            numEntries << "\r\n"
     ;
     if (! fnameStart.empty()) {
-        os << "Fname-start: " << fnameStart << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "Fname-start: ") <<
+            fnameStart << "\r\n";
     }
     os << "\r\n";
 }
@@ -270,9 +304,11 @@ SetMtimeOp::Request(ostream &os)
 {
     os <<
         "SET_MTIME\r\n"  << ReqHeaders(*this) <<
-        "Pathname: "     << pathname          << "\r\n"
-        "Mtime-sec: "    << mtime.tv_sec      << "\r\n"
-        "Mtime-usec: "   << mtime.tv_usec     << "\r\n"
+        (shortRpcFormatFlag ? "N:" : "Pathname: ") << pathname << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Mtime-sec: ") <<
+            mtime.tv_sec      << "\r\n" <<
+        (shortRpcFormatFlag ? "U:" : "Mtime-usec: ") <<
+            mtime.tv_usec << "\r\n"
     "\r\n";
 }
 
@@ -305,18 +341,20 @@ ReaddirPlusOp::Request(ostream &os)
 {
     os <<
         "READDIRPLUS\r\n"         << ReqHeaders(*this)  <<
-        "Directory File-handle: " << fid                << "\r\n"
-        "GetLastChunkInfoOnlyIfSizeUnknown: " <<
-            (getLastChunkInfoOnlyIfSizeUnknown ? 1 : 0) << "\r\n"
-        "Max-entries: " << numEntries << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Directory File-handle: ") <<
+            fid << "\r\n" <<
+        (shortRpcFormatFlag ? "LC:" : "GetLastChunkInfoOnlyIfSizeUnknown: ") <<
+            (getLastChunkInfoOnlyIfSizeUnknown ? 1 : 0) << "\r\n" <<
+        (shortRpcFormatFlag ? "M:"  : "Max-entries: ") << numEntries << "\r\n"
     ;
     if (fileIdAndTypeOnlyFlag) {
-        os << "FidT-only: 1\r\n";
+        os << (shortRpcFormatFlag ? "F:1\r]n" : "FidT-only: 1\r\n");
     } else if (omitLastChunkInfoFlag) {
-        os << "Omit-lci: 1\r\n";
+        os << (shortRpcFormatFlag ? "O:1\r\n" : "Omit-lci: 1\r\n");
     }
     if (! fnameStart.empty()) {
-        os << "Fname-start: " << fnameStart << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "Fname-start: ") <<
+            fnameStart << "\r\n";
     }
     os << "\r\n";
 }
@@ -326,9 +364,11 @@ RemoveOp::Request(ostream &os)
 {
     os <<
         "REMOVE\r\n"           << ReqHeaders(*this) <<
-        "Pathname: "           << pathname          << "\r\n"
-        "Parent File-handle: " << parentFid         << "\r\n"
-        "Filename: "           << filename          << "\r\n"
+        (shortRpcFormatFlag ? "PN:" : "Pathname: ") <<
+            pathname << "\r\n" <<
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Filename: ") << filename << "\r\n"
     "\r\n";
 }
 
@@ -337,14 +377,15 @@ LookupOp::Request(ostream &os)
 {
     os <<
         "LOOKUP\r\n"           << ReqHeaders(*this) <<
-        "Parent File-handle: " << parentFid         << "\r\n"
-        "Filename: "           << filename          << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Filename: ") << filename << "\r\n"
     ;
     if (authType != kAuthenticationTypeUndef) {
-        os << "Auth-type: " << authType << "\r\n";
+        os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") << authType << "\r\n";
     }
     if (getAuthInfoOnlyFlag) {
-        os << "Auth-info-only: 1\r\n";
+        os << (shortRpcFormatFlag ? "I:1\r\n" : "Auth-info-only: 1\r\n");
     }
     os << "\r\n";
 }
@@ -354,8 +395,10 @@ LookupPathOp::Request(ostream &os)
 {
     os <<
         "LOOKUP_PATH\r\n"    << ReqHeaders(*this) <<
-        "Root File-handle: " << rootFid           << "\r\n"
-        "Pathname: "         << filename          << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "Root File-handle: ") <<
+            rootFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Pathname: ") <<
+            filename << "\r\n"
     "\r\n";
 }
 
@@ -365,10 +408,13 @@ GetAllocOp::Request(ostream &os)
     assert(fileOffset >= 0);
 
     os <<
-        "GETALLOC\r\n"   << ReqHeaders(*this) <<
-        "Pathname: "     << filename          << "\r\n"
-        "File-handle: "  << fid               << "\r\n"
-        "Chunk-offset: " << fileOffset        << "\r\n"
+        "GETALLOC\r\n"   << ReqHeaders(*this);
+    if (! filename.empty()) {
+        os << (shortRpcFormatFlag ? "N:" : "Pathname: ") << filename << "\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid << "\r\n" <<
+        (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") << fileOffset << "\r\n"
     "\r\n";
 }
 
@@ -377,22 +423,25 @@ GetLayoutOp::Request(ostream &os)
 {
     os <<
         "GETLAYOUT\r\n" << ReqHeaders(*this) <<
-        "File-handle: " << fid               << "\r\n"
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid << "\r\n"
     ;
     if (startOffset > 0) {
-        os << "Start-offset: " << startOffset << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "Start-offset: ") <<
+            startOffset << "\r\n";
     }
     if (omitLocationsFlag) {
-        os << "Omit-locations: 1\r\n";
+        os << (shortRpcFormatFlag ? "O:1\r\n" : "Omit-locations: 1\r\n");
     }
     if (lastChunkOnlyFlag) {
-        os << "Last-chunk-only: 1\r\n";
+        os << (shortRpcFormatFlag ? "L:1\r\n" : "Last-chunk-only: 1\r\n");
     }
     if (continueIfNoReplicasFlag) {
-        os << "Continue-if-no-replicas: 1\r\n";
+        os << (shortRpcFormatFlag ?
+            "R:1\r\n" : "Continue-if-no-replicas: 1\r\n");
     }
     if (maxChunks > 0) {
-        os << "Max-chunks : " << maxChunks << "\r\n";
+        os << (shortRpcFormatFlag ? "M:" : "Max-chunks : ") <<
+            maxChunks << "\r\n";
     }
     os << "\r\n";
 }
@@ -402,8 +451,8 @@ CoalesceBlocksOp::Request(ostream &os)
 {
     os <<
         "COALESCE_BLOCKS\r\n" << ReqHeaders(*this) <<
-        "Src-path: "          << srcPath << "\r\n"
-        "Dest-path: "         << dstPath << "\r\n"
+        (shortRpcFormatFlag ? "S:" : "Src-path: ") << srcPath << "\r\n" <<
+        (shortRpcFormatFlag ? "D:" : "Dest-path: ") << dstPath << "\r\n"
     "\r\n";
 }
 
@@ -411,10 +460,11 @@ void
 GetChunkMetadataOp::Request(ostream &os)
 {
     os <<
-        "GET_CHUNK_METADATA\r\n" << ReqHeaders(*this)        <<
-        "Chunk-handle: "         << chunkId                  << "\r\n"
-        "Read-verify: "          << (readVerifyFlag ? 1 : 0) << "\r\n"
-        << Access() <<
+        "GET_CHUNK_METADATA\r\n" << ReqHeaders(*this) <<
+        (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "RV:" : "Read-verify: ")  <<
+            (readVerifyFlag ? 1 : 0) << "\r\n" <<
+        Access() <<
     "\r\n";
 }
 
@@ -423,19 +473,26 @@ AllocateOp::Request(ostream &os)
 {
     os <<
         "ALLOCATE\r\n"   << ReqHeaders(*this) <<
-        "Client-host: "  << sHostName         << "\r\n"
-        "Pathname: "     << pathname          << "\r\n"
-        "File-handle: "  << fid               << "\r\n"
-        "Chunk-offset: " << fileOffset        << "\r\n"
+        (shortRpcFormatFlag ? "H:" : "Client-host: ") <<
+            sHostName << "\r\n";
+    if (! pathname.empty()) {
+        os << (shortRpcFormatFlag ? "N:" : "Pathname: ") <<
+            pathname << "\r\n";
+    }
+    os <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Chunk-offset: ") << fileOffset << "\r\n"
     ;
     if (invalidateAllFlag) {
-        os << "Invalidate-all: 1\r\n";
+        os << (shortRpcFormatFlag ? "I:1\r\n" : "Invalidate-all: 1\r\n");
     }
     if (append) {
         os <<
-            "Chunk-append: 1\r\n"
-            "Space-reserve: " << spaceReservationSize << "\r\n"
-            "Max-appenders: " << maxAppendersPerChunk << "\r\n"
+            (shortRpcFormatFlag ? "A:1\r\n" : "Chunk-append: 1\r\n") <<
+            (shortRpcFormatFlag ? "R:" : "Space-reserve: ") <<
+                spaceReservationSize << "\r\n" <<
+            (shortRpcFormatFlag ? "M:" : "Max-appenders: ") <<
+                maxAppendersPerChunk << "\r\n"
         ;
     }
     os << "\r\n";
@@ -446,22 +503,22 @@ TruncateOp::Request(ostream &os)
 {
     os <<
         "TRUNCATE\r\n"  << ReqHeaders(*this) <<
-        "Pathname: "    << pathname          << "\r\n"
-        "File-handle: " << fid               << "\r\n"
-        "Offset: "      << fileOffset        << "\r\n"
+        (shortRpcFormatFlag ? "N:" : "Pathname: ")    << pathname   << "\r\n" <<
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid        << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Offset: ")      << fileOffset << "\r\n"
     ;
     if (pruneBlksFromHead) {
-        os << "Prune-from-head: 1\r\n";
+        os << (shortRpcFormatFlag ? "H:1\r\n" : "Prune-from-head: 1\r\n");
     }
     if (! setEofHintFlag) {
         // Default is true
-        os << "Set-eof: 0\r\n";
+        os << (shortRpcFormatFlag ? "O:0\r\n" : "Set-eof: 0\r\n");
     }
     if (checkPermsFlag) {
-        os << "Check-perms: 1\r\n";
+        os << (shortRpcFormatFlag ? "M:1\r\n" : "Check-perms: 1\r\n");
     }
     if (endOffset >= 0) {
-        os << "End-offset: " << endOffset << "\r\n";
+        os << (shortRpcFormatFlag ? "E:" : "End-offset: ") << endOffset << "\r\n";
     }
     os << "\r\n";
 }
@@ -471,14 +528,15 @@ CloseOp::Request(ostream &os)
 {
     os <<
         "CLOSE\r\n"      << ReqHeaders(*this) <<
-        "Chunk-handle: " << chunkId           << "\r\n"
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n"
         << Access()
     ;
     if (! writeInfo.empty()) {
         os <<
-            "Has-write-id: 1\r\n"
-            "Num-servers: "  << writeInfo.size() << "\r\n"
-            "Servers:"
+            (shortRpcFormatFlag ? "W:1\r\n" : "Has-write-id: 1\r\n") <<
+            (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+                writeInfo.size() << "\r\n" <<
+            (shortRpcFormatFlag ? "S:" : "Servers:")
         ;
         for (vector<WriteInfo>::const_iterator i = writeInfo.begin();
                 i < writeInfo.end(); ++i) {
@@ -487,8 +545,9 @@ CloseOp::Request(ostream &os)
         os << "\r\n";
     } else if (chunkServerLoc.size() > 1) {
         os <<
-            "Num-servers: " << chunkServerLoc.size() << "\r\n"
-            "Servers:"
+            (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+                chunkServerLoc.size() << "\r\n" <<
+            (shortRpcFormatFlag ? "S:" : "Servers:")
         ;
         for (vector<ServerLocation>::const_iterator i = chunkServerLoc.begin();
                 i != chunkServerLoc.end(); ++i) {
@@ -503,15 +562,15 @@ void
 ReadOp::Request(ostream &os)
 {
     os <<
-        "READ\r\n"        << ReqHeaders(*this) <<
-        "Chunk-handle: "  << chunkId           << "\r\n"
-        "Chunk-version: " << chunkVersion      << "\r\n"
-        "Offset: "        << offset            << "\r\n"
-        "Num-bytes: "     << numBytes          << "\r\n"
-        << Access()
+    "READ\r\n"        << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    Access()
     ;
     if (skipVerifyDiskChecksumFlag) {
-        os << "Skip-Disk-Chksum: 1\r\n";
+        os << (shortRpcFormatFlag ? "KS:1\r\n" : "Skip-Disk-Chksum: 1\r\n");
     }
     os << "\r\n";
 }
@@ -520,18 +579,22 @@ void
 WriteIdAllocOp::Request(ostream &os)
 {
     os <<
-        "WRITE_ID_ALLOC\r\n"  << ReqHeaders(*this)           <<
-        "Chunk-handle: "      << chunkId                     << "\r\n"
-        "Chunk-version: "     << chunkVersion                << "\r\n"
-        "Offset: "            << offset                      << "\r\n"
-        "Num-bytes: "         << numBytes                    << "\r\n"
-        "For-record-append: " << (isForRecordAppend ? 1 : 0) << "\r\n"
-        "Num-servers: "       << chunkServerLoc.size()       << "\r\n"
-        << Access() <<
-        "Servers:"
+    "WRITE_ID_ALLOC\r\n"  << ReqHeaders(*this)           <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "A:" : "For-record-append: ") <<
+        (isForRecordAppend ? 1 : 0) << "\r\n" <<
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+        chunkServerLoc.size() << "\r\n" <<
+    Access() <<
+    (shortRpcFormatFlag ? "S:" : "Servers:")
     ;
-    for (vector<ServerLocation>::size_type i = 0; i < chunkServerLoc.size(); ++i) {
-        os << chunkServerLoc[i] << ' ';
+    for (vector<ServerLocation>::const_iterator it = chunkServerLoc.begin();
+            it != chunkServerLoc.end();
+            ++it) {
+        os << ' ' << *it;
     }
     os << "\r\n\r\n";
 }
@@ -540,17 +603,19 @@ void
 ChunkSpaceReserveOp::Request(ostream &os)
 {
     os <<
-        "CHUNK_SPACE_RESERVE\r\n" << ReqHeaders(*this) <<
-        "Chunk-handle: "          << chunkId           << "\r\n"
-        "Chunk-version: "         << chunkVersion      << "\r\n"
-        "Num-bytes: "             << numBytes          << "\r\n"
-        "Num-servers: "           << writeInfo.size()  << "\r\n"
-        << Access() <<
-        "Servers:"
+    "CHUNK_SPACE_RESERVE\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+        writeInfo.size() << "\r\n" <<
+    Access() <<
+    (shortRpcFormatFlag ? "S:" : "Servers:")
     ;
-    for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc <<
-            ' ' << writeInfo[i].writeId << ' ';
+    for (vector<WriteInfo>::const_iterator it = writeInfo.begin();
+            it != writeInfo.end();
+            ++it) {
+        os << ' ' << it->serverLoc << ' ' << it->writeId;
     }
     os << "\r\n\r\n";
 }
@@ -579,32 +644,35 @@ WritePrepareOp::Request(ostream &os)
 {
     // one checksum over the whole data plus one checksum per 64K block
     os <<
-        "WRITE_PREPARE\r\n"  << ReqHeaders(*this) <<
-        "Chunk-handle: "     << chunkId           << "\r\n"
-        "Chunk-version: "    << chunkVersion      << "\r\n"
-        "Offset: "           << offset            << "\r\n"
-        "Num-bytes: "        << numBytes          << "\r\n"
-        "Checksum: "         << checksum          << "\r\n"
-        "Checksum-entries: " << checksums.size()  << "\r\n"
-        << Access()
+    "WRITE_PREPARE\r\n"  << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:"  : "Chunk-handle: ") << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:"  : "Chunk-version: ")<< chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:"  : "Offset: ")       << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:"  : "Num-bytes: ")    << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "K:"  : "Checksum: ")     << checksum     << "\r\n" <<
+    Access()
     ;
-    if (checksums.size() > 0) {
-        os << "Checksums: ";
-        for (uint32_t i = 0; i < checksums.size(); i++) {
+    if (! checksums.empty()) {
+        os << (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
+            checksums.size()  << "\r\n" <<
+            (shortRpcFormatFlag ? "Ks:" : "Checksums: ");
+        for (size_t i = 0; i < checksums.size(); i++) {
             os << checksums[i] << ' ';
         }
         os << "\r\n";
     }
     if (replyRequestedFlag) {
-        os << "Reply: 1\r\n";
+        os << (shortRpcFormatFlag ? "RR:1\r\n" : "Reply: 1\r\n");
     }
     os <<
-        "Num-servers: " << writeInfo.size() << "\r\n"
-        "Servers:"
+        (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+            writeInfo.size() << "\r\n" <<
+        (shortRpcFormatFlag ? "S:" : "Servers:")
     ;
-    for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc <<
-            ' ' << writeInfo[i].writeId << ' ';
+    for (vector<WriteInfo>::const_iterator it = writeInfo.begin();
+            it != writeInfo.end();
+            ++it) {
+        os << ' ' << it->serverLoc << ' ' << it->writeId;
     }
     os << "\r\n\r\n";
 }
@@ -613,28 +681,30 @@ void
 WriteSyncOp::Request(ostream &os)
 {
     os <<
-        "WRITE_SYNC\r\n"     << ReqHeaders(*this) <<
-        "Chunk-handle: "     << chunkId           << "\r\n"
-        "Chunk-version: "    << chunkVersion      << "\r\n"
-        "Offset: "           << offset            << "\r\n"
-        "Num-bytes: "        << numBytes          << "\r\n"
-        "Checksum-entries: " << checksums.size()  << "\r\n"
-        << Access()
+    "WRITE_SYNC\r\n"     << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
+        checksums.size() << "\r\n" <<
+    Access()
     ;
-    if (checksums.size() > 0) {
-        os << "Checksums: ";
-        for (uint32_t i = 0; i < checksums.size(); i++) {
+    if (! checksums.empty()) {
+        os << (shortRpcFormatFlag ? "K:" : "Checksums: ");
+        for (size_t i = 0; i < checksums.size(); i++) {
             os << checksums[i] << ' ';
         }
         os << "\r\n";
     }
     os <<
-        "Num-servers: " << writeInfo.size() << "\r\n"
-        "Servers:"
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ") << writeInfo.size() << "\r\n" <<
+    (shortRpcFormatFlag ? "S:" : "Servers:")
     ;
-    for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc <<
-            ' ' << writeInfo[i].writeId << ' ';
+    for (vector<WriteInfo>::const_iterator it = writeInfo.begin();
+            it != writeInfo.end();
+            ++it) {
+        os << ' ' << it->serverLoc << ' ' << it->writeId;
     }
     os << "\r\n\r\n";
 }
@@ -643,10 +713,10 @@ void
 SizeOp::Request(ostream &os)
 {
     os <<
-        "SIZE\r\n"        << ReqHeaders(*this) <<
-        "Chunk-handle: "  << chunkId           << "\r\n"
-        "Chunk-version: " << chunkVersion      << "\r\n"
-        << Access() <<
+    "SIZE\r\n"        << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    Access() <<
     "\r\n";
 }
 
@@ -655,22 +725,24 @@ LeaseAcquireOp::Request(ostream &os)
 {
     os << "LEASE_ACQUIRE\r\n" << ReqHeaders(*this);
     if (pathname && pathname[0]) {
-        os << "Pathname: " << pathname << "\r\n";
+        os << (shortRpcFormatFlag ? "N:" : "Pathname: ") << pathname << "\r\n";
     }
     if (chunkId >= 0) {
-        os << "Chunk-handle: " << chunkId << "\r\n";
+        os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
+            chunkId << "\r\n";
     }
     if (flushFlag) {
-        os << "Flush-write-lease: 1\r\n";
+        os << (shortRpcFormatFlag ? "F:1\r\n" : "Flush-write-lease: 1\r\n");
     }
     if (leaseTimeout >= 0) {
-        os << "Lease-timeout: " << leaseTimeout << "\r\n";
+        os << (shortRpcFormatFlag ? "T:" : "Lease-timeout: ") <<
+            leaseTimeout << "\r\n";
     }
     if (appendRecoveryFlag) {
-        os << "Append-recovery: 1\r\n";
+        os << (shortRpcFormatFlag ? "A:\r\n" : "Append-recovery: 1\r\n");
         const size_t cnt = appendRecoveryLocations.size();
         if (0 < cnt) {
-            os << "Append-recovery-loc:";
+            os << (shortRpcFormatFlag ? "R:" : "Append-recovery-loc:");
             for (size_t i = 0; i < cnt; i++) {
                 os << " " << appendRecoveryLocations[i];
             }
@@ -678,13 +750,13 @@ LeaseAcquireOp::Request(ostream &os)
         }
     }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
-        os << "Chunk-ids:";
-        for (int i = 0; i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
+        os << (shortRpcFormatFlag ? "I:" : "Chunk-ids:");
+        for (int i = 0; i < kMaxChunkIds && 0 <= chunkIds[i]; i++) {
             os << " " << chunkIds[i];
         }
         os << "\r\n";
         if (getChunkLocationsFlag) {
-            os << "Get-locations: 1\r\n";
+            os << (shortRpcFormatFlag ? "L:1\r\n" : "Get-locations: 1\r\n");
         }
     }
     os << "\r\n";
@@ -694,14 +766,17 @@ void
 LeaseRenewOp::Request(ostream &os)
 {
     os <<
-        "LEASE_RENEW\r\n" << ReqHeaders(*this) <<
-        "Pathname: "      << pathname          << "\r\n"
-        "Chunk-handle: "  << chunkId           << "\r\n"
-        "Lease-id: "      << leaseId           << "\r\n"
-        "Lease-type: "       "READ_LEASE"         "\r\n"
+    "LEASE_RENEW\r\n" << ReqHeaders(*this);
+    if (! pathname && *pathname) {
+        os << (shortRpcFormatFlag ? "N:" : "Pathname: ") << pathname << "\r\n";
+    }
+    os <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "L:" : "Lease-id: ")      << leaseId      << "\r\n" <<
+    (shortRpcFormatFlag ? "T:" : "Lease-type: ")    << "READ_LEASE"    "\r\n"
     ;
     if (getCSAccessFlag) {
-        os << "CS-access: 1\r\n";
+        os << (shortRpcFormatFlag ? "A:1\r\n" : "CS-access: 1\r\n");
     }
     os << "\r\n";
 }
@@ -710,10 +785,10 @@ void
 LeaseRelinquishOp::Request(ostream &os)
 {
     os <<
-        "LEASE_RELINQUISH\r\n" << ReqHeaders(*this) <<
-        "Chunk-handle:"        << chunkId           << "\r\n"
-        "Lease-id: "           << leaseId           << "\r\n"
-        "Lease-type: "            "READ_LEASE"         "\r\n"
+    "LEASE_RELINQUISH\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle:") << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "L:" : "Lease-id: ")    << leaseId << "\r\n" <<
+    (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << "READ_LEASE" "\r\n"
     "\r\n";
 }
 
@@ -721,20 +796,26 @@ void
 RecordAppendOp::Request(ostream &os)
 {
     os <<
-        "RECORD_APPEND\r\n" << ReqHeaders(*this) <<
-        "Chunk-handle: "    << chunkId           << "\r\n"
-        "Chunk-version: "   << chunkVersion      << "\r\n"
-        "Num-bytes: "       << contentLength     << "\r\n"
-        "Checksum: "        << checksum          << "\r\n"
-        "Offset: "          << offset            << "\r\n"
-        "File-offset: "       "-1"                  "\r\n"
-        "Num-servers: "     << writeInfo.size()  << "\r\n"
-        << Access() <<
-        "Servers:"
+    "RECORD_APPEND\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     <<
+        contentLength << "\r\n" <<
+    (shortRpcFormatFlag ? "K:" : "Checksum: ")      << checksum     << "\r\n" <<
+    (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n"
     ;
-    for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc <<
-            ' ' << writeInfo[i].writeId << ' ';
+    if (! shortRpcFormatFlag) {
+        os << "File-offset: " "-1" "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+        writeInfo.size()  << "\r\n" <<
+    Access() <<
+    (shortRpcFormatFlag ? "S:" : "Servers:")
+    ;
+    for (vector<WriteInfo>::const_iterator it = writeInfo.begin();
+            it != writeInfo.end();
+            ++it) {
+        os << ' ' << it->serverLoc << ' ' << it->writeId;
     }
     os << "\r\n\r\n";
 }
@@ -743,10 +824,10 @@ void
 GetRecordAppendOpStatus::Request(ostream &os)
 {
     os <<
-        "GET_RECORD_APPEND_OP_STATUS\r\n" << ReqHeaders(*this) <<
-        "Chunk-handle: "                  << chunkId << "\r\n"
-        "Write-id: "                      << writeId << "\r\n"
-        << Access() <<
+    "GET_RECORD_APPEND_OP_STATUS\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+    (shortRpcFormatFlag ? "W:" : "Write-id: ")     << writeId << "\r\n" <<
+    Access() <<
     "\r\n";
 }
 
@@ -754,15 +835,17 @@ void
 ChangeFileReplicationOp::Request(ostream &os)
 {
     os <<
-        "CHANGE_FILE_REPLICATION\r\n" << ReqHeaders(*this) <<
-        "File-handle: "               << fid         << "\r\n"
-        "Num-replicas: "              << numReplicas << "\r\n"
+    "CHANGE_FILE_REPLICATION\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid         << "\r\n" <<
+    (shortRpcFormatFlag ? "R:" : "Num-replicas: ") << numReplicas << "\r\n"
     ;
     if (minSTier != kKfsSTierUndef) {
-        os << "Min-tier: " << (int)minSTier << "\r\n";
+        os << (shortRpcFormatFlag ? "TL:" : "Min-tier: ") <<
+            (int)minSTier << "\r\n";
     }
     if (maxSTier != kKfsSTierUndef) {
-        os << "Max-tier: " << (int)maxSTier << "\r\n";
+        os << (shortRpcFormatFlag ? "TH:" : "Max-tier: ") <<
+            (int)maxSTier << "\r\n";
     }
     os << "\r\n";
 }
@@ -770,27 +853,45 @@ ChangeFileReplicationOp::Request(ostream &os)
 void
 GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
 {
-    chunkVersion        = prop.getValue("Chunk-version",               (int64_t)-1);
-    opSeq               = prop.getValue("Op-seq",                      (int64_t)-1);
-    opStatus            = prop.getValue("Op-status",                   -1);
+    chunkVersion        = prop.getValue(
+        shortRpcFormatFlag ? "V" : "Chunk-version", (int64_t)-1);
+    opSeq               = prop.getValue(
+        shortRpcFormatFlag ? "Oc" : "Op-seq", (int64_t)-1);
+    opStatus            = prop.getValue(
+        shortRpcFormatFlag ? "s" : "Op-status", -1);
     if (opStatus < 0) {
         opStatus = -KfsToSysErrno(-opStatus);
     }
-    opOffset            = prop.getValue("Op-offset",                   (int64_t)-1);
-    opLength            = (size_t)prop.getValue("Op-length",           (uint64_t)0);
-    widAppendCount      = (size_t)prop.getValue("Wid-append-count",    (uint64_t)0);
-    widBytesReserved    = (size_t)prop.getValue("Wid-bytes-reserved",  (uint64_t)0);
-    chunkBytesReserved  = (size_t)prop.getValue("Chunk-bytes-reserved",(uint64_t)0);
-    remainingLeaseTime  = prop.getValue("Remaining-lease-time",        (int64_t)-1);
-    widWasReadOnlyFlag  = prop.getValue("Wid-was-read-only",            0) != 0;
-    masterFlag          = prop.getValue("Chunk-master",                 0) != 0;
-    stableFlag          = prop.getValue("Stable-flag",                  0) != 0;
-    openForAppendFlag   = prop.getValue("Open-for-append-flag",         0) != 0;
-    appenderState       = prop.getValue("Appender-state",               -1);
-    appenderStateStr    = prop.getValue("Appender-state-string",        "");
-    masterCommitOffset  = prop.getValue("Master-commit-offset",         (int64_t)-1);
-    nextCommitOffset    = prop.getValue("Next-commit-offset",           (int64_t)-1);
-    widReadOnlyFlag     = prop.getValue("Wid-read-only",                 0) != 0;
+    opOffset            = prop.getValue(
+        shortRpcFormatFlag ? "OO" : "Op-offset", (int64_t)-1);
+    opLength            = (size_t)prop.getValue(
+        shortRpcFormatFlag ? "OL" : "Op-length", (uint64_t)0);
+    widAppendCount      = (size_t)prop.getValue(
+        shortRpcFormatFlag ? "AC" : "Wid-append-count", (uint64_t)0);
+    widBytesReserved    = (size_t)prop.getValue(
+        shortRpcFormatFlag ? "RW" : "Wid-bytes-reserved", (uint64_t)0);
+    chunkBytesReserved  = (size_t)prop.getValue(
+        shortRpcFormatFlag ? "RB" : "Chunk-bytes-reserved",(uint64_t)0);
+    remainingLeaseTime  = prop.getValue(
+        shortRpcFormatFlag ? "LR" : "Remaining-lease-time", (int64_t)-1);
+    widWasReadOnlyFlag  = prop.getValue(
+        shortRpcFormatFlag ? "WP" : "Wid-was-read-only", 0) != 0;
+    masterFlag          = prop.getValue(
+        shortRpcFormatFlag ? "MC" : "Chunk-master", 0) != 0;
+    stableFlag          = prop.getValue(
+        shortRpcFormatFlag ? "SC" : "Stable-flag", 0) != 0;
+    openForAppendFlag   = prop.getValue(
+        shortRpcFormatFlag ? "AO" : "Open-for-append-flag", 0) != 0;
+    appenderState       = prop.getValue(
+        shortRpcFormatFlag ? "AS" : "Appender-state", -1);
+    appenderStateStr    = prop.getValue(
+        shortRpcFormatFlag ? "As" : "Appender-state-string", "");
+    masterCommitOffset  = prop.getValue(
+        shortRpcFormatFlag ? "CO" : "Master-commit-offset", (int64_t)-1);
+    nextCommitOffset    = prop.getValue(
+        shortRpcFormatFlag ? "CN" :  "Next-commit-offset", (int64_t)-1);
+    widReadOnlyFlag     = prop.getValue(
+        shortRpcFormatFlag ? "WR" : "Wid-read-only", 0) != 0;
 }
 
 ///
@@ -817,12 +918,14 @@ void
 KfsOp::ParseResponseHeader(const Properties& prop)
 {
     // kfsSeq_t resSeq = prop.getValue("Cseq", (kfsSeq_t) -1);
-    status = prop.getValue("Status", -1);
+    status = prop.getValue(shortRpcFormatFlag ? "s" : "Status", -1);
     if (status < 0) {
         status = -KfsToSysErrno(-status);
     }
-    contentLength = prop.getValue("Content-length", 0);
-    statusMsg = prop.getValue("Status-message", string());
+    contentLength = prop.getValue(
+        shortRpcFormatFlag ? "l" : "Content-length", 0);
+    statusMsg = prop.getValue(
+        shortRpcFormatFlag ? "m" : "Status-message", string());
     ParseResponseHeaderSelf(prop);
 }
 
@@ -863,25 +966,36 @@ KfsOp::AddDefaultRequestHeaders(
 void
 CreateOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
-    metaStriperType   = prop.getValue("Striper-type",
+    fileId            = prop.getValue(
+        shortRpcFormatFlag ? "P" : "File-handle", (kfsFileId_t) -1);
+    metaStriperType   = prop.getValue(
+        shortRpcFormatFlag ? "ST" : "Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
     if (0 <= status) {
-        permissions.user  = prop.getValue("User",     permissions.user);
-        permissions.group = prop.getValue("Group",    permissions.group);
-        permissions.mode  = prop.getValue("Mode",     permissions.mode);
-        userName          = prop.getValue("UName",    string());
-        groupName         = prop.getValue("GName",    string());
-        minSTier          = prop.getValue("Min-tier", minSTier);
-        maxSTier          = prop.getValue("Max-tier", maxSTier);
+        permissions.user  = prop.getValue(
+            shortRpcFormatFlag ? "u" : "User", permissions.user);
+        permissions.group = prop.getValue(
+            shortRpcFormatFlag ? "g" : "Group", permissions.group);
+        permissions.mode  = prop.getValue(
+            shortRpcFormatFlag ? "M" : "Mode", permissions.mode);
+        userName          = prop.getValue(
+            shortRpcFormatFlag ? "UN" : "UName", string());
+        groupName         = prop.getValue(
+            shortRpcFormatFlag ? "GN" : "GName",    string());
+        minSTier          = prop.getValue(
+            shortRpcFormatFlag ? "TL" : "Min-tier", minSTier);
+        maxSTier          = prop.getValue(
+            shortRpcFormatFlag ? "TH" : "Max-tier", maxSTier);
     }
 }
 
 void
 ReaddirOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    numEntries         = prop.getValue("Num-Entries", 0);
-    hasMoreEntriesFlag = prop.getValue("Has-more-entries", 0) != 0;
+    numEntries         = prop.getValue(
+        shortRpcFormatFlag ? "EC" : "Num-Entries", 0);
+    hasMoreEntriesFlag = prop.getValue(
+        shortRpcFormatFlag ? "EM" : "Has-more-entries", 0) != 0;
 }
 
 void
@@ -902,8 +1016,10 @@ UpServersOp::ParseResponseHeaderSelf(const Properties &prop)
 void
 ReaddirPlusOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    numEntries         = prop.getValue("Num-Entries", 0);
-    hasMoreEntriesFlag = prop.getValue("Has-more-entries", 0) != 0;
+    numEntries         = prop.getValue(
+        shortRpcFormatFlag ? "EC" : "Num-Entries", 0);
+    hasMoreEntriesFlag = prop.getValue(
+        shortRpcFormatFlag ? "EM" : "Has-more-entries", 0) != 0;
 }
 
 void
@@ -911,74 +1027,109 @@ MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
 {
     fileId = prop.getValue("File-handle", (kfsFileId_t) -1);
     if (0 <= status) {
-        permissions.user  = prop.getValue("User",     permissions.user);
-        permissions.group = prop.getValue("Group",    permissions.group);
-        permissions.mode  = prop.getValue("Mode",     permissions.mode);
-        userName          = prop.getValue("UName",    string());
-        groupName         = prop.getValue("GName",    string());
-        minSTier          = prop.getValue("Min-tier", minSTier);
-        maxSTier          = prop.getValue("Max-tier", maxSTier);
+        permissions.user  = prop.getValue(
+            shortRpcFormatFlag ? "u" : "User",      permissions.user);
+        permissions.group = prop.getValue(
+            shortRpcFormatFlag ? "g" : "Group",     permissions.group);
+        permissions.mode  = prop.getValue(
+            shortRpcFormatFlag ? "M" : "Mode",      permissions.mode);
+        userName          = prop.getValue(
+            shortRpcFormatFlag ? "UN" : "UName",    string());
+        groupName         = prop.getValue(
+            shortRpcFormatFlag ? "GN" : "GName",    string());
+        minSTier          = prop.getValue(
+            shortRpcFormatFlag ? "TL" : "Min-tier", minSTier);
+        maxSTier          = prop.getValue(
+            shortRpcFormatFlag ? "TH" : "Max-tier", maxSTier);
     }
 }
 
 static void
-ParseFileAttribute(const Properties &prop,
+ParseFileAttribute(bool shortRpcFormatFlag, const Properties &prop,
     FileAttr& fattr, string& outUserName, string& outGroupName)
 {
     const string estr;
 
-    fattr.fileId      =          prop.getValue("File-handle", kfsFileId_t(-1));
-    fattr.isDirectory =          prop.getValue("Type", estr) == "dir";
+    fattr.fileId      =          prop.getValue(
+        shortRpcFormatFlag ? "P" : "File-handle", kfsFileId_t(-1));
+    fattr.isDirectory =          prop.getValue(
+        shortRpcFormatFlag ? "T" : "Type", estr) == "dir";
     if (fattr.isDirectory) {
-        fattr.subCount1 = prop.getValue("File-count", int64_t(-1));
-        fattr.subCount2 = prop.getValue("Dir-count",  int64_t(-1));
+        fattr.subCount1 = prop.getValue(
+            shortRpcFormatFlag ? "FC" : "File-count", int64_t(-1));
+        fattr.subCount2 = prop.getValue(
+            shortRpcFormatFlag ? "DC" : "Dir-count",  int64_t(-1));
     } else {
-        fattr.subCount1 = prop.getValue("Chunk-count", int64_t(0));
+        fattr.subCount1 = prop.getValue(
+            shortRpcFormatFlag ? "C" : "Chunk-count", int64_t(0));
     }
-    fattr.fileSize    =          prop.getValue("File-size",   chunkOff_t(-1));
-    fattr.numReplicas = (int16_t)prop.getValue("Replication", 1);
+    fattr.fileSize    =          prop.getValue(
+        shortRpcFormatFlag ? "S" : "File-size",   chunkOff_t(-1));
+    fattr.numReplicas = (int16_t)prop.getValue(
+        shortRpcFormatFlag ? "R" : "Replication", 1);
 
-    GetTimeval(prop.getValue("M-Time",  ""), fattr.mtime);
-    GetTimeval(prop.getValue("C-Time",  ""), fattr.ctime);
-    GetTimeval(prop.getValue("CR-Time", ""), fattr.crtime);
+    GetTimeval(prop.getValue(
+        shortRpcFormatFlag ? "MT" : "M-Time",  ""), fattr.mtime);
+    GetTimeval(prop.getValue(
+        shortRpcFormatFlag ? "CT" : "C-Time",  ""), fattr.ctime);
+    GetTimeval(prop.getValue(
+        shortRpcFormatFlag ? "CR" : "CR-Time", ""), fattr.crtime);
 
-    const int type = prop.getValue("Striper-type", int(KFS_STRIPED_FILE_TYPE_NONE));
+    const int type = prop.getValue(
+        shortRpcFormatFlag ? "ST" : "Striper-type", int(KFS_STRIPED_FILE_TYPE_NONE));
     if (KFS_STRIPED_FILE_TYPE_NONE <= type && type < KFS_STRIPED_FILE_TYPE_COUNT) {
         fattr.striperType = StripedFileType(type);
     } else {
         fattr.striperType = KFS_STRIPED_FILE_TYPE_UNKNOWN;
     }
 
-    fattr.numStripes         = (int16_t)prop.getValue("Num-stripes",          0);
-    fattr.numRecoveryStripes = (int16_t)prop.getValue("Num-recovery-stripes", 0);
-    fattr.stripeSize         =          prop.getValue("Stripe-size",          int32_t(0));
-    fattr.user               =          prop.getValue("User",                 kKfsUserNone);
-    fattr.group              =          prop.getValue("Group",                kKfsGroupNone);
-    fattr.mode               =          prop.getValue("Mode",                 kKfsModeUndef);
-    fattr.minSTier           =          prop.getValue("Min-tier",             kKfsSTierMax);
-    fattr.maxSTier           =          prop.getValue("Max-tier",             kKfsSTierMax);
+    fattr.numStripes         = (int16_t)prop.getValue(
+        shortRpcFormatFlag ? "SN" : "Num-stripes",          0);
+    fattr.numRecoveryStripes = (int16_t)prop.getValue(
+        shortRpcFormatFlag ? "SR" : "Num-recovery-stripes", 0);
+    fattr.stripeSize         =          prop.getValue(
+        shortRpcFormatFlag ? "SS" : "Stripe-size",          int32_t(0));
+    fattr.user               =          prop.getValue(
+        shortRpcFormatFlag ? "U" : "User",                  kKfsUserNone);
+    fattr.group              =          prop.getValue(
+        shortRpcFormatFlag ? "G" : "Group",                 kKfsGroupNone);
+    fattr.mode               =          prop.getValue(
+        shortRpcFormatFlag ? "M" : "Mode",                  kKfsModeUndef);
+    fattr.minSTier           =          prop.getValue(
+        shortRpcFormatFlag ? "TL" : "Min-tier",             kKfsSTierMax);
+    fattr.maxSTier           =          prop.getValue(
+        shortRpcFormatFlag ? "TH" : "Max-tier",             kKfsSTierMax);
 
-    outUserName  = prop.getValue("UName", string());
-    outGroupName = prop.getValue("GName", string());
+    outUserName  = prop.getValue(
+        shortRpcFormatFlag ? "UN" : "UName", string());
+    outGroupName = prop.getValue(
+        shortRpcFormatFlag ? "GN" : "GName", string());
 }
 
 void
 LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    euser      = prop.getValue("EUserId",   euser);
-    egroup     = prop.getValue("EGroupId",  kKfsGroupNone);
-    authType   = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
-    euserName  = prop.getValue("EUName", string());
-    egroupName = prop.getValue("EGName", string());
-    ParseFileAttribute(prop, fattr, userName, groupName);
+    euser      = prop.getValue(
+        shortRpcFormatFlag ? "EU"  : "EUserId",   euser);
+    egroup     = prop.getValue(
+        shortRpcFormatFlag ? "EG"  : "EGroupId",  kKfsGroupNone);
+    authType   = prop.getValue(
+        shortRpcFormatFlag ? "A"   : "Auth-type", int(kAuthenticationTypeUndef));
+    euserName  = prop.getValue(
+        shortRpcFormatFlag ? "EUN" : "EUName", string());
+    egroupName = prop.getValue(
+        shortRpcFormatFlag ? "EGN" : "EGName", string());
+    ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
 }
 
 void
 LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    euser  = prop.getValue("EUserId",  euser);
-    egroup = prop.getValue("EGroupId", kKfsGroupNone);
-    ParseFileAttribute(prop, fattr, userName, groupName);
+    euser  = prop.getValue(
+        shortRpcFormatFlag ? "EU" : "EUserId",  euser);
+    egroup = prop.getValue(
+        shortRpcFormatFlag ? "EG" : "EGroupId", kKfsGroupNone);
+    ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
 }
 
 static inline bool
@@ -1045,32 +1196,41 @@ ParseChunkServerAccess(
 void
 AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    chunkId      = prop.getValue("Chunk-handle",  (kfsFileId_t) -1);
-    chunkVersion = prop.getValue("Chunk-version", (int64_t)-1);
+    chunkId      = prop.getValue(
+        shortRpcFormatFlag ? "H" : "Chunk-handle",  (kfsFileId_t) -1);
+    chunkVersion = prop.getValue(
+        shortRpcFormatFlag ? "V" : "Chunk-version", (int64_t)-1);
     if (append) {
-        fileOffset = prop.getValue("Chunk-offset", (chunkOff_t) 0);
+        fileOffset = prop.getValue(
+            shortRpcFormatFlag ? "O" : "Chunk-offset", (chunkOff_t) 0);
     }
-    const string master = prop.getValue("Master", string());
-    if (! master.empty()) {
-        istringstream ist(master);
-
-        ist >> masterServer.hostname;
-        ist >> masterServer.port;
-        // put the master the first in the list
-        chunkServers.push_back(masterServer);
-    }
-
-    int numReplicas = prop.getValue("Num-replicas", 0);
-    string replicas = prop.getValue("Replicas", "");
-
-    if (! replicas.empty()) {
-        istringstream ser(replicas);
+    chunkServers.clear();
+    if (! shortRpcFormatFlag) {
+        const Properties::String* master = prop.getValue("Master");
         ServerLocation loc;
-
-        for (int i = 0; i < numReplicas; ++i) {
-            ser >> loc.hostname >> loc.port;
-            if (loc != masterServer) {
-                chunkServers.push_back(loc);
+        if (master && loc.FromString(
+                master->data(), master->size(), shortRpcFormatFlag)) {
+            chunkServers.push_back(loc);
+        }
+    }
+    const int numReplicas = prop.getValue(
+        shortRpcFormatFlag ? "R" : "Num-replicas", 0);
+    if (0 < numReplicas) {
+        const Properties::String* const replicas = prop.getValue(
+            shortRpcFormatFlag ? "S" : "Replicas");
+        const bool noMasterFlag = chunkServers.empty();
+        if (replicas) {
+            chunkServers.reserve(numReplicas);
+            const char*       ptr = replicas->data();
+            const char* const end = ptr + replicas->size();
+            for (int i = 0; i < numReplicas; ++i) {
+                ServerLocation loc;
+                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag)) {
+                    break;
+                }
+                if (noMasterFlag || chunkServers.front() != loc) {
+                    chunkServers.push_back(loc);
+                }
             }
         }
     }
@@ -1082,34 +1242,46 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
     if (status < 0) {
         return;
     }
-    if (ParseChunkServerAccess(*this, prop.getValue("CS-access"),
+    if (ParseChunkServerAccess(*this, prop.getValue(
+            shortRpcFormatFlag ? "SA" : "CS-access"),
             chunkServerAccessToken, chunkServerAccessKey)) {
-        chunkServerAccessValidForTime =
-            prop.getValue("CS-acess-time",   int64_t(0));
-        chunkServerAccessIssuedTime   =
-            prop.getValue("CS-acess-issued", int64_t(0));
-        allowCSClearTextFlag =
-            prop.getValue("CS-clear-text", 0) != 0;
+        chunkServerAccessValidForTime = prop.getValue(
+            shortRpcFormatFlag ? "ST" : "CS-acess-time",   int64_t(0));
+        chunkServerAccessIssuedTime   = prop.getValue(
+            shortRpcFormatFlag ? "SI" : "CS-acess-issued", int64_t(0));
+        allowCSClearTextFlag = prop.getValue(
+            shortRpcFormatFlag ? "CT" : "CS-clear-text", 0) != 0;
     }
-    chunkAccess = prop.getValue("C-access", string());
+    chunkAccess = prop.getValue(
+        shortRpcFormatFlag ? "C" : "C-access", string());
 }
 
 void
 GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    chunkId = prop.getValue("Chunk-handle", (kfsFileId_t) -1);
-    chunkVersion = prop.getValue("Chunk-version", (int64_t) -1);
-    serversOrderedFlag = prop.getValue("Replicas-ordered", 0) != 0;
-    int numReplicas = prop.getValue("Num-replicas", 0);
-    string replicas = prop.getValue("Replicas", "");
-    if (! replicas.empty()) {
-        istringstream ser(replicas);
-        ServerLocation loc;
-
-        for (int i = 0; i < numReplicas; ++i) {
-            ser >> loc.hostname;
-            ser >> loc.port;
-            chunkServers.push_back(loc);
+    chunkId = prop.getValue(
+        shortRpcFormatFlag ? "H" : "Chunk-handle", (kfsFileId_t) -1);
+    chunkVersion = prop.getValue(
+        shortRpcFormatFlag ? "V" : "Chunk-version", (int64_t) -1);
+    serversOrderedFlag = prop.getValue(
+        shortRpcFormatFlag ? "O" : "Replicas-ordered", 0) != 0;
+    const int numReplicas = prop.getValue(
+        shortRpcFormatFlag ? "R" : "Num-replicas", 0);
+    chunkServers.clear();
+    if (0 < numReplicas) {
+        const Properties::String* const replicas = prop.getValue(
+            shortRpcFormatFlag ? "S" : "Replicas");
+        if (replicas) {
+            chunkServers.reserve(numReplicas);
+            const char*       ptr = replicas->data();
+            const char* const end = ptr + replicas->size();
+            for (int i = 0; i < numReplicas; ++i) {
+                ServerLocation loc;
+                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag)) {
+                    break;
+                }
+                chunkServers.push_back(loc);
+            }
         }
     }
 }
@@ -1117,13 +1289,16 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
 void
 ChunkAccessOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    accessResponseIssued      = prop.getValue("Acess-issued", int64_t(0));
-    accessResponseValidForSec = prop.getValue("Acess-time",   int64_t(0));
-    chunkAccessResponse       = prop.getValue("C-access",     string());
+    accessResponseIssued      = prop.getValue(
+        shortRpcFormatFlag ? "SI" : "Acess-issued", int64_t(0));
+    accessResponseValidForSec = prop.getValue(
+        shortRpcFormatFlag ? "ST" : "Acess-time",   int64_t(0));
+    chunkAccessResponse       = prop.getValue(
+        shortRpcFormatFlag ? "C"  : "C-access",     string());
     chunkServerAccessId.clear();
     ParseChunkServerAccess(
         *this,
-        prop.getValue("CS-access"),
+        prop.getValue(shortRpcFormatFlag ? "SA" : "CS-access"),
         chunkServerAccessId,
         chunkServerAccessKey,
         decryptKey ? decryptKey->data()      : 0,
@@ -1134,15 +1309,19 @@ ChunkAccessOp::ParseResponseHeaderSelf(const Properties& prop)
 void
 CoalesceBlocksOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    dstStartOffset = prop.getValue("Dst-start-offset", (chunkOff_t) 0);
+    dstStartOffset = prop.getValue(
+        shortRpcFormatFlag ? "O" : "Dst-start-offset", (chunkOff_t) 0);
 }
 
 void
 GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    numChunks         = prop.getValue("Num-chunks", 0);
-    hasMoreChunksFlag = prop.getValue("Has-more-chunks", 0) != 0;
-    fileSize          = prop.getValue("File-size", chunkOff_t(-1));
+    numChunks         = prop.getValue(
+        shortRpcFormatFlag ? "C"  : "Num-chunks", 0);
+    hasMoreChunksFlag = prop.getValue(
+        shortRpcFormatFlag ? "MC" : "Has-more-chunks", 0) != 0;
+    fileSize          = prop.getValue(
+        shortRpcFormatFlag ? "S"  : "File-size", chunkOff_t(-1));
 }
 
 int
@@ -1156,6 +1335,9 @@ GetLayoutOp::ParseLayoutInfo(bool clearFlag)
         return 0;
     }
     BufferInputStream is(contentBuf, contentLength);
+    if (shortRpcFormatFlag) {
+        is >> hex;
+    }
     for (int i = 0; i < numChunks; ++i) {
         chunks.push_back(ChunkLayoutInfo());
         if (! (is >> chunks.back())) {
@@ -1191,27 +1373,40 @@ ChunkLayoutInfo::Parse(istream& is)
 void
 SizeOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    size = prop.getValue("Size", (long long) 0);
+    size = prop.getValue(shortRpcFormatFlag ? "S" : "Size", (long long) 0);
 }
 
 void
 ReadOp::ParseResponseHeaderSelf(const Properties &prop)
 {
-    string checksumStr;
-    uint32_t nentries;
-
-    nentries = prop.getValue("Checksum-entries", 0);
-    checksumStr = prop.getValue("Checksums", "");
-    diskIOTime = prop.getValue("DiskIOtime", 0.0);
+    const int nentries = prop.getValue(
+        shortRpcFormatFlag ? "KC" : "Checksum-entries", 0);
+    if (shortRpcFormatFlag) {
+        diskIOTime = prop.getValue("D", int64_t(0)) * 1e-6;
+    } else {
+        diskIOTime = prop.getValue("DiskIOtime", 0.0);
+    }
     skipVerifyDiskChecksumFlag =
-        skipVerifyDiskChecksumFlag &&
-        prop.getValue("Skip-Disk-Chksum", 0) != 0;
-    istringstream ist(checksumStr);
+        skipVerifyDiskChecksumFlag && prop.getValue(
+            shortRpcFormatFlag ? "KS" : "Skip-Disk-Chksum", 0) != 0;
     checksums.clear();
-    for (uint32_t i = 0; i < nentries; i++) {
-        uint32_t cksum;
-        ist >> cksum;
-        checksums.push_back(cksum);
+    if (0 < nentries) {
+        const Properties::String* const checksumStr = prop.getValue(
+            shortRpcFormatFlag ? "K" : "Checksums");
+        const char*       ptr = checksumStr->data();
+        const char* const end = ptr + checksumStr->size();
+        if (checksumStr) {
+            checksums.reserve(nentries);
+            for (int i = 0; i < nentries; i++) {
+                uint32_t cksum = 0;
+                if (! (shortRpcFormatFlag ?
+                        HexIntParser::Parse(ptr, end - ptr, cksum) :
+                        DecIntParser::Parse(ptr, end - ptr, cksum))) {
+                    break;
+                }
+                checksums.push_back(cksum);
+            }
+        }
     }
 }
 
@@ -1219,8 +1414,10 @@ void
 WriteIdAllocOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     ChunkAccessOp::ParseResponseHeaderSelf(prop);
-    writeIdStr                  = prop.getValue("Write-id", string());
-    writePrepReplySupportedFlag = prop.getValue("Write-prepare-reply", 0) != 0;
+    writeIdStr                  = prop.getValue(
+        shortRpcFormatFlag ? "W" : "Write-id", string());
+    writePrepReplySupportedFlag = prop.getValue(
+        shortRpcFormatFlag ? "WR" : "Write-prepare-reply", 0) != 0;
 }
 
 void
@@ -1289,7 +1486,7 @@ GetPathNameOp::Request(ostream& os)
 void
 GetPathNameOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    ParseFileAttribute(prop, fattr, userName, groupName);
+    ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
     pathname = prop.getValue("Path-name", string());
 
     offset       = prop.getValue("Chunk-offset", chunkOff_t(-1));

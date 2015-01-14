@@ -1720,7 +1720,10 @@ MetaGetlayout::handle()
     if ((hasMoreChunksFlag = maxResCnt > 0 && maxResCnt < numChunks)) {
         numChunks = maxResCnt;
     }
-    ostream&        os     = sWOStream.Set(resp);
+    ostream& os = sWOStream.Set(resp);
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     const char*     prefix = "";
     Servers         c;
     ChunkLayoutInfo l;

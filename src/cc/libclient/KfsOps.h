@@ -146,6 +146,7 @@ struct KfsOp {
     size_t   contentBufLen;
     char*    contentBuf;
     string   statusMsg; // optional, mostly for debugging
+    bool     shortRpcFormatFlag;
 
     KfsOp (KfsOp_t o, kfsSeq_t s)
         : op(o),
@@ -157,6 +158,7 @@ struct KfsOp {
           contentBufLen(0),
           contentBuf(0),
           statusMsg(),
+          shortRpcFormatFlag(false),
           contentBufOwnerFlag(true)
         {}
     // to allow dynamic-type-casting, make the destructor virtual
@@ -232,6 +234,7 @@ struct KfsOp {
 private:
     bool          contentBufOwnerFlag;
     static string sExtraHeaders;
+    static string sShortExtraHeaders;
 };
 
 struct KfsNullOp : public KfsOp
@@ -843,13 +846,18 @@ struct ChunkAccessOp: public KfsOp {
             return os;
         }
         if (hasSubjectIdFlag) {
-            os << "Subject-id: " << subjectId << "\r\n";
+            os << (shortRpcFormatFlag ? "I:" : "Subject-id: ") <<
+                subjectId << "\r\n";
         }
         return (
-            (os << "C-access: ").write(access.data(), access.size()) << "\r\n" <<
-            (createChunkServerAccessFlag ? "CS-access-req: 1\r\n" : "") <<
-            (createChunkAccessFlag       ? "C-access-req: 1\r\n"  : "")
-        );
+            (os << (shortRpcFormatFlag ? " 'C:" : "C-access: ")).write(
+                access.data(), access.size()) << "\r\n" <<
+            (createChunkServerAccessFlag ?
+                (shortRpcFormatFlag ?
+                    "SR:1\r\n" : "CS-access-req: 1\r\n") :
+            (createChunkAccessFlag ?
+                (shortRpcFormatFlag ? "CR:1\r\n" : "C-access-req: 1\r\n")  : "")
+        ));
     }
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 };
@@ -879,7 +887,6 @@ struct AllocateOp : public KfsOp {
     kfsChunkId_t           chunkId; // result
     int64_t                chunkVersion; // result---version # for the chunk
     // where is the chunk hosted name/port
-    ServerLocation         masterServer; // master for running the write transaction
     vector<ServerLocation> chunkServers;
     // if this is set, then the metaserver will pick the offset in the
     // file at which the chunk was allocated.
@@ -902,7 +909,6 @@ struct AllocateOp : public KfsOp {
         pathname(p),
         chunkId(-1),
         chunkVersion(-1),
-        masterServer(),
         chunkServers(),
         append(false),
         spaceReservationSize(1 << 20),
