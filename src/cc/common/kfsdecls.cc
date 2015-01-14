@@ -44,9 +44,8 @@ ServerLocation::ToString() const
 }
 
     bool
-ServerLocation::FromString(const char* str, size_t len, bool hexFormatFlag)
+ServerLocation::ParseString(const char*& ptr, size_t len, bool hexFormatFlag)
 {
-    const char*       ptr = str;
     const char* const end = ptr + len;
     while (ptr < end && (*ptr & 0xFF) <= ' ' && *ptr) {
         ++ptr;

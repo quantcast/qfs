@@ -54,7 +54,8 @@ struct ServerLocation
         : hostname(h),
           port(p)
         {}
-    ServerLocation& operator = (const ServerLocation& other) {
+    ServerLocation& operator = (const ServerLocation& other)
+    {
         hostname = other.hostname;
         port     = other.port;
         return *this;
@@ -89,12 +90,12 @@ struct ServerLocation
         { return (os << hostname << ' ' << port); }
     bool FromString(const string& s, bool hexFormatFlag)
         { return FromString(s.data(), s.size(), hexFormatFlag); }
-    bool FromString(const char* str, bool hexFormatFlag)
+    bool FromString(const char* str, size_t len, bool hexFormatFlag)
     {
-        const char* const kNull = 0;
-        return FromString(str, str - kNull, hexFormatFlag);
+        const char* ptr = str;
+        return ParseString(ptr, len, hexFormatFlag);
     }
-    bool FromString(const char* str, size_t len, bool hexFormatFlag);
+    bool ParseString(const char*& ptr, size_t len, bool hexFormatFlag);
     string hostname; //!< Location of the server: machine name/IP addr
     int    port;     //!< Location of the server: port to connect to
 };
