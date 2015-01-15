@@ -46,8 +46,6 @@ namespace KFS
 {
 namespace client
 {
-using std::istringstream;
-using std::ostream;
 using std::istream;
 using std::string;
 using std::min;
@@ -72,7 +70,7 @@ public:
     ReqHeaders(const KfsOp& o)
         : op(o)
         {}
-    ostream& Insert(ostream& os) const
+    ReqOstream& Insert(ReqOstream& os) const
     {
         if (op.shortRpcFormatFlag) {
             os << hex;
@@ -95,13 +93,13 @@ private:
     const KfsOp& op;
 };
 
-inline ostream& operator<<(ostream& os, const KfsOp::ReqHeaders& hdrs) {
+inline ReqOstream& operator<<(ReqOstream& os, const KfsOp::ReqHeaders& hdrs) {
     return hdrs.Insert(os);
 }
 
-inline ostream&
+inline ReqOstream&
 PutPermissions(bool shortRpcFormatFlag,
-    ostream& os, const Permissions& permissions)
+    ReqOstream& os, const Permissions& permissions)
 {
     if (permissions.user != kKfsUserNone) {
         os << (shortRpcFormatFlag ? "O:" : "Owner: ") <<
@@ -195,7 +193,7 @@ ChunkServerAccess::Parse(
 /// @param[out] os which contains the request RPC.
 ///
 void
-CreateOp::Request(ostream &os)
+CreateOp::Request(ReqOstream& os)
 {
     os <<
         "CREATE \r\n"               << ReqHeaders(*this) <<
@@ -236,7 +234,7 @@ CreateOp::Request(ostream &os)
 }
 
 void
-MkdirOp::Request(ostream &os)
+MkdirOp::Request(ReqOstream& os)
 {
     os <<
         "MKDIR \r\n"           << ReqHeaders(*this) <<
@@ -253,7 +251,7 @@ MkdirOp::Request(ostream &os)
 }
 
 void
-RmdirOp::Request(ostream &os)
+RmdirOp::Request(ReqOstream& os)
 {
     os <<
         "RMDIR \r\n"           << ReqHeaders(*this) <<
@@ -265,7 +263,7 @@ RmdirOp::Request(ostream &os)
 }
 
 void
-RenameOp::Request(ostream &os)
+RenameOp::Request(ReqOstream& os)
 {
     os <<
         "RENAME \r\n"          << ReqHeaders(*this)   <<
@@ -283,7 +281,7 @@ RenameOp::Request(ostream &os)
 }
 
 void
-ReaddirOp::Request(ostream &os)
+ReaddirOp::Request(ReqOstream& os)
 {
     os <<
         "READDIR \r\n"            << ReqHeaders(*this) <<
@@ -300,7 +298,7 @@ ReaddirOp::Request(ostream &os)
 }
 
 void
-SetMtimeOp::Request(ostream &os)
+SetMtimeOp::Request(ReqOstream& os)
 {
     os <<
         "SET_MTIME\r\n"  << ReqHeaders(*this) <<
@@ -313,7 +311,7 @@ SetMtimeOp::Request(ostream &os)
 }
 
 void
-DumpChunkServerMapOp::Request(ostream &os)
+DumpChunkServerMapOp::Request(ReqOstream& os)
 {
     os <<
         "DUMP_CHUNKTOSERVERMAP\r\n" << ReqHeaders(*this) <<
@@ -321,7 +319,7 @@ DumpChunkServerMapOp::Request(ostream &os)
 }
 
 void
-DumpChunkMapOp::Request(ostream &os)
+DumpChunkMapOp::Request(ReqOstream& os)
 {
     os <<
         "DUMP_CHUNKMAP\r\n" << ReqHeaders(*this) <<
@@ -329,7 +327,7 @@ DumpChunkMapOp::Request(ostream &os)
 }
 
 void
-UpServersOp::Request(ostream &os)
+UpServersOp::Request(ReqOstream& os)
 {
     os <<
         "UPSERVERS\r\n" << ReqHeaders(*this) <<
@@ -337,7 +335,7 @@ UpServersOp::Request(ostream &os)
 }
 
 void
-ReaddirPlusOp::Request(ostream &os)
+ReaddirPlusOp::Request(ReqOstream& os)
 {
     os <<
         "READDIRPLUS\r\n"         << ReqHeaders(*this)  <<
@@ -360,7 +358,7 @@ ReaddirPlusOp::Request(ostream &os)
 }
 
 void
-RemoveOp::Request(ostream &os)
+RemoveOp::Request(ReqOstream& os)
 {
     os <<
         "REMOVE\r\n"           << ReqHeaders(*this) <<
@@ -373,7 +371,7 @@ RemoveOp::Request(ostream &os)
 }
 
 void
-LookupOp::Request(ostream &os)
+LookupOp::Request(ReqOstream& os)
 {
     os <<
         "LOOKUP\r\n"           << ReqHeaders(*this) <<
@@ -387,11 +385,14 @@ LookupOp::Request(ostream &os)
     if (getAuthInfoOnlyFlag) {
         os << (shortRpcFormatFlag ? "I:1\r\n" : "Auth-info-only: 1\r\n");
     }
+    if (reqShortRpcFormatFlag) {
+        os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
+    }
     os << "\r\n";
 }
 
 void
-LookupPathOp::Request(ostream &os)
+LookupPathOp::Request(ReqOstream& os)
 {
     os <<
         "LOOKUP_PATH\r\n"    << ReqHeaders(*this) <<
@@ -403,7 +404,7 @@ LookupPathOp::Request(ostream &os)
 }
 
 void
-GetAllocOp::Request(ostream &os)
+GetAllocOp::Request(ReqOstream& os)
 {
     assert(fileOffset >= 0);
 
@@ -419,7 +420,7 @@ GetAllocOp::Request(ostream &os)
 }
 
 void
-GetLayoutOp::Request(ostream &os)
+GetLayoutOp::Request(ReqOstream& os)
 {
     os <<
         "GETLAYOUT\r\n" << ReqHeaders(*this) <<
@@ -447,7 +448,7 @@ GetLayoutOp::Request(ostream &os)
 }
 
 void
-CoalesceBlocksOp::Request(ostream &os)
+CoalesceBlocksOp::Request(ReqOstream& os)
 {
     os <<
         "COALESCE_BLOCKS\r\n" << ReqHeaders(*this) <<
@@ -457,7 +458,7 @@ CoalesceBlocksOp::Request(ostream &os)
 }
 
 void
-GetChunkMetadataOp::Request(ostream &os)
+GetChunkMetadataOp::Request(ReqOstream& os)
 {
     os <<
         "GET_CHUNK_METADATA\r\n" << ReqHeaders(*this) <<
@@ -469,7 +470,7 @@ GetChunkMetadataOp::Request(ostream &os)
 }
 
 void
-AllocateOp::Request(ostream &os)
+AllocateOp::Request(ReqOstream& os)
 {
     os <<
         "ALLOCATE\r\n"   << ReqHeaders(*this) <<
@@ -499,7 +500,7 @@ AllocateOp::Request(ostream &os)
 }
 
 void
-TruncateOp::Request(ostream &os)
+TruncateOp::Request(ReqOstream& os)
 {
     os <<
         "TRUNCATE\r\n"  << ReqHeaders(*this) <<
@@ -524,7 +525,7 @@ TruncateOp::Request(ostream &os)
 }
 
 void
-CloseOp::Request(ostream &os)
+CloseOp::Request(ReqOstream& os)
 {
     os <<
         "CLOSE\r\n"      << ReqHeaders(*this) <<
@@ -559,7 +560,7 @@ CloseOp::Request(ostream &os)
 }
 
 void
-ReadOp::Request(ostream &os)
+ReadOp::Request(ReqOstream& os)
 {
     os <<
     "READ\r\n"        << ReqHeaders(*this) <<
@@ -576,7 +577,7 @@ ReadOp::Request(ostream &os)
 }
 
 void
-WriteIdAllocOp::Request(ostream &os)
+WriteIdAllocOp::Request(ReqOstream& os)
 {
     os <<
     "WRITE_ID_ALLOC\r\n"  << ReqHeaders(*this)           <<
@@ -600,7 +601,7 @@ WriteIdAllocOp::Request(ostream &os)
 }
 
 void
-ChunkSpaceReserveOp::Request(ostream &os)
+ChunkSpaceReserveOp::Request(ReqOstream& os)
 {
     os <<
     "CHUNK_SPACE_RESERVE\r\n" << ReqHeaders(*this) <<
@@ -621,26 +622,28 @@ ChunkSpaceReserveOp::Request(ostream &os)
 }
 
 void
-ChunkSpaceReleaseOp::Request(ostream &os)
+ChunkSpaceReleaseOp::Request(ReqOstream& os)
 {
     os <<
-        "CHUNK_SPACE_RELEASE\r\n" << ReqHeaders(*this) <<
-        "Chunk-handle: "          << chunkId           << "\r\n"
-        "Chunk-version: "         << chunkVersion      << "\r\n"
-        "Num-bytes: "             << numBytes          << "\r\n"
-        "Num-servers: "           << writeInfo.size()  << "\r\n"
-        << Access() <<
-        "Servers:"
+    "CHUNK_SPACE_RELEASE\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
+    (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
+    (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
+        writeInfo.size() << "\r\n" <<
+    Access() <<
+    (shortRpcFormatFlag ? "S:" : "Servers:")
     ;
-    for (vector<WriteInfo>::size_type i = 0; i < writeInfo.size(); ++i) {
-        os << writeInfo[i].serverLoc <<
-            ' ' << writeInfo[i].writeId << ' ';
+    for (vector<WriteInfo>::const_iterator it = writeInfo.begin();
+            it != writeInfo.end();
+            ++it) {
+        os << ' ' << it->serverLoc << ' ' << it->writeId;
     }
     os << "\r\n\r\n";
 }
 
 void
-WritePrepareOp::Request(ostream &os)
+WritePrepareOp::Request(ReqOstream& os)
 {
     // one checksum over the whole data plus one checksum per 64K block
     os <<
@@ -678,7 +681,7 @@ WritePrepareOp::Request(ostream &os)
 }
 
 void
-WriteSyncOp::Request(ostream &os)
+WriteSyncOp::Request(ReqOstream& os)
 {
     os <<
     "WRITE_SYNC\r\n"     << ReqHeaders(*this) <<
@@ -710,7 +713,7 @@ WriteSyncOp::Request(ostream &os)
 }
 
 void
-SizeOp::Request(ostream &os)
+SizeOp::Request(ReqOstream& os)
 {
     os <<
     "SIZE\r\n"        << ReqHeaders(*this) <<
@@ -721,7 +724,7 @@ SizeOp::Request(ostream &os)
 }
 
 void
-LeaseAcquireOp::Request(ostream &os)
+LeaseAcquireOp::Request(ReqOstream& os)
 {
     os << "LEASE_ACQUIRE\r\n" << ReqHeaders(*this);
     if (pathname && pathname[0]) {
@@ -763,7 +766,7 @@ LeaseAcquireOp::Request(ostream &os)
 }
 
 void
-LeaseRenewOp::Request(ostream &os)
+LeaseRenewOp::Request(ReqOstream& os)
 {
     os <<
     "LEASE_RENEW\r\n" << ReqHeaders(*this);
@@ -782,7 +785,7 @@ LeaseRenewOp::Request(ostream &os)
 }
 
 void
-LeaseRelinquishOp::Request(ostream &os)
+LeaseRelinquishOp::Request(ReqOstream& os)
 {
     os <<
     "LEASE_RELINQUISH\r\n" << ReqHeaders(*this) <<
@@ -793,7 +796,7 @@ LeaseRelinquishOp::Request(ostream &os)
 }
 
 void
-RecordAppendOp::Request(ostream &os)
+RecordAppendOp::Request(ReqOstream& os)
 {
     os <<
     "RECORD_APPEND\r\n" << ReqHeaders(*this) <<
@@ -821,7 +824,7 @@ RecordAppendOp::Request(ostream &os)
 }
 
 void
-GetRecordAppendOpStatus::Request(ostream &os)
+GetRecordAppendOpStatus::Request(ReqOstream& os)
 {
     os <<
     "GET_RECORD_APPEND_OP_STATUS\r\n" << ReqHeaders(*this) <<
@@ -832,7 +835,7 @@ GetRecordAppendOpStatus::Request(ostream &os)
 }
 
 void
-ChangeFileReplicationOp::Request(ostream &os)
+ChangeFileReplicationOp::Request(ReqOstream& os)
 {
     os <<
     "CHANGE_FILE_REPLICATION\r\n" << ReqHeaders(*this) <<
@@ -851,7 +854,7 @@ ChangeFileReplicationOp::Request(ostream &os)
 }
 
 void
-GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties &prop)
+GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties& prop)
 {
     chunkVersion        = prop.getValue(
         shortRpcFormatFlag ? "V" : "Chunk-version", (int64_t)-1);
@@ -934,7 +937,7 @@ KfsOp::ParseResponseHeader(const Properties& prop)
 /// @param[in] buf: buffer containing the response
 /// @param[in] len: str-len of the buffer.
 void
-KfsOp::ParseResponseHeaderSelf(const Properties &prop)
+KfsOp::ParseResponseHeaderSelf(const Properties& prop)
 {
 }
 
@@ -964,7 +967,7 @@ KfsOp::AddDefaultRequestHeaders(
 /// Specific response parsing handlers.
 ///
 void
-CreateOp::ParseResponseHeaderSelf(const Properties &prop)
+CreateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     fileId            = prop.getValue(
         shortRpcFormatFlag ? "P" : "File-handle", (kfsFileId_t) -1);
@@ -990,7 +993,7 @@ CreateOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-ReaddirOp::ParseResponseHeaderSelf(const Properties &prop)
+ReaddirOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     numEntries         = prop.getValue(
         shortRpcFormatFlag ? "EC" : "Num-Entries", 0);
@@ -999,22 +1002,22 @@ ReaddirOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-DumpChunkServerMapOp::ParseResponseHeaderSelf(const Properties &prop)
+DumpChunkServerMapOp::ParseResponseHeaderSelf(const Properties& prop)
 {
 }
 
 void
-DumpChunkMapOp::ParseResponseHeaderSelf(const Properties &prop)
+DumpChunkMapOp::ParseResponseHeaderSelf(const Properties& prop)
 {
 }
 
 void
-UpServersOp::ParseResponseHeaderSelf(const Properties &prop)
+UpServersOp::ParseResponseHeaderSelf(const Properties& prop)
 {
 }
 
 void
-ReaddirPlusOp::ParseResponseHeaderSelf(const Properties &prop)
+ReaddirPlusOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     numEntries         = prop.getValue(
         shortRpcFormatFlag ? "EC" : "Num-Entries", 0);
@@ -1023,7 +1026,7 @@ ReaddirPlusOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
+MkdirOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     fileId = prop.getValue("File-handle", (kfsFileId_t) -1);
     if (0 <= status) {
@@ -1045,7 +1048,7 @@ MkdirOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 static void
-ParseFileAttribute(bool shortRpcFormatFlag, const Properties &prop,
+ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
     FileAttr& fattr, string& outUserName, string& outGroupName)
 {
     const string estr;
@@ -1107,7 +1110,7 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties &prop,
 }
 
 void
-LookupOp::ParseResponseHeaderSelf(const Properties &prop)
+LookupOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     euser      = prop.getValue(
         shortRpcFormatFlag ? "EU"  : "EUserId",   euser);
@@ -1123,7 +1126,7 @@ LookupOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-LookupPathOp::ParseResponseHeaderSelf(const Properties &prop)
+LookupPathOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     euser  = prop.getValue(
         shortRpcFormatFlag ? "EU" : "EUserId",  euser);
@@ -1194,7 +1197,7 @@ ParseChunkServerAccess(
 }
 
 void
-AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
+AllocateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     chunkId      = prop.getValue(
         shortRpcFormatFlag ? "H" : "Chunk-handle",  (kfsFileId_t) -1);
@@ -1209,10 +1212,12 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
         const Properties::String* master = prop.getValue("Master");
         ServerLocation loc;
         if (master && loc.FromString(
-                master->data(), master->size(), shortRpcFormatFlag)) {
+                master->data(), master->size(), shortRpcFormatFlag) &&
+                loc.IsValid()) {
             chunkServers.push_back(loc);
         }
     }
+    allCSShortRpcFlag = shortRpcFormatFlag && prop.getValue("SS", 0) != 0;
     const int numReplicas = prop.getValue(
         shortRpcFormatFlag ? "R" : "Num-replicas", 0);
     if (0 < numReplicas) {
@@ -1225,7 +1230,11 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
             const char* const end = ptr + replicas->size();
             for (int i = 0; i < numReplicas; ++i) {
                 ServerLocation loc;
-                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag)) {
+                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag) ||
+                        ! loc.IsValid()) {
+                    status    = -EINVAL;
+                    statusMsg = "response replica location parse error: ";
+                    statusMsg.append(replicas->data(), replicas->size());
                     break;
                 }
                 if (noMasterFlag || chunkServers.front() != loc) {
@@ -1257,7 +1266,7 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
 }
 
 void
-GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
+GetAllocOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     chunkId = prop.getValue(
         shortRpcFormatFlag ? "H" : "Chunk-handle", (kfsFileId_t) -1);
@@ -1267,6 +1276,7 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
         shortRpcFormatFlag ? "O" : "Replicas-ordered", 0) != 0;
     const int numReplicas = prop.getValue(
         shortRpcFormatFlag ? "R" : "Num-replicas", 0);
+    allCSShortRpcFlag = shortRpcFormatFlag && prop.getValue("SS", 0) != 0;
     chunkServers.clear();
     if (0 < numReplicas) {
         const Properties::String* const replicas = prop.getValue(
@@ -1277,7 +1287,11 @@ GetAllocOp::ParseResponseHeaderSelf(const Properties &prop)
             const char* const end = ptr + replicas->size();
             for (int i = 0; i < numReplicas; ++i) {
                 ServerLocation loc;
-                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag)) {
+                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag) ||
+                        ! loc.IsValid()) {
+                    status    = -EINVAL;
+                    statusMsg = "response replica location parse error: ";
+                    statusMsg.append(replicas->data(), replicas->size());
                     break;
                 }
                 chunkServers.push_back(loc);
@@ -1307,14 +1321,14 @@ ChunkAccessOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
-CoalesceBlocksOp::ParseResponseHeaderSelf(const Properties &prop)
+CoalesceBlocksOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     dstStartOffset = prop.getValue(
         shortRpcFormatFlag ? "O" : "Dst-start-offset", (chunkOff_t) 0);
 }
 
 void
-GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
+GetLayoutOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     numChunks         = prop.getValue(
         shortRpcFormatFlag ? "C"  : "Num-chunks", 0);
@@ -1322,6 +1336,7 @@ GetLayoutOp::ParseResponseHeaderSelf(const Properties &prop)
         shortRpcFormatFlag ? "MC" : "Has-more-chunks", 0) != 0;
     fileSize          = prop.getValue(
         shortRpcFormatFlag ? "S"  : "File-size", chunkOff_t(-1));
+    allCSShortRpcFlag = shortRpcFormatFlag && prop.getValue("SS", 0) != 0;
 }
 
 int
@@ -1371,13 +1386,13 @@ ChunkLayoutInfo::Parse(istream& is)
 }
 
 void
-SizeOp::ParseResponseHeaderSelf(const Properties &prop)
+SizeOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     size = prop.getValue(shortRpcFormatFlag ? "S" : "Size", (long long) 0);
 }
 
 void
-ReadOp::ParseResponseHeaderSelf(const Properties &prop)
+ReadOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     const int nentries = prop.getValue(
         shortRpcFormatFlag ? "KC" : "Checksum-entries", 0);
@@ -1402,6 +1417,8 @@ ReadOp::ParseResponseHeaderSelf(const Properties &prop)
                 if (! (shortRpcFormatFlag ?
                         HexIntParser::Parse(ptr, end - ptr, cksum) :
                         DecIntParser::Parse(ptr, end - ptr, cksum))) {
+                    status    = -EINVAL;
+                    statusMsg = "response checksum parse error";
                     break;
                 }
                 checksums.push_back(cksum);
@@ -1423,15 +1440,21 @@ WriteIdAllocOp::ParseResponseHeaderSelf(const Properties& prop)
 void
 LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    leaseId = prop.getValue("Lease-id", int64_t(-1));
+    leaseId = prop.getValue(
+        shortRpcFormatFlag ? "L" : "Lease-id", int64_t(-1));
     if (leaseIds) {
         leaseIds[0] = -1;
     }
-    chunkAccessCount              = prop.getValue("CS-access",       0);
-    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
-    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
-    const Properties::String* const v = prop.getValue("Lease-ids");
-    allowCSClearTextFlag          = prop.getValue("CS-clear-text",
+    chunkAccessCount              = prop.getValue(
+        shortRpcFormatFlag ? "SA" : "CS-access",       0);
+    chunkServerAccessValidForTime = prop.getValue(
+        shortRpcFormatFlag ? "ST" : "CS-acess-time",   0);
+    chunkServerAccessIssuedTime   = prop.getValue(
+        shortRpcFormatFlag ? "SI" : "CS-acess-issued", 0);
+    const Properties::String* const v = prop.getValue(
+        shortRpcFormatFlag ? "LS" : "Lease-ids");
+    allowCSClearTextFlag          = prop.getValue(
+        shortRpcFormatFlag ? "CT" : "CS-clear-text",
         (0 <= status && (0 <= leaseId || (v && ! v->empty())) &&
             chunkAccessCount <= 0 && chunkServerAccessValidForTime <= 0
         ) ? 1 : 0
@@ -1445,7 +1468,9 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
     const char*       p = v->GetPtr();
     const char* const e = p + v->GetSize();
     for (int i = 0; p < e && i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
-        if (! ValueParser::ParseInt(p, e - p, leaseIds[i])) {
+        if (! (shortRpcFormatFlag ?
+                HexIntParser::Parse(p, e - p, leaseIds[i]) :
+                DecIntParser::Parse(p, e - p, leaseIds[i]))) {
             status      = -EINVAL;
             statusMsg   = "response parse error";
             leaseIds[0] = -1;
@@ -1457,28 +1482,33 @@ LeaseAcquireOp::ParseResponseHeaderSelf(const Properties& prop)
 void
 LeaseRenewOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    chunkAccessCount              = prop.getValue("C-access", 0);
-    chunkServerAccessValidForTime = prop.getValue("CS-acess-time",   0);
-    chunkServerAccessIssuedTime   = prop.getValue("CS-acess-issued", 0);
-    allowCSClearTextFlag          = prop.getValue("CS-clear-text", 0) != 0;
+    chunkAccessCount              = prop.getValue(
+        shortRpcFormatFlag ? "C"  : "C-access", 0);
+    chunkServerAccessValidForTime = prop.getValue(
+        shortRpcFormatFlag ? "ST" : "CS-acess-time",   0);
+    chunkServerAccessIssuedTime   = prop.getValue(
+        shortRpcFormatFlag ? "SI" : "CS-acess-issued", 0);
+    allowCSClearTextFlag          = prop.getValue(
+        shortRpcFormatFlag ? "CT" : "CS-clear-text", 0) != 0;
 }
 
 void
-ChangeFileReplicationOp::ParseResponseHeaderSelf(const Properties &prop)
+ChangeFileReplicationOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    numReplicas = prop.getValue("Num-replicas", 1);
+    numReplicas = prop.getValue(
+        shortRpcFormatFlag ? "R" : "Num-replicas", 1);
 }
 
 void
-GetPathNameOp::Request(ostream& os)
+GetPathNameOp::Request(ReqOstream& os)
 {
-    os <<
-        "GETPATHNAME\r\n" << ReqHeaders(*this);
+    os << "GETPATHNAME\r\n" << ReqHeaders(*this);
     if (fid > 0) {
-        os << "File-handle: " << fid << "\r\n";
+        os << (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid << "\r\n";
     }
     if (chunkId > 0) {
-        os << "Chunk-handle: " << chunkId << "\r\n";
+        os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
+            chunkId << "\r\n";
     }
     os << "\r\n";
 }
@@ -1487,52 +1517,64 @@ void
 GetPathNameOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
-    pathname = prop.getValue("Path-name", string());
-
-    offset       = prop.getValue("Chunk-offset", chunkOff_t(-1));
-    chunkVersion = prop.getValue("Chunk-version", int64_t(-1));
-
-    const int    numReplicas = prop.getValue("Num-replicas", 0);
-    const string replicas    = prop.getValue("Replicas", string());
-    if (! replicas.empty()) {
-        istringstream ser(replicas);
-        for (int i = 0; i < numReplicas; ++i) {
-            ServerLocation loc;
-            ser >> loc.hostname;
-            ser >> loc.port;
-            servers.push_back(loc);
+    pathname     = prop.getValue(
+        shortRpcFormatFlag ? "N" : "Path-name", string());
+    offset       = prop.getValue(
+        shortRpcFormatFlag ? "O" : "Chunk-offset", chunkOff_t(-1));
+    chunkVersion = prop.getValue(
+        shortRpcFormatFlag ? "V" : "Chunk-version", int64_t(-1));
+    const int numReplicas = prop.getValue(
+        shortRpcFormatFlag ? "R" : "Num-replicas", 0);
+    servers.clear();
+    if (0 < numReplicas) {
+        const Properties::String* const replicas = prop.getValue(
+            shortRpcFormatFlag ? "S" : "Replicas");
+        if (replicas) {
+            const char*       ptr = replicas->data();
+            const char* const end = ptr + replicas->size();
+            for (int i = 0; i < numReplicas; ++i) {
+                ServerLocation loc;
+                if (! loc.ParseString(ptr, end - ptr, shortRpcFormatFlag) ||
+                        ! loc.IsValid()) {
+                    status    = -EINVAL;
+                    statusMsg = "response replica location parse error: ";
+                    statusMsg.append(replicas->data(), replicas->size());
+                    break;
+                }
+                servers.push_back(loc);
+            }
         }
     }
 }
 
 void
-ChmodOp::Request(ostream &os)
+ChmodOp::Request(ReqOstream& os)
 {
     os <<
-        "CHMOD\r\n" << ReqHeaders(*this) <<
-        "File-handle: " << fid << "\r\n"
-        "Mode: "        << mode << "\r\n"
-        "\r\n";
+    "CHMOD\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "H:" : "File-handle: ") << fid  << "\r\n" <<
+    (shortRpcFormatFlag ? "M:" : "Mode: ")        << mode << "\r\n"
+    "\r\n";
     ;
 }
 
 void
-ChownOp::Request(ostream &os)
+ChownOp::Request(ReqOstream& os)
 {
     os <<
         "CHOWN\r\n" << ReqHeaders(*this) <<
         "File-handle: " << fid << "\r\n";
     if (user != kKfsUserNone) {
-        os << "Owner: " << user << "\r\n";
+        os << (shortRpcFormatFlag ? "O:" : "Owner: ") << user << "\r\n";
     }
     if (group != kKfsGroupNone) {
-        os << "Group: " << group << "\r\n";
+        os << (shortRpcFormatFlag ? "G:" : "Group: ") << group << "\r\n";
     }
     if (! userName.empty()) {
-        os << "OName: " << userName << "\r\n";
+        os << (shortRpcFormatFlag ? "ON:" : "OName: ") << userName << "\r\n";
     }
     if (! groupName.empty()) {
-        os << "GName: " << groupName << "\r\n";
+        os << (shortRpcFormatFlag ? "GN:" : "GName: ") << groupName << "\r\n";
     }
     os << "\r\n";
 }
@@ -1541,17 +1583,22 @@ void
 ChownOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     if (0 <= status) {
-        user      = prop.getValue("User",  user);
-        group     = prop.getValue("Group", group);
-        userName  = prop.getValue("UName", userName);
-        groupName = prop.getValue("GName", groupName);
+        user      = prop.getValue(
+            shortRpcFormatFlag ? "U" : "User",  user);
+        group     = prop.getValue(
+            shortRpcFormatFlag ? "G" : "Group", group);
+        userName  = prop.getValue(
+            shortRpcFormatFlag ? "UN" : "UName", userName);
+        groupName = prop.getValue(
+            shortRpcFormatFlag ? "GN" : "GName", groupName);
     }
 }
 
 void
 TruncateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    respEndOffset = prop.getValue("End-offset", int64_t(-1));
+    respEndOffset = prop.getValue(
+        shortRpcFormatFlag ? "O" : "End-offset", int64_t(-1));
     if (status == 0 && ! pruneBlksFromHead &&
             endOffset >= 0 && respEndOffset != endOffset) {
         status    = -EFAULT;
@@ -1560,14 +1607,18 @@ TruncateOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
-AuthenticateOp::Request(ostream& os)
+AuthenticateOp::Request(ReqOstream& os)
 {
     os <<
         "AUTHENTICATE\r\n" << ReqHeaders(*this) <<
-        "Auth-type: " << requestedAuthType << "\r\n"
+        (shortRpcFormatFlag ? "A" : "Auth-type: ") << requestedAuthType << "\r\n"
     ;
     if (0 < contentLength) {
-        os << "Content-length: " << contentLength << "\r\n";
+        os << (shortRpcFormatFlag ? "l" : "Content-length: ") <<
+            contentLength << "\r\n";
+    }
+    if (reqShortRpcFormatFlag) {
+        os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
     }
     os << "\r\n";
 }
@@ -1575,28 +1626,35 @@ AuthenticateOp::Request(ostream& os)
 void
 AuthenticateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    chosenAuthType = prop.getValue("Auth-type", int(kAuthenticationTypeUndef));
-    useSslFlag     = prop.getValue("Use-ssl", 0) != 0;
-    currentTime    = prop.getValue("Curtime", int64_t(-1));
-    sessionEndTime = prop.getValue("Endtime", int64_t(-1));
+    chosenAuthType = prop.getValue(
+        shortRpcFormatFlag ? "A" : "Auth-type", int(kAuthenticationTypeUndef));
+    useSslFlag     = prop.getValue(
+        shortRpcFormatFlag ? "US" : "Use-ssl", 0) != 0;
+    currentTime    = prop.getValue(
+        shortRpcFormatFlag ? "CT" : "Curtime", int64_t(-1));
+    sessionEndTime = prop.getValue(
+        shortRpcFormatFlag? "ET" : "Endtime", int64_t(-1));
 }
 
 void
-DelegateOp::Request(ostream& os)
+DelegateOp::Request(ReqOstream& os)
 {
     os <<
         "DELEGATE\r\n" << ReqHeaders(*this);
     if (0 < requestedValidForTime) {
-        os << "Valid-for-time: " << requestedValidForTime << "\r\n";
+        os << (shortRpcFormatFlag ? "V:" : "Valid-for-time: ") <<
+            requestedValidForTime << "\r\n";
     }
     if (allowDelegationFlag) {
-        os << "Allow-delegation: 1\r\n";
+        os << (shortRpcFormatFlag ? "D:1\r\n" : "Allow-delegation: 1\r\n");
     }
     if (! renewTokenStr.empty()) {
-        os << "Renew-token: " << renewTokenStr << "\r\n";
+        os << (shortRpcFormatFlag ? "T:" : "Renew-token: ") <<
+            renewTokenStr << "\r\n";
     }
     if (! renewKeyStr.empty()) {
-        os << "Renew-key: " << renewKeyStr << "\r\n";
+        os << (shortRpcFormatFlag ? "K:" : "Renew-key: ") <<
+            renewKeyStr << "\r\n";
     }
     os << "\r\n";
 }
@@ -1604,28 +1662,32 @@ DelegateOp::Request(ostream& os)
 void
 DelegateOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    issuedTime        = prop.getValue("Issued-time",          int64_t(0));
-    validForTime      = prop.getValue("Valid-for-time",       uint32_t(0));
-    tokenValidForTime = prop.getValue("Token-valid-for-time", validForTime);
-    access            = prop.getValue("Access",               string());
+    issuedTime        = prop.getValue(
+        shortRpcFormatFlag ? "TI" : "Issued-time",          int64_t(0));
+    validForTime      = prop.getValue(
+        shortRpcFormatFlag ? "TV" : "Valid-for-time",       uint32_t(0));
+    tokenValidForTime = prop.getValue(
+        shortRpcFormatFlag ? "TT" : "Token-valid-for-time", validForTime);
+    access            = prop.getValue(
+        shortRpcFormatFlag ? "A"  : "Access",               string());
 }
 
 void
-DelegateCancelOp::Request(ostream& os)
+DelegateCancelOp::Request(ReqOstream& os)
 {
     os <<
         "DELEGATE_CANCEL\r\n" << ReqHeaders(*this);
     if (! tokenStr.empty()) {
-        os << "Token: " << tokenStr << "\r\n";
+        os << (shortRpcFormatFlag ? "T:" : "Token: ") << tokenStr << "\r\n";
     }
     if (! keyStr.empty()) {
-        os << "Key: " << keyStr << "\r\n";
+        os << (shortRpcFormatFlag ? "K:" : "Key: ") << keyStr << "\r\n";
     }
     os << "\r\n";
 }
 
 void
-MetaPingOp::Request(ostream& os)
+MetaPingOp::Request(ReqOstream& os)
 {
     os <<
     "PING\r\n" << ReqHeaders(*this) <<
@@ -1634,11 +1696,11 @@ MetaPingOp::Request(ostream& os)
 }
 
 void
-MetaToggleWORMOp::Request(ostream& os)
+MetaToggleWORMOp::Request(ReqOstream& os)
 {
     os <<
     "TOGGLE_WORM\r\n" << ReqHeaders(*this) <<
-    "Toggle-WORM: "   << value << "\r\n"
+    (shortRpcFormatFlag ? "T:" : "Toggle-WORM: ") << value << "\r\n"
     "\r\n"
     ;
 }
@@ -1688,7 +1750,7 @@ MetaPingOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
-ChunkPingOp::Request(ostream& os)
+ChunkPingOp::Request(ReqOstream& os)
 {
     os <<
     "PING\r\n" << ReqHeaders(*this) <<
@@ -1706,7 +1768,7 @@ ChunkPingOp::ParseResponseHeaderSelf(const Properties& prop)
 }
 
 void
-MetaStatsOp::Request(ostream& os)
+MetaStatsOp::Request(ReqOstream& os)
 {
     os <<
     "STATS\r\n" << ReqHeaders(*this) <<
@@ -1715,7 +1777,7 @@ MetaStatsOp::Request(ostream& os)
 }
 
 void
-ChunkStatsOp::Request(ostream& os)
+ChunkStatsOp::Request(ReqOstream& os)
 {
     os <<
     "STATS\r\n" << ReqHeaders(*this) <<
@@ -1727,22 +1789,27 @@ void
 MetaStatsOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     stats = prop;
+    stats.setIntBase(10);
 }
 
 void
 ChunkStatsOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     stats = prop;
+    stats.setIntBase(10);
 }
 
 void
-RetireChunkserverOp::Request(ostream& os)
+RetireChunkserverOp::Request(ReqOstream& os)
 {
     os <<
     "RETIRE_CHUNKSERVER\r\n" << ReqHeaders(*this) <<
-    "Downtime: "             << downtime          << "\r\n"
-    "Chunk-server-name: "    << chunkLoc.hostname << "\r\n"
-    "Chunk-server-port: "    << chunkLoc.port     << "\r\n"
+    (shortRpcFormatFlag ? "D:" : "Downtime: ")
+        << downtime << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-server-name: ")
+        << chunkLoc.hostname << "\r\n" <<
+    (shortRpcFormatFlag ? "P:" : "Chunk-server-port: ")
+        << chunkLoc.port     << "\r\n"
     "\r\n"
     ;
 }
@@ -1753,11 +1820,12 @@ RetireChunkserverOp::ParseResponseHeaderSelf(const Properties& /* prop */)
 }
 
 void
-FsckOp::Request(ostream& os)
+FsckOp::Request(ReqOstream& os)
 {
     os <<
-   "FSCK\r\n"                 << ReqHeaders(*this)                  <<
-   "Report-Abandoned-Files: " << (reportAbandonedFilesFlag ? 1 : 0) << "\r\n"
+    "FSCK\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "A:" : "Report-Abandoned-Files: ") <<
+        (reportAbandonedFilesFlag ? 1 : 0) << "\r\n"
     "\r\n"
     ;
 }
@@ -1768,7 +1836,7 @@ FsckOp::ParseResponseHeaderSelf(const Properties& /* prop */)
 }
 
 void
-MetaMonOp::Request(ostream& os)
+MetaMonOp::Request(ReqOstream& os)
 {
     os << verb << "\r\n" << ReqHeaders(*this);
     for (Properties::iterator it = requestProps.begin();

@@ -124,6 +124,7 @@ enum KfsOp_t {
     CMD_NCMDS
 };
 
+typedef ostream ReqOstream;
 struct KfsOp {
     class Display
     {
@@ -201,8 +202,8 @@ struct KfsOp {
         contentBufLen = 0;
     }
     // Build a request RPC that can be sent to the server
-    virtual void Request(ostream &os) = 0;
-    virtual bool NextRequest(kfsSeq_t /* seq */, ostream& /* os */)
+    virtual void Request(ReqOstream& os) = 0;
+    virtual bool NextRequest(kfsSeq_t /* seq */, ReqOstream& /* os */)
         { return false; }
 
     // Common parsing code: parse the response from string and fill
@@ -242,7 +243,7 @@ struct KfsNullOp : public KfsOp
     KfsNullOp()
         : KfsOp(CMD_UNKNOWN, 0)
         {}
-    virtual void Request(ostream& /* os */)
+    virtual void Request(ReqOstream& /* os */)
         {}
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "NULL op"); }
@@ -296,7 +297,7 @@ struct CreateOp : public KfsOp {
           userName(),
           groupName()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "create: " << filename << " parent: " << parentFid;
@@ -311,7 +312,7 @@ struct RemoveOp : public KfsOp {
     RemoveOp(kfsSeq_t s, kfsFileId_t p, const char* f, const char* pn)
         : KfsOp(CMD_REMOVE, s), parentFid(p), filename(f), pathname(pn)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "remove: " << filename << " (parentfid = " << parentFid << ")";
         return os;
@@ -341,7 +342,7 @@ struct MkdirOp : public KfsOp {
           userName(),
           groupName()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "mkdir: " << dirname << " parent: " << parentFid;
@@ -356,7 +357,7 @@ struct RmdirOp : public KfsOp {
     RmdirOp(kfsSeq_t s, kfsFileId_t p, const char* d, const char* pn)
         : KfsOp(CMD_RMDIR, s), parentFid(p), dirname(d), pathname(pn)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     // default parsing of OK/Cseq/Status/Content-length will suffice.
 
     virtual ostream& ShowSelf(ostream& os) const {
@@ -376,7 +377,7 @@ struct RenameOp : public KfsOp {
         KfsOp(CMD_RENAME, s), parentFid(p), oldname(o),
         newpath(n), oldpath(op), overwrite(c)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
 
     // default parsing of OK/Cseq/Status/Content-length will suffice.
 
@@ -404,7 +405,7 @@ struct ReaddirOp : public KfsOp {
           hasMoreEntriesFlag(false),
           fnameStart()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     // This will only extract out the default+num-entries.  The actual
     // dir. entries are in the content-length portion of things
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -425,7 +426,7 @@ struct SetMtimeOp : public KfsOp {
     SetMtimeOp(kfsSeq_t s, const char* p, const struct timeval& m)
         : KfsOp(CMD_SETMTIME, s), pathname(p), mtime(m)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "setmtime: " << pathname <<
             " mtime: " << mtime.tv_sec << ':' << mtime.tv_usec;
@@ -437,7 +438,7 @@ struct DumpChunkServerMapOp : public KfsOp {
         DumpChunkServerMapOp(kfsSeq_t s)
             : KfsOp(CMD_META_DUMP_CHUNKTOSERVERMAP, s)
             {}
-        void Request(ostream& os);
+        void Request(ReqOstream& os);
         virtual void ParseResponseHeaderSelf(const Properties& prop);
         virtual ostream& ShowSelf(ostream& os) const {
             os << "dumpchunktoservermap";
@@ -449,7 +450,7 @@ struct UpServersOp : public KfsOp {
     UpServersOp(kfsSeq_t s)
         : KfsOp(CMD_META_UPSERVERS, s)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "upservers";
@@ -461,7 +462,7 @@ struct DumpChunkMapOp : public KfsOp {
         DumpChunkMapOp(kfsSeq_t s)
             : KfsOp(CMD_META_DUMP_CHUNKTOSERVERMAP, s)
             {}
-        void Request(ostream& os);
+        void Request(ReqOstream& os);
         virtual void ParseResponseHeaderSelf(const Properties& prop);
         virtual ostream& ShowSelf(ostream& os) const {
             os << "dumpchunkmap";
@@ -487,7 +488,7 @@ struct ReaddirPlusOp : public KfsOp {
           numEntries(0),
           fnameStart()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     // This will only extract out the default+num-entries.  The actual
     // dir. entries are in the content-length portion of things
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -511,6 +512,7 @@ struct LookupOp : public KfsOp {
     kfsGid_t    egroup;    // result -- effective group set by the meta server
     int         authType;  // in / out auth type.
     bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
+    bool        reqShortRpcFormatFlag;
     string      userName;
     string      groupName;
     string      euserName;
@@ -524,12 +526,13 @@ struct LookupOp : public KfsOp {
           egroup(eg),
           authType(kAuthenticationTypeUndef),
           getAuthInfoOnlyFlag(false),
+          reqShortRpcFormatFlag(false),
           userName(),
           groupName(),
           euserName(),
           egroupName()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
     virtual ostream& ShowSelf(ostream& os) const {
@@ -557,7 +560,7 @@ struct LookupPathOp : public KfsOp {
           userName(),
           groupName()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
     virtual ostream& ShowSelf(ostream& os) const {
@@ -575,7 +578,7 @@ struct CoalesceBlocksOp: public KfsOp {
     CoalesceBlocksOp(kfsSeq_t s, const string& o, const string& n) :
         KfsOp(CMD_COALESCE_BLOCKS, s), srcPath(o), dstPath(n)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "coalesce blocks: " << srcPath << "<-" << dstPath;
@@ -590,6 +593,7 @@ struct GetAllocOp: public KfsOp {
     kfsChunkId_t           chunkId;      // result
     int64_t                chunkVersion; // result
     bool                   serversOrderedFlag; // result: meta server ordered the servers list
+    bool                   allCSShortRpcFlag;
                                                // by its preference / load -- try the servers in this order.
     vector<ServerLocation> chunkServers; // result: where the chunk is hosted name/port
     string                 filename;     // input
@@ -601,10 +605,11 @@ struct GetAllocOp: public KfsOp {
           chunkId(-1),
           chunkVersion(-1),
           serversOrderedFlag(false),
+          allCSShortRpcFlag(false),
           chunkServers(),
           filename()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os <<
@@ -614,7 +619,8 @@ struct GetAllocOp: public KfsOp {
             " chunkId: " << chunkId <<
             " version: " << chunkVersion <<
             " ordered: " << serversOrderedFlag <<
-            " servers: " << chunkServers.size()
+            " servers: " << chunkServers.size() <<
+            (allCSShortRpcFlag ? " CSShortFmt" : "")
         ;
         for (vector<ServerLocation>::const_iterator it = chunkServers.begin();
                 it != chunkServers.end();
@@ -653,6 +659,7 @@ struct GetLayoutOp: public KfsOp {
     int                     numChunks;
     int                     maxChunks;
     bool                    hasMoreChunksFlag;
+    bool                    allCSShortRpcFlag;
     chunkOff_t              fileSize;
     vector<ChunkLayoutInfo> chunks;
     GetLayoutOp(kfsSeq_t s, kfsFileId_t f)
@@ -665,10 +672,11 @@ struct GetLayoutOp: public KfsOp {
           numChunks(0),
           maxChunks(-1),
           hasMoreChunksFlag(false),
+          allCSShortRpcFlag(false),
           fileSize(-1),
           chunks()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     int ParseLayoutInfo(bool clearFlag = true);
     virtual ostream& ShowSelf(ostream& os) const {
@@ -804,7 +812,7 @@ struct ChunkAccessOp: public KfsOp {
         AccessReq(const ChunkAccessOp& op)
             : mOp(op)
             {}
-        ostream& Write(ostream& os) const
+        ReqOstream& Write(ReqOstream& os) const
             { return mOp.WriteReq(os); }
     private:
         const ChunkAccessOp& mOp;
@@ -840,7 +848,7 @@ struct ChunkAccessOp: public KfsOp {
         {}
     AccessReq Access() const
         { return AccessReq(*this); }
-    ostream& WriteReq(ostream& os) const
+    ReqOstream& WriteReq(ReqOstream& os) const
     {
         if (access.empty()) {
             return os;
@@ -862,8 +870,8 @@ struct ChunkAccessOp: public KfsOp {
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 };
 
-inline static ostream&
-operator<<(ostream& os, const ChunkAccessOp::AccessReq& req)
+inline static ReqOstream&
+operator<<(ReqOstream& os, const ChunkAccessOp::AccessReq& req)
 { return req.Write(os); }
 
 // Get the chunk metadata (aka checksums) stored on the chunkservers
@@ -873,7 +881,7 @@ struct GetChunkMetadataOp: public ChunkAccessOp {
         : ChunkAccessOp(CMD_GET_CHUNK_METADATA, s, c),
           readVerifyFlag(verifyFlag)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "get chunk metadata: chunkId: " << chunkId;
         return os;
@@ -897,6 +905,7 @@ struct AllocateOp : public KfsOp {
     int                    maxAppendersPerChunk;
     bool                   invalidateAllFlag;
     bool                   allowCSClearTextFlag;
+    bool                   allCSShortRpcFlag;
     int64_t                chunkServerAccessValidForTime;
     int64_t                chunkServerAccessIssuedTime;
     string                 chunkAccess;
@@ -915,19 +924,21 @@ struct AllocateOp : public KfsOp {
         maxAppendersPerChunk(64),
         invalidateAllFlag(false),
         allowCSClearTextFlag(false),
+        allCSShortRpcFlag(false),
         chunkServerAccessValidForTime(0),
         chunkServerAccessIssuedTime(0),
         chunkAccess(),
         chunkServerAccessToken(),
         chunkServerAccessKey()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "allocate:"
             " fid: "    << fid <<
             " offset: " << fileOffset <<
-            (invalidateAllFlag ? " invalidate" : "");
+            (invalidateAllFlag ? " invalidate" : "") <<
+            (allCSShortRpcFlag ? " CSShortFmt" : "");
         const size_t sz = chunkServers.size();
         if (sz > 0) {
             os <<
@@ -967,7 +978,7 @@ struct TruncateOp : public KfsOp {
           checkPermsFlag(false),
           respEndOffset(-1)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os <<
@@ -1021,7 +1032,7 @@ struct CloseOp : public ChunkAccessOp {
         : ChunkAccessOp(CMD_CLOSE, s, c),
           writeInfo(wi)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "close: chunkid: " << chunkId;
         return os;
@@ -1038,7 +1049,7 @@ struct SizeOp : public ChunkAccessOp {
           chunkVersion(v),
           size(-1)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os <<
@@ -1071,7 +1082,7 @@ struct ReadOp : public ChunkAccessOp {
           diskIOTime(0.0),
           elapsedTime(0.0)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "read:"
@@ -1106,7 +1117,7 @@ struct WriteIdAllocOp : public ChunkAccessOp {
     {
 
     }
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "write-id-alloc: chunkid: " << chunkId <<
@@ -1133,7 +1144,7 @@ struct WritePrepareOp : public ChunkAccessOp {
           checksums(),
           writeInfo()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "write-prepare:"
             " chunkid: "  << chunkId <<
@@ -1162,7 +1173,7 @@ struct WriteSyncOp : public ChunkAccessOp {
           numBytes(0),
           writeInfo()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "write-sync:"
             " chunkid: "  << chunkId <<
@@ -1236,7 +1247,7 @@ struct LeaseAcquireOp : public KfsOp {
           leaseIds(0),
           getChunkLocationsFlag(false)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "lease-acquire:"
@@ -1268,7 +1279,7 @@ struct LeaseRenewOp : public KfsOp {
           chunkServerAccessIssuedTime(0),
           allowCSClearTextFlag(false)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     // default parsing of status is sufficient
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1292,7 +1303,7 @@ struct LeaseRelinquishOp : public KfsOp {
           chunkId(c),
           leaseId(l)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     // defaut parsing of status is sufficient
     virtual ostream& ShowSelf(ostream& os) const {
         os << "lease-relinquish: chunkid: " << chunkId <<
@@ -1314,7 +1325,7 @@ struct ChunkSpaceReserveOp : public ChunkAccessOp {
           numBytes(n),
           writeInfo(w)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk-space-reserve: chunkid: " << chunkId <<
             " version: " << chunkVersion << " num-bytes: " << numBytes;
@@ -1334,7 +1345,7 @@ struct ChunkSpaceReleaseOp : public ChunkAccessOp {
           numBytes(n),
           writeInfo(w)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk-space-release: chunkid: " << chunkId <<
             " version: " << chunkVersion << " num-bytes: " << numBytes;
@@ -1354,7 +1365,7 @@ struct RecordAppendOp : public ChunkAccessOp {
           offset(o),
           writeInfo(w)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "record-append: chunkid: " << chunkId <<
             " version: " << chunkVersion <<
@@ -1407,7 +1418,7 @@ struct GetRecordAppendOpStatus : public ChunkAccessOp
         widWasReadOnlyFlag(false),
         widReadOnlyFlag(false)
     {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1451,7 +1462,7 @@ struct ChangeFileReplicationOp : public KfsOp {
           maxSTier(kKfsSTierUndef)
         {}
 
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1483,7 +1494,7 @@ struct GetPathNameOp : public KfsOp {
           userName(),
           groupName()
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "getpathname:"
@@ -1503,7 +1514,7 @@ struct ChmodOp : public KfsOp {
           fid(f),
           mode(m)
         {}
-    void Request(ostream& os);
+    void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chmod:"
             " fid: "    << fid <<
@@ -1528,7 +1539,7 @@ struct ChownOp : public KfsOp {
           userName(),
           groupName()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chown:"
@@ -1547,6 +1558,7 @@ struct AuthenticateOp : public KfsOp {
     int     requestedAuthType;
     int     chosenAuthType;
     bool    useSslFlag;
+    bool    reqShortRpcFormatFlag;
     int64_t currentTime;
     int64_t sessionEndTime;
 
@@ -1555,10 +1567,11 @@ struct AuthenticateOp : public KfsOp {
           requestedAuthType(authType),
           chosenAuthType(kAuthenticationTypeUndef),
           useSslFlag(false),
+          reqShortRpcFormatFlag(false),
           currentTime(-1),
           sessionEndTime(-1)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "authenticate:"
@@ -1596,7 +1609,7 @@ struct DelegateOp : public KfsOp {
           renewKeyStr(),
           access()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "delegate:"
@@ -1619,7 +1632,7 @@ struct DelegateCancelOp : public KfsOp {
           tokenStr(),
           keyStr()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "delegate cancel:"
             " token: "  << tokenStr <<
@@ -1639,7 +1652,7 @@ struct MetaPingOp : public KfsMonOp {
           upServers(),
           downServers()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "meta ping:"
@@ -1655,7 +1668,7 @@ struct MetaToggleWORMOp : public KfsMonOp {
         : KfsMonOp(CMD_META_TOGGLE_WORM, s),
           value(v)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "toggle worm:"
@@ -1676,7 +1689,7 @@ struct ChunkPingOp : public KfsMonOp {
           totalSpace(-1),
           usedSpace(-1)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk server ping:"
@@ -1693,7 +1706,7 @@ struct MetaStatsOp : public KfsMonOp {
         : KfsMonOp(CMD_META_STATS, s),
           stats()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "meta stats:"
@@ -1709,7 +1722,7 @@ struct ChunkStatsOp : public KfsMonOp {
         : KfsMonOp(CMD_CHUNK_STATS, s),
           stats()
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk stats:"
@@ -1727,7 +1740,7 @@ struct RetireChunkserverOp : public KfsMonOp {
           chunkLoc(c),
           downtime(d)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "retire chunk server:"
@@ -1745,7 +1758,7 @@ struct FsckOp : public KfsMonOp {
         : KfsMonOp(CMD_META_FSCK, inSeq),
           reportAbandonedFilesFlag(inReportAbandonedFilesFlag)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "fsck:"
@@ -1763,7 +1776,7 @@ struct MetaMonOp : public KfsMonOp {
         : KfsMonOp(op, seq),
           verb(inVerb)
         {}
-    virtual void Request(ostream& os);
+    virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
         return (os << verb << " status: " << status);

@@ -1043,6 +1043,23 @@ public:
     }
 };
 
+class EnumerateLocationsShortRpc
+{
+    ServerLocations& v;
+    bool&            shortRpcFlag;
+public:
+    EnumerateLocationsShortRpc(ServerLocations& result, bool& flag)
+        : v(result),
+          shortRpcFlag(flag)
+        {}
+    void operator()(const ChunkServerPtr& c) const
+    {
+        v.push_back(c->GetServerLocation());
+        shortRpcFlag = shortRpcFlag && c->IsShortRpcFormat();
+    }
+};
+
+
 class ListServerLocations
 {
     ReqOstream& os;
@@ -1655,7 +1672,9 @@ MetaGetalloc::handle()
         return;
     }
     locations.reserve(c.size());
-    for_each(c.begin(), c.end(), EnumerateLocations(locations));
+    allChunkServersShortRpcFlag = shortRpcFormatFlag;
+    for_each(c.begin(), c.end(), EnumerateLocationsShortRpc(locations,
+        allChunkServersShortRpcFlag));
     status = 0;
 }
 
@@ -1727,6 +1746,7 @@ MetaGetlayout::handle()
     const char*     prefix = "";
     Servers         c;
     ChunkLayoutInfo l;
+    allChunkServersShortRpcFlag = shortRpcFormatFlag;
     for (int i = 0; i < numChunks; i++) {
         l.locations.clear();
         l.offset       = chunkInfo[i]->offset;
@@ -1745,7 +1765,8 @@ MetaGetlayout::handle()
                 break;
             }
             for_each(c.begin(), c.end(),
-                EnumerateLocations(l.locations));
+                EnumerateLocationsShortRpc(l.locations,
+                    allChunkServersShortRpcFlag));
         }
         if (! (os << prefix << l)) {
             break;
@@ -2573,6 +2594,9 @@ MetaGetPathName::handle()
 {
     ostringstream& oss = GetTmpOStringStream();
     ReqOstream os(oss);
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
     const MetaFattr* fa = 0;
     if (fid < 0) {
         const MetaChunkInfo*   chunkInfo = 0;
@@ -2585,13 +2609,16 @@ MetaGetPathName::handle()
         }
         if (chunkInfo) {
             os <<
-            "Chunk-offset: "  << chunkInfo->offset       << "\r\n"
-            "Chunk-version: " << chunkInfo->chunkVersion << "\r\n"
+            (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
+                chunkInfo->offset << "\r\n" <<
+            (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+                chunkInfo->chunkVersion << "\r\n"
             ;
         }
-        os << "Num-replicas: " << srvs.size() << "\r\n";
+        os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+            srvs.size() << "\r\n";
         if (! srvs.empty()) {
-            os << "Replicas:";
+            os << (shortRpcFormatFlag ? "S:" : "Replicas:");
             for_each(srvs.begin(), srvs.end(),
                 PrintChunkServerLocations(os));
             os << "\r\n";
@@ -2612,7 +2639,8 @@ MetaGetPathName::handle()
                 return;
             }
         }
-        os << "Path-name: " << metatree.getPathname(fa) << "\r\n";
+        os << (shortRpcFormatFlag ? "N:" : "Path-name: ") <<
+            metatree.getPathname(fa) << "\r\n";
         FattrReply(fa, fattr);
     }
     result = oss.str();
@@ -4215,6 +4243,9 @@ MetaGetalloc::response(ReqOstream& os)
     }
     os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
         locations.size() << "\r\n";
+    if (shortRpcFormatFlag && allChunkServersShortRpcFlag) {
+        os << "SS:1\r\n";
+    }
     assert(locations.size() > 0);
     os << (shortRpcFormatFlag ? "S:" : "Replicas:");
     for_each(locations.begin(), locations.end(), ListServerLocations(os));
@@ -4232,6 +4263,9 @@ MetaGetlayout::response(ReqOstream& os, IOBuffer& buf)
     }
     if (0 <= fileSize) {
         os << (shortRpcFormatFlag ? "S:" : "File-size: ") << fileSize << "\r\n";
+    }
+    if (shortRpcFormatFlag && allChunkServersShortRpcFlag) {
+        os << "SS:1\r\n";
     }
     os <<
         (shortRpcFormatFlag ? "C:" : "Num-chunks: ") << numChunks << "\r\n" <<
@@ -4333,6 +4367,9 @@ MetaAllocate::responseSelf(ReqOstream& os)
     assert(! servers.empty() || invalidateAllFlag);
     if (! shortRpcFormatFlag && ! servers.empty() && servers.front()) {
         os << "Master: " << servers.front()->GetServerLocation() << "\r\n";
+    }
+    if (shortRpcFormatFlag && allChunkServersShortRpcFlag) {
+        os << "SS:1\r\n";
     }
     os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
         servers.size() << "\r\n";

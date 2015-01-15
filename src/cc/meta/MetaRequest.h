@@ -803,6 +803,7 @@ struct MetaGetalloc: public MetaRequest {
     ServerLocations locations;    //!< where the copies of the chunks are
     StringBufT<256> pathname;     //!< pathname of the file (useful to print in debug msgs)
     bool            replicasOrderedFlag;
+    bool            allChunkServersShortRpcFlag;
     MetaGetalloc()
         : MetaRequest(META_GETALLOC, false),
           fid(-1),
@@ -811,7 +812,8 @@ struct MetaGetalloc: public MetaRequest {
           chunkVersion(-1),
           locations(),
           pathname(),
-          replicasOrderedFlag(false)
+          replicasOrderedFlag(false),
+          allChunkServersShortRpcFlag(false)
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -851,6 +853,7 @@ struct MetaGetlayout: public MetaRequest {
     int        maxResCnt;
     int        numChunks;
     bool       hasMoreChunksFlag;
+    bool       allChunkServersShortRpcFlag;
     chunkOff_t fileSize;
     IOBuffer   resp;   //!< result
     MetaGetlayout()
@@ -863,6 +866,7 @@ struct MetaGetlayout: public MetaRequest {
           maxResCnt(-1),
           numChunks(-1),
           hasMoreChunksFlag(false),
+          allChunkServersShortRpcFlag(false),
           fileSize(-1),
           resp()
         {}
