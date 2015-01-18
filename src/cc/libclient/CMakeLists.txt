@@ -26,7 +26,6 @@
 # Take all the .cc files and build a library out of them
 set (sources
     KfsOps.cc
-    FileOpener.cc
     KfsClient.cc
     KfsNetClient.cc
     KfsProtocolWorker.cc

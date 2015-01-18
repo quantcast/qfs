@@ -33,7 +33,7 @@
 namespace KFS {
 namespace client {
 
-void GetTimeval(const char* s, struct timeval& tv);
+void GetTimeval(const char* s, struct timeval& tv, bool hexFormatFlag);
 void Sleep(int secs);
 
 }

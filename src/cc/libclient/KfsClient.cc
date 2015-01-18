@@ -4973,7 +4973,8 @@ KfsClientImpl::InitUserAndGroupMode()
     // If no root directory exists or not searchable, then the results is
     // doesn't have much effect on subsequent ops.
     LookupOp lrop(0, ROOTFID, ".");
-    lrop.getAuthInfoOnlyFlag = true;
+    lrop.reqShortRpcFormatFlag = true;
+    lrop.getAuthInfoOnlyFlag   = true;
     ExecuteMeta(lrop);
     const time_t now = time(0);
     UpdateUserAndGroup(lrop, now);

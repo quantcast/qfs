@@ -62,7 +62,6 @@ static const char* InitHostName()
 static const char* const sHostName(InitHostName());
 
 string KfsOp::sExtraHeaders;
-string KfsOp::sShortExtraHeaders;
 
 class KfsOp::ReqHeaders
 {
@@ -81,8 +80,13 @@ public:
         }
         os << (op.shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
             KFS_CLIENT_PROTO_VERS << "\r\n";
-        os << (op.shortRpcFormatFlag ?
-            KfsOp::sShortExtraHeaders : KfsOp::sExtraHeaders);
+        if (op.shortRpcFormatFlag) {
+            if (op.shortExtraHeaders) {
+                os << op.shortExtraHeaders;
+            }
+        } else {
+            os << KfsOp::sExtraHeaders;
+        }
         if (0 < op.maxWaitMillisec) {
             os << (op.shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
                 op.maxWaitMillisec << "\r\n";
@@ -346,7 +350,7 @@ ReaddirPlusOp::Request(ReqOstream& os)
         (shortRpcFormatFlag ? "M:"  : "Max-entries: ") << numEntries << "\r\n"
     ;
     if (fileIdAndTypeOnlyFlag) {
-        os << (shortRpcFormatFlag ? "F:1\r]n" : "FidT-only: 1\r\n");
+        os << (shortRpcFormatFlag ? "F:1\r\n" : "FidT-only: 1\r\n");
     } else if (omitLastChunkInfoFlag) {
         os << (shortRpcFormatFlag ? "O:1\r\n" : "Omit-lci: 1\r\n");
     }
@@ -385,8 +389,8 @@ LookupOp::Request(ReqOstream& os)
     if (getAuthInfoOnlyFlag) {
         os << (shortRpcFormatFlag ? "I:1\r\n" : "Auth-info-only: 1\r\n");
     }
-    if (reqShortRpcFormatFlag) {
-        os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
+    if (reqShortRpcFormatFlag && ! shortRpcFormatFlag) {
+        os << "Short-rpc-fmt: 1\r\n";
     }
     os << "\r\n";
 }
@@ -742,7 +746,7 @@ LeaseAcquireOp::Request(ReqOstream& os)
             leaseTimeout << "\r\n";
     }
     if (appendRecoveryFlag) {
-        os << (shortRpcFormatFlag ? "A:\r\n" : "Append-recovery: 1\r\n");
+        os << (shortRpcFormatFlag ? "A:1\r\n" : "Append-recovery: 1\r\n");
         const size_t cnt = appendRecoveryLocations.size();
         if (0 < cnt) {
             os << (shortRpcFormatFlag ? "R:" : "Append-recovery-loc:");
@@ -1028,7 +1032,8 @@ ReaddirPlusOp::ParseResponseHeaderSelf(const Properties& prop)
 void
 MkdirOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    fileId = prop.getValue("File-handle", (kfsFileId_t) -1);
+    fileId = prop.getValue(
+        shortRpcFormatFlag ? "P" : "File-handle", (kfsFileId_t) -1);
     if (0 <= status) {
         permissions.user  = prop.getValue(
             shortRpcFormatFlag ? "u" : "User",      permissions.user);
@@ -1072,11 +1077,14 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
         shortRpcFormatFlag ? "R" : "Replication", 1);
 
     GetTimeval(prop.getValue(
-        shortRpcFormatFlag ? "MT" : "M-Time",  ""), fattr.mtime);
+        shortRpcFormatFlag ? "MT" : "M-Time",  ""), fattr.mtime,
+        shortRpcFormatFlag);
     GetTimeval(prop.getValue(
-        shortRpcFormatFlag ? "CT" : "C-Time",  ""), fattr.ctime);
+        shortRpcFormatFlag ? "CT" : "C-Time",  ""), fattr.ctime,
+        shortRpcFormatFlag);
     GetTimeval(prop.getValue(
-        shortRpcFormatFlag ? "CR" : "CR-Time", ""), fattr.crtime);
+        shortRpcFormatFlag ? "CR" : "CR-Time", ""), fattr.crtime,
+        shortRpcFormatFlag);
 
     const int type = prop.getValue(
         shortRpcFormatFlag ? "ST" : "Striper-type", int(KFS_STRIPED_FILE_TYPE_NONE));
@@ -1563,7 +1571,7 @@ ChownOp::Request(ReqOstream& os)
 {
     os <<
         "CHOWN\r\n" << ReqHeaders(*this) <<
-        "File-handle: " << fid << "\r\n";
+        (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid << "\r\n";
     if (user != kKfsUserNone) {
         os << (shortRpcFormatFlag ? "O:" : "Owner: ") << user << "\r\n";
     }
@@ -1611,14 +1619,14 @@ AuthenticateOp::Request(ReqOstream& os)
 {
     os <<
         "AUTHENTICATE\r\n" << ReqHeaders(*this) <<
-        (shortRpcFormatFlag ? "A" : "Auth-type: ") << requestedAuthType << "\r\n"
+        (shortRpcFormatFlag ? "A:" : "Auth-type: ") << requestedAuthType << "\r\n"
     ;
     if (0 < contentLength) {
-        os << (shortRpcFormatFlag ? "l" : "Content-length: ") <<
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
             contentLength << "\r\n";
     }
-    if (reqShortRpcFormatFlag) {
-        os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
+    if (reqShortRpcFormatFlag && ! shortRpcFormatFlag) {
+        os << "Short-rpc-fmt: 1\r\n";
     }
     os << "\r\n";
 }

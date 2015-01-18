@@ -388,7 +388,7 @@ private:
                 delete this;
             }
             virtual void Request(
-                ostream& inStream)
+                ReqOstream& inStream)
             {
                 if (mWritePrepareOp.replyRequestedFlag) {
                     mWritePrepareOp.seq = seq;
@@ -399,8 +399,8 @@ private:
                 mWritePrepareOp.Request(inStream);
             }
             virtual bool NextRequest(
-                kfsSeq_t inSeqNum,
-                ostream& inStream)
+                kfsSeq_t    inSeqNum,
+                ReqOstream& inStream)
             {
                 if (mWritePrepareOp.replyRequestedFlag) {
                     return false;
@@ -1316,7 +1316,8 @@ private:
             KfsOp& inOp)
         {
             ostringstream theOStream;
-            inOp.Request(theOStream);
+            ReqOstream theStream(theOStream);
+            inOp.Request(theStream);
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "operation"
                 " failure, seq: "         << inOp.seq       <<

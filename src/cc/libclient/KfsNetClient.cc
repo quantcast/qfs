@@ -144,6 +144,7 @@ class KfsNetClient::Impl :
 {
 public:
     typedef KfsClientRefCount::StRef StRef;
+    typedef KfsNetClient::RpcFormat  RpcFormat;
 
     Impl(
         string             inHost,
@@ -192,6 +193,7 @@ public:
           mMaxContentLength(inMaxContentLength),
           mAuthFailureCount(0),
           mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
+          mRpcFormat(kRpcFormatLong),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
           mInFlightRecvBufPtr(0),
@@ -270,6 +272,11 @@ public:
         EnsureConnected(inErrMsgPtr);
         return (mSleepingFlag || IsConnected());
     }
+    void SetRpcFormat(
+        RpcFormat inRpcFormat)
+        {  mRpcFormat = inRpcFormat; }
+    RpcFormat GetRpcFormat() const
+        { return mRpcFormat; }
     void SetAuthContext(
         ClientAuthContext* inAuthContextPtr)
         { mAuthContextPtr = inAuthContextPtr; }
@@ -902,6 +909,7 @@ private:
     int                mMaxContentLength;
     int                mAuthFailureCount;
     int                mMaxRpcHeaderLength;
+    RpcFormat          mRpcFormat;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
     char*              mInFlightRecvBufPtr;
@@ -991,8 +999,12 @@ private:
         bool          inFlushFlag = true)
     {
         KfsOp& theOp = *inEntry.mOpPtr;
-        theOp.Request(mOstream.Set(mConnPtr->GetOutBuffer()));
-        mOstream.Reset();
+        theOp.shortRpcFormatFlag = mRpcFormat == kRpcFormatShort;
+        {
+            ReqOstream theStream(mOstream.Set(mConnPtr->GetOutBuffer()));
+            theOp.Request(theStream);
+            mOstream.Reset();
+        }
         if (theOp.contentLength > 0) {
             if (theOp.contentBuf && theOp.contentBufLen > 0) {
                 assert(theOp.contentBufLen >= theOp.contentLength);
@@ -1005,9 +1017,11 @@ private:
                     inResetTimerFlag);
             }
         }
-        while (theOp.NextRequest(
-                mNextSeqNum,
-                mOstream.Set(mConnPtr->GetOutBuffer()))) {
+        for (; ;) {
+            ReqOstream theStream(mOstream.Set(mConnPtr->GetOutBuffer()));
+            if (! theOp.NextRequest(mNextSeqNum, theStream)) {
+                break;
+            }
             mNextSeqNum++;
             mOstream.Reset();
         }
@@ -1136,8 +1150,15 @@ private:
         }
         inBuffer.Consume(theHdrLen);
         mReadHeaderDoneFlag = true;
-        mContentLength = mProperties.getValue("Content-length", 0);
-        const kfsSeq_t theOpSeq = mProperties.getValue("Cseq", kfsSeq_t(-1));
+        if (kRpcFormatUndef == mRpcFormat) {
+            mRpcFormat = mProperties.getValue("c") ?
+                kRpcFormatShort : kRpcFormatLong;
+        }
+        mProperties.setIntBase(kRpcFormatShort == mRpcFormat ? 16 : 10);
+        const kfsSeq_t theOpSeq = mProperties.getValue(
+            kRpcFormatShort == mRpcFormat ? "c" : "Cseq", kfsSeq_t(-1));
+        mContentLength = mProperties.getValue(
+            kRpcFormatShort == mRpcFormat ? "l" : "Content-length", 0);
         if (mContentLength > mMaxContentLength) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "error: " << mServerLocation <<
@@ -1162,6 +1183,10 @@ private:
             KFS_LOG_EOM;
             mContentLength -= inBuffer.Consume(mContentLength);
             return true;
+        }
+        if (mInFlightOpPtr->mOpPtr) {
+            mInFlightOpPtr->mOpPtr->shortRpcFormatFlag =
+                kRpcFormatShort == mRpcFormat;
         }
         if (mOutstandingOpPtr && mOutstandingOpPtr != mInFlightOpPtr) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -1328,11 +1353,12 @@ private:
             if (IsAuthEnabled()) {
                 assert(! IsAuthInFlight());
                 mLookupOp.DeallocContentBuf();
-                mLookupOp.contentLength = 0;
-                mLookupOp.status        = 0;
+                mLookupOp.contentLength         = 0;
+                mLookupOp.status                = 0;
                 mLookupOp.statusMsg.clear();
-                mLookupOp.authType      = kAuthenticationTypeNone;
-                mLookupOp.seq           = mNextSeqNum++;
+                mLookupOp.reqShortRpcFormatFlag = mRpcFormat == kRpcFormatUndef;
+                mLookupOp.authType              = kAuthenticationTypeNone;
+                mLookupOp.seq                   = mNextSeqNum++;
                 mNextSeqNum++; // Leave one slot for mAuthOp
             }
         }
@@ -1782,6 +1808,19 @@ KfsNetClient::SetServer(
     Impl::StRef theRef(mImpl);
     return mImpl.SetServer(
         inLocation, inCancelPendingOpsFlag, inErrMsgPtr, inForceConnectFlag);
+}
+    void
+KfsNetClient::SetRpcFormat(
+    RpcFormat inRpcFormat)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.SetRpcFormat(inRpcFormat);
+}
+
+    KfsNetClient::RpcFormat
+KfsNetClient::GetRpcFormat() const
+{
+    return mImpl.GetRpcFormat();
 }
 
     void

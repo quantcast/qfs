@@ -156,6 +156,12 @@ public:
         EventObserver()  {}
         virtual ~EventObserver() {}
     };
+    enum RpcFormat
+    {
+        kRpcFormatUndef = 0,
+        kRpcFormatShort = 1,
+        kRpcFormatLong  = 2
+    };
 
     KfsNetClient(
         NetManager&        inNetManager,
@@ -190,6 +196,9 @@ public:
         bool                  inCancelPendingOpsFlag = true,
         string*               inErrMsgPtr            = 0,
         bool                  inForceConnectFlag     = true);
+    void SetRpcFormat(
+        RpcFormat inRpcFormat);
+    RpcFormat GetRpcFormat() const;
     void SetKey(
         const char* inKeyIdPtr,
         const char* inKeyDataPtr,

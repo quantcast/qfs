@@ -1709,7 +1709,8 @@ private:
     {
         if (mCurOpPtr) {
             ostringstream theOStream;
-            mCurOpPtr->Request(theOStream);
+            ReqOstream theStream(theOStream);
+            mCurOpPtr->Request(theStream);
             KFS_LOG_STREAM_ERROR          << mLogPrefix           <<
                 "operation" << (inEnqueueErrorFlag ? " enqueue" : "") <<
                 " failure, seq: "         << mCurOpPtr->seq       <<

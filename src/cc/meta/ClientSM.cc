@@ -516,8 +516,19 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
 {
     assert(! IsOverPendingOpsLimit() && mNetConnection);
     MetaRequest* op = 0;
-    if (ParseCommand(
-            iobuf, cmdLen, &op, mParseBuffer, mShortRpcFormatFlag) != 0) {
+    if (mFirstOpFlag) {
+        bool shortRpcFormatFlag = mShortRpcFormatFlag;
+        if (ParseFirstCommand(
+                iobuf, cmdLen, &op, mParseBuffer, shortRpcFormatFlag) == 0) {
+            mShortRpcFormatFlag = shortRpcFormatFlag;
+        }
+    } else {
+        if (ParseCommand(
+                iobuf, cmdLen, &op, mParseBuffer, mShortRpcFormatFlag) == 0) {
+            op->shortRpcFormatFlag = mShortRpcFormatFlag;
+        }
+    }
+    if (! op) {
         IOBuffer::IStream is(iobuf, cmdLen);
         char buf[128];
         int  maxLines = 16;
@@ -623,11 +634,11 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         op->egroup  = mAuthEGid;
     }
     mPendingOpsCount++;
-    if (op->dispatch(*this)) {
+    const bool dispatchedFlag = op->dispatch(*this);
+    mFirstOpFlag = false;
+    if (dispatchedFlag) {
         return;
     }
-    mFirstOpFlag = false;
-    op->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (mAuthUid == kKfsUserNone && mAuthContext.IsAuthRequired(*op)) {
         op->status    = -EPERM;
         op->statusMsg = "authentication required";

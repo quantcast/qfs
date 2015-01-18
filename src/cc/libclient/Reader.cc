@@ -1691,7 +1691,8 @@ private:
             KfsOp& inOp)
         {
             ostringstream theOStream;
-            inOp.Request(theOStream);
+            ReqOstream theStream(theOStream);
+            inOp.Request(theStream);
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "operation"
                 " failure, seq: "         << inOp.seq       <<

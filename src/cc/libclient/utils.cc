@@ -73,13 +73,15 @@ Sleep(int secs)
 }
 
 void
-GetTimeval(const char* s, struct timeval& tv)
+GetTimeval(const char* s, struct timeval& tv, bool hexFormatFlag)
 {
     const char*       p = s;
     const char* const e = p + (p ? strlen(s) : 0);
-    if (! p ||
-            ! DecIntParser::Parse(p, e - p, tv.tv_sec) ||
-            ! DecIntParser::Parse(p, e - p, tv.tv_usec)) {
+    if (! p || ! (hexFormatFlag ?
+            HexIntParser::Parse(p, e - p, tv.tv_sec) &&
+            HexIntParser::Parse(p, e - p, tv.tv_sec) :
+            DecIntParser::Parse(p, e - p, tv.tv_sec) &&
+            DecIntParser::Parse(p, e - p, tv.tv_usec))) {
         tv.tv_sec  = 0;
         tv.tv_usec = 0;
     }

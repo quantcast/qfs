@@ -127,6 +127,9 @@ typedef RequestHandler<
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
 
+// Main thread's buffer
+static char sTempBuf[MAX_RPC_HEADER_LEN];
+
 /*!
  * \brief parse a command sent by a client
  *
@@ -145,8 +148,6 @@ int
 ParseCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     char* threadParseBuffer, bool shortRpcFmtFlag)
 {
-    // Main thread's buffer
-    static char tempBuf[MAX_RPC_HEADER_LEN];
 
     *res = 0;
     if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
@@ -161,12 +162,53 @@ ParseCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     // enough to fit into cpu cache.
     int               reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
-        threadParseBuffer ? threadParseBuffer : tempBuf, reqLen);
+        threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
     assert(reqLen == len);
     *res = (reqLen == len) ? (shortRpcFmtFlag ?
         sMetaRequestHandlerShortFmt.Handle(buf, reqLen) :
         sMetaRequestHandler.Handle(buf, reqLen)) :
         0;
+    return (*res ? 0 : -1);
+}
+
+int
+ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
+    char* threadParseBuffer, bool& shortRpcFmtFlag)
+{
+    *res = 0;
+    if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
+        return -1;
+    }
+    // Copy if request header spans two or more buffers.
+    // Requests on average are over a magnitude shorter than single
+    // io buffer (4K page), thus the copy should be infrequent, and
+    // small enough. With modern cpu the copy should be take less
+    // cpu cycles than buffer boundary handling logic (or one symbol
+    // per call processing), besides the requests header are small
+    // enough to fit into cpu cache.
+    int               reqLen = len;
+    const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
+        threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
+    assert(reqLen == len);
+    *res = (reqLen == len) ? (shortRpcFmtFlag ?
+        sMetaRequestHandlerShortFmt.Handle(buf, reqLen) :
+        sMetaRequestHandler.Handle(buf, reqLen)) :
+        0;
+    if (*res && 0 <= (*res)->seqno) {
+        return 0;
+    }
+    MetaRequest* const req = shortRpcFmtFlag ?
+        sMetaRequestHandler.Handle(buf, reqLen) :
+        sMetaRequestHandlerShortFmt.Handle(buf, reqLen);
+    if (req) {
+        if (0 <= req->seqno) {
+            delete *res;
+            *res = req;
+            shortRpcFmtFlag = ! shortRpcFmtFlag;
+        } else {
+            delete req;
+        }
+    }
     return (*res ? 0 : -1);
 }
 

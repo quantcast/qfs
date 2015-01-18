@@ -31,6 +31,7 @@
 #include "common/Properties.h"
 #include "common/StdAllocator.h"
 #include "common/RequestParser.h"
+#include "common/ReqOstream.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/CryptoKeys.h"
 #include "KfsAttr.h"
@@ -124,7 +125,8 @@ enum KfsOp_t {
     CMD_NCMDS
 };
 
-typedef ostream ReqOstream;
+typedef ReqOstreamT<ostream> ReqOstream;
+
 struct KfsOp {
     class Display
     {
@@ -138,16 +140,17 @@ struct KfsOp {
         const KfsOp& mOp;
     };
 
-    KfsOp_t  op;
-    kfsSeq_t seq;
-    int32_t  status;
-    uint32_t checksum; // a checksum over the data
-    int64_t  maxWaitMillisec;
-    size_t   contentLength;
-    size_t   contentBufLen;
-    char*    contentBuf;
-    string   statusMsg; // optional, mostly for debugging
-    bool     shortRpcFormatFlag;
+    KfsOp_t       op;
+    kfsSeq_t      seq;
+    int32_t       status;
+    uint32_t      checksum; // a checksum over the data
+    int64_t       maxWaitMillisec;
+    size_t        contentLength;
+    size_t        contentBufLen;
+    char*         contentBuf;
+    string        statusMsg; // optional, mostly for debugging
+    const string* shortExtraHeaders;
+    bool          shortRpcFormatFlag;
 
     KfsOp (KfsOp_t o, kfsSeq_t s)
         : op(o),
@@ -159,6 +162,7 @@ struct KfsOp {
           contentBufLen(0),
           contentBuf(0),
           statusMsg(),
+          shortExtraHeaders(0),
           shortRpcFormatFlag(false),
           contentBufOwnerFlag(true)
         {}
@@ -235,7 +239,6 @@ struct KfsOp {
 private:
     bool          contentBufOwnerFlag;
     static string sExtraHeaders;
-    static string sShortExtraHeaders;
 };
 
 struct KfsNullOp : public KfsOp
