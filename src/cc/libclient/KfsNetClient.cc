@@ -193,7 +193,7 @@ public:
           mMaxContentLength(inMaxContentLength),
           mAuthFailureCount(0),
           mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
-          mRpcFormat(kRpcFormatLong),
+          mRpcFormat(kRpcFormatUndef),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
           mInFlightRecvBufPtr(0),

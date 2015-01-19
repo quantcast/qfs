@@ -277,11 +277,13 @@ RenameOp::Request(ReqOstream& os)
             oldname << "\r\n" <<
         (shortRpcFormatFlag ? "N:" : "New-path: ") <<
             newpath << "\r\n" <<
-        (shortRpcFormatFlag ? "O:" : "Old-path: ") <<
-            oldpath << "\r\n" <<
-        (shortRpcFormatFlag ? "W:" : "Overwrite: ") <<
-            (overwrite ? 1 : 0) << "\r\n"
-    "\r\n";
+        (shortRpcFormatFlag ? "F:" : "Old-path: ") <<
+            oldpath << "\r\n"
+    ;
+    if (overwrite) {
+        os << (shortRpcFormatFlag ? "W:1\r\n" : "Overwrite: 0\r\n");
+    }
+    os << "\r\n";
 }
 
 void
@@ -1560,10 +1562,9 @@ ChmodOp::Request(ReqOstream& os)
 {
     os <<
     "CHMOD\r\n" << ReqHeaders(*this) <<
-    (shortRpcFormatFlag ? "H:" : "File-handle: ") << fid  << "\r\n" <<
+    (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid  << "\r\n" <<
     (shortRpcFormatFlag ? "M:" : "Mode: ")        << mode << "\r\n"
     "\r\n";
-    ;
 }
 
 void

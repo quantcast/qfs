@@ -4484,7 +4484,8 @@ MetaLeaseAcquire::response(ReqOstream& os, IOBuffer& buf)
     char* const end = tbuf + sizeof(tbuf);
     char* const pe  = end - 4;
     memcpy(pe, "\r\n\r\n", end - pe);
-    char* const pn = IntToDecString(len, pe);
+    char* const pn = shortRpcFormatFlag ?
+        IntToHexString(len, pe) : IntToDecString(len, pe);
     char* const p  = pn - (shortRpcFormatFlag ? 2 : 16);
     memcpy(p, shortRpcFormatFlag ? "l:" : "Content-length: ", pn - p);
     buf.CopyIn(p, end - p);
