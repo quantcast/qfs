@@ -79,7 +79,7 @@ GetTimeval(const char* s, struct timeval& tv, bool hexFormatFlag)
     const char* const e = p + (p ? strlen(s) : 0);
     if (! p || ! (hexFormatFlag ?
             HexIntParser::Parse(p, e - p, tv.tv_sec) &&
-            HexIntParser::Parse(p, e - p, tv.tv_sec) :
+            HexIntParser::Parse(p, e - p, tv.tv_usec) :
             DecIntParser::Parse(p, e - p, tv.tv_sec) &&
             DecIntParser::Parse(p, e - p, tv.tv_usec))) {
         tv.tv_sec  = 0;
