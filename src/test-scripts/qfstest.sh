@@ -46,7 +46,7 @@ while [ $# -ge 1 ]; do
         csrpctrace=1
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: %1 [-valgrind] [-ipv6] [-noauth] [-auth]"\
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]"\
             "[-twrsync] [-csrpctrace] [-trdverify]"
         exit 1
     fi
