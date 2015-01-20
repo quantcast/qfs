@@ -6472,7 +6472,7 @@ KfsClientImpl::UpdateEUserAndEGroup()
             mCommonRpcHdrs, mShortCommonRpcHdrs);
     }
     if (mMetaServer) {
-        mProtocolWorker->SetCommonRpcHeaders(
+        mMetaServer->SetCommonRpcHeaders(
             mCommonRpcHdrs, mShortCommonRpcHdrs);
     }
     return 0;
