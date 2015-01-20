@@ -1434,7 +1434,6 @@ KfsClientImpl::KfsClientImpl(
     } else {
         ClientsList::Insert(*this);
     }
-
     QCStMutexLocker l(mMutex);
 
     FAttrLru::Init(mFAttrLru);
@@ -1442,6 +1441,7 @@ KfsClientImpl::KfsClientImpl(
     mTmpAbsPathStr.reserve(MAX_PATH_NAME_LENGTH);
     mTmpBuffer[kTmpBufferSize] = 0;
     mChunkServer.SetMaxContentLength(64 << 20);
+    UpdateEUserAndEGroup();
     mChunkServer.SetAuthContext(&mAuthCtx);
 }
 
@@ -6441,7 +6441,7 @@ KfsClientImpl::SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
 {
     QCStMutexLocker l(mMutex);
     mGroups.clear();
-    if (groupsCnt > 0) {
+    if (0 < groupsCnt) {
         mGroups.reserve(groupsCnt + 1);
         for (int i = 0; i < groupsCnt; i++) {
             mGroups.push_back(groups[i]);
@@ -6453,6 +6453,12 @@ KfsClientImpl::SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
     }
     mEUser  = user  == kKfsUserNone  ? geteuid() : user;
     mEGroup = group == kKfsGroupNone ? getegid() : group;
+    return UpdateEUserAndEGroup();
+}
+
+int
+KfsClientImpl::UpdateEUserAndEGroup()
+{
     const bool kShortRpcFmtFlag = false;
     mCommonRpcHdrs.clear();
     KfsOp::AddDefaultRequestHeaders(

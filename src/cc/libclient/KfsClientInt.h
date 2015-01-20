@@ -1083,6 +1083,7 @@ private:
         bool                     inNewEntryFlag,
         vector<vector<string> >& inLocations);
     int InitUserAndGroupMode();
+    int UpdateEUserAndEGroup();
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;

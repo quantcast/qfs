@@ -80,7 +80,7 @@ public:
         os << (op.shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
             KFS_CLIENT_PROTO_VERS << "\r\n";
         if (op.extraHeaders) {
-            os << op.extraHeaders;
+            os << *(op.extraHeaders);
         }
         if (0 < op.maxWaitMillisec) {
             os << (op.shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
