@@ -38,7 +38,7 @@ while [ $# -ge 1 ]; do
         auth='no'
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: %1 [-valgrind] [-ipv6] [-noauth] [-auth]"
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]"
         exit 1
     fi
     shift
