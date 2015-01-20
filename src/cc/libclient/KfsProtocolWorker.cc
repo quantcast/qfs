@@ -106,6 +106,8 @@ public:
           mMetaTimeBetweenRetries(mMetaServer.GetTimeSecBetweenRetries()),
           mMetaMaxRetryCount(mMetaServer.GetMaxRetryCount()),
           mMetaParamsUpdateFlag(false),
+          mCommonHeaders(),
+          mCommonShortHeaders(),
           mWorkers(),
           mMaxRetryCount(inParameters.mMaxRetryCount),
           mTimeSecBetweenRetries(inParameters.mTimeSecBetweenRetries),
@@ -186,6 +188,8 @@ public:
                 mMetaServer.SetOpTimeoutSec(mMetaOpTimeout);
                 mMetaServer.SetTimeSecBetweenRetries(mMetaTimeBetweenRetries);
                 mMetaServer.SetMaxRetryCount(mMetaMaxRetryCount);
+                mMetaServer.SetCommonRpcHeaders(
+                    mCommonHeaders, mCommonShortHeaders);
                 mMetaParamsUpdateFlag = false;
             }
         }
@@ -469,6 +473,19 @@ public:
     {
         QCStMutexLocker theLock(mMutex);
         mOpTimeoutSec = inSecs;
+    }
+    void SetCommonRpcHeaders(
+        const string& inCommonHeaders,
+        const string& inCommonShortHeaders)
+    {
+        QCStMutexLocker theLock(mMutex);
+        if (mCommonHeaders != inCommonHeaders ||
+                mCommonShortHeaders != inCommonShortHeaders) {
+            mCommonHeaders        = inCommonHeaders;
+            mCommonShortHeaders   = inCommonShortHeaders;
+            mMetaParamsUpdateFlag = true;
+            mNetManager.Wakeup();
+        }
     }
 private:
     class StopRequest : public Request
@@ -1548,7 +1565,9 @@ private:
     int               mMetaOpTimeout;
     int               mMetaTimeBetweenRetries;
     int               mMetaMaxRetryCount;
-    int               mMetaParamsUpdateFlag;
+    bool              mMetaParamsUpdateFlag;
+    string            mCommonHeaders;
+    string            mCommonShortHeaders;
     Workers           mWorkers;
     int               mMaxRetryCount;
     int               mTimeSecBetweenRetries;
@@ -1862,6 +1881,14 @@ KfsProtocolWorker::SetOpTimeoutSec(
     int inSecs)
 {
     mImpl.SetOpTimeoutSec(inSecs);
+}
+
+void
+KfsProtocolWorker::SetCommonRpcHeaders(
+    const string& inCommonHeaders,
+    const string& inCommonShortHeaders)
+{
+    mImpl.SetCommonRpcHeaders(inCommonHeaders, inCommonShortHeaders);
 }
 
 }} /* namespace client KFS */

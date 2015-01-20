@@ -274,6 +274,9 @@ public:
         bool inFlag);
     void SetMaxRpcHeaderLength(
         int inMaxRpcHeaderLength);
+    void SetCommonRpcHeaders(
+        const string& inCommonHeaders,
+        const string& inCommonShortHeaders);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

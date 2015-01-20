@@ -810,6 +810,8 @@ private:
     ClientAuthContext              mAuthCtx;
     ClientAuthContext              mProtocolWorkerAuthCtx;
     KfsNetClient* const            mMetaServer;
+    string                         mCommonRpcHdrs;
+    string                         mShortCommonRpcHdrs;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
 

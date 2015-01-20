@@ -823,6 +823,13 @@ public:
         KFS_LOG_EOM;
         Fail(mAuthOp.status, mAuthOp.statusMsg);
     }
+    void SetCommonRpcHeaders(
+        const string& inCommonHeaders,
+        const string& inCommonShortHeaders)
+    {
+        mCommonHeaders      = inCommonHeaders;
+        mCommonShortHeaders = inCommonShortHeaders;
+    }
 private:
     class DoNotDeallocate
     {
@@ -934,6 +941,8 @@ private:
     string             mKeyData;
     string             mSessionKeyId;
     string             mSessionKeyData;
+    string             mCommonHeaders;
+    string             mCommonShortHeaders;
     AuthRequestCtx     mAuthRequestCtx;
     LookupOp           mLookupOp;
     AuthenticateOp     mAuthOp;
@@ -1006,9 +1015,16 @@ private:
         KfsOp& theOp = *inEntry.mOpPtr;
         theOp.shortRpcFormatFlag = mRpcFormat == kRpcFormatShort;
         {
+            if (IsAuthEnabled()) {
+                theOp.extraHeaders = 0;
+            } else {
+                theOp.extraHeaders = theOp.shortRpcFormatFlag ?
+                    &mCommonShortHeaders : &mCommonHeaders;
+            }
             ReqOstream theStream(mOstream.Set(mConnPtr->GetOutBuffer()));
             theOp.Request(theStream);
             mOstream.Reset();
+            theOp.extraHeaders = 0;
         }
         if (theOp.contentLength > 0) {
             if (theOp.contentBuf && theOp.contentBufLen > 0) {
@@ -2110,6 +2126,15 @@ KfsNetClient::SetMaxRpcHeaderLength(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetMaxRpcHeaderLength(inMaxRpcHeaderLength);
+}
+
+    void
+KfsNetClient::SetCommonRpcHeaders(
+    const string& inCommonHeaders,
+    const string& inCommonShortHeaders)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetCommonRpcHeaders(inCommonHeaders, inCommonShortHeaders);
 }
 
     void

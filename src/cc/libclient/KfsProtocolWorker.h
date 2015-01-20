@@ -285,6 +285,9 @@ public:
         int inSecs);
     void SetOpTimeoutSec(
         int inSecs);
+    void SetCommonRpcHeaders(
+        const string& inCommonHeaders,
+        const string& inCommonShortHeaders);
 private:
     Impl& mImpl;
 private:

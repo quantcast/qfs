@@ -26,6 +26,13 @@
 //----------------------------------------------------------------------------
 
 #include "KfsOps.h"
+#include "utils.h"
+
+#include "kfsio/checksum.h"
+#include "kfsio/DelegationToken.h"
+#include "common/RequestParser.h"
+#include "common/kfserrno.h"
+#include "common/IntToString.h"
 
 #include <cassert>
 #include <iostream>
@@ -35,12 +42,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-
-#include "kfsio/checksum.h"
-#include "kfsio/DelegationToken.h"
-#include "common/RequestParser.h"
-#include "common/kfserrno.h"
-#include "utils.h"
 
 namespace KFS
 {
@@ -61,8 +62,6 @@ static const char* InitHostName()
 }
 static const char* const sHostName(InitHostName());
 
-string KfsOp::sExtraHeaders;
-
 class KfsOp::ReqHeaders
 {
 public:
@@ -80,12 +79,8 @@ public:
         }
         os << (op.shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
             KFS_CLIENT_PROTO_VERS << "\r\n";
-        if (op.shortRpcFormatFlag) {
-            if (op.shortExtraHeaders) {
-                os << op.shortExtraHeaders;
-            }
-        } else {
-            os << KfsOp::sExtraHeaders;
+        if (op.extraHeaders) {
+            os << op.extraHeaders;
         }
         if (0 < op.maxWaitMillisec) {
             os << (op.shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
@@ -949,24 +944,41 @@ KfsOp::ParseResponseHeaderSelf(const Properties& prop)
 
 /* static */ void
 KfsOp::AddDefaultRequestHeaders(
-    kfsUid_t euser /* = kKfsUserNone */, kfsGid_t egroup /* = kKfsGroupNone */)
+        bool     shortRpcFormatFlag,
+        string&  headers,
+        kfsUid_t euser  /* = kKfsUserNone */,
+        kfsGid_t egroup /* = kKfsGroupNone */)
 {
-    ostringstream os;
-    os << "UserId: ";
+    headers += shortRpcFormatFlag ? "u:" : "UserId: ";
     if (euser == kKfsUserNone) {
-        os << geteuid();
+        if (shortRpcFormatFlag) {
+            AppendHexIntToString(headers, geteuid());
+        } else {
+            AppendDecIntToString(headers, geteuid());
+        }
     } else {
-        os << euser;
+        if (shortRpcFormatFlag) {
+            AppendHexIntToString(headers, euser);
+        } else {
+            AppendDecIntToString(headers, euser);
+        }
     }
-    os << "\r\n"
-    "GroupId: ";
+    headers += "\r\n";
+    headers += shortRpcFormatFlag ? "g:" : "GroupId: ";
     if (egroup == kKfsGroupNone) {
-        os << getegid();
+        if (shortRpcFormatFlag) {
+            AppendHexIntToString(headers, getegid());
+        } else {
+            AppendDecIntToString(headers, getegid());
+        }
     } else {
-        os << egroup;
+        if (shortRpcFormatFlag) {
+            AppendHexIntToString(headers, egroup);
+        } else {
+            AppendDecIntToString(headers, egroup);
+        }
     }
-    os << "\r\n";
-    KfsOp::AddExtraRequestHeaders(os.str());
+    headers += "\r\n";
 }
 
 ///

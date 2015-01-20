@@ -1159,10 +1159,30 @@ public:
         { Instance().RemoveSelf(client); }
     static void Init(KfsClientImpl& client)
         { Instance().InitSelf(client); }
-    static int SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
-            kfsGid_t* groups, int groupsCnt)
+    static void AddUserHeader(uid_t uid, string& hdr)
     {
-        return Instance().SetEUserAndEGroupSelf(user, group, groups, groupsCnt);
+        struct passwd      pwebuf = {0};
+        struct passwd*     pwe    = 0;
+        StBufferT<char, 1> buf;
+        buf.Resize((size_t)
+            max(long(8) << 10, sysconf(_SC_GETPW_R_SIZE_MAX)));
+        const int err = getpwuid_r(uid, &pwebuf,
+            buf.GetPtr(), buf.GetSize(), &pwe);
+        if (! err && (pwe && pwe->pw_name)) {
+            hdr += "User: ";
+            for (const char* p = pwe->pw_name; *p != 0; p++) {
+                const int c = *p & 0xFF;
+                if (c > ' ' && c != '%') {
+                    hdr.push_back((char)c);
+                } else {
+                    const char* const kHexDigits = "0123456789ABCDEF";
+                    hdr.push_back((char)'%');
+                    hdr.push_back(kHexDigits[(c >> 4) & 0xF]);
+                    hdr.push_back(kHexDigits[c & 0xF]);
+                }
+            }
+            hdr += "\r\n";
+        }
     }
 private:
     typedef QCDLList<KfsClientImpl, 0> List;
@@ -1183,12 +1203,6 @@ private:
 
         static const Globals& Get()
             { return GetInstance(); }
-        static int SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
-            kfsGid_t* groups, int groupsCnt)
-        {
-            return GetInstance().SetEUserAndEGroupSelf(
-                user, group, groups, groupsCnt);
-        }
     private:
         Globals()
             : mUMask(0),
@@ -1223,8 +1237,6 @@ private:
             if (find(mGroups.begin(), mGroups.end(), mEGroup) == mGroups.end()) {
                 mGroups.push_back(mEGroup);
             }
-            KfsOp::AddDefaultRequestHeaders(mEUser, mEGroup);
-            AddUserHeader((uid_t)mEUser);
             const mode_t mask = umask(0);
             umask(mask);
             mUMask = mask & Permissions::kAccessModeMask;
@@ -1247,56 +1259,8 @@ private:
                 }
             }
         }
-        void AddUserHeader(uid_t uid)
-        {
-            struct passwd      pwebuf = {0};
-            struct passwd*     pwe    = 0;
-            StBufferT<char, 1> buf;
-            buf.Resize((size_t)
-                max(long(8) << 10, sysconf(_SC_GETPW_R_SIZE_MAX)));
-            const int err = getpwuid_r(uid, &pwebuf,
-                buf.GetPtr(), buf.GetSize(), &pwe);
-            if (! err && (pwe && pwe->pw_name)) {
-                string hdr("User: ");
-                for (const char* p = pwe->pw_name; *p != 0; p++) {
-                    const int c = *p & 0xFF;
-                    if (c > ' ' && c != '%') {
-                        hdr.push_back((char)c);
-                    } else {
-                        const char* const kHexDigits = "0123456789ABCDEF";
-                        hdr.push_back((char)'%');
-                        hdr.push_back(kHexDigits[(c >> 4) & 0xF]);
-                        hdr.push_back(kHexDigits[c & 0xF]);
-                    }
-                }
-                hdr += "\r\n";
-                KfsOp::AddExtraRequestHeaders(hdr);
-            }
-        }
         ~Globals()
             { Instance().Shutdown(); }
-        int SetEUserAndEGroupSelf(kfsUid_t user, kfsGid_t group,
-            kfsGid_t* groups, int groupsCnt)
-        {
-            mGroups.clear();
-            if (groupsCnt > 0) {
-                mGroups.reserve(groupsCnt + 1);
-                for (int i = 0; i < groupsCnt; i++) {
-                    mGroups.push_back(groups[i]);
-                }
-            }
-            if (group != kKfsGroupNone &&
-                    find(mGroups.begin(), mGroups.end(), group) ==
-                        mGroups.end()) {
-                mGroups.push_back(group);
-            }
-            mEUser  = user  == kKfsUserNone  ? geteuid() : user;
-            mEGroup = group == kKfsGroupNone ? getegid() : group;
-            KfsOp::SetExtraRequestHeaders(string());
-            KfsOp::AddDefaultRequestHeaders(mEUser, mEGroup);
-            AddUserHeader((uid_t)mEUser);
-            return 0;
-        }
         static Globals& GetInstance()
         {
             static Globals globals;
@@ -1318,7 +1282,6 @@ private:
         const Globals& globals = Globals::Get();
         client.mEUser  = globals.mEUser;
         client.mEGroup = globals.mEGroup;
-        client.mGroups = globals.mGroups;
         client.mUMask  = globals.mUMask;
         client.mFileAttributeRevalidateTime =
             globals.mDefaultFileAttributeRevalidateTime;
@@ -1341,10 +1304,6 @@ private:
         while (! List::IsEmpty(list)) {
             List::PopFront(list)->Shutdown();
         }
-        {
-            QCStMutexLocker locker(mMutex);
-            KfsOp::SetExtraRequestHeaders(string());
-        }
         SslFilter::Cleanup();
     }
     void InitSelf(KfsClientImpl& /* client */)
@@ -1357,41 +1316,6 @@ private:
             }
             MsgLogger::Init(0, GetLogLevel(p));
         }
-    }
-    int SetEUserAndEGroupSelf(kfsUid_t user, kfsGid_t group,
-        kfsGid_t* groups, int groupCnt)
-    {
-        QCStMutexLocker locker(mMutex);
-        if (List::IsEmpty(mList)) {
-            return Globals::SetEUserAndEGroup(
-                user, group, groups, groupCnt);
-        }
-        if (List::Front(mList) != List::Back(mList)) {
-            KFS_LOG_STREAM_ERROR <<
-                "cannot change user and group -- more than one"
-                " KFS client instance already exist" <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        KfsClientImpl& client = *List::Front(mList);
-        QCStMutexLocker clientLock(client.mMutex);
-        if (! client.mFileTable.empty()) {
-            KFS_LOG_STREAM_ERROR <<
-                "setting user and group must be performed immediately"
-                " after KFS client created" <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        const int ret = Globals::SetEUserAndEGroup(
-            user, group, groups, groupCnt);
-        if (ret != 0) {
-            return ret;
-        }
-        const Globals& globals = Globals::Get();
-        client.mEUser  = globals.mEUser;
-        client.mEGroup = globals.mEGroup;
-        client.mGroups = globals.mGroups;
-        return 0;
     }
     static ClientsList& Instance();
 };
@@ -1501,7 +1425,9 @@ KfsClientImpl::KfsClientImpl(
       mNameBuf(new char[mNameBufSize]),
       mAuthCtx(),
       mProtocolWorkerAuthCtx(),
-      mMetaServer(metaServer)
+      mMetaServer(metaServer),
+      mCommonRpcHdrs(),
+      mShortCommonRpcHdrs()
 {
     if (mMetaServer) {
         mMetaServerLoc = mMetaServer->GetServerLocation();
@@ -4428,6 +4354,7 @@ KfsClientImpl::StartProtocolWorker()
     mProtocolWorker->SetMetaMaxRetryCount(mMaxNumRetriesPerOp);
     mProtocolWorker->SetTimeSecBetweenRetries(mRetryDelaySec);
     mProtocolWorker->SetMetaTimeSecBetweenRetries(mRetryDelaySec);
+    mProtocolWorker->SetCommonRpcHeaders(mCommonRpcHdrs, mShortCommonRpcHdrs);
     mProtocolWorker->Start();
 }
 
@@ -6512,9 +6439,37 @@ int
 KfsClientImpl::SetEUserAndEGroup(kfsUid_t user, kfsGid_t group,
     kfsGid_t* groups, int groupsCnt)
 {
-    return (mMetaServer ? -EINVAL :
-        ClientsList::SetEUserAndEGroup(user, group, groups, groupsCnt)
-    );
+    QCStMutexLocker l(mMutex);
+    mGroups.clear();
+    if (groupsCnt > 0) {
+        mGroups.reserve(groupsCnt + 1);
+        for (int i = 0; i < groupsCnt; i++) {
+            mGroups.push_back(groups[i]);
+        }
+    }
+    if (group != kKfsGroupNone &&
+            find(mGroups.begin(), mGroups.end(), group) == mGroups.end()) {
+        mGroups.push_back(group);
+    }
+    mEUser  = user  == kKfsUserNone  ? geteuid() : user;
+    mEGroup = group == kKfsGroupNone ? getegid() : group;
+    const bool kShortRpcFmtFlag = false;
+    mCommonRpcHdrs.clear();
+    KfsOp::AddDefaultRequestHeaders(
+        kShortRpcFmtFlag, mCommonRpcHdrs, mEUser, mEGroup);
+    ClientsList::AddUserHeader(mEUser, mCommonRpcHdrs);
+    mShortCommonRpcHdrs.clear();
+    KfsOp::AddDefaultRequestHeaders(
+        ! kShortRpcFmtFlag, mShortCommonRpcHdrs, mEUser, mEGroup);
+    if (mProtocolWorker) {
+        mProtocolWorker->SetCommonRpcHeaders(
+            mCommonRpcHdrs, mShortCommonRpcHdrs);
+    }
+    if (mMetaServer) {
+        mProtocolWorker->SetCommonRpcHeaders(
+            mCommonRpcHdrs, mShortCommonRpcHdrs);
+    }
+    return 0;
 }
 
 int

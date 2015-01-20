@@ -149,7 +149,7 @@ struct KfsOp {
     size_t        contentBufLen;
     char*         contentBuf;
     string        statusMsg; // optional, mostly for debugging
-    const string* shortExtraHeaders;
+    const string* extraHeaders;
     bool          shortRpcFormatFlag;
 
     KfsOp (KfsOp_t o, kfsSeq_t s)
@@ -162,7 +162,7 @@ struct KfsOp {
           contentBufLen(0),
           contentBuf(0),
           statusMsg(),
-          shortExtraHeaders(0),
+          extraHeaders(0),
           shortRpcFormatFlag(false),
           contentBufOwnerFlag(true)
         {}
@@ -226,19 +226,15 @@ struct KfsOp {
     // The string added to the headers section as is.
     // The headers must be properly formatted: each header line must end with
     // \r\n
-    static void SetExtraRequestHeaders(const string& headers) {
-        sExtraHeaders = headers;
-    }
-    static void AddExtraRequestHeaders(const string& headers) {
-        sExtraHeaders += headers;
-    }
     static void AddDefaultRequestHeaders(
-        kfsUid_t euser = kKfsUserNone, kfsGid_t egroup = kKfsGroupNone);
+        bool     shortRpcFormatFlag,
+        string&  headers,
+        kfsUid_t euser  = kKfsUserNone,
+        kfsGid_t egroup = kKfsGroupNone);
     class ReqHeaders;
     friend class OpsHeaders;
 private:
-    bool          contentBufOwnerFlag;
-    static string sExtraHeaders;
+    bool contentBufOwnerFlag;
 };
 
 struct KfsNullOp : public KfsOp

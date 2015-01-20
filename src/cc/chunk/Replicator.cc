@@ -1469,15 +1469,6 @@ private:
         ;
         die(os.str());
     }
-    struct AddExtraClientHeaders
-    {
-        AddExtraClientHeaders(const char* hdrs)
-        {
-            client::KfsOp::AddExtraRequestHeaders(hdrs);
-            client::KfsOp::AddDefaultRequestHeaders(
-                kKfsUserRoot, kKfsGroupRoot);
-        }
-    };
     static void StopMetaServers()
     {
         ClientThread* clientThread = 0;
@@ -1532,6 +1523,15 @@ private:
     static const MetaServers::Entry* CreateMetaServers(
         int inMaxCount, bool authFlag)
     {
+        string commonRcpHdrs(authFlag ? "" : "From-chunk-server: 1\r\n");
+        string commonShortRpcHdrs(authFlag ? "" : "s:1\r\n");
+        if (! authFlag) {
+            const bool kShortRpcFmtFlag = false;
+            client::KfsOp::AddDefaultRequestHeaders(kShortRpcFmtFlag,
+                commonRcpHdrs, kKfsUserRoot, kKfsGroupRoot);
+            client::KfsOp::AddDefaultRequestHeaders(! kShortRpcFmtFlag,
+                commonShortRpcHdrs, kKfsUserRoot, kKfsGroupRoot);
+        }
         MetaServers::Entry* const ret = new MetaServers::Entry[inMaxCount];
         char                      buf[sizeof(int) * 3 + 4 + 4];
         char* const               end = buf + sizeof(buf) / sizeof(buf[0]);
@@ -1566,6 +1566,10 @@ private:
                 kMaxOneOutstandingOpFlag,
                 authFlag ? new ClientAuthContext() : 0
             );
+            if (! authFlag) {
+                ret[i].mMeta->SetCommonRpcHeaders(
+                    commonRcpHdrs, commonShortRpcHdrs);
+            }
             if (thread && sDebugSetThreadFlag) {
                 ret[i].mMeta->SetThread(&thread->GetThread());
             }
@@ -1586,7 +1590,6 @@ private:
             }
             sLastIdx = 0;
         }
-        static const AddExtraClientHeaders sAddHdrs("From-chunk-server: 1\r\n");
         static const int                   sMaxCount(
             max(0, gClientManager.GetClientThreadCount()) + 1);
         static const MetaServers           sMetaServers(
