@@ -58,7 +58,6 @@ using std::max;
 using std::string;
 using std::ostream;
 using std::ostringstream;
-using std::istringstream;
 
 // Kfs client write state machine implementation.
 class Writer::Impl :
@@ -391,10 +390,12 @@ private:
                 ReqOstream& inStream)
             {
                 if (mWritePrepareOp.replyRequestedFlag) {
-                    mWritePrepareOp.seq = seq;
+                    mWritePrepareOp.seq                = seq;
+                    mWritePrepareOp.shortRpcFormatFlag = shortRpcFormatFlag;
                 } else {
-                    mWriteSyncOp.seq    = seq;
-                    mWritePrepareOp.seq = seq + 1;
+                    mWriteSyncOp.seq                = seq;
+                    mWritePrepareOp.seq             = seq + 1;
+                    mWriteSyncOp.shortRpcFormatFlag = shortRpcFormatFlag;
                 }
                 mWritePrepareOp.Request(inStream);
             }
@@ -795,6 +796,7 @@ private:
             mAllocOp.spaceReservationSize = 0;
             mAllocOp.maxAppendersPerChunk = 0;
             mAllocOp.allowCSClearTextFlag = false;
+            mAllocOp.allCSShortRpcFlag    = false;
             mAllocOp.chunkServerAccessValidForTime = 0;
             mAllocOp.chunkServerAccessIssuedTime   = 0;
             mAllocOp.chunkServers.clear();
@@ -868,6 +870,8 @@ private:
                 mAllocOp.allowCSClearTextFlag &&
                 theCSClearTextAllowedFlag
             );
+            mChunkServer.SetRpcFormat(mAllocOp.allCSShortRpcFlag ?
+                ChunkServer::kRpcFormatShort : ChunkServer::kRpcFormatLong);
             if (mAllocOp.chunkServerAccessToken.empty() ||
                     mAllocOp.chunkAccess.empty()) {
                 mChunkServer.SetKey(0, 0, 0, 0);
@@ -1022,13 +1026,17 @@ private:
             }
             const size_t theServerCount = inOp.chunkServerLoc.size();
             mWriteIds.reserve(theServerCount);
-            istringstream theStream(inOp.writeIdStr);
+            const char*       thePtr    = inOp.writeIdStr.data();
+            const char* const theEndPtr = thePtr + inOp.writeIdStr.size();
             for (size_t i = 0; i < theServerCount; i++) {
                 WriteInfo theWInfo;
-                if (! (theStream >>
-                        theWInfo.serverLoc.hostname >>
-                        theWInfo.serverLoc.port >>
-                        theWInfo.writeId)) {
+                if (! theWInfo.serverLoc.ParseString(
+                        thePtr, theEndPtr - thePtr, inOp.shortRpcFormatFlag) ||
+                    ! (inOp.shortRpcFormatFlag ?
+                        HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theWInfo.writeId) :
+                        DecIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theWInfo.writeId))) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "write id alloc:"
                         " at index: "         << i <<

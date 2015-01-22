@@ -92,7 +92,8 @@ public:
         }
     }
     KfsNetClient& Get(
-        const ServerLocation& inLocation)
+        const ServerLocation& inLocation,
+        bool                  inShortRpcFormatFlag)
     {
         Clients::iterator it = mClients.find(inLocation);
         if (it == mClients.end()) {
@@ -118,6 +119,8 @@ public:
                 mMaxOneOutstandingOpFlag,
                 mAuthContextPtr))).first;
             it->second->SetRetryConnectOnly(mRetryConnectOnlyFlag);
+            it->second->SetRpcFormat(inShortRpcFormatFlag ?
+                KfsNetClient::kRpcFormatShort : KfsNetClient::kRpcFormatLong);
         }
         return *(it->second);
     }

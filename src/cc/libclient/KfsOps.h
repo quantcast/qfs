@@ -857,7 +857,7 @@ struct ChunkAccessOp: public KfsOp {
                 subjectId << "\r\n";
         }
         return (
-            (os << (shortRpcFormatFlag ? " 'C:" : "C-access: ")).write(
+            (os << (shortRpcFormatFlag ? "C:" : "C-access: ")).write(
                 access.data(), access.size()) << "\r\n" <<
             (createChunkServerAccessFlag ?
                 (shortRpcFormatFlag ?

@@ -905,6 +905,9 @@ private:
                     mLeaseAcquireOp.allowCSClearTextFlag &&
                     theCSClearTextAllowedFlag
                 );
+                mChunkServer.SetRpcFormat(mGetAllocOp.allCSShortRpcFlag ?
+                    KfsNetClient::kRpcFormatShort :
+                    KfsNetClient::kRpcFormatLong);
                 if (mChunkServerAccess.IsEmpty()) {
                     mChunkServer.SetKey(0, 0, 0, 0);
                     mChunkServer.SetAuthContext(0);
@@ -986,6 +989,7 @@ private:
             Reset(mGetAllocOp);
             mGetAllocOp.chunkServers.clear();
             mGetAllocOp.serversOrderedFlag = false;
+            mGetAllocOp.allCSShortRpcFlag  = false;
             EnqueueMeta(mGetAllocOp);
         }
         void Done(

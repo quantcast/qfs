@@ -55,7 +55,6 @@ using std::min;
 using std::string;
 using std::vector;
 using std::deque;
-using std::istringstream;
 using std::ostringstream;
 
 // Kfs client write append state machine implementation.
@@ -1022,13 +1021,16 @@ private:
 
         const ServerLocation& theMaster = mAllocOp.chunkServers.front();
         if (mClientPoolPtr) {
-            mChunkServerPtr = &mClientPoolPtr->Get(theMaster);
+            mChunkServerPtr = &mClientPoolPtr->Get(
+                theMaster, mAllocOp.allCSShortRpcFlag);
         } else {
             mChunkServerPtr = 0;
             const ServerLocation theCurLoc = mChunkServer.GetServerLocation();
             if (theCurLoc.IsValid() && theCurLoc != theMaster) {
                 mChunkServer.Stop();
             }
+            mChunkServer.SetRpcFormat(mAllocOp.allCSShortRpcFlag ?
+                ChunkServer::kRpcFormatShort : ChunkServer::kRpcFormatLong);
         }
 
         const time_t theNow = Now();
@@ -1193,13 +1195,17 @@ private:
         }
         const size_t theServerCount = inOp.chunkServerLoc.size();
         mWriteIds.reserve(theServerCount);
-        istringstream theStream(inOp.writeIdStr);
+        const char*       thePtr    = inOp.writeIdStr.data();
+        const char* const theEndPtr = thePtr + inOp.writeIdStr.size();
         for (size_t i = 0; i < theServerCount; i++) {
             WriteInfo theWInfo;
-            if (! (theStream >>
-                    theWInfo.serverLoc.hostname >>
-                    theWInfo.serverLoc.port >>
-                    theWInfo.writeId)) {
+            if (! theWInfo.serverLoc.ParseString(
+                    thePtr, theEndPtr - thePtr, inOp.shortRpcFormatFlag) ||
+                ! (inOp.shortRpcFormatFlag ?
+                    HexIntParser::Parse(
+                        thePtr, theEndPtr - thePtr, theWInfo.writeId) :
+                    DecIntParser::Parse(
+                        thePtr, theEndPtr - thePtr, theWInfo.writeId))) {
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "write id alloc: invalid response: " << inOp.writeIdStr <<
                 KFS_LOG_EOM;
