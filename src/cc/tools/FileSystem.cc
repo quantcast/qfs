@@ -948,6 +948,18 @@ public:
             const char* kNullPrefixPtr = 0;
             inPropertiesPtr->copyWithPrefix(kNullPrefixPtr, 0, theProperties);
         }
+        kfsUid_t theEUser  = kKfsUserNone;
+        kfsGid_t theEGroup = kKfsGroupNone;
+        theEUser  = inPropertiesPtr->getValue("fs.euser",  theEUser);
+        theEGroup = inPropertiesPtr->getValue("fs.egroup", theEGroup);
+        if (theEUser != kKfsUserNone || theEGroup != kKfsGroupNone) {
+            theError = KfsClient::SetEUserAndEGroup(theEUser, theEGroup, 0, 0);
+            if (theError != 0) {
+                return theError;
+            }
+        }
+        KfsClient::SetDefaultIoBufferSize(inPropertiesPtr->getValue(
+            "fs.iobufsize", KfsClient::GetDefaultIoBufferSize()));
         theError = KfsClient::Init(theMetaHost, thePort,
             theConfigValuePtr ? &theProperties : inPropertiesPtr);
         if (theError != 0) {
