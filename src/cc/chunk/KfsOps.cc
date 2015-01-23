@@ -193,11 +193,11 @@ needToForwardToPeer(
     bool            writeIdPresentFlag,
     int64_t&        writeId)
 {
-    const char*       ptr = serverInfo.data();
-    const char* const end = ptr + serverInfo.size();
+    const char*       ptr        = serverInfo.data();
+    const char* const end        = ptr + serverInfo.size();
     ServerLocation    loc;
-    int64_t           id;
-    bool              foundLocal    = false;
+    int64_t           id         = -1;
+    bool              foundLocal = false;
 
     // the list of servers is ordered: we forward to the next one
     // in the list.

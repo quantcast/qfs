@@ -5771,7 +5771,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
     const bool        emitCAFlag   = req.authUid != kKfsUserNone &&
         0 < req.leaseTimeout && mClientCSAuthRequiredFlag;
     while (p < e) {
-        chunkId_t chunkId;
+        chunkId_t chunkId = -1;
         if (! req.ParseInt(p, e - p, chunkId)) {
             while (p < e && *p <= ' ') {
                 p++;
@@ -6203,7 +6203,7 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
     const char*         p     = r->chunkIds.GetPtr();
     const char*         e     = p + r->chunkIds.GetSize();
     while (p < e) {
-        chunkId_t chunkId;
+        chunkId_t chunkId = -1;
         if (! r->ParseInt(p, e - p, chunkId)) {
             while (p < e && *p <= ' ') {
                 p++;

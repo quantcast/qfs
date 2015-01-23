@@ -2575,12 +2575,12 @@ ChunkServer::UpdateStorageTiersSelf(
         clearFlags[i]             = true;
     }
     if (buf) {
-        kfsSTier_t tier;
-        int32_t    deviceCount;
-        int32_t    notStableOpenCount;
-        int32_t    chunkCount;
-        int64_t    spaceAvailable;
-        int64_t    totalSpace;
+        kfsSTier_t tier               = kKfsSTierUndef;
+        int32_t    deviceCount        = -1;
+        int32_t    notStableOpenCount = -1;
+        int32_t    chunkCount         = -1;
+        int64_t    spaceAvailable     = -1;
+        int64_t    totalSpace         = -1;
         const char*       p = buf;
         const char* const e = p + len;
         while (p < e && (hexFormatFlag ? (
