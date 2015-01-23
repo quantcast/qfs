@@ -162,11 +162,12 @@ Main(
     int         thePort               = -1;
     bool        theVerboseLoggingFlag = false;
     bool        theShowHeadersFlag    = false;
+    bool        theShortRpcFmtFlag    = false;
     int         theRetCode            = 0;
     string      thePropsStr;
 
     int theOptChar;
-    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:aF:")) != -1) {
+    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:aF:S")) != -1) {
         switch (theOptChar) {
             case 'm':
             case 's':
@@ -188,6 +189,9 @@ Main(
                 thePropsStr += optarg;
                 thePropsStr += "\n";
                 break;
+            case 'S':
+                theShortRpcFmtFlag = true;
+                break;
             case 'a':
                 theShowHeadersFlag = true;
                 break;
@@ -206,6 +210,7 @@ Main(
             " [-a -- show response headers]\n"
             " [-v -- verbose]\n"
             " [-F <request field name>=<request field value>]\n"
+            " [-S -- use short rpc format]\n"
             " --  <cmd> <cmd> ...\n"
             "Where cmd is one of the following:\n"
         ;
@@ -222,6 +227,8 @@ Main(
         return 1;
     }
     theClient.SetMaxContentLength(512 << 20);
+    theClient.SetRpcFormat(theShortRpcFmtFlag ?
+        MonClient::kRpcFormatShort : MonClient::kRpcFormatLong);
     Properties theReqProps;
     theReqProps.loadProperties(
         thePropsStr.data(), thePropsStr.size(), (char)'=');
