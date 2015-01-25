@@ -231,8 +231,9 @@ struct KfsOp {
         string&  headers,
         kfsUid_t euser  = kKfsUserNone,
         kfsGid_t egroup = kKfsGroupNone);
-    class ReqHeaders;
-    friend class OpsHeaders;
+    inline ReqOstream& ParentHeaders(ReqOstream& os) const;
+    template<typename T> class ReqHeadersT;
+    template<typename T> static inline ReqHeadersT<T> ReqHeaders(const T& op);
 private:
     bool contentBufOwnerFlag;
 };
@@ -253,7 +254,21 @@ inline static ostream&
 operator<<(ostream& os, const KfsOp::Display& display)
 { return display.Show(os); }
 
-struct CreateOp : public KfsOp {
+struct KfsIdempotentOp : public KfsOp
+{
+    const kfsSeq_t reqId;
+
+    KfsIdempotentOp(
+            KfsOp_t  o,
+            kfsSeq_t s,
+            kfsSeq_t id)
+        : KfsOp(o, s),
+          reqId(id)
+        {}
+    inline ReqOstream& ParentHeaders(ReqOstream& os) const;
+};
+
+struct CreateOp : public KfsIdempotentOp {
     kfsFileId_t parentFid; // input parent file-id
     const char* filename;
     kfsFileId_t fileId; // result
@@ -265,12 +280,12 @@ struct CreateOp : public KfsOp {
     int         stripeSize;
     int         metaStriperType;
     Permissions permissions;
-    kfsSeq_t    reqId;
     kfsSTier_t  minSTier;
     kfsSTier_t  maxSTier;
     string      userName;
     string      groupName;
-    CreateOp(kfsSeq_t s,
+    CreateOp(
+            kfsSeq_t           s,
             kfsFileId_t        p,
             const char*        f,
             int                n,
@@ -279,7 +294,7 @@ struct CreateOp : public KfsOp {
             kfsSeq_t           id      = -1,
             kfsSTier_t         minTier = kKfsSTierMax,
             kfsSTier_t         maxTier = kKfsSTierMax)
-        : KfsOp(CMD_CREATE, s),
+        : KfsIdempotentOp(CMD_CREATE, s, id),
           parentFid(p),
           filename(f),
           numReplicas(n),
@@ -290,7 +305,6 @@ struct CreateOp : public KfsOp {
           stripeSize(0),
           metaStriperType(KFS_STRIPED_FILE_TYPE_UNKNOWN),
           permissions(perms),
-          reqId(id),
           minSTier(minTier),
           maxSTier(maxTier),
           userName(),
@@ -299,42 +313,54 @@ struct CreateOp : public KfsOp {
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "create: " << filename << " parent: " << parentFid;
+        os << "create: " << filename << " parent: " << parentFid <<
+            " reqId: " << reqId;
         return os;
     }
 };
 
-struct RemoveOp : public KfsOp {
+struct RemoveOp : public KfsIdempotentOp {
     kfsFileId_t parentFid; // input parent file-id
-    const char *filename;
-    const char *pathname;
-    RemoveOp(kfsSeq_t s, kfsFileId_t p, const char* f, const char* pn)
-        : KfsOp(CMD_REMOVE, s), parentFid(p), filename(f), pathname(pn)
+    const char* filename;
+    const char* pathname;
+    RemoveOp(
+        kfsSeq_t    s,
+        kfsFileId_t p,
+        const char* f,
+        const char* pn,
+        kfsSeq_t    id = -1)
+        : KfsIdempotentOp(CMD_REMOVE, s, id),
+          parentFid(p),
+          filename(f),
+          pathname(pn)
         {}
     void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "remove: " << filename << " (parentfid = " << parentFid << ")";
+        os << "remove: " << filename << " (parentfid = " << parentFid << ")" <<
+            " reqId: " << reqId;
         return os;
     }
 };
 
-struct MkdirOp : public KfsOp {
+struct MkdirOp : public KfsIdempotentOp {
     kfsFileId_t parentFid; // input parent file-id
     const char* dirname;
     Permissions permissions;
-    kfsSeq_t    reqId;
     kfsFileId_t fileId; // result
     kfsSTier_t  minSTier;
     kfsSTier_t  maxSTier;
     string      userName;
     string      groupName;
-    MkdirOp(kfsSeq_t s, kfsFileId_t p, const char* d,
-            const Permissions& perms = Permissions(), kfsSeq_t id = -1)
-        : KfsOp(CMD_MKDIR, s),
+    MkdirOp(
+            kfsSeq_t           s,
+            kfsFileId_t        p,
+            const char*        d,
+            const Permissions& perms = Permissions(),
+            kfsSeq_t           id    = -1)
+        : KfsIdempotentOp(CMD_MKDIR, s, id),
           parentFid(p),
           dirname(d),
           permissions(perms),
-          reqId(id),
           fileId(-1),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
@@ -344,50 +370,66 @@ struct MkdirOp : public KfsOp {
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "mkdir: " << dirname << " parent: " << parentFid;
+        os << "mkdir: " << dirname << " parent: " << parentFid <<
+            " reqId: " << reqId;
         return os;
     }
 };
 
-struct RmdirOp : public KfsOp {
+struct RmdirOp : public KfsIdempotentOp {
     kfsFileId_t parentFid; // input parent file-id
     const char* dirname;
     const char* pathname; // input: full pathname
-    RmdirOp(kfsSeq_t s, kfsFileId_t p, const char* d, const char* pn)
-        : KfsOp(CMD_RMDIR, s), parentFid(p), dirname(d), pathname(pn)
+    RmdirOp(
+        kfsSeq_t    s,
+        kfsFileId_t p,
+        const char* d,
+        const char* pn,
+        kfsSeq_t    id = -1)
+        : KfsIdempotentOp(CMD_RMDIR, s, id),
+          parentFid(p),
+          dirname(d),
+          pathname(pn)
         {}
     void Request(ReqOstream& os);
-    // default parsing of OK/Cseq/Status/Content-length will suffice.
-
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "rmdir: " << dirname << " (parentfid = " << parentFid << ")";
+        os << "rmdir: " << dirname << " (parentfid = " << parentFid << ")" <<
+            " reqId: " << reqId;
         return os;
     }
 };
 
-struct RenameOp : public KfsOp {
+struct RenameOp : public KfsIdempotentOp {
     kfsFileId_t parentFid; // input parent file-id
-    const char *oldname;  // old file name/dir
-    const char *newpath;  // new path to be renamed to
-    const char *oldpath;  // old path (starting from /)
-    bool overwrite; // set if the rename can overwrite newpath
-    RenameOp(kfsSeq_t s, kfsFileId_t p, const char *o,
-             const char* n, const char* op, bool c) :
-        KfsOp(CMD_RENAME, s), parentFid(p), oldname(o),
-        newpath(n), oldpath(op), overwrite(c)
+    const char* oldname;   // old file name/dir
+    const char* newpath;   // new path to be renamed to
+    const char* oldpath;   // old path (starting from /)
+    bool        overwrite; // set if the rename can overwrite newpath
+    RenameOp(
+        kfsSeq_t    s,
+        kfsFileId_t p,
+        const char* o,
+        const char* n,
+        const char* op,
+        bool        ow,
+        kfsSeq_t    id = -1)
+        : KfsIdempotentOp(CMD_RENAME, s, id),
+          parentFid(p),
+          oldname(o),
+          newpath(n),
+          oldpath(op),
+          overwrite(ow)
         {}
     void Request(ReqOstream& os);
-
-    // default parsing of OK/Cseq/Status/Content-length will suffice.
-
     virtual ostream& ShowSelf(ostream& os) const {
-        if (overwrite) {
-            os << "rename_overwrite: ";
-        } else {
-            os << "rename: ";
-        }
-        os << " old: " << oldname << " (parentfid: " << parentFid << ")";
-        os << " new: " << newpath;
+        os <<
+            "rename: "  <<
+            " overwrite: " << overwrite <<
+            " old: "       << oldname <<
+            " parent: "    << parentFid <<
+            " new: "       << newpath <<
+            " reqId: "     << reqId
+        ;
         return os;
     }
 };

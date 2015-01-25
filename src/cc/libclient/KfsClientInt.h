@@ -788,7 +788,7 @@ private:
     kfsGid_t                       mEGroup;
     kfsMode_t                      mUMask;
     vector<kfsGid_t>               mGroups;
-    kfsSeq_t                       mCreateId;
+    kfsSeq_t                       mIdempotentOpId;
     bool                           mUseOsUserAndGroupFlag;
     bool                           mInitLookupRootFlag;
     UserNames                      mUserNames;
@@ -826,7 +826,7 @@ private:
 
     // Next sequence number for operations.
     // This is called in a thread safe manner.
-    kfsSeq_t NextCreateId() { return mCreateId++; }
+    kfsSeq_t NextIdempotentOpId() { return mIdempotentOpId++; }
 
 
     bool IsValid(const FAttr& fa, time_t now) const
@@ -975,8 +975,10 @@ private:
         bool computeFilesize = true, bool updateClientCache = true,
         bool fileIdAndTypeOnly = false);
 
-    int Rmdirs(const string &parentDir, kfsFileId_t parentFid, const string &dirname, kfsFileId_t dirFid);
-    int Remove(const string &parentDir, kfsFileId_t parentFid, const string &entryName);
+    int Rmdirs(const string& parentDir, kfsFileId_t parentFid,
+        const string &dirname, kfsFileId_t dirFid);
+    int Remove(const string& parentDir, kfsFileId_t parentFid,
+        const string& entryName, bool idempotentFlag);
 
     int ReadDirectory(int fd, char *buf, size_t bufSize);
     ssize_t Write(int fd, const char *buf, size_t numBytes,
@@ -985,7 +987,8 @@ private:
     void CancelPendingRead(FileTableEntry& entry);
     void CleanupPendingRead();
     int RmdirsSelf(const string& path, const string& dirname,
-        kfsFileId_t parentFid, kfsFileId_t dirFid, ErrorHandler& errHandler);
+        kfsFileId_t parentFid, kfsFileId_t dirFid, ErrorHandler& errHandler,
+        bool idempotentFlag);
     void StartProtocolWorker();
     void InvalidateAllCachedAttrs();
     int GetUserAndGroup(const char* user, const char* group, kfsUid_t& uid, kfsGid_t& gid);

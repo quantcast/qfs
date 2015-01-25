@@ -176,20 +176,20 @@ ErrorCodeToStr(int status)
     return QCUtils::SysError(-status);
 }
 
-static inline kfsSeq_t
+static void
+FatalError()
+{
+    MsgLogger::Stop();
+    abort();
+}
+
+static kfsSeq_t
 RandomSeqNo()
 {
     kfsSeq_t ret = 0;
-    if (! CryptoKeys::PseudoRand(&ret, sizeof(ret))) {
-        KFS_LOG_STREAM_WARN << "PseudoRand failure" << KFS_LOG_EOM;
-        size_t kMaxNameLen = 1024;
-        char name[kMaxNameLen + 1];
-        gethostname(name, kMaxNameLen);
-        name[kMaxNameLen] = 0;
-        Hsieh_hash_fcn hf;
-        static int64_t cnt = 0;
-        ret = microseconds() + getpid() + hf(name, strlen(name)) +
-            SyncAddAndFetch(cnt, int64_t(1000000));
+    if (! CryptoKeys::Rand(&ret, sizeof(ret))) {
+        KFS_LOG_STREAM_FATAL << "random generator failure" << KFS_LOG_EOM;
+        FatalError();
     }
     return ((ret < 0 ? -ret : ret) >> 1);
 }
@@ -1132,22 +1132,27 @@ public:
 class DefaultErrHandler : public KfsClient::ErrorHandler
 {
 public:
-    DefaultErrHandler()
-        : mStatus(0)
+    DefaultErrHandler(
+        int doNotReport = 0)
+        : mStatus(0),
+          mDoNotReport(doNotReport)
         {}
     virtual int operator()(const string& path, int status)
     {
-        // Report error and continue.
-        KFS_LOG_STREAM_ERROR <<
-            path << ": " << ErrorCodeToStr(status) <<
-        KFS_LOG_EOM;
-        mStatus = status;
+        if (mDoNotReport != status) {
+            // Report error and continue.
+            KFS_LOG_STREAM_ERROR <<
+                path << ": " << ErrorCodeToStr(status) <<
+            KFS_LOG_EOM;
+            mStatus = status;
+        }
         return 0;
     }
     int GetStatus() const
         { return mStatus; }
 private:
-    int mStatus;
+    int       mStatus;
+    const int mDoNotReport;
 };
 
 class KfsClientImpl::ClientsList
@@ -1219,8 +1224,7 @@ private:
                 KFS_LOG_STREAM_FATAL << "ssl intialization error: " << sslErr <<
                     " " << SslFilter::GetErrorMsg(sslErr) <<
                 KFS_LOG_EOM;
-                MsgLogger::Stop();
-                abort();
+                FatalError();
             }
             int const maxGroups = min((int)sysconf(_SC_NGROUPS_MAX), 1 << 16);
             if (maxGroups > 0) {
@@ -1350,8 +1354,7 @@ KfsClientImpl::Validate(
             " gen: "          << fa->generation <<
             " validateTime: " << fa->validatedTime <<
         KFS_LOG_EOM;
-        MsgLogger::Stop();
-        abort();
+        FatalError();
     }
 }
 
@@ -1400,7 +1403,7 @@ KfsClientImpl::KfsClientImpl(
       mEGroup(kKfsGroupNone),
       mUMask(0),
       mGroups(),
-      mCreateId(RandomSeqNo()),
+      mIdempotentOpId(RandomSeqNo()),
       mUseOsUserAndGroupFlag(true),
       mInitLookupRootFlag(true),
       mUserNames(),
@@ -1754,8 +1757,8 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
                 mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
                 mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
                 mode != kKfsModeUndef ? (mode & ~mUMask) : mode
-            ),
-            NextCreateId()
+            )
+            // NextIdempotentOpId() -- exists is not considered an error here
         );
         DoMetaOpWithRetry(&op);
         if ((res = op.status) == 0) {
@@ -1820,7 +1823,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
             mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
             mode != kKfsModeUndef  ? (mode & ~mUMask) : mode
         ),
-        NextCreateId()
+        NextIdempotentOpId()
     );
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
@@ -1858,7 +1861,8 @@ KfsClientImpl::Rmdir(const char *pathname)
     if (res < 0) {
         return res;
     }
-    RmdirOp op(0, parentFid, dirname.c_str(), path.c_str());
+    RmdirOp op(0, parentFid, dirname.c_str(), path.c_str(),
+        NextIdempotentOpId());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, dirname));
     return op.status;
@@ -1908,13 +1912,14 @@ KfsClientImpl::RmdirsFast(const char *pathname,
         assert(! "internal error: invalid path name");
         return -EFAULT;
     }
-    DefaultErrHandler errorHandler;
+    DefaultErrHandler errorHandler(-ENOENT);
     ret = RmdirsSelf(
         path.substr(0, pos),
         (pos == 0 && dirname == "/") ? string() : dirname,
         parentFid,
         fa->fileId,
-        errHandler ? *errHandler : errorHandler
+        errHandler ? *errHandler : errorHandler,
+        0 != errHandler
     );
     // Invalidate cached attributes.
     InvalidateAllCachedAttrs();
@@ -1929,9 +1934,13 @@ KfsClientImpl::InvalidateAllCachedAttrs()
 }
 
 int
-KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
-    kfsFileId_t parentFid, kfsFileId_t dirFid,
-    KfsClientImpl::ErrorHandler& errHandler)
+KfsClientImpl::RmdirsSelf(
+    const string&                path,
+    const string&                dirname,
+    kfsFileId_t                  parentFid,
+    kfsFileId_t                  dirFid,
+    KfsClientImpl::ErrorHandler& errHandler,
+    bool                         idempotentFlag)
 {
     const string p = path + (path == "/" ? "" : "/") + dirname;
     // Don't compute file sizes and don't update i-node attribute cache.
@@ -1953,12 +1962,12 @@ KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
             if (it->fileId == ROOTFID) {
                 continue;
             }
-            res = RmdirsSelf(p, it->filename, dirFid, it->fileId, errHandler);
-            if (res != 0) {
+            if ((res = RmdirsSelf(p, it->filename, dirFid, it->fileId,
+                    errHandler, idempotentFlag)) != 0) {
                 break;
             }
         } else {
-            res = Remove(p, dirFid, it->filename);
+            res = Remove(p, dirFid, it->filename, idempotentFlag);
             if (res < 0 && (res = errHandler(p, res)) != 0) {
                 break;
             }
@@ -1970,17 +1979,19 @@ KfsClientImpl::RmdirsSelf(const string& path, const string& dirname,
     if (dirname.empty() || (parentFid == ROOTFID && dirname == "/")) {
         return 0;
     }
-    RmdirOp op(0, parentFid, dirname.c_str(), p.c_str());
+    RmdirOp op(0, parentFid, dirname.c_str(), p.c_str(),
+        idempotentFlag ? NextIdempotentOpId() : -1);
     DoMetaOpWithRetry(&op);
     return (op.status < 0 ? errHandler(p, op.status) : 0);
 }
 
 int
 KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid,
-    const string& filename)
+    const string& filename, bool idempotentFlag)
 {
     string pathname = dirname + "/" + filename;
-    RemoveOp op(0, dirFid, filename.c_str(), pathname.c_str());
+    RemoveOp op(0, dirFid, filename.c_str(), pathname.c_str(),
+        idempotentFlag ? NextIdempotentOpId() : -1);
     DoMetaOpWithRetry(&op);
     return op.status;
 }
@@ -3088,7 +3099,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
             mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
             mode != kKfsModeUndef ? (mode & ~mUMask) : mode
         ),
-        exclusive ? NextCreateId() : -1,
+        exclusive ? NextIdempotentOpId() : -1,
         minSTier, maxSTier
     );
     if (stripedType != KFS_STRIPED_FILE_TYPE_NONE) {
@@ -3198,7 +3209,8 @@ KfsClientImpl::Remove(const char* pathname)
     if (res < 0) {
         return res;
     }
-    RemoveOp op(0, parentFid, filename.c_str(), path.c_str());
+    RemoveOp op(0, parentFid, filename.c_str(), path.c_str(),
+        NextIdempotentOpId());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, filename));
     return op.status;
@@ -3286,7 +3298,7 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
         return 0; // src and dst are the same.
     }
     RenameOp op(0, srcParentFid, srcFileName.c_str(),
-                dstPath.c_str(), srcPath.c_str(), overwrite);
+        dstPath.c_str(), srcPath.c_str(), overwrite, NextIdempotentOpId());
     DoMetaOpWithRetry(&op);
 
     KFS_LOG_STREAM_DEBUG << "reanme: " <<
@@ -4946,8 +4958,7 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
     if (! op) {
         KFS_LOG_STREAM_FATAL << "DoMetaOpWithRetry: invalid null oo" <<
         KFS_LOG_EOM;
-        MsgLogger::Stop();
-        abort();
+        FatalError();
         return;
     }
     InitUserAndGroupMode();
@@ -5005,8 +5016,7 @@ KfsClientImpl::DoServerOp(
         KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
             op.Show() <<
         KFS_LOG_EOM;
-        MsgLogger::Stop();
-        abort();
+        FatalError();
         return;
     }
     const bool     kWakeupAndCleanupFlag = false;
@@ -5111,8 +5121,7 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
             " gen: "     << cfa->generation <<
             " path: "    << cfa->nameIt->first <<
         KFS_LOG_EOM;
-        MsgLogger::Stop();
-        abort();
+        FatalError();
     }
     fa->fidNameIt = res.first;
     if (! pathname.empty() && pathname[0] == '/' &&
@@ -5132,8 +5141,7 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
                     " parent: "  << cfa->fidNameIt->first.first <<
                     " name: "    << cfa->fidNameIt->first.second <<
                 KFS_LOG_EOM;
-                MsgLogger::Stop();
-                abort();
+                FatalError();
             }
             if (cfa->generation == mFAttrCacheGeneration) {
                 string path = pathname;

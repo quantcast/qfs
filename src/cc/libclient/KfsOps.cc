@@ -62,38 +62,63 @@ static const char* InitHostName()
 }
 static const char* const sHostName(InitHostName());
 
-class KfsOp::ReqHeaders
+inline ReqOstream&
+KfsOp::ParentHeaders(ReqOstream& os) const
+{
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os << (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    if (! shortRpcFormatFlag) {
+        os << "Version: " "KFS/1.0" "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
+        KFS_CLIENT_PROTO_VERS << "\r\n";
+    if (extraHeaders) {
+        os << *(extraHeaders);
+    }
+    if (0 < maxWaitMillisec) {
+        os << (shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
+            maxWaitMillisec << "\r\n";
+    }
+    return os;
+}
+
+inline ReqOstream&
+KfsIdempotentOp::ParentHeaders(ReqOstream& os) const
+{
+    KfsOp::ParentHeaders(os);
+    if (0 <= reqId) {
+        os << (shortRpcFormatFlag ? "r:" : "Req-id: ") << "\r\n";
+    }
+    return os;
+}
+
+template<typename T>
+class KfsOp::ReqHeadersT
 {
 public:
-    ReqHeaders(const KfsOp& o)
+    ReqHeadersT(const T& o)
         : op(o)
         {}
     ReqOstream& Insert(ReqOstream& os) const
-    {
-        if (op.shortRpcFormatFlag) {
-            os << hex;
-        }
-        os << (op.shortRpcFormatFlag ? "c:" : "Cseq: ") << op.seq << "\r\n";
-        if (! op.shortRpcFormatFlag) {
-            os << "Version: " "KFS/1.0" "\r\n";
-        }
-        os << (op.shortRpcFormatFlag ? "p:" : "Client-Protocol-Version: ") <<
-            KFS_CLIENT_PROTO_VERS << "\r\n";
-        if (op.extraHeaders) {
-            os << *(op.extraHeaders);
-        }
-        if (0 < op.maxWaitMillisec) {
-            os << (op.shortRpcFormatFlag ? "w:" : "Max-wait-ms: ") <<
-                op.maxWaitMillisec << "\r\n";
-        }
-        return os;
-    }
+        { return op.ParentHeaders(os); }
 private:
-    const KfsOp& op;
+    const T& op;
 };
 
-inline ReqOstream& operator<<(ReqOstream& os, const KfsOp::ReqHeaders& hdrs) {
+template<typename T>
+inline static ReqOstream& operator<<(
+    ReqOstream&                 os,
+    const KfsOp::ReqHeadersT<T>& hdrs) {
     return hdrs.Insert(os);
+}
+
+template<typename T>
+inline KfsOp::ReqHeadersT<T>
+KfsOp::ReqHeaders(const T& op)
+{
+    return ReqHeadersT<T>(op);
 }
 
 inline ReqOstream&
