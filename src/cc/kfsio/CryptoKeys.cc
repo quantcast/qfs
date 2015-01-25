@@ -867,5 +867,20 @@ CryptoKeys::PseudoRand(
     return theRet;
 }
 
+    /* static */ bool
+CryptoKeys::Rand(
+    void*  inPtr,
+    size_t inLen)
+{
+    const bool theRet = RAND_bytes(
+        reinterpret_cast<unsigned char*>(inPtr), (int)inLen) > 0;
+    if (! theRet) {
+        KFS_LOG_STREAM_ERROR << "RAND_bytes failure: " <<
+            OpenSslError(ERR_get_error()) <<
+        KFS_LOG_EOM;
+    }
+    return theRet;
+}
+
 } // namespace KFS
 

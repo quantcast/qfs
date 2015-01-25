@@ -129,6 +129,9 @@ public:
     static bool PseudoRand(
         void*  inPtr,
         size_t inLen);
+    static bool Rand(
+        void*  inPtr,
+        size_t inLen);
 private:
     Impl& mImpl;
 private:
