@@ -89,7 +89,7 @@ KfsIdempotentOp::ParentHeaders(ReqOstream& os) const
 {
     KfsOp::ParentHeaders(os);
     if (0 <= reqId) {
-        os << (shortRpcFormatFlag ? "r:" : "Req-id: ") << "\r\n";
+        os << (shortRpcFormatFlag ? "r:" : "Req-id: ") << reqId << "\r\n";
     }
     return os;
 }
@@ -244,9 +244,6 @@ CreateOp::Request(ReqOstream& os)
         ;
     }
     PutPermissions(shortRpcFormatFlag, os, permissions);
-    if (reqId >= 0) {
-        os << (shortRpcFormatFlag ? "RI:" : "ReqId: ") << reqId << "\r\n";
-    }
     if (minSTier < kKfsSTierMax) {
         os <<
             (shortRpcFormatFlag ? "TL:" : "Min-tier: ") <<
@@ -268,9 +265,6 @@ MkdirOp::Request(ReqOstream& os)
             dirname << "\r\n"
     ;
     PutPermissions(shortRpcFormatFlag, os, permissions);
-    if (reqId >= 0) {
-        os << (shortRpcFormatFlag ? "RI:" : "ReqId: ") << reqId << "\r\n";
-    }
     os << "\r\n";
 }
 

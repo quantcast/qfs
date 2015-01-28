@@ -1097,6 +1097,7 @@ private:
                 mConnPtr->SetMaxReadAhead(kMaxReadAhead);
             }
             mReadHeaderDoneFlag = false;
+            TransmitAck();
             if (! mInFlightOpPtr) {
                 inBuffer.Consume(mContentLength);
                 mContentLength = 0;
@@ -1272,6 +1273,27 @@ private:
         delete [] mInFlightRecvBufPtr;
         mInFlightRecvBufPtr = 0;
         mInFlightOpPtr = 0;
+    }
+    void TransmitAck()
+    {
+        if (! mConnPtr) {
+            return;
+        }
+        const Properties::String* const theAckPtr = mProperties.getValue(
+            kRpcFormatShort == mRpcFormat ? "a" : "Ack");
+        if (! theAckPtr) {
+            return;
+        }
+        // Transmit acknowledgement of response reception.
+        IOBuffer& theBuf = mConnPtr->GetOutBuffer();
+        if (kRpcFormatShort == mRpcFormat) {
+            theBuf.CopyIn("ACK\r\na:", 7);
+        } else {
+            theBuf.CopyIn("ACK\r\nAck: ", 10);
+        }
+        theBuf.CopyIn(theAckPtr->data(), theAckPtr->size());
+        theBuf.CopyIn("\r\n\r\n", 4);
+        mConnPtr->Flush();
     }
     bool IsAuthEnabled() const
         { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
