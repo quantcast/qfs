@@ -92,6 +92,8 @@ public:
             Timeout();
         }
     }
+    int64_t GetLastCallTimeMs() const
+        { return mLastCall; }
     /// This method will be invoked when a timeout occurs.
     virtual void Timeout() = 0;
 protected:

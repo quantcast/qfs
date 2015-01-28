@@ -4088,7 +4088,7 @@ MetaLookupPath::response(ReqOstream &os)
 void
 MetaCreate::response(ReqOstream &os)
 {
-    if (! OkHeader(this, os)) {
+    if (! IdempotentAck(os)) {
         return;
     }
     os << (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n";
@@ -4114,13 +4114,16 @@ MetaCreate::response(ReqOstream &os)
 void
 MetaRemove::response(ReqOstream &os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! IdempotentAck(os)) {
+        return;
+    }
+    os << "\r\n";
 }
 
 void
 MetaMkdir::response(ReqOstream &os)
 {
-    if (! OkHeader(this, os)) {
+    if (! IdempotentAck(os)) {
         return;
     }
     os <<
@@ -4142,7 +4145,10 @@ MetaMkdir::response(ReqOstream &os)
 void
 MetaRmdir::response(ReqOstream &os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! IdempotentAck(os)) {
+        return;
+    }
+    os << "\r\n";
 }
 
 void
@@ -5569,6 +5575,42 @@ void
 MetaForceChunkReplication::response(ReqOstream& os)
 {
     PutHeader(this, os) << "\r\n";
+}
+
+MetaIdempotentRequest::~MetaIdempotentRequest()
+{
+    if (ref != 0) {
+        panic("MetaIdempotentRequest: invalid ref count");
+    }
+    ref -= 1000; // To catch double delete.
+}
+
+bool
+MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
+{
+    if (req && req != this) {
+        status    = req->status;
+        statusMsg = req->statusMsg;
+        ackId     = req->ackId;
+        ackType   = req->ackType;
+    }
+    PutHeader(this, os);
+    if (0 <= ackId) {
+        os << (shortRpcFormatFlag ? "a:" : "Ack: ") << ackId <<
+            "/" << ackType << "\r\n";
+    }
+    if (0 <= status) {
+        return true;
+    }
+    os << "\r\n";
+    return false;
+}
+
+void
+MetaAck::handle()
+{
+    KFS_LOG_STREAM_DEBUG << "ack: " << ack << KFS_LOG_EOM;
+    SetEUserAndEGroup(*this);
 }
 
 } /* namespace KFS */

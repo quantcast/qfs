@@ -181,7 +181,7 @@ ClientSM::ClientSM(
 
 ClientSM::~ClientSM()
 {
-    delete mAuthenticateOp;
+    MetaRequest::Release(mAuthenticateOp);
     QCStMutexLocker locker(gNetDispatch.GetClientManagerMutex());
     ClientSMList::Remove(sClientSMPtr, *this);
     sClientCount--;
@@ -318,7 +318,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
         const bool deleteOpFlag = op != mAuthenticateOp;
         SendResponse(op);
         if (deleteOpFlag) {
-            delete op;
+            MetaRequest::Release(op);
         }
         mPendingOpsCount--;
         if (! mNetConnection) {
@@ -351,7 +351,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         " out of order data received" <<
                     KFS_LOG_EOM;
                 }
-                delete mAuthenticateOp;
+                MetaRequest::Release(mAuthenticateOp);
                 mAuthenticateOp = 0;
             } else {
                 mAuthUid = mAuthenticateOp->authUid;
@@ -368,7 +368,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 authName.swap(mAuthenticateOp->authName);
                 mCredExpirationTime    = mAuthenticateOp->credExpirationTime;
                 mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
-                delete mAuthenticateOp;
+                MetaRequest::Release(mAuthenticateOp);
                 mAuthenticateOp = 0;
                 if (filter) {
                     string errMsg;
@@ -573,7 +573,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
         const time_t now = mNetConnection->TimeNow();
         if (mSessionExpirationTime + sAuthMaxTimeSkew < now) {
-            delete op;
+            MetaRequest::Release(op);
             CloseConnection("authenticated session has expired");
             return;
         }
@@ -589,7 +589,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                         mDelegationSeq,
                         mDelegationFlags,
                         mCanceledTokensUpdateCount)) {
-                    delete op;
+                    MetaRequest::Release(op);
                     CloseConnection("delegation canceled");
                     return;
                 }
@@ -604,7 +604,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             } else {
                 string authName;
                 if (! Verify(authName, true, 0, peerName, 0, false)) {
-                    delete op;
+                    MetaRequest::Release(op);
                     const string msg = peerName + " is no longer valid";
                     CloseConnection(msg.c_str());
                     return;
@@ -623,7 +623,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                     "user id: " << mAuthUid <<
                     " is no longer valid, clossing connection" <<
                 KFS_LOG_EOM;
-                delete op;
+                MetaRequest::Release(op);
                 CloseConnection();
                 return;
             }

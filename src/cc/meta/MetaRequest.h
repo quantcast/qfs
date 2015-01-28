@@ -48,6 +48,7 @@
 #include "common/DynamicArray.h"
 #include "common/ReqOstream.h"
 #include "common/RequestParser.h"
+#include "common/kfsatomic.h"
 #include "qcdio/QCDLList.h"
 
 #include <string.h>
@@ -147,7 +148,8 @@ using std::less;
     f(DELEGATE) \
     f(DELEGATE_CANCEL) \
     f(SET_FILE_SYSTEM_INFO) \
-    f(FORCE_CHUNK_REPLICATION)
+    f(FORCE_CHUNK_REPLICATION) \
+    f(ACK)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -239,7 +241,12 @@ struct MetaRequest {
           next(0),
           clnt(0)
         { MetaRequest::Init(); }
-    virtual ~MetaRequest();
+    static void Release(MetaRequest* req)
+    {
+        if (req) {
+            req->ReleaseSelf();
+        }
+    }
     virtual void handle();
     //!< when an op finishes execution, we send a response back to
     //!< the client.  This function should generate the appropriate
@@ -307,6 +314,9 @@ struct MetaRequest {
     }
 protected:
     virtual void response(ReqOstream& /* os */) {}
+    virtual ~MetaRequest();
+    virtual void ReleaseSelf()
+        { delete this; }
 private:
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];
@@ -325,6 +335,58 @@ inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
 { return disp.Show(os); }
 
 void submit_request(MetaRequest *r);
+
+struct MetaIdempotentRequest : public MetaRequest {
+    // Derived classes' request() method must be const, i.e. not modify "this".
+    seq_t reqId;
+    seq_t ackId;
+    int   ackType;
+    MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1)
+        : MetaRequest(o, mu, opSeq),
+          reqId(-1),
+          ackId(-1),
+          ackType(-1),
+          ref(1),
+          req(0)
+        {}
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def2("Req-id", "r", &MetaIdempotentRequest::reqId)
+        ;
+    }
+    void SetReq(MetaIdempotentRequest* r)
+    {
+        if (req) {
+            req->UnRef();
+        }
+        req = r;
+        if (req) {
+            req->Ref();
+        }
+    }
+protected:
+    bool IdempotentAck(ReqOstream& os);
+    void Ref() { SyncAddAndFetch(ref, 1); }
+    void UnRef()
+    {
+        if (SyncAddAndFetch(ref, -1) <= 0) {
+            delete this;
+        }
+    }
+    virtual ~MetaIdempotentRequest();
+    virtual void ReleaseSelf()
+    {
+        if (req) {
+            req->UnRef();
+            req = 0;
+        }
+        UnRef();
+    }
+private:
+    volatile int           ref;
+    MetaIdempotentRequest* req;
+};
 
 /*!
  * \brief look up a file name
@@ -416,7 +478,7 @@ struct MetaLookupPath: public MetaRequest {
 /*!
  * \brief create a file
  */
-struct MetaCreate: public MetaRequest {
+struct MetaCreate: public MetaIdempotentRequest {
     fid_t      dir;                 //!< parent directory fid
     fid_t      fid;                 //!< file ID of new file
     int16_t    numReplicas;         //!< desired degree of replication
@@ -431,12 +493,11 @@ struct MetaCreate: public MetaRequest {
     kfsMode_t  mode;
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
-    seq_t      reqId;
     string     name;                //!< name to create
     string     ownerName;
     string     groupName;
     MetaCreate()
-        : MetaRequest(META_CREATE, true),
+        : MetaIdempotentRequest(META_CREATE, true),
           dir(-1),
           fid(-1),
           numReplicas(1),
@@ -451,7 +512,6 @@ struct MetaCreate: public MetaRequest {
           mode(kKfsModeUndef),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          reqId(-1),
           name(),
           ownerName(),
           groupName()
@@ -491,7 +551,6 @@ struct MetaCreate: public MetaRequest {
         .Def2("Owner",                "O",  &MetaCreate::user,               kKfsUserNone)
         .Def2("Group",                "G",  &MetaCreate::group,              kKfsGroupNone)
         .Def2("Mode",                 "M",  &MetaCreate::mode,               kKfsModeUndef)
-        .Def2("ReqId",                "RI", &MetaCreate::reqId,              seq_t(-1))
         .Def2("Min-tier",             "TL", &MetaCreate::minSTier,           kKfsSTierMax)
         .Def2("Max-tier",             "TH", &MetaCreate::maxSTier,           kKfsSTierMax)
         .Def2("OName",                "ON", &MetaCreate::ownerName)
@@ -503,7 +562,7 @@ struct MetaCreate: public MetaRequest {
 /*!
  * \brief create a directory
  */
-struct MetaMkdir: public MetaRequest {
+struct MetaMkdir: public MetaIdempotentRequest {
     fid_t      dir;  //!< parent directory fid
     fid_t      fid;  //!< file ID of new directory
     kfsUid_t   user;
@@ -511,12 +570,11 @@ struct MetaMkdir: public MetaRequest {
     kfsMode_t  mode;
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
-    seq_t      reqId;
     string     name; //!< name to create
     string     ownerName;
     string     groupName;
     MetaMkdir()
-        : MetaRequest(META_MKDIR, true),
+        : MetaIdempotentRequest(META_MKDIR, true),
           dir(-1),
           fid(-1),
           user(kKfsUserNone),
@@ -524,7 +582,6 @@ struct MetaMkdir: public MetaRequest {
           mode(kKfsModeUndef),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          reqId(-1),
           name(),
           ownerName(),
           groupName()
@@ -557,7 +614,6 @@ struct MetaMkdir: public MetaRequest {
         .Def2("Owner",              "O",  &MetaMkdir::user,   kKfsUserNone)
         .Def2("Group",              "G",  &MetaMkdir::group,  kKfsGroupNone)
         .Def2("Mode",               "M",  &MetaMkdir::mode,   kKfsModeUndef)
-        .Def2("ReqId",              "RI", &MetaMkdir::reqId,  seq_t(-1))
         .Def2("OName",              "ON", &MetaMkdir::ownerName)
         .Def2("GName",              "GN", &MetaMkdir::groupName)
         ;
@@ -567,13 +623,13 @@ struct MetaMkdir: public MetaRequest {
 /*!
  * \brief remove a file
  */
-struct MetaRemove: public MetaRequest {
+struct MetaRemove: public MetaIdempotentRequest {
     fid_t    dir;      //!< parent directory fid
     string   name;     //!< name to remove
     string   pathname; //!< full pathname to remove
     fid_t    todumpster;
     MetaRemove()
-        : MetaRequest(META_REMOVE, true),
+        : MetaIdempotentRequest(META_REMOVE, true),
           dir(-1),
           name(),
           pathname(),
@@ -609,12 +665,12 @@ struct MetaRemove: public MetaRequest {
 /*!
  * \brief remove a directory
  */
-struct MetaRmdir: public MetaRequest {
+struct MetaRmdir: public MetaIdempotentRequest {
     fid_t  dir; //!< parent directory fid
     string name;    //!< name to remove
     string pathname; //!< full pathname to remove
     MetaRmdir()
-        : MetaRequest(META_RMDIR, true),
+        : MetaIdempotentRequest(META_RMDIR, true),
           dir(-1),
           name(),
           pathname()
@@ -3204,6 +3260,29 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
         .Def2("Recovery",             "R", &MetaForceChunkReplication::recoveryFlag,             false)
         .Def2("Remove",               "X", &MetaForceChunkReplication::removeFlag,               false)
         .Def2("ForcePastEofRecovery", "E", &MetaForceChunkReplication::forcePastEofRecoveryFlag, false)
+        ;
+    }
+};
+
+struct MetaAck : public MetaRequest {
+    StringBufT<32> ack;
+    MetaAck()
+        : MetaRequest(META_ACK, false),
+          ack()
+        {}
+    bool Validate()
+        { return (! ack.empty()); }
+    virtual void handle();
+    virtual void response(ReqOstream& /* os */)
+        { /* No response; */ }
+    virtual int log(ostream& /* file */) const
+        { return 0; }
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "ACK: " << ack); }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return  parser // Do not include MetaRequest parser.
+        .Def2("Ack", "a", &MetaAck::ack)
         ;
     }
 };

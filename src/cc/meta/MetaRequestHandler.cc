@@ -109,6 +109,8 @@ static const T& MakeMetaRequestHandler(const T* inNullPtr = 0)
         static_cast<const MetaDelegateCancel*>(0))
     .MakeParser("FORCE_REPLICATION",
         static_cast<const MetaForceChunkReplication*>(0))
+    .MakeParser("ACK",
+        static_cast<const MetaAck*>(0))
     ;
 }
 typedef RequestHandler<
@@ -202,11 +204,11 @@ ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
         sMetaRequestHandlerShortFmt.Handle(buf, reqLen);
     if (req) {
         if (0 <= req->seqno) {
-            delete *res;
+            MetaRequest::Release(*res);
             *res = req;
             shortRpcFmtFlag = ! shortRpcFmtFlag;
         } else {
-            delete req;
+            MetaRequest::Release(req);
         }
     }
     return (*res ? 0 : -1);

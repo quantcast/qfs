@@ -45,6 +45,7 @@ set (lib_srcs
     AuthContext.cc
     UserAndGroup.cc
     MetaRequestHandler.cc
+    IdempotentRequestTracker.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})

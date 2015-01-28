@@ -912,7 +912,7 @@ NetDispatch::Dispatch(MetaRequest *r)
     if (r->clnt) {
         r->clnt->HandleEvent(EVENT_CMD_DONE, r);
     } else {
-        delete r;
+        MetaRequest::Release(r);
     }
 }
 
@@ -1234,7 +1234,7 @@ public:
     void Enqueue(MetaRequest& op)
     {
         if (! op.clnt) {
-            delete &op;
+            MetaRequest::Release(&op);
             return;
         }
         QCStMutexLocker locker(mMutex);
@@ -1497,7 +1497,7 @@ ClientManager::EnqueueSelf(ClientManager::ClientThread* thread, MetaRequest& op)
 {
     assert(thread);
     if (! op.clnt) {
-        delete &op;
+        MetaRequest::Release(&op);
     } else if (thread->IsStarted()) {
         thread->Enqueue(op);
     } else {

@@ -104,7 +104,7 @@ ChunkServerEmulator::Dispatch()
             KFS_LOG_STREAM_ERROR << "unexpected op: " << r->Show() <<
             KFS_LOG_EOM;
         }
-        delete r;
+        MetaRequest::Release(r);
     }
     mPendingReqs.clear();
     return i;
@@ -124,7 +124,7 @@ ChunkServerEmulator::FailPendingOps()
             mcr->status = -EIO;
             gLayoutEmulator.ChunkReplicationDone(mcr);
         }
-        delete r;
+        MetaRequest::Release(r);
     }
     mPendingReqs.clear();
 }

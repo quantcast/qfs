@@ -479,8 +479,8 @@ ChunkServer::~ChunkServer()
         mNetConnection->Close();
     }
     RemoveFromPendingHelloList();
-    delete mHelloOp;
-    delete mAuthenticateOp;
+    MetaRequest::Release(mHelloOp);
+    MetaRequest::Release(mAuthenticateOp);
     ReleasePendingResponses();
     ChunkServersList::Remove(sChunkServersPtr, *this);
     sChunkServerCount--;
@@ -497,7 +497,7 @@ ChunkServer::ReleasePendingResponses(bool sendResponseFlag /* = false */)
         next = op->next;
         op->next = 0;
         if (! sendResponseFlag || SendResponse(op)) {
-            delete op;
+            MetaRequest::Release(op);
         }
     }
 }
@@ -695,7 +695,7 @@ ChunkServer::HandleRequest(int code, void *data)
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
         const bool deleteOpFlag = op != mAuthenticateOp;
         if (SendResponse(op) && deleteOpFlag) {
-            delete op;
+            MetaRequest::Release(op);
         }
         break;
     }
@@ -703,7 +703,7 @@ ChunkServer::HandleRequest(int code, void *data)
     case EVENT_NET_WROTE:
         if (mAuthenticateOp) {
             if (! mNetConnection) {
-                delete mAuthenticateOp;
+                MetaRequest::Release(mAuthenticateOp);
                 mAuthenticateOp = 0;
                 break;
             }
@@ -743,7 +743,7 @@ ChunkServer::HandleRequest(int code, void *data)
                 }
             }
             mSessionExpirationTime = mAuthenticateOp->sessionExpirationTime;
-            delete mAuthenticateOp;
+            MetaRequest::Release(mAuthenticateOp);
             mAuthenticateOp  = 0;
             KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 (mHelloDone ? " re-" : " ") <<
@@ -877,7 +877,7 @@ ChunkServer::ForceDown()
         mNetConnection.reset();
     }
     RemoveFromPendingHelloList();
-    delete mHelloOp;
+    MetaRequest::Release(mHelloOp);
     mHelloOp      = 0;
     mDown         = true;
     // Take out the server from write-allocation
@@ -940,9 +940,9 @@ ChunkServer::Error(const char* errorMsg)
         mDownReason = "restart";
     }
     RemoveFromPendingHelloList();
-    delete mAuthenticateOp;
+    MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    delete mHelloOp;
+    MetaRequest::Release(mHelloOp);
     mHelloOp      = 0;
     mDown         = true;
     // Take out the server from write-allocation
@@ -1149,7 +1149,7 @@ ChunkServer::DeclareHelloError(
         mDisconnectReason = mHelloOp->statusMsg;
     }
     if (SendResponse(mHelloOp)) {
-        delete mHelloOp;
+        MetaRequest::Release(mHelloOp);
     }
     mHelloOp = 0;
     return 0;
@@ -1194,7 +1194,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " unexpected request, expected hello" <<
             KFS_LOG_EOM;
-            delete op;
+            MetaRequest::Release(op);
             return -1;
         }
         NetConnection::Filter* filter;
@@ -1223,7 +1223,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             if (! ParseCryptoKey(mHelloOp->cryptoKeyId, mHelloOp->cryptoKey,
                     mShortRpcFormatFlag)) {
                 mHelloOp = 0;
-                delete op;
+                MetaRequest::Release(op);
                 return -1;
             }
             mAuthCtxUpdateCount =
@@ -1248,7 +1248,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             KFS_LOG_EOM;
             if (mHelloOp->status != -EBADCLUSTERKEY) {
                 mHelloOp = 0;
-                delete op;
+                MetaRequest::Release(op);
                 return -1;
             }
             if (! sRestartCSOnInvalidClusterKeyFlag) {
@@ -1260,7 +1260,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " hello: invalid server locaton: " << mHelloOp->location <<
             KFS_LOG_EOM;
             mHelloOp = 0;
-            delete op;
+            MetaRequest::Release(op);
             return -1;
         }
         if (mHelloOp->status == 0 &&
@@ -1271,7 +1271,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " exceeds max. allowed: " << sMaxHelloBufferBytes <<
             KFS_LOG_EOM;
             mHelloOp = 0;
-            delete op;
+            MetaRequest::Release(op);
             return -1;
         }
         if (mHelloOp->fileSystemId <= 0 &&
@@ -1284,7 +1284,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " hello: invalid file sytem id" <<
             KFS_LOG_EOM;
             mHelloOp = 0;
-            delete op;
+            MetaRequest::Release(op);
             return -1;
         }
         mHelloOp->metaFileSystemId = metatree.GetFsId();
@@ -1316,7 +1316,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " + "                     << mHelloOp->numMissingChunks <<
             KFS_LOG_EOM;
             mHelloOp = 0;
-            delete op;
+            MetaRequest::Release(op);
             return -1;
         }
         if (mHelloOp->status == 0 &&
@@ -1468,7 +1468,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                         mHelloOp->missingChunks.back()) <<
                     " content length: " << contentLength <<
                 KFS_LOG_EOM;
-                delete mHelloOp;
+                MetaRequest::Release(mHelloOp);
                 mHelloOp = 0;
                 return -1;
             }
@@ -1479,7 +1479,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     if (mHelloOp->status == -EBADCLUSTERKEY) {
         iobuf->Clear();
         if (! mNetConnection) {
-            delete mHelloOp;
+            MetaRequest::Release(mHelloOp);
             mHelloOp = 0;
             return -1;
         }
@@ -1508,7 +1508,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mOstream.Reset();
         mNetConnection->SetMaxReadAhead(0);
         mNetConnection->SetInactivityTimeout(sRequestTimeout);
-        delete mHelloOp;
+        MetaRequest::Release(mHelloOp);
         mHelloOp = 0;
         // Do not declare error, outbound data still pending.
         // Create response and set timeout, the chunk server
@@ -1589,7 +1589,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
         KFS_LOG_STREAM_ERROR << GetServerLocation() <<
             " unexpected hello op: " << op->Show() <<
         KFS_LOG_EOM;
-        delete op;
+        MetaRequest::Release(op);
         return -1;
     }
     // Message is ready to be pushed down.  So remove it.
