@@ -71,6 +71,12 @@
 #include <boost/scoped_array.hpp>
 #include <boost/bind.hpp>
 
+inline static bool
+operator==(const struct timeval& lhs, const struct timeval& rhs)
+{
+    return (lhs.tv_sec == rhs.tv_sec && lhs.tv_usec == rhs.tv_usec);
+}
+
 namespace KFS
 {
 using std::string;
