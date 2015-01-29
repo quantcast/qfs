@@ -31,7 +31,7 @@
 #include <utility>
 #include <string>
 #include <algorithm>
-#include <iostream>
+#include <istream>
 #include <iterator>
 
 #include <stddef.h>
@@ -45,11 +45,11 @@ namespace KFS
 using std::string;
 using std::streambuf;
 using std::istream;
-using std::ostream;
 using std::min;
 using std::make_pair;
 using std::map;
 using std::less;
+using std::pair;
 
 // Multiple inheritance below used only to enforce construction order.
 class BufferInputStream :
@@ -202,6 +202,13 @@ public:
     }
     bool empty() const
         { return (mLen <= 0); }
+    bool operator==(
+        const TokenValue& inRhs) const
+    {
+        return (mLen == inRhs.mLen &&
+            (mLen <= 0 || mPtr == inRhs.mPtr ||
+                memcmp(mPtr, inRhs.mPtr, 0) == 0));
+    }
     const char* mPtr;
     size_t      mLen;
 };
@@ -370,10 +377,10 @@ _KFS_ValueParser_IntTypes(_KFS_DEFINE_ValueParser_IntSetValue)
 
 typedef ValueParserT<DecIntParser> ValueParser;
 
-class PropertiesTokenizer
+template<char SEPARATOR, char DELIMITER>
+class PropertiesTokenizerT
 {
 public:
-    enum { kSeparator = ':' };
     struct Token
     {
         Token(
@@ -426,7 +433,7 @@ public:
         size_t const      mLen;
     };
 
-    PropertiesTokenizer(
+    PropertiesTokenizerT(
         const char* inPtr,
         size_t      inLen,
         bool        inIgnoreMalformedFlag = true)
@@ -439,7 +446,7 @@ public:
     static bool IsWSpace(
         char inChar)
         { return ((inChar & 0xFF) <= ' '); }
-    bool Next(int inSeparator = kSeparator)
+    bool Next(int inSeparator = SEPARATOR)
     {
         while (mPtr < mEndPtr) {
             // Skip leading white space.
@@ -460,7 +467,7 @@ public:
             }
             const char* theKeyEndPtr = mPtr;
             while (mPtr < mEndPtr && *mPtr != inSeparator &&
-                    *mPtr != '\r' && *mPtr != '\n') {
+                    *mPtr != '\r' && *mPtr != DELIMITER) {
                 if (! IsWSpace(*mPtr)) {
                     theKeyEndPtr = mPtr + 1;
                 }
@@ -468,7 +475,7 @@ public:
             }
             if (*mPtr != inSeparator) {
                 // Ignore malformed line.
-                while (mPtr < mEndPtr && *mPtr != '\n') {
+                while (mPtr < mEndPtr && *mPtr != DELIMITER) {
                     mPtr++;
                 }
                 if (mIgnoreMalformedFlag) {
@@ -480,13 +487,13 @@ public:
             mPtr++;
             // Skip leading white space after the delimiter.
             while (mPtr < mEndPtr && IsWSpace(*mPtr) &&
-                    *mPtr != '\r' && *mPtr != '\n') {
+                    *mPtr != '\r' && *mPtr != DELIMITER) {
                 mPtr++;
             }
             // Find end of line and discard trailing white space.
             const char* const theValuePtr    = mPtr;
             const char*       theValueEndPtr = mPtr;
-            while (mPtr < mEndPtr && *mPtr != '\r' && *mPtr != '\n') {
+            while (mPtr < mEndPtr && *mPtr != '\r' && *mPtr != DELIMITER) {
                 if (! IsWSpace(*mPtr)) {
                     theValueEndPtr = mPtr + 1;
                 }
@@ -510,17 +517,32 @@ private:
     const bool        mIgnoreMalformedFlag;
 };
 
+typedef PropertiesTokenizerT<':', '\n'> PropertiesTokenizer;
+
+class NopOstream
+{
+public:
+    template<typename T>
+    NopOstream& operator<<(const T& /* inVal */)
+        { return *this; }
+    NopOstream& write(const void* /* inPtr */, size_t /* inLen */)
+        { return *this; }
+};
+
 // Create parser for object fields, and invoke appropriate parsers based on the
 // request header names.
 template <
     typename OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false>
+    bool     SHORT_NAMES=false,
+    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
+    typename ST=NopOstream,
+    bool     VALIDATE_FLAG=true>
 class ObjectParser
 {
 public:
-    typedef PropertiesTokenizer Tokenizer;
-    typedef Tokenizer::Token    Token;
+    typedef PROPERTIES_TOKENIZER      Tokenizer;
+    typedef typename Tokenizer::Token Token;
 
     // inNamePtr arguments are assumed to be static strings.
     // The strings must remain constant and valid during the lifetime of
@@ -589,9 +611,23 @@ public:
             }
         }
     }
+    void Write(
+        ST&        inStream,
+        const OBJ* inObjPtr,
+        bool       inOmitDefaultFlag = false,
+        char       inSeparator       = ':',
+        char       inDelimiter       = '\n') const
+    {
+        for (typename Fields::const_iterator theIt = mFields.begin();
+                theIt != mFields.end();
+                ++theIt) {
+            theIt->second->Get(inObjPtr, inStream,
+                theIt->first, inOmitDefaultFlag, inSeparator, inDelimiter);
+        }
+    }
 private:
-    typedef Tokenizer::Token Key;
-    typedef Tokenizer::Token Value;
+    typedef typename Tokenizer::Token Key;
+    typedef typename Tokenizer::Token Value;
 
     class AbstractField
     {
@@ -603,6 +639,13 @@ private:
         virtual void Set(
             OBJ*         inObjPtr,
             const Value& inValue) const = 0;
+        virtual void Get(
+            const OBJ* inObjPtr,
+            ST&        inStream,
+            const Key& inKey,
+            bool       inOmitDefaultFlag,
+            char       inSeparator,
+            char       inDelimiter) const = 0;
     };
 
     template<typename T, typename OT>
@@ -636,6 +679,22 @@ private:
                 inObjPtr->*mFieldPtr
             );
         }
+        virtual void Get(
+            const OBJ* inObjPtr,
+            ST&        inStream,
+            const Key& inKey,
+            bool       inOmitDefaultFlag,
+            char       inSeparator,
+            char       inDelimiter) const
+        {
+            if (inOmitDefaultFlag && inObjPtr->*mFieldPtr == mDefault) {
+                return;
+            }
+            inStream.write(inKey.mPtr, inKey.mLen);
+            inStream << inSeparator;
+            inStream << inObjPtr->*mFieldPtr;
+            inStream << inDelimiter;
+        }
     private:
         T OT::* const mFieldPtr;
         T const       mDefault;
@@ -647,7 +706,7 @@ private:
     Fields mFields;
 };
 
-template <typename ABSTRACT_OBJ>
+template <typename ABSTRACT_OBJ, typename ST>
 class AbstractRequestParser
 {
 public:
@@ -664,6 +723,12 @@ public:
         size_t      inRequestNameLen,
         bool        inHasHeaderChecksumFlag,
         Checksum    inChecksum) const = 0;
+    virtual void Write(
+        ST&                 inStream,
+        const ABSTRACT_OBJ* inObjPtr,
+        bool                inOmitDefaultFlag,
+        char                inSeparator,
+        char                inDelimiter) const = 0;
 };
 
 // Create concrete object and invoke corresponding parser.
@@ -671,16 +736,33 @@ template <
     typename ABSTRACT_OBJ,
     typename OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false>
+    bool     SHORT_NAMES=false,
+    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
+    typename ST=NopOstream,
+    bool     VALIDATE_FLAG=true>
 class RequestParser :
-    public AbstractRequestParser<ABSTRACT_OBJ>,
-    public ObjectParser<OBJ, VALUE_PARSER, SHORT_NAMES>
+    public AbstractRequestParser<ABSTRACT_OBJ, ST>,
+    public ObjectParser<
+        OBJ,
+        VALUE_PARSER,
+        SHORT_NAMES,
+        PROPERTIES_TOKENIZER,
+        ST,
+        VALIDATE_FLAG
+    >
 {
 public:
-    typedef PropertiesTokenizer                          Tokenizer;
-    typedef AbstractRequestParser<ABSTRACT_OBJ>          Super;
-    typedef ObjectParser<OBJ, VALUE_PARSER, SHORT_NAMES> ObjParser;
-    typedef typename Super::Checksum                     Checksum;
+    typedef PROPERTIES_TOKENIZER                    Tokenizer;
+    typedef AbstractRequestParser<ABSTRACT_OBJ, ST> Super;
+    typedef ObjectParser<
+        OBJ,
+        VALUE_PARSER,
+        SHORT_NAMES,
+        PROPERTIES_TOKENIZER,
+        ST,
+        VALIDATE_FLAG
+    > ObjParser;
+    typedef typename Super::Checksum                Checksum;
 
     RequestParser()
         : Super(),
@@ -710,11 +792,21 @@ public:
         }
         Tokenizer theTokenizer(inBufferPtr, inLen);
         ObjParser::Parse(theTokenizer, theObjPtr);
-        if (theObjPtr->Validate()) {
+        if (VALIDATE_FLAG && theObjPtr->Validate()) {
             return theObjPtr;
         }
         delete theObjPtr;
         return 0;
+    }
+    virtual void Write(
+        ST&                 inStream,
+        const ABSTRACT_OBJ* inObjPtr,
+        bool                inOmitDefaultFlag,
+        char                inSeparator,
+        char                inDelimiter) const
+    {
+        ObjParser::Write(inStream, static_cast<const OBJ*>(inObjPtr),
+            inOmitDefaultFlag, inSeparator, inDelimiter);
     }
     template<typename T, typename OT>
     RequestParser& Def(
@@ -746,12 +838,16 @@ public:
 template <
     typename ABSTRACT_OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false>
+    bool     SHORT_NAMES=false,
+    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
+    typename ST=NopOstream,
+    bool     VALIDATE_FLAG=true,
+    char     DELIMITER = '\n'>
 class RequestHandler
 {
 public:
-    typedef AbstractRequestParser<ABSTRACT_OBJ> Parser;
-    typedef typename Parser::Checksum           Checksum;
+    typedef AbstractRequestParser<ABSTRACT_OBJ, ST> Parser;
+    typedef typename Parser::Checksum               Checksum;
 
     RequestHandler()
         {}
@@ -782,7 +878,7 @@ public:
         // Get optional header checksum.
         const char* theChecksumPtr = thePtr;
         while (thePtr < theEndPtr &&
-                *thePtr != '\r' && *thePtr != '\n') {
+                *thePtr != '\r' && *thePtr != DELIMITER) {
             thePtr++;
         }
         Checksum   theChecksum     = 0;
@@ -800,23 +896,62 @@ public:
             theChecksum
         );
     }
+    bool Write(
+        ST&                 inStream,
+        const ABSTRACT_OBJ* inObjPtr,
+        int                 inObjId,
+        bool                inOmitDefaultFlag = false,
+        char                inSeparator       = ':',
+        char                inDelimiter       = '\n') const
+    {
+        typename Writers::const_iterator const theIt = mWriters.find(inObjId);
+        if (theIt == mWriters.end()) {
+            return false;
+        }
+        inStream.write(theIt->second.first.mPtr, theIt->second.first.mLen);
+        inStream << DELIMITER;
+        theIt->second.second->Write(inStream, inObjPtr,
+            inOmitDefaultFlag, inSeparator, inDelimiter);
+        return true;
+    }
     template <typename OBJ>
-    RequestParser<ABSTRACT_OBJ, OBJ, VALUE_PARSER, SHORT_NAMES>&
+    RequestParser<
+            ABSTRACT_OBJ,
+            OBJ,
+            VALUE_PARSER,
+            SHORT_NAMES,
+            PROPERTIES_TOKENIZER,
+            ST,
+            VALIDATE_FLAG
+    >&
     BeginMakeParser(
         const OBJ* inNullPtr = 0)
     {
         static RequestParser<
-            ABSTRACT_OBJ, OBJ, VALUE_PARSER, SHORT_NAMES> sParser;
+            ABSTRACT_OBJ,
+            OBJ,
+            VALUE_PARSER,
+            SHORT_NAMES,
+            PROPERTIES_TOKENIZER,
+            ST,
+            VALIDATE_FLAG
+        > sParser;
         return sParser;
     }
     template <typename T>
     RequestHandler& EndMakeParser(
         const char* inNamePtr,
-        T&          inParser)
+        T&          inParser,
+        int         inObjId = -1)
     {
         if (! mParsers.insert(make_pair(
                 Name(inNamePtr), &inParser.DefDone())).second) {
             // Duplicate name -- definition error.
+            abort();
+        }
+        if (0 <= inObjId && ! mWriters.insert(make_pair(
+                inObjId, make_pair(Name(inNamePtr), &inParser))).second) {
+            // Duplicate id -- definition error.
             abort();
         }
         return *this;
@@ -834,12 +969,40 @@ public:
                 )
             );
     }
-
+    template <typename OBJ>
+    RequestHandler& MakeIoParser(
+        const char* inNamePtr,
+        int         inObjId,
+        const OBJ*  inNullPtr = 0)
+    {
+        return
+            EndMakeParser(
+                inNamePtr,
+                OBJ::IoParserDef(
+                    BeginMakeParser(inNullPtr)
+                ),
+                inObjId
+            );
+    }
+    template <typename OBJ>
+    RequestHandler& MakeIoOrRequestParser(
+        const char* inNamePtr,
+        bool        inIoParserFlag,
+        int         inObjId,
+        const OBJ*  inNullPtr = 0)
+    {
+        return (inIoParserFlag ?
+            MakeIoParser(inNamePtr, inObjId, inNullPtr) :
+            MakeParser(inNamePtr, inNullPtr)
+        );
+    }
 private:
-    typedef PropertiesTokenizer::Token Name;
-    typedef map<Name, const Parser*>   Parsers;
+    typedef typename PROPERTIES_TOKENIZER::Token  Name;
+    typedef map<Name, const Parser*>              Parsers;
+    typedef map<int,  pair<Name, const Parser*> > Writers;
 
     Parsers mParsers;
+    Writers mWriters;
 };
 
 }
