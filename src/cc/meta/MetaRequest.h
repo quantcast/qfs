@@ -287,6 +287,15 @@ struct MetaRequest {
         .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        return parser
+        .Def("u", &MetaRequest::euser,   kKfsUserNone)
+        .Def("a", &MetaRequest::authUid, kKfsUserNone)
+        .Def("s", &MetaRequest::status,  0)
+        .Def("m", &MetaRequest::statusMsg)
+        ;
+    }
     virtual ostream& ShowSelf(ostream& os) const = 0;
     static void SetParameters(const Properties& props);
     static uint32_t Checksum(
@@ -312,6 +321,8 @@ struct MetaRequest {
             HexIntParser::Parse(ioPtr, inLen, outValue) :
             DecIntParser::Parse(ioPtr, inLen, outValue));
     }
+    bool Write(ostream& os, bool omitDefaultsFlag = false) const;
+    static MetaRequest* Read(const char* buf, size_t len);
 protected:
     virtual void response(ReqOstream& /* os */) {}
     virtual ~MetaRequest();
@@ -364,6 +375,12 @@ struct MetaIdempotentRequest : public MetaRequest {
         if (req) {
             req->Ref();
         }
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        return MetaRequest::IoParserDef(parser)
+        .Def("r", &MetaIdempotentRequest::reqId)
+        ;
     }
 protected:
     bool IdempotentAck(ReqOstream& os);

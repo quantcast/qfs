@@ -2,114 +2,169 @@
 #include "common/RequestParser.h"
 #include "kfsio/IOBuffer.h"
 
+#include <ostream>
+
 namespace KFS
 {
 
+using std::ostream;
+
 template<typename T>
-static const T& MakeMetaRequestHandler(const T* inNullPtr = 0)
+    static const T&
+MakeMetaRequestHandler(
+    const T* inNullPtr      = 0,
+    bool     inIoParserFlag = false)
 {
     static T sHandler;
     return sHandler
-    .MakeParser("LOOKUP",
+    .MakeIoOrRequestParser("LOOKUP", inIoParserFlag,
+        META_LOOKUP,
         static_cast<const MetaLookup*>(0))
-    .MakeParser("LOOKUP_PATH",
+    .MakeIoOrRequestParser("LOOKUP_PATH", inIoParserFlag,
+        META_LOOKUP_PATH,
         static_cast<const MetaLookupPath*>(0))
-    .MakeParser("CREATE",
+    .MakeIoOrRequestParser("CREATE", inIoParserFlag,
+        META_CREATE,
         static_cast<const MetaCreate*>(0))
-    .MakeParser("MKDIR",
+    .MakeIoOrRequestParser("MKDIR", inIoParserFlag,
+        META_MKDIR,
         static_cast<const MetaMkdir*>(0))
-    .MakeParser("REMOVE",
+    .MakeIoOrRequestParser("REMOVE", inIoParserFlag,
+        META_REMOVE,
         static_cast<const MetaRemove*>(0))
-    .MakeParser("RMDIR",
+    .MakeIoOrRequestParser("RMDIR", inIoParserFlag,
+        META_RMDIR,
         static_cast<const MetaRmdir*>(0))
-    .MakeParser("READDIR",
+    .MakeIoOrRequestParser("READDIR", inIoParserFlag,
+        META_READDIR,
         static_cast<const MetaReaddir*>(0))
-    .MakeParser("READDIRPLUS",
+    .MakeIoOrRequestParser("READDIRPLUS", inIoParserFlag,
+        META_READDIRPLUS,
         static_cast<const MetaReaddirPlus*>(0))
-    .MakeParser("GETALLOC",
+    .MakeIoOrRequestParser("GETALLOC", inIoParserFlag,
+        META_GETALLOC,
         static_cast<const MetaGetalloc*>(0))
-    .MakeParser("GETLAYOUT",
+    .MakeIoOrRequestParser("GETLAYOUT", inIoParserFlag,
+        META_GETLAYOUT,
         static_cast<const MetaGetlayout*>(0))
-    .MakeParser("ALLOCATE",
+    .MakeIoOrRequestParser("ALLOCATE", inIoParserFlag,
+        META_ALLOCATE,
         static_cast<const MetaAllocate*>(0))
-    .MakeParser("TRUNCATE",
+    .MakeIoOrRequestParser("TRUNCATE", inIoParserFlag,
+        META_TRUNCATE,
         static_cast<const MetaTruncate*>(0))
-    .MakeParser("RENAME",
+    .MakeIoOrRequestParser("RENAME", inIoParserFlag,
+        META_RENAME,
         static_cast<const MetaRename*>(0))
-    .MakeParser("SET_MTIME",
+    .MakeIoOrRequestParser("SET_MTIME", inIoParserFlag,
+        META_SETMTIME,
         static_cast<const MetaSetMtime*>(0))
-    .MakeParser("CHANGE_FILE_REPLICATION",
+    .MakeIoOrRequestParser("CHANGE_FILE_REPLICATION", inIoParserFlag,
+        META_CHANGE_FILE_REPLICATION,
         static_cast<const MetaChangeFileReplication*>(0))
-    .MakeParser("COALESCE_BLOCKS",
+    .MakeIoOrRequestParser("COALESCE_BLOCKS", inIoParserFlag,
+        META_COALESCE_BLOCKS,
         static_cast<const MetaCoalesceBlocks*>(0))
-    .MakeParser("RETIRE_CHUNKSERVER",
+    .MakeIoOrRequestParser("RETIRE_CHUNKSERVER", inIoParserFlag,
+        META_RETIRE_CHUNKSERVER,
         static_cast<const MetaRetireChunkserver*>(0))
 
     // Meta server <-> Chunk server ops
-    .MakeParser("HELLO",
+    .MakeIoOrRequestParser("HELLO", inIoParserFlag,
+        META_HELLO,
         static_cast<const MetaHello*>(0))
-    .MakeParser("CORRUPT_CHUNK",
+    .MakeIoOrRequestParser("CORRUPT_CHUNK", inIoParserFlag,
+        META_CHUNK_CORRUPT,
         static_cast<const MetaChunkCorrupt*>(0))
-    .MakeParser("EVACUATE_CHUNK",
+    .MakeIoOrRequestParser("EVACUATE_CHUNK", inIoParserFlag,
+        META_CHUNK_EVACUATE,
         static_cast<const MetaChunkEvacuate*>(0))
-    .MakeParser("AVAILABLE_CHUNK",
+    .MakeIoOrRequestParser("AVAILABLE_CHUNK", inIoParserFlag,
+        META_CHUNK_AVAILABLE,
         static_cast<const MetaChunkAvailable*>(0))
-    .MakeParser("CHUNKDIR_INFO",
+    .MakeIoOrRequestParser("CHUNKDIR_INFO", inIoParserFlag,
+        META_CHUNKDIR_INFO,
         static_cast<const MetaChunkDirInfo*>(0))
 
     // Lease related ops
-    .MakeParser("LEASE_ACQUIRE",
+    .MakeIoOrRequestParser("LEASE_ACQUIRE", inIoParserFlag,
+        META_LEASE_ACQUIRE,
         static_cast<const MetaLeaseAcquire*>(0))
-    .MakeParser("LEASE_RENEW",
+    .MakeIoOrRequestParser("LEASE_RENEW", inIoParserFlag,
+        META_LEASE_RENEW,
         static_cast<const MetaLeaseRenew*>(0))
-    .MakeParser("LEASE_RELINQUISH",
+    .MakeIoOrRequestParser("LEASE_RELINQUISH", inIoParserFlag,
+        META_LEASE_RELINQUISH,
         static_cast<const MetaLeaseRelinquish*>(0))
 
-    .MakeParser("CHECK_LEASES",
+    .MakeIoOrRequestParser("CHECK_LEASES", inIoParserFlag,
+        META_CHECK_LEASES,
         static_cast<const MetaCheckLeases*>(0))
-    .MakeParser("PING",
+    .MakeIoOrRequestParser("PING", inIoParserFlag,
+        META_PING,
         static_cast<const MetaPing*>(0))
-    .MakeParser("UPSERVERS",
+    .MakeIoOrRequestParser("UPSERVERS", inIoParserFlag,
+        META_UPSERVERS,
         static_cast<const MetaUpServers*>(0))
-    .MakeParser("TOGGLE_WORM",
+    .MakeIoOrRequestParser("TOGGLE_WORM", inIoParserFlag,
+        META_TOGGLE_WORM,
         static_cast<const MetaToggleWORM*>(0))
-    .MakeParser("STATS",
+    .MakeIoOrRequestParser("STATS", inIoParserFlag,
+        META_STATS,
         static_cast<const MetaStats*>(0))
-    .MakeParser("RECOMPUTE_DIRSIZE",
+    .MakeIoOrRequestParser("RECOMPUTE_DIRSIZE", inIoParserFlag,
+        META_RECOMPUTE_DIRSIZE,
         static_cast<const MetaRecomputeDirsize*>(0))
-    .MakeParser("DUMP_CHUNKTOSERVERMAP",
+    .MakeIoOrRequestParser("DUMP_CHUNKTOSERVERMAP", inIoParserFlag,
+        META_DUMP_CHUNKTOSERVERMAP,
         static_cast<const MetaDumpChunkToServerMap*>(0))
-    .MakeParser("DUMP_CHUNKREPLICATIONCANDIDATES",
+    .MakeIoOrRequestParser("DUMP_CHUNKREPLICATIONCANDIDATES", inIoParserFlag,
+        META_DUMP_CHUNKREPLICATIONCANDIDATES,
         static_cast<const MetaDumpChunkReplicationCandidates*>(0))
-    .MakeParser("FSCK",
+    .MakeIoOrRequestParser("FSCK", inIoParserFlag,
+        META_FSCK,
         static_cast<const MetaFsck*>(0))
-    .MakeParser("OPEN_FILES",
+    .MakeIoOrRequestParser("OPEN_FILES", inIoParserFlag,
+        META_OPEN_FILES,
         static_cast<const MetaOpenFiles*>(0))
-    .MakeParser("GET_CHUNK_SERVERS_COUNTERS",
+    .MakeIoOrRequestParser("GET_CHUNK_SERVERS_COUNTERS", inIoParserFlag,
+        META_GET_CHUNK_SERVERS_COUNTERS,
         static_cast<const MetaGetChunkServersCounters*>(0))
-    .MakeParser("GET_CHUNK_SERVER_DIRS_COUNTERS",
+    .MakeIoOrRequestParser("GET_CHUNK_SERVER_DIRS_COUNTERS", inIoParserFlag,
+        META_GET_CHUNK_SERVER_DIRS_COUNTERS,
         static_cast<const MetaGetChunkServerDirsCounters*>(0))
-    .MakeParser("SET_CHUNK_SERVERS_PROPERTIES",
+    .MakeIoOrRequestParser("SET_CHUNK_SERVERS_PROPERTIES", inIoParserFlag,
+        META_SET_CHUNK_SERVERS_PROPERTIES,
         static_cast<const MetaSetChunkServersProperties*>(0))
-    .MakeParser("GET_REQUEST_COUNTERS",
+    .MakeIoOrRequestParser("GET_REQUEST_COUNTERS", inIoParserFlag,
+        META_GET_REQUEST_COUNTERS,
         static_cast<const MetaGetRequestCounters*>(0))
-    .MakeParser("DISCONNECT",
+    .MakeIoOrRequestParser("DISCONNECT", inIoParserFlag,
+        META_DISCONNECT,
         static_cast<const MetaDisconnect*>(0))
-    .MakeParser("GETPATHNAME",
+    .MakeIoOrRequestParser("GETPATHNAME", inIoParserFlag,
+        META_GETPATHNAME,
         static_cast<const MetaGetPathName*>(0))
-    .MakeParser("CHOWN",
+    .MakeIoOrRequestParser("CHOWN", inIoParserFlag,
+        META_CHOWN,
         static_cast<const MetaChown*>(0))
-    .MakeParser("CHMOD",
+    .MakeIoOrRequestParser("CHMOD", inIoParserFlag,
+        META_CHMOD,
         static_cast<const MetaChmod*>(0))
-    .MakeParser("AUTHENTICATE",
+    .MakeIoOrRequestParser("AUTHENTICATE", inIoParserFlag,
+        META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
-    .MakeParser("DELEGATE",
+    .MakeIoOrRequestParser("DELEGATE", inIoParserFlag,
+        META_DELEGATE,
         static_cast<const MetaDelegate*>(0))
-    .MakeParser("DELEGATE_CANCEL",
+    .MakeIoOrRequestParser("DELEGATE_CANCEL", inIoParserFlag,
+        META_DELEGATE_CANCEL,
         static_cast<const MetaDelegateCancel*>(0))
-    .MakeParser("FORCE_REPLICATION",
+    .MakeIoOrRequestParser("FORCE_REPLICATION", inIoParserFlag,
+        META_FORCE_CHUNK_REPLICATION,
         static_cast<const MetaForceChunkReplication*>(0))
-    .MakeParser("ACK",
+    .MakeIoOrRequestParser("ACK", inIoParserFlag,
+        META_ACK,
         static_cast<const MetaAck*>(0))
     ;
 }
@@ -128,6 +183,34 @@ typedef RequestHandler<
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
+
+typedef RequestHandler<
+    MetaRequest,
+    ValueParserT<HexIntParser>,
+    true,
+    PropertiesTokenizerT<':', '/'>,
+    ostream,
+    false, // Do not invoke Validate
+    '/'
+> MetaRequestIoHandler;
+static const MetaRequestIoHandler& sMetaRequestIoHandler =
+    MakeMetaRequestHandler<MetaRequestIoHandler>(0, true);
+
+bool
+MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
+{
+    if (sMetaRequestIoHandler.Write(os, this, op, omitDefaultsFlag, ':', '/')) {
+        os << '\n';
+        return true;
+    }
+    return false;
+}
+
+MetaRequest*
+MetaRequest::Read(const char* buf, size_t len)
+{
+    return sMetaRequestIoHandler.Handle(buf, len);
+}
 
 // Main thread's buffer
 static char sTempBuf[MAX_RPC_HEADER_LEN];

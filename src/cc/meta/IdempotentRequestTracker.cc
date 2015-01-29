@@ -32,22 +32,31 @@
 #include "common/RequestParser.h"
 #include "common/StdAllocator.h"
 #include "common/LinearHash.h"
+#include "common/time.h"
 
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/Globals.h"
 
+#include <ostream>
+#include <istream>
+
 namespace KFS
 {
 
+using std::istream;
+using std::ostream;
 using libkfsio::globalNetManager;
 
 class IdempotentRequestTracker::Impl : public ITimeout
 {
 public:
     Impl()
-        : mExpirationTimeMicroSec((5 * 60) * 1000 * 1000),
-          mAckId(0)
+        : mExpirationTimeMicroSec((15 * 60) * 1000 * 1000),
+          mAckId(0),
+          mSize(0),
+          mMaxSize(4 < 20),
+          mLru()
     {
         CryptoKeys::PseudoRand(&mAckId, sizeof(mAckId));
         if (mAckId < 0) {
@@ -66,8 +75,20 @@ public:
         globalNetManager().UnRegisterTimeoutHandler(this);
     }
     void SetParameters(
-        const Properties& inProps)
+        const char*       inParamNamePrefixPtr,
+        const Properties& inParameters)
     {
+        Properties::String theParamName;
+        if (inParamNamePrefixPtr) {
+            theParamName.Append(inParamNamePrefixPtr);
+        }
+        const size_t thePrefLen = theParamName.GetSize();
+        mMaxSize = (size_t)inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("maxSize"),
+            (double)mMaxSize);
+        mExpirationTimeMicroSec = (int64_t)(inParameters.getValue(
+            theParamName.Truncate(thePrefLen).Append("timeout"),
+            (double)mExpirationTimeMicroSec * 1e-6) * 1e6);
     }
     bool Handle(
         MetaIdempotentRequest& inRequest)
@@ -75,17 +96,37 @@ public:
         if (inRequest.reqId < 0) {
             return false;
         }
-        Entry theEntry(inRequest);
-        bool  theInsertedFlag = false;
-        Entry* theEntryPtr = Get(inRequest.op).Insert(
+        if (! Validate(inRequest.op)) {
+            panic("IdempotentRequestTracker: invalid request type");
+            return false;
+        }
+        Entry  theEntry(inRequest);
+        bool   theInsertedFlag = false;
+        Table& theTable        = Get(inRequest.op);
+        Entry* theEntryPtr     = theTable.Insert(
             theEntry, theEntry, theInsertedFlag);
+        inRequest.SetReq(theEntryPtr->mReqPtr);
         if (theInsertedFlag) {
-            inRequest.SetReq(&inRequest);
+            if (mMaxSize <= mSize) {
+                Expire(microseconds());
+                if (mMaxSize <= mSize) {
+                    theTable.Erase(theEntry);
+                    inRequest.status    = -ESERVERBUSY;
+                    inRequest.statusMsg = "out of idempotent request entries"; 
+                    return true;
+                }
+            }
             Lru::Insert(*theEntryPtr, mLru);
+            mSize++;
             inRequest.ackType = inRequest.op;
             inRequest.ackId   = inRequest.reqId ^ mAckId;
-        } else {
-            inRequest.SetReq(theEntryPtr->mReqPtr);
+            return false;
+        }
+        if (! theEntryPtr->mReqPtr ||
+                theEntryPtr->mReqPtr->suspended) {
+            // Presently "resume" is not supported.
+            panic("IdempotentRequestTracker: invalid idempotent request entry");
+            return false;
         }
         return true;
     }
@@ -111,8 +152,7 @@ public:
                 return;
             }
         }
-        if (theAckType < 0 ||
-                sizeof(mTables) / sizeof(mTables[0]) < (size_t)theAckType) {
+        if (theAck < 0 || ! Validate(theAckType)) {
             return;
         }
         Table* const theTablePtr = mTables[theAckType];
@@ -125,17 +165,20 @@ public:
     }
     virtual void Timeout()
     {
-        if (! Lru::IsInList(mLru)) {
+        if (mSize <= 0) {
             return;
         }
-        int64_t const theExpirationTime =
-            GetLastCallTimeMs() * 1000 - mExpirationTimeMicroSec;
-        Entry* thePtr = &Lru::GetPrev(mLru);
-        while (thePtr != &mLru &&
-                thePtr->mReqPtr->submitTime < theExpirationTime) {
-            mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
-            thePtr = &Lru::GetPrev(mLru);
-        }
+        Expire(GetLastCallTimeMs() * 1000);
+    }
+    int Write(
+        ostream& inStream)
+    {
+        return 0;
+    }
+    int Read(
+        istream& inStream)
+    {
+        return 0;
     }
 private:
     class Entry
@@ -228,9 +271,17 @@ private:
 
     int64_t mExpirationTimeMicroSec;
     seq_t   mAckId;
+    size_t  mSize;
+    size_t  mMaxSize;
     Entry   mLru;
     Table*  mTables[META_NUM_OPS_COUNT];
-    
+
+    bool Validate(
+        int inOp) const
+    {
+        return (0 <= inOp &&
+                (size_t)inOp < sizeof(mTables) / sizeof(mTables[0]));
+    }
     Table& Get(
         MetaOp inOp)
     {
@@ -241,20 +292,38 @@ private:
         }
         return *thePtr;
     }
+    void Expire(
+        int64_t inNow)
+    {
+        Entry* thePtr = &Lru::GetPrev(mLru);
+        if (&mLru == thePtr) {
+            return;
+        }
+        int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
+        while (thePtr->mReqPtr->submitTime < theExpirationTime) {
+            mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
+            if (&mLru == (thePtr = &Lru::GetPrev(mLru))) {
+                break;
+            }
+        }
+    }
 public:
     // Delete observer.
     void operator()(
         TableEntry& inEntry)
-        { inEntry.GetVal().mReqPtr->SetReq(0); }
+    {
+        if (mSize <= 0) {
+            panic("IdempotentRequestTracker: invalid idempotent request erase");
+        }
+        inEntry.GetVal().mReqPtr->SetReq(0);
+        mSize--;
+    }
 private:
     Impl(
         const Impl& inImpl);
     Impl& operator=(
         const Impl& inImpl);
 };
-
-IdempotentRequestTracker::
-
 
 IdempotentRequestTracker::IdempotentRequestTracker()
     : mImpl(*(new Impl()))
@@ -268,9 +337,10 @@ IdempotentRequestTracker::~IdempotentRequestTracker()
 
     void
 IdempotentRequestTracker::SetParameters(
-    const Properties& inProps)
+    const char*       inParamNamePrefixPtr,
+    const Properties& inParameters)
 {
-    mImpl.SetParameters(inProps);
+    mImpl.SetParameters(inParamNamePrefixPtr, inParameters);
 }
 
     bool

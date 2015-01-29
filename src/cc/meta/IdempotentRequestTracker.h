@@ -42,6 +42,7 @@ public:
     ~IdempotentRequestTracker();
 
     void SetParameters(
+        const char*       inPrefixPtr,
         const Properties& inProps);
     bool Handle(
         MetaIdempotentRequest& inRequest);
