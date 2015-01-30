@@ -558,7 +558,7 @@ struct MetaCreate: public MetaIdempotentRequest {
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
     {
-        return MetaRequest::ParserDef(parser)
+        return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle",   "P",  &MetaCreate::dir,                fid_t(-1))
         .Def2("Num-replicas",         "R",  &MetaCreate::numReplicas,        int16_t( 1))
         .Def2("Striper-type",         "ST", &MetaCreate::striperType,        int32_t(KFS_STRIPED_FILE_TYPE_NONE))
@@ -644,7 +644,7 @@ struct MetaMkdir: public MetaIdempotentRequest {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return MetaRequest::ParserDef(parser)
+        return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P",  &MetaMkdir::dir, fid_t(-1))
         .Def2("Directory",          "N",  &MetaMkdir::name          )
         .Def2("Owner",              "O",  &MetaMkdir::user,   kKfsUserNone)
@@ -705,7 +705,7 @@ struct MetaRemove: public MetaIdempotentRequest {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return MetaRequest::ParserDef(parser)
+        return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P",  &MetaRemove::dir, fid_t(-1))
         .Def2("Filename",           "N",  &MetaRemove::name          )
         .Def2("Pathname",           "PN", &MetaRemove::pathname      )
@@ -752,7 +752,7 @@ struct MetaRmdir: public MetaIdempotentRequest {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return MetaRequest::ParserDef(parser)
+        return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P",  &MetaRmdir::dir, fid_t(-1))
         .Def2("Directory",          "N",  &MetaRmdir::name          )
         .Def2("Pathname",           "PN", &MetaRmdir::pathname      )
