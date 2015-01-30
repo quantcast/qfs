@@ -360,12 +360,6 @@ struct MetaIdempotentRequest : public MetaRequest {
           ref(1),
           req(0)
         {}
-    template<typename T> static T& ParserDef(T& parser)
-    {
-        return MetaRequest::ParserDef(parser)
-        .Def2("Req-id", "r", &MetaIdempotentRequest::reqId)
-        ;
-    }
     void SetReq(MetaIdempotentRequest* r)
     {
         if (req) {
@@ -375,6 +369,14 @@ struct MetaIdempotentRequest : public MetaRequest {
         if (req) {
             req->Ref();
         }
+    }
+    bool NoLog() const
+        { return (req && req != this); }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaRequest::ParserDef(parser)
+        .Def2("Req-id", "r", &MetaIdempotentRequest::reqId)
+        ;
     }
     template<typename T> static T& IoParserDef(T& parser)
     {
@@ -574,6 +576,23 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def2("GName",                "GN", &MetaCreate::groupName)
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Make every response field persistent.
+        // Keep parent directory, replication, and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P",  &MetaCreate::dir,         fid_t(-1))
+        .Def("R",  &MetaCreate::numReplicas, int16_t( 1))
+        .Def("N",  &MetaCreate::name)
+        .Def("H",  &MetaCreate::fid,         fid_t(-1))
+        .Def("ST", &MetaCreate::striperType, int32_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def("U",  &MetaCreate::user,        kKfsUserNone)
+        .Def("G",  &MetaCreate::group,       kKfsUserNone)
+        .Def("M",  &MetaCreate::mode,        kKfsModeUndef)
+        .Def("TL", &MetaCreate::minSTier,    kKfsSTierMax)
+        .Def("TH", &MetaCreate::maxSTier,    kKfsSTierMax)
+        ;
+    }
 };
 
 /*!
@@ -635,6 +654,21 @@ struct MetaMkdir: public MetaIdempotentRequest {
         .Def2("GName",              "GN", &MetaMkdir::groupName)
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Make every response field persistent.
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P",  &MetaMkdir::dir,      fid_t(-1))
+        .Def("N",  &MetaMkdir::name)
+        .Def("H",  &MetaMkdir::fid,      fid_t(-1))
+        .Def("U",  &MetaMkdir::user,     kKfsUserNone)
+        .Def("G",  &MetaMkdir::group,    kKfsUserNone)
+        .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
+        .Def("TL", &MetaMkdir::minSTier, kKfsSTierMax)
+        .Def("TH", &MetaMkdir::maxSTier, kKfsSTierMax)
+        ;
+    }
 };
 
 /*!
@@ -677,14 +711,22 @@ struct MetaRemove: public MetaIdempotentRequest {
         .Def2("Pathname",           "PN", &MetaRemove::pathname      )
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRemove::dir, fid_t(-1))
+        .Def("N", &MetaRemove::name)
+        ;
+    }
 };
 
 /*!
  * \brief remove a directory
  */
 struct MetaRmdir: public MetaIdempotentRequest {
-    fid_t  dir; //!< parent directory fid
-    string name;    //!< name to remove
+    fid_t  dir;      //!< parent directory fid
+    string name;     //!< name to remove
     string pathname; //!< full pathname to remove
     MetaRmdir()
         : MetaIdempotentRequest(META_RMDIR, true),
@@ -714,6 +756,14 @@ struct MetaRmdir: public MetaIdempotentRequest {
         .Def2("Parent File-handle", "P",  &MetaRmdir::dir, fid_t(-1))
         .Def2("Directory",          "N",  &MetaRmdir::name          )
         .Def2("Pathname",           "PN", &MetaRmdir::pathname      )
+        ;
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRmdir::dir, fid_t(-1))
+        .Def("N", &MetaRmdir::name)
         ;
     }
 };

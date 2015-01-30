@@ -190,6 +190,10 @@ public:
         if (! theReqPtr) {
             return -EINVAL;
         }
+        // This is used for checkpoint load -- assign the "start" time.
+        static const int sStartTime = microseconds();
+        theReqPtr->submitTime  = sStartTime;
+        theReqPtr->processTime = theReqPtr->submitTime;
         const bool theHandledFlag = Handle(
             *static_cast<MetaIdempotentRequest*>(theReqPtr));
         MetaRequest::Release(theReqPtr);

@@ -3512,6 +3512,9 @@ MetaLookupPath::log(ostream& /* file */) const
 int
 MetaCreate::log(ostream& file) const
 {
+    if (NoLog()) {
+        return 0;
+    }
     // use the log entry time as a proxy for when the file was created
     file << "create"
         "/dir/"         << dir <<
@@ -3538,6 +3541,9 @@ MetaCreate::log(ostream& file) const
     if (minSTier < kKfsSTierMax) {
         file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
     }
+    if (0 <= reqId) {
+        file << "/reqid/" << reqId;
+    }
     file << '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -3548,6 +3554,9 @@ MetaCreate::log(ostream& file) const
 int
 MetaMkdir::log(ostream &file) const
 {
+    if (NoLog()) {
+        return 0;
+    }
     file << "mkdir"
         "/dir/"   << dir <<
         "/name/"  << name <<
@@ -3555,8 +3564,11 @@ MetaMkdir::log(ostream &file) const
         "/ctime/" << ShowTime(microseconds()) <<
         "/user/"  << user <<
         "/group/" << group <<
-        "/mode/"  << mode <<
-    '\n';
+        "/mode/"  << mode;
+    if (0 <= reqId) {
+        file << "/reqid/" << reqId;
+    }
+    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3566,9 +3578,15 @@ MetaMkdir::log(ostream &file) const
 int
 MetaRemove::log(ostream &file) const
 {
+    if (NoLog()) {
+        return 0;
+    }
     file << "remove/dir/" << dir << "/name/" << name;
     if (todumpster > 0) {
         file << "/todumpster/" << todumpster;
+    }
+    if (0 <= reqId) {
+        file << "/reqid/" << reqId;
     }
     file << '\n';
     return file.fail() ? -EIO : 0;
@@ -3580,7 +3598,14 @@ MetaRemove::log(ostream &file) const
 int
 MetaRmdir::log(ostream &file) const
 {
-    file << "rmdir/dir/" << dir << "/name/" << name << '\n';
+    if (NoLog()) {
+        return 0;
+    }
+    file << "rmdir/dir/" << dir << "/name/" << name;
+    if (0 <= reqId) {
+        file << "/reqid/" << reqId;
+    }
+    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
