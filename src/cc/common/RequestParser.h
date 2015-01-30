@@ -691,9 +691,9 @@ private:
                 return;
             }
             inStream.write(inKey.mPtr, inKey.mLen);
-            inStream << inSeparator;
+            inStream.write(&inSeparator, 1);
             inStream << inObjPtr->*mFieldPtr;
-            inStream << inDelimiter;
+            inStream.write(&inDelimiter, 1);
         }
     private:
         T OT::* const mFieldPtr;
@@ -909,7 +909,8 @@ public:
             return false;
         }
         inStream.write(theIt->second.first.mPtr, theIt->second.first.mLen);
-        inStream << DELIMITER;
+        const char theDelim = DELIMITER;
+        inStream.write(&theDelim, 1);
         theIt->second.second->Write(inStream, inObjPtr,
             inOmitDefaultFlag, inSeparator, inDelimiter);
         return true;
