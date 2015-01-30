@@ -290,10 +290,10 @@ struct MetaRequest {
     template<typename T> static T& IoParserDef(T& parser)
     {
         return parser
-        .Def("u", &MetaRequest::euser,   kKfsUserNone)
-        .Def("a", &MetaRequest::authUid, kKfsUserNone)
-        .Def("s", &MetaRequest::status,  0)
-        .Def("m", &MetaRequest::statusMsg)
+        .Def("u", &MetaRequest::euser,     kKfsUserNone)
+        .Def("a", &MetaRequest::authUid,   kKfsUserNone)
+        .Def("s", &MetaRequest::status,    0)
+        .Def("m", &MetaRequest::statusMsg, string())
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;

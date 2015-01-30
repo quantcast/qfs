@@ -171,14 +171,29 @@ public:
         Expire(GetLastCallTimeMs() * 1000);
     }
     int Write(
-        ostream& inStream)
+        ostream& inStream) const
     {
-        return 0;
+        const bool kOmitDefaultsFlag = true;
+        const Entry* thePtr;
+        while (&mLru != (thePtr = &Lru::GetPrev(mLru)) && inStream) {
+            inStream.write("idr/", 4);
+            thePtr->mReqPtr->Write(inStream, kOmitDefaultsFlag);
+            inStream.write("\n", 1);
+        }
+        return (inStream ? 0 : -EIO);
     }
     int Read(
-        istream& inStream)
+        const char* inPtr,
+        size_t      inLen)
     {
-        return 0;
+        MetaRequest* const theReqPtr = MetaRequest::Read(inPtr, inLen);
+        if (! theReqPtr) {
+            return -EINVAL;
+        }
+        const bool theHandledFlag = Handle(
+            *static_cast<MetaIdempotentRequest*>(theReqPtr));
+        MetaRequest::Release(theReqPtr);
+        return (theHandledFlag ? -EINVAL : 0);
     }
 private:
     class Entry
@@ -295,16 +310,11 @@ private:
     void Expire(
         int64_t inNow)
     {
-        Entry* thePtr = &Lru::GetPrev(mLru);
-        if (&mLru == thePtr) {
-            return;
-        }
         int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
-        while (thePtr->mReqPtr->submitTime < theExpirationTime) {
+        Entry* thePtr;
+        while (&mLru != (thePtr = &Lru::GetPrev(mLru)) &&
+                thePtr->mReqPtr->submitTime < theExpirationTime) {
             mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
-            if (&mLru == (thePtr = &Lru::GetPrev(mLru))) {
-                break;
-            }
         }
     }
 public:
@@ -355,6 +365,21 @@ IdempotentRequestTracker::Handle(
     MetaAck& inAck)
 {
     return mImpl.Handle(inAck);
+}
+
+    int
+IdempotentRequestTracker::Write(
+    ostream& inStream) const
+{
+    return mImpl.Write(inStream);
+}
+
+    int
+IdempotentRequestTracker::Read(
+    const char* inPtr,
+    size_t      inLen)
+{
+    return mImpl.Read(inPtr, inLen);
 }
 
 } // namespace KFS

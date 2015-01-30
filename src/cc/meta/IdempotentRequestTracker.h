@@ -28,8 +28,12 @@
 #ifndef META_IDEMPOTENT_REQUEST_H
 #define META_IDEMPOTENT_REQUEST_H
 
+#include <iosfwd>
+
 namespace KFS
 {
+
+using std::ostream;
 
 struct MetaIdempotentRequest;
 struct MetaAck;
@@ -48,6 +52,11 @@ public:
         MetaIdempotentRequest& inRequest);
     void Handle(
         MetaAck& inAck);
+    int Write(
+        ostream& inStream) const;
+    int Read(
+        const char* inPtr,
+        size_t      inLen);
 private:
     class Impl;
     Impl& mImpl; 

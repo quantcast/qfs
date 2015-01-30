@@ -3,11 +3,13 @@
 #include "kfsio/IOBuffer.h"
 
 #include <ostream>
+#include <string>
 
 namespace KFS
 {
 
 using std::ostream;
+using std::string;
 
 template<typename T>
     static const T&
@@ -184,14 +186,148 @@ typedef RequestHandler<
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
 
+class StringEscapeIoParser
+{
+public:
+    template<typename T>
+    static void SetValue(
+        const char* inPtr,
+        size_t      inLen,
+        const T&    inDefaultValue,
+        T&          outValue)
+    {
+        return ValueParserT<HexIntParser>::SetValue(
+            inPtr, inLen, inDefaultValue, outValue);
+    }
+    static void SetValue(
+        const char*   inPtr,
+        size_t        inLen,
+        const string& inDefaultValue,
+        string&       outValue)
+    {
+        if (! Unescape(outValue, inPtr, inLen)) {
+            outValue = inDefaultValue;
+        }
+    }
+    template<size_t DEFAULT_CAPACITY>
+    static void SetValue(
+        const char*                         inPtr,
+        size_t                              inLen,
+        const StringBufT<DEFAULT_CAPACITY>& inDefaultValue,
+        StringBufT<DEFAULT_CAPACITY>&       outValue)
+    {
+        if (! Unescape(outValue, inPtr, inLen)) {
+            outValue = inDefaultValue;
+        }
+    }
+private:
+    template<typename T>
+    static bool Unescape(
+        T&          inStr,
+        const char* inPtr,
+        size_t      inLen)
+    {
+        inStr.clear();
+        const char*       thePtr    = inPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        const char*       theEPtr;
+        while ((theEPtr = (const char*)memchr(
+                thePtr, '%', theEndPtr - thePtr))) {
+            inStr.append(thePtr, theEPtr - thePtr);
+            if (theEndPtr < theEPtr + 3) {
+                return false;
+            }
+            const int theFirst = sCharToHex[*++theEPtr & 0xFF];
+            if (theFirst == 0xFF) {
+                return false;
+            }
+            const int theSecond = sCharToHex[*++theEPtr & 0xFF];
+            if (theSecond != 0xFF) {
+                return false;
+            }
+            const char theSym = (char)((theFirst << 4) | theSecond);
+            inStr.append(&theSym, 1);
+            thePtr = theEPtr + 1;
+        }
+        inStr.append(thePtr, theEndPtr - thePtr);
+        return true;
+    }
+    static const unsigned char* const sCharToHex;
+};
+const unsigned char* const StringEscapeIoParser::sCharToHex =
+    HexIntParser::GetChar2Hex();
+
+class StringInsertEscapeOStream
+{
+public:
+    StringInsertEscapeOStream(
+        ostream& inStream)
+        : mOStream(inStream)
+        {}
+    template<typename T>
+    StringInsertEscapeOStream& operator<<(
+        const T& inVal)
+    {
+        mOStream << inVal;
+        return *this;
+    }
+    StringInsertEscapeOStream& operator<<(
+        const string& inStr)
+    {
+        return Escape(inStr.data(), inStr.size());
+    }
+    template<size_t DEFAULT_CAPACITY>
+    StringInsertEscapeOStream& operator<<(
+        StringBufT<DEFAULT_CAPACITY>& inStr)
+    {
+        return Escape(inStr.data(), inStr.size());
+    }
+    StringInsertEscapeOStream& write(
+        const char* inPtr,
+        size_t      inLen)
+    {
+        mOStream.write(inPtr, inLen);
+        return *this;
+    }
+private:
+    ReqOstream mOStream;
+
+    StringInsertEscapeOStream& Escape(
+        const char* inPtr,
+        size_t      inLen)
+    {
+        const char* const kHexChars = "0123456789ABCDEF";
+        const char*       thePtr    = inPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        const char*       thePPtr   = thePtr;
+        while (thePtr < theEndPtr) {
+            const int theSym = *thePtr & 0xFF;
+            if (theSym <= ' ' || 0xFF <= theSym || strchr("%:;/", theSym)) {
+                if (thePtr < thePPtr) {
+                    mOStream.write(thePPtr, thePtr - thePPtr);
+                }
+                char theBuf[3];
+                theBuf[0] = '%';
+                theBuf[1] = kHexChars[(theSym >> 4) & 0xF];
+                theBuf[2] = kHexChars[theSym & 0xF];
+                mOStream.write(theBuf, 3);
+                thePPtr = thePtr + 1;
+            }
+            ++thePtr;
+        }
+        mOStream.write(thePPtr, thePtr - thePPtr);
+        return *this;
+    }
+};
+
 typedef RequestHandler<
     MetaRequest,
-    ValueParserT<HexIntParser>,
+    StringEscapeIoParser,
     true,
-    PropertiesTokenizerT<':', '/'>,
-    ostream,
+    PropertiesTokenizerT<':', ';'>,
+    StringInsertEscapeOStream,
     false, // Do not invoke Validate
-    '/'
+    ':'
 > MetaRequestIoHandler;
 static const MetaRequestIoHandler& sMetaRequestIoHandler =
     MakeMetaRequestHandler<MetaRequestIoHandler>(0, true);
@@ -199,8 +335,11 @@ static const MetaRequestIoHandler& sMetaRequestIoHandler =
 bool
 MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
 {
-    if (sMetaRequestIoHandler.Write(os, this, op, omitDefaultsFlag, ':', '/')) {
-        os << '\n';
+    StringInsertEscapeOStream theStream(os);
+    if (sMetaRequestIoHandler.Write(
+            theStream, this, op, omitDefaultsFlag, ':', '/')) {
+        const char theDelim = '\n';
+        theStream.write(&theDelim, 1);
         return true;
     }
     return false;
