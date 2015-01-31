@@ -38,6 +38,8 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/Globals.h"
 
+#include "qcdio/qcdebug.h"
+
 #include <ostream>
 #include <istream>
 
@@ -52,16 +54,11 @@ class IdempotentRequestTracker::Impl : public ITimeout
 {
 public:
     Impl()
-        : mExpirationTimeMicroSec((15 * 60) * 1000 * 1000),
-          mAckId(0),
+        : mExpirationTimeMicroSec((6 * 60) * 1000 * 1000),
           mSize(0),
-          mMaxSize(4 < 20),
+          mMaxSize(64 << 10),
           mLru()
     {
-        CryptoKeys::PseudoRand(&mAckId, sizeof(mAckId));
-        if (mAckId < 0) {
-            mAckId = -mAckId;
-        }
         for (size_t i = 0; i < sizeof(mTables) / sizeof(mTables[0]); i++) {
             mTables[i] = 0;
         }
@@ -69,10 +66,16 @@ public:
     };
     ~Impl()
     {
+        Impl::Clear();
+        globalNetManager().UnRegisterTimeoutHandler(this);
+    }
+    void Clear()
+    {
         for (size_t i = 0; i < sizeof(mTables) / sizeof(mTables[0]); i++) {
             delete mTables[i];
+            mTables[i] = 0;
         }
-        globalNetManager().UnRegisterTimeoutHandler(this);
+        QCASSERT(mSize == 0 && ! Lru::IsInList(mLru));
     }
     void SetParameters(
         const char*       inParamNamePrefixPtr,
@@ -89,11 +92,12 @@ public:
         mExpirationTimeMicroSec = (int64_t)(inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append("timeout"),
             (double)mExpirationTimeMicroSec * 1e-6) * 1e6);
+        Expire(microseconds());
     }
     bool Handle(
         MetaIdempotentRequest& inRequest)
     {
-        if (inRequest.reqId < 0) {
+        if (inRequest.reqId < 0 || mMaxSize <= 0) {
             return false;
         }
         if (! Validate(inRequest.op)) {
@@ -107,19 +111,18 @@ public:
             theEntry, theEntry, theInsertedFlag);
         inRequest.SetReq(theEntryPtr->mReqPtr);
         if (theInsertedFlag) {
-            if (mMaxSize <= mSize) {
+            Lru::Insert(*theEntryPtr, mLru);
+            mSize++;
+            if (mMaxSize < mSize) {
                 Expire(microseconds());
-                if (mMaxSize <= mSize) {
-                    theTable.Erase(theEntry);
+                if (mMaxSize < mSize) {
+                    theTable.Erase(*theEntryPtr);
                     inRequest.status    = -ESERVERBUSY;
                     inRequest.statusMsg = "out of idempotent request entries"; 
                     return true;
                 }
             }
-            Lru::Insert(*theEntryPtr, mLru);
-            mSize++;
-            inRequest.ackType = inRequest.op;
-            inRequest.ackId   = inRequest.reqId ^ mAckId;
+            inRequest.ackId = inRequest.reqId;
             return false;
         }
         if (! theEntryPtr->mReqPtr ||
@@ -133,35 +136,40 @@ public:
     void Handle(
         MetaAck& inAck)
     {
-        seq_t theAck                = -1;
-        int   theAckType            = -1;
-        const char*       thePtr    = inAck.ack.data();
-        const char* const theEndPtr = thePtr + inAck.ack.size();
-        if (inAck.shortRpcFormatFlag) {
-            if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theAck) ||
-                    (*thePtr++ & 0xFF) != '/' ||
-                    ! HexIntParser::Parse(
-                        thePtr, theEndPtr - thePtr, theAckType)) {
-                return;
-            }
-        } else {
-            if (! DecIntParser::Parse(thePtr, theEndPtr - thePtr, theAck) ||
-                    (*thePtr++ & 0xFF) != '/' ||
-                    ! DecIntParser::Parse(
-                        thePtr, theEndPtr - thePtr, theAckType)) {
-                return;
-            }
+        inAck.status = HandleAck(inAck.ack.data(), inAck.ack.size(),
+                inAck.euser, inAck.authUid) ? 0 :
+            -EINVAL; // Don't log invalid or duplicate ack.
+    }
+    bool HandleAck(
+        const char* inPtr,
+        size_t      inLen,
+        kfsUid_t    inUid,
+        kfsUid_t    inAuthUid)
+    {
+        const char*       thePtr    = inPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        seq_t             theAck    = -1;
+        if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theAck)) {
+            return false;
         }
-        if (theAck < 0 || ! Validate(theAckType)) {
-            return;
+        if (theAck < 0 || theEndPtr <= thePtr || (*thePtr & 0xFF) != '_') {
+            return false;
+        }
+        if (theEndPtr <= ++thePtr) {
+            return false;
+        }
+        const int theAckType = MetaRequest::GetId(
+            TokenValue(thePtr, theEndPtr - thePtr));
+        if (theAckType < 0 || ! Validate(theAckType)) {
+            return false;
         }
         Table* const theTablePtr = mTables[theAckType];
         if (! theTablePtr) {
-            return;
+            return false;
         }
-        SearchKey theKey(theAckType, theAck ^ mAckId, inAck);
+        SearchKey theKey(theAckType, theAck, inUid, inAuthUid);
         Entry     theEntry(theKey);
-        theTablePtr->Erase(theEntry);
+        return (0 < theTablePtr->Erase(theEntry));
     }
     virtual void Timeout()
     {
@@ -173,12 +181,9 @@ public:
     int Write(
         ostream& inStream) const
     {
-        const bool kOmitDefaultsFlag = true;
-        const Entry* thePtr;
-        while (&mLru != (thePtr = &Lru::GetPrev(mLru)) && inStream) {
-            inStream.write("idr/", 4);
-            thePtr->mReqPtr->Write(inStream, kOmitDefaultsFlag);
-            inStream.write("\n", 1);
+        const Entry* thePtr = &mLru;
+        while (&mLru != (thePtr = &Lru::GetPrev(*thePtr)) && inStream) {
+            thePtr->mReqPtr->WriteLog(inStream);
         }
         return (inStream ? 0 : -EIO);
     }
@@ -186,6 +191,9 @@ public:
         const char* inPtr,
         size_t      inLen)
     {
+        if (mMaxSize <= 0) {
+            return 0;
+        }
         MetaRequest* const theReqPtr = MetaRequest::Read(inPtr, inLen);
         if (! theReqPtr) {
             return -EINVAL;
@@ -194,6 +202,11 @@ public:
         static const int sStartTime = microseconds();
         theReqPtr->submitTime  = sStartTime;
         theReqPtr->processTime = theReqPtr->submitTime;
+        // Keep the most recent requests.
+        Entry* thePtr;
+        while (mMaxSize <= mSize && &mLru != (thePtr = &Lru::GetPrev(mLru))) {
+            mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
+        }
         const bool theHandledFlag = Handle(
             *static_cast<MetaIdempotentRequest*>(theReqPtr));
         MetaRequest::Release(theReqPtr);
@@ -216,7 +229,7 @@ private:
             : mReqPtr(inEntry.mReqPtr)
             { Lru::Init(*this); }
         ~Entry()
-            { Lru::Remove(*this); }
+            { QCASSERT(! Lru::IsInList(*this)); }
         bool operator==(
             const Entry& inRhs) const
         {
@@ -270,15 +283,16 @@ private:
     struct SearchKey : public MetaIdempotentRequest
     {
         SearchKey(
-                int            inOpType,
-                seq_t          inReqId,
-                const MetaAck& inAck)
+                int      inOpType,
+                seq_t    inReqId,
+                kfsUid_t inUid,
+                kfsUid_t inAuthUid)
             : MetaIdempotentRequest(
                 MetaOp(inOpType), false)
         {
             reqId   = inReqId;
-            authUid = inAck.authUid;
-            euser   = inAck.euser;
+            authUid = inAuthUid;
+            euser   = inUid;
         }
         virtual int log(
             ostream& /* inStream */) const
@@ -289,7 +303,6 @@ private:
     };
 
     int64_t mExpirationTimeMicroSec;
-    seq_t   mAckId;
     size_t  mSize;
     size_t  mMaxSize;
     Entry   mLru;
@@ -326,10 +339,15 @@ public:
     void operator()(
         TableEntry& inEntry)
     {
-        if (mSize <= 0) {
+        Entry& theEntry = inEntry.GetVal();
+        if (mSize <= 0 ||
+                ! theEntry.mReqPtr ||
+                ! Lru::IsInList(theEntry) ||
+                ! Validate(theEntry.mReqPtr->op)) {
             panic("IdempotentRequestTracker: invalid idempotent request erase");
         }
-        inEntry.GetVal().mReqPtr->SetReq(0);
+        theEntry.mReqPtr->SetReq(0);
+        Lru::Remove(theEntry);
         mSize--;
     }
 private:
@@ -371,6 +389,16 @@ IdempotentRequestTracker::Handle(
     return mImpl.Handle(inAck);
 }
 
+    bool
+IdempotentRequestTracker::HandleAck(
+    const char* inPtr,
+    size_t      inLen,
+    kfsUid_t    inUid,
+    kfsUid_t    inAuthUid)
+{
+    return mImpl.HandleAck(inPtr, inLen, inUid, inAuthUid);
+}
+
     int
 IdempotentRequestTracker::Write(
     ostream& inStream) const
@@ -384,6 +412,12 @@ IdempotentRequestTracker::Read(
     size_t      inLen)
 {
     return mImpl.Read(inPtr, inLen);
+}
+
+    void
+IdempotentRequestTracker::Clear()
+{
+    mImpl.Clear();
 }
 
 } // namespace KFS

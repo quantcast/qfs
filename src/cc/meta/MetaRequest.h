@@ -204,6 +204,7 @@ struct MetaRequest {
     bool            validDelegationFlag;
     bool            fromClientSMFlag;
     bool            shortRpcFormatFlag;
+    bool            alwaysLogFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -230,6 +231,7 @@ struct MetaRequest {
           validDelegationFlag(false),
           fromClientSMFlag(false),
           shortRpcFormatFlag(false),
+          alwaysLogFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -323,6 +325,8 @@ struct MetaRequest {
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     static MetaRequest* Read(const char* buf, size_t len);
+    static int GetId(const TokenValue& name);
+    static TokenValue GetName(int id);
 protected:
     virtual void response(ReqOstream& /* os */) {}
     virtual ~MetaRequest();
@@ -349,29 +353,29 @@ void submit_request(MetaRequest *r);
 
 struct MetaIdempotentRequest : public MetaRequest {
     // Derived classes' request() method must be const, i.e. not modify "this".
-    seq_t reqId;
-    seq_t ackId;
-    int   ackType;
+    seq_t      reqId;
+    seq_t      ackId;
+    TokenValue ackType;
     MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1)
         : MetaRequest(o, mu, opSeq),
           reqId(-1),
           ackId(-1),
-          ackType(-1),
+          ackType(),
           ref(1),
           req(0)
-        {}
+        { alwaysLogFlag = true; }
     void SetReq(MetaIdempotentRequest* r)
     {
-        if (req) {
-            req->UnRef();
+        if (r) {
+            r->Ref();
         }
+        MetaIdempotentRequest* const pr = req;
         req = r;
-        if (req) {
-            req->Ref();
+        if (pr) {
+            pr->UnRef();
         }
     }
-    bool NoLog() const
-        { return (req && req != this); }
+    bool WriteLog(ostream& os) const;
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
@@ -394,14 +398,7 @@ protected:
         }
     }
     virtual ~MetaIdempotentRequest();
-    virtual void ReleaseSelf()
-    {
-        if (req) {
-            req->UnRef();
-            req = 0;
-        }
-        UnRef();
-    }
+    virtual void ReleaseSelf() { UnRef(); }
 private:
     volatile int           ref;
     MetaIdempotentRequest* req;
@@ -3342,8 +3339,7 @@ struct MetaAck : public MetaRequest {
     virtual void handle();
     virtual void response(ReqOstream& /* os */)
         { /* No response; */ }
-    virtual int log(ostream& /* file */) const
-        { return 0; }
+    virtual int log(ostream& file) const;
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "ACK: " << ack); }
     template<typename T> static T& ParserDef(T& parser)

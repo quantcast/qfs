@@ -52,7 +52,7 @@ void
 Logger::dispatch(MetaRequest *r)
 {
     r->seqno = ++nextseq;
-    if (r->mutation && r->status == 0) {
+    if ((r->mutation && r->status == 0) || r->alwaysLogFlag) {
         if (log(r) < 0) {
             panic("Logger::dispatch", true);
         }

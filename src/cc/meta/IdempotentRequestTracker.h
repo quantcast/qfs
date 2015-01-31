@@ -28,6 +28,8 @@
 #ifndef META_IDEMPOTENT_REQUEST_H
 #define META_IDEMPOTENT_REQUEST_H
 
+#include "common/kfstypes.h"
+
 #include <iosfwd>
 
 namespace KFS
@@ -52,11 +54,17 @@ public:
         MetaIdempotentRequest& inRequest);
     void Handle(
         MetaAck& inAck);
+    bool HandleAck(
+        const char* inPtr,
+        size_t      inLen,
+        kfsUid_t    inUid,
+        kfsUid_t    inAuthUid);
     int Write(
         ostream& inStream) const;
     int Read(
         const char* inPtr,
         size_t      inLen);
+    void Clear();
 private:
     class Impl;
     Impl& mImpl; 

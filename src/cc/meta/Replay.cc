@@ -878,6 +878,28 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
+static bool
+replay_idempotent_ack(DETokenizer& c)
+{
+    c.pop_front();
+    int64_t n = kKfsUserNone;
+    if (! pop_num(n, "uid", c, true)) {
+        return false;
+    }
+    const kfsUid_t uid = (kfsUid_t)n;
+    n = kKfsUserNone;
+    if (! pop_num(n, "aid", c, true)) {
+        return false;
+    }
+    const kfsUid_t aid = (kfsUid_t)n;
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& token = c.front();
+    return gLayoutManager.GetIdempotentRequestTracker().HandleAck(
+        token.ptr, token.len, uid, aid);
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -911,6 +933,8 @@ get_entry_map()
     e.add_parser("chown",                   &replay_chown);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("idr",                     &restore_idempotent_request);
+    e.add_parser("ack",                     &replay_idempotent_ack);
     initied = true;
     return e;
 }

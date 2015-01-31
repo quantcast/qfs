@@ -265,34 +265,54 @@ public:
         : mOStream(inStream)
         {}
     template<typename T>
-    StringInsertEscapeOStream& operator<<(
-        const T& inVal)
+    StringInsertEscapeOStream& WriteKeyVal(
+            const char* inKeyPtr,
+            size_t      inKeyLen,
+            const T&    inVal,
+            char        inSeparator,
+            char        inDelimiter)
     {
-        mOStream << inVal;
+        mOStream.write(inKeyPtr, inKeyLen);
+        mOStream.put(inSeparator);
+        WriteVal(inVal);
+        mOStream.put(inDelimiter);
         return *this;
     }
-    StringInsertEscapeOStream& operator<<(
-        const string& inStr)
-    {
-        return Escape(inStr.data(), inStr.size());
-    }
-    template<size_t DEFAULT_CAPACITY>
-    StringInsertEscapeOStream& operator<<(
-        StringBufT<DEFAULT_CAPACITY>& inStr)
-    {
-        return Escape(inStr.data(), inStr.size());
-    }
-    StringInsertEscapeOStream& write(
+    StringInsertEscapeOStream& WriteName(
         const char* inPtr,
-        size_t      inLen)
+        size_t      inLen,
+        char        inDelimiter)
     {
         mOStream.write(inPtr, inLen);
+        mOStream.put(inDelimiter);
         return *this;
     }
 private:
+    template<typename T>
+    void WriteVal(
+        const T& inVal)
+        { mOStream << inVal; }
+    // Threat characters as integers.
+    void WriteVal(
+        const char inVal)
+        { mOStream << ((int)(inVal) & 0xFF); }
+    void WriteVal(
+        const signed char inVal)
+        { mOStream << (signed int)inVal; }
+    void WriteVal(
+        const unsigned char inVal)
+        { mOStream << (unsigned int)inVal; }
+    void WriteVal(
+        const string& inStr)
+        { Escape(inStr.data(), inStr.size()); }
+    template<size_t DEFAULT_CAPACITY>
+    void WriteVal(
+        StringBufT<DEFAULT_CAPACITY>& inStr)
+        { Escape(inStr.data(), inStr.size()); }
+private:
     ReqOstream mOStream;
 
-    StringInsertEscapeOStream& Escape(
+    void Escape(
         const char* inPtr,
         size_t      inLen)
     {
@@ -303,7 +323,7 @@ private:
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
             if (theSym <= ' ' || 0xFF <= theSym || strchr("%:;/", theSym)) {
-                if (thePtr < thePPtr) {
+                if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
                 char theBuf[3];
@@ -315,8 +335,9 @@ private:
             }
             ++thePtr;
         }
-        mOStream.write(thePPtr, thePtr - thePPtr);
-        return *this;
+        if (thePPtr < theEndPtr) {
+            mOStream.write(thePPtr, theEndPtr - thePPtr);
+        }
     }
 };
 
@@ -336,19 +357,26 @@ bool
 MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
 {
     StringInsertEscapeOStream theStream(os);
-    if (sMetaRequestIoHandler.Write(
-            theStream, this, op, omitDefaultsFlag, ':', '/')) {
-        const char theDelim = '\n';
-        theStream.write(&theDelim, 1);
-        return true;
-    }
-    return false;
+    return sMetaRequestIoHandler.Write(
+            theStream, this, op, omitDefaultsFlag, ':', ';');
 }
 
-MetaRequest*
+/* static */ MetaRequest*
 MetaRequest::Read(const char* buf, size_t len)
 {
     return sMetaRequestIoHandler.Handle(buf, len);
+}
+
+/* static */ int
+MetaRequest::GetId(const TokenValue& name)
+{
+    return sMetaRequestIoHandler.NameToObjId(name);
+}
+
+/* static */ TokenValue
+MetaRequest::GetName(int id)
+{
+    return sMetaRequestIoHandler.ObjIdToName(id);
 }
 
 // Main thread's buffer

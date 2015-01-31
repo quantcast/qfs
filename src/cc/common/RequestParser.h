@@ -523,9 +523,17 @@ class NopOstream
 {
 public:
     template<typename T>
-    NopOstream& operator<<(const T& /* inVal */)
+    NopOstream& WriteKeyVal(
+            const char* /* inKeyPtr */,
+            size_t      /* inKeyLen */,
+            const T&    /* inVal */,
+            char        /* inSeparator */,
+            char        /* inDelimiter */)
         { return *this; }
-    NopOstream& write(const void* /* inPtr */, size_t /* inLen */)
+    NopOstream& WriteName(
+        const char* /* inPtr */,
+        size_t      /* inLen */,
+        char        /* inDelimiter */)
         { return *this; }
 };
 
@@ -690,10 +698,13 @@ private:
             if (inOmitDefaultFlag && inObjPtr->*mFieldPtr == mDefault) {
                 return;
             }
-            inStream.write(inKey.mPtr, inKey.mLen);
-            inStream.write(&inSeparator, 1);
-            inStream << inObjPtr->*mFieldPtr;
-            inStream.write(&inDelimiter, 1);
+            inStream.WriteKeyVal(
+                inKey.mPtr,
+                inKey.mLen,
+                inObjPtr->*mFieldPtr,
+                inSeparator,
+                inDelimiter
+            );
         }
     private:
         T OT::* const mFieldPtr;
@@ -887,7 +898,7 @@ public:
         while (thePtr < theEndPtr && IsWSpace(*thePtr)) {
             thePtr++;
         }
-        return theIt->second->Parse(
+        return theIt->second.second->Parse(
             thePtr,
             theEndPtr - thePtr,
             theNamePtr,
@@ -895,6 +906,28 @@ public:
             theChecksumFlag,
             theChecksum
         );
+    }
+    TokenValue ObjIdToName(
+        int inObjId) const
+    {
+        if (inObjId <= 0) {
+            return TokenValue();
+        }
+        typename Writers::const_iterator const theIt = mWriters.find(inObjId);
+        if (theIt == mWriters.end()) {
+            return TokenValue();
+        }
+        return TokenValue(theIt->second.first.mPtr, theIt->second.first.mLen);
+    }
+    int NameToObjId(
+        const TokenValue& inName) const
+    {
+        typename Parsers::const_iterator const theIt =
+            mParsers.find(Name(inName.mPtr, inName.mLen));
+        if (theIt == mParsers.end()) {
+            return -1;
+        }
+        return theIt->second.first;
     }
     bool Write(
         ST&                 inStream,
@@ -908,9 +941,8 @@ public:
         if (theIt == mWriters.end()) {
             return false;
         }
-        inStream.write(theIt->second.first.mPtr, theIt->second.first.mLen);
-        const char theDelim = DELIMITER;
-        inStream.write(&theDelim, 1);
+        inStream.WriteName(
+            theIt->second.first.mPtr, theIt->second.first.mLen, DELIMITER);
         theIt->second.second->Write(inStream, inObjPtr,
             inOmitDefaultFlag, inSeparator, inDelimiter);
         return true;
@@ -946,12 +978,14 @@ public:
         int         inObjId = -1)
     {
         if (! mParsers.insert(make_pair(
-                Name(inNamePtr), &inParser.DefDone())).second) {
+                Name(inNamePtr),
+                make_pair(inObjId, &inParser.DefDone()))).second) {
             // Duplicate name -- definition error.
             abort();
         }
         if (0 <= inObjId && ! mWriters.insert(make_pair(
-                inObjId, make_pair(Name(inNamePtr), &inParser))).second) {
+                inObjId,
+                make_pair(Name(inNamePtr), &inParser))).second) {
             // Duplicate id -- definition error.
             abort();
         }
@@ -999,7 +1033,7 @@ public:
     }
 private:
     typedef typename PROPERTIES_TOKENIZER::Token  Name;
-    typedef map<Name, const Parser*>              Parsers;
+    typedef map<Name, pair<int,  const Parser*> > Parsers;
     typedef map<int,  pair<Name, const Parser*> > Writers;
 
     Parsers mParsers;

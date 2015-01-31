@@ -429,6 +429,18 @@ restore_filesystem_info(DETokenizer& c)
     return (ok && 0 <= fsid);
 }
 
+bool
+restore_idempotent_request(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& token = c.front();
+    return gLayoutManager.GetIdempotentRequestTracker().Read(
+        token.ptr, token.len) == 0;
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -453,6 +465,7 @@ get_entry_map()
     e.add_parser("checksum",                &restore_checksum);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("idr",                     &restore_idempotent_request);
     initied = true;
     return e;
 }

@@ -315,6 +315,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
         if (sAuditLoggingFlag && ! op->reqHeaders.IsEmpty()) {
             AuditLog::Log(*op);
         }
+        op->reqHeaders.Clear(); // Release io buffers if any.
         const bool deleteOpFlag = op != mAuthenticateOp;
         SendResponse(op);
         if (deleteOpFlag) {

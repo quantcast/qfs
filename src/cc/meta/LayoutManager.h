@@ -37,8 +37,12 @@
 #include "meta.h"
 #include "ChunkServer.h"
 #include "UserAndGroup.h"
+#include "MetaRequest.h"
+#include "CSMap.h"
+#include "ChunkPlacement.h"
+#include "AuthContext.h"
+#include "IdempotentRequestTracker.h"
 
-#include "kfsio/Counter.h"
 #include "common/Properties.h"
 #include "common/StdAllocator.h"
 #include "common/kfsatomic.h"
@@ -47,18 +51,15 @@
 #include "common/LinearHash.h"
 #include "common/StBuffer.h"
 #include "common/TimerWheel.h"
+#include "common/RequestParser.h"
 #include "qcdio/QCDLList.h"
+#include "kfsio/Counter.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/event.h"
 #include "kfsio/Globals.h"
 #include "kfsio/PrngIsaac64.h"
 #include "kfsio/DelegationToken.h"
-#include "MetaRequest.h"
-#include "CSMap.h"
-#include "ChunkPlacement.h"
-#include "AuthContext.h"
-#include "common/RequestParser.h"
 
 #include <map>
 #include <vector>
@@ -1303,6 +1304,8 @@ public:
         { return mDeleteChunkOnFsIdMismatchFlag; }
     void Handle(MetaForceChunkReplication& op);
     bool Validate(MetaCreate& createOp) const;
+    IdempotentRequestTracker& GetIdempotentRequestTracker()
+        { return mIdempotentRequestTracker; }
 protected:
     typedef vector<
         int,
@@ -2092,6 +2095,7 @@ protected:
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
+    IdempotentRequestTracker mIdempotentRequestTracker;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;

@@ -1467,6 +1467,7 @@ LayoutManager::LayoutManager() :
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mDebugPanicOnHelloResumeFailureCount(-1),
     mFileRecoveryInFlightCount(),
+    mIdempotentRequestTracker(),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -2100,6 +2101,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.debugPanicOnHelloResumeFailureCount",
         mDebugPanicOnHelloResumeFailureCount);
 
+    mIdempotentRequestTracker.SetParameters(
+        "metaServer.idempotentRequest.", props);
     mConfig.clear();
     mConfig.reserve(10 << 10);
     StBufferT<PropertiesTokenizer::Token, 4> configFilter;
@@ -2339,6 +2342,7 @@ LayoutManager::Shutdown()
     mUserAndGroup.Shutdown();
     mClientAuthContext.Clear();
     mCSAuthContext.Clear();
+    mIdempotentRequestTracker.Clear();
 }
 
 template<

@@ -709,6 +709,10 @@ MetaCreate::handle()
     if (! SetUserAndGroup(*this)) {
         return;
     }
+    if (0 <= reqId &&
+            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+        return;
+    }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
     bool rootUserFlag = false;
@@ -846,6 +850,10 @@ MetaMkdir::handle()
     if (! SetUserAndGroup(*this)) {
         return;
     }
+    if (0 <= reqId &&
+            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+        return;
+    }
     const bool kDirFlag = true;
     if (! CheckCreatePerms(*this, kDirFlag)) {
         return;
@@ -908,6 +916,10 @@ MetaRemove::handle()
     }
     todumpster = -1;
     SetEUserAndEGroup(*this);
+    if (0 <= reqId &&
+            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+        return;
+    }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
@@ -925,6 +937,10 @@ MetaRmdir::handle()
         return;
     }
     SetEUserAndEGroup(*this);
+    if (0 <= reqId &&
+            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+        return;
+    }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
@@ -3512,39 +3528,38 @@ MetaLookupPath::log(ostream& /* file */) const
 int
 MetaCreate::log(ostream& file) const
 {
-    if (NoLog()) {
-        return 0;
-    }
-    // use the log entry time as a proxy for when the file was created
-    file << "create"
-        "/dir/"         << dir <<
-        "/name/"        << name <<
-        "/id/"          << fid <<
-        "/numReplicas/" << numReplicas <<
-        "/ctime/"       << ShowTime(microseconds())
-    ;
-    if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
-        file <<
-            "/striperType/"        << striperType <<
-            "/numStripes/"         << numStripes <<
-            "/numRecoveryStripes/" << numRecoveryStripes <<
-            "/stripeSize/"         << stripeSize
+    if (WriteLog(file)) {
+        // use the log entry time as a proxy for when the file was created
+        file << "create"
+            "/dir/"         << dir <<
+            "/name/"        << name <<
+            "/id/"          << fid <<
+            "/numReplicas/" << numReplicas <<
+            "/ctime/"       << ShowTime(microseconds())
         ;
+        if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
+            file <<
+                "/striperType/"        << striperType <<
+                "/numStripes/"         << numStripes <<
+                "/numRecoveryStripes/" << numRecoveryStripes <<
+                "/stripeSize/"         << stripeSize
+            ;
+        }
+        if (todumpster > 0) {
+            file << "/todumpster/" << todumpster;
+        }
+        file <<
+            "/user/"  << user <<
+            "/group/" << group <<
+            "/mode/"  << mode
+        ;
+        if (minSTier < kKfsSTierMax) {
+            file <<
+                "/minTier/" << (int)minSTier <<
+                "/maxTier/" << (int)maxSTier;
+        }
+        file << '\n';
     }
-    if (todumpster > 0) {
-        file << "/todumpster/" << todumpster;
-    }
-    file << "/user/"  << user <<
-        "/group/" << group <<
-        "/mode/"  << mode
-    ;
-    if (minSTier < kKfsSTierMax) {
-        file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
-    }
-    if (0 <= reqId) {
-        file << "/reqid/" << reqId;
-    }
-    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3554,21 +3569,17 @@ MetaCreate::log(ostream& file) const
 int
 MetaMkdir::log(ostream &file) const
 {
-    if (NoLog()) {
-        return 0;
+    if (WriteLog(file)) {
+        file << "mkdir"
+            "/dir/"   << dir <<
+            "/name/"  << name <<
+            "/id/"    << fid <<
+            "/ctime/" << ShowTime(microseconds()) <<
+            "/user/"  << user <<
+            "/group/" << group <<
+            "/mode/"  << mode <<
+            '\n';
     }
-    file << "mkdir"
-        "/dir/"   << dir <<
-        "/name/"  << name <<
-        "/id/"    << fid <<
-        "/ctime/" << ShowTime(microseconds()) <<
-        "/user/"  << user <<
-        "/group/" << group <<
-        "/mode/"  << mode;
-    if (0 <= reqId) {
-        file << "/reqid/" << reqId;
-    }
-    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3578,17 +3589,13 @@ MetaMkdir::log(ostream &file) const
 int
 MetaRemove::log(ostream &file) const
 {
-    if (NoLog()) {
-        return 0;
+    if (WriteLog(file)) {
+        file << "remove/dir/" << dir << "/name/" << name;
+        if (todumpster > 0) {
+            file << "/todumpster/" << todumpster;
+        }
+        file << '\n';
     }
-    file << "remove/dir/" << dir << "/name/" << name;
-    if (todumpster > 0) {
-        file << "/todumpster/" << todumpster;
-    }
-    if (0 <= reqId) {
-        file << "/reqid/" << reqId;
-    }
-    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3598,14 +3605,9 @@ MetaRemove::log(ostream &file) const
 int
 MetaRmdir::log(ostream &file) const
 {
-    if (NoLog()) {
-        return 0;
+    if (WriteLog(file)) {
+        file << "rmdir/dir/" << dir << "/name/" << name << '\n';
     }
-    file << "rmdir/dir/" << dir << "/name/" << name;
-    if (0 <= reqId) {
-        file << "/reqid/" << reqId;
-    }
-    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -5604,8 +5606,11 @@ MetaForceChunkReplication::response(ReqOstream& os)
 
 MetaIdempotentRequest::~MetaIdempotentRequest()
 {
-    if (ref != 0) {
+    if (ref != 0 || this == req) {
         panic("MetaIdempotentRequest: invalid ref count");
+    }
+    if (req) {
+        req->UnRef();
     }
     ref -= 1000; // To catch double delete.
 }
@@ -5621,8 +5626,20 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
     }
     PutHeader(this, os);
     if (0 <= ackId) {
-        os << (shortRpcFormatFlag ? "a:" : "Ack: ") << ackId <<
-            "/" << ackType << "\r\n";
+        os << (shortRpcFormatFlag ? "a:" : "Ack: ");
+        if (! shortRpcFormatFlag) {
+            os << hex;
+        }
+        os << ackId;
+        if (! shortRpcFormatFlag) {
+            os << dec;
+        }
+        const TokenValue name = GetName(op);
+        if (0 < name.mLen) {
+            os << '_';
+            os.write(name.mPtr, name.mLen);
+        }
+        os << "\r\n";
     }
     if (0 <= status) {
         return true;
@@ -5631,11 +5648,40 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
     return false;
 }
 
+bool
+MetaIdempotentRequest::WriteLog(ostream& os) const
+{
+    if (req && req != this)  {
+        return false;
+    }
+    if (req == this && 0 <= reqId) {
+        os.write("idr/", 4);
+        const bool kOmitDefaultsFlag = true;
+        if (! Write(os, kOmitDefaultsFlag)) {
+            panic("invalid op code");
+        }
+        os.write("\n", 1);
+    }
+    return (status == 0);
+}
+
 void
 MetaAck::handle()
 {
     KFS_LOG_STREAM_DEBUG << "ack: " << ack << KFS_LOG_EOM;
     SetEUserAndEGroup(*this);
+    gLayoutManager.GetIdempotentRequestTracker().Handle(*this);
+}
+
+int
+MetaAck::log(ostream& file) const
+{
+    file << "ack"
+        "/uid/" << euser <<
+        "/aid/" << authUid <<
+        "/"     << ack <<
+    "\n";
+    return (file.fail() ? -EIO : 0);
 }
 
 } /* namespace KFS */
