@@ -1303,7 +1303,7 @@ struct MetaRename: public MetaIdempotentRequest {
     }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return MetaRequest::ParserDef(parser)
+        return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P", &MetaRename::dir,   fid_t(-1))
         .Def2("Old-name",           "O", &MetaRename::oldname         )
         .Def2("New-path",           "N", &MetaRename::newname         )
