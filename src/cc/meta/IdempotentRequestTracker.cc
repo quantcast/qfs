@@ -57,7 +57,8 @@ public:
         : mExpirationTimeMicroSec((6 * 60) * 1000 * 1000),
           mSize(0),
           mMaxSize(64 << 10),
-          mLru()
+          mLru(),
+          mUserEntryCounts()
     {
         for (size_t i = 0; i < sizeof(mTables) / sizeof(mTables[0]); i++) {
             mTables[i] = 0;
@@ -94,10 +95,20 @@ public:
             (double)mExpirationTimeMicroSec * 1e-6) * 1e6);
         Expire(microseconds());
     }
+    static kfsUid_t GetUid(
+        const MetaRequest& inRequest)
+    {
+        return (inRequest.authUid == kKfsUserNone ?
+            inRequest.euser : inRequest.authUid);
+    }
     bool Handle(
         MetaIdempotentRequest& inRequest)
     {
         if (inRequest.reqId < 0 || mMaxSize <= 0) {
+            return false;
+        }
+        const kfsUid_t theUid = GetUid(inRequest);
+        if (theUid == kKfsUserNone) {
             return false;
         }
         if (! Validate(inRequest.op)) {
@@ -113,9 +124,15 @@ public:
         if (theInsertedFlag) {
             Lru::Insert(*theEntryPtr, mLru);
             mSize++;
-            if (mMaxSize < mSize) {
+            bool theNewUserCounerFlag = false;
+            theEntryPtr->mCountPtr = mUserEntryCounts.Insert(
+                theUid, size_t(0), theNewUserCounerFlag
+            );
+            size_t& theCount = *(theEntryPtr->mCountPtr);
+            theCount++;
+            if (mMaxSize < theCount) {
                 Expire(microseconds());
-                if (mMaxSize < mSize) {
+                if (mMaxSize < theCount) {
                     theTable.Erase(*theEntryPtr);
                     inRequest.status    = -ESERVERBUSY;
                     inRequest.statusMsg = "out of idempotent request entries"; 
@@ -220,15 +237,18 @@ private:
     public:
         typedef QCDLListOp<Entry> Lru;
         Entry()
-            : mReqPtr(0)
+            : mReqPtr(0),
+              mCountPtr(0)
             { Lru::Init(*this); }
         Entry(
             MetaIdempotentRequest& inReq)
-            : mReqPtr(&inReq)
+            : mReqPtr(&inReq),
+              mCountPtr(0)
             { Lru::Init(*this); }
         Entry(
             const Entry& inEntry)
-            : mReqPtr(inEntry.mReqPtr)
+            : mReqPtr(inEntry.mReqPtr),
+              mCountPtr(0)
             { Lru::Init(*this); }
         ~Entry()
             { QCASSERT(! Lru::IsInList(*this)); }
@@ -256,6 +276,7 @@ private:
             );
         }
         MetaIdempotentRequest* const mReqPtr;
+        size_t*                      mCountPtr;
     private:
         Entry*                       mPrevPtr[1];
         Entry*                       mNextPtr[1];
@@ -276,11 +297,19 @@ private:
     typedef Entry::Lru     Lru;
     typedef LinearHash<
         TableEntry,
-        KeyCompare<Entry, KeyHash>,
+        KeyCompare<TableEntry::Key, KeyHash>,
         DynamicArray<SingleLinkedList<TableEntry>*, 10>,
         StdFastAllocator<TableEntry>,
         Impl
     > Table;
+
+    typedef KVPair<kfsUid_t, size_t> UCEntry;
+    typedef LinearHash<
+        UCEntry,
+        KeyCompare<UCEntry::Key>,
+        DynamicArray<SingleLinkedList<UCEntry>*, 10>,
+        StdFastAllocator<UCEntry>
+    > UserEntryCounts;
 
     struct SearchKey : public MetaIdempotentRequest
     {
@@ -304,11 +333,12 @@ private:
             { return (inStream << "search: " << ackId); }
     };
 
-    int64_t mExpirationTimeMicroSec;
-    size_t  mSize;
-    size_t  mMaxSize;
-    Entry   mLru;
-    Table*  mTables[META_NUM_OPS_COUNT];
+    int64_t         mExpirationTimeMicroSec;
+    size_t          mSize;
+    size_t          mMaxSize;
+    Entry           mLru;
+    UserEntryCounts mUserEntryCounts;
+    Table*          mTables[META_NUM_OPS_COUNT];
 
     bool Validate(
         int inOp) const
@@ -345,9 +375,12 @@ public:
         if (mSize <= 0 ||
                 ! theEntry.mReqPtr ||
                 ! Lru::IsInList(theEntry) ||
-                ! Validate(theEntry.mReqPtr->op)) {
+                ! Validate(theEntry.mReqPtr->op) ||
+                ! theEntry.mCountPtr ||
+                *(theEntry.mCountPtr) <= 0) {
             panic("IdempotentRequestTracker: invalid idempotent request erase");
         }
+        (*theEntry.mCountPtr)--;
         theEntry.mReqPtr->SetReq(0);
         Lru::Remove(theEntry);
         mSize--;
