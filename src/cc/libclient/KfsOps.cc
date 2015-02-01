@@ -89,7 +89,7 @@ KfsIdempotentOp::ParentHeaders(ReqOstream& os) const
 {
     KfsOp::ParentHeaders(os);
     if (0 <= reqId) {
-        os << (shortRpcFormatFlag ? "r:" : "Req-id: ") << reqId << "\r\n";
+        os << (shortRpcFormatFlag ? "r:" : "Rid: ") << reqId << "\r\n";
     }
     return os;
 }

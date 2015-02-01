@@ -152,10 +152,13 @@ public:
         if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theAck)) {
             return false;
         }
-        if (theAck < 0 || theEndPtr <= thePtr || (*thePtr & 0xFF) != '_') {
+        if (theAck < 0) {
             return false;
         }
-        if (theEndPtr <= ++thePtr) {
+        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+            ++thePtr;
+        }
+        if (theEndPtr <= thePtr) {
             return false;
         }
         const int theAckType = MetaRequest::GetId(
@@ -168,8 +171,7 @@ public:
             return false;
         }
         SearchKey theKey(theAckType, theAck, inUid, inAuthUid);
-        Entry     theEntry(theKey);
-        return (0 < theTablePtr->Erase(theEntry));
+        return (0 < theTablePtr->Erase(Entry(theKey)));
     }
     virtual void Timeout()
     {
@@ -288,7 +290,7 @@ private:
                 kfsUid_t inUid,
                 kfsUid_t inAuthUid)
             : MetaIdempotentRequest(
-                MetaOp(inOpType), false)
+                MetaOp(inOpType), false, -1, 0)
         {
             reqId   = inReqId;
             authUid = inAuthUid;

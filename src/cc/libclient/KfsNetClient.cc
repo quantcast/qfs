@@ -1292,7 +1292,15 @@ private:
             theBuf.CopyIn("ACK\r\nAck: ", 10);
         }
         theBuf.CopyIn(theAckPtr->data(), theAckPtr->size());
-        theBuf.CopyIn("\r\n\r\n", 4);
+        if (IsAuthEnabled()) {
+            theBuf.CopyIn("\r\n\r\n", 4);
+        } else {
+            const string& theHeaders = kRpcFormatShort == mRpcFormat ?
+                mCommonShortHeaders : mCommonHeaders;
+            theBuf.CopyIn("\r\n", 2);
+            theBuf.CopyIn(theHeaders.data(), (int)theHeaders.size());
+            theBuf.CopyIn("\r\n", 2);
+        }
         mConnPtr->Flush();
     }
     bool IsAuthEnabled() const

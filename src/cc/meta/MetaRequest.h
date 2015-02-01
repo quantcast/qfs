@@ -356,12 +356,12 @@ struct MetaIdempotentRequest : public MetaRequest {
     seq_t      reqId;
     seq_t      ackId;
     TokenValue ackType;
-    MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1)
+    MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1, int rc = 1)
         : MetaRequest(o, mu, opSeq),
           reqId(-1),
           ackId(-1),
           ackType(),
-          ref(1),
+          ref(rc),
           req(0)
         { alwaysLogFlag = true; }
     void SetReq(MetaIdempotentRequest* r)
@@ -379,7 +379,7 @@ struct MetaIdempotentRequest : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def2("Req-id", "r", &MetaIdempotentRequest::reqId)
+        .Def2("Rid", "r", &MetaIdempotentRequest::reqId)
         ;
     }
     template<typename T> static T& IoParserDef(T& parser)
@@ -3331,7 +3331,7 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
 struct MetaAck : public MetaRequest {
     StringBufT<32> ack;
     MetaAck()
-        : MetaRequest(META_ACK, false),
+        : MetaRequest(META_ACK, true),
           ack()
         {}
     bool Validate()
@@ -3341,10 +3341,10 @@ struct MetaAck : public MetaRequest {
         { /* No response; */ }
     virtual int log(ostream& file) const;
     virtual ostream& ShowSelf(ostream& os) const
-        { return (os << "ACK: " << ack); }
+        { return (os << "ack: " << ack); }
     template<typename T> static T& ParserDef(T& parser)
     {
-        return  parser // Do not include MetaRequest parser.
+        return  MetaRequest::ParserDef(parser)
         .Def2("Ack", "a", &MetaAck::ack)
         ;
     }

@@ -262,8 +262,14 @@ class StringInsertEscapeOStream
 public:
     StringInsertEscapeOStream(
         ostream& inStream)
-        : mOStream(inStream)
-        {}
+        : mOStream(inStream),
+          mFlags(inStream.flags())
+    {
+        mOStream.Get().flags(mFlags | ostream::hex);
+        mOStream.Get().width(0);
+    }
+    ~StringInsertEscapeOStream()
+        { mOStream.Get().flags(mFlags); }
     template<typename T>
     StringInsertEscapeOStream& WriteKeyVal(
             const char* inKeyPtr,
@@ -292,7 +298,8 @@ private:
     void WriteVal(
         const T& inVal)
         { mOStream << inVal; }
-    // Threat characters as integers.
+    // Treat characters as integers to correctly represent *int8_t for the
+    // StringEscapeIoParser / ValueParserT<HexIntParser> the above. 
     void WriteVal(
         const char inVal)
         { mOStream << ((int)(inVal) & 0xFF); }
@@ -310,7 +317,8 @@ private:
         StringBufT<DEFAULT_CAPACITY>& inStr)
         { Escape(inStr.data(), inStr.size()); }
 private:
-    ReqOstream mOStream;
+    ReqOstream              mOStream;
+    ostream::fmtflags const mFlags;
 
     void Escape(
         const char* inPtr,
@@ -344,7 +352,7 @@ private:
 typedef RequestHandler<
     MetaRequest,
     StringEscapeIoParser,
-    true,
+    true,  // Use short names / format.
     PropertiesTokenizerT<':', ';'>,
     StringInsertEscapeOStream,
     false, // Do not invoke Validate

@@ -5636,7 +5636,7 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
         }
         const TokenValue name = GetName(op);
         if (0 < name.mLen) {
-            os << '_';
+            os << ' ';
             os.write(name.mPtr, name.mLen);
         }
         os << "\r\n";
