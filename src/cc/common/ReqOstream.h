@@ -77,8 +77,8 @@ private:
             (theFlags & T::showbase) ? "x0" : "",
             (theFlags & T::uppercase) == 0
         );
-        const size_t theSize = mBuf + kBufSize - thePtr;
-        if (mStream.width() <= theSize) {
+        const long theSize = (long)(mBuf + kBufSize - thePtr);
+        if ((long)mStream.width() <= theSize) {
             mStream.write(thePtr, theSize);
             mStream.width(0);
         } else {

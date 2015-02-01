@@ -127,7 +127,7 @@ private:
             // (inVal = -inVal) < 0 doesn't work with gcc optimization
             if (inVal == kMinInt) {
                 thePtr = Impl<T>::Convert(-(kMinInt % TRadix),
-                    thePtr, inRevPrefixPtr, inLowerCaseHexFlag);
+                    thePtr, "", inLowerCaseHexFlag);
                 inVal = -(kMinInt / TRadix);
             } else {
                 inVal = -inVal;
