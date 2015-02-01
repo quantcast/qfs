@@ -1268,7 +1268,7 @@ struct MetaTruncate: public MetaRequest {
 /*!
  * \brief rename a file or directory
  */
-struct MetaRename: public MetaRequest {
+struct MetaRename: public MetaIdempotentRequest {
     fid_t  dir;        //!< parent directory
     string oldname;    //!< old file name
     string newname;    //!< new file name
@@ -1276,7 +1276,7 @@ struct MetaRename: public MetaRequest {
     bool   overwrite;  //!< overwrite newname if it exists
     fid_t  todumpster; //!< moved original to dumpster
     MetaRename()
-        : MetaRequest(META_RENAME, true),
+        : MetaIdempotentRequest(META_RENAME, true),
           dir(-1),
           oldname(),
           newname(),
@@ -1309,6 +1309,13 @@ struct MetaRename: public MetaRequest {
         .Def2("New-path",           "N", &MetaRename::newname         )
         .Def2("Old-path",           "F", &MetaRename::oldpath         )
         .Def2("Overwrite",          "W", &MetaRename::overwrite, false)
+        ;
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRename::dir, fid_t(-1))
         ;
     }
 };

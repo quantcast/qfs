@@ -2365,6 +2365,10 @@ MetaRename::handle()
     MetaFattr* fa = 0;
     status = 0;
     SetEUserAndEGroup(*this);
+    if (0 <= reqId &&
+            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+        return;
+    }
     if (gWormMode && (! IsWormMutationAllowed(oldname) ||
             (status = metatree.lookupPath(
                 ROOTFID, newname, euser, egroup, fa)
@@ -3694,16 +3698,18 @@ MetaTruncate::log(ostream &file) const
 int
 MetaRename::log(ostream &file) const
 {
-    file << "rename"
-        "/dir/" << dir <<
-        "/old/" << oldname <<
-        "/new/" << newname
-    ;
-    if (todumpster > 0) {
-        // Insert sentinel empty entry for pop_path() to work.
-        file << "//todumpster/" << todumpster;
+    if (WriteLog(file)) {
+        file << "rename"
+            "/dir/" << dir <<
+            "/old/" << oldname <<
+            "/new/" << newname
+        ;
+        if (todumpster > 0) {
+            // Insert sentinel empty entry for pop_path() to work.
+            file << "//todumpster/" << todumpster;
+        }
+        file << '\n';
     }
-    file << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -4252,7 +4258,10 @@ MetaReaddirPlus::response(ReqOstream& os, IOBuffer& buf)
 void
 MetaRename::response(ReqOstream &os)
 {
-    PutHeader(this, os) << "\r\n";
+    if (! IdempotentAck(os)) {
+        return;
+    }
+    os << "\r\n";
 }
 
 void
