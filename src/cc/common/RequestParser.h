@@ -27,18 +27,18 @@
 #ifndef REQUEST_PARSER_H
 #define REQUEST_PARSER_H
 
+#include "StBuffer.h"
+
 #include <map>
 #include <utility>
 #include <string>
 #include <algorithm>
 #include <istream>
-#include <iterator>
+#include <streambuf>
 
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
-
-#include "StBuffer.h"
 
 namespace KFS
 {

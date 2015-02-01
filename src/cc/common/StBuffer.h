@@ -484,7 +484,13 @@ template<size_t DEFAULT_CAPACITY>
 inline static ostream& operator<<(
     ostream&                       inStream,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
-{ return inStream.write(inBuf.GetPtr(), inBuf.GetSize()); }
+{
+    const size_t theSize = inBuf.GetSize();
+    if ((long)inStream.width() <= (long)theSize) {
+        return (inStream << inBuf.GetPtr());
+    }
+    return inStream.write(inBuf.GetPtr(), theSize);
+}
 
 }
 
