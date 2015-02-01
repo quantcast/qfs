@@ -450,7 +450,7 @@ public:
     {
         while (mPtr < mEndPtr) {
             // Skip leading white space.
-            while (mPtr < mEndPtr && IsWSpace(*mPtr)) {
+            while (mPtr < mEndPtr && (IsWSpace(*mPtr) || DELIMITER == *mPtr)) {
                 mPtr++;
             }
             if (mPtr >= mEndPtr) {
@@ -467,7 +467,7 @@ public:
             }
             const char* theKeyEndPtr = mPtr;
             while (mPtr < mEndPtr && *mPtr != inSeparator &&
-                    *mPtr != '\r' && *mPtr != DELIMITER) {
+                    *mPtr != '\r' && DELIMITER != *mPtr) {
                 if (! IsWSpace(*mPtr)) {
                     theKeyEndPtr = mPtr + 1;
                 }
@@ -475,7 +475,7 @@ public:
             }
             if (*mPtr != inSeparator) {
                 // Ignore malformed line.
-                while (mPtr < mEndPtr && *mPtr != DELIMITER) {
+                while (mPtr < mEndPtr && DELIMITER != *mPtr) {
                     mPtr++;
                 }
                 if (mIgnoreMalformedFlag) {
@@ -487,13 +487,13 @@ public:
             mPtr++;
             // Skip leading white space after the delimiter.
             while (mPtr < mEndPtr && IsWSpace(*mPtr) &&
-                    *mPtr != '\r' && *mPtr != DELIMITER) {
+                    *mPtr != '\r' && DELIMITER != *mPtr) {
                 mPtr++;
             }
             // Find end of line and discard trailing white space.
             const char* const theValuePtr    = mPtr;
             const char*       theValueEndPtr = mPtr;
-            while (mPtr < mEndPtr && *mPtr != '\r' && *mPtr != DELIMITER) {
+            while (mPtr < mEndPtr && *mPtr != '\r' && DELIMITER != *mPtr) {
                 if (! IsWSpace(*mPtr)) {
                     theValueEndPtr = mPtr + 1;
                 }
@@ -537,6 +537,14 @@ public:
         { return *this; }
 };
 
+class RequestDeleter
+{
+public:
+    template<typename T>
+    static void Delete(T* inObj)
+        { delete inObj; }
+};
+
 // Create parser for object fields, and invoke appropriate parsers based on the
 // request header names.
 template <
@@ -545,7 +553,9 @@ template <
     bool     SHORT_NAMES=false,
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
-    bool     VALIDATE_FLAG=true>
+    bool     VALIDATE_FLAG=true,
+    typename REQUEST_DELETER=RequestDeleter
+>
 class ObjectParser
 {
 public:
@@ -750,7 +760,9 @@ template <
     bool     SHORT_NAMES=false,
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
-    bool     VALIDATE_FLAG=true>
+    bool     VALIDATE_FLAG=true,
+    typename REQUEST_DELETER=RequestDeleter
+>
 class RequestParser :
     public AbstractRequestParser<ABSTRACT_OBJ, ST>,
     public ObjectParser<
@@ -759,7 +771,8 @@ class RequestParser :
         SHORT_NAMES,
         PROPERTIES_TOKENIZER,
         ST,
-        VALIDATE_FLAG
+        VALIDATE_FLAG,
+        REQUEST_DELETER
     >
 {
 public:
@@ -771,7 +784,8 @@ public:
         SHORT_NAMES,
         PROPERTIES_TOKENIZER,
         ST,
-        VALIDATE_FLAG
+        VALIDATE_FLAG,
+        REQUEST_DELETER
     > ObjParser;
     typedef typename Super::Checksum                Checksum;
 
@@ -798,15 +812,15 @@ public:
                 inHasHeaderChecksumFlag,
                 inChecksum,
                 SHORT_NAMES)) {
-            delete theObjPtr;
+            REQUEST_DELETER::Delete(theObjPtr);
             return 0;
         }
         Tokenizer theTokenizer(inBufferPtr, inLen);
         ObjParser::Parse(theTokenizer, theObjPtr);
-        if (VALIDATE_FLAG && theObjPtr->Validate()) {
+        if (! VALIDATE_FLAG || theObjPtr->Validate()) {
             return theObjPtr;
         }
-        delete theObjPtr;
+        REQUEST_DELETER::Delete(theObjPtr);
         return 0;
     }
     virtual void Write(
@@ -853,7 +867,9 @@ template <
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
     bool     VALIDATE_FLAG=true,
-    char     DELIMITER = '\n'>
+    typename REQUEST_DELETER=RequestDeleter,
+    char     DELIMITER = '\n'
+>
 class RequestHandler
 {
 public:
@@ -877,7 +893,8 @@ public:
             thePtr++;
         }
         const char* const theNamePtr = thePtr;
-        while (thePtr < theEndPtr && ! IsWSpace(*thePtr)) {
+        while (thePtr < theEndPtr && ! IsWSpace(*thePtr) &&
+                DELIMITER != *thePtr) {
             thePtr++;
         }
         const size_t theNameLen = thePtr - theNamePtr;
@@ -889,13 +906,14 @@ public:
         // Get optional header checksum.
         const char* theChecksumPtr = thePtr;
         while (thePtr < theEndPtr &&
-                *thePtr != '\r' && *thePtr != DELIMITER) {
+                *thePtr != '\r' && DELIMITER != *thePtr) {
             thePtr++;
         }
         Checksum   theChecksum     = 0;
         const bool theChecksumFlag = ValueParser::ParseInt(
             theChecksumPtr, thePtr - theChecksumPtr, theChecksum);
-        while (thePtr < theEndPtr && IsWSpace(*thePtr)) {
+        while (thePtr < theEndPtr &&
+                (IsWSpace(*thePtr) || DELIMITER == *thePtr)) {
             thePtr++;
         }
         return theIt->second.second->Parse(

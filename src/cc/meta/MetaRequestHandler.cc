@@ -170,10 +170,23 @@ MakeMetaRequestHandler(
         static_cast<const MetaAck*>(0))
     ;
 }
+
+class MetaRequestDeleter
+{
+public:
+    static void Delete(
+        MetaRequest* inReqPtr)
+        {  MetaRequest::Release(inReqPtr); }
+};
+
 typedef RequestHandler<
     MetaRequest,
     ValueParserT<DecIntParser>,
-    false
+    false, // Use long names / format.
+    PropertiesTokenizer,
+    NopOstream,
+    true, // Invoke Validate
+    MetaRequestDeleter
 > MetaRequestHandler;
 static const MetaRequestHandler& sMetaRequestHandler =
     MakeMetaRequestHandler<MetaRequestHandler>();
@@ -181,7 +194,11 @@ static const MetaRequestHandler& sMetaRequestHandler =
 typedef RequestHandler<
     MetaRequest,
     ValueParserT<HexIntParser>,
-    true
+    true, // Use short names / format.
+    PropertiesTokenizer,
+    NopOstream,
+    true, // Invoke Validate
+    MetaRequestDeleter
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
@@ -242,7 +259,7 @@ private:
                 return false;
             }
             const int theSecond = sCharToHex[*++theEPtr & 0xFF];
-            if (theSecond != 0xFF) {
+            if (theSecond == 0xFF) {
                 return false;
             }
             const char theSym = (char)((theFirst << 4) | theSecond);
@@ -356,6 +373,7 @@ typedef RequestHandler<
     PropertiesTokenizerT<':', ';'>,
     StringInsertEscapeOStream,
     false, // Do not invoke Validate
+    MetaRequestDeleter,
     ':'
 > MetaRequestIoHandler;
 static const MetaRequestIoHandler& sMetaRequestIoHandler =
