@@ -28,6 +28,8 @@
 #ifndef KFS_COMMON_REQ_OSTREAM_H
 #define KFS_COMMON_REQ_OSTREAM_H
 
+#include "IntToString.h"
+
 namespace KFS
 {
 
@@ -38,11 +40,15 @@ public:
     typedef ReqOstreamT<T> ST;
     ReqOstreamT(T& inStream)
         : mStream(inStream)
-        { mBuf[kBufSize - 1] = 0; }
-    ST& operator<<(signed short int inVal) { return InsertSignedInt(inVal); }
-    ST& operator<<(signed int       inVal) { return InsertSignedInt(inVal); }
-    ST& operator<<(signed long      inVal) { return InsertSignedInt(inVal); }
-    ST& operator<<(signed long long inVal) { return InsertSignedInt(inVal); }
+        { mBuf[kBufSize] = 0; }
+    ST& operator<<(signed short int   inVal) { return InsertInt(inVal); }
+    ST& operator<<(signed int         inVal) { return InsertInt(inVal); }
+    ST& operator<<(signed long        inVal) { return InsertInt(inVal); }
+    ST& operator<<(signed long long   inVal) { return InsertInt(inVal); }
+    ST& operator<<(unsigned short int inVal) { return InsertInt(inVal); }
+    ST& operator<<(unsigned int       inVal) { return InsertInt(inVal); }
+    ST& operator<<(unsigned long      inVal) { return InsertInt(inVal); }
+    ST& operator<<(unsigned long long inVal) { return InsertInt(inVal); }
     template<typename VT>
     ST& operator<<(const VT& inVal) { mStream << inVal; return *this; }
     ST& flush() { mStream.flush(); return *this; }
@@ -53,37 +59,31 @@ public:
         { mStream.write(inPtr, inCount); return *this; }
     T& Get() const { return mStream; }
 private:
-    enum { kBufSize = 2 + 1 + sizeof(long long) * 2 + 1 };
+    enum { kBufSize = 2 + 1 + sizeof(long long) * 2 };
     T&   mStream;
-    char mBuf[kBufSize];
+    char mBuf[kBufSize + 1];
 
     template<typename VT>
-    ST& InsertSignedInt(VT inVal)
+    ST& InsertInt(VT inVal)
     {
         typename T::fmtflags const theFlags = mStream.flags();
         if ((theFlags & T::hex) == 0) {
             mStream << inVal;
             return *this;
         }
-        char*             thePtr     = mBuf + kBufSize - 1;
-        const char* const theHexPtr  = (theFlags & T::uppercase) != 0 ?
-            "0123456789ABCDEF" : "0123456789abcdef";
-        const bool        theNegFlag = inVal < 0;
-        if (theNegFlag) {
-            inVal = -inVal;
+        char* const thePtr = IntToString<16>::Convert(
+            inVal,
+            mBuf + kBufSize,
+            (theFlags & T::showbase) ? "x0" : "",
+            (theFlags & T::uppercase) == 0
+        );
+        const size_t theSize = mBuf + kBufSize - thePtr;
+        if (mStream.width() <= theSize) {
+            mStream.write(thePtr, theSize);
+            mStream.width(0);
+        } else {
+            mStream << thePtr;
         }
-        do {
-            *--thePtr = theHexPtr[inVal & 0xF];
-            inVal >>= 4;
-        } while (0 < inVal);
-        if (theFlags & T::showbase) {
-            *--thePtr = 'x';
-            *--thePtr = '0';
-        }
-        if (theNegFlag) {
-            *--thePtr = '-';
-        }
-        mStream << thePtr;
         return *this;
     }
 };

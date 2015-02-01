@@ -41,23 +41,30 @@ class IntToString
 public:
     template<typename T>
     static char* Convert(
-        T     inVal,
-        char* inBufEndPtr)
+        T           inVal,
+        char*       inBufEndPtr,
+        const char* inRevPrefixPtr     = "",
+        bool        inLowerCaseHexFlag = false) // reversed prefix: 0x -> x0
     {
         return ((T(1) << (sizeof(T) * 8 - 1)) < 0 ?
-            ConvertSigned(inVal, inBufEndPtr) :
-            Impl<T>::Convert(inVal, inBufEndPtr));
+            ConvertSigned(inVal, inBufEndPtr,
+                inRevPrefixPtr, inLowerCaseHexFlag) :
+            Impl<T>::Convert(inVal, inBufEndPtr,
+                inRevPrefixPtr, inLowerCaseHexFlag));
     }
     template<typename ST, typename T>
         static inline ST&
     Append(
-        ST& inStr,
-        T   inVal)
+        ST&         inStr,
+        T           inVal,
+        const char* inRevPrefixPtr     = "",
+        bool        inLowerCaseHexFlag = false)
     {
         // Large enough buffer for binary representation.
         char theBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
         char* const theBufEndPtr = theBuf + sizeof(theBuf) / sizeof(theBuf[0]);
-        const char* const thePtr = Convert(inVal, theBufEndPtr);
+        const char* const thePtr = Convert(inVal, theBufEndPtr,
+            inRevPrefixPtr, inLowerCaseHexFlag);
         inStr.append(thePtr, theBufEndPtr - thePtr);
         return inStr;
     }
@@ -67,21 +74,29 @@ private:
     {
     public:
         static char* Convert(
-            T     inVal,
-            char* inBufEndPtr)
+            T           inVal,
+            char*       inBufEndPtr,
+            const char* inRevPrefixPtr,
+            bool        inLowerCaseHexFlag)
         {
-            return (TRadix == 16 ?
-                Hex(inVal, inBufEndPtr) :
-                Other(inVal, inBufEndPtr));
+            char* theRetPtr = TRadix == 16 ?
+                Hex(inVal, inBufEndPtr, inLowerCaseHexFlag ?
+                    "0123456789abcdef" : "0123456789ABCDEF") :
+                Other(inVal, inBufEndPtr);
+            for (const char* thePtr = inRevPrefixPtr; *thePtr; ) {
+                *--theRetPtr = *thePtr++;
+            }
+            return theRetPtr;
         }
     private:
         static char* Hex(
-            T     inVal,
-            char* inBufEndPtr)
+            T           inVal,
+            char*       inBufEndPtr,
+            const char* inHexCharsPtr)
         {
             char* thePtr = inBufEndPtr;
             do {
-                *--thePtr = "0123456789ABCDEF"[inVal & 0xF];
+                *--thePtr = inHexCharsPtr[inVal & 0xF];
                 inVal >>= 4;
             } while (inVal != 0);
             return thePtr;
@@ -100,8 +115,10 @@ private:
     };
     template <typename T>
     static char* ConvertSigned(
-        T     inVal,
-        char* inBufEndPtr)
+        T           inVal,
+        char*       inBufEndPtr,
+        const char* inRevPrefixPtr,
+        bool        inLowerCaseHexFlag)
     {
         char*      thePtr     = inBufEndPtr;
         const T    kMinInt    = T(1) << (sizeof(T) * 8 - 1);
@@ -109,13 +126,15 @@ private:
         if (theNegFlag) {
             // (inVal = -inVal) < 0 doesn't work with gcc optimization
             if (inVal == kMinInt) {
-                thePtr = Impl<T>::Convert(-(kMinInt % TRadix), thePtr);
+                thePtr = Impl<T>::Convert(-(kMinInt % TRadix),
+                    thePtr, inRevPrefixPtr, inLowerCaseHexFlag);
                 inVal = -(kMinInt / TRadix);
             } else {
                 inVal = -inVal;
             }
         }
-        thePtr = Impl<T>::Convert(inVal, thePtr);
+        thePtr = Impl<T>::Convert(
+            inVal, thePtr, inRevPrefixPtr, inLowerCaseHexFlag);
         if (theNegFlag) {
             *--thePtr = '-';
         }
