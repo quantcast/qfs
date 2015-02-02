@@ -58,7 +58,8 @@ public:
           mSize(0),
           mMaxSize(64 << 10),
           mLru(),
-          mUserEntryCounts()
+          mUserEntryCounts(),
+          mCleanUserEntryFlag(false)
     {
         for (size_t i = 0; i < sizeof(mTables) / sizeof(mTables[0]); i++) {
             mTables[i] = 0;
@@ -128,14 +129,14 @@ public:
             theEntryPtr->mCountPtr = mUserEntryCounts.Insert(
                 theUid, size_t(0), theNewUserCounerFlag
             );
-            size_t& theCount = *(theEntryPtr->mCountPtr);
+            Count& theCount = *(theEntryPtr->mCountPtr);
             theCount++;
             if (mMaxSize < theCount) {
                 Expire(microseconds());
                 if (mMaxSize < theCount) {
                     theTable.Erase(*theEntryPtr);
                     inRequest.status    = -ESERVERBUSY;
-                    inRequest.statusMsg = "out of idempotent request entries"; 
+                    inRequest.statusMsg = "out of idempotent request entries";
                     return true;
                 }
             }
@@ -149,6 +150,26 @@ public:
             return false;
         }
         return true;
+    }
+    bool Remove(
+        MetaIdempotentRequest& inRequest)
+    {
+        if (inRequest.reqId < 0 || mMaxSize <= 0 ||
+                inRequest.GetReq() != &inRequest) {
+            return false;
+        }
+        if (! Validate(inRequest.op)) {
+            panic("IdempotentRequestTracker: invalid request type");
+            return false;
+        }
+        Table* const theTablePtr = mTables[inRequest.op];
+        if (! theTablePtr) {
+            return false;
+        }
+        mCleanUserEntryFlag = true;
+        const bool theRetFlag = 0 < theTablePtr->Erase(Entry(inRequest));
+        mCleanUserEntryFlag = false;
+        return theRetFlag;
     }
     void Handle(
         MetaAck& inAck)
@@ -232,6 +253,7 @@ public:
         return (theHandledFlag ? -EINVAL : 0);
     }
 private:
+    typedef int64_t Count;
     class Entry
     {
     public:
@@ -276,7 +298,7 @@ private:
             );
         }
         MetaIdempotentRequest* const mReqPtr;
-        size_t*                      mCountPtr;
+        Count*                       mCountPtr;
     private:
         Entry*                       mPrevPtr[1];
         Entry*                       mNextPtr[1];
@@ -303,7 +325,7 @@ private:
         Impl
     > Table;
 
-    typedef KVPair<kfsUid_t, size_t> UCEntry;
+    typedef KVPair<kfsUid_t, Count> UCEntry;
     typedef LinearHash<
         UCEntry,
         KeyCompare<UCEntry::Key>,
@@ -338,6 +360,7 @@ private:
     size_t          mMaxSize;
     Entry           mLru;
     UserEntryCounts mUserEntryCounts;
+    bool            mCleanUserEntryFlag;
     Table*          mTables[META_NUM_OPS_COUNT];
 
     bool Validate(
@@ -381,6 +404,10 @@ public:
             panic("IdempotentRequestTracker: invalid idempotent request erase");
         }
         (*theEntry.mCountPtr)--;
+        if (mCleanUserEntryFlag && *theEntry.mCountPtr <= 0) {
+            mUserEntryCounts.Erase(GetUid(*(theEntry.mReqPtr)));
+        }
+        mCleanUserEntryFlag = 0;
         theEntry.mReqPtr->SetReq(0);
         Lru::Remove(theEntry);
         mSize--;
@@ -415,6 +442,13 @@ IdempotentRequestTracker::Handle(
     MetaIdempotentRequest& inRequest)
 {
     return mImpl.Handle(inRequest);
+}
+
+    bool
+IdempotentRequestTracker::Remove(
+    MetaIdempotentRequest& inRequest)
+{
+    return mImpl.Remove(inRequest);
 }
 
     void

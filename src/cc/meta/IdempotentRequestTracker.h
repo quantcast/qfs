@@ -52,6 +52,8 @@ public:
         const Properties& inProps);
     bool Handle(
         MetaIdempotentRequest& inRequest);
+    bool Remove(
+        MetaIdempotentRequest& inRequest);
     void Handle(
         MetaAck& inAck);
     bool HandleAck(

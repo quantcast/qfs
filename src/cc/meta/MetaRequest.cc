@@ -77,6 +77,37 @@ static bool    gWormMode = false;
 static string  gChunkmapDumpDir(".");
 static const char* const ftypes[] = { "empty", "file", "dir" };
 
+class StIdempotentRequestHandler
+{
+public:
+    StIdempotentRequestHandler(
+        MetaIdempotentRequest& req)
+        : mRequestPtr(&req)
+    {
+        if (0 <= mRequestPtr->reqId &&
+                gLayoutManager.GetIdempotentRequestTracker().Handle(
+                    *mRequestPtr)) {
+            mRequestPtr = 0;
+        }
+    }
+    ~StIdempotentRequestHandler()
+    {
+        // Remove request and cleanup user id table in order to reduce effect
+        // of possible DoS, generating very large number of user ids.
+        if (mRequestPtr &&
+                0 <= mRequestPtr->reqId &&
+                mRequestPtr->authUid == kKfsUserNone &&
+                (-EACCES == mRequestPtr->status ||
+                 -EPERM == mRequestPtr->status)) {
+            gLayoutManager.GetIdempotentRequestTracker().Remove(*mRequestPtr);
+        }
+    }
+    bool IsDone() const
+        { return ! mRequestPtr;}
+private:
+    MetaIdempotentRequest* mRequestPtr;
+};
+
 static ostringstream&
 GetTmpOStringStream()
 {
@@ -709,8 +740,8 @@ MetaCreate::handle()
     if (! SetUserAndGroup(*this)) {
         return;
     }
-    if (0 <= reqId &&
-            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
         return;
     }
     const bool invalChunkFlag = dir == ROOTFID &&
@@ -850,8 +881,8 @@ MetaMkdir::handle()
     if (! SetUserAndGroup(*this)) {
         return;
     }
-    if (0 <= reqId &&
-            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
         return;
     }
     const bool kDirFlag = true;
@@ -916,8 +947,8 @@ MetaRemove::handle()
     }
     todumpster = -1;
     SetEUserAndEGroup(*this);
-    if (0 <= reqId &&
-            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
         return;
     }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
@@ -937,8 +968,8 @@ MetaRmdir::handle()
         return;
     }
     SetEUserAndEGroup(*this);
-    if (0 <= reqId &&
-            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
         return;
     }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
@@ -2365,8 +2396,8 @@ MetaRename::handle()
     MetaFattr* fa = 0;
     status = 0;
     SetEUserAndEGroup(*this);
-    if (0 <= reqId &&
-            gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
         return;
     }
     if (gWormMode && (! IsWormMutationAllowed(oldname) ||
@@ -4124,6 +4155,19 @@ MetaCreate::response(ReqOstream &os)
     if (! IdempotentAck(os)) {
         return;
     }
+    if (GetReq() && GetReq() != this) {
+        // Copy fields, as GetUserAndGroupNames() won't work if requests are
+        // handled by different client network threads.
+        const MetaCreate& r = *static_cast<const MetaCreate*>(GetReq());
+        fid         = r.fid;
+        striperType = r.striperType;
+        user        = r.user;
+        group       = r.group;
+        mode        = r.mode;
+        group       = r.group;
+        minSTier    = r.minSTier;
+        maxSTier    = r.maxSTier;
+    }
     os << (shortRpcFormatFlag ? "P:" : "File-handle: ")  << fid << "\r\n";
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
         os << (shortRpcFormatFlag ? "ST:" : "Striper-type: ") <<
@@ -4158,6 +4202,18 @@ MetaMkdir::response(ReqOstream &os)
 {
     if (! IdempotentAck(os)) {
         return;
+    }
+    if (GetReq() && GetReq() != this) {
+        // Copy fields, as GetUserAndGroupNames() won't work if requests are
+        // handled by different client network threads.
+        const MetaMkdir& r = *static_cast<const MetaMkdir*>(GetReq());
+        fid      = r.fid;
+        user     = r.user;
+        group    = r.group;
+        mode     = r.mode;
+        group    = r.group;
+        minSTier = r.minSTier;
+        maxSTier = r.maxSTier;
     }
     os <<
     (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid   << "\r\n" <<
@@ -5631,7 +5687,6 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
         status    = req->status;
         statusMsg = req->statusMsg;
         ackId     = req->ackId;
-        ackType   = req->ackType;
     }
     PutHeader(this, os);
     if (0 <= ackId) {

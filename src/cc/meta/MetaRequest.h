@@ -353,14 +353,12 @@ void submit_request(MetaRequest *r);
 
 struct MetaIdempotentRequest : public MetaRequest {
     // Derived classes' request() method must be const, i.e. not modify "this".
-    seq_t      reqId;
-    seq_t      ackId;
-    TokenValue ackType;
+    seq_t reqId;
+    seq_t ackId;
     MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1, int rc = 1)
         : MetaRequest(o, mu, opSeq),
           reqId(-1),
           ackId(-1),
-          ackType(),
           ref(rc),
           req(0)
         { alwaysLogFlag = true; }
@@ -375,6 +373,8 @@ struct MetaIdempotentRequest : public MetaRequest {
             pr->UnRef();
         }
     }
+    MetaIdempotentRequest* GetReq() const
+        { return req; }
     bool WriteLog(ostream& os) const;
     template<typename T> static T& ParserDef(T& parser)
     {
