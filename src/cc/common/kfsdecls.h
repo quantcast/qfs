@@ -92,11 +92,6 @@ struct ServerLocation
         { return (os << hostname << ' ' << port); }
     bool FromString(const string& s)
         { return FromString(s.data(), s.size()); }
-    bool FromString(const char* str)
-    {
-        const char* const kNull = 0;
-        return FromString(str, str - kNull);
-    }
     bool FromString(const char* str, size_t len);
     string hostname; //!< Location of the server: machine name/IP addr
     int    port;     //!< Location of the server: port to connect to
