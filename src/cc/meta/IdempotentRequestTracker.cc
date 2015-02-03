@@ -238,19 +238,18 @@ public:
         if (! theReqPtr) {
             return -EINVAL;
         }
-        // This is used for checkpoint load -- assign the "start" time.
+        // This is used for checkpoint load or log replay -- assign the "start"
+        // time.
         static const int sStartTime = microseconds();
         theReqPtr->submitTime  = sStartTime;
         theReqPtr->processTime = theReqPtr->submitTime;
-        // Keep the most recent requests.
-        Entry* thePtr;
-        while (mMaxSize <= mSize && &mLru != (thePtr = &Lru::GetPrev(mLru))) {
-            mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
-        }
-        const bool theHandledFlag = Handle(
-            *static_cast<MetaIdempotentRequest*>(theReqPtr));
+        const int  theStatus = theReqPtr->status;
+        const bool theOkFlag = Handle(
+            *static_cast<MetaIdempotentRequest*>(theReqPtr)) ||
+            (theReqPtr->status == -ESERVERBUSY &&
+                theStatus != -ESERVERBUSY);
         MetaRequest::Release(theReqPtr);
-        return (theHandledFlag ? -EINVAL : 0);
+        return (theOkFlag ? -EINVAL : 0);
     }
 private:
     typedef int64_t Count;

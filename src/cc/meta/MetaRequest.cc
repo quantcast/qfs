@@ -94,11 +94,13 @@ public:
     {
         // Remove request and cleanup user id table in order to reduce effect
         // of possible DoS, generating very large number of user ids.
+        // For extra safety remove malformed requests.
         if (mRequestPtr &&
                 0 <= mRequestPtr->reqId &&
-                mRequestPtr->authUid == kKfsUserNone &&
+                (-EINVAL == mRequestPtr->status ||
+                (kKfsUserNone == mRequestPtr->authUid &&
                 (-EACCES == mRequestPtr->status ||
-                 -EPERM == mRequestPtr->status)) {
+                 -EPERM == mRequestPtr->status)))) {
             gLayoutManager.GetIdempotentRequestTracker().Remove(*mRequestPtr);
         }
     }
