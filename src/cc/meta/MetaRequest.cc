@@ -87,6 +87,13 @@ public:
         if (0 <= mRequestPtr->reqId &&
                 gLayoutManager.GetIdempotentRequestTracker().Handle(
                     *mRequestPtr)) {
+            KFS_LOG_STREAM_DEBUG <<
+                "idempotent request was already handled:"
+                " seq: " << req.opSeqno <<
+                " id: "  << req.reqId <<
+                " "      << req.Show() <<
+                " => "   << MetaRequest::ShowReq(req.GetReq()) <<
+            KFS_LOG_EOM;
             mRequestPtr = 0;
         }
     }

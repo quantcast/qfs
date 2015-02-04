@@ -543,7 +543,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         HandleRequest(EVENT_NET_ERROR, 0);
         return;
     }
-    if (op->clientProtoVers < mClientProtoVers) {
+    if (op->clientProtoVers < mClientProtoVers && op->op != META_ACK) {
         mClientProtoVers = op->clientProtoVers;
         KFS_LOG_STREAM_WARN << PeerName(mNetConnection) <<
             " command with old protocol version: " <<
