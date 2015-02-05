@@ -2796,20 +2796,28 @@ LayoutManager::AddNewServer(MetaHello *r)
 
     if (mAssignMasterByIpFlag) {
         // if the server node # is odd, it is master; else slave
-        string ipaddr = r->peerName;
-        string::size_type delimPos = ipaddr.rfind(':');
-        if (delimPos != string::npos) {
-            ipaddr.erase(delimPos);
+        const string&           ipaddr    = r->location.hostname;
+        string::size_type const len       = ipaddr.length();
+        int                     lastDigit = -1;
+        if (0 < len) {
+            const int sym = ipaddr[len - 1] & 0xFF;
+            if ('0' <= sym && sym <= '9') {
+                lastDigit = sym - '0'; // ipv4 or ipv6 last digit
+            } else if (sym == ':' ) {
+                lastDigit = 0; // ipv6 16 bit 0
+            } else if ('a' <= sym && sym <= 'f') {
+                lastDigit = sym - 'a' + 10; // ipv6 last digit
+            } else if ('A' <= sym && sym <= 'F') {
+                lastDigit = sym - 'A' + 10; // ipv6 last digit
+            }
         }
-        delimPos = ipaddr.rfind('.');
-        if (delimPos == string::npos) {
-            srv.SetCanBeChunkMaster(Rand(2) != 0);
+        if (lastDigit < 0) {
+            srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
         } else {
-            string nodeNumStr = ipaddr.substr(delimPos + 1);
-            srv.SetCanBeChunkMaster((toNumber(nodeNumStr) % 2) != 0);
+            srv.SetCanBeChunkMaster((lastDigit & 0x1) != 0);
         }
     } else {
-        srv.SetCanBeChunkMaster(mSlavesCount >= mMastersCount);
+        srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
     }
     if (srv.CanBeChunkMaster()) {
         mMastersCount++;

@@ -22,6 +22,28 @@
 # Client listener port.
 metaServer.clientPort = 20000
 
+# Client connection listener ip address to bind to.
+# Use :: to bind to ipv6 address any.
+# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
+# parameter metaServer.clientIpV6Only set to 1
+# metaServer.clientIp =
+
+# Accept ipv4 client connections.
+# Default is 0, enable acception ipv4 connection. Only has effect if
+# metaServer.clientIp left empty, or set to ::
+# metaServer.clientIpV6Only = 0
+
+# Chunk server connection listener ip address to bind to.
+# Use :: to bind to ipv6 address any.
+# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
+# parameter metaServer.clientIpV6Only set to 1
+# metaServer.clientIp =
+
+# Accept ipv4 chunk servers connections.
+# Default is 0, enable acception ipv4 connection. Only has effect if
+# metaServer.clientIp left empty, or set to ::
+# metaServer.clientIpV6Only = 0
+
 # Chunk server listener port.
 metaServer.chunkServerPort = 30000
 

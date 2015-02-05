@@ -52,11 +52,15 @@ public:
         {}
     virtual ~ChunkServerFactory()
         { delete mAcceptor; }
-    bool Bind(int port)
+    bool Bind(
+        NetManager&           inNetManager,
+        const ServerLocation& location,
+        bool                  isIpV6OnlyFlag)
     {
         delete mAcceptor;
         const bool kBindOnlyFlag = true;
-        mAcceptor = new Acceptor(port, this, kBindOnlyFlag);
+        mAcceptor = new Acceptor(
+            inNetManager, location, isIpV6OnlyFlag, this, kBindOnlyFlag);
         return mAcceptor->IsAcceptorStarted();
     }
     /// Start an acceptor to listen on the specified port.

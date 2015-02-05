@@ -187,6 +187,7 @@ public:
           mOpTimeoutSec(inOpTimeoutSec),
           mIdleTimeoutSec(inIdleTimeoutSec),
           mRetryCount(0),
+          mNonAuthRetryCount(0),
           mContentLength(0),
           mMaxRetryCount(inMaxRetryCount),
           mMaxContentLength(inMaxContentLength),
@@ -260,9 +261,10 @@ public:
         if (mSleepingFlag || IsConnected()) {
             Reset();
         }
-        mServerLocation   = inLocation;
-        mAuthFailureCount = 0;
-        mRetryCount       = 0;
+        mServerLocation    = inLocation;
+        mAuthFailureCount  = 0;
+        mRetryCount        = 0;
+        mNonAuthRetryCount = 0;
         mNextSeqNum += 100;
         if (! inForceConnectFlag && mPendingOpQueue.empty()) {
             return inLocation.IsValid();
@@ -795,6 +797,8 @@ public:
                     mSessionExpirationTime,
                     Now() + kSessionUpdateResolutionSec + 4
                 );
+                mRetryCount = mNonAuthRetryCount;
+                mNonAuthRetryCount = 0;
                 SubmitPending();
                 return;
             }
@@ -897,6 +901,7 @@ private:
     int                mOpTimeoutSec;
     int                mIdleTimeoutSec;
     int                mRetryCount;
+    int                mNonAuthRetryCount;
     int                mContentLength;
     int                mMaxRetryCount;
     int                mMaxContentLength;
@@ -1216,7 +1221,7 @@ private:
         if (! mInFlightOpPtr) {
             return;
         }
-        if (mContentLength > 0 && mConnPtr) {
+        if (0 < mContentLength && mConnPtr) {
             // Detach shared buffers, if any.
             IOBuffer& theBuf = mConnPtr->GetInBuffer();
             mContentLength -= theBuf.BytesConsumable();
@@ -1321,6 +1326,7 @@ private:
             mSessionExpirationTime = mKeyExpirationTime;
             mSessionKeyId          = mKeyId;
             mSessionKeyData        = mKeyData;
+            mNonAuthRetryCount     = 0;
         } else {
             mSessionKeyId          = string();
             mSessionKeyData        = mSessionKeyId;
@@ -1334,6 +1340,8 @@ private:
                 mLookupOp.authType      = kAuthenticationTypeNone;
                 mLookupOp.seq           = mNextSeqNum++;
                 mNextSeqNum++; // Leave one slot for mAuthOp
+            } else {
+                mNonAuthRetryCount = 0;
             }
         }
         const kfsSeq_t theLookupSeq = mLookupOp.seq;
@@ -1457,6 +1465,9 @@ private:
                 (! mDataSentFlag && ! mDataReceivedFlag) ||
                 IsAuthInFlight())) {
             mRetryCount++;
+            if (! IsAuthInFlight()) {
+                mNonAuthRetryCount = mRetryCount;
+            }
             ResetConnection();
             if (mTimeSecBetweenRetries > 0) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<

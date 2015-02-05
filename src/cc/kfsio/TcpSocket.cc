@@ -28,6 +28,7 @@
 #include "TcpSocket.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
@@ -63,9 +64,177 @@ UpdateSocketCount(int inc)
     globals().ctrOpenNetFds.Update(inc);
 }
 
+template<typename T>
+static inline bool
+SetSockOpt(int fd, int level, int name, const T& val)
+{
+    return (setsockopt(fd, level, name, &val, sizeof(val)) != 0);
+}
+
 int TcpSocket::sRecvBufSize    = 64 << 10;
 int TcpSocket::sSendBufSize    = 64 << 10;
 int TcpSocket::sMaxOpenSockets =  1 << (sizeof(int) * 8 - 2);
+
+struct TcpSocket::Address
+{
+    Address(TcpSocket::Type type)
+        : mProto(type == TcpSocket::kTypeIpV6 ? AF_INET6 : AF_INET)
+        { memset(&mIp, 0, sizeof(mIp)); }
+    struct sockaddr* Ptr()
+    {
+        return (mProto == AF_INET ?
+            reinterpret_cast<struct sockaddr*>(&mIp.v4) :
+            reinterpret_cast<struct sockaddr*>(&mIp.v6)
+        );
+    }
+    const struct sockaddr* Ptr() const
+    {
+        return (mProto == AF_INET ?
+            reinterpret_cast<const struct sockaddr*>(&mIp.v4) :
+            reinterpret_cast<const struct sockaddr*>(&mIp.v6)
+        );
+    }
+    socklen_t Size() const
+    {
+        return (socklen_t)(mProto == AF_INET ? sizeof(mIp.v4) : sizeof(mIp.v6));
+    }
+    void SetAddrAny(int port)
+    {
+        if (mProto == AF_INET) {
+            mIp.v4.sin_family      = AF_INET;
+            mIp.v4.sin_addr.s_addr = htonl(INADDR_ANY);
+            mIp.v4.sin_port        = htons(port);
+        } else {
+            mIp.v6.sin6_family = AF_INET6;
+            mIp.v6.sin6_addr   = in6addr_any;
+            mIp.v6.sin6_port   = htons(port);
+        }
+    }
+    int GetLocation(ServerLocation& location)
+    {
+        char ipname[(INET_ADDRSTRLEN < INET6_ADDRSTRLEN ?
+            INET6_ADDRSTRLEN : INET_ADDRSTRLEN) + 1];
+        const socklen_t size = mProto == AF_INET ?
+            INET6_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        if (! inet_ntop(mProto, GetAddr(), ipname, size)) {
+            return (errno < 0 ? errno : (errno == 0 ? -EINVAL : -errno));
+        }
+        ipname[size] = 0;
+        location.hostname = ipname;
+        location.port     = ntohs(
+            mProto == AF_INET ? mIp.v4.sin_port : mIp.v6.sin6_port);
+        return 0;
+    }
+    string ToString() const
+    {
+        char ipname[(INET_ADDRSTRLEN < INET6_ADDRSTRLEN ?
+            INET6_ADDRSTRLEN : INET_ADDRSTRLEN) + 1];
+        const socklen_t size = mProto == AF_INET ?
+            INET6_ADDRSTRLEN : INET6_ADDRSTRLEN;
+        if (! inet_ntop(mProto, GetAddr(), ipname, size)) {
+            return string("unknown");
+        }
+        ipname[size] = 0;
+        ConvertInt<int, 10> portBuf((int)ntohs(
+            mProto == AF_INET ? mIp.v4.sin_port : mIp.v6.sin6_port));
+        string ret;
+        ret.reserve(strlen(ipname) + portBuf.GetSize() +
+            mProto == AF_INET ? 1 : 3);
+        if (mProto != AF_INET) {
+            ret.append("[");
+        }
+        ret.append(ipname);
+        ret.append(mProto == AF_INET ? ":" : "]:");
+        ret.append(portBuf.GetPtr());
+        return ret;
+    }
+    int Set(const ServerLocation& location)
+    {
+        bool useResolverFlag = true;
+        memset(&mIp, 0, sizeof(mIp));
+        if (location.hostname.find(':') != string::npos) {
+            struct sockaddr_in6& addr = mIp.v6;
+            if (inet_pton(AF_INET6, location.hostname.c_str(), &addr.sin6_addr)) {
+                mProto           = AF_INET6;
+                addr.sin6_family = mProto;
+                useResolverFlag  = false;
+            }
+        } else {
+            struct sockaddr_in& addr = mIp.v4;
+            if (inet_aton(location.hostname.c_str(), &addr.sin_addr)) {
+                mProto          = AF_INET;
+                addr.sin_family = mProto;
+                useResolverFlag = false;
+            }
+        }
+        if (useResolverFlag) {
+            memset(&mIp, 0, sizeof(mIp));
+            QCStMutexLocker lock(sLookupMutex);
+            // do the conversion if we weren't handed an IP address
+            struct hostent* const hostInfo = gethostbyname(
+                location.hostname.c_str());
+            KFS_LOG_STREAM_DEBUG <<
+                "connect: "  << location <<
+                " hostent: " << (const void*)hostInfo <<
+                " type: "    << (hostInfo ? hostInfo->h_addrtype : -1) <<
+                " size: "    << (hostInfo ? hostInfo->h_length   : -1) <<
+                " "  << h_errno <<
+            KFS_LOG_EOM;
+            if (! hostInfo || (
+                        hostInfo->h_addrtype != AF_INET &&
+                        hostInfo->h_addrtype != AF_INET6) ||
+                    GetAddSize(hostInfo->h_addrtype) < hostInfo->h_length) {
+                const char* const err = hstrerror(h_errno);
+                KFS_LOG_STREAM_ERROR <<
+                    location.hostname <<
+                    ": " << ((err && *err) ? err : "unspecified error") <<
+                KFS_LOG_EOM;
+                return -EHOSTUNREACH;
+            }
+            mProto = hostInfo->h_addrtype;
+            memcpy(GetAddr(), hostInfo->h_addr, hostInfo->h_length);
+        }
+        if (AF_INET == mProto) {
+            mIp.v4.sin_port  = htons(location.port);
+        } else {
+            mIp.v6.sin6_port = htons(location.port);
+        }
+        return 0;
+    }
+    TcpSocket::Type GetType() const
+    {
+        return (mProto == AF_INET6 ?
+            TcpSocket::kTypeIpV6 : TcpSocket::kTypeIpV4);
+    }
+    int GetProtocol() const
+        { return mProto; }
+private:
+    int mProto;
+    union
+    {
+        struct sockaddr_in  v4;
+        struct sockaddr_in6 v6;
+    } mIp;
+
+    static QCMutex sLookupMutex;
+
+    void* GetAddr()
+    {
+        if (AF_INET == mProto) {
+            return &mIp.v4.sin_addr;
+        }
+        return &mIp.v6.sin6_addr;
+    }
+    const void* GetAddr() const
+        { return const_cast<Address*>(this)->GetAddr(); }
+    int GetAddSize(int type)
+    {
+        return (int)(type == AF_INET ?
+            sizeof(mIp.v4.sin_addr) : sizeof(mIp.v6.sin6_addr));
+    }
+};
+
+QCMutex TcpSocket::Address::sLookupMutex;
 
 TcpSocket::~TcpSocket()
 {
@@ -73,76 +242,71 @@ TcpSocket::~TcpSocket()
 }
 
 int
-TcpSocket::Listen(int port, bool nonBlockingAccept /* = false */)
-{
-    const int err = Bind(port);
-    if (err != 0) {
-        return err;
-    }
-    return StartListening(nonBlockingAccept);
-}
-
-int
-TcpSocket::StartListening(bool nonBlockingAccept /* = false */)
+TcpSocket::StartListening(bool nonBlockingAccept, int maxQueue)
 {
     if (mSockFd < 0) {
         return Perror("Listen", EBADF);
     }
-    if (listen(mSockFd, 8192) ||
-            (nonBlockingAccept && fcntl(mSockFd, F_SETFL, O_NONBLOCK))) {
-        const int err = Perror("listen");
-        Close();
-        return err;
+    SetupSocket();
+    if ((nonBlockingAccept && fcntl(mSockFd, F_SETFL, O_NONBLOCK)) ||
+            listen(mSockFd, maxQueue)) {
+        return PerrorFatal("listen");
     }
     return 0;
 }
 
 int
-TcpSocket::Bind(int port)
+TcpSocket::Bind(const ServerLocation& location, Type type, bool ipV6OnlyFlag)
 {
     Close();
     if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
         return -ENFILE;
     }
-    mSockFd = socket(PF_INET, SOCK_STREAM, 0);
-    if (mSockFd == -1) {
-        return Perror("socket");
+    if (location.port < 0) {
+        return -EINVAL;
     }
+    Address addr(type);
+    if (location.hostname.empty()) {
+        addr.SetAddrAny(location.port);
+    } else {
+        const int ret = addr.Set(location);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+    mSockFd = socket(addr.GetProtocol(), SOCK_STREAM, 0);
+    if (mSockFd < 0) {
+        return PerrorFatal("socket");
+    }
+    mType = addr.GetType();
+    UpdateSocketCount(1);
     if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
-
-    Address ourAddr;
-    memset(&ourAddr, 0, sizeof(ourAddr));
-    ourAddr.sin_family = AF_INET;
-    ourAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    ourAddr.sin_port = htons(port);
-
-    int reuseAddr = 1;
-    if (setsockopt(mSockFd, SOL_SOCKET, SO_REUSEADDR,
-                   (char *) &reuseAddr, sizeof(reuseAddr))) {
-        Perror("setsockopt");
+    int flag = ipV6OnlyFlag ? 1 : 0;
+    if (addr.GetProtocol() == AF_INET6 &&
+            SetSockOpt(mSockFd, IPPROTO_IPV6, IPV6_V6ONLY, flag)) {
+        Perror("setsockopt IPV6_V6ONLY");
     }
-
-    if (bind(mSockFd, (struct sockaddr *) &ourAddr, sizeof(ourAddr))) {
-        const int ret = Perror(ourAddr);
-        close(mSockFd);
-        mSockFd = -1;
-        return ret;
+    flag = 1;
+    if (SetSockOpt(mSockFd, SOL_SOCKET, SO_REUSEADDR, flag)) {
+        Perror("setsockopt SO_REUSEADDR");
     }
-    UpdateSocketCount(1);
+    if (bind(mSockFd, addr.Ptr(), addr.Size())) {
+        return PerrorFatal(addr);
+    }
     return 0;
 }
 
 TcpSocket*
 TcpSocket::Accept(int* status /* = 0 */)
 {
-    int fd;
-    Address   cliAddr;
-    TcpSocket *accSock;
-    socklen_t cliAddrLen = sizeof(cliAddr);
+    int        fd;
+    Address    cliAddr(mType);
+    TcpSocket* accSock;
+    socklen_t  cliAddrLen = cliAddr.Size();
 
-    if ((fd = accept(mSockFd, (struct sockaddr *) &cliAddr, &cliAddrLen)) < 0) {
+    if ((fd = accept(mSockFd, cliAddr.Ptr(), &cliAddrLen)) < 0) {
         const int err = errno;
         if (err != EAGAIN && err != EWOULDBLOCK) {
             Perror("accept", err);
@@ -162,7 +326,10 @@ TcpSocket::Accept(int* status /* = 0 */)
     if (fcntl(fd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
-    accSock = new TcpSocket(fd);
+    if (fcntl(fd, F_SETFL, O_NONBLOCK)) {
+        Perror("set O_NONBLOCK");
+    }
+    accSock = new TcpSocket(fd, mType);
     accSock->SetupSocket();
     UpdateSocketCount(1);
     if (status) {
@@ -172,34 +339,35 @@ TcpSocket::Accept(int* status /* = 0 */)
 }
 
 int
-TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect)
+TcpSocket::Connect(
+    const TcpSocket::Address& remoteAddr, bool nonblockingConnect)
 {
     Close();
     if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
         return -ENFILE;
     }
-    mSockFd = socket(PF_INET, SOCK_STREAM, 0);
+    mType = remoteAddr.GetType();
+    mSockFd = socket(remoteAddr.GetProtocol(), SOCK_STREAM, 0);
     if (mSockFd < 0) {
         return (errno > 0 ? -errno : mSockFd);
     }
+    UpdateSocketCount(1);
     if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
-
     if (nonblockingConnect) {
         // when we do a non-blocking connect, we mark the socket
         // non-blocking; then call connect and it wil return
         // EINPROGRESS; the fd is added to the select loop to check
         // for completion
-        fcntl(mSockFd, F_SETFL, O_NONBLOCK);
+        if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
+            Perror("set O_NONBLOCK");
+        }
     }
-
-    int res = connect(mSockFd, (struct sockaddr *) remoteAddr, sizeof(*remoteAddr));
+    SetupSocket();
+    int res = connect(mSockFd, remoteAddr.Ptr(), remoteAddr.Size());
     if (res < 0 && errno != EINPROGRESS) {
-        res = Perror(*remoteAddr);
-        close(mSockFd);
-        mSockFd = -1;
-        return res;
+        return PerrorFatal(remoteAddr);
     }
     if (res && nonblockingConnect) {
         res = -errno;
@@ -209,88 +377,52 @@ TcpSocket::Connect(const TcpSocket::Address *remoteAddr, bool nonblockingConnect
         }
 #endif
     }
-    SetupSocket();
-
-    UpdateSocketCount(1);
-
+    if (! nonblockingConnect) {
+        if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
+            Perror("set O_NONBLOCK");
+        }
+    }
     return res;
 }
-
-static QCMutex sLookupMutex;
 
 int
 TcpSocket::Connect(const ServerLocation& location, bool nonblockingConnect)
 {
-    Address remoteAddr = { 0 };
-
-    const char* const name = location.hostname.c_str();
-    if (! inet_aton(name, &remoteAddr.sin_addr)) {
-        QCStMutexLocker lock(sLookupMutex);
-        // do the conversion if we weren't handed an IP address
-        struct hostent * const hostInfo = gethostbyname(name);
-        KFS_LOG_STREAM_DEBUG <<
-            "connect: "  << location <<
-            " hostent: " << (const void*)hostInfo <<
-            " type: "    << (hostInfo ? hostInfo->h_addrtype : -1) <<
-            " size: "    << (hostInfo ? hostInfo->h_length   : -1) <<
-            " "  << h_errno <<
-        KFS_LOG_EOM;
-        if (! hostInfo || hostInfo->h_addrtype != AF_INET ||
-                hostInfo->h_length < (int)sizeof(remoteAddr.sin_addr)) {
-            const char* const err = hstrerror(h_errno);
-            KFS_LOG_STREAM_ERROR <<
-                location.hostname <<
-                ": " << ((err && *err) ? err : "unspecified error") <<
-            KFS_LOG_EOM;
-            return -1;
-        }
-        memcpy(&remoteAddr.sin_addr, hostInfo->h_addr,
-            sizeof(remoteAddr.sin_addr));
-    }
-    remoteAddr.sin_port = htons(location.port);
-    remoteAddr.sin_family = AF_INET;
-    return Connect(&remoteAddr, nonblockingConnect);
+    Address remoteAddr(mType);
+    const int ret = remoteAddr.Set(location);
+    return (ret < 0 ? ret : Connect(remoteAddr, nonblockingConnect));
 }
 
 void
 TcpSocket::SetupSocket()
 {
     int bufSize = sRecvBufSize;
-    if (bufSize > 0 &&
-            setsockopt(mSockFd, SOL_SOCKET, SO_SNDBUF,
-                (char *) &bufSize, sizeof(bufSize))) {
+    if (bufSize > 0 && SetSockOpt(mSockFd, SOL_SOCKET, SO_SNDBUF, bufSize)) {
         Perror("setsockopt SO_SNDBUF");
     }
     bufSize = sSendBufSize;
-    if (bufSize > 0 &&
-            setsockopt(mSockFd, SOL_SOCKET, SO_RCVBUF,
-                (char *) &bufSize, sizeof(bufSize)) < 0) {
+    if (bufSize > 0 && SetSockOpt(mSockFd, SOL_SOCKET, SO_RCVBUF, bufSize)) {
         Perror("setsockopt SO_RCVBUF");
     }
     int flag = 1;
 #ifdef _KFS_USE_TCP_KEEP_ALIVE
     // enable keep alive so we can socket errors due to detect network partitions
-    if (setsockopt(mSockFd, SOL_SOCKET, SO_KEEPALIVE,
-            (char *) &flag, sizeof(flag)) < 0) {
+    if (SetSockOpt(mSockFd, SOL_SOCKET, SO_KEEPALIVE, flag)) {
         Perror("setsockopt SO_KEEPALIVE");
     }
 #endif
-    if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
-        Perror("set O_NONBLOCK");
-    }
     // turn off NAGLE
-    if (setsockopt(mSockFd, IPPROTO_TCP, TCP_NODELAY,
-            (char *) &flag, sizeof(flag)) < 0) {
+    if (SetSockOpt(mSockFd, IPPROTO_TCP, TCP_NODELAY, flag)) {
         Perror("setsockopt TCP_NODELAY");
     }
 
 }
 
 int
-TcpSocket::GetPeerName(struct sockaddr *peerAddr, int len) const
+TcpSocket::GetPeerName(TcpSocket::Address& peerAddr) const
 {
-    socklen_t peerLen = (socklen_t)len;
-    if (getpeername(mSockFd, peerAddr, &peerLen) < 0) {
+    socklen_t peerLen = peerAddr.Size();
+    if (getpeername(mSockFd, peerAddr.Ptr(), &peerLen)) {
         return Perror("getpeername");
     }
     return 0;
@@ -299,8 +431,8 @@ TcpSocket::GetPeerName(struct sockaddr *peerAddr, int len) const
 string
 TcpSocket::GetPeerName() const
 {
-    Address saddr = { 0 };
-    if (GetPeerName((struct sockaddr*) &saddr, (int)sizeof(saddr)) < 0) {
+    Address saddr(mType);
+    if (GetPeerName(saddr) < 0) {
         return "unknown";
     }
     return ToString(saddr);
@@ -309,12 +441,37 @@ TcpSocket::GetPeerName() const
 string
 TcpSocket::GetSockName() const
 {
-    Address   saddr = { 0 };
-    socklen_t len   = (socklen_t)sizeof(saddr);
-    if (getsockname(mSockFd, (struct sockaddr*) &saddr, &len) < 0) {
+    Address   saddr(mType);
+    socklen_t len = saddr.Size();
+    if (getsockname(mSockFd, saddr.Ptr(), &len)) {
         return "unknown";
     }
     return ToString(saddr);
+}
+
+int
+TcpSocket::GetPeerLocation(ServerLocation& location) const
+{
+    if (mSockFd < 0) {
+        return -EBADF;
+    }
+    Address addr(mType);
+    const int ret = GetPeerName(addr);
+    return (ret < 0 ? ret : addr.GetLocation(location));
+}
+
+int
+TcpSocket::GetSockLocation(ServerLocation& location) const
+{
+    if (mSockFd < 0) {
+        return -EBADF;
+    }
+    Address   addr(mType);
+    socklen_t len = addr.Size();
+    if (getsockname(mSockFd, addr.Ptr(), &len)) {
+        return Perror("getsockname");
+    }
+    return addr.GetLocation(location);
 }
 
 int
@@ -355,6 +512,7 @@ TcpSocket::Close()
     }
     close(mSockFd);
     mSockFd = -1;
+    mType   = kTypeNone;
     UpdateSocketCount(-1);
 }
 
@@ -369,164 +527,6 @@ TcpSocket::Shutdown(bool readFlag, bool writeFlag)
         return 0;
     }
     return shutdown(mSockFd, how);
-}
-
-int
-TcpSocket::DoSynchSend(const char *buf, int bufLen)
-{
-    int numSent = 0;
-    int res = 0, nfds;
-    struct pollfd pfd;
-    // 1 second in ms units
-    const int kTimeout = 1000;
-
-    while (numSent < bufLen) {
-        if (mSockFd < 0)
-            break;
-        if (res < 0) {
-            pfd.fd = mSockFd;
-            pfd.events = POLLOUT;
-            pfd.revents = 0;
-            nfds = poll(&pfd, 1, kTimeout);
-            if (nfds == 0)
-                continue;
-        }
-
-        res = Send(buf + numSent, bufLen - numSent);
-        if (res == 0)
-            return 0;
-        if ((res < 0) &&
-            ((errno == EAGAIN) || (errno == EWOULDBLOCK) || (errno == EINTR)))
-            continue;
-        if (res < 0)
-            break;
-        numSent += res;
-        res = -1;
-    }
-    if (numSent > 0) {
-        globals().ctrNetBytesWritten.Update(numSent);
-    }
-    return numSent;
-}
-
-//
-// Receive data within a certain amount of time.  If the server is too slow in responding, bail
-//
-int
-TcpSocket::DoSynchRecv(char *buf, int bufLen, struct timeval &timeout)
-{
-    int numRecd = 0;
-    int res = 0, nfds;
-    struct pollfd pfd;
-    struct timeval startTime, now;
-
-    gettimeofday(&startTime, 0);
-
-    while (numRecd < bufLen) {
-        if (mSockFd < 0)
-            break;
-
-        if (res < 0) {
-            pfd.fd = mSockFd;
-            pfd.events = POLLIN;
-            pfd.revents = 0;
-            nfds = poll(&pfd, 1, timeout.tv_sec * 1000);
-            // get a 0 when timeout expires
-            if (nfds == 0) {
-                KFS_LOG_STREAM_DEBUG << "Timeout in synch recv" << KFS_LOG_EOM;
-                return numRecd > 0 ? numRecd : -ETIMEDOUT;
-            }
-        }
-
-        gettimeofday(&now, 0);
-        if (now.tv_sec - startTime.tv_sec >= timeout.tv_sec) {
-            return numRecd > 0 ? numRecd : -ETIMEDOUT;
-        }
-
-        res = Recv(buf + numRecd, bufLen - numRecd);
-        if (res == 0)
-            return 0;
-        if ((res < 0) &&
-            ((errno == EAGAIN) || (errno == EWOULDBLOCK) || (errno == EINTR)))
-            continue;
-        if (res < 0)
-            break;
-        numRecd += res;
-    }
-    if (numRecd > 0) {
-        globals().ctrNetBytesRead.Update(numRecd);
-    }
-
-    return numRecd;
-}
-
-
-//
-// Receive data within a certain amount of time and discard them.  If
-// the server is too slow in responding, bail
-//
-int
-TcpSocket::DoSynchDiscard(int nbytes, struct timeval &timeout)
-{
-    int numRecd = 0, ntodo, res;
-    const int bufSize = 4096;
-    char buf[bufSize];
-
-    while (numRecd < nbytes) {
-        ntodo = min(nbytes - numRecd, bufSize);
-        res = DoSynchRecv(buf, ntodo, timeout);
-        if (res == -ETIMEDOUT)
-            return numRecd;
-        if (res == 0)
-            break;
-        assert(numRecd >= 0);
-        if (numRecd < 0)
-            break;
-        numRecd += res;
-    }
-    return numRecd;
-}
-
-//
-// Peek data within a certain amount of time.  If the server is too slow in responding, bail
-//
-int
-TcpSocket::DoSynchPeek(char *buf, int bufLen, struct timeval &timeout)
-{
-    int numRecd = 0;
-    int res, nfds;
-    struct pollfd pfd;
-    struct timeval startTime, now;
-
-    gettimeofday(&startTime, 0);
-
-    for (; ;) {
-        pfd.fd = mSockFd;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
-        nfds = poll(&pfd, 1, timeout.tv_sec * 1000);
-        // get a 0 when timeout expires
-        if (nfds == 0) {
-            return -ETIMEDOUT;
-        }
-
-        gettimeofday(&now, 0);
-        if (now.tv_sec - startTime.tv_sec >= timeout.tv_sec) {
-            return -ETIMEDOUT;
-        }
-
-        res = Peek(buf + numRecd, bufLen - numRecd);
-        if (res == 0)
-            return 0;
-        if ((res < 0) && (errno == EAGAIN))
-            continue;
-        if (res < 0)
-            break;
-        numRecd += res;
-        if (numRecd > 0)
-            break;
-    }
-    return numRecd;
 }
 
 int
@@ -547,13 +547,21 @@ TcpSocket::GetSocketError() const
 string
 TcpSocket::ToString(const Address& saddr)
 {
-    char ipname[INET_ADDRSTRLEN + 16];
-    if (! inet_ntop(AF_INET, &(saddr.sin_addr), ipname, INET_ADDRSTRLEN)) {
-        return "unknown";
-    }
-    ipname[INET_ADDRSTRLEN] = 0;
-    sprintf(ipname + strlen(ipname), ":%d", (int)htons(saddr.sin_port));
-    return ipname;
+    return saddr.ToString();
+}
+
+int
+TcpSocket::PerrorFatal(const char* msg)
+{
+    return PerrorFatal(msg, errno);
+}
+
+int
+TcpSocket::PerrorFatal(const char* msg, int err)
+{
+    const int ret = Perror(msg, err);
+    Close();
+    return ret;
 }
 
 int
@@ -570,11 +578,29 @@ TcpSocket::Perror(const char* msg) const
 }
 
 int
+TcpSocket::PerrorFatal(const Address& saddr)
+{
+    const int ret = Perror(saddr);
+    Close();
+    return ret;
+}
+
+int
 TcpSocket::Perror(const Address& saddr) const
 {
     const int    err  = errno;
     const string name = ToString(saddr);
     return Perror(name.c_str(), err);
+}
+
+/* static */ int
+TcpSocket::Validate(const string& address)
+{
+    if (address.empty()) {
+        return -EINVAL;
+    }
+    Address addr(kTypeIpV4);
+    return addr.Set(ServerLocation(address, 0));
 }
 
 }

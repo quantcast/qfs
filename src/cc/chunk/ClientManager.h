@@ -104,10 +104,11 @@ public:
     ClientManager();
     virtual ~ClientManager();
     bool BindAcceptor(
-        int       inPort,
-        int       inThreadCount,
-        int       inFirstCpuIdx,
-        QCMutex*& outMutexPtr);
+        const ServerLocation& clientListener,
+        bool                  ipV6OnlyFlag,
+        int                   inThreadCount,
+        int                   inFirstCpuIdx,
+        QCMutex*&             outMutexPtr);
     bool StartListening();
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnPtr);

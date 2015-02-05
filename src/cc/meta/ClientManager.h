@@ -51,7 +51,7 @@ public:
     virtual ~ClientManager();
     void SetMaxClientSockets(int count);
     int GetMaxClientCount() const;
-    bool Bind(int port);
+    bool Bind(const ServerLocation& location, bool ipV6OnlyFlag);
     bool StartAcceptor(int threadCount, int startCpuAffinity);
     void Shutdown();
     void ChildAtFork();

@@ -39,11 +39,6 @@
 #include "qcdio/QCUtils.h"
 #include "common/kfserrno.h"
 
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 #include <algorithm>
 #include <sstream>
 #include <utility>
@@ -317,24 +312,19 @@ IsIpHostedAndNotLoopBack(const char* ip)
     if (! ip) {
         return -EINVAL;
     }
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port   = 0; // any port
-    if (! inet_aton(ip, &addr.sin_addr)) {
-        return -EINVAL;
+    const bool kIpV6OnlyFlag = false;
+    TcpSocket  socket;
+    int ret = socket.Bind(
+            ServerLocation(ip, 0), TcpSocket::kTypeIpV4, kIpV6OnlyFlag);
+    ServerLocation loc;
+    if (ret < 0 || (ret = socket.GetSockLocation(loc)) < 0) {
+        return ret;
     }
-    if (addr.sin_addr.s_addr == htonl(INADDR_LOOPBACK)) {
-        return -EACCES;
+    const string& name = loc.hostname;
+    if (socket.GetType() == TcpSocket::kTypeIpV4) {
+        return ((name == "127.0.0.1" || name == "0.0.0.0") ? -EACCES : 0);
     }
-    const int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (fd < 0) {
-        return -errno;
-    }
-    const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0 ?
-        0 : -errno;
-    close(fd);
-    return ret;
+    return ((name == "::1" || name == "::") ?  -EACCES : 0);
 }
 
 int
@@ -352,18 +342,15 @@ MetaServerSM::SendHello()
     if (gChunkServer.CanUpdateServerIp()) {
         // Advertise the same ip address to the clients, as used
         // for the meta connection.
-        ServerLocation loc(gChunkServer.GetLocation());
-        loc.hostname = mNetConnection->GetSockName();
-        const size_t colonPos = loc.hostname.find(char(':'));
-        if (colonPos == string::npos) {
+        ServerLocation loc;
+        const int res = mNetConnection->GetSockLocation(loc);
+        if (res < 0) {
             KFS_LOG_STREAM_ERROR <<
-                "invalid socket name: " << loc.hostname <<
-                " resetting meta server connection" <<
+                "getsockname: " << QCUtils::SysError(-res) <<
             KFS_LOG_EOM;
             mNetConnection->Close();
             return -1;
         }
-        loc.hostname.erase(colonPos);
         // Paperover for cygwin / win 7 with no nics configured:
         // check if getsockname returns INADDR_ANY, and retry if it does.
         // Moving this logic into TcpSocket isn't appropriate: INADDR_ANY is
@@ -382,6 +369,7 @@ MetaServerSM::SendHello()
         }
         const string prevIp = gChunkServer.GetLocation().hostname;
         if (loc.hostname != prevIp) {
+            loc.port = gChunkServer.GetLocation().port;
             if (prevIp.empty()) {
                 KFS_LOG_STREAM_INFO <<
                     "setting chunk server ip to: " << loc.hostname <<
