@@ -249,6 +249,7 @@ struct MetaRequest {
             req->ReleaseSelf();
         }
     }
+    virtual bool start() { return (mutation && status == 0); }
     virtual void handle();
     //!< when an op finishes execution, we send a response back to
     //!< the client.  This function should generate the appropriate
@@ -325,6 +326,8 @@ struct MetaRequest {
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     static MetaRequest* Read(const char* buf, size_t len);
+    bool LogWrite(ostream& os) const;
+    static MetaRequest* LogRead(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
 protected:
@@ -399,6 +402,8 @@ protected:
     }
     virtual ~MetaIdempotentRequest();
     virtual void ReleaseSelf() { UnRef(); }
+    inline bool IsHandled() const;
+    inline bool IsLogNeeded() const;
 private:
     volatile int           ref;
     MetaIdempotentRequest* req;
@@ -532,6 +537,7 @@ struct MetaCreate: public MetaIdempotentRequest {
           ownerName(),
           groupName()
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -619,6 +625,7 @@ struct MetaMkdir: public MetaIdempotentRequest {
           ownerName(),
           groupName()
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -683,6 +690,7 @@ struct MetaRemove: public MetaIdempotentRequest {
           pathname(),
           todumpster(-1)
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -731,6 +739,7 @@ struct MetaRmdir: public MetaIdempotentRequest {
           name(),
           pathname()
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1173,12 +1182,14 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationFlags(0),
           delegationIssuedTime(0),
           clientHost(),
-          pathname()
+          pathname(),
+          checkPermissionsFlag(false)
     {
         SET_HANDLER(this, &MetaAllocate::logOrLeaseRelinquishDone);
     }
     virtual ~MetaAllocate()
         { delete pendingLeaseRelinquish; }
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1207,6 +1218,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         .Def2("Invalidate-all", "I", &MetaAllocate::invalidateAllFlag,         false)
         ;
     }
+private:
+    bool checkPermissionsFlag;
 };
 
 /*!
@@ -1234,6 +1247,7 @@ struct MetaTruncate: public MetaRequest {
           pathname(),
           mtime()
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1284,6 +1298,7 @@ struct MetaRename: public MetaIdempotentRequest {
           overwrite(false),
           todumpster(-1)
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1335,6 +1350,7 @@ struct MetaSetMtime: public MetaRequest {
           sec(0),
           usec(0)
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1379,8 +1395,10 @@ struct MetaChangeFileReplication: public MetaRequest {
           numReplicas(1),
           minSTier(kKfsSTierUndef),
           maxSTier(kKfsSTierUndef),
-          logFlag(false)
+          logFlag(false),
+          fa(0)
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1407,6 +1425,8 @@ struct MetaChangeFileReplication: public MetaRequest {
         .Def2("Max-tier",     "TH", &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
         ;
     }
+private:
+    MetaFattr* fa;
 };
 
 /*!
@@ -1433,6 +1453,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
           numChunksMoved(0),
           mtime(0)
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
@@ -1709,6 +1730,7 @@ struct MetaChmod: public MetaRequest {
           fid(-1),
           mode(kKfsModeUndef)
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
     virtual int log(ostream& file) const;
@@ -1746,6 +1768,7 @@ struct MetaChown: public MetaRequest {
           ownerName(),
           groupName()
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
     virtual int log(ostream& file) const;
@@ -3343,6 +3366,7 @@ struct MetaAck : public MetaRequest {
         {}
     bool Validate()
         { return (! ack.empty()); }
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream& /* os */)
         { /* No response; */ }
