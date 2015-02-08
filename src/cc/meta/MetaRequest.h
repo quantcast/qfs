@@ -189,6 +189,12 @@ struct MetaRequest {
         const MetaRequest& mReq;
     };
 
+    enum LogAction
+    {
+        kLogNever,
+        kLogIfOk,
+        kLogAlways
+    };
     const MetaOp    op;              //!< type of request
     int             status;          //!< returned status
     int             clientProtoVers; //!< protocol version # sent by client
@@ -198,13 +204,12 @@ struct MetaRequest {
     string          statusMsg;       //!< optional human readable status message
     seq_t           opSeqno;         //!< command sequence # sent by the client
     seq_t           seqno;           //!< sequence no. in log
-    const bool      mutation;        //!< mutates metatree
+    LogAction       logAction;       //!< mutates metatree
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
     bool            validDelegationFlag;
     bool            fromClientSMFlag;
     bool            shortRpcFormatFlag;
-    bool            alwaysLogFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -225,13 +230,12 @@ struct MetaRequest {
           statusMsg(),
           opSeqno(opSeq),
           seqno(0),
-          mutation(mu),
+          logAction(mu ? kLogIfOk : kLogNever),
           suspended(false),
           fromChunkServerFlag(false),
           validDelegationFlag(false),
           fromClientSMFlag(false),
           shortRpcFormatFlag(false),
-          alwaysLogFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -249,7 +253,11 @@ struct MetaRequest {
             req->ReleaseSelf();
         }
     }
-    virtual bool start() { return (mutation && status == 0); }
+    virtual bool start()
+    {
+        return (kLogAlways == logAction ||
+            (kLogIfOk == logAction && status == 0));
+    }
     virtual void handle();
     //!< when an op finishes execution, we send a response back to
     //!< the client.  This function should generate the appropriate
@@ -272,7 +280,7 @@ struct MetaRequest {
             hasChecksum ?
             (! sVerifyHeaderChecksumFlag ||
             Checksum(name, nameLen, header, headerLen) == checksum) :
-            (! sRequireHeaderChecksumFlag || ! mutation)
+            (! sRequireHeaderChecksumFlag || kLogNever == logAction)
         );
     }
     bool HandleUnknownField(
@@ -364,7 +372,7 @@ struct MetaIdempotentRequest : public MetaRequest {
           ackId(-1),
           ref(rc),
           req(0)
-        { alwaysLogFlag = true; }
+        { logAction = kLogAlways; }
     void SetReq(MetaIdempotentRequest* r)
     {
         if (r) {
@@ -2881,14 +2889,12 @@ struct MetaDelegateCancel : public MetaRequest {
     DelegationToken token;
     StringBufT<64>  tokenStr;
     StringBufT<64>  tokenKeyStr;
-    bool            writeLogFlag;
 
     MetaDelegateCancel()
         : MetaRequest(META_DELEGATE_CANCEL, true),
           token(),
           tokenStr(),
-          tokenKeyStr(),
-          writeLogFlag(false)
+          tokenKeyStr()
           {}
     virtual bool dispatch(ClientSM& sm);
     virtual void handle();

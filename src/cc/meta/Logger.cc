@@ -52,7 +52,8 @@ void
 Logger::dispatch(MetaRequest *r)
 {
     r->seqno = ++nextseq;
-    if ((r->mutation && r->status == 0) || r->alwaysLogFlag) {
+    if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
+            MetaRequest::kLogAlways == r->logAction) {
         if (log(r) < 0) {
             panic("Logger::dispatch", true);
         }

@@ -773,18 +773,8 @@ MetaCreate::start()
     if (handler.IsDone()) {
         return IsLogNeeded();
     }
-    return (0 == status);
-}
-
-/* virtual */ void
-MetaCreate::handle()
-{
-    if (IsHandled()) {
-        return;
-    }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
-    bool rootUserFlag = false;
     if (invalChunkFlag) {
         name = name.substr(kInvalidChunksPrefix.length());
         const char* chunk = name.c_str();
@@ -796,7 +786,7 @@ MetaCreate::handle()
                 }
                 statusMsg = "invalid chunk id: " + name;
                 status    = -EINVAL;
-                return;
+                return false;
             }
         }
         const char* ptr     = name.data();
@@ -805,7 +795,7 @@ MetaCreate::handle()
         if (! DecIntParser::Parse(ptr, end - ptr, chunkId) || ptr != end) {
             statusMsg = "invalid chunk id: " + name;
             status    = -EINVAL;
-            return;
+            return false;
         }
         fid_t            fid = -1;
         const MetaFattr* cfa = 0;
@@ -813,7 +803,7 @@ MetaCreate::handle()
                 ! cfa) {
             status    = -ENOENT;
             statusMsg = "no such chunk";
-            return;
+            return false;
         }
         string msg("detected invalid chunk: " + name);
         msg += " file ";
@@ -823,7 +813,7 @@ MetaCreate::handle()
         KFS_LOG_STREAM_ERROR << msg << KFS_LOG_EOM;
         if (cfa->filesize <= 0) {
             // Ignore null size files for now, most likely it is abandoned file.
-            return;
+            return false;
         }
         if (gLayoutManager.GetPanicOnInvalidChunkFlag()) {
             panic(msg);
@@ -837,21 +827,23 @@ MetaCreate::handle()
                 statusMsg = kInvalidChunksPath +
                     ": no such directory";
             }
-            return;
+            return false;
         }
         dir = fa->id();
         if (user == kKfsUserNone && authUid == kKfsUserNone) {
             user  = euser  != kKfsUserNone  ? euser  : kKfsUserRoot;
             group = egroup != kKfsGroupNone ? egroup : kKfsGroupRoot;
         }
-        mode         = 0;
-        rootUserFlag = authUid == kKfsUserNone;
-        minSTier     = kKfsSTierMax;
-        maxSTier     = kKfsSTierMax;
+        if (authUid == kKfsUserNone) {
+            euser = kKfsUserRoot;
+        }
+        mode     = 0;
+        minSTier = kKfsSTierMax;
+        maxSTier = kKfsSTierMax;
     } else {
         const bool kDirFlag = false;
         if (! CheckCreatePerms(*this, kDirFlag)) {
-            return;
+            return false;
         }
     }
 
@@ -859,7 +851,7 @@ MetaCreate::handle()
         // Do not create a file that we can not write into.
         statusMsg = "worm mode";
         status    = -EPERM;
-        return;
+        return false;
     }
     fid        = 0;
     todumpster = -1;
@@ -867,20 +859,28 @@ MetaCreate::handle()
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerRSFile());
     } else {
-        numReplicas = min(numReplicas,
-            gLayoutManager.GetMaxReplicasPerFile());
+        numReplicas = min(numReplicas, gLayoutManager.GetMaxReplicasPerFile());
     }
     if (maxSTier < minSTier ||
             minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
             maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
         status    = -EINVAL;
         statusMsg = "invalid storage tier range";
-        return;
+        return false;
     }
     if (! gLayoutManager.Validate(*this)) {
         if (0 <= status) {
             status = -EINVAL;
         }
+        return false;
+    }
+    return (0 == status);
+}
+
+/* virtual */ void
+MetaCreate::handle()
+{
+    if (IsHandled()) {
         return;
     }
     MetaFattr* fa = 0;
@@ -898,7 +898,7 @@ MetaCreate::handle()
         user,
         group,
         mode,
-        rootUserFlag ? kKfsUserRoot : euser,
+        euser,
         egroup,
         &fa
     );
@@ -1987,7 +1987,7 @@ MetaAllocate::start()
             KFS_LOG_EOM;
             // No logging or serialization is required, LayoutDone method will
             // resume / re-submit request if suspended.
-            logFlag    = false;
+            logAction  = kLogNever;
             layoutDone = ! suspended;
             return false;
         }
@@ -2425,7 +2425,7 @@ MetaAllocate::ShowSelf(ostream& os) const
         " client: "   << clientHost  <<
         " replicas: " << numReplicas <<
         " append: "   << appendChunk <<
-        " log: "      << logFlag
+        " log: "      << (int)logAction
     ;
     for (Servers::const_iterator i = servers.begin();
             i != servers.end();
@@ -2595,18 +2595,19 @@ MetaChangeFileReplication::handle()
     if (status == 0) {
         numReplicas = fa->type == KFS_DIR ?
             (int16_t)0 : (int16_t)fa->numReplicas; // update for log()
-        logFlag = fa->type != KFS_DIR && numReplicas != prevRepl;
+        logAction = (fa->type != KFS_DIR && numReplicas != prevRepl) ?
+            kLogIfOk : kLogNever;
         if (fa->minSTier != prevMinSTier || fa->maxSTier != prevMaxSTier) {
-            logFlag = true;
-            minSTier = fa->minSTier;
-            maxSTier = fa->maxSTier;
-        } else if (logFlag) {
+            logAction = kLogIfOk;
+            minSTier  = fa->minSTier;
+            maxSTier  = fa->maxSTier;
+        } else if (kLogNever != logAction) {
             // No change, do not log tiers.
             minSTier = kKfsSTierUndef;
             maxSTier = kKfsSTierUndef;
         }
     } else {
-        logFlag = false;
+        logAction = kLogNever;
     }
 }
 
@@ -3649,7 +3650,7 @@ submit_request(MetaRequest* r)
     if (r->submitCount++ == 0) {
         r->submitTime  = start;
         r->processTime = start;
-        if (r->mutation) {
+        if (MetaRequest::kLogNever != r->logAction) {
             const bool logFlag = r->start();
             if (1 != r->submitCount) {
                 panic("invalid write ahead log request recursion");
@@ -3838,9 +3839,6 @@ MetaGetlayout::log(ostream &file) const
 int
 MetaAllocate::log(ostream &file) const
 {
-    if (! logFlag) {
-        return 0;
-    }
     // use the log entry time as a proxy for when the block was created/file
     // was modified
     file << "allocate/file/" << fid << "/offset/" << offset
@@ -3926,9 +3924,6 @@ MetaSetMtime::log(ostream &file) const
 int
 MetaChangeFileReplication::log(ostream &file) const
 {
-    if (! logFlag) {
-        return 0;
-    }
     file << "setrep/file/" << fid << "/replicas/" << numReplicas;
     if (minSTier != kKfsSTierUndef && maxSTier != kKfsSTierUndef) {
         file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
@@ -5741,25 +5736,22 @@ MetaDelegateCancel::dispatch(ClientSM& sm)
 MetaDelegateCancel::handle()
 {
     if (status == 0) {
-        writeLogFlag = gNetDispatch.CancelToken(token);
+        logAction = gNetDispatch.CancelToken(token) ? kLogIfOk : kLogNever;
     }
 }
 
 /* virtual */ int
 MetaDelegateCancel::log(ostream& file) const
 {
-    if (status == 0 && writeLogFlag) {
-        file <<
-            "delegatecancel"
-            "/exp/"    << (token.GetIssuedTime() + token.GetValidForSec()) <<
-            "/issued/" << token.GetIssuedTime() <<
-            "/uid/"    << token.GetUid()        <<
-            "/seq/"    << token.GetSeq()        <<
-            "/flags/"  << token.GetFlags()      <<
-        "\n";
-        return file.fail() ? -EIO : 0;
-    }
-    return 0;
+    file <<
+        "delegatecancel"
+        "/exp/"    << (token.GetIssuedTime() + token.GetValidForSec()) <<
+        "/issued/" << token.GetIssuedTime() <<
+        "/uid/"    << token.GetUid()        <<
+        "/seq/"    << token.GetSeq()        <<
+        "/flags/"  << token.GetFlags()      <<
+    "\n";
+    return file.fail() ? -EIO : 0;
 }
 
 bool
