@@ -253,11 +253,7 @@ struct MetaRequest {
             req->ReleaseSelf();
         }
     }
-    virtual bool start()
-    {
-        return (kLogAlways == logAction ||
-            (kLogIfOk == logAction && status == 0));
-    }
+    virtual bool start() { return false; }
     virtual void handle();
     //!< when an op finishes execution, we send a response back to
     //!< the client.  This function should generate the appropriate
@@ -1191,7 +1187,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationIssuedTime(0),
           clientHost(),
           pathname(),
-          checkPermissionsFlag(false)
+          origClnt(0)
     {
         SET_HANDLER(this, &MetaAllocate::logOrLeaseRelinquishDone);
     }
@@ -1227,7 +1223,9 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         ;
     }
 private:
-    bool checkPermissionsFlag;
+    KfsCallbackObj* origClnt;
+    void LogDone(
+        bool resumeFlag, bool countAllocTimeFlag, int64_t chunkAllocProcessTime);
 };
 
 /*!
