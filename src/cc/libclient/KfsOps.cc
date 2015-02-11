@@ -30,7 +30,7 @@
 
 #include "kfsio/checksum.h"
 #include "kfsio/DelegationToken.h"
-#include "common/RequestParser.h"
+#include "common/BufferInputStream.h"
 #include "common/kfserrno.h"
 #include "common/IntToString.h"
 

@@ -33,8 +33,6 @@
 #include <utility>
 #include <string>
 #include <algorithm>
-#include <istream>
-#include <streambuf>
 
 #include <stddef.h>
 #include <string.h>
@@ -43,44 +41,11 @@
 namespace KFS
 {
 using std::string;
-using std::streambuf;
-using std::istream;
 using std::min;
 using std::make_pair;
 using std::map;
 using std::less;
 using std::pair;
-
-// Multiple inheritance below used only to enforce construction order.
-class BufferInputStream :
-    private streambuf,
-    public  istream
-{
-public:
-    BufferInputStream(
-        const char* inPtr = 0,
-        size_t      inLen = 0)
-        : streambuf(),
-          istream(this)
-    {
-        char* const thePtr = const_cast<char*>(inPtr);
-        streambuf::setg(thePtr, thePtr, thePtr + inLen);
-    }
-    istream& Set(
-        const char* inPtr,
-        size_t      inLen)
-    {
-        istream::clear();
-        istream::flags(istream::dec | istream::skipws);
-        istream::precision(6);
-        char* const thePtr = const_cast<char*>(inPtr);
-        streambuf::setg(thePtr, thePtr, thePtr + inLen);
-        rdbuf(this);
-        return *this;
-    }
-    void Reset()
-        { Set(0, 0); }
-};
 
 class DecIntParser
 {
@@ -217,26 +182,6 @@ template<typename INT_PARSER=DecIntParser>
 class ValueParserT
 {
 public:
-    // The most generic version that handles all the types for which extraction
-    // operator (>>) exists. One wouldn't expect this to be very efficient
-    // though, mainly due to istream/streambuf call overhead (virtual
-    // function calls etc).
-    template<typename T>
-    static void SetValue(
-        const char* inPtr,
-        size_t      inLen,
-        const T&    inDefaultValue,
-        T&          outValue)
-    {
-        if (inLen <= 0) {
-            outValue = inDefaultValue;
-        } else {
-            BufferInputStream theStream(inPtr, inLen);
-            if (! (theStream >> outValue)) {
-                outValue = inDefaultValue;
-            }
-        }
-    }
     // The following three do not trim whitespace.
     // This is intentional, and it is up to the caller to handle this
     // appropriately.
@@ -550,7 +495,7 @@ public:
 template <
     typename OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false,
+    bool     SHORT_NAMES_FLAG=false,
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
     bool     VALIDATE_FLAG=true,
@@ -600,7 +545,7 @@ public:
         T OT::*     inFieldPtr,
         T           inDefault = T())
     {
-        return Def(SHORT_NAMES ? inShortNamePtr : inLongNamePtr,
+        return Def(SHORT_NAMES_FLAG ? inShortNamePtr : inLongNamePtr,
             inFieldPtr, inDefault);
     }
     ObjectParser& DefDone()
@@ -757,7 +702,7 @@ template <
     typename ABSTRACT_OBJ,
     typename OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false,
+    bool     SHORT_NAMES_FLAG=false,
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
     bool     VALIDATE_FLAG=true,
@@ -768,7 +713,7 @@ class RequestParser :
     public ObjectParser<
         OBJ,
         VALUE_PARSER,
-        SHORT_NAMES,
+        SHORT_NAMES_FLAG,
         PROPERTIES_TOKENIZER,
         ST,
         VALIDATE_FLAG,
@@ -781,7 +726,7 @@ public:
     typedef ObjectParser<
         OBJ,
         VALUE_PARSER,
-        SHORT_NAMES,
+        SHORT_NAMES_FLAG,
         PROPERTIES_TOKENIZER,
         ST,
         VALIDATE_FLAG,
@@ -811,7 +756,7 @@ public:
                 inLen,
                 inHasHeaderChecksumFlag,
                 inChecksum,
-                SHORT_NAMES)) {
+                SHORT_NAMES_FLAG)) {
             REQUEST_DELETER::Delete(theObjPtr);
             return 0;
         }
@@ -873,7 +818,7 @@ public:
 template <
     typename ABSTRACT_OBJ,
     typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES=false,
+    bool     SHORT_NAMES_FLAG=false,
     typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
     typename ST=NopOstream,
     bool     VALIDATE_FLAG=true,
@@ -981,7 +926,7 @@ public:
             ABSTRACT_OBJ,
             OBJ,
             VALUE_PARSER,
-            SHORT_NAMES,
+            SHORT_NAMES_FLAG,
             PROPERTIES_TOKENIZER,
             ST,
             VALIDATE_FLAG
@@ -993,7 +938,7 @@ public:
             ABSTRACT_OBJ,
             OBJ,
             VALUE_PARSER,
-            SHORT_NAMES,
+            SHORT_NAMES_FLAG,
             PROPERTIES_TOKENIZER,
             ST,
             VALIDATE_FLAG
@@ -1040,17 +985,7 @@ public:
     RequestHandler& MakeParser(
         const char* inNamePtr,
         const OBJ*  inNullPtr = 0)
-    {
-        return
-            EndMakeParser(
-                inNamePtr,
-                PARSER_DEF::Define(
-                    BeginMakeParser(inNullPtr),
-                    inNullPtr
-                ),
-                -1
-            );
-    }
+        { return MakeParser(inNamePtr, -1, inNullPtr); }
 private:
     typedef typename PROPERTIES_TOKENIZER::Token  Name;
     typedef map<Name, pair<int,  const Parser*> > Parsers;

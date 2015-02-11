@@ -30,7 +30,7 @@
 #include "ChunkServerEmulator.h"
 #include "common/kfstypes.h"
 #include "common/MsgLogger.h"
-#include "common/RequestParser.h"
+#include "common/BufferInputStream.h"
 #include "common/StBuffer.h"
 #include "meta/kfstree.h"
 #include "meta/util.h"

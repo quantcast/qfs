@@ -23,6 +23,7 @@
 //
 //----------------------------------------------------------------------------
 
+#include "common/BufferInputStream.h"
 #include "common/RequestParser.h"
 #include "common/Properties.h"
 

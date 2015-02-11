@@ -31,7 +31,7 @@
 #include "common/hsieh_hash.h"
 #include "common/kfstypes.h"
 #include "common/PoolAllocator.h"
-#include "common/RequestParser.h"
+#include "common/BufferInputStream.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ClientAuthContext.h"

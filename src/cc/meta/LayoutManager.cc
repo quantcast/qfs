@@ -41,7 +41,6 @@
 #include "common/Properties.h"
 #include "common/time.h"
 #include "common/Version.h"
-#include "common/RequestParser.h"
 #include "common/StdAllocator.h"
 #include "common/rusage.h"
 

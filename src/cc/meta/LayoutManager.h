@@ -51,7 +51,7 @@
 #include "common/LinearHash.h"
 #include "common/StBuffer.h"
 #include "common/TimerWheel.h"
-#include "common/RequestParser.h"
+#include "common/BufferInputStream.h"
 #include "qcdio/QCDLList.h"
 #include "kfsio/Counter.h"
 #include "kfsio/KfsCallbackObj.h"
