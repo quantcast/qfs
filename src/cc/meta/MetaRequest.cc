@@ -1996,7 +1996,7 @@ MetaAllocate::start()
         }
         offset = -1; // Allocate a new chunk past eof.
     }
-    return false; // Do not use write ahead log for allocate requests, except invalidate.
+    return false; // Do not use write ahead log for allocate requests.
 }
 
 /* virtual */ void
@@ -2025,7 +2025,7 @@ MetaAllocate::handle()
         &fa
     );
     if (status != 0 && (status != -EEXIST || appendChunk)) {
-        return; // Access denied or invalid request..
+        return; // Access denied or invalid request.
     }
     if (stripedFileFlag && appendChunk) {
         status    = -EINVAL;
