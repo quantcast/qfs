@@ -2036,35 +2036,14 @@ MetaAllocate::handle()
         if (! stripedFileFlag) {
             status    = -EINVAL;
             statusMsg = "chunk invalidation"
-                " is not supported for non striped files";
+                " is not supported with non striped files";
             return;
         }
-        if (status != -EEXIST) {
-            // Allocate the chunk if doesn't exist to trigger the
-            // recovery later.
-            status = metatree.assignChunkId(
-                fid, offset, chunkId, chunkVersion, 0);
-            if (status == 0) {
-                // Add the chunk to the recovery queue.
-                gLayoutManager.ChangeChunkReplication(chunkId);
-            }
-            if (status != -EEXIST) {
-                // Presently chunk can not possibly exist, as
-                // metatree.allocateChunkId() the above
-                // returned success.
-                return;
-            }
-        }
-        initialChunkVersion = chunkVersion;
-        if (gLayoutManager.InvalidateAllChunkReplicas(
-                fid, offset, chunkId, chunkVersion)) {
-            // Add the chunk to the recovery queue.
-            gLayoutManager.ChangeChunkReplication(chunkId);
-            status = 0;
-            return;
-        }
-        panic("failed to invalidate existing chunk", false);
-        status = -ENOENT;
+        // Invalidate after log completion.
+        logAction  = kLogAlways;
+        layoutDone = true;
+        origClnt   = clnt;
+        clnt       = this;
         return;
     }
     permissions = fa;
@@ -2157,7 +2136,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         // was created.
         gLayoutManager.DeleteChunk(this);
     }
-    if (0 == status) {
+    if (0 == status || kLogAlways == logAction) {
         origClnt = clnt;
         clnt     = this;
         if (wasSuspended) {
@@ -2176,7 +2155,33 @@ MetaAllocate::LogDone(
     bool resumeFlag, bool countAllocTimeFlag, int64_t chunkAllocProcessTime)
 {
     origClnt = this; // Mark log completion.
-    if (0 == status) {
+    if (invalidateAllFlag) {
+        if (0 == status) {
+            // Allocate the chunk if doesn't exist to trigger the
+            // recovery later.
+            status = metatree.assignChunkId(
+                fid, offset, chunkId, chunkVersion, 0);
+            if (status == 0) {
+                // Add the chunk to the recovery queue.
+                gLayoutManager.ChangeChunkReplication(chunkId);
+            }
+        } else if (-EEXIST == status) {
+            // Presently chunk can not possibly exist when assignChunkId() is
+            // invoked, as metatree.allocateChunkId() the above returned
+            // success.
+            initialChunkVersion = chunkVersion;
+            if (gLayoutManager.InvalidateAllChunkReplicas(
+                    fid, offset, chunkId, chunkVersion)) {
+                // Add the chunk to the recovery queue.
+                gLayoutManager.ChangeChunkReplication(chunkId);
+                status = 0;
+            } else {
+                panic("failed to invalidate existing chunk", false);
+                status = -ENOENT;
+                return;
+            }
+        }
+    } else if (0 == status) {
         // layout is complete (step #6)
 
         // update the tree (step #7) and since we turned off the
