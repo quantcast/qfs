@@ -859,6 +859,16 @@ public:
     }
 };
 
+class ParserDefinitionMethod
+{
+public:
+    template<typename OBJ, typename PARSER>
+    static PARSER& Define(
+        PARSER&     inParser,
+        const OBJ*  /* inNullPtr */)
+        { return OBJ::ParserDef(inParser); }
+};
+
 // Invoke appropriate request parser based on RPC name.
 template <
     typename ABSTRACT_OBJ,
@@ -868,7 +878,8 @@ template <
     typename ST=NopOstream,
     bool     VALIDATE_FLAG=true,
     typename REQUEST_DELETER=RequestDeleter,
-    char     DELIMITER = '\n'
+    char     DELIMITER = '\n',
+    typename PARSER_DEF=ParserDefinitionMethod
 >
 class RequestHandler
 {
@@ -993,7 +1004,7 @@ public:
     RequestHandler& EndMakeParser(
         const char* inNamePtr,
         T&          inParser,
-        int         inObjId = -1)
+        int         inObjId)
     {
         if (! mParsers.insert(make_pair(
                 Name(inNamePtr),
@@ -1012,42 +1023,33 @@ public:
     template <typename OBJ>
     RequestHandler& MakeParser(
         const char* inNamePtr,
-        const OBJ*  inNullPtr = 0)
-    {
-        return
-            EndMakeParser(
-                inNamePtr,
-                OBJ::ParserDef(
-                    BeginMakeParser(inNullPtr)
-                )
-            );
-    }
-    template <typename OBJ>
-    RequestHandler& MakeIoParser(
-        const char* inNamePtr,
         int         inObjId,
         const OBJ*  inNullPtr = 0)
     {
         return
             EndMakeParser(
                 inNamePtr,
-                OBJ::IoParserDef(
-                    BeginMakeParser(inNullPtr)
+                PARSER_DEF::Define(
+                    BeginMakeParser(inNullPtr),
+                    inNullPtr
                 ),
                 inObjId
             );
     }
     template <typename OBJ>
-    RequestHandler& MakeIoOrRequestParser(
+    RequestHandler& MakeParser(
         const char* inNamePtr,
-        bool        inIoParserFlag,
-        int         inObjId,
         const OBJ*  inNullPtr = 0)
     {
-        return (inIoParserFlag ?
-            MakeIoParser(inNamePtr, inObjId, inNullPtr) :
-            MakeParser(inNamePtr, inNullPtr)
-        );
+        return
+            EndMakeParser(
+                inNamePtr,
+                PARSER_DEF::Define(
+                    BeginMakeParser(inNullPtr),
+                    inNullPtr
+                ),
+                -1
+            );
     }
 private:
     typedef typename PROPERTIES_TOKENIZER::Token  Name;
