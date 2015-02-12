@@ -747,7 +747,7 @@ inline bool
 MetaIdempotentRequest::IsHandled() const
 {
     if (req && req != this) {
-        if (req->submitCount <= 1) {
+        if (req->seqno <= 0) {
             panic("invalid in-flight idempotent request");
         }
         return true;
@@ -758,7 +758,7 @@ MetaIdempotentRequest::IsHandled() const
 inline bool
 MetaIdempotentRequest::IsLogNeeded() const
 {
-    return (! req || req->submitCount <= 1);
+    return (! req || req->seqno <= 0);
 }
 
 /* virtual */ bool
@@ -2332,12 +2332,11 @@ MetaAllocate::logOrLeaseRelinquishDone(int code, void* data)
         return 1;
     }
     if (this == data) {
-        if (this != clnt) {
+        if (this != clnt || seqno <= 0) {
             panic("MetaChunkAllocate::logDone invalid target");
         }
         if (this != origClnt) {
-            logAction = kLogNever; // Turn off log.
-            clnt      = origClnt;
+            clnt = origClnt;
             const bool    kResumeFlag         = true;
             const bool    kCountAllocTimeFlag = false;
             const int64_t kAllocTime          = -1;
@@ -2624,6 +2623,9 @@ MetaChangeFileReplication::handle()
     int16_t    const prevRepl     = (int16_t)fa->numReplicas;
     status = metatree.changeFileReplication(
         fa, numReplicas, minSTier, maxSTier);
+    if (0 < seqno) {
+        return;
+    }
     if (status == 0) {
         numReplicas = fa->type == KFS_DIR ?
             (int16_t)0 : (int16_t)fa->numReplicas; // update for log()
@@ -3682,7 +3684,7 @@ submit_request(MetaRequest* r)
     if (r->submitCount++ == 0) {
         r->submitTime  = start;
         r->processTime = start;
-        if (MetaRequest::kLogNever != r->logAction) {
+        if (MetaRequest::kLogNever != r->logAction && r->seqno <= 0) {
             const bool logFlag = r->start();
             if (1 != r->submitCount) {
                 panic("invalid write ahead log request recursion");

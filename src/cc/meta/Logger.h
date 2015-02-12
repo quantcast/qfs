@@ -64,7 +64,7 @@ public:
           logf(),
           md(),
           logstream(md),
-          nextseq(0),
+          nextseq(1),
           committed(0),
           incp(0)
         {}

@@ -51,13 +51,15 @@ Logger oplog(LOGDIR);
 void
 Logger::dispatch(MetaRequest *r)
 {
-    r->seqno = ++nextseq;
-    if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
-            MetaRequest::kLogAlways == r->logAction) {
-        if (log(r) < 0) {
-            panic("Logger::dispatch", true);
+    if (r->seqno <= 0) {
+        r->seqno = ++nextseq;
+        if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
+                MetaRequest::kLogAlways == r->logAction) {
+            if (log(r) < 0) {
+                panic("Logger::dispatch", true);
+            }
+            cp.note_mutation();
         }
-        cp.note_mutation();
     }
     gNetDispatch.Dispatch(r);
 }
