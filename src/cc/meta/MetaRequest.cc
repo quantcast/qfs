@@ -726,8 +726,6 @@ protected:
         {}
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "null"; }
-    virtual int log(ostream& /* os */) const
-        { return 0; }
     static const MetaRequest& Instance()
     {
         static const MetaRequestNull sInstance;
@@ -2129,7 +2127,6 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
             // on the metaserver.
             gLayoutManager.DeleteChunk(this);
         }
-        // processing for this message is all done
     } else if (status < 0 && initialChunkVersion < 0) {
         // Cleanup stale chunk in the case when client has already invalidated
         // the chunk, and the chunk didn't exist. In this case a new chunk id
@@ -2255,11 +2252,8 @@ MetaAllocate::LogDone(
         // non empty request list in this case, as it wasn't ever
         // suspened.
         if (next) {
-            panic(
-                "non empty allocation queue,"
-                " for request that was not suspended",
-                false
-            );
+            panic("non empty allocation queue,"
+                "for request that was not suspended");
         }
         return;
     }
@@ -3729,24 +3723,6 @@ printleaves()
 }
 
 /*!
- * \brief log lookup request (nop)
- */
-int
-MetaLookup::log(ostream& /* file */) const
-{
-    return 0;
-}
-
-/*!
- * \brief log lookup path request (nop)
- */
-int
-MetaLookupPath::log(ostream& /* file */) const
-{
-    return 0;
-}
-
-/*!
  * \brief log a file create
  */
 int
@@ -3791,7 +3767,7 @@ MetaCreate::log(ostream& file) const
  * \brief log a directory create
  */
 int
-MetaMkdir::log(ostream &file) const
+MetaMkdir::log(ostream& file) const
 {
     if (WriteLog(file)) {
         file << "mkdir"
@@ -3811,7 +3787,7 @@ MetaMkdir::log(ostream &file) const
  * \brief log a file deletion
  */
 int
-MetaRemove::log(ostream &file) const
+MetaRemove::log(ostream& file) const
 {
     if (WriteLog(file)) {
         file << "remove/dir/" << dir << "/name/" << name;
@@ -3827,48 +3803,12 @@ MetaRemove::log(ostream &file) const
  * \brief log a directory deletion
  */
 int
-MetaRmdir::log(ostream &file) const
+MetaRmdir::log(ostream& file) const
 {
     if (WriteLog(file)) {
         file << "rmdir/dir/" << dir << "/name/" << name << '\n';
     }
     return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log directory read (nop)
- */
-int
-MetaReaddir::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief log directory read (nop)
- */
-int
-MetaReaddirPlus::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief log getalloc (nop)
- */
-int
-MetaGetalloc::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief log getlayout (nop)
- */
-int
-MetaGetlayout::log(ostream &file) const
-{
-    return 0;
 }
 
 /*!
@@ -3971,15 +3911,6 @@ MetaChangeFileReplication::log(ostream &file) const
 }
 
 /*!
- * \brief log retire chunkserver (nop)
- */
-int
-MetaRetireChunkserver::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
  * \brief log toggling of metaserver WORM state (nop)
  */
 int
@@ -4020,164 +3951,36 @@ MetaChunkSize::log(ostream &file) const
     return file.fail() ? -EIO : 0;
 }
 
-/*!
- * \brief for a ping, there is nothing to log
- */
-int
-MetaPing::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a request of upserver, there is nothing to log
- */
-int
-MetaUpServers::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a stats request, there is nothing to log
- */
-int
-MetaStats::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a map dump request, there is nothing to log
- */
-int
-MetaDumpChunkToServerMap::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a fsck request, there is nothing to log
- */
-int
-MetaFsck::log(ostream &file) const
-{
-    return 0;
-}
-
-
-/*!
- * \brief for a recompute dir size request, there is nothing to log
- */
 int
 MetaRecomputeDirsize::log(ostream &file) const
 {
     return 0;
 }
 
-/*!
- * \brief for a check all leases request, there is nothing to log
- */
-int
-MetaCheckLeases::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a dump chunk replication candidates request, there is nothing to log
- */
-int
-MetaDumpChunkReplicationCandidates::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for an open files request, there is nothing to log
- */
-int
-MetaOpenFiles::log(ostream &file) const
-{
-    return 0;
-}
-
-int
-MetaSetChunkServersProperties::log(ostream & /* file */) const
-{
-    return 0;
-}
-
-int
-MetaGetChunkServersCounters::log(ostream & /* file */) const
-{
-    return 0;
-}
-
-int
-MetaGetChunkServerDirsCounters::log(ostream & /* file */) const
-{
-    return 0;
-}
-
-/*!
- * \brief for an open files request, there is nothing to log
- */
 int
 MetaChunkCorrupt::log(ostream &file) const
 {
     return 0;
 }
 
-/*!
- * \brief for a lease acquire request, there is nothing to log
- */
 int
 MetaLeaseAcquire::log(ostream &file) const
 {
     return 0;
 }
 
-/*!
- * \brief for a lease renew request, there is nothing to log
- */
 int
 MetaLeaseRenew::log(ostream &file) const
 {
     return 0;
 }
 
-/*!
- * \brief for a lease renew relinquish, there is nothing to log
- */
 int
 MetaLeaseRelinquish::log(ostream &file) const
 {
     return 0;
 }
 
-/*!
- * \brief for a lease cleanup request, there is nothing to log
- */
-int
-MetaLeaseCleanup::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief This is an internally generated op.  There is
- * nothing to log.
- */
-int
-MetaChunkReplicationCheck::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief This is an internally generated op. Log chunk id, size, and checksum.
- */
 int
 MetaLogMakeChunkStable::log(ostream &file) const
 {
