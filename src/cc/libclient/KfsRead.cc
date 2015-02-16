@@ -846,8 +846,8 @@ KfsClientImpl::SetReadAheadSize(
             theAttr.numStripes > 0 &&
             theAttr.stripeSize < theSize) {
         const int theStride = theAttr.stripeSize * theAttr.numStripes;
-        theSize = (max(
-                inOptimalFlag ? (1 << 20) * theAttr.numStripes : 0, theSize) +
+        theSize = (max(inOptimalFlag ?
+                mTargetDiskIoSize * theAttr.numStripes : 0, theSize) +
             theStride - 1) / theStride * theStride;
     }
     inEntry.buffer.SetBufSize(theSize);
