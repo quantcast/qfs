@@ -809,6 +809,8 @@ private:
     char* const                    mNameBuf;
     ClientAuthContext              mAuthCtx;
     ClientAuthContext              mProtocolWorkerAuthCtx;
+    int                            mTargetDiskIoSize;
+    Properties                     mConfig;
     KfsNetClient* const            mMetaServer;
     string                         mCommonRpcHdrs;
     string                         mShortCommonRpcHdrs;

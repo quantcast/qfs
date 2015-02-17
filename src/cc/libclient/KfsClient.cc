@@ -1434,6 +1434,8 @@ KfsClientImpl::KfsClientImpl(
       mNameBuf(new char[mNameBufSize]),
       mAuthCtx(),
       mProtocolWorkerAuthCtx(),
+      mTargetDiskIoSize(1 << 20),
+      mConfig(),
       mMetaServer(metaServer),
       mCommonRpcHdrs(),
       mShortCommonRpcHdrs()
@@ -1557,6 +1559,35 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         mFailShortReadsFlag = properties->getValue(
             "client.fullSparseFileSupport",
             mFailShortReadsFlag ? 0 : 1) == 0;
+        // Target io and buffer size defaults.
+        const int targetDiskIoSize = properties->getValue(
+            "client.targetDiskIoSize", -1);
+        if ((int)CHECKSUM_BLOCKSIZE <= targetDiskIoSize) {
+            mTargetDiskIoSize = (targetDiskIoSize +
+                (int)CHECKSUM_BLOCKSIZE - 1) / (int)CHECKSUM_BLOCKSIZE *
+                (int)CHECKSUM_BLOCKSIZE;
+        }
+        const int defaultIoBufferSize = properties->getValue(
+            "client.defaultIoBufferSize", -1);
+        if ((int)CHECKSUM_BLOCKSIZE <= defaultIoBufferSize) {
+            mDefaultIoBufferSize = ((size_t)defaultIoBufferSize +
+                CHECKSUM_BLOCKSIZE  - 1) /
+                CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE;
+        } else {
+            mDefaultIoBufferSize = max(mDefaultIoBufferSize,
+                (size_t)mTargetDiskIoSize);
+        }
+        const int defaultReadAheadSize = properties->getValue(
+            "client.defaultReadAheadSize", -1);
+        if (0 <= defaultReadAheadSize) {
+            mDefaultReadAheadSize = ((size_t)defaultReadAheadSize +
+                CHECKSUM_BLOCKSIZE - 1) /
+                CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE;
+        } else if ((int)CHECKSUM_BLOCKSIZE <= defaultIoBufferSize) {
+            mDefaultReadAheadSize = mDefaultIoBufferSize;
+        }
+        mConfig.clear();
+        properties->copyWithPrefix("client.", mConfig);
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
@@ -4361,6 +4392,30 @@ KfsClientImpl::StartProtocolWorker()
     // with the previous versions of the meta server that don't support
     // partial readdir and getalloc.
     params.mMaxMetaServerContentLength = 512 << 20;
+    const int kChecksumBlockSize = (int)CHECKSUM_BLOCKSIZE;
+    const int maxWriteSize       = mConfig.getValue(
+        "client.maxWriteSize", -1);
+    if (0 < maxWriteSize) {
+        params.mMaxWriteSize = (maxWriteSize + kChecksumBlockSize - 1) /
+            kChecksumBlockSize * kChecksumBlockSize;
+    } else {
+        params.mMaxWriteSize = mTargetDiskIoSize;
+    }
+    const int writeThreshold = mConfig.getValue(
+        "client.randomWriteThreshold", -1);
+    if (0 <= writeThreshold) {
+        params.mRandomWriteThreshold = (writeThreshold + kChecksumBlockSize - 1) /
+            kChecksumBlockSize * kChecksumBlockSize;
+    } else if (0 < maxWriteSize) {
+        params.mRandomWriteThreshold = params.mMaxWriteSize;
+    }
+    const int maxReadSize = mConfig.getValue("client.maxReadSize", -1);
+    if (kChecksumBlockSize <= maxReadSize) {
+        params.mMaxReadSize = (maxReadSize + kChecksumBlockSize - 1) /
+            kChecksumBlockSize * kChecksumBlockSize;
+    } else {
+        params.mMaxReadSize = mTargetDiskIoSize;
+    }
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,
@@ -4537,7 +4592,7 @@ KfsClientImpl::SetIoBufferSize(FileTableEntry& entry, size_t size, bool optimalF
         const int stripes =
             attr.numStripes + max(0, int(attr.numRecoveryStripes));
         const int stride  = attr.stripeSize * stripes;
-        bufSize = (max(optimalFlag ? (1 << 20) * stripes : 0, bufSize) +
+        bufSize = (max(optimalFlag ? mTargetDiskIoSize * stripes : 0, bufSize) +
             stride - 1) / stride * stride;
     }
     entry.ioBufferSize = max(0, bufSize);

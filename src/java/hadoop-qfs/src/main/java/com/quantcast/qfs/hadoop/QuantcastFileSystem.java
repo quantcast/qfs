@@ -146,7 +146,7 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   public FileStatus getFileStatus(Path path) throws IOException {
-    return qfsImpl.stat(makeAbsolute(path));
+    return qfsImpl.stat(makeAbsolute(path).makeQualified(uri, null));
   }
 
   public FSDataOutputStream append(Path path, int bufferSize,
