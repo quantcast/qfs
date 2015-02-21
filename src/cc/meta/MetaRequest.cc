@@ -2716,13 +2716,22 @@ MetaBye::handle()
     gLayoutManager.ServerDown(server);
 }
 
+/* virtual */ bool
+MetaLeaseAcquire::start()
+{
+    if (gLayoutManager.VerifyAllOpsPermissions()) {
+        SetEUserAndEGroup(*this);
+    }
+    return true;
+}
+
 /* virtual */ void
 MetaLeaseAcquire::handle()
 {
     if (status < 0) {
         return;
     }
-    if (1 < submitCount) {
+    if (0 < handleCount++) {
         // Minimize spurious read lease acquisitions, when client timed out, and
         // closed connection. The connection check is racy, but should suffice
         // for the purpose at hands.
@@ -2743,19 +2752,32 @@ MetaLeaseAcquire::handle()
             status = -EAGAIN;
             return;
         }
-    } else if (gLayoutManager.VerifyAllOpsPermissions()) {
-        SetEUserAndEGroup(*this);
     }
     status = gLayoutManager.GetChunkReadLease(this);
+}
+
+/* virtual */ bool
+MetaLeaseRenew::start()
+{
+    if (gLayoutManager.VerifyAllOpsPermissions()) {
+        SetEUserAndEGroup(*this);
+    }
+    return (status == 0);
 }
 
 /* virtual */ void
 MetaLeaseRenew::handle()
 {
-    if (gLayoutManager.VerifyAllOpsPermissions()) {
-        SetEUserAndEGroup(*this);
+    if (status < 0) {
+        return;
     }
     status = gLayoutManager.LeaseRenew(this);
+}
+
+/* virtual */ bool
+MetaLeaseRelinquish::start()
+{
+    return true;
 }
 
 /* virtual */ void

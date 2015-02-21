@@ -1040,6 +1040,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
           chunkChecksumHdr(-1),
           leaseTypeStr()
          {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ReqOstream &os);
@@ -3134,8 +3135,10 @@ struct MetaLeaseAcquire: public MetaRequest {
           appendRecoveryFlag(false),
           appendRecoveryLocations(),
           responseBuf(),
-          chunkAccess()
+          chunkAccess(),
+          handleCount(0)
           {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream& file) const;
     virtual void response(ReqOstream& os, IOBuffer& buf);
@@ -3167,6 +3170,8 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::appendRecoveryLocations)
         ;
     }
+protected:
+    int handleCount;
 };
 
 /*!
@@ -3203,6 +3208,7 @@ struct MetaLeaseRenew: public MetaRequest {
           tokenSeq(0),
           leaseTypeStr()
         {}
+    virtual bool start();
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void response(ReqOstream& os, IOBuffer& buf);
