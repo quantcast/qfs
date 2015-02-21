@@ -233,21 +233,26 @@ public:
         chunkId_t          chunkId,
         const ChunkServer* chunkServer);
     inline bool NewReadLease(
+        fid_t     fid,
         chunkId_t chunkId,
         time_t    expires,
         LeaseId&  leaseId);
     inline bool NewWriteLease(
         MetaAllocate& req);
     inline bool DeleteWriteLease(
+        fid_t     fid,
         chunkId_t chunkId,
         LeaseId   leaseId);
     inline int Renew(
+        fid_t            fid,
         chunkId_t        chunkId,
         LeaseId          leaseId,
         bool             allocDoneFlag = false,
         const MetaFattr* fattr         = 0,
         MetaLeaseRenew*  req           = 0);
-    inline bool Delete(chunkId_t chunkId);
+    inline bool Delete(
+        fid_t     fid,
+        chunkId_t chunkId);
     inline bool ExpiredCleanup(
         chunkId_t      chunkId,
         time_t         now,
@@ -280,6 +285,16 @@ public:
         bool      setScheduleReplicationCheckFlag);
     inline bool IsReadLease(
         LeaseId leaseId);
+    inline void ChangeFileId(
+        chunkId_t chunkId,
+        fid_t     fidFrom,
+        fid_t     fidTo);
+    inline size_t GetFileChunksWithLeasesCount(
+        fid_t fid) const
+    {
+        const FileLeases::Val* const count = mFileLeases.Find(fid);
+        return (count ? *count : FileLeases::Val(0));
+    }
 
 private:
     class RLEntry : public ReadLease
@@ -460,6 +475,13 @@ private:
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > WriteLeaseTimer;
+    typedef KVPair<fid_t, size_t> FileEntry;
+    typedef LinearHash<
+        FileEntry,
+        KeyCompare<FileEntry::Key>,
+        DynamicArray<SingleLinkedList<FileEntry>*, 13>,
+        StdFastAllocator<FileEntry>
+    > FileLeases;
 
     class OpenFileLister;
     friend class OpenFileLister;
@@ -468,6 +490,7 @@ private:
 
     ReadLeases      mReadLeases;
     WriteLeases     mWriteLeases;
+    FileLeases      mFileLeases;
     bool            mTimerRunningFlag;
     ReadLeaseTimer  mReadLeaseTimer;
     WriteLeaseTimer mWriteLeaseTimer;
@@ -490,7 +513,8 @@ private:
         time_t  now);
     inline bool ExpiredCleanup(
         REntry& rl,
-        time_t  now);
+        time_t  now,
+        CSMap&  csmap);
     inline bool ExpiredCleanup(
         WEntry&        wl,
         time_t         now,
@@ -501,13 +525,22 @@ private:
         WEntry&            wl,
         const ChunkServer* chunkServer);
     inline void Erase(
-        WEntry& wl);
+        WEntry& wl,
+        fid_t   fid);
     inline void Erase(
-        REntry& readLeaseHead);
+        REntry& readLeaseHead,
+        fid_t   fid);
+    inline void Erase(
+        REntry& readLeaseHead,
+        CSMap&  cmap);
     inline bool IsWriteLease(
         LeaseId leaseId);
     inline LeaseId NewReadLeaseId();
     inline LeaseId NewWriteLeaseId();
+    inline void DecrementFileLease(
+        fid_t fid);
+    inline void IncrementFileLease(
+        fid_t fid);
 private:
     ChunkLeases(
         const ChunkLeases&);
@@ -1306,6 +1339,8 @@ public:
     bool Validate(MetaCreate& createOp) const;
     IdempotentRequestTracker& GetIdempotentRequestTracker()
         { return mIdempotentRequestTracker; }
+    size_t GetFileChunksWithLeasesCount(fid_t fid) const
+        { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
 protected:
     typedef vector<
         int,

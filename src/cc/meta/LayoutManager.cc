@@ -320,6 +320,7 @@ ARAChunkCache::Timeout(time_t minTime)
 ChunkLeases::ChunkLeases()
     : mReadLeases(),
       mWriteLeases(),
+      mFileLeases(),
       mTimerRunningFlag(false),
       mReadLeaseTimer(TimeNow()),
       mWriteLeaseTimer(TimeNow()),
@@ -327,9 +328,41 @@ ChunkLeases::ChunkLeases()
 {}
 
 inline void
-ChunkLeases::Erase(
-    ChunkLeases::WEntry& wl)
+ChunkLeases::DecrementFileLease(
+    fid_t fid)
 {
+    if (fid < 0) {
+        return;
+    }
+    FileEntry::Val* count = mFileLeases.Find(fid);
+    if (! count || *count <= 0) {
+        panic("internal error: invalid decrement file lease count");
+    }
+    if (--(*count) <= 0) {
+        mFileLeases.Erase(fid);
+    }
+}
+
+inline void
+ChunkLeases::IncrementFileLease(
+    fid_t fid)
+{
+    if (fid < 0) {
+        return;
+    }
+    bool insertedFlag = false;
+    FileEntry::Val* count = mFileLeases.Insert(fid, 0, insertedFlag);
+    if (! count || ++(*count) <= 0) {
+        panic("internal error: invalid increment file lease count");
+    }
+}
+
+inline void
+ChunkLeases::Erase(
+    ChunkLeases::WEntry& wl,
+    fid_t                fid)
+{
+    DecrementFileLease(fid);
     if (mWriteLeases.Erase(wl.GetKey()) != 1) {
         panic("internal error: write lease delete failure");
     }
@@ -337,8 +370,10 @@ ChunkLeases::Erase(
 
 inline void
 ChunkLeases::Erase(
-    ChunkLeases::REntry& rl)
+    ChunkLeases::REntry& rl,
+    fid_t                fid)
 {
+    DecrementFileLease(fid);
     const bool      updateFlag = rl.Get().mScheduleReplicationCheckFlag;
     const chunkId_t chunkId    = rl.GetKey();
     if (mReadLeases.Erase(chunkId) != 1) {
@@ -347,6 +382,18 @@ ChunkLeases::Erase(
     if (updateFlag) {
         gLayoutManager.ChangeChunkReplication(chunkId);
     }
+}
+
+inline void
+ChunkLeases::Erase(
+    ChunkLeases::REntry& rl,
+    CSMap&               csmap)
+{
+    const CSMap::Entry* const ci = csmap.Find(rl.GetKey());
+    if (! ci) {
+        panic("invalid stale expired read lease entry");
+    }
+    Erase(rl, ci ? ci->GetFileId() : -1);
 }
 
 inline void
@@ -596,7 +643,8 @@ ChunkLeases::ServerDown(
 inline bool
 ChunkLeases::ExpiredCleanup(
     ChunkLeases::REntry& re,
-    time_t               now)
+    time_t               now,
+    CSMap&               csmap)
 {
     bool                 updateFlag = mTimerRunningFlag;
     ChunkReadLeasesHead& rl         = re.Get();
@@ -610,7 +658,7 @@ ChunkLeases::ExpiredCleanup(
         updateFlag = true;
     }
     if (rl.mLeases.IsEmpty()) {
-        Erase(re);
+        Erase(re, csmap);
         return true;
     }
     if (updateFlag) {
@@ -633,7 +681,8 @@ ChunkLeases::ExpiredCleanup(
     }
     CSMap::Entry* const ci = csmap.Find(we.GetKey());
     if (! ci) {
-        Erase(we);
+        panic("invalid stale write lease");
+        Erase(we, -1);
         return true;
     }
     const time_t exp = wl.expires +
@@ -650,7 +699,7 @@ ChunkLeases::ExpiredCleanup(
     const string pathname         = wl.pathname;
     const bool   appendFlag       = wl.appendFlag;
     const bool   stripedFileFlag  = wl.stripedFileFlag;
-    Erase(we);
+    Erase(we, ci->GetFileId());
     if (relinquishedFlag) {
         UpdateReplicationState(csmap, *ci);
         return true;
@@ -685,12 +734,7 @@ ChunkLeases::ExpiredCleanup(
     REntry* const rl = mReadLeases.Find(chunkId);
     if (rl) {
         assert(! mWriteLeases.Find(chunkId));
-        const bool ret = ExpiredCleanup(*rl, now);
-        if (! ret && ! csmap.Find(chunkId)) {
-            Erase(*rl);
-            return true;
-        }
-        return ret;
+        return ExpiredCleanup(*rl, now, csmap);
     }
     WEntry* const wl = mWriteLeases.Find(chunkId);
     return (! wl || ExpiredCleanup(
@@ -744,7 +788,7 @@ ChunkLeases::LeaseRelinquish(
         const time_t exp = rl.GetExpiration();
         leases.Erase(req.leaseId);
         if (leases.IsEmpty()) {
-            Erase(*re);
+            Erase(*re, csmap);
         } else {
             const time_t cexp = rl.GetExpiration();
             if (exp != cexp) {
@@ -837,7 +881,7 @@ public:
         {}
     void operator()(
         ChunkLeases::REntry& inEntry)
-        { mLeases.ExpiredCleanup(inEntry, mNow); }
+        { mLeases.ExpiredCleanup(inEntry, mNow, mCsmap); }
     void operator()(
         ChunkLeases::WEntry& inEntry)
     {
@@ -879,6 +923,7 @@ ChunkLeases::Timer(
 
 inline bool
 ChunkLeases::NewReadLease(
+    fid_t                  fid,
     chunkId_t              chunkId,
     time_t                 expires,
     ChunkLeases::LeaseId&  leaseId)
@@ -896,6 +941,9 @@ ChunkLeases::NewReadLease(
     ChunkReadLeases&     leases = h.mLeases;
     const time_t         exp    =
         insertedFlag ? expires + 1 : h.GetExpiration();
+    if (insertedFlag) {
+        IncrementFileLease(fid);
+    }
     insertedFlag = false;
     RLEntry&             rl     = *leases.Insert(
         id, RLEntry(ReadLease(id, expires)), insertedFlag);
@@ -929,6 +977,9 @@ ChunkLeases::NewWriteLease(
         req.chunkId, WEntry(req.chunkId, wl), insertedFlag);
     req.leaseId = l->Get().leaseId;
     if (insertedFlag) {
+        if (0 <= req.initialChunkVersion) {
+            IncrementFileLease(req.fid);
+        }
         PutInExpirationList(*l);
     }
     return insertedFlag;
@@ -936,6 +987,7 @@ ChunkLeases::NewWriteLease(
 
 inline int
 ChunkLeases::Renew(
+    fid_t                fid,
     chunkId_t            chunkId,
     ChunkLeases::LeaseId leaseId,
     bool                 allocDoneFlag /* = false */,
@@ -958,7 +1010,7 @@ ChunkLeases::Renew(
         if (cl->expires < now) {
             leases.Erase(leaseId);
             if (leases.IsEmpty()) {
-                Erase(*rl);
+                Erase(*rl, fid);
             }
             return -ELEASEEXPIRED;
         }
@@ -987,6 +1039,10 @@ ChunkLeases::Renew(
         return -ELEASEEXPIRED;
     }
     if (allocDoneFlag) {
+        if (wl.allocInFlight &&
+                wl.allocInFlight->initialChunkVersion < 0) {
+            IncrementFileLease(fid);
+        }
         wl.allocInFlight = 0;
         wl.expires       = now - 1; // Force move into expiration list.
     }
@@ -1020,6 +1076,7 @@ ChunkLeases::Renew(
 
 inline bool
 ChunkLeases::DeleteWriteLease(
+    fid_t                fid,
     chunkId_t            chunkId,
     ChunkLeases::LeaseId leaseId)
 {
@@ -1027,26 +1084,47 @@ ChunkLeases::DeleteWriteLease(
     if (! we || we->Get().leaseId != leaseId) {
         return false;
     }
-    Erase(*we);
+    Erase(*we, fid);
     return true;
 }
 
 inline bool
 ChunkLeases::Delete(
+    fid_t     fid,
     chunkId_t chunkId)
 {
     WEntry* const wl = mWriteLeases.Find(chunkId);
     const bool hadWr = wl != 0;
     if (hadWr) {
-        Erase(*wl);
+        Erase(*wl, fid);
     }
     REntry* const rl = mReadLeases.Find(chunkId);
     const bool hadRd = rl != 0;
     if (hadRd) {
-        Erase(*rl);
+        Erase(*rl, fid);
     }
     assert(! hadWr || ! hadRd);
     return (hadWr || hadRd);
+}
+
+inline void
+ChunkLeases::ChangeFileId(
+    chunkId_t chunkId,
+    fid_t     fidFrom,
+    fid_t     fidTo)
+{
+    const WEntry* const wl = mWriteLeases.Find(chunkId);
+    if (wl) {
+        const MetaAllocate* const alloc = wl->Get().allocInFlight;
+        if (alloc && alloc->initialChunkVersion < 0) {
+            panic("internal error: attempt to change file id"
+                " while initial chunk allocation is in flight");
+        }
+    }
+    if (wl || mReadLeases.Find(chunkId)) {
+        DecrementFileLease(fidFrom);
+        IncrementFileLease(fidTo);
+    }
 }
 
 class ChunkLeases::OpenFileLister
@@ -5427,7 +5505,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         }
         // Delete the lease to force version number bump.
         // Assume that the client encountered a write error.
-        mChunkLeases.Delete(r->chunkId);
+        mChunkLeases.Delete(r->fid, r->chunkId);
     }
     if (ret < 0) {
         return ret;
@@ -5806,6 +5884,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
         } else if ((req.leaseTimeout <= 0 ?
                 mChunkLeases.HasWriteLease(chunkId) :
                 ! mChunkLeases.NewReadLease(
+                    cs->GetFileId(),
                     chunkId,
                     TimeNow() + req.leaseTimeout,
                     leaseId))) {
@@ -6032,6 +6111,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     if ((req->leaseTimeout <= 0 ?
             ! mChunkLeases.HasWriteLease(req->chunkId) :
             mChunkLeases.NewReadLease(
+                cs->GetFileId(),
                 req->chunkId,
                 TimeNow() + req->leaseTimeout,
                 req->leaseId))) {
@@ -6107,6 +6187,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
     }
     const bool kAllocDoneFlag = false;
     const int  ret            = mChunkLeases.Renew(
+        cs->GetFileId(),
         req->chunkId,
         req->leaseId,
         kAllocDoneFlag,
@@ -6423,10 +6504,16 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
         // The entry is deleted from the b+tree, it should be inserted
         // back shortly with different file attribute.
         MetaFattr* const fa = mFattrToChangeTo;
-        const bool checkReplicationFlag = ! fa || ! entry.GetFattr() ||
+        if (! fa) {
+            panic("chunk change file id: invalid null file attribute");
+            return;
+        }
+        const bool checkReplicationFlag = ! entry.GetFattr() ||
             fa->numReplicas != entry.GetFattr()->numReplicas;
         mChunkEntryToChange = 0;
         mFattrToChangeTo    = 0;
+        mChunkLeases.ChangeFileId(
+            entry.GetChunkId(), entry.GetFileId(), fa->id());
         entry.SetFattr(fa);
         if (checkReplicationFlag) {
             CheckReplication(entry);
@@ -6465,7 +6552,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
     mARAChunkCache.Invalidate(fid, chunkId);
     mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
-    mChunkLeases.Delete(chunkId);
+    mChunkLeases.Delete(fid, chunkId);
     mChunkVersionRollBack.Erase(chunkId);
 
     // submit an RPC request
@@ -6504,7 +6591,7 @@ LayoutManager::InvalidateAllChunkReplicas(
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
     mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
-    mChunkLeases.Delete(chunkId);
+    mChunkLeases.Delete(fid, chunkId);
     mChunkVersionRollBack.Erase(chunkId);
     const bool kEvacuateChunkFlag = false;
     for_each(c.begin(), c.end(), bind(&ChunkServer::NotifyStaleChunk,
@@ -7078,7 +7165,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         // File and chunk ids are valid and in sync with meta tree.
         const bool kAllocDoneFlag = true;
         const int  ret            = mChunkLeases.Renew(
-            r->chunkId, r->leaseId, kAllocDoneFlag);
+            r->fid, r->chunkId, r->leaseId, kAllocDoneFlag);
         if (ret < 0) {
             panic("failed to renew allocation write lease");
             r->status = ret;
@@ -7149,7 +7236,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     // Delete write lease, it wasn't ever handed to the client, and
     // version change will make chunk stable, thus there is no need to
     // go trough the normal lease cleanup procedure.
-    if (! mChunkLeases.DeleteWriteLease(r->chunkId, r->leaseId)) {
+    if (! mChunkLeases.DeleteWriteLease(r->fid, r->chunkId, r->leaseId)) {
         if (! mChunkToServerMap.Find(r->chunkId)) {
             // Chunk does not exist, deleted.
             mChunkVersionRollBack.Erase(r->chunkId);
