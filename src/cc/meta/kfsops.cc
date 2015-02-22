@@ -1063,9 +1063,10 @@ Tree::lookupPath(fid_t rootdir, const string& path,
 }
 
 void
-Tree::cleanupPathToFidCache()
+Tree::cleanupPathToFidCache(
+    int64_t startTime)
 {
-    time_t now = TimeNow();
+    const time_t now = (time_t)startTime;
 
     if (now - mLastPathToFidCacheCleanupTime <
             (FID_CACHE_CLEANUP_INTERVAL + 1) / 2) {

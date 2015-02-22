@@ -1067,7 +1067,7 @@ public:
 
     /// Periodically, walk the table of chunk -> [location, lease]
     /// and remove out dead leases.
-    void LeaseCleanup();
+    void LeaseCleanup(int64_t startTime);
 
     /// Periodically, re-check the replication level of all chunks
     /// the system; this call initiates the checking work, which

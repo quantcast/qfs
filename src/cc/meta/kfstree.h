@@ -480,7 +480,7 @@ public:
     int listPaths(ostream &ofs);    //!< list out the paths in the tree
     //!< list out the paths in the tree for specific fid's
     int listPaths(ostream &ofs, const set<fid_t> specificIds);
-    void cleanupPathToFidCache();
+    void cleanupPathToFidCache(int64_t startTime);
     void recomputeDirSize();        //!< re-compute the size of each dir. in tree
 
     int create(fid_t dir, const string& fname, fid_t *newFid,

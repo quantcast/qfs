@@ -3250,14 +3250,19 @@ private:
  */
 struct MetaLeaseCleanup: public MetaRequest {
     MetaLeaseCleanup(seq_t s, KfsCallbackObj *c)
-        : MetaRequest(META_LEASE_CLEANUP, false, s)
+        : MetaRequest(META_LEASE_CLEANUP, false, s),
+          startTime(-1)
             { clnt = c; }
 
+    virtual bool start();
+    virtual int log(ostream& file) const;
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "lease cleanup";
     }
+private:
+    int64_t startTime;
 };
 
 /*!

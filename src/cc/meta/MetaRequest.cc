@@ -2790,10 +2790,17 @@ MetaLeaseRelinquish::handle()
     KFS_LOG_EOM;
 }
 
+/* virtual */ bool
+MetaLeaseCleanup::start()
+{
+    startTime = globalNetManager().Now();
+    return true;
+}
+
 /* virtual */ void
 MetaLeaseCleanup::handle()
 {
-    gLayoutManager.LeaseCleanup();
+    gLayoutManager.LeaseCleanup(startTime);
     // Some leases might be expired or relinquished: try to cleanup the
     // dumpster.
     // FIXME:
@@ -2805,8 +2812,14 @@ MetaLeaseCleanup::handle()
     // Defer this for now assuming that checkpoints from forked copy is
     // the default operating mode.
     metatree.cleanupDumpster();
-    metatree.cleanupPathToFidCache();
+    metatree.cleanupPathToFidCache(startTime);
     status = 0;
+}
+
+/* vitural */ int
+MetaLeaseCleanup::log(ostream& file) const
+{
+    return 0;
 }
 
 class PrintChunkServerLocations {

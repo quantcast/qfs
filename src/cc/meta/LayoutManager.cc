@@ -6989,9 +6989,10 @@ LayoutManager::ExpiredLeaseCleanup(chunkId_t chunkId)
 }
 
 void
-LayoutManager::LeaseCleanup()
+LayoutManager::LeaseCleanup(
+    int64_t startTime)
 {
-    const time_t now = TimeNow();
+    const time_t now = (time_t)startTime;
 
     mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap);
