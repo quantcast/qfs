@@ -5247,7 +5247,7 @@ LayoutManager::AllocateChunk(
     }
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        r->issuedTime                 = TimeNow();
+        r->issuedTime                 = r->startTime;
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
@@ -5513,7 +5513,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     // there is no valid write lease; to issue a new write lease, we
     // need to do a version # bump.  do that only if we haven't yet
     // handed out valid read leases
-    if (! ExpiredLeaseCleanup(r->chunkId)) {
+    if (! ExpiredLeaseCleanup(r->startTime, r->chunkId)) {
         r->statusMsg = "valid read lease";
         KFS_LOG_STREAM_DEBUG << "write lease denied"
             " chunk " << r->chunkId << " " << r->statusMsg <<
@@ -5567,7 +5567,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     KFS_LOG_EOM;
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        r->issuedTime                 = TimeNow();
+        r->issuedTime                 = r->startTime;
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
@@ -5672,7 +5672,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     // Start decay only after allocation completes.
     // Enforce timeout on pending allocation, in order not to re-queue the
     // timed out client back to the same allocation group.
-    const time_t now = TimeNow();
+    const time_t now = (time_t)req->startTime;
     if (entry->IsAllocationPending()) {
         if (entry->lastDecayTime + mAllocAppendReuseInFlightTimeoutSec < now) {
             mARAChunkCache.Invalidate(req->fid);
@@ -5886,7 +5886,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                 ! mChunkLeases.NewReadLease(
                     cs->GetFileId(),
                     chunkId,
-                    TimeNow() + req.leaseTimeout,
+                    req.startTime + req.leaseTimeout,
                     leaseId))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
@@ -5990,7 +5990,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     req->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag &&
         mClientCSAllowClearTextFlag;
     if (mClientCSAuthRequiredFlag) {
-        req->issuedTime   = TimeNow();
+        req->issuedTime   = req->startTime;
         req->validForTime = mCSAccessValidForTimeSec;
     }
     const int ret = GetChunkReadLeases(*req);
@@ -6113,7 +6113,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             mChunkLeases.NewReadLease(
                 cs->GetFileId(),
                 req->chunkId,
-                TimeNow() + req->leaseTimeout,
+                req->startTime + req->leaseTimeout,
                 req->leaseId))) {
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
@@ -6195,7 +6195,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         mClientCSAuthRequiredFlag ? req : 0
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
-        req->issuedTime                 = TimeNow();
+        req->issuedTime                 = req->startTime;
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
             req->validForTime = mCSAccessValidForTimeSec;
@@ -6979,11 +6979,11 @@ LayoutManager::InitCheckAllChunks()
 }
 
 bool
-LayoutManager::ExpiredLeaseCleanup(chunkId_t chunkId)
+LayoutManager::ExpiredLeaseCleanup(int64_t now, chunkId_t chunkId)
 {
     const int ownerDownExpireDelay = 0;
     return mChunkLeases.ExpiredCleanup(
-        chunkId, TimeNow(), ownerDownExpireDelay,
+        chunkId, now, ownerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap
     );
 }
@@ -7153,7 +7153,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if ((r->writeMasterKeyValidFlag = r->servers.front()->GetCryptoKey(
                 r->writeMasterKeyId, r->writeMasterKey))) {
-            r->issuedTime   = TimeNow();
+            r->issuedTime   = r->startTime;
             r->validForTime = mCSAccessValidForTimeSec;
             r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
         } else {
@@ -7975,7 +7975,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         // safety: this will prevent make chunk stable from restarting
         // recursively, in the case if there are double or stale
         // write lease.
-        ExpiredLeaseCleanup(req->chunkId);
+        ExpiredLeaseCleanup(req->startTime, req->chunkId);
         pathname = info.pathname;
         updateSizeFlag  = ! info.stripedFileFlag;
         updateMTimeFlag = info.updateMTimeFlag;

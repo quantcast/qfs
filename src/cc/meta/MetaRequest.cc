@@ -2793,7 +2793,6 @@ MetaLeaseRelinquish::handle()
 /* virtual */ bool
 MetaLeaseCleanup::start()
 {
-    startTime = globalNetManager().Now();
     return true;
 }
 
@@ -3717,6 +3716,7 @@ submit_request(MetaRequest* r)
 {
     const int64_t start = microseconds();
     if (r->submitCount++ == 0) {
+        r->startTime   = globalNetManager().Now();
         r->submitTime  = start;
         r->processTime = start;
         if (MetaRequest::kLogNever != r->logAction && r->seqno <= 0) {

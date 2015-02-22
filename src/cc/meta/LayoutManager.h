@@ -1081,7 +1081,7 @@ public:
     /// @param[in] chunkId  the chunk for which leases need to be cleaned up
     /// @param[in] v   the placement/lease info for the chunk
     void LeaseCleanup(chunkId_t chunkId, CSMap::Entry &v);
-    bool ExpiredLeaseCleanup(chunkId_t chunkId);
+    bool ExpiredLeaseCleanup(int64_t now, chunkId_t chunkId);
 
     /// Handler that loops thru the chunk->location map and determines
     /// if there are sufficient copies of each chunk.  Those chunks with

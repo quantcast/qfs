@@ -218,6 +218,7 @@ struct MetaRequest {
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
     int64_t         sessionEndTime;
+    int64_t         startTime;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
     MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
@@ -244,6 +245,7 @@ struct MetaRequest {
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),
           sessionEndTime(),
+          startTime(-1),
           next(0),
           clnt(0)
         { MetaRequest::Init(); }
@@ -3250,8 +3252,7 @@ private:
  */
 struct MetaLeaseCleanup: public MetaRequest {
     MetaLeaseCleanup(seq_t s, KfsCallbackObj *c)
-        : MetaRequest(META_LEASE_CLEANUP, false, s),
-          startTime(-1)
+        : MetaRequest(META_LEASE_CLEANUP, false, s)
             { clnt = c; }
 
     virtual bool start();
@@ -3261,8 +3262,6 @@ struct MetaLeaseCleanup: public MetaRequest {
     {
         return os << "lease cleanup";
     }
-private:
-    int64_t startTime;
 };
 
 /*!
