@@ -236,7 +236,7 @@ public:
         fid_t     fid,
         chunkId_t chunkId,
         time_t    expires,
-        LeaseId&  leaseId);
+        LeaseId   leaseId);
     inline bool NewWriteLease(
         MetaAllocate& req);
     inline bool DeleteWriteLease(
@@ -295,6 +295,7 @@ public:
         const FileLeases::Val* const count = mFileLeases.Find(fid);
         return (count ? *count : FileLeases::Val(0));
     }
+    inline LeaseId NewReadLeaseId();
 
 private:
     class RLEntry : public ReadLease
@@ -535,7 +536,6 @@ private:
         CSMap&  cmap);
     inline bool IsWriteLease(
         LeaseId leaseId);
-    inline LeaseId NewReadLeaseId();
     inline LeaseId NewWriteLeaseId();
     inline void DecrementFileLease(
         fid_t fid);
@@ -1341,6 +1341,7 @@ public:
         { return mIdempotentRequestTracker; }
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
+    void GetChunkReadLeaseStart(MetaLeaseAcquire& req);
 protected:
     typedef vector<
         int,

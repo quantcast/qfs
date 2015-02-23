@@ -2722,7 +2722,8 @@ MetaLeaseAcquire::start()
     if (gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
-    return true;
+    gLayoutManager.GetChunkReadLeaseStart(*this);
+    return (0 == status);
 }
 
 /* virtual */ void

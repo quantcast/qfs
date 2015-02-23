@@ -401,7 +401,8 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
-    if (fa->chunkcount() > 0) {
+    if (0 < fa->chunkcount() &&
+            0 < gLayoutManager.GetFileChunksWithLeasesCount(fa->id())) {
         StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
         vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
         getalloc(fa->id(), chunkInfo);

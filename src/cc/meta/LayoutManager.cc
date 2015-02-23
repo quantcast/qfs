@@ -926,14 +926,17 @@ ChunkLeases::NewReadLease(
     fid_t                  fid,
     chunkId_t              chunkId,
     time_t                 expires,
-    ChunkLeases::LeaseId&  leaseId)
+    ChunkLeases::LeaseId   leaseId)
 {
+    if (leaseId < 0 || ! IsReadLease(leaseId)) {
+        panic("new read lease: invalid lease id");
+        return false;
+    }
     if (mWriteLeases.Find(chunkId)) {
         assert(! mReadLeases.Find(chunkId));
         return false;
     }
     // Keep list sorted by expiration time.
-    const LeaseId id           = NewReadLeaseId();
     bool          insertedFlag = false;
     REntry&              re    = *mReadLeases.Insert(
         chunkId, REntry(chunkId, ChunkReadLeasesHead()), insertedFlag);
@@ -946,7 +949,7 @@ ChunkLeases::NewReadLease(
     }
     insertedFlag = false;
     RLEntry&             rl     = *leases.Insert(
-        id, RLEntry(ReadLease(id, expires)), insertedFlag);
+        leaseId, RLEntry(ReadLease(leaseId, expires)), insertedFlag);
     if (! insertedFlag) {
         panic("duplicate read lease id");
     }
@@ -954,7 +957,6 @@ ChunkLeases::NewReadLease(
     if (expires < exp) {
         mReadLeaseTimer.Schedule(re, expires);
     }
-    leaseId  = id;
     return true;
 }
 
@@ -5831,6 +5833,34 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
     mFattrToChangeTo    = dstFattr;
 }
 
+void
+LayoutManager::GetChunkReadLeaseStart(MetaLeaseAcquire& req)
+{
+    if (req.leaseTimeout <= 0) {
+        return;
+    }
+    if (0 <= req.chunkId) {
+        req.leaseId = mChunkLeases.NewReadLeaseId();
+    }
+    const char* p = req.chunkIds.GetPtr();
+    const char* e = p + req.chunkIds.GetSize();
+    req.leaseIds.reserve(32);
+    while (p < e) {
+        chunkId_t chunkId = -1;
+        if (! req.ParseInt(p, e - p, chunkId)) {
+            while (p < e && *p <= ' ') {
+                p++;
+            }
+            if (p != e) {
+                req.status    = -EINVAL;
+                req.statusMsg = "chunk id list parse error";
+            }
+            break;
+        }
+        req.leaseIds.push_back(mChunkLeases.NewReadLeaseId());
+    }
+}
+
 int
 LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 {
@@ -5865,6 +5895,18 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             break;
         }
         ChunkLeases::LeaseId leaseId = 0;
+        if (0 < req.leaseTimeout) {
+            if (req.leaseIds.empty()) {
+                const char* const msg =
+                    "internal error: invalid lease ids size";
+                panic(msg);
+                req.status    = -EFAULT;
+                req.statusMsg = msg;
+                break;
+            }
+            leaseId = req.leaseIds.back();
+            req.leaseIds.pop_back();
+        }
         const CSMap::Entry*  cs      = 0;
         servers.clear();
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||

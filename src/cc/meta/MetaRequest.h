@@ -3106,7 +3106,6 @@ struct MetaLeaseAcquire: public MetaRequest {
     };
     typedef StBufferT<ChunkAccessInfo, 3> ChunkAccess;
 
-    const LeaseType    leaseType;
     StringBufT<256>    pathname; // Optional for debugging.
     chunkId_t          chunkId;
     bool               flushFlag;
@@ -3116,14 +3115,14 @@ struct MetaLeaseAcquire: public MetaRequest {
     time_t             issuedTime;
     int                validForTime;
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
+    vector<int64_t>    leaseIds;
     bool               getChunkLocationsFlag;
     bool               appendRecoveryFlag;
     string             appendRecoveryLocations;
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
-        : MetaRequest(META_LEASE_ACQUIRE, false),
-          leaseType(READ_LEASE),
+        : MetaRequest(META_LEASE_ACQUIRE, true),
           pathname(),
           chunkId(-1),
           flushFlag(false),
@@ -3133,6 +3132,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           issuedTime(0),
           validForTime(0),
           chunkIds(),
+          leaseIds(),
           getChunkLocationsFlag(false),
           appendRecoveryFlag(false),
           appendRecoveryLocations(),
@@ -3147,7 +3147,6 @@ struct MetaLeaseAcquire: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            (leaseType == READ_LEASE ? "read" : "write") <<
             " lease acquire:"
             " chunkId: " << chunkId <<
             (flushFlag ? " flush" : "") <<
@@ -3196,7 +3195,7 @@ struct MetaLeaseRenew: public MetaRequest {
     int                validForTime;
     TokenSeq           tokenSeq;
     MetaLeaseRenew()
-        : MetaRequest(META_LEASE_RENEW, false),
+        : MetaRequest(META_LEASE_RENEW, true),
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
@@ -3252,7 +3251,7 @@ private:
  */
 struct MetaLeaseCleanup: public MetaRequest {
     MetaLeaseCleanup(seq_t s, KfsCallbackObj *c)
-        : MetaRequest(META_LEASE_CLEANUP, false, s)
+        : MetaRequest(META_LEASE_CLEANUP, true, s)
             { clnt = c; }
 
     virtual bool start();
