@@ -2595,6 +2595,7 @@ MetaChmod::handle()
     }
     if (IsValidMode(mode, fa->type == KFS_DIR)) {
         status = -EINVAL;
+        return;
     }
     SetEUserAndEGroup(*this);
     if (fa->user != euser && euser != kKfsUserRoot) {
