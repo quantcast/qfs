@@ -401,14 +401,14 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
-    if (0 < fa->chunkcount() &&
-            0 < gLayoutManager.GetFileChunksWithLeasesCount(fa->id())) {
+    if (0 < fa->chunkcount()) {
         StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
         vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
         getalloc(fa->id(), chunkInfo);
         assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-        if (todumpster > 0 ||
-                gLayoutManager.IsValidLeaseIssued(chunkInfo)) {
+        if (todumpster > 0 || (
+		0 < gLayoutManager.GetFileChunksWithLeasesCount(fa->id()) &&
+                gLayoutManager.IsValidLeaseIssued(chunkInfo))) {
             // put the file into dumpster
             todumpster = fa->id();
             int status = moveToDumpster(dir, fname, todumpster);
