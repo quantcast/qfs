@@ -2904,7 +2904,7 @@ MetaChmod::handle()
         status = -ENOENT;
         return;
     }
-    if (IsValidMode(mode, fa->type == KFS_DIR)) {
+    if (! IsValidMode(mode, fa->type == KFS_DIR)) {
         status = -EINVAL;
         return;
     }
