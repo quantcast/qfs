@@ -30,6 +30,8 @@
 #include "common/LinearHash.h"
 #include "common/MsgLogger.h"
 #include "common/hsieh_hash.h"
+#include "common/ReqOstream.h"
+#include "common/RequestParser.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/ITimeout.h"
@@ -41,6 +43,7 @@
 
 #include <string>
 #include <set>
+#include <ostream>
 
 #include <errno.h>
 #include <grp.h>
@@ -52,6 +55,7 @@ namespace KFS
 using std::string;
 using std::set;
 using std::less;
+using std::ostream;
 using libkfsio::globalNetManager;
 
 class UserAndGroup::Impl : public QCRunnable, public ITimeout
@@ -269,6 +273,71 @@ public:
     {
         QCStMutexLocker theLock(const_cast<Impl*>(this)->mMutex); // Mutable
         return (mUpdateCount != mCurUpdateCount);
+    }
+    int WriteGroups(
+        ostream& inStream)
+    {
+        QCStMutexLocker theLock(mMutex); // Mutable
+        mGroupUsersMap.First();
+        const GroupUsers* thePtr;
+        ReqOstreamT<ostream> theStream(inStream);
+        while ((thePtr = mGroupUsersMap.Next()) && inStream) {
+            const UsersSet& theGroups = thePtr->GetVal();
+            UsersSet::const_iterator theIt = theGroups.begin();
+            if (theIt == theGroups.end() || kKfsUserNone == thePtr->GetKey()) {
+                continue;
+            }
+            theStream << "gu/" << thePtr->GetKey();
+            int theCnt = 0;
+            do {
+                if (kKfsGroupNone != *theIt) {
+                    if ((++theCnt & 0x3F) == 0) {
+                        theStream << "\n"
+                            "guc/" << thePtr->GetKey();
+                    }
+                    theStream << " " << *theIt;
+                }
+            } while (++theIt != theGroups.end());
+            theStream << "\n";
+        }
+        return (! inStream ? -EIO : 0);
+    }
+    int ReadGroup(
+        const char* inBufPtr,
+        size_t      inLen,
+        bool        inAppendFlag,
+        bool        inHexFlag)
+    {
+        QCStMutexLocker theLock(mMutex);
+        kfsUid_t theUid;
+        const char*       thePtr     = inBufPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        if (! (inHexFlag ?
+                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theUid) :
+                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theUid)) ||
+                theUid == kKfsUserNone) {
+            return -EINVAL;
+        }
+        bool theInsertedFlag = false;
+        UsersSet* const theUsersPtr =
+            mGroupUsersMap.Insert(theUid, UsersSet(), theInsertedFlag);
+        if (! theInsertedFlag && ! inAppendFlag) {
+            theUsersPtr->clear();
+        }
+        kfsGid_t theGid;
+        while (thePtr < theEndPtr && (inHexFlag ?
+                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theGid) :
+                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theGid)) &&
+                kKfsGroupNone != theGid) {
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                ++thePtr;
+            }
+            theUsersPtr->insert(theGid);
+        }
+        if (theUsersPtr->empty() || thePtr < theEndPtr) {
+            mGroupUsersMap.Erase(theUid);
+        }
+        return (thePtr < theEndPtr ? -EINVAL : 0);
     }
 private:
     int StartSelf()
@@ -1042,6 +1111,23 @@ UserAndGroup::SetParameters(
 UserAndGroup::IsUpdatePending() const
 {
     return mImpl.IsUpdatePending();
+}
+
+    int
+UserAndGroup::WriteGroups(
+    ostream& inStream)
+{
+    return mImpl.WriteGroups(inStream);
+}
+
+    int
+UserAndGroup::ReadGroup(
+    const char* inBufPtr,
+    size_t      inLen,
+    bool        inAppendFlag,
+    bool        inHexFlag)
+{
+    return mImpl.ReadGroup(inBufPtr, inLen, inAppendFlag, inHexFlag);
 }
 
 const string                    UserAndGroup::kEmptyString;

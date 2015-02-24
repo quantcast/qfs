@@ -34,6 +34,7 @@
 
 #include <string>
 #include <set>
+#include <iosfwd>
 
 #include <boost/shared_ptr.hpp>
 
@@ -44,6 +45,7 @@ class Properties;
 using std::string;
 using std::set;
 using std::less;
+using std::ostream;
 using boost::shared_ptr;
 
 class UserAndGroup
@@ -219,6 +221,13 @@ public:
         GetDelegationRenewAndCancelUsersPtr() const
         { return mDelegationRenewAndCancelUsersPtr; }
     bool IsUpdatePending() const;
+    int WriteGroups(
+        ostream& inStream);
+    int ReadGroup(
+        const char* inBufPtr,
+        size_t      inLen,
+        bool        inAppendFlag,
+        bool        inHexFlag);
 private:
     class Impl;
     Impl&                                   mImpl;
