@@ -2906,6 +2906,7 @@ MetaChmod::handle()
     }
     if (IsValidMode(mode, fa->type == KFS_DIR)) {
         status = -EINVAL;
+        return;
     }
     if (fa->user != euser && euser != kKfsUserRoot) {
         status = -EACCES;
