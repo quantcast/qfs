@@ -362,7 +362,12 @@ ChunkLeases::Erase(
     ChunkLeases::WEntry& wl,
     fid_t                fid)
 {
-    DecrementFileLease(fid);
+    if (0 <= fid) {
+        const MetaAllocate* const alloc = wl.Get().allocInFlight;
+        if (! alloc || 0 <= alloc->initialChunkVersion) {
+            DecrementFileLease(fid);
+        }
+    }
     if (mWriteLeases.Erase(wl.GetKey()) != 1) {
         panic("internal error: write lease delete failure");
     }
