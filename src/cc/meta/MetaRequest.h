@@ -149,6 +149,7 @@ using std::less;
     f(DELEGATE_CANCEL) \
     f(SET_FILE_SYSTEM_INFO) \
     f(FORCE_CHUNK_REPLICATION) \
+    f(LOG_GROUP_USERS) \
     f(ACK)
 
 enum MetaOp {

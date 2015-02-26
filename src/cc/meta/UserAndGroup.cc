@@ -25,6 +25,7 @@
 //----------------------------------------------------------------------------
 
 #include "UserAndGroup.h"
+#include "MetaRequest.h"
 
 #include "common/Properties.h"
 #include "common/LinearHash.h"
@@ -35,6 +36,7 @@
 
 #include "kfsio/Globals.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/KfsCallbackObj.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -58,7 +60,10 @@ using std::less;
 using std::ostream;
 using libkfsio::globalNetManager;
 
-class UserAndGroup::Impl : public QCRunnable, public ITimeout
+class UserAndGroup::Impl :
+    public QCRunnable,
+    public ITimeout,
+    public KfsCallbackObj
 {
 private:
     typedef set<
@@ -81,6 +86,7 @@ public:
         bool inUseDefaultsFlag)
         : QCRunnable(),
           ITimeout(),
+          KfsCallbackObj(),
           mUpdateCount(0),
           mCurUpdateCount(0),
           mThread(),
@@ -141,8 +147,10 @@ public:
           mDelegationUserNames(),
           mDelegationGroupNames(),
           mParameters(),
-          mSetDefaultsFlag(inUseDefaultsFlag)
-        {}
+          mSetDefaultsFlag(inUseDefaultsFlag),
+          mMetaLogGroupUsersInFlightFlag(false),
+          mMetaLogGroupUsers(*this)
+        { SET_HANDLER(this, &UserAndGroup::Impl::LogDone); }
     ~Impl()
         { Impl::Shutdown(); }
     int Start()
@@ -440,7 +448,30 @@ private:
             return;
         }
         QCStMutexLocker theLock(mMutex);
+        if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
+            return;
+        }
+        mMetaLogGroupUsersInFlightFlag =
+            ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
+                EqualsFunc<GroupUsersMap::Val>());
         ApplyPendingUpdate();
+        if (mMetaLogGroupUsersInFlightFlag) {
+            submit_request(&mMetaLogGroupUsers);
+        }
+        return;
+    }
+    int LogDone(
+        int   inCode,
+        void* inDataPtr)
+    {
+        QCStMutexLocker theLock(mMutex);
+        if (inCode != EVENT_CMD_DONE ||
+                inDataPtr != &mMetaLogGroupUsers ||
+                ! mMetaLogGroupUsersInFlightFlag) {
+            panic("invalid log group users completion");
+        }
+        mMetaLogGroupUsersInFlightFlag = false;
+        return 0;
     }
     void ApplyPendingUpdate()
     {
@@ -901,6 +932,27 @@ private:
         const char* mNamePtr;
         const char* mValuePtr;
     };
+    class MetaLogGroupUsers : public MetaRequest
+    {
+    public:
+        MetaLogGroupUsers(
+            Impl& inImpl)
+            : MetaRequest(META_LOG_GROUP_USERS, true),
+              mImpl(inImpl)
+            { clnt = &mImpl; }
+        virtual void start()
+            { return true; }
+        virtual void handle()
+            { status = 0; }
+        virtual int log(
+            ostream& inStream) const
+            { return mImpl.WriteGroups(inStream); }
+        virtual ostream& ShowSelf(
+            ostream& inStream) const
+            { return (inStream << "metaloggroupusers"); }
+    private:
+        Impl& mImpl;
+    };
 
     volatile uint64_t                mUpdateCount;
     uint64_t                         mCurUpdateCount;
@@ -963,6 +1015,8 @@ private:
     DelegationGroupNames             mDelegationGroupNames;
     Properties                       mParameters;
     bool                             mSetDefaultsFlag;
+    bool                             mMetaLogGroupUsersInFlightFlag;
+    MetaLogGroupUsers                mMetaLogGroupUsers;
 
     friend class UserAndGroup;
 
