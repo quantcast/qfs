@@ -41,6 +41,15 @@
 namespace KFS
 {
 
+template <typename T>
+struct EqualsFunc
+{
+    static bool Equals(
+        const T& inLhs,
+        const T& inRhs)
+        { return inLhs == inRhs; }
+};
+
 template<typename T>
 struct IntegerHash
 {
@@ -128,9 +137,10 @@ template<
 class LinearHash
 {
 public:
-    typedef typename KVPairT::Key                          Key;
-    typedef typename KVPairT::Val                          Val;
-    typedef SingleLinkedList<KVPairT>                      Entry;
+    typedef KVPairT                                        KVPair;
+    typedef typename KVPair::Key                           Key;
+    typedef typename KVPair::Val                           Val;
+    typedef SingleLinkedList<KVPair>                       Entry;
     typedef typename AllocT::template rebind<Entry>::other Allocator;
     typedef std::size_t                                    size_t;
 
@@ -177,6 +187,49 @@ public:
             }
         }
         return *this;
+    }
+    template<typename ET>
+    bool Equals(
+        const LinearHash& inHash,
+        const ET&         inValsEq) const
+    {
+        if (this == &inHash) {
+            return true;
+        }
+        const size_t theSize = GetSize();
+        if (theSize != inHash.GetSize()) {
+            return false;
+        }
+        for (size_t i = 0; i < theSize; i++) {
+            const Entry* theLPtr = mBuckets[i];
+            const Entry* theRPtr = inHash.mBuckets[i];
+            while (theLPtr && theRPtr &&
+                    mKeyId.Equals(
+                        theLPtr->GetData().GetKey(),
+                        theRPtr->GetData().GetKey()) &&
+                    inValsEq.Equals(
+                        theLPtr->GetData().GetVal(),
+                        theRPtr->GetData().GetVal())) {
+                theLPtr = theLPtr->GetNextPtr();
+                theRPtr = theRPtr->GetNextPtr();
+            }
+            if (theLPtr != theRPtr) {
+                return false;
+            }
+        }
+        return true;
+    }
+    template<typename FT>
+    void Traverse(
+        FT& inFunc) const
+    {
+        const size_t theSize = GetSize();
+        for (size_t i = 0; i < theSize; i++) {
+            const Entry* thePtr = mBuckets[i];
+            while (thePtr && inFunc.Traverse(thePtr->GetData())) {
+                thePtr = thePtr->GetNextPtr();
+            }
+        }
     }
     void SetDeleteObserver(
         DeleteObserverT* inObserverPtr)
@@ -226,7 +279,7 @@ public:
         bool&      outInsertedFlag)
     {
         if (IsEmpty()) {
-            Entry& theEntry = New(Entry(KVPairT(inKey, inVal), 0));
+            Entry& theEntry = New(Entry(KVPair(inKey, inVal), 0));
             mBuckets.PushBack(&theEntry);
             outInsertedFlag = true;
             return &(theEntry.GetData().GetVal());
@@ -234,7 +287,7 @@ public:
         Entry*& theBucketPtr = GetBucket(inKey);
         Entry*  thePtr       = theBucketPtr;
         if (! thePtr || mKeyId.Less(inKey, thePtr->GetData().GetKey())) {
-            Entry& theEntry = New(Entry(KVPairT(inKey, inVal), thePtr));
+            Entry& theEntry = New(Entry(KVPair(inKey, inVal), thePtr));
             theBucketPtr = &theEntry;
             Split();
             outInsertedFlag = true;
@@ -244,7 +297,7 @@ public:
             Entry* const thePrevPtr = thePtr;
             thePtr = thePtr->GetNextPtr();
             if (! thePtr || mKeyId.Less(inKey, thePtr->GetData().GetKey())) {
-                Entry& theEntry = New(Entry(KVPairT(inKey, inVal), thePtr));
+                Entry& theEntry = New(Entry(KVPair(inKey, inVal), thePtr));
                 thePrevPtr->GetNextPtr() = &theEntry;
                 Split();
                 outInsertedFlag = true;
@@ -295,7 +348,7 @@ public:
         mNextEntryPtr  = 0;
         mNextBucketIdx = 0;
     }
-    const KVPairT* Next()
+    const KVPair* Next()
     {
         if (! mNextEntryPtr) {
             const size_t theSize = GetSize();
@@ -307,7 +360,7 @@ public:
                 return 0;
             }
         }
-        KVPairT& theRet = mNextEntryPtr->GetData();
+        KVPair& theRet = mNextEntryPtr->GetData();
         if (! (mNextEntryPtr = mNextEntryPtr->GetNextPtr())) {
             mNextBucketIdx++;
         }
