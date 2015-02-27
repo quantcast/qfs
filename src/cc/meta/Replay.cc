@@ -935,6 +935,8 @@ get_entry_map()
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
     e.add_parser("idr",                     &restore_idempotent_request);
     e.add_parser("ack",                     &replay_idempotent_ack);
+    e.add_parser("gu",                      &restore_group_users);
+    e.add_parser("guc",                     &restore_group_users);
     initied = true;
     return e;
 }

@@ -545,6 +545,10 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
             if ((okFlag = Startup(createEmptyFsFlag,
                     props.getValue("metaServer.createEmptyFs", 0) != 0))) {
                 if (! createEmptyFsFlag) {
+                    // Set parameters after loading checkpoint and replaying
+                    // log, checkpoint load and log replay might change
+                    // parameters.
+                    SetParameters(props);
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start();
@@ -695,6 +699,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    bool startUserAndGroupFlag = true;
     if (! createEmptyFsFlag &&
             (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
         // Init fs id if needed, leave create time 0, restorer will set these
@@ -706,6 +711,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_STREAM_INFO <<
             "creating new empty file system" <<
         KFS_LOG_EOM;
+        startUserAndGroupFlag = false;
         metatree.SetFsInfo(fsid, microseconds());
         status = metatree.new_tree(
             mStartupProperties.getValue(
@@ -757,6 +763,14 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     // chunks of the file will get reclaimed: chunkservers will tell us
     // about chunks we don't know and those will nuked due to staleness
     emptyDumpsterDir();
+    const int err = gLayoutManager.GetUserAndGroup().Start();
+    if (err != 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to load user and grop info: " <<
+                QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        return false;
+    }
     logger_init(mLogRotateIntervalSec);
     if ((status = checkpointer_init()) != 0) {
         KFS_LOG_STREAM_FATAL << "checkpoint initialization failure: " <<

@@ -441,6 +441,20 @@ restore_idempotent_request(DETokenizer& c)
         token.ptr, token.len) == 0;
 }
 
+bool
+restore_group_users(DETokenizer& c)
+{
+    static const DETokenizer::Token kGUContinue("guc");
+    const bool appendFlag = c.front() == kGUContinue;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& token = c.front();
+    return gLayoutManager.GetUserAndGroup().ReadGroup(
+        token.ptr, token.len, appendFlag, c.getIntBase() == 16) == 0;
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -466,6 +480,8 @@ get_entry_map()
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
     e.add_parser("idr",                     &restore_idempotent_request);
+    e.add_parser("gu",                      &restore_group_users);
+    e.add_parser("guc",                     &restore_group_users);
     initied = true;
     return e;
 }

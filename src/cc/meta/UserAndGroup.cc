@@ -269,9 +269,6 @@ public:
                 }
             }
         }
-        if (! mThread.IsStarted()) {
-            return StartSelf();
-        }
         mUpdateFlag = true;
         mParametersReadCount++;
         mCond.Notify();

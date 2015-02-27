@@ -141,6 +141,9 @@ Checkpoint::do_CP()
         if (status == 0 && os) {
             status = gLayoutManager.GetIdempotentRequestTracker().Write(os);
         }
+        if (status == 0 && os) {
+            status = gLayoutManager.GetUserAndGroup().WriteGroups(os);
+        }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';
             const string md = os.GetMd();

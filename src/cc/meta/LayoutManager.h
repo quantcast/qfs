@@ -1317,6 +1317,8 @@ public:
         { return mCSAccessValidForTimeSec; }
     const UserAndGroup& GetUserAndGroup() const
         { return mUserAndGroup; }
+    UserAndGroup& GetUserAndGroup()
+        { return mUserAndGroup; }
     bool HasMetaServerAdminAccess(MetaRequest& op)
     {
         return (

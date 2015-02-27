@@ -78,6 +78,7 @@ extern bool   restore_checksum(DETokenizer& c);
 extern bool   restore_delegate_cancel(DETokenizer& c);
 extern bool   restore_filesystem_info(DETokenizer& c);
 extern bool   restore_idempotent_request(DETokenizer& c);
+extern bool   restore_group_users(DETokenizer& c);
 
 }
 #endif // !defined(KFS_RESTORE_H)
