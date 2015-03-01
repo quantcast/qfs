@@ -150,6 +150,7 @@ using std::less;
     f(SET_FILE_SYSTEM_INFO) \
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
+    f(LOG_CONFIG) \
     f(ACK)
 
 enum MetaOp {
@@ -3343,6 +3344,25 @@ struct MetaAck : public MetaRequest {
         return  MetaRequest::ParserDef(parser)
         .Def2("Ack", "a", &MetaAck::ack)
         ;
+    }
+};
+
+struct MetaLogConfig : public MetaRequest {
+    const bool verifyAllOpsPermissionsFlag;
+    MetaLogConfig(
+        bool flag)
+        : MetaRequest(META_LOG_CONFIG, true),
+          verifyAllOpsPermissionsFlag(flag)
+        {}
+    virtual bool start()  { return true; }
+    virtual void handle() { status = 0; }
+    virtual void response(ReqOstream& /* os */)
+        { /* No response; */ }
+    virtual int log(ostream& file) const;
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "log config: verify permissions: " << verifyAllOpsPermissionsFlag);
     }
 };
 

@@ -455,6 +455,22 @@ restore_group_users(DETokenizer& c)
         token.ptr, token.len, appendFlag, c.getIntBase() == 16) == 0;
 }
 
+bool
+restore_config(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const bool flag = c.toNumber() != 0;
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    gLayoutManager.SetVerifyAllOpsPermissions(flag);
+    return true;
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -482,6 +498,7 @@ get_entry_map()
     e.add_parser("idr",                     &restore_idempotent_request);
     e.add_parser("gu",                      &restore_group_users);
     e.add_parser("guc",                     &restore_group_users);
+    e.add_parser("cfg",                     &restore_config);
     initied = true;
     return e;
 }

@@ -156,7 +156,12 @@ public:
     int Start()
     {
         QCStMutexLocker theLock(mMutex);
-        return StartSelf();
+        const int theRet = StartSelf();
+        if (mMetaLogGroupUsersInFlightFlag) {
+            theLock.Unlock();
+            submit_request(&mMetaLogGroupUsers);
+        }
+        return theRet;
     }
     void Shutdown()
     {
@@ -445,17 +450,11 @@ private:
             return;
         }
         QCStMutexLocker theLock(mMutex);
-        if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
-            return;
-        }
-        mMetaLogGroupUsersInFlightFlag =
-            ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
-                EqualsFunc<GroupUsersMap::Val>());
         ApplyPendingUpdate();
         if (mMetaLogGroupUsersInFlightFlag) {
+            theLock.Unlock();
             submit_request(&mMetaLogGroupUsers);
         }
-        return;
     }
     int LogDone(
         int   inCode,
@@ -472,9 +471,12 @@ private:
     }
     void ApplyPendingUpdate()
     {
-        if (mUpdateCount == mCurUpdateCount) {
+        if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
             return;
         }
+        mMetaLogGroupUsersInFlightFlag =
+            ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
+                EqualsFunc<GroupUsersMap::Val>());
         mUidNameMapPtr = new UidNameMap();
         mUidNameMapPtr->Swap(mPendingUidNameMap);
         mUidNamePtr.reset(mUidNameMapPtr);

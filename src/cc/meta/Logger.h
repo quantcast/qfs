@@ -57,7 +57,7 @@ class Logger
 {
 public:
     static const int VERSION = 1;
-    Logger(string d)
+    Logger(const string& d)
         : logdir(d),
           lognum(-1),
           logname(),
@@ -141,6 +141,7 @@ extern Logger oplog;
 extern void logger_setup_paths(const string& logdir);
 extern void logger_init(int rotateIntervalSec);
 extern void logger_set_rotate_interval(int rotateIntervalSec);
+extern bool is_logger_running();
 
 }
 #endif // !defined(KFS_LOGGER_H)

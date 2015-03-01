@@ -229,6 +229,8 @@ public:
         }
         sInstancePtr = 0;
     }
+    bool IsStarted() const
+        { return mStartedFlag; }
     void Start()
     {
         if (mStartedFlag) {
@@ -279,6 +281,13 @@ logger_init(int rotateIntervalSec)
     }
     logger_set_rotate_interval(rotateIntervalSec);
     LogRotater::Instance().Start();
+}
+
+
+bool
+is_logger_running()
+{
+    return LogRotater::Instance().IsStarted();
 }
 
 } // namespace KFS.

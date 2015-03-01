@@ -1344,6 +1344,8 @@ public:
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void GetChunkReadLeaseStart(MetaLeaseAcquire& req);
+    void SetVerifyAllOpsPermissions(bool flag)
+        { mVerifyAllOpsPermissionsFlag = flag; }
 protected:
     typedef vector<
         int,

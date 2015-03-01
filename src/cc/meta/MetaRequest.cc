@@ -5776,4 +5776,11 @@ MetaAck::log(ostream& file) const
     return (file.fail() ? -EIO : 0);
 }
 
+int
+MetaLogConfig::log(ostream& file) const
+{
+    file << "cfg/" << (verifyAllOpsPermissionsFlag ? 1 : 0) << "\n";
+    return (file.fail() ? -EIO : 0);
+}
+
 } /* namespace KFS */

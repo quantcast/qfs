@@ -31,6 +31,7 @@
 #include "kfstree.h"
 #include "ClientSM.h"
 #include "NetDispatch.h"
+#include "Logger.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
@@ -2236,9 +2237,13 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         }
         mConfig += ';';
     }
+    const bool prevVerifyFlag = mVerifyAllOpsPermissionsFlag;
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
+    if (prevVerifyFlag != mVerifyAllOpsPermissionsFlag && is_logger_running()) {
+        submit_request(new MetaLogConfig(mVerifyAllOpsPermissionsFlag));
+    }
     SetChunkServersProperties(props);
     return (csOk && cliOk && userAndGroupErr == 0);
 }
