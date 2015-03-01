@@ -240,7 +240,7 @@ public:
         globalNetManager().RegisterTimeoutHandler(this);
     }
     void SetInterval(int rotateIntervalSec)
-        { SetTimeoutInterval(rotateIntervalSec * 1000); };
+        { SetTimeoutInterval(rotateIntervalSec * 1000, ! mStartedFlag); }
     virtual void Timeout()
         { oplog.finishLog(); }
 private:

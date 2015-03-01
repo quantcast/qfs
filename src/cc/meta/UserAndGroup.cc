@@ -287,7 +287,7 @@ public:
     int WriteGroups(
         ostream& inStream)
     {
-        QCStMutexLocker theLock(mMutex); // Mutable
+        QCStMutexLocker theLock(mMutex);
         mGroupUsersMap.First();
         const GroupUsers* thePtr;
         ReqOstreamT<ostream> theStream(inStream);
