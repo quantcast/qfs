@@ -2151,18 +2151,12 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t todumpster)
     string tempname = "/" + DUMPSTERDIR + "/";
     MetaFattr* fa = 0;
     lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-
-    if (! fa) {
-        // Someone nuked the dumpster
-        makeDumpsterDir();
-        lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-        if (! fa) {
-            panic("no dumpster");
-            KFS_LOG_STREAM_INFO <<
-                "Unable to create dumpster dir to remove " << fname <<
-            KFS_LOG_EOM;
-            return -1;
-        }
+    if (! fa || fa->type != KFS_DIR) {
+        panic("no dumpster");
+        KFS_LOG_STREAM_ERROR <<
+            "unable to create dumpster dir to remove " << fname <<
+        KFS_LOG_EOM;
+        return -1;
     }
 
     // can't move something in the dumpster back to dumpster
@@ -2200,9 +2194,8 @@ Tree::cleanupDumpster()
 {
     MetaFattr* fa = 0;
     lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-    if (! fa) {
-        // Someone nuked the dumpster
-        makeDumpsterDir();
+    if (! fa || fa->type != KFS_DIR) {
+        panic("no dumpster");
         return;
     }
     const fid_t dir = fa->id();
