@@ -937,6 +937,7 @@ get_entry_map()
     e.add_parser("ack",                     &replay_idempotent_ack);
     e.add_parser("gu",                      &restore_group_users);
     e.add_parser("guc",                     &restore_group_users);
+    e.add_parser("gur",                     &restore_group_users_reset);
     initied = true;
     return e;
 }

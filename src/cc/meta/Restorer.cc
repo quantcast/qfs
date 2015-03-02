@@ -442,6 +442,17 @@ restore_idempotent_request(DETokenizer& c)
 }
 
 bool
+restore_group_users_reset(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    gLayoutManager.GetUserAndGroup().ClearGroups();
+    return true;
+}
+
+bool
 restore_group_users(DETokenizer& c)
 {
     static const DETokenizer::Token kGUContinue("guc");
@@ -498,6 +509,7 @@ get_entry_map()
     e.add_parser("idr",                     &restore_idempotent_request);
     e.add_parser("gu",                      &restore_group_users);
     e.add_parser("guc",                     &restore_group_users);
+    e.add_parser("gur",                     &restore_group_users_reset);
     e.add_parser("cfg",                     &restore_config);
     initied = true;
     return e;

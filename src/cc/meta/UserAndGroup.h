@@ -223,6 +223,7 @@ public:
     bool IsUpdatePending() const;
     int WriteGroups(
         ostream& inStream);
+    void ClearGroups();
     int ReadGroup(
         const char* inBufPtr,
         size_t      inLen,

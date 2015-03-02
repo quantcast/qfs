@@ -157,7 +157,7 @@ public:
     {
         QCStMutexLocker theLock(mMutex);
         const int theRet = StartSelf();
-        if (mMetaLogGroupUsersInFlightFlag) {
+        if (theRet == 0 && mMetaLogGroupUsersInFlightFlag) {
             theLock.Unlock();
             submit_request(&mMetaLogGroupUsers);
         }
@@ -288,9 +288,10 @@ public:
         ostream& inStream)
     {
         QCStMutexLocker theLock(mMutex);
-        mGroupUsersMap.First();
         const GroupUsers* thePtr;
         ReqOstreamT<ostream> theStream(inStream);
+        theStream << "gur/" << mGroupUsersMap.GetSize() << "\n";
+        mGroupUsersMap.First();
         while ((thePtr = mGroupUsersMap.Next()) && inStream) {
             const UsersSet& theGroups = thePtr->GetVal();
             UsersSet::const_iterator theIt = theGroups.begin();
@@ -311,6 +312,11 @@ public:
             theStream << "\n";
         }
         return (! inStream ? -EIO : 0);
+    }
+    void ClearGroups()
+    {
+        QCStMutexLocker theLock(mMutex);
+        mGroupUsersMap.Clear();
     }
     int ReadGroup(
         const char* inBufPtr,
@@ -450,8 +456,7 @@ private:
             return;
         }
         QCStMutexLocker theLock(mMutex);
-        ApplyPendingUpdate();
-        if (mMetaLogGroupUsersInFlightFlag) {
+        if (ApplyPendingUpdate() && mMetaLogGroupUsersInFlightFlag) {
             theLock.Unlock();
             submit_request(&mMetaLogGroupUsers);
         }
@@ -469,10 +474,10 @@ private:
         mMetaLogGroupUsersInFlightFlag = false;
         return 0;
     }
-    void ApplyPendingUpdate()
+    bool ApplyPendingUpdate()
     {
         if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
-            return;
+            return false;
         }
         mMetaLogGroupUsersInFlightFlag =
             ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
@@ -506,6 +511,7 @@ private:
             mPendingDelegationRenewAndCancelUsers);
         mDelegationRenewAndCancelUsersPtr.reset(
             theDelegationRenewAndCancelUsersPtr);
+        return true;
     }
     static bool StartsWith(
         const string& inString,
@@ -861,6 +867,9 @@ private:
                     KFS_LOG_EOM;
                 }
             }
+            if (theUsers.empty()) {
+                mTmpGroupUsersMap.Erase(thePtr->GetKey());
+            }
         }
         int theStatus;
         if ((theStatus = InsertTmpUsers(
@@ -1171,6 +1180,12 @@ UserAndGroup::WriteGroups(
     ostream& inStream)
 {
     return mImpl.WriteGroups(inStream);
+}
+
+    void
+UserAndGroup::ClearGroups()
+{
+    mImpl.ClearGroups();
 }
 
     int
