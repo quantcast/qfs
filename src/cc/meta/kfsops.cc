@@ -92,6 +92,23 @@ makeDumpsterDir()
         &dummy);
 }
 
+int
+checkDumpsterExists()
+{
+    MetaFattr* fa;
+    int status = metatree.lookup(
+            ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
+    if (status == 0 && fa->type == KFS_DIR) {
+        return 0;
+    }
+    if (status == 0) {
+        status = -ENOTDIR;
+    }
+    KFS_LOG_STREAM_ERROR <<  "/" << DUMPSTERDIR << ": " <<  status <<
+    KFS_LOG_EOM;
+    return status;
+}
+
 /*!
  * \brief Cleanup the dumpster directory on startup.  Also, if
  * the dumpster doesn't exist, make one.

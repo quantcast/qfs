@@ -721,6 +721,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
                 "metaServer.rootDirMode",
                 0755)
         );
+        makeDumpsterDir();
         rollChunkIdSeedFlag = false;
     }
     if (status != 0) {

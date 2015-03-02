@@ -598,6 +598,16 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
         KFS_LOG_EOM;
         is_ok = false;
     }
+    if (is_ok) {
+        const int err = checkDumpsterExists();
+        if (err) {
+            KFS_LOG_STREAM_FATAL <<
+                cpname << ": invalid or missing dumpster directory: " <<
+                QCUtils::SysError(-err) <<
+            KFS_LOG_EOM;
+            is_ok = false;
+        }
+    }
     return is_ok;
 }
 
