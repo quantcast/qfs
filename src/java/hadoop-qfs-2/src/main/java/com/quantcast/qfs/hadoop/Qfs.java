@@ -82,7 +82,7 @@ public class Qfs extends AbstractFileSystem {
       this.qfsImpl = new QFSImpl(
         uri.getHost(), uri.getPort(), getStatistics());
     }
-    this.qfs = new QuantcastFileSystem(this.qfsImpl, uri);
+    this.qfs = new QuantcastFileSystem2(this.qfsImpl, uri);
   }
 
   @Override

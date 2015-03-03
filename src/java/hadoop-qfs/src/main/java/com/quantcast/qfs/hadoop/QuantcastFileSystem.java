@@ -14,6 +14,9 @@
  *
  * Implements the Hadoop FS interfaces to allow applications to store files in
  * Quantcast File System (QFS). This is an extension of KFS.
+ *
+ * Use this class for Hadoop 0.2x and Hadoop 1.x. QuantcastFileSystem2 should
+ * be used for Hadoop 2.x.
  */
 
 package com.quantcast.qfs.hadoop;
@@ -42,10 +45,10 @@ import com.quantcast.qfs.access.KfsFileAttr;
 
 public class QuantcastFileSystem extends FileSystem {
 
-  private FileSystem localFs    = null;
-  private IFSImpl    qfsImpl    = null;
-  private URI        uri        = null;
-  private Path       workingDir = null;
+  protected FileSystem localFs    = null;
+  protected IFSImpl    qfsImpl    = null;
+  protected URI        uri        = null;
+  protected Path       workingDir = null;
 
   public QuantcastFileSystem() {
   }
@@ -102,7 +105,7 @@ public class QuantcastFileSystem extends FileSystem {
     }
   }
 
-  private Path makeAbsolute(Path path) throws IOException {
+  protected Path makeAbsolute(Path path) throws IOException {
     if (path.isAbsolute()) {
       return path;
     }
@@ -132,13 +135,19 @@ public class QuantcastFileSystem extends FileSystem {
     return qfsImpl.isFile(srep);
   }
 
+  // Internal implementation of listStatus. Will throw FileNotFounException
+  // if path does not exist
+  public FileStatus[] listStatusInternal(Path path) throws IOException {
+    final Path absolute = makeAbsolute(path).makeQualified(uri, null);
+    final FileStatus fs = qfsImpl.stat(absolute);
+    return fs.isDir() ?
+      qfsImpl.readdirplus(absolute) :
+      new FileStatus[] { fs };
+  }
+
   public FileStatus[] listStatus(Path path) throws IOException {
     try {
-      final Path absolute = makeAbsolute(path).makeQualified(uri, null);
-      final FileStatus fs = qfsImpl.stat(absolute);
-      return fs.isDir() ?
-        qfsImpl.readdirplus(absolute) :
-        new FileStatus[] { fs };
+      return listStatusInternal(path);
     }
     catch (FileNotFoundException e) {
       return null;
