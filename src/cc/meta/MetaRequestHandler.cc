@@ -12,7 +12,7 @@ using std::ostream;
 using std::string;
 
 template<typename T>
-    static const T&
+    static T&
 MakeMetaRequestHandler(
     const T* inNullPtr = 0)
 {
@@ -190,6 +190,18 @@ typedef RequestHandler<
 static const MetaRequestHandler& sMetaRequestHandler =
     MakeMetaRequestHandler<MetaRequestHandler>();
 
+template<typename T>
+    static const T&
+MakeLogMetaRequestHandler(
+    const T* inNullPtr = 0)
+{
+    return MakeMetaRequestHandler(inNullPtr)
+    .MakeParser("LEASE_CLENAUP",
+        META_LEASE_CLEANUP,
+        static_cast<const MetaLeaseCleanup*>(0))
+    ;
+}
+
 typedef RequestHandler<
     MetaRequest,
     ValueParserT<HexIntParser>,
@@ -200,7 +212,7 @@ typedef RequestHandler<
     MetaRequestDeleter
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
-    MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
+    MakeLogMetaRequestHandler<MetaRequestHandlerShortFmt>();
 
 class StringEscapeIoParser
 {
@@ -212,8 +224,30 @@ public:
         const T&    inDefaultValue,
         T&          outValue)
     {
-        return ValueParserT<HexIntParser>::SetValue(
+        ValueParserT<HexIntParser>::SetValue(
             inPtr, inLen, inDefaultValue, outValue);
+    }
+    static void SetValue(
+        const char*      inPtr,
+        size_t           inLen,
+        const LeaseType& inDefaultValue,
+        LeaseType&       outValue)
+    {
+        int theVal = inDefaultValue;
+        ValueParserT<HexIntParser>::SetValue(
+                inPtr, inLen, (int)inDefaultValue, theVal);
+        switch (theVal) {
+            case READ_LEASE:
+                outValue = READ_LEASE;
+            break;
+            case WRITE_LEASE:
+                outValue = WRITE_LEASE;
+            break;
+            default:
+                outValue = inDefaultValue;
+                return;
+            break;
+        }
     }
     static void SetValue(
         const char*   inPtr,
@@ -332,6 +366,9 @@ private:
     void WriteVal(
         StringBufT<DEFAULT_CAPACITY>& inStr)
         { Escape(inStr.data(), inStr.size()); }
+    void WriteVal(
+        const LeaseType inVal)
+        { mOStream << (int)inVal; }
 private:
     ReqOstream              mOStream;
     ostream::fmtflags const mFlags;
@@ -372,7 +409,7 @@ public:
     static PARSER& Define(
         PARSER&     inParser,
         const OBJ*  /* inNullPtr */)
-        { return OBJ::IoParserDef(inParser); }
+        { return OBJ::LogIoDef(inParser); }
 };
 
 typedef RequestHandler<

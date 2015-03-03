@@ -2486,7 +2486,12 @@ MetaTruncate::start()
     } else {
         euser = kKfsUserRoot;
     }
-    return true;
+    if (! pruneBlksFromHead && (endOffset >= 0 && endOffset < offset)) {
+        status    = -EINVAL;
+        statusMsg = "end offset less than offset";
+        return false;
+    }
+    return (status == 0);
 }
 
 /* virtual */ void
@@ -2494,11 +2499,6 @@ MetaTruncate::handle()
 {
     if (pruneBlksFromHead) {
         status = metatree.pruneFromHead(fid, offset, &mtime, euser, egroup);
-        return;
-    }
-    if (endOffset >= 0 && endOffset < offset) {
-        status    = -EINVAL;
-        statusMsg = "end offset less than offset";
         return;
     }
     status = metatree.truncate(fid, offset, &mtime, euser, egroup,

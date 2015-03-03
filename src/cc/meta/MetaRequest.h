@@ -212,6 +212,7 @@ struct MetaRequest {
     bool            validDelegationFlag;
     bool            fromClientSMFlag;
     bool            shortRpcFormatFlag;
+    bool            replayFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -239,6 +240,7 @@ struct MetaRequest {
           validDelegationFlag(false),
           fromClientSMFlag(false),
           shortRpcFormatFlag(false),
+          replayFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -298,13 +300,13 @@ struct MetaRequest {
         .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
         return parser
-        .Def("u", &MetaRequest::euser,     kKfsUserNone)
-        .Def("a", &MetaRequest::authUid,   kKfsUserNone)
-        .Def("s", &MetaRequest::status,    0)
-        .Def("m", &MetaRequest::statusMsg, string())
+        .Def("u", &MetaRequest::euser,               kKfsUserNone)
+        .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
+        .Def("a", &MetaRequest::authUid,             kKfsUserNone)
+        .Def("s", &MetaRequest::fromChunkServerFlag, false)
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -333,6 +335,7 @@ struct MetaRequest {
             DecIntParser::Parse(ioPtr, inLen, outValue));
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
+    static bool Replay(const char* buf, size_t len) { return false; }
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
@@ -391,9 +394,9 @@ struct MetaIdempotentRequest : public MetaRequest {
         .Def2("Rid", "r", &MetaIdempotentRequest::reqId)
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        return MetaRequest::IoParserDef(parser)
+        return MetaRequest::LogIoDef(parser)
         .Def("r", &MetaIdempotentRequest::reqId)
         ;
     }
@@ -583,18 +586,15 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def2("GName",                "GN", &MetaCreate::groupName)
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        // Make every response field persistent.
-        // Keep parent directory, replication, and name for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
+        return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P",  &MetaCreate::dir,         fid_t(-1))
-        .Def("R",  &MetaCreate::numReplicas, int16_t( 1))
         .Def("N",  &MetaCreate::name)
-        .Def("H",  &MetaCreate::fid,         fid_t(-1))
+        .Def("R",  &MetaCreate::numReplicas, int16_t( 1))
         .Def("ST", &MetaCreate::striperType, int32_t(KFS_STRIPED_FILE_TYPE_NONE))
         .Def("U",  &MetaCreate::user,        kKfsUserNone)
-        .Def("G",  &MetaCreate::group,       kKfsUserNone)
+        .Def("G",  &MetaCreate::group,       kKfsGroupNone)
         .Def("M",  &MetaCreate::mode,        kKfsModeUndef)
         .Def("TL", &MetaCreate::minSTier,    kKfsSTierMax)
         .Def("TH", &MetaCreate::maxSTier,    kKfsSTierMax)
@@ -662,14 +662,11 @@ struct MetaMkdir: public MetaIdempotentRequest {
         .Def2("GName",              "GN", &MetaMkdir::groupName)
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        // Make every response field persistent.
-        // Keep parent directory and name for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
+        return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P",  &MetaMkdir::dir,      fid_t(-1))
         .Def("N",  &MetaMkdir::name)
-        .Def("H",  &MetaMkdir::fid,      fid_t(-1))
         .Def("U",  &MetaMkdir::user,     kKfsUserNone)
         .Def("G",  &MetaMkdir::group,    kKfsUserNone)
         .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
@@ -720,10 +717,9 @@ struct MetaRemove: public MetaIdempotentRequest {
         .Def2("Pathname",           "PN", &MetaRemove::pathname      )
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        // Keep parent directory and name for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
+        return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P", &MetaRemove::dir, fid_t(-1))
         .Def("N", &MetaRemove::name)
         ;
@@ -768,10 +764,9 @@ struct MetaRmdir: public MetaIdempotentRequest {
         .Def2("Pathname",           "PN", &MetaRmdir::pathname      )
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        // Keep parent directory and name for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
+        return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P", &MetaRmdir::dir, fid_t(-1))
         .Def("N", &MetaRmdir::name)
         ;
@@ -1034,7 +1029,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
     bool       hasChunkChecksum;
     uint32_t   chunkChecksum;
     MetaLeaseRelinquish()
-        : MetaRequest(META_LEASE_RELINQUISH, false),
+        : MetaRequest(META_LEASE_RELINQUISH, true),
           leaseType(READ_LEASE),
           chunkId(-1),
           leaseId(-1),
@@ -1079,6 +1074,16 @@ struct MetaLeaseRelinquish: public MetaRequest {
         .Def2("Lease-id",       "L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
         .Def2("Chunk-size",     "S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
         .Def2("Chunk-checksum", "K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("T", &MetaLeaseRelinquish::leaseType,         READ_LEASE)
+        .Def("H", &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
+        .Def("L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
+        .Def("S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
+        .Def("K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
         ;
     }
 private:
@@ -1219,6 +1224,15 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         .Def2("Invalidate-all", "I", &MetaAllocate::invalidateAllFlag,         false)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaAllocate::fid,                   fid_t(-1))
+        .Def("A", &MetaAllocate::appendChunk,               false)
+        .Def("S", &MetaAllocate::offset,           chunkOff_t(-1))
+        .Def("I", &MetaAllocate::invalidateAllFlag,         false)
+        ;
+    }
 private:
     KfsCallbackObj* origClnt;
     void LogDone(
@@ -1280,6 +1294,17 @@ struct MetaTruncate: public MetaRequest {
         .Def2("Check-perms",     "M", &MetaTruncate::checkPermsFlag,           false)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaTruncate::fid,                  fid_t(-1))
+        .Def("S", &MetaTruncate::offset,          chunkOff_t(-1))
+        .Def("H", &MetaTruncate::pruneBlksFromHead,        false)
+        .Def("E", &MetaTruncate::endOffset,       chunkOff_t(-1))
+        .Def("O", &MetaTruncate::setEofHintFlag,            true)
+        .Def("M", &MetaTruncate::checkPermsFlag,           false)
+        ;
+    }
 };
 
 /*!
@@ -1329,11 +1354,14 @@ struct MetaRename: public MetaIdempotentRequest {
         .Def2("Overwrite",          "W", &MetaRename::overwrite, false)
         ;
     }
-    template<typename T> static T& IoParserDef(T& parser)
+    template<typename T> static T& LogIoDef(T& parser)
     {
-        // Keep parent directory for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
-        .Def("P", &MetaRename::dir, fid_t(-1))
+        return MetaIdempotentRequest::LogIoDef(parser)
+        .Def("P", &MetaRename::dir,   fid_t(-1))
+        .Def("O", &MetaRename::oldname         )
+        .Def("N", &MetaRename::newname         )
+        .Def("F", &MetaRename::oldpath         )
+        .Def("W", &MetaRename::overwrite, false)
         ;
     }
 };
@@ -1376,6 +1404,14 @@ struct MetaSetMtime: public MetaRequest {
         .Def2("Mtime-sec",  "S", &MetaSetMtime::sec     )
         .Def2("Mtime-usec", "U", &MetaSetMtime::usec    )
         .Def2("Pathname",   "N", &MetaSetMtime::pathname)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("N", &MetaSetMtime::pathname)
+        .Def("S", &MetaSetMtime::sec)
+        .Def("U", &MetaSetMtime::usec)
         ;
     }
 private:
@@ -1428,6 +1464,15 @@ struct MetaChangeFileReplication: public MetaRequest {
         .Def2("Max-tier",     "TH", &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P",  &MetaChangeFileReplication::fid,         fid_t(-1))
+        .Def("R",  &MetaChangeFileReplication::numReplicas, int16_t(1))
+        .Def("TL", &MetaChangeFileReplication::minSTier,    kKfsSTierUndef)
+        .Def("TH", &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
+        ;
+    }
 private:
     MetaFattr* fa;
 };
@@ -1477,6 +1522,13 @@ struct MetaCoalesceBlocks: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def2("Src-path",  "S", &MetaCoalesceBlocks::srcPath)
         .Def2("Dest-path", "D", &MetaCoalesceBlocks::dstPath)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("S", &MetaCoalesceBlocks::srcPath)
+        .Def("D", &MetaCoalesceBlocks::dstPath)
         ;
     }
 };
@@ -1753,6 +1805,13 @@ struct MetaChmod: public MetaRequest {
         .Def2("Mode",        "M", &MetaChmod::mode, kKfsModeUndef)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaChmod::fid,  fid_t(-1))
+        .Def("M", &MetaChmod::mode, kKfsModeUndef)
+        ;
+    }
 };
 
 struct MetaChown: public MetaRequest {
@@ -1795,6 +1854,14 @@ struct MetaChown: public MetaRequest {
         .Def2("Group",       "G",  &MetaChown::group, kKfsGroupNone)
         .Def2("OName",       "ON", &MetaChown::ownerName)
         .Def2("GName",       "GN", &MetaChown::groupName)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P",  &MetaChown::fid,   fid_t(-1))
+        .Def("O",  &MetaChown::user,  kKfsUserNone)
+        .Def("G",  &MetaChown::group, kKfsGroupNone)
         ;
     }
 };
@@ -3173,6 +3240,18 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::appendRecoveryLocations)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("H", &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def("F", &MetaLeaseAcquire::flushFlag,    false              )
+        .Def("T", &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
+        .Def("I", &MetaLeaseAcquire::chunkIds)
+        .Def("L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def("A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("R", &MetaLeaseAcquire::appendRecoveryLocations)
+        ;
+    }
 protected:
     int handleCount;
 };
@@ -3252,7 +3331,7 @@ private:
  * dead leases thru the main event processing loop.
  */
 struct MetaLeaseCleanup: public MetaRequest {
-    MetaLeaseCleanup(seq_t s, KfsCallbackObj *c)
+    MetaLeaseCleanup(seq_t s = -1, KfsCallbackObj *c = 0)
         : MetaRequest(META_LEASE_CLEANUP, true, s)
             { clnt = c; }
 
@@ -3262,6 +3341,13 @@ struct MetaLeaseCleanup: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "lease cleanup";
+    }
+    bool Validate() { return true; }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("T", &MetaLeaseCleanup::startTime)
+        ;
     }
 };
 

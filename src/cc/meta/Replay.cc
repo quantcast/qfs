@@ -900,6 +900,17 @@ replay_idempotent_ack(DETokenizer& c)
         token.ptr, token.len, uid, aid);
 }
 
+static bool
+replay_log_ahead_entry(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& token = c.front();
+    return MetaRequest::Replay(token.ptr, token.len);
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -967,8 +978,14 @@ Replay::playlog(bool& lastEntryChecksumFlag)
 
     seq_t opcount = oplog.checkpointed();
     int status = 0;
+    static const DETokenizer::Token kAheadLogEntry("a");
     while (tokenizer.next(&mds)) {
-        if (! entrymap.parse(tokenizer)) {
+        if (tokenizer.empty()) {
+            continue;
+        }
+        if ((kAheadLogEntry == tokenizer.front() &&
+                ! replay_log_ahead_entry(tokenizer)) ||
+                ! entrymap.parse(tokenizer)) {
             KFS_LOG_STREAM_FATAL <<
                 "error " << path <<
                 ":" << tokenizer.getEntryCount() <<
