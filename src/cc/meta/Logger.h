@@ -90,6 +90,7 @@ public:
     {
         return r->seqno != 0 && r->seqno <= committed;
     }
+    void dispatchWriteAhead(MetaRequest* r);
     //!< log a request
     int log(MetaRequest *r);
     //!< add to the log and dispatch downstream to netdispatcher

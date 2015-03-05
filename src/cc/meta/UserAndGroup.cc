@@ -948,8 +948,6 @@ private:
             : MetaRequest(META_LOG_GROUP_USERS, true),
               mImpl(inImpl)
             { clnt = &mImpl; }
-        virtual bool start()
-            { return true; }
         virtual void handle()
             { status = 0; }
         virtual int log(

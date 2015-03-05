@@ -49,7 +49,36 @@ string LASTLOG(LOGDIR + "/last");
 Logger oplog(LOGDIR);
 
 void
-Logger::dispatch(MetaRequest *r)
+Logger::dispatchWriteAhead(MetaRequest* r)
+{
+    if (r->seqno <= 0 &&
+            ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
+            MetaRequest::kLogAlways == r->logAction)) {
+        r->seqno = ++nextseq;
+        if (logstream) {
+            logstream.write("a/", 2);
+            const bool kOmitDefaultsFlag = true;
+            if (! r->WriteLog(logstream, kOmitDefaultsFlag)) {
+                panic("logger: invalid request ");
+            }
+            logstream.write("\n", 1);
+        }
+        if (logstream) {
+            flushResult(r);
+        } else {
+            r->status    = -EIO;
+            r->statusMsg = "transaction log write error";
+        }
+        cp.note_mutation();
+    }
+    if (r->suspended) {
+        return;
+    }
+    submit_request(r);
+}
+
+void
+Logger::dispatch(MetaRequest* r)
 {
     if (r->seqno <= 0) {
         r->seqno = ++nextseq;

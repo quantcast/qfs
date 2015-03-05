@@ -5884,7 +5884,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
     }
     StTmp<Servers>    serversTmp(mServers3Tmp);
     Servers&          servers = serversTmp.Get();
-    const bool        recoveryFlag = InRecovery();
+    const bool        recoveryFlag = InRecovery() && ! req.replayFlag;
     const char*       p            = req.chunkIds.GetPtr();
     const char*       e            = p + req.chunkIds.GetSize();
     int               ret          = 0;
@@ -6049,8 +6049,8 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     if (ret != 0 || req->chunkId < 0) {
         return ret;
     }
-    if ((! req->fromChunkServerFlag && ! req->appendRecoveryFlag) &&
-            InRecovery()) {
+    if ((! req->fromChunkServerFlag && ! req->appendRecoveryFlag &&
+            ! req->replayFlag) && InRecovery()) {
         req->statusMsg = "recovery is in progress";
         KFS_LOG_STREAM_INFO << "chunk " << req->chunkId <<
             " " << req->statusMsg << " => EBUSY" <<

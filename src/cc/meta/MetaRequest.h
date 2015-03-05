@@ -300,6 +300,15 @@ struct MetaRequest {
         .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        return parser
+        .Def("u", &MetaRequest::euser,     kKfsUserNone)
+        .Def("a", &MetaRequest::authUid,   kKfsUserNone)
+        .Def("s", &MetaRequest::status,    0)
+        .Def("m", &MetaRequest::statusMsg, string())
+        ;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return parser
@@ -335,7 +344,8 @@ struct MetaRequest {
             DecIntParser::Parse(ioPtr, inLen, outValue));
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
-    static bool Replay(const char* buf, size_t len) { return false; }
+    bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
+    static bool Replay(const char* buf, size_t len);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
@@ -394,6 +404,12 @@ struct MetaIdempotentRequest : public MetaRequest {
         .Def2("Rid", "r", &MetaIdempotentRequest::reqId)
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        return MetaRequest::IoParserDef(parser)
+        .Def("r", &MetaIdempotentRequest::reqId)
+        ;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
@@ -411,7 +427,7 @@ protected:
     }
     virtual ~MetaIdempotentRequest();
     virtual void ReleaseSelf() { UnRef(); }
-    inline bool IsHandled() const;
+    inline bool IsHandled();
     inline bool IsLogNeeded() const;
 private:
     volatile int           ref;
@@ -586,6 +602,23 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def2("GName",                "GN", &MetaCreate::groupName)
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Make every response field persistent.
+        // Keep parent directory, replication, and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P",  &MetaCreate::dir,         fid_t(-1))
+        .Def("R",  &MetaCreate::numReplicas, int16_t( 1))
+        .Def("N",  &MetaCreate::name)
+        .Def("H",  &MetaCreate::fid,         fid_t(-1))
+        .Def("ST", &MetaCreate::striperType, int32_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def("U",  &MetaCreate::user,        kKfsUserNone)
+        .Def("G",  &MetaCreate::group,       kKfsUserNone)
+        .Def("M",  &MetaCreate::mode,        kKfsModeUndef)
+        .Def("TL", &MetaCreate::minSTier,    kKfsSTierMax)
+        .Def("TH", &MetaCreate::maxSTier,    kKfsSTierMax)
+        ;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
@@ -662,6 +695,21 @@ struct MetaMkdir: public MetaIdempotentRequest {
         .Def2("GName",              "GN", &MetaMkdir::groupName)
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Make every response field persistent.
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P",  &MetaMkdir::dir,      fid_t(-1))
+        .Def("N",  &MetaMkdir::name)
+        .Def("H",  &MetaMkdir::fid,      fid_t(-1))
+        .Def("U",  &MetaMkdir::user,     kKfsUserNone)
+        .Def("G",  &MetaMkdir::group,    kKfsUserNone)
+        .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
+        .Def("TL", &MetaMkdir::minSTier, kKfsSTierMax)
+        .Def("TH", &MetaMkdir::maxSTier, kKfsSTierMax)
+        ;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
@@ -717,6 +765,14 @@ struct MetaRemove: public MetaIdempotentRequest {
         .Def2("Pathname",           "PN", &MetaRemove::pathname      )
         ;
     }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRemove::dir, fid_t(-1))
+        .Def("N", &MetaRemove::name)
+        ;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
@@ -762,6 +818,14 @@ struct MetaRmdir: public MetaIdempotentRequest {
         .Def2("Parent File-handle", "P",  &MetaRmdir::dir, fid_t(-1))
         .Def2("Directory",          "N",  &MetaRmdir::name          )
         .Def2("Pathname",           "PN", &MetaRmdir::pathname      )
+        ;
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRmdir::dir, fid_t(-1))
+        .Def("N", &MetaRmdir::name)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -1352,6 +1416,13 @@ struct MetaRename: public MetaIdempotentRequest {
         .Def2("New-path",           "N", &MetaRename::newname         )
         .Def2("Old-path",           "F", &MetaRename::oldpath         )
         .Def2("Overwrite",          "W", &MetaRename::overwrite, false)
+        ;
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Keep parent directory for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P", &MetaRename::dir, fid_t(-1))
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -3237,19 +3308,21 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def2("Chunk-ids",           "I", &MetaLeaseAcquire::chunkIds)
         .Def2("Get-locations",       "L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         .Def2("Append-recovery",     "A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
-        .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::appendRecoveryLocations)
+        .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::leaseId,              int64_t(-1))
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("H", &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
-        .Def("F", &MetaLeaseAcquire::flushFlag,    false              )
-        .Def("T", &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
-        .Def("I", &MetaLeaseAcquire::chunkIds)
-        .Def("L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
-        .Def("A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
-        .Def("R", &MetaLeaseAcquire::appendRecoveryLocations)
+        .Def("H",  &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def("F",  &MetaLeaseAcquire::flushFlag,    false              )
+        .Def("T",  &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
+        .Def("I",  &MetaLeaseAcquire::chunkIds)
+        .Def("L",  &MetaLeaseAcquire::getChunkLocationsFlag,      false)
+        .Def("A",  &MetaLeaseAcquire::appendRecoveryFlag,         false)
+        .Def("R",  &MetaLeaseAcquire::appendRecoveryLocations          )
+        .Def("LI", &MetaLeaseAcquire::leaseId,              int64_t(-1))
+        .Def("LS", &MetaLeaseAcquire::leaseIds)
         ;
     }
 protected:
@@ -3429,6 +3502,12 @@ struct MetaAck : public MetaRequest {
     {
         return  MetaRequest::ParserDef(parser)
         .Def2("Ack", "a", &MetaAck::ack)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("A", &MetaAck::ack)
         ;
     }
 };

@@ -744,9 +744,18 @@ MetaRequest::GetNullReq()
 }
 
 inline bool
-MetaIdempotentRequest::IsHandled() const
+MetaIdempotentRequest::IsHandled()
 {
-    if (req && req != this) {
+    if (replayFlag) {
+        if (req) {
+            panic("in-flight idempotent in replay");
+            return true;
+        }
+        if (gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
+            panic("handled/duplicate idempotent in replay");
+            return true;
+        }
+    } else if (req && req != this) {
         if (req->seqno <= 0) {
             panic("invalid in-flight idempotent request");
         }
@@ -851,8 +860,6 @@ MetaCreate::start()
         status    = -EPERM;
         return false;
     }
-    fid        = 0;
-    todumpster = -1;
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE && numRecoveryStripes > 0) {
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerRSFile());
@@ -881,6 +888,8 @@ MetaCreate::handle()
     if (IsHandled()) {
         return;
     }
+    fid        = 0;
+    todumpster = -1;
     MetaFattr* fa = 0;
     status = metatree.create(
         dir,
@@ -3733,7 +3742,7 @@ submit_request(MetaRequest* r)
                 r->processTime = microseconds() - r->processTime;
             }
             if (logFlag) {
-                submit_request(r);
+                oplog.dispatchWriteAhead(r);
                 return;
             }
             if (r->suspended) {
@@ -3863,6 +3872,7 @@ MetaAllocate::log(ostream &file) const
         << "/chunkVersion/" << chunkVersion
         << "/mtime/" << ShowTime(microseconds())
         << "/append/" << (appendChunk ? 1 : 0)
+        << "/lease/" << leaseId
         << '\n';
     return file.fail() ? -EIO : 0;
 }

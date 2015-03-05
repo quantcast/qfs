@@ -4,12 +4,18 @@
 
 #include <ostream>
 #include <string>
+#include <vector>
+#include <map>
+#include <set>
 
 namespace KFS
 {
 
 using std::ostream;
 using std::string;
+using std::vector;
+using std::map;
+using std::set;
 
 template<typename T>
     static T&
@@ -190,18 +196,6 @@ typedef RequestHandler<
 static const MetaRequestHandler& sMetaRequestHandler =
     MakeMetaRequestHandler<MetaRequestHandler>();
 
-template<typename T>
-    static const T&
-MakeLogMetaRequestHandler(
-    const T* inNullPtr = 0)
-{
-    return MakeMetaRequestHandler(inNullPtr)
-    .MakeParser("LEASE_CLENAUP",
-        META_LEASE_CLEANUP,
-        static_cast<const MetaLeaseCleanup*>(0))
-    ;
-}
-
 typedef RequestHandler<
     MetaRequest,
     ValueParserT<HexIntParser>,
@@ -212,7 +206,7 @@ typedef RequestHandler<
     MetaRequestDeleter
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
-    MakeLogMetaRequestHandler<MetaRequestHandlerShortFmt>();
+    MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
 
 class StringEscapeIoParser
 {
@@ -245,7 +239,6 @@ public:
             break;
             default:
                 outValue = inDefaultValue;
-                return;
             break;
         }
     }
@@ -270,6 +263,20 @@ public:
             outValue = inDefaultValue;
         }
     }
+    template<typename T, typename A>
+    static void SetValue(
+        const char*         inPtr,
+        size_t              inLen,
+        const vector<T, A>& inDefaultValue,
+        vector<T, A>&       outValue)
+        { ReadCollection(inPtr, inLen, inDefaultValue, (const T*)0, outValue); }
+    template<typename T, typename C, typename A>
+    static void SetValue(
+        const char*         inPtr,
+        size_t              inLen,
+        const set<T, C, A>& inDefaultValue,
+        set<T, C, A>&       outValue)
+        { ReadCollection(inPtr, inLen, inDefaultValue, (const T*)0, outValue); }
 private:
     template<typename T>
     static bool Unescape(
@@ -301,6 +308,37 @@ private:
         }
         inStr.append(thePtr, theEndPtr - thePtr);
         return true;
+    }
+    template<typename T, typename ET>
+    static void ReadCollection(
+        const char* inPtr,
+        size_t      inLen,
+        const T&    inDefaultValue,
+        const ET*   inElemTypePtr,
+        T&          outValue)
+    {
+        outValue.clear();
+        if (inLen <= 0) {
+            return;
+        }
+        const char* thePtr      = inPtr;
+        const char* theEndPtr   = thePtr + inLen;
+        const char* theStartPtr = thePtr;
+        for (; ;) {
+            if (theEndPtr <= thePtr || (*thePtr & 0xFF) == ',' ) {
+                ET theVal;
+                SetValue(theStartPtr, thePtr - theStartPtr,
+                    ET(), theVal);
+                outValue.insert(outValue.end(), theVal);
+                if (theEndPtr <= thePtr) {
+                    break;
+                }
+                ++thePtr;
+                theStartPtr = thePtr;
+            } else {
+                ++thePtr;
+            }
+        }
     }
     static const unsigned char* const sCharToHex;
 };
@@ -348,6 +386,30 @@ private:
     void WriteVal(
         const T& inVal)
         { mOStream << inVal; }
+    template<typename T, typename A>
+    void WriteVal(
+        const vector<T, A>& inVal)
+        { WriteCollection(inVal.begin(), inVal.end()); }
+    template<typename T, typename C, typename A>
+    void WriteVal(
+        const set<T, C, A>& inVal)
+        { WriteCollection(inVal.begin(), inVal.end()); }
+    template<typename T>
+    void WriteCollection(
+        T inBegin,
+        T inEnd)
+    {
+        if (inBegin == inEnd) {
+            return;
+        }
+        for (; ;) {
+            WriteVal(*inBegin);
+            if (++inBegin == inEnd) {
+                break;
+            }
+            mOStream.write(",", 1);
+        }
+    }
     // Treat characters as integers to correctly represent *int8_t for the
     // StringEscapeIoParser / ValueParserT<HexIntParser> the above. 
     void WriteVal(
@@ -383,7 +445,7 @@ private:
         const char*       thePPtr   = thePtr;
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
-            if (theSym <= ' ' || 0xFF <= theSym || strchr("%:;/", theSym)) {
+            if (theSym <= ' ' || 0xFF <= theSym || strchr("%:;/,", theSym)) {
                 if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
@@ -409,7 +471,7 @@ public:
     static PARSER& Define(
         PARSER&     inParser,
         const OBJ*  /* inNullPtr */)
-        { return OBJ::LogIoDef(inParser); }
+        { return OBJ::IoParserDef(inParser); }
 };
 
 typedef RequestHandler<
@@ -438,6 +500,64 @@ MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
 MetaRequest::Read(const char* buf, size_t len)
 {
     return sMetaRequestIoHandler.Handle(buf, len);
+}
+
+template<typename T>
+    static const T&
+MakeLogMetaRequestHandler(
+    const T* inNullPtr = 0)
+{
+    return MakeMetaRequestHandler(inNullPtr)
+    .MakeParser("LEASE_CLENAUP",
+        META_LEASE_CLEANUP,
+        static_cast<const MetaLeaseCleanup*>(0))
+    ;
+}
+
+class LogIoDefinitionMethod
+{
+public:
+    template<typename OBJ, typename PARSER>
+    static PARSER& Define(
+        PARSER&     inParser,
+        const OBJ*  /* inNullPtr */)
+        { return OBJ::LogIoDef(inParser); }
+};
+
+typedef RequestHandler<
+    MetaRequest,
+    StringEscapeIoParser,
+    true,  // Use short names / format.
+    PropertiesTokenizerT<':', ';'>,
+    StringInsertEscapeOStream,
+    false, // Do not invoke Validate
+    MetaRequestDeleter,
+    ':',
+    LogIoDefinitionMethod
+> MetaRequestLogIoHandler;
+static const MetaRequestLogIoHandler& sMetaReplayIoHandler =
+    MakeLogMetaRequestHandler<MetaRequestLogIoHandler>();
+
+/* static */ bool
+MetaRequest::Replay(const char* buf, size_t len)
+{
+    MetaRequest* req = sMetaReplayIoHandler.Handle(buf, len);
+    if (! req) {
+        return false;
+    }
+    req->replayFlag = true;
+    req->handle();
+    req->replayFlag = false;
+    MetaRequest::Release(req);
+    return true;
+}
+
+bool
+MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
+{
+    StringInsertEscapeOStream theStream(os);
+    return sMetaReplayIoHandler.Write(
+            theStream, this, op, omitDefaultsFlag, ':', ';');
 }
 
 /* static */ int

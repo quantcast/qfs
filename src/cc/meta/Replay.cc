@@ -983,9 +983,9 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         if (tokenizer.empty()) {
             continue;
         }
-        if ((kAheadLogEntry == tokenizer.front() &&
-                ! replay_log_ahead_entry(tokenizer)) ||
-                ! entrymap.parse(tokenizer)) {
+        if (! (kAheadLogEntry == tokenizer.front() ?
+                replay_log_ahead_entry(tokenizer) :
+                entrymap.parse(tokenizer))) {
             KFS_LOG_STREAM_FATAL <<
                 "error " << path <<
                 ":" << tokenizer.getEntryCount() <<
