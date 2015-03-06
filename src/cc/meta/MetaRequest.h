@@ -316,6 +316,7 @@ struct MetaRequest {
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
         .Def("s", &MetaRequest::fromChunkServerFlag, false)
+        .Def("t", &MetaRequest::startTime)
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -3416,12 +3417,6 @@ struct MetaLeaseCleanup: public MetaRequest {
         return os << "lease cleanup";
     }
     bool Validate() { return true; }
-    template<typename T> static T& LogIoDef(T& parser)
-    {
-        return MetaRequest::LogIoDef(parser)
-        .Def("T", &MetaLeaseCleanup::startTime)
-        ;
-    }
 };
 
 /*!

@@ -286,7 +286,7 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
         mMap.Erase(req.fid);
         return;
     }
-    entry.lastAccessedTime = TimeNow();
+    entry.lastAccessedTime = req.startTime;
     entry.offset           = req.offset;
     if (entry.lastPendingRequest) {
         // Transition from pending to complete.
@@ -963,6 +963,59 @@ ChunkLeases::NewReadLease(
     if (expires < exp) {
         mReadLeaseTimer.Schedule(re, expires);
     }
+    return true;
+}
+
+inline bool
+ChunkLeases::NewWriteLease(
+    int64_t   leaseId,
+    chunkId_t chunkId,
+    fid_t     fid,
+    seq_t     chunkVersion,
+    bool      appendChunk,
+    bool      stripedFileFlag,
+    kfsUid_t  euser,
+    kfsGid_t  egroup,
+    int64_t   endTime,
+    TokenSeq  delegationSeq,
+    uint32_t  delegationValidForTime,
+    uint16_t  delegationFlags,
+    int64_t   delegationIssuedTime,
+    kfsUid_t  delegationUser,
+    int64_t   expires)
+{
+    if (mReadLeases.Find(chunkId)) {
+        assert(! mWriteLeases.Find(chunkId));
+        return false;
+    }
+    if (! IsWriteLease(leaseId)) {
+        return false;
+    }
+    WriteLease wl(
+        leaseId,
+        expires,
+        chunkVersion,
+        ChunkServerPtr(),
+        string(),
+        appendChunk,
+        stripedFileFlag
+    );
+    wl.euser                  = euser;
+    wl.egroup                 = egroup;
+    wl.endTime                = endTime;
+    wl.delegationSeq          = delegationSeq;
+    wl.delegationValidForTime = delegationValidForTime;
+    wl.delegationFlags        = delegationFlags;
+    wl.delegationIssuedTime   = delegationIssuedTime;
+    wl.delegationUser         = delegationUser;
+    bool insertedFlag = false;
+    WEntry* const l = mWriteLeases.Insert(
+        chunkId, WEntry(chunkId, wl), insertedFlag);
+    if (! insertedFlag) {
+        return false;
+    }
+    IncrementFileLease(fid);
+    PutInExpirationList(*l);
     return true;
 }
 
@@ -2825,6 +2878,43 @@ LayoutManager::UpdateDelayedRecovery(const MetaFattr& fa,
         mChunkToServerMap.SetState(
             entry, CSMap::Entry::kStateCheckReplication);
     }
+}
+
+inline bool
+LayoutManager::NewWriteLease(
+    int64_t   leaseId,
+    fid_t     fid,
+    chunkId_t chunkId,
+    seq_t     chunkVersion,
+    bool      appendChunk,
+    bool      stripedFileFlag,
+    kfsUid_t  euser,
+    kfsGid_t  egroup,
+    int64_t   endTime,
+    TokenSeq  delegationSeq,
+    uint32_t  delegationValidForTime,
+    uint16_t  delegationFlags,
+    int64_t   delegationIssuedTime,
+    kfsUid_t  delegationUser,
+    int64_t   expires)
+{
+    return mChunkLeases.NewWriteLease(
+        leaseId,
+        fid,
+        chunkId,
+        chunkVersion,
+        appendChunk,
+        stripedFileFlag,
+        euser,
+        egroup,
+        endTime,
+        delegationSeq,
+        delegationValidForTime,
+        delegationFlags,
+        delegationIssuedTime,
+        delegationUser,
+        expires
+    );
 }
 
 bool

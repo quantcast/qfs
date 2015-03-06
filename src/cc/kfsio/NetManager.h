@@ -124,6 +124,7 @@ public:
         { mMaxAcceptsPerRead = maxAcceptsPerRead <= 0 ? 1 : maxAcceptsPerRead; }
     void ChildAtFork(bool onlyCloseFdFlag = true);
     void UpdateTimeNow() { mNow = time(0); }
+    void SetTimeNow(time_t now) { mNow = now; }
     int GetConnectionCount() const
         { return mConnectionsCount; }
 

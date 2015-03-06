@@ -170,6 +170,32 @@ public:
               delegationIssuedTime(lease.delegationIssuedTime),
               delegationUser(lease.delegationUser)
             {}
+        WriteLease(
+            LeaseId        id,
+            time_t         exp,
+            seq_t          cv,
+            ChunkServerPtr cs,
+            string         pn,
+            bool           aFlag,
+            bool           sfFlag)
+            : ReadLease(id, exp),
+              chunkVersion(cv),
+              chunkServer(cs),
+              pathname(pn),
+              appendFlag(aFlag),
+              stripedFileFlag(sfFlag),
+              relinquishedFlag(false),
+              ownerWasDownFlag(false),
+              allocInFlight(0),
+              euser(kKfsUserNone),
+              egroup(kKfsGroupNone),
+              endTime(0),
+              delegationSeq(-1),
+              delegationValidForTime(0),
+              delegationFlags(0),
+              delegationIssuedTime(0),
+              delegationUser(kKfsUserNone)
+            {}
         WriteLease()
             : ReadLease(),
               chunkVersion(-1),
@@ -296,6 +322,22 @@ public:
         return (count ? *count : FileLeases::Val(0));
     }
     inline LeaseId NewReadLeaseId();
+    inline bool NewWriteLease(
+        int64_t   leaseId,
+        fid_t     fid,
+        chunkId_t chunkId,
+        seq_t     chunkVersion,
+        bool      appendChunk,
+        bool      stripedFileFlag,
+        kfsUid_t  euser,
+        kfsGid_t  egroup,
+        int64_t   endTime,
+        TokenSeq  delegationSeq,
+        uint32_t  delegationValidForTime,
+        uint16_t  delegationFlags,
+        int64_t   delegationIssuedTime,
+        kfsUid_t  delegationUser,
+        int64_t   expires);
 
 private:
     class RLEntry : public ReadLease
@@ -867,6 +909,7 @@ public:
     typedef ChunkServer::ChunkIdSet      ChunkIdSet;
     typedef RackInfo::RackId             RackId;
     typedef ChunkServer::StorageTierInfo StorageTierInfo;
+    typedef DelegationToken::TokenSeq    TokenSeq;
 
     LayoutManager();
 
@@ -1346,6 +1389,22 @@ public:
     void GetChunkReadLeaseStart(MetaLeaseAcquire& req);
     void SetVerifyAllOpsPermissions(bool flag)
         { mVerifyAllOpsPermissionsFlag = flag; }
+    bool NewWriteLease(
+        int64_t   leaseId,
+        fid_t     fid,
+        chunkId_t chunkId,
+        seq_t     chunkVersion,
+        bool      appendChunk,
+        bool      stripedFileFlag,
+        kfsUid_t  euser,
+        kfsGid_t  egroup,
+        int64_t   endTime,
+        TokenSeq  delegationSeq,
+        uint32_t  delegationValidForTime,
+        uint16_t  delegationFlags,
+        int64_t   delegationIssuedTime,
+        kfsUid_t  delegationUser,
+        int64_t   expires);
 protected:
     typedef vector<
         int,

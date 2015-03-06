@@ -1,5 +1,7 @@
 #include "MetaRequest.h"
 #include "common/RequestParser.h"
+#include "kfsio/NetManager.h"
+#include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
 
 #include <ostream>
@@ -16,6 +18,8 @@ using std::string;
 using std::vector;
 using std::map;
 using std::set;
+
+using libkfsio::globalNetManager;
 
 template<typename T>
     static T&
@@ -545,6 +549,7 @@ MetaRequest::Replay(const char* buf, size_t len)
     if (! req) {
         return false;
     }
+    globalNetManager().SetTimeNow(req->startTime);
     req->replayFlag = true;
     req->handle();
     req->replayFlag = false;

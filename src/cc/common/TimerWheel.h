@@ -70,13 +70,18 @@ public:
         }
         ListT::Insert(inEntry, mBuckets[theIdx]);
     }
+    void SetNextRunTime(
+        TimeT inNextRunTime)
+        { mNextRunTime = inNextRunTime; }
+    TimeT GetNextRunTime() const
+        { return mNextRunTime; }
     template<typename FT>
-    void Run(
+    bool Run(
         TimeT inNow,
         FT&   inFunctor)
     {
         if (inNow < mNextRunTime) {
-            return;
+            return false;
         }
         size_t theBucketCnt = (size_t)(inNow - mNextRunTime) / TimerResolutionT;
         mNextRunTime += (theBucketCnt + 1) * TimerResolutionT;
@@ -98,6 +103,7 @@ public:
                 }
             }
         } while (0 < theBucketCnt--);
+        return true;
     }
     template<typename FT>
     void Apply(
