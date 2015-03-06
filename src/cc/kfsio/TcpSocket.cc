@@ -192,6 +192,11 @@ struct TcpSocket::Address
                 return -EHOSTUNREACH;
             }
             mProto = hostInfo->h_addrtype;
+            if (AF_INET == mProto) {
+                mIp.v6.sin6_family = mProto;
+            } else {
+                mIp.v4.sin_family  = mProto;
+            }
             memcpy(GetAddr(), hostInfo->h_addr, hostInfo->h_length);
         }
         if (AF_INET == mProto) {
