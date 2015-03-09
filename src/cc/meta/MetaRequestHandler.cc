@@ -385,6 +385,8 @@ public:
         mOStream.put(inDelimiter);
         return *this;
     }
+    ReqOstream& GetOStream()
+        { return mOStream; }
 private:
     template<typename T>
     void WriteVal(
@@ -543,7 +545,7 @@ static const MetaRequestLogIoHandler& sMetaReplayIoHandler =
     MakeLogMetaRequestHandler<MetaRequestLogIoHandler>();
 
 /* static */ bool
-MetaRequest::Replay(const char* buf, size_t len)
+MetaRequest::Replay(const char* buf, size_t len, int& status)
 {
     MetaRequest* req = sMetaReplayIoHandler.Handle(buf, len);
     if (! req) {
@@ -552,6 +554,7 @@ MetaRequest::Replay(const char* buf, size_t len)
     globalNetManager().SetTimeNow(req->startTime);
     req->replayFlag = true;
     req->handle();
+    status = req->status;
     req->replayFlag = false;
     MetaRequest::Release(req);
     return true;
@@ -561,8 +564,16 @@ bool
 MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
 {
     StringInsertEscapeOStream theStream(os);
-    return sMetaReplayIoHandler.Write(
-            theStream, this, op, omitDefaultsFlag, ':', ';');
+    ReqOstream& theReqOstream = theStream.GetOStream();
+    theReqOstream.write("a/", 2);
+    theReqOstream << seqno;
+    theReqOstream.write("/", 1);
+    if (! sMetaReplayIoHandler.Write(
+            theStream, this, op, omitDefaultsFlag, ':', ';')) {
+        return false;
+    }
+    theReqOstream.write("\n", 1);
+    return true;
 }
 
 /* static */ int

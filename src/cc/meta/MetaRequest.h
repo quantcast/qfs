@@ -213,6 +213,7 @@ struct MetaRequest {
     bool            fromClientSMFlag;
     bool            shortRpcFormatFlag;
     bool            replayFlag;
+    bool            commitPendingFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -241,6 +242,7 @@ struct MetaRequest {
           fromClientSMFlag(false),
           shortRpcFormatFlag(false),
           replayFlag(false),
+          commitPendingFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -346,7 +348,7 @@ struct MetaRequest {
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
-    static bool Replay(const char* buf, size_t len);
+    static bool Replay(const char* buf, size_t len, int& status);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
@@ -402,19 +404,19 @@ struct MetaIdempotentRequest : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def2("Rid", "r", &MetaIdempotentRequest::reqId)
+        .Def2("Rid", "r", &MetaIdempotentRequest::reqId, seq_t(-1))
         ;
     }
     template<typename T> static T& IoParserDef(T& parser)
     {
         return MetaRequest::IoParserDef(parser)
-        .Def("r", &MetaIdempotentRequest::reqId)
+        .Def("r", &MetaIdempotentRequest::reqId, seq_t(-1))
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("r", &MetaIdempotentRequest::reqId)
+        .Def("r", &MetaIdempotentRequest::reqId, seq_t(-1))
         ;
     }
 protected:
@@ -623,15 +625,19 @@ struct MetaCreate: public MetaIdempotentRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
-        .Def("P",  &MetaCreate::dir,         fid_t(-1))
-        .Def("N",  &MetaCreate::name)
-        .Def("R",  &MetaCreate::numReplicas, int16_t( 1))
-        .Def("ST", &MetaCreate::striperType, int32_t(KFS_STRIPED_FILE_TYPE_NONE))
-        .Def("U",  &MetaCreate::user,        kKfsUserNone)
-        .Def("G",  &MetaCreate::group,       kKfsGroupNone)
-        .Def("M",  &MetaCreate::mode,        kKfsModeUndef)
-        .Def("TL", &MetaCreate::minSTier,    kKfsSTierMax)
-        .Def("TH", &MetaCreate::maxSTier,    kKfsSTierMax)
+        .Def("P",  &MetaCreate::dir,                fid_t(-1))
+        .Def("R",  &MetaCreate::numReplicas,        int16_t( 1))
+        .Def("ST", &MetaCreate::striperType,        int32_t(KFS_STRIPED_FILE_TYPE_NONE))
+        .Def("SN", &MetaCreate::numStripes,         int32_t(0))
+        .Def("SR", &MetaCreate::numRecoveryStripes, int32_t(0))
+        .Def("SS", &MetaCreate::stripeSize,         int32_t(0))
+        .Def("E",  &MetaCreate::exclusive,          false)
+        .Def("N",  &MetaCreate::name                     )
+        .Def("O",  &MetaCreate::user,               kKfsUserNone)
+        .Def("G",  &MetaCreate::group,              kKfsGroupNone)
+        .Def("M",  &MetaCreate::mode,               kKfsModeUndef)
+        .Def("TL", &MetaCreate::minSTier,           kKfsSTierMax)
+        .Def("TH", &MetaCreate::maxSTier,           kKfsSTierMax)
         ;
     }
 };

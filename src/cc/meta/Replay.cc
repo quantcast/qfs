@@ -44,11 +44,15 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
+#include <deque>
+#include <utility>
 
 namespace KFS
 {
 using std::ostringstream;
 using std::atoi;
+using std::deque;
+using std::pair;
 
 inline void
 Replay::setRollSeeds(int64_t roll)
@@ -900,6 +904,12 @@ replay_idempotent_ack(DETokenizer& c)
         token.ptr, token.len, uid, aid);
 }
 
+static int64_t sLastLogAheadSeq = 0;
+typedef deque<
+    pair<int64_t, int64_t>
+> CommitQueue;
+static CommitQueue sCommitQueue;
+
 static bool
 replay_log_ahead_entry(DETokenizer& c)
 {
@@ -907,8 +917,61 @@ replay_log_ahead_entry(DETokenizer& c)
     if (c.empty()) {
         return false;
     }
+    const int64_t logSeq = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    if (logSeq <= sLastLogAheadSeq) {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    sLastLogAheadSeq = logSeq;
     const DETokenizer::Token& token = c.front();
-    return MetaRequest::Replay(token.ptr, token.len);
+    int status = 0;
+    if (! MetaRequest::Replay(token.ptr, token.len, status)) {
+        return false;
+    }
+    sCommitQueue.push_back(
+        make_pair(logSeq, (int64_t)(status < 0 ? status : 0)));
+    return true;
+}
+
+static bool
+replay_log_commit_entry(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const int64_t logSeq = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const int64_t seed = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t status = c.empty() ? int64_t(0) : c.toNumber();
+    if (! c.isLastOk() || status < 0) {
+        return false;
+    }
+    if (sCommitQueue.empty()) {
+        return false;
+    }
+    const CommitQueue::value_type& f = sCommitQueue.front();
+    if (f.first != logSeq || f.second != -status) {
+        return false;
+    }
+    sCommitQueue.pop_front();
+    return (seed == fileID.getseed());
 }
 
 static DiskEntry&
@@ -949,6 +1012,7 @@ get_entry_map()
     e.add_parser("gu",                      &restore_group_users);
     e.add_parser("guc",                     &restore_group_users);
     e.add_parser("gur",                     &restore_group_users_reset);
+    e.add_parser("c",                       &replay_log_commit_entry);
     initied = true;
     return e;
 }

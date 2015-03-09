@@ -56,12 +56,10 @@ Logger::dispatchWriteAhead(MetaRequest* r)
             MetaRequest::kLogAlways == r->logAction)) {
         r->seqno = ++nextseq;
         if (logstream) {
-            logstream.write("a/", 2);
             const bool kOmitDefaultsFlag = true;
             if (! r->WriteLog(logstream, kOmitDefaultsFlag)) {
                 panic("logger: invalid request ");
             }
-            logstream.write("\n", 1);
         }
         if (logstream) {
             flushResult(r);
@@ -69,6 +67,7 @@ Logger::dispatchWriteAhead(MetaRequest* r)
             r->status    = -EIO;
             r->statusMsg = "transaction log write error";
         }
+        r->commitPendingFlag = true;
         cp.note_mutation();
     }
     if (r->suspended) {
@@ -89,6 +88,23 @@ Logger::dispatch(MetaRequest* r)
             }
             cp.note_mutation();
         }
+    } else if (r->commitPendingFlag) {
+        KFS_LOG_STREAM_DEBUG <<
+            "commit: "  << r->seqno <<
+            " fid: "    << fileID.getseed() <<
+            " status: " << r->status <<
+            " " << r->Show() <<
+        KFS_LOG_EOM;
+        if (MetaRequest::kLogIfOk == r->logAction ||
+                MetaRequest::kLogAlways == r->logAction) {
+            logstream << "c/" << r->seqno << "/" << fileID.getseed();
+            if (r->status < 0) {
+                logstream << "/" << -r->status;
+            }
+            logstream << '\n';
+            cp.note_mutation();
+        }
+        r->commitPendingFlag = false;
     }
     gNetDispatch.Dispatch(r);
 }

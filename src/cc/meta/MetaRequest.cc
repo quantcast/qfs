@@ -2732,6 +2732,7 @@ MetaLeaseAcquire::start()
         SetEUserAndEGroup(*this);
     }
     gLayoutManager.GetChunkReadLeaseStart(*this);
+    logAction = kLogNever;
     return (0 == status);
 }
 
@@ -2772,6 +2773,7 @@ MetaLeaseRenew::start()
     if (gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
+    logAction = kLogNever;
     return (status == 0);
 }
 
@@ -2787,6 +2789,7 @@ MetaLeaseRenew::handle()
 /* virtual */ bool
 MetaLeaseRelinquish::start()
 {
+    logAction = kLogNever;
     return true;
 }
 
@@ -5747,6 +5750,7 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
 bool
 MetaIdempotentRequest::WriteLog(ostream& os) const
 {
+#if 0
     if (req && req != this)  {
         return false;
     }
@@ -5758,6 +5762,7 @@ MetaIdempotentRequest::WriteLog(ostream& os) const
         }
         os.write("\n", 1);
     }
+#endif
     return (status == 0);
 }
 
