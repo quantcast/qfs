@@ -54,7 +54,9 @@ Logger::dispatchWriteAhead(MetaRequest* r)
     if (r->seqno <= 0 &&
             ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
             MetaRequest::kLogAlways == r->logAction)) {
-        r->seqno = ++nextseq;
+        r->commitPendingFlag = true;
+        r->seqno             = ++nextseq;
+        r->logseq            = ++nextlogseq;
         if (logstream) {
             const bool kOmitDefaultsFlag = true;
             if (! r->WriteLog(logstream, kOmitDefaultsFlag)) {
@@ -67,7 +69,6 @@ Logger::dispatchWriteAhead(MetaRequest* r)
             r->status    = -EIO;
             r->statusMsg = "transaction log write error";
         }
-        r->commitPendingFlag = true;
         cp.note_mutation();
     }
     if (r->suspended) {
@@ -83,28 +84,28 @@ Logger::dispatch(MetaRequest* r)
         r->seqno = ++nextseq;
         if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
                 MetaRequest::kLogAlways == r->logAction) {
+            r->logseq = ++nextlogseq;
             if (log(r) < 0) {
                 panic("Logger::dispatch", true);
             }
             cp.note_mutation();
         }
     } else if (r->commitPendingFlag) {
+        r->commitPendingFlag = false;
         KFS_LOG_STREAM_DEBUG <<
-            "commit: "  << r->seqno <<
+            "commit: "  << r->logseq <<
             " fid: "    << fileID.getseed() <<
             " status: " << r->status <<
             " " << r->Show() <<
         KFS_LOG_EOM;
-        if (MetaRequest::kLogIfOk == r->logAction ||
-                MetaRequest::kLogAlways == r->logAction) {
-            logstream << "c/" << r->seqno << "/" << fileID.getseed();
+        if (logstream) {
+            logstream << "c/" << r->logseq << "/" << fileID.getseed();
             if (r->status < 0) {
                 logstream << "/" << -r->status;
             }
             logstream << '\n';
             cp.note_mutation();
         }
-        r->commitPendingFlag = false;
     }
     gNetDispatch.Dispatch(r);
 }
@@ -131,13 +132,11 @@ Logger::log(MetaRequest *r)
 void
 Logger::flushLog()
 {
-    seq_t last = nextseq;
-
     logstream.flush();
     if (fail()) {
         panic("Logger::flushLog", true);
     }
-    committed = last;
+    committed = nextlogseq;
 }
 
 /*!
@@ -145,7 +144,7 @@ Logger::flushLog()
  * \param[in] seqno the next log sequence number (lognum)
  */
 void
-Logger::setLog(int seqno)
+Logger::setLog(seq_t seqno)
 {
     assert(seqno >= 0);
     lognum = seqno;
@@ -245,7 +244,7 @@ Logger::flushResult(MetaRequest *r)
 {
     if (r->seqno > committed) {
         flushLog();
-        assert(r->seqno <= committed);
+        assert(r->logseq <= committed);
     }
 }
 

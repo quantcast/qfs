@@ -566,7 +566,7 @@ MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
     StringInsertEscapeOStream theStream(os);
     ReqOstream& theReqOstream = theStream.GetOStream();
     theReqOstream.write("a/", 2);
-    theReqOstream << seqno;
+    theReqOstream << logseq;
     theReqOstream.write("/", 1);
     if (! sMetaReplayIoHandler.Write(
             theStream, this, op, omitDefaultsFlag, ':', ';')) {

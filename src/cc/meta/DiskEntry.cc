@@ -34,13 +34,16 @@ using std::istream;
 using std::streamsize;
 
 bool
-DiskEntry::parse(DETokenizer& tokenizer)
+DiskEntry::parse(DETokenizer& tokenizer) const
 {
-    if (tokenizer.empty())
+    if (tokenizer.empty()) {
         return true;
-
-    parsetab::const_iterator c = table.find(tokenizer.front());
-    return (c != table.end() && c->second(tokenizer));
+    }
+    parsetab::const_iterator const c = table.find(tokenizer.front());
+    return (
+        c != table.end() && c->second.first(tokenizer) &&
+        (! c->second.second || c->second.second(tokenizer))
+    );
 }
 
 bool

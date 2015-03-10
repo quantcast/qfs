@@ -205,7 +205,8 @@ struct MetaRequest {
     int64_t         processTime;     //!< same as previous
     string          statusMsg;       //!< optional human readable status message
     seq_t           opSeqno;         //!< command sequence # sent by the client
-    seq_t           seqno;           //!< sequence no. in log
+    seq_t           seqno;           //!< sequence no. global ordering
+    seq_t           logseq;          //!< sequence no. in log
     LogAction       logAction;       //!< mutates metatree
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
@@ -235,6 +236,7 @@ struct MetaRequest {
           statusMsg(),
           opSeqno(opSeq),
           seqno(0),
+          logseq(-1),
           logAction(mu ? kLogIfOk : kLogNever),
           suspended(false),
           fromChunkServerFlag(false),

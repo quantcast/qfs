@@ -423,9 +423,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
         getalloc(fa->id(), chunkInfo);
         assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-// FIXME:
-#if 0
-        if (todumpster > 0 || (
+        if (todumpster > 0 || (false && // FIXME
 		0 < gLayoutManager.GetFileChunksWithLeasesCount(fa->id()) &&
                 gLayoutManager.IsValidLeaseIssued(chunkInfo))) {
             // put the file into dumpster
@@ -435,7 +433,6 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
             KFS_LOG_EOM;
             return status;
         }
-#endif
         UpdateNumChunks(-fa->chunkcount());
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),

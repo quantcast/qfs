@@ -64,7 +64,8 @@ public:
           logf(),
           md(),
           logstream(md),
-          nextseq(1),
+          nextseq(-1),
+          nextlogseq(-1),
           committed(0),
           incp(0)
         {}
@@ -86,17 +87,15 @@ public:
      * \param[in] r the request of interest
      * \return  whether it is on disk
      */
-    bool iscommitted(MetaRequest *r)
+    bool isCommitted(MetaRequest *r)
     {
-        return r->seqno != 0 && r->seqno <= committed;
+        return (0 < r->logseq && r->logseq <= committed);
     }
     void dispatchWriteAhead(MetaRequest* r);
-    //!< log a request
-    int log(MetaRequest *r);
     //!< add to the log and dispatch downstream to netdispatcher
     void dispatch(MetaRequest *r);
     seq_t checkpointed() { return incp; } //!< highest seqno in CP
-    void setLog(int seqno); //!< set the log filename based on seqno
+    void setLog(seq_t seqno); //!< set the log filename based on seqno
     //!< create or open log file
     int startLog(int seqno,
         bool appendFlag = false, int logAppendIntBase = -1);
@@ -108,17 +107,18 @@ public:
      */
     void set_seqno(seq_t last)
     {
-        incp = committed = nextseq = last;
+        incp = committed = nextseq = nextlogseq = last;
     }
     MdStream& getMdStream() { return md; }
 private:
     string   logdir;      //!< directory where logs are kept
-    int      lognum;      //!< for generating log file names
+    seq_t    lognum;      //!< for generating log file names
     string   logname;     //!< name of current log file
     ofstream logf;        //!< the current log file
     MdStream md;
     ostream& logstream;
     seq_t    nextseq;     //!< next request sequence no.
+    seq_t    nextlogseq;
     seq_t    committed;   //!< highest request known to be on disk
     seq_t    incp;        //!< highest request in a checkpoint
     string genfile(int n) //!< generate a log file name
@@ -130,6 +130,8 @@ private:
     bool fail() const { return (logf.fail() || md.fail()); }
     void flushLog();
     void flushResult(MetaRequest *r);
+    //!< log a request
+    int log(MetaRequest *r);
 private:
     // No copy.
     Logger(const Logger&);

@@ -223,7 +223,19 @@ public:
     {
         const Entry* thePtr = &mLru;
         while (&mLru != (thePtr = &Lru::GetPrev(*thePtr)) && inStream) {
-            thePtr->mReqPtr->WriteLog(inStream);
+            if (! thePtr->mReqPtr) {
+                panic("IdempotentRequestTracker:"
+                    " invalid idempotent request entry");
+                continue;
+            }
+            const MetaIdempotentRequest& theReq = *(thePtr->mReqPtr);
+            if (0 < theReq.seqno && ! theReq.commitPendingFlag) {
+                // Only write completed RPCs.
+                // Not completed RPCs should be in the transaction log.
+                inStream.write("idr/", 4);
+                thePtr->mReqPtr->Write(inStream);
+                inStream.write("\n", 1);
+            }
         }
         return (inStream ? 0 : -EIO);
     }

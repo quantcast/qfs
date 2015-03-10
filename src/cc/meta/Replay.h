@@ -67,15 +67,15 @@ public:
 private:
     ifstream file;   //!< the log file being replayed
     string   path;   //!< path name for log file
-    int      number; //!< sequence number for log file
-    int      lastLogNum;
+    seq_t    number; //!< sequence number for log file
+    seq_t    lastLogNum;
     int      lastLogIntBase;
     bool     appendToLastLogFlag;
     int64_t  rollSeeds;
 
-    int playLogs(int lastlog, bool includeLastLogFlag);
+    int playLogs(seq_t lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
-    int getLastLog(int& lastlog);
+    int getLastLog(seq_t& lastlog);
 private:
     // No copy.
     Replay(const Replay&);

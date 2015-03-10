@@ -909,6 +909,50 @@ typedef deque<
     pair<int64_t, int64_t>
 > CommitQueue;
 static CommitQueue sCommitQueue;
+static int64_t     sSubEntryCount = 0;
+
+static bool
+replay_inc_seq(DETokenizer& c)
+{
+    if (0 != sSubEntryCount) {
+        return false;
+    }
+    sLastLogAheadSeq++;
+    return true;
+}
+
+static bool
+replay_sub_entry(DETokenizer& c)
+{
+    if (sSubEntryCount <= 0) {
+        return replay_inc_seq(c);
+    }
+    --sSubEntryCount;
+    return true;
+}
+
+static bool
+run_commit_queue(int64_t logSeq, int64_t status)
+{
+    while (! sCommitQueue.empty()) {
+        const CommitQueue::value_type& f = sCommitQueue.front();
+        if (logSeq == f.first) {
+            if (f.second == status) {
+                sCommitQueue.pop_front();
+                return true;
+            }
+            return false;
+        }
+        if (logSeq < f.first) {
+            break;
+        }
+        if (f.second != 0) {
+            return false;
+        }
+        sCommitQueue.pop_front();
+    }
+    return (0 == status);
+}
 
 static bool
 replay_log_ahead_entry(DETokenizer& c)
@@ -921,22 +965,26 @@ replay_log_ahead_entry(DETokenizer& c)
     if (! c.isLastOk()) {
         return false;
     }
-    if (logSeq <= sLastLogAheadSeq) {
+    if (logSeq != sLastLogAheadSeq + 1) {
         return false;
     }
     c.pop_front();
     if (c.empty()) {
         return false;
     }
-    sLastLogAheadSeq = logSeq;
     const DETokenizer::Token& token = c.front();
     int status = 0;
     if (! MetaRequest::Replay(token.ptr, token.len, status)) {
         return false;
     }
-    sCommitQueue.push_back(
-        make_pair(logSeq, (int64_t)(status < 0 ? status : 0)));
-    return true;
+    if (status < 0) {
+        sCommitQueue.push_back(make_pair(logSeq, status));
+    }
+    if (! run_commit_queue(sLastLogAheadSeq, 0)) {
+        return false;
+    }
+    sLastLogAheadSeq = logSeq;
+    return (0 == sSubEntryCount);
 }
 
 static bool
@@ -963,15 +1011,32 @@ replay_log_commit_entry(DETokenizer& c)
     if (! c.isLastOk() || status < 0) {
         return false;
     }
-    if (sCommitQueue.empty()) {
+    if (! run_commit_queue(logSeq, -status)) {
         return false;
     }
-    const CommitQueue::value_type& f = sCommitQueue.front();
-    if (f.first != logSeq || f.second != -status) {
+    return (seed == fileID.getseed() && 0 == sSubEntryCount);
+}
+
+static bool
+replay_group_users_reset(DETokenizer& c)
+{
+    if (! restore_group_users_reset(c) || c.empty()) {
         return false;
     }
-    sCommitQueue.pop_front();
-    return (seed == fileID.getseed());
+    sSubEntryCount = c.toNumber();
+    return (0 <= sSubEntryCount && c.isLastOk());
+}
+
+static void
+add_parser_inc_seq(DiskEntry& e, const char* name, bool(*p)(DETokenizer&))
+{
+    e.add_parser(name, p, &replay_inc_seq);
+}
+
+static void
+add_parser_subent(DiskEntry& e, const char* name, bool(*p)(DETokenizer&))
+{
+    e.add_parser(name, p, &replay_sub_entry);
 }
 
 static DiskEntry&
@@ -982,37 +1047,36 @@ get_entry_map()
     if (initied) {
         return e;
     }
-    e.add_parser("setintbase",              &restore_setintbase);
-    e.add_parser("version",                 &replay_version);
-    e.add_parser("create",                  &replay_create);
-    e.add_parser("mkdir",                   &replay_mkdir);
-    e.add_parser("remove",                  &replay_remove);
-    e.add_parser("rmdir",                   &replay_rmdir);
-    e.add_parser("rename",                  &replay_rename);
-    e.add_parser("allocate",                &replay_allocate);
-    e.add_parser("truncate",                &replay_truncate);
-    e.add_parser("coalesce",                &replay_coalesce);
-    e.add_parser("pruneFromHead",           &replay_pruneFromHead);
-    e.add_parser("setrep",                  &replay_setrep);
-    e.add_parser("size",                    &replay_size);
-    e.add_parser("setmtime",                &replay_setmtime);
-    e.add_parser("chunkVersionInc",         &restore_chunkVersionInc);
-    e.add_parser("time",                    &restore_time);
-    e.add_parser("mkstable",                &restore_mkstable);
-    e.add_parser("mkstabledone",            &restore_mkstabledone);
-    e.add_parser("beginchunkversionchange", &replay_beginchunkversionchange);
-    e.add_parser("checksum",                &restore_checksum);
-    e.add_parser("rollseeds",               &restore_rollseeds);
-    e.add_parser("chmod",                   &replay_chmod);
-    e.add_parser("chown",                   &replay_chown);
-    e.add_parser("delegatecancel",          &restore_delegate_cancel);
-    e.add_parser("filesysteminfo",          &restore_filesystem_info);
-    e.add_parser("idr",                     &restore_idempotent_request);
-    e.add_parser("ack",                     &replay_idempotent_ack);
-    e.add_parser("gu",                      &restore_group_users);
-    e.add_parser("guc",                     &restore_group_users);
-    e.add_parser("gur",                     &restore_group_users_reset);
-    e.add_parser("c",                       &replay_log_commit_entry);
+    add_parser_inc_seq(e, "setintbase",              &restore_setintbase);
+    add_parser_inc_seq(e, "version",                 &replay_version);
+    add_parser_inc_seq(e, "create",                  &replay_create);
+    add_parser_inc_seq(e, "mkdir",                   &replay_mkdir);
+    add_parser_inc_seq(e, "remove",                  &replay_remove);
+    add_parser_inc_seq(e, "rmdir",                   &replay_rmdir);
+    add_parser_inc_seq(e, "rename",                  &replay_rename);
+    add_parser_inc_seq(e, "allocate",                &replay_allocate);
+    add_parser_inc_seq(e, "truncate",                &replay_truncate);
+    add_parser_inc_seq(e, "coalesce",                &replay_coalesce);
+    add_parser_inc_seq(e, "pruneFromHead",           &replay_pruneFromHead);
+    add_parser_inc_seq(e, "setrep",                  &replay_setrep);
+    add_parser_inc_seq(e, "size",                    &replay_size);
+    add_parser_inc_seq(e, "setmtime",                &replay_setmtime);
+    add_parser_inc_seq(e, "chunkVersionInc",         &restore_chunkVersionInc);
+    add_parser_inc_seq(e, "time",                    &restore_time);
+    add_parser_inc_seq(e, "mkstable",                &restore_mkstable);
+    add_parser_inc_seq(e, "mkstabledone",            &restore_mkstabledone);
+    add_parser_inc_seq(e, "beginchunkversionchange", &replay_beginchunkversionchange);
+    add_parser_inc_seq(e, "checksum",                &restore_checksum);
+    add_parser_inc_seq(e, "rollseeds",               &restore_rollseeds);
+    add_parser_inc_seq(e, "chmod",                   &replay_chmod);
+    add_parser_inc_seq(e, "chown",                   &replay_chown);
+    add_parser_inc_seq(e, "delegatecancel",          &restore_delegate_cancel);
+    add_parser_inc_seq(e, "filesysteminfo",          &restore_filesystem_info);
+    e.add_parser(         "gur",                     &replay_group_users_reset);
+    add_parser_subent (e, "gu",                      &restore_group_users);
+    add_parser_subent (e, "guc",                     &restore_group_users);
+    e.add_parser(         "ack",                     &replay_idempotent_ack);
+    e.add_parser(         "c",                       &replay_log_commit_entry);
     initied = true;
     return e;
 }
@@ -1040,7 +1104,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     DiskEntry& entrymap = get_entry_map();
     DETokenizer tokenizer(file);
 
-    seq_t opcount = oplog.checkpointed();
+    sLastLogAheadSeq = oplog.checkpointed();
     int status = 0;
     static const DETokenizer::Token kAheadLogEntry("a");
     while (tokenizer.next(&mds)) {
@@ -1076,8 +1140,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
             restoreChecksum.clear();
         }
     }
-    opcount += tokenizer.getEntryCount();
-    oplog.set_seqno(opcount);
+    oplog.set_seqno(sLastLogAheadSeq);
     if (status == 0 && ! file.eof()) {
         KFS_LOG_STREAM_FATAL <<
             "error " << path <<
@@ -1112,14 +1175,14 @@ Replay::playLogs(bool includeLastLogFlag)
 }
 
 int
-Replay::playLogs(int last, bool includeLastLogFlag)
+Replay::playLogs(seq_t last, bool includeLastLogFlag)
 {
     int status = 0;
     appendToLastLogFlag        = false;
     lastLineChecksumFlag       = false;
     lastLogIntBase             = -1;
     bool lastEntryChecksumFlag = false;
-    int i;
+    seq_t i;
     for (i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
             break;
@@ -1161,6 +1224,9 @@ Replay::playLogs(int last, bool includeLastLogFlag)
             appendToLastLogFlag = true;
         }
     }
+    if (status == 0 && ! run_commit_queue(oplog.checkpointed(), 0)) {
+        status = -EINVAL;
+    }
     if (status == 0) {
         oplog.setLog(i);
     } else {
@@ -1170,7 +1236,7 @@ Replay::playLogs(int last, bool includeLastLogFlag)
 }
 
 int
-Replay::getLastLog(int& last)
+Replay::getLastLog(seq_t& last)
 {
     last = number;
     if (last < 0) {

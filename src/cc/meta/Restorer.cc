@@ -482,7 +482,7 @@ restore_config(DETokenizer& c)
     return true;
 }
 
-static DiskEntry&
+static const DiskEntry&
 get_entry_map()
 {
     static bool initied = false;
@@ -552,7 +552,7 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
         return false;
     }
 
-    DiskEntry& entrymap = get_entry_map();
+    const DiskEntry& entrymap = get_entry_map();
         DETokenizer tokenizer(file);
 
     restoreChecksum.clear();
