@@ -286,7 +286,7 @@ ARAChunkCache::RequestDone(const MetaAllocate& req)
         mMap.Erase(req.fid);
         return;
     }
-    entry.lastAccessedTime = req.startTime;
+    entry.lastAccessedTime = TimeNow();
     entry.offset           = req.offset;
     if (entry.lastPendingRequest) {
         // Transition from pending to complete.
@@ -932,12 +932,8 @@ ChunkLeases::NewReadLease(
     fid_t                  fid,
     chunkId_t              chunkId,
     time_t                 expires,
-    ChunkLeases::LeaseId   leaseId)
+    ChunkLeases::LeaseId&  leaseId)
 {
-    if (leaseId < 0 || ! IsReadLease(leaseId)) {
-        panic("new read lease: invalid lease id");
-        return false;
-    }
     if (mWriteLeases.Find(chunkId)) {
         assert(! mReadLeases.Find(chunkId));
         return false;
@@ -953,6 +949,7 @@ ChunkLeases::NewReadLease(
     if (insertedFlag) {
         IncrementFileLease(fid);
     }
+    leaseId = NewReadLeaseId();
     insertedFlag = false;
     RLEntry&             rl     = *leases.Insert(
         leaseId, RLEntry(ReadLease(leaseId, expires)), insertedFlag);
@@ -963,59 +960,6 @@ ChunkLeases::NewReadLease(
     if (expires < exp) {
         mReadLeaseTimer.Schedule(re, expires);
     }
-    return true;
-}
-
-inline bool
-ChunkLeases::NewWriteLease(
-    int64_t   leaseId,
-    chunkId_t chunkId,
-    fid_t     fid,
-    seq_t     chunkVersion,
-    bool      appendChunk,
-    bool      stripedFileFlag,
-    kfsUid_t  euser,
-    kfsGid_t  egroup,
-    int64_t   endTime,
-    TokenSeq  delegationSeq,
-    uint32_t  delegationValidForTime,
-    uint16_t  delegationFlags,
-    int64_t   delegationIssuedTime,
-    kfsUid_t  delegationUser,
-    int64_t   expires)
-{
-    if (mReadLeases.Find(chunkId)) {
-        assert(! mWriteLeases.Find(chunkId));
-        return false;
-    }
-    if (! IsWriteLease(leaseId)) {
-        return false;
-    }
-    WriteLease wl(
-        leaseId,
-        expires,
-        chunkVersion,
-        ChunkServerPtr(),
-        string(),
-        appendChunk,
-        stripedFileFlag
-    );
-    wl.euser                  = euser;
-    wl.egroup                 = egroup;
-    wl.endTime                = endTime;
-    wl.delegationSeq          = delegationSeq;
-    wl.delegationValidForTime = delegationValidForTime;
-    wl.delegationFlags        = delegationFlags;
-    wl.delegationIssuedTime   = delegationIssuedTime;
-    wl.delegationUser         = delegationUser;
-    bool insertedFlag = false;
-    WEntry* const l = mWriteLeases.Insert(
-        chunkId, WEntry(chunkId, wl), insertedFlag);
-    if (! insertedFlag) {
-        return false;
-    }
-    IncrementFileLease(fid);
-    PutInExpirationList(*l);
     return true;
 }
 
@@ -2878,43 +2822,6 @@ LayoutManager::UpdateDelayedRecovery(const MetaFattr& fa,
         mChunkToServerMap.SetState(
             entry, CSMap::Entry::kStateCheckReplication);
     }
-}
-
-inline bool
-LayoutManager::NewWriteLease(
-    int64_t   leaseId,
-    fid_t     fid,
-    chunkId_t chunkId,
-    seq_t     chunkVersion,
-    bool      appendChunk,
-    bool      stripedFileFlag,
-    kfsUid_t  euser,
-    kfsGid_t  egroup,
-    int64_t   endTime,
-    TokenSeq  delegationSeq,
-    uint32_t  delegationValidForTime,
-    uint16_t  delegationFlags,
-    int64_t   delegationIssuedTime,
-    kfsUid_t  delegationUser,
-    int64_t   expires)
-{
-    return mChunkLeases.NewWriteLease(
-        leaseId,
-        fid,
-        chunkId,
-        chunkVersion,
-        appendChunk,
-        stripedFileFlag,
-        euser,
-        egroup,
-        endTime,
-        delegationSeq,
-        delegationValidForTime,
-        delegationFlags,
-        delegationIssuedTime,
-        delegationUser,
-        expires
-    );
 }
 
 bool
@@ -5349,7 +5256,7 @@ LayoutManager::AllocateChunk(
     }
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        r->issuedTime                 = r->startTime;
+        r->issuedTime                 = TimeNow();
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
@@ -5615,7 +5522,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     // there is no valid write lease; to issue a new write lease, we
     // need to do a version # bump.  do that only if we haven't yet
     // handed out valid read leases
-    if (! ExpiredLeaseCleanup(r->startTime, r->chunkId)) {
+    if (! ExpiredLeaseCleanup(TimeNow(), r->chunkId)) {
         r->statusMsg = "valid read lease";
         KFS_LOG_STREAM_DEBUG << "write lease denied"
             " chunk " << r->chunkId << " " << r->statusMsg <<
@@ -5669,7 +5576,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     KFS_LOG_EOM;
     if (mClientCSAuthRequiredFlag) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        r->issuedTime                 = r->startTime;
+        r->issuedTime                 = TimeNow();
         r->validForTime               = mCSAccessValidForTimeSec;
     } else {
         r->validForTime = 0;
@@ -5774,7 +5681,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
     // Start decay only after allocation completes.
     // Enforce timeout on pending allocation, in order not to re-queue the
     // timed out client back to the same allocation group.
-    const time_t now = (time_t)req->startTime;
+    const time_t now = TimeNow();
     if (entry->IsAllocationPending()) {
         if (entry->lastDecayTime + mAllocAppendReuseInFlightTimeoutSec < now) {
             mARAChunkCache.Invalidate(req->fid);
@@ -5933,34 +5840,6 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
     mFattrToChangeTo    = dstFattr;
 }
 
-void
-LayoutManager::GetChunkReadLeaseStart(MetaLeaseAcquire& req)
-{
-    if (req.leaseTimeout <= 0) {
-        return;
-    }
-    if (0 <= req.chunkId) {
-        req.leaseId = mChunkLeases.NewReadLeaseId();
-    }
-    const char* p = req.chunkIds.GetPtr();
-    const char* e = p + req.chunkIds.GetSize();
-    req.leaseIds.reserve(32);
-    while (p < e) {
-        chunkId_t chunkId = -1;
-        if (! req.ParseInt(p, e - p, chunkId)) {
-            while (p < e && *p <= ' ') {
-                p++;
-            }
-            if (p != e) {
-                req.status    = -EINVAL;
-                req.statusMsg = "chunk id list parse error";
-            }
-            break;
-        }
-        req.leaseIds.push_back(mChunkLeases.NewReadLeaseId());
-    }
-}
-
 int
 LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
 {
@@ -5995,18 +5874,6 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             break;
         }
         ChunkLeases::LeaseId leaseId = 0;
-        if (0 < req.leaseTimeout) {
-            if (req.leaseIds.empty()) {
-                const char* const msg =
-                    "internal error: invalid lease ids size";
-                panic(msg);
-                req.status    = -EFAULT;
-                req.statusMsg = msg;
-                break;
-            }
-            leaseId = req.leaseIds.back();
-            req.leaseIds.pop_back();
-        }
         const CSMap::Entry*  cs      = 0;
         servers.clear();
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
@@ -6028,7 +5895,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                 ! mChunkLeases.NewReadLease(
                     cs->GetFileId(),
                     chunkId,
-                    req.startTime + req.leaseTimeout,
+                    TimeNow() + req.leaseTimeout,
                     leaseId))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
@@ -6132,7 +5999,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     req->clientCSAllowClearTextFlag = mClientCSAuthRequiredFlag &&
         mClientCSAllowClearTextFlag;
     if (mClientCSAuthRequiredFlag) {
-        req->issuedTime   = req->startTime;
+        req->issuedTime   = TimeNow();
         req->validForTime = mCSAccessValidForTimeSec;
     }
     const int ret = GetChunkReadLeases(*req);
@@ -6255,7 +6122,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
             mChunkLeases.NewReadLease(
                 cs->GetFileId(),
                 req->chunkId,
-                req->startTime + req->leaseTimeout,
+                TimeNow() + req->leaseTimeout,
                 req->leaseId))) {
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             MakeChunkAccess(*cs, req->authUid, req->chunkAccess, 0);
@@ -6337,7 +6204,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         mClientCSAuthRequiredFlag ? req : 0
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
-        req->issuedTime                 = req->startTime;
+        req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
             req->validForTime = mCSAccessValidForTimeSec;
@@ -7295,7 +7162,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if ((r->writeMasterKeyValidFlag = r->servers.front()->GetCryptoKey(
                 r->writeMasterKeyId, r->writeMasterKey))) {
-            r->issuedTime   = r->startTime;
+            r->issuedTime   = TimeNow();
             r->validForTime = mCSAccessValidForTimeSec;
             r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
         } else {
@@ -8117,7 +7984,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         // safety: this will prevent make chunk stable from restarting
         // recursively, in the case if there are double or stale
         // write lease.
-        ExpiredLeaseCleanup(req->startTime, req->chunkId);
+        ExpiredLeaseCleanup(TimeNow(), req->chunkId);
         pathname = info.pathname;
         updateSizeFlag  = ! info.stripedFileFlag;
         updateMTimeFlag = info.updateMTimeFlag;

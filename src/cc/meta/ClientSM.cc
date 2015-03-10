@@ -195,10 +195,10 @@ ClientSM::~ClientSM()
 void
 ClientSM::SendResponse(MetaRequest *op)
 {
-    if ((op->op == META_ALLOCATE && (op->status < 0 ||
-            static_cast<const MetaAllocate*>(op)->logFlag)) ||
+    if (op->op == META_ALLOCATE && (op->status < 0 ||
+            op->logAction != MetaRequest::kLogNever ||
             MsgLogger::GetLogger()->IsLogLevelEnabled(
-                MsgLogger::kLogLevelDEBUG)) {
+                MsgLogger::kLogLevelDEBUG))) {
         // for chunk allocations, for debugging purposes, need to know
         // where the chunk was placed.
         KFS_LOG_STREAM_INFO << PeerName(mNetConnection) <<

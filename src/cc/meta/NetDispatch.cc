@@ -640,7 +640,7 @@ public:
             ((op.op < 0 || op.op >= META_NUM_OPS_COUNT) ?
                 (int)kOtherReqId :
             ((op.op == META_ALLOCATE &&
-                ! static_cast<const MetaAllocate&>(op).logFlag) ?
+                op.logAction == MetaRequest::kLogNever) ?
                 (int)kReqTypeAllocNoLog : (int)op.op + 1));
         const int64_t reqTime     = reqTimeUsec > 0 ? reqTimeUsec : 0;
         const int64_t reqProcTime =

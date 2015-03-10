@@ -223,7 +223,6 @@ struct MetaRequest {
     kfsGid_t        egroup;
     int64_t         maxWaitMillisec;
     int64_t         sessionEndTime;
-    int64_t         startTime;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
     MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
@@ -253,7 +252,6 @@ struct MetaRequest {
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),
           sessionEndTime(),
-          startTime(-1),
           next(0),
           clnt(0)
         { MetaRequest::Init(); }
@@ -320,7 +318,6 @@ struct MetaRequest {
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
         .Def("s", &MetaRequest::fromChunkServerFlag, false)
-        .Def("t", &MetaRequest::startTime)
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -1102,7 +1099,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
     bool       hasChunkChecksum;
     uint32_t   chunkChecksum;
     MetaLeaseRelinquish()
-        : MetaRequest(META_LEASE_RELINQUISH, true),
+        : MetaRequest(META_LEASE_RELINQUISH, false),
           leaseType(READ_LEASE),
           chunkId(-1),
           leaseId(-1),
@@ -1112,9 +1109,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
           chunkChecksumHdr(-1),
           leaseTypeStr()
          {}
-    virtual bool start();
     virtual void handle();
-    virtual int log(ostream& file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1147,16 +1142,6 @@ struct MetaLeaseRelinquish: public MetaRequest {
         .Def2("Lease-id",       "L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
         .Def2("Chunk-size",     "S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
         .Def2("Chunk-checksum", "K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
-        ;
-    }
-    template<typename T> static T& LogIoDef(T& parser)
-    {
-        return MetaRequest::LogIoDef(parser)
-        .Def("T", &MetaLeaseRelinquish::leaseType,         READ_LEASE)
-        .Def("H", &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
-        .Def("L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
-        .Def("S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
-        .Def("K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
         ;
     }
 private:
@@ -1193,7 +1178,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     Servers              servers;
     uint32_t             numServerReplies;
     int                  firstFailedServerIdx;
-    bool                 logFlag;
     bool                 invalidateAllFlag;
     const FAPermissions* permissions;
     MetaAllocate*        next;
@@ -1237,7 +1221,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           servers(),
           numServerReplies(0),
           firstFailedServerIdx(-1),
-          logFlag(true),
           invalidateAllFlag(false),
           permissions(0),
           next(0),
@@ -3264,14 +3247,13 @@ struct MetaLeaseAcquire: public MetaRequest {
     time_t             issuedTime;
     int                validForTime;
     StringBufT<21 * 8> chunkIds; // This and the following used by sort master.
-    vector<int64_t>    leaseIds;
     bool               getChunkLocationsFlag;
     bool               appendRecoveryFlag;
     string             appendRecoveryLocations;
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
-        : MetaRequest(META_LEASE_ACQUIRE, true),
+        : MetaRequest(META_LEASE_ACQUIRE, false),
           pathname(),
           chunkId(-1),
           flushFlag(false),
@@ -3281,7 +3263,6 @@ struct MetaLeaseAcquire: public MetaRequest {
           issuedTime(0),
           validForTime(0),
           chunkIds(),
-          leaseIds(),
           getChunkLocationsFlag(false),
           appendRecoveryFlag(false),
           appendRecoveryLocations(),
@@ -3289,9 +3270,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           chunkAccess(),
           handleCount(0)
           {}
-    virtual bool start();
     virtual void handle();
-    virtual int log(ostream& file) const;
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -3320,20 +3299,6 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::leaseId,              int64_t(-1))
         ;
     }
-    template<typename T> static T& LogIoDef(T& parser)
-    {
-        return MetaRequest::LogIoDef(parser)
-        .Def("H",  &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
-        .Def("F",  &MetaLeaseAcquire::flushFlag,    false              )
-        .Def("T",  &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
-        .Def("I",  &MetaLeaseAcquire::chunkIds)
-        .Def("L",  &MetaLeaseAcquire::getChunkLocationsFlag,      false)
-        .Def("A",  &MetaLeaseAcquire::appendRecoveryFlag,         false)
-        .Def("R",  &MetaLeaseAcquire::appendRecoveryLocations          )
-        .Def("LI", &MetaLeaseAcquire::leaseId,              int64_t(-1))
-        .Def("LS", &MetaLeaseAcquire::leaseIds)
-        ;
-    }
 protected:
     int handleCount;
 };
@@ -3358,7 +3323,7 @@ struct MetaLeaseRenew: public MetaRequest {
     int                validForTime;
     TokenSeq           tokenSeq;
     MetaLeaseRenew()
-        : MetaRequest(META_LEASE_RENEW, true),
+        : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
@@ -3372,9 +3337,7 @@ struct MetaLeaseRenew: public MetaRequest {
           tokenSeq(0),
           leaseTypeStr()
         {}
-    virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual void setChunkServer(const ChunkServerPtr& cs)
         { chunkServer = cs.get(); }
@@ -3414,11 +3377,9 @@ private:
  */
 struct MetaLeaseCleanup: public MetaRequest {
     MetaLeaseCleanup(seq_t s = -1, KfsCallbackObj *c = 0)
-        : MetaRequest(META_LEASE_CLEANUP, true, s)
+        : MetaRequest(META_LEASE_CLEANUP, false, s)
             { clnt = c; }
 
-    virtual bool start();
-    virtual int log(ostream& file) const;
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {

@@ -262,7 +262,7 @@ public:
         fid_t     fid,
         chunkId_t chunkId,
         time_t    expires,
-        LeaseId   leaseId);
+        LeaseId&  leaseId);
     inline bool NewWriteLease(
         MetaAllocate& req);
     inline bool DeleteWriteLease(
@@ -321,24 +321,6 @@ public:
         const FileLeases::Val* const count = mFileLeases.Find(fid);
         return (count ? *count : FileLeases::Val(0));
     }
-    inline LeaseId NewReadLeaseId();
-    inline bool NewWriteLease(
-        int64_t   leaseId,
-        fid_t     fid,
-        chunkId_t chunkId,
-        seq_t     chunkVersion,
-        bool      appendChunk,
-        bool      stripedFileFlag,
-        kfsUid_t  euser,
-        kfsGid_t  egroup,
-        int64_t   endTime,
-        TokenSeq  delegationSeq,
-        uint32_t  delegationValidForTime,
-        uint16_t  delegationFlags,
-        int64_t   delegationIssuedTime,
-        kfsUid_t  delegationUser,
-        int64_t   expires);
-
 private:
     class RLEntry : public ReadLease
     {
@@ -539,6 +521,7 @@ private:
     WriteLeaseTimer mWriteLeaseTimer;
     WEntry          mWAllocationInFlightList;
 
+    inline LeaseId NewReadLeaseId();
     void PutInExpirationList(
         WEntry& entry)
     {
@@ -1386,25 +1369,8 @@ public:
         { return mIdempotentRequestTracker; }
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
-    void GetChunkReadLeaseStart(MetaLeaseAcquire& req);
     void SetVerifyAllOpsPermissions(bool flag)
         { mVerifyAllOpsPermissionsFlag = flag; }
-    bool NewWriteLease(
-        int64_t   leaseId,
-        fid_t     fid,
-        chunkId_t chunkId,
-        seq_t     chunkVersion,
-        bool      appendChunk,
-        bool      stripedFileFlag,
-        kfsUid_t  euser,
-        kfsGid_t  egroup,
-        int64_t   endTime,
-        TokenSeq  delegationSeq,
-        uint32_t  delegationValidForTime,
-        uint16_t  delegationFlags,
-        int64_t   delegationIssuedTime,
-        kfsUid_t  delegationUser,
-        int64_t   expires);
 protected:
     typedef vector<
         int,

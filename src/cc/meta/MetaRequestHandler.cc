@@ -551,7 +551,6 @@ MetaRequest::Replay(const char* buf, size_t len, int& status)
     if (! req) {
         return false;
     }
-    globalNetManager().SetTimeNow(req->startTime);
     req->replayFlag = true;
     req->handle();
     status = req->status;

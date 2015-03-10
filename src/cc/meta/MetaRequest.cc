@@ -2725,22 +2725,11 @@ MetaBye::handle()
     gLayoutManager.ServerDown(server);
 }
 
-/* virtual */ bool
-MetaLeaseAcquire::start()
-{
-    if (gLayoutManager.VerifyAllOpsPermissions()) {
-        SetEUserAndEGroup(*this);
-    }
-    gLayoutManager.GetChunkReadLeaseStart(*this);
-    logAction = kLogNever;
-    return (0 == status);
-}
-
 /* virtual */ void
 MetaLeaseAcquire::handle()
 {
-    if (status < 0) {
-        return;
+    if (handleCount <= 0 && gLayoutManager.VerifyAllOpsPermissions()) {
+        SetEUserAndEGroup(*this);
     }
     if (0 < handleCount++) {
         // Minimize spurious read lease acquisitions, when client timed out, and
@@ -2767,30 +2756,16 @@ MetaLeaseAcquire::handle()
     status = gLayoutManager.GetChunkReadLease(this);
 }
 
-/* virtual */ bool
-MetaLeaseRenew::start()
+/* virtual */ void
+MetaLeaseRenew::handle()
 {
     if (gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
-    logAction = kLogNever;
-    return (status == 0);
-}
-
-/* virtual */ void
-MetaLeaseRenew::handle()
-{
     if (status < 0) {
         return;
     }
     status = gLayoutManager.LeaseRenew(this);
-}
-
-/* virtual */ bool
-MetaLeaseRelinquish::start()
-{
-    logAction = kLogNever;
-    return true;
 }
 
 /* virtual */ void
@@ -2803,16 +2778,11 @@ MetaLeaseRelinquish::handle()
     KFS_LOG_EOM;
 }
 
-/* virtual */ bool
-MetaLeaseCleanup::start()
-{
-    return true;
-}
-
 /* virtual */ void
 MetaLeaseCleanup::handle()
 {
-    gLayoutManager.LeaseCleanup(startTime);
+    const time_t now = globalNetManager().Now();
+    gLayoutManager.LeaseCleanup(now);
     // Some leases might be expired or relinquished: try to cleanup the
     // dumpster.
     // FIXME:
@@ -2824,14 +2794,8 @@ MetaLeaseCleanup::handle()
     // Defer this for now assuming that checkpoints from forked copy is
     // the default operating mode.
     metatree.cleanupDumpster();
-    metatree.cleanupPathToFidCache(startTime);
+    metatree.cleanupPathToFidCache(now);
     status = 0;
-}
-
-/* vitural */ int
-MetaLeaseCleanup::log(ostream& file) const
-{
-    return 0;
 }
 
 class PrintChunkServerLocations {
@@ -3082,6 +3046,9 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
 MetaChunkSize::handle()
 {
     status = gLayoutManager.GetChunkSizeDone(this);
+    if (0 <= status && filesize < 0) {
+        logAction = kLogNever;
+    }
 }
 
 /* virtual */ void
@@ -3730,7 +3697,6 @@ submit_request(MetaRequest* r)
 {
     const int64_t start = microseconds();
     if (r->submitCount++ == 0) {
-        r->startTime   = globalNetManager().Now();
         r->submitTime  = start;
         r->processTime = start;
         if (MetaRequest::kLogNever != r->logAction && r->seqno <= 0) {
@@ -3875,7 +3841,6 @@ MetaAllocate::log(ostream &file) const
         << "/chunkVersion/" << chunkVersion
         << "/mtime/" << ShowTime(microseconds())
         << "/append/" << (appendChunk ? 1 : 0)
-        << "/lease/" << leaseId
         << '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -3996,9 +3961,6 @@ MetaBye::log(ostream &file) const
 int
 MetaChunkSize::log(ostream &file) const
 {
-    if (filesize < 0)
-        return 0;
-
     file << "size/file/" << fid << "/filesize/" << filesize << '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -4011,24 +3973,6 @@ MetaRecomputeDirsize::log(ostream &file) const
 
 int
 MetaChunkCorrupt::log(ostream &file) const
-{
-    return 0;
-}
-
-int
-MetaLeaseAcquire::log(ostream &file) const
-{
-    return 0;
-}
-
-int
-MetaLeaseRenew::log(ostream &file) const
-{
-    return 0;
-}
-
-int
-MetaLeaseRelinquish::log(ostream &file) const
 {
     return 0;
 }
