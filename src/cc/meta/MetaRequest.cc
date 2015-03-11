@@ -3730,102 +3730,11 @@ submit_request(MetaRequest* r)
     }
 }
 
-/*!
- * \brief print out the leaf nodes for debugging
- */
-void
-printleaves()
-{
-    metatree.printleaves();
-}
-
-/*!
- * \brief log a file create
- */
 int
-MetaCreate::log(ostream& file) const
+MetaRequest::log(ostream &file) const
 {
-    if (WriteLog(file)) {
-        // use the log entry time as a proxy for when the file was created
-        file << "create"
-            "/dir/"         << dir <<
-            "/name/"        << name <<
-            "/id/"          << fid <<
-            "/numReplicas/" << numReplicas <<
-            "/ctime/"       << ShowTime(microseconds())
-        ;
-        if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
-            file <<
-                "/striperType/"        << striperType <<
-                "/numStripes/"         << numStripes <<
-                "/numRecoveryStripes/" << numRecoveryStripes <<
-                "/stripeSize/"         << stripeSize
-            ;
-        }
-        if (todumpster > 0) {
-            file << "/todumpster/" << todumpster;
-        }
-        file <<
-            "/user/"  << user <<
-            "/group/" << group <<
-            "/mode/"  << mode
-        ;
-        if (minSTier < kKfsSTierMax) {
-            file <<
-                "/minTier/" << (int)minSTier <<
-                "/maxTier/" << (int)maxSTier;
-        }
-        file << '\n';
-    }
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log a directory create
- */
-int
-MetaMkdir::log(ostream& file) const
-{
-    if (WriteLog(file)) {
-        file << "mkdir"
-            "/dir/"   << dir <<
-            "/name/"  << name <<
-            "/id/"    << fid <<
-            "/ctime/" << ShowTime(microseconds()) <<
-            "/user/"  << user <<
-            "/group/" << group <<
-            "/mode/"  << mode <<
-            '\n';
-    }
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log a file deletion
- */
-int
-MetaRemove::log(ostream& file) const
-{
-    if (WriteLog(file)) {
-        file << "remove/dir/" << dir << "/name/" << name;
-        if (todumpster > 0) {
-            file << "/todumpster/" << todumpster;
-        }
-        file << '\n';
-    }
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log a directory deletion
- */
-int
-MetaRmdir::log(ostream& file) const
-{
-    if (WriteLog(file)) {
-        file << "rmdir/dir/" << dir << "/name/" << name << '\n';
-    }
-    return file.fail() ? -EIO : 0;
+    panic("invalid empty log method");
+    return -EINVAL;
 }
 
 /*!
@@ -3846,63 +3755,6 @@ MetaAllocate::log(ostream &file) const
 }
 
 /*!
- * \brief log a file truncation
- */
-int
-MetaTruncate::log(ostream &file) const
-{
-    // use the log entry time as a proxy for when the file was modified
-    if (pruneBlksFromHead) {
-        file << "pruneFromHead/file/" << fid << "/offset/" << offset
-            << "/mtime/" << ShowTime(mtime) << '\n';
-    } else {
-        file << "truncate/file/" << fid << "/offset/" << offset
-            << "/mtime/" << ShowTime(mtime);
-        if (endOffset >= 0) {
-            file << "/endoff/" << endOffset;
-        }
-        file << '\n';
-    }
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log a rename
- */
-int
-MetaRename::log(ostream &file) const
-{
-    if (WriteLog(file)) {
-        file << "rename"
-            "/dir/" << dir <<
-            "/old/" << oldname <<
-            "/new/" << newname
-        ;
-        if (todumpster > 0) {
-            // Insert sentinel empty entry for pop_path() to work.
-            file << "//todumpster/" << todumpster;
-        }
-        file << '\n';
-    }
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log a block coalesce
- */
-int
-MetaCoalesceBlocks::log(ostream &file) const
-{
-    file << "coalesce"
-        "/old/"   << srcFid <<
-        "/new/"   << dstFid <<
-        "/count/" << numChunksMoved <<
-        "/mtime/" << ShowTime(mtime) <<
-    '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
  * \brief log a setmtime
  */
 int
@@ -3911,47 +3763,6 @@ MetaSetMtime::log(ostream &file) const
     file << "setmtime/file/" << fid
         << "/mtime/" << ShowTime(mtime) << '\n';
     return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log change file replication
- */
-int
-MetaChangeFileReplication::log(ostream &file) const
-{
-    file << "setrep/file/" << fid << "/replicas/" << numReplicas;
-    if (minSTier != kKfsSTierUndef && maxSTier != kKfsSTierUndef) {
-        file << "/minTier/" << (int)minSTier << "/maxTier/" << (int)maxSTier;
-    }
-    file  << '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief log toggling of metaserver WORM state (nop)
- */
-int
-MetaToggleWORM::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a chunkserver hello, there is nothing to log
- */
-int
-MetaHello::log(ostream &file) const
-{
-    return 0;
-}
-
-/*!
- * \brief for a chunkserver's death, there is nothing to log
- */
-int
-MetaBye::log(ostream &file) const
-{
-    return 0;
 }
 
 /*!
@@ -3966,25 +3777,10 @@ MetaChunkSize::log(ostream &file) const
 }
 
 int
-MetaRecomputeDirsize::log(ostream &file) const
-{
-    return 0;
-}
-
-int
-MetaChunkCorrupt::log(ostream &file) const
-{
-    return 0;
-}
-
-int
 MetaLogMakeChunkStable::log(ostream &file) const
 {
     if (chunkVersion < 0) {
-        KFS_LOG_STREAM_WARN << "invalid chunk version ignoring: " <<
-            Show() <<
-        KFS_LOG_EOM;
-        return 0;
+        panic("MetaLogMakeChunkStable: invalid chunk version");
     }
     file << "mkstable"         <<
             (op == META_LOG_MAKE_CHUNK_STABLE ? "" : "done") <<
@@ -3994,27 +3790,6 @@ MetaLogMakeChunkStable::log(ostream &file) const
         "/size/"           << chunkSize <<
         "/checksum/"       << chunkChecksum <<
         "/hasChecksum/"    << (hasChunkChecksum ? 1 : 0) <<
-    '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-int
-MetaChmod::log(ostream& file) const
-{
-    file << "chmod" <<
-        "/file/" << fid <<
-        "/mode/" << mode <<
-    '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-int
-MetaChown::log(ostream& file) const
-{
-    file << "chown" <<
-        "/file/"  << fid <<
-        "/user/"  << user <<
-        "/group/" << group <<
     '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -5722,17 +5497,6 @@ MetaAck::handle()
 {
     KFS_LOG_STREAM_DEBUG << "ack: " << ack << KFS_LOG_EOM;
     gLayoutManager.GetIdempotentRequestTracker().Handle(*this);
-}
-
-int
-MetaAck::log(ostream& file) const
-{
-    file << "ack"
-        "/uid/" << euser <<
-        "/aid/" << authUid <<
-        "/"     << ack <<
-    "\n";
-    return (file.fail() ? -EIO : 0);
 }
 
 int

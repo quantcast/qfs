@@ -267,7 +267,7 @@ struct MetaRequest {
     //!< the client.  This function should generate the appropriate
     //!< response to be sent back as per the KFS protocol.
     virtual void response(ReqOstream& os, IOBuffer& /* buf */) { response(os); }
-    virtual int log(ostream &file) const { return 0; }
+    virtual int log(ostream &file) const;
     Display Show() const { return Display(*this); }
     virtual void setChunkServer(const ChunkServerPtr& /* cs */) {};
     bool ValidateRequestHeader(
@@ -564,7 +564,6 @@ struct MetaCreate: public MetaIdempotentRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -670,7 +669,6 @@ struct MetaMkdir: public MetaIdempotentRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -747,7 +745,6 @@ struct MetaRemove: public MetaIdempotentRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -803,7 +800,6 @@ struct MetaRmdir: public MetaIdempotentRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1322,7 +1318,6 @@ struct MetaTruncate: public MetaRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1384,7 +1379,6 @@ struct MetaRename: public MetaIdempotentRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1502,7 +1496,6 @@ struct MetaChangeFileReplication: public MetaRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1566,7 +1559,6 @@ struct MetaCoalesceBlocks: public MetaRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1740,7 +1732,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           responseBuf()
         {}
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1797,7 +1788,6 @@ struct MetaBye: public MetaRequest {
         : MetaRequest(META_BYE, false, s),
           server(c) { }
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "Chunkserver bye";
@@ -1849,7 +1839,6 @@ struct MetaChmod: public MetaRequest {
     virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
-    virtual int log(ostream& file) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -1894,7 +1883,6 @@ struct MetaChown: public MetaRequest {
     virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
-    virtual int log(ostream& file) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -2479,7 +2467,6 @@ struct MetaToggleWORM: public MetaRequest {
           value(false)
         {}
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2534,7 +2521,6 @@ struct MetaRecomputeDirsize: public MetaRequest {
         : MetaRequest(META_RECOMPUTE_DIRSIZE, false)
         {}
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -3040,7 +3026,6 @@ struct MetaChunkCorrupt: public MetaRequest {
           server()
         {}
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -3459,7 +3444,6 @@ struct MetaAck : public MetaRequest {
     virtual void handle();
     virtual void response(ReqOstream& /* os */)
         { /* No response; */ }
-    virtual int log(ostream& file) const;
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "ack: " << ack); }
     template<typename T> static T& ParserDef(T& parser)

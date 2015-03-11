@@ -359,9 +359,6 @@ private:
             authUid = inAuthUid;
             euser   = inUid;
         }
-        virtual int log(
-            ostream& /* inStream */) const
-            { return 0; }
         virtual ostream& ShowSelf(
             ostream& inStream) const
             { return (inStream << "search: " << ackId); }

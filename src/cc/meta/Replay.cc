@@ -34,6 +34,7 @@
 #include "LayoutManager.h"
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 #include "qcdio/QCUtils.h"
 
 #include <sys/types.h>
@@ -1007,10 +1008,11 @@ replay_log_commit_entry(DETokenizer& c)
         return false;
     }
     c.pop_front();
-    const int64_t status = c.empty() ? int64_t(0) : c.toNumber();
+    int64_t status = c.empty() ? int64_t(0) : c.toNumber();
     if (! c.isLastOk() || status < 0) {
         return false;
     }
+    status = KfsToSysErrno((int)status);
     if (! run_commit_queue(logSeq, -status)) {
         return false;
     }

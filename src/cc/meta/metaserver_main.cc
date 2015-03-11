@@ -367,10 +367,11 @@ MetaServer::SetParameters(const Properties& props)
     }
 
     mLogRotateIntervalSec = max(3,
-        props.getValue("metaServer.mLogRotateInterval",
+        props.getValue("metaServer.logRotateInterval",
             mLogRotateIntervalSec));
 
     logger_set_rotate_interval(mLogRotateIntervalSec);
+    oplog.SetParameters("metaserver.log.", props);
 
     string chunkmapDumpDir = props.getValue("metaServer.chunkmapDumpDir", ".");
     setChunkmapDumpDir(chunkmapDumpDir);

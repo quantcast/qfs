@@ -42,6 +42,7 @@ using std::string;
 using std::ostringstream;
 using std::ofstream;
 
+class Properties;
 /*!
  * \brief Class for logging metadata updates
  *
@@ -67,7 +68,9 @@ public:
           nextseq(-1),
           nextlogseq(-1),
           committed(0),
-          incp(0)
+          incp(0),
+          errchksum(0),
+          forcecommitflag(false)
         {}
     ~Logger()
     {
@@ -110,6 +113,9 @@ public:
         incp = committed = nextseq = nextlogseq = last;
     }
     MdStream& getMdStream() { return md; }
+    int64_t getErrChksum() const { return errchksum; }
+    void setErrChksum(int64_t sum) { errchksum = sum; }
+    bool SetParameters(const char* prefix, const Properties& params);
 private:
     string   logdir;      //!< directory where logs are kept
     seq_t    lognum;      //!< for generating log file names
@@ -121,6 +127,8 @@ private:
     seq_t    nextlogseq;
     seq_t    committed;   //!< highest request known to be on disk
     seq_t    incp;        //!< highest request in a checkpoint
+    int64_t  errchksum;
+    bool     forcecommitflag;
     string genfile(int n) //!< generate a log file name
     {
         ostringstream f(ostringstream::out);

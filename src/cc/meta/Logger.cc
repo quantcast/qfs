@@ -29,6 +29,7 @@
 #include "util.h"
 #include "Replay.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 #include "kfsio/Globals.h"
 #include "NetDispatch.h"
 
@@ -98,12 +99,14 @@ Logger::dispatch(MetaRequest* r)
             " status: " << r->status <<
             " " << r->Show() <<
         KFS_LOG_EOM;
-        if (logstream) {
+        if (logstream && (forcecommitflag || r->status < 0)) {
             logstream << "c/" << r->logseq << "/" << fileID.getseed();
             if (r->status < 0) {
-                logstream << "/" << -r->status;
+                const int err = SysToKfsErrno(-r->status);
+                logstream << "/" << err;
+                errchksum += err;
             }
-            logstream << '\n';
+            logstream << "/" << errchksum << '\n';
             cp.note_mutation();
         }
     }
@@ -246,6 +249,16 @@ Logger::flushResult(MetaRequest *r)
         flushLog();
         assert(r->logseq <= committed);
     }
+}
+
+bool
+Logger::SetParameters(const char* prefix, const Properties& props)
+{
+    Properties::String name(prefix ? prefix : "");
+    const size_t       len = name.length();
+    forcecommitflag = props.getValue(name.Truncate(len).Append("forceCommit"),
+        forcecommitflag ? 1 : 0) != 0;
+    return true;
 }
 
 void
