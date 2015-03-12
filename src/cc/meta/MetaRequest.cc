@@ -889,7 +889,7 @@ MetaCreate::handle()
         return;
     }
     fid        = 0;
-    todumpster = -1;
+    todumpster = 1;
     MetaFattr* fa = 0;
     status = metatree.create(
         dir,
@@ -999,7 +999,6 @@ MetaRemove::start()
         status    = -EPERM;
         return false;
     }
-    todumpster = -1;
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
@@ -1017,6 +1016,7 @@ MetaRemove::handle()
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
+    todumpster = 1;
     status = metatree.remove(dir, name, pathname, todumpster,
         euser, egroup);
 }
@@ -2544,7 +2544,7 @@ MetaRename::handle()
     if (IsHandled()) {
         return;
     }
-    todumpster = -1;
+    todumpster = 1;
     status = metatree.rename(dir, oldname, newname,
         oldpath, overwrite, todumpster, euser, egroup);
 }
@@ -2783,17 +2783,6 @@ MetaLeaseCleanup::handle()
 {
     const time_t now = globalNetManager().Now();
     gLayoutManager.LeaseCleanup(now);
-    // Some leases might be expired or relinquished: try to cleanup the
-    // dumpster.
-    // FIXME:
-    // Dumpster cleanup needs to be logged, otherwise all files that ever
-    // got there will accumulate during replay. Log compactor doesn't help
-    // as it does not, and can not empty the dumpster.
-    // Only meta server empties dumpster.
-    // Checkpoints from the forked copy should alleviate the problem.
-    // Defer this for now assuming that checkpoints from forked copy is
-    // the default operating mode.
-    metatree.cleanupDumpster();
     metatree.cleanupPathToFidCache(now);
     status = 0;
 }

@@ -333,6 +333,7 @@ class Tree {
     StTmp<vector<MetaDentry*> >::Tmp    mDentriesTmp;
     int64_t mFileSystemId;
     int64_t mCrTime;
+    fid_t   mDumpsterDirId;
 
 
     template<typename MATCH>
@@ -413,7 +414,8 @@ public:
           mChunkInfosTmp(),
           mDentriesTmp(),
           mFileSystemId(-1),
-          mCrTime()
+          mCrTime(),
+          mDumpsterDirId(-1)
     {
         root = Node::create(META_ROOT|META_LEVEL1);
         root->insertData(new Key(KFS_SENTINEL, 0), NULL, 0);
@@ -660,6 +662,7 @@ public:
     ChunkIterator getAlloc(fid_t fid) const;
     ChunkIterator getAlloc(fid_t fid, MetaFattr*& fa) const;
     DentryIterator readDir(fid_t dir) const;
+    fid_t getDumpsterDirId();
 };
 
 /*!

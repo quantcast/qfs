@@ -1085,6 +1085,32 @@ add_parser_subent(DiskEntry& e, const char* name, bool(*p)(DETokenizer&))
     e.add_parser(name, p, &replay_sub_entry);
 }
 
+static bool
+replay_remove_from_dumpster(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    bool ok = true;
+    fid_t fid = -1;
+    ok = pop_fid(fid, "id", c, ok);
+    string name;
+    ok = pop_name(name, "nm", c, ok);
+    if (! ok) {
+        return false;
+    }
+    const fid_t ddir = metatree.getDumpsterDirId();
+    if (ddir < 0) {
+        return false;
+    }
+    fid_t todumpster = -1;
+    return (metatree.remove(
+        ddir, name, string(), todumpster, kKfsUserRoot, kKfsGroupRoot) == 0 &&
+        todumpster < 0
+    );
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -1124,6 +1150,7 @@ get_entry_map()
     e.add_parser(         "ack",                     &replay_idempotent_ack);
     e.add_parser(         "c",                       &replay_log_commit_entry);
     e.add_parser(         "commitreset",             &replay_commit_reset);
+    add_parser_inc_seq(e, "rmd",                     &replay_remove_from_dumpster);
     initied = true;
     return e;
 }

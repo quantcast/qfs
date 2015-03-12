@@ -739,6 +739,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    metatree.cleanupDumpster();
     if (rollChunkIdSeedFlag) {
         const int64_t minRollChunkIdSeed = mStartupProperties.getValue(
             "metaServer.rollChunkIdSeed", int64_t(32) << 10);

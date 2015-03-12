@@ -110,17 +110,6 @@ checkDumpsterExists()
 }
 
 /*!
- * \brief Cleanup the dumpster directory on startup.  Also, if
- * the dumpster doesn't exist, make one.
- */
-void
-emptyDumpsterDir()
-{
-    makeDumpsterDir();
-    metatree.cleanupDumpster();
-}
-
-/*!
  * \brief check file name for legality
  *
  * Legal means nonempty and not containing any slashes.
@@ -419,13 +408,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
     }
     invalidatePathCache(pathname, fname, fa);
     if (0 < fa->chunkcount()) {
-        StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
-        vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-        getalloc(fa->id(), chunkInfo);
-        assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-        if (todumpster > 0 || (false && // FIXME
-		0 < gLayoutManager.GetFileChunksWithLeasesCount(fa->id()) &&
-                gLayoutManager.IsValidLeaseIssued(chunkInfo))) {
+        if (0 < todumpster) {
             // put the file into dumpster
             todumpster = fa->id();
             int status = moveToDumpster(dir, fname, todumpster);
@@ -433,6 +416,10 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
             KFS_LOG_EOM;
             return status;
         }
+        StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+        vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+        getalloc(fa->id(), chunkInfo);
+        assert(fa->chunkcount() == (int64_t)chunkInfo.size());
         UpdateNumChunks(-fa->chunkcount());
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
@@ -2149,41 +2136,59 @@ int
 Tree::moveToDumpster(fid_t dir, const string& fname, fid_t todumpster)
 {
     string tempname = "/" + DUMPSTERDIR + "/";
-    MetaFattr* fa = 0;
-    lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-    if (! fa || fa->type != KFS_DIR) {
+    const fid_t ddir = getDumpsterDirId();
+    if (ddir < 0) {
         panic("no dumpster");
-        KFS_LOG_STREAM_ERROR <<
-            "unable to create dumpster dir to remove " << fname <<
-        KFS_LOG_EOM;
-        return -1;
+        return -EINVAL;
     }
-
     // can't move something in the dumpster back to dumpster
-    if (fa->id() == dir) {
+    if (ddir == dir) {
         return -EEXIST;
     }
     // generate a unique name
-    tempname += fname + toString(todumpster);
+    const size_t plen = tempname.size();
+    const size_t kMaxSuffixLen = 32;
+    if (kMaxSuffixLen + plen + fname.length() < MAX_FILE_NAME_LENGTH) {
+        tempname += fname;
+        tempname += ".";
+    }
+    tempname += toString(todumpster);
 
     // space accounting has been done before the call to this function.  so,
     // we don't rename to do any accounting and hence pass in "" for the old
     // path name.
     fid_t cnt = -1;
-    return rename(dir, fname, tempname, string(), false, cnt,
+    const int ret = rename(dir, fname, tempname, string(), false, cnt,
         kKfsUserRoot, kKfsGroupRoot);
+    if (ret == 0) {
+        tempname.erase(0, plen);
+        gLayoutManager.ScheduleDumpsterCleanup(todumpster, tempname);
+    }
+    return ret;
+}
+
+fid_t
+Tree::getDumpsterDirId()
+{
+    if (mDumpsterDirId < 0) {
+        MetaFattr* fa = 0;
+        mDumpsterDirId = lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
+        if (! fa || fa->type != KFS_DIR) {
+            return -1;
+        }
+        mDumpsterDirId = fa->id();
+    }
+    return mDumpsterDirId;
 }
 
 class RemoveDumpsterEntry {
-    fid_t dir;
 public:
-    RemoveDumpsterEntry(fid_t d) : dir(d) { }
+    RemoveDumpsterEntry() {}
     void operator() (MetaDentry *e) {
-        fid_t cnt = -1;
-        metatree.remove(dir, e->getName(), string(), cnt,
-            kKfsUserRoot, kKfsGroupRoot);
+        gLayoutManager.ScheduleDumpsterCleanup(e->id(), e->getName());
     }
 };
+
 
 /*!
  * \brief Periodically, cleanup the dumpster and reclaim space.  If
@@ -2192,16 +2197,15 @@ public:
 void
 Tree::cleanupDumpster()
 {
-    MetaFattr* fa = 0;
-    lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-    if (! fa || fa->type != KFS_DIR) {
+    const fid_t ddir = getDumpsterDirId();
+    if (ddir < 0) {
         panic("no dumpster");
         return;
     }
-    const fid_t dir = fa->id();
     StTmp<vector<MetaDentry*> > dentriesTmp(mDentriesTmp);
     vector<MetaDentry*>&        v = dentriesTmp.Get();
-    readdir(dir, v);
-    for_each(v.begin(), v.end(), RemoveDumpsterEntry(dir));
+    readdir(ddir, v);
+    for_each(v.begin(), v.end(), RemoveDumpsterEntry());
 }
+
 } // namespace KFS

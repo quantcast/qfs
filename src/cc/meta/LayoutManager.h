@@ -170,32 +170,6 @@ public:
               delegationIssuedTime(lease.delegationIssuedTime),
               delegationUser(lease.delegationUser)
             {}
-        WriteLease(
-            LeaseId        id,
-            time_t         exp,
-            seq_t          cv,
-            ChunkServerPtr cs,
-            string         pn,
-            bool           aFlag,
-            bool           sfFlag)
-            : ReadLease(id, exp),
-              chunkVersion(cv),
-              chunkServer(cs),
-              pathname(pn),
-              appendFlag(aFlag),
-              stripedFileFlag(sfFlag),
-              relinquishedFlag(false),
-              ownerWasDownFlag(false),
-              allocInFlight(0),
-              euser(kKfsUserNone),
-              egroup(kKfsGroupNone),
-              endTime(0),
-              delegationSeq(-1),
-              delegationValidForTime(0),
-              delegationFlags(0),
-              delegationIssuedTime(0),
-              delegationUser(kKfsUserNone)
-            {}
         WriteLease()
             : ReadLease(),
               chunkVersion(-1),
@@ -318,9 +292,17 @@ public:
     inline size_t GetFileChunksWithLeasesCount(
         fid_t fid) const
     {
-        const FileLeases::Val* const count = mFileLeases.Find(fid);
-        return (count ? *count : FileLeases::Val(0));
+        const FileLeases::Val* const entry = mFileLeases.Find(fid);
+        return (entry ? entry->Get().mCount : size_t(0));
     }
+    inline void ScheduleDumpsterCleanup(
+        fid_t         inFid,
+        const string& inName);
+    void SetDumpsterCleanupDelaySec(
+        int inDelay)
+        { mDumpsterCleanupDelaySec = inDelay; }
+    int GetDumpsterCleanupDelaySec() const
+        { return mDumpsterCleanupDelaySec; }
 private:
     class RLEntry : public ReadLease
     {
@@ -500,26 +482,50 @@ private:
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > WriteLeaseTimer;
-    typedef KVPair<fid_t, size_t> FileEntry;
+    class FileEntry
+    {
+    public:
+        FileEntry(
+            const string& inName  = string(),
+            fid_t         inCount = 0)
+            : mDeleteInFlightFlag(false),
+              mCount(inCount),
+              mName(inName)
+            {}
+        bool   mDeleteInFlightFlag;
+        size_t mCount;
+        string mName;
+    };
+    typedef EntryT<fid_t, FileEntry> FEntry;
     typedef LinearHash<
-        FileEntry,
-        KeyCompare<FileEntry::Key>,
-        DynamicArray<SingleLinkedList<FileEntry>*, 13>,
-        StdFastAllocator<FileEntry>
+        FEntry,
+        KeyCompare<FEntry::Key>,
+        DynamicArray<SingleLinkedList<FEntry>*, 13>,
+        StdFastAllocator<FEntry>
     > FileLeases;
+    typedef TimerWheel<
+        FEntry,
+        FEntry::List,
+        time_t,
+        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+            kLeaseTimerResolutionSec,
+        kLeaseTimerResolutionSec
+    > DumpsterCleanupTimer;
 
     class OpenFileLister;
     friend class OpenFileLister;
     class LeaseCleanup;
     friend class LeaseCleanup;
 
-    ReadLeases      mReadLeases;
-    WriteLeases     mWriteLeases;
-    FileLeases      mFileLeases;
-    bool            mTimerRunningFlag;
-    ReadLeaseTimer  mReadLeaseTimer;
-    WriteLeaseTimer mWriteLeaseTimer;
-    WEntry          mWAllocationInFlightList;
+    ReadLeases           mReadLeases;
+    WriteLeases          mWriteLeases;
+    FileLeases           mFileLeases;
+    bool                 mTimerRunningFlag;
+    ReadLeaseTimer       mReadLeaseTimer;
+    WriteLeaseTimer      mWriteLeaseTimer;
+    DumpsterCleanupTimer mDumpsterCleanupTimer;
+    WEntry               mWAllocationInFlightList;
+    int                  mDumpsterCleanupDelaySec;
 
     inline LeaseId NewReadLeaseId();
     void PutInExpirationList(
@@ -565,6 +571,8 @@ private:
     inline void DecrementFileLease(
         fid_t fid);
     inline void IncrementFileLease(
+        fid_t fid);
+    bool IsDeleteInFlight(
         fid_t fid);
 private:
     ChunkLeases(
@@ -1371,6 +1379,7 @@ public:
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void SetVerifyAllOpsPermissions(bool flag)
         { mVerifyAllOpsPermissionsFlag = flag; }
+    void ScheduleDumpsterCleanup(fid_t fid, const string& name);
 protected:
     typedef vector<
         int,

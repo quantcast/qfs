@@ -151,7 +151,8 @@ using std::less;
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
     f(LOG_CONFIG) \
-    f(ACK)
+    f(ACK) \
+    f(REMOVE_FROM_DUMPSTER)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
