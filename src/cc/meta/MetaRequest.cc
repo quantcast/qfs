@@ -1975,13 +1975,23 @@ MetaAllocate::start()
     } else {
         euser = kKfsUserRoot; // Don't check permissions.
     }
+    if (appendChunk && invalidateAllFlag) {
+        statusMsg = "chunk invalidation"
+            " is not supported with append";
+        status    = -EINVAL;
+        return false;
+    }
+    return false; // Do not use write ahead log for allocate requests.
+}
+
+/* virtual */ void
+MetaAllocate::handle()
+{
+    suspended = false;
+    if (layoutDone || 0 != status) {
+        return;
+    }
     if (appendChunk) {
-        if (invalidateAllFlag) {
-            statusMsg = "chunk invalidation"
-                " is not supported with append";
-            status    = -EINVAL;
-            return false;
-        }
         // pick a chunk for which a write lease exists
         status = 0;
         if (gLayoutManager.AllocateChunkForAppend(this) == 0) {
@@ -1996,22 +2006,12 @@ MetaAllocate::start()
             // resume / re-submit request if suspended.
             logAction  = kLogNever;
             layoutDone = ! suspended;
-            return false;
+            return;
         }
         if (0 != status) {
-            return false;
+            return;
         }
         offset = -1; // Allocate a new chunk past eof.
-    }
-    return false; // Do not use write ahead log for allocate requests.
-}
-
-/* virtual */ void
-MetaAllocate::handle()
-{
-    suspended = false;
-    if (layoutDone || 0 != status) {
-        return;
     }
     // force an allocation
     chunkId = 0;
@@ -2066,8 +2066,8 @@ MetaAllocate::handle()
             // couln't get the lease...bail
             return;
         }
-        if (!isNewLease) {
-            KFS_LOG_STREAM_DEBUG << "Got valid lease for req:" << opSeqno <<
+        if (! isNewLease) {
+            KFS_LOG_STREAM_DEBUG << "got valid lease for req:" << opSeqno <<
             KFS_LOG_EOM;
             // we got a valid lease.  so, return
             return;
