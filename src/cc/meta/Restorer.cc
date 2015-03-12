@@ -53,11 +53,23 @@ static bool
 checkpoint_seq(DETokenizer& c)
 {
     c.pop_front();
-    if (c.empty())
+    if (c.empty()) {
         return false;
-    seq_t highest = (seq_t)c.toNumber();
+    }
+    const seq_t highest = (seq_t)c.toNumber();
+    if (highest < 0 || ! c.isLastOk()) {
+        return false;
+    }
     oplog.set_seqno(highest);
-    return (highest >= 0);
+    c.pop_front();
+    if (! c.empty()) {
+        const int64_t chksum = c.toNumber();
+        if (! c.isLastOk()) {
+            return false;
+        }
+        oplog.setErrChksum(chksum);
+    }
+    return true;
 }
 
 static bool

@@ -94,7 +94,8 @@ Checkpoint::do_CP()
     if (oplog.name().empty()) {
         return -EINVAL;
     }
-    seq_t highest = oplog.checkpointed();
+    const seq_t   highest   = oplog.checkpointed();
+    const int64_t errchksum = oplog.getErrChksum();
     cpname = cpfile(highest);
     const char* const suffix = ".tmp.XXXXXX";
     char* const tmpname = new char[cpname.length() + strlen(suffix) + 1];
@@ -117,7 +118,7 @@ Checkpoint::do_CP()
         const bool kSyncFlag = false;
         MdStreamT<FdWriter> os(&fdw, kSyncFlag, string(), writebuffersize);
         os << dec;
-        os << "checkpoint/" << highest << '\n';
+        os << "checkpoint/" << highest << "/" << errchksum << '\n';
         os << "checksum/last-line\n";
         os << "version/" << VERSION << '\n';
         os << "filesysteminfo/fsid/" << metatree.GetFsId() << "/crtime/" <<

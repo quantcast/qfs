@@ -100,13 +100,15 @@ Logger::dispatch(MetaRequest* r)
             " " << r->Show() <<
         KFS_LOG_EOM;
         if (logstream && (forcecommitflag || r->status < 0)) {
-            logstream << "c/" << r->logseq << "/" << fileID.getseed();
-            if (r->status < 0) {
-                const int err = SysToKfsErrno(-r->status);
-                logstream << "/" << err;
-                errchksum += err;
-            }
-            logstream << "/" << errchksum << '\n';
+            const int err = r->status < 0 ? SysToKfsErrno(-r->status) : 0;
+            errchksum += err;
+            logstream <<
+                "c/" << r->logseq <<
+                "/"  << fileID.getseed() <<
+                "/"  << errchksum <<
+                "/"  << err <<
+            '\n';
+            flushLog();
             cp.note_mutation();
         }
     }

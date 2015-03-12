@@ -905,12 +905,13 @@ replay_idempotent_ack(DETokenizer& c)
         token.ptr, token.len, uid, aid);
 }
 
-static int64_t sLastLogAheadSeq = 0;
+static int64_t sLastLogAheadSeq   = 0;
+static int64_t sLogAheadErrChksum = 0;
+static int64_t sSubEntryCount     = 0;
 typedef deque<
     pair<int64_t, int64_t>
 > CommitQueue;
 static CommitQueue sCommitQueue;
-static int64_t     sSubEntryCount = 0;
 
 static bool
 replay_inc_seq(DETokenizer& c)
@@ -937,17 +938,24 @@ run_commit_queue(int64_t logSeq, int64_t status)
 {
     while (! sCommitQueue.empty()) {
         const CommitQueue::value_type& f = sCommitQueue.front();
+        if (logSeq < f.first) {
+            break;
+        }
+        if (0 < f.second) {
+            sLogAheadErrChksum += f.second;
+        }
         if (logSeq == f.first) {
             if (f.second == status) {
                 sCommitQueue.pop_front();
                 return true;
             }
-            return false;
-        }
-        if (logSeq < f.first) {
-            break;
-        }
-        if (f.second != 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "log commit status mismatch:"
+                " expected: " << status <<
+                " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]"
+                " actual: "   << f.second <<
+                " [" << QCUtils::SysError(KfsToSysErrno(f.second)) << "]" <<
+            KFS_LOG_EOM;
             return false;
         }
         sCommitQueue.pop_front();
@@ -979,10 +987,7 @@ replay_log_ahead_entry(DETokenizer& c)
         return false;
     }
     if (status < 0) {
-        sCommitQueue.push_back(make_pair(logSeq, status));
-    }
-    if (! run_commit_queue(sLastLogAheadSeq, 0)) {
-        return false;
+        sCommitQueue.push_back(make_pair(logSeq, SysToKfsErrno(-status)));
     }
     sLastLogAheadSeq = logSeq;
     return (0 == sSubEntryCount);
@@ -991,32 +996,71 @@ replay_log_ahead_entry(DETokenizer& c)
 static bool
 replay_log_commit_entry(DETokenizer& c)
 {
-    c.pop_front();
-    if (c.empty()) {
+    if (c.size() < 5) {
         return false;
     }
+    c.pop_front();
     const int64_t logSeq = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
     c.pop_front();
-    if (c.empty()) {
-        return false;
-    }
     const int64_t seed = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
     c.pop_front();
-    int64_t status = c.empty() ? int64_t(0) : c.toNumber();
+    const int64_t errchksum = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t status = c.toNumber();
     if (! c.isLastOk() || status < 0) {
         return false;
     }
-    status = KfsToSysErrno((int)status);
-    if (! run_commit_queue(logSeq, -status)) {
+    if (! run_commit_queue(logSeq, status)) {
+        return false;
+    }
+    if (errchksum != sLogAheadErrChksum) {
+        KFS_LOG_STREAM_ERROR <<
+            "log error checksum mismatch:"
+            " expected: " << errchksum <<
+            " actual: "   << sLogAheadErrChksum<<
+        KFS_LOG_EOM;
         return false;
     }
     return (seed == fileID.getseed() && 0 == sSubEntryCount);
+}
+
+// The following is intended to be used to "manually" repair transaction log.
+static bool
+replay_commit_reset(DETokenizer& c)
+{
+    if (c.size() < 4) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t logSeq = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t seed = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t errchksum = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    sCommitQueue.clear();
+    fileID.setseed(seed);
+    sSubEntryCount     = 0;
+    sLastLogAheadSeq   = logSeq;
+    sLogAheadErrChksum = errchksum;
+    return true;
 }
 
 static bool
@@ -1079,6 +1123,7 @@ get_entry_map()
     add_parser_subent (e, "guc",                     &restore_group_users);
     e.add_parser(         "ack",                     &replay_idempotent_ack);
     e.add_parser(         "c",                       &replay_log_commit_entry);
+    e.add_parser(         "commitreset",             &replay_commit_reset);
     initied = true;
     return e;
 }
@@ -1106,7 +1151,9 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     DiskEntry& entrymap = get_entry_map();
     DETokenizer tokenizer(file);
 
-    sLastLogAheadSeq = oplog.checkpointed();
+    sLastLogAheadSeq   = oplog.checkpointed();
+    sLogAheadErrChksum = oplog.getErrChksum();
+    sSubEntryCount     = 0;
     int status = 0;
     static const DETokenizer::Token kAheadLogEntry("a");
     while (tokenizer.next(&mds)) {
@@ -1142,7 +1189,13 @@ Replay::playlog(bool& lastEntryChecksumFlag)
             restoreChecksum.clear();
         }
     }
-    oplog.set_seqno(sLastLogAheadSeq);
+    if (status == 0 && 0 != sSubEntryCount) {
+        KFS_LOG_STREAM_FATAL <<
+            "error " << path <<
+            " invalid sub entry count: " << sSubEntryCount <<
+        KFS_LOG_EOM;
+        status = -EIO;
+    }
     if (status == 0 && ! file.eof()) {
         KFS_LOG_STREAM_FATAL <<
             "error " << path <<
@@ -1152,6 +1205,8 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         status = -EIO;
     }
     if (status == 0) {
+        oplog.set_seqno(sLastLogAheadSeq);
+        oplog.setErrChksum(sLogAheadErrChksum);
         lastLogIntBase = tokenizer.getIntBase();
     }
     file.close();
@@ -1226,10 +1281,11 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             appendToLastLogFlag = true;
         }
     }
-    if (status == 0 && ! run_commit_queue(oplog.checkpointed(), 0)) {
+    if (status == 0 && ! run_commit_queue(oplog.checkpointed() + 1, 0)) {
         status = -EINVAL;
     }
     if (status == 0) {
+        oplog.setErrChksum(sLogAheadErrChksum);
         oplog.setLog(i);
     } else {
         appendToLastLogFlag = false;
