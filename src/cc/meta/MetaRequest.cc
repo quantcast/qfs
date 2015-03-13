@@ -5495,4 +5495,24 @@ MetaLogConfig::log(ostream& file) const
     return (file.fail() ? -EIO : 0);
 }
 
+void
+MetaRemoveFromDumpster::handle()
+{
+    if (status == 0) {
+        const fid_t ddir = metatree.getDumpsterDirId();
+        if (ddir < 0) {
+            panic("no dumpster");
+        }
+        fid_t todumpster = -1;
+        status = metatree.remove(ddir, name, string(), todumpster,
+            kKfsUserRoot, kKfsGroupRoot);
+        if (status < 0) {
+            panic("dumpster entry delete failure");
+        }
+    } else {
+        // Log failure -- reschedule.
+        gLayoutManager.ScheduleDumpsterCleanup(fid, name);
+    }
+}
+
 } /* namespace KFS */

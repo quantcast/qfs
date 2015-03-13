@@ -3480,6 +3480,36 @@ struct MetaLogConfig : public MetaRequest {
     }
 };
 
+struct MetaRemoveFromDumpster : public MetaRequest
+{
+    string name;
+    fid_t  fid;
+
+    MetaRemoveFromDumpster(
+        const string& nm = string(),
+        fid_t         id = -1)
+        : MetaRequest(META_REMOVE_FROM_DUMPSTER, true),
+          name(nm),
+          fid(id)
+        {}
+    bool Validate()
+        { return (0 <= fid && ! name.empty()); }
+    virtual bool start() { return true; }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "remove from dumpster: " << name << " fid: " << fid);
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("N", &MetaRemoveFromDumpster::name)
+        .Def("P", &MetaRemoveFromDumpster::fid)
+        ;
+    }
+};
+
 int ParseCommand(const IOBuffer& buf, int len, MetaRequest **res,
     char* threadParseBuffer, bool shortRpcFmtFlag);
 int ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,

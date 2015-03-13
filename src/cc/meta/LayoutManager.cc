@@ -878,67 +878,6 @@ ChunkLeases::LeaseRelinquish(
     return ret;
 }
 
-struct MetaRemoveFromDumpster : public MetaRequest, public KfsCallbackObj
-{
-    const string mName;
-    const fid_t  mFid;
-
-    MetaRemoveFromDumpster(
-        const string& inName,
-        fid_t         inFid)
-        : MetaRequest(META_REMOVE_FROM_DUMPSTER, true),
-          mName(inName),
-          mFid(inFid)
-    {
-        SET_HANDLER(this, &MetaRemoveFromDumpster::LogDone);
-        clnt = this;
-    }
-    virtual void handle() { status = 0; }
-    virtual ostream& ShowSelf(
-        ostream& inStream) const
-    {
-        return (inStream << "remove from dumpster: " << mName << " " << mFid);
-    }
-    virtual int log(
-        ostream& inStream) const
-    {
-        inStream << "rmd/id/" << mFid << "/nm/" << mName << '\n';
-        return inStream.fail() ? -EIO : 0;
-    }
-    int LogDone(
-        int   inCode,
-        void* inData)
-    {
-        assert(inCode == EVENT_CMD_DONE && inData == this);
-        const int    theStatus = status;
-        const string theName   = mName;
-        const fid_t  theFid    = mFid;
-        delete this;
-        if (theStatus == 0) {
-            const fid_t theDirId = metatree.getDumpsterDirId();
-            if (theDirId < 0) {
-                panic("no dumpster");
-            }
-            fid_t theToDumpster = -1;
-            status = metatree.remove(
-                theDirId,
-                theName,
-                string(),
-                theToDumpster,
-                kKfsUserRoot,
-                kKfsGroupRoot
-            );
-            if (status < 0) {
-                panic("dumpster entry delete failure");
-            }
-        } else {
-            // Reschedule.
-            gLayoutManager.ScheduleDumpsterCleanup(theFid, theName);
-        }
-        return 0;
-    }
-};
-
 class ChunkLeases::LeaseCleanup
 {
 public:
@@ -975,10 +914,11 @@ public:
         if (theEntry.mName.empty() || 0 != theEntry.mCount) {
             panic("invalid file leases entry");
         }
-        theEntry.mDeleteInFlightFlag = true;
-        FEntry::List::Remove(inEntry);
-        submit_request(new MetaRemoveFromDumpster(
-            theEntry.mName, inEntry.GetKey()));
+        const fid_t theFid  = inEntry.GetKey();
+        string      theName;
+        theName.swap(theEntry.mName);
+        mLeases.mFileLeases.Erase(theFid); // deletes inEntry
+        submit_request(new MetaRemoveFromDumpster(theName, theFid));
     }
 private:
     time_t const   mNow;
@@ -1010,14 +950,6 @@ ChunkLeases::Timer(
 }
 
 inline bool
-ChunkLeases::IsDeleteInFlight(
-    fid_t fid)
-{
-    const FEntry* const entry = mFileLeases.Find(fid);
-    return (entry && entry->Get().mDeleteInFlightFlag);
-}
-
-inline bool
 ChunkLeases::NewReadLease(
     fid_t                  fid,
     chunkId_t              chunkId,
@@ -1026,9 +958,6 @@ ChunkLeases::NewReadLease(
 {
     if (mWriteLeases.Find(chunkId)) {
         assert(! mReadLeases.Find(chunkId));
-        return false;
-    }
-    if (IsDeleteInFlight(fid)) {
         return false;
     }
     // Keep list sorted by expiration time.
@@ -1062,9 +991,6 @@ ChunkLeases::NewWriteLease(
 {
     if (mReadLeases.Find(req.chunkId)) {
         assert(! mWriteLeases.Find(req.chunkId));
-        return false;
-    }
-    if (IsDeleteInFlight(req.fid)) {
         return false;
     }
     const LeaseId id = NewWriteLeaseId();

@@ -2181,15 +2181,6 @@ Tree::getDumpsterDirId()
     return mDumpsterDirId;
 }
 
-class RemoveDumpsterEntry {
-public:
-    RemoveDumpsterEntry() {}
-    void operator() (MetaDentry *e) {
-        gLayoutManager.ScheduleDumpsterCleanup(e->id(), e->getName());
-    }
-};
-
-
 /*!
  * \brief Periodically, cleanup the dumpster and reclaim space.  If
  * the lease issued on a file has expired, then the file can be nuked.
@@ -2202,10 +2193,25 @@ Tree::cleanupDumpster()
         panic("no dumpster");
         return;
     }
-    StTmp<vector<MetaDentry*> > dentriesTmp(mDentriesTmp);
-    vector<MetaDentry*>&        v = dentriesTmp.Get();
-    readdir(ddir, v);
-    for_each(v.begin(), v.end(), RemoveDumpsterEntry());
+    DentryIterator it = readDir(ddir);
+    const MetaDentry* e;
+    while ((e = it.next())) {
+        const string&    name = e->getName();
+        const MetaFattr* fa   = e->getFattr();
+        if (! fa) {
+            if (name == kThisDir || name == kParentDir) {
+                continue;
+            }
+            fa = getFattr(e->id());
+            if (! fa) {
+                continue;
+            }
+        }
+        if (KFS_FILE != fa->type) {
+            continue;
+        }
+        gLayoutManager.ScheduleDumpsterCleanup(e->id(), name);
+    }
 }
 
 } // namespace KFS

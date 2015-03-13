@@ -488,11 +488,9 @@ private:
         FileEntry(
             const string& inName  = string(),
             fid_t         inCount = 0)
-            : mDeleteInFlightFlag(false),
-              mCount(inCount),
+            : mCount(inCount),
               mName(inName)
             {}
-        bool   mDeleteInFlightFlag;
         size_t mCount;
         string mName;
     };
@@ -571,8 +569,6 @@ private:
     inline void DecrementFileLease(
         fid_t fid);
     inline void IncrementFileLease(
-        fid_t fid);
-    bool IsDeleteInFlight(
         fid_t fid);
 private:
     ChunkLeases(

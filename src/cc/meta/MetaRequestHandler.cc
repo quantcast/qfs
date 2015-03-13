@@ -514,9 +514,9 @@ MakeLogMetaRequestHandler(
     const T* inNullPtr = 0)
 {
     return MakeMetaRequestHandler(inNullPtr)
-    .MakeParser("LEASE_CLENAUP",
-        META_LEASE_CLEANUP,
-        static_cast<const MetaLeaseCleanup*>(0))
+    .MakeParser("DRM",
+        META_REMOVE_FROM_DUMPSTER,
+        static_cast<const MetaRemoveFromDumpster*>(0))
     ;
 }
 
