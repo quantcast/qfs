@@ -2552,25 +2552,25 @@ MetaRename::handle()
 /* virtual */ bool
 MetaSetMtime::start()
 {
-    if (0 < fid && status == 0) {
-        // mtime is already set, only log.
-        euser = kKfsUserRoot;
-        return true;
+    if (! internalFlag) {
+        SetEUserAndEGroup(*this);
     }
-    SetEUserAndEGroup(*this);
     return (0 == status);
 }
 
 /* virtual */ void
 MetaSetMtime::handle()
 {
-    if (fid > 0 && status == 0) {
-        // mtime is already set, only log.
-        return;
-    }
     MetaFattr* fa = 0;
-    status = metatree.lookupPath(ROOTFID, pathname,
-        euser, egroup, fa);
+    if (fid > 0 && status == 0) {
+        fa = metatree.getFattr(fid);
+    } else {
+        status = metatree.lookupPath(dir, pathname,
+            euser, egroup, fa);
+    }
+    if (0 == status && ! fa) {
+        status = -ENOENT;
+    }
     if (status != 0) {
         return;
     }
@@ -2579,7 +2579,6 @@ MetaSetMtime::handle()
         return;
     }
     fa->mtime = mtime;
-    fid       = fa->id();
 }
 
 /* virtual */ bool
@@ -5450,6 +5449,7 @@ MetaRemoveFromDumpster::handle()
         if (status < 0) {
             panic("dumpster entry delete failure");
         }
+        gLayoutManager.DumpsterCleanupDone(fid, name);
     } else {
         // Log failure -- reschedule.
         gLayoutManager.ScheduleDumpsterCleanup(fid, name);

@@ -314,7 +314,6 @@ struct MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return parser
-        .Def("l", &MetaRequest::logseq,              seq_t(-2))
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
@@ -1427,14 +1426,18 @@ struct MetaRename: public MetaIdempotentRequest {
  * \brief set the mtime for a file or directory
  */
 struct MetaSetMtime: public MetaRequest {
-    fid_t   fid;      //!< stash the fid for logging
-    string  pathname; //!< absolute path for which we want to set the mtime
-    int64_t mtime;
+    fid_t      dir;
+    fid_t      fid;      //!< stash the fid for logging
+    string     pathname; //!< absolute path for which we want to set the mtime
+    int64_t    mtime;
+    const bool internalFlag;
     MetaSetMtime(fid_t id = -1, int64_t mtime = 0)
         : MetaRequest(META_SETMTIME, kLogIfOk),
+          dir(ROOTFID),
           fid(id),
           pathname(),
           mtime(mtime),
+          internalFlag(0 <= id),
           sec(0),
           usec(0)
         {}
@@ -1452,7 +1455,7 @@ struct MetaSetMtime: public MetaRequest {
     bool Validate()
     {
         mtime = sec * 1000 * 1000 + usec;
-        return (! pathname.empty());
+        return (! pathname.empty() && 0 <= dir);
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1460,14 +1463,16 @@ struct MetaSetMtime: public MetaRequest {
         .Def2("Mtime-sec",  "S", &MetaSetMtime::sec     )
         .Def2("Mtime-usec", "U", &MetaSetMtime::usec    )
         .Def2("Pathname",   "N", &MetaSetMtime::pathname)
+        .Def2("Parent-dir", "D", &MetaSetMtime::dir,   fid_t(-1))
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaSetMtime::fid, fid_t(-1))
         .Def("N", &MetaSetMtime::pathname)
-        .Def("S", &MetaSetMtime::sec)
-        .Def("U", &MetaSetMtime::usec)
+        .Def("M", &MetaSetMtime::mtime)
+        .Def("D", &MetaSetMtime::dir, ROOTFID)
         ;
     }
 private:

@@ -298,9 +298,14 @@ public:
     inline void ScheduleDumpsterCleanup(
         fid_t         inFid,
         const string& inName);
+    inline void DumpsterCleanupDone(
+        fid_t         inFid,
+        const string& inName);
     void SetDumpsterCleanupDelaySec(
         int inDelay)
-        { mDumpsterCleanupDelaySec = inDelay; }
+    {
+        mDumpsterCleanupDelaySec = max(0, min(inDelay, LEASE_INTERVAL_SECS));
+    }
     int GetDumpsterCleanupDelaySec() const
         { return mDumpsterCleanupDelaySec; }
 private:
@@ -1374,6 +1379,7 @@ public:
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
+    void DumpsterCleanupDone(fid_t fid, const string& name);
 protected:
     typedef vector<
         int,

@@ -914,11 +914,8 @@ public:
         if (theEntry.mName.empty() || 0 != theEntry.mCount) {
             panic("invalid file leases entry");
         }
-        const fid_t theFid  = inEntry.GetKey();
-        string      theName;
-        theName.swap(theEntry.mName);
-        mLeases.mFileLeases.Erase(theFid); // deletes inEntry
-        submit_request(new MetaRemoveFromDumpster(theName, theFid));
+        submit_request(new MetaRemoveFromDumpster(
+            theEntry.mName, inEntry.GetKey()));
     }
 private:
     time_t const   mNow;
@@ -1222,7 +1219,7 @@ ChunkLeases::GetOpenFiles(
     }
 }
 
-void
+inline void
 ChunkLeases::ScheduleDumpsterCleanup(
     fid_t         inFid,
     const string& inName)
@@ -1238,6 +1235,18 @@ ChunkLeases::ScheduleDumpsterCleanup(
         mDumpsterCleanupTimer.Schedule(
             *entry, TimeNow() + mDumpsterCleanupDelaySec);
     }
+}
+
+inline void
+ChunkLeases::DumpsterCleanupDone(
+    fid_t         inFid,
+    const string& inName)
+{
+    FEntry* const entry = mFileLeases.Find(inFid);
+    if (! entry || entry->Get().mCount != 0 || inName != entry->Get().mName) {
+        panic("internal error: invalid dumpster delete completion");
+    }
+    mFileLeases.Erase(inFid);
 }
 
 inline LayoutManager::Servers::const_iterator
@@ -2274,6 +2283,10 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         }
         mConfig += ';';
     }
+    mChunkLeases.SetDumpsterCleanupDelaySec(props.getValue(
+        "metaServer.DumpsterCleanupDelaySec",
+        mChunkLeases.GetDumpsterCleanupDelaySec())
+    );
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
@@ -6217,6 +6230,14 @@ LayoutManager::ScheduleDumpsterCleanup(
     mChunkLeases.ScheduleDumpsterCleanup(fid, name);
 }
 
+void
+LayoutManager::DumpsterCleanupDone(
+    fid_t         fid,
+    const string& name)
+{
+    mChunkLeases.DumpsterCleanupDone(fid, name);
+}
+
 int
 LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 {
@@ -7510,7 +7531,6 @@ LayoutManager::MakeChunkStableInit(
             MetaFattr* const fa  = entry.GetFattr();
             const int64_t    now = microseconds();
             if (fa->mtime + mMTimeUpdateResolution < now) {
-                fa->mtime = now;
                 submit_request(new MetaSetMtime(fid, fa->mtime));
             }
         }
@@ -8077,7 +8097,6 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         if (updateMTimeFlag) {
             const int64_t now = microseconds();
             if (fa->mtime + mMTimeUpdateResolution < now) {
-                fa->mtime = now;
                 submit_request(new MetaSetMtime(fileId, fa->mtime));
             }
         }
