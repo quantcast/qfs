@@ -22,18 +22,11 @@ using std::set;
 using libkfsio::globalNetManager;
 
 template<typename T>
-    static T&
-MakeMetaRequestHandler(
-    const T* inNullPtr = 0)
+    T&
+AddMetaRequestLog(
+    T& inHandler)
 {
-    static T sHandler;
-    return sHandler
-    .MakeParser("LOOKUP",
-        META_LOOKUP,
-        static_cast<const MetaLookup*>(0))
-    .MakeParser("LOOKUP_PATH",
-        META_LOOKUP_PATH,
-        static_cast<const MetaLookupPath*>(0))
+    return inHandler
     .MakeParser("CREATE",
         META_CREATE,
         static_cast<const MetaCreate*>(0))
@@ -46,21 +39,6 @@ MakeMetaRequestHandler(
     .MakeParser("RMDIR",
         META_RMDIR,
         static_cast<const MetaRmdir*>(0))
-    .MakeParser("READDIR",
-        META_READDIR,
-        static_cast<const MetaReaddir*>(0))
-    .MakeParser("READDIRPLUS",
-        META_READDIRPLUS,
-        static_cast<const MetaReaddirPlus*>(0))
-    .MakeParser("GETALLOC",
-        META_GETALLOC,
-        static_cast<const MetaGetalloc*>(0))
-    .MakeParser("GETLAYOUT",
-        META_GETLAYOUT,
-        static_cast<const MetaGetlayout*>(0))
-    .MakeParser("ALLOCATE",
-        META_ALLOCATE,
-        static_cast<const MetaAllocate*>(0))
     .MakeParser("TRUNCATE",
         META_TRUNCATE,
         static_cast<const MetaTruncate*>(0))
@@ -76,6 +54,49 @@ MakeMetaRequestHandler(
     .MakeParser("COALESCE_BLOCKS",
         META_COALESCE_BLOCKS,
         static_cast<const MetaCoalesceBlocks*>(0))
+    .MakeParser("CHOWN",
+        META_CHOWN,
+        static_cast<const MetaChown*>(0))
+    .MakeParser("CHMOD",
+        META_CHMOD,
+        static_cast<const MetaChmod*>(0))
+    .MakeParser("DELEGATE_CANCEL",
+        META_DELEGATE_CANCEL,
+        static_cast<const MetaDelegateCancel*>(0))
+    .MakeParser("ACK",
+        META_ACK,
+        static_cast<const MetaAck*>(0))
+    ;
+}
+
+template<typename T>
+    static const T&
+MakeMetaRequestHandler(
+    const T* inNullPtr = 0)
+{
+    static T sHandler;
+    return AddMetaRequestLog(sHandler)
+    .MakeParser("LOOKUP",
+        META_LOOKUP,
+        static_cast<const MetaLookup*>(0))
+    .MakeParser("LOOKUP_PATH",
+        META_LOOKUP_PATH,
+        static_cast<const MetaLookupPath*>(0))
+    .MakeParser("READDIR",
+        META_READDIR,
+        static_cast<const MetaReaddir*>(0))
+    .MakeParser("READDIRPLUS",
+        META_READDIRPLUS,
+        static_cast<const MetaReaddirPlus*>(0))
+    .MakeParser("GETALLOC",
+        META_GETALLOC,
+        static_cast<const MetaGetalloc*>(0))
+    .MakeParser("GETLAYOUT",
+        META_GETLAYOUT,
+        static_cast<const MetaGetlayout*>(0))
+    .MakeParser("ALLOCATE",
+        META_ALLOCATE,
+        static_cast<const MetaAllocate*>(0))
     .MakeParser("RETIRE_CHUNKSERVER",
         META_RETIRE_CHUNKSERVER,
         static_cast<const MetaRetireChunkserver*>(0))
@@ -156,27 +177,15 @@ MakeMetaRequestHandler(
     .MakeParser("GETPATHNAME",
         META_GETPATHNAME,
         static_cast<const MetaGetPathName*>(0))
-    .MakeParser("CHOWN",
-        META_CHOWN,
-        static_cast<const MetaChown*>(0))
-    .MakeParser("CHMOD",
-        META_CHMOD,
-        static_cast<const MetaChmod*>(0))
     .MakeParser("AUTHENTICATE",
         META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
     .MakeParser("DELEGATE",
         META_DELEGATE,
         static_cast<const MetaDelegate*>(0))
-    .MakeParser("DELEGATE_CANCEL",
-        META_DELEGATE_CANCEL,
-        static_cast<const MetaDelegateCancel*>(0))
     .MakeParser("FORCE_REPLICATION",
         META_FORCE_CHUNK_REPLICATION,
         static_cast<const MetaForceChunkReplication*>(0))
-    .MakeParser("ACK",
-        META_ACK,
-        static_cast<const MetaAck*>(0))
     ;
 }
 
@@ -353,8 +362,10 @@ class StringInsertEscapeOStream
 {
 public:
     StringInsertEscapeOStream(
-        ostream& inStream)
+        ostream& inStream,
+        seq_t    inLogSeq)
         : mOStream(inStream),
+          mLogSeq(inLogSeq),
           mFlags(inStream.flags())
     {
         mOStream.Get().flags(mFlags | ostream::hex);
@@ -381,6 +392,13 @@ public:
         size_t      inLen,
         char        inDelimiter)
     {
+        if (0 <= mLogSeq) {
+            // Write transaction log prefix.
+            mOStream.write("a/", 2);
+            WriteVal(mLogSeq);
+            mOStream.write("/", 1);
+            mLogSeq = -1;
+        }
         mOStream.write(inPtr, inLen);
         mOStream.put(inDelimiter);
         return *this;
@@ -439,6 +457,7 @@ private:
         { mOStream << (int)inVal; }
 private:
     ReqOstream              mOStream;
+    seq_t                   mLogSeq;
     ostream::fmtflags const mFlags;
 
     void Escape(
@@ -497,7 +516,7 @@ static const MetaRequestIoHandler& sMetaRequestIoHandler =
 bool
 MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
 {
-    StringInsertEscapeOStream theStream(os);
+    StringInsertEscapeOStream theStream(os, -1);
     return sMetaRequestIoHandler.Write(
             theStream, this, op, omitDefaultsFlag, ':', ';');
 }
@@ -513,8 +532,12 @@ template<typename T>
 MakeLogMetaRequestHandler(
     const T* inNullPtr = 0)
 {
-    return MakeMetaRequestHandler(inNullPtr)
-    .MakeParser("DRM",
+    static T sHandler;
+    return AddMetaRequestLog(sHandler)
+    .MakeParser("CHUNK_SIZE",
+        META_CHUNK_SIZE,
+        static_cast<const MetaChunkSize*>(0))
+    .MakeParser("REMOVE_FROM_DUMPSTER",
         META_REMOVE_FROM_DUMPSTER,
         static_cast<const MetaRemoveFromDumpster*>(0))
     ;
@@ -562,14 +585,11 @@ MetaRequest::Replay(const char* buf, size_t len, int& status)
 bool
 MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
 {
-    StringInsertEscapeOStream theStream(os);
+    StringInsertEscapeOStream theStream(os, logseq);
     ReqOstream& theReqOstream = theStream.GetOStream();
-    theReqOstream.write("a/", 2);
-    theReqOstream << logseq;
-    theReqOstream.write("/", 1);
     if (! sMetaReplayIoHandler.Write(
             theStream, this, op, omitDefaultsFlag, ':', ';')) {
-        return false;
+        return log(os);
     }
     theReqOstream.write("\n", 1);
     return true;
@@ -654,14 +674,14 @@ ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
         sMetaRequestHandlerShortFmt.Handle(buf, reqLen) :
         sMetaRequestHandler.Handle(buf, reqLen)) :
         0;
-    if (*res && 0 <= (*res)->seqno) {
+    if (*res && 0 <= (*res)->opSeqno) {
         return 0;
     }
     MetaRequest* const req = shortRpcFmtFlag ?
         sMetaRequestHandler.Handle(buf, reqLen) :
         sMetaRequestHandlerShortFmt.Handle(buf, reqLen);
     if (req) {
-        if (0 <= req->seqno) {
+        if (0 <= req->opSeqno) {
             MetaRequest::Release(*res);
             *res = req;
             shortRpcFmtFlag = ! shortRpcFmtFlag;

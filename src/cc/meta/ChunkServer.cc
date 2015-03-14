@@ -2010,10 +2010,10 @@ ChunkServer::DeleteChunk(chunkId_t chunkId)
 
 int
 ChunkServer::GetChunkSize(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
-    const string &pathname, bool retryFlag)
+    bool retryFlag)
 {
     Enqueue(new MetaChunkSize(NextSeq(), mSelfPtr,
-        fid, chunkId, chunkVersion, pathname, retryFlag));
+        fid, chunkId, chunkVersion, retryFlag));
     return 0;
 }
 

@@ -2274,13 +2274,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         }
         mConfig += ';';
     }
-    const bool prevVerifyFlag = mVerifyAllOpsPermissionsFlag;
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
-    if (prevVerifyFlag != mVerifyAllOpsPermissionsFlag && is_logger_running()) {
-        submit_request(new MetaLogConfig(mVerifyAllOpsPermissionsFlag));
-    }
     SetChunkServersProperties(props);
     return (csOk && cliOk && userAndGroupErr == 0);
 }
@@ -2887,7 +2883,7 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
         KFS_LOG_STREAM_DEBUG << server->GetServerLocation() <<
             " chunk size: <" << fa.id() << "," << ci.chunkId << ">" <<
         KFS_LOG_EOM;
-        server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion, string());
+        server->GetChunkSize(fa.id(), ci.chunkId, ci.chunkVersion);
     }
     if (! server->IsDown()) {
         if (fa.numReplicas <= srvCount) {
@@ -3606,8 +3602,7 @@ LayoutManager::Done(MetaChunkVersChange& req)
         KFS_LOG_STREAM_DEBUG <<
             " get chunk size: <" << fileId << "," << req.chunkId << ">" <<
         KFS_LOG_EOM;
-        req.server->GetChunkSize(
-            fileId, req.chunkId, req.chunkVersion, string());
+        req.server->GetChunkSize(fileId, req.chunkId, req.chunkVersion);
     }
     if (req.server->IsDown()) {
         // Went down in GetChunkSize().
@@ -5320,20 +5315,15 @@ LayoutManager::AllocateChunk(
     return 0;
 }
 
-struct MetaLogChunkVersionChange : public MetaRequest, public KfsCallbackObj
+struct MetaLogChunkVersionChange : public MetaRequest
 {
     MetaAllocate& alloc;
     MetaLogChunkVersionChange(MetaAllocate& alloc)
         : MetaRequest(
-            META_LOG_CHUNK_VERSION_CHANGE, true, alloc.opSeqno),
-          KfsCallbackObj(),
+            META_LOG_CHUNK_VERSION_CHANGE, kLogIfOk, alloc.opSeqno),
           alloc(alloc)
-    {
-        SET_HANDLER(this, &MetaLogChunkVersionChange::logDone);
-        clnt = this;
-    }
-    virtual void handle()
-        { status = 0; }
+        {}
+    virtual bool start() { return (0 == status); }
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -5341,25 +5331,31 @@ struct MetaLogChunkVersionChange : public MetaRequest, public KfsCallbackObj
             alloc.Show()
         ;
     }
-    virtual int log(ostream &file) const
+    virtual bool log(ostream& os) const
     {
-        file << "beginchunkversionchange"
+        os << "beginchunkversionchange"
             "/file/"         << alloc.fid <<
             "/chunkId/"      << alloc.chunkId <<
             "/chunkVersion/" << alloc.chunkVersion <<
         "\n";
-        return file.fail() ? -EIO : 0;
+        return true;
     }
-    int logDone(int code, void* data)
+    virtual void handle()
     {
-        assert(code == EVENT_CMD_DONE && data == this);
-        MetaAllocate& r = alloc;
-        delete this;
-        for (size_t i = r.servers.size(); i-- > 0; ) {
-            r.servers[i]->AllocateChunk(
-                &r, i == 0 ? r.leaseId : -1, r.minSTier);
+        if (status < 0) {
+            if (0 <= alloc.status) {
+                alloc.status    = status;
+                alloc.statusMsg = statusMsg;
+            }
+            if (alloc.suspended) {
+                submit_request(&alloc);
+            }
+            return;
         }
-        return 0;
+        for (size_t i = alloc.servers.size(); i-- > 0; ) {
+            alloc.servers[i]->AllocateChunk(
+                &alloc, i == 0 ? alloc.leaseId : -1, alloc.minSTier);
+        }
     }
 };
 
@@ -8082,8 +8078,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
             const int64_t now = microseconds();
             if (fa->mtime + mMTimeUpdateResolution < now) {
                 fa->mtime = now;
-                submit_request(
-                    new MetaSetMtime(fileId, fa->mtime));
+                submit_request(new MetaSetMtime(fileId, fa->mtime));
             }
         }
         if (fa->numReplicas != numServers) {
@@ -8120,15 +8115,14 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         MetaChunkSize* const op = new MetaChunkSize(
             0, // seq #
             req->server, // chunk server
-            fileId, req->chunkId, req->chunkVersion, pathname,
+            fileId, req->chunkId, req->chunkVersion,
             false
         );
         op->chunkSize = req->chunkSize;
         submit_request(op);
     } else {
         // Get the chunk's size from one of the servers.
-        goodServer->GetChunkSize(
-            fileId, req->chunkId, req->chunkVersion, pathname);
+        goodServer->GetChunkSize(fileId, req->chunkId, req->chunkVersion);
     }
 }
 
@@ -8340,7 +8334,6 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     // Coalesce can change file id while request is in flight.
     if (req->fid != fa->id()) {
         req->fid = fa->id();
-        req->pathname.clear(); // Path name is no longer valid.
     }
     if (fa->IsStriped() || fa->filesize >= 0 || fa->type != KFS_FILE ||
             chunk->offset + (chunkOff_t)CHUNKSIZE <
@@ -8379,7 +8372,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             const bool retryFlag = false;
             (*it)->GetChunkSize(
                 req->fid, req->chunkId, req->chunkVersion,
-                req->pathname, retryFlag);
+                retryFlag);
         }
         return -1;
     }

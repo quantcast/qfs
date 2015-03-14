@@ -62,8 +62,7 @@ using libkfsio::globalNetManager;
 
 class UserAndGroup::Impl :
     public QCRunnable,
-    public ITimeout,
-    public KfsCallbackObj
+    public ITimeout
 {
 private:
     typedef set<
@@ -86,12 +85,12 @@ public:
         bool inUseDefaultsFlag)
         : QCRunnable(),
           ITimeout(),
-          KfsCallbackObj(),
           mUpdateCount(0),
           mCurUpdateCount(0),
           mThread(),
           mMutex(),
           mCond(),
+          mUpdateAppliedCond(),
           mStopFlag(false),
           mUpdateFlag(false),
           mDisabledFlag(false),
@@ -148,9 +147,10 @@ public:
           mDelegationGroupNames(),
           mParameters(),
           mSetDefaultsFlag(inUseDefaultsFlag),
+          mWaitingUpdateCompletionhFlag(false),
           mMetaLogGroupUsersInFlightFlag(false),
-          mMetaLogGroupUsers(*this)
-        { SET_HANDLER(this, &UserAndGroup::Impl::LogDone); }
+          mMetaLogGroupUsers(*this, mPendingGroupUsersMap)
+        {}
     ~Impl()
         { Impl::Shutdown(); }
     int Start()
@@ -170,6 +170,9 @@ public:
             return;
         }
         mStopFlag = true;
+        if (mWaitingUpdateCompletionhFlag) {
+            mUpdateAppliedCond.Notify();
+        }
         mCond.Notify();
         theLock.Unlock();
         mThread.Join();
@@ -288,11 +291,17 @@ public:
         ostream& inStream)
     {
         QCStMutexLocker theLock(mMutex);
+        return WriteGroupUserMap(mGroupUsersMap, inStream);
+    }
+    static int WriteGroupUserMap(
+        GroupUsersMap& inGroupUsersMap,
+        ostream&       inStream)
+    {
         const GroupUsers* thePtr;
         ReqOstreamT<ostream> theStream(inStream);
-        theStream << "gur/" << mGroupUsersMap.GetSize() << "\n";
-        mGroupUsersMap.First();
-        while ((thePtr = mGroupUsersMap.Next()) && inStream) {
+        theStream << "gur/" << inGroupUsersMap.GetSize() << "\n";
+        inGroupUsersMap.First();
+        while ((thePtr = inGroupUsersMap.Next()) && inStream) {
             const UsersSet& theGroups = thePtr->GetVal();
             UsersSet::const_iterator theIt = theGroups.begin();
             if (theIt == theGroups.end() || kKfsUserNone == thePtr->GetKey()) {
@@ -362,7 +371,7 @@ private:
             return -EINVAL;
         }
         const int theError = Update();
-        ApplyPendingUpdate();
+        StartPendingUpdate();
         mStopFlag   = false;
         mUpdateFlag = false;
         const int kStackSize = 32 << 10;
@@ -377,6 +386,14 @@ private:
             while (! mStopFlag && ! mUpdateFlag &&
                 mCond.Wait(mMutex, mUpdatePeriodNanoSec))
                 {}
+            if (mStopFlag) {
+                break;
+            }
+            mWaitingUpdateCompletionhFlag = true;
+            while (! mStopFlag && mUpdateCount != mCurUpdateCount &&
+                mUpdateAppliedCond.Wait(mMutex))
+                {}
+            mWaitingUpdateCompletionhFlag = false;
             if (mStopFlag) {
                 break;
             }
@@ -456,32 +473,28 @@ private:
             return;
         }
         QCStMutexLocker theLock(mMutex);
-        if (ApplyPendingUpdate() && mMetaLogGroupUsersInFlightFlag) {
+        if (mMetaLogGroupUsersInFlightFlag) {
+            return;
+        }
+        StartPendingUpdate();
+        if (mMetaLogGroupUsersInFlightFlag) {
             theLock.Unlock();
             submit_request(&mMetaLogGroupUsers);
         }
     }
-    int LogDone(
-        int   inCode,
-        void* inDataPtr)
+    void LogDone()
     {
         QCStMutexLocker theLock(mMutex);
-        if (inCode != EVENT_CMD_DONE ||
-                inDataPtr != &mMetaLogGroupUsers ||
-                ! mMetaLogGroupUsersInFlightFlag) {
-            panic("invalid log group users completion");
-        }
         mMetaLogGroupUsersInFlightFlag = false;
-        return 0;
-    }
-    bool ApplyPendingUpdate()
-    {
-        if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
-            return false;
+        if (mMetaLogGroupUsers.status == 0) {
+            ApplyPendingUpdate();
         }
-        mMetaLogGroupUsersInFlightFlag =
-            ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
-                EqualsFunc<GroupUsersMap::Val>());
+    }
+    void ApplyPendingUpdate()
+    {
+        if (mUpdateCount == mCurUpdateCount) {
+            return;
+        }
         mUidNameMapPtr = new UidNameMap();
         mUidNameMapPtr->Swap(mPendingUidNameMap);
         mUidNamePtr.reset(mUidNameMapPtr);
@@ -511,7 +524,9 @@ private:
             mPendingDelegationRenewAndCancelUsers);
         mDelegationRenewAndCancelUsersPtr.reset(
             theDelegationRenewAndCancelUsersPtr);
-        return true;
+        if (mWaitingUpdateCompletionhFlag) {
+            mUpdateAppliedCond.Notify();
+        }
     }
     static bool StartsWith(
         const string& inString,
@@ -940,31 +955,61 @@ private:
         const char* mNamePtr;
         const char* mValuePtr;
     };
-    class MetaLogGroupUsers : public MetaRequest
+    class MetaLogGroupUsers :
+        public MetaRequest,
+        public KfsCallbackObj
     {
     public:
         MetaLogGroupUsers(
-            Impl& inImpl)
-            : MetaRequest(META_LOG_GROUP_USERS, true),
-              mImpl(inImpl)
-            { clnt = &mImpl; }
+            Impl&          inImpl,
+            GroupUsersMap& inPendingGroupUsersMap)
+            : MetaRequest(META_LOG_GROUP_USERS, kLogIfOk),
+              mImpl(inImpl),
+              mPendingGroupUsersMap(inPendingGroupUsersMap)
+        {
+            clnt = this;
+            SET_HANDLER(this, &MetaLogGroupUsers::Done);
+        }
+        virtual bool start()
+            { return (0 == status); }
         virtual void handle()
-            { status = 0; }
-        virtual int log(
+            { mImpl.LogDone(); }
+        virtual bool log(
             ostream& inStream) const
-            { return mImpl.WriteGroups(inStream); }
+        {
+            if (WriteGroupUserMap(mPendingGroupUsersMap, inStream) != 0 &&
+                    inStream) {
+                inStream.setstate(ostream::failbit);
+            }
+            return true;
+        }
         virtual ostream& ShowSelf(
             ostream& inStream) const
             { return (inStream << "metaloggroupusers"); }
+        int Done(
+            int   inCode,
+            void* inDataPtr)
+        {
+            if (EVENT_CMD_DONE != inCode |+ this != inDataPtr) {
+                panic("invalid log group users completion");
+            }
+            seqno  = -1;
+            logseq = -1;
+            status = 0;
+            statusMsg.clear();
+            return 0;
+        }
     private:
-        Impl& mImpl;
+        Impl&          mImpl;
+        GroupUsersMap& mPendingGroupUsersMap;
     };
 
     volatile uint64_t                mUpdateCount;
-    uint64_t                         mCurUpdateCount;
+    volatile uint64_t                mCurUpdateCount;
     QCThread                         mThread;
     QCMutex                          mMutex;
     QCCondVar                        mCond;
+    QCCondVar                        mUpdateAppliedCond;
     bool                             mStopFlag;
     bool                             mUpdateFlag;
     bool                             mDisabledFlag;
@@ -1021,11 +1066,28 @@ private:
     DelegationGroupNames             mDelegationGroupNames;
     Properties                       mParameters;
     bool                             mSetDefaultsFlag;
+    bool                             mWaitingUpdateCompletionhFlag;
     bool                             mMetaLogGroupUsersInFlightFlag;
     MetaLogGroupUsers                mMetaLogGroupUsers;
 
     friend class UserAndGroup;
 
+    void StartPendingUpdate()
+    {
+        if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
+            return;
+        }
+        if (0 <= mMetaLogGroupUsers.logseq) {
+            panic("invalid start pending update invocation");
+        }
+        mMetaLogGroupUsersInFlightFlag =
+            ! mGroupUsersMap.Equals(mPendingGroupUsersMap,
+                EqualsFunc<GroupUsersMap::Val>());
+        if (mMetaLogGroupUsersInFlightFlag) {
+            return;
+        }
+        ApplyPendingUpdate();
+    }
     template<typename IT, typename T>
     int InsertTmpUsers(
         IT    inBegin,
@@ -1119,7 +1181,7 @@ private:
 UserAndGroup::UserAndGroup(
     bool inUseDefaultsFlag)
     : mImpl(*(new Impl(inUseDefaultsFlag))),
-      mUpdateCount(mImpl.mUpdateCount),
+      mUpdateCount(mImpl.mCurUpdateCount),
       mGroupUsersMap(mImpl.mGroupUsersMap),
       mNameUidMapPtr(&mImpl.mNameUidMapPtr),
       mUidNameMapPtr(&mImpl.mUidNameMapPtr),

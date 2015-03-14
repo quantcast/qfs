@@ -104,7 +104,7 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
-    enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
+    enum { kLeaseTimerResolutionSec = 1 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     typedef DelegationToken::TokenSeq TokenSeq;
     struct ReadLease
@@ -1373,8 +1373,6 @@ public:
         { return mIdempotentRequestTracker; }
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
-    void SetVerifyAllOpsPermissions(bool flag)
-        { mVerifyAllOpsPermissionsFlag = flag; }
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
 protected:
     typedef vector<

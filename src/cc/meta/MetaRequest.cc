@@ -722,7 +722,7 @@ class MetaRequestNull : public MetaRequest
 {
 protected:
     MetaRequestNull()
-        : MetaRequest(META_NUM_OPS_COUNT, false)
+        : MetaRequest(META_NUM_OPS_COUNT, kLogNever)
         {}
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "null"; }
@@ -2552,9 +2552,10 @@ MetaRename::handle()
 /* virtual */ bool
 MetaSetMtime::start()
 {
-    if (fid > 0 && status == 0) {
+    if (0 < fid && status == 0) {
         // mtime is already set, only log.
-        return false;
+        euser = kKfsUserRoot;
+        return true;
     }
     SetEUserAndEGroup(*this);
     return (0 == status);
@@ -2993,18 +2994,12 @@ MetaBeginMakeChunkStable::handle()
     status = 0;
 }
 
-int
-MetaLogMakeChunkStable::logDone(int code, void *data)
+void
+MetaLogMakeChunkStable::handle()
 {
-    if (code != EVENT_CMD_DONE || data != this) {
-        panic("MetaLogMakeChunkStable::logDone invalid invocation");
-        return 1;
-    }
     if (op == META_LOG_MAKE_CHUNK_STABLE) {
         gLayoutManager.LogMakeChunkStableDone(this);
     }
-    delete this;
-    return 0;
 }
 
 /* virtual */ void
@@ -3035,9 +3030,6 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
 MetaChunkSize::handle()
 {
     status = gLayoutManager.GetChunkSizeDone(this);
-    if (0 <= status && filesize < 0) {
-        logAction = kLogNever;
-    }
 }
 
 /* virtual */ void
@@ -3719,17 +3711,17 @@ submit_request(MetaRequest* r)
     }
 }
 
-int
+bool
 MetaRequest::log(ostream &file) const
 {
     panic("invalid empty log method");
-    return -EINVAL;
+    return false;
 }
 
 /*!
  * \brief log a chunk allocation
  */
-int
+bool
 MetaAllocate::log(ostream &file) const
 {
     // use the log entry time as a proxy for when the block was created/file
@@ -3740,37 +3732,12 @@ MetaAllocate::log(ostream &file) const
         << "/mtime/" << ShowTime(microseconds())
         << "/append/" << (appendChunk ? 1 : 0)
         << '\n';
-    return file.fail() ? -EIO : 0;
+    return true;
 }
 
-/*!
- * \brief log a setmtime
- */
-int
-MetaSetMtime::log(ostream &file) const
-{
-    file << "setmtime/file/" << fid
-        << "/mtime/" << ShowTime(mtime) << '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-/*!
- * \brief When asking a chunkserver for a chunk's size, there is
- * write out the estimate of the file's size.
- */
-int
-MetaChunkSize::log(ostream &file) const
-{
-    file << "size/file/" << fid << "/filesize/" << filesize << '\n';
-    return file.fail() ? -EIO : 0;
-}
-
-int
+bool
 MetaLogMakeChunkStable::log(ostream &file) const
 {
-    if (chunkVersion < 0) {
-        panic("MetaLogMakeChunkStable: invalid chunk version");
-    }
     file << "mkstable"         <<
             (op == META_LOG_MAKE_CHUNK_STABLE ? "" : "done") <<
         "/fileId/"         << fid <<
@@ -3780,7 +3747,7 @@ MetaLogMakeChunkStable::log(ostream &file) const
         "/checksum/"       << chunkChecksum <<
         "/hasChecksum/"    << (hasChunkChecksum ? 1 : 0) <<
     '\n';
-    return file.fail() ? -EIO : 0;
+    return true;
 }
 
 /*!
@@ -5341,7 +5308,7 @@ MetaDelegateCancel::handle()
     }
 }
 
-/* virtual */ int
+/* virtual */ bool
 MetaDelegateCancel::log(ostream& file) const
 {
     file <<
@@ -5352,7 +5319,7 @@ MetaDelegateCancel::log(ostream& file) const
         "/seq/"    << token.GetSeq()        <<
         "/flags/"  << token.GetFlags()      <<
     "\n";
-    return file.fail() ? -EIO : 0;
+    return true;
 }
 
 bool
@@ -5456,25 +5423,6 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
 }
 
 bool
-MetaIdempotentRequest::WriteLog(ostream& os) const
-{
-#if 0
-    if (req && req != this)  {
-        return false;
-    }
-    if (req == this && 0 <= reqId) {
-        os.write("idr/", 4);
-        const bool kOmitDefaultsFlag = true;
-        if (! Write(os, kOmitDefaultsFlag)) {
-            panic("invalid op code");
-        }
-        os.write("\n", 1);
-    }
-#endif
-    return (status == 0);
-}
-
-bool
 MetaAck::start()
 {
     SetEUserAndEGroup(*this);
@@ -5486,13 +5434,6 @@ MetaAck::handle()
 {
     KFS_LOG_STREAM_DEBUG << "ack: " << ack << KFS_LOG_EOM;
     gLayoutManager.GetIdempotentRequestTracker().Handle(*this);
-}
-
-int
-MetaLogConfig::log(ostream& file) const
-{
-    file << "cfg/" << (verifyAllOpsPermissionsFlag ? 1 : 0) << "\n";
-    return (file.fail() ? -EIO : 0);
 }
 
 void

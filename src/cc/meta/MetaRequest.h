@@ -150,7 +150,6 @@ using std::less;
     f(SET_FILE_SYSTEM_INFO) \
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
-    f(LOG_CONFIG) \
     f(ACK) \
     f(REMOVE_FROM_DUMPSTER)
 
@@ -226,7 +225,7 @@ struct MetaRequest {
     int64_t         sessionEndTime;
     MetaRequest*    next;
     KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
-    MetaRequest(MetaOp o, bool mu, seq_t opSeq = -1)
+    MetaRequest(MetaOp o, LogAction la, seq_t opSeq = -1)
         : op(o),
           status(0),
           clientProtoVers(0),
@@ -235,9 +234,9 @@ struct MetaRequest {
           processTime(0),
           statusMsg(),
           opSeqno(opSeq),
-          seqno(0),
+          seqno(-1),
           logseq(-1),
-          logAction(mu ? kLogIfOk : kLogNever),
+          logAction(la),
           suspended(false),
           fromChunkServerFlag(false),
           validDelegationFlag(false),
@@ -268,7 +267,7 @@ struct MetaRequest {
     //!< the client.  This function should generate the appropriate
     //!< response to be sent back as per the KFS protocol.
     virtual void response(ReqOstream& os, IOBuffer& /* buf */) { response(os); }
-    virtual int log(ostream &file) const;
+    virtual bool log(ostream& file) const;
     Display Show() const { return Display(*this); }
     virtual void setChunkServer(const ChunkServerPtr& /* cs */) {};
     bool ValidateRequestHeader(
@@ -315,6 +314,7 @@ struct MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return parser
+        .Def("l", &MetaRequest::logseq,              seq_t(-2))
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
@@ -380,8 +380,8 @@ struct MetaIdempotentRequest : public MetaRequest {
     // Derived classes' request() method must be const, i.e. not modify "this".
     seq_t reqId;
     seq_t ackId;
-    MetaIdempotentRequest(MetaOp o, bool mu, seq_t opSeq = -1, int rc = 1)
-        : MetaRequest(o, mu, opSeq),
+    MetaIdempotentRequest(MetaOp o, LogAction la, seq_t opSeq = -1, int rc = 1)
+        : MetaRequest(o, la, opSeq),
           reqId(-1),
           ackId(-1),
           ref(rc),
@@ -400,7 +400,6 @@ struct MetaIdempotentRequest : public MetaRequest {
     }
     MetaIdempotentRequest* GetReq() const
         { return req; }
-    bool WriteLog(ostream& os) const;
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
@@ -447,7 +446,7 @@ struct MetaLookup: public MetaRequest {
     bool   authInfoOnlyFlag;
     MFattr fattr;
     MetaLookup()
-        : MetaRequest(META_LOOKUP, false),
+        : MetaRequest(META_LOOKUP, kLogNever),
           dir(-1),
           name(),
           authType(kAuthenticationTypeUndef),
@@ -494,7 +493,7 @@ struct MetaLookupPath: public MetaRequest {
     string path;   //!< path to look up
     MFattr fattr;
     MetaLookupPath()
-        : MetaRequest(META_LOOKUP_PATH, false),
+        : MetaRequest(META_LOOKUP_PATH, kLogNever),
           root(-1),
           path(),
           fattr()
@@ -544,7 +543,7 @@ struct MetaCreate: public MetaIdempotentRequest {
     string     ownerName;
     string     groupName;
     MetaCreate()
-        : MetaIdempotentRequest(META_CREATE, true),
+        : MetaIdempotentRequest(META_CREATE, kLogIfOk),
           dir(-1),
           fid(-1),
           numReplicas(1),
@@ -656,7 +655,7 @@ struct MetaMkdir: public MetaIdempotentRequest {
     string     ownerName;
     string     groupName;
     MetaMkdir()
-        : MetaIdempotentRequest(META_MKDIR, true),
+        : MetaIdempotentRequest(META_MKDIR, kLogIfOk),
           dir(-1),
           fid(-1),
           user(kKfsUserNone),
@@ -738,7 +737,7 @@ struct MetaRemove: public MetaIdempotentRequest {
     string   pathname; //!< full pathname to remove
     fid_t    todumpster;
     MetaRemove()
-        : MetaIdempotentRequest(META_REMOVE, true),
+        : MetaIdempotentRequest(META_REMOVE, kLogIfOk),
           dir(-1),
           name(),
           pathname(),
@@ -794,7 +793,7 @@ struct MetaRmdir: public MetaIdempotentRequest {
     string name;     //!< name to remove
     string pathname; //!< full pathname to remove
     MetaRmdir()
-        : MetaIdempotentRequest(META_RMDIR, true),
+        : MetaIdempotentRequest(META_RMDIR, kLogIfOk),
           dir(-1),
           name(),
           pathname()
@@ -850,7 +849,7 @@ struct MetaReaddir: public MetaRequest {
     bool     hasMoreEntriesFlag;
     string   fnameStart;
     MetaReaddir()
-        : MetaRequest(META_READDIR, false),
+        : MetaRequest(META_READDIR, kLogNever),
           dir(-1),
           resp(),
           numEntries(-1),
@@ -944,7 +943,7 @@ struct MetaReaddirPlus: public MetaRequest {
     CInfos   lastChunkInfos;
 
     MetaReaddirPlus()
-        : MetaRequest(META_READDIRPLUS, false),
+        : MetaRequest(META_READDIRPLUS, kLogNever),
           dir(-1),
           numEntries(-1),
           maxRespSize(-1),
@@ -998,7 +997,7 @@ struct MetaGetalloc: public MetaRequest {
     bool            replicasOrderedFlag;
     bool            allChunkServersShortRpcFlag;
     MetaGetalloc()
-        : MetaRequest(META_GETALLOC, false),
+        : MetaRequest(META_GETALLOC, kLogNever),
           fid(-1),
           offset(-1),
           chunkId(-1),
@@ -1049,7 +1048,7 @@ struct MetaGetlayout: public MetaRequest {
     chunkOff_t fileSize;
     IOBuffer   resp;   //!< result
     MetaGetlayout()
-        : MetaRequest(META_GETLAYOUT, false),
+        : MetaRequest(META_GETLAYOUT, kLogNever),
           fid(-1),
           startOffset(0),
           omitLocationsFlag(false),
@@ -1096,7 +1095,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
     bool       hasChunkChecksum;
     uint32_t   chunkChecksum;
     MetaLeaseRelinquish()
-        : MetaRequest(META_LEASE_RELINQUISH, false),
+        : MetaRequest(META_LEASE_RELINQUISH, kLogNever),
           leaseType(READ_LEASE),
           chunkId(-1),
           leaseId(-1),
@@ -1202,7 +1201,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     StringBufT<64>       clientHost;   //!< the host from which request was received
     StringBufT<256>      pathname;     //!< full pathname that corresponds to fid
     MetaAllocate(seq_t s = -1, fid_t f = -1, chunkOff_t o = -1)
-        : MetaRequest(META_ALLOCATE, true, s),
+        : MetaRequest(META_ALLOCATE, kLogIfOk, s),
           KfsCallbackObj(),
           fid(f),
           offset(o),
@@ -1250,7 +1249,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         { delete pendingLeaseRelinquish; }
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
+    virtual bool log(ostream& file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const;
     void responseSelf(ReqOstream &os);
@@ -1307,7 +1306,7 @@ struct MetaTruncate: public MetaRequest {
     StringBufT<256> pathname; //!< full pathname for file being truncated
     int64_t         mtime;
     MetaTruncate()
-        : MetaRequest(META_TRUNCATE, true),
+        : MetaRequest(META_TRUNCATE, kLogIfOk),
           fid(-1),
           offset(-1),
           endOffset(-1),
@@ -1370,7 +1369,7 @@ struct MetaRename: public MetaIdempotentRequest {
     bool   overwrite;  //!< overwrite newname if it exists
     fid_t  todumpster; //!< moved original to dumpster
     MetaRename()
-        : MetaIdempotentRequest(META_RENAME, true),
+        : MetaIdempotentRequest(META_RENAME, kLogIfOk),
           dir(-1),
           oldname(),
           newname(),
@@ -1432,7 +1431,7 @@ struct MetaSetMtime: public MetaRequest {
     string  pathname; //!< absolute path for which we want to set the mtime
     int64_t mtime;
     MetaSetMtime(fid_t id = -1, int64_t mtime = 0)
-        : MetaRequest(META_SETMTIME, true),
+        : MetaRequest(META_SETMTIME, kLogIfOk),
           fid(id),
           pathname(),
           mtime(mtime),
@@ -1441,7 +1440,6 @@ struct MetaSetMtime: public MetaRequest {
         {}
     virtual bool start();
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1487,7 +1485,7 @@ struct MetaChangeFileReplication: public MetaRequest {
     kfsSTier_t maxSTier;
     bool       logFlag;
     MetaChangeFileReplication()
-        : MetaRequest(META_CHANGE_FILE_REPLICATION, true),
+        : MetaRequest(META_CHANGE_FILE_REPLICATION, kLogIfOk),
           fid(-1),
           numReplicas(1),
           minSTier(kKfsSTierUndef),
@@ -1549,7 +1547,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
     size_t     numChunksMoved;
     int64_t    mtime;
     MetaCoalesceBlocks()
-        : MetaRequest(META_COALESCE_BLOCKS, true),
+        : MetaRequest(META_COALESCE_BLOCKS, kLogIfOk),
           srcPath(),
           dstPath(),
           srcFid(-1),
@@ -1605,7 +1603,7 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     ServerLocation& location;  //<! Location of this server
     int             nSecsDown; //<! set to -1, we retire; otherwise, # of secs of down time
     MetaRetireChunkserver()
-        : MetaRequest(META_RETIRE_CHUNKSERVER, false),
+        : MetaRequest(META_RETIRE_CHUNKSERVER, kLogNever),
           ServerLocation(),
           location(*this),
           nSecsDown(-1)
@@ -1688,7 +1686,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     IOBuffer           responseBuf;
 
     MetaHello()
-        : MetaRequest(META_HELLO, false),
+        : MetaRequest(META_HELLO, kLogNever),
           ServerLocation(),
           server(),
           location(*this),
@@ -1786,7 +1784,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
 struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
     MetaBye(seq_t s, const ChunkServerPtr& c)
-        : MetaRequest(META_BYE, false, s),
+        : MetaRequest(META_BYE, kLogNever, s),
           server(c) { }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
@@ -1801,7 +1799,7 @@ struct MetaGetPathName: public MetaRequest {
     MFattr    fattr;
     string    result;
     MetaGetPathName()
-        : MetaRequest(META_GETPATHNAME, false),
+        : MetaRequest(META_GETPATHNAME, kLogNever),
           fid(-1),
           chunkId(-1),
           fattr(),
@@ -1833,7 +1831,7 @@ struct MetaChmod: public MetaRequest {
     fid_t     fid;
     kfsMode_t mode;
     MetaChmod()
-        : MetaRequest(META_CHMOD, true),
+        : MetaRequest(META_CHMOD, kLogIfOk),
           fid(-1),
           mode(kKfsModeUndef)
         {}
@@ -1874,7 +1872,7 @@ struct MetaChown: public MetaRequest {
     string   ownerName;
     string   groupName;
     MetaChown()
-        : MetaRequest(META_CHOWN, true),
+        : MetaRequest(META_CHOWN, kLogIfOk),
           fid(-1),
           user(kKfsUserNone),
           group(kKfsGroupNone),
@@ -1923,12 +1921,12 @@ struct MetaChown: public MetaRequest {
  * MetaRequest's that define a method to generate the RPC
  * request.
  */
-struct MetaChunkRequest: public MetaRequest {
-    const chunkId_t      chunkId;
+struct MetaChunkRequest : public MetaRequest {
+    chunkId_t            chunkId;
     const ChunkServerPtr server; // The "owner".
-    MetaChunkRequest(MetaOp o, seq_t s, bool mu,
+    MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
-        : MetaRequest(o, mu, s),
+        : MetaRequest(o, la, s),
           chunkId(cid),
           server(c)
         {}
@@ -1958,7 +1956,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     MetaChunkAllocate(seq_t n, MetaAllocate *r,
             const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
             kfsSTier_t maxTier)
-        : MetaChunkRequest(META_CHUNK_ALLOCATE, n, false, s, r->chunkId),
+        : MetaChunkRequest(META_CHUNK_ALLOCATE, n, kLogNever, s, r->chunkId),
           leaseId(l),
           minSTier(minTier),
           maxSTier(maxTier),
@@ -1983,7 +1981,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
  */
 struct MetaChunkDelete: public MetaChunkRequest {
     MetaChunkDelete(seq_t n, const ChunkServerPtr& s, chunkId_t c)
-        : MetaChunkRequest(META_CHUNK_DELETE, n, false, s, c)
+        : MetaChunkRequest(META_CHUNK_DELETE, n, kLogNever, s, c)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -2044,7 +2042,7 @@ struct MetaChunkReplicate: public MetaChunkRequest {
             fid_t f, chunkId_t c, const ServerLocation& loc,
             const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier,
             FileRecoveryInFlightCount::iterator it)
-        : MetaChunkRequest(META_CHUNK_REPLICATE, n, false, s, c),
+        : MetaChunkRequest(META_CHUNK_REPLICATE, n, kLogNever, s, c),
           fid(f),
           chunkVersion(-1),
           chunkOffset(-1),
@@ -2100,7 +2098,7 @@ struct MetaChunkVersChange: public MetaChunkRequest {
         bool                  pendAddFlag,
         MetaChunkReplicate*   repl,
         bool                  verifyStblFlag)
-        : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, false, s, c),
+        : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, kLogNever, s, c),
           fid(f),
           chunkVersion(v),
           fromVersion(fromVers),
@@ -2137,27 +2135,26 @@ struct MetaChunkVersChange: public MetaChunkRequest {
  */
 struct MetaChunkSize: public MetaChunkRequest {
     fid_t      fid;     //!< input: we use the tuple <fileid, chunkid> to
-                //!< find the entry we need.
+                        //!< find the entry we need.
     seq_t      chunkVersion;
     chunkOff_t chunkSize; //!< output: the chunk size
-    chunkOff_t filesize;  //!< for logging purposes: the size of the file
-    /// input: given the pathname, we can update space usage for the path
-    /// hierarchy corresponding to pathname; this will enable us to make "du"
-    /// instantaneous.
-    string     pathname;
     bool       retryFlag;
-    MetaChunkSize(seq_t n, const ChunkServerPtr& s, fid_t f,
-            chunkId_t c, seq_t v, const string &p, bool retry)
-        : MetaChunkRequest(META_CHUNK_SIZE, n, true, s, c),
+    MetaChunkSize(
+            seq_t                 n = 0,
+            const ChunkServerPtr& s = ChunkServerPtr(),
+            fid_t                 f = -1,
+            chunkId_t             c = -1,
+            seq_t                 v = -1,
+            bool                  retry = false)
+        : MetaChunkRequest(META_CHUNK_SIZE, n, kLogIfOk, s, c),
           fid(f),
           chunkVersion(v),
           chunkSize(-1),
-          filesize(-1),
-          pathname(p),
           retryFlag(retry)
         {}
+    bool Validate() { return true; }
+    virtual bool start() { return (status == 0 && 0 <= chunkSize); }
     virtual void handle();
-    virtual int log(ostream &file) const;
     virtual void request(ReqOstream &os);
     virtual void handleReply(const Properties& prop)
     {
@@ -2167,11 +2164,20 @@ struct MetaChunkSize: public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "meta->chunk size: " << pathname <<
             " fid: "             << fid <<
             " chunkId: "         << chunkId <<
             " chunkVersion: "    << chunkVersion <<
             " size: "            << chunkSize
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaChunkSize::fid,          fid_t(-1))
+        .Def("V", &MetaChunkSize::chunkVersion, seq_t(-1))
+        .Def("C", &MetaChunkSize::chunkId,      chunkId_t(-1))
+        .Def("R", &MetaChunkSize::retryFlag,    false)
+        .Def("S", &MetaChunkSize::chunkSize,    chunkOff_t(-1))
         ;
     }
 };
@@ -2186,7 +2192,7 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
     bool    reAuthenticateFlag;
     MetaChunkHeartbeat(seq_t n, const ChunkServerPtr& s,
             int64_t evacuateCnt, bool reAuthFlag = false)
-        : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, false, s, -1),
+        : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, kLogNever, s, -1),
           evacuateCount(evacuateCnt),
           reAuthenticateFlag(reAuthFlag)
         {}
@@ -2211,7 +2217,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     size_t       skipFront;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag, const seq_t* acSeq)
-        : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, false, s, -1),
+        : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, kLogNever, s, -1),
           staleChunkIds(),
           evacuatedFlag(evacFlag),
           hexFormatFlag(hexFmtFlag),
@@ -2234,7 +2240,7 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     uint32_t             chunkChecksum; // output
     MetaBeginMakeChunkStable(seq_t n, const ChunkServerPtr& s,
             const ServerLocation& l, fid_t f, chunkId_t c, seq_t v) :
-        MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, false, s, c),
+        MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, kLogNever, s, c),
         fid(f),
         chunkVersion(v),
         serverLoc(l),
@@ -2266,7 +2272,7 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     }
 };
 
-struct MetaLogMakeChunkStable : public MetaRequest, public  KfsCallbackObj {
+struct MetaLogMakeChunkStable : public MetaRequest {
     const fid_t     fid;              // input
     const chunkId_t chunkId;          // input
     const seq_t     chunkVersion;     // input
@@ -2278,19 +2284,16 @@ struct MetaLogMakeChunkStable : public MetaRequest, public  KfsCallbackObj {
         bool logDoneTypeFlag = false)
         : MetaRequest(logDoneTypeFlag ?
             META_LOG_MAKE_CHUNK_STABLE_DONE :
-            META_LOG_MAKE_CHUNK_STABLE, true, seqNum),
-          KfsCallbackObj(),
+            META_LOG_MAKE_CHUNK_STABLE, kLogIfOk, seqNum),
           fid(fileId),
           chunkId(id),
           chunkVersion(version),
           chunkSize(size),
           chunkChecksum(checksum),
           hasChunkChecksum(hasChecksum)
-    {
-        SET_HANDLER(this, &MetaLogMakeChunkStable::logDone);
-        clnt = this;
-    }
-    virtual void handle() { status = 0; }
+        {}
+    virtual bool start() { return (0 == status && 0 <= chunkVersion); }
+    virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             (op == META_LOG_MAKE_CHUNK_STABLE ?
@@ -2304,8 +2307,7 @@ struct MetaLogMakeChunkStable : public MetaRequest, public  KfsCallbackObj {
                 int64_t(chunkChecksum) : int64_t(-1))
         ;
     }
-    virtual int log(ostream &file) const;
-    int logDone(int code, void *data);
+    virtual bool log(ostream& file) const;
 };
 
 struct MetaLogMakeChunkStableDone : public MetaLogMakeChunkStable {
@@ -2339,7 +2341,7 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
         uint32_t              inChunkChecksum,
         bool                  inAddPending)
         : MetaChunkRequest(META_CHUNK_MAKE_STABLE,
-                inSeqNo, false, inServer, inChunkId),
+                inSeqNo, kLogNever, inServer, inChunkId),
           fid(inFileId),
           chunkVersion(inChunkVersion),
           chunkSize(inChunkSize),
@@ -2359,7 +2361,7 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
  */
 struct MetaChunkRetire: public MetaChunkRequest {
     MetaChunkRetire(seq_t n, const ChunkServerPtr& s):
-        MetaChunkRequest(META_CHUNK_RETIRE, n, false, s, -1) { }
+        MetaChunkRequest(META_CHUNK_RETIRE, n, kLogNever, s, -1) { }
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2371,7 +2373,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
     const string serverProps;
     MetaChunkSetProperties(seq_t n, const ChunkServerPtr& s,
             const Properties& props)
-        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, false, s, -1),
+        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, kLogNever, s, -1),
           serverProps(Properties2Str(props))
         {}
     virtual void request(ReqOstream &os);
@@ -2389,7 +2391,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
 
 struct MetaChunkServerRestart : public MetaChunkRequest {
     MetaChunkServerRestart(seq_t n, const ChunkServerPtr& s)
-        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, false, s, -1)
+        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, kLogNever, s, -1)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -2407,7 +2409,7 @@ struct MetaChunkServerRestart : public MetaChunkRequest {
 struct MetaPing : public MetaRequest {
     IOBuffer resp;
     MetaPing()
-        : MetaRequest(META_PING, false),
+        : MetaRequest(META_PING, kLogNever),
           resp()
     {
         // Suppress warning with requests with no version filed.
@@ -2437,7 +2439,7 @@ struct MetaPing : public MetaRequest {
 struct MetaUpServers: public MetaRequest {
     IOBuffer resp;
     MetaUpServers()
-        : MetaRequest(META_UPSERVERS, false),
+        : MetaRequest(META_UPSERVERS, kLogNever),
           resp()
         {}
     virtual void handle();
@@ -2464,7 +2466,7 @@ struct MetaUpServers: public MetaRequest {
 struct MetaToggleWORM: public MetaRequest {
     bool value; // !< Enable/disable WORM
     MetaToggleWORM()
-        : MetaRequest(META_TOGGLE_WORM, false),
+        : MetaRequest(META_TOGGLE_WORM, kLogNever),
           value(false)
         {}
     virtual void handle();
@@ -2494,7 +2496,7 @@ struct MetaToggleWORM: public MetaRequest {
 struct MetaStats: public MetaRequest {
     string stats; //!< result
     MetaStats()
-        : MetaRequest(META_STATS, false),
+        : MetaRequest(META_STATS, kLogNever),
           stats()
         {}
     virtual void handle();
@@ -2519,7 +2521,7 @@ struct MetaStats: public MetaRequest {
  */
 struct MetaRecomputeDirsize: public MetaRequest {
     MetaRecomputeDirsize()
-        : MetaRequest(META_RECOMPUTE_DIRSIZE, false)
+        : MetaRequest(META_RECOMPUTE_DIRSIZE, kLogNever)
         {}
     virtual void handle();
     virtual void response(ReqOstream &os);
@@ -2546,7 +2548,7 @@ struct MetaDumpChunkToServerMap: public MetaRequest {
     string chunkmapFile; //!< file to which the chunk map was written to
     int    pid;
     MetaDumpChunkToServerMap()
-        : MetaRequest(META_DUMP_CHUNKTOSERVERMAP, false),
+        : MetaRequest(META_DUMP_CHUNKTOSERVERMAP, kLogNever),
           chunkmapFile(),
           pid(-1)
         {}
@@ -2572,7 +2574,7 @@ struct MetaDumpChunkToServerMap: public MetaRequest {
  */
 struct MetaCheckLeases: public MetaRequest {
     MetaCheckLeases()
-        : MetaRequest(META_CHECK_LEASES, false)
+        : MetaRequest(META_CHECK_LEASES, kLogNever)
         {}
     virtual void handle();
     virtual void response(ReqOstream &os);
@@ -2601,7 +2603,7 @@ struct MetaDumpChunkReplicationCandidates: public MetaRequest {
     size_t   numPendingRecovery;
     IOBuffer resp;
     MetaDumpChunkReplicationCandidates()
-        : MetaRequest(META_DUMP_CHUNKREPLICATIONCANDIDATES, false),
+        : MetaRequest(META_DUMP_CHUNKREPLICATIONCANDIDATES, kLogNever),
           numReplication(0),
           numPendingRecovery(0),
           resp()
@@ -2629,7 +2631,7 @@ struct MetaDumpChunkReplicationCandidates: public MetaRequest {
 */
 struct MetaFsck: public MetaRequest {
     MetaFsck()
-        : MetaRequest(META_FSCK, false),
+        : MetaRequest(META_FSCK, kLogNever),
           reportAbandonedFilesFlag(true),
           pid(-1),
           fd(),
@@ -2685,7 +2687,7 @@ struct MetaOpenFiles: public MetaRequest {
     size_t   openForWriteCnt; //!< result
     IOBuffer resp;
     MetaOpenFiles()
-        : MetaRequest(META_OPEN_FILES, false),
+        : MetaRequest(META_OPEN_FILES, kLogNever),
           openForReadCnt(0),
           openForWriteCnt(0),
           resp()
@@ -2710,7 +2712,7 @@ struct MetaOpenFiles: public MetaRequest {
 struct MetaSetChunkServersProperties : public MetaRequest {
     Properties properties; // input
     MetaSetChunkServersProperties()
-        : MetaRequest(META_SET_CHUNK_SERVERS_PROPERTIES, false),
+        : MetaRequest(META_SET_CHUNK_SERVERS_PROPERTIES, kLogNever),
           properties()
         {}
     virtual void handle();
@@ -2748,7 +2750,7 @@ struct MetaSetChunkServersProperties : public MetaRequest {
 
 struct MetaGetChunkServersCounters : public MetaRequest {
     MetaGetChunkServersCounters()
-        : MetaRequest(META_GET_CHUNK_SERVERS_COUNTERS, false),
+        : MetaRequest(META_GET_CHUNK_SERVERS_COUNTERS, kLogNever),
           resp()
     {
         // Suppress warning with requests with no version filed.
@@ -2775,7 +2777,7 @@ private:
 
 struct MetaGetChunkServerDirsCounters : public MetaRequest {
     MetaGetChunkServerDirsCounters()
-        : MetaRequest(META_GET_CHUNK_SERVER_DIRS_COUNTERS, false),
+        : MetaRequest(META_GET_CHUNK_SERVER_DIRS_COUNTERS, kLogNever),
           resp()
     {
         // Suppress warning with requests with no version filed.
@@ -2802,7 +2804,7 @@ private:
 
 struct MetaGetRequestCounters : public MetaRequest {
     MetaGetRequestCounters()
-        : MetaRequest(META_GET_REQUEST_COUNTERS, false),
+        : MetaRequest(META_GET_REQUEST_COUNTERS, kLogNever),
           resp(),
           userCpuMicroSec(0),
           systemCpuMicroSec(0)
@@ -2830,7 +2832,7 @@ private:
 
 struct MetaCheckpoint : public MetaRequest {
     MetaCheckpoint(seq_t s, KfsCallbackObj* c)
-        : MetaRequest(META_CHECKPOINT, false, s),
+        : MetaRequest(META_CHECKPOINT, kLogNever, s),
           lockFileName(),
           lockFd(-1),
           intervalSec(60 * 60),
@@ -2872,7 +2874,7 @@ private:
  */
 struct MetaDisconnect : public MetaRequest {
     MetaDisconnect()
-        : MetaRequest(META_DISCONNECT, false)
+        : MetaRequest(META_DISCONNECT, kLogNever)
     {
         // Suppress warning with requests with no version filed.
         clientProtoVers = KFS_CLIENT_PROTO_VERS;
@@ -2898,7 +2900,7 @@ struct MetaAuthenticate : public MetaRequest {
     NetConnection::Filter* filter;
 
     MetaAuthenticate()
-        : MetaRequest(META_AUTHENTICATE, false),
+        : MetaRequest(META_AUTHENTICATE, kLogNever),
           authType(kAuthenticationTypeUndef),
           contentLength(0),
           contentBuf(0),
@@ -2945,7 +2947,7 @@ struct MetaDelegate : public MetaRequest {
     DelegationToken           renewToken;
 
     MetaDelegate()
-        : MetaRequest(META_DELEGATE, false),
+        : MetaRequest(META_DELEGATE, kLogNever),
           delegationFlags(0),
           validForTime(0),
           issuedTime(0),
@@ -2978,17 +2980,18 @@ struct MetaDelegateCancel : public MetaRequest {
     StringBufT<64>  tokenKeyStr;
 
     MetaDelegateCancel()
-        : MetaRequest(META_DELEGATE_CANCEL, true),
+        : MetaRequest(META_DELEGATE_CANCEL, kLogIfOk),
           token(),
           tokenStr(),
           tokenKeyStr()
           {}
     virtual bool dispatch(ClientSM& sm);
+    virtual bool start() { return (0 == status); }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "delegate cancel " <<  token.Show()); }
     virtual void response(ReqOstream& os);
-    virtual int log(ostream& /* file */) const;
+    virtual bool log(ostream& file) const;
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -3015,7 +3018,7 @@ struct MetaChunkCorrupt: public MetaRequest {
     string         chunkDir;    //!< input
     ChunkServerPtr server;      //!< The chunkserver that sent us this message
     MetaChunkCorrupt(seq_t s = -1, fid_t f = -1, chunkId_t c = -1)
-        : MetaRequest(META_CHUNK_CORRUPT, false, s),
+        : MetaRequest(META_CHUNK_CORRUPT, kLogNever, s),
           fid(f),
           chunkId(c),
           chunkIdsStr(),
@@ -3072,7 +3075,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     StringBufT<21 * 32> chunkIds; //!< input
     ChunkServerPtr      server;
     MetaChunkEvacuate(seq_t s = -1)
-        : MetaRequest(META_CHUNK_EVACUATE, false, s),
+        : MetaRequest(META_CHUNK_EVACUATE, kLogNever, s),
           totalSpace(-1),
           totalFsSpace(-1),
           usedSpace(-1),
@@ -3122,7 +3125,7 @@ struct MetaChunkAvailable : public MetaRequest {
     StringBufT<16 * 64 * 2> chunkIdAndVers; //!< input
     ChunkServerPtr          server;
     MetaChunkAvailable(seq_t s = -1)
-        : MetaRequest(META_CHUNK_AVAILABLE, false, s),
+        : MetaRequest(META_CHUNK_AVAILABLE, kLogNever, s),
           chunkIdAndVers(),
           server()
         {}
@@ -3157,7 +3160,7 @@ struct MetaChunkDirInfo : public MetaRequest {
     Properties     props;
 
     MetaChunkDirInfo(seq_t s = -1)
-        : MetaRequest(META_CHUNKDIR_INFO, false, s),
+        : MetaRequest(META_CHUNKDIR_INFO, kLogNever, s),
           server(),
           noReplyFlag(false),
           dirName(),
@@ -3239,7 +3242,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     IOBuffer           responseBuf;
     ChunkAccess        chunkAccess;
     MetaLeaseAcquire()
-        : MetaRequest(META_LEASE_ACQUIRE, false),
+        : MetaRequest(META_LEASE_ACQUIRE, kLogNever),
           pathname(),
           chunkId(-1),
           flushFlag(false),
@@ -3309,7 +3312,7 @@ struct MetaLeaseRenew: public MetaRequest {
     int                validForTime;
     TokenSeq           tokenSeq;
     MetaLeaseRenew()
-        : MetaRequest(META_LEASE_RENEW, false),
+        : MetaRequest(META_LEASE_RENEW, kLogNever),
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
@@ -3363,7 +3366,7 @@ private:
  */
 struct MetaLeaseCleanup: public MetaRequest {
     MetaLeaseCleanup(seq_t s = -1, KfsCallbackObj *c = 0)
-        : MetaRequest(META_LEASE_CLEANUP, false, s)
+        : MetaRequest(META_LEASE_CLEANUP, kLogNever, s)
             { clnt = c; }
 
     virtual void handle();
@@ -3381,7 +3384,7 @@ struct MetaLeaseCleanup: public MetaRequest {
  */
 struct MetaChunkReplicationCheck : public MetaRequest {
     MetaChunkReplicationCheck(seq_t s, KfsCallbackObj *c)
-        : MetaRequest(META_CHUNK_REPLICATION_CHECK, false, s)
+        : MetaRequest(META_CHUNK_REPLICATION_CHECK, kLogNever, s)
             { clnt = c; }
 
     virtual void handle();
@@ -3399,7 +3402,7 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
 
     MetaForceChunkReplication()
         : ServerLocation(),
-          MetaRequest(META_FORCE_CHUNK_REPLICATION, false),
+          MetaRequest(META_FORCE_CHUNK_REPLICATION, kLogNever),
           chunkId(-1),
           recoveryFlag(false),
           removeFlag(false),
@@ -3436,7 +3439,7 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
 struct MetaAck : public MetaRequest {
     StringBufT<32> ack;
     MetaAck()
-        : MetaRequest(META_ACK, true),
+        : MetaRequest(META_ACK, kLogIfOk),
           ack()
         {}
     bool Validate()
@@ -3461,25 +3464,6 @@ struct MetaAck : public MetaRequest {
     }
 };
 
-struct MetaLogConfig : public MetaRequest {
-    const bool verifyAllOpsPermissionsFlag;
-    MetaLogConfig(
-        bool flag)
-        : MetaRequest(META_LOG_CONFIG, true),
-          verifyAllOpsPermissionsFlag(flag)
-        {}
-    virtual bool start()  { return true; }
-    virtual void handle() { status = 0; }
-    virtual void response(ReqOstream& /* os */)
-        { /* No response; */ }
-    virtual int log(ostream& file) const;
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return (os <<
-            "log config: verify permissions: " << verifyAllOpsPermissionsFlag);
-    }
-};
-
 struct MetaRemoveFromDumpster : public MetaRequest
 {
     string name;
@@ -3488,7 +3472,7 @@ struct MetaRemoveFromDumpster : public MetaRequest
     MetaRemoveFromDumpster(
         const string& nm = string(),
         fid_t         id = -1)
-        : MetaRequest(META_REMOVE_FROM_DUMPSTER, true),
+        : MetaRequest(META_REMOVE_FROM_DUMPSTER, kLogIfOk),
           name(nm),
           fid(id)
         {}

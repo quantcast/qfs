@@ -546,9 +546,6 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
             if ((okFlag = Startup(createEmptyFsFlag,
                     props.getValue("metaServer.createEmptyFs", 0) != 0))) {
                 if (! createEmptyFsFlag) {
-                    // Set parameters again as checkpoint load and log replay
-                    // might have changed them.
-                    gLayoutManager.SetParameters(props);
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start();
@@ -600,30 +597,27 @@ public:
     MetaSetFsInfo(
         int64_t fsid,
         int64_t crTime)
-        : MetaRequest(META_SET_FILE_SYSTEM_INFO, true),
+        : MetaRequest(META_SET_FILE_SYSTEM_INFO, kLogIfOk),
           fileSystemId(fsid),
           createTime(crTime)
         {}
+    virtual bool start()
+        { return (0 == status && 0 <= fileSystemId); }
     virtual void handle()
     {
-        if (status != 0) {
-            return;
-        }
         if (fileSystemId < 0 || 0 < metatree.GetFsId()) {
             status = -EINVAL;
             return;
         }
         metatree.SetFsInfo(fileSystemId, createTime);
     }
-    virtual int log(ostream& os) const
+    virtual bool log(ostream& os) const
     {
-        if (status == 0) {
-            os << "filesysteminfo"
-                "/fsid/"   << fileSystemId <<
-                "/crtime/" << ShowTime(createTime) <<
-            "\n";
-        }
-        return (os.fail() ? -EIO : 0);
+        os << "filesysteminfo"
+            "/fsid/"   << fileSystemId <<
+            "/crtime/" << ShowTime(createTime) <<
+        "\n";
+        return true;
     }
     virtual ostream& ShowSelf(ostream& os) const
     {

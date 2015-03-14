@@ -434,7 +434,7 @@ public:
 
     /// Method to get the size of a chunk from a chunkserver.
     int GetChunkSize(fid_t fid, chunkId_t chunkId,
-        seq_t chunkVersion, const string &pathname, bool retryFlag = true);
+        seq_t chunkVersion, bool retryFlag = true);
 
     /// Methods to handle (re) replication of a chunk.  If there are
     /// insufficient copies of a chunk, we replicate it.

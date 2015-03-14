@@ -52,7 +52,7 @@ Logger oplog(LOGDIR);
 void
 Logger::dispatchWriteAhead(MetaRequest* r)
 {
-    if (r->seqno <= 0 &&
+    if (r->seqno < 0 &&
             ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
             MetaRequest::kLogAlways == r->logAction)) {
         r->commitPendingFlag = true;
@@ -81,7 +81,7 @@ Logger::dispatchWriteAhead(MetaRequest* r)
 void
 Logger::dispatch(MetaRequest* r)
 {
-    if (r->seqno <= 0) {
+    if (r->seqno < 0) {
         r->seqno = ++nextseq;
         if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
                 MetaRequest::kLogAlways == r->logAction) {
@@ -121,6 +121,9 @@ Logger::dispatch(MetaRequest* r)
 int
 Logger::log(MetaRequest *r)
 {
+    if (r->op != META_ALLOCATE) {
+        panic("invalid write behind log op");
+    }
     const int res = r->log(logstream);
     if (res >= 0) {
         flushResult(r);
