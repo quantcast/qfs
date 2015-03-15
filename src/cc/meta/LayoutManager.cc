@@ -8334,19 +8334,27 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
     }
 }
 
-int
-LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
+bool
+LayoutManager::IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const
 {
-    if (! req->retryFlag && (req->chunkSize < 0 || req->status < 0)) {
-        return -1;
-    }
-    if (! IsChunkStable(req->chunkId) ||
+    const CSMap::Entry* ci;
+    return (IsChunkStable(chunkId) && ! mChunkLeases.HasWriteLease(chunkId) &&
+        (ci = mChunkToServerMap.Find(chunkId)) != 0 &&
+        ci->GetChunkInfo()->chunkVersion == chunkVersion
+    );
+}
+
+bool
+LayoutManager::Start(MetaChunkSize* req)
+{
+    if (req->chunkSize < 0 || req->status < 0 ||
+            ! IsChunkStable(req->chunkId) ||
             mChunkLeases.HasWriteLease(req->chunkId)) {
-        return -1; // Chunk isn't stable yet, or being written again.
+        return false;
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
     if (! ci) {
-        return -1; // No such chunk, do not log.
+        return false;
     }
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
@@ -8354,10 +8362,32 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     if (req->fid != fa->id()) {
         req->fid = fa->id();
     }
-    if (fa->IsStriped() || fa->filesize >= 0 || fa->type != KFS_FILE ||
-            chunk->offset + (chunkOff_t)CHUNKSIZE <
-                fa->nextChunkOffset()) {
-        return -1; // No update needed, do not write log entry.
+    return (
+        req->chunkVersion == chunk->chunkVersion &&
+        ! fa->IsStriped() && fa->filesize < 0 && fa->type == KFS_FILE &&
+        fa->nextChunkOffset() <= chunk->offset + (chunkOff_t)CHUNKSIZE
+    );
+}
+
+int
+LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
+{
+    if (! req->retryFlag && (req->chunkSize < 0 || req->status < 0)) {
+        return -EINVAL;
+    }
+    const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
+    if (! ci) {
+        return -ENOENT; // No such chunk, do not log.
+    }
+    MetaFattr* const           fa    = ci->GetFattr();
+    const MetaChunkInfo* const chunk = ci->GetChunkInfo();
+    // Coalesce can change file id while request is in flight.
+    if (req->fid != fa->id()) {
+        req->fid = fa->id();
+    }
+    if (fa->IsStriped() || 0 <= fa->filesize || fa->type != KFS_FILE ||
+            chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
+        return -EINVAL; // No update needed.
     }
     if (req->chunkVersion != chunk->chunkVersion) {
         KFS_LOG_STREAM_DEBUG <<
@@ -8367,7 +8397,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             " status: "     << req->status         <<
             " msg: "        << req->statusMsg      <<
         KFS_LOG_EOM;
-        return -1;
+        return -EBADVERS;
     }
     if (req->chunkSize < 0 || req->status < 0) {
         KFS_LOG_STREAM_ERROR <<
@@ -8376,7 +8406,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             " msg: "    << req->statusMsg <<
         KFS_LOG_EOM;
         if (! req->retryFlag) {
-            return -1;
+            return -EINVAL;
         }
         // Retry the size request with all servers.
         StTmp<Servers> serversTmp(mServers3Tmp);
@@ -8393,7 +8423,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
                 req->fid, req->chunkId, req->chunkVersion,
                 retryFlag);
         }
-        return -1;
+        return -EINVAL;
     }
     metatree.setFileSize(fa, chunk->offset + req->chunkSize);
     KFS_LOG_STREAM_INFO <<
@@ -8406,7 +8436,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
 }
 
 bool
-LayoutManager::IsChunkStable(chunkId_t chunkId)
+LayoutManager::IsChunkStable(chunkId_t chunkId) const
 {
     return (! mNonStableChunks.Find(chunkId));
 }

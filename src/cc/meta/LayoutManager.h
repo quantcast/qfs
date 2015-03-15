@@ -1029,8 +1029,9 @@ public:
     int WritePendingChunkVersionChange(ostream& os);
     int WritePendingMakeStable(ostream& os);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
+    bool Start(MetaChunkSize* req);
     int GetChunkSizeDone(MetaChunkSize* req);
-    bool IsChunkStable(chunkId_t chunkId);
+    bool IsChunkStable(chunkId_t chunkId) const;
     const char* AddNotStableChunk(
         const ChunkServerPtr& server,
         chunkId_t             chunkId,
@@ -1380,6 +1381,7 @@ public:
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
     void DumpsterCleanupDone(fid_t fid, const string& name);
+    bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
 protected:
     typedef vector<
         int,

@@ -98,6 +98,7 @@ public:
             if (! req.GetReq()) {
                 panic("invalid idempotent request handling");
             }
+            req.logAction = MetaRequest::kLogNever;
         }
     }
     ~StIdempotentRequestHandler()
@@ -756,18 +757,12 @@ MetaIdempotentRequest::IsHandled()
             return true;
         }
     } else if (req && req != this) {
-        if (req->seqno <= 0) {
+        if (req->seqno < 0) {
             panic("invalid in-flight idempotent request");
         }
         return true;
     }
     return (0 != status);
-}
-
-inline bool
-MetaIdempotentRequest::IsLogNeeded() const
-{
-    return (! req || req->seqno <= 0);
 }
 
 /* virtual */ bool
@@ -778,7 +773,7 @@ MetaCreate::start()
     }
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return IsLogNeeded();
+        return false;
     }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
@@ -928,7 +923,7 @@ MetaMkdir::start()
     }
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return IsLogNeeded();
+        return false;
     }
     const bool kDirFlag = true;
     if (! CheckCreatePerms(*this, kDirFlag)) {
@@ -1002,9 +997,9 @@ MetaRemove::start()
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return IsLogNeeded();
+        return false;
     }
-    return true;
+    return (0 == status);
 }
 
 /* virtual */ void
@@ -1033,7 +1028,7 @@ MetaRmdir::start()
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return IsLogNeeded();
+        return false;
     }
     return true;
 }
@@ -2500,12 +2495,15 @@ MetaTruncate::start()
         statusMsg = "end offset less than offset";
         return false;
     }
-    return (status == 0);
+    return (0 == status);
 }
 
 /* virtual */ void
 MetaTruncate::handle()
 {
+    if (0 != status) {
+        return;
+    }
     if (pruneBlksFromHead) {
         status = metatree.pruneFromHead(fid, offset, &mtime, euser, egroup);
         return;
@@ -2517,23 +2515,15 @@ MetaTruncate::handle()
 /* virtual */ bool
 MetaRename::start()
 {
-    MetaFattr* fa = 0;
-    status = 0;
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return IsLogNeeded();
+        return false;
     }
-    if (gWormMode && (! IsWormMutationAllowed(oldname) ||
-            (status = metatree.lookupPath(
-                ROOTFID, newname, euser, egroup, fa)
-            ) != -ENOENT)) {
-        if (status == 0) {
-            // renames are disabled in WORM mode: otherwise, we
-            // ocould overwrite an existing file
-            statusMsg = "worm mode";
-            status    = -EPERM;
-        }
+    wormModeFlag = gWormMode;
+    if (wormModeFlag && IsWormMutationAllowed(oldname)) {
+        statusMsg = "worm mode";
+        status    = -EPERM;
     }
     return (0 == status);
 }
@@ -2544,6 +2534,15 @@ MetaRename::handle()
     if (IsHandled()) {
         return;
     }
+    // renames are disabled in WORM mode: otherwise, we
+    // ocould overwrite an existing file
+    MetaFattr* fa = 0;
+    if (wormModeFlag && (status = metatree.lookupPath(
+            ROOTFID, newname, euser, egroup, fa)) != -ENOENT) {
+        statusMsg = "worm mode";
+        status    = -EPERM;
+        return;
+    }
     todumpster = 1;
     status = metatree.rename(dir, oldname, newname,
         oldpath, overwrite, todumpster, euser, egroup);
@@ -2552,7 +2551,7 @@ MetaRename::handle()
 /* virtual */ bool
 MetaSetMtime::start()
 {
-    if (! internalFlag) {
+    if (fid < 0) {
         SetEUserAndEGroup(*this);
     }
     return (0 == status);
@@ -2561,12 +2560,14 @@ MetaSetMtime::start()
 /* virtual */ void
 MetaSetMtime::handle()
 {
+    if (0 != status) {
+        return;
+    }
     MetaFattr* fa = 0;
-    if (fid > 0 && status == 0) {
+    if (0 <= fid) {
         fa = metatree.getFattr(fid);
     } else {
-        status = metatree.lookupPath(dir, pathname,
-            euser, egroup, fa);
+        status = metatree.lookupPath(dir, pathname, euser, egroup, fa);
     }
     if (0 == status && ! fa) {
         status = -ENOENT;
@@ -2574,7 +2575,7 @@ MetaSetMtime::handle()
     if (status != 0) {
         return;
     }
-    if (! fa->CanWrite(euser, egroup)) {
+    if (fid < 0 && ! fa->CanWrite(euser, egroup)) {
         status = -EACCES;
         return;
     }
@@ -2584,34 +2585,10 @@ MetaSetMtime::handle()
 /* virtual */ bool
 MetaChangeFileReplication::start()
 {
-    fa = metatree.getFattr(fid);
-    if (! fa) {
-        statusMsg = "no such file";
-        status    = -ENOENT;
-    }
-    if (! CanAccessFile(fa, *this)) {
-        return false;
-    }
     SetEUserAndEGroup(*this);
-    if (! fa->CanWrite(euser, egroup)) {
-        status = -EACCES;
-        return false;
-    }
-    if (fa->type == KFS_DIR) {
-        if (euser != kKfsUserRoot) {
-            status    = -EACCES;
-            statusMsg = "root privileges are"
-                " required to change directory storage tiers";
-            return false;
-        }
-    } else {
-        numReplicas = min(numReplicas,
-            max(int16_t(fa->numReplicas),
-                (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
-                        fa->numRecoveryStripes > 0) ?
-                gLayoutManager.GetMaxReplicasPerRSFile() :
-                gLayoutManager.GetMaxReplicasPerFile()
-        ));
+    if (0 == status) {
+        maxRSFileReplicas = gLayoutManager.GetMaxReplicasPerRSFile();
+        maxFileReplicas   = gLayoutManager.GetMaxReplicasPerFile();
     }
     return (0 == status);
 }
@@ -2619,38 +2596,38 @@ MetaChangeFileReplication::start()
 /* virtual */ void
 MetaChangeFileReplication::handle()
 {
-    if (! fa) {
-        fa = metatree.getFattr(fid);
-    }
-    if (! fa) {
-        statusMsg = "no such file";
-        status    = -ENOENT;
+    if (0 != status) {
         return;
     }
-    kfsSTier_t const prevMinSTier = fa->minSTier;
-    kfsSTier_t const prevMaxSTier = fa->maxSTier;
-    int16_t    const prevRepl     = (int16_t)fa->numReplicas;
-    status = metatree.changeFileReplication(
-        fa, numReplicas, minSTier, maxSTier);
-    if (0 < seqno) {
+    MetaFattr* const fa = metatree.getFattr(fid);
+    if (! CanAccessFile(fa, *this)) {
         return;
     }
-    if (status == 0) {
-        numReplicas = fa->type == KFS_DIR ?
-            (int16_t)0 : (int16_t)fa->numReplicas; // update for log()
-        logAction = (fa->type != KFS_DIR && numReplicas != prevRepl) ?
-            kLogIfOk : kLogNever;
-        if (fa->minSTier != prevMinSTier || fa->maxSTier != prevMaxSTier) {
-            logAction = kLogIfOk;
-            minSTier  = fa->minSTier;
-            maxSTier  = fa->maxSTier;
-        } else if (kLogNever != logAction) {
-            // No change, do not log tiers.
-            minSTier = kKfsSTierUndef;
-            maxSTier = kKfsSTierUndef;
+    if (! fa->CanWrite(euser, egroup)) {
+        status = -EACCES;
+        return;
+    }
+    if (fa->type == KFS_DIR) {
+        if (euser != kKfsUserRoot) {
+            status    = -EACCES;
+            statusMsg = "root privileges are"
+                " required to change directory storage tiers";
+            return;
         }
     } else {
-        logAction = kLogNever;
+        numReplicas = min(numReplicas,
+            max(int16_t(fa->numReplicas),
+                (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
+                        fa->numRecoveryStripes > 0) ?
+                maxRSFileReplicas :
+                maxFileReplicas
+        ));
+    }
+    status = metatree.changeFileReplication(
+        fa, numReplicas, minSTier, maxSTier);
+    if (status == 0) {
+        numReplicas = fa->type == KFS_DIR ?
+            (int16_t)0 : (int16_t)fa->numReplicas;
     }
 }
 
@@ -2669,6 +2646,9 @@ MetaCoalesceBlocks::start()
 /* virtual */ void
 MetaCoalesceBlocks::handle()
 {
+    if (0 != status) {
+        return;
+    }
     status = metatree.coalesceBlocks(
         srcPath, dstPath, srcFid, dstFid,
         dstStartOffset, &mtime, numChunksMoved,
@@ -2864,6 +2844,9 @@ MetaChmod::start()
 /* virtual */ void
 MetaChmod::handle()
 {
+    if (0 != status) {
+        return;
+    }
     MetaFattr* const fa = metatree.getFattr(fid);
     if (! fa) {
         status = -ENOENT;
@@ -2890,6 +2873,9 @@ MetaChown::start()
 /* virtual */ void
 MetaChown::handle()
 {
+    if (0 != status) {
+        return;
+    }
     MetaFattr* const fa = metatree.getFattr(fid);
     if (! fa) {
         status = -ENOENT;
@@ -3025,9 +3011,20 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
     ;
 }
 
+/* virtual */ bool
+MetaChunkSize::start()
+{
+    if (0 == status && 0 <= chunkSize && gLayoutManager.Start(this)) {
+        return (0 == status);
+    }
+    logAction = kLogNever;
+    return false;
+}
+
 /* virtual */ void
 MetaChunkSize::handle()
 {
+    // Invoke regardless of status, in order to retry.
     status = gLayoutManager.GetChunkSizeDone(this);
 }
 
@@ -5431,6 +5428,9 @@ MetaAck::start()
 void
 MetaAck::handle()
 {
+    if (0 != status) {
+        return;
+    }
     KFS_LOG_STREAM_DEBUG << "ack: " << ack << KFS_LOG_EOM;
     gLayoutManager.GetIdempotentRequestTracker().Handle(*this);
 }

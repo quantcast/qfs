@@ -314,10 +314,11 @@ struct MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return parser
+        .Def("p", &MetaRequest::clientProtoVers,     int(0))
+        .Def("s", &MetaRequest::fromChunkServerFlag, false)
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
-        .Def("s", &MetaRequest::fromChunkServerFlag, false)
         ;
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
@@ -429,7 +430,6 @@ protected:
     virtual ~MetaIdempotentRequest();
     virtual void ReleaseSelf() { UnRef(); }
     inline bool IsHandled();
-    inline bool IsLogNeeded() const;
 private:
     volatile int           ref;
     MetaIdempotentRequest* req;
@@ -1366,6 +1366,7 @@ struct MetaRename: public MetaIdempotentRequest {
     string newname;    //!< new file name
     string oldpath;    //!< fully-qualified old pathname
     bool   overwrite;  //!< overwrite newname if it exists
+    bool   wormModeFlag;
     fid_t  todumpster; //!< moved original to dumpster
     MetaRename()
         : MetaIdempotentRequest(META_RENAME, kLogIfOk),
@@ -1374,6 +1375,7 @@ struct MetaRename: public MetaIdempotentRequest {
           newname(),
           oldpath(),
           overwrite(false),
+          wormModeFlag(false),
           todumpster(-1)
         {}
     virtual bool start();
@@ -1413,11 +1415,12 @@ struct MetaRename: public MetaIdempotentRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
-        .Def("P", &MetaRename::dir,   fid_t(-1))
-        .Def("O", &MetaRename::oldname         )
-        .Def("N", &MetaRename::newname         )
-        .Def("F", &MetaRename::oldpath         )
-        .Def("W", &MetaRename::overwrite, false)
+        .Def("P", &MetaRename::dir,      fid_t(-1))
+        .Def("O", &MetaRename::oldname            )
+        .Def("N", &MetaRename::newname            )
+        .Def("F", &MetaRename::oldpath            )
+        .Def("W", &MetaRename::overwrite,    false)
+        .Def("M", &MetaRename::wormModeFlag, false)
         ;
     }
 };
@@ -1430,14 +1433,12 @@ struct MetaSetMtime: public MetaRequest {
     fid_t      fid;      //!< stash the fid for logging
     string     pathname; //!< absolute path for which we want to set the mtime
     int64_t    mtime;
-    const bool internalFlag;
     MetaSetMtime(fid_t id = -1, int64_t mtime = 0)
         : MetaRequest(META_SETMTIME, kLogIfOk),
           dir(ROOTFID),
           fid(id),
           pathname(),
           mtime(mtime),
-          internalFlag(0 <= id),
           sec(0),
           usec(0)
         {}
@@ -1488,15 +1489,16 @@ struct MetaChangeFileReplication: public MetaRequest {
     int16_t    numReplicas; //!< desired degree of replication
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
-    bool       logFlag;
+    int16_t    maxRSFileReplicas;
+    int16_t    maxFileReplicas;
     MetaChangeFileReplication()
         : MetaRequest(META_CHANGE_FILE_REPLICATION, kLogIfOk),
           fid(-1),
           numReplicas(1),
           minSTier(kKfsSTierUndef),
           maxSTier(kKfsSTierUndef),
-          logFlag(false),
-          fa(0)
+          maxRSFileReplicas(0),
+          maxFileReplicas(0)
         {}
     virtual bool start();
     virtual void handle();
@@ -1527,14 +1529,14 @@ struct MetaChangeFileReplication: public MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("P",  &MetaChangeFileReplication::fid,         fid_t(-1))
-        .Def("R",  &MetaChangeFileReplication::numReplicas, int16_t(1))
-        .Def("TL", &MetaChangeFileReplication::minSTier,    kKfsSTierUndef)
-        .Def("TH", &MetaChangeFileReplication::maxSTier,    kKfsSTierUndef)
+        .Def("P",  &MetaChangeFileReplication::fid,               fid_t(-1))
+        .Def("R",  &MetaChangeFileReplication::numReplicas,       int16_t(1))
+        .Def("TL", &MetaChangeFileReplication::minSTier,          kKfsSTierUndef)
+        .Def("TH", &MetaChangeFileReplication::maxSTier,          kKfsSTierUndef)
+        .Def("RR", &MetaChangeFileReplication::maxRSFileReplicas, int16_t(-1))
+        .Def("RF", &MetaChangeFileReplication::maxFileReplicas,   int16_t(-1))
         ;
     }
-private:
-    MetaFattr* fa;
 };
 
 /*!
@@ -1588,6 +1590,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaCoalesceBlocks::srcPath)
         .Def("D", &MetaCoalesceBlocks::dstPath)
+        .Def("M", &MetaCoalesceBlocks::mtime)
         ;
     }
 };
@@ -2139,8 +2142,7 @@ struct MetaChunkVersChange: public MetaChunkRequest {
  * expires, we get the chunk's size and then determine the filesize.
  */
 struct MetaChunkSize: public MetaChunkRequest {
-    fid_t      fid;     //!< input: we use the tuple <fileid, chunkid> to
-                        //!< find the entry we need.
+    fid_t      fid; // redundant, for debug purposes only.
     seq_t      chunkVersion;
     chunkOff_t chunkSize; //!< output: the chunk size
     bool       retryFlag;
@@ -2158,7 +2160,7 @@ struct MetaChunkSize: public MetaChunkRequest {
           retryFlag(retry)
         {}
     bool Validate() { return true; }
-    virtual bool start() { return (status == 0 && 0 <= chunkSize); }
+    virtual bool start();
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual void handleReply(const Properties& prop)
@@ -2178,7 +2180,7 @@ struct MetaChunkSize: public MetaChunkRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("P", &MetaChunkSize::fid,          fid_t(-1))
+        //.Def("P", &MetaChunkSize::fid,          fid_t(-1))
         .Def("V", &MetaChunkSize::chunkVersion, seq_t(-1))
         .Def("C", &MetaChunkSize::chunkId,      chunkId_t(-1))
         .Def("R", &MetaChunkSize::retryFlag,    false)
@@ -2297,7 +2299,13 @@ struct MetaLogMakeChunkStable : public MetaRequest {
           chunkChecksum(checksum),
           hasChunkChecksum(hasChecksum)
         {}
-    virtual bool start() { return (0 == status && 0 <= chunkVersion); }
+    virtual bool start()
+    {
+        if (chunkVersion < 0) {
+            status = -EINVAL;
+        }
+        return (0 == status);
+    }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
