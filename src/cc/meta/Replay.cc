@@ -684,7 +684,7 @@ static int sRestoreTimeCount = 0;
  * format: time/<time>
  */
 static bool
-restore_time(DETokenizer& c)
+replay_time(DETokenizer& c)
 {
     c.pop_front();
     KFS_LOG_STREAM_INFO << "log time: " << c.front() << KFS_LOG_EOM;
@@ -703,7 +703,7 @@ restore_time(DETokenizer& c)
  * "/hasChecksum/"    << (hasChunkChecksum ? 1 : 0)
  */
 static bool
-restore_makechunkstable(DETokenizer& c, bool addFlag)
+replay_makechunkstable(DETokenizer& c, bool addFlag)
 {
     fid_t      fid;
     chunkId_t  chunkId;
@@ -741,15 +741,15 @@ restore_makechunkstable(DETokenizer& c, bool addFlag)
 }
 
 static bool
-restore_mkstable(DETokenizer& c)
+replay_mkstable(DETokenizer& c)
 {
-    return restore_makechunkstable(c, true);
+    return replay_makechunkstable(c, true);
 }
 
 static bool
-restore_mkstabledone(DETokenizer& c)
+replay_mkstabledone(DETokenizer& c)
 {
-    return restore_makechunkstable(c, false);
+    return replay_makechunkstable(c, false);
 }
 
 
@@ -1100,9 +1100,9 @@ get_entry_map()
     add_parser_inc_seq(e, "size",                    &replay_size);
     add_parser_inc_seq(e, "setmtime",                &replay_setmtime);
     add_parser_inc_seq(e, "chunkVersionInc",         &restore_chunkVersionInc);
-    add_parser_inc_seq(e, "time",                    &restore_time);
-    add_parser_inc_seq(e, "mkstable",                &restore_mkstable);
-    add_parser_inc_seq(e, "mkstabledone",            &restore_mkstabledone);
+    add_parser_inc_seq(e, "time",                    &replay_time);
+    add_parser_inc_seq(e, "mkstable",                &replay_mkstable);
+    add_parser_inc_seq(e, "mkstabledone",            &replay_mkstabledone);
     add_parser_inc_seq(e, "beginchunkversionchange", &replay_beginchunkversionchange);
     add_parser_inc_seq(e, "checksum",                &restore_checksum);
     add_parser_inc_seq(e, "rollseeds",               &restore_rollseeds);
