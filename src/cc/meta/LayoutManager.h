@@ -1013,7 +1013,7 @@ public:
         seq_t          chunkVersion,
         const char*&   errMsg);
     void BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req);
-    void LogMakeChunkStableDone(const MetaLogMakeChunkStable* req);
+    void LogMakeChunkStableDone(MetaLogMakeChunkStable* req);
     void MakeChunkStableDone(const MetaChunkMakeStable* req);
     void ReplayPendingMakeStable(
         chunkId_t  chunkId,

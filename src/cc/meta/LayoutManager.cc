@@ -7844,7 +7844,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
 }
 
 void
-LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
+LayoutManager::LogMakeChunkStableDone(MetaLogMakeChunkStable* req)
 {
     const char* const          logPrefix = "LMCS: done";
     MakeChunkStableInfo* const it        = mNonStableChunks.Find(req->chunkId);
@@ -7891,6 +7891,23 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
             ci ? -EINVAL         : -EAGAIN,
             ci ? "no such chunk" : "no replicas available"
         );
+        return;
+    }
+    if (req->status < 0) {
+        // Log failure.
+        KFS_LOG_STREAM_ERROR <<
+            req->Show() <<
+            " status: " << req->status <<
+            " "         << req->statusMsg <<
+        KFS_LOG_EOM;
+        // Make stable needs to be re-submitted once the logger starts working,
+        // again, or canceled if the other meta server becomes primary.
+        // In the later case the primary will re-run make stable state machine
+        // as a result of the non-stable chunks inventory synchronization.
+        // Possible log failures of make stable done, should be resolved by
+        // full chunk replication check, that should be initiated by the primary
+        // once logger starts working again.
+        ScheduleResubmitOrCancel(req);
         return;
     }
     const bool     serverWasAddedFlag = info.serverAddedFlag;
