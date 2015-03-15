@@ -1022,10 +1022,24 @@ public:
         bool       hasChunkChecksum,
         uint32_t   chunkChecksum,
         bool       addFlag);
+    bool RestoreBeginChangeChunkVersion(
+        fid_t      fid,
+        chunkId_t  chunkId,
+        seq_t      chunkVersion)
+    {
+        const bool okIfNoChunkFlag = false;
+        return ProcessBeginChangeChunkVersion(
+            fid, chunkId, chunkVersion, okIfNoChunkFlag);
+    }
     bool ReplayBeginChangeChunkVersion(
         fid_t      fid,
         chunkId_t  chunkId,
-        seq_t      chunkVersion);
+        seq_t      chunkVersion)
+    {
+        const bool okIfNoChunkFlag = true;
+        return ProcessBeginChangeChunkVersion(
+            fid, chunkId, chunkVersion, okIfNoChunkFlag);
+    }
     int WritePendingChunkVersionChange(ostream& os);
     int WritePendingMakeStable(ostream& os);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
@@ -2359,6 +2373,11 @@ protected:
         SetEUserAndEGroup(op);
         return true;
     }
+    bool ProcessBeginChangeChunkVersion(
+        fid_t      fid,
+        chunkId_t  chunkId,
+        seq_t      chunkVersion,
+        bool       okIfNoChunkFlag);
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>

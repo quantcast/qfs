@@ -360,7 +360,7 @@ restore_beginchunkversionchange(DETokenizer& c)
     ok = pop_fid     (chunkId,      "chunkId",      c, ok);
     ok = pop_fid     (chunkVersion, "chunkVersion", c, ok);
 
-    return (ok && gLayoutManager.ReplayBeginChangeChunkVersion(
+    return (ok && gLayoutManager.RestoreBeginChangeChunkVersion(
             fid, chunkId, chunkVersion));
 }
 

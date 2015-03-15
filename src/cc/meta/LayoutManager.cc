@@ -5355,7 +5355,7 @@ struct MetaLogChunkVersionChange : public MetaRequest
     }
     virtual void handle()
     {
-        if (status < 0) {
+        if (0 != status) {
             if (0 <= alloc.status) {
                 alloc.status    = status;
                 alloc.statusMsg = statusMsg;
@@ -5373,38 +5373,44 @@ struct MetaLogChunkVersionChange : public MetaRequest
 };
 
 bool
-LayoutManager::ReplayBeginChangeChunkVersion(
+LayoutManager::ProcessBeginChangeChunkVersion(
     fid_t     fid,
     chunkId_t chunkId,
-    seq_t     chunkVersion)
+    seq_t     chunkVersion,
+    bool      okIfNoChunkFlag)
 {
-    const char* err = 0;
-    const CSMap::Entry* const cs = mChunkToServerMap.Find(chunkId);
-    if (! cs) {
-        err = "no such chunk";
-    }
-    const seq_t vers = err ? -1 : cs->GetChunkInfo()->chunkVersion;
-    if (! err && vers >= chunkVersion) {
-        err = "invalid version transition";
-    }
-    if (! err) {
-        bool insertedFlag = false;
-        seq_t* const res = mChunkVersionRollBack.Insert(
-            chunkId, chunkVersion - vers, insertedFlag);
-        if (! insertedFlag) {
-            *res = chunkVersion - vers;
+    const char*               msg  = "OK";
+    bool                      ret  = true;
+    const CSMap::Entry* const cs   = mChunkToServerMap.Find(chunkId);
+    seq_t                     vers;
+    if (cs) {
+        vers = cs->GetChunkInfo()->chunkVersion;
+        if (chunkVersion <= vers) {
+            msg = "invalid version transition";
+            ret = false;
+        } else {
+            bool         insertedFlag = false;
+            seq_t* const res          = mChunkVersionRollBack.Insert(
+                chunkId, chunkVersion - vers, insertedFlag);
+            if (! insertedFlag) {
+                *res = chunkVersion - vers;
+            }
         }
+    } else {
+        vers = -1;
+        msg  = "no such chunk";
+        ret  = okIfNoChunkFlag;
     }
-    KFS_LOG_STREAM(err ?
-        MsgLogger::kLogLevelWARN :
-        MsgLogger::kLogLevelDEBUG) <<
+    KFS_LOG_STREAM(ret ?
+        MsgLogger::kLogLevelDEBUG :
+        MsgLogger::kLogLevelWARN) <<
         "replay beginchunkversionchange"
         " fid: "     << fid <<
         " chunkId: " << chunkId <<
         " version: " << vers << "=>" << chunkVersion <<
-        " "          << (err ? err : "OK") <<
+        " "          << msg <<
     KFS_LOG_EOM;
-    return (! err);
+    return ret;
 }
 
 int

@@ -765,16 +765,8 @@ replay_beginchunkversionchange(DETokenizer& c)
     ok = pop_fid     (chunkId,      "chunkId",      c, ok);
     ok = pop_fid     (chunkVersion, "chunkVersion", c, ok);
 
-    if (! ok) {
-        return false;
-    }
-    if (! metatree.getFattr(fid)) {
-        // Ignore files that no longer exists.
-        // The same logic as in chunk allocation replay applies.
-        return true;
-    }
-    return gLayoutManager.ReplayBeginChangeChunkVersion(
-        fid, chunkId, chunkVersion);
+    return (ok && gLayoutManager.ReplayBeginChangeChunkVersion(
+        fid, chunkId, chunkVersion));
 }
 
 /*
