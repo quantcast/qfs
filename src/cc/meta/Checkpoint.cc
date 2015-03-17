@@ -125,7 +125,6 @@ Checkpoint::do_CP()
             ShowTime(metatree.GetCreateTime()) << '\n';
         os << "fid/" << fileID.getseed() << '\n';
         os << "chunkId/" << chunkID.getseed() << '\n';
-        os << "chunkVersionInc/1\n";
         os << "time/" << DisplayIsoDateTime() << '\n';
         os << "setintbase/16\n" << hex;
         os << "log/" << oplog.name() << "\n\n";

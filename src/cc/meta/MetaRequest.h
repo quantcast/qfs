@@ -151,7 +151,8 @@ using std::less;
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
     f(ACK) \
-    f(REMOVE_FROM_DUMPSTER)
+    f(REMOVE_FROM_DUMPSTER) \
+    f(LOG_CHUNK_ALLOCATE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -159,7 +160,6 @@ enum MetaOp {
 #undef KfsMakeMetaOpEnumEntry
     META_NUM_OPS_COUNT // must be the last one
 };
-
 
 class ChunkServer;
 class ClientSM;
@@ -253,7 +253,8 @@ struct MetaRequest {
           maxWaitMillisec(-1),
           sessionEndTime(),
           next(0),
-          clnt(0)
+          clnt(0),
+          recursionCount(0)
         { MetaRequest::Init(); }
     static void Release(MetaRequest* req)
     {
@@ -352,19 +353,21 @@ struct MetaRequest {
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
+    void Submit();
 protected:
     virtual void response(ReqOstream& /* os */) {}
     virtual ~MetaRequest();
     virtual void ReleaseSelf()
         { delete this; }
+    int recursionCount;
 private:
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];
 
-    static bool         sRequireHeaderChecksumFlag;
-    static bool         sVerifyHeaderChecksumFlag;
-    static int          sMetaRequestCount;
-    static MetaRequest* sMetaRequestsPtr[1];
+    static bool               sRequireHeaderChecksumFlag;
+    static bool               sVerifyHeaderChecksumFlag;
+    static int                sMetaRequestCount;
+    static MetaRequest*       sMetaRequestsPtr[1];
 
     friend class QCDLListOp<MetaRequest, 0>;
     typedef QCDLList<MetaRequest, 0> MetaRequestsList;
@@ -374,7 +377,8 @@ private:
 inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
 { return disp.Show(os); }
 
-void submit_request(MetaRequest *r);
+inline static void submit_request(MetaRequest *r)
+{ r->Submit(); }
 void ScheduleResubmitOrCancel(MetaRequest *r);
 
 struct MetaIdempotentRequest : public MetaRequest {
@@ -1160,7 +1164,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     seq_t                initialChunkVersion;
     int16_t              numReplicas;  //!< inherited from file's fattr
     bool                 stripedFileFlag;
-    bool                 layoutDone;   //!< Has layout of chunk been done
     //!< when set, the allocation request is asking the metaserver to append
     //!< a chunk to the file and let the client know the offset at which it was
     //!< appended.
@@ -1201,7 +1204,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     StringBufT<64>       clientHost;   //!< the host from which request was received
     StringBufT<256>      pathname;     //!< full pathname that corresponds to fid
     MetaAllocate(seq_t s = -1, fid_t f = -1, chunkOff_t o = -1)
-        : MetaRequest(META_ALLOCATE, kLogIfOk, s),
+        : MetaRequest(META_ALLOCATE, kLogNever, s),
           KfsCallbackObj(),
           fid(f),
           offset(o),
@@ -1210,7 +1213,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           initialChunkVersion(-1),
           numReplicas(0),
           stripedFileFlag(false),
-          layoutDone(false),
           appendChunk(false),
           spaceReservationSize(1 << 20),
           maxAppendersPerChunk(64),
@@ -1241,27 +1243,26 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationIssuedTime(0),
           clientHost(),
           pathname(),
-          origClnt(0)
+          startedFlag(false)
     {
-        SET_HANDLER(this, &MetaAllocate::logOrLeaseRelinquishDone);
+        SET_HANDLER(this, &MetaAllocate::PendingLeaseRelinquish);
     }
     virtual ~MetaAllocate()
         { delete pendingLeaseRelinquish; }
-    virtual bool start();
     virtual void handle();
-    virtual bool log(ostream& file) const;
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const;
     void responseSelf(ReqOstream &os);
     void LayoutDone(int64_t chunkAllocProcessTime);
-    int logOrLeaseRelinquishDone(int code, void *data);
+    int PendingLeaseRelinquish(int code, void *data);
     int CheckStatus(bool forceFlag = false) const;
     bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
     void writeChunkAccess(ReqOstream& os);
     virtual bool dispatch(ClientSM& sm);
+    void Done(bool countAllocTimeFlag, int64_t chunkAllocProcessTime);
     bool Validate()
     {
-        return (fid >= 0 && (offset >= 0 || appendChunk));
+        return (fid >= 0 && (0 <= offset || appendChunk));
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1276,19 +1277,60 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         .Def2("Invalidate-all", "I", &MetaAllocate::invalidateAllFlag,         false)
         ;
     }
+private:
+    bool startedFlag;
+};
+
+struct MetaLogChunkAllocate : public MetaRequest {
+    MetaAllocate* const alloc;
+    fid_t               fid;
+    chunkOff_t          offset;
+    chunkId_t           chunkId;
+    seq_t               chunkVersion;
+    int64_t             mtime;
+    bool                appendChunk;
+    bool                invalidateAllFlag;
+    bool                chunkExistsFlag;
+
+    MetaLogChunkAllocate(
+        MetaAllocate* a = 0)
+        : MetaRequest(META_LOG_CHUNK_ALLOCATE, kLogIfOk),
+          alloc(a),
+          fid(-1),
+          offset(-1),
+          chunkId(-1),
+          chunkVersion(1),
+          mtime(0),
+          appendChunk(false),
+          invalidateAllFlag(false),
+          chunkExistsFlag(false)
+        {}
+    bool Validate() { return true; }
+    virtual bool start();
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        os << "log allocate: ";
+        if (alloc) {
+            os << alloc->Show();
+        }
+        return os;
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
+        // Set chunk version default to  1 to reduce log space, by omitting the
+        // most common value.
         return MetaRequest::LogIoDef(parser)
-        .Def("P", &MetaAllocate::fid,                   fid_t(-1))
-        .Def("A", &MetaAllocate::appendChunk,               false)
-        .Def("S", &MetaAllocate::offset,           chunkOff_t(-1))
-        .Def("I", &MetaAllocate::invalidateAllFlag,         false)
+        .Def("P", &MetaLogChunkAllocate::fid,               fid_t(-1))
+        .Def("O", &MetaLogChunkAllocate::offset,            chunkOff_t(-1))
+        .Def("C", &MetaLogChunkAllocate::chunkId,           chunkId_t(-1))
+        .Def("V", &MetaLogChunkAllocate::chunkVersion,      seq_t(1))
+        .Def("M", &MetaLogChunkAllocate::mtime,             int64_t(0))
+        .Def("A", &MetaLogChunkAllocate::appendChunk,       false)
+        .Def("I", &MetaLogChunkAllocate::invalidateAllFlag, false)
+        .Def("E", &MetaLogChunkAllocate::chunkExistsFlag,   false)
         ;
     }
-private:
-    KfsCallbackObj* origClnt;
-    void LogDone(
-        bool resumeFlag, bool countAllocTimeFlag, int64_t chunkAllocProcessTime);
 };
 
 /*!
@@ -2281,18 +2323,22 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
 };
 
 struct MetaLogMakeChunkStable : public MetaRequest {
-    const fid_t     fid;              // input
-    const chunkId_t chunkId;          // input
-    const seq_t     chunkVersion;     // input
-    const int64_t   chunkSize;        // input
-    const uint32_t  chunkChecksum;    // input
-    const bool      hasChunkChecksum; // input
-    MetaLogMakeChunkStable(fid_t fileId, chunkId_t id, seq_t version,
-        int64_t size, bool hasChecksum, uint32_t checksum, seq_t seqNum,
-        bool logDoneTypeFlag = false)
-        : MetaRequest(logDoneTypeFlag ?
-            META_LOG_MAKE_CHUNK_STABLE_DONE :
-            META_LOG_MAKE_CHUNK_STABLE, kLogIfOk, seqNum),
+    fid_t     fid;              // input
+    chunkId_t chunkId;          // input
+    seq_t     chunkVersion;     // input
+    int64_t   chunkSize;        // input
+    uint32_t  chunkChecksum;    // input
+    bool      hasChunkChecksum; // input
+    MetaLogMakeChunkStable(
+        fid_t     fileId          = -1,
+        chunkId_t id              = -1,
+        seq_t     version         = 1,
+        int64_t   size            = -1,
+        bool      hasChecksum     = false,
+        uint32_t  checksum        = 0,
+        seq_t     seqNum          = -1,
+        MetaOp    op              = META_LOG_MAKE_CHUNK_STABLE)
+        : MetaRequest(op, kLogIfOk, seqNum),
           fid(fileId),
           chunkId(id),
           chunkVersion(version),
@@ -2300,6 +2346,7 @@ struct MetaLogMakeChunkStable : public MetaRequest {
           chunkChecksum(checksum),
           hasChunkChecksum(hasChecksum)
         {}
+    bool Validate() { return true; }
     virtual bool start()
     {
         if (chunkVersion < 0) {
@@ -2321,15 +2368,67 @@ struct MetaLogMakeChunkStable : public MetaRequest {
                 int64_t(chunkChecksum) : int64_t(-1))
         ;
     }
-    virtual bool log(ostream& file) const;
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaLogMakeChunkStable::fid,              fid_t(-1))
+        .Def("C", &MetaLogMakeChunkStable::chunkId,          chunkId_t(-1))
+        .Def("V", &MetaLogMakeChunkStable::chunkVersion,     seq_t(1))
+        .Def("S", &MetaLogMakeChunkStable::chunkSize,        int64_t(-1))
+        .Def("K", &MetaLogMakeChunkStable::chunkChecksum,    uint32_t(0))
+        .Def("H", &MetaLogMakeChunkStable::hasChunkChecksum, false)
+        ;
+    }
 };
 
 struct MetaLogMakeChunkStableDone : public MetaLogMakeChunkStable {
-    MetaLogMakeChunkStableDone(fid_t fileId, chunkId_t id, seq_t version,
-        int64_t size, bool hasChecksum, uint32_t checksum, seq_t seqNum)
+    MetaLogMakeChunkStableDone(
+        fid_t     fileId          = -1,
+        chunkId_t id              = -1,
+        seq_t     version         = 1,
+        int64_t   size            = -1,
+        bool      hasChecksum     = false,
+        uint32_t  checksum        = 0,
+        seq_t     seqNum          = -1)
         : MetaLogMakeChunkStable(fileId, id, version, size, hasChecksum,
-            checksum, seqNum, true)
+            checksum, seqNum, META_LOG_MAKE_CHUNK_STABLE_DONE)
         {}
+    virtual void handle();
+};
+
+struct MetaLogChunkVersionChange : public MetaRequest {
+    MetaAllocate* const alloc;
+    fid_t               fid;
+    chunkId_t           chunkId;
+    seq_t               chunkVersion;
+    MetaLogChunkVersionChange(MetaAllocate* a = 0)
+        : MetaRequest(
+            META_LOG_CHUNK_VERSION_CHANGE, kLogIfOk,
+                a ? a->opSeqno : seq_t(-1)),
+          alloc(a),
+          fid(-1),
+          chunkId(-1),
+          chunkVersion(-1)
+        {}
+    bool Validate()
+        { return true; }
+    virtual bool start();
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "log-chunk-version-change: " <<
+            ShowReq(alloc)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaLogChunkVersionChange::fid,          fid_t(-1))
+        .Def("C", &MetaLogChunkVersionChange::chunkId,      chunkId_t(-1))
+        .Def("V", &MetaLogChunkVersionChange::chunkVersion, seq_t(-1))
+        ;
+    }
 };
 
 /*!
@@ -2989,29 +3088,58 @@ struct MetaDelegate : public MetaRequest {
 };
 
 struct MetaDelegateCancel : public MetaRequest {
-    DelegationToken token;
-    StringBufT<64>  tokenStr;
-    StringBufT<64>  tokenKeyStr;
+    DelegationToken           token;
+    StringBufT<64>            tokenStr;
+    StringBufT<64>            tokenKeyStr;
+    int64_t                   tExp;
+    int64_t                   tIssued;
+    kfsUid_t                  tUid;
+    DelegationToken::TokenSeq tSeq;
+    uint16_t                  tFlags;
 
     MetaDelegateCancel()
         : MetaRequest(META_DELEGATE_CANCEL, kLogIfOk),
           token(),
           tokenStr(),
-          tokenKeyStr()
+          tokenKeyStr(),
+          tExp(0),
+          tIssued(0),
+          tUid(kKfsUserNone),
+          tSeq(-1),
+          tFlags(0)
           {}
     virtual bool dispatch(ClientSM& sm);
-    virtual bool start() { return (0 == status); }
+    virtual bool start()
+    {
+        if (0 == status) {
+            tExp    = token.GetIssuedTime() + token.GetValidForSec();
+            tIssued = token.GetIssuedTime();
+            tUid    = token.GetUid();
+            tSeq    = token.GetSeq();
+            tFlags  = token.GetFlags();
+        }
+        return (0 == status);
+    }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "delegate cancel " <<  token.Show()); }
     virtual void response(ReqOstream& os);
-    virtual bool log(ostream& file) const;
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Token", "T", &MetaDelegateCancel::tokenStr)
         .Def2("Key",   "K", &MetaDelegateCancel::tokenKeyStr)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return parser // MetaRequest::LogIoDef(parser)
+        .Def("E", &MetaDelegateCancel::tExp,   int64_t(0))
+        .Def("I", &MetaDelegateCancel::tIssued,int64_t(0))
+        .Def("U", &MetaDelegateCancel::tUid,   kKfsUserNone)
+        .Def("S", &MetaDelegateCancel::tSeq,   DelegationToken::TokenSeq(-1))
+        .Def("F", &MetaDelegateCancel::tFlags, uint16_t(0))
         ;
     }
 };

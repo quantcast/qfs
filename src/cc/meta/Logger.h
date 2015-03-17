@@ -138,8 +138,6 @@ private:
     bool fail() const { return (logf.fail() || md.fail()); }
     void flushLog();
     void flushResult(MetaRequest *r);
-    //!< log a request
-    int log(MetaRequest *r);
 private:
     // No copy.
     Logger(const Logger&);

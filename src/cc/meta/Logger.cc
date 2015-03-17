@@ -52,11 +52,10 @@ Logger oplog(LOGDIR);
 void
 Logger::dispatchWriteAhead(MetaRequest* r)
 {
-    if (r->seqno < 0 &&
-            ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
+    r->seqno = ++nextseq;
+    if (((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
             MetaRequest::kLogAlways == r->logAction)) {
         r->commitPendingFlag = true;
-        r->seqno             = ++nextseq;
         r->logseq            = ++nextlogseq;
         if (logstream) {
             const bool kOmitDefaultsFlag = true;
@@ -81,17 +80,7 @@ Logger::dispatchWriteAhead(MetaRequest* r)
 void
 Logger::dispatch(MetaRequest* r)
 {
-    if (r->seqno < 0) {
-        r->seqno = ++nextseq;
-        if ((MetaRequest::kLogIfOk == r->logAction && r->status == 0) ||
-                MetaRequest::kLogAlways == r->logAction) {
-            r->logseq = ++nextlogseq;
-            if (log(r) < 0) {
-                panic("Logger::dispatch", true);
-            }
-            cp.note_mutation();
-        }
-    } else if (r->commitPendingFlag) {
+    if (r->commitPendingFlag) {
         r->commitPendingFlag = false;
         KFS_LOG_STREAM_DEBUG <<
             "commit: "  << r->logseq <<
@@ -113,22 +102,6 @@ Logger::dispatch(MetaRequest* r)
         }
     }
     gNetDispatch.Dispatch(r);
-}
-
-/*!
- * \brief log the request and flush the result to the fs buffer.
-*/
-int
-Logger::log(MetaRequest *r)
-{
-    if (r->op != META_ALLOCATE) {
-        panic("invalid write behind log op");
-    }
-    const int res = r->log(logstream);
-    if (res >= 0) {
-        flushResult(r);
-    }
-    return res;
 }
 
 /*!
@@ -250,7 +223,7 @@ Logger::finishLog()
 void
 Logger::flushResult(MetaRequest *r)
 {
-    if (r->seqno > committed) {
+    if (committed < r->logseq) {
         flushLog();
         assert(r->logseq <= committed);
     }

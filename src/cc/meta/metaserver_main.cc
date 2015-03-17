@@ -602,13 +602,14 @@ public:
           createTime(crTime)
         {}
     virtual bool start()
-        { return (0 == status && 0 <= fileSystemId); }
-    virtual void handle()
     {
         if (fileSystemId < 0 || 0 < metatree.GetFsId()) {
             status = -EINVAL;
-            return;
         }
+        return (0 == status);
+    }
+    virtual void handle()
+    {
         metatree.SetFsInfo(fileSystemId, createTime);
     }
     virtual bool log(ostream& os) const
@@ -736,7 +737,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     metatree.cleanupDumpster();
     if (rollChunkIdSeedFlag) {
         const int64_t minRollChunkIdSeed = mStartupProperties.getValue(
-            "metaServer.rollChunkIdSeed", int64_t(32) << 10);
+            "metaServer.rollChunkIdSeed", int64_t(64) << 10);
         if (0 < minRollChunkIdSeed &&
                 replayer.getRollSeeds() < minRollChunkIdSeed) {
             chunkID.setseed(chunkID.getseed() +

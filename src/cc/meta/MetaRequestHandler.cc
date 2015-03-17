@@ -540,6 +540,18 @@ MakeLogMetaRequestHandler(
     .MakeParser("REMOVE_FROM_DUMPSTER",
         META_REMOVE_FROM_DUMPSTER,
         static_cast<const MetaRemoveFromDumpster*>(0))
+    .MakeParser("LOG_CHUNK_ALLOCATE",
+        META_LOG_CHUNK_ALLOCATE,
+        static_cast<const MetaLogChunkAllocate*>(0))
+    .MakeParser("LOG_MAKE_CHUNK_STABLE",
+        META_LOG_MAKE_CHUNK_STABLE,
+        static_cast<const MetaLogMakeChunkStable*>(0))
+    .MakeParser("LOG_MAKE_CHUNK_STABLE_DONE",
+        META_LOG_MAKE_CHUNK_STABLE_DONE,
+        static_cast<const MetaLogMakeChunkStableDone*>(0))
+    .MakeParser("LOG_CHUNK_VERSION_CHANGE",
+        META_LOG_CHUNK_VERSION_CHANGE,
+        static_cast<const MetaLogChunkVersionChange*>(0))
     ;
 }
 

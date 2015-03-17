@@ -5288,6 +5288,7 @@ LayoutManager::AllocateChunk(
         return -ENOSPC;
     }
     assert(
+        ! r->servers.empty() && r->status == 0 &&
         r->servers.size() <= (size_t)r->numReplicas &&
         r->servers.size() == tiers.size()
     );
@@ -5318,59 +5319,15 @@ LayoutManager::AllocateChunk(
             break;
         }
     }
+    r->suspended = true;
+    if (r->appendChunk) {
+        mARAChunkCache.RequestNew(*r);
+    }
     for (size_t i = r->servers.size(); i-- > 0; ) {
         r->servers[i]->AllocateChunk(r, i == 0 ? r->leaseId : -1, tiers[i]);
     }
-    // Handle possible recursion ensure that request still valid.
-    if (! r->servers.empty() && r->appendChunk && r->status >= 0) {
-        mARAChunkCache.RequestNew(*r);
-    }
     return 0;
 }
-
-struct MetaLogChunkVersionChange : public MetaRequest
-{
-    MetaAllocate& alloc;
-    MetaLogChunkVersionChange(MetaAllocate& alloc)
-        : MetaRequest(
-            META_LOG_CHUNK_VERSION_CHANGE, kLogIfOk, alloc.opSeqno),
-          alloc(alloc)
-        {}
-    virtual bool start() { return (0 == status); }
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return os <<
-            "log-chunk-version-change: " <<
-            alloc.Show()
-        ;
-    }
-    virtual bool log(ostream& os) const
-    {
-        os << "beginchunkversionchange"
-            "/file/"         << alloc.fid <<
-            "/chunkId/"      << alloc.chunkId <<
-            "/chunkVersion/" << alloc.chunkVersion <<
-        "\n";
-        return true;
-    }
-    virtual void handle()
-    {
-        if (0 != status) {
-            if (0 <= alloc.status) {
-                alloc.status    = status;
-                alloc.statusMsg = statusMsg;
-            }
-            if (alloc.suspended) {
-                submit_request(&alloc);
-            }
-            return;
-        }
-        for (size_t i = alloc.servers.size(); i-- > 0; ) {
-            alloc.servers[i]->AllocateChunk(
-                &alloc, i == 0 ? alloc.leaseId : -1, alloc.minSTier);
-        }
-    }
-};
 
 bool
 LayoutManager::ProcessBeginChangeChunkVersion(
@@ -5500,7 +5457,7 @@ LayoutManager::GetInFlightChunkOpsCount(
 }
 
 int
-LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
+LayoutManager::GetChunkWriteLease(MetaAllocate* r)
 {
     if (InRecovery()) {
         KFS_LOG_STREAM_INFO <<
@@ -5563,7 +5520,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
             " status: "     << ret <<
         KFS_LOG_EOM;
         if (ret < 0) {
-            isNewLease = false;
             r->servers.clear();
             return ret;
         }
@@ -5615,7 +5571,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
             return -ENOSPC;
         }
     }
-    isNewLease = true;
     assert(r->chunkVersion == r->initialChunkVersion);
     // When issuing a new lease, increment the version, skipping over
     // the failed version increment attemtps.
@@ -5636,7 +5591,8 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     } else {
         r->validForTime = 0;
     }
-    submit_request(new MetaLogChunkVersionChange(*r));
+    r->suspended = true;
+    submit_request(new MetaLogChunkVersionChange(r));
     return 0;
 }
 
@@ -7212,11 +7168,31 @@ LayoutManager::Validate(MetaAllocate* r)
         " version: "  << (lease ? lease->chunkVersion : seq_t(-1)) <<
         " expires: "  << (lease ? lease->expires - TimeNow() : time_t(-1)) <<
     KFS_LOG_EOM;
-    if (r->status >= 0) {
+    if (0 <= r->status) {
         r->status    = -EALLOCFAILED;
         r->statusMsg = lease ? "invalid write lease" : "no write lease";
     }
     return false;
+}
+
+void
+LayoutManager::CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r)
+{
+    if (r->alloc) {
+        CommitOrRollBackChunkVersion(r->alloc);
+        return;
+    }
+    // Replay.
+    chunkID.setseed(max(chunkID.getseed(), r->chunkId));
+    if (0 != r->status) {
+        return;
+    }
+    if (r->appendChunk) {
+        // Create pending make stable in case of replay.
+        ReplayPendingMakeStable(
+            r->chunkId, r->chunkVersion, -1, false, 0, true);
+    }
+    mChunkVersionRollBack.Erase(r->chunkId);
 }
 
 void

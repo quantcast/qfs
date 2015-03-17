@@ -956,11 +956,8 @@ public:
     ///
     /// @param[in] r The request associated with the
     /// write-allocation call.
-    /// @param[out] isNewLease  True if a new lease has been
-    /// issued, which tells the caller that a version # bump
-    /// for the chunk has been done.
     /// @retval status code
-    int GetChunkWriteLease(MetaAllocate *r, bool &isNewLease);
+    int GetChunkWriteLease(MetaAllocate *r);
 
     /// Delete a chunk on the server that holds it.
     /// @param[in] chunkId The id of the chunk being deleted
@@ -990,6 +987,7 @@ public:
 
     bool Validate(MetaAllocate* r);
     void CommitOrRollBackChunkVersion(MetaAllocate* op);
+    void CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r);
 
     /// Is a valid lease issued on any of the chunks in the
     /// vector of MetaChunkInfo's?
