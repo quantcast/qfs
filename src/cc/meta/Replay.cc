@@ -962,20 +962,10 @@ replay_log_ahead_entry(DETokenizer& c)
     if (c.empty()) {
         return false;
     }
-    const int64_t logSeq = c.toNumber();
-    if (! c.isLastOk()) {
-        return false;
-    }
-    if (logSeq != sLastLogAheadSeq + 1) {
-        return false;
-    }
-    c.pop_front();
-    if (c.empty()) {
-        return false;
-    }
     const DETokenizer::Token& token = c.front();
-    int status = 0;
-    if (! MetaRequest::Replay(token.ptr, token.len, status)) {
+    int   status = 0;
+    seq_t logSeq = sLastLogAheadSeq + 1;
+    if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
         return false;
     }
     if (status < 0) {

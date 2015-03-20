@@ -522,12 +522,22 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
                 ctrs.Clear();
             }
             inStream <<
-            "CHUNKDIR_INFO\r\n"
-            "Version: "            << KFS_VERSION_STR                  << "\r\n"
-            "Cseq: "               << seq                              << "\r\n"
-            "c:"                   << hex << seq << dec                << "\r\n"
-            "No-reply: "           << (noReply ? 1 : 0)                << "\r\n"
-            "Dir-name: "           << mChunkDir.dirname                << "\r\n"
+            "CHUNKDIR_INFO\r\n";
+            if (shortRpcFormatFlag) {
+                inStream << hex <<
+                "c:"  << seq               << "\r\n"
+                "N: " << (noReply ? 1 : 0) << "\r\n"
+                "D:"  << mChunkDir.dirname << "\r\n"
+                << dec;
+            } else {
+                inStream <<
+                "Version: "   << KFS_VERSION_STR   << "\r\n"
+                "Cseq: "      << seq               << "\r\n"
+                "No-reply: "  << (noReply ? 1 : 0) << "\r\n"
+                "Dir-name: "  << mChunkDir.dirname << "\r\n"
+                ;
+            }
+            inStream <<
             "Dev-id: "             << mChunkDir.deviceId               << "\r\n"
             "Started-ago-sec: "    <<
                 ((mChunkDir.availableSpace >= 0 ? now : mChunkDir.stopTime) -

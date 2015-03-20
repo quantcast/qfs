@@ -3417,11 +3417,12 @@ WriteSyncOp::Request(ReqOstream& os)
 }
 
 static void
-SendCryptoKey(ReqOstream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key)
+SendCryptoKey(ReqOstream& os, CryptoKeys::KeyId keyId, const CryptoKeys::Key& key,
+    bool shortRpcFormatFlag)
 {
     os <<
-        "CKeyId: " << keyId << "\r\n"
-        "CKey: "   << key   << "\r\n"
+        (shortRpcFormatFlag ? "KI:"   : "CKeyId: ") << keyId << "\r\n" <<
+        (shortRpcFormatFlag ? "CKey:" : "CKey: ")   << key   << "\r\n"
     ;
 }
 
@@ -3430,7 +3431,8 @@ HeartbeatOp::Response(ReqOstream& os)
 {
     OkHeader(this, os);
     if (sendCurrentKeyFlag) {
-        SendCryptoKey(os, currentKeyId, currentKey);
+        const bool kShortRpcFormatFlag = false;
+        SendCryptoKey(os, currentKeyId, currentKey, kShortRpcFormatFlag);
     }
 }
 
@@ -3794,63 +3796,76 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         "Cseq: "    << seq             << "\r\n";
     }
     os <<
-        "Chunk-server-name: "            << myLocation.hostname    << "\r\n"
-        "Chunk-server-port: "            << myLocation.port        << "\r\n"
-        "Cluster-key: "                  << clusterKey             << "\r\n"
-        "MD5Sum: "                       << md5sum                 << "\r\n"
-        "Rack-id: "                      << rackId                 << "\r\n"
-        "Total-space: "                  << totalSpace             << "\r\n"
-        "Total-fs-space: "               << totalFsSpace           << "\r\n"
-        "Used-space: "                   << usedSpace              << "\r\n"
-        "Uptime: "                       <<
-            globalNetManager().UpTime()                            << "\r\n"
-        "Num-chunks: "                   <<
-            chunkLists[kStableChunkList].count                     << "\r\n"
-        "Num-not-stable-append-chunks: " <<
-            chunkLists[kNotStableAppendChunkList].count            << "\r\n"
-        "Num-not-stable-chunks: "        <<
-            chunkLists[kNotStableChunkList].count                  << "\r\n"
-        "Num-appends-with-wids: "        <<
-            gAtomicRecordAppendManager.GetAppendersWithWidCount()  << "\r\n"
-        "Num-re-replications: "          <<
-            Replicator::GetNumReplications()                       << "\r\n"
-        "Stale-chunks-hex-format: 1\r\n"
-        "Num-hello-done: "               << helloDoneCount         << "\r\n"
-        "Num-resume: "                   << helloResumeCount       << "\r\n"
-        "Num-resume-fail: "              << helloResumeFailedCount << "\r\n"
-        "Content-int-base: "             << 16                     << "\r\n"
+    (shortRpcFormatFlag ? "SN:" : "Chunk-server-name: ") <<
+        myLocation.hostname << "\r\n" <<
+    (shortRpcFormatFlag ? "SP:" : "Chunk-server-port: ") <<
+        myLocation.port << "\r\n" <<
+    (shortRpcFormatFlag ? "CK:" : "Cluster-key: ") <<
+        clusterKey << "\r\n" <<
+    (shortRpcFormatFlag ? "5:"  : "MD5Sum: ") <<
+        md5sum  << "\r\n" <<
+    (shortRpcFormatFlag ? "RI:" : "Rack-id: ") <<
+        rackId << "\r\n" <<
+    (shortRpcFormatFlag ? "T:"  : "Total-space: ") <<
+        totalSpace << "\r\n" <<
+    (shortRpcFormatFlag ? "TF:" : "Total-fs-space: ") <<
+        totalFsSpace << "\r\n" <<
+    (shortRpcFormatFlag ? "US:" : "Used-space: ") <<
+        usedSpace << "\r\n" <<
+    (shortRpcFormatFlag ? "UP:" : "Uptime: ") <<
+        globalNetManager().UpTime() << "\r\n" <<
+    (shortRpcFormatFlag ? "NC:" : "Num-chunks: ") <<
+        chunkLists[kStableChunkList].count << "\r\n" <<
+    (shortRpcFormatFlag ? "NA:" : "Num-not-stable-append-chunks: ") <<
+        chunkLists[kNotStableAppendChunkList].count << "\r\n" <<
+    (shortRpcFormatFlag ? "NS:" : "Num-not-stable-chunks: ") <<
+        chunkLists[kNotStableChunkList].count << "\r\n" <<
+    (shortRpcFormatFlag ? "AW:" : "Num-appends-with-wids: ") <<
+        gAtomicRecordAppendManager.GetAppendersWithWidCount() << "\r\n" <<
+    (shortRpcFormatFlag ? "RR:" : "Num-re-replications: ") <<
+        Replicator::GetNumReplications() << "\r\n" <<
+    (shortRpcFormatFlag ? "SX:1\r\n" : "Stale-chunks-hex-format: 1\r\n") <<
+    (shortRpcFormatFlag ? "HD:" : "Num-hello-done: ") <<
+        helloDoneCount << "\r\n" <<
+    (shortRpcFormatFlag ? "NR:" : "Num-resume: ") <<
+        helloResumeCount << "\r\n" <<
+    (shortRpcFormatFlag ? "RF:" : "Num-resume-fail: ") <<
+        helloResumeFailedCount << "\r\n" <<
+    (shortRpcFormatFlag ? "IB:" : "Content-int-base: ") << 16 << "\r\n"
     ;
     if (reqShortRpcFmtFlag || shortRpcFormatFlag) {
-        os << "Short-rpc-fmt: 1\r\n";
+        os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
     }
     if (0 < chunkLists[kMissingList].count) {
-        os << "Num-missing: " << chunkLists[kMissingList].count << "\r\n";
+        os << (shortRpcFormatFlag ? "CM:" : "Num-missing: ") <<
+            chunkLists[kMissingList].count << "\r\n";
     }
     if (noFidsFlag) {
-        os << "NoFids: 1\r\n";
+        os << (shortRpcFormatFlag ? "NF:1\r\n" : "NoFids: 1\r\n");
     }
     if (0 < fileSystemId) {
-        os << "FsId: " << fileSystemId << "\r\n";
+        os << (shortRpcFormatFlag ? "FI:" : "FsId: ") << fileSystemId << "\r\n";
     }
     if (sendCurrentKeyFlag) {
-        SendCryptoKey(os, currentKeyId, currentKey);
+        SendCryptoKey(os, currentKeyId, currentKey, shortRpcFormatFlag);
     }
     if (0 <= resumeStep) {
-        os << "Resume: " << resumeStep << "\r\n";
+        os << (shortRpcFormatFlag ? "R:" : "Resume: ") << resumeStep << "\r\n";
     }
     if (1 == resumeStep) {
         os <<
-            "Deleted: "  << deletedCount  << "\r\n"
-            "Modified: " << modifiedCount << "\r\n"
-            "Chunks: "   << chunkCount    << "\r\n"
-            "Checksum: " << checksum      << "\r\n"
+        (shortRpcFormatFlag ? "D:" : "Deleted: ")  << deletedCount  << "\r\n" <<
+        (shortRpcFormatFlag ? "M:" : "Modified: ") << modifiedCount << "\r\n" <<
+        (shortRpcFormatFlag ? "C:" : "Chunks: ")   << chunkCount    << "\r\n" <<
+        (shortRpcFormatFlag ? "K:" : "Checksum: ") << checksum      << "\r\n"
         ;
     }
     int64_t contentLength = 0;
     for (int i = 0; i < kChunkListCount; i++) {
         contentLength += chunkLists[i].ioBuf.BytesConsumable();
     }
-    os << "Content-length: " << contentLength << "\r\n"
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        contentLength << "\r\n"
     "\r\n";
     os.flush();
     // Order matters. The meta server expects the lists to be in this order.

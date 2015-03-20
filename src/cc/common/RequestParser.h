@@ -29,10 +29,10 @@
 
 #include "StBuffer.h"
 
-#include <map>
 #include <utility>
 #include <string>
 #include <algorithm>
+#include <vector>
 
 #include <stddef.h>
 #include <string.h>
@@ -43,9 +43,9 @@ namespace KFS
 using std::string;
 using std::min;
 using std::make_pair;
-using std::map;
-using std::less;
 using std::pair;
+using std::vector;
+using std::lower_bound;
 
 class DecIntParser
 {
@@ -378,6 +378,9 @@ public:
         size_t const      mLen;
     };
 
+    enum { kSeparator = SEPARATOR };
+    enum { kDelimiter = DELIMITER };
+
     PropertiesTokenizerT(
         const char* inPtr,
         size_t      inLen,
@@ -464,6 +467,153 @@ private:
 
 typedef PropertiesTokenizerT<':', '\n'> PropertiesTokenizer;
 
+template <typename TOKEN, typename VALUE, typename TOKEN2KEY>
+class RequestParserDictionaryT
+{
+private:
+    typedef VALUE                   Value;
+    typedef TOKEN2KEY               Token2Key;
+    typedef typename Token2Key::Key Key;
+    typedef pair<Key, Value>        Entry;
+
+    struct Less
+    {
+        bool operator()(
+            const Entry& inLhs,
+            const Entry& inRhs) const
+            { return (inLhs.first < inRhs.first); }
+    };
+    typedef vector<Entry> Vector;
+
+public:
+    typedef typename Token2Key::ScratchBuf  ScratchBuf;
+    typedef TOKEN                           Token;
+    typedef typename Vector::const_iterator const_iterator;
+    typedef typename Vector::iterator       iterator;
+
+    RequestParserDictionaryT()
+        : mVector()
+        {}
+    ~RequestParserDictionaryT()
+        {}
+    const_iterator begin() const
+        { return mVector.begin(); }
+    const_iterator end() const
+        { return mVector.end(); }
+    iterator begin()
+        { return mVector.begin(); }
+    iterator end()
+        { return mVector.end(); }
+    const_iterator find(
+        const Token& inToken) const
+    {
+        if (! Token2Key::IsValidKey(inToken)) {
+            return end();
+        }
+        const Key theKey = Token2Key::ToKey(inToken);
+        const_iterator const theIt = lower_bound(begin(), end(),
+            make_pair(theKey, Value()), Less());
+        return ((theIt == end() || theIt->first == theKey) ? theIt : end());
+    }
+    pair<iterator, bool> insert(
+        const pair<Token, Value>& inKv)
+    {
+        if (! Token2Key::IsValidKey(inKv.first)) {
+            return make_pair(end(), false);
+        }
+        const Key theKey = Token2Key::ToKey(inKv.first);
+        iterator const theIt = lower_bound(begin(), end(),
+            make_pair(theKey, Value()), Less());
+        if (theIt != mVector.end() && theIt->first == theKey) {
+            return make_pair(theIt, false);
+        }
+        return make_pair(mVector.insert(
+            theIt, make_pair(theKey, inKv.second)), true);
+    }
+    static Token GetName(
+            Key        inKey,
+            ScratchBuf inBuf)
+        { return Token2Key::ToName(inKey, inBuf); }
+private:
+    Vector mVector;
+};
+
+template<typename TOKEN>
+class NameTonDictionaryKey
+{
+public:
+    typedef TOKEN Token;
+    typedef Token Key;
+    struct ScratchBuf {};
+
+    static bool IsValidKey(
+        const Token& /* inToken */)
+        { return true; }
+    static const Token& ToName(
+        const Key&  inKey,
+        ScratchBuf& /* inBuf */)
+        { return inKey; }
+    static const Key& ToKey(
+        const Token& inToken)
+        { return inToken; }
+};
+
+template<typename TOKEN>
+class ShortNameToDictionaryKey
+{
+public:
+    typedef TOKEN        Token;
+    typedef unsigned int Key;
+    typedef char         ScratchBuf[4];
+
+    static bool IsValidKey(
+        const Token& inToken)
+        { return (inToken.mLen <= min(sizeof(Key), size_t(4))); }
+    static const Token ToName(
+            Key        inKey,
+            ScratchBuf inBuf)
+    {
+        size_t theLen = 0;
+        if ((inBuf[0] = (char)(inKey >> 24))) {
+            theLen++;
+            if ((inBuf[1] = (char)(inKey >> 16))) {
+                theLen++;
+                if ((inBuf[2] = (char)(inKey >> 8))) {
+                    theLen++;
+                    if ((inBuf[3] = (char)inKey)) {
+                        theLen++;
+                    }
+                }
+            }
+        }
+        return Token(inBuf, theLen);
+    }
+    static Key ToKey(
+        const Token& inToken)
+    {
+        // Lexicographic order.
+        Key theKey = 0;
+        switch (inToken.mLen) {
+            default: theKey |= Key(inToken.mPtr[3] & 0xFF);
+            case  3: theKey |= Key(inToken.mPtr[2] & 0xFF) << 8;
+            case  2: theKey |= Key(inToken.mPtr[1] & 0xFF) << 16;
+            case  1: theKey |= Key(inToken.mPtr[0] & 0xFF) << 24;
+            case  0: break;
+        }
+        return theKey;
+    }
+};
+
+template <typename TOKEN, typename VALUE>
+class RequestParserLongNamesDictionary : public RequestParserDictionaryT<
+    TOKEN, VALUE, NameTonDictionaryKey<TOKEN> >
+{};
+
+template <typename TOKEN, typename VALUE>
+class RequestParserShortNamesDictionary : public RequestParserDictionaryT<
+    TOKEN, VALUE, ShortNameToDictionaryKey<TOKEN> >
+{};
+
 class NopOstream
 {
 public:
@@ -494,12 +644,16 @@ public:
 // request header names.
 template <
     typename OBJ,
-    typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES_FLAG=false,
-    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
-    typename ST=NopOstream,
-    bool     VALIDATE_FLAG=true,
-    typename REQUEST_DELETER=RequestDeleter
+    typename VALUE_PARSER         = ValueParser,
+    bool     SHORT_NAMES_FLAG     = false,
+    typename PROPERTIES_TOKENIZER = PropertiesTokenizer,
+    typename ST                   = NopOstream,
+    bool     VALIDATE_FLAG        = true,
+    typename REQUEST_DELETER      = RequestDeleter,
+    template <
+        typename /* KEY */,
+        typename /* VALUE */
+    > class FIELDS_MAP            = RequestParserLongNamesDictionary
 >
 class ObjectParser
 {
@@ -581,11 +735,13 @@ public:
         char       inSeparator       = ':',
         char       inDelimiter       = '\n') const
     {
+        typename Fields::ScratchBuf theBuf;
         for (typename Fields::const_iterator theIt = mFields.begin();
                 theIt != mFields.end();
                 ++theIt) {
             theIt->second->Get(inObjPtr, inStream,
-                theIt->first, inOmitDefaultFlag, inSeparator, inDelimiter);
+                Fields::GetName(theIt->first, theBuf),
+                inOmitDefaultFlag, inSeparator, inDelimiter);
         }
     }
 private:
@@ -666,7 +822,7 @@ private:
         T const       mDefault;
     };
 
-    typedef map<Key, AbstractField*, less<Key> > Fields;
+    typedef FIELDS_MAP<Token, AbstractField*> Fields;
 
     bool   mDefDoneFlag;
     Fields mFields;
@@ -701,12 +857,16 @@ public:
 template <
     typename ABSTRACT_OBJ,
     typename OBJ,
-    typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES_FLAG=false,
-    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
-    typename ST=NopOstream,
-    bool     VALIDATE_FLAG=true,
-    typename REQUEST_DELETER=RequestDeleter
+    typename VALUE_PARSER         = ValueParser,
+    bool     SHORT_NAMES_FLAG     = false,
+    typename PROPERTIES_TOKENIZER = PropertiesTokenizer,
+    typename ST                   = NopOstream,
+    bool     VALIDATE_FLAG        = true,
+    typename REQUEST_DELETER      = RequestDeleter,
+    template <
+        typename /* KEY */,
+        typename /* VALUE */
+    > class FIELDS_MAP            = RequestParserLongNamesDictionary
 >
 class RequestParser :
     public AbstractRequestParser<ABSTRACT_OBJ, ST>,
@@ -717,10 +877,12 @@ class RequestParser :
         PROPERTIES_TOKENIZER,
         ST,
         VALIDATE_FLAG,
-        REQUEST_DELETER
+        REQUEST_DELETER,
+        FIELDS_MAP
     >
 {
 public:
+    typedef RequestParser                           RequestParserType;
     typedef PROPERTIES_TOKENIZER                    Tokenizer;
     typedef AbstractRequestParser<ABSTRACT_OBJ, ST> Super;
     typedef ObjectParser<
@@ -730,8 +892,9 @@ public:
         PROPERTIES_TOKENIZER,
         ST,
         VALIDATE_FLAG,
-        REQUEST_DELETER
-    > ObjParser;
+        REQUEST_DELETER,
+        FIELDS_MAP
+    >                                               ObjParser;
     typedef typename Super::Checksum                Checksum;
 
     RequestParser()
@@ -804,6 +967,11 @@ public:
     }
 };
 
+
+template <typename ABSTRACT_OBJ, typename OBJ>
+class ObjRequestParser : public RequestParser<ABSTRACT_OBJ, OBJ>
+{};
+
 class ParserDefinitionMethod
 {
 public:
@@ -817,14 +985,18 @@ public:
 // Invoke appropriate request parser based on RPC name.
 template <
     typename ABSTRACT_OBJ,
-    typename VALUE_PARSER=ValueParser,
-    bool     SHORT_NAMES_FLAG=false,
-    typename PROPERTIES_TOKENIZER=PropertiesTokenizer,
-    typename ST=NopOstream,
-    bool     VALIDATE_FLAG=true,
-    typename REQUEST_DELETER=RequestDeleter,
-    char     DELIMITER = '\n',
-    typename PARSER_DEF=ParserDefinitionMethod
+    template <
+        typename /* ABSTRACT_OBJ */,
+        typename /* OBJ          */
+    > class  REQUEST_PARSER = ObjRequestParser,
+    typename PARSER_DEF     = ParserDefinitionMethod,
+    typename ST             = NopOstream,
+    char     DELIMITER      = '\n',
+    typename TOKEN          = PropertiesTokenizer::Token,
+    template <
+        typename /* KEY */,
+        typename /* VALUE */
+    > class FIELDS_MAP      = RequestParserLongNamesDictionary
 >
 class RequestHandler
 {
@@ -922,27 +1094,11 @@ public:
         return true;
     }
     template <typename OBJ>
-    RequestParser<
-            ABSTRACT_OBJ,
-            OBJ,
-            VALUE_PARSER,
-            SHORT_NAMES_FLAG,
-            PROPERTIES_TOKENIZER,
-            ST,
-            VALIDATE_FLAG
-    >&
+    typename REQUEST_PARSER<ABSTRACT_OBJ, OBJ>::RequestParserType&
     BeginMakeParser(
         const OBJ* inNullPtr = 0)
     {
-        static RequestParser<
-            ABSTRACT_OBJ,
-            OBJ,
-            VALUE_PARSER,
-            SHORT_NAMES_FLAG,
-            PROPERTIES_TOKENIZER,
-            ST,
-            VALIDATE_FLAG
-        > sParser;
+        static REQUEST_PARSER<ABSTRACT_OBJ, OBJ> sParser;
         return sParser;
     }
     template <typename T>
@@ -987,9 +1143,15 @@ public:
         const OBJ*  inNullPtr = 0)
         { return MakeParser(inNamePtr, -1, inNullPtr); }
 private:
-    typedef typename PROPERTIES_TOKENIZER::Token  Name;
-    typedef map<Name, pair<int,  const Parser*> > Parsers;
-    typedef map<int,  pair<Name, const Parser*> > Writers;
+    typedef TOKEN Name;
+    typedef RequestParserLongNamesDictionary<
+        Name,
+        pair<int,  const Parser*>
+    > Parsers;
+    typedef RequestParserLongNamesDictionary<
+        int,
+        pair<Name, const Parser*>
+    > Writers;
 
     Parsers mParsers;
     Writers mWriters;

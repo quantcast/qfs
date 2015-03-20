@@ -2568,7 +2568,16 @@ private:
         }
     };
     typedef ObjectParser<Entry, VParserDec> Parser;
-    typedef ObjectParser<Entry, VParserHex> HexParser;
+    typedef ObjectParser<
+        Entry,
+        VParserHex,
+        false, // short/log names only makes difference with Def2
+        PropertiesTokenizer,
+        NopOstream,
+        true, // invoke Validate
+        RequestDeleter,
+        RequestParserShortNamesDictionary
+    > HexParser;
 
     Entry              mEntry;
     bool               mHexParserFlag;
@@ -2611,7 +2620,7 @@ private:
             .DefDone()
         ;
     };
-    // Short keys to save bandwidth / memory
+    // Short keys to save bandwidth, memory, and cpu.
     static const HexParser& MakeHexParser()
     {
         static HexParser sParser;

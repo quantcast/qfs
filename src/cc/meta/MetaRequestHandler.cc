@@ -7,8 +7,8 @@
 #include <ostream>
 #include <string>
 #include <vector>
-#include <map>
 #include <set>
+#include <sstream>
 
 namespace KFS
 {
@@ -18,52 +18,67 @@ using std::string;
 using std::vector;
 using std::map;
 using std::set;
+using std::ostringstream;
 
 using libkfsio::globalNetManager;
 
 template<typename T>
     T&
 AddMetaRequestLog(
-    T& inHandler)
+    T&   inHandler,
+    bool inShortNamesFlag)
 {
     return inHandler
-    .MakeParser("CREATE",
+    .MakeParser(
+        inShortNamesFlag ? "C" : "CREATE",
         META_CREATE,
         static_cast<const MetaCreate*>(0))
-    .MakeParser("MKDIR",
+    .MakeParser(
+        inShortNamesFlag ? "MD" : "MKDIR",
         META_MKDIR,
         static_cast<const MetaMkdir*>(0))
-    .MakeParser("REMOVE",
+    .MakeParser(
+        inShortNamesFlag ? "RM" : "REMOVE",
         META_REMOVE,
         static_cast<const MetaRemove*>(0))
-    .MakeParser("RMDIR",
+    .MakeParser(
+        inShortNamesFlag ? "RD" : "RMDIR",
         META_RMDIR,
         static_cast<const MetaRmdir*>(0))
-    .MakeParser("TRUNCATE",
+    .MakeParser(
+        inShortNamesFlag ? "TR" : "TRUNCATE",
         META_TRUNCATE,
         static_cast<const MetaTruncate*>(0))
-    .MakeParser("RENAME",
+    .MakeParser(
+        inShortNamesFlag ? "RN" : "RENAME",
         META_RENAME,
         static_cast<const MetaRename*>(0))
-    .MakeParser("SET_MTIME",
+    .MakeParser(
+        inShortNamesFlag ? "SM" : "SET_MTIME",
         META_SETMTIME,
         static_cast<const MetaSetMtime*>(0))
-    .MakeParser("CHANGE_FILE_REPLICATION",
+    .MakeParser(
+        inShortNamesFlag ? "CR" : "CHANGE_FILE_REPLICATION",
         META_CHANGE_FILE_REPLICATION,
         static_cast<const MetaChangeFileReplication*>(0))
-    .MakeParser("COALESCE_BLOCKS",
+    .MakeParser(
+        inShortNamesFlag ? "CB" : "COALESCE_BLOCKS",
         META_COALESCE_BLOCKS,
         static_cast<const MetaCoalesceBlocks*>(0))
-    .MakeParser("CHOWN",
+    .MakeParser(
+        inShortNamesFlag ? "CO" : "CHOWN",
         META_CHOWN,
         static_cast<const MetaChown*>(0))
-    .MakeParser("CHMOD",
+    .MakeParser(
+        inShortNamesFlag ? "CM" : "CHMOD",
         META_CHMOD,
         static_cast<const MetaChmod*>(0))
-    .MakeParser("DELEGATE_CANCEL",
+    .MakeParser(
+        inShortNamesFlag ? "DC" : "DELEGATE_CANCEL",
         META_DELEGATE_CANCEL,
         static_cast<const MetaDelegateCancel*>(0))
-    .MakeParser("ACK",
+    .MakeParser(
+        inShortNamesFlag ? "A" : "ACK",
         META_ACK,
         static_cast<const MetaAck*>(0))
     ;
@@ -74,8 +89,9 @@ template<typename T>
 MakeMetaRequestHandler(
     const T* inNullPtr = 0)
 {
+    const bool kShortNamesFlag = false;
     static T sHandler;
-    return AddMetaRequestLog(sHandler)
+    return AddMetaRequestLog(sHandler, kShortNamesFlag)
     .MakeParser("LOOKUP",
         META_LOOKUP,
         static_cast<const MetaLookup*>(0))
@@ -197,26 +213,40 @@ public:
         {  MetaRequest::Release(inReqPtr); }
 };
 
-typedef RequestHandler<
-    MetaRequest,
+template <typename SUPER, typename OBJ>
+class MetaLongNamesClientRequestParser : public RequestParser<
+    SUPER,
+    OBJ,
     ValueParserT<DecIntParser>,
     false, // Use long names / format.
     PropertiesTokenizer,
     NopOstream,
-    true, // Invoke Validate
-    MetaRequestDeleter
+    true,  // Invoke Validate
+    MetaRequestDeleter,
+    RequestParserLongNamesDictionary
+> {};
+typedef RequestHandler<
+    MetaRequest,
+    MetaLongNamesClientRequestParser
 > MetaRequestHandler;
 static const MetaRequestHandler& sMetaRequestHandler =
     MakeMetaRequestHandler<MetaRequestHandler>();
 
-typedef RequestHandler<
-    MetaRequest,
+template <typename SUPER, typename OBJ>
+class MetaShortNamesClientRequestParser : public RequestParser<
+    SUPER,
+    OBJ,
     ValueParserT<HexIntParser>,
     true, // Use short names / format.
     PropertiesTokenizer,
     NopOstream,
-    true, // Invoke Validate
-    MetaRequestDeleter
+    true,  // Invoke Validate
+    MetaRequestDeleter,
+    RequestParserShortNamesDictionary
+> {};
+typedef RequestHandler<
+    MetaRequest,
+    MetaShortNamesClientRequestParser
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
@@ -273,6 +303,27 @@ public:
         StringBufT<DEFAULT_CAPACITY>&       outValue)
     {
         if (! Unescape(outValue, inPtr, inLen)) {
+            outValue = inDefaultValue;
+        }
+    }
+    static void SetValue(
+        const char*           inPtr,
+        size_t                inLen,
+        const ServerLocation& inDefaultValue,
+        ServerLocation&       outValue)
+    {
+        const char* thePtr = inPtr + inLen;
+        while (inPtr < thePtr && (*thePtr != 'p')) {
+            --thePtr;
+        }
+        if (thePtr <= inPtr || inPtr + inLen <= thePtr + 1) {
+            outValue = inDefaultValue;
+            return;
+        }
+        ++thePtr;
+        if (! Unescape(outValue.hostname, inPtr, thePtr - (inPtr - 1)) ||
+                ! HexIntParser::Parse(
+                    thePtr, inPtr + inLen - inPtr, outValue.port)) {
             outValue = inDefaultValue;
         }
     }
@@ -362,10 +413,12 @@ class StringInsertEscapeOStream
 {
 public:
     StringInsertEscapeOStream(
-        ostream& inStream,
-        seq_t    inLogSeq)
+        ostream&    inStream,
+        const char* inPrefixPtr = 0,
+        size_t      inPrefixLen = 0)
         : mOStream(inStream),
-          mLogSeq(inLogSeq),
+          mPrefixPtr(inPrefixPtr),
+          mPrefixLen(inPrefixLen),
           mFlags(inStream.flags())
     {
         mOStream.Get().flags(mFlags | ostream::hex);
@@ -392,12 +445,10 @@ public:
         size_t      inLen,
         char        inDelimiter)
     {
-        if (0 <= mLogSeq) {
+        if (mPrefixPtr) {
             // Write transaction log prefix.
-            mOStream.write("a/", 2);
-            WriteVal(mLogSeq);
-            mOStream.write("/", 1);
-            mLogSeq = -1;
+            mOStream.write(mPrefixPtr, mPrefixLen);
+            mPrefixPtr = 0;
         }
         mOStream.write(inPtr, inLen);
         mOStream.put(inDelimiter);
@@ -455,9 +506,16 @@ private:
     void WriteVal(
         const LeaseType inVal)
         { mOStream << (int)inVal; }
-private:
+    void WriteVal(
+        const ServerLocation& inVal)
+    {
+        WriteVal(inVal.hostname);
+        mOStream.write("p", 1);
+        WriteVal(inVal.port);
+    }
     ReqOstream              mOStream;
-    seq_t                   mLogSeq;
+    const char*             mPrefixPtr;
+    size_t                  mPrefixLen;
     ostream::fmtflags const mFlags;
 
     void Escape(
@@ -470,7 +528,7 @@ private:
         const char*       thePPtr   = thePtr;
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
-            if (theSym <= ' ' || 0xFF <= theSym || strchr("%:;/,", theSym)) {
+            if (theSym <= ' ' || 0xFF <= theSym || strchr("%=;/,", theSym)) {
                 if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
@@ -489,6 +547,17 @@ private:
     }
 };
 
+template<typename T>
+    static const T&
+MakeIoMetaRequestHandler(
+    const T* inNullPtr = 0)
+{
+    const bool kShortNamesFlag = true;
+    static T sHandler;
+    return AddMetaRequestLog(sHandler, kShortNamesFlag);
+}
+
+typedef PropertiesTokenizerT<'=', ';'> MetaIoPropertiesTokenizer;
 class IoDefinitionMethod
 {
 public:
@@ -498,27 +567,42 @@ public:
         const OBJ*  /* inNullPtr */)
         { return OBJ::IoParserDef(inParser); }
 };
-
-typedef RequestHandler<
-    MetaRequest,
+template <typename SUPER, typename OBJ>
+class MetaRequestIoRequestParser : public RequestParser<
+    SUPER,
+    OBJ,
     StringEscapeIoParser,
-    true,  // Use short names / format.
-    PropertiesTokenizerT<':', ';'>,
+    true, // Use short names / format.
+    MetaIoPropertiesTokenizer,
     StringInsertEscapeOStream,
     false, // Do not invoke Validate
     MetaRequestDeleter,
-    ':',
-    IoDefinitionMethod
+    RequestParserShortNamesDictionary
+> {};
+typedef RequestHandler<
+    MetaRequest,
+    MetaRequestIoRequestParser,
+    IoDefinitionMethod,
+    StringInsertEscapeOStream,
+    MetaIoPropertiesTokenizer::kSeparator,
+    MetaIoPropertiesTokenizer::Token,
+    RequestParserShortNamesDictionary
 > MetaRequestIoHandler;
 static const MetaRequestIoHandler& sMetaRequestIoHandler =
-    MakeMetaRequestHandler<MetaRequestIoHandler>();
+    MakeIoMetaRequestHandler<MetaRequestIoHandler>();
 
 bool
 MetaRequest::Write(ostream& os, bool omitDefaultsFlag) const
 {
-    StringInsertEscapeOStream theStream(os, -1);
+    StringInsertEscapeOStream theStream(os);
     return sMetaRequestIoHandler.Write(
-            theStream, this, op, omitDefaultsFlag, ':', ';');
+        theStream,
+        this,
+        op,
+        omitDefaultsFlag,
+        MetaIoPropertiesTokenizer::kSeparator,
+        MetaIoPropertiesTokenizer::kDelimiter
+    );
 }
 
 /* static */ MetaRequest*
@@ -532,24 +616,25 @@ template<typename T>
 MakeLogMetaRequestHandler(
     const T* inNullPtr = 0)
 {
+    const bool kShortNamesFlag = true;
     static T sHandler;
-    return AddMetaRequestLog(sHandler)
-    .MakeParser("CHUNK_SIZE",
+    return AddMetaRequestLog(sHandler, kShortNamesFlag)
+    .MakeParser("CS",
         META_CHUNK_SIZE,
         static_cast<const MetaChunkSize*>(0))
-    .MakeParser("REMOVE_FROM_DUMPSTER",
+    .MakeParser("XD",
         META_REMOVE_FROM_DUMPSTER,
         static_cast<const MetaRemoveFromDumpster*>(0))
-    .MakeParser("LOG_CHUNK_ALLOCATE",
+    .MakeParser("LA",
         META_LOG_CHUNK_ALLOCATE,
         static_cast<const MetaLogChunkAllocate*>(0))
-    .MakeParser("LOG_MAKE_CHUNK_STABLE",
+    .MakeParser("LS",
         META_LOG_MAKE_CHUNK_STABLE,
         static_cast<const MetaLogMakeChunkStable*>(0))
-    .MakeParser("LOG_MAKE_CHUNK_STABLE_DONE",
+    .MakeParser("LD",
         META_LOG_MAKE_CHUNK_STABLE_DONE,
         static_cast<const MetaLogMakeChunkStableDone*>(0))
-    .MakeParser("LOG_CHUNK_VERSION_CHANGE",
+    .MakeParser("LV",
         META_LOG_CHUNK_VERSION_CHANGE,
         static_cast<const MetaLogChunkVersionChange*>(0))
     ;
@@ -564,43 +649,111 @@ public:
         const OBJ*  /* inNullPtr */)
         { return OBJ::LogIoDef(inParser); }
 };
-
 typedef RequestHandler<
     MetaRequest,
-    StringEscapeIoParser,
-    true,  // Use short names / format.
-    PropertiesTokenizerT<':', ';'>,
+    MetaRequestIoRequestParser,
+    LogIoDefinitionMethod,
     StringInsertEscapeOStream,
-    false, // Do not invoke Validate
-    MetaRequestDeleter,
-    ':',
-    LogIoDefinitionMethod
+    MetaIoPropertiesTokenizer::kSeparator,
+    MetaIoPropertiesTokenizer::Token,
+    RequestParserShortNamesDictionary
 > MetaRequestLogIoHandler;
 static const MetaRequestLogIoHandler& sMetaReplayIoHandler =
     MakeLogMetaRequestHandler<MetaRequestLogIoHandler>();
 
+template<typename T>
+    static bool
+ValidateHandler(
+    const T& inHandler,
+    ostream& inErrStream)
+{
+    string        theIn;
+    ostringstream theOut;
+    bool          theRet = true;
+    for (int i = 0; i < META_NUM_OPS_COUNT; i++) {
+        TokenValue theName = inHandler.ObjIdToName(i);
+        if (theName.mLen <= 0) {
+            continue;
+        }
+        theIn.assign(theName.mPtr, theName.mLen);
+        theIn += (char)MetaIoPropertiesTokenizer::kSeparator;
+        MetaRequest* const theReqPtr =
+            inHandler.Handle(theIn.data(), theIn.size());
+        if (! theReqPtr) {
+            inErrStream << "failed to parse: " << theIn << "\n";
+            theRet = false;
+            continue;
+        }
+        theOut.str(string());
+        const bool kOmitDefaultsFlag = true;
+        StringInsertEscapeOStream theStream(theOut);
+        if (! inHandler.Write(
+                theStream,
+                theReqPtr,
+                theReqPtr->op,
+                kOmitDefaultsFlag,
+                MetaIoPropertiesTokenizer::kSeparator,
+                MetaIoPropertiesTokenizer::kDelimiter
+            )) {
+            inErrStream << "failed to write: " << theReqPtr->Show() << "\n";
+            theRet = false;
+            continue;
+        }
+        if (theOut.str() != theIn) {
+            inErrStream << "ctor / defaults mismatch: " << theReqPtr->Show() <<
+                " in:  "  << theIn <<
+                " out: "  << theOut.str() <<
+            "\n";
+            theRet = false;
+            continue;
+        }
+    }
+    return theRet;
+}
+
+bool
+ValidateMetaReplayIoHandler(
+    ostream& inErrStream)
+{
+    return (
+        ValidateHandler(sMetaRequestIoHandler, inErrStream) &&
+        ValidateHandler(sMetaReplayIoHandler, inErrStream)
+    );
+}
+
 /* static */ bool
-MetaRequest::Replay(const char* buf, size_t len, int& status)
+MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
 {
     MetaRequest* req = sMetaReplayIoHandler.Handle(buf, len);
     if (! req) {
         return false;
     }
-    req->replayFlag = true;
-    req->handle();
-    status = req->status;
+    bool ret = false;
+    if (0 <= logseq < 0 || (logseq == req->logseq)) {
+        req->replayFlag = true;
+        req->handle();
+        status = req->status;
+        ret = true;
+    }
+    logseq = req->logseq;
     req->replayFlag = false;
     MetaRequest::Release(req);
-    return true;
+    return ret;
 }
 
 bool
 MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
 {
-    StringInsertEscapeOStream theStream(os, logseq);
+    StringInsertEscapeOStream theStream(os, "a/", 2);
     ReqOstream& theReqOstream = theStream.GetOStream();
     if (! sMetaReplayIoHandler.Write(
-            theStream, this, op, omitDefaultsFlag, ':', ';')) {
+            theStream,
+            this,
+            op,
+            omitDefaultsFlag,
+            MetaIoPropertiesTokenizer::kSeparator,
+            MetaIoPropertiesTokenizer::kDelimiter
+        )) {
         return log(os);
     }
     theReqOstream.write("\n", 1);

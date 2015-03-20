@@ -82,16 +82,33 @@ MakeMetaRequestHandler(const T* typeArg = 0)
     ;
 }
 
+template <typename SUPER, typename OBJ>
+class LongNamesClientRequestParser : public RequestParser<
+    SUPER,
+    OBJ,
+    ValueParserT<DecIntParser>,
+    false // Use long names / format.
+> {};
 typedef RequestHandler<
     KfsOp,
-    ValueParserT<DecIntParser>,
-    false
+    LongNamesClientRequestParser
 > ChunkRequestHandler;
 
+template <typename SUPER, typename OBJ>
+class ShortNamesClientRequestParser : public RequestParser<
+    SUPER,
+    OBJ,
+    ValueParserT<HexIntParser>,
+    true, // Use short names / format.
+    PropertiesTokenizer,
+    NopOstream,
+    true,  // Invoke Validate
+    RequestDeleter,
+    RequestParserShortNamesDictionary
+> {};
 typedef RequestHandler<
     KfsOp,
-    ValueParserT<HexIntParser>,
-    true
+    ShortNamesClientRequestParser
 > ChunkRequestHandlerShort;
 
 static const ChunkRequestHandler& sClientRequestHandler =

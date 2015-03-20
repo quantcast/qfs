@@ -117,6 +117,9 @@ class MetaServer : public ITimeout
 public:
     static int Run(int argsc, char** argsv)
     {
+        if (! ValidateMetaReplayIoHandler(cerr)) {
+            return 1;
+        }
         char** argv = argsv;
         int    argc = argsc;
         const char* myname = "metaserver";

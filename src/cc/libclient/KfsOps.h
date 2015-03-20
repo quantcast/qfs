@@ -42,6 +42,7 @@
 #include <sstream>
 #include <vector>
 #include <iomanip>
+#include <functional>
 #include <map>
 
 #include <boost/static_assert.hpp>
@@ -56,6 +57,7 @@ using std::oct;
 using std::dec;
 using std::pair;
 using std::make_pair;
+using std::less;
 
 // KFS client library RPCs.
 enum KfsOp_t {

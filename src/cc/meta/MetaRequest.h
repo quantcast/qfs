@@ -320,7 +320,10 @@ struct MetaRequest {
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
+        .Def("z", &MetaRequest::logseq,              seq_t(-1))
         ;
+        // Keep log sequence at the end of the line by using "z" key to
+        // detect possibly truncated lines in the last log log segment.
     }
     virtual ostream& ShowSelf(ostream& os) const = 0;
     static void SetParameters(const Properties& props);
@@ -349,7 +352,7 @@ struct MetaRequest {
     }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
-    static bool Replay(const char* buf, size_t len, int& status);
+    static bool Replay(const char* buf, size_t len, seq_t& logseq, int& status);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
@@ -1282,15 +1285,16 @@ private:
 };
 
 struct MetaLogChunkAllocate : public MetaRequest {
-    MetaAllocate* const alloc;
-    fid_t               fid;
-    chunkOff_t          offset;
-    chunkId_t           chunkId;
-    seq_t               chunkVersion;
-    int64_t             mtime;
-    bool                appendChunk;
-    bool                invalidateAllFlag;
-    bool                chunkExistsFlag;
+    MetaAllocate* const    alloc;
+    fid_t                  fid;
+    chunkOff_t             offset;
+    chunkId_t              chunkId;
+    seq_t                  chunkVersion;
+    int64_t                mtime;
+    bool                   appendChunk;
+    bool                   invalidateAllFlag;
+    bool                   chunkExistsFlag;
+    vector<ServerLocation> servers;
 
     MetaLogChunkAllocate(
         MetaAllocate* a = 0)
@@ -1329,6 +1333,7 @@ struct MetaLogChunkAllocate : public MetaRequest {
         .Def("A", &MetaLogChunkAllocate::appendChunk,       false)
         .Def("I", &MetaLogChunkAllocate::invalidateAllFlag, false)
         .Def("E", &MetaLogChunkAllocate::chunkExistsFlag,   false)
+        .Def("S", &MetaLogChunkAllocate::servers)
         ;
     }
 };
@@ -1540,8 +1545,8 @@ struct MetaChangeFileReplication: public MetaRequest {
           numReplicas(1),
           minSTier(kKfsSTierUndef),
           maxSTier(kKfsSTierUndef),
-          maxRSFileReplicas(0),
-          maxFileReplicas(0)
+          maxRSFileReplicas(-1),
+          maxFileReplicas(-1)
         {}
     virtual bool start();
     virtual void handle();
@@ -1733,6 +1738,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     size_t             deletedCount;
     size_t             modifiedCount;
     size_t             chunkCount;
+    int64_t            reReplicationCount;
     CIdChecksum_t      checksum;
     IOBuffer           responseBuf;
 
@@ -1778,6 +1784,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           deletedCount(0),
           modifiedCount(0),
           chunkCount(0),
+          reReplicationCount(0),
           checksum(0),
           responseBuf()
         {}
@@ -1795,36 +1802,37 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Short-rpc-fmt",                &MetaRequest::shortRpcFormatFlag            )
-        .Def("Chunk-server-name",            &ServerLocation::hostname                   )
-        .Def("Chunk-server-port",            &ServerLocation::port,               int(-1))
-        .Def("Cluster-key",                  &MetaHello::clusterKey                      )
-        .Def("MD5Sum",                       &MetaHello::md5sum                          )
-        .Def("Total-space",                  &MetaHello::totalSpace,           int64_t(0))
-        .Def("Total-fs-space",               &MetaHello::totalFsSpace,         int64_t(0))
-        .Def("Used-space",                   &MetaHello::usedSpace,            int64_t(0))
-        .Def("Rack-id",                      &MetaHello::rackId,                  int(-1))
-        .Def("Uptime",                       &MetaHello::uptime,               int64_t(0))
-        .Def("Num-chunks",                   &MetaHello::numChunks,                int(0))
-        .Def("Num-not-stable-append-chunks", &MetaHello::numNotStableAppendChunks, int(0))
-        .Def("Num-not-stable-chunks",        &MetaHello::numNotStableChunks,       int(0))
-        .Def("Num-appends-with-wids",        &MetaHello::numAppendsWithWid,    int64_t(0))
-        .Def("Content-length",               &MetaHello::contentLength,            int(0))
-        .Def("Content-int-base",             &MetaHello::contentIntBase,          int(10))
-        .Def("Stale-chunks-hex-format",      &MetaHello::staleChunksHexFormatFlag,  false)
-        .Def("CKeyId",                       &MetaHello::cryptoKeyId)
-        .Def("CKey",                         &MetaHello::cryptoKey)
-        .Def("FsId",                         &MetaHello::fileSystemId,        int64_t(-1))
-        .Def("NoFids",                       &MetaHello::noFidsFlag,                false)
-        .Def("Resume",                       &MetaHello::resumeStep,              int(-1))
-        .Def("Deleted",                      &MetaHello::deletedCount                    )
-        .Def("Modified",                     &MetaHello::modifiedCount                   )
-        .Def("Chunks",                       &MetaHello::chunkCount                      )
-        .Def("Checksum",                     &MetaHello::checksum                        )
-        .Def("Num-missing",                  &MetaHello::numMissingChunks                )
-        .Def("Num-hello-done",               &MetaHello::helloDoneCount                  )
-        .Def("Num-resume",                   &MetaHello::helloResumeCount                )
-        .Def("Num-resume-fail",              &MetaHello::helloResumeFailedCount          )
+        .Def2("Short-rpc-fmt",                "f",  &MetaRequest::shortRpcFormatFlag            )
+        .Def2("Chunk-server-name",            "SN", &ServerLocation::hostname                   )
+        .Def2("Chunk-server-port",            "SP", &ServerLocation::port,               int(-1))
+        .Def2("Cluster-key",                  "CK", &MetaHello::clusterKey                      )
+        .Def2("MD5Sum",                       "5",  &MetaHello::md5sum                          )
+        .Def2("Total-space",                  "T",  &MetaHello::totalSpace,           int64_t(0))
+        .Def2("Total-fs-space",               "TF", &MetaHello::totalFsSpace,         int64_t(0))
+        .Def2("Used-space",                   "US", &MetaHello::usedSpace,            int64_t(0))
+        .Def2("Rack-id",                      "RI", &MetaHello::rackId,                  int(-1))
+        .Def2("Uptime",                       "UP", &MetaHello::uptime,               int64_t(0))
+        .Def2("Num-chunks",                   "NC", &MetaHello::numChunks,                int(0))
+        .Def2("Num-not-stable-append-chunks", "NA", &MetaHello::numNotStableAppendChunks, int(0))
+        .Def2("Num-not-stable-chunks",        "NS", &MetaHello::numNotStableChunks,       int(0))
+        .Def2("Num-appends-with-wids",        "AW", &MetaHello::numAppendsWithWid,    int64_t(0))
+        .Def2("Content-length",               "l",  &MetaHello::contentLength,            int(0))
+        .Def2("Content-int-base",             "IB", &MetaHello::contentIntBase,          int(10))
+        .Def2("Stale-chunks-hex-format",      "SX", &MetaHello::staleChunksHexFormatFlag,  false)
+        .Def2("CKeyId",                       "KI", &MetaHello::cryptoKeyId)
+        .Def2("CKey",                       "CKey", &MetaHello::cryptoKey)
+        .Def2("FsId",                         "FI", &MetaHello::fileSystemId,        int64_t(-1))
+        .Def2("NoFids",                       "NF", &MetaHello::noFidsFlag,                false)
+        .Def2("Resume",                       "R",  &MetaHello::resumeStep,              int(-1))
+        .Def2("Deleted",                      "D",  &MetaHello::deletedCount                    )
+        .Def2("Modified",                     "M",  &MetaHello::modifiedCount                   )
+        .Def2("Chunks",                       "C",  &MetaHello::chunkCount                      )
+        .Def2("Checksum",                     "K",  &MetaHello::checksum                        )
+        .Def2("Num-missing",                  "CM", &MetaHello::numMissingChunks                )
+        .Def2("Num-hello-done",               "HD", &MetaHello::helloDoneCount                  )
+        .Def2("Num-resume",                   "NR", &MetaHello::helloResumeCount                )
+        .Def2("Num-resume-fail",              "RF", &MetaHello::helloResumeFailedCount          )
+        .Def2("Num-re-replications",          "RR", &MetaHello::reReplicationCount              )
         ;
     }
 };
@@ -3134,7 +3142,9 @@ struct MetaDelegateCancel : public MetaRequest {
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
-        return parser // MetaRequest::LogIoDef(parser)
+        // No MetaRequest::LogIoDef(parser) -- log seq below sufficient.
+        return parser
+        .Def("z", &MetaDelegateCancel::logseq, seq_t(-1))
         .Def("E", &MetaDelegateCancel::tExp,   int64_t(0))
         .Def("I", &MetaDelegateCancel::tIssued,int64_t(0))
         .Def("U", &MetaDelegateCancel::tUid,   kKfsUserNone)
@@ -3338,9 +3348,9 @@ struct MetaChunkDirInfo : public MetaRequest {
         // Make sure that all "unwanted" fields that aren't counters are added
         // to the parser.
         return MetaRequest::ParserDef(parser)
-        .Def("No-reply", &MetaChunkDirInfo::noReplyFlag)
-        .Def("Dir-name", &MetaChunkDirInfo::dirName)
-        .Def("Version",  &MetaChunkDirInfo::kfsVersion)
+        .Def2("No-reply", "N", &MetaChunkDirInfo::noReplyFlag, false)
+        .Def2("Dir-name", "D", &MetaChunkDirInfo::dirName)
+        .Def2("Version",  "V", &MetaChunkDirInfo::kfsVersion)
         ;
     }
 };
@@ -3631,7 +3641,7 @@ struct MetaRemoveFromDumpster : public MetaRequest
     {
         return MetaRequest::LogIoDef(parser)
         .Def("N", &MetaRemoveFromDumpster::name)
-        .Def("P", &MetaRemoveFromDumpster::fid)
+        .Def("P", &MetaRemoveFromDumpster::fid, fid_t(-1))
         ;
     }
 };
@@ -3659,6 +3669,7 @@ void UpdatePathToFidCacheMiss(int count);
 void UpdatePathToFidCacheHit(int count);
 int64_t GetNumFiles();
 int64_t GetNumDirs();
+bool ValidateMetaReplayIoHandler(ostream& inErrStream);
 
 }
 #endif /* !defined(KFS_REQUEST_H) */
