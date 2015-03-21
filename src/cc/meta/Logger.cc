@@ -71,10 +71,9 @@ Logger::dispatchWriteAhead(MetaRequest* r)
         }
         cp.note_mutation();
     }
-    if (r->suspended) {
-        return;
+    if (! r->suspended) {
+        submit_request(r);
     }
-    submit_request(r);
 }
 
 void

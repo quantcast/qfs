@@ -401,6 +401,7 @@ class Tree {
         ChunkIterator& cit, MetaChunkInfo*& ci) const;
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
+    int moveToDumpster(fid_t dir, const string& fname, fid_t fid);
 public:
     Tree()
         : root(0),
@@ -544,7 +545,6 @@ public:
     int changePathReplication(fid_t file, int16_t numReplicas,
         kfsSTier_t minSTier, kfsSTier_t maxSTier);
 
-    int moveToDumpster(fid_t dir, const string& fname, fid_t todumpster);
     void cleanupDumpster();
 
     /*!

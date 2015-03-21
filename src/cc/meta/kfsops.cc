@@ -407,15 +407,20 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
+    if (0 < todumpster) {
+        // put the file into dumpster
+        todumpster = fa->id();
+        int status = moveToDumpster(dir, fname, todumpster);
+        KFS_LOG_STREAM(status == 0 ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) <<
+            "moved " << fname << " to dumpster" <<
+            " fid: "    << todumpster <<
+            " status: " << status <<
+        KFS_LOG_EOM;
+        return status;
+    }
     if (0 < fa->chunkcount()) {
-        if (0 < todumpster) {
-            // put the file into dumpster
-            todumpster = fa->id();
-            int status = moveToDumpster(dir, fname, todumpster);
-            KFS_LOG_STREAM_DEBUG << "Moving " << fname << " to dumpster" <<
-            KFS_LOG_EOM;
-            return status;
-        }
         StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
         vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
         getalloc(fa->id(), chunkInfo);
@@ -2133,8 +2138,9 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
  * \return      status code (zero on success)
  */
 int
-Tree::moveToDumpster(fid_t dir, const string& fname, fid_t todumpster)
+Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid)
 {
+    assert(0 <= fid);
     string tempname = "/" + DUMPSTERDIR + "/";
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
@@ -2145,24 +2151,26 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t todumpster)
     if (ddir == dir) {
         return -EEXIST;
     }
-    // generate a unique name
-    const size_t plen = tempname.size();
-    const size_t kMaxSuffixLen = 32;
+    // generate unique name by appending i-node number.
+    const size_t plen          = tempname.size();
+    const size_t kMaxSuffixLen = sizeof(fid) * 2 + 1;
     if (kMaxSuffixLen + plen + fname.length() < MAX_FILE_NAME_LENGTH) {
         tempname += fname;
         tempname += ".";
     }
-    tempname += toString(todumpster);
+    AppendHexIntToString(tempname, fid);
 
     // space accounting has been done before the call to this function.  so,
     // we don't rename to do any accounting and hence pass in "" for the old
     // path name.
-    fid_t cnt = -1;
-    const int ret = rename(dir, fname, tempname, string(), false, cnt,
-        kKfsUserRoot, kKfsGroupRoot);
+    fid_t        nodumpster     = -1;
+    const bool   kOverwriteFlag = false;
+    const string kOldPath;
+    const int    ret            = rename(dir, fname, tempname, kOldPath,
+        kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot);
     if (ret == 0) {
         tempname.erase(0, plen);
-        gLayoutManager.ScheduleDumpsterCleanup(todumpster, tempname);
+        gLayoutManager.ScheduleDumpsterCleanup(fid, tempname);
     }
     return ret;
 }

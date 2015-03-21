@@ -2140,6 +2140,17 @@ MetaLogChunkAllocate::start()
         invalidateAllFlag = alloc->invalidateAllFlag;
         mtime             = microseconds();
         chunkExistsFlag   = -EEXIST == alloc->status;
+        if (! invalidateAllFlag) {
+            if (0 != alloc->status || alloc->servers.empty()) {
+                panic("invalid meta log chunk allocate: no servers");
+            }
+            servers.reserve(alloc->servers.size());
+            for (Servers::const_iterator it = alloc->servers.begin();
+                    it != alloc->servers.end();
+                    ++it) {
+                servers.push_back((*it)->GetServerLocation());
+            }
+        }
     }
     return (0 == status);
 }
@@ -2169,17 +2180,16 @@ MetaLogChunkAllocate::handle()
                     fid, offset, chunkId, chunkVersion)) {
                 // Add the chunk to the recovery queue.
                 gLayoutManager.ChangeChunkReplication(chunkId);
-                status = 0;
             } else {
                 panic("failed to invalidate existing chunk", false);
                 status = -ENOENT;
             }
-        } else if (chunkExistsFlag) {
+        } else {
             // Allocate the chunk if doesn't exist to trigger the
             // recovery later.
             status = metatree.assignChunkId(
-                fid, offset, chunkId, chunkVersion, 0);
-            if (status == 0) {
+                fid, offset, chunkId, chunkVersion);
+            if (0 == status) {
                 // Add the chunk to the recovery queue.
                 gLayoutManager.ChangeChunkReplication(chunkId);
             }

@@ -501,7 +501,7 @@ private:
         { Escape(inStr.data(), inStr.size()); }
     template<size_t DEFAULT_CAPACITY>
     void WriteVal(
-        StringBufT<DEFAULT_CAPACITY>& inStr)
+        const StringBufT<DEFAULT_CAPACITY>& inStr)
         { Escape(inStr.data(), inStr.size()); }
     void WriteVal(
         const LeaseType inVal)
