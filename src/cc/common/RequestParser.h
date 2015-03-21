@@ -996,7 +996,11 @@ template <
     template <
         typename /* KEY */,
         typename /* VALUE */
-    > class FIELDS_MAP      = RequestParserLongNamesDictionary
+    > class FIELDS_MAP      = RequestParserLongNamesDictionary,
+    template <
+        typename /* KEY */,
+        typename /* VALUE */
+    > class FIELD_IDS_MAP   = RequestParserLongNamesDictionary
 >
 class RequestHandler
 {
@@ -1144,11 +1148,11 @@ public:
         { return MakeParser(inNamePtr, -1, inNullPtr); }
 private:
     typedef TOKEN Name;
-    typedef RequestParserLongNamesDictionary<
+    typedef FIELDS_MAP<
         Name,
         pair<int,  const Parser*>
     > Parsers;
-    typedef RequestParserLongNamesDictionary<
+    typedef FIELD_IDS_MAP<
         int,
         pair<Name, const Parser*>
     > Writers;
