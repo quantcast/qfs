@@ -2219,11 +2219,13 @@ MetaLogChunkAllocate::handle()
             // assignChunkId() forces a recompute of the file's size.
         } else {
             KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?
-                    MsgLogger::kLogLevelERROR :
+                    MsgLogger::kLogLevelFATAL :
                     MsgLogger::kLogLevelDEBUG) <<
-                "assign chunk id: " << chunkId << " failed for"
-                " <" << fid << "," << offset << ">"
-                " status: " << status <<
+                "chunk assignment failed for:"
+                " chunkId: "    << chunkId <<
+                " fid: "        << fid <<
+                " pos: "        << offset <<
+                " status: "     << status <<
                 " curChunkId: " << curChunkId <<
             KFS_LOG_EOM;
             if (appendChunk && status == -EEXIST) {
@@ -2440,7 +2442,7 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
     if (numServerReplies != servers.size()) {
         return false;
     }
-    // The op are no longer suspended.
+    // The op is no longer suspended.
     const bool kForceFlag = true;
     if (firstFailedServerIdx >= 0 && status != 0) {
         // Check if all servers are up before discarding chunk.
