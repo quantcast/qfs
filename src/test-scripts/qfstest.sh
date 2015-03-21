@@ -639,6 +639,13 @@ while true; do
     fi
 done
 
+if [ $status -eq 0 ]; then
+    cd "$metasrvdir" || exit
+    echo "Running meta server fsck"
+    qfsfsck -A 1 -c kfscp
+    status=$?
+fi
+
 find "$testdir" -name core\* || status=1
 
 if [ $status -eq 0 -a $cpstatus -eq 0 -a $qfstoolstatus -eq 0 \

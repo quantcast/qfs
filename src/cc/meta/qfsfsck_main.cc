@@ -124,8 +124,9 @@ FsckMain(int argc, char** argv)
     bool        reportAbandonedFilesFlag = true;
     bool        allowEmptyCheckpointFlag = false;
     int         timeoutSec               = 30 * 60;
+    bool        includeLastLogFlag       = false;
 
-    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:A:")) != -1) {
         switch (optchar) {
             case 'L':
                 lockFn = optarg;
@@ -158,6 +159,9 @@ FsckMain(int argc, char** argv)
             case 'h':
                 help = true;
                 break;
+            case 'A':
+                includeLastLogFlag = atoi(optarg) != 0;
+                break;
             default:
                 ok = false;
                 break;
@@ -176,6 +180,7 @@ FsckMain(int argc, char** argv)
             "[-t <timeout seconds> default 25 min]\n"
             "[-e {0|1} allow empty checkpoint]\n"
             "[-f <config file>]\n"
+            "[-A {0|1} include last log segment]\n"
         ;
         return (ok ? 0 : 1);
     }
@@ -197,7 +202,7 @@ FsckMain(int argc, char** argv)
         checkpointer_setup_paths(cpdir);
         ok =
             restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
-            replayer.playLogs() == 0
+            replayer.playLogs(includeLastLogFlag) == 0
         ;
     }
     MdStream::Cleanup();
