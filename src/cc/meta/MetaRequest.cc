@@ -2283,7 +2283,7 @@ MetaAllocate::Done(bool countAllocTimeFlag, int64_t chunkAllocProcessTime)
             clnt = this;
         }
     }
-    if (0 < recursionCount) {
+    if (0 < GetRecursionCount()) {
         // Don't need need to resume, if it wasn't suspended: this
         // method is [indirectly] invoked from handle().
         // Presently the only way to get here is from synchronous chunk
@@ -3760,10 +3760,13 @@ MetaRequest::Submit()
     if (0 == submitCount++) {
         submitTime  = tstart;
         processTime = tstart;
+        if (next) {
+            panic("invalid request non null next field");
+        }
         if (kLogNever != logAction) {
             const bool logFlag = start();
-            if (1 != submitCount) {
-                panic("invalid start log request submit counter");
+            if (1 != submitCount || next) {
+                panic("invalid request start completion");
             }
             if (! logFlag) {
                 logAction = kLogNever;
@@ -3819,7 +3822,7 @@ MetaRequest::~MetaRequest()
     if (recursionCount != 0) {
         panic("invalid non 0 recursion count, in meta request destructor");
     }
-    recursionCount = 0xDEAD;
+    recursionCount = 0xF000DEAD;
     QCStMutexLocker locker(gNetDispatch.GetClientManagerMutex());
     MetaRequestsList::Remove(sMetaRequestsPtr, *this);
     sMetaRequestCount--;

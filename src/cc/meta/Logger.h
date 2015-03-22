@@ -25,16 +25,14 @@
 #if !defined(KFS_LOGGER_H)
 #define KFS_LOGGER_H
 
-#include <fstream>
-#include <sstream>
-#include <string>
-
 #include "kfstypes.h"
 #include "MetaRequest.h"
 #include "util.h"
 #include "common/MdStream.h"
 
-#include "kfsio/ITimeout.h"
+#include <fstream>
+#include <sstream>
+#include <string>
 
 namespace KFS
 {

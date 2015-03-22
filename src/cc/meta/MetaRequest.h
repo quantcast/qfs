@@ -175,7 +175,6 @@ struct MetaRequest {
         ChunkServerPtr,
         StdAllocator<ChunkServerPtr>
     > Servers;
-
     class Display
     {
     public:
@@ -190,13 +189,13 @@ struct MetaRequest {
     private:
         const MetaRequest& mReq;
     };
-
     enum LogAction
     {
         kLogNever,
         kLogIfOk,
         kLogAlways
     };
+
     const MetaOp    op;              //!< type of request
     int             status;          //!< returned status
     int             clientProtoVers; //!< protocol version # sent by client
@@ -224,7 +223,8 @@ struct MetaRequest {
     int64_t         maxWaitMillisec;
     int64_t         sessionEndTime;
     MetaRequest*    next;
-    KfsCallbackObj* clnt;            //!< a handle to the client that generated this request.
+    KfsCallbackObj* clnt;            //!< completion handler.
+
     MetaRequest(MetaOp o, LogAction la, seq_t opSeq = -1)
         : op(o),
           status(0),
@@ -335,9 +335,7 @@ struct MetaRequest {
     static int GetRequestCount()
         { return sMetaRequestCount; }
     static Display ShowReq(const MetaRequest* req)
-    {
-        return (req ? *req : GetNullReq()).Show();
-    }
+        { return (req ? *req : GetNullReq()).Show(); }
     virtual bool dispatch(ClientSM& /* sm */)
         { return false; }
     template<typename T>
@@ -350,6 +348,8 @@ struct MetaRequest {
             HexIntParser::Parse(ioPtr, inLen, outValue) :
             DecIntParser::Parse(ioPtr, inLen, outValue));
     }
+    const int GetRecursionCount() const
+        { return recursionCount; }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
     static bool Replay(const char* buf, size_t len, seq_t& logseq, int& status);
@@ -362,8 +362,8 @@ protected:
     virtual ~MetaRequest();
     virtual void ReleaseSelf()
         { delete this; }
-    int recursionCount;
 private:
+    int          recursionCount;
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];
 
