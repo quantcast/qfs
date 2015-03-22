@@ -46,6 +46,7 @@ set (lib_srcs
     UserAndGroup.cc
     MetaRequestHandler.cc
     IdempotentRequestTracker.cc
+    LogWriter.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})

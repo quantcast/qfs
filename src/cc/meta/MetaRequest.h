@@ -152,7 +152,8 @@ using std::less;
     f(LOG_GROUP_USERS) \
     f(ACK) \
     f(REMOVE_FROM_DUMPSTER) \
-    f(LOG_CHUNK_ALLOCATE)
+    f(LOG_CHUNK_ALLOCATE) \
+    f(LOG_WRITER_CONTROL)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -3643,6 +3644,31 @@ struct MetaRemoveFromDumpster : public MetaRequest
         .Def("N", &MetaRemoveFromDumpster::name)
         .Def("P", &MetaRemoveFromDumpster::fid, fid_t(-1))
         ;
+    }
+};
+
+struct MetaLogWriterControl : public MetaRequest
+{
+    enum Type
+    {
+        kNop,
+        kNewLog,
+        kSetParameters
+    };
+    Type       type;
+    seq_t      committed;
+    Properties params;
+
+    MetaLogWriterControl(
+        Type t = kNop)
+        : MetaRequest(META_LOG_WRITER_CONTROL, kLogNever),
+          type(t),
+          committed(-1)
+        {}
+    virtual void handle() {}
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os << "log writer control:");
     }
 };
 
