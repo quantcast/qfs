@@ -49,6 +49,8 @@ public:
           QCRunnable(),
           mNetManagerPtr(0),
           mHasPendingFlag(false),
+          mNextSeq(-1),
+          mCommitted(),
           mThread(),
           mMutex(),
           mCond(),
@@ -59,6 +61,10 @@ public:
           mInQueueHeadPtr(0),
           mInQueueTailPtr(0),
           mOutQueueHeadPtr(0),
+          mOutQueueTailPtr(0),
+          mPendingCommitted(),
+          mInFlightCommitted(),
+          mNextLogSeq(-1),
           mLogFileStream(),
           mMdStream()
         {}
@@ -81,8 +87,12 @@ public:
     void Enqueue(
         MetaRequest& inRequest)
     {
+        inRequest.logseq = ++mNextSeq;
         if (mStopFlag) {
-            
+            inRequest.status    = -EIO;
+            inRequest.statusMsg = "log writer stopped";
+            submit_request(&inRequest);
+            return;
         }
         inRequest.next = 0;
         if (! mHasPendingFlag &&
@@ -100,6 +110,17 @@ public:
             mPendingQueueTailPtr = &inRequest;
         }
     }
+    void SetCommitted(
+        seq_t    inLogSeq,
+        seq_t    inFidSeed,
+        uint64_t inErrChksum,
+        int      inStatus)
+    {
+        mCommitted.mSeq       = inLogSeq;
+        mCommitted.mFidSeed   = inFidSeed;
+        mCommitted.mErrChkSum = inErrChksum;
+        mCommitted.mStatus    = inStatus;
+    }
     void ScheduleFlush()
     {
         if (! mPendingQueueHeadPtr) {
@@ -107,6 +128,7 @@ public:
         }
         mHasPendingFlag = true;
         QCStMutexLocker theLock(mMutex);
+        mPendingCommitted = mCommitted;
         if (mInQueueTailPtr) {
             mInQueueTailPtr->next = mPendingQueueHeadPtr;
         } else {
@@ -133,8 +155,25 @@ public:
         }
     }
 private:
+    struct Committed
+    {
+        seq_t   mSeq;
+        fid_t   mFidSeed;
+        int64_t mErrChkSum;
+        int     mStatus;
+        Committed()
+            : mSeq(-1),
+              mFidSeed(-1),
+              mErrChkSum(0),
+              mStatus(0)
+            {}
+    };
+    typedef MdStreamT<Impl> MdStream;
+
     NetManager*  mNetManagerPtr;
     bool         mHasPendingFlag;
+    seq_t        mNextSeq;
+    Committed    mCommitted;
     QCThread     mThread;
     QCMutex      mMutex;
     QCCondVar    mCond;
@@ -146,6 +185,9 @@ private:
     MetaRequest* mInQueueTailPtr;
     MetaRequest* mOutQueueHeadPtr;
     MetaRequest* mOutQueueTailPtr;
+    Committed    mPendingCommitted;
+    Committed    mInFlightCommitted;
+    seq_t        mNextLogSeq;
     ofstream     mLogFileStream;
     MdStream     mMdStream;
 
@@ -180,6 +222,7 @@ private:
             MetaRequest* const theTailPtr = mInQueueTailPtr;
             mInQueueHeadPtr = 0;
             mInQueueTailPtr = 0;
+            mInFlightCommitted = mPendingCommitted;
             QCStMutexUnlocker theUnlocker(mMutex);
             Write(*theHeadPtr);
             theUnlocker.Lock();
@@ -194,28 +237,65 @@ private:
     void Write(
         MetaRequest& inHead)
     {
-        MetaRequest* thePtr    = &inHead;
         ostream&     theStream = mMdStream;
-        while (thePtr) {
+        MetaRequest* thePtr    = &inHead;
+        seq_t        theLogSeq = mNextLogSeq;
+        while (thePtr && theStream) {
+            if (META_LOG_WRITER_CONTROL == thePtr->op) {
+                Control(*static_cast<MetaLogWriterControl*>(thePtr));
+                continue;
+            }
             if (((MetaRequest::kLogIfOk == thePtr->logAction &&
                         0 == thePtr->status) ||
                     MetaRequest::kLogAlways == thePtr->logAction)) {
                 if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
                     panic("log writer: invalid request ");
                 }
-                if (! theStream) {
-                    thePtr->status    = -EIO;
-                    thePtr->statusMsg = "transaction log write error";
+                if (theStream) {
+                    thePtr->logseq            = ++theLogSeq;
+                    thePtr->commitPendingFlag = true;
                 }
             }
-            if (META_LOG_WRITER_CONTROL == thePtr->op) {
-                Control(*static_cast<MetaLogWriterControl*>(thePtr));
+        }
+        if (theStream) {
+            FlushBlock();
+            theStream.flush();
+        }
+        if (theStream) {
+            mNextLogSeq = theLogSeq;
+            return;
+        }
+        // Write failure.
+        thePtr = &inHead;
+        while (thePtr) {
+            if (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                        0 == thePtr->status) ||
+                    MetaRequest::kLogAlways == thePtr->logAction)) {
+                thePtr->logseq            = -1;
+                thePtr->commitPendingFlag = false;
+                thePtr->status            = -EIO;
+                thePtr->statusMsg         = "transaction log write error";
             }
         }
+    }
+    void FlushBlock()
+    {
     }
     void Control(
         MetaLogWriterControl& inRequest)
     {
+    }
+    // File write methods.
+    friend class MdStreamT<Impl>;
+    bool write(
+        const char* inBufPtr,
+        size_t      inSize)
+    {
+        return mLogFileStream.write(inBufPtr, inSize);
+    }
+    bool flush()
+    {
+        return mLogFileStream.flush();
     }
 };
 

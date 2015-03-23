@@ -3617,8 +3617,7 @@ struct MetaAck : public MetaRequest {
     }
 };
 
-struct MetaRemoveFromDumpster : public MetaRequest
-{
+struct MetaRemoveFromDumpster : public MetaRequest {
     string name;
     fid_t  fid;
 
@@ -3647,8 +3646,7 @@ struct MetaRemoveFromDumpster : public MetaRequest
     }
 };
 
-struct MetaLogWriterControl : public MetaRequest
-{
+struct MetaLogWriterControl : public MetaRequest {
     enum Type
     {
         kNop,
@@ -3661,10 +3659,11 @@ struct MetaLogWriterControl : public MetaRequest
 
     MetaLogWriterControl(
         Type t = kNop)
-        : MetaRequest(META_LOG_WRITER_CONTROL, kLogNever),
+        : MetaRequest(META_LOG_WRITER_CONTROL, kLogAlways),
           type(t),
           committed(-1)
         {}
+    virtual bool start()  { return true; }
     virtual void handle() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
