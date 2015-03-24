@@ -28,6 +28,7 @@
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/checksum.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -65,18 +66,22 @@ public:
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(-1),
+          mBlockChecksum(kKfsNullChecksum),
           mLogFileStream(),
-          mMdStream()
+          mMdStream(this),
+          mReqOstream(mMdStream)
         {}
     ~Impl()
         { Impl::Shutdown(); }
     int Start(
         NetManager&       inNetManager,
+        const char*       inParametersPrefixPtr,
         const Properties& inParameters)
     {
         if (mThread.IsStarted() || mNetManagerPtr) {
             return -EINVAL;
         }
+        SetParameters(inParametersPrefixPtr, inParameters);
         mStopFlag      = false;
         mNetManagerPtr = &inNetManager;
         const int kStackSize = 64 << 10;
@@ -169,6 +174,12 @@ private:
             {}
     };
     typedef MdStreamT<Impl> MdStream;
+    enum WriteState
+    {
+        kWriteStateNone,
+        kAppendBlockChecksum,
+        kWriteBlockChecksum
+    };
 
     NetManager*  mNetManagerPtr;
     bool         mHasPendingFlag;
@@ -188,8 +199,11 @@ private:
     Committed    mPendingCommitted;
     Committed    mInFlightCommitted;
     seq_t        mNextLogSeq;
+    uint32_t     mBlockChecksum;
     ofstream     mLogFileStream;
     MdStream     mMdStream;
+    ReqOstream   mReqOstream;
+    WriteState   mWriteState;
 
     virtual void Timeout()
     {
@@ -238,65 +252,137 @@ private:
         MetaRequest& inHead)
     {
         ostream&     theStream = mMdStream;
-        MetaRequest* thePtr    = &inHead;
-        seq_t        theLogSeq = mNextLogSeq;
-        while (thePtr && theStream) {
-            if (META_LOG_WRITER_CONTROL == thePtr->op) {
-                Control(*static_cast<MetaLogWriterControl*>(thePtr));
-                continue;
-            }
-            if (((MetaRequest::kLogIfOk == thePtr->logAction &&
-                        0 == thePtr->status) ||
-                    MetaRequest::kLogAlways == thePtr->logAction)) {
-                if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
-                    panic("log writer: invalid request ");
+        MetaRequest* theCurPtr = &inHead;
+        while (theCurPtr) {
+            MetaRequest* thePtr    = theCurPtr;
+            seq_t        theLogSeq = mNextLogSeq;
+            while (thePtr) {
+                if (META_LOG_WRITER_CONTROL == thePtr->op) {
+                    if (Control(
+                            *static_cast<MetaLogWriterControl*>(thePtr),
+                            theLogSeq)) {
+                        break;
+                    }
+                    continue;
                 }
-                if (theStream) {
-                    thePtr->logseq            = ++theLogSeq;
-                    thePtr->commitPendingFlag = true;
+                if (! theStream) {
+                    continue;
+                }
+                if (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                            0 == thePtr->status) ||
+                        MetaRequest::kLogAlways == thePtr->logAction)) {
+                    if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
+                        panic("log writer: invalid request ");
+                    }
+                    if (theStream) {
+                        thePtr->logseq            = ++theLogSeq;
+                        thePtr->commitPendingFlag = true;
+                    }
                 }
             }
-        }
-        if (theStream) {
-            FlushBlock();
-            theStream.flush();
-        }
-        if (theStream) {
-            mNextLogSeq = theLogSeq;
-            return;
-        }
-        // Write failure.
-        thePtr = &inHead;
-        while (thePtr) {
-            if (((MetaRequest::kLogIfOk == thePtr->logAction &&
-                        0 == thePtr->status) ||
-                    MetaRequest::kLogAlways == thePtr->logAction)) {
-                thePtr->logseq            = -1;
-                thePtr->commitPendingFlag = false;
-                thePtr->status            = -EIO;
-                thePtr->statusMsg         = "transaction log write error";
+            theCurPtr = thePtr->next;
+            thePtr->next = 0;
+            if (theStream) {
+                FlushBlock(theLogSeq);
+                theStream.flush();
+            }
+            if (theStream) {
+                mNextLogSeq = theLogSeq;
+                return;
+            }
+            // Write failure.
+            thePtr = &inHead;
+            while (thePtr) {
+                if (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                            0 == thePtr->status) ||
+                        MetaRequest::kLogAlways == thePtr->logAction)) {
+                    thePtr->logseq            = -1;
+                    thePtr->commitPendingFlag = false;
+                    thePtr->status            = -EIO;
+                    thePtr->statusMsg         = "transaction log write error";
+                }
             }
         }
     }
-    void FlushBlock()
+    void FlushBlock(
+        seq_t inLogSeq)
+    {
+        mReqOstream << "c/"
+            "/" << mInFlightCommitted.mSeq <<
+            "/" << mInFlightCommitted.mFidSeed <<
+            "/" << mInFlightCommitted.mErrChkSum <<
+            "/" << mInFlightCommitted.mStatus <<
+            "/" << inLogSeq
+        ;
+        mWriteState = kAppendBlockChecksum;
+        mReqOstream.write("/", 1);
+        if (kWriteStateNone != mWriteState) {
+            mReqOstream.flush();
+            if (kWriteStateNone != mWriteState) {
+                panic("log writer flush block: invalid write state");
+            }
+        }
+        mLogFileStream.flush();
+    }
+    bool Control(
+        MetaLogWriterControl& inRequest,
+        seq_t                 inLogSeq)
+    {
+        inRequest.committed = inLogSeq;
+        switch (inRequest.type) {
+            default:
+            case MetaLogWriterControl::kNop:
+                break;
+            case MetaLogWriterControl::kNewLog:
+                NewLog(inLogSeq);
+                break;
+            case MetaLogWriterControl::kSetParameters:
+                SetParameters(
+                    inRequest.paramsPrefix.c_str(),
+                    inRequest.params);
+                return false;
+        }
+        return IsLogStreamGood();
+    }
+    void NewLog(
+        seq_t inLogSeq)
     {
     }
-    void Control(
-        MetaLogWriterControl& inRequest)
+    void SetParameters(
+        const char*       inParametersPrefixPtr,
+        const Properties& inParams)
     {
     }
+    bool IsLogStreamGood() const
+        { return (mMdStream && mLogFileStream); }
     // File write methods.
     friend class MdStreamT<Impl>;
     bool write(
         const char* inBufPtr,
         size_t      inSize)
     {
-        return mLogFileStream.write(inBufPtr, inSize);
+        if (kWriteBlockChecksum == mWriteState) {
+            mWriteState    = kWriteStateNone;
+            mBlockChecksum = kKfsNullChecksum;
+        } else {
+            mBlockChecksum = ComputeBlockChecksum(mBlockChecksum, inBufPtr, inSize);
+            if (mWriteState == kAppendBlockChecksum) {
+                mWriteState = kWriteBlockChecksum;
+                mReqOstream << mBlockChecksum;
+                if (kWriteBlockChecksum == mWriteState) {
+                    mReqOstream.flush();
+                }
+                if (kWriteStateNone != mWriteState) {
+                    panic("log writer: invalid write state");
+                }
+                return IsLogStreamGood();
+            }
+        }
+        mLogFileStream.write(inBufPtr, inSize);
+        return IsLogStreamGood();
     }
     bool flush()
-    {
-        return mLogFileStream.flush();
-    }
+        { return IsLogStreamGood(); }
 };
 
 LogWriter::LogWriter()
@@ -311,9 +397,10 @@ LogWriter::~LogWriter()
     int
 LogWriter::Start(
     NetManager&       inNetManager,
+    const char*       inParametersPrefixPtr,
     const Properties& inParameters)
 {
-    return mImpl.Start(inNetManager, inParameters);
+    return mImpl.Start(inNetManager, inParametersPrefixPtr, inParameters);
 }
 
     void

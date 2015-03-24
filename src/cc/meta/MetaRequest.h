@@ -3656,12 +3656,15 @@ struct MetaLogWriterControl : public MetaRequest {
     Type       type;
     seq_t      committed;
     Properties params;
+    string     paramsPrefix;
 
     MetaLogWriterControl(
         Type t = kNop)
         : MetaRequest(META_LOG_WRITER_CONTROL, kLogAlways),
           type(t),
-          committed(-1)
+          committed(-1),
+          params(),
+          paramsPrefix()
         {}
     virtual bool start()  { return true; }
     virtual void handle() {}

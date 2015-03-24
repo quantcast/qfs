@@ -38,6 +38,7 @@ public:
     ~LogWriter();
     int Start(
         NetManager&       inNetManager,
+        const char*       inParametersPrefixPtr,
         const Properties& inParameters);
     void Enqueue(
         MetaRequest& inRequest);
