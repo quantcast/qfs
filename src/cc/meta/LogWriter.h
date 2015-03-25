@@ -24,20 +24,28 @@
 #ifndef KFS_META_LOG_WRITER_H
 #define KFS_META_LOG_WRITER_H
 
+#include "common/kfstypes.h"
+
 namespace KFS
 {
 
 struct MetaRequest;
 class Properties;
 class NetManager;
+class MdStateCtx;
 
 class LogWriter
 {
 public:
+    enum { VERSION = 1 };
+
     LogWriter();
     ~LogWriter();
     int Start(
         NetManager&       inNetManager,
+        seq_t             inLogSeq,
+        const MdStateCtx* inLogAppendMdStatePtr,
+        bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters);
     void Enqueue(

@@ -123,7 +123,11 @@ toNumber(const char* str)
 string
 makename(const string& dir, const string& prefix, int64_t number)
 {
-    return dir + "/" + prefix + "." + toString(number);
+    string ret = dir;
+    ret += "/";
+    ret += prefix;
+    ret += ".";
+    return AppendDecIntToString(ret, number);
 }
 
 /*!

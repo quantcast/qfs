@@ -23,8 +23,11 @@
 
 #include "LogWriter.h"
 #include "MetaRequest.h"
+#include "util.h"
 
+#include "common/MsgLogger.h"
 #include "common/MdStream.h"
+#include "common/time.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -32,8 +35,10 @@
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
+#include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 
+#include <errno.h>
 #include <fstream>
 
 namespace KFS
@@ -51,12 +56,16 @@ public:
           mNetManagerPtr(0),
           mHasPendingFlag(false),
           mNextSeq(-1),
+          mMaxDoneSeq(-1),
+          mMaxDoneLogSeq(-1),
           mCommitted(),
           mThread(),
           mMutex(),
           mCond(),
           mStopFlag(false),
           mOmitDefaultsFlag(true),
+          mMaxBlockSize(256),
+          mLogDir("./kfslog"),
           mPendingQueueHeadPtr(0),
           mPendingQueueTailPtr(0),
           mInQueueHeadPtr(0),
@@ -66,22 +75,67 @@ public:
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(-1),
+          mLastLogSeq(-1),
           mBlockChecksum(kKfsNullChecksum),
           mLogFileStream(),
           mMdStream(this),
-          mReqOstream(mMdStream)
+          mReqOstream(mMdStream),
+          mCurLogStartTime(-1),
+          mCurLogStartSeq(-1),
+          mLogName(),
+          mWriteState(kWriteStateNone),
+          mLogRotateInterval(600 * 1000 * 1000),
+          mLogFileNamePrefix("log")
         {}
     ~Impl()
         { Impl::Shutdown(); }
     int Start(
         NetManager&       inNetManager,
+        seq_t             inLogSeq,
+        const MdStateCtx* inLogAppendMdStatePtr,
+        bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters)
     {
-        if (mThread.IsStarted() || mNetManagerPtr) {
+        if (inLogSeq < 0 && (mThread.IsStarted() || mNetManagerPtr)) {
             return -EINVAL;
         }
         SetParameters(inParametersPrefixPtr, inParameters);
+        mMdStream.Reset(this);
+        mCurLogStartTime = microseconds();
+        if (inLogAppendMdStatePtr) {
+            SetLogName(inLogSeq);
+            mMdStream.SetMdState(*inLogAppendMdStatePtr);
+            if (! mMdStream) {
+                KFS_LOG_STREAM_ERROR <<
+                    "log append:" <<
+                    " failed to set md context" <<
+                KFS_LOG_EOM;
+                return -EIO;
+            }
+            mLogFileStream.open(
+                mLogName.c_str(), ofstream::app | ofstream::binary);
+            if (! mLogFileStream) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    "log append:" <<
+                    " failed to open log segment: " << mLogName <<
+                    " for append" <<
+                    " error: " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                return -EIO;
+            }
+            KFS_LOG_STREAM_INFO <<
+                "log append:" <<
+                " hex: "  << inLogAppendHexFlag <<
+                " file: " << mLogName <<
+            KFS_LOG_EOM;
+        } else {
+            NewLog(inLogSeq);
+            if (! IsLogStreamGood()) {
+                return -EIO;
+            }
+        }
         mStopFlag      = false;
         mNetManagerPtr = &inNetManager;
         const int kStackSize = 64 << 10;
@@ -184,12 +238,16 @@ private:
     NetManager*  mNetManagerPtr;
     bool         mHasPendingFlag;
     seq_t        mNextSeq;
+    seq_t        mMaxDoneSeq;
+    seq_t        mMaxDoneLogSeq;
     Committed    mCommitted;
     QCThread     mThread;
     QCMutex      mMutex;
     QCCondVar    mCond;
     bool         mStopFlag;
     bool         mOmitDefaultsFlag;
+    int          mMaxBlockSize;
+    string       mLogDir;
     MetaRequest* mPendingQueueHeadPtr;
     MetaRequest* mPendingQueueTailPtr;
     MetaRequest* mInQueueHeadPtr;
@@ -199,11 +257,17 @@ private:
     Committed    mPendingCommitted;
     Committed    mInFlightCommitted;
     seq_t        mNextLogSeq;
+    seq_t        mLastLogSeq;
     uint32_t     mBlockChecksum;
     ofstream     mLogFileStream;
     MdStream     mMdStream;
     ReqOstream   mReqOstream;
+    int64_t      mCurLogStartTime;
+    seq_t        mCurLogStartSeq;
+    string       mLogName;
     WriteState   mWriteState;
+    int64_t      mLogRotateInterval;
+    const string mLogFileNamePrefix;
 
     virtual void Timeout()
     {
@@ -211,7 +275,7 @@ private:
         if (mHasPendingFlag) {
             QCStMutexLocker theLock(mMutex);
             mHasPendingFlag = mInQueueHeadPtr != 0 || mPendingQueueHeadPtr != 0;
-            theDoneHeadPtr = mOutQueueHeadPtr;
+            theDoneHeadPtr  = mOutQueueHeadPtr;
             mOutQueueHeadPtr = 0;
             mOutQueueTailPtr = 0;
         }
@@ -219,6 +283,16 @@ private:
             MetaRequest& theReq = *theDoneHeadPtr;
             theDoneHeadPtr = theReq.next;
             theReq.next = 0;
+            if (theReq.seqno <= mMaxDoneLogSeq) {
+                panic("log writer: invalid sequence number");
+            }
+            if (0 <= theReq.logseq) {
+                if (theReq.logseq <= mMaxDoneLogSeq) {
+                    panic("log writer: invalid log sequence number");
+                }
+                mMaxDoneLogSeq = theReq.logseq;
+            }
+            mMaxDoneLogSeq = theReq.seqno;
             submit_request(&theReq);
         }
     }
@@ -254,15 +328,17 @@ private:
         ostream&     theStream = mMdStream;
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
-            MetaRequest* thePtr    = theCurPtr;
-            seq_t        theLogSeq = mNextLogSeq;
-            while (thePtr) {
+            mLastLogSeq = mNextLogSeq;
+            MetaRequest* thePtr         = theCurPtr;
+            seq_t        theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
+            for ( ; thePtr; thePtr = thePtr->next) {
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     if (Control(
                             *static_cast<MetaLogWriterControl*>(thePtr),
-                            theLogSeq)) {
+                            mLastLogSeq)) {
                         break;
                     }
+                    theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
                     continue;
                 }
                 if (! theStream) {
@@ -275,33 +351,44 @@ private:
                         panic("log writer: invalid request ");
                     }
                     if (theStream) {
-                        thePtr->logseq            = ++theLogSeq;
+                        thePtr->logseq            = ++mLastLogSeq;
                         thePtr->commitPendingFlag = true;
                     }
                 }
-            }
-            theCurPtr = thePtr->next;
-            thePtr->next = 0;
-            if (theStream) {
-                FlushBlock(theLogSeq);
-                theStream.flush();
-            }
-            if (theStream) {
-                mNextLogSeq = theLogSeq;
-                return;
-            }
-            // Write failure.
-            thePtr = &inHead;
-            while (thePtr) {
-                if (((MetaRequest::kLogIfOk == thePtr->logAction &&
-                            0 == thePtr->status) ||
-                        MetaRequest::kLogAlways == thePtr->logAction)) {
-                    thePtr->logseq            = -1;
-                    thePtr->commitPendingFlag = false;
-                    thePtr->status            = -EIO;
-                    thePtr->statusMsg         = "transaction log write error";
+                if (theEndBlockSeq <= mLastLogSeq) {
+                    break;
                 }
             }
+            MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
+            if (IsLogStreamGood()) {
+                FlushBlock(mLastLogSeq);
+            }
+            if (IsLogStreamGood()) {
+                mNextLogSeq = mLastLogSeq;
+            } else {
+                mLastLogSeq = mNextLogSeq;
+                // Write failure.
+                thePtr = &inHead;
+                for (thePtr = theCurPtr;
+                        theEndPtr != thePtr;
+                        thePtr = thePtr->next) {
+                    if (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                                0 == thePtr->status) ||
+                            MetaRequest::kLogAlways == thePtr->logAction)) {
+                        thePtr->logseq            = -1;
+                        thePtr->commitPendingFlag = false;
+                        thePtr->status            = -EIO;
+                        thePtr->statusMsg         = "transaction log write error";
+                    }
+                }
+            }
+            theCurPtr = theEndPtr;
+        }
+        if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
+                mCurLogStartTime + mLogRotateInterval <
+                microseconds()) {
+            CloseLog();
+            NewLog(mNextLogSeq + 1);
         }
     }
     void FlushBlock(
@@ -332,26 +419,93 @@ private:
         switch (inRequest.type) {
             default:
             case MetaLogWriterControl::kNop:
-                break;
+                return false;
             case MetaLogWriterControl::kNewLog:
-                NewLog(inLogSeq);
+                CloseLog();
+                NewLog(inLogSeq + 1);
                 break;
             case MetaLogWriterControl::kSetParameters:
-                SetParameters(
+                return SetParameters(
                     inRequest.paramsPrefix.c_str(),
                     inRequest.params);
-                return false;
         }
         return IsLogStreamGood();
+    }
+    void CloseLog()
+    {
+        if (IsLogStreamGood()) {
+            if (kWriteStateNone != mWriteState) {
+                panic("log writer: close log invalid state");
+            }
+            if (mLastLogSeq != mNextLogSeq) {
+                FlushBlock(mLastLogSeq);
+                if (! IsLogStreamGood()) {
+                    return;
+                }
+            }
+        }
+        mLogFileStream.flush();
+        mLogFileStream.close();
+        if (! mLogFileStream) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to close transaction log segment: " << mLogName <<
+                " error: " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+        }
     }
     void NewLog(
         seq_t inLogSeq)
     {
+        mLogFileStream.close();
+        mLogFileStream.clear();
+        mWriteState = kWriteStateNone;
+        SetLogName(inLogSeq);
+        mLogFileStream.open(
+            mLogName.c_str(), ofstream::binary);
+        if (! mLogFileStream) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to open transaction log segment: " << mLogName <<
+                " error: " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return;
+        }
+        mMdStream.Reset(this);
+        mMdStream <<
+            "version/" << LogWriter::VERSION << "\n"
+            "checksum/last-line\n"
+            "setintbase/16\n"
+            "time/" << DisplayIsoDateTime() << '\n'
+        ;
+        mMdStream.setf(ostream::hex);
     }
-    void SetParameters(
-        const char*       inParametersPrefixPtr,
-        const Properties& inParams)
+    void SetLogName(
+        seq_t inLogSeq)
     {
+        mCurLogStartSeq = inLogSeq;
+        mLogName        = makename(mLogDir, mLogFileNamePrefix, inLogSeq);
+    }
+    bool SetParameters(
+        const char*       inParametersPrefixPtr,
+        const Properties& inParameters)
+    {
+        Properties::String theName(
+            inParametersPrefixPtr ? inParametersPrefixPtr : "");
+        const size_t       thePrefixLen = theName.length();
+        mOmitDefaultsFlag = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("omitDefaults"),
+            mOmitDefaultsFlag ? 1 : 0) != 0;
+        mMaxBlockSize = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("maxBlockSize"),
+            mMaxBlockSize);
+        mLogDir = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("logDir"),
+            mLogDir);
+        mLogRotateInterval = (int64_t)(inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("rotateIntervalSec"),
+            mLogRotateInterval * 1e-6) * 1e6);
+        return false;
     }
     bool IsLogStreamGood() const
         { return (mMdStream && mLogFileStream); }
@@ -369,6 +523,7 @@ private:
             if (mWriteState == kAppendBlockChecksum) {
                 mWriteState = kWriteBlockChecksum;
                 mReqOstream << mBlockChecksum;
+                mReqOstream.write("\n", 1);
                 if (kWriteBlockChecksum == mWriteState) {
                     mReqOstream.flush();
                 }
@@ -397,10 +552,20 @@ LogWriter::~LogWriter()
     int
 LogWriter::Start(
     NetManager&       inNetManager,
+    seq_t             inLogSeq,
+    const MdStateCtx* inLogAppendMdStatePtr,
+    bool              inLogAppendHexFlag,
     const char*       inParametersPrefixPtr,
     const Properties& inParameters)
 {
-    return mImpl.Start(inNetManager, inParametersPrefixPtr, inParameters);
+    return mImpl.Start(
+        inNetManager,
+        inLogSeq,
+        inLogAppendMdStatePtr,
+        inLogAppendHexFlag,
+        inParametersPrefixPtr,
+        inParameters
+    );
 }
 
     void
