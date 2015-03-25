@@ -42,6 +42,16 @@ using std::streambuf;
 using std::streamsize;
 using std::max;
 
+class MdStateCtx
+{
+public:
+    MdStateCtx(
+        EVP_MD_CTX const& inCtx)
+        : mCtx(inCtx)
+        {}
+    EVP_MD_CTX const& mCtx;
+};
+
 template<typename OStreamT>
 class MdStreamT :
     private streambuf,
@@ -81,6 +91,17 @@ public:
         EVP_MD_CTX_cleanup(&mCtx);
         delete [] mBufferPtr;
     }
+    void SetMdState(
+        MdStateCtx inState)
+    {
+        EVP_MD_CTX_cleanup(&mCtx);
+        EVP_MD_CTX_init(&mCtx);
+        if (! EVP_MD_CTX_copy_ex(&mCtx, &(inState.mCtx))) {
+            setstate(failbit);
+        }
+    }
+    MdStateCtx GetMdState() const
+        { return MdStateCtx(mCtx); }
     size_t GetMdBin(
         MD& inMd)
     {
