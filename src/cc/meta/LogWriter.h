@@ -44,12 +44,19 @@ public:
     int Start(
         NetManager&       inNetManager,
         seq_t             inLogSeq,
+        seq_t             inCommittedLogSeq,
+        fid_t             inCommittedFidSeed,
+        int64_t           inCommittedErrCheckSum,
+        int               inCommittedStatus,
         const MdStateCtx* inLogAppendMdStatePtr,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters);
     void Enqueue(
         MetaRequest& inRequest);
+    void Committed(
+        MetaRequest& inRequest,
+        fid_t        inFidSeed);
     void ScheduleFlush();
     void Shutdown();
 private:
