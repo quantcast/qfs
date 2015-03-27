@@ -31,7 +31,6 @@
 #include "kfstree.h"
 #include "ClientSM.h"
 #include "NetDispatch.h"
-#include "Logger.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
@@ -914,6 +913,9 @@ public:
         if (theEntry.mName.empty() || 0 != theEntry.mCount) {
             panic("invalid file leases entry");
         }
+        // The entry must be removed from the timer list.
+        // Log write completion will re-schedule if needed
+        FEntry::List::Remove(inEntry);
         submit_request(new MetaRemoveFromDumpster(
             theEntry.mName, inEntry.GetKey()));
     }

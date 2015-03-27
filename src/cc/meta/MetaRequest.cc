@@ -26,7 +26,7 @@
 
 #include "kfstree.h"
 #include "MetaRequest.h"
-#include "Logger.h"
+#include "LogWriter.h"
 #include "Checkpoint.h"
 #include "util.h"
 #include "LayoutManager.h"
@@ -59,6 +59,7 @@
 #include <iomanip>
 #include <sstream>
 #include <limits>
+#include <fstream>
 
 namespace KFS {
 
@@ -71,6 +72,7 @@ using std::max;
 using std::make_pair;
 using std::numeric_limits;
 using std::hex;
+using std::ofstream;
 using KFS::libkfsio::globals;
 
 static bool    gWormMode = false;
@@ -3631,75 +3633,81 @@ MetaCheckpoint::handle()
     const time_t now = globalNetManager().Now();
     if (lastCheckpointId < 0) {
         // First call -- init.
-        lastCheckpointId = oplog.checkpointed();
+        lastCheckpointId = GetLogWriter().GetCommittedLogSeq();
         lastRun          = now;
         return;
     }
-    if (now < lastRun + intervalSec) {
-        return;
-    }
-    if (oplog.checkpointed() == lastCheckpointId &&
-            ! cp.isCPNeeded()) {
-        return;
-    }
-    if (lockFd >= 0) {
-        close(lockFd);
-    }
-    if (! lockFileName.empty() &&
-            (lockFd = try_to_acquire_lockfile(lockFileName)) < 0) {
-        KFS_LOG_STREAM_INFO << "checkpoint: " <<
-            " failed to acquire lock: " << lockFileName <<
-            " " << QCUtils::SysError(lockFd) <<
-        KFS_LOG_EOM;
-        return; // Retry later.
-    }
-    status = oplog.finishLog();
-    if (status != 0) {
-        KFS_LOG_STREAM_ERROR << "failed to finish log:"
-            " status:" << status <<
-        KFS_LOG_EOM;
-        if (lockFd >= 0) {
-            close(lockFd);
-        }
-        return;
-    }
-    lastRun = now;
-    // If logger decided not to start new log it won't reset checkpoint
-    // mutation count.
-    if (cp.isCPNeeded()) {
-        if (lockFd >= 0) {
-            close(lockFd);
-        }
-        if (lastCheckpointId != oplog.checkpointed()) {
-            panic("finish log failure");
+    if (! finishLog) {
+        if (now < lastRun + intervalSec) {
             return;
         }
-        KFS_LOG_STREAM_WARN << "finish log: no new log started"
-            "; delaying checkpoint" <<
-        KFS_LOG_EOM;
+        if (lastCheckpointId == GetLogWriter().GetCommittedLogSeq()) {
+            return;
+        }
+        if (0 <= lockFd) {
+            close(lockFd);
+        }
+        if (! lockFileName.empty() &&
+                (lockFd = try_to_acquire_lockfile(lockFileName)) < 0) {
+            KFS_LOG_STREAM_INFO << "checkpoint: " <<
+                " failed to acquire lock: " << lockFileName <<
+                " " << QCUtils::SysError(lockFd) <<
+            KFS_LOG_EOM;
+            return; // Retry later.
+        }
+        finishLog = new MetaLogWriterControl(
+            MetaLogWriterControl::kNewLog, this);
+        suspended = true;
+        submit_request(finishLog);
         return;
     }
-    runningCheckpointId = oplog.checkpointed();
+    if (finishLog->status != 0) {
+        KFS_LOG_STREAM_ERROR << "failed to finish log:"
+            " "        << finishLog->logName <<
+            " status:" << finishLog->status <<
+            " "        << finishLog->statusMsg <<
+        KFS_LOG_EOM;
+        if (0 <= lockFd) {
+            close(lockFd);
+        }
+        MetaRequest::Release(finishLog);
+        finishLog = 0;
+        return;
+    }
+    if (finishLog->logName.empty()) {
+        panic("invalid empty next log segment name");
+    }
+    lastRun = now;
+    runningCheckpointId = GetLogWriter().GetCommittedLogSeq();
+    if (runningCheckpointId != finishLog->lastLogSeq) {
+        panic("invalid finish log completion: log sequence mismatch");
+    }
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
     // global mutex by waiting on condition with this mutex, but must ensure
-    // that no other RPC gets processed. If checkpoint mutation count isn't
-    // zero after DoFork() invocation, then there is a bug with the prepare to
+    // that no other RPC gets processed. If log commit sequence has changed
+    // after DoFork() invocation, then there is a bug with the prepare to
     // fork logic, and checkpoint will not be valid. In such case do not write
     // the checkpoint in the child, and "panic" the parent.
     if ((pid = DoFork(checkpointWriteTimeoutSec)) == 0) {
-        if (cp.isCPNeeded()) {
+        seq_t   logSeq      = -1;
+        int64_t errChecksum = -1;
+        fid_t   fidSeed     = -1;
+        int     commStatus  = -1;
+        GetLogWriter().GetCommitted(logSeq, errChecksum, fidSeed, commStatus);
+        if (runningCheckpointId != logSeq || fidSeed != fileID.getseed()) {
             status = -EINVAL;
         } else {
             metatree.disableFidToPathname();
             metatree.recomputeDirSize();
             cp.setWriteSyncFlag(checkpointWriteSyncFlag);
             cp.setWriteBufferSize(checkpointWriteBufferSize);
-            status = cp.do_CP();
+            status = cp.write(
+                finishLog->logName, runningCheckpointId, errChecksum);
         }
         // Child does not attempt graceful exit.
         _exit(status == 0 ? 0 : 1);
     }
-    if (cp.isCPNeeded()) {
+    if (GetLogWriter().GetCommittedLogSeq() != runningCheckpointId) {
         panic("checkpoint: meta data changed after prepare to fork");
     }
     KFS_LOG_STREAM(pid > 0 ?
@@ -3708,6 +3716,8 @@ MetaCheckpoint::handle()
         "checkpoint: " << lastCheckpointId <<
         " pid: "       << pid <<
     KFS_LOG_EOM;
+    MetaRequest::Release(finishLog);
+    finishLog = 0;
     if (pid < 0) {
         status = -1;
         return;
@@ -3776,7 +3786,7 @@ MetaRequest::Submit()
         if (--recursionCount != 0) {
             panic("invalid request recursion count");
         }
-        oplog.dispatchWriteAhead(this);
+        GetLogWriter().Enqueue(*this);
         return;
     }
     // accumulate processing time.
@@ -3788,7 +3798,10 @@ MetaRequest::Submit()
     if (suspended) {
         processTime = microseconds() - processTime;
     } else {
-        oplog.dispatch(this);
+        if (commitPendingFlag) {
+            GetLogWriter().Committed(*this, fileID.getseed());
+        }
+        gNetDispatch.Dispatch(this);
     }
 }
 
@@ -5507,5 +5520,12 @@ MetaRemoveFromDumpster::handle()
         gLayoutManager.ScheduleDumpsterCleanup(fid, name);
     }
 }
+
+LogWriter& MakeLogWriter()
+{
+    static LogWriter sLogWriter;
+    return sLogWriter;
+}
+LogWriter& MetaRequest::sLogWriter = MakeLogWriter();
 
 } /* namespace KFS */

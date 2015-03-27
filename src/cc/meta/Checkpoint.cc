@@ -36,7 +36,6 @@
 #include "kfstree.h"
 #include "MetaRequest.h"
 #include "NetDispatch.h"
-#include "Logger.h"
 #include "util.h"
 #include "LayoutManager.h"
 #include "common/MdStream.h"
@@ -54,12 +53,6 @@ namespace KFS
 using std::hex;
 using std::dec;
 
-// default values
-string CPDIR("./kfscp");        //!< directory for CP files
-string LASTCP(CPDIR + "/latest");   //!< most recent CP file (link)
-
-Checkpoint cp(CPDIR);
-
 int
 Checkpoint::write_leaves(ostream& os)
 {
@@ -75,28 +68,16 @@ Checkpoint::write_leaves(ostream& os)
     return status;
 }
 
-/*
- * At system startup, take a CP if the file that corresponds to the
- * latest CP doesn't exist.
-*/
 int
-Checkpoint::initial_CP()
+Checkpoint::write(
+    const string& logname,
+    seq_t         logseq,
+    int64_t       errchksum)
 {
-    if (file_exists(LASTCP)) {
-        return 0;
-    }
-    return do_CP();
-}
-
-int
-Checkpoint::do_CP()
-{
-    if (oplog.name().empty()) {
+    if (logname.empty()) {
         return -EINVAL;
     }
-    const seq_t   highest   = oplog.checkpointed();
-    const int64_t errchksum = oplog.getErrChksum();
-    cpname = cpfile(highest);
+    cpname = cpfile(logseq);
     const char* const suffix = ".tmp.XXXXXX";
     char* const tmpname = new char[cpname.length() + strlen(suffix) + 1];
     memcpy(tmpname, cpname.c_str(), cpname.length());
@@ -118,7 +99,7 @@ Checkpoint::do_CP()
         const bool kSyncFlag = false;
         MdStreamT<FdWriter> os(&fdw, kSyncFlag, string(), writebuffersize);
         os << dec;
-        os << "checkpoint/" << highest << "/" << errchksum << '\n';
+        os << "checkpoint/" << logseq << "/" << errchksum << '\n';
         os << "checksum/last-line\n";
         os << "version/" << VERSION << '\n';
         os << "filesysteminfo/fsid/" << metatree.GetFsId() << "/crtime/" <<
@@ -127,7 +108,7 @@ Checkpoint::do_CP()
         os << "chunkId/" << chunkID.getseed() << '\n';
         os << "time/" << DisplayIsoDateTime() << '\n';
         os << "setintbase/16\n" << hex;
-        os << "log/" << oplog.name() << "\n\n";
+        os << "log/" << logname << "\n\n";
         status = write_leaves(os);
         if (status == 0 && os) {
             status = gLayoutManager.WritePendingMakeStable(os);
@@ -175,26 +156,26 @@ Checkpoint::do_CP()
     if (status != 0 && fd >= 0) {
         unlink(tmpname);
     }
-    ++cpcount;
     delete [] tmpname;
     return status;
 }
+
+// default values
+static string sCPDIR("./kfscp");           //!< directory for CP files
+static string sLASTCP(sCPDIR + "/latest"); //!< most recent CP file (link)
+Checkpoint cp(CPDIR);
+
+const string& CPDIR  = sCPDIR;
+const string& LASTCP = sLASTCP;
 
 void
 checkpointer_setup_paths(const string& cpdir)
 {
     if (! cpdir.empty()) {
-        CPDIR = cpdir;
-        LASTCP = cpdir + "/latest";
+        sCPDIR = cpdir;
+        sLASTCP = cpdir + "/latest";
         cp.setCPDir(cpdir);
     }
-}
-
-int
-checkpointer_init()
-{
-    // start a CP on restart.
-    return cp.initial_CP();
 }
 
 }

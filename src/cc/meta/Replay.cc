@@ -24,8 +24,8 @@
  * permissions and limitations under the License.
  */
 
-#include "Logger.h"
 #include "Replay.h"
+#include "LogWriter.h"
 #include "Restorer.h"
 #include "util.h"
 #include "DiskEntry.h"
@@ -108,6 +108,34 @@ Replay::openlog(const string &p)
     return 0;
 }
 
+const string&
+Replay::logfile(seq_t num)
+{
+    if (tmplongname.empty()) {
+        const string::size_type dot = path.rfind('.');
+        if (dot != string::npos && string::npos == path.find('/', dot)) {
+            tmplongname = path.substr(dot + 1);
+        } else {
+            tmplongname = path + ".";
+        }
+        tmplogprefixlen = tmplongname.length();
+    }
+    tmplongname.erase(tmplogprefixlen);
+    AppendDecIntToString(tmplongname, num);
+    return tmplongname;
+}
+
+string
+Replay::getLastLog()
+{
+    const char* kLast = "last";
+    const string::size_type pos = path.rfind('/');
+    if (string::npos != pos) {
+        return path.substr(0, pos + 1) + kLast;
+    }
+    return kLast;
+}
+
 /*!
  * \brief check log version
  * format: version/<number>
@@ -117,7 +145,7 @@ replay_version(DETokenizer& c)
 {
     fid_t vers;
     bool ok = pop_fid(vers, "version", c, true);
-    return (ok && vers == Logger::VERSION);
+    return (ok && vers == LogWriter::VERSION);
 }
 
 /*!
@@ -1120,7 +1148,6 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     restoreChecksum.clear();
     lastLineChecksumFlag = false;
     lastEntryChecksumFlag = false;
-    MdStream& mds = oplog.getMdStream();
     mds.Reset();
     mds.SetWriteTrough(true);
 
@@ -1133,8 +1160,8 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     DiskEntry& entrymap = get_entry_map();
     DETokenizer tokenizer(file);
 
-    sLastLogAheadSeq   = oplog.checkpointed();
-    sLogAheadErrChksum = oplog.getErrChksum();
+    sLastLogAheadSeq   = committed;
+    sLogAheadErrChksum = errChecksum;
     sSubEntryCount     = 0;
     int status = 0;
     static const DETokenizer::Token kAheadLogEntry("a");
@@ -1187,8 +1214,8 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         status = -EIO;
     }
     if (status == 0) {
-        oplog.set_seqno(sLastLogAheadSeq);
-        oplog.setErrChksum(sLogAheadErrChksum);
+        committed      = sLastLogAheadSeq;
+        errChecksum    = sLogAheadErrChksum;
         lastLogIntBase = tokenizer.getIntBase();
     }
     file.close();
@@ -1206,7 +1233,6 @@ Replay::playLogs(bool includeLastLogFlag)
         //!< no log...so, reset the # to 0.
         number = 0;
         appendToLastLogFlag = false;
-        oplog.setLog(number);
         return 0;
     }
     const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
@@ -1226,7 +1252,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         if (! includeLastLogFlag && last < i) {
             break;
         }
-        const string logfn = oplog.logfile(i);
+        const string logfn = logfile(i);
         if (last < i && ! file_exists(logfn)) {
             if (! appendToLastLogFlag && number < i) {
                 number = i;
@@ -1251,7 +1277,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         }
         if (lastLineChecksumFlag &&
                 (! lastEntryChecksumFlag && (i <= last ||
-                file_exists(oplog.logfile(i + 1))))) {
+                file_exists(logfile(i + 1))))) {
             KFS_LOG_STREAM_FATAL <<
                 logfn <<
                 ": missing last line checksum" <<
@@ -1261,14 +1287,25 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         }
         if (last < i && ! lastEntryChecksumFlag) {
             appendToLastLogFlag = true;
+            number = i;
         }
     }
-    if (status == 0 && ! run_commit_queue(oplog.checkpointed() + 1, 0)) {
+    if (status == 0) {
+        if (! sCommitQueue.empty() &&
+                sCommitQueue.back().first == committed) {
+            lastCommittedStatus = sCommitQueue.back().second;
+            if (0 < lastCommittedStatus) {
+                lastCommittedStatus = -KfsToSysErrno(lastCommittedStatus);
+            }
+        } else {
+            lastCommittedStatus = 0;
+        }
+    }
+    if (status == 0 && ! run_commit_queue(committed + 1, 0)) {
         status = -EINVAL;
     }
     if (status == 0) {
-        oplog.setErrChksum(sLogAheadErrChksum);
-        oplog.setLog(i);
+        errChecksum = sLogAheadErrChksum;
     } else {
         appendToLastLogFlag = false;
     }
@@ -1286,23 +1323,24 @@ Replay::getLastLog(seq_t& last)
     // Get last complete log number. All log files before and including this
     // won't ever be written to again.
     // Get the inode # for the last file
+    const string lastlog = getLastLog();
     struct stat lastst = {0};
-    if (stat(LASTLOG.c_str(), &lastst)) {
+    if (stat(lastlog.c_str(), &lastst)) {
         const int err = errno;
-        if (last == 0 && ! file_exists(oplog.logfile(last + 1)) &&
-                ! file_exists(oplog.logfile(last + 2))) {
+        if (last == 0 && ! file_exists(logfile(last + 1)) &&
+                ! file_exists(logfile(last + 2))) {
             last = -1;
             return 0; // Initial empty checkpoint and log.
         }
         KFS_LOG_STREAM_FATAL <<
-            LASTLOG <<
+            lastlog <<
             ": " << QCUtils::SysError(err) <<
         KFS_LOG_EOM;
         return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
     if (lastst.st_nlink != 2) {
         KFS_LOG_STREAM_FATAL <<
-            LASTLOG <<
+            lastlog <<
             ": invalid link count: " << lastst.st_nlink <<
             " this must be \"hard\" link to the last complete log"
             " segment (usually the last log segment with last line starting"
@@ -1311,13 +1349,13 @@ Replay::getLastLog(seq_t& last)
         KFS_LOG_EOM;
         return -EINVAL;
     }
-    if (last > 0 && file_exists(oplog.logfile(last - 1))) {
+    if (last > 0 && file_exists(logfile(last - 1))) {
         // Start search from the previous, as checkpoint might
         // point to the current one.
         last--;
     }
     for ( ; ; last++) {
-        const string logfn = oplog.logfile(last);
+        const string logfn = logfile(last);
         struct stat st = {0};
         if (stat(logfn.c_str(), &st)) {
             const int err = errno;

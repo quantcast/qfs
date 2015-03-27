@@ -28,7 +28,7 @@
 #include "NetDispatch.h"
 #include "ChunkServer.h"
 #include "LayoutManager.h"
-#include "Logger.h"
+#include "LogWriter.h"
 #include "Checkpoint.h"
 #include "kfstree.h"
 #include "Replay.h"
@@ -180,6 +180,7 @@ public:
             return;
         }
         mSetParametersFlag = false;
+        mProperties.clear();
         const int res = mProperties.loadProperties(
             mFileName.c_str(), (char)'=');
         KFS_LOG_STREAM_INFO <<
@@ -215,9 +216,9 @@ private:
           mIsPathToFidCacheEnabled(false),
           mStartupAbortOnPanicFlag(false),
           mAbortOnPanicFlag(true),
-          mLogRotateIntervalSec(600),
           mMaxLockedMemorySize(0),
-          mMaxFdLimit(-1)
+          mMaxFdLimit(-1),
+          mLogWriterRunningFlag(false)
         {}
     ~MetaServer()
     {
@@ -269,6 +270,10 @@ private:
             cerr << "invalid properties file: " << mFileName <<  "\n";
             return false;
         }
+        mLogDir = mStartupProperties.getValue("metaServer.logDir", mLogDir);
+        const char* kNewLogDirPropName = "metaserver.log.logDir";
+        mLogDir = mStartupProperties.getValue(kNewLogDirPropName, mLogDir);
+        mStartupProperties.setValue(kNewLogDirPropName, mLogDir);
         return Startup(mStartupProperties, createEmptyFsFlag);
     }
     bool Startup(const Properties& props, bool createEmptyFsFlag);
@@ -325,9 +330,9 @@ private:
     bool           mIsPathToFidCacheEnabled;
     bool           mStartupAbortOnPanicFlag;
     bool           mAbortOnPanicFlag;
-    int            mLogRotateIntervalSec;
     int64_t        mMaxLockedMemorySize;
     int            mMaxFdLimit;
+    bool           mLogWriterRunningFlag;
 
     static MetaServer sInstance;
 } MetaServer::sInstance;
@@ -368,19 +373,19 @@ MetaServer::SetParameters(const Properties& props)
         KFS_LOG_STREAM_INFO << "Enabling WORM mode" << KFS_LOG_EOM;
         setWORMMode(wormMode);
     }
-
-    mLogRotateIntervalSec = max(3,
-        props.getValue("metaServer.logRotateInterval",
-            mLogRotateIntervalSec));
-
-    logger_set_rotate_interval(mLogRotateIntervalSec);
-    oplog.SetParameters("metaserver.log.", props);
-
     string chunkmapDumpDir = props.getValue("metaServer.chunkmapDumpDir", ".");
     setChunkmapDumpDir(chunkmapDumpDir);
     metatree.setUpdatePathSpaceUsage(props.getValue(
         "metaServer.updateDirSizes",
         metatree.getUpdatePathSpaceUsageFlag() ? 1 : 0) != 0);
+
+    if (mLogWriterRunningFlag) {
+        MetaLogWriterControl* const op = new MetaLogWriterControl(
+            MetaLogWriterControl::kSetParameters);
+        op->paramsPrefix = "metaserver.log.";
+        props.copyWithPrefix(op->paramsPrefix, op->params);
+        submit_request(op);
+    }
 }
 
 ///
@@ -484,8 +489,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         mChunkServerListenerLocation <<
         (mChunkServerListenerIpV6OnlyFlag ? " ipv6 only" : "") <<
     KFS_LOG_EOM;
-    mLogDir = props.getValue("metaServer.logDir", mLogDir);
-    mCPDir = props.getValue("metaServer.cpDir", mCPDir);
+    mCPDir  = props.getValue("metaServer.cpDir", mCPDir);
     // By default, path->fid cache is disabled.
     mIsPathToFidCacheEnabled = props.getValue("metaServer.enablePathToFidCache",
         mIsPathToFidCacheEnabled ? 1 : 0) != 0;
@@ -566,6 +570,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         KFS_LOG_EOM;
     }
     gLayoutManager.Shutdown();
+    MetaRequest::GetLogWriter().Shutdown();
     return okFlag;
 }
 
@@ -659,7 +664,6 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     const bool updateSpaceUsageFlag =
         metatree.getUpdatePathSpaceUsageFlag();
     metatree.setUpdatePathSpaceUsage(false);
-    logger_setup_paths(mLogDir);
     checkpointer_setup_paths(mCPDir);
 
     const char* const pidFileName = mStartupProperties.getValue(
@@ -697,6 +701,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    bool writeCheckpointFlag = false;
     if (! createEmptyFsFlag &&
             (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
         // Init fs id if needed, leave create time 0, restorer will set these
@@ -722,6 +727,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         );
         makeDumpsterDir();
         rollChunkIdSeedFlag = false;
+        writeCheckpointFlag = true;
     }
     if (status != 0) {
         KFS_LOG_STREAM_FATAL << "checkpoint load failed: " <<
@@ -755,8 +761,31 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     if (mIsPathToFidCacheEnabled) {
         metatree.enablePathToFidCache();
     }
-    logger_init(mLogRotateIntervalSec);
-    if ((status = checkpointer_init()) != 0) {
+    string logFileName;
+    MdStateCtx mds = replayer.getMdState();
+    if ((status = MetaRequest::GetLogWriter().Start(
+            globalNetManager(),
+            replayer.getLogNum(),
+            replayer.getCommitted(),
+            replayer.getCommitted(),
+            fileID.getseed(),
+            replayer.getErrChksum(),
+            replayer.getLastCommittedStatus(),
+            replayer.getAppendToLastLogFlag() ? &mds : (MdStateCtx*)0,
+            16 == replayer.getLastLogIntBase(),
+            "metaServer.log.",
+            mStartupProperties,
+            logFileName)) != 0) {
+        KFS_LOG_STREAM_FATAL <<
+            "transaction log writer initialization failure: " <<
+            QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    mLogWriterRunningFlag = true;
+    if (writeCheckpointFlag &&
+            (status = cp.write(logFileName,
+                replayer.getCommitted(), replayer.getErrChksum())) != 0) {
         KFS_LOG_STREAM_FATAL << "checkpoint initialization failure: " <<
             QCUtils::SysError(-status) <<
         KFS_LOG_EOM;

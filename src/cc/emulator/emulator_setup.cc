@@ -35,7 +35,6 @@
 #include "meta/Checkpoint.h"
 #include "meta/Replay.h"
 #include "meta/Restorer.h"
-#include "meta/Logger.h"
 #include "meta/util.h"
 #include "common/MsgLogger.h"
 
@@ -54,7 +53,6 @@ EmulatorSetup(
     int16_t  minReplicasPerFile,
     bool     addChunksToReplicationChecker)
 {
-    logger_setup_paths(logdir);
     checkpointer_setup_paths(cpdir);
 
     KFS_LOG_STREAM_INFO << "restoring from checkpoint: " << LASTCP <<

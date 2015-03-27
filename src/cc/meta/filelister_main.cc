@@ -27,7 +27,6 @@
 //----------------------------------------------------------------------------
 
 #include "kfstree.h"
-#include "Logger.h"
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
@@ -36,6 +35,7 @@
 #include "common/MsgLogger.h"
 
 #include <iostream>
+#include <fstream>
 #include <cassert>
 
 namespace KFS
@@ -44,6 +44,7 @@ using std::cout;
 using std::cerr;
 using std::set;
 using std::istringstream;
+using std::ofstream;
 
 static int
 RestoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
@@ -122,8 +123,6 @@ FileListerMain(int argc, char **argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    logger_setup_paths(logdir);
-    checkpointer_setup_paths(cpdir);
     if ((status = RestoreCheckpoint(lockfn, allowEmptyCheckpointFlag)) == 0 &&
             (status = replayer.playLogs()) == 0) {
         if (pathFn == "-") {

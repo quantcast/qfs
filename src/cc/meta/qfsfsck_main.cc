@@ -29,7 +29,6 @@
 //----------------------------------------------------------------------------
 
 #include "kfstree.h"
-#include "Logger.h"
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
@@ -198,7 +197,6 @@ FsckMain(int argc, char** argv)
     }
     if (ok && (! logdir.empty() || ! cpdir.empty())) {
         metatree.disableFidToPathname();
-        logger_setup_paths(logdir);
         checkpointer_setup_paths(cpdir);
         ok =
             restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&

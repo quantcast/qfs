@@ -56,32 +56,26 @@ public:
     static const int VERSION = 1;
     Checkpoint(const string& d = string())
         : cpdir(d),
-          cpname(),
-          mutations(0),
-          cpcount(0),
           writesync(true),
-          writebuffersize(16 << 20)
+          writebuffersize(16 << 20),
+          cpname()
         {}
     void setCPDir(const string& d)
         { cpdir = d; }
     const string name() const { return cpname; }
-    //!< return true if a CP will be taken
-    bool isCPNeeded() { return mutations != 0; }
-    int initial_CP();  //!< schedule a checkpoint on startup if needed
-    int do_CP();        //!< do the actual work
-    void note_mutation() { ++mutations; }
-    void resetMutationCount() { mutations = 0; }
+    int write(
+        const string& logname,
+        seq_t         committedseq,
+        int64_t       errchksum);        //!< do the actual work
     bool getWriteSyncFlag() const { return writesync; }
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
     void setWriteBufferSize(size_t size) { writebuffersize = size; }
 private:
     string  cpdir;       //!< dir for CP files
-    string  cpname;      //!< name of CP file
-    int64_t mutations;   //!< changes since last CP
-    int64_t cpcount;     //!< number of CP's since startup
     bool    writesync;
     size_t  writebuffersize;
+    string  cpname;
 
     string cpfile(seq_t highest)    //!< generate the next file name
         { return makename(cpdir, "chkpt", highest); }
@@ -92,12 +86,11 @@ private:
     Checkpoint& operator=(const Checkpoint&);
 };
 
-extern string CPDIR;        //!< directory for CP files
-extern string LASTCP;       //!< most recent CP file (link)
+extern const string& CPDIR;        //!< directory for CP files
+extern const string& LASTCP;       //!< most recent CP file (link)
 
 extern Checkpoint cp;
 extern void checkpointer_setup_paths(const string &cpdir);
-extern int checkpointer_init();
 
 }
 

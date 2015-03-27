@@ -31,7 +31,6 @@
 #include <sys/wait.h>
 
 #include "MetaRequest.h"
-#include "Logger.h"
 #include "ChildProcessTracker.h"
 #include "kfsio/Globals.h"
 #include "common/MsgLogger.h"

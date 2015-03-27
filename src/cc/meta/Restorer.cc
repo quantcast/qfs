@@ -24,12 +24,8 @@
  * permissions and limitations under the License.
  */
 
-#include <fcntl.h>
-#include <cerrno>
-#include <cstring>
 #include "Restorer.h"
 #include "util.h"
-#include "Logger.h"
 #include "meta.h"
 #include "kfstree.h"
 #include "Replay.h"
@@ -38,16 +34,24 @@
 #include "Checkpoint.h"
 #include "LayoutManager.h"
 #include "NetDispatch.h"
+
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
+
 #include "qcdio/QCUtils.h"
+
+#include <fcntl.h>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
 
 namespace KFS
 {
 using std::cerr;
 using std::string;
+using std::ofstream;
 
-static int16_t minReplicasPerFile = 0;
+static int16_t   minReplicasPerFile = 0;
 
 static bool
 checkpoint_seq(DETokenizer& c)
@@ -60,14 +64,14 @@ checkpoint_seq(DETokenizer& c)
     if (highest < 0 || ! c.isLastOk()) {
         return false;
     }
-    oplog.set_seqno(highest);
+    replayer.setCommitted(highest);
     c.pop_front();
     if (! c.empty()) {
         const int64_t chksum = c.toNumber();
         if (! c.isLastOk()) {
             return false;
         }
-        oplog.setErrChksum(chksum);
+        replayer.setErrChksum(chksum);
     }
     return true;
 }

@@ -25,6 +25,9 @@
 #if !defined(KFS_REPLAY_H)
 #define KFS_REPLAY_H
 
+#include "common/kfstypes.h"
+#include "common/MdStream.h"
+
 #include <string>
 #include <fstream>
 
@@ -43,7 +46,13 @@ public:
           lastLogNum(-1),
           lastLogIntBase(-1),
           appendToLastLogFlag(false),
-          rollSeeds(0)
+          committed(0),
+          errChecksum(0),
+          rollSeeds(0),
+          lastCommittedStatus(0),
+          tmplogprefixlen(0),
+          tmplongname(),
+          mds()
         {}
     ~Replay()
         {}
@@ -64,6 +73,29 @@ public:
     int getLastLogIntBase() const { return lastLogIntBase; }
     inline void setRollSeeds(int64_t roll);
     int64_t getRollSeeds() const { return rollSeeds; }
+    int64_t getErrChksum() const
+        { return errChecksum; }
+    seq_t getCommitted() const
+        { return committed; }
+    void setErrChksum(int64_t sum)
+        { errChecksum = sum; }
+    void setCommitted(seq_t seq)
+        { committed = seq; }
+    string getCurLog() const
+        { return path; }
+    string getLastLogName() const
+    {
+        if (0 <= lastLogNum) {
+            return const_cast<Replay*>(this)->logfile(lastLogNum);
+        }
+        return string();
+    }
+    int getLastCommittedStatus() const
+        { return lastCommittedStatus; }
+    MdStateCtx getMdState() const
+        { return mds.GetMdState(); }
+    seq_t getLogNum() const
+        { return number; }
 private:
     ifstream file;   //!< the log file being replayed
     string   path;   //!< path name for log file
@@ -71,11 +103,19 @@ private:
     seq_t    lastLogNum;
     int      lastLogIntBase;
     bool     appendToLastLogFlag;
+    seq_t    committed;
+    int64_t  errChecksum;
     int64_t  rollSeeds;
+    int      lastCommittedStatus;
+    size_t   tmplogprefixlen;
+    string   tmplongname;
+    MdStream mds;
 
     int playLogs(seq_t lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
     int getLastLog(seq_t& lastlog);
+    const string& logfile(seq_t num);
+    string getLastLog();
 private:
     // No copy.
     Replay(const Replay&);

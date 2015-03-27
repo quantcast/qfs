@@ -26,8 +26,11 @@
 
 #include "common/kfstypes.h"
 
+#include <string>
+
 namespace KFS
 {
+using std::string;
 
 struct MetaRequest;
 class Properties;
@@ -43,6 +46,7 @@ public:
     ~LogWriter();
     int Start(
         NetManager&       inNetManager,
+        seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,
         fid_t             inCommittedFidSeed,
@@ -51,12 +55,19 @@ public:
         const MdStateCtx* inLogAppendMdStatePtr,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        string&           outCurLogFileName);
     void Enqueue(
         MetaRequest& inRequest);
     void Committed(
         MetaRequest& inRequest,
         fid_t        inFidSeed);
+    void GetCommitted(
+        seq_t&   outLogSeq,
+        int64_t& outErrChecksum,
+        fid_t&   outFidSeed,
+        int&     outStatus) const;
+    seq_t GetCommittedLogSeq() const;
     void ScheduleFlush();
     void Shutdown();
 private:

@@ -164,6 +164,7 @@ enum MetaOp {
 
 class ChunkServer;
 class ClientSM;
+class LogWriter;
 typedef boost::shared_ptr<ChunkServer> ChunkServerPtr;
 typedef DynamicArray<chunkId_t, 8> ChunkIdQueue;
 typedef ReqOstreamT<ostream> ReqOstream;
@@ -357,6 +358,8 @@ struct MetaRequest {
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
+    static LogWriter& GetLogWriter()
+        { return sLogWriter; }
     void Submit();
 protected:
     virtual void response(ReqOstream& /* os */) {}
@@ -368,6 +371,7 @@ private:
     MetaRequest* mPrevPtr[1];
     MetaRequest* mNextPtr[1];
 
+    static LogWriter&         sLogWriter;
     static bool               sRequireHeaderChecksumFlag;
     static bool               sVerifyHeaderChecksumFlag;
     static int                sMetaRequestCount;
@@ -2952,6 +2956,8 @@ private:
     int64_t  systemCpuMicroSec;
 };
 
+struct MetaLogWriterControl;
+
 struct MetaCheckpoint : public MetaRequest {
     MetaCheckpoint(seq_t s, KfsCallbackObj* c)
         : MetaRequest(META_CHECKPOINT, kLogNever, s),
@@ -2966,7 +2972,8 @@ struct MetaCheckpoint : public MetaRequest {
           checkpointWriteBufferSize(16 << 20),
           lastCheckpointId(-1),
           runningCheckpointId(-1),
-          lastRun(0)
+          lastRun(0),
+          finishLog(0)
         { clnt = c; }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
@@ -2976,18 +2983,19 @@ struct MetaCheckpoint : public MetaRequest {
     void SetParameters(const Properties& props);
     void ScheduleNow();
 private:
-    string lockFileName;
-    int    lockFd;
-    int    intervalSec;
-    int    pid;
-    int    failedCount;
-    int    maxFailedCount;
-    int    checkpointWriteTimeoutSec;
-    bool   checkpointWriteSyncFlag;
-    size_t checkpointWriteBufferSize;
-    seq_t  lastCheckpointId;
-    seq_t  runningCheckpointId;
-    time_t lastRun;
+    string                lockFileName;
+    int                   lockFd;
+    int                   intervalSec;
+    int                   pid;
+    int                   failedCount;
+    int                   maxFailedCount;
+    int                   checkpointWriteTimeoutSec;
+    bool                  checkpointWriteSyncFlag;
+    size_t                checkpointWriteBufferSize;
+    seq_t                 lastCheckpointId;
+    seq_t                 runningCheckpointId;
+    time_t                lastRun;
+    MetaLogWriterControl* finishLog;
 };
 
 /*!
@@ -3653,21 +3661,33 @@ struct MetaLogWriterControl : public MetaRequest {
         kNewLog,
         kSetParameters
     };
-    Type       type;
-    seq_t      committed;
-    Properties params;
-    string     paramsPrefix;
+    Type               type;
+    seq_t              committed;
+    seq_t              lastLogSeq;
+    Properties         params;
+    string             paramsPrefix;
+    string             logName;
+    MetaRequest* const completion;
 
     MetaLogWriterControl(
-        Type t = kNop)
+        Type         t = kNop,
+        MetaRequest* c = 0)
         : MetaRequest(META_LOG_WRITER_CONTROL, kLogAlways),
           type(t),
           committed(-1),
+          lastLogSeq(-1),
           params(),
-          paramsPrefix()
+          paramsPrefix(),
+          logName(),
+          completion(c)
         {}
     virtual bool start()  { return true; }
-    virtual void handle() {}
+    virtual void handle()
+    {
+        if (completion) {
+            completion->handle();
+        }
+    }
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os << "log writer control:");

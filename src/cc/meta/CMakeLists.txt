@@ -35,7 +35,6 @@ set (lib_srcs
     kfsops.cc
     kfstree.cc
     LayoutManager.cc
-    Logger.cc
     meta.cc
     MetaRequest.cc
     NetDispatch.cc

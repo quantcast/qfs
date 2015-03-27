@@ -56,7 +56,6 @@ public:
         : ITimeout(),
           QCRunnable(),
           mNetManagerPtr(0),
-          mHasPendingFlag(false),
           mNextSeq(-1),
           mMaxDoneSeq(-1),
           mMaxDoneLogSeq(-1),
@@ -85,6 +84,7 @@ public:
           mReqOstream(mMdStream),
           mCurLogStartTime(-1),
           mCurLogStartSeq(-1),
+          mLogNum(0),
           mLogName(),
           mWriteState(kWriteStateNone),
           mLogRotateInterval(600 * 1000 * 1000),
@@ -98,6 +98,7 @@ public:
         { Impl::Shutdown(); }
     int Start(
         NetManager&       inNetManager,
+        seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,
         fid_t             inCommittedFidSeed,
@@ -106,11 +107,14 @@ public:
         const MdStateCtx* inLogAppendMdStatePtr,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        string&           outCurLogFileName)
     {
-        if (inLogSeq < 0 && (mThread.IsStarted() || mNetManagerPtr)) {
+        if (inLogNum < 0 || inLogSeq < 0 ||
+                (mThread.IsStarted() || mNetManagerPtr)) {
             return -EINVAL;
         }
+        mLogNum = inLogNum;
         SetParameters(inParametersPrefixPtr, inParameters);
         mMdStream.Reset(this);
         mCurLogStartTime = microseconds();
@@ -128,7 +132,7 @@ public:
                 close(mLogFd);
             }
             mError = 0;
-            if ((mLogFd = open(mLogName.c_str(), O_WRONLY)) < 0) {
+            if ((mLogFd = open(mLogName.c_str(), O_WRONLY, 0666)) < 0) {
                 IoError(errno);
                 return mError;
             }
@@ -158,6 +162,7 @@ public:
                 return mError;
             }
         }
+        outCurLogFileName     = mLogName;
         mCommitted.mErrChkSum = inCommittedErrCheckSum;
         mCommitted.mSeq       = inCommittedLogSeq;
         mCommitted.mFidSeed   = inCommittedFidSeed;
@@ -173,7 +178,7 @@ public:
     void Enqueue(
         MetaRequest& inRequest)
     {
-        inRequest.logseq = ++mNextSeq;
+        inRequest.seqno = ++mNextSeq;
         if (mStopFlag) {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log writer stopped";
@@ -181,20 +186,22 @@ public:
             return;
         }
         inRequest.next = 0;
-        if (! mHasPendingFlag &&
+        if (mMaxDoneSeq + 1 == inRequest.seqno &&
                 (MetaRequest::kLogNever == inRequest.logAction ||
                 (MetaRequest::kLogIfOk == inRequest.logAction &&
                     0 != inRequest.status))) {
+            mMaxDoneSeq = inRequest.seqno;
             submit_request(&inRequest);
             return;
         }
-        mHasPendingFlag = true;
         if (mPendingQueueHeadPtr) {
             mPendingQueueTailPtr->next = &inRequest;
         } else {
             mPendingQueueHeadPtr = &inRequest;
             mPendingQueueTailPtr = &inRequest;
         }
+        // FIXME:
+        ScheduleFlush();
     }
     void RequestCommitted(
         MetaRequest& inRequest,
@@ -214,12 +221,24 @@ public:
         mCommitted.mFidSeed   = inFidSeed;
         mCommitted.mStatus    = theStatus;
     }
+    seq_t GetCommittedLogSeq() const
+        { return mCommitted.mSeq; }
+    void GetCommitted(
+        seq_t&   outLogSeq,
+        int64_t& outErrChecksum,
+        fid_t&   outFidSeed,
+        int&     outStatus) const
+    {
+        outLogSeq      = mCommitted.mSeq;
+        outErrChecksum = mCommitted.mErrChkSum;
+        outFidSeed     = mCommitted.mFidSeed;
+        outStatus      = mCommitted.mStatus;
+    }
     void ScheduleFlush()
     {
         if (! mPendingQueueHeadPtr) {
             return;
         }
-        mHasPendingFlag = true;
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
         if (mInQueueTailPtr) {
@@ -238,7 +257,7 @@ public:
             return;
         }
         QCStMutexLocker theLock(mMutex);
-        mStopFlag = false;
+        mStopFlag = true;
         mCond.Notify();
         theLock.Unlock();
         mThread.Join();
@@ -271,7 +290,6 @@ private:
     };
 
     NetManager*  mNetManagerPtr;
-    bool         mHasPendingFlag;
     seq_t        mNextSeq;
     seq_t        mMaxDoneSeq;
     seq_t        mMaxDoneLogSeq;
@@ -300,6 +318,7 @@ private:
     ReqOstream   mReqOstream;
     int64_t      mCurLogStartTime;
     seq_t        mCurLogStartSeq;
+    seq_t        mLogNum;
     string       mLogName;
     WriteState   mWriteState;
     int64_t      mLogRotateInterval;
@@ -312,9 +331,8 @@ private:
     virtual void Timeout()
     {
         MetaRequest* theDoneHeadPtr = 0;
-        if (mHasPendingFlag) {
+        if (mMaxDoneSeq < mNextSeq) {
             QCStMutexLocker theLock(mMutex);
-            mHasPendingFlag = mInQueueHeadPtr != 0 || mPendingQueueHeadPtr != 0;
             theDoneHeadPtr  = mOutQueueHeadPtr;
             mOutQueueHeadPtr = 0;
             mOutQueueTailPtr = 0;
@@ -323,7 +341,7 @@ private:
             MetaRequest& theReq = *theDoneHeadPtr;
             theDoneHeadPtr = theReq.next;
             theReq.next = 0;
-            if (theReq.seqno <= mMaxDoneLogSeq) {
+            if (theReq.seqno <= mMaxDoneSeq) {
                 panic("log writer: invalid sequence number");
             }
             if (0 <= theReq.logseq) {
@@ -332,7 +350,7 @@ private:
                 }
                 mMaxDoneLogSeq = theReq.logseq;
             }
-            mMaxDoneLogSeq = theReq.seqno;
+            mMaxDoneSeq = theReq.seqno;
             submit_request(&theReq);
         }
     }
@@ -401,7 +419,7 @@ private:
                 }
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
-            if (IsLogStreamGood()) {
+            if (mNextLogSeq < mLastLogSeq && IsLogStreamGood()) {
                 FlushBlock(mLastLogSeq);
             }
             if (IsLogStreamGood()) {
@@ -435,7 +453,7 @@ private:
     void FlushBlock(
         seq_t inLogSeq)
     {
-        mReqOstream << "c/"
+        mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
             "/" << mInFlightCommitted.mFidSeed <<
             "/" << mInFlightCommitted.mErrChkSum <<
@@ -473,7 +491,7 @@ private:
         }
         KFS_LOG_STREAM_ERROR <<
             (inMsgPtr ? inMsgPtr : "transaction log writer error:") <<
-             " " << mLogName << ": " <<QCUtils::SysError(inError) <<
+             " " << mLogName << ": " << QCUtils::SysError(inError) <<
         KFS_LOG_EOM;
         if (mPanicOnIoErrorFlag) {
             panic("transaction log io failure");
@@ -487,7 +505,8 @@ private:
         MetaLogWriterControl& inRequest,
         seq_t                 inLogSeq)
     {
-        inRequest.committed = inLogSeq;
+        inRequest.committed  = mInFlightCommitted.mSeq;
+        inRequest.lastLogSeq = mLastLogSeq;
         switch (inRequest.type) {
             default:
             case MetaLogWriterControl::kNop:
@@ -495,6 +514,8 @@ private:
             case MetaLogWriterControl::kNewLog:
                 CloseLog();
                 NewLog(inLogSeq + 1);
+                inRequest.logName = mLogName;
+                inRequest.status  = mError;
                 break;
             case MetaLogWriterControl::kSetParameters:
                 return SetParameters(
@@ -526,6 +547,7 @@ private:
         if (0 <= mLogFd && close(mLogFd)) {
             IoError(errno);
         }
+        ++mLogNum;
     }
     void NewLog(
         seq_t inLogSeq)
@@ -537,7 +559,7 @@ private:
         mWriteState = kWriteStateNone;
         SetLogName(inLogSeq);
         if ((mLogFd = open(
-                mLogName.c_str(), O_CREAT | O_TRUNC | O_WRONLY)) < 0) {
+                mLogName.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666)) < 0) {
             IoError(errno);
             return;
         }
@@ -550,12 +572,14 @@ private:
             "time/" << DisplayIsoDateTime() << '\n'
         ;
         mMdStream.setf(ostream::hex);
+        mMdStream.flush();
+        Sync();
     }
     void SetLogName(
         seq_t inLogSeq)
     {
         mCurLogStartSeq = inLogSeq;
-        mLogName        = makename(mLogDir, mLogFileNamePrefix, inLogSeq);
+        mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
     }
     bool SetParameters(
         const char*       inParametersPrefixPtr,
@@ -609,7 +633,8 @@ private:
             mWriteState    = kWriteStateNone;
             mBlockChecksum = kKfsNullChecksum;
         } else {
-            mBlockChecksum = ComputeBlockChecksum(mBlockChecksum, inBufPtr, inSize);
+            mBlockChecksum = ComputeBlockChecksum(
+                mBlockChecksum, inBufPtr, inSize);
             if (mWriteState == kAppendBlockChecksum) {
                 mWriteState = kWriteBlockChecksum;
                 mReqOstream << mBlockChecksum;
@@ -653,6 +678,7 @@ LogWriter::~LogWriter()
     int
 LogWriter::Start(
     NetManager&       inNetManager,
+    seq_t             inLogNum,
     seq_t             inLogSeq,
     seq_t             inCommittedLogSeq,
     fid_t             inCommittedFidSeed,
@@ -661,10 +687,12 @@ LogWriter::Start(
     const MdStateCtx* inLogAppendMdStatePtr,
     bool              inLogAppendHexFlag,
     const char*       inParametersPrefixPtr,
-    const Properties& inParameters)
+    const Properties& inParameters,
+    string&           outCurLogFileName)
 {
     return mImpl.Start(
         inNetManager,
+        inLogNum,
         inLogSeq,
         inCommittedLogSeq,
         inCommittedFidSeed,
@@ -673,7 +701,8 @@ LogWriter::Start(
         inLogAppendMdStatePtr,
         inLogAppendHexFlag,
         inParametersPrefixPtr,
-        inParameters
+        inParameters,
+        outCurLogFileName
     );
 }
 
@@ -690,6 +719,27 @@ LogWriter::Committed(
     fid_t        inFidSeed)
 {
     mImpl.RequestCommitted(inRequest, inFidSeed);
+}
+
+    void
+LogWriter::GetCommitted(
+    seq_t&   outLogSeq,
+    int64_t& outErrChecksum,
+    fid_t&   outFidSeed,
+    int&     outStatus) const
+{
+    mImpl.GetCommitted(
+        outLogSeq,
+        outErrChecksum,
+        outFidSeed,
+        outStatus
+    );
+}
+
+    seq_t
+LogWriter::GetCommittedLogSeq() const
+{
+    return mImpl.GetCommittedLogSeq();
 }
 
     void

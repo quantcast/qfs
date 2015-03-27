@@ -34,7 +34,6 @@
 //----------------------------------------------------------------------------
 
 #include "kfstree.h"
-#include "Logger.h"
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
@@ -120,18 +119,21 @@ LogCompactorMain(int argc, char** argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    logger_setup_paths(logdir);
     checkpointer_setup_paths(cpdir);
     if ((status = RestoreCheckpoint(lockFn, allowEmptyCheckpointFlag)) == 0) {
-        const seq_t lastcp = oplog.checkpointed();
+        const seq_t cplognum = replayer.getLogNum();
         if ((status = replayer.playLogs()) == 0) {
             metatree.recomputeDirSize();
             if (numReplicasPerFile > 0) {
                 metatree.changePathReplication(ROOTFID, numReplicasPerFile,
                     kKfsSTierUndef, kKfsSTierUndef);
         }
-            if (numReplicasPerFile > 0 || lastcp != oplog.checkpointed()) {
-                status = cp.do_CP();
+            if (numReplicasPerFile > 0 || cplognum != replayer.getLogNum()) {
+                status = cp.write(
+                    replayer.getLastLogName(),
+                    replayer.getCommitted(),
+                    replayer.getErrChksum()
+                );
             }
         }
     }

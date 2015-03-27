@@ -31,7 +31,7 @@
 #include "NetDispatch.h"
 #include "LayoutManager.h"
 #include "ClientSM.h"
-#include "Logger.h"
+#include "LogWriter.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -1059,6 +1059,7 @@ MainThreadPrepareToFork::DispatchStart()
 /* virtual */ void
 MainThreadPrepareToFork::DispatchEnd()
 {
+    MetaRequest::GetLogWriter().ScheduleFlush();
     mClientManager.ForkDone();
 }
 
@@ -1228,7 +1229,7 @@ public:
         CheckIfIoBuffersAvailable();
     }
     virtual void DispatchEnd()
-        {}
+        { MetaRequest::GetLogWriter().ScheduleFlush(); }
     virtual void DispatchExit()
         {}
     void Enqueue(MetaRequest& op)
