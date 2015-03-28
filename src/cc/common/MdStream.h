@@ -252,12 +252,12 @@ protected:
             setstate(failbit);
             theRet = -1;
         }
+        mCurPtr = mBufferPtr;
         if (mStreamPtr) {
             if (! mStreamPtr->write(mBufferPtr, theSize)) {
                 setstate(failbit);
             }
         }
-        mCurPtr = mBufferPtr;
         return theRet;
     }
     void InitMd()
