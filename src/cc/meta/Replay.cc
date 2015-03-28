@@ -1232,6 +1232,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         committed      = sLastLogAheadSeq;
         errChecksum    = sLogAheadErrChksum;
         lastLogIntBase = tokenizer.getIntBase();
+        mds.SetStream(0);
     }
     file.close();
     return status;

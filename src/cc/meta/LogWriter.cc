@@ -114,8 +114,8 @@ public:
         mLogNum = inLogNum;
         SetParameters(inParametersPrefixPtr, inParameters);
         mMdStream.Reset(this);
-        mCurLogStartTime = microseconds();
         if (inLogAppendMdStatePtr) {
+            mCurLogStartTime = microseconds();
             SetLogName(inLogSeq);
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
             if (! mMdStream) {
@@ -148,9 +148,10 @@ public:
             }
             KFS_LOG_STREAM_INFO <<
                 "log append:" <<
-                " hex: "  << inLogAppendHexFlag <<
-                " file: " << mLogName <<
-                " size: " << theSize <<
+                " hex: "      << inLogAppendHexFlag <<
+                " file: "     << mLogName <<
+                " size: "     << theSize <<
+                " checksum: " << mMdStream.GetMd() <<
             KFS_LOG_EOM;
             mMdStream.setf(inLogAppendHexFlag ? ostream::hex : ostream::dec);
         } else {
@@ -311,8 +312,7 @@ private:
     enum WriteState
     {
         kWriteStateNone,
-        kAppendBlockChecksum,
-        kWriteBlockChecksum
+        kUpdateBlockChecksum
     };
 
     NetManager*  mNetManagerPtr;
@@ -396,10 +396,21 @@ private:
             mOutQueue.PushBack(theWriteQueue);
             mNetManagerPtr->Wakeup();
         }
+        Sync();
+        if (0 <= mLogFd && close(mLogFd)) {
+            IoError(-errno);
+        }
     }
     void Write(
         MetaRequest& inHead)
     {
+        if (! IsLogStreamGood()) {
+            if (mCurLogStartSeq < mNextLogSeq) {
+                StartNextLog();
+            } else {
+                NewLog(mNextLogSeq);
+            }
+        }
         ostream&     theStream = mMdStream;
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
@@ -459,12 +470,17 @@ private:
             }
             theCurPtr = theEndPtr;
         }
-        if (mCurLogStartSeq <= mNextLogSeq && IsLogStreamGood() &&
+        if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
                 mCurLogStartTime + mLogRotateInterval <
                 microseconds()) {
-            CloseLog();
-            NewLog(mNextLogSeq + 1);
+            StartNextLog();
         }
+    }
+    void StartNextLog()
+    {
+        CloseLog();
+        mLogNum++;
+        NewLog(mLastLogSeq);
     }
     void LogError(
         MetaRequest& inReq)
@@ -474,6 +490,11 @@ private:
         inReq.status            = -EIO;
         inReq.statusMsg         = "transaction log write error";
     }
+    void StartBlock()
+    {
+        mWriteState    = kUpdateBlockChecksum;
+        mBlockChecksum = kKfsNullChecksum;
+    }
     void FlushBlock(
         seq_t inLogSeq)
     {
@@ -482,17 +503,13 @@ private:
             "/" << mInFlightCommitted.mFidSeed <<
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
-            "/" << inLogSeq
+            "/" << inLogSeq <<
+            "/"
         ;
-        mWriteState = kAppendBlockChecksum;
-        mReqOstream.write("/", 1);
-        if (kWriteStateNone != mWriteState) {
-            mReqOstream.flush();
-            if (kWriteStateNone != mWriteState) {
-                panic("log writer flush block: invalid write state");
-            }
-        }
+        mWriteState = kWriteStateNone;
+        mReqOstream << mBlockChecksum << "\n";
         Sync();
+        StartBlock();
     }
     void Sync()
     {
@@ -536,8 +553,7 @@ private:
             case MetaLogWriterControl::kNop:
                 return false;
             case MetaLogWriterControl::kNewLog:
-                CloseLog();
-                NewLog(inLogSeq + 1);
+                StartNextLog();
                 inRequest.logName = mLogName;
                 inRequest.status  = mError;
                 break;
@@ -550,31 +566,32 @@ private:
     }
     void CloseLog()
     {
+        const seq_t kLogTrailerRecCount = 2;
         if (IsLogStreamGood()) {
-            if (kWriteStateNone != mWriteState) {
-                panic("log writer: close log invalid state");
-            }
             if (mLastLogSeq != mNextLogSeq) {
                 FlushBlock(mLastLogSeq);
                 if (! IsLogStreamGood()) {
-                    mLastLogSeq = mNextLogSeq;
+                    mLastLogSeq = mNextLogSeq + kLogTrailerRecCount;
                     return;
                 }
             }
-            mMdStream << "time/" << DisplayIsoDateTime() << '\n';
+            mWriteState = kWriteStateNone;
+            mMdStream << "time/" << DisplayIsoDateTime() << "\n";
             const string theChecksum = mMdStream.GetMd();
-            mMdStream << "checksum/" << theChecksum << '\n';
+            mMdStream << "checksum/" << theChecksum << "\n";
+            mMdStream.flush();
+            mLastLogSeq += kLogTrailerRecCount;
+        } else {
+            mLastLogSeq = mNextLogSeq + kLogTrailerRecCount;
         }
         Sync();
-        if (0 <= mLogFd && close(mLogFd)) {
-            IoError(errno);
-        } else {
-            mLastLogSeq += 2;
-            if (link_latest(mLogName, mLastLogPath)) {
+        if (0 <= mLogFd) {
+            if (close(mLogFd)) {
+                IoError(errno);
+            } else if (link_latest(mLogName, mLastLogPath)) {
                 IoError(errno, "failed to link to: " + mLastLogPath);
             }
         }
-        ++mLogNum;
     }
     void NewLog(
         seq_t inLogSeq)
@@ -582,8 +599,9 @@ private:
         if (0 <= mLogFd) {
             close(mLogFd);
         }
-        mError      = 0;
-        mWriteState = kWriteStateNone;
+        mCurLogStartTime = microseconds();
+        mError           = 0;
+        mWriteState      = kWriteStateNone;
         SetLogName(inLogSeq);
         if ((mLogFd = open(
                 mLogName.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666)) < 0) {
@@ -593,23 +611,25 @@ private:
         mMdStream.Reset(this);
         mMdStream.setf(ostream::dec);
         mMdStream <<
-            "version/" << LogWriter::VERSION << "\n"
+            "version/" << int(LogWriter::VERSION) << "\n"
             "checksum/last-line\n"
             "setintbase/16\n"
-            "time/" << DisplayIsoDateTime() << '\n'
+            "time/" << DisplayIsoDateTime() << "\n"
         ;
         mMdStream.setf(ostream::hex);
         mMdStream.flush();
         Sync();
         if (IsLogStreamGood()) {
             mLastLogSeq += 4;
+            mNextLogSeq = mLastLogSeq;
+            StartBlock();
         }
     }
     void SetLogName(
         seq_t inLogSeq)
     {
         mCurLogStartSeq = inLogSeq;
-        mNextLogSeq     = inLogSeq - 1;
+        mNextLogSeq     = inLogSeq;
         mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
     }
     bool SetParameters(
@@ -660,24 +680,9 @@ private:
         const char* inBufPtr,
         size_t      inSize)
     {
-        if (kWriteBlockChecksum == mWriteState) {
-            mWriteState    = kWriteStateNone;
-            mBlockChecksum = kKfsNullChecksum;
-        } else {
+        if (kUpdateBlockChecksum == mWriteState) {
             mBlockChecksum = ComputeBlockChecksum(
                 mBlockChecksum, inBufPtr, inSize);
-            if (mWriteState == kAppendBlockChecksum) {
-                mWriteState = kWriteBlockChecksum;
-                mReqOstream << mBlockChecksum;
-                mReqOstream.write("\n", 1);
-                if (kWriteBlockChecksum == mWriteState) {
-                    mReqOstream.flush();
-                }
-                if (kWriteStateNone != mWriteState) {
-                    panic("log writer: invalid write state");
-                }
-                return IsLogStreamGood();
-            }
         }
         if (0 < inSize && IsLogStreamGood()) {
             const char*       thePtr    = inBufPtr;
