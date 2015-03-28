@@ -154,6 +154,7 @@ public:
                 " checksum: " << mMdStream.GetMd() <<
             KFS_LOG_EOM;
             mMdStream.setf(inLogAppendHexFlag ? ostream::hex : ostream::dec);
+            StartBlock();
         } else {
             NewLog(inLogSeq);
             if (! IsLogStreamGood()) {
@@ -506,8 +507,10 @@ private:
             "/" << inLogSeq <<
             "/"
         ;
+        mReqOstream.flush();
         mWriteState = kWriteStateNone;
         mReqOstream << mBlockChecksum << "\n";
+        mReqOstream.flush();
         Sync();
         StartBlock();
     }
@@ -630,6 +633,7 @@ private:
     {
         mCurLogStartSeq = inLogSeq;
         mNextLogSeq     = inLogSeq;
+        mLastLogSeq     = inLogSeq;
         mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
     }
     bool SetParameters(
