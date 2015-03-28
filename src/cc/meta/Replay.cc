@@ -105,24 +105,25 @@ Replay::openlog(const string &p)
     }
     number = num;
     path   = p;
+    tmplogname.clear();
     return 0;
 }
 
 const string&
 Replay::logfile(seq_t num)
 {
-    if (tmplongname.empty()) {
+    if (tmplogname.empty()) {
         const string::size_type dot = path.rfind('.');
         if (dot != string::npos && string::npos == path.find('/', dot)) {
-            tmplongname = path.substr(dot + 1);
+            tmplogname = path.substr(0, dot + 1);
         } else {
-            tmplongname = path + ".";
+            tmplogname = path + ".";
         }
-        tmplogprefixlen = tmplongname.length();
+        tmplogprefixlen = tmplogname.length();
     }
-    tmplongname.erase(tmplogprefixlen);
-    AppendDecIntToString(tmplongname, num);
-    return tmplongname;
+    tmplogname.erase(tmplogprefixlen);
+    AppendDecIntToString(tmplogname, num);
+    return tmplogname;
 }
 
 string
@@ -928,8 +929,27 @@ replay_idempotent_ack(DETokenizer& c)
 static int64_t sLastLogAheadSeq   = 0;
 static int64_t sLogAheadErrChksum = 0;
 static int64_t sSubEntryCount     = 0;
+class CommitQueueEntry
+{
+public:
+    CommitQueueEntry(
+        seq_t   ls = -1,
+        int     s  = 0,
+        fid_t   fs = -1,
+        int64_t ek = 0)
+        : logSeq(ls),
+          seed(fs),
+          errChecksum(ek),
+          status(s)
+        {}
+    seq_t   logSeq;
+    fid_t   seed;
+    int64_t errChecksum;
+    int     status;
+};
+
 typedef deque<
-    pair<int64_t, int64_t>
+    CommitQueueEntry
 > CommitQueue;
 static CommitQueue sCommitQueue;
 
@@ -954,27 +974,32 @@ replay_sub_entry(DETokenizer& c)
 }
 
 static bool
-run_commit_queue(int64_t logSeq, int64_t status)
+run_commit_queue(
+    int64_t logSeq, seq_t seed, int64_t status, int64_t errChecksum)
 {
     while (! sCommitQueue.empty()) {
-        const CommitQueue::value_type& f = sCommitQueue.front();
-        if (logSeq < f.first) {
+        const CommitQueueEntry& f = sCommitQueue.front();
+        if (logSeq < f.logSeq) {
             break;
         }
-        if (0 < f.second) {
-            sLogAheadErrChksum += f.second;
-        }
-        if (logSeq == f.first) {
-            if (f.second == status) {
-                sCommitQueue.pop_front();
+        if (logSeq == f.logSeq) {
+            if (f.status == status && f.seed == seed &&
+                    f.errChecksum == errChecksum) {
+                // sCommitQueue.pop_front();
                 return true;
             }
             KFS_LOG_STREAM_ERROR <<
                 "log commit status mismatch:"
                 " expected: " << status <<
                 " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]"
-                " actual: "   << f.second <<
-                " [" << QCUtils::SysError(KfsToSysErrno(f.second)) << "]" <<
+                " actual: "   << f.status <<
+                " [" << QCUtils::SysError(KfsToSysErrno(f.status)) << "]" <<
+                " seed:"
+                " expected: " << f.seed <<
+                " actual: "   << seed <<
+                " error checksum:"
+                " expected: " << f.errChecksum <<
+                " actual: "   << errChecksum <<
             KFS_LOG_EOM;
             return false;
         }
@@ -996,9 +1021,10 @@ replay_log_ahead_entry(DETokenizer& c)
     if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
         return false;
     }
-    if (status < 0) {
-        sCommitQueue.push_back(make_pair(logSeq, SysToKfsErrno(-status)));
-    }
+    status = status < 0 ? SysToKfsErrno(-status) : 0;
+    sLogAheadErrChksum += status;
+    sCommitQueue.push_back(CommitQueueEntry(
+        logSeq, status, fileID.getseed(), sLogAheadErrChksum));
     sLastLogAheadSeq = logSeq;
     return (0 == sSubEntryCount);
 }
@@ -1029,18 +1055,10 @@ replay_log_commit_entry(DETokenizer& c)
     if (! c.isLastOk() || status < 0) {
         return false;
     }
-    if (! run_commit_queue(logSeq, status)) {
+    if (! run_commit_queue(logSeq, seed, status, errchksum)) {
         return false;
     }
-    if (errchksum != sLogAheadErrChksum) {
-        KFS_LOG_STREAM_ERROR <<
-            "log error checksum mismatch:"
-            " expected: " << errchksum <<
-            " actual: "   << sLogAheadErrChksum<<
-        KFS_LOG_EOM;
-        return false;
-    }
-    return (seed == fileID.getseed() && 0 == sSubEntryCount);
+    return (0 == sSubEntryCount);
 }
 
 // The following is intended to be used to "manually" repair transaction log.
@@ -1292,8 +1310,8 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     }
     if (status == 0) {
         if (! sCommitQueue.empty() &&
-                sCommitQueue.back().first == committed) {
-            lastCommittedStatus = sCommitQueue.back().second;
+                sCommitQueue.back().logSeq == committed) {
+            lastCommittedStatus = sCommitQueue.back().status;
             if (0 < lastCommittedStatus) {
                 lastCommittedStatus = -KfsToSysErrno(lastCommittedStatus);
             }
@@ -1301,7 +1319,8 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             lastCommittedStatus = 0;
         }
     }
-    if (status == 0 && ! run_commit_queue(committed + 1, 0)) {
+    if (status == 0 && ! run_commit_queue(
+            committed + 1, fileID.getseed(), 0, sLogAheadErrChksum)) {
         status = -EINVAL;
     }
     if (status == 0) {

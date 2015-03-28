@@ -51,7 +51,7 @@ public:
           rollSeeds(0),
           lastCommittedStatus(0),
           tmplogprefixlen(0),
-          tmplongname(),
+          tmplogname(),
           mds()
         {}
     ~Replay()
@@ -108,7 +108,7 @@ private:
     int64_t  rollSeeds;
     int      lastCommittedStatus;
     size_t   tmplogprefixlen;
-    string   tmplongname;
+    string   tmplogname;
     MdStream mds;
 
     int playLogs(seq_t lastlog, bool includeLastLogFlag);

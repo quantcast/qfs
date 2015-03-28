@@ -67,12 +67,9 @@ public:
           mOmitDefaultsFlag(true),
           mMaxBlockSize(256),
           mLogDir("./kfslog"),
-          mPendingQueueHeadPtr(0),
-          mPendingQueueTailPtr(0),
-          mInQueueHeadPtr(0),
-          mInQueueTailPtr(0),
-          mOutQueueHeadPtr(0),
-          mOutQueueTailPtr(0),
+          mPendingQueue(),
+          mInQueue(),
+          mOutQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(-1),
@@ -194,14 +191,7 @@ public:
             submit_request(&inRequest);
             return;
         }
-        if (mPendingQueueHeadPtr) {
-            mPendingQueueTailPtr->next = &inRequest;
-        } else {
-            mPendingQueueHeadPtr = &inRequest;
-            mPendingQueueTailPtr = &inRequest;
-        }
-        // FIXME:
-        ScheduleFlush();
+        mPendingQueue.PushBack(inRequest);
     }
     void RequestCommitted(
         MetaRequest& inRequest,
@@ -236,19 +226,12 @@ public:
     }
     void ScheduleFlush()
     {
-        if (! mPendingQueueHeadPtr) {
+        if (mPendingQueue.IsEmpty()) {
             return;
         }
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
-        if (mInQueueTailPtr) {
-            mInQueueTailPtr->next = mPendingQueueHeadPtr;
-        } else {
-            mInQueueHeadPtr = mPendingQueueHeadPtr;
-        }
-        mInQueueTailPtr = mPendingQueueTailPtr;
-        mPendingQueueHeadPtr = 0;
-        mPendingQueueTailPtr = 0;
+        mInQueue.PushBack(mPendingQueue);
         mCond.Notify();
     }
     void Shutdown()
@@ -281,6 +264,49 @@ private:
               mStatus(0)
             {}
     };
+    class Queue
+    {
+    public:
+        Queue()
+            : mHeadPtr(0),
+              mTailPtr(0)
+            {}
+        void Reset()
+        {
+            mHeadPtr = 0;
+            mTailPtr = 0;
+        }
+        void PushBack(
+            Queue& inQueue)
+        {
+            if (mTailPtr) {
+                mTailPtr->next = inQueue.mHeadPtr;
+            } else {
+                mHeadPtr = inQueue.mHeadPtr;
+            }
+            mTailPtr = inQueue.mTailPtr;
+            inQueue.Reset();
+        }
+        void PushBack(
+            MetaRequest& inRequest)
+        {
+            if (mTailPtr) {
+                mTailPtr->next = &inRequest;
+            } else {
+                mHeadPtr = &inRequest;
+            }
+            mTailPtr = &inRequest;
+        }
+        MetaRequest* Front() const
+            { return mHeadPtr; }
+        MetaRequest* Back() const
+            { return mTailPtr; }
+        bool IsEmpty() const
+            { return (! mHeadPtr); }
+    private:
+        MetaRequest* mHeadPtr;
+        MetaRequest* mTailPtr;
+    };
     typedef MdStreamT<Impl> MdStream;
     enum WriteState
     {
@@ -301,12 +327,9 @@ private:
     bool         mOmitDefaultsFlag;
     int          mMaxBlockSize;
     string       mLogDir;
-    MetaRequest* mPendingQueueHeadPtr;
-    MetaRequest* mPendingQueueTailPtr;
-    MetaRequest* mInQueueHeadPtr;
-    MetaRequest* mInQueueTailPtr;
-    MetaRequest* mOutQueueHeadPtr;
-    MetaRequest* mOutQueueTailPtr;
+    Queue        mPendingQueue;
+    Queue        mInQueue;
+    Queue        mOutQueue;
     Committed    mPendingCommitted;
     Committed    mInFlightCommitted;
     seq_t        mNextLogSeq;
@@ -330,16 +353,16 @@ private:
 
     virtual void Timeout()
     {
-        MetaRequest* theDoneHeadPtr = 0;
-        if (mMaxDoneSeq < mNextSeq) {
-            QCStMutexLocker theLock(mMutex);
-            theDoneHeadPtr  = mOutQueueHeadPtr;
-            mOutQueueHeadPtr = 0;
-            mOutQueueTailPtr = 0;
+        if (mNextSeq <= mMaxDoneSeq) {
+            return;
         }
-        while (theDoneHeadPtr) {
-            MetaRequest& theReq = *theDoneHeadPtr;
-            theDoneHeadPtr = theReq.next;
+        QCStMutexLocker theLock(mMutex);
+        MetaRequest* theDonePtr = mOutQueue.Front();
+        mOutQueue.Reset();
+        theLock.Unlock();
+        while (theDonePtr) {
+            MetaRequest& theReq = *theDonePtr;
+            theDonePtr = theReq.next;
             theReq.next = 0;
             if (theReq.seqno <= mMaxDoneSeq) {
                 panic("log writer: invalid sequence number");
@@ -358,26 +381,19 @@ private:
     {
         QCStMutexLocker theLock(mMutex);
         while (! mStopFlag) {
-            while (! mStopFlag && ! mInQueueHeadPtr) {
+            while (! mStopFlag && mInQueue.IsEmpty()) {
                 mCond.Wait(mMutex);
             }
-            if (! mInQueueHeadPtr) {
+            if (mInQueue.IsEmpty()) {
                 continue;
             }
-            MetaRequest* const theHeadPtr = mInQueueHeadPtr;
-            MetaRequest* const theTailPtr = mInQueueTailPtr;
-            mInQueueHeadPtr = 0;
-            mInQueueTailPtr = 0;
+            Queue theWriteQueue = mInQueue;
+            mInQueue.Reset();
             mInFlightCommitted = mPendingCommitted;
             QCStMutexUnlocker theUnlocker(mMutex);
-            Write(*theHeadPtr);
+            Write(*theWriteQueue.Front());
             theUnlocker.Lock();
-            if (mOutQueueTailPtr) {
-                mOutQueueTailPtr->next = theHeadPtr;
-            } else {
-                mOutQueueHeadPtr = theHeadPtr;
-            } 
-            mOutQueueTailPtr = theTailPtr;
+            mOutQueue.PushBack(theWriteQueue);
             mNetManagerPtr->Wakeup();
         }
     }
@@ -406,12 +422,14 @@ private:
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
                             0 == thePtr->status) ||
                         MetaRequest::kLogAlways == thePtr->logAction)) {
+                    thePtr->logseq            = ++mLastLogSeq;
+                    thePtr->commitPendingFlag = true;
                     if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
                         panic("log writer: invalid request ");
                     }
-                    if (theStream) {
-                        thePtr->logseq            = ++mLastLogSeq;
-                        thePtr->commitPendingFlag = true;
+                    if (! theStream) {
+                        --mLastLogSeq;
+                        LogError(*thePtr);
                     }
                 }
                 if (theEndBlockSeq <= mLastLogSeq) {
@@ -431,24 +449,30 @@ private:
                 for (thePtr = theCurPtr;
                         theEndPtr != thePtr;
                         thePtr = thePtr->next) {
-                    if (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                    if (META_LOG_WRITER_CONTROL != thePtr->op &&
+                            ((MetaRequest::kLogIfOk == thePtr->logAction &&
                                 0 == thePtr->status) ||
                             MetaRequest::kLogAlways == thePtr->logAction)) {
-                        thePtr->logseq            = -1;
-                        thePtr->commitPendingFlag = false;
-                        thePtr->status            = -EIO;
-                        thePtr->statusMsg         = "transaction log write error";
+                        LogError(*thePtr);
                     }
                 }
             }
             theCurPtr = theEndPtr;
         }
-        if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
+        if (mCurLogStartSeq <= mNextLogSeq && IsLogStreamGood() &&
                 mCurLogStartTime + mLogRotateInterval <
                 microseconds()) {
             CloseLog();
             NewLog(mNextLogSeq + 1);
         }
+    }
+    void LogError(
+        MetaRequest& inReq)
+    {
+        inReq.logseq            = -1;
+        inReq.commitPendingFlag = false;
+        inReq.status            = -EIO;
+        inReq.statusMsg         = "transaction log write error";
     }
     void FlushBlock(
         seq_t inLogSeq)
@@ -506,7 +530,7 @@ private:
         seq_t                 inLogSeq)
     {
         inRequest.committed  = mInFlightCommitted.mSeq;
-        inRequest.lastLogSeq = mLastLogSeq;
+        inRequest.lastLogSeq = inLogSeq;
         switch (inRequest.type) {
             default:
             case MetaLogWriterControl::kNop:
@@ -533,19 +557,22 @@ private:
             if (mLastLogSeq != mNextLogSeq) {
                 FlushBlock(mLastLogSeq);
                 if (! IsLogStreamGood()) {
+                    mLastLogSeq = mNextLogSeq;
                     return;
                 }
             }
             mMdStream << "time/" << DisplayIsoDateTime() << '\n';
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << '\n';
-            if (link_latest(mLogName, mLastLogPath)) {
-                IoError(errno, "failed to link to: " + mLastLogPath);
-            }
         }
         Sync();
         if (0 <= mLogFd && close(mLogFd)) {
             IoError(errno);
+        } else {
+            mLastLogSeq += 2;
+            if (link_latest(mLogName, mLastLogPath)) {
+                IoError(errno, "failed to link to: " + mLastLogPath);
+            }
         }
         ++mLogNum;
     }
@@ -574,11 +601,15 @@ private:
         mMdStream.setf(ostream::hex);
         mMdStream.flush();
         Sync();
+        if (IsLogStreamGood()) {
+            mLastLogSeq += 4;
+        }
     }
     void SetLogName(
         seq_t inLogSeq)
     {
         mCurLogStartSeq = inLogSeq;
+        mNextLogSeq     = inLogSeq - 1;
         mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
     }
     bool SetParameters(

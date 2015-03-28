@@ -429,7 +429,7 @@ NetDispatch::Start()
         globalNetManager().MainLoop(
             GetMutex(),
             kWakeupAndCleanupFlag,
-            GetMutex() ? &prepareToFork : 0
+            &prepareToFork
         );
     } else {
         err = -EINVAL;
@@ -1162,6 +1162,7 @@ public:
             op.next = 0;
             submit_request(&op);
         }
+        MetaRequest::GetLogWriter().ScheduleFlush();
         gNetDispatch.ForkDone();
         dispatchLocker.Unlock();
 
@@ -1229,7 +1230,7 @@ public:
         CheckIfIoBuffersAvailable();
     }
     virtual void DispatchEnd()
-        { MetaRequest::GetLogWriter().ScheduleFlush(); }
+        {}
     virtual void DispatchExit()
         {}
     void Enqueue(MetaRequest& op)
