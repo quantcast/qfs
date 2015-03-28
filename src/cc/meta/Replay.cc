@@ -29,12 +29,13 @@
 #include "Restorer.h"
 #include "util.h"
 #include "DiskEntry.h"
-#include "NetDispatch.h"
 #include "kfstree.h"
 #include "LayoutManager.h"
+
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
+
 #include "qcdio/QCUtils.h"
 
 #include <sys/types.h>
@@ -43,17 +44,13 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <iostream>
 #include <sstream>
 #include <deque>
-#include <utility>
 
 namespace KFS
 {
 using std::ostringstream;
-using std::atoi;
 using std::deque;
-using std::pair;
 
 inline void
 Replay::setRollSeeds(int64_t roll)
