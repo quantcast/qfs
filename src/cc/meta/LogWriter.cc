@@ -217,7 +217,8 @@ public:
         if (inRequest.logseq < 0) {
             return;
         }
-        if (inRequest.logseq <= mCommitted.mSeq) {
+        if (inRequest.logseq != mCommitted.mSeq + 1 &&
+                0 <= mCommitted.mSeq) {
             panic("request committed: invalid out of order log sequence");
             return;
         }
