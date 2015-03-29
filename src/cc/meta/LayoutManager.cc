@@ -1601,6 +1601,8 @@ LayoutManager::LayoutManager() :
     mDebugPanicOnHelloResumeFailureCount(-1),
     mFileRecoveryInFlightCount(),
     mIdempotentRequestTracker(),
+    mResubmitQueueHead(0),
+    mResubmitQueueTail(0),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -2480,6 +2482,14 @@ LayoutManager::Shutdown()
     mClientAuthContext.Clear();
     mCSAuthContext.Clear();
     mIdempotentRequestTracker.Clear();
+    MetaRequest* nextReq = mResubmitQueueHead;
+    mResubmitQueueHead = 0;
+    mResubmitQueueTail = 0;
+    while (nextReq) {
+        MetaRequest* const req = nextReq;
+        nextReq = req->next;
+        MetaRequest::Release(req);
+    }
 }
 
 template<
@@ -7055,6 +7065,21 @@ LayoutManager::LeaseCleanup(
         KFS_LOG_STREAM_INFO << "Recompute dir size is done..." <<
         KFS_LOG_EOM;
     }
+    MetaRequest* nextReq = mResubmitQueueHead;
+    mResubmitQueueTail = 0;
+    mResubmitQueueHead = 0;
+    while (nextReq) {
+        MetaRequest& req = *nextReq;
+        nextReq = req.next;
+        req.next         = 0;
+        req.status       = 0;
+        req.statusMsg.clear();
+        req.submitCount  = 0;
+        req.seqno        = -1;
+        req.logseq       = -1;
+        req.suspended    = false;
+        submit_request(&req);
+    }
     ScheduleChunkServersRestart();
 }
 
@@ -7693,6 +7718,23 @@ LayoutManager::AddServerToMakeStable(
 }
 
 void
+LayoutManager::ScheduleResubmitOrCancel(MetaLogMakeChunkStable& req)
+{
+    if (req.next) {
+        panic("invalid resubmit request attempt");
+    }
+    req.next      = 0;
+    req.logAction = MetaRequest::kLogIfOk;
+    req.suspended = true;
+    if (mResubmitQueueTail) {
+        mResubmitQueueTail->next = &req;
+    } else {
+        mResubmitQueueHead = &req;
+    }
+    mResubmitQueueTail = &req;
+}
+
+void
 LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req)
 {
     const char* const          logPrefix = "BMCS: done";
@@ -7885,7 +7927,7 @@ LayoutManager::LogMakeChunkStableDone(MetaLogMakeChunkStable* req)
         // Possible log failures of make stable done, should be resolved by
         // full chunk replication check, that should be initiated by the primary
         // once logger starts working again.
-        ScheduleResubmitOrCancel(req);
+        ScheduleResubmitOrCancel(*req);
         return;
     }
     const bool     serverWasAddedFlag = info.serverAddedFlag;

@@ -2185,6 +2185,9 @@ protected:
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
     IdempotentRequestTracker mIdempotentRequestTracker;
 
+    MetaRequest* mResubmitQueueHead;
+    MetaRequest* mResubmitQueueTail;
+
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;
@@ -2378,6 +2381,7 @@ protected:
         bool       okIfNoChunkFlag);
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
+    void ScheduleResubmitOrCancel(MetaLogMakeChunkStable& r);
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
 };

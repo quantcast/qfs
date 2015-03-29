@@ -3811,14 +3811,6 @@ MetaRequest::Submit()
     }
 }
 
-void
-ScheduleResubmitOrCancel(MetaRequest* r)
-{
-    // Resubmit after logger starts working again.
-    // FIXME
-    panic("resubmit not yet implemented");
-}
-
 bool
 MetaRequest::log(ostream& /* file */) const
 {

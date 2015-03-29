@@ -385,9 +385,8 @@ private:
 inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
 { return disp.Show(os); }
 
-inline static void submit_request(MetaRequest *r)
+inline static void submit_request(MetaRequest* r)
 { r->Submit(); }
-void ScheduleResubmitOrCancel(MetaRequest *r);
 
 struct MetaIdempotentRequest : public MetaRequest {
     // Derived classes' request() method must be const, i.e. not modify "this".
