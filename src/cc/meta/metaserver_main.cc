@@ -761,7 +761,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     if (mIsPathToFidCacheEnabled) {
         metatree.enablePathToFidCache();
     }
-    string logFileName;
+    string     logFileName;
     MdStateCtx mds = replayer.getMdState();
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
@@ -772,6 +772,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             replayer.getErrChksum(),
             replayer.getLastCommittedStatus(),
             replayer.getAppendToLastLogFlag() ? &mds : (MdStateCtx*)0,
+            replayer.getLastLogStart(),
             16 == replayer.getLastLogIntBase(),
             "metaServer.log.",
             mStartupProperties,

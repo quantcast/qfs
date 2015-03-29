@@ -3670,7 +3670,6 @@ MetaCheckpoint::handle()
         if (0 <= lockFd) {
             close(lockFd);
         }
-        MetaRequest::Release(finishLog);
         finishLog = 0;
         return;
     }
@@ -3679,7 +3678,7 @@ MetaCheckpoint::handle()
     }
     lastRun = now;
     runningCheckpointId = GetLogWriter().GetCommittedLogSeq();
-    if (runningCheckpointId != finishLog->lastLogSeq) {
+    if (runningCheckpointId != finishLog->committed) {
         panic("invalid finish log completion: log sequence mismatch");
     }
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
@@ -3716,7 +3715,6 @@ MetaCheckpoint::handle()
         "checkpoint: " << lastCheckpointId <<
         " pid: "       << pid <<
     KFS_LOG_EOM;
-    MetaRequest::Release(finishLog);
     finishLog = 0;
     if (pid < 0) {
         status = -1;

@@ -53,6 +53,7 @@ public:
         int64_t           inCommittedErrCheckSum,
         int               inCommittedStatus,
         const MdStateCtx* inLogAppendMdStatePtr,
+        seq_t             inLogAppendStartSeq,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,

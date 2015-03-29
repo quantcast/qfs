@@ -75,6 +75,7 @@ public:
           mNextLogSeq(-1),
           mLastLogSeq(-1),
           mBlockChecksum(kKfsNullChecksum),
+          mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
           mError(0),
           mMdStream(this),
@@ -102,21 +103,30 @@ public:
         int64_t           inCommittedErrCheckSum,
         int               inCommittedStatus,
         const MdStateCtx* inLogAppendMdStatePtr,
+        seq_t             inLogAppendStartSeq,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
         string&           outCurLogFileName)
     {
         if (inLogNum < 0 || inLogSeq < 0 ||
+                (inLogAppendMdStatePtr && inLogSeq <= inLogAppendStartSeq) ||
                 (mThread.IsStarted() || mNetManagerPtr)) {
             return -EINVAL;
         }
+        mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mLogNum = inLogNum;
         SetParameters(inParametersPrefixPtr, inParameters);
         mMdStream.Reset(this);
+        mCommitted.mErrChkSum = inCommittedErrCheckSum;
+        mCommitted.mSeq       = inCommittedLogSeq;
+        mCommitted.mFidSeed   = inCommittedFidSeed;
+        mCommitted.mStatus    = inCommittedStatus;
+        mPendingCommitted = mCommitted;
         if (inLogAppendMdStatePtr) {
-            mCurLogStartTime = microseconds();
             SetLogName(inLogSeq);
+            mCurLogStartTime = microseconds();
+            mCurLogStartSeq  = inLogAppendStartSeq;
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
             if (! mMdStream) {
                 KFS_LOG_STREAM_ERROR <<
@@ -148,25 +158,27 @@ public:
             }
             KFS_LOG_STREAM_INFO <<
                 "log append:" <<
+                " idx: "      << mLogNum <<
+                " start: "    << mCurLogStartSeq <<
+                " cur: "      << mNextLogSeq <<
                 " hex: "      << inLogAppendHexFlag <<
                 " file: "     << mLogName <<
                 " size: "     << theSize <<
                 " checksum: " << mMdStream.GetMd() <<
             KFS_LOG_EOM;
-            mMdStream.setf(inLogAppendHexFlag ? ostream::hex : ostream::dec);
-            StartBlock();
+            mMdStream.setf(
+                inLogAppendHexFlag ? ostream::hex : ostream::dec,
+                ostream::basefield
+            );
+            StartBlock(mNextBlockChecksum);
         } else {
+            mInFlightCommitted = mPendingCommitted;
             NewLog(inLogSeq);
             if (! IsLogStreamGood()) {
                 return mError;
             }
         }
-        outCurLogFileName     = mLogName;
-        mCommitted.mErrChkSum = inCommittedErrCheckSum;
-        mCommitted.mSeq       = inCommittedLogSeq;
-        mCommitted.mFidSeed   = inCommittedFidSeed;
-        mCommitted.mStatus    = inCommittedStatus;
-        mPendingCommitted = mCommitted;
+        outCurLogFileName = mLogName;
         mStopFlag         = false;
         mNetManagerPtr    = &inNetManager;
         const int kStackSize = 64 << 10;
@@ -336,6 +348,7 @@ private:
     seq_t        mNextLogSeq;
     seq_t        mLastLogSeq;
     uint32_t     mBlockChecksum;
+    uint32_t     mNextBlockChecksum;
     int          mLogFd;
     int          mError;
     MdStream     mMdStream;
@@ -482,6 +495,9 @@ private:
         CloseLog();
         mLogNum++;
         NewLog(mLastLogSeq);
+        if (! IsLogStreamGood()) {
+            mLogNum--;
+        }
     }
     void LogError(
         MetaRequest& inReq)
@@ -491,10 +507,11 @@ private:
         inReq.status            = -EIO;
         inReq.statusMsg         = "transaction log write error";
     }
-    void StartBlock()
+    void StartBlock(
+        uint32_t inStartCheckSum)
     {
         mWriteState    = kUpdateBlockChecksum;
-        mBlockChecksum = kKfsNullChecksum;
+        mBlockChecksum = inStartCheckSum;
     }
     void FlushBlock(
         seq_t inLogSeq)
@@ -507,12 +524,20 @@ private:
             "/" << inLogSeq <<
             "/"
         ;
+        mMdStream.SetSync(false);
         mReqOstream.flush();
+        const char* const theStartPtr = mMdStream.GetBufferedStart();
+        const char* const theEndPtr   = mMdStream.GetBufferedEnd();
+        if (theStartPtr < theEndPtr) {
+            mBlockChecksum = ComputeBlockChecksum(
+                mBlockChecksum, theStartPtr, theEndPtr - theStartPtr);
+        }
         mWriteState = kWriteStateNone;
         mReqOstream << mBlockChecksum << "\n";
+        mMdStream.SetSync(true);
         mReqOstream.flush();
         Sync();
-        StartBlock();
+        StartBlock(mNextBlockChecksum);
     }
     void Sync()
     {
@@ -556,7 +581,9 @@ private:
             case MetaLogWriterControl::kNop:
                 return false;
             case MetaLogWriterControl::kNewLog:
-                StartNextLog();
+                if (mCurLogStartSeq < mNextLogSeq) {
+                    StartNextLog();
+                }
                 inRequest.logName = mLogName;
                 inRequest.status  = mError;
                 break;
@@ -611,21 +638,23 @@ private:
             IoError(errno);
             return;
         }
+        const int kHeaderEntries = 4;
+        StartBlock(kKfsNullChecksum);
         mMdStream.Reset(this);
-        mMdStream.setf(ostream::dec);
+        mMdStream.setf(ostream::dec, ostream::basefield);
         mMdStream <<
             "version/" << int(LogWriter::VERSION) << "\n"
             "checksum/last-line\n"
             "setintbase/16\n"
             "time/" << DisplayIsoDateTime() << "\n"
         ;
-        mMdStream.setf(ostream::hex);
-        mMdStream.flush();
-        Sync();
+        mMdStream.setf(ostream::hex, ostream::basefield);
+        mLastLogSeq += kHeaderEntries;
+        FlushBlock(mLastLogSeq);
         if (IsLogStreamGood()) {
-            mLastLogSeq += 4;
             mNextLogSeq = mLastLogSeq;
-            StartBlock();
+        } else {
+            mLastLogSeq = mNextLogSeq;
         }
     }
     void SetLogName(
@@ -725,6 +754,7 @@ LogWriter::Start(
     int64_t           inCommittedErrCheckSum,
     int               inCommittedStatus,
     const MdStateCtx* inLogAppendMdStatePtr,
+    seq_t             inLogAppendStartSeq,
     bool              inLogAppendHexFlag,
     const char*       inParametersPrefixPtr,
     const Properties& inParameters,
@@ -739,6 +769,7 @@ LogWriter::Start(
         inCommittedErrCheckSum,
         inCommittedStatus,
         inLogAppendMdStatePtr,
+        inLogAppendStartSeq,
         inLogAppendHexFlag,
         inParametersPrefixPtr,
         inParameters,

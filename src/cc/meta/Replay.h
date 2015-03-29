@@ -47,6 +47,7 @@ public:
           lastLogIntBase(-1),
           appendToLastLogFlag(false),
           committed(0),
+          lastLogStart(0),
           errChecksum(0),
           rollSeeds(0),
           lastCommittedStatus(0),
@@ -96,7 +97,23 @@ public:
         { return mds.GetMdState(); }
     seq_t getLogNum() const
         { return number; }
+    seq_t getLastLogStart() const
+        { return lastLogStart; }
+
+    class BlockChecksum
+    {
+    public:
+        BlockChecksum();
+        uint32_t blockEnd(size_t skip);
+        bool write(const char* buf, size_t len);
+        bool flush() { return true; }
+    private:
+        size_t   skip;
+        uint32_t checksum;
+    };
 private:
+    typedef MdStreamT<BlockChecksum> MdStream;
+
     ifstream file;   //!< the log file being replayed
     string   path;   //!< path name for log file
     seq_t    number; //!< sequence number for log file
@@ -104,6 +121,7 @@ private:
     int      lastLogIntBase;
     bool     appendToLastLogFlag;
     seq_t    committed;
+    seq_t    lastLogStart;
     int64_t  errChecksum;
     int64_t  rollSeeds;
     int      lastCommittedStatus;

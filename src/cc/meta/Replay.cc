@@ -36,6 +36,8 @@
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 
+#include "kfsio/Checksum.h"
+
 #include "qcdio/QCUtils.h"
 
 #include <sys/types.h>
@@ -963,10 +965,9 @@ replay_inc_seq(DETokenizer& c)
 static bool
 replay_sub_entry(DETokenizer& c)
 {
-    if (sSubEntryCount <= 0) {
+    if (--sSubEntryCount <= 0) {
         return replay_inc_seq(c);
     }
-    --sSubEntryCount;
     return true;
 }
 
@@ -1027,13 +1028,17 @@ replay_log_ahead_entry(DETokenizer& c)
 }
 
 static bool
-replay_log_commit_entry(DETokenizer& c)
+replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 {
-    if (c.size() < 5) {
+    if (c.size() < 7) {
         return false;
     }
+    const char* const ptr  = c.front().ptr;
+    const size_t      len  = c.back().ptr - ptr;
+    const size_t      skip = len + c.back().len;
+    blockChecksum.write(ptr, len);
     c.pop_front();
-    const int64_t logSeq = c.toNumber();
+    const int64_t commitSeq = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
@@ -1052,7 +1057,26 @@ replay_log_commit_entry(DETokenizer& c)
     if (! c.isLastOk() || status < 0) {
         return false;
     }
-    if (! run_commit_queue(logSeq, seed, status, errchksum)) {
+    c.pop_front();
+    const int64_t logSeq = c.toNumber();
+    if (! c.isLastOk() || logSeq != sLastLogAheadSeq) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t checksum = c.toNumber();
+    if (! c.isLastOk() || checksum < 0) {
+        return false;
+    }
+    const uint32_t expectedChecksum = blockChecksum.blockEnd(skip);
+    if (expectedChecksum != checksum) {
+        KFS_LOG_STREAM_ERROR <<
+            "record block checksum mismatch:"
+            " expected: " << expectedChecksum <<
+            " actual: "   << checksum <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (! run_commit_queue(commitSeq, seed, status, errchksum)) {
         return false;
     }
     return (0 == sSubEntryCount);
@@ -1147,10 +1171,35 @@ get_entry_map()
     add_parser_subent (e, "gu",                      &restore_group_users);
     add_parser_subent (e, "guc",                     &restore_group_users);
     e.add_parser(         "ack",                     &replay_idempotent_ack);
-    e.add_parser(         "c",                       &replay_log_commit_entry);
     e.add_parser(         "commitreset",             &replay_commit_reset);
     initied = true;
     return e;
+}
+
+Replay::BlockChecksum::BlockChecksum()
+    : skip(0),
+      checksum(kKfsNullChecksum)
+{}
+
+uint32_t
+Replay::BlockChecksum::blockEnd(size_t s)
+{
+    skip = s;
+    const uint32_t ret = checksum;
+    checksum = kKfsNullChecksum;
+    return ret;
+}
+
+bool
+Replay::BlockChecksum::write(const char* buf, size_t len)
+{
+    if (len <= skip) {
+        skip -= len;
+    } else {
+        checksum = ComputeBlockChecksum(checksum, buf + skip, len - skip);
+        skip = 0;
+    }
+    return true;
 }
 
 /*!
@@ -1163,7 +1212,8 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     restoreChecksum.clear();
     lastLineChecksumFlag = false;
     lastEntryChecksumFlag = false;
-    mds.Reset();
+    BlockChecksum blockChecksum;
+    mds.Reset(&blockChecksum);
     mds.SetWriteTrough(true);
 
     if (! file.is_open()) {
@@ -1175,18 +1225,22 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     DiskEntry& entrymap = get_entry_map();
     DETokenizer tokenizer(file);
 
+    lastLogStart       = committed;
     sLastLogAheadSeq   = committed;
     sLogAheadErrChksum = errChecksum;
     sSubEntryCount     = 0;
     int status = 0;
     static const DETokenizer::Token kAheadLogEntry("a");
+    static const DETokenizer::Token kCommitLogEntry("c");
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;
         }
         if (! (kAheadLogEntry == tokenizer.front() ?
                 replay_log_ahead_entry(tokenizer) :
-                entrymap.parse(tokenizer))) {
+                (kCommitLogEntry == tokenizer.front() ?
+                    replay_log_commit_entry(tokenizer, blockChecksum) :
+                    entrymap.parse(tokenizer)))) {
             KFS_LOG_STREAM_FATAL <<
                 "error " << path <<
                 ":" << tokenizer.getEntryCount() <<

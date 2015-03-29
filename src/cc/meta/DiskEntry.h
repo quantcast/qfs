@@ -127,6 +127,10 @@ public:
         assert(cur < end);
         return *cur;
     }
+    const Token& back() const {
+        assert(cur < end);
+        return *(end - 1);
+    }
     size_t size() const {
         return (end - cur);
     }
