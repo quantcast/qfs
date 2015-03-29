@@ -2278,7 +2278,7 @@ MetaAllocate::Done(bool countAllocTimeFlag, int64_t chunkAllocProcessTime)
     }
     if (0 <= status && pendingLeaseRelinquish) {
         // Relinquish the lease upon completion.
-        if (! pendingLeaseRelinquish->clnt) {
+        if (pendingLeaseRelinquish->clnt) {
             panic("allocate invalid pending lease relinquish target");
         } else {
             pendingLeaseRelinquish->clnt = clnt;
