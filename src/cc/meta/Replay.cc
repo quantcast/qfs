@@ -903,28 +903,6 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
-static bool
-replay_idempotent_ack(DETokenizer& c)
-{
-    c.pop_front();
-    int64_t n = kKfsUserNone;
-    if (! pop_num(n, "uid", c, true)) {
-        return false;
-    }
-    const kfsUid_t uid = (kfsUid_t)n;
-    n = kKfsUserNone;
-    if (! pop_num(n, "aid", c, true)) {
-        return false;
-    }
-    const kfsUid_t aid = (kfsUid_t)n;
-    if (c.empty()) {
-        return false;
-    }
-    const DETokenizer::Token& token = c.front();
-    return gLayoutManager.GetIdempotentRequestTracker().HandleAck(
-        token.ptr, token.len, uid, aid);
-}
-
 static int64_t sLastLogAheadSeq   = 0;
 static int64_t sLogAheadErrChksum = 0;
 static int64_t sSubEntryCount     = 0;
@@ -1122,16 +1100,16 @@ replay_group_users_reset(DETokenizer& c)
     return (0 <= sSubEntryCount && c.isLastOk());
 }
 
-static void
-add_parser_inc_seq(DiskEntry& e, const char* name, bool(*p)(DETokenizer&))
+static bool
+replay_setfsinfo(DETokenizer& c)
 {
-    e.add_parser(name, p, &replay_inc_seq);
+    return (restore_filesystem_info(c) && replay_inc_seq(c));
 }
 
-static void
-add_parser_subent(DiskEntry& e, const char* name, bool(*p)(DETokenizer&))
+static bool
+replay_group_users(DETokenizer& c)
 {
-    e.add_parser(name, p, &replay_sub_entry);
+    return (restore_group_users(c) && replay_sub_entry(c));
 }
 
 static DiskEntry&
@@ -1142,36 +1120,37 @@ get_entry_map()
     if (initied) {
         return e;
     }
-    add_parser_inc_seq(e, "setintbase",              &restore_setintbase);
-    add_parser_inc_seq(e, "version",                 &replay_version);
-    add_parser_inc_seq(e, "create",                  &replay_create);
-    add_parser_inc_seq(e, "mkdir",                   &replay_mkdir);
-    add_parser_inc_seq(e, "remove",                  &replay_remove);
-    add_parser_inc_seq(e, "rmdir",                   &replay_rmdir);
-    add_parser_inc_seq(e, "rename",                  &replay_rename);
-    add_parser_inc_seq(e, "allocate",                &replay_allocate);
-    add_parser_inc_seq(e, "truncate",                &replay_truncate);
-    add_parser_inc_seq(e, "coalesce",                &replay_coalesce);
-    add_parser_inc_seq(e, "pruneFromHead",           &replay_pruneFromHead);
-    add_parser_inc_seq(e, "setrep",                  &replay_setrep);
-    add_parser_inc_seq(e, "size",                    &replay_size);
-    add_parser_inc_seq(e, "setmtime",                &replay_setmtime);
-    add_parser_inc_seq(e, "chunkVersionInc",         &restore_chunkVersionInc);
-    add_parser_inc_seq(e, "time",                    &replay_time);
-    add_parser_inc_seq(e, "mkstable",                &replay_mkstable);
-    add_parser_inc_seq(e, "mkstabledone",            &replay_mkstabledone);
-    add_parser_inc_seq(e, "beginchunkversionchange", &replay_beginchunkversionchange);
-    add_parser_inc_seq(e, "checksum",                &restore_checksum);
-    add_parser_inc_seq(e, "rollseeds",               &restore_rollseeds);
-    add_parser_inc_seq(e, "chmod",                   &replay_chmod);
-    add_parser_inc_seq(e, "chown",                   &replay_chown);
-    add_parser_inc_seq(e, "delegatecancel",          &restore_delegate_cancel);
-    add_parser_inc_seq(e, "filesysteminfo",          &restore_filesystem_info);
-    e.add_parser(         "gur",                     &replay_group_users_reset);
-    add_parser_subent (e, "gu",                      &restore_group_users);
-    add_parser_subent (e, "guc",                     &restore_group_users);
-    e.add_parser(         "ack",                     &replay_idempotent_ack);
-    e.add_parser(         "commitreset",             &replay_commit_reset);
+    e.add_parser("setintbase",              &restore_setintbase);
+    e.add_parser("version",                 &replay_version);
+    e.add_parser("create",                  &replay_create);
+    e.add_parser("mkdir",                   &replay_mkdir);
+    e.add_parser("remove",                  &replay_remove);
+    e.add_parser("rmdir",                   &replay_rmdir);
+    e.add_parser("rename",                  &replay_rename);
+    e.add_parser("allocate",                &replay_allocate);
+    e.add_parser("truncate",                &replay_truncate);
+    e.add_parser("coalesce",                &replay_coalesce);
+    e.add_parser("pruneFromHead",           &replay_pruneFromHead);
+    e.add_parser("setrep",                  &replay_setrep);
+    e.add_parser("size",                    &replay_size);
+    e.add_parser("setmtime",                &replay_setmtime);
+    e.add_parser("chunkVersionInc",         &restore_chunkVersionInc);
+    e.add_parser("time",                    &replay_time);
+    e.add_parser("mkstable",                &replay_mkstable);
+    e.add_parser("mkstabledone",            &replay_mkstabledone);
+    e.add_parser("beginchunkversionchange", &replay_beginchunkversionchange);
+    e.add_parser("checksum",                &restore_checksum);
+    e.add_parser("rollseeds",               &restore_rollseeds);
+    e.add_parser("chmod",                   &replay_chmod);
+    e.add_parser("chown",                   &replay_chown);
+    e.add_parser("delegatecancel",          &restore_delegate_cancel);
+    e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    // Write ahead log entries.
+    e.add_parser("setfsinfo",               &replay_setfsinfo);
+    e.add_parser("gur",                     &replay_group_users_reset);
+    e.add_parser("gu",                      &replay_group_users);
+    e.add_parser("guc",                     &replay_group_users);
+    e.add_parser("commitreset",             &replay_commit_reset);
     initied = true;
     return e;
 }

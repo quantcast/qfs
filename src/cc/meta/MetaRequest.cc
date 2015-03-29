@@ -3678,7 +3678,8 @@ MetaCheckpoint::handle()
     }
     lastRun = now;
     runningCheckpointId = GetLogWriter().GetCommittedLogSeq();
-    if (runningCheckpointId != finishLog->committed) {
+    if (runningCheckpointId != finishLog->lastLogSeq ||
+            runningCheckpointId < finishLog->committed) {
         panic("invalid finish log completion: log sequence mismatch");
     }
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
@@ -3812,7 +3813,7 @@ ScheduleResubmitOrCancel(MetaRequest* r)
 }
 
 bool
-MetaRequest::log(ostream &file) const
+MetaRequest::log(ostream& /* file */) const
 {
     panic("invalid empty log method");
     return false;

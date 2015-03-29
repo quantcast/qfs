@@ -40,10 +40,7 @@ DiskEntry::parse(DETokenizer& tokenizer) const
         return true;
     }
     parsetab::const_iterator const c = table.find(tokenizer.front());
-    return (
-        c != table.end() && c->second.first(tokenizer) &&
-        (! c->second.second || c->second.second(tokenizer))
-    );
+    return (c != table.end() && c->second(tokenizer));
 }
 
 bool

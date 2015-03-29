@@ -622,7 +622,7 @@ public:
     }
     virtual bool log(ostream& os) const
     {
-        os << "filesysteminfo"
+        os << "setfsinfo"
             "/fsid/"   << fileSystemId <<
             "/crtime/" << ShowTime(createTime) <<
         "\n";

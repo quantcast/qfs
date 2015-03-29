@@ -110,7 +110,7 @@ public:
         string&           outCurLogFileName)
     {
         if (inLogNum < 0 || inLogSeq < 0 ||
-                (inLogAppendMdStatePtr && inLogSeq <= inLogAppendStartSeq) ||
+                (inLogAppendMdStatePtr && inLogSeq < inLogAppendStartSeq) ||
                 (mThread.IsStarted() || mNetManagerPtr)) {
             return -EINVAL;
         }
@@ -434,8 +434,7 @@ private:
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     if (Control(
-                            *static_cast<MetaLogWriterControl*>(thePtr),
-                            mLastLogSeq)) {
+                            *static_cast<MetaLogWriterControl*>(thePtr))) {
                         break;
                     }
                     theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
@@ -571,17 +570,16 @@ private:
         const string& inMsg)
         { IoError(inError, inMsg.c_str()); }
     bool Control(
-        MetaLogWriterControl& inRequest,
-        seq_t                 inLogSeq)
+        MetaLogWriterControl& inRequest)
     {
         inRequest.committed  = mInFlightCommitted.mSeq;
-        inRequest.lastLogSeq = inLogSeq;
+        inRequest.lastLogSeq = mLastLogSeq;
         switch (inRequest.type) {
             default:
             case MetaLogWriterControl::kNop:
                 return false;
             case MetaLogWriterControl::kNewLog:
-                if (mCurLogStartSeq < mNextLogSeq) {
+                if (mCurLogStartSeq < mLastLogSeq) {
                     StartNextLog();
                 }
                 inRequest.logName = mLogName;
@@ -590,18 +588,18 @@ private:
             case MetaLogWriterControl::kSetParameters:
                 return SetParameters(
                     inRequest.paramsPrefix.c_str(),
-                    inRequest.params);
+                    inRequest.params
+                );
         }
         return IsLogStreamGood();
     }
     void CloseLog()
     {
-        const seq_t kLogTrailerRecCount = 2;
         if (IsLogStreamGood()) {
             if (mLastLogSeq != mNextLogSeq) {
                 FlushBlock(mLastLogSeq);
                 if (! IsLogStreamGood()) {
-                    mLastLogSeq = mNextLogSeq + kLogTrailerRecCount;
+                    mLastLogSeq = mNextLogSeq;
                     return;
                 }
             }
@@ -610,9 +608,8 @@ private:
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << "\n";
             mMdStream.flush();
-            mLastLogSeq += kLogTrailerRecCount;
         } else {
-            mLastLogSeq = mNextLogSeq + kLogTrailerRecCount;
+            mLastLogSeq = mNextLogSeq;
         }
         Sync();
         if (0 <= mLogFd) {
@@ -638,7 +635,6 @@ private:
             IoError(errno);
             return;
         }
-        const int kHeaderEntries = 4;
         StartBlock(kKfsNullChecksum);
         mMdStream.Reset(this);
         mMdStream.setf(ostream::dec, ostream::basefield);
@@ -649,7 +645,6 @@ private:
             "time/" << DisplayIsoDateTime() << "\n"
         ;
         mMdStream.setf(ostream::hex, ostream::basefield);
-        mLastLogSeq += kHeaderEntries;
         FlushBlock(mLastLogSeq);
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
@@ -694,7 +689,7 @@ private:
             theName.Truncate(thePrefixLen).Append("sync"),
             mSyncFlag ? 1 : 0) != 0;
         mLastLogPath = mLogDir + "/" + mLastLogName;
-        return false;
+        return false; // Do not start new record block.
     }
     bool IsLogStreamGood()
     {

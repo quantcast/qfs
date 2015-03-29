@@ -37,7 +37,6 @@
 #include <iostream>
 #include <string>
 #include <map>
-#include <utility>
 
 namespace KFS
 {
@@ -46,8 +45,6 @@ using std::map;
 using std::istream;
 using std::ostream;
 using std::string;
-using std::pair;
-using std::make_pair;
 
 class DETokenizer
 {
@@ -268,11 +265,11 @@ public:
     typedef DETokenizer::Token Token;
     typedef bool (*parser)(DETokenizer &c); //!< a parsing function
 private:
-    typedef map <Token, pair<parser, parser> > parsetab;   //!< map type to parser
+    typedef map <Token, parser> parsetab;   //!< map type to parser
     parsetab table;
 public:
-    void add_parser(const Token& k, parser f, parser s = 0) {
-        table[k] = make_pair(f, s);
+    void add_parser(const Token& k, parser f) {
+        table[k] =  f;
     }
     bool parse(DETokenizer& tonenizer) const; //!< look up parser and call it
 };
