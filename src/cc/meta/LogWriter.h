@@ -58,7 +58,7 @@ public:
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
         string&           outCurLogFileName);
-    void Enqueue(
+    bool Enqueue(
         MetaRequest& inRequest);
     void Committed(
         MetaRequest& inRequest,

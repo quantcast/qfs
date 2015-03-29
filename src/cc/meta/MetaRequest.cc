@@ -3764,42 +3764,49 @@ MetaRequest::Submit()
         KFS_LOG_EOM;
     }
     if (++recursionCount <= 0) {
-        panic("invalid request recursion count");
+        panic("submit: invalid request recursion count");
     }
     if (0 == submitCount++) {
         submitTime  = tstart;
         processTime = tstart;
         if (next) {
-            panic("invalid request non null next field");
+            panic("submit: invalid request non null next field");
+        }
+        if (suspended) {
+            panic("submit: invalid request suspended");
         }
         if (kLogNever != logAction) {
             const bool logFlag = start();
-            if (1 != submitCount || next) {
-                panic("invalid request start completion");
+            if (1 != submitCount || next || suspended) {
+                panic("submit: invalid request start completion");
             }
             if (! logFlag) {
                 logAction = kLogNever;
             }
         }
-        processTime = microseconds() - processTime;
-        if (--recursionCount != 0) {
-            panic("invalid request recursion count");
+        if (GetLogWriter().Enqueue(*this)) {
+            processTime = microseconds() - processTime;
+            if (--recursionCount != 0) {
+                panic("submit: invalid request recursion count");
+            }
+            return;
         }
-        GetLogWriter().Enqueue(*this);
-        return;
     }
     // accumulate processing time.
     processTime = tstart - processTime;
     handle();
+    if (commitPendingFlag) {
+        if (suspended) {
+            panic("submit: invalid request suspended after commit");
+        }
+        GetLogWriter().Committed(*this, fileID.getseed());
+    }
     if (--recursionCount < 0) {
-        panic("invalid request recursion count");
+        panic("submit: invalid request recursion count");
     }
     if (suspended) {
         processTime = microseconds() - processTime;
     } else {
-        if (commitPendingFlag) {
-            GetLogWriter().Committed(*this, fileID.getseed());
-        }
         gNetDispatch.Dispatch(this);
     }
 }

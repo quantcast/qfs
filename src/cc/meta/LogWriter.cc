@@ -186,26 +186,25 @@ public:
         mNetManagerPtr->RegisterTimeoutHandler(this);
         return 0;
     }
-    void Enqueue(
+    bool Enqueue(
         MetaRequest& inRequest)
     {
+        inRequest.next  = 0;
         inRequest.seqno = ++mNextSeq;
         if (mStopFlag) {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log writer stopped";
-            submit_request(&inRequest);
-            return;
+            return false;
         }
-        inRequest.next = 0;
         if (mMaxDoneSeq + 1 == inRequest.seqno &&
                 (MetaRequest::kLogNever == inRequest.logAction ||
                 (MetaRequest::kLogIfOk == inRequest.logAction &&
                     0 != inRequest.status))) {
             mMaxDoneSeq = inRequest.seqno;
-            submit_request(&inRequest);
-            return;
+            return false;
         }
         mPendingQueue.PushBack(inRequest);
+        return true;
     }
     void RequestCommitted(
         MetaRequest& inRequest,
@@ -216,6 +215,10 @@ public:
         }
         inRequest.commitPendingFlag = false;
         if (inRequest.logseq < 0) {
+            return;
+        }
+        if (inRequest.logseq <= mCommitted.mSeq) {
+            panic("request committed: invalid out of order log sequence");
             return;
         }
         const int theStatus = inRequest.status < 0 ?
@@ -772,11 +775,11 @@ LogWriter::Start(
     );
 }
 
-    void
+    bool
 LogWriter::Enqueue(
     MetaRequest& inRequest)
 {
-    mImpl.Enqueue(inRequest);
+    return mImpl.Enqueue(inRequest);
 }
 
     void
