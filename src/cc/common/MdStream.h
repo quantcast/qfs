@@ -175,7 +175,10 @@ public:
         mWriteTroughFlag = inWriteTroughFlag || ! mBufferPtr;
         return *this;
     }
-
+    const char* GetBufferedStart() const
+        { return mBufferPtr; }
+    const char* GetBufferedEnd() const
+        { return mCurPtr; }
 protected:
     virtual int overflow(
         int inSym = EOF)
