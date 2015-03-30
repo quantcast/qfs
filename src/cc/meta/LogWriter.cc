@@ -507,7 +507,7 @@ private:
     {
         inReq.logseq            = -1;
         inReq.commitPendingFlag = false;
-        inReq.status            = -EIO;
+        inReq.status            = -ELOGFAILED;
         inReq.statusMsg         = "transaction log write error";
     }
     void StartBlock(
