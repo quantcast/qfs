@@ -36,7 +36,7 @@
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 
-#include "kfsio/Checksum.h"
+#include "kfsio/checksum.h"
 
 #include "qcdio/QCUtils.h"
 
