@@ -990,7 +990,7 @@ private:
             int   inCode,
             void* inDataPtr)
         {
-            if (EVENT_CMD_DONE != inCode |+ this != inDataPtr) {
+            if (EVENT_CMD_DONE != inCode || this != inDataPtr) {
                 panic("invalid log group users completion");
             }
             seqno  = -1;

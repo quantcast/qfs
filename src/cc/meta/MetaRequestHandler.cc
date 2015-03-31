@@ -729,7 +729,7 @@ MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
         return false;
     }
     bool ret = false;
-    if (0 <= logseq < 0 || (logseq == req->logseq)) {
+    if (0 <= logseq && logseq == req->logseq) {
         req->replayFlag = true;
         req->handle();
         status = req->status;
