@@ -297,9 +297,27 @@ public:
         GroupUsersMap& inGroupUsersMap,
         ostream&       inStream)
     {
+        const int         kMaxEntriesMask = 0x3F;
+        size_t            theEntriesCount = 0;
         const GroupUsers* thePtr;
+        while ((thePtr = inGroupUsersMap.Next())) {
+            const UsersSet& theGroups = thePtr->GetVal();
+            UsersSet::const_iterator theIt = theGroups.begin();
+            if (theIt == theGroups.end() || kKfsUserNone == thePtr->GetKey()) {
+                continue;
+            }
+            int theCnt = 0;
+            do {
+                if (kKfsGroupNone != *theIt) {
+                    if ((++theCnt & kMaxEntriesMask) == 0) {
+                        theEntriesCount++;
+                    }
+                }
+            } while (++theIt != theGroups.end());
+            theEntriesCount++;
+        }
         ReqOstreamT<ostream> theStream(inStream);
-        theStream << "gur/" << inGroupUsersMap.GetSize() << "\n";
+        theStream << "gur/" << theEntriesCount << "\n";
         inGroupUsersMap.First();
         while ((thePtr = inGroupUsersMap.Next()) && inStream) {
             const UsersSet& theGroups = thePtr->GetVal();
@@ -311,7 +329,7 @@ public:
             int theCnt = 0;
             do {
                 if (kKfsGroupNone != *theIt) {
-                    if ((++theCnt & 0x3F) == 0) {
+                    if ((++theCnt & kMaxEntriesMask) == 0) {
                         theStream << "\n"
                             "guc/" << thePtr->GetKey();
                     }
