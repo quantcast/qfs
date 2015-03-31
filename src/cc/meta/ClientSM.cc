@@ -164,6 +164,7 @@ ClientSM::ClientSM(
       mAuthContext(ClientManager::GetAuthContext(mClientThread)),
       mAuthUpdateCount(0),
       mUserAndGroupUpdateCount(0),
+      mLogQueueCounter(0),
       mNext(0)
 {
     assert(mNetConnection && mNetConnection->IsGood());

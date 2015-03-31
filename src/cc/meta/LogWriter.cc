@@ -1,25 +1,29 @@
-/*!
- * $Id$
- *
- * Copyright 2015 Quantcast Corp.
- *
- * This file is part of Kosmos File System (KFS).
- *
- * Licensed under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * permissions and limitations under the License.
- *
- * \brief metadata transaction log writer.
- * \author Mike Ovsiannikov.
- */
+//---------------------------------------------------------- -*- Mode: C++ -*-
+// $Id$
+//
+// Created 2015/03/21
+// Author: Mike Ovsiannikov
+//
+// Copyright 2015 Quantcast Corp.
+//
+// This file is part of Kosmos File System (KFS).
+//
+// Licensed under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+// implied. See the License for the specific language governing
+// permissions and limitations under the License.
+//
+// Transaction log writer.
+//
+//
+//----------------------------------------------------------------------------
 
 #include "LogWriter.h"
 #include "MetaRequest.h"
@@ -33,6 +37,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/checksum.h"
+#include "kfsio/PrngIsaac64.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -57,7 +62,6 @@ public:
           QCRunnable(),
           mNetManagerPtr(0),
           mNextSeq(-1),
-          mMaxDoneSeq(-1),
           mMaxDoneLogSeq(-1),
           mCommitted(),
           mThread(),
@@ -66,6 +70,7 @@ public:
           mStopFlag(false),
           mOmitDefaultsFlag(true),
           mMaxBlockSize(256),
+          mPendingCount(0),
           mLogDir("./kfslog"),
           mPendingQueue(),
           mInQueue(),
@@ -90,6 +95,8 @@ public:
           mSyncFlag(false),
           mLastLogName("last"),
           mLastLogPath(mLogDir + "/" + mLastLogName),
+          mFailureSimulationInterval(0),
+          mRandom(),
           mLogFileNamePrefix("log")
         {}
     ~Impl()
@@ -192,16 +199,26 @@ public:
         inRequest.next  = 0;
         inRequest.seqno = ++mNextSeq;
         if (mStopFlag) {
-            inRequest.status    = -EIO;
-            inRequest.statusMsg = "log writer stopped";
+            inRequest.status    = -ELOGFAILED;
+            inRequest.statusMsg = "log writer is not running";
             return false;
         }
-        if (mMaxDoneSeq + 1 == inRequest.seqno &&
+        int* const theCounterPtr = inRequest.GetLogQueueCounter();
+        if ((mPendingCount <= 0 ||
+                    ! theCounterPtr || *theCounterPtr <= 0) &&
                 (MetaRequest::kLogNever == inRequest.logAction ||
                 (MetaRequest::kLogIfOk == inRequest.logAction &&
                     0 != inRequest.status))) {
-            mMaxDoneSeq = inRequest.seqno;
             return false;
+        }
+        if (theCounterPtr) {
+            if (++*theCounterPtr <= 0) {
+                panic("request enqueue: invalid log queue counter");
+            }
+        }
+        inRequest.commitPendingFlag = true;
+        if (++mPendingCount <= 0) {
+            panic("log writer: invalid pending count");
         }
         mPendingQueue.PushBack(inRequest);
         return true;
@@ -213,11 +230,20 @@ public:
         if (! inRequest.commitPendingFlag) {
             return;
         }
+        int* const theCounterPtr = inRequest.GetLogQueueCounter();
+        if (theCounterPtr) {
+            if (--*theCounterPtr < 0) {
+                panic("request committed: invalid log queue counter");
+            }
+        }
         inRequest.commitPendingFlag = false;
         if (inRequest.logseq < 0) {
             return;
         }
-        if (inRequest.logseq != mCommitted.mSeq + 1 &&
+        if (inRequest.suspended) {
+            panic("request committed: invalid suspended state");
+        }
+        if (mCommitted.mSeq + 1 != inRequest.logseq &&
                 0 <= mCommitted.mSeq) {
             panic("request committed: invalid out of order log sequence");
             return;
@@ -265,6 +291,12 @@ public:
         if (mNetManagerPtr) {
             mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mNetManagerPtr = 0;
+        }
+    }
+    void ChildAtFork()
+    {
+        if (0 <= mLogFd) {
+            close(mLogFd);
         }
     }
 private:
@@ -334,7 +366,6 @@ private:
 
     NetManager*  mNetManagerPtr;
     seq_t        mNextSeq;
-    seq_t        mMaxDoneSeq;
     seq_t        mMaxDoneLogSeq;
     Committed    mCommitted;
     QCThread     mThread;
@@ -343,6 +374,7 @@ private:
     bool         mStopFlag;
     bool         mOmitDefaultsFlag;
     int          mMaxBlockSize;
+    int          mPendingCount;
     string       mLogDir;
     Queue        mPendingQueue;
     Queue        mInQueue;
@@ -367,11 +399,13 @@ private:
     bool         mSyncFlag;
     string       mLastLogName;
     string       mLastLogPath;
+    int64_t      mFailureSimulationInterval;
+    PrngIsaac64  mRandom;
     const string mLogFileNamePrefix;
 
     virtual void Timeout()
     {
-        if (mNextSeq <= mMaxDoneSeq) {
+        if (mPendingCount <= 0) {
             return;
         }
         QCStMutexLocker theLock(mMutex);
@@ -382,16 +416,15 @@ private:
             MetaRequest& theReq = *theDonePtr;
             theDonePtr = theReq.next;
             theReq.next = 0;
-            if (theReq.seqno <= mMaxDoneSeq) {
-                panic("log writer: invalid sequence number");
-            }
             if (0 <= theReq.logseq) {
                 if (theReq.logseq <= mMaxDoneLogSeq) {
                     panic("log writer: invalid log sequence number");
                 }
                 mMaxDoneLogSeq = theReq.logseq;
             }
-            mMaxDoneSeq = theReq.seqno;
+            if (--mPendingCount < 0) {
+                panic("log writer: request completion invalid pending count");
+            }
             submit_request(&theReq);
         }
     }
@@ -433,8 +466,9 @@ private:
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
-            MetaRequest* thePtr         = theCurPtr;
-            seq_t        theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
+            MetaRequest* thePtr                 = theCurPtr;
+            seq_t        theEndBlockSeq         = mNextLogSeq + mMaxBlockSize;
+            const bool   theSimulateFailureFlag = IsSimulateFailure();
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     if (Control(
@@ -450,8 +484,14 @@ private:
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
                             0 == thePtr->status) ||
                         MetaRequest::kLogAlways == thePtr->logAction)) {
-                    thePtr->logseq            = ++mLastLogSeq;
-                    thePtr->commitPendingFlag = true;
+                    if (theSimulateFailureFlag) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "log writer: simulating write error:"
+                            " " << thePtr->Show() <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
+                    thePtr->logseq = ++mLastLogSeq;
                     if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
                         panic("log writer: invalid request ");
                     }
@@ -468,7 +508,7 @@ private:
             if (mNextLogSeq < mLastLogSeq && IsLogStreamGood()) {
                 FlushBlock(mLastLogSeq);
             }
-            if (IsLogStreamGood()) {
+            if (IsLogStreamGood() && ! theSimulateFailureFlag) {
                 mNextLogSeq = mLastLogSeq;
             } else {
                 mLastLogSeq = mNextLogSeq;
@@ -505,10 +545,9 @@ private:
     void LogError(
         MetaRequest& inReq)
     {
-        inReq.logseq            = -1;
-        inReq.commitPendingFlag = false;
-        inReq.status            = -ELOGFAILED;
-        inReq.statusMsg         = "transaction log write error";
+        inReq.logseq    = -1;
+        inReq.status    = -ELOGFAILED;
+        inReq.statusMsg = "transaction log write error";
     }
     void StartBlock(
         uint32_t inStartCheckSum)
@@ -576,26 +615,28 @@ private:
     bool Control(
         MetaLogWriterControl& inRequest)
     {
-        inRequest.committed  = mInFlightCommitted.mSeq;
-        inRequest.lastLogSeq = mLastLogSeq;
+        bool theRetFlag = true;
         switch (inRequest.type) {
             default:
             case MetaLogWriterControl::kNop:
-                return false;
+                theRetFlag = false;
+                break;
             case MetaLogWriterControl::kNewLog:
                 if (mCurLogStartSeq < mLastLogSeq) {
                     StartNextLog();
                 }
-                inRequest.logName = mLogName;
-                inRequest.status  = mError;
                 break;
             case MetaLogWriterControl::kSetParameters:
                 return SetParameters(
                     inRequest.paramsPrefix.c_str(),
                     inRequest.params
                 );
+                break;
         }
-        return IsLogStreamGood();
+        inRequest.committed  = mInFlightCommitted.mSeq;
+        inRequest.lastLogSeq = mLastLogSeq;
+        inRequest.logName    = mLogName;
+        return (theRetFlag && IsLogStreamGood());
     }
     void CloseLog()
     {
@@ -692,6 +733,9 @@ private:
         mSyncFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("sync"),
             mSyncFlag ? 1 : 0) != 0;
+        mFailureSimulationInterval = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
+            mFailureSimulationInterval);
         mLastLogPath = mLogDir + "/" + mLastLogName;
         return false; // Do not start new record block.
     }
@@ -732,6 +776,13 @@ private:
     }
     bool flush()
         { return IsLogStreamGood(); }
+    bool IsSimulateFailure()
+    {
+        return (
+            0 < mFailureSimulationInterval &&
+            0 == (mRandom.Rand() % mFailureSimulationInterval)
+        );
+    }
 };
 
 LogWriter::LogWriter()
@@ -816,6 +867,12 @@ LogWriter::GetCommittedLogSeq() const
 LogWriter::ScheduleFlush()
 {
    mImpl.ScheduleFlush();
+}
+
+    void
+LogWriter::ChildAtFork()
+{
+    mImpl.ChildAtFork();
 }
 
     void

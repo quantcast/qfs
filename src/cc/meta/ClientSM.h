@@ -103,6 +103,8 @@ public:
     bool Handle(MetaLookup& op);
     bool Handle(MetaDelegateCancel& op);
     bool Handle(MetaAllocate& op);
+    int& GetLogQueueCounter()
+        { return mLogQueueCounter; }
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;
@@ -134,6 +136,7 @@ private:
     AuthContext&                       mAuthContext;
     uint64_t                           mAuthUpdateCount;
     uint64_t                           mUserAndGroupUpdateCount;
+    int                                mLogQueueCounter;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];
     ClientSM*                          mNextPtr[1];

@@ -3200,6 +3200,7 @@ static void ChildAtFork(int childTimeLimit)
     AuditLog::ChildAtFork();
     globalNetManager().ChildAtFork();
     gNetDispatch.ChildAtFork();
+    MetaRequest::GetLogWriter().ChildAtFork();
 }
 
 static int DoFork(int childTimeLimit)
@@ -3751,20 +3752,28 @@ MetaCheckpoint::SetParameters(const Properties& props)
         checkpointWriteBufferSize);
 }
 
+int*
+MetaRequest::GetLogQueueCounter() const
+{
+    return ((fromClientSMFlag && clnt) ?
+        &(static_cast<ClientSM*>(clnt)->GetLogQueueCounter()) : (int*)0
+    );
+}
+
 void
 MetaRequest::Submit()
 {
     const int64_t tstart = microseconds();
-    if (0 != recursionCount) {
+    if (++recursionCount <= 0) {
+        panic("submit: invalid request recursion count");
+    }
+    if (1 != recursionCount) {
         KFS_LOG_STREAM_DEBUG <<
             "submit request recursion: " << recursionCount <<
             " logseq: " << seqno <<
             " opseq: "  << opSeqno <<
             " "         << Show() <<
         KFS_LOG_EOM;
-    }
-    if (++recursionCount <= 0) {
-        panic("submit: invalid request recursion count");
     }
     if (0 == submitCount++) {
         submitTime  = tstart;
@@ -3791,14 +3800,12 @@ MetaRequest::Submit()
             }
             return;
         }
+    } else {
+        // accumulate processing time.
+        processTime = tstart - processTime;
     }
-    // accumulate processing time.
-    processTime = tstart - processTime;
     handle();
     if (commitPendingFlag) {
-        if (suspended) {
-            panic("submit: invalid request suspended after commit");
-        }
         GetLogWriter().Committed(*this, fileID.getseed());
     }
     if (--recursionCount < 0) {

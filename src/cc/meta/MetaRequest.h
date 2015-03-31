@@ -350,6 +350,7 @@ struct MetaRequest {
             HexIntParser::Parse(ioPtr, inLen, outValue) :
             DecIntParser::Parse(ioPtr, inLen, outValue));
     }
+    int* GetLogQueueCounter() const;
     const int GetRecursionCount() const
         { return recursionCount; }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
