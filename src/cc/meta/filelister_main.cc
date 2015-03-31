@@ -35,6 +35,7 @@
 #include "common/MsgLogger.h"
 
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <cassert>
 
