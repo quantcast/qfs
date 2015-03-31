@@ -59,6 +59,8 @@ metasrvdir="/mnt/data3/$USER/test/meta"
 metasrvprop='MetaServer.prp'
 metasrvpid='metaserver.pid'
 metasrvlog='metaserver.log'
+fscklog='fsck.log'
+fsckpid='fsck.pid'
 metasrvout='metaserver.out'
 metasrvport=20000
 wuiport=`expr $metasrvport + 50`
@@ -148,6 +150,7 @@ while [ $# -gt 0 ]; do
                 "$clitestdir/fanout/kfanout_test.log" \
                 "$clitestdir/sortmaster/sortmaster_endurance_test.log" \
                 "$clitestdir/cp/cptest-"{n,rs,tfs}.log \
+                "$metasrvdir/$fscklog" \
                 ; do
                 [ -f "$n" ] || continue
                 echo "============== `basename "$n"` ================="
@@ -400,6 +403,12 @@ fi
 
 ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 echo $! > "$metasrvpid"
+
+while true; then
+    qfsfsck -A 1 -c kfscp || break;
+done > "$fscklog" 2>&1 &
+echo $! > "$fsckpid"
+
 
 if [ -d "$wdir" ]; then
     cd "$wdir" || exit

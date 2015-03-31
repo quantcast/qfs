@@ -339,6 +339,7 @@ ChunkLeases::DecrementFileLease(
     FEntry* const entry = mFileLeases.Find(fid);
     if (! entry || entry->Get().mCount <= 0) {
         panic("internal error: invalid decrement file lease count");
+        return;
     }
     if (--(entry->Get().mCount) <= 0) {
         if (entry->Get().mName.empty()) {
@@ -361,6 +362,7 @@ ChunkLeases::IncrementFileLease(
     FEntry* const entry = mFileLeases.Insert(fid, FEntry(), insertedFlag);
     if (! entry || ++(entry->Get().mCount) <= 0) {
         panic("internal error: invalid increment file lease count");
+        return;
     }
     FEntry::List::Remove(*entry);
 }
@@ -1226,8 +1228,8 @@ ChunkLeases::ScheduleDumpsterCleanup(
     fid_t         inFid,
     const string& inName)
 {
-    bool    insertedFlag = false;
-    FEntry* entry        = mFileLeases.Insert(
+    bool          insertedFlag = false;
+    FEntry* const entry        = mFileLeases.Insert(
         inFid, FEntry(inFid, FileEntry(inName)), insertedFlag);
     if (! entry->Get().mName.empty() && inName != entry->Get().mName) {
         panic("invalid file lease entry");

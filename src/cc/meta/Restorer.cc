@@ -619,6 +619,9 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
             is_ok = false;
         }
     }
+    if (is_ok) {
+        metatree.cleanupDumpster();
+    }
     return is_ok;
 }
 

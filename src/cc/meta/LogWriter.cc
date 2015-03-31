@@ -513,7 +513,6 @@ private:
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
-                thePtr = &inHead;
                 for (thePtr = theCurPtr;
                         theEndPtr != thePtr;
                         thePtr = thePtr->next) {
