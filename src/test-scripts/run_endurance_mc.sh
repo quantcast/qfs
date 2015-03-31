@@ -404,7 +404,7 @@ fi
 ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 echo $! > "$metasrvpid"
 
-while true; then
+while true; do
     qfsfsck -A 1 -c kfscp || break;
 done > "$fscklog" 2>&1 &
 echo $! > "$fsckpid"
