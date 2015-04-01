@@ -412,6 +412,7 @@ fi
 echo $! > "$metasrvpid"
 
 while true; do
+    sleep `awk 'BEGIN{printf("%.0f\n", rand() * 100); exit;}'`
     ./"$qfsfsckbin" -A 1 -c kfscp || break;
 done > "$fscklog" 2>&1 &
 echo $! > "$fsckpid"
