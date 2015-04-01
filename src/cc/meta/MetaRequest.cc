@@ -2005,7 +2005,8 @@ MetaAllocate::handle()
     MetaFattr*             fa = 0;
     // start at step #2 above.
     status = metatree.allocateChunkId(
-        fid, offset,
+        fid,
+        offset,
         &chunkId,
         &chunkVersion,
         &numReplicas,
@@ -2160,7 +2161,7 @@ MetaLogChunkAllocate::start()
 void
 MetaLogChunkAllocate::handle()
 {
-    if (! replayFlag && ! alloc) {
+    if (replayFlag != (0 == alloc)) {
         panic("invalid meta log chunk allocate");
         return;
     }
@@ -2183,8 +2184,11 @@ MetaLogChunkAllocate::handle()
                 // Add the chunk to the recovery queue.
                 gLayoutManager.ChangeChunkReplication(chunkId);
             } else {
-                panic("failed to invalidate existing chunk", false);
-                status = -ENOENT;
+                // Chunk might be deleted or re-assigned to a different i-node
+                // by coalesce block -- the op in the log queue in front of this
+                // one.
+                status    = -ENOENT;
+                statusMsg = "invalidate replicas no such file or chunk";
             }
         } else {
             // Allocate the chunk if doesn't exist to trigger the
@@ -2251,6 +2255,9 @@ MetaLogChunkAllocate::handle()
     if (alloc) {
         const bool kCountAllocTimeFlag = false;
         alloc->Done(kCountAllocTimeFlag, 0);
+    } else {
+        // Replay.
+        chunkID.setseed(max(chunkID.getseed(), chunkId));
     }
 }
 

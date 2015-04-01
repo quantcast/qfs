@@ -7212,7 +7212,6 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r)
         return;
     }
     // Replay.
-    chunkID.setseed(max(chunkID.getseed(), r->chunkId));
     if (0 != r->status) {
         return;
     }

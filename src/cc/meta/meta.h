@@ -50,7 +50,7 @@ using std::ostream;
 
 class UniqueID {
     seqid_t n;      //!< id of this object
-    seqid_t seed;       //!< seed for generator
+    seqid_t seed;   //!< seed for generator
 public:
     /*!
      * \brief generate a new id
