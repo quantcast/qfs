@@ -68,6 +68,7 @@ wuiport=`expr $metasrvport + 50`
 chunkrundirs="/mnt/data[012]/$USER"
 chunkbin="$bdir/src/cc/chunk/chunkserver" 
 metabin="$bdir/src/cc/meta/metaserver"
+fsckbin="$bdir/src/cc/meta/qfsfsck"
 webui="$srcdir/webui"
 wuiconf='webui.conf'
 wuilog='webui.log'
@@ -241,7 +242,7 @@ EOF
     fi
 fi
 
-for n in "$chunkbin" "$metabin"; do
+for n in "$chunkbin" "$metabin" "$fsckbin"; do
     if [ ! -x "$n" ]; then
         echo "$n: does not exist or not executable"
         exit 1
@@ -292,9 +293,15 @@ cd "$metasrvdir" || exit
 kill_all_proc "$metasrvdir"
 mkdir -p kfscp || exit
 mkdir -p kfslog || exit
+
 metaserverbin="`basename "$metabin"`"
 rm -f "$metaserverbin"
 cp "$metabin" . || exit
+
+qfsfsckbin="`basename "$fsckbin"`"
+rm -f "$qfsfsckbin"
+cp "$fsckbin" . || exit
+
 if [ -d "$webui" ]; then
     wdir=`basename "$webui"`
     rm -rf "$wdir"
@@ -405,10 +412,9 @@ fi
 echo $! > "$metasrvpid"
 
 while true; do
-    qfsfsck -A 1 -c kfscp || break;
+    ./"$qfsfsckbin" -A 1 -c kfscp || break;
 done > "$fscklog" 2>&1 &
 echo $! > "$fsckpid"
-
 
 if [ -d "$wdir" ]; then
     cd "$wdir" || exit
