@@ -903,6 +903,7 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
+static int64_t sLastBlockSeq      = -1;
 static int64_t sLastLogAheadSeq   = 0;
 static int64_t sLogAheadErrChksum = 0;
 static int64_t sSubEntryCount     = 0;
@@ -961,7 +962,6 @@ run_commit_queue(
         if (logSeq == f.logSeq) {
             if (f.status == status && f.seed == seed &&
                     f.errChecksum == errChecksum) {
-                // sCommitQueue.pop_front();
                 return true;
             }
             KFS_LOG_STREAM_ERROR <<
@@ -1008,7 +1008,7 @@ replay_log_ahead_entry(DETokenizer& c)
 static bool
 replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 {
-    if (c.size() < 7) {
+    if (c.size() < 8) {
         return false;
     }
     const char* const ptr  = c.front().ptr;
@@ -1041,6 +1041,11 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         return false;
     }
     c.pop_front();
+    const int64_t blockSeq = c.toNumber();
+    if (! c.isLastOk() || blockSeq != sLastBlockSeq + 1) {
+        return false;
+    }
+    c.pop_front();
     const int64_t checksum = c.toNumber();
     if (! c.isLastOk() || checksum < 0) {
         return false;
@@ -1054,6 +1059,7 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
+    sLastBlockSeq = blockSeq;
     if (! run_commit_queue(commitSeq, seed, status, errchksum)) {
         return false;
     }
@@ -1064,11 +1070,11 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 static bool
 replay_commit_reset(DETokenizer& c)
 {
-    if (c.size() < 4) {
+    if (c.size() < 7) {
         return false;
     }
     c.pop_front();
-    const int64_t logSeq = c.toNumber();
+    const int64_t commitSeq = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
@@ -1082,11 +1088,32 @@ replay_commit_reset(DETokenizer& c)
     if (! c.isLastOk()) {
         return false;
     }
+    c.pop_front();
+    const int64_t status = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t logSeq = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    const int64_t blockSeq = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const bool ignoreCommitErrorFlag = ! c.empty() && c.toNumber() != 0;
     sCommitQueue.clear();
     fileID.setseed(seed);
     sSubEntryCount     = 0;
     sLastLogAheadSeq   = logSeq;
     sLogAheadErrChksum = errchksum;
+    sLastBlockSeq      = blockSeq;
+    if (! run_commit_queue(commitSeq, seed, status, errchksum) &&
+            ! ignoreCommitErrorFlag) {
+        return false;
+    }
     return true;
 }
 
@@ -1204,6 +1231,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     DiskEntry& entrymap = get_entry_map();
     DETokenizer tokenizer(file);
 
+    sLastBlockSeq      = -1;
     lastLogStart       = committed;
     sLastLogAheadSeq   = committed;
     sLogAheadErrChksum = errChecksum;
@@ -1265,6 +1293,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         committed      = sLastLogAheadSeq;
         errChecksum    = sLogAheadErrChksum;
         lastLogIntBase = tokenizer.getIntBase();
+        lastBlockSeq   = sLastBlockSeq;
         mds.SetStream(0);
     }
     file.close();

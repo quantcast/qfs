@@ -48,6 +48,7 @@ public:
           appendToLastLogFlag(false),
           committed(0),
           lastLogStart(0),
+          lastBlockSeq(-1),
           errChecksum(0),
           rollSeeds(0),
           lastCommittedStatus(0),
@@ -99,6 +100,8 @@ public:
         { return number; }
     seq_t getLastLogStart() const
         { return lastLogStart; }
+    seq_t getLastBlockSeq() const
+        { return lastBlockSeq; }
 
     class BlockChecksum
     {
@@ -122,6 +125,7 @@ private:
     bool     appendToLastLogFlag;
     seq_t    committed;
     seq_t    lastLogStart;
+    seq_t    lastBlockSeq;
     int64_t  errChecksum;
     int64_t  rollSeeds;
     int      lastCommittedStatus;

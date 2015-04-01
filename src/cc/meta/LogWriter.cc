@@ -78,6 +78,7 @@ public:
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(-1),
+          mNextBlockSeq(-1),
           mLastLogSeq(-1),
           mBlockChecksum(kKfsNullChecksum),
           mNextBlockChecksum(kKfsNullChecksum),
@@ -111,6 +112,7 @@ public:
         int               inCommittedStatus,
         const MdStateCtx* inLogAppendMdStatePtr,
         seq_t             inLogAppendStartSeq,
+        seq_t             inLogAppendLastBlockSeq,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
@@ -129,7 +131,8 @@ public:
         mCommitted.mSeq       = inCommittedLogSeq;
         mCommitted.mFidSeed   = inCommittedFidSeed;
         mCommitted.mStatus    = inCommittedStatus;
-        mPendingCommitted = mCommitted;
+        mPendingCommitted  = mCommitted;
+        mInFlightCommitted = mPendingCommitted;
         if (inLogAppendMdStatePtr) {
             SetLogName(inLogSeq);
             mCurLogStartTime = microseconds();
@@ -168,6 +171,7 @@ public:
                 " idx: "      << mLogNum <<
                 " start: "    << mCurLogStartSeq <<
                 " cur: "      << mNextLogSeq <<
+                " block: "    << inLogAppendLastBlockSeq <<
                 " hex: "      << inLogAppendHexFlag <<
                 " file: "     << mLogName <<
                 " size: "     << theSize <<
@@ -177,13 +181,19 @@ public:
                 inLogAppendHexFlag ? ostream::hex : ostream::dec,
                 ostream::basefield
             );
-            StartBlock(mNextBlockChecksum);
-        } else {
-            mInFlightCommitted = mPendingCommitted;
-            NewLog(inLogSeq);
-            if (! IsLogStreamGood()) {
-                return mError;
+            mNextBlockSeq = inLogAppendLastBlockSeq;
+            if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag) {
+                // Previous / "old" log format.
+                // Close the log segment even if it is empty and start new one.
+                StartNextLog();
+            } else {
+                StartBlock(mNextBlockChecksum);
             }
+        } else {
+            NewLog(inLogSeq);
+        }
+        if (! IsLogStreamGood()) {
+            return mError;
         }
         outCurLogFileName = mLogName;
         mStopFlag         = false;
@@ -382,6 +392,7 @@ private:
     Committed    mPendingCommitted;
     Committed    mInFlightCommitted;
     seq_t        mNextLogSeq;
+    seq_t        mNextBlockSeq;
     seq_t        mLastLogSeq;
     uint32_t     mBlockChecksum;
     uint32_t     mNextBlockChecksum;
@@ -557,12 +568,14 @@ private:
     void FlushBlock(
         seq_t inLogSeq)
     {
+        ++mNextBlockSeq;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
             "/" << mInFlightCommitted.mFidSeed <<
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
             "/" << inLogSeq <<
+            "/" << mNextBlockSeq <<
             "/"
         ;
         mMdStream.SetSync(false);
@@ -671,6 +684,7 @@ private:
             close(mLogFd);
         }
         mCurLogStartTime = microseconds();
+        mNextBlockSeq    = -1;
         mError           = 0;
         mWriteState      = kWriteStateNone;
         SetLogName(inLogSeq);
@@ -804,6 +818,7 @@ LogWriter::Start(
     int               inCommittedStatus,
     const MdStateCtx* inLogAppendMdStatePtr,
     seq_t             inLogAppendStartSeq,
+    seq_t             inLogAppendLastBlockSeq,
     bool              inLogAppendHexFlag,
     const char*       inParametersPrefixPtr,
     const Properties& inParameters,
@@ -819,6 +834,7 @@ LogWriter::Start(
         inCommittedStatus,
         inLogAppendMdStatePtr,
         inLogAppendStartSeq,
+        inLogAppendLastBlockSeq,
         inLogAppendHexFlag,
         inParametersPrefixPtr,
         inParameters,

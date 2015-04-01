@@ -58,6 +58,7 @@ public:
         int               inCommittedStatus,
         const MdStateCtx* inLogAppendMdStatePtr,
         seq_t             inLogAppendStartSeq,
+        seq_t             inLogAppendLastBlockSeq,
         bool              inLogAppendHexFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
