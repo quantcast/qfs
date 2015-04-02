@@ -194,6 +194,7 @@ struct MetaRequest {
     enum LogAction
     {
         kLogNever,
+        kLogQueue,
         kLogIfOk,
         kLogAlways
     };
@@ -1294,11 +1295,11 @@ struct MetaLogChunkAllocate : public MetaRequest {
     fid_t                  fid;
     chunkOff_t             offset;
     chunkId_t              chunkId;
+    seq_t                  initialChunkVersion;
     seq_t                  chunkVersion;
     int64_t                mtime;
     bool                   appendChunk;
     bool                   invalidateAllFlag;
-    bool                   chunkExistsFlag;
     vector<ServerLocation> servers;
 
     MetaLogChunkAllocate(
@@ -1308,11 +1309,11 @@ struct MetaLogChunkAllocate : public MetaRequest {
           fid(-1),
           offset(-1),
           chunkId(-1),
+          initialChunkVersion(-1),
           chunkVersion(1),
           mtime(0),
           appendChunk(false),
-          invalidateAllFlag(false),
-          chunkExistsFlag(false)
+          invalidateAllFlag(false)
         {}
     bool Validate() { return true; }
     virtual bool start();
@@ -1330,14 +1331,14 @@ struct MetaLogChunkAllocate : public MetaRequest {
         // Set chunk version default to  1 to reduce log space, by omitting the
         // most common value.
         return MetaRequest::LogIoDef(parser)
-        .Def("P", &MetaLogChunkAllocate::fid,               fid_t(-1))
-        .Def("O", &MetaLogChunkAllocate::offset,            chunkOff_t(-1))
-        .Def("C", &MetaLogChunkAllocate::chunkId,           chunkId_t(-1))
-        .Def("V", &MetaLogChunkAllocate::chunkVersion,      seq_t(1))
-        .Def("M", &MetaLogChunkAllocate::mtime,             int64_t(0))
-        .Def("A", &MetaLogChunkAllocate::appendChunk,       false)
-        .Def("I", &MetaLogChunkAllocate::invalidateAllFlag, false)
-        .Def("E", &MetaLogChunkAllocate::chunkExistsFlag,   false)
+        .Def("P", &MetaLogChunkAllocate::fid,                 fid_t(-1))
+        .Def("O", &MetaLogChunkAllocate::offset,              chunkOff_t(-1))
+        .Def("C", &MetaLogChunkAllocate::chunkId,             chunkId_t(-1))
+        .Def("B", &MetaLogChunkAllocate::initialChunkVersion, seq_t(-1))
+        .Def("V", &MetaLogChunkAllocate::chunkVersion,        seq_t(1))
+        .Def("M", &MetaLogChunkAllocate::mtime,               int64_t(0))
+        .Def("A", &MetaLogChunkAllocate::appendChunk,         false)
+        .Def("I", &MetaLogChunkAllocate::invalidateAllFlag,   false)
         .Def("S", &MetaLogChunkAllocate::servers)
         ;
     }

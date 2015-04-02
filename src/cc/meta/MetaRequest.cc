@@ -89,18 +89,23 @@ public:
         if (0 <= mRequestPtr->reqId &&
                 gLayoutManager.GetIdempotentRequestTracker().Handle(
                     *mRequestPtr)) {
+            MetaIdempotentRequest* const r = req.GetReq();
             KFS_LOG_STREAM_DEBUG <<
                 "idempotent request was already handled:"
                 " seq: " << req.opSeqno <<
                 " id: "  << req.reqId <<
                 " "      << req.Show() <<
-                " => "   << MetaRequest::ShowReq(req.GetReq()) <<
+                " => "   << MetaRequest::ShowReq(r) <<
             KFS_LOG_EOM;
             mRequestPtr = 0;
-            if (! req.GetReq()) {
+            if (! r) {
                 panic("invalid idempotent request handling");
+                return;
             }
-            req.logAction = MetaRequest::kLogNever;
+            // If the original request is in the log queue, then this request
+            // must go though the log queue to ensure tha.
+            req.logAction = r->commitPendingFlag ?
+                MetaRequest::kLogQueue : MetaRequest::kLogNever;
         }
     }
     ~StIdempotentRequestHandler()
@@ -775,7 +780,7 @@ MetaCreate::start()
     }
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return false;
+        return true;
     }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
@@ -925,7 +930,7 @@ MetaMkdir::start()
     }
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return false;
+        return true;
     }
     const bool kDirFlag = true;
     if (! CheckCreatePerms(*this, kDirFlag)) {
@@ -999,7 +1004,7 @@ MetaRemove::start()
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return false;
+        return true;
     }
     return (0 == status);
 }
@@ -1030,7 +1035,7 @@ MetaRmdir::start()
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return false;
+        return true;
     }
     return true;
 }
@@ -2017,7 +2022,7 @@ MetaAllocate::handle()
         egroup,
         &fa
     );
-    if (status != 0 && (status != -EEXIST || appendChunk)) {
+    if (status != 0 && (-EEXIST != status || appendChunk)) {
         return; // Access denied or invalid request.
     }
     if (stripedFileFlag && appendChunk) {
@@ -2032,9 +2037,15 @@ MetaAllocate::handle()
                 " is not supported with non striped files";
             return;
         }
-        // Invalidate after log completion.
-        suspended = true;
-        submit_request(new MetaLogChunkAllocate(this));
+        if (-EEXIST == status) {
+            initialChunkVersion = chunkVersion;
+            status = 0;
+        }
+        if (0 == status) {
+            // Invalidate after log completion.
+            suspended = true;
+            submit_request(new MetaLogChunkAllocate(this));
+        }
         return;
     }
     permissions = fa;
@@ -2135,14 +2146,14 @@ MetaLogChunkAllocate::start()
                 " chunk allocation was not suspended");
             return false;
         }
-        fid               = alloc->fid;
-        offset            = alloc->offset;
-        chunkId           = alloc->chunkId;
-        chunkVersion      = alloc->chunkVersion;
-        appendChunk       = alloc->appendChunk;
-        invalidateAllFlag = alloc->invalidateAllFlag;
-        mtime             = microseconds();
-        chunkExistsFlag   = -EEXIST == alloc->status;
+        fid                 = alloc->fid;
+        offset              = alloc->offset;
+        chunkId             = alloc->chunkId;
+        chunkVersion        = alloc->chunkVersion;
+        appendChunk         = alloc->appendChunk;
+        invalidateAllFlag   = alloc->invalidateAllFlag;
+        initialChunkVersion = alloc->initialChunkVersion;
+        mtime               = microseconds();
         if (! invalidateAllFlag) {
             if (0 != alloc->status || alloc->servers.empty()) {
                 panic("invalid meta log chunk allocate: no servers");
@@ -2172,13 +2183,10 @@ MetaLogChunkAllocate::handle()
             " "        << Show() <<
         KFS_LOG_EOM;
     } else if (invalidateAllFlag) {
-        if (chunkExistsFlag) {
+        if (0 <= initialChunkVersion) {
             // Presently chunk can not possibly exist when assignChunkId() is
             // invoked, as metatree.allocateChunkId() the above returned
             // success.
-            if (alloc) {
-                alloc->initialChunkVersion = chunkVersion;
-            }
             if (gLayoutManager.InvalidateAllChunkReplicas(
                     fid, offset, chunkId, chunkVersion)) {
                 // Add the chunk to the recovery queue.
@@ -2201,46 +2209,72 @@ MetaLogChunkAllocate::handle()
             }
         }
     } else {
-        // layout is complete (step #6)
-        // update the tree (step #7) and since we turned off the
-        // suspend flag, the request will be logged and go on its
-        // merry way.
-        //
-        // There could be more than one append allocation request set
-        // (each set one or more request with the same chunk) in flight.
-        // The append request sets can finish in any order.
-        // The append request sets can potentially all have the same
-        // offset: the eof at the time the first request in each set
-        // started.
-        // For append requests assignChunkId assigns past eof offset,
-        // if it succeeds, and returns the value in appendOffset.
-        chunkOff_t appendOffset = offset;
-        chunkId_t  curChunkId   = chunkId;
-        status = metatree.assignChunkId(fid, offset, chunkId, chunkVersion,
-            appendChunk ? &appendOffset : 0, &curChunkId);
-        if (status == 0) {
-            // Offset can change in the case of append.
-            offset = appendOffset;
-            gLayoutManager.CancelPendingMakeStable(fid, chunkId);
-            // assignChunkId() forces a recompute of the file's size.
-        } else {
-            KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?
-                    MsgLogger::kLogLevelFATAL :
-                    MsgLogger::kLogLevelDEBUG) <<
-                "chunk assignment failed for:"
-                " chunkId: "    << chunkId <<
-                " fid: "        << fid <<
-                " pos: "        << offset <<
-                " status: "     << status <<
-                " curChunkId: " << curChunkId <<
-            KFS_LOG_EOM;
-            if (appendChunk && status == -EEXIST) {
-                panic("append chunk allocation internal error");
-            } else if (status == -ENOENT ||
-                    (status == -EEXIST && curChunkId != chunkId)) {
-                if (alloc) {
-                    gLayoutManager.DeleteChunk(alloc);
-                    alloc->servers.clear(); // Chunk delete is already issued.
+        if (0 <= initialChunkVersion) {
+            fid_t curFid = -1;
+            if (! gLayoutManager.GetChunkFileId(chunkId, curFid)) {
+                // Chunk was deleted (by truncate), fail the allocation.
+                status    = -ENOENT;
+                statusMsg = "no such chunk";
+                KFS_LOG_STREAM_INFO <<
+                    "allocate: " << statusMsg <<
+                    " chunkId: " << chunkId <<
+                    " fid: "     << fid <<
+                    " version: " << chunkVersion <<
+                    " initial: " << initialChunkVersion <<
+                KFS_LOG_EOM;
+            } else if (fid != curFid) {
+                KFS_LOG_STREAM_INFO <<
+                    "allocate:"
+                    " chunkId: "    << chunkId <<
+                    " fid: "        << fid <<
+                    " changed to: " << curFid <<
+                    " version: "    << chunkVersion <<
+                    " initial: "    << initialChunkVersion <<
+                KFS_LOG_EOM;
+            }
+        }
+        if (0 == status) {
+            // layout is complete (step #6)
+            // update the tree (step #7) and since we turned off the
+            // suspend flag, the request will be logged and go on its
+            // merry way.
+            //
+            // There could be more than one append allocation request set
+            // (each set one or more request with the same chunk) in flight.
+            // The append request sets can finish in any order.
+            // The append request sets can potentially all have the same
+            // offset: the eof at the time the first request in each set
+            // started.
+            // For append requests assignChunkId assigns past eof offset,
+            // if it succeeds, and returns the value in appendOffset.
+            chunkOff_t appendOffset = offset;
+            chunkId_t  curChunkId   = chunkId;
+            status = metatree.assignChunkId(fid, offset, chunkId, chunkVersion,
+                appendChunk ? &appendOffset : 0, &curChunkId);
+            if (status == 0) {
+                // Offset can change in the case of append.
+                offset = appendOffset;
+                gLayoutManager.CancelPendingMakeStable(fid, chunkId);
+                // assignChunkId() forces a recompute of the file's size.
+            } else {
+                KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?
+                        MsgLogger::kLogLevelFATAL :
+                        MsgLogger::kLogLevelDEBUG) <<
+                    "chunk assignment failed for:"
+                    " chunkId: "    << chunkId <<
+                    " fid: "        << fid <<
+                    " pos: "        << offset <<
+                    " status: "     << status <<
+                    " curChunkId: " << curChunkId <<
+                KFS_LOG_EOM;
+                if (appendChunk && status == -EEXIST) {
+                    panic("append chunk allocation internal error");
+                } else if (status == -ENOENT ||
+                        (status == -EEXIST && curChunkId != chunkId)) {
+                    if (alloc) {
+                        gLayoutManager.DeleteChunk(alloc);
+                        alloc->servers.clear();
+                    }
                 }
             }
         }
@@ -2592,7 +2626,7 @@ MetaRename::start()
     SetEUserAndEGroup(*this);
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
-        return false;
+        return true;
     }
     wormModeFlag = gWormMode;
     if (wormModeFlag && IsWormMutationAllowed(oldname)) {

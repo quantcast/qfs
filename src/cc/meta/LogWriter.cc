@@ -145,9 +145,7 @@ public:
                 KFS_LOG_EOM;
                 return -EIO;
             }
-            if (0 <= mLogFd) {
-                close(mLogFd);
-            }
+            Close();
             mError = 0;
             if ((mLogFd = open(mLogName.c_str(), O_WRONLY, 0666)) < 0) {
                 IoError(errno);
@@ -305,9 +303,7 @@ public:
     }
     void ChildAtFork()
     {
-        if (0 <= mLogFd) {
-            close(mLogFd);
-        }
+        Close();
     }
 private:
     class Committed
@@ -459,9 +455,7 @@ private:
             mNetManagerPtr->Wakeup();
         }
         Sync();
-        if (0 <= mLogFd && close(mLogFd)) {
-            IoError(-errno);
-        }
+        Close();
     }
     void Write(
         MetaRequest& inHead)
@@ -548,9 +542,6 @@ private:
         CloseLog();
         mLogNum++;
         NewLog(mLastLogSeq);
-        if (! IsLogStreamGood()) {
-            mLogNum--;
-        }
     }
     void LogError(
         MetaRequest& inReq)
@@ -669,20 +660,14 @@ private:
             mLastLogSeq = mNextLogSeq;
         }
         Sync();
-        if (0 <= mLogFd) {
-            if (close(mLogFd)) {
-                IoError(errno);
-            } else if (link_latest(mLogName, mLastLogPath)) {
-                IoError(errno, "failed to link to: " + mLastLogPath);
-            }
+        if (0 <= mLogFd && Close() && link_latest(mLogName, mLastLogPath)) {
+            IoError(errno, "failed to link to: " + mLastLogPath);
         }
     }
     void NewLog(
         seq_t inLogSeq)
     {
-        if (0 <= mLogFd) {
-            close(mLogFd);
-        }
+        Close();
         mCurLogStartTime = microseconds();
         mNextBlockSeq    = -1;
         mError           = 0;
@@ -695,6 +680,8 @@ private:
         }
         StartBlock(kKfsNullChecksum);
         mMdStream.Reset(this);
+        mMdStream.clear();
+        mReqOstream.Get().clear();
         mMdStream.setf(ostream::dec, ostream::basefield);
         mMdStream <<
             "version/" << int(LogWriter::VERSION) << "\n"
@@ -795,6 +782,18 @@ private:
             0 < mFailureSimulationInterval &&
             0 == (mRandom.Rand() % mFailureSimulationInterval)
         );
+    }
+    bool Close()
+    {
+        if (mLogFd <= 0) {
+            return false;
+        }
+        const bool theOkFlag = close(mLogFd) == 0;
+        if (! theOkFlag) {
+            IoError(errno);
+        }
+        mLogFd = -1;
+        return theOkFlag;
     }
 };
 

@@ -1531,7 +1531,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
     // during replay chunkId will be non-zero.  In such cases,
     // don't do new allocation.
     if (*chunkId == 0) {
-        *chunkId = chunkID.genid();
+        *chunkId      = chunkID.genid();
         *chunkVersion = 1;
     }
     return 0;
@@ -1566,13 +1566,11 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     Node * const l = findLeaf(ckey, kp);
     if (l) {
         if (! appendOffset) {
-            MetaChunkInfo * const c =
-                l->extractMeta<MetaChunkInfo>(kp);
+            MetaChunkInfo * const c = l->extractMeta<MetaChunkInfo>(kp);
             if (curChunkId) {
                 *curChunkId = c->chunkId;
             }
-            if (c->chunkId != chunkId ||
-                    c->chunkVersion == chunkVersion) {
+            if (c->chunkId != chunkId || c->chunkVersion == chunkVersion) {
                 return -EEXIST;
             }
             c->chunkVersion = chunkVersion;
