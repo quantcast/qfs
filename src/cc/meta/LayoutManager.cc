@@ -7208,7 +7208,11 @@ void
 LayoutManager::CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r)
 {
     if (r->alloc) {
-        CommitOrRollBackChunkVersion(r->alloc);
+        if (0 != r->status && r->initialChunkVersion < 0) {
+            DeleteChunk(r->alloc);
+        } else {
+            CommitOrRollBackChunkVersion(r->alloc);
+        }
         return;
     }
     // Replay.
@@ -7229,23 +7233,11 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     if (r->stripedFileFlag && r->initialChunkVersion < 0) {
         if (mStripedFilesAllocationsInFlight.erase(make_pair(make_pair(
                 r->fid, r->chunkBlockStart), r->chunkId)) != 1 &&
-                r->status >= 0) {
+                0 == r->status) {
             panic("no striped file allocation entry");
         }
     }
-    if (mClientCSAuthRequiredFlag && 0 <= r->status) {
-        r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
-        if ((r->writeMasterKeyValidFlag = r->servers.front()->GetCryptoKey(
-                r->writeMasterKeyId, r->writeMasterKey))) {
-            r->issuedTime   = TimeNow();
-            r->validForTime = mCSAccessValidForTimeSec;
-            r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
-        } else {
-            r->status    = -EALLOCFAILED;
-            r->statusMsg = "no write master crypto key";
-        }
-    }
-    if (r->status >= 0) {
+    if (0 == r->status) {
         // Tree::assignChunkId() succeeded.
         // File and chunk ids are valid and in sync with meta tree.
         const bool kAllocDoneFlag = true;
@@ -7261,17 +7253,13 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         if (mChunkVersionRollBack.Erase(r->chunkId) > 0 &&
                 r->initialChunkVersion < 0) {
             panic("chunk version roll back still exists");
-            r->statusMsg = "internal error:"
-                " chunk version roll back still exists";
-            r->status = -EINVAL;
+            r->status = -EFAULT;
             return;
         }
         CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
         if (! ci) {
             panic("missing chunk mapping");
-            r->statusMsg = "internal error:"
-                " missing chunk mapping";
-            r->status = -EINVAL;
+            r->status = -EFAULT;
             return;
         }
         if (r->initialChunkVersion < 0) {
@@ -7281,9 +7269,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             if (r->fid != ci->GetFileId() ||
                     mChunkToServerMap.HasServers(*ci)) {
                 panic("invalid chunk mapping");
-                r->statusMsg = "internal error:"
-                    " invalid chunk mapping";
-                r->status = -EINVAL;
+                r->status = -EFAULT;
                 return;
             }
             for (Servers::const_iterator
@@ -7315,6 +7301,25 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
                     kSize, kHasChecksumFlag, kChecksum, r->chunkVersion),
                 insertedFlag
             );
+        }
+        if (mClientCSAuthRequiredFlag) {
+            r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
+            if ((r->writeMasterKeyValidFlag = r->servers.front()->GetCryptoKey(
+                    r->writeMasterKeyId, r->writeMasterKey))) {
+                r->issuedTime   = TimeNow();
+                r->validForTime = mCSAccessValidForTimeSec;
+                r->tokenSeq     = (MetaAllocate::TokenSeq)mRandom.Rand();
+            } else {
+                // Fail the allocation only for the client, by telling him to
+                // retry, but keep the chunk and lease,
+                // This is required because the write ahead log replay does not
+                // (and cannot possibly) go through this code path, therefore
+                // changing the meta data state by deleting chunk or rolling
+                // back chunk version might cause replay and checkpoint states
+                // to diverge.
+                r->status    = -EALLOCFAILED;
+                r->statusMsg = "no write master crypto key";
+            }
         }
         return;
     }
