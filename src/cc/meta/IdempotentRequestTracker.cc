@@ -88,7 +88,7 @@ public:
             theParamName.Append(inParamNamePrefixPtr);
         }
         const size_t thePrefLen = theParamName.GetSize();
-        mMaxSize = (size_t)inParameters.getValue(
+        mMaxSize = (int64_t)inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append("maxSize"),
             (double)mMaxSize);
         mExpirationTimeMicroSec = (int64_t)(inParameters.getValue(
@@ -366,7 +366,7 @@ private:
 
     int64_t         mExpirationTimeMicroSec;
     size_t          mSize;
-    size_t          mMaxSize;
+    int64_t         mMaxSize;
     Entry           mLru;
     UserEntryCounts mUserEntryCounts;
     bool            mCleanUserEntryFlag;
