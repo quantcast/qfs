@@ -2184,9 +2184,6 @@ MetaLogChunkAllocate::handle()
         KFS_LOG_EOM;
     } else if (invalidateAllFlag) {
         if (0 <= initialChunkVersion) {
-            // Presently chunk can not possibly exist when assignChunkId() is
-            // invoked, as metatree.allocateChunkId() the above returned
-            // success.
             if (gLayoutManager.InvalidateAllChunkReplicas(
                     fid, offset, chunkId, chunkVersion)) {
                 // Add the chunk to the recovery queue.
@@ -2199,8 +2196,10 @@ MetaLogChunkAllocate::handle()
                 statusMsg = "invalidate replicas no such file or chunk";
             }
         } else {
-            // Allocate the chunk if doesn't exist to trigger the
-            // recovery later.
+            // Writer can deside to invalidate chunk that does not exists in the
+            // case of continious allocation failures (out of space for
+            // example).
+            // Allocate the chunk to trigger the recovery later.
             status = metatree.assignChunkId(
                 fid, offset, chunkId, chunkVersion);
             if (0 == status) {
@@ -2343,8 +2342,7 @@ MetaAllocate::Done(bool countAllocTimeFlag, int64_t chunkAllocProcessTime)
     assert(appendChunk || ! next);
     // Update the process time, charged from MetaChunkAllocate.
     if (countAllocTimeFlag) {
-        const int64_t now = microseconds();
-        processTime += now - chunkAllocProcessTime;
+        processTime += microseconds() - chunkAllocProcessTime;
     }
     if (! next) {
         submit_request(this);
@@ -2538,8 +2536,9 @@ MetaAllocate::ShowSelf(ostream& os) const
 bool
 MetaLogChunkVersionChange::start()
 {
-    if (! alloc || ! alloc->suspended) {
-        panic("log version change: allocation null or was not suspended");
+    if (! alloc || ! alloc->suspended || 0 != alloc->status) {
+        panic("log version change:"
+            " allocation null, failed, or was not suspended");
         return false;
     }
     fid          = alloc->fid;
@@ -2553,13 +2552,13 @@ MetaLogChunkVersionChange::handle()
 {
     if (alloc) {
         if (0 != status) {
-            if (0 <= alloc->status) {
-                alloc->status    = status;
-                alloc->statusMsg = statusMsg;
+            if (! alloc->suspended || 0 != alloc->status) {
+                panic("version change: invalid allocate");
             }
-            if (alloc->suspended) {
-                submit_request(alloc);
-            }
+            alloc->status    = status;
+            alloc->statusMsg = statusMsg;
+            alloc->LayoutDone(processTime);
+            processTime = microseconds(); // Time charged to allocate.
             return;
         }
         for (size_t i = alloc->servers.size(); i-- > 0; ) {

@@ -5594,7 +5594,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r)
     }
     KFS_LOG_STREAM_INFO <<
         "new write"
-        " lease:"    << r->leaseId <<
+        " lease: "   << r->leaseId <<
         " chunk: "   << r->chunkId <<
         " version: " << r->chunkVersion <<
     KFS_LOG_EOM;

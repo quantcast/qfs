@@ -629,41 +629,6 @@ Tree::getDentry(fid_t dir, const string& fname)
     return 0;
 }
 
-#ifdef KFS_TREE_OPS_HAS_REVERSE_LOOKUP
-/*
- * Map from file id to its directory entry.  In the current instantation, this
- * is SLOW:
- * we iterate over the leaves until we find the dentry.  This method is needed
- * for KFS fsck, where we want to map from a fid -> name to reconstruct the
- * pathname for the file for which we want to print info (such as, missing
- * block, has fewer replicas etc.
- * \param[in] fid       the object's file id
- * \return              pointer to the attributes
- */
-MetaDentry *
-Tree::getDentry(fid_t fid)
-{
-    LeafIter li(metatree.firstLeaf(), 0);
-    Node *p = li.parent();
-    Meta *m = li.current();
-    MetaDentry *d = 0;
-    while (m != NULL) {
-        if (m->metaType() == KFS_DENTRY &&
-                (d = refine<MetaDentry>(m))->id() == fid) {
-            const string& name = d->getName();
-            if (name != kThisDir && name != kParentDir) {
-                return d;
-            }
-        }
-
-        li.next();
-        p = li.parent();
-        m = (p == NULL) ? NULL : li.current();
-    }
-    return 0;
-}
-#endif
-
 /*
  * Do a depth first dir listing of the tree.  This can be useful for debugging
  * purposes.
@@ -1556,7 +1521,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag)
 {
     MetaFattr * const fa = getFattr(file);
-    if (fa == NULL) {
+    if (! fa) {
         return -ENOENT;
     }
     chunkOff_t boundary = chunkStartOffset(offset);
