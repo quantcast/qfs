@@ -370,6 +370,10 @@ metaServer.rootDirMode = 0777
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.startupAbortOnPanic = 1
 metaServer.debugPanicOnHelloResumeFailureCount = 0
+
+metaServer.log.failureSimulationInterval = 100
+metaServer.log.panicOnIoError = 1
+
 EOF
 
 if [ x"$auth" = x'yes' ]; then
