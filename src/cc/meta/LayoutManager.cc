@@ -5605,8 +5605,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r)
     } else {
         r->validForTime = 0;
     }
-    r->suspended = true;
-    submit_request(new MetaLogChunkVersionChange(r));
     return 0;
 }
 

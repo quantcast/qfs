@@ -2022,7 +2022,7 @@ MetaAllocate::handle()
         egroup,
         &fa
     );
-    if (status != 0 && (-EEXIST != status || appendChunk)) {
+    if (0 != status && (-EEXIST != status || appendChunk)) {
         return; // Access denied or invalid request.
     }
     if (stripedFileFlag && appendChunk) {
@@ -2053,24 +2053,21 @@ MetaAllocate::handle()
     maxSTier    = fa->maxSTier;
     if (status == -EEXIST) {
         initialChunkVersion = chunkVersion;
-        // Get a (new) lease if possible
+        // Attempt to obtain a new lease.
         status = gLayoutManager.GetChunkWriteLease(this);
-        if (0 != status) {
-            // couln't get the lease...bail
-            if (suspended) {
-                panic("chunk allocation suspended after lease acquistion"
-                    " failure");
-            }
+        if (suspended) {
+            panic("chunk allocation suspended after lease acquistion");
         }
-        // new lease and chunkservers have been notified
-        // so, wait for them to ack
+        if (0 == status) {
+            suspended = true;
+            submit_request(new MetaLogChunkVersionChange(this));
+        }
         return;
     }
     const int ret = gLayoutManager.AllocateChunk(this, chunkBlock);
     if (ret < 0) {
-        // we have a problem
+        // Failure.
         status = ret;
-        return;
     }
 }
 
