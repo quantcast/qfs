@@ -1199,6 +1199,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     bool                 writeMasterKeyValidFlag;
     bool                 clientCSAllowClearTextFlag;
     bool                 allChunkServersShortRpcFlag;
+    bool                 logChunkVersionChangeFailedFlag;
     TokenSeq             tokenSeq;
     time_t               issuedTime;
     int                  validForTime;
@@ -1241,6 +1242,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           writeMasterKeyValidFlag(false),
           clientCSAllowClearTextFlag(false),
           allChunkServersShortRpcFlag(false),
+          logChunkVersionChangeFailedFlag(false),
           tokenSeq(),
           issuedTime(),
           validForTime(0),

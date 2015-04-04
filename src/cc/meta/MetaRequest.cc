@@ -2556,30 +2556,31 @@ MetaLogChunkVersionChange::start()
 void
 MetaLogChunkVersionChange::handle()
 {
-    if (alloc) {
-        if (0 != status) {
-            if (! alloc->suspended || 0 != alloc->status) {
-                panic("version change: invalid allocate");
-            }
-            alloc->status    = status;
-            alloc->statusMsg = statusMsg;
-            alloc->LayoutDone(processTime);
-            processTime = microseconds(); // Time charged to allocate.
-            return;
-        }
-        for (size_t i = alloc->servers.size(); i-- > 0; ) {
-            alloc->servers[i]->AllocateChunk(
-                alloc, i == 0 ? alloc->leaseId : -1, alloc->minSTier);
-        }
+    if ((0 == alloc) != replayFlag) {
+        panic("invalid log version change: null allocation or repaly flag");
+    }
+    if (0 == status) {
+        const bool panicOnInvalidVersion = 0 != alloc;
+        status = gLayoutManager.ProcessBeginChangeChunkVersion(
+            fid, chunkId, chunkVersion, &statusMsg, panicOnInvalidVersion);
+    }
+    if (! alloc) {
         return;
     }
-    if (! replayFlag) {
-        panic("invalid log version change: null allocation");
+    if (! alloc->suspended || 0 != alloc->status) {
+        panic("version change: invalid allocate");
+    }
+    if (0 != status) {
+        alloc->logChunkVersionChangeFailedFlag = true;
+        alloc->status                          = status;
+        alloc->statusMsg                       = statusMsg;
+        alloc->LayoutDone(processTime);
+        processTime = microseconds(); // Time charged to allocate.
         return;
     }
-    if (0 == status && ! gLayoutManager.ReplayBeginChangeChunkVersion(
-            fid, chunkId, chunkVersion)) {
-        status = -EINVAL;
+    for (size_t i = alloc->servers.size(); i-- > 0; ) {
+        alloc->servers[i]->AllocateChunk(
+            alloc, i == 0 ? alloc->leaseId : -1, alloc->minSTier);
     }
 }
 

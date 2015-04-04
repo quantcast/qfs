@@ -792,9 +792,14 @@ replay_beginchunkversionchange(DETokenizer& c)
     bool ok = pop_fid(fid,          "file",         c, true);
     ok = pop_fid     (chunkId,      "chunkId",      c, ok);
     ok = pop_fid     (chunkVersion, "chunkVersion", c, ok);
-
-    return (ok && gLayoutManager.ReplayBeginChangeChunkVersion(
-        fid, chunkId, chunkVersion));
+    if (! ok) {
+        return false;
+    }
+    const bool    kPanicOnInvalidVersionFlag = false;
+    string* const kStatusMsg                 = 0;
+    const int ret = gLayoutManager.ProcessBeginChangeChunkVersion(
+        fid, chunkId, chunkVersion, kStatusMsg, kPanicOnInvalidVersionFlag);
+    return (0 == ret || -ENOENT == ret);
 }
 
 /*

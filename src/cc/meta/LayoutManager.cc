@@ -5343,34 +5343,41 @@ LayoutManager::AllocateChunk(
     return 0;
 }
 
-bool
+int
 LayoutManager::ProcessBeginChangeChunkVersion(
     fid_t     fid,
     chunkId_t chunkId,
     seq_t     chunkVersion,
-    bool      okIfNoChunkFlag)
+    string*   statusMsg,
+    bool      panicOnInvaliVersionFlag)
 {
     const char*               msg  = "OK";
-    bool                      ret  = true;
+    int                       ret  = 0;
     const CSMap::Entry* const cs   = mChunkToServerMap.Find(chunkId);
     seq_t                     vers;
     if (cs) {
         vers = cs->GetChunkInfo()->chunkVersion;
         if (chunkVersion <= vers) {
             msg = "invalid version transition";
-            ret = false;
+            ret = -EINVAL;
         } else {
             bool         insertedFlag = false;
+            const seq_t  entryVal     = chunkVersion - vers;
             seq_t* const res          = mChunkVersionRollBack.Insert(
-                chunkId, chunkVersion - vers, insertedFlag);
+                chunkId, entryVal, insertedFlag);
             if (! insertedFlag) {
-                *res = chunkVersion - vers;
+                if (chunkVersion <= vers + *res) {
+                    msg = "version roll back entry invalid version transition";
+                    ret = -EINVAL;
+                } else {
+                    *res = entryVal;
+                }
             }
         }
     } else {
         vers = -1;
         msg  = "no such chunk";
-        ret  = okIfNoChunkFlag;
+        ret  = -ENOENT;
     }
     KFS_LOG_STREAM(ret ?
         MsgLogger::kLogLevelDEBUG :
@@ -5381,6 +5388,12 @@ LayoutManager::ProcessBeginChangeChunkVersion(
         " version: " << vers << "=>" << chunkVersion <<
         " "          << msg <<
     KFS_LOG_EOM;
+    if (ret == -EINVAL && panicOnInvaliVersionFlag) {
+        panic(msg);
+    }
+    if (0 != ret && statusMsg) {
+        *statusMsg = msg;
+    }
     return ret;
 }
 
@@ -5588,7 +5601,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r)
     assert(r->chunkVersion == r->initialChunkVersion);
     // When issuing a new lease, increment the version, skipping over
     // the failed version increment attemtps.
-    r->chunkVersion += IncrementChunkVersionRollBack(r->chunkId);
+    r->chunkVersion += GetChunkVersionRollBack(r->chunkId) + 1;
     if (! mChunkLeases.NewWriteLease(*r)) {
         panic("failed to get write lease for a chunk");
     }
@@ -7334,7 +7347,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         }
         panic("chunk version roll back failed to delete write lease");
     }
-    if (r->initialChunkVersion < 0) {
+    if (r->initialChunkVersion < 0 || r->logChunkVersionChangeFailedFlag) {
         return;
     }
     if (r->initialChunkVersion >= r->chunkVersion) {
