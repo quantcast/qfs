@@ -253,8 +253,7 @@ public:
         if (! theReqPtr) {
             return -EINVAL;
         }
-        // This is used for checkpoint load or log replay -- assign the "start"
-        // time.
+        // This is used for checkpoint load -- assign the "start" time.
         static const int sStartTime = microseconds();
         theReqPtr->submitCount = 0xf; // Mark as already logged and handled.
         theReqPtr->submitTime  = sStartTime;
