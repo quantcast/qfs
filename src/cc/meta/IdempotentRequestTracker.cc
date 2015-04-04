@@ -175,10 +175,9 @@ public:
         MetaAck& inAck)
     {
         inAck.status = HandleAck(inAck.ack.data(), inAck.ack.size(),
-                inAck.euser, inAck.authUid) ? 0 :
-            -EINVAL; // Don't log invalid or duplicate ack.
+                inAck.euser, inAck.authUid);
     }
-    bool HandleAck(
+    int HandleAck(
         const char* inPtr,
         size_t      inLen,
         kfsUid_t    inUid,
@@ -188,28 +187,28 @@ public:
         const char* const theEndPtr = thePtr + inLen;
         seq_t             theAck    = -1;
         if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theAck)) {
-            return false;
+            return -EINVAL;
         }
         if (theAck < 0) {
-            return false;
+            return -EINVAL;
         }
         while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
             ++thePtr;
         }
         if (theEndPtr <= thePtr) {
-            return false;
+            return -EINVAL;
         }
         const int theAckType = MetaRequest::GetId(
             TokenValue(thePtr, theEndPtr - thePtr));
         if (theAckType < 0 || ! Validate(theAckType)) {
-            return false;
+            return -EINVAL;
         }
         Table* const theTablePtr = mTables[theAckType];
         if (! theTablePtr) {
-            return false;
+            return -EINVAL;
         }
         SearchKey theKey(theAckType, theAck, inUid, inAuthUid);
-        return (0 < theTablePtr->Erase(Entry(theKey)));
+        return (0 < theTablePtr->Erase(Entry(theKey)) ? 0 : -ENOENT);
     }
     virtual void Timeout()
     {
@@ -229,9 +228,13 @@ public:
                 continue;
             }
             const MetaIdempotentRequest& theReq = *(thePtr->mReqPtr);
-            if (0 < theReq.seqno && ! theReq.commitPendingFlag) {
+            if (0 <= theReq.seqno && ! theReq.commitPendingFlag &&
+                    -ELOGFAILED != theReq.status) {
                 // Only write completed RPCs.
-                // Not completed RPCs should be in the transaction log.
+                // Not completed RPCs will be written into transaction log.
+                // Do not write RPCs with log write failures, though those
+                // should be removed after log write failure by IsHandled()
+                // method invoked from handle().
                 inStream.write("idr/", 4);
                 thePtr->mReqPtr->Write(inStream);
                 inStream.write("\n", 1);
@@ -465,16 +468,6 @@ IdempotentRequestTracker::Handle(
     MetaAck& inAck)
 {
     return mImpl.Handle(inAck);
-}
-
-    bool
-IdempotentRequestTracker::HandleAck(
-    const char* inPtr,
-    size_t      inLen,
-    kfsUid_t    inUid,
-    kfsUid_t    inAuthUid)
-{
-    return mImpl.HandleAck(inPtr, inLen, inUid, inAuthUid);
 }
 
     int

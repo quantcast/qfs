@@ -317,7 +317,7 @@ metaServer.logDir = kfslog
 metaServer.recoveryInterval = 1
 metaServer.msgLogWriter.logLevel = DEBUG
 metaServer.msgLogWriter.maxLogFileSize = 1e9
-metaServer.msgLogWriter.maxLogFiles = 35
+metaServer.msgLogWriter.maxLogFiles = 256
 
 metaServer.minChunkservers = 1
 

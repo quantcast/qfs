@@ -763,11 +763,20 @@ MetaIdempotentRequest::IsHandled()
             panic("handled/duplicate idempotent in replay");
             return true;
         }
-    } else if (req && req != this) {
-        if (req->seqno < 0) {
-            panic("invalid in-flight idempotent request");
+    } else {
+        if (req && req != this) {
+            if (req->seqno < 0 || req->commitPendingFlag) {
+                panic("invalid in-flight idempotent request");
+            }
+            return true;
         }
-        return true;
+        if (-ELOGFAILED == status) {
+            // Remove RPC from the tracker, as otherwise ACK reply will
+            // fail in replay due to missing log record, but succeeds at
+            // run time (now).
+            gLayoutManager.GetIdempotentRequestTracker().Remove(*this);
+            ackId = -1; // Do not request client to ACK.
+        }
     }
     return (0 != status);
 }
@@ -5563,7 +5572,8 @@ MetaRemoveFromDumpster::handle()
     }
 }
 
-LogWriter& MakeLogWriter()
+static LogWriter&
+MakeLogWriter()
 {
     static LogWriter sLogWriter;
     return sLogWriter;
