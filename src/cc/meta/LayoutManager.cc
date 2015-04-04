@@ -5379,13 +5379,14 @@ LayoutManager::ProcessBeginChangeChunkVersion(
         msg  = "no such chunk";
         ret  = -ENOENT;
     }
-    KFS_LOG_STREAM(ret ?
-        MsgLogger::kLogLevelDEBUG :
-        MsgLogger::kLogLevelWARN) <<
-        "replay beginchunkversionchange"
+    KFS_LOG_STREAM(0 != ret ?
+        MsgLogger::kLogLevelERROR :
+        MsgLogger::kLogLevelDEBUG) <<
+        "begin chunk version change:"
         " fid: "     << fid <<
         " chunkId: " << chunkId <<
-        " version: " << vers << "=>" << chunkVersion <<
+        " version: " << vers <<
+        " => "       << chunkVersion <<
         " "          << msg <<
     KFS_LOG_EOM;
     if (ret == -EINVAL && panicOnInvaliVersionFlag) {
