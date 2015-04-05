@@ -881,7 +881,7 @@ GetRecordAppendOpStatus::ParseResponseHeaderSelf(const Properties& prop)
     opSeq               = prop.getValue(
         shortRpcFormatFlag ? "Oc" : "Op-seq", (int64_t)-1);
     opStatus            = prop.getValue(
-        shortRpcFormatFlag ? "s" : "Op-status", -1);
+        shortRpcFormatFlag ? "Os" : "Op-status", -1);
     if (opStatus < 0) {
         opStatus = -KfsToSysErrno(-opStatus);
     }
