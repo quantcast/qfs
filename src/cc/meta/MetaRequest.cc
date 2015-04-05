@@ -2598,7 +2598,6 @@ MetaTruncate::start()
         status    = -EPERM;
         return false;
     }
-    mtime = microseconds();
     if (checkPermsFlag || gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     } else {
@@ -2608,6 +2607,9 @@ MetaTruncate::start()
         status    = -EINVAL;
         statusMsg = "end offset less than offset";
         return false;
+    }
+    if (0 == status) {
+        mtime = microseconds();
     }
     return (0 == status);
 }

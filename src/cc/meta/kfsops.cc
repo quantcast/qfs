@@ -1801,6 +1801,9 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
             return -EACCES;
         }
         setFileSize(fa, offset);
+        if (mtime) {
+            fa->mtime = *mtime;
+        }
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }

@@ -7557,7 +7557,8 @@ LayoutManager::MakeChunkStableInit(
             // Update file modification time.
             MetaFattr* const fa  = entry.GetFattr();
             const int64_t    now = microseconds();
-            if (fa->mtime + mMTimeUpdateResolution < now) {
+            if (! fa->IsStriped() &&
+                    fa->mtime + mMTimeUpdateResolution < now) {
                 submit_request(new MetaSetMtime(fid, fa->mtime));
             }
         }
@@ -7598,7 +7599,8 @@ LayoutManager::MakeChunkStableInit(
                 pathname,
                 chunkVersion,
                 stripedFileFlag,
-                leaseRelinquishFlag && serversCnt > 0
+                leaseRelinquishFlag && serversCnt > 0 &&
+                    ! entry.GetFattr()->IsStriped()
         ), nonStableInsertedFlag);
     if (! nonStableInsertedFlag) {
         KFS_LOG_STREAM_INFO << logPrefix <<
