@@ -5107,12 +5107,12 @@ ChunkManager::GetHostedChunksResume(
             const kfsChunkId_t           chunkId = p->GetKey();
             const ChunkInfoHandle* const cih     = p->GetVal();
             if (cih->IsBeingReplicated()) {
-                os << chunkId << cih->chunkInfo.chunkVersion << " R";
+                os << chunkId << " " << cih->chunkInfo.chunkVersion << " R";
             } else if (cih->IsRenameInFlight()) {
                 bool stableFlag = false;
                 kfsSeq_t const vers =
                     cih->GetTargetStateAndVersion(stableFlag);
-                os << chunkId << " " << vers << (stableFlag ? " N" : " S");
+                os << chunkId << " " << vers << (stableFlag ? " S" : " N");
             } else {
                 os << chunkId << " " << cih->chunkInfo.chunkVersion <<
                     (IsChunkStable(cih) ? " S" : " N");
