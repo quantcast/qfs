@@ -2276,8 +2276,7 @@ ChunkServer::Heartbeat()
             mAuthCtxUpdateCount    = authCtx.GetUpdateCount();
         }
         if (reAuthenticateFlag) {
-            KFS_LOG_STREAM_INFO <<
-                GetServerLocation() <<
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 " requesting chunk server re-authentication:"
                 " session expires in: " <<
                     (mSessionExpirationTime - now) << " sec." <<
@@ -2357,6 +2356,9 @@ ChunkServer::FailDispatchedOps()
             it != reqs.end();
             ++it) {
         const MetaChunkRequest& op = *(it->second.first->second);
+        KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+            " failing op: " << op.Show() <<
+        KFS_LOG_EOM;
         if (op.op == META_CHUNK_STALENOTIFY) {
             const MetaChunkStaleNotify& sop =
                 static_cast<const MetaChunkStaleNotify&>(op);
@@ -2786,6 +2788,8 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
 {
     KFS_LOG_STREAM_DEBUG <<
         " server: "           << GetServerLocation() <<
+        " index: "            << GetIndex() <<
+        " chunks: "           << GetChunkCount() <<
         " in flight chunks: " << mLastChunksInFlight.Size() <<
         " last chunk id: "    << lastResumeModifiedChunk <<
     KFS_LOG_EOM;
@@ -2824,12 +2828,52 @@ HibernatedChunkServer::HibernatedChunkServer(
     sValidCount++;
     sChunkListsSize += size;
     KFS_LOG_STREAM_INFO <<
-        " hibernated: " << server.GetServerLocation() <<
+        " hibernated: " << GetIndex() <<
+        " location: "   << server.GetServerLocation() <<
+        " index: "      << GetIndex() <<
+        " chunks: "     << GetChunkCount() <<
         " modified: "   << mModifiedChunks.Size() <<
         " delete: "     << mDeletedChunks.GetSize() <<
         " hibernated total:"
         " valid: "      << sValidCount <<
         " chunks: "     << sChunkListsSize <<
+    KFS_LOG_EOM;
+}
+
+void
+HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, int index)
+{
+    if (0 < mListsSize) {
+        if (! mModifiedChunks.Erase(chunkId)) {
+            mListsSize++;
+            sChunkListsSize++;
+            Prune();
+        }
+        if (0 < mListsSize) {
+            mDeletedChunks.PushBack(chunkId);
+        }
+    }
+    CSMapServerInfo::RemoveHosted(chunkId, index);
+    KFS_LOG_STREAM_DEBUG <<
+        "hibernated: "  << GetIndex() <<
+        " / "           << index <<
+        " remove: "     << chunkId <<
+        " lists size: " << mListsSize <<
+    KFS_LOG_EOM;
+}
+
+void
+HibernatedChunkServer::Modified(chunkId_t chunkId)
+{
+    if (0 < mListsSize && mModifiedChunks.Insert(chunkId)) {
+        mListsSize++;
+        sChunkListsSize++;
+        Prune();
+    }
+    KFS_LOG_STREAM_DEBUG <<
+        "hibernated: "  << GetIndex() <<
+        " modified: "   << chunkId <<
+        " lists size: " << mListsSize <<
     KFS_LOG_EOM;
 }
 
@@ -2868,15 +2912,16 @@ HibernatedChunkServer::HelloResumeReply(
         KFS_LOG_STREAM(r.status == 0 ?
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelERROR) <<
-            r.statusMsg <<
-            " server: "   << r.server->GetServerLocation() <<
-            " resume: "   << r.resumeStep <<
-            " chunks: "   << r.chunkCount <<
-            " => "        << GetChunkCount() <<
-            " deleted: "  << r.deletedCount <<
-            " => "        << mDeletedChunks.GetSize() <<
-            " modified: " << r.modifiedCount <<
-            " => "        << mModifiedChunks.Size() <<
+            "hibernated: "  << GetIndex() <<
+            " "             << r.statusMsg <<
+            " server: "     << r.server->GetServerLocation() <<
+            " resume: "     << r.resumeStep <<
+            " chunks: "     << r.chunkCount <<
+            " => "          << GetChunkCount() <<
+            " deleted: "    << r.deletedCount <<
+            " => "          << mDeletedChunks.GetSize() <<
+            " modified: "   << r.modifiedCount <<
+            " => "          << mModifiedChunks.Size() <<
         KFS_LOG_EOM;
         if (r.status != 0) {
             return true;
@@ -2917,13 +2962,13 @@ HibernatedChunkServer::HelloResumeReply(
         r.checksum = CIdsChecksumRemove(chunkId, r.checksum);
     }
     KFS_LOG_STREAM_INFO <<
-        " server: "   << r.server->GetServerLocation() <<
-        " resume: "   << r.resumeStep <<
-        " chunks: "   << r.chunkCount <<
-        " deleted: "  << mModifiedChunks.Size() <<
-        " => "        << mDeletedChunks.GetSize() <<
-        " modified: " << r.modifiedCount <<
-        " => "        << mModifiedChunks.Size() <<
+        "hibernated: " << GetIndex() <<
+        " server: "    << r.server->GetServerLocation() <<
+        " resume: "    << r.resumeStep <<
+        " chunks: "    << GetChunkCount() <<
+        " => "         << r.chunkCount <<
+        " deleted: "   << mDeletedChunks.GetSize() <<
+        " modified: "  << mModifiedChunks.Size() <<
     KFS_LOG_EOM;
     if (mListsSize <= 1) {
         if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
@@ -2960,6 +3005,17 @@ HibernatedChunkServer::ResumeRestart(
     HibernatedChunkServer::ModifiedChunks& modifiedChunks,
     int64_t                                deletedReportCount)
 {
+    KFS_LOG_STREAM_DEBUG <<
+        "hibernated: "      << GetIndex() <<
+        " resume restart:"
+        " stale: "          << staleChunkIds.GetSize() <<
+        " / "               << mDeletedChunks.GetSize() <<
+        " modified: "       << modifiedChunks.Size() <<
+        " / "               << mModifiedChunks.Size() <<
+        " delete report: "  << deletedReportCount <<
+        " / "               << mDeletedReportCount <<
+        " lists size: "     << mListsSize <<
+    KFS_LOG_EOM;
     if (! CanBeResumed()) {
         return;
     }

@@ -6589,6 +6589,10 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
     Servers&        servers = serversTmp.Get();
     mChunkToServerMap.GetServers(entry, servers);
     // remove the mapping
+    KFS_LOG_STREAM_DEBUG <<
+        "delete chunk: <" << fid << "," << chunkId << ">"
+        " servers: " << MetaRequest::DisplayServers(servers) <<
+    KFS_LOG_EOM;
     mChunkToServerMap.Erase(chunkId);
     DeleteChunk(fid, chunkId, servers);
 }

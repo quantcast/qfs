@@ -723,8 +723,18 @@ CheckCreatePerms(T& req, bool dirFlag)
     return CheckUserAndGroup(req);
 }
 
-const string kInvalidChunksPath("/proc/invalid_chunks");
-const string kInvalidChunksPrefix(kInvalidChunksPath + "/");
+ostream&
+MetaRequest::DisplayServers::Show(ostream& os) const
+{
+    const char* sep = "";
+    for (Servers::const_iterator it = mServers.begin();
+            it != mServers.end() && os;
+            ++it) {
+        os << sep << (*it)->GetServerLocation();
+        sep = ",";
+    }
+    return os;
+}
 
 class MetaRequestNull : public MetaRequest
 {
@@ -780,6 +790,9 @@ MetaIdempotentRequest::IsHandled()
     }
     return (0 != status);
 }
+
+const string kInvalidChunksPath("/proc/invalid_chunks");
+const string kInvalidChunksPrefix(kInvalidChunksPath + "/");
 
 /* virtual */ bool
 MetaCreate::start()

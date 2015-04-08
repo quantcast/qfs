@@ -177,6 +177,16 @@ struct MetaRequest {
         ChunkServerPtr,
         StdAllocator<ChunkServerPtr>
     > Servers;
+    class DisplayServers
+    {
+    public:
+        DisplayServers(const Servers& servers)
+            : mServers(servers)
+            {}
+        ostream& Show(ostream& os) const;
+    private:
+        const Servers& mServers;
+    };
     class Display
     {
     public:
@@ -385,6 +395,9 @@ private:
     static const MetaRequest& GetNullReq();
 };
 inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
+{ return disp.Show(os); }
+inline static ostream& operator<<(ostream& os,
+    const MetaRequest::DisplayServers& disp)
 { return disp.Show(os); }
 
 inline static void submit_request(MetaRequest* r)

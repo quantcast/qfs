@@ -1226,26 +1226,8 @@ public:
     };
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
 private:
-    void RemoveHosted(chunkId_t chunkId, int index) {
-        if (0 < mListsSize) {
-            if (! mModifiedChunks.Erase(chunkId)) {
-                mListsSize++;
-                sChunkListsSize++;
-                Prune();
-            }
-            if (0 < mListsSize) {
-                mDeletedChunks.PushBack(chunkId);
-            }
-        }
-        CSMapServerInfo::RemoveHosted(chunkId, index);
-    }
-    void Modified(chunkId_t chunkId) {
-        if (0 < mListsSize && mModifiedChunks.Insert(chunkId)) {
-            mListsSize++;
-            sChunkListsSize++;
-            Prune();
-        }
-    }
+    void RemoveHosted(chunkId_t chunkId, int index);
+    void Modified(chunkId_t chunkId);
     void Prune() {
         if (sChunkListsSize <= sMaxChunkListsSize ||
                 (uint64_t)sValidCount * (mListsSize - 1) < sMaxChunkListsSize) {
