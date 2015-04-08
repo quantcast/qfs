@@ -361,7 +361,6 @@ public:
         if (thePendingEmptyFlag && mQueueStack.empty()) {
             return;
         }
-        QueueStack::iterator theIt;
         if (! thePendingEmptyFlag) {
             OpQueue theQeue;
             for (OpQueue::iterator theIt = mPendingOpQueue.begin();
@@ -374,7 +373,8 @@ public:
                 }
             }
             if (! theQeue.empty()) {
-                theIt = mQueueStack.insert(mQueueStack.end(), OpQueue());
+                QueueStack::iterator const theIt =
+                    mQueueStack.insert(mQueueStack.end(), OpQueue());
                 theQeue.swap(*theIt);
             }
         }
