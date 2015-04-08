@@ -42,6 +42,8 @@ namespace client
 using std::string;
 using std::ostream;
 
+class ClientPool;
+
 // Kfs client file read state machine.
 class Reader
 {
@@ -239,7 +241,8 @@ public:
         int         inLeaseRetryTimeout        = 3,
         int         inLeaseWaitTimeout         = 900,
         const char* inLogPrefixPtr             = 0,
-        int64_t     inChunkServerInitialSeqNum = 1);
+        int64_t     inChunkServerInitialSeqNum = 1,
+        ClientPool* inClientPoolPtr            = 0);
     virtual ~Reader();
     int Open(
         kfsFileId_t inFileId,

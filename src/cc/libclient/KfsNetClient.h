@@ -254,6 +254,8 @@ public:
         KfsOp*   inOpPtr,
         OpOwner* inOwnerPtr);
     bool Cancel();
+    void CancelAllWithOwner(
+        OpOwner* inOwnerPtr);
     const ServerLocation& GetServerLocation() const;
     NetManager& GetNetManager() const;
     void SetEventObserver(

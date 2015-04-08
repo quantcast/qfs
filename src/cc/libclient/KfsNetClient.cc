@@ -351,6 +351,53 @@ public:
         }
         ResetConnection();
     }
+    void CancelAllWithOwner(
+        OpOwner* inOwnerPtr)
+    {
+        if (mInFlightOpPtr && mInFlightOpPtr->mOwnerPtr == inOwnerPtr) {
+            CancelInFlightOp();
+        }
+        const bool thePendingEmptyFlag = mPendingOpQueue.empty();
+        if (thePendingEmptyFlag && mQueueStack.empty()) {
+            return;
+        }
+        QueueStack::iterator theIt;
+        if (! thePendingEmptyFlag) {
+            OpQueue theQeue;
+            for (OpQueue::iterator theIt = mPendingOpQueue.begin();
+                    theIt != mPendingOpQueue.end();
+                    ) {
+                OpQueue::iterator const theCur = theIt++;
+                if (theCur->second.mOwnerPtr == inOwnerPtr) {
+                    theQeue.insert(*theCur);
+                    mPendingOpQueue.erase(theCur);
+                }
+            }
+            if (! theQeue.empty()) {
+                theIt = mQueueStack.insert(mQueueStack.end(), OpQueue());
+                theQeue.swap(*theIt);
+            }
+        }
+        for (QueueStack::iterator theStIt = mQueueStack.begin();
+                theStIt != mQueueStack.end();
+                ) {
+            for (OpQueue::iterator theIt = theStIt->begin();
+                    theIt != theStIt->end();
+                    ++theIt) {
+                if (theIt->second.mOwnerPtr != inOwnerPtr ||
+                        ! theIt->second.mOpPtr) {
+                    continue;
+                }
+                mStats.mOpsCancelledCount++;
+                theIt->second.Cancel();
+            }
+            if (theStIt->empty()) {
+                mQueueStack.erase(theStIt++);
+            } else {
+                ++theStIt;
+            }
+        }
+    }
     void Stop()
     {
         Reset();
@@ -2014,6 +2061,14 @@ KfsNetClient::Cancel()
 {
     Impl::StRef theRef(mImpl);
     return mImpl.Cancel();
+}
+
+    void
+KfsNetClient::CancelAllWithOwner(
+    OpOwner* inOwnerPtr)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.CancelAllWithOwner(inOwnerPtr);
 }
 
     const ServerLocation&

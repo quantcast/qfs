@@ -47,12 +47,14 @@
 #include "WriteAppender.h"
 #include "Writer.h"
 #include "Reader.h"
+#include "ClientPool.h"
 
 #include <algorithm>
 #include <map>
 #include <string>
 #include <sstream>
 #include <cerrno>
+#include <limits>
 
 namespace KFS
 {
@@ -130,7 +132,27 @@ public:
           mDoNotDeallocate(),
           mStopRequest(),
           mWorker(this, "KfsProtocolWorker"),
-          mMutex()
+          mMutex(),
+          mClientPoolPtr(inParameters.mUseClientPoolFlag ?
+            new ClientPool(
+                mNetManager,
+                0,                          // inMaxRetryCount,
+                0,                          // inTimeSecBetweenRetries,
+                inParameters.mOpTimeoutSec,
+                inParameters.mIdleTimeoutSec,
+                mChunkServerInitialSeqNum,
+                inParameters.mLogPrefixPtr ? inParameters.mLogPrefixPtr : "PWC",
+                false,                       // inResetConnectionOnOpTimeoutFlag
+                true,                        // inRetryConnectOnlyFlag
+                (int)min(
+                    int64_t(mMaxReadSize) + (64 << 10),
+                    int64_t(std::numeric_limits<int>::max())
+                ), // inMaxContentLength
+                false,                       // inFailAllOpsOnOpTimeoutFlag
+                false,                       // inMaxOneOutstandingOpFlag
+                0                            // inAuthContextPtr
+            ) : 0
+        )
     {
         WorkQueue::Init(mWorkQueue);
         FreeSyncRequests::Init(mFreeSyncRequests);
@@ -1328,7 +1350,8 @@ private:
                 inOwner.mReadLeaseRetryTimeout,
                 inOwner.mLeaseWaitTimeout,
                 inLogPrefixPtr,
-                inOwner.mChunkServerInitialSeqNum),
+                inOwner.mChunkServerInitialSeqNum,
+                inOwner.mClientPoolPtr),
               mCurRequestPtr(0),
               mAsyncReadStatus(0),
               mAsyncReadDoneCount(0)
@@ -1548,7 +1571,7 @@ private:
     int               mMetaOpTimeout;
     int               mMetaTimeBetweenRetries;
     int               mMetaMaxRetryCount;
-    int               mMetaParamsUpdateFlag;
+    bool              mMetaParamsUpdateFlag;
     Workers           mWorkers;
     int               mMaxRetryCount;
     int               mTimeSecBetweenRetries;
@@ -1569,6 +1592,7 @@ private:
     StopRequest       mStopRequest;
     QCThread          mWorker;
     QCMutex           mMutex;
+    ClientPool* const mClientPoolPtr;
     Request*          mWorkQueue[1];
     SyncRequest*      mFreeSyncRequests[1];
     Worker*           mCleanupList[1];

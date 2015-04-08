@@ -25,28 +25,32 @@
 
 #include "Reader.h"
 
+#include "kfsio/IOBuffer.h"
+#include "kfsio/NetManager.h"
+#include "kfsio/checksum.h"
+#include "kfsio/ITimeout.h"
+#include "kfsio/ClientAuthContext.h"
+
+#include "common/kfsdecls.h"
+#include "common/MsgLogger.h"
+
+#include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
+#include "qcdio/qcdebug.h"
+#include "qcdio/QCDLList.h"
+
+#include "KfsOps.h"
+#include "utils.h"
+#include "KfsClient.h"
+#include "RSStriper.h"
+#include "ClientPool.h"
+
 #include <sstream>
 #include <algorithm>
 #include <cerrno>
 #include <sstream>
 #include <limits>
 #include <string.h>
-
-#include "kfsio/IOBuffer.h"
-#include "kfsio/NetManager.h"
-#include "kfsio/checksum.h"
-#include "kfsio/ITimeout.h"
-#include "kfsio/ClientAuthContext.h"
-#include "common/kfsdecls.h"
-#include "common/MsgLogger.h"
-#include "qcdio/QCUtils.h"
-#include "qcdio/qcstutils.h"
-#include "qcdio/qcdebug.h"
-#include "qcdio/QCDLList.h"
-#include "KfsOps.h"
-#include "utils.h"
-#include "KfsClient.h"
-#include "RSStriper.h"
 
 namespace KFS
 {
@@ -96,7 +100,8 @@ public:
         int         inLeaseRetryTimeout,
         int         inLeaseWaitTimeout,
         string      inLogPrefix,
-        int64_t     inChunkServerInitialSeqNum)
+        int64_t     inChunkServerInitialSeqNum,
+        ClientPool* inClientPoolPtr)
         : QCRefCountedObj(),
           mOuter(inOuter),
           mMetaServer(inMetaServer),
@@ -117,6 +122,7 @@ public:
           mOffset(0),
           mOpenChunkBlockSize(0),
           mChunkServerInitialSeqNum(inChunkServerInitialSeqNum),
+          mClientPoolPtr(inClientPoolPtr),
           mCompletionPtr(inCompletionPtr),
           mLogPrefix(inLogPrefix),
           mStats(),
@@ -384,7 +390,7 @@ private:
               mOuter(inOuter),
               mChunkServer(
                 inOuter.mNetManager,
-                string(), -1,
+                string(), -1, // host, port
                 // All chunk server retries are handled here
                 0, // inMaxRetryCount
                 0, // inTimeSecBetweenRetries,
@@ -402,6 +408,7 @@ private:
                     int64_t(std::numeric_limits<int>::max())
                 ))
               ),
+              mChunkServerPtr(0),
               mErrorCode(0),
               mRetryCount(0),
               mOpenChunkBlockFileOffset(-1),
@@ -427,6 +434,7 @@ private:
               mNoCSAccessFlag(false),
               mStartReadRunningFlag(false),
               mRestartStartReadFlag(false),
+              mSizeOpInFlightFlag(false),
               mLeaseToRelinquish(-1),
               mLogPrefix(inLogPrefix),
               mOpsNoRetryCount(0),
@@ -444,6 +452,7 @@ private:
             mLeaseAcquireOp.chunkId = -1;
             mLeaseAcquireOp.leaseId = -1;
             mSizeOp.size            = -1;
+            mSizeOp.chunkVersion    = -1;
             mGetAllocOp.status      = 0;
         }
         ~ChunkReader()
@@ -654,7 +663,7 @@ private:
                 Queue::IsEmpty(mPendingQueue);
             CancelRead(mInFlightQueue);
             if (Queue::IsEmpty(mInFlightQueue)) {
-                mChunkServer.Stop(); // Discard replies if any.
+                StopChunkServer(); // Discard replies if any.
                 mChunkServerSetFlag = false;
             }
             CancelRead(mPendingQueue);
@@ -753,6 +762,7 @@ private:
 
         Impl&                mOuter;
         ChunkServer          mChunkServer;
+        ChunkServer*         mChunkServerPtr;
         int                  mErrorCode;
         int                  mRetryCount;
         Offset               mOpenChunkBlockFileOffset;
@@ -778,6 +788,7 @@ private:
         bool                 mNoCSAccessFlag;
         bool                 mStartReadRunningFlag;
         bool                 mRestartStartReadFlag;
+        bool                 mSizeOpInFlightFlag;
         int64_t              mLeaseToRelinquish;
         string const         mLogPrefix;
         int                  mOpsNoRetryCount;
@@ -827,7 +838,7 @@ private:
                 if (! Queue::IsEmpty(mInFlightQueue)) {
                     return;
                 }
-                mChunkServer.Stop();
+                StopChunkServer();
                 if (mLeaseAcquireOp.leaseId >= 0 &&
                         mLeaseAcquireOp.chunkId > 0) {
                     if (mLastOpPtr != &mLeaseRelinquishOp) {
@@ -848,10 +859,10 @@ private:
                 return;
             }
             if (mGetAllocOp.chunkId > 0 && mChunkServerSetFlag &&
-                    mChunkServer.WasDisconnected()) {
+                    WasChunkServerDisconnected()) {
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "detected chunk server disconnect: " <<
-                        mChunkServer.GetServerLocation() <<
+                        GetChunkServer().GetServerLocation() <<
                     " queue: " << (Queue::IsEmpty(mPendingQueue) ? "" : "not") <<
                         " empty" <<
                 KFS_LOG_EOM;
@@ -901,13 +912,18 @@ private:
                     ! mLeaseAcquireOp.allowCSClearTextFlag;
                 const ServerLocation& theLocation =
                     mGetAllocOp.chunkServers[mChunkServerIdx];
-                mChunkServer.SetShutdownSsl(
+                if (mOuter.mClientPoolPtr) {
+                    mChunkServerPtr = &mOuter.mClientPoolPtr->Get(theLocation);
+                } else {
+                    mChunkServerPtr = &mChunkServer;
+                }
+                mChunkServerPtr->SetShutdownSsl(
                     mLeaseAcquireOp.allowCSClearTextFlag &&
                     theCSClearTextAllowedFlag
                 );
                 if (mChunkServerAccess.IsEmpty()) {
-                    mChunkServer.SetKey(0, 0, 0, 0);
-                    mChunkServer.SetAuthContext(0);
+                    mChunkServerPtr->SetKey(0, 0, 0, 0);
+                    mChunkServerPtr->SetAuthContext(0);
                     mSizeOp.access.clear();
                 } else {
                     CryptoKeys::Key theKey;
@@ -918,7 +934,7 @@ private:
                             theKey
                         );
                     if (thePtr) {
-                        mChunkServer.SetKey(
+                        mChunkServerPtr->SetKey(
                             thePtr->chunkServerAccessId.mPtr,
                             thePtr->chunkServerAccessId.mLen,
                             theKey.GetPtr(),
@@ -937,8 +953,9 @@ private:
                     } else {
                         mNoCSAccessFlag = true;
                     }
-                    if (! mNoCSAccessFlag && ! mChunkServer.GetAuthContext()) {
-                        mChunkServer.SetAuthContext(
+                    if (! mNoCSAccessFlag &&
+                            ! mChunkServerPtr->GetAuthContext()) {
+                        mChunkServerPtr->SetAuthContext(
                             mOuter.mMetaServer.GetAuthContext());
                     }
                 }
@@ -946,7 +963,7 @@ private:
                     mChunkServer.SetKey(0, 0, 0, 0);
                     mChunkServer.SetAuthContext(0);
                     mSizeOp.access.clear();
-                } else {
+                } else if (&mChunkServer == mChunkServerPtr) {
                     mChunkServer.SetServer(theLocation);
                 }
                 KFS_LOG_STREAM(mNoCSAccessFlag ?
@@ -955,7 +972,7 @@ private:
                     "chunk: "      << mGetAllocOp.chunkId <<
                     " cs access: " << (! mChunkServerAccess.IsEmpty()) <<
                     " access: "    << mSizeOp.access <<
-                    " cleartext: " << mChunkServer.IsShutdownSsl() <<
+                    " cleartext: " << mChunkServerPtr->IsShutdownSsl() <<
                     " allowed: "   << mLeaseAcquireOp.allowCSClearTextFlag <<
                     " CS access expires in: " <<
                         (mChunkServerAccessExpires - Now()) <<
@@ -1174,9 +1191,9 @@ private:
                         inOp.chunkServerAccessValidForTime -
                         LEASE_INTERVAL_SECS;
                 }
-                if (inOp.status == 0) {
+                if (inOp.status == 0 && mChunkServerPtr) {
                     string theChunkAccess = theAccess.GetChunkAccess(
-                        mChunkServer.GetServerLocation(), inOp.chunkId);
+                        mChunkServerPtr->GetServerLocation(), inOp.chunkId);
                     // If chunk server disappeared / down let the read to
                     // to discover that.
                     if (theChunkAccess.empty()) {
@@ -1190,13 +1207,13 @@ private:
                             " access: "  << mSizeOp.access <<
                             " CS access:"
                             " updated: " << theHasChunkServerAccessFlag <<
-                            " cleartext: "  << mChunkServer.IsShutdownSsl() <<
+                            " cleartext: "  << mChunkServerPtr->IsShutdownSsl() <<
                             " allowed: "    << inOp.allowCSClearTextFlag <<
                             " expires in: " <<
                                 (mChunkServerAccessExpires - Now()) <<
                         KFS_LOG_EOM;
                         if (! inOp.allowCSClearTextFlag &&
-                                mChunkServer.IsShutdownSsl()) {
+                                mChunkServerPtr->IsShutdownSsl()) {
                             KFS_LOG_STREAM_INFO << mLogPrefix <<
                                 "chunk: " << mSizeOp.chunkId <<
                                 " cleartext is no longer allowed" <<
@@ -1204,7 +1221,7 @@ private:
                             // Clear lease acquire flag to ensure that the
                             // change has effect on other chunk servers.
                             mLeaseAcquireOp.allowCSClearTextFlag = false;
-                            mChunkServer.SetShutdownSsl(false);
+                            mChunkServerPtr->SetShutdownSsl(false);
                         }
                     }
                 }
@@ -1516,7 +1533,7 @@ private:
                 inOp.statusMsg << ":"
                 " chunk: "     << inOp.chunkId <<
                 " version: "   << inOp.chunkVersion <<
-                " server: "    << mChunkServer.GetServerLocation() <<
+                " server: "    << GetChunkServer().GetServerLocation() <<
                 " pos: "       << inOp.offset <<
                 " requested: " << inOp.numBytes <<
                 " returned: "  << inOp.contentLength <<
@@ -1577,6 +1594,7 @@ private:
             Reset(mSizeOp);
             mSizeOp.chunkId      = mGetAllocOp.chunkId;
             mSizeOp.chunkVersion = mGetAllocOp.chunkVersion;
+            mSizeOpInFlightFlag  = true;
             Enqueue(mSizeOp);
         }
         void Done(
@@ -1584,7 +1602,8 @@ private:
             bool      inCanceledFlag,
             IOBuffer* inBufferPtr)
         {
-            QCASSERT(&mSizeOp == &inOp && ! inBufferPtr);
+            QCASSERT(&mSizeOp == &inOp && ! inBufferPtr && mSizeOpInFlightFlag);
+            mSizeOpInFlightFlag = false;
             if (inCanceledFlag) {
                 return;
             }
@@ -1653,7 +1672,8 @@ private:
                 inOp.statusMsg = "no chunk server key";
                 OpDone(&inOp, false, inBufferPtr);
             } else {
-                EnqueueSelf(inOp, inBufferPtr, &mChunkServer);
+                EnqueueSelf(inOp, inBufferPtr,
+                    mChunkServerPtr ? mChunkServerPtr : &mChunkServer);
             }
         }
         void EnqueueMeta(
@@ -1664,7 +1684,7 @@ private:
         {
             CancelMetaOps();
             mLastOpPtr = 0;
-            mChunkServer.Stop();
+            StopChunkServer();
             mChunkServerSetFlag = false;
             QCASSERT(Queue::IsEmpty(mInFlightQueue));
             if (mSleepingFlag) {
@@ -1699,10 +1719,10 @@ private:
                 " msg: "                  << inOp.statusMsg <<
                 " op: "                   << inOp.Show()    <<
                 " current chunk server: " << (mChunkServerSetFlag ?
-                        mChunkServer.GetServerLocation() :
+                        GetChunkServer().GetServerLocation() :
                         ServerLocation()) <<
-                " chunkserver: "          << (mChunkServer.IsDataSent() ?
-                    (mChunkServer.IsAllDataSent() ? "all" : "partial") :
+                " chunkserver: "          << (GetChunkServer().IsDataSent() ?
+                    (GetChunkServer().IsAllDataSent() ? "all" : "partial") :
                     "no") << " data sent" <<
                 "\nRequest:\n"            << theOStream.str() <<
             KFS_LOG_EOM;
@@ -1986,7 +2006,7 @@ private:
                 if (CancelRead(inQueuePtr, *theOpPtr)) {
                     if (inQueuePtr == mInFlightQueue) {
                         // Cancel will move the request into the pending queue.
-                        mChunkServer.Cancel(theOpPtr, this);
+                        mChunkServerPtr->Cancel(theOpPtr, this);
                     } else {
                         theOpPtr->Delete(inQueuePtr);
                     }
@@ -2071,6 +2091,30 @@ private:
             }
             return true; // Cancel the original request.
         }
+        void StopChunkServer()
+        {
+            if (&mChunkServer == mChunkServerPtr) {
+                mChunkServer.Stop();
+                return;
+            }
+            if (! mChunkServerPtr) {
+                return;
+            }
+            if (mSizeOpInFlightFlag) {
+                mChunkServerPtr->Cancel(&mSizeOp, this);
+            }
+            if (! Queue::IsEmpty(mInFlightQueue)) {
+                mChunkServerPtr->CancelAllWithOwner(this);
+            }
+        }
+        KfsNetClient& GetChunkServer()
+        {
+            return (mChunkServerPtr ? *mChunkServerPtr : mChunkServer);
+        }
+        bool WasChunkServerDisconnected()
+        {
+            return GetChunkServer().WasDisconnected();
+        }
     private:
         ChunkReader(
             const ChunkReader& inChunkReader);
@@ -2130,6 +2174,7 @@ private:
     Offset              mOffset;
     Offset              mOpenChunkBlockSize;
     int64_t             mChunkServerInitialSeqNum;
+    ClientPool* const   mClientPoolPtr;
     Completion*         mCompletionPtr;
     string const        mLogPrefix;
     Stats               mStats;
@@ -2592,7 +2637,8 @@ Reader::Reader(
     int                 inLeaseRetryTimeout        /* = 3 */,
     int                 inLeaseWaitTimeout         /* = 900 */,
     const char*         inLogPrefixPtr             /* = 0 */,
-    int64_t             inChunkServerInitialSeqNum /* = 1 */)
+    int64_t             inChunkServerInitialSeqNum /* = 1 */,
+    ClientPool*         inClientPoolPtr            /* = 0 */)
     : mImpl(*new Reader::Impl(
         *this,
         inMetaServer,
@@ -2606,7 +2652,8 @@ Reader::Reader(
         inLeaseWaitTimeout,
         (inLogPrefixPtr && inLogPrefixPtr[0]) ?
             (inLogPrefixPtr + string(" ")) : string(),
-        inChunkServerInitialSeqNum
+        inChunkServerInitialSeqNum,
+        inClientPoolPtr
     ))
 {
     mImpl.Ref();
