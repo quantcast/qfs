@@ -708,9 +708,32 @@ public:
         int16_t&    outFlags,
         uint64_t&   outIssuedTime,
         uint32_t&   outValidForSec);
+    Properties* GetStats(); // DisposeProperties() must be invoked to cleanup.
     static Properties* CreateProperties();
     static void DisposeProperties(
         Properties* props);
+    class PropertiesIterator
+    {
+    public:
+        PropertiesIterator(
+            const Properties* props,
+            bool              autoDisposeFlag);
+        ~PropertiesIterator();
+        bool Next();
+        void Reset();
+        size_t Size() const;
+        const char* GetKey() const
+            { return mKeyPtr; }
+        const char* GetValue() const
+            { return mValuePtr; }
+    private:
+        class Iterator;
+        const bool              mAutoDisposeFlag;
+        const Properties* const mPropertiesPtr;
+        const char*             mKeyPtr;
+        const char*             mValuePtr;
+        Iterator*               mIteratorPtr;
+    };
     static int LoadProperties(
         const char*  metaServerHost,
         int          metaServerPort,

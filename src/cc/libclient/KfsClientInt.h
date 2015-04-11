@@ -640,6 +640,7 @@ public:
         int16_t&    outFlags,
         uint64_t&   outIssuedTime,
         uint32_t&   outValidForSec);
+    Properties* GetStats();
 
 private:
      /// Maximum # of files a client can have open minus 1.

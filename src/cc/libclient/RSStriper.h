@@ -41,7 +41,7 @@ Writer::Striper* RSStriperCreate(
     int                      inRecoveryStripeCount,
     int                      inStripeSize,
     Writer::Striper::Offset  inFileSize,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Writer::Striper::Impl&   inOuter,
     Writer::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg);
@@ -57,7 +57,7 @@ Reader::Striper* RSStriperCreate(
     Reader::Striper::Offset  inRecoverChunkPos,
     Reader::Striper::Offset  inFileSize,
     Reader::Striper::SeqNum  inInitialSeqNum,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Reader::Striper::Impl&   inOuter,
     Reader::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg);

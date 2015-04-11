@@ -30,7 +30,6 @@
 
 #include <cerrno>
 #include <string>
-#include <ostream>
 
 class QCThread;
 
@@ -98,38 +97,20 @@ public:
             mSleepTimeSec               += inStats.mSleepTimeSec;
             return *this;
         }
-        ostream& Display(
-            ostream&    inStream,
-            const char* inSeparatorPtr = 0,
-            const char* inDelimiterPtr = 0) const
+        template<typename T>
+        void Enumerate(
+            T& inFunctor) const
         {
-            const char* const theSeparatorPtr =
-                inSeparatorPtr ? inSeparatorPtr : " ";
-            const char* const theDelimiterPtr =
-                inDelimiterPtr ? inDelimiterPtr : ": ";
-            inStream <<
-                "Connect"               << theDelimiterPtr <<
-                    mConnectCount << theSeparatorPtr <<
-                "ConnectFailure"        << theDelimiterPtr <<
-                    mConnectFailureCount << theSeparatorPtr <<
-                "NetError"              << theDelimiterPtr <<
-                    mNetErrorCount << theSeparatorPtr <<
-                "ConnectionIdleTimeout" << theDelimiterPtr <<
-                    mConnectionIdleTimeoutCount  << theSeparatorPtr <<
-                "ResponseTimeout"       << theDelimiterPtr <<
-                    mResponseTimeoutCount << theSeparatorPtr <<
-                "OpsQueued"             << theDelimiterPtr <<
-                    mOpsQueuedCount << theSeparatorPtr <<
-                "OpsTimeout"            << theDelimiterPtr <<
-                    mOpsTimeoutCount << theSeparatorPtr <<
-                "OpsRetried"            << theDelimiterPtr <<
-                    mOpsRetriedCount << theSeparatorPtr <<
-                "OpsCancelled"          << theDelimiterPtr <<
-                    mOpsCancelledCount << theSeparatorPtr <<
-                "SleepTimeSec"          << theDelimiterPtr <<
-                    mSleepTimeSec
-            ;
-            return inStream;
+            inFunctor("Connect",               mConnectCount);
+            inFunctor("ConnectFailure",        mConnectFailureCount);
+            inFunctor("NetError",              mNetErrorCount);
+            inFunctor("ConnectionIdleTimeout", mConnectionIdleTimeoutCount);
+            inFunctor("ResponseTimeout",       mResponseTimeoutCount);
+            inFunctor("OpsQueued",             mOpsQueuedCount);
+            inFunctor("OpsTimeout",            mOpsTimeoutCount);
+            inFunctor("OpsRetried",            mOpsRetriedCount);
+            inFunctor("OpsCancelled",          mOpsCancelledCount);
+            inFunctor("SleepTimeSec",          mSleepTimeSec);
         }
         Counter mConnectCount;
         Counter mConnectFailureCount;

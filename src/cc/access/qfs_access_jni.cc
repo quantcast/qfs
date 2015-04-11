@@ -220,6 +220,9 @@ extern "C" {
         JNIEnv *jenv, jclass jcls, jlong jptr,
         jobject token);
 
+    jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getStats(
+        JNIEnv *jenv, jclass jcls, jlong jptr);
+
    /* Input channel methods */
     jint Java_com_quantcast_qfs_access_KfsInputChannel_read(
         JNIEnv *jenv, jclass jcls, jlong jptr, jint jfd, jobject buf, jint begin, jint end);
@@ -1461,6 +1464,44 @@ jstring Java_com_quantcast_qfs_access_KfsAccess_cancelDelegationToken(
         return jenv->NewStringUTF(errMsg.c_str());
     }
     return 0;
+}
+
+jobjectArray Java_com_quantcast_qfs_access_KfsAccess_getStats(
+    JNIEnv *jenv, jclass jcls, jlong jptr)
+{
+    if (! jptr) {
+        return 0;
+    }
+    KfsClient::PropertiesIterator it(
+        reinterpret_cast<KfsClient*>(jptr)->GetStats(), true);
+    jclass jstrClass = jenv->FindClass("java/lang/String");
+    if (! jstrClass) {
+        jclass excl = jenv->FindClass("java/lang/ClassNotFoundException");
+        if (excl) {
+            jenv->ThrowNew(excl, 0);
+        }
+        return 0;
+    }
+    const jsize  cnt      = it.Size() * 2;
+    jobjectArray jentries = jenv->NewObjectArray(cnt, jstrClass, 0);
+    if (! jentries) {
+        return 0;
+    }
+    for (jsize i = 0; i < cnt && it.Next(); ) {
+        for (int n = 0; n < 2; n++) {
+            const char* const str = n == 0 ? it.GetKey() : it.GetValue();
+            if (! str) {
+                return 0;
+            }
+            jstring s = jenv->NewStringUTF(str);
+            if (! s) {
+                return 0;
+            }
+            jenv->SetObjectArrayElement(jentries, i++, s);
+            jenv->DeleteLocalRef(s);
+        }
+    }
+    return jentries;
 }
 
 jint Java_com_quantcast_qfs_access_KfsInputChannel_read(

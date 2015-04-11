@@ -36,6 +36,7 @@
 #include "common/time.h"
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
+#include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -152,7 +153,10 @@ public:
                 false,                       // inMaxOneOutstandingOpFlag
                 0                            // inAuthContextPtr
             ) : 0
-        )
+        ),
+        mReadStats(),
+        mWriteStats(),
+        mAppendStats()
     {
         WorkQueue::Init(mWorkQueue);
         FreeSyncRequests::Init(mFreeSyncRequests);
@@ -223,6 +227,10 @@ public:
             }
             if (theReq.mRequestType == kRequestTypeMetaOp) {
                 MetaRequest(theReq);
+                continue;
+            }
+            if (theReq.mRequestType == kRequestTypeGetStatsOp) {
+                StatsRequest(theReq);
                 continue;
             }
             WorkerKey const theKey(theReq.mFileInstance, theReq.mFileId);
@@ -437,6 +445,7 @@ public:
             case kRequestTypeWriteSetWriteThreshold:
                 return true;
             case kRequestTypeMetaOp:
+            case kRequestTypeGetStatsOp:
                 return (inRequest.mBufferPtr != 0);
 
             default:
@@ -711,6 +720,18 @@ private:
             theOpPtr->statusMsg = "failed to enqueue op";
         }
     }
+    void StatsRequest(
+        Request& inRequest)
+    {
+        Properties* const theStatsPtr =
+            reinterpret_cast<Properties*>(inRequest.mBufferPtr);
+        if (! theStatsPtr) {
+            Done(inRequest, kErrParameters);
+            return;
+        }
+        *theStatsPtr = GetStats();
+        Done(inRequest, 0);
+    }
     typedef QCDLList<SyncRequest, 0> FreeSyncRequests;
     class DoNotDeallocate : public libkfsio::IOBufferAllocator
     {
@@ -769,6 +790,24 @@ private:
     class Worker
     {
     public:
+        template <typename T>
+        class Stats
+        {
+        public:
+            typename T::Stats   mStats;
+            KfsNetClient::Stats mCSStats;
+            void Clear()
+            {
+                mStats.Clear();
+                mCSStats.Clear();
+            }
+            void Add(
+                const Stats& inStats)
+            {
+                mStats.Add(inStats.mStats);
+                mCSStats.Add(inStats.mCSStats);
+            }
+        };
         typedef KfsProtocolWorker::Impl Owner;
         Worker(
             Owner&            inOwner,
@@ -786,6 +825,7 @@ private:
             Request& inRequest) = 0;
         bool IsDeleteScheduled() const
             { return mDeleteScheduledFlag; }
+        virtual void AddStats() const = 0;
     protected:
         Owner& mOwner;
 
@@ -818,6 +858,8 @@ private:
     {
         enum { kNoBufferCompaction = -1 };
     public:
+        typedef Worker::Stats<WriteAppender> Stats;
+
         Appender(
             Owner&            inOwner,
             Workers::iterator inWorkersIt,
@@ -855,7 +897,13 @@ private:
             Appender::Done(thePending, kErrShutdown);
             QCRTASSERT(WorkQueue::IsEmpty(mWorkQueue));
             mWAppender.Unregister(this);
+            mOwner.AddTotalStats(*this);
         }
+        void GetStats(
+            Stats& outStats) const
+            { mWAppender.GetStats(outStats.mStats, outStats.mCSStats); }
+        virtual void AddStats() const
+            { mOwner.AddStats(*this); }
         virtual int Open(
             FileId                 inFileId,
             const Request::Params& inParams)
@@ -1040,7 +1088,8 @@ private:
     {
         enum { kNoBufferCompaction = -1 };
     public:
-        typedef Writer::Offset Offset;
+        typedef Writer::Offset        Offset;
+        typedef Worker::Stats<Writer> Stats;
 
         FileWriter(
             Owner&            inOwner,
@@ -1073,7 +1122,13 @@ private:
                 );
             }
             mWriter.Unregister(this);
+            mOwner.AddTotalStats(*this);
         }
+        void GetStats(
+            Stats& outStats) const
+            { mWriter.GetStats(outStats.mStats, outStats.mCSStats); }
+        virtual void AddStats() const
+            { mOwner.AddStats(*this); }
         virtual int Open(
             FileId                 inFileId,
             const Request::Params& inParams)
@@ -1330,8 +1385,9 @@ private:
     class FileReader : public Worker, public Reader::Completion
     {
     public:
-        typedef Reader::Offset    Offset;
-        typedef Reader::RequestId RequestId;
+        typedef Reader::Offset        Offset;
+        typedef Reader::RequestId     RequestId;
+        typedef Worker::Stats<Reader> Stats;
 
         FileReader(
             Owner&            inOwner,
@@ -1366,7 +1422,13 @@ private:
                 );
             }
             mReader.Unregister(this);
+            mOwner.AddTotalStats(*this);
         }
+        void GetStats(
+            Stats& outStats) const
+            { mReader.GetStats(outStats.mStats, outStats.mCSStats); }
+        virtual void AddStats() const
+            { mOwner.AddStats(*this); }
         virtual int Open(
             FileId                 inFileId,
             const Request::Params& inParams)
@@ -1566,36 +1628,42 @@ private:
     };
     friend class FileReader;
 
-    NetManager        mNetManager;
-    MetaServer        mMetaServer;
-    int               mMetaOpTimeout;
-    int               mMetaTimeBetweenRetries;
-    int               mMetaMaxRetryCount;
-    bool              mMetaParamsUpdateFlag;
-    Workers           mWorkers;
-    int               mMaxRetryCount;
-    int               mTimeSecBetweenRetries;
-    const int         mWriteAppendThreshold;
-    const int         mDefaultSpaceReservationSize;
-    const int         mPreferredAppendSize;
-    int               mOpTimeoutSec;
-    const int         mIdleTimeoutSec;
-    const char* const mLogPrefixPtr;
-    const bool        mPreAllocateFlag;
-    const int         mMaxWriteSize;
-    const int         mRandomWriteThreshold;
-    const int         mMaxReadSize;
-    const int         mReadLeaseRetryTimeout;
-    const int         mLeaseWaitTimeout;
-    int64_t           mChunkServerInitialSeqNum;
-    DoNotDeallocate   mDoNotDeallocate;
-    StopRequest       mStopRequest;
-    QCThread          mWorker;
-    QCMutex           mMutex;
-    ClientPool* const mClientPoolPtr;
-    Request*          mWorkQueue[1];
-    SyncRequest*      mFreeSyncRequests[1];
-    Worker*           mCleanupList[1];
+    NetManager           mNetManager;
+    MetaServer           mMetaServer;
+    int                  mMetaOpTimeout;
+    int                  mMetaTimeBetweenRetries;
+    int                  mMetaMaxRetryCount;
+    bool                 mMetaParamsUpdateFlag;
+    Workers              mWorkers;
+    int                  mMaxRetryCount;
+    int                  mTimeSecBetweenRetries;
+    const int            mWriteAppendThreshold;
+    const int            mDefaultSpaceReservationSize;
+    const int            mPreferredAppendSize;
+    int                  mOpTimeoutSec;
+    const int            mIdleTimeoutSec;
+    const char* const    mLogPrefixPtr;
+    const bool           mPreAllocateFlag;
+    const int            mMaxWriteSize;
+    const int            mRandomWriteThreshold;
+    const int            mMaxReadSize;
+    const int            mReadLeaseRetryTimeout;
+    const int            mLeaseWaitTimeout;
+    int64_t              mChunkServerInitialSeqNum;
+    DoNotDeallocate      mDoNotDeallocate;
+    StopRequest          mStopRequest;
+    QCThread             mWorker;
+    QCMutex              mMutex;
+    ClientPool* const    mClientPoolPtr;
+    FileReader::Stats    mReadStats;
+    FileWriter::Stats    mWriteStats;
+    Appender::Stats      mAppendStats;
+    FileReader::Stats    mTotalReadStats;
+    FileWriter::Stats    mTotalWriteStats;
+    Appender::Stats      mTotalAppendStats;
+    Request*             mWorkQueue[1];
+    SyncRequest*         mFreeSyncRequests[1];
+    Worker*              mCleanupList[1];
 
     static void Done(
         Request& inRequest,
@@ -1700,6 +1768,113 @@ private:
         int64_t theRet = 0;
         CryptoKeys::PseudoRand(&theRet, sizeof(theRet));
         return ((theRet < 0 ? -theRet : theRet) >> 1);
+    }
+    template<typename T>
+    void AddTotalStats(
+        const T& inWorker)
+    {
+        AddStats(inWorker, true);
+    }
+    template<typename T>
+    void AddStats(
+        const T& inWorker,
+        bool     inAddTotalsFlag = false)
+    {
+        typename T::Stats theStats;
+        inWorker.GetStats(theStats);
+        AddStats(theStats, inAddTotalsFlag);
+    }
+    void AddStats(
+        FileReader::Stats& inStats,
+        bool               inAddTotalsFlag)
+    {
+        (inAddTotalsFlag ? mTotalReadStats : mReadStats).Add(inStats);
+    }
+    void AddStats(
+        FileWriter::Stats& inStats,
+        bool               inAddTotalsFlag)
+    {
+        (inAddTotalsFlag ? mTotalWriteStats : mWriteStats).Add(inStats);
+    }
+    void AddStats(
+        Appender::Stats& inStats,
+        bool             inAddTotalsFlag)
+    {
+        (inAddTotalsFlag ? mTotalAppendStats : mAppendStats).Add(inStats);
+    }
+    class StatsEnumerator
+    {
+    public:
+        StatsEnumerator(
+            Properties& inProperties)
+            : mProperties(inProperties),
+              mPrefix(),
+              mPrefixLen(mPrefix.length()),
+              mValue()
+            {}
+        template<typename KT, typename VT>
+        void operator()(
+            const KT& inKey,
+            const VT& inVal)
+        {
+            mValue.clear();
+            AppendDecIntToString(mValue, inVal);
+            mProperties.setValue(
+                mPrefix.Truncate(mPrefixLen).Append(inKey),
+                mValue
+            );
+        }
+        StatsEnumerator& SetPrefix(
+            const char* inPrefixPtr)
+        {
+            mPrefix.Copy(inPrefixPtr, strlen(inPrefixPtr));
+            mPrefixLen = mPrefix.length();
+            return *this;
+        }
+    private:
+        Properties&        mProperties;
+        Properties::String mPrefix;
+        size_t             mPrefixLen;
+        Properties::String mValue;
+    private:
+        StatsEnumerator(
+            const StatsEnumerator& inEnumerator);
+        StatsEnumerator& operator=(
+            const StatsEnumerator& inEnumerator);
+    };
+    Properties GetStats()
+    {
+        mReadStats   = mTotalReadStats;
+        mWriteStats  = mTotalWriteStats;
+        mAppendStats = mTotalAppendStats;
+        for (Workers::const_iterator theIt = mWorkers.begin();
+                theIt != mWorkers.end();
+                ++theIt) {
+            theIt->second->AddStats();
+        }
+        Properties      theRet;
+        StatsEnumerator theEnumerator(theRet);
+        mReadStats.mStats.Enumerate(
+            theEnumerator.SetPrefix("Read."));
+        mReadStats.mCSStats.Enumerate(
+            theEnumerator.SetPrefix("Read.ChunkServer."));
+        mWriteStats.mStats.Enumerate(
+            theEnumerator.SetPrefix("Write."));
+        mWriteStats.mCSStats.Enumerate(
+            theEnumerator.SetPrefix("Write.ChunkServer."));
+        mAppendStats.mStats.Enumerate(
+            theEnumerator.SetPrefix("Append."));
+        mAppendStats.mCSStats.Enumerate(
+            theEnumerator.SetPrefix("Append.ChunkServer."));
+        KfsNetClient::Stats theStats;
+        mMetaServer.GetStats(theStats);
+        theStats.Enumerate(theEnumerator.SetPrefix("MetaServer."));
+        if (mClientPoolPtr) {
+            mClientPoolPtr->GetStats(theStats);
+            theStats.Enumerate(theEnumerator.SetPrefix("ChunkServer.Pool."));
+            theEnumerator("Size", mClientPoolPtr->GetSize());
+        }
+        return theRet;
     }
 private:
     Impl(
@@ -1831,12 +2006,30 @@ KfsProtocolWorker::ExecuteMeta(
     }
 }
 
+Properties
+KfsProtocolWorker::GetStats()
+{
+    Properties theRet;
+    mImpl.Execute(
+        kRequestTypeGetStatsOp,
+        1,
+        1,
+        0,
+        &theRet,
+        0,
+        0,
+        0
+    );
+    return theRet;
+}
+
 void
 KfsProtocolWorker::Enqueue(
     Request& inRequest)
 {
-    QCRTASSERT(inRequest.mRequestType != kRequestTypeMetaOp);
-    if (inRequest.mRequestType == kRequestTypeMetaOp) {
+    if (inRequest.mRequestType == kRequestTypeMetaOp ||
+            inRequest.mRequestType == kRequestTypeGetStatsOp) {
+        QCASSERT(! "invalid request code");
         const int theStatus = kErrProtocol;
         inRequest.mState  = Request::kStateDone;
         inRequest.mStatus = theStatus;

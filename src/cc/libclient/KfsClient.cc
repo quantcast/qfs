@@ -1020,6 +1020,12 @@ KfsClient::GetUserId()
     return mImpl->GetUserId();
 }
 
+Properties*
+KfsClient::GetStats()
+{
+    return mImpl->GetStats();
+}
+
 static int
 LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
 {
@@ -1107,11 +1113,66 @@ KfsClient::CreateProperties()
     return new Properties();
 }
 
-
 /* static */ void
 KfsClient::DisposeProperties(Properties* props)
 {
     delete props;
+}
+
+class KfsClient::PropertiesIterator::Iterator : public Properties::iterator
+{
+public:
+    Properties::iterator& Get() { return *this; }
+};
+
+KfsClient::PropertiesIterator::PropertiesIterator(
+    const Properties* props, bool autoDisposeFlag)
+    : mAutoDisposeFlag(autoDisposeFlag),
+      mPropertiesPtr(props),
+      mKeyPtr(0),
+      mValuePtr(0),
+      mIteratorPtr(0)
+{}
+
+KfsClient::PropertiesIterator::~PropertiesIterator()
+{
+    delete mIteratorPtr;
+    if (mAutoDisposeFlag) {
+        KfsClient::DisposeProperties(const_cast<Properties*>(mPropertiesPtr));
+    }
+}
+
+bool
+KfsClient::PropertiesIterator::Next()
+{
+    if (! mIteratorPtr) {
+        if (! mPropertiesPtr || mPropertiesPtr->empty()) {
+            return false;
+        }
+        mIteratorPtr        = new Iterator();
+        mIteratorPtr->Get() = mPropertiesPtr->begin();
+    }
+    if (mPropertiesPtr->end() == mIteratorPtr->Get()) {
+        return false;
+    }
+    mKeyPtr   = mIteratorPtr->Get()->first.c_str();
+    mValuePtr = mIteratorPtr->Get()->second.c_str();
+    mIteratorPtr->Get()++;
+    return true;
+}
+
+void
+KfsClient::PropertiesIterator::Reset()
+{
+    if (mIteratorPtr) {
+        mIteratorPtr->Get() = mPropertiesPtr->begin();
+    }
+}
+
+size_t
+KfsClient::PropertiesIterator::Size() const
+{
+    return (mPropertiesPtr ? mPropertiesPtr->size() : size_t(0));
 }
 
 namespace client
@@ -7215,6 +7276,20 @@ KfsClientImpl::GetUserAndGroupNames(kfsUid_t user, kfsGid_t group,
         gname = GidToName(group, now);
     }
     return 0;
+}
+
+Properties*
+KfsClientImpl::GetStats()
+{
+    QCStMutexLocker l(mMutex);
+    StartProtocolWorker();
+    Properties stats = mProtocolWorker->GetStats();
+    if (stats.empty()) {
+        return 0;
+    }
+    Properties* const ret = new Properties();
+    ret->swap(stats);
+    return ret;
 }
 
 } // client

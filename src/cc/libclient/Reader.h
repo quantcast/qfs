@@ -29,7 +29,6 @@
 #include "KfsNetClient.h"
 #include "common/kfstypes.h"
 
-#include <ostream>
 #include <string>
 
 namespace KFS
@@ -91,55 +90,47 @@ public:
               mOpsReadCount(0),
               mRetriesCount(0),
               mReadCount(0),
-              mReadByteCount(0)
+              mReadByteCount(0),
+              mReadErrorsCount(0),
+              mReadChecksumErrorsCount(0),
+              mReadRecoveriesCount(0)
             {}
         void Clear()
             { *this = Stats(); }
         Stats& Add(
             const Stats& inStats)
         {
-            mMetaOpsQueuedCount    += inStats.mMetaOpsQueuedCount;
-            mMetaOpsCancelledCount += inStats.mMetaOpsCancelledCount;
-            mChunkOpsQueuedCount   += inStats.mChunkOpsQueuedCount;
-            mSleepTimeSec          += inStats.mSleepTimeSec;
-            mGetLeaseCount         += inStats.mGetLeaseCount;
-            mGetLeaseRetryCount    += inStats.mGetLeaseRetryCount;
-            mOpsReadCount          += inStats.mOpsReadCount;
-            mRetriesCount          += inStats.mRetriesCount;
-            mReadCount             += inStats.mReadCount;
-            mReadByteCount         += inStats.mReadByteCount;
+            mMetaOpsQueuedCount      += inStats.mMetaOpsQueuedCount;
+            mMetaOpsCancelledCount   += inStats.mMetaOpsCancelledCount;
+            mChunkOpsQueuedCount     += inStats.mChunkOpsQueuedCount;
+            mSleepTimeSec            += inStats.mSleepTimeSec;
+            mGetLeaseCount           += inStats.mGetLeaseCount;
+            mGetLeaseRetryCount      += inStats.mGetLeaseRetryCount;
+            mOpsReadCount            += inStats.mOpsReadCount;
+            mRetriesCount            += inStats.mRetriesCount;
+            mReadCount               += inStats.mReadCount;
+            mReadByteCount           += inStats.mReadByteCount;
+            mReadErrorsCount         += inStats.mReadErrorsCount;
+            mReadChecksumErrorsCount += inStats.mReadChecksumErrorsCount;
+            mReadRecoveriesCount     += inStats.mReadRecoveriesCount;
             return *this;
         }
-        ostream& Display(
-            ostream&    inStream,
-            const char* inSeparatorPtr = 0,
-            const char* inDelimiterPtr = 0) const
+        template<typename T>
+        void Enumerate(
+            T& inFunctor) const
         {
-            const char* const theSeparatorPtr =
-                inSeparatorPtr ? inSeparatorPtr : " ";
-            const char* const theDelimiterPtr =
-                inDelimiterPtr ? inDelimiterPtr : ": ";
-            inStream <<
-                "MetaOpsQueued"            << theDelimiterPtr <<
-                    mMetaOpsQueuedCount    << theSeparatorPtr <<
-                "MetaOpsCancelled"         << theDelimiterPtr <<
-                    mMetaOpsCancelledCount << theSeparatorPtr <<
-                "ChunkOpsQueued"           << theDelimiterPtr <<
-                    mChunkOpsQueuedCount   << theSeparatorPtr <<
-                "SleepTimeSec"             << theDelimiterPtr <<
-                    mSleepTimeSec          << theSeparatorPtr <<
-                "GetLeaseCount"            << theDelimiterPtr <<
-                    mGetLeaseCount         << theSeparatorPtr <<
-                "OpsRead"                  << theDelimiterPtr <<
-                    mOpsReadCount          << theSeparatorPtr <<
-                "Retries"                  << theDelimiterPtr <<
-                    mRetriesCount          << theSeparatorPtr <<
-                "ReadCount"                << theDelimiterPtr <<
-                    mReadCount             << theSeparatorPtr <<
-                "ReadByteCount"            << theDelimiterPtr <<
-                    mReadByteCount
-            ;
-            return inStream;
+            inFunctor("MetaOpsQueued",      mMetaOpsQueuedCount);
+            inFunctor("MetaOpsCancelled",   mMetaOpsCancelledCount);
+            inFunctor("ChunkOpsQueued",     mChunkOpsQueuedCount);
+            inFunctor("SleepTimeSec",       mSleepTimeSec);
+            inFunctor("GetLeaseCount",      mGetLeaseCount);
+            inFunctor("OpsRead",            mOpsReadCount);
+            inFunctor("Retries",            mRetriesCount);
+            inFunctor("ReadErrors",         mReadErrorsCount);
+            inFunctor("ReadChecksumErrors", mReadChecksumErrorsCount);
+            inFunctor("ReadRecoveries",     mReadRecoveriesCount);
+            inFunctor("ReadCount",          mReadCount);
+            inFunctor("ReadByte",           mReadByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;
@@ -151,6 +142,9 @@ public:
         Counter mRetriesCount;
         Counter mReadCount;
         Counter mReadByteCount;
+        Counter mReadErrorsCount;
+        Counter mReadChecksumErrorsCount;
+        Counter mReadRecoveriesCount;
     };
     class Striper
     {
@@ -160,20 +154,20 @@ public:
         typedef Reader::RequestId RequestId;
         typedef int64_t           SeqNum;
         static Striper* Create(
-            int     inType,
-            int     inStripeCount,
-            int     inRecoveryStripeCount,
-            int     inStripeSize,
-            int     inMaxAtomicReadRequestSize,
-            bool    inUseDefaultBufferAllocatorFlag,
-            bool    inFailShortReadsFlag,
-            Offset  inRecoverChunkPos,
-            Offset  inFileSize,
-            SeqNum  inInitialSeqNum,
-            string  inLogPrefix,
-            Impl&   inOuter,
-            Offset& outOpenChunkBlockSize,
-            string& outErrMsg);
+            int           inType,
+            int           inStripeCount,
+            int           inRecoveryStripeCount,
+            int           inStripeSize,
+            int           inMaxAtomicReadRequestSize,
+            bool          inUseDefaultBufferAllocatorFlag,
+            bool          inFailShortReadsFlag,
+            Offset        inRecoverChunkPos,
+            Offset        inFileSize,
+            SeqNum        inInitialSeqNum,
+            const string& inLogPrefix,
+            Impl&         inOuter,
+            Offset&       outOpenChunkBlockSize,
+            string&       outErrMsg);
         virtual ~Striper()
             {}
         virtual int Process(
@@ -214,7 +208,8 @@ public:
             IOBuffer& inBuffer,
             int       inLength,
             Offset    inOffset,
-            RequestId inRequestId);
+            RequestId inRequestId,
+            int64_t   inRecoveriesCount);
         void CancelRead();
         void ReportInvalidChunk(
             kfsChunkId_t inChunkId,
@@ -274,7 +269,7 @@ public:
         Completion* inCompletionPtr);
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats);
+        KfsNetClient::Stats& outChunkServersStats) const;
 private:
     Impl& mImpl;
 private:

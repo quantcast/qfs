@@ -30,6 +30,8 @@ import java.io.*;
 import java.net.*;
 import java.util.Random;
 import java.util.Date;
+import java.util.Iterator;
+import java.util.Map;
 import java.nio.ByteBuffer;
 
 public class KfsTest
@@ -342,7 +344,15 @@ public class KfsTest
                 System.out.println("unable to remove: " + basedir);
                 System.exit(1);
             }
-                
+
+            final Iterator<Map.Entry<String, String> > it =
+                kfsAccess.kfs_getStats().entrySet().iterator();
+            System.out.println("Clients stats:");
+            while (it.hasNext()) {
+                final Map.Entry<String, String> entry = it.next();
+                System.out.println(entry.getKey() + ": " + entry.getValue());
+            }
+
             System.out.println("All done...Test passed!");
 
         } catch (Exception e) {

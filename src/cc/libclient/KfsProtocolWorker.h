@@ -36,6 +36,8 @@
 namespace KFS
 {
 class ClientAuthContext;
+class Properties;
+
 namespace client
 {
 using std::string;
@@ -76,7 +78,8 @@ public:
         kRequestTypeReadAsync                    = 28,
         kRequestTypeReadClose                    = 29,
         kRequestTypeReadShutdown                 = 30,
-        kRequestTypeMetaOp                       = 31 // Internal use only
+        kRequestTypeMetaOp                       = 31, // Internal use only
+        kRequestTypeGetStatsOp                   = 32  // Internal use only
     };
     typedef kfsFileId_t  FileId;
     typedef unsigned int FileInstance;
@@ -271,6 +274,7 @@ public:
         int64_t                inOffset     = -1);
     void ExecuteMeta(
         KfsOp& inOp);
+    Properties GetStats();
     void Enqueue(
         Request& inRequest);
     void Start();

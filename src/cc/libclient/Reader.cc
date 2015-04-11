@@ -288,7 +288,7 @@ public:
     }
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats)
+        KfsNetClient::Stats& outChunkServersStats) const
     {
         outStats             = mStats;
         outChunkServersStats = mChunkServersStats;
@@ -1767,6 +1767,12 @@ private:
                 }
             } else {
                 mOuter.mStats.mRetriesCount++;
+                if (inOp.op == CMD_READ) {
+                    mOuter.mStats.mReadErrorsCount++;
+                    if (inOp.status == kErrorChecksum) {
+                        mOuter.mStats.mReadChecksumErrorsCount++;
+                    }
+                }
                 bool thePossibleDiskCheckusmErrorFlag = false;
                 if (inOp.op == CMD_READ && inOp.status == kErrorChecksum) {
                     ReadOp& theReadOp = static_cast<ReadOp&>(inOp);
@@ -2405,12 +2411,16 @@ private:
         IOBuffer*    inBufferPtr        = 0,
         RequestId    inRequestId        = RequestId(),
         RequestId    inStriperRequestId = RequestId(),
-        bool         inStiperDoneFlag   = false)
+        bool         inStiperDoneFlag   = false,
+        int64_t      inRecoveriesCount  = 0)
     {
         // Order matters here, as StRef desctructor can delete this.
         StRef                     theRef(*this);
         QCStValueIncrementor<int> theIncrement(mCompletionDepthCount, 1);
 
+        if (inStiperDoneFlag && mStriperPtr) {
+            mStats.mReadRecoveriesCount = inRecoveriesCount;
+        }
         if (inReaderPtr && mErrorCode == 0) {
             mErrorCode = inReaderPtr->GetErrorCode();
         }
@@ -2527,7 +2537,7 @@ Reader::Striper::Create(
     Reader::Striper::Offset  inRecoverChunkPos,
     Reader::Striper::Offset  inFileSize,
     Reader::Striper::SeqNum  inInitialSeqNum,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Reader::Striper::Impl&   inOuter,
     Reader::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg)
@@ -2597,7 +2607,8 @@ Reader::Striper::ReportCompletion(
     IOBuffer&                  inBuffer,
     int                        inLength,
     Reader::Striper::Offset    inOffset,
-    Reader::Striper::RequestId inRequestId)
+    Reader::Striper::RequestId inRequestId,
+    int64_t                    inRecoveriesCount)
 {
     return mOuter.ReportCompletion(
         inStatus,
@@ -2607,7 +2618,8 @@ Reader::Striper::ReportCompletion(
         &inBuffer,
         inRequestId,
         RequestId(),
-        true
+        true,
+        inRecoveriesCount
     );
 }
 
@@ -2775,7 +2787,7 @@ Reader::Unregister(
 void
 Reader::GetStats(
     Stats&               outStats,
-    KfsNetClient::Stats& outChunkServersStats)
+    KfsNetClient::Stats& outChunkServersStats) const
 {
     Impl::StRef theRef(mImpl);
     mImpl.GetStats(outStats, outChunkServersStats);
