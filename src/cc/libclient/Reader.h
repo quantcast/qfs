@@ -129,8 +129,8 @@ public:
             inFunctor("ReadErrors",         mReadErrorsCount);
             inFunctor("ReadChecksumErrors", mReadChecksumErrorsCount);
             inFunctor("ReadRecoveries",     mReadRecoveriesCount);
-            inFunctor("ReadCount",          mReadCount);
-            inFunctor("ReadByte",           mReadByteCount);
+            inFunctor("Reads",              mReadCount);
+            inFunctor("ReadBytes",          mReadByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;

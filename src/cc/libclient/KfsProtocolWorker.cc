@@ -31,6 +31,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/Globals.h"
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/time.h"
@@ -70,6 +71,7 @@ using std::ostringstream;
 using std::pair;
 using std::map;
 using std::less;
+using KFS::libkfsio::globals;
 
 // KFS client side protocol worker thread implementation.
 class KfsProtocolWorker::Impl :
@@ -729,7 +731,8 @@ private:
             Done(inRequest, kErrParameters);
             return;
         }
-        *theStatsPtr = GetStats();
+        Properties theStats = GetStats();
+        theStatsPtr->swap(theStats);
         Done(inRequest, 0);
     }
     typedef QCDLList<SyncRequest, 0> FreeSyncRequests;
@@ -1874,6 +1877,10 @@ private:
             theStats.Enumerate(theEnumerator.SetPrefix("ChunkServer.Pool."));
             theEnumerator("Size", mClientPoolPtr->GetSize());
         }
+        theEnumerator.SetPrefix("Network.");
+        theEnumerator("Sockets",       globals().ctrOpenNetFds.GetValue());
+        theEnumerator("BytesSent",     globals().ctrNetBytesWritten.GetValue());
+        theEnumerator("BytesReceived", globals().ctrNetBytesRead.GetValue());
         return theRet;
     }
 private:

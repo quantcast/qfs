@@ -117,8 +117,8 @@ public:
             inFunctor("AllocRetries",     mAllocRetriesCount);
             inFunctor("BufferCompaction", mBufferCompactionCount);
             inFunctor("Retries",          mRetriesCount);
-            inFunctor("Write" ,           mWriteCount);
-            inFunctor("WriteByte",        mWriteByteCount);
+            inFunctor("Writes" ,          mWriteCount);
+            inFunctor("WriteBytes",       mWriteByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;

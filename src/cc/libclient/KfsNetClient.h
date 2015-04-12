@@ -78,7 +78,9 @@ public:
               mOpsTimeoutCount(0),
               mOpsRetriedCount(0),
               mOpsCancelledCount(0),
-              mSleepTimeSec(0)
+              mSleepTimeSec(0),
+              mBytesReceivedCount(0),
+              mBytesSentCount(0)
             {}
         void Clear()
             { *this = Stats(); }
@@ -95,6 +97,8 @@ public:
             mOpsRetriedCount            += inStats.mOpsRetriedCount;
             mOpsCancelledCount          += inStats.mOpsCancelledCount;
             mSleepTimeSec               += inStats.mSleepTimeSec;
+            mBytesReceivedCount         += inStats.mBytesReceivedCount;
+            mBytesSentCount             += inStats.mBytesSentCount;
             return *this;
         }
         template<typename T>
@@ -111,6 +115,8 @@ public:
             inFunctor("OpsRetried",            mOpsRetriedCount);
             inFunctor("OpsCancelled",          mOpsCancelledCount);
             inFunctor("SleepTimeSec",          mSleepTimeSec);
+            inFunctor("BytesReceived",         mBytesReceivedCount);
+            inFunctor("BytesSent",             mBytesSentCount);
         }
         Counter mConnectCount;
         Counter mConnectFailureCount;
@@ -122,6 +128,8 @@ public:
         Counter mOpsRetriedCount;
         Counter mOpsCancelledCount;
         Counter mSleepTimeSec;
+        Counter mBytesReceivedCount;
+        Counter mBytesSentCount;
     };
     enum {
         kErrorMaxRetryReached = -(10000 + ETIMEDOUT),

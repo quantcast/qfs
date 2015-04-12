@@ -193,6 +193,7 @@ public:
           mMaxContentLength(inMaxContentLength),
           mAuthFailureCount(0),
           mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
+          mPendingBytesSend(0),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
           mInFlightRecvBufPtr(0),
@@ -596,6 +597,13 @@ public:
                 break;
 
             case EVENT_NET_WROTE:
+                if (mConnPtr) {
+                    const int theRem = mConnPtr->GetOutBuffer().BytesConsumable();
+                    if (theRem < mPendingBytesSend) {
+                        mStats.mBytesSentCount += mPendingBytesSend - theRem;
+                    }
+                    mPendingBytesSend = theRem;
+                }
                 assert(inDataPtr && mConnPtr);
                 mDataSentFlag = mDataSentFlag || ! IsAuthInFlight();
                 break;
@@ -954,6 +962,7 @@ private:
     int                mMaxContentLength;
     int                mAuthFailureCount;
     int                mMaxRpcHeaderLength;
+    int                mPendingBytesSend;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
     char*              mInFlightRecvBufPtr;
@@ -1067,6 +1076,7 @@ private:
         // Start the timer.
         inEntry.mTime       = Now();
         inEntry.mRetryCount = inRetryCount;
+        mPendingBytesSend = mConnPtr->GetOutBuffer().BytesConsumable();
         if (inFlushFlag) {
             mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
             mConnPtr->Flush(inResetTimerFlag);
@@ -1101,7 +1111,9 @@ private:
             if (mContentLength > inBuffer.BytesConsumable()) {
                 if (! mInFlightOpPtr) {
                     // Discard content.
-                    mContentLength -= inBuffer.Consume(mContentLength);
+                    const int theCount = inBuffer.Consume(mContentLength);
+                    mContentLength -= theCount;
+                    mStats.mBytesReceivedCount += theCount;
                 }
                 if (mConnPtr) {
                     mConnPtr->SetMaxReadAhead(max(int(kMaxReadAhead),
@@ -1115,7 +1127,7 @@ private:
             }
             mReadHeaderDoneFlag = false;
             if (! mInFlightOpPtr) {
-                inBuffer.Consume(mContentLength);
+                mStats.mBytesReceivedCount += inBuffer.Consume(mContentLength);
                 mContentLength = 0;
                 mProperties.clear();
                 // Don't rely on compiler to properly handle tail recursion,
@@ -1130,6 +1142,8 @@ private:
             theOp.ParseResponseHeader(mProperties);
             mProperties.clear();
             if (mContentLength > 0) {
+                mStats.mBytesReceivedCount +=
+                    min(mContentLength, inBuffer.BytesConsumable());
                 if (theBufPtr) {
                     IOBuffer theBuf;
                     theBuf.MoveSpaceAvailable(theBufPtr, mContentLength);
@@ -1186,7 +1200,7 @@ private:
                 mIstream.Set(inBuffer, theHdrLen), theSeparator);
             mIstream.Reset();
         }
-        inBuffer.Consume(theHdrLen);
+        mStats.mBytesReceivedCount += inBuffer.Consume(theHdrLen);
         mReadHeaderDoneFlag = true;
         mContentLength = mProperties.getValue("Content-length", 0);
         const kfsSeq_t theOpSeq = mProperties.getValue("Cseq", kfsSeq_t(-1));
@@ -1212,7 +1226,9 @@ private:
                 ", discarding response " <<
                 " content length: " << mContentLength <<
             KFS_LOG_EOM;
-            mContentLength -= inBuffer.Consume(mContentLength);
+            const int theCount = inBuffer.Consume(mContentLength);
+            mContentLength -= theCount;
+            mStats.mBytesReceivedCount += theCount;
             return true;
         }
         if (mOutstandingOpPtr && mOutstandingOpPtr != mInFlightOpPtr) {

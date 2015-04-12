@@ -553,6 +553,8 @@ private:
                 QCRTASSERT(mAllocOp.fileOffset == inOffset - theChunkOffset);
             }
             theSize = min(theSize, (int)(kChunkSize - theChunkOffset));
+            mOuter.mStats.mWriteCount++;
+            mOuter.mStats.mWriteByteCount += theSize;
             QCASSERT(theSize > 0);
             Offset thePos = theChunkOffset;
             // Try to append to the last pending op.
