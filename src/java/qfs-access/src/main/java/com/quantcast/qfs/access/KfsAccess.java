@@ -36,6 +36,8 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.CoderResult;
 import java.util.Properties;
 import java.util.ArrayList;
+import java.util.TreeMap;
+import java.util.Map;
 
 final public class KfsAccess
 {
@@ -219,6 +221,9 @@ final public class KfsAccess
 
     private final static native
     String cancelDelegationToken(long ptr, KfsDelegation token);
+
+    private final static native
+    String[] getStats(long ptr);
 
     static {
         try {
@@ -915,6 +920,23 @@ final public class KfsAccess
         if (error != null) {
             throw new IOException(error);
         }
+    }
+
+    public Map<String, String> kfs_getStats() throws IOException
+    {
+        final String[] stats = getStats(cPtr);
+        if (stats == null) {
+            throw new IOException("internal error: null stats array");
+        }
+        if (stats.length % 2 != 0) {
+            throw new IOException(
+                "internal error: invalid stats array size: " + stats.length);
+        }
+        final Map<String, String> ret = new TreeMap<String, String>();
+        for (int i = 0; i < stats.length; i += 2) {
+            ret.put(stats[i], stats[i+1]);
+        }
+        return ret;
     }
 
     protected void finalize() throws Throwable

@@ -162,6 +162,8 @@ public:
             theIt->second->ClearMaxOneOutstandingOpFlag();
         }
     }
+    size_t GetSize() const
+        { return mClients.size(); }
 private:
     typedef map<
         ServerLocation,

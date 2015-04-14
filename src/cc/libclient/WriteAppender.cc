@@ -380,7 +380,7 @@ public:
     }
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats)
+        KfsNetClient::Stats& outChunkServersStats) const
     {
         outStats = mStats;
         mChunkServer.GetStats(outChunkServersStats);
@@ -2088,7 +2088,7 @@ WriteAppender::Unregister(
 void
 WriteAppender::GetStats(
     Stats&               outStats,
-    KfsNetClient::Stats& outChunkServersStats)
+    KfsNetClient::Stats& outChunkServersStats) const
 {
     mImpl.GetStats(outStats, outChunkServersStats);
 }

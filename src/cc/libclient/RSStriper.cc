@@ -103,10 +103,10 @@ public:
         return theRet;
     }
     RSStriper(
-        int    inStripeSize,
-        int    inStripeCount,
-        int    inRecoveryStripeCount,
-        string inLogPrefix)
+        int           inStripeSize,
+        int           inStripeCount,
+        int           inRecoveryStripeCount,
+        const string& inLogPrefix)
         : mLogPrefix(inLogPrefix),
           mStripeSize(inStripeSize),
           mStripeCount(inStripeCount),
@@ -327,7 +327,7 @@ public:
         int                      inRecoveryStripeCount,
         int                      inStripeSize,
         Writer::Striper::Offset  inFileSize,
-        string                   inLogPrefix,
+        const string&            inLogPrefix,
         Impl&                    inOuter,
         Writer::Striper::Offset& outOpenChunkBlockSize,
         string&                  outErrMsg)
@@ -1018,7 +1018,7 @@ public:
         Reader::Striper::Offset  inRecoverChunkPos,
         Reader::Striper::Offset  inFileSize,
         Reader::Striper::SeqNum  inInitialSeqNum,
-        string                   inLogPrefix,
+        const string&            inLogPrefix,
         Impl&                    inOuter,
         Reader::Striper::Offset& outOpenChunkBlockSize,
         string&                  outErrMsg)
@@ -2563,6 +2563,7 @@ private:
     IOBufferData*            mZeroBufferPtr;
     Offset                   mPendingCount;
     uint32_t                 mNextRand;
+    uint32_t                 mRecoveriesCount;
     ECMethod::Decoder* const mDecoderPtr;
     Request*                 mPendingQueue[1];
     Request*                 mFreeList[1];
@@ -2610,6 +2611,7 @@ private:
           mZeroBufferPtr(0),
           mPendingCount(0),
           mNextRand((uint32_t)inInitialSeqNum),
+          mRecoveriesCount(0),
           mDecoderPtr(inDecoderPtr)
     {
         QCASSERT(inRecoverChunkPos < 0 || inRecoverChunkPos % CHUNKSIZE == 0);
@@ -3309,6 +3311,7 @@ private:
                 mBufPtr[i] = thePtr;
             }
             if (thePos == 0) {
+                mRecoveriesCount++;
                 if (theEndPosHead >= 0) {
                     const int    theChunkStridePos  =
                         GetChunkPos(inRequest.mRecoveryPos) + theEndPos -
@@ -3571,7 +3574,8 @@ private:
                 }
             }
             PutRequest(inRequest);
-            ReportCompletion(theStatus, theBuffer, theSize, thePos, theId);
+            ReportCompletion(theStatus, theBuffer, theSize, thePos, theId,
+                mRecoveriesCount);
             return;
         }
         SetPos(inRequest.mPos);
@@ -3637,7 +3641,8 @@ private:
         const Offset    thePos    = inRequest.mPos;
         const RequestId theId     = inRequest.mRequestId;
         PutRequest(inRequest);
-        ReportCompletion(theStatus, theBuffer, theSize, thePos, theId);
+        ReportCompletion(theStatus, theBuffer, theSize, thePos, theId,
+            mRecoveriesCount);
     }
     Request& GetRequest(
         RequestId inRequestId,
@@ -3714,7 +3719,7 @@ RSStriperCreate(
     int                      inRecoveryStripeCount,
     int                      inStripeSize,
     Writer::Striper::Offset  inFileSize,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Writer::Striper::Impl&   inOuter,
     Writer::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg)
@@ -3744,7 +3749,7 @@ RSStriperCreate(
     Reader::Striper::Offset  inRecoverChunkPos,
     Reader::Striper::Offset  inFileSize,
     Reader::Striper::SeqNum  inInitialSeqNum,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Reader::Striper::Impl&   inOuter,
     Reader::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg)

@@ -194,6 +194,7 @@ public:
           mMaxContentLength(inMaxContentLength),
           mAuthFailureCount(0),
           mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
+          mPendingBytesSend(0),
           mRpcFormat(kRpcFormatUndef),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
@@ -357,6 +358,53 @@ public:
             mSleepingFlag = false;
         }
         ResetConnection();
+    }
+    void CancelAllWithOwner(
+        OpOwner* inOwnerPtr)
+    {
+        if (mInFlightOpPtr && mInFlightOpPtr->mOwnerPtr == inOwnerPtr) {
+            CancelInFlightOp();
+        }
+        const bool thePendingEmptyFlag = mPendingOpQueue.empty();
+        if (thePendingEmptyFlag && mQueueStack.empty()) {
+            return;
+        }
+        if (! thePendingEmptyFlag) {
+            OpQueue theQeue;
+            for (OpQueue::iterator theIt = mPendingOpQueue.begin();
+                    theIt != mPendingOpQueue.end();
+                    ) {
+                OpQueue::iterator const theCur = theIt++;
+                if (theCur->second.mOwnerPtr == inOwnerPtr) {
+                    theQeue.insert(*theCur);
+                    mPendingOpQueue.erase(theCur);
+                }
+            }
+            if (! theQeue.empty()) {
+                QueueStack::iterator const theIt =
+                    mQueueStack.insert(mQueueStack.end(), OpQueue());
+                theQeue.swap(*theIt);
+            }
+        }
+        for (QueueStack::iterator theStIt = mQueueStack.begin();
+                theStIt != mQueueStack.end();
+                ) {
+            for (OpQueue::iterator theIt = theStIt->begin();
+                    theIt != theStIt->end();
+                    ++theIt) {
+                if (theIt->second.mOwnerPtr != inOwnerPtr ||
+                        ! theIt->second.mOpPtr) {
+                    continue;
+                }
+                mStats.mOpsCancelledCount++;
+                theIt->second.Cancel();
+            }
+            if (theStIt->empty()) {
+                mQueueStack.erase(theStIt++);
+            } else {
+                ++theStIt;
+            }
+        }
     }
     void Stop()
     {
@@ -556,6 +604,13 @@ public:
                 break;
 
             case EVENT_NET_WROTE:
+                if (mConnPtr) {
+                    const int theRem = mConnPtr->GetOutBuffer().BytesConsumable();
+                    if (theRem < mPendingBytesSend) {
+                        mStats.mBytesSentCount += mPendingBytesSend - theRem;
+                    }
+                    mPendingBytesSend = theRem;
+                }
                 assert(inDataPtr && mConnPtr);
                 mDataSentFlag = mDataSentFlag || ! IsAuthInFlight();
                 break;
@@ -921,6 +976,7 @@ private:
     int                mMaxContentLength;
     int                mAuthFailureCount;
     int                mMaxRpcHeaderLength;
+    int                mPendingBytesSend;
     RpcFormat          mRpcFormat;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
@@ -1050,6 +1106,7 @@ private:
         // Start the timer.
         inEntry.mTime       = Now();
         inEntry.mRetryCount = inRetryCount;
+        mPendingBytesSend = mConnPtr->GetOutBuffer().BytesConsumable();
         if (inFlushFlag) {
             mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
             mConnPtr->Flush(inResetTimerFlag);
@@ -1084,7 +1141,9 @@ private:
             if (mContentLength > inBuffer.BytesConsumable()) {
                 if (! mInFlightOpPtr) {
                     // Discard content.
-                    mContentLength -= inBuffer.Consume(mContentLength);
+                    const int theCount = inBuffer.Consume(mContentLength);
+                    mContentLength -= theCount;
+                    mStats.mBytesReceivedCount += theCount;
                 }
                 if (mConnPtr) {
                     mConnPtr->SetMaxReadAhead(max(int(kMaxReadAhead),
@@ -1099,7 +1158,7 @@ private:
             mReadHeaderDoneFlag = false;
             TransmitAck();
             if (! mInFlightOpPtr) {
-                inBuffer.Consume(mContentLength);
+                mStats.mBytesReceivedCount += inBuffer.Consume(mContentLength);
                 mContentLength = 0;
                 mProperties.clear();
                 // Don't rely on compiler to properly handle tail recursion,
@@ -1114,6 +1173,8 @@ private:
             theOp.ParseResponseHeader(mProperties);
             mProperties.clear();
             if (mContentLength > 0) {
+                mStats.mBytesReceivedCount +=
+                    min(mContentLength, inBuffer.BytesConsumable());
                 if (theBufPtr) {
                     IOBuffer theBuf;
                     theBuf.MoveSpaceAvailable(theBufPtr, mContentLength);
@@ -1170,7 +1231,7 @@ private:
                 mIstream.Set(inBuffer, theHdrLen), theSeparator);
             mIstream.Reset();
         }
-        inBuffer.Consume(theHdrLen);
+        mStats.mBytesReceivedCount += inBuffer.Consume(theHdrLen);
         mReadHeaderDoneFlag = true;
         if (kRpcFormatUndef == mRpcFormat) {
             mRpcFormat = mProperties.getValue("c") ?
@@ -1203,7 +1264,9 @@ private:
                 ", discarding response " <<
                 " content length: " << mContentLength <<
             KFS_LOG_EOM;
-            mContentLength -= inBuffer.Consume(mContentLength);
+            const int theCount = inBuffer.Consume(mContentLength);
+            mContentLength -= theCount;
+            mStats.mBytesReceivedCount += theCount;
             return true;
         }
         if (mInFlightOpPtr->mOpPtr) {
@@ -2099,6 +2162,14 @@ KfsNetClient::Cancel()
 {
     Impl::StRef theRef(mImpl);
     return mImpl.Cancel();
+}
+
+    void
+KfsNetClient::CancelAllWithOwner(
+    OpOwner* inOwnerPtr)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.CancelAllWithOwner(inOwnerPtr);
 }
 
     const ServerLocation&

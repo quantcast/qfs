@@ -30,7 +30,6 @@
 
 #include <cerrno>
 #include <string>
-#include <ostream>
 
 class QCThread;
 
@@ -79,7 +78,9 @@ public:
               mOpsTimeoutCount(0),
               mOpsRetriedCount(0),
               mOpsCancelledCount(0),
-              mSleepTimeSec(0)
+              mSleepTimeSec(0),
+              mBytesReceivedCount(0),
+              mBytesSentCount(0)
             {}
         void Clear()
             { *this = Stats(); }
@@ -96,40 +97,26 @@ public:
             mOpsRetriedCount            += inStats.mOpsRetriedCount;
             mOpsCancelledCount          += inStats.mOpsCancelledCount;
             mSleepTimeSec               += inStats.mSleepTimeSec;
+            mBytesReceivedCount         += inStats.mBytesReceivedCount;
+            mBytesSentCount             += inStats.mBytesSentCount;
             return *this;
         }
-        ostream& Display(
-            ostream&    inStream,
-            const char* inSeparatorPtr = 0,
-            const char* inDelimiterPtr = 0) const
+        template<typename T>
+        void Enumerate(
+            T& inFunctor) const
         {
-            const char* const theSeparatorPtr =
-                inSeparatorPtr ? inSeparatorPtr : " ";
-            const char* const theDelimiterPtr =
-                inDelimiterPtr ? inDelimiterPtr : ": ";
-            inStream <<
-                "Connect"               << theDelimiterPtr <<
-                    mConnectCount << theSeparatorPtr <<
-                "ConnectFailure"        << theDelimiterPtr <<
-                    mConnectFailureCount << theSeparatorPtr <<
-                "NetError"              << theDelimiterPtr <<
-                    mNetErrorCount << theSeparatorPtr <<
-                "ConnectionIdleTimeout" << theDelimiterPtr <<
-                    mConnectionIdleTimeoutCount  << theSeparatorPtr <<
-                "ResponseTimeout"       << theDelimiterPtr <<
-                    mResponseTimeoutCount << theSeparatorPtr <<
-                "OpsQueued"             << theDelimiterPtr <<
-                    mOpsQueuedCount << theSeparatorPtr <<
-                "OpsTimeout"            << theDelimiterPtr <<
-                    mOpsTimeoutCount << theSeparatorPtr <<
-                "OpsRetried"            << theDelimiterPtr <<
-                    mOpsRetriedCount << theSeparatorPtr <<
-                "OpsCancelled"          << theDelimiterPtr <<
-                    mOpsCancelledCount << theSeparatorPtr <<
-                "SleepTimeSec"          << theDelimiterPtr <<
-                    mSleepTimeSec
-            ;
-            return inStream;
+            inFunctor("Connect",               mConnectCount);
+            inFunctor("ConnectFailure",        mConnectFailureCount);
+            inFunctor("NetError",              mNetErrorCount);
+            inFunctor("ConnectionIdleTimeout", mConnectionIdleTimeoutCount);
+            inFunctor("ResponseTimeout",       mResponseTimeoutCount);
+            inFunctor("OpsQueued",             mOpsQueuedCount);
+            inFunctor("OpsTimeout",            mOpsTimeoutCount);
+            inFunctor("OpsRetried",            mOpsRetriedCount);
+            inFunctor("OpsCancelled",          mOpsCancelledCount);
+            inFunctor("SleepTimeSec",          mSleepTimeSec);
+            inFunctor("BytesReceived",         mBytesReceivedCount);
+            inFunctor("BytesSent",             mBytesSentCount);
         }
         Counter mConnectCount;
         Counter mConnectFailureCount;
@@ -141,6 +128,8 @@ public:
         Counter mOpsRetriedCount;
         Counter mOpsCancelledCount;
         Counter mSleepTimeSec;
+        Counter mBytesReceivedCount;
+        Counter mBytesSentCount;
     };
     enum {
         kErrorMaxRetryReached = -(10000 + ETIMEDOUT),
@@ -263,6 +252,8 @@ public:
         KfsOp*   inOpPtr,
         OpOwner* inOwnerPtr);
     bool Cancel();
+    void CancelAllWithOwner(
+        OpOwner* inOwnerPtr);
     const ServerLocation& GetServerLocation() const;
     NetManager& GetNetManager() const;
     void SetEventObserver(

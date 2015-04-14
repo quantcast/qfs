@@ -541,6 +541,15 @@ fi
 
 if [ x"$accessdir" != x ]; then
     kfsaccesspidf="kfsaccess_test${pidsuf}"
+    if [ -f "$clientprop" ]; then
+        clientproppool="$clientprop.pool.prp"
+        cp "$clientprop" "$clientproppool" || exit
+        echo 'client.connectionPool=1' >> "$clientproppool" || exit
+        javatestclicfg="FILE:${clientproppool}"
+    else
+        javatestclicfg="client.connectionPool=1"
+    fi
+    QFS_CLIENT_CONFIG="$javatestclicfg" \
     java \
         -Djava.library.path="$accessdir" \
         -classpath "$kfsjar" \

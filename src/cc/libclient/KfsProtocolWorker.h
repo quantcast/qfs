@@ -36,6 +36,8 @@
 namespace KFS
 {
 class ClientAuthContext;
+class Properties;
+
 namespace client
 {
 using std::string;
@@ -76,7 +78,8 @@ public:
         kRequestTypeReadAsync                    = 28,
         kRequestTypeReadClose                    = 29,
         kRequestTypeReadShutdown                 = 30,
-        kRequestTypeMetaOp                       = 31 // Internal use only
+        kRequestTypeMetaOp                       = 31, // Internal use only
+        kRequestTypeGetStatsOp                   = 32  // Internal use only
     };
     typedef kfsFileId_t  FileId;
     typedef unsigned int FileInstance;
@@ -203,7 +206,8 @@ public:
             int                inReadLeaseRetryTimeout       = 3,
             int                inLeaseWaitTimeout            = 900,
             int                inMaxMetaServerContentLength  = 1 << 20,
-            ClientAuthContext* inAuthContextPtr = 0)
+            ClientAuthContext* inAuthContextPtr              = 0,
+            bool               inUseClientPoolFlag           = false)
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -226,7 +230,8 @@ public:
               mReadLeaseRetryTimeout(inReadLeaseRetryTimeout),
               mLeaseWaitTimeout(inLeaseWaitTimeout),
               mMaxMetaServerContentLength(inMaxMetaServerContentLength),
-              mAuthContextPtr(inAuthContextPtr)
+              mAuthContextPtr(inAuthContextPtr),
+              mUseClientPoolFlag(inUseClientPoolFlag)
             {}
             int                 mMetaMaxRetryCount;
             int                 mMetaTimeSecBetweenRetries;
@@ -251,6 +256,7 @@ public:
             int                 mLeaseWaitTimeout;
             int                 mMaxMetaServerContentLength;
             ClientAuthContext*  mAuthContextPtr;
+            bool                mUseClientPoolFlag;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,
@@ -268,6 +274,7 @@ public:
         int64_t                inOffset     = -1);
     void ExecuteMeta(
         KfsOp& inOp);
+    Properties GetStats();
     void Enqueue(
         Request& inRequest);
     void Start();

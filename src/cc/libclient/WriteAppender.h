@@ -31,7 +31,6 @@
 #include "kfsio/checksum.h"
 
 #include <stdint.h>
-#include <ostream>
 
 namespace KFS
 {
@@ -100,42 +99,22 @@ public:
             mAppendByteCount         += inStats.mAppendByteCount;
             return *this;
         }
-        std::ostream& Display(
-            std::ostream& inStream,
-            const char*   inSeparatorPtr = 0,
-            const char*   inDelimiterPtr = 0) const
+        template<typename T>
+        void Enumerate(
+            T& inFunctor) const
         {
-            const char* const theSeparatorPtr =
-                inSeparatorPtr ? inSeparatorPtr : " ";
-            const char* const theDelimiterPtr =
-                inDelimiterPtr ? inDelimiterPtr : ": ";
-            inStream <<
-                "MetaOpsQueued"              << theDelimiterPtr <<
-                    mMetaOpsQueuedCount      << theSeparatorPtr <<
-                "MetaOpsCancelled"           << theDelimiterPtr <<
-                    mMetaOpsCancelledCount   << theSeparatorPtr <<
-                "SleepTimeSec"               << theDelimiterPtr <<
-                    mSleepTimeSec            << theSeparatorPtr <<
-                "ChunkAlloc"                 << theDelimiterPtr <<
-                    mChunkAllocCount         << theSeparatorPtr <<
-                "ReserveSpace"               << theDelimiterPtr <<
-                    mReserveSpaceCount       << theSeparatorPtr <<
-                "ReserveSpaceDenied"         << theDelimiterPtr <<
-                    mReserveSpaceDeniedCount << theSeparatorPtr <<
-                "OpsRecAppend"               << theDelimiterPtr <<
-                    mOpsRecAppendCount       << theSeparatorPtr <<
-                "AllocRetries"               << theDelimiterPtr <<
-                    mAllocRetriesCount       << theSeparatorPtr <<
-                "Retries"                    << theDelimiterPtr <<
-                    mRetriesCount            << theSeparatorPtr <<
-                "BufferCompaction"           << theDelimiterPtr <<
-                    mBufferCompactionCount   << theSeparatorPtr <<
-                "AppendCount"                << theDelimiterPtr <<
-                    mAppendCount             << theSeparatorPtr <<
-                "AppendByteCount"            << theDelimiterPtr <<
-                    mAppendByteCount
-            ;
-            return inStream;
+            inFunctor("MetaOpsQueued",      mMetaOpsQueuedCount);
+            inFunctor("MetaOpsCancelled",   mMetaOpsCancelledCount);
+            inFunctor("SleepTimeSec",       mSleepTimeSec);
+            inFunctor("ChunkAlloc",         mChunkAllocCount);
+            inFunctor("ReserveSpace",       mReserveSpaceCount);
+            inFunctor("ReserveSpaceDenied", mReserveSpaceDeniedCount);
+            inFunctor("OpsRecAppend",       mOpsRecAppendCount);
+            inFunctor("AllocRetries",       mAllocRetriesCount);
+            inFunctor("Retries",            mRetriesCount);
+            inFunctor("BufferCompaction",   mBufferCompactionCount);
+            inFunctor("AppendCount",        mAppendCount);
+            inFunctor("AppendByteCount",    mAppendByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;
@@ -198,7 +177,7 @@ public:
         Completion* inCompletionPtr);
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats);
+        KfsNetClient::Stats& outChunkServersStats) const;
     const ServerLocation& GetServerLocation() const;
     int SetPreAllocation(
         bool inFlag);

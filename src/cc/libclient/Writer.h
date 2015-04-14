@@ -29,7 +29,6 @@
 #include "KfsNetClient.h"
 #include "common/kfstypes.h"
 
-#include <ostream>
 #include <string>
 
 namespace KFS
@@ -39,6 +38,8 @@ class IOBuffer;
 
 namespace client
 {
+using std::string;
+
 // Kfs client write protocol state machine.
 class Writer
 {
@@ -103,40 +104,21 @@ public:
             mBufferCompactionCount += inStats.mBufferCompactionCount;
             return *this;
         }
-        std::ostream& Display(
-            std::ostream& inStream,
-            const char*   inSeparatorPtr = 0,
-            const char*   inDelimiterPtr = 0) const
+        template<typename T>
+        void Enumerate(
+            T& inFunctor) const
         {
-            const char* const theSeparatorPtr =
-                inSeparatorPtr ? inSeparatorPtr : " ";
-            const char* const theDelimiterPtr =
-                inDelimiterPtr ? inDelimiterPtr : ": ";
-            inStream <<
-                "MetaOpsQueued"            << theDelimiterPtr <<
-                    mMetaOpsQueuedCount    << theSeparatorPtr <<
-                "MetaOpsCancelled"         << theDelimiterPtr <<
-                    mMetaOpsCancelledCount << theSeparatorPtr <<
-                "ChunkOpsQueued"           << theDelimiterPtr <<
-                    mChunkOpsQueuedCount   << theSeparatorPtr <<
-                "SleepTimeSec"             << theDelimiterPtr <<
-                    mSleepTimeSec          << theSeparatorPtr <<
-                "ChunkAlloc"               << theDelimiterPtr <<
-                    mChunkAllocCount       << theSeparatorPtr <<
-                "OpsWrite"                 << theDelimiterPtr <<
-                    mOpsWriteCount         << theSeparatorPtr <<
-                "AllocRetries"             << theDelimiterPtr <<
-                    mAllocRetriesCount     << theSeparatorPtr <<
-                "BufferCompactionCount"    << theDelimiterPtr <<
-                    mBufferCompactionCount << theSeparatorPtr <<
-                "Retries"                  << theDelimiterPtr <<
-                    mRetriesCount          << theSeparatorPtr <<
-                "WriteCount"               << theDelimiterPtr <<
-                    mWriteCount            << theSeparatorPtr <<
-                "WriteByteCount"           << theDelimiterPtr <<
-                    mWriteByteCount
-            ;
-            return inStream;
+            inFunctor("MetaOpsQueued",    mMetaOpsQueuedCount);
+            inFunctor("MetaOpsCancelled", mMetaOpsCancelledCount);
+            inFunctor("ChunkOpsQueued",   mChunkOpsQueuedCount);
+            inFunctor("SleepTimeSec",     mSleepTimeSec);
+            inFunctor("ChunkAlloc",       mChunkAllocCount);
+            inFunctor("OpsWrite",         mOpsWriteCount);
+            inFunctor("AllocRetries",     mAllocRetriesCount);
+            inFunctor("BufferCompaction", mBufferCompactionCount);
+            inFunctor("Retries",          mRetriesCount);
+            inFunctor("Writes" ,          mWriteCount);
+            inFunctor("WriteBytes",       mWriteByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;
@@ -156,15 +138,15 @@ public:
         typedef Writer::Impl   Impl;
         typedef Writer::Offset Offset;
         static Striper* Create(
-            int          inType,
-            int          inStripeCount,
-            int          inRecoveryStripeCount,
-            int          inStripeSize,
-            Offset       inFileSize,
-            string       inLogPrefix,
-            Impl&        inOuter,
-            Offset&      outOpenChunkBlockSize,
-            std::string& outErrMsg);
+            int           inType,
+            int           inStripeCount,
+            int           inRecoveryStripeCount,
+            int           inStripeSize,
+            Offset        inFileSize,
+            const string& inLogPrefix,
+            Impl&         inOuter,
+            Offset&       outOpenChunkBlockSize,
+            std::string&  outErrMsg);
         virtual ~Striper()
             {}
         virtual int Process(
@@ -248,7 +230,7 @@ public:
         Completion* inCompletionPtr);
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats);
+        KfsNetClient::Stats& outChunkServersStats) const;
 private:
     Impl& mImpl;
 private:

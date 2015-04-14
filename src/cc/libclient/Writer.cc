@@ -78,18 +78,18 @@ public:
     };
 
     Impl(
-        Writer&     inOuter,
-        MetaServer& inMetaServer,
-        Completion* inCompletionPtr,
-        int         inMaxRetryCount,
-        int         inWriteThreshold,
-        int         inMaxPartialBuffersCount,
-        int         inTimeSecBetweenRetries,
-        int         inOpTimeoutSec,
-        int         inIdleTimeoutSec,
-        int         inMaxWriteSize,
-        string      inLogPrefix,
-        int64_t     inChunkServerInitialSeqNum)
+        Writer&       inOuter,
+        MetaServer&   inMetaServer,
+        Completion*   inCompletionPtr,
+        int           inMaxRetryCount,
+        int           inWriteThreshold,
+        int           inMaxPartialBuffersCount,
+        int           inTimeSecBetweenRetries,
+        int           inOpTimeoutSec,
+        int           inIdleTimeoutSec,
+        int           inMaxWriteSize,
+        const string& inLogPrefix,
+        int64_t       inChunkServerInitialSeqNum)
         : QCRefCountedObj(),
           ITimeout(),
           KfsNetClient::OpOwner(),
@@ -340,7 +340,7 @@ public:
     }
     void GetStats(
         Stats&               outStats,
-        KfsNetClient::Stats& outChunkServersStats)
+        KfsNetClient::Stats& outChunkServersStats) const
     {
         outStats             = mStats;
         outChunkServersStats = mChunkServersStats;
@@ -554,6 +554,8 @@ private:
                 QCRTASSERT(mAllocOp.fileOffset == inOffset - theChunkOffset);
             }
             theSize = min(theSize, (int)(kChunkSize - theChunkOffset));
+            mOuter.mStats.mWriteCount++;
+            mOuter.mStats.mWriteByteCount += theSize;
             QCASSERT(theSize > 0);
             Offset thePos = theChunkOffset;
             // Try to append to the last pending op.
@@ -1879,7 +1881,7 @@ Writer::Striper::Create(
     int                      inRecoveryStripeCount,
     int                      inStripeSize,
     Writer::Striper::Offset  inFileSize,
-    string                   inLogPrefix,
+    const string&            inLogPrefix,
     Writer::Striper::Impl&   inOuter,
     Writer::Striper::Offset& outOpenChunkBlockSize,
     string&                  outErrMsg)
@@ -2093,7 +2095,7 @@ Writer::Unregister(
 void
 Writer::GetStats(
     Stats&               outStats,
-    KfsNetClient::Stats& outChunkServersStats)
+    KfsNetClient::Stats& outChunkServersStats) const
 {
     Impl::StRef theRef(mImpl);
     mImpl.GetStats(outStats, outChunkServersStats);
