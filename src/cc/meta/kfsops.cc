@@ -453,6 +453,12 @@ Tree::mkdir(fid_t dir, const string& dname,
     if (! legalname(dname) && (dir != ROOTFID || dname != "/")) {
         return -EINVAL;
     }
+    if (getDumpsterDirId() == dir) {
+        KFS_LOG_STREAM_ERROR <<
+            dname << ": attempt to create directory in dumpster denied" <<
+        KFS_LOG_EOM;
+        return -EPERM;
+    }
     MetaFattr* const parent = metatree.getFattr(dir);
     if ((! parent || parent->type != KFS_DIR) &&
             (dir != ROOTFID && dname != "/")) {
@@ -1939,6 +1945,12 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         if (ddfattr->type != KFS_DIR) {
             return -ENOTDIR;
         }
+        if (0 < todumpster && getDumpsterDirId() == ddfattr->id()) {
+            KFS_LOG_STREAM_ERROR <<
+                newname << ": attempt to move to dumpster denied" <<
+            KFS_LOG_EOM;
+            return -EPERM;
+        }
         if (! ddfattr->CanWrite(euser, egroup)) {
             return -EACCES;
         }
@@ -1984,6 +1996,10 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     // invalidate the path->fid cache mappings
     const bool kRemoveDirPrefixFlag = true;
     invalidatePathCache(oldpath, oldname, sfattr, kRemoveDirPrefixFlag);
+    const string movedFromDumpsterName(
+        (t == KFS_FILE && getDumpsterDirId() == src->getDir()) ?
+        src->getName() : string()
+    );
 
     if (t == KFS_DIR && ddfattr) {
         // get rid of the linkage of the "old" ..
@@ -2022,6 +2038,13 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
             kKfsUserNone, kKfsGroupNone, 0, ddfattr);
         assert(status == 0);
+    }
+    if (! movedFromDumpsterName.empty()) {
+        KFS_LOG_STREAM_INFO <<
+            "moved out of dumpster: " << movedFromDumpsterName <<
+            " to: "                   << newname <<
+        KFS_LOG_EOM;
+        gLayoutManager.DumpsterCleanupDone(srcfid, movedFromDumpsterName);
     }
     return 0;
 }
@@ -2146,7 +2169,8 @@ Tree::getDumpsterDirId()
 {
     if (mDumpsterDirId < 0) {
         MetaFattr* fa = 0;
-        mDumpsterDirId = lookup(ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
+        mDumpsterDirId = lookup(
+            ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
         if (! fa || fa->type != KFS_DIR) {
             return -1;
         }
