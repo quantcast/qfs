@@ -75,7 +75,7 @@ public:
           mOpTimeoutSec(inOpTimeoutSec),
           mIdleTimeoutSec(inIdleTimeoutSec),
           mInitialSeqNum(inInitialSeqNum),
-          mLogPrefixPtr(inLogPrefixPtr),
+          mLogPrefix(inLogPrefixPtr ? inLogPrefixPtr : ""),
           mResetConnectionOnOpTimeoutFlag(inResetConnectionOnOpTimeoutFlag),
           mRetryConnectOnlyFlag(inRetryConnectOnlyFlag),
           mMaxContentLength(inMaxContentLength),
@@ -99,8 +99,7 @@ public:
         if (it == mClients.end()) {
             ostringstream theStream;
             theStream <<
-                (mLogPrefixPtr ? mLogPrefixPtr : "") <<
-                (mLogPrefixPtr ? ":"           : "") <<
+                mLogPrefix << (mLogPrefix.empty() ? "" : ":") <<
                 inLocation.hostname << ":" << inLocation.port;
             const string thePrefix = theStream.str();
             it = mClients.insert(make_pair(inLocation, new KfsNetClient(
@@ -178,7 +177,7 @@ private:
     int                mOpTimeoutSec;
     int                mIdleTimeoutSec;
     int64_t            mInitialSeqNum;
-    const char*        mLogPrefixPtr;
+    const string       mLogPrefix;
     bool               mResetConnectionOnOpTimeoutFlag;
     bool               mRetryConnectOnlyFlag;
     int                mMaxContentLength;
