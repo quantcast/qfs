@@ -97,6 +97,9 @@ public:
     int GetIndex() const { return mIndex; }
     size_t GetChunkCount() const { return mChunkCount; }
     CIdChecksum_t GetChecksum() const { return mCIdChecksum; }
+    int GetHibernatedIndex() const {
+        return (mIndex <= GetHbrdIdx(0) ? GetHbrdIdx(mIndex) : -1);
+    }
 protected:
     void RemoveHosted(chunkId_t chunkId, int index) {
         if (mIndex < 0 || index != mIndex) {
@@ -112,6 +115,9 @@ private:
     size_t        mChunkCount;
     CIdChecksum_t mCIdChecksum;
 
+    static int GetHbrdIdx(int idx) {
+        return -(idx + 2);
+    }
     void AddHosted(chunkId_t chunkId) {
         mChunkCount++;
         assert(mChunkCount > 0);
@@ -149,7 +155,7 @@ private:
         mChunkCount  = other.mChunkCount;
         mSet         = other.mSet;
         mCIdChecksum = other.mCIdChecksum;
-        other.mIndex       = -1;
+        other.mIndex       = 0 <= other.mIndex ? GetHbrdIdx(mIndex) : -1;
         other.mChunkCount  = 0;
         other.mSet         = 0;
         other.mCIdChecksum = kCIdNullChecksum;
@@ -835,8 +841,10 @@ public:
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
         InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
-        chunkId_t lastResumeModifiedChunk);
+        chunkId_t lastResumeModifiedChunk, uint64_t generation);
     inline void HelloDone(MetaHello& r);
+    uint64_t GetHibernatedGeneration() const
+        { return mHibernatedGeneration; }
 
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1049,6 +1057,7 @@ protected:
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;
     bool               mShortRpcFormatFlag;
+    uint64_t           mHibernatedGeneration;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1210,6 +1219,9 @@ public:
         ChunkIdQueue&   staleChunkIds,
         ModifiedChunks& modifiedChunks,
         int64_t         deletedReportCount);
+    uint64_t GetGeneration() const
+        { return mGeneration; }
+    void UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId);
     static void SetParameters(const Properties& props);
     class Display
     {
@@ -1256,10 +1268,12 @@ private:
     ModifiedChunks mModifiedChunks;
     size_t         mDeletedReportCount;
     size_t         mListsSize;
+    uint64_t       mGeneration;
 
-    static size_t sValidCount;
-    static size_t sChunkListsSize;
-    static size_t sMaxChunkListsSize;
+    static size_t   sValidCount;
+    static size_t   sChunkListsSize;
+    static size_t   sMaxChunkListsSize;
+    static uint64_t sGeneration;
 private:
     HibernatedChunkServer(const HibernatedChunkServer&);
     HibernatedChunkServer& operator=(const HibernatedChunkServer&);

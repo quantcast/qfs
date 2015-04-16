@@ -4640,6 +4640,33 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
         &(*it) : 0);
 }
 
+void
+LayoutManager::EnqueueServerDown(
+    const ChunkServer& srv, const MetaChunkRequest& req)
+{
+    if ((req.chunkId < 0 && req.op != META_CHUNK_STALENOTIFY) ||
+            ! srv.IsDown()) {
+        return;
+    }
+    HibernatedChunkServer* const hsrv =
+        mChunkToServerMap.GetHiberantedServer(srv.GetHibernatedIndex());
+    if (! hsrv || hsrv->GetIndex() < 0 ||
+            hsrv->GetGeneration() != srv.GetHibernatedGeneration()) {
+        return;
+    }
+    if (req.op == META_CHUNK_STALENOTIFY) {
+        const MetaChunkStaleNotify& sop =
+            static_cast<const MetaChunkStaleNotify&>(req);
+        ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
+        const chunkId_t*            id;
+        while ((id = it.Next())) {
+            hsrv->UpdateLastInFlight(mChunkToServerMap, *id);
+        }
+    } else if (0 <= req.chunkId) {
+        hsrv->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
+    }
+}
+
 HibernatedChunkServer*
 LayoutManager::FindHibernatingCS(const ServerLocation& loc,
     LayoutManager::HibernatedServerInfos::iterator* outIt)

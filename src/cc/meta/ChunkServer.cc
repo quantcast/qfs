@@ -445,6 +445,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
       mShortRpcFormatFlag(false),
+      mHibernatedGeneration(0),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -1881,6 +1882,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
     }
     if (mDown || ! mNetConnection || ! mNetConnection->IsGood()) {
         r->status = -EIO;
+        gLayoutManager.EnqueueServerDown(*this, *r);
         r->resume();
         return;
     }
@@ -2784,7 +2786,7 @@ ChunkServer::Verify(
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
-    chunkId_t lastResumeModifiedChunk)
+    chunkId_t lastResumeModifiedChunk, uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
         " server: "           << GetServerLocation() <<
@@ -2808,6 +2810,7 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
         }
     }
     mLastChunksInFlight.Clear();
+    mHibernatedGeneration = generation;
 }
 
 HibernatedChunkServer::HibernatedChunkServer(
@@ -2818,20 +2821,20 @@ HibernatedChunkServer::HibernatedChunkServer(
       mDeletedChunks(),
       mModifiedChunks(),
       mDeletedReportCount(0),
-      mListsSize(0)
+      mListsSize(0),
+      mGeneration(++mGeneration)
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
-        lastResumeModifiedChunk);
+        lastResumeModifiedChunk, mGeneration);
     mDeletedReportCount = mDeletedChunks.GetSize();
     const size_t size = mModifiedChunks.Size() + mDeletedReportCount;
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
     KFS_LOG_STREAM_INFO <<
-        " hibernated: " << GetIndex() <<
-        " location: "   << server.GetServerLocation() <<
-        " index: "      << GetIndex() <<
-        " chunks: "     << GetChunkCount() <<
+        " hibernated: " << server.GetServerLocation() <<
+        " index: "      << server.GetIndex() <<
+        " chunks: "     << server.GetChunkCount() <<
         " modified: "   << mModifiedChunks.Size() <<
         " delete: "     << mDeletedChunks.GetSize() <<
         " hibernated total:"
@@ -2875,6 +2878,27 @@ HibernatedChunkServer::Modified(chunkId_t chunkId)
         " modified: "   << chunkId <<
         " lists size: " << mListsSize <<
     KFS_LOG_EOM;
+}
+
+void
+HibernatedChunkServer::UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId)
+{
+    if (mListsSize <= 0) {
+        return;
+    }
+    if (csMap.HasHibernatedServer(GetIndex(), chunkId)) {
+        Modified(chunkId);
+        return;
+    }
+    if (! mModifiedChunks.Erase(chunkId)) {
+        mListsSize++;
+        sChunkListsSize++;
+        Prune();
+    }
+    if (0 < mListsSize) {
+        mDeletedChunks.PushBack(chunkId);
+        mDeletedReportCount = mDeletedChunks.GetSize();
+    }
 }
 
 bool
@@ -3019,12 +3043,13 @@ HibernatedChunkServer::ResumeRestart(
     if (! CanBeResumed()) {
         return;
     }
+    mGeneration = 0; // Turn off updates from EnqueueServerDown()
     size_t size = 0;
     if (! staleChunkIds.IsEmpty()) {
         const size_t delReportCount =
             (size_t)max(int64_t(0), deletedReportCount);
         if (delReportCount <= staleChunkIds.GetSize()) {
-            if(mDeletedReportCount != mDeletedChunks.GetSize()) {
+            if (mDeletedReportCount != mDeletedChunks.GetSize()) {
                 panic("invalid delete report count");
             }
             mDeletedReportCount += delReportCount;
@@ -3144,8 +3169,9 @@ HibernatedChunkServer::SetParameters(const Properties& props)
     ) / 2;
 }
 
-size_t HibernatedChunkServer::sValidCount(0);
-size_t HibernatedChunkServer::sChunkListsSize(0);
-size_t HibernatedChunkServer::sMaxChunkListsSize(size_t(16) << 20);
+size_t   HibernatedChunkServer::sValidCount(0);
+size_t   HibernatedChunkServer::sChunkListsSize(0);
+size_t   HibernatedChunkServer::sMaxChunkListsSize(size_t(16) << 20);
+uint64_t HibernatedChunkServer::sGeneration = 0;
 
 } // namespace KFS

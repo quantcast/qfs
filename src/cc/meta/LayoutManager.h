@@ -1392,6 +1392,7 @@ public:
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
+    void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
 protected:
     typedef vector<
         int,
