@@ -84,6 +84,7 @@ cponly='no'
 csvalgrind='no'
 clientuser=${clientuser-"`id -un`"}
 clientprop="$clitestdir/client.prp"
+clientproprs="${clientprop}.rs"
 certsdir=${certsdir-"`dirname "$clitestdir"`/certs"}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
@@ -260,6 +261,13 @@ EOF
     QFS_CLIENT_CONFIG="FILE:${clientprop}"
     export QFS_CLIENT_CONFIG
 fi
+
+if [ -f "$clientprop" ]; then
+    cp "$clientprop" "$clientproprs" || exit
+else
+    cp /dev/null "$clientproprs" || exit
+fi
+echo 'client.connectionPool=1' >> "$clientproprs" || exit
 
 if [ x"$errsim" = x'yes' ]; then
     cstimeout=20
@@ -569,7 +577,7 @@ fi
     cpfromkfsopts="-T $cstimeout -R $csretry"
     export cpfromkfsopts
 
-    for suf in rs n tfs; do
+    for suf in n tfs rs; do
         cptokfsopts="-T $cstimeout -R $csretry"
         if [ x"$suf" = x'rs' ]; then
             cptokfsopts="$cptokfsopts -S"
@@ -580,6 +588,10 @@ fi
 
         echo "Starting cptest.sh $suf"
         trap '' HUP INT
+        if [ x"$suf" = x"rs" ]; then
+            QFS_CLIENT_CONFIG="FILE:${clientproprs}"
+            export QFS_CLIENT_CONFIG
+        fi
         start=$SECONDS
         while ./cptest.sh "$suf"; do
             echo "$suf test passed. `expr $SECONDS - $start` sec, `date`"
