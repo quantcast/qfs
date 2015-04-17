@@ -205,7 +205,8 @@ private:
 class ChunkServer :
     public KfsCallbackObj,
     public CSMapServerInfo,
-    private SslFilterVerifyPeer {
+    private SslFilterVerifyPeer,
+    public boost::enable_shared_from_this<ChunkServer> {
 public:
     typedef int RackId;
     class ChunkIdSet
@@ -1190,6 +1191,7 @@ protected:
         int         status,
         const char* statusMsg);
     void ReleasePendingResponses(bool sendResponseFlag = false);
+    inline ChunkServerPtr GetSelfPtr();
 };
 
 class CSMap;

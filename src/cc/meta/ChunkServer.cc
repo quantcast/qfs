@@ -319,7 +319,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 inline void
 ChunkServer::HelloDone(MetaHello& r)
 {
-    if (this != &*(r.server) || this != r.clnt) {
+    if (this != r.server.get() || this != r.clnt) {
         panic("invalid hello done invocation");
     }
     if (mHelloDone) {
@@ -355,6 +355,13 @@ ChunkServer::Create(const NetConnectionPtr &conn)
     ret->mSelfPtr.reset(ret);
     return ret;
 }
+
+inline ChunkServerPtr
+ChunkServer::GetSelfPtr()
+{
+    return (mSelfPtr ? mSelfPtr : shared_from_this());
+}
+
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
@@ -922,6 +929,13 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::Error(const char* errorMsg)
 {
+    if (mDown) {
+        return;
+    }
+    if (! mSelfPtr) {
+        panic("ChunkServer::Error: invalid null self reference");
+        return;
+    }
     KFS_LOG_STREAM_ERROR <<
         "chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
@@ -1034,6 +1048,14 @@ ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
 {
     MetaRequest* op = 0;
     if (0 <= ParseCommand(iobuf, msgLen, &op, 0, mShortRpcFormatFlag)) {
+        if (! mSelfPtr) {
+            KFS_LOG_STREAM_ERROR <<
+                GetHostPortStr() + "/" + GetPeerName() <<
+                " server down: " << op->Show() <<
+            KFS_LOG_EOM;
+            MetaRequest::Release(op);
+            return 0;
+        }
         op->setChunkServer(mSelfPtr);
         return op;
     }
@@ -1876,6 +1898,10 @@ ChunkServer::TimeSinceLastHeartbeat() const
 void
 ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
 {
+    if (! r || this != r->server.get()) {
+        panic("ChunkServer::Enqueue: invalid request");
+        return;
+    }
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (r->submitCount++ == 0) {
         r->submitTime = microseconds();
@@ -1929,7 +1955,7 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
     NewChunkInTier(tier);
 
     MetaChunkAllocate* const req = new MetaChunkAllocate(
-        NextSeq(), r, mSelfPtr, leaseId, tier, r->maxSTier
+        NextSeq(), r, GetSelfPtr(), leaseId, tier, r->maxSTier
     );
     size_t sz;
     if (0 <= leaseId && 0 < r->validForTime && 1 < (sz = r->servers.size())) {
@@ -2006,7 +2032,7 @@ int
 ChunkServer::DeleteChunk(chunkId_t chunkId)
 {
     mChunksToEvacuate.Erase(chunkId);
-    Enqueue(new MetaChunkDelete(NextSeq(), mSelfPtr, chunkId));
+    Enqueue(new MetaChunkDelete(NextSeq(), GetSelfPtr(), chunkId));
     return 0;
 }
 
@@ -2014,7 +2040,7 @@ int
 ChunkServer::GetChunkSize(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     bool retryFlag)
 {
-    Enqueue(new MetaChunkSize(NextSeq(), mSelfPtr,
+    Enqueue(new MetaChunkSize(NextSeq(), GetSelfPtr(),
         fid, chunkId, chunkVersion, retryFlag));
     return 0;
 }
@@ -2023,7 +2049,7 @@ int
 ChunkServer::BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion)
 {
     Enqueue(new MetaBeginMakeChunkStable(
-        NextSeq(), mSelfPtr,
+        NextSeq(), GetSelfPtr(),
         mLocation, fid, chunkId, chunkVersion
     ), sMakeStableTimeout);
     return 0;
@@ -2035,7 +2061,7 @@ ChunkServer::MakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     bool addPending)
 {
     Enqueue(new MetaChunkMakeStable(
-        NextSeq(), mSelfPtr,
+        NextSeq(), GetSelfPtr(),
         fid, chunkId, chunkVersion,
         chunkSize, hasChunkChecksum, chunkChecksum, addPending
     ), sMakeStableTimeout);
@@ -2049,7 +2075,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     MetaChunkReplicate::FileRecoveryInFlightCount::iterator it)
 {
     MetaChunkReplicate* const r = new MetaChunkReplicate(
-        NextSeq(), mSelfPtr, fid, chunkId,
+        NextSeq(), GetSelfPtr(), fid, chunkId,
         dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it);
     if (! dataServer) {
         panic("invalid null replication source");
@@ -2137,7 +2163,7 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
     size_t skipFront)
 {
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
-        NextSeq(), mSelfPtr, evacuatedFlag,
+        NextSeq(), GetSelfPtr(), evacuatedFlag,
         mStaleChunksHexFormatFlag, ca ? &ca->opSeqno : 0);
     r->skipFront = skipFront;
     if (clearStaleChunksFlag) {
@@ -2168,7 +2194,7 @@ void
 ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
     MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
-        NextSeq(), mSelfPtr, evacuatedFlag,
+        NextSeq(), GetSelfPtr(), evacuatedFlag,
         mStaleChunksHexFormatFlag, 0);
     r->staleChunkIds.PushBack(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
@@ -2181,7 +2207,7 @@ ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers
     MetaChunkReplicate* replicate, bool verifyStableFlag)
 {
     Enqueue(new MetaChunkVersChange(
-        NextSeq(), mSelfPtr, fid, chunkId, chunkVers,
+        NextSeq(), GetSelfPtr(), fid, chunkId, chunkVers,
         fromVersion, makeStableFlag, pendingAddFlag, replicate,
         verifyStableFlag),
         sMakeStableTimeout);
@@ -2201,13 +2227,13 @@ ChunkServer::SetRetiring()
 void
 ChunkServer::Retire()
 {
-    Enqueue(new MetaChunkRetire(NextSeq(), mSelfPtr));
+    Enqueue(new MetaChunkRetire(NextSeq(), GetSelfPtr()));
 }
 
 void
 ChunkServer::SetProperties(const Properties& props)
 {
-    Enqueue(new MetaChunkSetProperties(NextSeq(), mSelfPtr, props));
+    Enqueue(new MetaChunkSetProperties(NextSeq(), GetSelfPtr(), props));
 }
 
 void
@@ -2215,10 +2241,10 @@ ChunkServer::Restart(bool justExitFlag)
 {
     mRestartQueuedFlag = true;
     if (justExitFlag) {
-        Enqueue(new MetaChunkRetire(NextSeq(), mSelfPtr));
+        Enqueue(new MetaChunkRetire(NextSeq(), GetSelfPtr()));
         return;
     }
-    Enqueue(new MetaChunkServerRestart(NextSeq(), mSelfPtr));
+    Enqueue(new MetaChunkServerRestart(NextSeq(), GetSelfPtr()));
 }
 
 int
@@ -2798,7 +2824,7 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     if (0 <= lastResumeModifiedChunk) {
         mLastChunksInFlight.Insert(lastResumeModifiedChunk);
     }
-    ChunkServerPtr const srv = mSelfPtr;
+    ChunkServerPtr const srv = GetSelfPtr();
     const chunkId_t* id;
     mLastChunksInFlight.First();
     while ((id = mLastChunksInFlight.Next())) {
