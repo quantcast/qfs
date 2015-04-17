@@ -682,8 +682,8 @@ ChunkServer::HandleRequest(int code, void *data)
                         "failed to parse hello message"));
                 break;
             }
-            if (retval > 0 || mAuthenticateOp) {
-                break; // Need more data
+            if (0 < retval || mAuthenticateOp || mDown) {
+                break; // Need more data, or down
             }
             msgLen = 0;
         }
