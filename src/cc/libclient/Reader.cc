@@ -987,7 +987,9 @@ private:
                 KFS_LOG_EOM;
             }
             if (mSizeOp.size < 0) {
-                GetChunkSize();
+                if (! mSizeOpInFlightFlag) {
+                    GetChunkSize();
+                }
                 return;
             }
             Queue::Iterator theIt(mPendingQueue);
@@ -1596,7 +1598,8 @@ private:
             QCASSERT(
                 mGetAllocOp.chunkId > 0 &&
                 mLeaseAcquireOp.chunkId > 0 &&
-                mLeaseAcquireOp.leaseId >= 0
+                mLeaseAcquireOp.leaseId >= 0 &&
+                ! mSizeOpInFlightFlag
             );
             Reset(mSizeOp);
             mSizeOp.chunkId      = mGetAllocOp.chunkId;
