@@ -2140,21 +2140,27 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid)
     if (ddir == dir) {
         return -EEXIST;
     }
-    // generate unique name by appending i-node number.
+    // Generate unique name by appending i-node number.
+    // Use source directory i-node number to allow to recover files from
+    // dumpster.
+    // Note that changing the name generation here results in breaking
+    // transaction log replay backward compatibility as remove from dumpster
+    // op stores this name in the transaction log.
     const size_t plen          = tempname.size();
-    const size_t kMaxSuffixLen = sizeof(fid) * 2 + 1;
-    if (kMaxSuffixLen + plen + fname.length() < MAX_FILE_NAME_LENGTH) {
+    const size_t kMaxSuffixLen = 2 * (sizeof(fid) * 2 + 1);
+    if (kMaxSuffixLen <= MAX_FILE_NAME_LENGTH) {
+        AppendHexIntToString(tempname, dir);
+        tempname += ".";
+    }
+    if (kMaxSuffixLen + fname.length() <= MAX_FILE_NAME_LENGTH) {
         tempname += fname;
         tempname += ".";
     }
     AppendHexIntToString(tempname, fid);
 
-    // space accounting has been done before the call to this function.  so,
-    // we don't rename to do any accounting and hence pass in "" for the old
-    // path name.
     fid_t        nodumpster     = -1;
     const bool   kOverwriteFlag = false;
-    const string kOldPath;
+    const string kOldPath;      // Path cache must be already invalidated.
     const int    ret            = rename(dir, fname, tempname, kOldPath,
         kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot);
     if (ret == 0) {

@@ -492,7 +492,7 @@ private:
     public:
         FileEntry(
             const string& inName  = string(),
-            fid_t         inCount = 0)
+            size_t        inCount = 0)
             : mCount(inCount),
               mName(inName)
             {}
