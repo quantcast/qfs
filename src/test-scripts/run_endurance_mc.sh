@@ -423,9 +423,18 @@ fi
 ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 echo $! > "$metasrvpid"
 
+fsckfailures=0
+fsckruns=0
 while true; do
     sleep `awk 'BEGIN{printf("%.0f\n", rand() * 100); exit;}'`
-    ./"$qfsfsckbin" -A 1 -c kfscp || break;
+    if ./"$qfsfsckbin" -A 1 -c kfscp; then
+        fsckstatus="OK"
+    else
+        fsckstatus="FAILED"
+        fsckfailures=`expr $fsckfailures + 1`
+    fi
+    fsckruns=`expr $fsckruns + 1`
+    echo "==== RUN: $fsckruns FAILURES: $fsckfailures STATUS: $fsckstatus ==="
 done > "$fscklog" 2>&1 &
 echo $! > "$fsckpid"
 
