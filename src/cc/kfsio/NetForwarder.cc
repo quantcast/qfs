@@ -36,7 +36,7 @@
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCDLList.h"
-#include "qcdio/QCDebug.h"
+#include "qcdio/qcdebug.h"
 #include "qcdio/qcstutils.h"
 
 #include "common/Properties.h"
