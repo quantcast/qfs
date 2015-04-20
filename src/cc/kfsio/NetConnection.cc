@@ -209,7 +209,7 @@ NetConnection::GetErrorMsg() const
 }
 
 int
-NetConnection::Shutdown()
+NetConnection::Shutdown(bool readFlag, bool writeFlag)
 {
     if (! mSock) {
         return -EINVAL;
@@ -217,7 +217,7 @@ NetConnection::Shutdown()
     if (mFilter) {
         return mFilter->Shutdown(*this, *mSock);
     }
-    return mSock->Shutdown();
+    return mSock->Shutdown(readFlag, writeFlag);
 }
 
 time_t

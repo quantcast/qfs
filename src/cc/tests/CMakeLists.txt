@@ -34,6 +34,7 @@ set (exe_files
     truncate_test
     writer_perftest
     writer_test
+    net_forwarder_test
 )
 
 #

@@ -37,10 +37,10 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCDLList.h"
 #include "qcdio/QCDebug.h"
-#include "qcdio/qcutils.h"
 #include "qcdio/qcstutils.h"
 
 #include "common/Properties.h"
+#include "common/MsgLogger.h"
 
 #include <errno.h>
 #include <algorithm>
@@ -73,7 +73,14 @@ public:
     {
         Shutdown();
         SetParameters(inParametersPrefixPtr, inParameters);
+        if (! mNetManager.IsRunning()) {
+            return -EINVAL;
+        }
         if (! mAcceptAddr.IsValid() || ! mConnectAddr.IsValid()) {
+            KFS_LOG_STREAM_ERROR << reinterpret_cast<const void*>(this) <<
+                " net forwarder: " << mAcceptAddr << " => " << mConnectAddr <<
+                " accept or connect address is not valid" <<
+            KFS_LOG_EOM;
             return -EINVAL;
         }
         const bool kBindOnlyFlag = false;
@@ -82,6 +89,10 @@ public:
         if (! mAcceptorPtr->IsAcceptorStarted()) {
             delete mAcceptorPtr;
             mAcceptorPtr = 0;
+            KFS_LOG_STREAM_ERROR << reinterpret_cast<const void*>(this) <<
+                " net forwarder: " << mAcceptAddr << " => " << mConnectAddr <<
+                " failed to start accptor" <<
+            KFS_LOG_EOM;
             return -ENOTCONN;
         }
         return 0;
@@ -118,7 +129,16 @@ public:
     {
         if (! mNetManager.IsRunning() ||
                 ! inConnectionPtr->IsGood() ||
-                mMaxConnections <= mConnectionCount) {
+                mMaxConnections <= mConnectionCount ||
+                ! mConnectAddr.IsValid()) {
+            KFS_LOG_STREAM_ERROR << reinterpret_cast<const void*>(this) <<
+                " net forwarder accept:" <<
+                (mNetManager.IsRunning() ?
+                    "" : " net manager is not running") <<
+                " connections: " << mConnectionCount <<
+                " limit: "       << mMaxConnections <<
+                " connect: "     << mConnectAddr <<
+            KFS_LOG_EOM;
             return 0;
         }
         Connection* const theConnPtr = new Connection(*this, inConnectionPtr);
@@ -142,6 +162,8 @@ private:
               mRecursionCount(0),
               mAcceptEofFlag(false),
               mConnectEofFlag(false),
+              mAcceptEofSentFlag(false),
+              mConnectEofSentFlag(false),
               mDeleteFlagPtr(0)
         {
             List::Init(*this);
@@ -173,24 +195,31 @@ private:
             void*                   inDataPtr)
         {
             mRecursionCount++;
-            bool theTryWriteFlag = false;
             switch (inType)
             {
                 case EVENT_NET_READ: {
                     QCASSERT(inDataPtr == &inFromPtr->GetInBuffer());
-                    IOBuffer& theDst = inToPtr->GetOutBuffer();
-                    theTryWriteFlag = theDst.IsEmpty();
-                    theDst.Move(&inFromPtr->GetInBuffer());
+                    inToPtr->Write(&inFromPtr->GetInBuffer());
                     break;
                 }
                 case EVENT_NET_WROTE:
                     break;
                 case EVENT_TIMEOUT:
+                    KFS_LOG_STREAM_DEBUG <<
+                        reinterpret_cast<const void*>(this) <<
+                        " " << inFromPtr->GetPeerName() <<
+                        " inactivity timeout" <<
+                    KFS_LOG_EOM;
                     inFromPtr->Close();
                     inToPtr->Close();
                     break;
                 case EVENT_NET_ERROR:
                     if (! inFromPtr->IsGood()) {
+                        KFS_LOG_STREAM_DEBUG <<
+                            reinterpret_cast<const void*>(this) <<
+                            " " << inFromPtr->GetPeerName() <<
+                            " network error: " << inFromPtr->GetErrorMsg() <<
+                        KFS_LOG_EOM;
                         inToPtr->Close();
                         break;
                     }
@@ -205,8 +234,18 @@ private:
                     break;
             }
             if (mRecursionCount <= 1) {
-                if (theTryWriteFlag) {
+                if (EVENT_NET_READ == inType) {
                     inToPtr->StartFlush();
+                }
+                if (mAcceptEofFlag && ! mAcceptEofSentFlag &&
+                        ! mConnectionPtr->IsWriteReady()) {
+                    SendEof(mConnectionPtr);
+                    mAcceptEofSentFlag = true;
+                }
+                if (mConnectEofFlag && ! mConnectEofSentFlag &&
+                        ! mAcceptConnectionPtr->IsWriteReady()) {
+                    SendEof(mAcceptConnectionPtr);
+                    mConnectEofSentFlag = true;
                 }
                 if ((! inFromPtr->IsGood() || ! inToPtr->IsGood()) ||
                         (mAcceptEofFlag && mConnectEofFlag &&
@@ -230,10 +269,21 @@ private:
         }
         KfsCallbackObj* Connect()
         {
+            KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
+                " new connection: " <<
+                mAcceptConnectionPtr->GetPeerName() <<
+                " => " << mImpl.GetConnectAddress() <<
+            KFS_LOG_EOM;
             const bool kNonblockingConnectFlag = true;
             const int  theStatus = mSocket.Connect(
                 mImpl.GetConnectAddress(), kNonblockingConnectFlag);
             if (theStatus != 0 && theStatus != -EINPROGRESS) {
+                KFS_LOG_STREAM_ERROR << reinterpret_cast<const void*>(this) <<
+                    " new connection: " <<
+                    mAcceptConnectionPtr->GetPeerName() <<
+                    " => " << mImpl.GetConnectAddress() <<
+                    " " << QCUtils::SysError(-theStatus) <<
+                KFS_LOG_EOM;
                 delete this;
                 return 0;
             }
@@ -252,6 +302,15 @@ private:
                 return 0;
             }
             mConnectionPtr->SetInactivityTimeout(theTimeout);
+            if (theDeleteNotifier.IsDeleted()) {
+                return 0;
+            }
+            const int theMaxPending = mImpl.GetMaxPending();
+            mAcceptConnectionPtr->SetMaxReadAhead(theMaxPending);
+            if (theDeleteNotifier.IsDeleted()) {
+                return 0;
+            }
+            mConnectionPtr->SetMaxReadAhead(theMaxPending);
             if (theDeleteNotifier.IsDeleted()) {
                 return 0;
             }
@@ -297,6 +356,8 @@ private:
         int              mRecursionCount;
         bool             mAcceptEofFlag;
         bool             mConnectEofFlag;
+        bool             mAcceptEofSentFlag;
+        bool             mConnectEofSentFlag;
         bool*            mDeleteFlagPtr;
         Connection*      mPrevPtr[1];
         Connection*      mNextPtr[1];
@@ -308,14 +369,25 @@ private:
             const NetConnectionPtr& inFromPtr,
             const NetConnectionPtr& inToPtr)
         {
-            if (inEofFlag) {
-                inFromPtr->SetMaxReadAhead(0);
-                return;
-            }
-            inFromPtr->SetMaxReadAhead(
-                max(0, inToPtr->GetNumBytesToWrite() - mImpl.GetMaxPending()));
+            inFromPtr->SetMaxReadAhead(inEofFlag ? 0 :
+                max(0, mImpl.GetMaxPending()) - inToPtr->GetNumBytesToWrite());
         }
-                
+        void SendEof(
+            const NetConnectionPtr& inConnectionPtr)
+        {
+            const bool kShutdownReadFlag  = false;
+            const bool kShutdownWriteFlag = true;
+            const int  theStatus = inConnectionPtr->Shutdown(
+                kShutdownReadFlag, kShutdownWriteFlag);
+            if (theStatus != 0) {
+                KFS_LOG_STREAM_DEBUG <<
+                    reinterpret_cast<const void*>(this) <<
+                    " " << inConnectionPtr->GetPeerName() <<
+                    " network error: " << QCUtils::SysError(-theStatus) <<
+                KFS_LOG_EOM;
+                inConnectionPtr->Close();
+            }
+        }
     };
     NetManager&    mNetManager;
     Acceptor*      mAcceptorPtr;
@@ -344,12 +416,22 @@ public:
     {
         mConnectionCount++;
         Connection::List::PushBack(mConnectionsPtr, inConnection);
+        KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
+            " new connection: " <<
+                reinterpret_cast<const void*>(&inConnection) <<
+            " connections: " << mConnectionCount <<
+        KFS_LOG_EOM;
     }
     void Dispose(
         Connection& inConnection)
     {
         mConnectionCount--;
         Connection::List::Remove(mConnectionsPtr, inConnection);
+        KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
+            " dispose connection: " <<
+                reinterpret_cast<const void*>(&inConnection) <<
+            " connections: " << mConnectionCount <<
+        KFS_LOG_EOM;
     }
     void Shutdown()
     {
@@ -400,4 +482,3 @@ NetForwarder::Shutdown()
 }
 
 }
-

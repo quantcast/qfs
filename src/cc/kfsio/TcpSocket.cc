@@ -531,7 +531,11 @@ TcpSocket::Shutdown(bool readFlag, bool writeFlag)
     if (how == 0) {
         return 0;
     }
-    return shutdown(mSockFd, how);
+    if (shutdown(mSockFd, how)) {
+        const int err = errno;
+        return (err < 0 ? err : (err != 0 ? -err : -1));
+    }
+    return 0;
 }
 
 int

@@ -356,7 +356,8 @@ public:
         }
     }
 
-    int Shutdown();
+    int Shutdown(bool readFlag, bool writeFlag);
+    int Shutdown() { return Shutdown(true, true); }
 
     void StartListening(bool nonBlockingAccept = false) {
         if (! mSock) {
