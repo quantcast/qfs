@@ -149,6 +149,7 @@ public:
           mChunkAccess(),
           mChunkAccessExpireTime(0),
           mCSAccessExpireTime(0),
+          mNoCSAccessCount(0),
           mClientPoolPtr(inClientPoolPtr),
           mChunkServerPtr(0),
           mNetManager(mMetaServer.GetNetManager())
@@ -535,6 +536,7 @@ private:
     time_t                  mLeaseExpireTime;
     time_t                  mChunkAccessExpireTime;
     time_t                  mCSAccessExpireTime;
+    size_t                  mNoCSAccessCount;
     ClientPool*             mClientPoolPtr;
     ChunkServer*            mChunkServerPtr;
     NetManager&             mNetManager;
@@ -1502,7 +1504,9 @@ private:
                     mGetRecordAppendOpStatusOp.status    = -EPERM;
                     mGetRecordAppendOpStatusOp.statusMsg =
                         "recovery access has no such chunk server";
-                    mCurOpPtr = &mGetRecordAppendOpStatusOp;
+                    mCurOpPtr    = &mGetRecordAppendOpStatusOp;
+                    mOpStartTime = Now();
+                    mNoCSAccessCount++;
                     Done(mGetRecordAppendOpStatusOp, 0);
                     return;
                 }
@@ -1543,7 +1547,11 @@ private:
                 " failure, seq: " << inOp.seq       <<
                 " status: "       << inOp.status    <<
                 " msg: "          << inOp.statusMsg <<
-                " chunk server: " << GetServerLocation()  <<
+                " chunk server["  << mGetRecordAppendOpStatusIndex <<
+                "]: " <<
+                    mWriteIds[mGetRecordAppendOpStatusIndex].serverLoc <<
+                " / "             << GetServerLocation()  <<
+                " no cs access: " << mNoCSAccessCount <<
                 " op: "           << inOp.Show()    <<
             KFS_LOG_EOM;
         }
@@ -1619,6 +1627,9 @@ private:
         } else if (mRetryCount == mMaxRetryCount && mRetryCount > 0) {
             // Give one more chance to do append seq. without a failure.
             mRetryCount--;
+        }
+        if (theStatus == 0) {
+            mNoCSAccessCount = 0;
         }
         mRecAppendOp.status = theStatus;
         mCurOpPtr = &mRecAppendOp;
@@ -1762,6 +1773,8 @@ private:
             ) {
             mRetryCount++;
             mErrorCode = 0;
+            const size_t theNoCSAccessCount = mNoCSAccessCount;
+            mNoCSAccessCount = 0;
             mGetRecordAppendOpStatusIndex = 0;
             if (mRecAppendOp.status == -EAGAIN) {
                 const int theTimeToNextRetry = GetTimeToNextRetry(
@@ -1773,6 +1786,11 @@ private:
                     " schedule to get status in " <<
                         theTimeToNextRetry << " sec" <<
                 KFS_LOG_EOM;
+                if (0 < theTimeToNextRetry &&
+                        mWriteIds.size() <= theNoCSAccessCount) {
+                    // Reset access time to force chunk server access update.
+                    mCSAccessExpireTime = Now() - 100;
+                }
                 mCurOpPtr = &mGetRecordAppendOpStatusOp;
                 Sleep(theTimeToNextRetry);
             } else {
