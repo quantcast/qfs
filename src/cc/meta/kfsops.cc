@@ -226,6 +226,12 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     if (! parent->CanWrite(euser, egroup)) {
         return -EACCES;
     }
+    if (getDumpsterDirId() == dir) {
+        KFS_LOG_STREAM_ERROR <<
+            fname << ": attempt to create file in dumpster denied" <<
+        KFS_LOG_EOM;
+        return -EPERM;
+    }
 
     MetaFattr* fa     = 0;
     int        status = lookup(dir, fname, euser, egroup, fa);
