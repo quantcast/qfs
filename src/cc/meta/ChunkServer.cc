@@ -2788,7 +2788,7 @@ ChunkServer::Verify(
                     authName)) ||
             (! mAuthName.empty() && authName != mAuthName)))) {
         KFS_LOG_STREAM_ERROR << GetPeerName() <<
-            " chunk server autentication failure:"
+            " chunk server authentication failure:"
             " peer: "  << inPeerName <<
             " name: "  << authName <<
             " depth: " << inCurCertDepth <<
