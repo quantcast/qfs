@@ -908,10 +908,12 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
-static int64_t sLastBlockSeq      = -1;
-static int64_t sLastLogAheadSeq   = 0;
-static int64_t sLogAheadErrChksum = 0;
-static int64_t sSubEntryCount     = 0;
+static seq_t   sCheckpointCommitted = -1;
+static seq_t   sLastCommitted       = -1;
+static int64_t sLastBlockSeq        = -1;
+static int64_t sLastLogAheadSeq     = 0;
+static int64_t sLogAheadErrChksum   = 0;
+static int64_t sSubEntryCount       = 0;
 class CommitQueueEntry
 {
 public:
@@ -959,6 +961,9 @@ static bool
 run_commit_queue(
     int64_t logSeq, seq_t seed, int64_t status, int64_t errChecksum)
 {
+    if (logSeq <= sCheckpointCommitted) {
+        return true;
+    }
     while (! sCommitQueue.empty()) {
         const CommitQueueEntry& f = sCommitQueue.front();
         if (logSeq < f.logSeq) {
@@ -1064,11 +1069,24 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
-    sLastBlockSeq = blockSeq;
+    if (commitSeq < sLastCommitted || sLastLogAheadSeq < commitSeq) {
+        KFS_LOG_STREAM_ERROR <<
+            "committed:"
+            " expected range: [" << sLastCommitted <<
+            ","                  << sLastLogAheadSeq << "]"
+            " actual: "          << commitSeq <<
+        KFS_LOG_EOM;
+        return false;
+    }
     if (! run_commit_queue(commitSeq, seed, status, errchksum)) {
         return false;
     }
-    return (0 == sSubEntryCount);
+    if (0 != sSubEntryCount) {
+        return false;
+    }
+    sLastBlockSeq = blockSeq;
+    sLastCommitted = commitSeq;
+    return true;
 }
 
 // The following is intended to be used to "manually" repair transaction log.
@@ -1318,6 +1336,8 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
+    sLastCommitted       = -1; // Log commit can be less than checkpoint.
+    sCheckpointCommitted = committed;
     const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
     return (status == 0 ? playLogs(lastLogNum, includeLastLogFlag) : status);
 }
