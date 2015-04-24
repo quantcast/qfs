@@ -232,6 +232,19 @@ MakeMetaRequestHandler(
     ;
 }
 
+template<typename T>
+    static const T&
+MakeMetaRequestLogRecvHandler(
+    const T* inNullPtr = 0)
+{
+    static T sHandler;
+    return sHandler
+    .MakeParser("AUTHENTICATE",
+        META_AUTHENTICATE,
+        static_cast<const MetaAuthenticate*>(0))
+    ;
+}
+
 class MetaRequestDeleter
 {
 public:
@@ -277,6 +290,13 @@ typedef RequestHandler<
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
+
+typedef RequestHandler<
+    MetaRequest,
+    MetaShortNamesClientRequestParser
+> MetaRequestLogRecvHandler;
+static const MetaRequestLogRecvHandler& sMetaRequestLogRecvHandler =
+    MakeMetaRequestLogRecvHandler<MetaRequestLogRecvHandler>();
 
 class StringEscapeIoParser
 {
@@ -881,6 +901,24 @@ ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
             MetaRequest::Release(req);
         }
     }
+    return (*res ? 0 : -1);
+}
+
+int
+ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
+    char* threadParseBuffer)
+{
+    *res = 0;
+    if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
+        return -1;
+    }
+    int               reqLen = len;
+    const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
+        threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
+    assert(reqLen == len);
+    *res = (reqLen == len) ?
+        sMetaRequestLogRecvHandler.Handle(buf, reqLen) :
+        0;
     return (*res ? 0 : -1);
 }
 

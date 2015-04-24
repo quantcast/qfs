@@ -3714,6 +3714,8 @@ int ParseCommand(const IOBuffer& buf, int len, MetaRequest **res,
     char* threadParseBuffer, bool shortRpcFmtFlag);
 int ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     char* threadParseBuffer, bool& shortRpcFmtFlag);
+int ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
+    char* threadParseBuffer);
 
 void printleaves();
 
