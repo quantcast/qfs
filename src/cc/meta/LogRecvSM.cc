@@ -31,6 +31,7 @@
 
 #include "common/kfstypes.h"
 #include "common/MsgLogger.h"
+#include "common/RequestParser.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/NetConnection.h"
@@ -41,11 +42,14 @@
 #include "qcdio/qcdebug.h"
 
 #include <string>
+#include <algorithm>
 
 #include <time.h>
 
 namespace KFS
 {
+using std::string;
+using std::max;
 
 class LogRecvSM
 {
@@ -69,8 +73,10 @@ public:
           mAuthCtxUpdateCount(0),
           mRecursionCount(0),
           mBlockLength(-1),
+          mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mDownFlag(false),
-          mIStream()
+          mIStream(),
+          mOstream()
     {
         if (! mConnectionPtr || ! mConnectionPtr->IsGood()) {
             panic("LogRecvSM::Impl: invalid connection poiner");
@@ -143,6 +149,9 @@ public:
                 }
                 break;
             case EVENT_NET_ERROR:
+                if (HandleSslShutdown()) {
+                    break;
+                }
                 Error();
                 break;
             case EVENT_TIMEOUT:
@@ -165,9 +174,11 @@ private:
     uint64_t               mAuthCtxUpdateCount;
     int                    mRecursionCount;
     int                    mBlockLength;
+    int                    mMaxReadAhead;
     int32_t                mBlockChecksum;
     bool                   mDownFlag;
     IOBuffer::IStream      mIStream;
+    IOBuffer::WOStream     mOstream;
     char                   mParseBuffer[MAX_RPC_HEADER_LEN];
 
     string GetPeerName()
@@ -215,7 +226,6 @@ private:
                     "clear text communication not allowed";
             }
         }
-        mAuthenticateOpPtr->clnt     = this;
         mAuthenticateOpPtr->doneFlag = true;
         mAuthCtxUpdateCount = GetAuthContext().GetUpdateCount();
         KFS_LOG_STREAM(mAuthenticateOpPtr->status == 0 ?
@@ -230,22 +240,20 @@ private:
             " response length: "    << mAuthenticateOpPtr->responseContentLen <<
             " msg: "                << mAuthenticateOpPtr->statusMsg <<
         KFS_LOG_EOM;
-        const int theRet = mAuthenticateOpPtr->status != 0 ?  -1 : 0;
-        if (theRet != 0) {
-            Error("authentication failure");
+        if (! mDownFlag) {
+            IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+            ReqOstream theStream(mOstream.Set(theBuf));
+            mAuthenticateOpPtr->response(theStream);
+            mOstream.Reset();
+            if (mRecursionCount <= 0) {
+                mConnectionPtr->StartFlush();
+            }
         }
-        MetaRequest::Release(mAuthenticateOpPtr);
-        mAuthenticateOpPtr = 0;
-        return theRet;
+        return (mDownFlag ? -1 : 0);
     }
     void HandleAuthWrite()
     {
         if (! mAuthenticateOpPtr) {
-            return;
-        }
-        if (! mConnectionPtr) {
-            MetaRequest::Release(mAuthenticateOpPtr);
-            mAuthenticateOpPtr = 0;
             return;
         }
         if (mConnectionPtr->IsWriteReady()) {
@@ -259,7 +267,7 @@ private:
                 (mConnectionPtr->HasPendingRead() ?
                     "out of order data received" :
                     "authentication error") :
-                    theMsg.c_str()
+                theMsg.c_str()
             );
             return;
         }
@@ -294,6 +302,44 @@ private:
             " session expires in: " <<
                 (mSessionExpirationTime - TimeNow()) << " sec." <<
         KFS_LOG_EOM;
+        mAuthCount++;
+    }
+    bool HandleSslShutdown()
+    {
+        NetConnection::Filter* theFilterPtr;
+        if (mDownFlag ||
+                ! mAuthenticateOpPtr ||
+                ! mConnectionPtr->IsGood() ||
+                ! (theFilterPtr = mConnectionPtr->GetFilter()) ||
+                ! theFilterPtr->IsShutdownReceived()) {
+            return false;
+        }
+        // Do not allow to shutdown filter with data in flight.
+        if (mConnectionPtr->GetInBuffer().IsEmpty() &&
+                mConnectionPtr->GetOutBuffer().IsEmpty()) {
+            // Ssl shutdown from the other side.
+            if (mConnectionPtr->Shutdown() != 0) {
+                return false;
+            }
+            KFS_LOG_STREAM_DEBUG << GetPeerName() <<
+                " log receiver: shutdown filter: " <<
+                    reinterpret_cast<const void*>(
+                        mConnectionPtr->GetFilter()) <<
+            KFS_LOG_EOM;
+            if (mConnectionPtr->GetFilter()) {
+                return false;
+            }
+            HandleAuthWrite();
+            return (! mDownFlag);
+        }
+        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            " log receiver: "
+            " invalid filter (ssl) shutdown: "
+            " error: " << mConnectionPtr->GetErrorMsg() <<
+            " read: "  << mConnectionPtr->GetNumBytesToRead() <<
+            " write: " << mConnectionPtr->GetNumBytesToWrite() <<
+        KFS_LOG_EOM;
+        return false;
     }
     void HandleRead()
     {
@@ -380,6 +426,7 @@ private:
         }
         const int theRem = mBlockLength - inBuffer.BytesConsumable();
         if (0 < theRem) {
+            mConnectionPtr->SetMaxReadAhead(max(theRem, mMaxReadAhead));
             return theRem;
         }
         const uint32_t theChecksum = ComputeBlockChecksum(
