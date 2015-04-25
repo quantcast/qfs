@@ -60,6 +60,88 @@ Replay::setRollSeeds(int64_t roll)
     rollSeeds = roll;
 }
 
+class ReplayState
+{
+public:
+    class CommitQueueEntry
+    {
+    public:
+        CommitQueueEntry(
+            seq_t   ls = -1,
+            int     s  = 0,
+            fid_t   fs = -1,
+            int64_t ek = 0)
+            : logSeq(ls),
+              seed(fs),
+              errChecksum(ek),
+              status(s)
+            {}
+        seq_t   logSeq;
+        fid_t   seed;
+        int64_t errChecksum;
+        int     status;
+    };
+
+    typedef deque<
+        CommitQueueEntry
+    > CommitQueue;
+
+    ReplayState(
+        Replay& replay)
+        : mCommitQueue(),
+          mCheckpointCommitted(-1),
+          mLastCommitted(-1),
+          mLastBlockSeq(-1),
+          mLastLogAheadSeq(0),
+          mLogAheadErrChksum(0),
+          mSubEntryCount(0),
+          mReplayer(replay)
+        {}
+    bool runCommitQueue(
+        int64_t logSeq,
+        seq_t   seed,
+        int64_t status,
+        int64_t errChecksum);
+    bool incSeq()
+    {
+        if (0 != mSubEntryCount) {
+            return false;
+        }
+        mLastLogAheadSeq++;
+        return true;
+    }
+    bool subEntry()
+    {
+        if (--mSubEntryCount <= 0) {
+            return incSeq();
+        }
+        return true;
+    }
+    static ReplayState& get(const DETokenizer& c)
+        { return *reinterpret_cast<ReplayState*>(c.getUserData()); }
+
+    CommitQueue mCommitQueue;
+    seq_t       mCheckpointCommitted;
+    seq_t       mLastCommitted;
+    int64_t     mLastBlockSeq;
+    int64_t     mLastLogAheadSeq;
+    int64_t     mLogAheadErrChksum;
+    int64_t     mSubEntryCount;
+    Replay&     mReplayer;
+private:
+    ReplayState(const ReplayState&);
+    ReplayState& operator=(const ReplayState&);
+};
+
+class Replay::ReplayState : public KFS::ReplayState
+{
+public:
+    ReplayState(
+        Replay& replay)
+        : KFS::ReplayState(replay)
+        {}
+};
+
 Replay replayer;
 
 /*!
@@ -823,7 +905,7 @@ replay_beginchunkversionchange(DETokenizer& c)
   [462]mtv1% echo rollseeds/0 >> kfslog/log.660
 */
 static bool
-restore_rollseeds(DETokenizer& c)
+replay_rollseeds(DETokenizer& c)
 {
     c.pop_front();
     if (c.empty()) {
@@ -843,7 +925,7 @@ restore_rollseeds(DETokenizer& c)
     }
     chunkID.setseed(chunkID.getseed() + roll);
     fileID.setseed(fileID.getseed() + roll);
-    replayer.setRollSeeds(roll);
+    ReplayState::get(c).mReplayer.setRollSeeds(roll);
     return true;
 }
 
@@ -908,64 +990,33 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
-static seq_t   sCheckpointCommitted = -1;
-static seq_t   sLastCommitted       = -1;
-static int64_t sLastBlockSeq        = -1;
-static int64_t sLastLogAheadSeq     = 0;
-static int64_t sLogAheadErrChksum   = 0;
-static int64_t sSubEntryCount       = 0;
-class CommitQueueEntry
-{
-public:
-    CommitQueueEntry(
-        seq_t   ls = -1,
-        int     s  = 0,
-        fid_t   fs = -1,
-        int64_t ek = 0)
-        : logSeq(ls),
-          seed(fs),
-          errChecksum(ek),
-          status(s)
-        {}
-    seq_t   logSeq;
-    fid_t   seed;
-    int64_t errChecksum;
-    int     status;
-};
-
-typedef deque<
-    CommitQueueEntry
-> CommitQueue;
-static CommitQueue sCommitQueue;
-
 static bool
 replay_inc_seq(DETokenizer& c)
 {
-    if (0 != sSubEntryCount) {
-        return false;
-    }
-    sLastLogAheadSeq++;
-    return true;
+    return ReplayState::get(c).incSeq();
 }
 
 static bool
 replay_sub_entry(DETokenizer& c)
 {
-    if (--sSubEntryCount <= 0) {
-        return replay_inc_seq(c);
-    }
-    return true;
+    return ReplayState::get(c).subEntry();
 }
 
-static bool
-run_commit_queue(
-    int64_t logSeq, seq_t seed, int64_t status, int64_t errChecksum)
+bool
+ReplayState::runCommitQueue(
+    int64_t  logSeq,
+    seq_t    seed,
+    int64_t  status,
+    int64_t  errChecksum)
 {
-    if (logSeq <= sCheckpointCommitted) {
+    if (logSeq <= mCheckpointCommitted) {
+        if (logSeq == mCheckpointCommitted) {
+            return (errChecksum == mLogAheadErrChksum);
+        }
         return true;
     }
-    while (! sCommitQueue.empty()) {
-        const CommitQueueEntry& f = sCommitQueue.front();
+    while (! mCommitQueue.empty()) {
+        const CommitQueueEntry& f = mCommitQueue.front();
         if (logSeq < f.logSeq) {
             break;
         }
@@ -989,7 +1040,7 @@ run_commit_queue(
             KFS_LOG_EOM;
             return false;
         }
-        sCommitQueue.pop_front();
+        mCommitQueue.pop_front();
     }
     return (0 == status);
 }
@@ -1001,18 +1052,19 @@ replay_log_ahead_entry(DETokenizer& c)
     if (c.empty()) {
         return false;
     }
-    const DETokenizer::Token& token = c.front();
-    int   status = 0;
-    seq_t logSeq = sLastLogAheadSeq + 1;
+    const DETokenizer::Token& token  = c.front();
+    int                       status = 0;
+    ReplayState&              state  = ReplayState::get(c);
+    seq_t logSeq = state.mLastLogAheadSeq + 1;
     if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
         return false;
     }
     status = status < 0 ? SysToKfsErrno(-status) : 0;
-    sLogAheadErrChksum += status;
-    sCommitQueue.push_back(CommitQueueEntry(
-        logSeq, status, fileID.getseed(), sLogAheadErrChksum));
-    sLastLogAheadSeq = logSeq;
-    return (0 == sSubEntryCount);
+    state.mLogAheadErrChksum += status;
+    state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+        logSeq, status, fileID.getseed(), state.mLogAheadErrChksum));
+    state.mLastLogAheadSeq = logSeq;
+    return (0 == state.mSubEntryCount);
 }
 
 static bool
@@ -1021,9 +1073,10 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     if (c.size() < 8) {
         return false;
     }
-    const char* const ptr  = c.front().ptr;
-    const size_t      len  = c.back().ptr - ptr;
-    const size_t      skip = len + c.back().len;
+    const char* const ptr   = c.front().ptr;
+    const size_t      len   = c.back().ptr - ptr;
+    const size_t      skip  = len + c.back().len;
+    ReplayState&      state = ReplayState::get(c);
     blockChecksum.write(ptr, len);
     c.pop_front();
     const int64_t commitSeq = c.toNumber();
@@ -1047,12 +1100,12 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     }
     c.pop_front();
     const int64_t logSeq = c.toNumber();
-    if (! c.isLastOk() || logSeq != sLastLogAheadSeq) {
+    if (! c.isLastOk() || logSeq != state.mLastLogAheadSeq) {
         return false;
     }
     c.pop_front();
     const int64_t blockSeq = c.toNumber();
-    if (! c.isLastOk() || blockSeq != sLastBlockSeq + 1) {
+    if (! c.isLastOk() || blockSeq != state.mLastBlockSeq + 1) {
         return false;
     }
     c.pop_front();
@@ -1069,23 +1122,24 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
-    if (commitSeq < sLastCommitted || sLastLogAheadSeq < commitSeq) {
+    if (commitSeq < state.mLastCommitted ||
+            state.mLastLogAheadSeq < commitSeq) {
         KFS_LOG_STREAM_ERROR <<
             "committed:"
-            " expected range: [" << sLastCommitted <<
-            ","                  << sLastLogAheadSeq << "]"
+            " expected range: [" << state.mLastCommitted <<
+            ","                  << state.mLastLogAheadSeq << "]"
             " actual: "          << commitSeq <<
         KFS_LOG_EOM;
         return false;
     }
-    if (! run_commit_queue(commitSeq, seed, status, errchksum)) {
+    if (! state.runCommitQueue(commitSeq, seed, status, errchksum)) {
         return false;
     }
-    if (0 != sSubEntryCount) {
+    if (0 != state.mSubEntryCount) {
         return false;
     }
-    sLastBlockSeq = blockSeq;
-    sLastCommitted = commitSeq;
+    state.mLastBlockSeq  = blockSeq;
+    state.mLastCommitted = commitSeq;
     return true;
 }
 
@@ -1127,13 +1181,15 @@ replay_commit_reset(DETokenizer& c)
     }
     c.pop_front();
     const bool ignoreCommitErrorFlag = ! c.empty() && c.toNumber() != 0;
-    sCommitQueue.clear();
+    ReplayState& state = ReplayState::get(c);
+    state.mCommitQueue.clear();
     fileID.setseed(seed);
-    sSubEntryCount     = 0;
-    sLastLogAheadSeq   = logSeq;
-    sLogAheadErrChksum = errchksum;
-    sLastBlockSeq      = blockSeq;
-    if (! run_commit_queue(commitSeq, seed, status, errchksum) &&
+    state.mSubEntryCount     = 0;
+    state.mLastLogAheadSeq   = logSeq;
+    state.mLogAheadErrChksum = errchksum;
+    state.mLastBlockSeq      = blockSeq;
+    if (! state.runCommitQueue(
+                commitSeq, seed, status, errchksum) &&
             ! ignoreCommitErrorFlag) {
         return false;
     }
@@ -1146,8 +1202,9 @@ replay_group_users_reset(DETokenizer& c)
     if (! restore_group_users_reset(c) || c.empty()) {
         return false;
     }
-    sSubEntryCount = c.toNumber();
-    return (0 <= sSubEntryCount && c.isLastOk());
+    ReplayState& state = ReplayState::get(c);
+    state.mSubEntryCount = c.toNumber();
+    return (0 <= state.mSubEntryCount && c.isLastOk());
 }
 
 static bool
@@ -1162,7 +1219,7 @@ replay_group_users(DETokenizer& c)
     return (restore_group_users(c) && replay_sub_entry(c));
 }
 
-static DiskEntry&
+static const DiskEntry&
 get_entry_map()
 {
     static bool initied = false;
@@ -1190,7 +1247,7 @@ get_entry_map()
     e.add_parser("mkstabledone",            &replay_mkstabledone);
     e.add_parser("beginchunkversionchange", &replay_beginchunkversionchange);
     e.add_parser("checksum",                &restore_checksum);
-    e.add_parser("rollseeds",               &restore_rollseeds);
+    e.add_parser("rollseeds",               &replay_rollseeds);
     e.add_parser("chmod",                   &replay_chmod);
     e.add_parser("chown",                   &replay_chown);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
@@ -1236,7 +1293,7 @@ Replay::BlockChecksum::write(const char* buf, size_t len)
  * \return  zero if replay successful, negative otherwise
  */
 int
-Replay::playlog(bool& lastEntryChecksumFlag)
+Replay::playlog(bool& lastEntryChecksumFlag, ReplayState& state)
 {
     restoreChecksum.clear();
     lastLineChecksumFlag = false;
@@ -1251,17 +1308,16 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         return 0;
     }
 
-    DiskEntry& entrymap = get_entry_map();
-    DETokenizer tokenizer(file);
-
-    sLastBlockSeq      = -1;
-    lastLogStart       = committed;
-    sLastLogAheadSeq   = committed;
-    sLogAheadErrChksum = errChecksum;
-    sSubEntryCount     = 0;
+    lastLogStart             = committed;
+    state.mLastBlockSeq      = -1;
+    state.mLastLogAheadSeq   = committed;
+    state.mLogAheadErrChksum = errChecksum;
+    state.mSubEntryCount     = 0;
     int status = 0;
-    static const DETokenizer::Token kAheadLogEntry("a");
-    static const DETokenizer::Token kCommitLogEntry("c");
+    const DETokenizer::Token kAheadLogEntry ("a", 1);
+    const DETokenizer::Token kCommitLogEntry("c", 1);
+    const DiskEntry& entrymap = get_entry_map();
+    DETokenizer tokenizer(file, &state);
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;
@@ -1297,10 +1353,10 @@ Replay::playlog(bool& lastEntryChecksumFlag)
             restoreChecksum.clear();
         }
     }
-    if (status == 0 && 0 != sSubEntryCount) {
+    if (status == 0 && 0 != state.mSubEntryCount) {
         KFS_LOG_STREAM_FATAL <<
             "error " << path <<
-            " invalid sub entry count: " << sSubEntryCount <<
+            " invalid sub entry count: " << state.mSubEntryCount <<
         KFS_LOG_EOM;
         status = -EIO;
     }
@@ -1313,10 +1369,10 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         status = -EIO;
     }
     if (status == 0) {
-        committed      = sLastLogAheadSeq;
-        errChecksum    = sLogAheadErrChksum;
+        committed      = state.mLastLogAheadSeq;
+        errChecksum    = state.mLogAheadErrChksum;
         lastLogIntBase = tokenizer.getIntBase();
-        lastBlockSeq   = sLastBlockSeq;
+        lastBlockSeq   = state.mLastBlockSeq;
         mds.SetStream(0);
     }
     file.close();
@@ -1336,14 +1392,16 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
-    sLastCommitted       = -1; // Log commit can be less than checkpoint.
-    sCheckpointCommitted = committed;
+    ReplayState state(*this);
+    state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
+    state.mCheckpointCommitted = committed;
     const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
-    return (status == 0 ? playLogs(lastLogNum, includeLastLogFlag) : status);
+    return (status == 0 ?
+        playLogs(lastLogNum, includeLastLogFlag, state) : status);
 }
 
 int
-Replay::playLogs(seq_t last, bool includeLastLogFlag)
+Replay::playLogs(seq_t last, bool includeLastLogFlag, ReplayState& state)
 {
     int status = 0;
     appendToLastLogFlag        = false;
@@ -1364,7 +1422,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         }
         sRestoreTimeCount = 0;
         if ((status = openlog(logfn)) != 0 ||
-                (status = playlog(lastEntryChecksumFlag)) != 0) {
+                (status = playlog(lastEntryChecksumFlag, state)) != 0) {
             break;
         }
         if (sRestoreTimeCount <= 0) {
@@ -1394,9 +1452,9 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         }
     }
     if (status == 0) {
-        if (! sCommitQueue.empty() &&
-                sCommitQueue.back().logSeq == committed) {
-            lastCommittedStatus = sCommitQueue.back().status;
+        if (! state.mCommitQueue.empty() &&
+                state.mCommitQueue.back().logSeq == committed) {
+            lastCommittedStatus = state.mCommitQueue.back().status;
             if (0 < lastCommittedStatus) {
                 lastCommittedStatus = -KfsToSysErrno(lastCommittedStatus);
             }
@@ -1404,12 +1462,12 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             lastCommittedStatus = 0;
         }
     }
-    if (status == 0 && ! run_commit_queue(
-            committed + 1, fileID.getseed(), 0, sLogAheadErrChksum)) {
+    if (status == 0 && ! state.runCommitQueue(
+            committed + 1, fileID.getseed(), 0, state.mLogAheadErrChksum)) {
         status = -EINVAL;
     }
     if (status == 0) {
-        errChecksum = sLogAheadErrChksum;
+        errChecksum = state.mLogAheadErrChksum;
     } else {
         appendToLastLogFlag = false;
     }

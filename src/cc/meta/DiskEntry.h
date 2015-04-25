@@ -99,7 +99,7 @@ public:
         const char* ptr;
         size_t      len;
     };
-    DETokenizer(istream& in)
+    DETokenizer(istream& in, void* ud = 0)
         : tokens(new Token[kMaxEntryTokens]),
           cur(tokens),
           end(tokens),
@@ -110,7 +110,8 @@ public:
           nextEnt(bend),
           prevStart(nextEnt),
           base(10),
-          lastOk(true)
+          lastOk(true),
+          userdata(ud)
         { MarkEnd(); }
     ~DETokenizer() {
         delete [] tokens;
@@ -175,6 +176,9 @@ public:
     bool isLastOk() const {
         return lastOk;
     }
+    void* getUserData() const {
+        return userdata;
+    }
 private:
     enum { kMaxEntrySize   = 512 << 10 };
     enum { kMaxEntryTokens = 1   << 10 };
@@ -189,6 +193,7 @@ private:
     const char* prevStart;
     int         base;
     bool        lastOk;
+    void* const userdata;
     static const unsigned char* const c2hex;
 
     void MarkEnd() {
@@ -269,7 +274,7 @@ private:
     parsetab table;
 public:
     void add_parser(const Token& k, parser f) {
-        table[k] =  f;
+        table[k] = f;
     }
     bool parse(DETokenizer& tonenizer) const; //!< look up parser and call it
 };

@@ -133,8 +133,10 @@ private:
     string   tmplogname;
     MdStream mds;
 
-    int playLogs(seq_t lastlog, bool includeLastLogFlag);
-    int playlog(bool& lastEntryChecksumFlag);
+    class ReplayState;
+
+    int playLogs(seq_t lastlog, bool includeLastLogFlag, ReplayState& state);
+    int playlog(bool& lastEntryChecksumFlag, ReplayState& state);
     int getLastLog(seq_t& lastlog);
     const string& logfile(seq_t num);
     string getLastLog();
