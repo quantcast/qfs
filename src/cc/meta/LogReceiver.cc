@@ -56,6 +56,7 @@ using std::hex;
 
 class LogReceiver
 {
+private:
     class Impl;
 };
 
