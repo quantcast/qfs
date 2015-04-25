@@ -67,12 +67,16 @@ public:
     typedef QCDLList<Connection> List;
 
     Impl()
-        : mReauthTimeout(20),
+        : IAcceptorOwner(),
+          mReauthTimeout(20),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
-          mTimeout(30),
+          mTimeout(60),
           mConnectionCount(0),
+          mAcceptorPtr(0),
           mAuthContext()
         { List::Init(mConnectionsHeadPtr); }
+    ~Impl()
+        { delete mAcceptorPtr; }
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnectionPtr);
     void SetParameters(
@@ -80,6 +84,7 @@ public:
         const Properties& inParameters)
     {
     }
+    int Start();
     void Shutdown();
     int GetReauthTimeout() const
         { return mReauthTimeout; }
@@ -98,6 +103,7 @@ private:
     int         mMaxReadAhead;
     int         mTimeout;
     int         mConnectionCount;
+    Acceptor*   mAcceptorPtr;
     AuthContext mAuthContext;
     Connection* mConnectionsHeadPtr[1];
 };
@@ -153,6 +159,7 @@ public:
         while (thePtr) {
             MetaRequest& theReq = *thePtr;
             thePtr = theReq.next;
+            theReq.next = 0;
             MetaRequest::Release(&theReq);
         }
         MetaRequest::Release(mAuthenticateOpPtr);
@@ -225,6 +232,7 @@ public:
             case EVENT_CMD_DONE:
                 if (! inDataPtr) {
                     panic("invalid null command completion");
+                    break;
                 }
                 HandleCmdDone(*reinterpret_cast<MetaRequest*>(inDataPtr));
                 break;
@@ -232,7 +240,7 @@ public:
                 if (HandleSslShutdown()) {
                     break;
                 }
-                Error();
+                Error("network error");
                 break;
             case EVENT_TIMEOUT:
                 Error("connection timed out");
@@ -404,6 +412,7 @@ private:
         while (thePtr && ! mDownFlag) {
             MetaRequest& theReq = *thePtr;
             thePtr = theReq.next;
+            theReq.next = 0;
             SendResponse(theReq);
             MetaRequest::Release(&theReq);
         }
