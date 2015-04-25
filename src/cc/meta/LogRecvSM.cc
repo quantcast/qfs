@@ -36,6 +36,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/Acceptor.h"
 #include "kfsio/checksum.h"
 
 #include "qcdio/QCUtils.h"
@@ -43,6 +44,7 @@
 
 #include <string>
 #include <algorithm>
+#include <iomanip>
 
 #include <time.h>
 
@@ -50,21 +52,69 @@ namespace KFS
 {
 using std::string;
 using std::max;
+using std::hex;
 
-class LogRecvSM
+class LogReceiver
 {
     class Impl;
 };
 
-class LogRecvSM::Impl :
+class LogReceiver::Impl : public IAcceptorOwner
+{
+private:
+    class Connection;
+public:
+    typedef QCDLList<Connection> List;
+
+    Impl()
+        : mReauthTimeout(20),
+          mMaxReadAhead(MAX_RPC_HEADER_LEN),
+          mTimeout(30),
+          mConnectionCount(0),
+          mAuthContext()
+        { List::Init(mConnectionsHeadPtr); }
+    virtual KfsCallbackObj* CreateKfsCallbackObj(
+        NetConnectionPtr& inConnectionPtr);
+    void SetParameters(
+        const char*       inPrefixPtr,
+        const Properties& inParameters)
+    {
+    }
+    void Shutdown();
+    int GetReauthTimeout() const
+        { return mReauthTimeout; }
+    int GetMaxReadAhead() const
+        { return mMaxReadAhead; }
+    int GetTimeout() const
+        { return mTimeout; }
+    AuthContext& GetAuthContext()
+        { return mAuthContext; }
+    void New(
+        Connection& inConnection);
+    void Done(
+        Connection& inConnection);
+private:
+    int         mReauthTimeout;
+    int         mMaxReadAhead;
+    int         mTimeout;
+    int         mConnectionCount;
+    AuthContext mAuthContext;
+    Connection* mConnectionsHeadPtr[1];
+};
+
+class LogReceiver::Impl::Connection :
     public KfsCallbackObj,
     public SslFilterVerifyPeer
 {
 public:
-    Impl(
+    typedef Impl::List List;
+
+    Connection(
+        Impl&                   inImpl,
         const NetConnectionPtr& inConnectionPtr)
         : KfsCallbackObj(),
           SslFilterVerifyPeer(),
+          mImpl(inImpl),
           mAuthName(),
           mSessionExpirationTime(0),
           mConnectionPtr(inConnectionPtr),
@@ -73,18 +123,42 @@ public:
           mAuthCtxUpdateCount(0),
           mRecursionCount(0),
           mBlockLength(-1),
-          mMaxReadAhead(MAX_RPC_HEADER_LEN),
+          mPendingOpsCount(0),
+          mBlockChecksum(0),
+          mBlockSeq(-1),
           mDownFlag(false),
+          mAuthPendingResponsesHeadPtr(0),
+          mAuthPendingResponsesTailPtr(0),
           mIStream(),
           mOstream()
     {
+        List::Init(*this);
+        SET_HANDLER(this, &Connection::HandleEvent);
         if (! mConnectionPtr || ! mConnectionPtr->IsGood()) {
-            panic("LogRecvSM::Impl: invalid connection poiner");
+            panic("LogReceiver::Impl::Connection; invalid connection poiner");
         }
+        mSessionExpirationTime = TimeNow() - int64_t(60) * 60 * 24 * 365 * 10;
+        mConnectionPtr->SetInactivityTimeout(mImpl.GetTimeout());
+        mImpl.New(*this);
     }
-    ~Impl()
+    ~Connection()
     {
+        if (mRecursionCount != 0 || mConnectionPtr->IsGood() ||
+                mPendingOpsCount != 0) {
+            panic("LogReceiver::~Impl::Connection invalid invocation");
+        }
+        MetaRequest* thePtr = mAuthPendingResponsesHeadPtr;
+        mAuthPendingResponsesHeadPtr = 0;
+        mAuthPendingResponsesTailPtr = 0;
+        while (thePtr) {
+            MetaRequest& theReq = *thePtr;
+            thePtr = theReq.next;
+            MetaRequest::Release(&theReq);
+        }
         MetaRequest::Release(mAuthenticateOpPtr);
+        mImpl.Done(*this);
+        mRecursionCount  = 0xDEAD;
+        mPendingOpsCount = 0xDEAD;
     }
     virtual bool Verify(
         string&       ioFilterAuthName,
@@ -148,6 +222,12 @@ public:
                     HandleAuthWrite();
                 }
                 break;
+            case EVENT_CMD_DONE:
+                if (! inDataPtr) {
+                    panic("invalid null command completion");
+                }
+                HandleCmdDone(*reinterpret_cast<MetaRequest*>(inDataPtr));
+                break;
             case EVENT_NET_ERROR:
                 if (HandleSslShutdown()) {
                     break;
@@ -158,14 +238,28 @@ public:
                 Error("connection timed out");
                 break;
             default:
-                panic("LogRecvSM: unexpected event");
+                panic("LogReceiver: unexpected event");
                 break;
         }
         mRecursionCount--;
         QCASSERT(0 <= mRecursionCount);
+        if (mRecursionCount <= 0) {
+            if (mConnectionPtr->IsGood()) {
+                mConnectionPtr->StartFlush();
+            } else if (! mDownFlag) {
+                Error();
+            }
+            if (mDownFlag && mPendingOpsCount <= 0) {
+                delete this;
+            }
+        }
         return 0;
     }
 private:
+    enum {
+        kAckReauthFlag = 1
+    };
+    Impl&                  mImpl;
     string                 mAuthName;
     int64_t                mSessionExpirationTime;
     NetConnectionPtr const mConnectionPtr;
@@ -174,18 +268,26 @@ private:
     uint64_t               mAuthCtxUpdateCount;
     int                    mRecursionCount;
     int                    mBlockLength;
-    int                    mMaxReadAhead;
+    int                    mPendingOpsCount;
     int32_t                mBlockChecksum;
+    int64_t                mBlockSeq;
     bool                   mDownFlag;
+    MetaRequest*           mAuthPendingResponsesHeadPtr;
+    MetaRequest*           mAuthPendingResponsesTailPtr;
     IOBuffer::IStream      mIStream;
     IOBuffer::WOStream     mOstream;
+    Connection*            mPrevPtr[1];
+    Connection*            mNextPtr[1];
     char                   mParseBuffer[MAX_RPC_HEADER_LEN];
+
+    friend class QCDLListOp<Connection>;
 
     string GetPeerName()
         { return mConnectionPtr->GetPeerName(); }
     time_t TimeNow()
         { return mConnectionPtr->TimeNow(); }
-    AuthContext& GetAuthContext();
+    AuthContext& GetAuthContext()
+        { return mImpl.GetAuthContext(); }
     int Authenticate(
         IOBuffer& inBuffer)
     {
@@ -240,15 +342,8 @@ private:
             " response length: "    << mAuthenticateOpPtr->responseContentLen <<
             " msg: "                << mAuthenticateOpPtr->statusMsg <<
         KFS_LOG_EOM;
-        if (! mDownFlag) {
-            IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
-            ReqOstream theStream(mOstream.Set(theBuf));
-            mAuthenticateOpPtr->response(theStream);
-            mOstream.Reset();
-            if (mRecursionCount <= 0) {
-                mConnectionPtr->StartFlush();
-            }
-        }
+        mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
+        SendResponse(*mAuthenticateOpPtr);
         return (mDownFlag ? -1 : 0);
     }
     void HandleAuthWrite()
@@ -303,6 +398,15 @@ private:
                 (mSessionExpirationTime - TimeNow()) << " sec." <<
         KFS_LOG_EOM;
         mAuthCount++;
+        MetaRequest* thePtr = mAuthPendingResponsesHeadPtr;
+        mAuthPendingResponsesHeadPtr = 0;
+        mAuthPendingResponsesTailPtr = 0;
+        while (thePtr && ! mDownFlag) {
+            MetaRequest& theReq = *thePtr;
+            thePtr = theReq.next;
+            SendResponse(theReq);
+            MetaRequest::Release(&theReq);
+        }
     }
     bool HandleSslShutdown()
     {
@@ -370,6 +474,42 @@ private:
             theMsgLen = 0;
         }
     }
+    void HandleCmdDone(
+        MetaRequest& inReq)
+    {
+        if (mPendingOpsCount <= 0) {
+            panic("invalid outstanding ops count");
+            return;
+        }
+        if (inReq.next) {
+            panic("invalid request next field");
+        }
+        mPendingOpsCount--;
+        if (mAuthenticateOpPtr && ! mDownFlag) {
+            if (mAuthPendingResponsesTailPtr) {
+                mAuthPendingResponsesTailPtr->next = &inReq;
+            } else {
+                mAuthPendingResponsesHeadPtr = &inReq;
+            }
+            mAuthPendingResponsesTailPtr = &inReq;
+        }
+        SendResponse(inReq);
+        MetaRequest::Release(&inReq);
+    }
+    void SendResponse(
+        MetaRequest& inReq)
+    {
+        if (mDownFlag) {
+            return;
+        }
+        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+        ReqOstream theStream(mOstream.Set(theBuf));
+        inReq.response(theStream, theBuf);
+        mOstream.Reset();
+        if (mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
+        }
+    }
     int HandleMsg(
         IOBuffer& inBuffer,
         int       inMsgLen)
@@ -377,6 +517,9 @@ private:
         const int kSeparatorLen = 4;
         const int kPrefixLen    = 2;
         if (kSeparatorLen + kPrefixLen < inMsgLen) {
+            if (IsAuthError()) {
+                return -1;
+            }
             int               theLen       = inMsgLen - kSeparatorLen;
             const char* const theHeaderPtr = inBuffer.CopyOutOrGetBufPtr(
                 mParseBuffer, theLen);
@@ -416,6 +559,12 @@ private:
             mAuthenticateOpPtr = static_cast<MetaAuthenticate*>(theReqPtr);
             return Authenticate(inBuffer);
         }
+        if (IsAuthError()) {
+            MetaRequest::Release(theReqPtr);
+            return -1;
+        }
+        mPendingOpsCount++;
+        submit_request(theReqPtr);
         return 0;
     }
     int ReceiveBlock(
@@ -426,7 +575,8 @@ private:
         }
         const int theRem = mBlockLength - inBuffer.BytesConsumable();
         if (0 < theRem) {
-            mConnectionPtr->SetMaxReadAhead(max(theRem, mMaxReadAhead));
+            mConnectionPtr->SetMaxReadAhead(
+                max(theRem, mImpl.GetMaxReadAhead()));
             return theRem;
         }
         const uint32_t theChecksum = ComputeBlockChecksum(
@@ -440,6 +590,42 @@ private:
             Error("block checksum mimatch");
             return -1;
         }
+        int         theMaxHdrLen    = (int)sizeof(seq_t) * 2 + 1 + 16;
+        QCASSERT(theMaxHdrLen <= MAX_RPC_HEADER_LEN);
+        const char* theStartPtr     = inBuffer.CopyOutOrGetBufPtr(
+                mParseBuffer, theMaxHdrLen);
+        const char* const theEndPtr = theStartPtr + theMaxHdrLen;
+        int64_t     theBlockSeq = -1;
+        const char* thePtr      = theStartPtr;
+        if (! HexIntParser::Parse(
+                thePtr, theEndPtr - thePtr, theBlockSeq) ||
+                theBlockSeq < 0 ||
+                (0 <= mBlockSeq && theBlockSeq != mBlockSeq + 1)) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " invalid block sequence: " << theBlockSeq <<
+                " last    : "               << mBlockSeq <<
+                " length: "                 << mBlockLength <<
+            KFS_LOG_EOM;
+            MsgLogLines(MsgLogger::kLogLevelERROR,
+                "invalid block sequence: ", inBuffer, mBlockLength);
+            Error("invalid block sequence");
+            return -1;
+        }
+        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+            thePtr++;
+        }
+        if (theEndPtr <= thePtr && theMaxHdrLen < mBlockLength) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " invalid block header:" << theBlockSeq  <<
+                " length: "              << mBlockLength <<
+            KFS_LOG_EOM;
+            MsgLogLines(MsgLogger::kLogLevelERROR,
+                "invalid block header: ", inBuffer, mBlockLength);
+            Error("invalid block header");
+            return -1;
+        }
+        inBuffer.Consume((int)(thePtr - theStartPtr));
+        mBlockSeq = theBlockSeq;
         SendAck();
         if (mDownFlag) {
             return -1;
@@ -452,9 +638,47 @@ private:
         if (mDownFlag) {
             return;
         }
+        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            " error:" << (inMsgPtr ? inMsgPtr : "")  <<
+            " closing connection"
+            " last block: "   << mBlockSeq <<
+            " socket error: " << mConnectionPtr->GetErrorMsg() <<
+        KFS_LOG_EOM;
+        mConnectionPtr->Close();
+        mDownFlag = true;
     }
     void SendAck()
     {
+        if (mAuthenticateOpPtr) {
+            return;
+        }
+        bool theReAuthFlag;
+        if (GetAuthContext().IsAuthRequired()) {
+            uint64_t const theUpdateCount = GetAuthContext().GetUpdateCount();
+            theReAuthFlag = theUpdateCount != mAuthCtxUpdateCount ||
+                mSessionExpirationTime < TimeNow() + mImpl.GetReauthTimeout();
+            if (theReAuthFlag) {
+                KFS_LOG_STREAM_INFO << GetPeerName() <<
+                    " requesting re-authentication:"
+                    " update count: " << theUpdateCount <<
+                    " / "             << mAuthCtxUpdateCount <<
+                    " expires in: "   << (mSessionExpirationTime - TimeNow()) <<
+                KFS_LOG_EOM;
+            }
+        } else {
+            theReAuthFlag = false;
+        }
+        uint64_t theAckFlags = 0;
+        if (theReAuthFlag) {
+            theAckFlags |= kAckReauthFlag;
+        }
+        ReqOstream theStream(mOstream.Set(mConnectionPtr->GetOutBuffer()));
+        theStream << hex <<
+            "A: " << mBlockSeq << " " << theAckFlags << "\n";
+        theStream.flush();
+        if (mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
+        }
     }
     int ProcessBlock(
         IOBuffer& inBuffer)
@@ -463,6 +687,7 @@ private:
             return -1;
         }
         inBuffer.Consume(mBlockLength);
+        mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         return 0;
     }
     void MsgLogLines(
@@ -487,6 +712,64 @@ private:
         }
         mIStream.Reset();
     }
+    bool IsAuthError()
+    {
+        if (! GetAuthContext().IsAuthRequired()) {
+            return false;
+        }
+        if (mAuthName.empty()) {
+            Error("autentication required");
+            return true;
+        }
+        return false;
+    }
+private:
+    Connection(
+        const Connection& inConnection);
+    Connection& operator=(
+        const Connection& inConnection);
 };
+
+    /* virtual */ KfsCallbackObj*
+LogReceiver::Impl::CreateKfsCallbackObj(
+    NetConnectionPtr& inConnectionPtr)
+{
+    if (inConnectionPtr && inConnectionPtr->IsGood()) {
+        return new Connection(*this, inConnectionPtr);
+    }
+    return 0;
+}
+
+    void
+LogReceiver::Impl::New(
+    Connection& inConnection)
+{
+    mConnectionCount++;
+    List::PushBack(mConnectionsHeadPtr, inConnection);
+    if (mConnectionCount <= 0) {
+        panic("LogReceiver::Impl::New: invalid connections count");
+    }
+}
+
+    void
+LogReceiver::Impl::Done(
+    Connection& inConnection)
+{
+    if (mConnectionCount <= 0) {
+        panic("LogReceiver::Impl::Done: invalid connections count");
+    }
+    List::Remove(mConnectionsHeadPtr, inConnection);
+    mConnectionCount--;
+}
+
+    void
+LogReceiver::Impl::Shutdown()
+{
+    List::Iterator theIt(mConnectionsHeadPtr);
+    Connection* thePtr;
+    while (0 < mConnectionCount && (thePtr = theIt.Next())) {
+        thePtr->HandleEvent(EVENT_NET_ERROR, 0);
+    }
+}
 
 } // namespace KFS
