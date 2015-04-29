@@ -3040,6 +3040,7 @@ struct MetaAuthenticate : public MetaRequest {
     const char*            responseContentPtr;
     int                    responseContentLen;
     bool                   doneFlag;
+    bool                   responseUseSslFlag;
     int64_t                credExpirationTime;
     int64_t                sessionExpirationTime;
     string                 authName;
@@ -3055,6 +3056,7 @@ struct MetaAuthenticate : public MetaRequest {
           responseContentPtr(0),
           responseContentLen(0),
           doneFlag(false),
+          responseUseSslFlag(false),
           credExpirationTime(0),
           sessionExpirationTime(0),
           authName(),

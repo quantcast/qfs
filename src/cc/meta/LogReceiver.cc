@@ -612,7 +612,13 @@ private:
         IOBuffer& theBuf = mConnectionPtr->GetInBuffer();
         if (mAuthenticateOpPtr) {
             Authenticate(theBuf);
-            if (mAuthenticateOpPtr) {
+            if (mAuthenticateOpPtr || mDownFlag) {
+                return;
+            }
+        }
+        if (0 < mBlockLength) {
+            const int theRet = ReceiveBlock(theBuf);
+            if (0 != theRet || mDownFlag) {
                 return;
             }
         }
@@ -634,6 +640,10 @@ private:
                 return; // Need more data, or down
             }
             theMsgLen = 0;
+        }
+        if (mBlockLength < 0 && ! mAuthenticateOpPtr && ! mDownFlag &&
+                MAX_RPC_HEADER_LEN < theBuf.BytesConsumable()) {
+            Error("header size exceeds max allowed");
         }
     }
     void HandleCmdDone(
@@ -707,8 +717,7 @@ private:
                     inMsgLen,
                     &theReqPtr,
                     mImpl.GetParseBufferPtr()) ||
-                ! theReqPtr ||
-                META_AUTHENTICATE != theReqPtr->op) {
+                ! theReqPtr) {
             MetaRequest::Release(theReqPtr);
             const string thePrefix = GetPeerName() + " invalid request: ";
             MsgLogLines(
@@ -839,7 +848,7 @@ private:
         }
         ReqOstream theStream(mOstream.Set(mConnectionPtr->GetOutBuffer()));
         theStream << hex <<
-            "A: " << mBlockEndSeq << " " << theAckFlags << "\n";
+            "A " << mBlockEndSeq << " " << theAckFlags << "\r\n\r\n";
         theStream.flush();
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();
@@ -927,6 +936,7 @@ private:
         } else {
             inBuffer.Consume(mBlockLength);
         }
+        mBlockLength = -1;
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         return 0;
     }
