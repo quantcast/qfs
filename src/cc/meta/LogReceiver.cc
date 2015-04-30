@@ -415,10 +415,6 @@ public:
         return 0;
     }
 private:
-    enum
-    {
-        kAckReauthFlag = 1
-    };
     typedef Impl::Lines Lines;
 
     Impl&                  mImpl;
@@ -844,7 +840,7 @@ private:
         }
         uint64_t theAckFlags = 0;
         if (theReAuthFlag) {
-            theAckFlags |= kAckReauthFlag;
+            theAckFlags |= uint64_t(1) << kLogBlockAckReAuthFlagBit;
         }
         ReqOstream theStream(mOstream.Set(mConnectionPtr->GetOutBuffer()));
         theStream << hex <<

@@ -3712,6 +3712,11 @@ struct MetaLogWriterControl : public MetaRequest {
     }
 };
 
+enum LogBlockAckFlags
+{
+    kLogBlockAckReAuthFlagBit = 0
+};
+
 int ParseCommand(const IOBuffer& buf, int len, MetaRequest **res,
     char* threadParseBuffer, bool shortRpcFmtFlag);
 int ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
