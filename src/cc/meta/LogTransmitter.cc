@@ -35,6 +35,7 @@
 
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
+#include "kfsio/NetManager.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/ClientAuthContext.h"
 #include "kfsio/event.h"
@@ -75,7 +76,13 @@ private:
 class LogTransmitter::Impl
 {
 public:
-    Impl()
+    Impl(
+        NetManager& inNetManager)
+        : mNetManager(inNetManager),
+          mRetryInterval(2),
+          mMaxReadAhead(MAX_RPC_HEADER_LEN),
+          mHeartbeatInterval(5),
+          mLastBlockSeq(-1)
         {}
     ~Impl()
         {}
@@ -92,10 +99,25 @@ public:
     }
     char* GetParseBufferPtr()
         { return mParseBuffer; }
+    NetManager& GetNetManager()
+        { return mNetManager; }
+    int GetRetryInterval() const
+        { return mRetryInterval; }
+    int GetMaxReadAhead() const
+        { return mMaxReadAhead; }
+    int GetHeartbeatInterval() const
+        { return mHeartbeatInterval; }
+    seq_t GetLastBlockSeq() const
+        { return mLastBlockSeq; }
 private:
     class Transmitter;
 
-    char mParseBuffer[MAX_RPC_HEADER_LEN];
+    NetManager& mNetManager;
+    int         mRetryInterval;
+    int         mMaxReadAhead;
+    int         mHeartbeatInterval;
+    seq_t       mLastBlockSeq;
+    char        mParseBuffer[MAX_RPC_HEADER_LEN];
 
 private:
     Impl(
@@ -104,13 +126,16 @@ private:
         const Impl& inImpl);
 };
 
-class LogTransmitter::Impl::Transmitter : public KfsCallbackObj
+class LogTransmitter::Impl::Transmitter :
+    public KfsCallbackObj,
+    public ITimeout
 {
 public:
     Transmitter(
         Impl& inImpl)
         : KfsCallbackObj(),
           mImpl(inImpl),
+          mServer(),
           mConnectionPtr(),
           mAuthenticateOpPtr(0),
           mNextSeq(mImpl.RandomSeq()),
@@ -124,11 +149,14 @@ public:
           mReplyProps(),
           mIstream(),
           mOstream(),
-          mDownFlag(false)
+          mSleepingFlag(false)
         { SET_HANDLER(this, &Transmitter::HandleEvent); }
     ~Transmitter()
     {
         MetaRequest::Release(mAuthenticateOpPtr);
+        if (mSleepingFlag) {
+            mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
+        }
     }
     void SetParameters(
         const ServerLocation& inServerLocation,
@@ -136,6 +164,10 @@ public:
         const char*           inParamPrefixPtr,
         const Properties&     inParameters)
     {
+        if (inServerLocation != mServer) {
+            Shutdown();
+            mLastSentBlockSeq = mImpl.GetLastBlockSeq();
+        }
     }
     int HandleEvent(
         int   inType,
@@ -164,6 +196,9 @@ public:
                 Error("network error");
                 break;
             case EVENT_TIMEOUT:
+                if ( SendHeartbeat()) {
+                    break;
+                }
                 Error("connection timed out");
                 break;
             default:
@@ -175,16 +210,50 @@ public:
         if (mRecursionCount <= 0) {
             if (mConnectionPtr->IsGood()) {
                 mConnectionPtr->StartFlush();
-            } else if (! mDownFlag) {
+            } else if (mConnectionPtr) {
                 Error();
+            }
+            if (mConnectionPtr && ! mAuthenticateOpPtr) {
+                mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
+                mConnectionPtr->SetInactivityTimeout(
+                    mImpl.GetHeartbeatInterval());
             }
         }
         return 0;
+    }
+    void Shutdown()
+    {
+        mHeartbeatInFlighSeq = -1;
+        if (mConnectionPtr) {
+            mConnectionPtr->Close();
+            mConnectionPtr.reset();
+        }
+        if (mSleepingFlag) {
+            mSleepingFlag = false;
+            mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
+        }
+    }
+    const ServerLocation& GetServerLocation() const
+        { return mServer; }
+    virtual void Timeout()
+    {
+        if (mSleepingFlag) {
+            mSleepingFlag = false;
+            mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
+        }
+        Connect();
+    }
+    void SendBlock(
+        seq_t       inBlockSeq,
+        const char* inBlockPtr,
+        size_t      inBlockLen)
+    {
     }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
 
     Impl&              mImpl;
+    ServerLocation     mServer;
     NetConnectionPtr   mConnectionPtr;
     MetaAuthenticate*  mAuthenticateOpPtr;
     seq_t              mNextSeq;
@@ -198,31 +267,58 @@ private:
     Properties         mReplyProps;
     IOBuffer::IStream  mIstream;
     IOBuffer::WOStream mOstream;
-    bool               mDownFlag;
+    bool               mSleepingFlag;
+    seq_t              mHeartbeatInFlighSeq;
 
+    void Connect()
+    {
+        Shutdown();
+        if (! mImpl.GetNetManager().IsRunning()) {
+            return;
+        }
+        if (! mServer.IsValid()) {
+            return;
+        }
+        TcpSocket* theSocketPtr = new TcpSocket();
+        mConnectionPtr.reset(new NetConnection(theSocketPtr, this));
+        const bool kNonBlockingFlag = false;
+        const int  theErr = theSocketPtr->Connect(mServer, kNonBlockingFlag);
+        if (theErr != 0 && theErr != -EINPROGRESS) {
+            Error("failed to connect");
+            return;
+        }
+        mImpl.GetNetManager().AddConnection(mConnectionPtr);
+        mConnectionPtr->EnableReadIfOverloaded();
+        if (theErr != 0) {
+            mConnectionPtr->SetDoingNonblockingConnect();
+        }
+        Authenticate();
+    }
     bool Authenticate()
     {
-        if (! mAuthContext.IsEnabled()) {
+        if (! mConnectionPtr || ! mAuthContext.IsEnabled()) {
             return false;
         }
         if (mAuthenticateOpPtr) {
             panic("invalid authenticate invocation: auth is in flight");
             return true;
         }
+        mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         mAuthenticateOpPtr = new MetaAuthenticate();
         mAuthenticateOpPtr->opSeqno            = GetNextSeq();
         mAuthenticateOpPtr->shortRpcFormatFlag = true;
         string    theErrMsg;
         const int theErr = mAuthContext.Request(
             mAuthType,
-            mAuthenticateOpPtr->authType,
-            mAuthenticateOpPtr->responseContentPtr,
-            mAuthenticateOpPtr->responseContentLen,
+            mAuthenticateOpPtr->sendAuthType,
+            mAuthenticateOpPtr->sendContentPtr,
+            mAuthenticateOpPtr->sendContentLen,
             mAuthRequestCtx,
             &theErrMsg
         );
         if (theErr) {
             KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
                 "authentication request failure: " <<
                 theErrMsg <<
             KFS_LOG_EOM;
@@ -231,9 +327,12 @@ private:
             Error(theErrMsg.c_str());
             return true;
         }
-        Request(*mAuthenticateOpPtr);
-        KFS_LOG_STREAM_INFO << "started: " << mAuthenticateOpPtr->Show() <<
+        KFS_LOG_STREAM_INFO <<
+            mServer << ": "
+            "starting: " <<
+            mAuthenticateOpPtr->Show() <<
         KFS_LOG_EOM;
+        Request(*mAuthenticateOpPtr);
         return true;
     }
     void HandleRead()
@@ -259,7 +358,7 @@ private:
                 );
                 return;
             }
-            if (0 < theRet || mDownFlag) {
+            if (0 < theRet || ! mConnectionPtr) {
                 return; // Need more data, or down
             }
             theMsgLen = 0;
@@ -292,6 +391,7 @@ private:
         }
         if (! inBuffer.IsEmpty()) {
             KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
                 "authentication protocol failure:" <<
                 " " << inBuffer.BytesConsumable() <<
                 " bytes past authentication response" <<
@@ -312,7 +412,7 @@ private:
             } else {
                 mAuthenticateOpPtr->status = mAuthContext.Response(
                     mAuthenticateOpPtr->authType,
-                    mAuthenticateOpPtr->responseUseSslFlag,
+                    mAuthenticateOpPtr->useSslFlag,
                     mAuthenticateOpPtr->contentBuf,
                     mAuthenticateOpPtr->contentLength,
                     *mConnectionPtr,
@@ -342,9 +442,19 @@ private:
                 mConnectionPtr->IsGood() &&
                 ! mConnectionPtr->GetFilter()) {
             HandleAuthResponse(mConnectionPtr->GetInBuffer());
-            return (! mDownFlag);
+            return (!! mConnectionPtr);
         }
         return false;
+    }
+    bool SendHeartbeat()
+    {
+        if (mAckBlockSeq < mLastSentBlockSeq ||
+                0 <= mHeartbeatInFlighSeq) {
+            return false;
+        }
+        mHeartbeatInFlighSeq = mLastSentBlockSeq;
+        SendBlock(mHeartbeatInFlighSeq, "", 0);
+        return true;
     }
     int HandleMsg(
         IOBuffer& inBuffer,
@@ -383,6 +493,7 @@ private:
         }
         if (mAckBlockSeq < 0 || mLastSentBlockSeq < mAckBlockSeq) {
             KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
                 "invalid ack block sequence: " << mAckBlockSeq <<
                 " last sent: "                 << mLastSentBlockSeq <<
             KFS_LOG_EOM;
@@ -394,11 +505,12 @@ private:
                 (mAckBlockFlags &
                     (uint64_t(1) << kLogBlockAckReAuthFlagBit)) != 0) {
             KFS_LOG_STREAM_DEBUG <<
+                mServer << ": "
                 "re-authentication requested" <<
             KFS_LOG_EOM;
             Authenticate();
         }
-        return (mDownFlag ? -1 : 0);
+        return (mConnectionPtr ? 0 : -1);
     }
     int HandleReply(
         const char* inHeaderPtr,
@@ -413,9 +525,11 @@ private:
             Error("malformed reply");
             return -1;
         }
+        // For now only handle authentication response.
         seq_t const theSeq = mReplyProps.getValue("c", -1);
         if (! mAuthenticateOpPtr || theSeq != mAuthenticateOpPtr->opSeqno) {
             KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
                 "unexpected reply, authentication: " <<
                 MetaRequest::ShowReq(mAuthenticateOpPtr) <<
             KFS_LOG_EOM;
@@ -424,21 +538,25 @@ private:
             Error("unexpected reply");
         }
         inBuffer.Consume(inHeaderLen);
-        mAuthenticateOpPtr->contentLength = mReplyProps.getValue("l", 0);
-        mAuthenticateOpPtr->authType =
+        mAuthenticateOpPtr->contentLength         = mReplyProps.getValue("l", 0);
+        mAuthenticateOpPtr->authType              =
             mReplyProps.getValue("A", int(kAuthenticationTypeUndef));
-        mAuthenticateOpPtr->responseUseSslFlag =
+        mAuthenticateOpPtr->useSslFlag    =
             mReplyProps.getValue("US", 0) != 0;
-        int64_t theCurrentTime = mReplyProps.getValue("CT", int64_t(-1));
+        int64_t theCurrentTime                    =
+            mReplyProps.getValue("CT", int64_t(-1));
         mAuthenticateOpPtr->sessionExpirationTime =
             mReplyProps.getValue("ET", int64_t(-1));
         KFS_LOG_STREAM_DEBUG <<
+            mServer << ": "
             "authentication reply:"
-            " cur time: " << theCurrentTime <<
-            " end time: " << mAuthenticateOpPtr->sessionExpirationTime <<
+            " cur time: "   << theCurrentTime <<
+            " delta: "      << (TimeNow() - theCurrentTime) <<
+            " expires in: " <<
+                (mAuthenticateOpPtr->sessionExpirationTime - theCurrentTime) <<
         KFS_LOG_EOM;
         HandleAuthResponse(inBuffer);
-        return (mDownFlag ? -1 : 0);
+        return (mConnectionPtr ? 0 : -1);
     }
     int HanldeRequest(
         const char* inHeaderPtr,
@@ -454,16 +572,52 @@ private:
     void HandleCmdDone(
         MetaRequest& inReq)
     {
+        panic("LogTransmitter::Impl::Transmitter::HandleCmdDone "
+            "unexpected invocation");
     }
     seq_t GetNextSeq()
         { return ++mNextSeq; }
     void Request(
         MetaRequest& inReq)
     {
+        // For now authentication only.
+        if (&inReq != mAuthenticateOpPtr) {
+            panic("LogTransmitter::Impl::Transmitter: invalid request");
+            return;
+        }
+        if (! mConnectionPtr) {
+            return;
+        }
+        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+        ReqOstream theStream(mOstream.Set(theBuf));
+        mAuthenticateOpPtr->Request(theStream);
+        mOstream.Reset();
+        if (mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
+        }
     }
     void Error(
         const char* inMsgPtr = 0)
     {
+        if (! mConnectionPtr) {
+            return;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            mServer << ": " <<
+            (inMsgPtr ? inMsgPtr : "network error") <<
+            " socket error: " << mConnectionPtr->GetErrorMsg() <<
+        KFS_LOG_EOM;
+        mConnectionPtr->Close();
+        mConnectionPtr.reset();
+        MetaRequest::Release(mAuthenticateOpPtr);
+        mAuthenticateOpPtr = 0;
+        mLastSentBlockSeq = -1;
+        if (mSleepingFlag) {
+            return;
+        }
+        mSleepingFlag = true;
+        SetTimeoutInterval(mImpl.GetRetryInterval());
+        mImpl.GetNetManager().RegisterTimeoutHandler(this);
     }
     void MsgLogLines(
         MsgLogger::LogLevel inLogLevel,
@@ -487,6 +641,8 @@ private:
         }
         mIstream.Reset();
     }
+    time_t TimeNow()
+        { return mImpl.GetNetManager().Now(); }
 private:
     Transmitter(
         const Transmitter& inTransmitter);

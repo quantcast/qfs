@@ -3036,11 +3036,11 @@ struct MetaAuthenticate : public MetaRequest {
     int                    contentLength;
     char*                  contentBuf;
     int                    contentBufPos;
-    int                    responseAuthType;
-    const char*            responseContentPtr;
-    int                    responseContentLen;
+    int                    sendAuthType;
+    const char*            sendContentPtr;
+    int                    sendContentLen;
     bool                   doneFlag;
-    bool                   responseUseSslFlag;
+    bool                   useSslFlag;
     int64_t                credExpirationTime;
     int64_t                sessionExpirationTime;
     string                 authName;
@@ -3052,11 +3052,11 @@ struct MetaAuthenticate : public MetaRequest {
           contentLength(0),
           contentBuf(0),
           contentBufPos(0),
-          responseAuthType(kAuthenticationTypeUndef),
-          responseContentPtr(0),
-          responseContentLen(0),
+          sendAuthType(kAuthenticationTypeUndef),
+          sendContentPtr(0),
+          sendContentLen(0),
           doneFlag(false),
-          responseUseSslFlag(false),
+          useSslFlag(false),
           credExpirationTime(0),
           sessionExpirationTime(0),
           authName(),
@@ -3072,6 +3072,7 @@ struct MetaAuthenticate : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "authenticate"; }
     virtual void response(ReqOstream& os);
+    void Request(ReqOstream& os) const;
     bool Validate()                            { return true; }
     int Read(IOBuffer& iobuf);
     template<typename T> static T& ParserDef(T& parser)

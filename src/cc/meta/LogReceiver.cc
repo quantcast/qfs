@@ -490,13 +490,13 @@ private:
         KFS_LOG_STREAM(mAuthenticateOpPtr->status == 0 ?
             MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
             GetPeerName()           << " log receiver authentication"
-            " type: "               << mAuthenticateOpPtr->responseAuthType <<
+            " type: "               << mAuthenticateOpPtr->sendAuthType <<
             " name: "               << mAuthenticateOpPtr->authName <<
             " filter: "             <<
                 reinterpret_cast<const void*>(mAuthenticateOpPtr->filter) <<
             " session expires in: " <<
                 (mAuthenticateOpPtr->sessionExpirationTime - TimeNow()) <<
-            " response length: "    << mAuthenticateOpPtr->responseContentLen <<
+            " response length: "    << mAuthenticateOpPtr->sendContentLen <<
             " msg: "                << mAuthenticateOpPtr->statusMsg <<
         KFS_LOG_EOM;
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());

@@ -4848,7 +4848,7 @@ MetaAuthenticate::response(ReqOstream& os)
     }
     os <<
         (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
-            responseAuthType << "\r\n" <<
+            sendAuthType << "\r\n" <<
         (shortRpcFormatFlag ? "US:" : "Use-ssl: ") <<
             (filter ? 1 : 0) << "\r\n" <<
         (shortRpcFormatFlag ? "CT:" : "Curtime: ") <<
@@ -4856,14 +4856,32 @@ MetaAuthenticate::response(ReqOstream& os)
         (shortRpcFormatFlag ? "ET:" : "Endtime: ") <<
             (int64_t)sessionExpirationTime << "\r\n"
     ;
-    if (responseContentLen <= 0) {
+    if (sendContentLen <= 0) {
         os << "\r\n";
         return;
     }
     os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
-        responseContentLen << "\r\n"
+        sendContentLen << "\r\n"
     "\r\n";
-    os.write(responseContentPtr, responseContentLen);
+    os.write(sendContentPtr, sendContentLen);
+}
+
+void
+MetaAuthenticate::Request(ReqOstream& os) const
+{
+    if (shortRpcFormatFlag) {
+        os << hex;
+    }
+    os <<
+        "AUTHENTICATE\r\n" <<
+        (shortRpcFormatFlag ? "A:" : "Auth-type: ") << sendAuthType << "\r\n"
+    ;
+    if (0 < sendContentLen) {
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            sendContentLen << "\r\n";
+    }
+    os << "\r\n";
+    os.write(sendContentPtr, sendContentLen);
 }
 
 /* virtual */ bool

@@ -159,8 +159,8 @@ public:
         inOp.authName.clear();
         delete inOp.filter;
         inOp.filter = 0;
-        inOp.responseContentPtr = 0;
-        inOp.responseContentLen = 0;
+        inOp.sendContentPtr = 0;
+        inOp.sendContentLen = 0;
         if (0 < inOp.contentLength &&
                 (inOp.contentBufPos < inOp.contentLength ||
                 ! inOp.contentBuf)) {
@@ -175,8 +175,8 @@ public:
                 inOp.statusMsg = "no PSK key configured";
                 return false;
             }
-            inOp.responseContentPtr = 0;
-            inOp.responseContentLen = 0;
+            inOp.sendContentPtr = 0;
+            inOp.sendContentLen = 0;
             SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
             const char*                  kPskClientIdentityPtr = "";
             const bool                   kDeleteOnCloseFlag    = true;
@@ -202,7 +202,7 @@ public:
             } else {
                 inOp.authName.clear();
                 inOp.filter                = theFilterPtr;
-                inOp.responseAuthType      = kAuthenticationTypePSK;
+                inOp.sendAuthType          = kAuthenticationTypePSK;
                 inOp.sessionExpirationTime = int64_t(time(0)) +
                     mMaxAuthenticationValidTime;
                 if (! inServerPskPtr) {
@@ -219,8 +219,8 @@ public:
                 inOp.contentBuf,
                 inOp.contentLength,
                 mPrincipalUnparseFlags,
-                inOp.responseContentPtr,
-                inOp.responseContentLen,
+                inOp.sendContentPtr,
+                inOp.sendContentLen,
                 theSessionKeyPtr,
                 theSessionKeyLen,
                 thePeerPrincipalPtr
@@ -237,8 +237,8 @@ public:
                     kKfsUserNone)) {
                 inOp.status    = -EACCES;
                 inOp.statusMsg = "access denied for '" + theAuthName + "'";
-                inOp.responseContentPtr = 0;
-                inOp.responseContentLen = 0;
+                inOp.sendContentPtr = 0;
+                inOp.sendContentLen = 0;
                 return false;
             }
             inOp.credExpirationTime    = mKrbServicePtr->GetTicketEndTime();
@@ -247,14 +247,14 @@ public:
                 inOp.credExpirationTime
             );
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
-                inOp.authName         = theAuthName;
-                inOp.responseAuthType = inOp.authType;
+                inOp.authName     = theAuthName;
+                inOp.sendAuthType = inOp.authType;
                 return true;
             }
             // Do not send kerberos AP_REP, as TLS-PSK handshake is sufficient
             // for mutual authentication / replay attack protection.
-            inOp.responseContentPtr = 0;
-            inOp.responseContentLen = 0;
+            inOp.sendContentPtr = 0;
+            inOp.sendContentLen = 0;
             const char*                  kPskClientIdentityPtr = "";
             SslFilter::ServerPsk* const  kServerPskPtr         = 0;
             SslFilter::VerifyPeer* const kVerifyPeerPtr        = 0;
@@ -277,9 +277,9 @@ public:
                 }
                 delete theFilterPtr;
             } else {
-                inOp.filter           = theFilterPtr;
-                inOp.responseAuthType = kAuthenticationTypeKrb5;
-                inOp.authName         = theAuthName;
+                inOp.filter       = theFilterPtr;
+                inOp.sendAuthType = kAuthenticationTypeKrb5;
+                inOp.authName     = theAuthName;
             }
             return (inOp.status == 0);
         }
@@ -309,7 +309,7 @@ public:
                 delete theFilterPtr;
             } else {
                 inOp.filter                = theFilterPtr;
-                inOp.responseAuthType      = inOp.authType;
+                inOp.sendAuthType          = inOp.authType;
                 inOp.sessionExpirationTime = int64_t(time(0)) +
                     mMaxAuthenticationValidTime;
                 int64_t theEndTime = 0;
@@ -319,14 +319,14 @@ public:
                 }
             }
             if (inOp.status == 0) {
-                inOp.responseAuthType = kAuthenticationTypeX509;
+                inOp.sendAuthType = kAuthenticationTypeX509;
             }
             return (inOp.status == 0);
         }
         QCASSERT((inOp.authType & kAuthenticationTypeNone) != 0 &&
             mAuthNoneFlag);
         if (inOp.status == 0) {
-            inOp.responseAuthType = kAuthenticationTypeNone;
+            inOp.sendAuthType = kAuthenticationTypeNone;
         }
         return (inOp.status == 0);
     }

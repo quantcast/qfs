@@ -2709,13 +2709,13 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     KFS_LOG_STREAM(mAuthenticateOp->status == 0 ?
         MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
         GetPeerName()           << " chunk server authentication"
-        " type: "               << mAuthenticateOp->responseAuthType <<
+        " type: "               << mAuthenticateOp->sendAuthType <<
         " name: "               << mAuthenticateOp->authName <<
         " filter: "             <<
             reinterpret_cast<const void*>(mAuthenticateOp->filter) <<
         " session expires in: " <<
             (mAuthenticateOp->sessionExpirationTime - TimeNow()) <<
-        " response length: "    << mAuthenticateOp->responseContentLen <<
+        " response length: "    << mAuthenticateOp->sendContentLen <<
         " msg: "                << mAuthenticateOp->statusMsg <<
     KFS_LOG_EOM;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
