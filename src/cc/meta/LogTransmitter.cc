@@ -39,15 +39,18 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/ClientAuthContext.h"
 #include "kfsio/event.h"
+#include "kfsio/Checksum.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
 
 #include <string>
+#include <algorithm>
 
 namespace KFS
 {
 using std::string;
+using std::max;
 
 class Properties;
 
@@ -157,6 +160,8 @@ public:
         if (mSleepingFlag) {
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
+        mTmpBuf[kTmpBufSize] = 0;
+        mSeqBuf[kTmpBufSize] = 0;
     }
     void SetParameters(
         const ServerLocation& inServerLocation,
@@ -248,9 +253,60 @@ public:
         const char* inBlockPtr,
         size_t      inBlockLen)
     {
+        SendBlock(inBlockSeq, inBlockPtr, inBlockLen,
+            0, kKfsNullChecksum);
+    }
+    void SendBlock(
+        seq_t       inBlockSeq,
+        const char* inBlockPtr,
+        size_t      inBlockLen,
+        uint32_t    inChecksum,
+        size_t      inChecksumStartPos)
+    {
+        int32_t theChecksum = inChecksum;
+        if (inChecksumStartPos <= inBlockLen) {
+            theChecksum = ComputeBlockChecksum(
+                theChecksum,
+                inBlockPtr + inChecksumStartPos,
+                inBlockLen - inChecksumStartPos
+            );
+        }
+        // Block sequence is at the end of the header, and is part of the checksum.
+        char* const    theSeqEndPtr = mSeqBuf + kTmpBufSize;
+        char* thePtr = theSeqEndPtr - 1;
+        *thePtr = '\n';
+        thePtr = IntToHexString(inBlockSeq, thePtr);
+        theChecksum = ChecksumBlocksCombine(
+            ComputeBlockChecksum(
+                kKfsNullChecksum, thePtr, theSeqEndPtr - thePtr),
+            theChecksum, inBlockLen
+        );
+        const char* const theSeqPtr   = thePtr;
+        const int         theBlockLen =
+            (int)(theSeqEndPtr - theSeqPtr) + max(0, (int)inBlockLen);
+        char* const theEndPtr = mTmpBuf + kTmpBufSize;
+        *--thePtr = ' ';
+        thePtr = IntToHexString(theBlockLen, theEndPtr);
+        *--thePtr = ':';
+        *--thePtr = 'l';
+        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+        theBuf.CopyIn(thePtr, (int)(theEndPtr - thePtr));
+        thePtr = theEndPtr;
+        *--thePtr = '\n';
+        *--thePtr = '\r';
+        *--thePtr = '\n';
+        *--thePtr = '\r';
+        thePtr = IntToHexString(theChecksum, thePtr);
+        theBuf.CopyIn(thePtr, (int)(theEndPtr - thePtr));
+        theBuf.CopyIn(theSeqPtr, (int)(theSeqEndPtr - theSeqPtr));
+        theBuf.CopyIn(inBlockPtr, (int)inBlockLen);
+        if (mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
+        }
     }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
+    enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
 
     Impl&              mImpl;
     ServerLocation     mServer;
@@ -269,6 +325,8 @@ private:
     IOBuffer::WOStream mOstream;
     bool               mSleepingFlag;
     seq_t              mHeartbeatInFlighSeq;
+    char               mTmpBuf[kTmpBufSize + 1];
+    char               mSeqBuf[kTmpBufSize + 1];
 
     void Connect()
     {
@@ -541,7 +599,7 @@ private:
         mAuthenticateOpPtr->contentLength         = mReplyProps.getValue("l", 0);
         mAuthenticateOpPtr->authType              =
             mReplyProps.getValue("A", int(kAuthenticationTypeUndef));
-        mAuthenticateOpPtr->useSslFlag    =
+        mAuthenticateOpPtr->useSslFlag            =
             mReplyProps.getValue("US", 0) != 0;
         int64_t theCurrentTime                    =
             mReplyProps.getValue("CT", int64_t(-1));
