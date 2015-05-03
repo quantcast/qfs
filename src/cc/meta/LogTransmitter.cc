@@ -43,6 +43,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
 
+#include <limits>
 #include <string>
 #include <algorithm>
 #include <set>
@@ -58,8 +59,20 @@ class Properties;
 class LogTransmitter
 {
 public:
+    class CommitObserver
+    {
+    public:
+        virtual void Committed(
+            seq_t inSeq) = 0;
+    protected:
+        CommitObserver()
+            {}
+        virtual ~CommitObserver()
+            {}
+    };
     LogTransmitter(
-        NetManager& inNetManager);
+        NetManager&     inNetManager,
+        CommitObserver& inCommitObserver);
     ~LogTransmitter();
     int SetParameters(
         const char*       inParamPrefixPtr,
@@ -87,13 +100,16 @@ public:
     typedef QCDLList<Transmitter> List;
 
     Impl(
-        NetManager& inNetManager)
+        NetManager&     inNetManager,
+        CommitObserver& inCommitObserver)
         : mNetManager(inNetManager),
           mRetryInterval(2),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(5),
-          mLastBlockSeq(-1),
-          mServers()
+          mMinAckToCommit(numeric_limits<int>::max()),
+          mCommitted(-1),
+          mServers(),
+          mCommitObserver(inCommitObserver)
         { List::Init(mTransmittersPtr); }
     ~Impl()
         { Impl::Shutdown(); }
@@ -120,11 +136,11 @@ public:
         { return mMaxReadAhead; }
     int GetHeartbeatInterval() const
         { return mHeartbeatInterval; }
-    seq_t GetLastBlockSeq() const
-        { return mLastBlockSeq; }
-    void SetLastBlockSeq(
+    seq_t GetCommitted() const
+        { return mCommitted; }
+    void SetCommitted(
         seq_t inSeq)
-        { mLastBlockSeq = inSeq; }
+        { mCommitted = inSeq; }
     void Add(
         Transmitter& inTransmitter);
     void Remove(
@@ -140,14 +156,16 @@ private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
 
-    NetManager&  mNetManager;
-    int          mRetryInterval;
-    int          mMaxReadAhead;
-    int          mHeartbeatInterval;
-    seq_t        mLastBlockSeq;
-    String       mServers;
-    Transmitter* mTransmittersPtr[1];
-    char         mParseBuffer[MAX_RPC_HEADER_LEN];
+    NetManager&     mNetManager;
+    int             mRetryInterval;
+    int             mMaxReadAhead;
+    int             mHeartbeatInterval;
+    int             mMinAckToCommit;
+    seq_t           mCommitted;
+    String          mServers;
+    CommitObserver& mCommitObserver;
+    Transmitter*    mTransmittersPtr[1];
+    char            mParseBuffer[MAX_RPC_HEADER_LEN];
 
 private:
     Impl(
@@ -856,6 +874,9 @@ LogTransmitter::Impl::SetParameters(
     mHeartbeatInterval = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "heartbeatInterval"), mHeartbeatInterval);
+    mMinAckToCommit = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "minAckToCommit"), mMinAckToCommit);
     const String* const theServersPtr = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "servers"));
@@ -939,9 +960,34 @@ LogTransmitter::Impl::IdChanged(
 
     void
 LogTransmitter::Impl::Acked(
-    seq_t                              inPrevAck,
+    seq_t                              /* inPrevAck */,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
+    const seq_t theAck = inTransmitter.GetAck();
+    if (theAck <= mCommitted) {
+        return;
+    }
+    int            theCnt    = 0;
+    int            theAckCnt = 0;
+    const int64_t  theId     = inTransmitter.GetId();
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        if (theId == thePtr->GetId()) {
+            continue;
+        }
+        theCnt++;
+        if (theAck <= thePtr->GetAck()) {
+            theAckCnt++;
+            if (mMinAckToCommit <= theAckCnt) {
+                break;
+            }
+        }
+    }
+    if (thePtr || theCnt <= theAckCnt) {
+        mCommitted = theAck;
+        mCommitObserver.Committed(mCommitted);
+    }
 }
 
     int
@@ -959,8 +1005,9 @@ LogTransmitter::Impl::TransmitBlock(
 }
 
 LogTransmitter::LogTransmitter(
-    NetManager& inNetManager)
-    : mImpl(*(new Impl(inNetManager)))
+    NetManager&                     inNetManager,
+    LogTransmitter::CommitObserver& inCommitObserver)
+    : mImpl(*(new Impl(inNetManager, inCommitObserver)))
     {}
 
 LogTransmitter::~LogTransmitter()
