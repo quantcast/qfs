@@ -25,7 +25,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "AuthContext.h"
 #include "MetaRequest.h"
 #include "util.h"
 
@@ -59,12 +58,14 @@ class Properties;
 class LogTransmitter
 {
 public:
-    LogTransmitter();
+    LogTransmitter(
+        NetManager& inNetManager);
     ~LogTransmitter();
-    void SetParameters(
+    int SetParameters(
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
-    int TransmitBlocl(
+    int TransmitBlock(
+        seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockSize);
 private:
@@ -95,16 +96,14 @@ public:
           mServers()
         { List::Init(mTransmittersPtr); }
     ~Impl()
-        {}
+        { Impl::Shutdown(); }
     int SetParameters(
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
-    int TransmitBlocl(
+    int TransmitBlock(
+        seq_t       inBlockSeq,
         const char* inBlockPtr,
-        size_t      inBlockSize)
-    {
-        return 0;
-    }
+        size_t      inBlockSize);
     static seq_t RandomSeq()
     {
         seq_t theReq = 0;
@@ -129,6 +128,13 @@ public:
     void Add(
         Transmitter& inTransmitter);
     void Remove(
+        Transmitter& inTransmitter);
+    void Shutdown();
+    void IdChanged(
+        int64_t      inPrevId,
+        Transmitter& inTransmitter);
+    void Acked(
+        seq_t        inPrevAck,
         Transmitter& inTransmitter);
 private:
     typedef Properties::String       String;
@@ -176,7 +182,8 @@ public:
           mReplyProps(),
           mIstream(),
           mOstream(),
-          mSleepingFlag(false)
+          mSleepingFlag(false),
+          mId(-1)
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
@@ -206,6 +213,12 @@ public:
             &outErrMsg,
             kVerifyFlag
         );
+    }
+    void Start()
+    {
+        if (! mConnectionPtr && ! mSleepingFlag) {
+            Connect();
+        }
     }
     int HandleEvent(
         int   inType,
@@ -340,6 +353,10 @@ public:
     }
     ClientAuthContext& GetAuthCtx()
         { return mAuthContext; }
+    int64_t GetId() const
+        { return mId; }
+    seq_t GetAck() const
+        { return mAckBlockSeq; }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
@@ -361,6 +378,7 @@ private:
     IOBuffer::WOStream mOstream;
     bool               mSleepingFlag;
     seq_t              mHeartbeatInFlighSeq;
+    int64_t            mId;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
     char               mTmpBuf[kTmpBufSize + 1];
@@ -578,8 +596,9 @@ private:
         int         inHeaderLen,
         IOBuffer&   inBuffer)
     {
-        const char*       thePtr    = inHeaderPtr + 2;
-        const char* const theEndPtr = thePtr + inHeaderLen;
+        const seq_t       thePrevAckSeq = mAckBlockSeq;
+        const char*       thePtr        = inHeaderPtr + 2;
+        const char* const theEndPtr     = thePtr + inHeaderLen;
         if (! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, mAckBlockSeq) ||
                 ! HexIntParser::Parse(
@@ -597,6 +616,62 @@ private:
             KFS_LOG_EOM;
             Error("invalid ack sequence");
             return -1;
+        }
+        if (mAckBlockFlags &
+                    (uint64_t(1) << kLogBlockAckHasServerIdBit)) {
+            int64_t theId = -1;
+            if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theId) ||
+                    theId < 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    mServer << ": "
+                    "missing or invalid server id: " << theId <<
+                    " last sent: "                   << mLastSentBlockSeq <<
+                KFS_LOG_EOM;
+                Error("missing or invalid server id");
+                return -1;
+            }
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                thePtr++;
+            }
+            const char* const theChksumEndPtr = thePtr;
+            uint32_t theChecksum = 0;
+            if (! HexIntParser::Parse(
+                    thePtr, theEndPtr - thePtr, theChecksum)) {
+                KFS_LOG_STREAM_ERROR <<
+                    mServer << ": "
+                    "invalid ack checksum: " << theChecksum <<
+                    " last sent: "           << mLastSentBlockSeq <<
+                KFS_LOG_EOM;
+                Error("missing or invalid server id");
+                return -1;
+            }
+            const uint32_t theComputedChksum = ComputeBlockChecksum(
+                inHeaderPtr, theChksumEndPtr - inHeaderPtr);
+            if (theComputedChksum != theChecksum) {
+                KFS_LOG_STREAM_ERROR <<
+                    mServer << ": "
+                    "ack checksum mismatch:"
+                    " expected: " << theChecksum <<
+                    " computed: " << theComputedChksum <<
+                KFS_LOG_EOM;
+                Error("ack checksum mismatch");
+                return -1;
+            }
+            if (0 <= mId) {
+                KFS_LOG_STREAM_INFO <<
+                    mServer << ": "
+                    " server id has changed from: " << mId <<
+                    " to: " << theId <<
+                KFS_LOG_EOM;
+            }
+            if (theId != mId) {
+                const int64_t thePrevId = mId;
+                mId = theId;
+                mImpl.IdChanged(thePrevId, *this);
+            }
+        }
+        if (thePrevAckSeq != mAckBlockSeq) {
+            mImpl.Acked(thePrevAckSeq, *this);
         }
         inBuffer.Consume(inHeaderLen);
         if (! mAuthenticateOpPtr &&
@@ -824,7 +899,7 @@ LogTransmitter::Impl::SetParameters(
         string    theErrMsg;
         const int theErr = theTPtr->SetParameters(
             theAuthCtxPtr, theAuthPrefixPtr, inParameters, theErrMsg);
-        if (theErr) {
+        if (0 != theErr) {
             if (theErrMsg.empty()) {
                 theErrMsg = QCUtils::SysError(theErr,
                     "setting authentication parameters error");
@@ -836,12 +911,78 @@ LogTransmitter::Impl::SetParameters(
             if (theRet == 0) {
                 theRet = theErr;
             }
+        } else {
+            theTPtr->Start();
         }
         if (! theAuthCtxPtr) {
             theAuthCtxPtr = &theTPtr->GetAuthCtx();
         }
     }
     return theRet;
+}
+
+    void
+LogTransmitter::Impl::Shutdown()
+{
+    Transmitter* thePtr;
+    while ((thePtr = List::Back(mTransmittersPtr))) {
+        delete thePtr;
+    }
+}
+
+    void
+LogTransmitter::Impl::IdChanged(
+    int64_t                            inPrevId,
+    LogTransmitter::Impl::Transmitter& inTransmitter)
+{
+}
+
+    void
+LogTransmitter::Impl::Acked(
+    seq_t                              inPrevAck,
+    LogTransmitter::Impl::Transmitter& inTransmitter)
+{
+}
+
+    int
+LogTransmitter::Impl::TransmitBlock(
+    seq_t       inBlockSeq,
+    const char* inBlockPtr,
+    size_t      inBlockSize)
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        thePtr->SendBlock(inBlockSeq, inBlockPtr, inBlockSize);
+    }
+    return 0;
+}
+
+LogTransmitter::LogTransmitter(
+    NetManager& inNetManager)
+    : mImpl(*(new Impl(inNetManager)))
+    {}
+
+LogTransmitter::~LogTransmitter()
+{
+    delete &mImpl;
+}
+
+    int
+LogTransmitter::SetParameters(
+    const char*       inParamPrefixPtr,
+    const Properties& inParameters)
+{
+    return mImpl.SetParameters(inParamPrefixPtr, inParameters);
+}
+
+    int
+LogTransmitter::TransmitBlock(
+    seq_t       inBlockSeq,
+    const char* inBlockPtr,
+    size_t      inBlockSize)
+{
+    return mImpl.TransmitBlock(inBlockSeq, inBlockPtr, inBlockSize);
 }
 
 } // namespace KFS

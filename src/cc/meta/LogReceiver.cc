@@ -100,7 +100,8 @@ public:
           mNextLogSeq(-1),
           mDeleteFlag(false),
           mLines(),
-          mParseBuffer()
+          mParseBuffer(),
+          mId(-1)
     {
         List::Init(mConnectionsHeadPtr);
         mLines.reserve(2 << 10);
@@ -136,6 +137,9 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
+        mId = inParameters.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "id"), mId);
         mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
             inParameters);
@@ -163,6 +167,12 @@ public:
         if (! mListenerAddress.IsValid()) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid listen address: " << mListenerAddress <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (mId < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "server id is not set: " << mId <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -208,6 +218,8 @@ public:
         }
         delete this;
     }
+    int64_t GetId() const
+        { return mId; }
 
     enum { kMaxBlockHeaderLen  = (int)sizeof(seq_t) * 2 + 1 + 16 };
     enum { kMinParseBufferSize = kMaxBlockHeaderLen <= MAX_RPC_HEADER_LEN ?
@@ -248,6 +260,7 @@ private:
     bool           mDeleteFlag;
     Lines          mLines;
     ParseBuffer    mParseBuffer;
+    int64_t        mId;
     Connection*    mConnectionsHeadPtr[1];
 
     ~Impl()
@@ -284,6 +297,7 @@ public:
           mBlockChecksum(0),
           mBlockEndSeq(-1),
           mDownFlag(false),
+          mIdSentFlag(false),
           mAuthPendingResponsesHeadPtr(0),
           mAuthPendingResponsesTailPtr(0),
           mIStream(),
@@ -430,6 +444,7 @@ private:
     int32_t                mBlockChecksum;
     int64_t                mBlockEndSeq;
     bool                   mDownFlag;
+    bool                   mIdSentFlag;
     MetaRequest*           mAuthPendingResponsesHeadPtr;
     MetaRequest*           mAuthPendingResponsesTailPtr;
     IOBuffer::IStream      mIStream;
@@ -796,7 +811,6 @@ private:
         }
         mBlockLength -= inBuffer.Consume((int)(thePtr - theStartPtr));
         mBlockEndSeq = theBlockEndSeq;
-        SendAck();
         if (mDownFlag) {
             return -1;
         }
@@ -842,9 +856,23 @@ private:
         if (theReAuthFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckReAuthFlagBit;
         }
-        ReqOstream theStream(mOstream.Set(mConnectionPtr->GetOutBuffer()));
+        if (! mIdSentFlag) {
+            theAckFlags |= uint64_t(1) << kLogBlockAckHasServerIdBit;
+        }
+        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+        const int thePos = theBuf.BytesConsumable();
+        ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
-            "A " << mBlockEndSeq << " " << theAckFlags << "\r\n\r\n";
+            "A " << mBlockEndSeq << " " << theAckFlags;
+        if (! mIdSentFlag) {
+            mIdSentFlag = true;
+            theStream << " " << mImpl.GetId() << " ";
+            theStream.flush();
+            const uint32_t theChecksum = ComputeBlockChecksumAt(
+                &theBuf, thePos, theBuf.BytesConsumable() - thePos);
+            theStream << theChecksum;
+        }
+        theStream << "\r\n\r\n";
         theStream.flush();
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();
@@ -933,6 +961,7 @@ private:
             inBuffer.Consume(mBlockLength);
         }
         mBlockLength = -1;
+        SendAck();
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         return 0;
     }

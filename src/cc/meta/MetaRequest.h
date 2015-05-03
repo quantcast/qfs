@@ -3715,7 +3715,8 @@ struct MetaLogWriterControl : public MetaRequest {
 
 enum LogBlockAckFlags
 {
-    kLogBlockAckReAuthFlagBit = 0
+    kLogBlockAckReAuthFlagBit  = 0,
+    kLogBlockAckHasServerIdBit = 1
 };
 
 int ParseCommand(const IOBuffer& buf, int len, MetaRequest **res,
