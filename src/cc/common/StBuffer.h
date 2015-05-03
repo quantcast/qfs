@@ -98,19 +98,23 @@ public:
         { return mBufPtr; }
     const T* GetPtr() const
         { return mBufPtr; }
+    StBufferT& Copy(
+        const StBufferT inBuf,
+        size_t          inLen)
+    {
+        if (&inBuf == this) {
+            if (inLen < mSize) {
+                Resize(inLen);
+            }
+            return this;
+        }
+        return CopySelf(inBuf, inLen);
+    }
     template<size_t CAPACITY>
     StBufferT& Copy(
         const StBufferT<T, CAPACITY>& inBuf,
         size_t                        inLen)
-    {
-        mSize = 0;
-        copy(
-            inBuf.GetPtr(),
-            inBuf.GetPtr() + min(inBuf.GetSize(), inLen),
-            Resize(inBuf.GetSize())
-        );
-        return *this;
-    }
+        { return CopySelf(inBuf, inLen); }
     StBufferT& Copy(
         const T* inPtr,
         size_t   inLen)
@@ -218,6 +222,20 @@ protected:
         mBufPtr   = theBufPtr;
         return mBufPtr;
     }
+    template<size_t CAPACITY>
+    StBufferT& CopySelf(
+        const StBufferT<T, CAPACITY>& inBuf,
+        size_t                        inLen)
+    {
+        const size_t theLen = min(inBuf.GetSize(), inLen);
+        mSize = 0;
+        copy(
+            inBuf.GetPtr(),
+            inBuf.GetPtr() + theLen,
+            Resize(theLen)
+        );
+        return *this;
+    }
 };
 
 // String buffer, with lazy conversion to string.
@@ -296,19 +314,18 @@ public:
         mStr  = inStr;
         return *this;
     }
+    StringBufT& Copy(
+        const StringBufT& inBuf)
+    {
+        if (&inBuf == this) {
+            return *this;
+        }
+        return CopySelf(inBuf);
+    }
     template<size_t CAPACITY>
     StringBufT& Copy(
         const StringBufT<CAPACITY>& inBuf)
-    {
-        if (inBuf.mSize > 0) {
-            Copy(inBuf.mBuf, inBuf.mSize);
-        } else {
-            mStr  = inBuf.mStr;
-            mSize = inBuf.mSize;
-            mBuf[0] = 0;
-        }
-        return *this;
-    }
+        { return CopySelf(inBuf); }
     string GetStr() const
     {
         if (mSize > 0) {
@@ -462,6 +479,20 @@ private:
     int    mSize;
 
     template<size_t> friend class StringBufT;
+
+    template<size_t CAPACITY>
+    StringBufT& CopySelf(
+        const StringBufT<CAPACITY>& inBuf)
+    {
+        if (inBuf.mSize > 0) {
+            Copy(inBuf.mBuf, inBuf.mSize);
+        } else {
+            mStr  = inBuf.mStr;
+            mSize = inBuf.mSize;
+            mBuf[0] = 0;
+        }
+        return *this;
+    }
 };
 
 template<size_t DEFAULT_CAPACITY>
