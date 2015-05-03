@@ -46,11 +46,13 @@
 
 #include <string>
 #include <algorithm>
+#include <set>
 
 namespace KFS
 {
 using std::string;
 using std::max;
+using std::multiset;
 
 class Properties;
 
@@ -78,21 +80,30 @@ private:
 
 class LogTransmitter::Impl
 {
+private:
+    class Transmitter;
 public:
+    typedef QCDLList<Transmitter> List;
+
     Impl(
         NetManager& inNetManager)
         : mNetManager(inNetManager),
           mRetryInterval(2),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(5),
-          mLastBlockSeq(-1)
-        {}
+          mLastBlockSeq(-1),
+          mServers()
+        { List::Init(mTransmittersPtr); }
     ~Impl()
         {}
-    void SetParameters(
+    int SetParameters(
         const char*       inParamPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters);
+    int TransmitBlocl(
+        const char* inBlockPtr,
+        size_t      inBlockSize)
     {
+        return 0;
     }
     static seq_t RandomSeq()
     {
@@ -112,15 +123,25 @@ public:
         { return mHeartbeatInterval; }
     seq_t GetLastBlockSeq() const
         { return mLastBlockSeq; }
+    void SetLastBlockSeq(
+        seq_t inSeq)
+        { mLastBlockSeq = inSeq; }
+    void Add(
+        Transmitter& inTransmitter);
+    void Remove(
+        Transmitter& inTransmitter);
 private:
-    class Transmitter;
+    typedef Properties::String       String;
+    typedef multiset<ServerLocation> Locations;
 
-    NetManager& mNetManager;
-    int         mRetryInterval;
-    int         mMaxReadAhead;
-    int         mHeartbeatInterval;
-    seq_t       mLastBlockSeq;
-    char        mParseBuffer[MAX_RPC_HEADER_LEN];
+    NetManager&  mNetManager;
+    int          mRetryInterval;
+    int          mMaxReadAhead;
+    int          mHeartbeatInterval;
+    seq_t        mLastBlockSeq;
+    String       mServers;
+    Transmitter* mTransmittersPtr[1];
+    char         mParseBuffer[MAX_RPC_HEADER_LEN];
 
 private:
     Impl(
@@ -134,11 +155,14 @@ class LogTransmitter::Impl::Transmitter :
     public ITimeout
 {
 public:
+    typedef Impl::List List;
+
     Transmitter(
-        Impl& inImpl)
+        Impl&                 inImpl,
+        const ServerLocation& inServer)
         : KfsCallbackObj(),
           mImpl(inImpl),
-          mServer(),
+          mServer(inServer),
           mConnectionPtr(),
           mAuthenticateOpPtr(0),
           mNextSeq(mImpl.RandomSeq()),
@@ -153,26 +177,35 @@ public:
           mIstream(),
           mOstream(),
           mSleepingFlag(false)
-        { SET_HANDLER(this, &Transmitter::HandleEvent); }
+    {
+        SET_HANDLER(this, &Transmitter::HandleEvent);
+        List::Init(*this);
+        mTmpBuf[kTmpBufSize] = 0;
+        mSeqBuf[kTmpBufSize] = 0;
+    }
     ~Transmitter()
     {
+        Transmitter::Shutdown();
         MetaRequest::Release(mAuthenticateOpPtr);
         if (mSleepingFlag) {
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
-        mTmpBuf[kTmpBufSize] = 0;
-        mSeqBuf[kTmpBufSize] = 0;
+        mImpl.Remove(*this);
     }
-    void SetParameters(
-        const ServerLocation& inServerLocation,
-        ClientAuthContext*    inAuthCtxPtr,
-        const char*           inParamPrefixPtr,
-        const Properties&     inParameters)
+    int SetParameters(
+        ClientAuthContext* inAuthCtxPtr,
+        const char*        inParamPrefixPtr,
+        const Properties&  inParameters,
+        string&            outErrMsg)
     {
-        if (inServerLocation != mServer) {
-            Shutdown();
-            mLastSentBlockSeq = mImpl.GetLastBlockSeq();
-        }
+        const bool kVerifyFlag = true;
+        return mAuthContext.SetParameters(
+            inParamPrefixPtr,
+            inParameters,
+            inAuthCtxPtr,
+            &outErrMsg,
+            kVerifyFlag
+        );
     }
     int HandleEvent(
         int   inType,
@@ -271,7 +304,8 @@ public:
                 inBlockLen - inChecksumStartPos
             );
         }
-        // Block sequence is at the end of the header, and is part of the checksum.
+        // Block sequence is at the end of the header, and is part of the
+        // checksum.
         char* const    theSeqEndPtr = mSeqBuf + kTmpBufSize;
         char* thePtr = theSeqEndPtr - 1;
         *thePtr = '\n';
@@ -304,6 +338,8 @@ public:
             mConnectionPtr->StartFlush();
         }
     }
+    ClientAuthContext& GetAuthCtx()
+        { return mAuthContext; }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
@@ -325,8 +361,12 @@ private:
     IOBuffer::WOStream mOstream;
     bool               mSleepingFlag;
     seq_t              mHeartbeatInFlighSeq;
+    Transmitter*       mPrevPtr[1];
+    Transmitter*       mNextPtr[1];
     char               mTmpBuf[kTmpBufSize + 1];
     char               mSeqBuf[kTmpBufSize + 1];
+
+    friend class QCDLListOp<Transmitter>;
 
     void Connect()
     {
@@ -707,5 +747,101 @@ private:
     Transmitter& operator=(
         const Transmitter& inTransmitter);
 };
+
+    void
+LogTransmitter::Impl::Add(
+    Transmitter& inTransmitter)
+{
+    List::PushBack(mTransmittersPtr, inTransmitter);
+}
+
+    void
+LogTransmitter::Impl::Remove(
+    Transmitter& inTransmitter)
+{
+    List::Remove(mTransmittersPtr, inTransmitter);
+}
+
+    int
+LogTransmitter::Impl::SetParameters(
+    const char*       inParamPrefixPtr,
+    const Properties& inParameters)
+{
+    Properties::String theParamName;
+    if (inParamPrefixPtr) {
+        theParamName.Append(inParamPrefixPtr);
+    }
+    const size_t thePrefixLen = theParamName.GetSize();
+    mRetryInterval = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "retryInterval"), mRetryInterval);
+    mMaxReadAhead = max(512, min(64 << 20, inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "maxReadAhead"), mMaxReadAhead)));
+    mHeartbeatInterval = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "heartbeatInterval"), mHeartbeatInterval);
+    const String* const theServersPtr = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "servers"));
+    if (theServersPtr && *theServersPtr != mServers) {
+        ServerLocation    theLocation;
+        Locations         theLocations;
+        const char*       thePtr      = theServersPtr->GetPtr();
+        const char* const theEndPtr   = thePtr + theServersPtr->GetSize();
+        const bool        kHexFmtFlag = false;
+        while (thePtr < theEndPtr && theLocation.FromString(
+                thePtr, theEndPtr - theEndPtr, kHexFmtFlag)) {
+            theLocations.insert(theLocation);
+        }
+        List::Iterator theIt(mTransmittersPtr);
+        Transmitter*   theTPtr;
+        while ((theTPtr = theIt.Next())) {
+            Locations::iterator const theIt =
+                theLocations.find(theTPtr->GetServerLocation());
+            if (theIt == theLocations.end()) {
+                delete theTPtr;
+            } else {
+                theLocations.erase(theIt);
+            }
+        }
+        Locations::iterator theLIt;
+        while ((theLIt = theLocations.begin()) != theLocations.end()) {
+            new Transmitter(*this, *theLIt);
+            theLocations.erase(theLIt);
+        }
+        mServers = *theServersPtr;
+    }
+    const char* const  theAuthPrefixPtr =
+        theParamName.Truncate(thePrefixLen).Append("auth.").c_str();
+    ClientAuthContext* theAuthCtxPtr    =
+        List::IsEmpty(mTransmittersPtr) ? 0 :
+        &(List::Front(mTransmittersPtr)->GetAuthCtx());
+    int                theRet           = 0;
+    List::Iterator     theIt(mTransmittersPtr);
+    Transmitter*       theTPtr;
+    while ((theTPtr = theIt.Next())) {
+        string    theErrMsg;
+        const int theErr = theTPtr->SetParameters(
+            theAuthCtxPtr, theAuthPrefixPtr, inParameters, theErrMsg);
+        if (theErr) {
+            if (theErrMsg.empty()) {
+                theErrMsg = QCUtils::SysError(theErr,
+                    "setting authentication parameters error");
+            }
+            KFS_LOG_STREAM_ERROR <<
+                theTPtr->GetServerLocation() << ": " <<
+                theErrMsg <<
+            KFS_LOG_EOM;
+            if (theRet == 0) {
+                theRet = theErr;
+            }
+        }
+        if (! theAuthCtxPtr) {
+            theAuthCtxPtr = &theTPtr->GetAuthCtx();
+        }
+    }
+    return theRet;
+}
 
 } // namespace KFS
