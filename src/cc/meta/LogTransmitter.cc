@@ -80,7 +80,9 @@ public:
     int TransmitBlock(
         seq_t       inBlockSeq,
         const char* inBlockPtr,
-        size_t      inBlockSize);
+        size_t      inBlockLen,
+        uint32_t    inChecksum,
+        size_t      inChecksumStartPos);
 private:
     class Impl;
 
@@ -110,7 +112,11 @@ public:
           mCommitted(-1),
           mServers(),
           mCommitObserver(inCommitObserver)
-        { List::Init(mTransmittersPtr); }
+    {
+        List::Init(mTransmittersPtr);
+        mTmpBuf[kTmpBufSize] = 0;
+        mSeqBuf[kTmpBufSize] = 0;
+    }
     ~Impl()
         { Impl::Shutdown(); }
     int SetParameters(
@@ -119,7 +125,9 @@ public:
     int TransmitBlock(
         seq_t       inBlockSeq,
         const char* inBlockPtr,
-        size_t      inBlockSize);
+        size_t      inBlockLen,
+        uint32_t    inChecksum,
+        size_t      inChecksumStartPos);
     static seq_t RandomSeq()
     {
         seq_t theReq = 0;
@@ -152,9 +160,56 @@ public:
     void Acked(
         seq_t        inPrevAck,
         Transmitter& inTransmitter);
+    void WriteBlock(
+        IOBuffer&   inBuffer,
+        seq_t       inBlockSeq,
+        const char* inBlockPtr,
+        size_t      inBlockLen,
+        uint32_t    inChecksum,
+        size_t      inChecksumStartPos)
+    {
+        int32_t theChecksum = inChecksum;
+        if (inChecksumStartPos <= inBlockLen) {
+            theChecksum = ComputeBlockChecksum(
+                theChecksum,
+                inBlockPtr + inChecksumStartPos,
+                inBlockLen - inChecksumStartPos
+            );
+        }
+        // Block sequence is at the end of the header, and is part of the
+        // checksum.
+        char* const    theSeqEndPtr = mSeqBuf + kTmpBufSize;
+        char* thePtr = theSeqEndPtr - 1;
+        *thePtr = '\n';
+        thePtr = IntToHexString(inBlockSeq, thePtr);
+        theChecksum = ChecksumBlocksCombine(
+            ComputeBlockChecksum(
+                kKfsNullChecksum, thePtr, theSeqEndPtr - thePtr),
+            theChecksum, inBlockLen
+        );
+        const char* const theSeqPtr   = thePtr;
+        const int         theBlockLen =
+            (int)(theSeqEndPtr - theSeqPtr) + max(0, (int)inBlockLen);
+        char* const theEndPtr = mTmpBuf + kTmpBufSize;
+        *--thePtr = ' ';
+        thePtr = IntToHexString(theBlockLen, theEndPtr);
+        *--thePtr = ':';
+        *--thePtr = 'l';
+        inBuffer.CopyIn(thePtr, (int)(theEndPtr - thePtr));
+        thePtr = theEndPtr;
+        *--thePtr = '\n';
+        *--thePtr = '\r';
+        *--thePtr = '\n';
+        *--thePtr = '\r';
+        thePtr = IntToHexString(theChecksum, thePtr);
+        inBuffer.CopyIn(thePtr, (int)(theEndPtr - thePtr));
+        inBuffer.CopyIn(theSeqPtr, (int)(theSeqEndPtr - theSeqPtr));
+        inBuffer.CopyIn(inBlockPtr, (int)inBlockLen);
+    }
 private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
+    enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
 
     NetManager&     mNetManager;
     int             mRetryInterval;
@@ -166,6 +221,8 @@ private:
     CommitObserver& mCommitObserver;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
+    char            mTmpBuf[kTmpBufSize + 1];
+    char            mSeqBuf[kTmpBufSize + 1];
 
 private:
     Impl(
@@ -187,6 +244,7 @@ public:
         : KfsCallbackObj(),
           mImpl(inImpl),
           mServer(inServer),
+          mPendingSend(),
           mConnectionPtr(),
           mAuthenticateOpPtr(0),
           mNextSeq(mImpl.RandomSeq()),
@@ -205,8 +263,6 @@ public:
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
-        mTmpBuf[kTmpBufSize] = 0;
-        mSeqBuf[kTmpBufSize] = 0;
     }
     ~Transmitter()
     {
@@ -312,62 +368,40 @@ public:
         }
         Connect();
     }
-    void SendBlock(
-        seq_t       inBlockSeq,
-        const char* inBlockPtr,
-        size_t      inBlockLen)
+    bool SendBlock(
+        seq_t     /* inBlockSeq */,
+        IOBuffer& inBuffer,
+        int       inLen)
     {
-        SendBlock(inBlockSeq, inBlockPtr, inBlockLen,
-            0, kKfsNullChecksum);
+        if (! mConnectionPtr) {
+            return false;
+        }
+        IOBuffer& theBuf = (mAuthenticateOpPtr ?
+            mPendingSend : mConnectionPtr->GetOutBuffer());
+        theBuf.Copy(&inBuffer, inLen);
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr) {
+            mConnectionPtr->StartFlush();
+        }
+        return (!! mConnectionPtr);
     }
-    void SendBlock(
+    bool SendBlock(
         seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockLen,
         uint32_t    inChecksum,
         size_t      inChecksumStartPos)
     {
-        int32_t theChecksum = inChecksum;
-        if (inChecksumStartPos <= inBlockLen) {
-            theChecksum = ComputeBlockChecksum(
-                theChecksum,
-                inBlockPtr + inChecksumStartPos,
-                inBlockLen - inChecksumStartPos
-            );
+        if (! mConnectionPtr) {
+            return false;
         }
-        // Block sequence is at the end of the header, and is part of the
-        // checksum.
-        char* const    theSeqEndPtr = mSeqBuf + kTmpBufSize;
-        char* thePtr = theSeqEndPtr - 1;
-        *thePtr = '\n';
-        thePtr = IntToHexString(inBlockSeq, thePtr);
-        theChecksum = ChecksumBlocksCombine(
-            ComputeBlockChecksum(
-                kKfsNullChecksum, thePtr, theSeqEndPtr - thePtr),
-            theChecksum, inBlockLen
-        );
-        const char* const theSeqPtr   = thePtr;
-        const int         theBlockLen =
-            (int)(theSeqEndPtr - theSeqPtr) + max(0, (int)inBlockLen);
-        char* const theEndPtr = mTmpBuf + kTmpBufSize;
-        *--thePtr = ' ';
-        thePtr = IntToHexString(theBlockLen, theEndPtr);
-        *--thePtr = ':';
-        *--thePtr = 'l';
-        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
-        theBuf.CopyIn(thePtr, (int)(theEndPtr - thePtr));
-        thePtr = theEndPtr;
-        *--thePtr = '\n';
-        *--thePtr = '\r';
-        *--thePtr = '\n';
-        *--thePtr = '\r';
-        thePtr = IntToHexString(theChecksum, thePtr);
-        theBuf.CopyIn(thePtr, (int)(theEndPtr - thePtr));
-        theBuf.CopyIn(theSeqPtr, (int)(theSeqEndPtr - theSeqPtr));
-        theBuf.CopyIn(inBlockPtr, (int)inBlockLen);
-        if (mRecursionCount <= 0) {
+        IOBuffer& theBuf = (mAuthenticateOpPtr ?
+            mPendingSend : mConnectionPtr->GetOutBuffer());
+        mImpl.WriteBlock(theBuf, inBlockSeq,
+            inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr) {
             mConnectionPtr->StartFlush();
         }
+        return (!! mConnectionPtr);
     }
     ClientAuthContext& GetAuthCtx()
         { return mAuthContext; }
@@ -377,10 +411,10 @@ public:
         { return mAckBlockSeq; }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
-    enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
 
     Impl&              mImpl;
     ServerLocation     mServer;
+    IOBuffer           mPendingSend;
     NetConnectionPtr   mConnectionPtr;
     MetaAuthenticate*  mAuthenticateOpPtr;
     seq_t              mNextSeq;
@@ -399,8 +433,6 @@ private:
     int64_t            mId;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
-    char               mTmpBuf[kTmpBufSize + 1];
-    char               mSeqBuf[kTmpBufSize + 1];
 
     friend class QCDLListOp<Transmitter>;
 
@@ -543,17 +575,16 @@ private:
                 // Shutdown the current filter.
                 mConnectionPtr->Shutdown();
                 return;
-            } else {
-                mAuthenticateOpPtr->status = mAuthContext.Response(
-                    mAuthenticateOpPtr->authType,
-                    mAuthenticateOpPtr->useSslFlag,
-                    mAuthenticateOpPtr->contentBuf,
-                    mAuthenticateOpPtr->contentLength,
-                    *mConnectionPtr,
-                    mAuthRequestCtx,
-                    &mAuthenticateOpPtr->statusMsg
-                );
             }
+            mAuthenticateOpPtr->status = mAuthContext.Response(
+                mAuthenticateOpPtr->authType,
+                mAuthenticateOpPtr->useSslFlag,
+                mAuthenticateOpPtr->contentBuf,
+                mAuthenticateOpPtr->contentLength,
+                *mConnectionPtr,
+                mAuthRequestCtx,
+                &mAuthenticateOpPtr->statusMsg
+            );
         }
         const string theErrMsg = mAuthenticateOpPtr->statusMsg;
         const bool   theOkFlag = mAuthenticateOpPtr->status == 0;
@@ -567,6 +598,13 @@ private:
         mAuthenticateOpPtr = 0;
         if (! theOkFlag) {
             Error(theErrMsg.c_str());
+            return;
+        }
+        if (mConnectionPtr && ! mPendingSend.IsEmpty()) {
+            mConnectionPtr->GetOutBuffer().Move(&mPendingSend);
+            if (mRecursionCount <= 0) {
+                mConnectionPtr->StartFlush();
+            }
         }
     }
     bool HandleSslShutdown()
@@ -587,7 +625,8 @@ private:
             return false;
         }
         mHeartbeatInFlighSeq = mLastSentBlockSeq;
-        SendBlock(mHeartbeatInFlighSeq, "", 0);
+        SendBlock(mHeartbeatInFlighSeq, "", 0,
+            0, kKfsNullChecksum);
         return true;
     }
     int HandleMsg(
@@ -793,6 +832,7 @@ private:
         if (! mConnectionPtr) {
             return;
         }
+        mPendingSend.Clear();
         KFS_LOG_STREAM_ERROR <<
             mServer << ": " <<
             (inMsgPtr ? inMsgPtr : "network error") <<
@@ -994,12 +1034,29 @@ LogTransmitter::Impl::Acked(
 LogTransmitter::Impl::TransmitBlock(
     seq_t       inBlockSeq,
     const char* inBlockPtr,
-    size_t      inBlockSize)
+    size_t      inBlockLen,
+    uint32_t    inChecksum,
+    size_t      inChecksumStartPos)
 {
+    if (List::IsEmpty(mTransmittersPtr)) {
+        return 0;
+    }
+    if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
+        return (List::Front(mTransmittersPtr)->SendBlock(
+            inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
+            ? 0 : -EIO);
+    }
+    IOBuffer theBuffer;
+    WriteBlock(theBuffer,
+        inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
+    int            theCnt = 0;
     while ((thePtr = theIt.Next())) {
-        thePtr->SendBlock(inBlockSeq, inBlockPtr, inBlockSize);
+        if (thePtr->SendBlock(
+                inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
+            theCnt++;
+        }
     }
     return 0;
 }
@@ -1027,9 +1084,12 @@ LogTransmitter::SetParameters(
 LogTransmitter::TransmitBlock(
     seq_t       inBlockSeq,
     const char* inBlockPtr,
-    size_t      inBlockSize)
+    size_t      inBlockLen,
+    uint32_t    inChecksum,
+    size_t      inChecksumStartPos)
 {
-    return mImpl.TransmitBlock(inBlockSeq, inBlockPtr, inBlockSize);
+    return mImpl.TransmitBlock(
+        inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
 
 } // namespace KFS
