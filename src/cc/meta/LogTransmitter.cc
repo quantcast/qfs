@@ -111,9 +111,12 @@ public:
           mMinAckToCommit(numeric_limits<int>::max()),
           mCommitted(-1),
           mServers(),
-          mCommitObserver(inCommitObserver)
+          mCommitObserver(inCommitObserver),
+          mIdsCount(0),
+          mSendingFlag(false)
     {
         List::Init(mTransmittersPtr);
+        List::Init(mPendingIdChangePtr);
         mTmpBuf[kTmpBufSize] = 0;
         mSeqBuf[kTmpBufSize] = 0;
     }
@@ -219,10 +222,18 @@ private:
     seq_t           mCommitted;
     String          mServers;
     CommitObserver& mCommitObserver;
+    int             mIdsCount;
+    bool            mSendingFlag;
     Transmitter*    mTransmittersPtr[1];
+    Transmitter*    mPendingIdChangePtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
     char            mSeqBuf[kTmpBufSize + 1];
+
+    void Insert(
+        Transmitter& inTransmitter,
+        bool         inUpdateIdCountFlag);
+    void EndOfTransmit();
 
 private:
     Impl(
@@ -996,6 +1007,80 @@ LogTransmitter::Impl::IdChanged(
     int64_t                            inPrevId,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
+    Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
+    if (! theHeadPtr) {
+        panic("transmitter list empty");
+        return;
+    }
+    if (theHeadPtr == List::Back(mTransmittersPtr)) {
+        if (&inTransmitter != theHeadPtr) {
+            panic("transmitter list invalid");
+            return;
+        }
+        if (0 <= inTransmitter.GetId()) {
+            mIdsCount = 1;
+        } else {
+            mIdsCount = 0;
+        }
+        return;
+    }
+    List::Remove(mTransmittersPtr, inTransmitter);
+    if (mSendingFlag) {
+        List::PushBack(mPendingIdChangePtr, inTransmitter);
+        return;
+    }
+    const bool kUpdateIdCountFlag = true;
+    Insert(inTransmitter, kUpdateIdCountFlag);
+}
+
+    void
+LogTransmitter::Impl::Insert(
+    LogTransmitter::Impl::Transmitter& inTransmitter,
+    bool                               inUpdateIdCountFlag)
+{
+    Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
+    if (theHeadPtr == List::Back(mTransmittersPtr)) {
+        panic("invalid transmitter insert invocation");
+        return;
+    }
+    // Use insertion sort, and count unique ids.
+    const int64_t      theId     = inTransmitter.GetId();
+    Transmitter*       thePtr    = theHeadPtr;
+    int64_t            thePrevId = -1;
+    int                theCnt    = 0;
+    int64_t            theCurId;
+    while (theId <= (theCurId = thePtr->GetId())) {
+        if (0 <= theCurId && thePrevId != theCurId) {
+            theCnt++;
+        }
+        thePrevId = theCurId;
+        if (theHeadPtr == (thePtr = &List::GetNext(*thePtr))) {
+            thePtr = 0;
+            break;
+        }
+    }
+    if (thePtr == theHeadPtr) {
+        List::PushFront(mTransmittersPtr, inTransmitter);
+        thePtr = &inTransmitter;
+        thePrevId = theId;
+    } else if (thePtr) {
+        QCDLListOp<Transmitter>::Insert(inTransmitter, *thePtr);
+    } else {
+        List::PushBack(mTransmittersPtr, inTransmitter);
+        thePtr = &List::GetPrev(inTransmitter);
+    }
+    if (! inUpdateIdCountFlag) {
+        return;
+    }
+    Transmitter* const theEndPtr = List::Front(mTransmittersPtr);
+    while (theEndPtr == (thePtr = &List::GetNext(*thePtr))) {
+        theCurId = thePtr->GetId();
+        if (0 <= theCurId && thePrevId != theCurId) {
+            theCnt++;
+        }
+        thePrevId = theCurId;
+    }
+    mIdsCount = theCnt;
 }
 
     void
@@ -1041,24 +1126,47 @@ LogTransmitter::Impl::TransmitBlock(
     if (List::IsEmpty(mTransmittersPtr)) {
         return 0;
     }
+    mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
-        return (List::Front(mTransmittersPtr)->SendBlock(
+        const int theRet = (List::Front(mTransmittersPtr)->SendBlock(
             inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
             ? 0 : -EIO);
+        EndOfTransmit();
+        return theRet;
     }
     IOBuffer theBuffer;
     WriteBlock(theBuffer,
         inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
-    int            theCnt = 0;
+    int            theCnt      = 0;
+    int            theTotalCnt = 0;
+    int64_t        thePrevId   = -1;
     while ((thePtr = theIt.Next())) {
+        const int64_t theId = thePtr->GetId();
         if (thePtr->SendBlock(
-                inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
+                    inBlockSeq, theBuffer, theBuffer.BytesConsumable()) &&
+                theId != thePrevId) {
             theCnt++;
         }
+        thePrevId = theId;
+        theTotalCnt++;
     }
-    return 0;
+    EndOfTransmit();
+    return (theCnt < min(theTotalCnt, mMinAckToCommit) ? -EIO : 0);
+}
+
+    void
+LogTransmitter::Impl::EndOfTransmit()
+{
+    if (! mSendingFlag) {
+        panic("invalid end of transmit invocation");
+    }
+    mSendingFlag = false;
+    Transmitter* thePtr;
+    while ((thePtr = List::PopFront(mPendingIdChangePtr))) {
+        Insert(*thePtr, List::IsEmpty(mPendingIdChangePtr));
+    }
 }
 
 LogTransmitter::LogTransmitter(
