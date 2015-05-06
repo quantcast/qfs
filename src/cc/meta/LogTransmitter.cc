@@ -47,12 +47,16 @@
 #include <string>
 #include <algorithm>
 #include <set>
+#include <deque>
+#include <utility>
 
 namespace KFS
 {
 using std::string;
 using std::max;
 using std::multiset;
+using std::deque;
+using std::pair;
 
 class Properties;
 
@@ -83,6 +87,7 @@ public:
         size_t      inBlockLen,
         uint32_t    inChecksum,
         size_t      inChecksumStartPos);
+    bool IsUp();
 private:
     class Impl;
 
@@ -109,11 +114,14 @@ public:
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(5),
           mMinAckToCommit(numeric_limits<int>::max()),
+          mMaxPending(4 << 20),
+          mCompactionInterval(256),
           mCommitted(-1),
           mServers(),
           mCommitObserver(inCommitObserver),
           mIdsCount(0),
-          mSendingFlag(false)
+          mSendingFlag(false),
+          mUpFlag(false)
     {
         List::Init(mTransmittersPtr);
         List::Init(mPendingIdChangePtr);
@@ -152,6 +160,10 @@ public:
     void SetCommitted(
         seq_t inSeq)
         { mCommitted = inSeq; }
+    int GetMaxPending() const
+        { return mMaxPending; }
+    int GetCompactionInterval() const
+        { return mCompactionInterval; }
     void Add(
         Transmitter& inTransmitter);
     void Remove(
@@ -209,6 +221,10 @@ public:
         inBuffer.CopyIn(theSeqPtr, (int)(theSeqEndPtr - theSeqPtr));
         inBuffer.CopyIn(inBlockPtr, (int)inBlockLen);
     }
+    bool IsUp() const
+        { return mUpFlag; }
+    void Update(
+        Transmitter& inTransmitter);
 private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
@@ -219,11 +235,14 @@ private:
     int             mMaxReadAhead;
     int             mHeartbeatInterval;
     int             mMinAckToCommit;
+    int             mMaxPending;
+    int             mCompactionInterval;
     seq_t           mCommitted;
     String          mServers;
     CommitObserver& mCommitObserver;
     int             mIdsCount;
     bool            mSendingFlag;
+    bool            mUpFlag;
     Transmitter*    mTransmittersPtr[1];
     Transmitter*    mPendingIdChangePtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
@@ -256,10 +275,12 @@ public:
           mImpl(inImpl),
           mServer(inServer),
           mPendingSend(),
+          mBlocksQueue(),
           mConnectionPtr(),
           mAuthenticateOpPtr(0),
           mNextSeq(mImpl.RandomSeq()),
           mRecursionCount(0),
+          mCompactBlockCount(0),
           mAuthContext(),
           mAuthType(0),
           mAuthRequestCtx(),
@@ -303,6 +324,7 @@ public:
     {
         if (! mConnectionPtr && ! mSleepingFlag) {
             Connect();
+            SendHeartbeat();
         }
     }
     int HandleEvent(
@@ -380,17 +402,21 @@ public:
         Connect();
     }
     bool SendBlock(
-        seq_t     /* inBlockSeq */,
+        seq_t     inBlockSeq,
         IOBuffer& inBuffer,
         int       inLen)
     {
-        if (! mConnectionPtr) {
+        if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
+            ExceededMaxPending();
             return false;
         }
-        IOBuffer& theBuf = (mAuthenticateOpPtr ?
-            mPendingSend : mConnectionPtr->GetOutBuffer());
-        theBuf.Copy(&inBuffer, inLen);
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr) {
+        mPendingSend.Copy(&inBuffer, inLen);
+        if (! mAuthenticateOpPtr) {
+            mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
+        }
+        CompactIfNeeded();
+        mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             mConnectionPtr->StartFlush();
         }
         return (!! mConnectionPtr);
@@ -402,14 +428,24 @@ public:
         uint32_t    inChecksum,
         size_t      inChecksumStartPos)
     {
-        if (! mConnectionPtr) {
+        const int thePos = mPendingSend.BytesConsumable();
+        if (mImpl.GetMaxPending() < thePos) {
+            ExceededMaxPending();
             return false;
         }
-        IOBuffer& theBuf = (mAuthenticateOpPtr ?
-            mPendingSend : mConnectionPtr->GetOutBuffer());
-        mImpl.WriteBlock(theBuf, inBlockSeq,
-            inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr) {
+        if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
+            WriteBlock(mPendingSend, inBlockSeq,
+                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        } else {
+            IOBuffer theBuffer;
+            WriteBlock(theBuffer, inBlockSeq,
+                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+            mPendingSend.Move(&theBuffer);
+            CompactIfNeeded();
+        }
+        mBlocksQueue.push_back(make_pair(inBlockSeq,
+            mPendingSend.BytesConsumable() - thePos));
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             mConnectionPtr->StartFlush();
         }
         return (!! mConnectionPtr);
@@ -422,14 +458,17 @@ public:
         { return mAckBlockSeq; }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
+    typedef deque<pair<seq_t, int> >      BlocksQueue;
 
     Impl&              mImpl;
     ServerLocation     mServer;
     IOBuffer           mPendingSend;
+    BlocksQueue        mBlocksQueue;
     NetConnectionPtr   mConnectionPtr;
     MetaAuthenticate*  mAuthenticateOpPtr;
     seq_t              mNextSeq;
     int                mRecursionCount;
+    int                mCompactBlockCount;
     ClientAuthContext  mAuthContext;
     int                mAuthType;
     RequestCtx         mAuthRequestCtx;
@@ -447,6 +486,40 @@ private:
 
     friend class QCDLListOp<Transmitter>;
 
+    void ExceededMaxPending()
+    {
+        mPendingSend.Clear();
+        mBlocksQueue.clear();
+        mCompactBlockCount = 0;
+        Error("exceeded max pending send");
+    }
+    void CompactIfNeeded()
+    {
+        mCompactBlockCount++;
+        if (mImpl.GetCompactionInterval() < mCompactBlockCount) {
+            mPendingSend.MakeBuffersFull();
+            if (mConnectionPtr && ! mAuthenticateOpPtr) {
+                mConnectionPtr->GetOutBuffer().MakeBuffersFull();
+            }
+            mCompactBlockCount = 0;
+        }
+    }
+    void WriteBlock(
+        IOBuffer&   inBuffer,
+        seq_t       inBlockSeq,
+        const char* inBlockPtr,
+        size_t      inBlockLen,
+        uint32_t    inChecksum,
+        size_t      inChecksumStartPos)
+    {
+        mImpl.WriteBlock(inBuffer, inBlockSeq,
+            inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        if (! mConnectionPtr || mAuthenticateOpPtr) {
+            return;
+        }
+        mConnectionPtr->GetOutBuffer().Copy(
+            &inBuffer, inBuffer.BytesConsumable());
+    }
     void Connect()
     {
         Shutdown();
@@ -635,7 +708,7 @@ private:
                 0 <= mHeartbeatInFlighSeq) {
             return false;
         }
-        mHeartbeatInFlighSeq = mLastSentBlockSeq;
+        mHeartbeatInFlighSeq = min(seq_t(0), mLastSentBlockSeq);
         SendBlock(mHeartbeatInFlighSeq, "", 0,
             0, kKfsNullChecksum);
         return true;
@@ -676,14 +749,30 @@ private:
             Error("malformed ack");
             return -1;
         }
-        if (mAckBlockSeq < 0 || mLastSentBlockSeq < mAckBlockSeq) {
+        if (mAckBlockSeq < 0) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "invalid ack block sequence: " << mAckBlockSeq <<
                 " last sent: "                 << mLastSentBlockSeq <<
+                " pending: "                   <<
+                    mPendingSend.BytesConsumable() <<
+                " / "                          << mBlocksQueue.size() <<
             KFS_LOG_EOM;
             Error("invalid ack sequence");
             return -1;
+        }
+        while (! mBlocksQueue.empty()) {
+            const BlocksQueue::value_type& theFront = mBlocksQueue.front();
+            if (mAckBlockSeq < theFront.first) {
+                break;
+            }
+            if (mPendingSend.Consume(theFront.second) != theFront.second) {
+                panic("invalid pending send buffer or queue");
+            }
+            mBlocksQueue.pop_front();
+            if (0 < mCompactBlockCount) {
+                mCompactBlockCount--;
+            }
         }
         if (mAckBlockFlags &
                     (uint64_t(1) << kLogBlockAckHasServerIdBit)) {
@@ -843,7 +932,6 @@ private:
         if (! mConnectionPtr) {
             return;
         }
-        mPendingSend.Clear();
         KFS_LOG_STREAM_ERROR <<
             mServer << ": " <<
             (inMsgPtr ? inMsgPtr : "network error") <<
@@ -852,8 +940,11 @@ private:
         mConnectionPtr->Close();
         mConnectionPtr.reset();
         MetaRequest::Release(mAuthenticateOpPtr);
-        mAuthenticateOpPtr = 0;
-        mLastSentBlockSeq = -1;
+        mAuthenticateOpPtr   = 0;
+        mLastSentBlockSeq    = -1;
+        mHeartbeatInFlighSeq = -1;
+        mAckBlockSeq         = -1;
+        mImpl.Update(*this);
         if (mSleepingFlag) {
             return;
         }
@@ -928,10 +1019,17 @@ LogTransmitter::Impl::SetParameters(
     mMinAckToCommit = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "minAckToCommit"), mMinAckToCommit);
+    mMaxPending = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "maxPending"), mMaxPending);
+    mCompactionInterval = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "compactionInterval"), mCompactionInterval);
     const String* const theServersPtr = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "servers"));
     if (theServersPtr && *theServersPtr != mServers) {
+        mIdsCount = 0;
         ServerLocation    theLocation;
         Locations         theLocations;
         const char*       thePtr      = theServersPtr->GetPtr();
@@ -1031,6 +1129,7 @@ LogTransmitter::Impl::IdChanged(
     }
     const bool kUpdateIdCountFlag = true;
     Insert(inTransmitter, kUpdateIdCountFlag);
+    Update(inTransmitter);
 }
 
     void
@@ -1049,7 +1148,7 @@ LogTransmitter::Impl::Insert(
     int64_t            thePrevId = -1;
     int                theCnt    = 0;
     int64_t            theCurId;
-    while (theId <= (theCurId = thePtr->GetId())) {
+    while (theId < (theCurId = thePtr->GetId())) {
         if (0 <= theCurId && thePrevId != theCurId) {
             theCnt++;
         }
@@ -1085,7 +1184,7 @@ LogTransmitter::Impl::Insert(
 
     void
 LogTransmitter::Impl::Acked(
-    seq_t                              /* inPrevAck */,
+    seq_t                              inPrevAck,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     const seq_t theAck = inTransmitter.GetAck();
@@ -1112,6 +1211,9 @@ LogTransmitter::Impl::Acked(
     if (thePtr || theCnt <= theAckCnt) {
         mCommitted = theAck;
         mCommitObserver.Committed(mCommitted);
+    }
+    if (inPrevAck < 0) {
+        Update(inTransmitter);
     }
 }
 
@@ -1169,6 +1271,12 @@ LogTransmitter::Impl::EndOfTransmit()
     }
 }
 
+    void
+LogTransmitter::Impl::Update(
+    LogTransmitter::Impl::Transmitter& inTransmitter)
+{
+}
+
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
@@ -1199,5 +1307,12 @@ LogTransmitter::TransmitBlock(
     return mImpl.TransmitBlock(
         inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
+
+    bool
+LogTransmitter::IsUp()
+{
+    return mImpl.IsUp();
+}
+
 
 } // namespace KFS
