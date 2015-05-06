@@ -406,6 +406,9 @@ public:
         IOBuffer& inBuffer,
         int       inLen)
     {
+        if (inBlockSeq <= mAckBlockSeq) {
+            return true;
+        }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
             ExceededMaxPending();
             return false;
@@ -428,6 +431,9 @@ public:
         uint32_t    inChecksum,
         size_t      inChecksumStartPos)
     {
+        if (inBlockSeq <= mAckBlockSeq) {
+            return true;
+        }
         const int thePos = mPendingSend.BytesConsumable();
         if (mImpl.GetMaxPending() < thePos) {
             ExceededMaxPending();
