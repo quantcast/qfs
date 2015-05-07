@@ -25,6 +25,8 @@
 //
 //----------------------------------------------------------------------------
 
+#include "LogTransmitter.h"
+
 #include "MetaRequest.h"
 #include "util.h"
 
@@ -58,47 +60,6 @@ using std::multiset;
 using std::deque;
 using std::pair;
 
-class Properties;
-
-class LogTransmitter
-{
-public:
-    class CommitObserver
-    {
-    public:
-        virtual void Committed(
-            seq_t inSeq) = 0;
-    protected:
-        CommitObserver()
-            {}
-        virtual ~CommitObserver()
-            {}
-    };
-    LogTransmitter(
-        NetManager&     inNetManager,
-        CommitObserver& inCommitObserver);
-    ~LogTransmitter();
-    int SetParameters(
-        const char*       inParamPrefixPtr,
-        const Properties& inParameters);
-    int TransmitBlock(
-        seq_t       inBlockSeq,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        uint32_t    inChecksum,
-        size_t      inChecksumStartPos);
-    bool IsUp();
-private:
-    class Impl;
-
-    Impl& mImpl;
-private:
-    LogTransmitter(
-        const LogTransmitter& inTransmitter);
-    LogTransmitter& operator=(
-        const LogTransmitter& inTransmitter);
-};
-
 class LogTransmitter::Impl
 {
 private:
@@ -121,6 +82,7 @@ public:
           mCommitObserver(inCommitObserver),
           mIdsCount(0),
           mSendingFlag(false),
+          mPendingUpdateFlag(false),
           mUpFlag(false)
     {
         List::Init(mTransmittersPtr);
@@ -242,6 +204,7 @@ private:
     CommitObserver& mCommitObserver;
     int             mIdsCount;
     bool            mSendingFlag;
+    bool            mPendingUpdateFlag;
     bool            mUpFlag;
     Transmitter*    mTransmittersPtr[1];
     Transmitter*    mPendingIdChangePtr[1];
@@ -250,9 +213,9 @@ private:
     char            mSeqBuf[kTmpBufSize + 1];
 
     void Insert(
-        Transmitter& inTransmitter,
-        bool         inUpdateIdCountFlag);
+        Transmitter& inTransmitter);
     void EndOfTransmit();
+    void Update();
 
 private:
     Impl(
@@ -1094,6 +1057,10 @@ LogTransmitter::Impl::SetParameters(
             theAuthCtxPtr = &theTPtr->GetAuthCtx();
         }
     }
+    if (List::IsEmpty(mTransmittersPtr) && ! mUpFlag) {
+        mUpFlag = true;
+        mCommitObserver.Notify(mCommitted);
+    }
     return theRet;
 }
 
@@ -1121,27 +1088,20 @@ LogTransmitter::Impl::IdChanged(
             panic("transmitter list invalid");
             return;
         }
-        if (0 <= inTransmitter.GetId()) {
-            mIdsCount = 1;
-        } else {
-            mIdsCount = 0;
+    } else {
+        List::Remove(mTransmittersPtr, inTransmitter);
+        if (mSendingFlag) {
+            List::PushBack(mPendingIdChangePtr, inTransmitter);
+            return;
         }
-        return;
+        Insert(inTransmitter);
     }
-    List::Remove(mTransmittersPtr, inTransmitter);
-    if (mSendingFlag) {
-        List::PushBack(mPendingIdChangePtr, inTransmitter);
-        return;
-    }
-    const bool kUpdateIdCountFlag = true;
-    Insert(inTransmitter, kUpdateIdCountFlag);
     Update(inTransmitter);
 }
 
     void
 LogTransmitter::Impl::Insert(
-    LogTransmitter::Impl::Transmitter& inTransmitter,
-    bool                               inUpdateIdCountFlag)
+    LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
     if (theHeadPtr == List::Back(mTransmittersPtr)) {
@@ -1149,16 +1109,9 @@ LogTransmitter::Impl::Insert(
         return;
     }
     // Use insertion sort, and count unique ids.
-    const int64_t      theId     = inTransmitter.GetId();
-    Transmitter*       thePtr    = theHeadPtr;
-    int64_t            thePrevId = -1;
-    int                theCnt    = 0;
-    int64_t            theCurId;
-    while (theId < (theCurId = thePtr->GetId())) {
-        if (0 <= theCurId && thePrevId != theCurId) {
-            theCnt++;
-        }
-        thePrevId = theCurId;
+    const int64_t      theId  = inTransmitter.GetId();
+    Transmitter*       thePtr = theHeadPtr;
+    while (theId < thePtr->GetId()) {
         if (theHeadPtr == (thePtr = &List::GetNext(*thePtr))) {
             thePtr = 0;
             break;
@@ -1167,25 +1120,12 @@ LogTransmitter::Impl::Insert(
     if (thePtr == theHeadPtr) {
         List::PushFront(mTransmittersPtr, inTransmitter);
         thePtr = &inTransmitter;
-        thePrevId = theId;
     } else if (thePtr) {
         QCDLListOp<Transmitter>::Insert(inTransmitter, *thePtr);
     } else {
         List::PushBack(mTransmittersPtr, inTransmitter);
         thePtr = &List::GetPrev(inTransmitter);
     }
-    if (! inUpdateIdCountFlag) {
-        return;
-    }
-    Transmitter* const theEndPtr = List::Front(mTransmittersPtr);
-    while (theEndPtr == (thePtr = &List::GetNext(*thePtr))) {
-        theCurId = thePtr->GetId();
-        if (0 <= theCurId && thePrevId != theCurId) {
-            theCnt++;
-        }
-        thePrevId = theCurId;
-    }
-    mIdsCount = theCnt;
 }
 
     void
@@ -1216,7 +1156,7 @@ LogTransmitter::Impl::Acked(
     }
     if (thePtr || theCnt <= theAckCnt) {
         mCommitted = theAck;
-        mCommitObserver.Committed(mCommitted);
+        mCommitObserver.Notify(mCommitted);
     }
     if (inPrevAck < 0) {
         Update(inTransmitter);
@@ -1233,6 +1173,9 @@ LogTransmitter::Impl::TransmitBlock(
 {
     if (List::IsEmpty(mTransmittersPtr)) {
         return 0;
+    }
+    if (! mUpFlag) {
+        return -EIO;
     }
     mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
@@ -1253,11 +1196,12 @@ LogTransmitter::Impl::TransmitBlock(
     while ((thePtr = theIt.Next())) {
         const int64_t theId = thePtr->GetId();
         if (thePtr->SendBlock(
-                    inBlockSeq, theBuffer, theBuffer.BytesConsumable()) &&
-                theId != thePrevId) {
-            theCnt++;
+                    inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
+            if (0 <= theId && theId != thePrevId) {
+                theCnt++;
+            }
+            thePrevId = theId;
         }
-        thePrevId = theId;
         theTotalCnt++;
     }
     EndOfTransmit();
@@ -1273,14 +1217,90 @@ LogTransmitter::Impl::EndOfTransmit()
     mSendingFlag = false;
     Transmitter* thePtr;
     while ((thePtr = List::PopFront(mPendingIdChangePtr))) {
-        Insert(*thePtr, List::IsEmpty(mPendingIdChangePtr));
+        Insert(*thePtr);
+    }
+    if (mPendingUpdateFlag) {
+        Update();
     }
 }
 
     void
 LogTransmitter::Impl::Update(
-    LogTransmitter::Impl::Transmitter& inTransmitter)
+    LogTransmitter::Impl::Transmitter& /* inTransmitter */)
 {
+    Update();
+}
+
+    void
+LogTransmitter::Impl::Update()
+{
+    if (mSendingFlag) {
+        mPendingUpdateFlag = true;
+        return;
+    }
+    mPendingUpdateFlag = false;
+    int            theIdCnt     = 0;
+    int            theCnt       = 0;
+    int            theUpCnt     = 0;
+    int            theIdUpCnt   = 0;
+    int            theTotalCnt  = 0;
+    int            thePrevAllId = -1;
+    int64_t        thePrevId    = -1;
+    seq_t          theMinAck    = -1;
+    seq_t          theMaxAck    = -1;
+    seq_t          theCurMinAck = -1;
+    seq_t          theCurMaxAck = -1;
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        const int64_t theId  = thePtr->GetId();
+        const seq_t   theAck = thePtr->GetAck();
+        if (0 <= theId && theId != thePrevAllId) {
+            mIdsCount++;
+            thePrevAllId = theId;
+        }
+        if (0 <= theAck) {
+            theUpCnt++;
+            if (theId != thePrevId) {
+                theIdUpCnt++;
+                if (theMinAck < 0) {
+                    theMinAck = theAck;
+                    theMaxAck = theAck;
+                } else {
+                    theMinAck = min(theMinAck, theCurMinAck);
+                    theMaxAck = max(theMaxAck, theCurMaxAck);
+                }
+                theCurMinAck = theAck;
+                theCurMaxAck = theAck;
+                theCnt++;
+            } else {
+                theCurMinAck = min(theCurMinAck, theAck);
+                theCurMaxAck = max(theCurMaxAck, theAck);
+            }
+            thePrevId = theId;
+        }
+        theTotalCnt++;
+    }
+    const bool theUpFlag     = min(theTotalCnt, mMinAckToCommit) <= theIdUpCnt;
+    const bool theNotifyFlag = theUpFlag != mUpFlag;
+    KFS_LOG_STREAM(theNotifyFlag ?
+            MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
+        "update:"
+        " tranmitters: " << theTotalCnt <<
+        " up: "          << theUpCnt <<
+        " idup: "        << theIdUpCnt <<
+        " ack: ["        << theMinAck <<
+        ","              << theMaxAck << "]"
+        " ids: "         << theIdCnt <<
+        " / "            << mIdsCount <<
+        " up: "          << theUpFlag <<
+        " / "            << mUpFlag <<
+    KFS_LOG_EOM;
+    theIdCnt = mIdsCount;
+    mUpFlag  = theUpFlag;
+    if (theNotifyFlag) {
+        mCommitObserver.Notify(mCommitted);
+    }
 }
 
 LogTransmitter::LogTransmitter(

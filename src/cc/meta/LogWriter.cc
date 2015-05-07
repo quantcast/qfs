@@ -26,6 +26,7 @@
 //----------------------------------------------------------------------------
 
 #include "LogWriter.h"
+#include "LogTransmitter.h"
 #include "MetaRequest.h"
 #include "util.h"
 
@@ -54,13 +55,19 @@ using std::ofstream;
 
 class LogWriter::Impl :
     private ITimeout,
-    private QCRunnable
+    private QCRunnable,
+    private LogTransmitter::CommitObserver
 {
 public:
     Impl()
         : ITimeout(),
           QCRunnable(),
+          LogTransmitter::CommitObserver(),
           mNetManagerPtr(0),
+          mNetManager(),
+          mLogTransmitter(mNetManager, *this),
+          mTransmitCommitted(-1),
+          mTransmitterUpFlag(false),
           mNextSeq(-1),
           mMaxDoneLogSeq(-1),
           mCommitted(),
@@ -125,7 +132,10 @@ public:
         }
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mLogNum = inLogNum;
-        SetParameters(inParametersPrefixPtr, inParameters);
+        const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
+        if (0 != theErr) {
+            return theErr;
+        }
         mMdStream.Reset(this);
         mCommitted.mErrChkSum = inCommittedErrCheckSum;
         mCommitted.mSeq       = inCommittedLogSeq;
@@ -305,6 +315,12 @@ public:
     {
         Close();
     }
+    virtual void Notify(
+        seq_t inSeq)
+    {
+        mTransmitCommitted = inSeq;
+        mTransmitterUpFlag = mLogTransmitter.IsUp();
+    }
 private:
     class Committed
     {
@@ -370,45 +386,49 @@ private:
         kUpdateBlockChecksum
     };
 
-    NetManager*  mNetManagerPtr;
-    seq_t        mNextSeq;
-    seq_t        mMaxDoneLogSeq;
-    Committed    mCommitted;
-    QCThread     mThread;
-    QCMutex      mMutex;
-    QCCondVar    mCond;
-    bool         mStopFlag;
-    bool         mOmitDefaultsFlag;
-    int          mMaxBlockSize;
-    int          mPendingCount;
-    string       mLogDir;
-    Queue        mPendingQueue;
-    Queue        mInQueue;
-    Queue        mOutQueue;
-    Committed    mPendingCommitted;
-    Committed    mInFlightCommitted;
-    seq_t        mNextLogSeq;
-    seq_t        mNextBlockSeq;
-    seq_t        mLastLogSeq;
-    uint32_t     mBlockChecksum;
-    uint32_t     mNextBlockChecksum;
-    int          mLogFd;
-    int          mError;
-    MdStream     mMdStream;
-    ReqOstream   mReqOstream;
-    int64_t      mCurLogStartTime;
-    seq_t        mCurLogStartSeq;
-    seq_t        mLogNum;
-    string       mLogName;
-    WriteState   mWriteState;
-    int64_t      mLogRotateInterval;
-    bool         mPanicOnIoErrorFlag;
-    bool         mSyncFlag;
-    string       mLastLogName;
-    string       mLastLogPath;
-    int64_t      mFailureSimulationInterval;
-    PrngIsaac64  mRandom;
-    const string mLogFileNamePrefix;
+    NetManager*    mNetManagerPtr;
+    NetManager     mNetManager;
+    LogTransmitter mLogTransmitter;
+    seq_t          mTransmitCommitted;
+    bool           mTransmitterUpFlag;
+    seq_t          mNextSeq;
+    seq_t          mMaxDoneLogSeq;
+    Committed      mCommitted;
+    QCThread       mThread;
+    QCMutex        mMutex;
+    QCCondVar      mCond;
+    bool           mStopFlag;
+    bool           mOmitDefaultsFlag;
+    int            mMaxBlockSize;
+    int            mPendingCount;
+    string         mLogDir;
+    Queue          mPendingQueue;
+    Queue          mInQueue;
+    Queue          mOutQueue;
+    Committed      mPendingCommitted;
+    Committed      mInFlightCommitted;
+    seq_t          mNextLogSeq;
+    seq_t          mNextBlockSeq;
+    seq_t          mLastLogSeq;
+    uint32_t       mBlockChecksum;
+    uint32_t       mNextBlockChecksum;
+    int            mLogFd;
+    int            mError;
+    MdStream       mMdStream;
+    ReqOstream     mReqOstream;
+    int64_t        mCurLogStartTime;
+    seq_t          mCurLogStartSeq;
+    seq_t          mLogNum;
+    string         mLogName;
+    WriteState     mWriteState;
+    int64_t        mLogRotateInterval;
+    bool           mPanicOnIoErrorFlag;
+    bool           mSyncFlag;
+    string         mLastLogName;
+    string         mLastLogPath;
+    int64_t        mFailureSimulationInterval;
+    PrngIsaac64    mRandom;
+    const string   mLogFileNamePrefix;
 
     virtual void Timeout()
     {
@@ -483,7 +503,7 @@ private:
                     theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
                     continue;
                 }
-                if (! theStream) {
+                if (! theStream || ! mTransmitterUpFlag) {
                     continue;
                 }
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
@@ -510,10 +530,12 @@ private:
                 }
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
-            if (mNextLogSeq < mLastLogSeq && IsLogStreamGood()) {
+            if (mNextLogSeq < mLastLogSeq &&
+                    mTransmitterUpFlag && IsLogStreamGood()) {
                 FlushBlock(mLastLogSeq);
             }
-            if (IsLogStreamGood() && ! theSimulateFailureFlag) {
+            if (IsLogStreamGood() &&
+                    ! theSimulateFailureFlag && mTransmitterUpFlag) {
                 mNextLogSeq = mLastLogSeq;
             } else {
                 mLastLogSeq = mNextLogSeq;
@@ -630,11 +652,11 @@ private:
                 }
                 break;
             case MetaLogWriterControl::kSetParameters:
-                return SetParameters(
+                SetParameters(
                     inRequest.paramsPrefix.c_str(),
                     inRequest.params
                 );
-                break;
+                return false; // Do not start new record block.
         }
         inRequest.committed  = mInFlightCommitted.mSeq;
         inRequest.lastLogSeq = mLastLogSeq;
@@ -705,7 +727,7 @@ private:
         mLastLogSeq     = inLogSeq;
         mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
     }
-    bool SetParameters(
+    int SetParameters(
         const char*       inParametersPrefixPtr,
         const Properties& inParameters)
     {
@@ -737,7 +759,10 @@ private:
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
         mLastLogPath = mLogDir + "/" + mLastLogName;
-        return false; // Do not start new record block.
+        return mLogTransmitter.SetParameters(
+            theName.Truncate(thePrefixLen).Append("transmit.").c_str(),
+            inParameters
+        );
     }
     bool IsLogStreamGood()
     {
