@@ -69,20 +69,25 @@ public:
     {
         EVP_cleanup();
     }
+    static size_t GetMinBufSize(
+        size_t inBufSize)
+        { return max(size_t(128), inBufSize); }
     MdStreamT(
         OStreamT*     inStreamPtr  = 0,
         bool          inSyncFlag   = true,
         const string& inDigestName = string(),
-        size_t        inBufSize    = (1 << 20))
+        size_t        inBufSize    = (1 << 20),
+        bool          inResizeFlag = false)
         : streambuf(),
           ostream(this),
           mDigestName(inDigestName),
-          mBufferPtr(0 < inBufSize ? new char[inBufSize] : 0),
+          mBufferPtr(new char[GetMinBufSize(inBufSize)]),
           mCurPtr(mBufferPtr),
-          mEndPtr(mCurPtr + max(size_t(0), inBufSize)),
+          mEndPtr(mCurPtr + GetMinBufSize(inBufSize)),
           mSyncFlag(inSyncFlag),
-          mWriteTroughFlag(! mBufferPtr),
-          mStreamPtr(inStreamPtr)
+          mWriteTroughFlag(inBufSize <= 0),
+          mStreamPtr(inStreamPtr),
+          mNextSize(inResizeFlag ? (8 << 10) : 0)
     {
         EVP_MD_CTX_init(&mCtx);
         MdStreamT::InitMd();
@@ -181,17 +186,41 @@ public:
     const char* GetBufferedEnd() const
         { return mCurPtr; }
 protected:
+    bool EnsureCapacity(
+        size_t inSize)
+    {
+        if (mNextSize <= 0) {
+            return false;
+        }
+        if (mCurPtr + inSize < mEndPtr) {
+            return true;
+        }
+        const size_t theCurSize = mCurPtr - mBufferPtr;
+        const size_t theSize    = theCurSize + inSize;
+        do {
+            mNextSize += mNextSize;
+        } while (mNextSize < theSize);
+        char* const thePtr = new char[mNextSize];
+        memcpy(thePtr, mBufferPtr, theCurSize);
+        delete [] mBufferPtr;
+        mBufferPtr = thePtr;
+        mCurPtr    = thePtr + theCurSize;
+        mEndPtr    = thePtr + mNextSize;
+        return true;
+    }
     virtual int overflow(
         int inSym = EOF)
     {
         if (inSym == EOF) {
-            return 0;
+            return EOF;
         }
-        if (mCurPtr < mEndPtr) {
-            *mCurPtr++ = inSym;
-            return inSym;
+        if (mEndPtr <= mCurPtr && ! EnsureCapacity(1)) {
+            SyncSelf();
+            if (mEndPtr <= mCurPtr) {
+                return EOF;
+            }
         }
-        SyncSelf();
+        *mCurPtr++ = inSym;
         return inSym;
     }
     virtual streamsize xsputn(
@@ -201,8 +230,8 @@ protected:
         if (inSize <= 0) {
             return inSize;
         }
-        if (! mWriteTroughFlag &&
-                mBufferPtr + inSize * 3 / 2 < mEndPtr) {
+        if (! mWriteTroughFlag && (EnsureCapacity(inSize) ||
+                mBufferPtr + inSize * 3 / 2 < mEndPtr)) {
             streamsize theSize = 0;
             streamsize theRem  = inSize;
             if (mCurPtr < mEndPtr) {
@@ -276,13 +305,14 @@ protected:
 
 private:
     const string mDigestName;
-    char* const  mBufferPtr;
+    char*        mBufferPtr;
     char*        mCurPtr;
-    char* const  mEndPtr;
+    char*        mEndPtr;
     bool         mSyncFlag;
     bool         mWriteTroughFlag;
     OStreamT*    mStreamPtr;
     EVP_MD_CTX   mCtx;
+    size_t       mNextSize;
 
     MdStreamT(const MdStreamT& inStream);
     MdStreamT& operator=( const MdStreamT& inStream);
