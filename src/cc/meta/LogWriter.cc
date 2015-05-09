@@ -91,7 +91,13 @@ public:
           mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
           mError(0),
-          mMdStream(this),
+          mMdStream(
+            this,
+            false,     // inSyncFlag
+            string(),  // inDigestName
+            1 << 20,   // inBufSize,
+            true       // inResizeFlag
+            ),
           mReqOstream(mMdStream),
           mCurLogStartTime(-1),
           mCurLogStartSeq(-1),
@@ -487,6 +493,7 @@ private:
                 NewLog(mNextLogSeq);
             }
         }
+        mMdStream.SetSync(false);
         ostream&     theStream = mMdStream;
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
@@ -494,6 +501,7 @@ private:
             MetaRequest* thePtr                 = theCurPtr;
             seq_t        theEndBlockSeq         = mNextLogSeq + mMaxBlockSize;
             const bool   theSimulateFailureFlag = IsSimulateFailure();
+            const bool   theTransmitterUpFlag   = mTransmitterUpFlag;
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     if (Control(
@@ -503,7 +511,7 @@ private:
                     theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
                     continue;
                 }
-                if (! theStream || ! mTransmitterUpFlag) {
+                if (! theStream || ! theTransmitterUpFlag) {
                     continue;
                 }
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
@@ -528,14 +536,19 @@ private:
                 if (theEndBlockSeq <= mLastLogSeq) {
                     break;
                 }
+                if (mMdStream.GetBufferSize() / 4 * 3 <
+                        (mMdStream.GetBufferedEnd() -
+                            mMdStream.GetBufferedStart())) {
+                    break;
+                }
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
             if (mNextLogSeq < mLastLogSeq &&
-                    mTransmitterUpFlag && IsLogStreamGood()) {
+                    theTransmitterUpFlag && IsLogStreamGood()) {
                 FlushBlock(mLastLogSeq);
             }
             if (IsLogStreamGood() &&
-                    ! theSimulateFailureFlag && mTransmitterUpFlag) {
+                    ! theSimulateFailureFlag && theTransmitterUpFlag) {
                 mNextLogSeq = mLastLogSeq;
             } else {
                 mLastLogSeq = mNextLogSeq;
@@ -575,6 +588,7 @@ private:
     void StartBlock(
         uint32_t inStartCheckSum)
     {
+        mMdStream.SetSync(false);
         mWriteState    = kUpdateBlockChecksum;
         mBlockChecksum = inStartCheckSum;
     }
@@ -591,7 +605,6 @@ private:
             "/" << mNextBlockSeq <<
             "/"
         ;
-        mMdStream.SetSync(false);
         mReqOstream.flush();
         const char* const theStartPtr = mMdStream.GetBufferedStart();
         const char* const theEndPtr   = mMdStream.GetBufferedEnd();
@@ -601,6 +614,24 @@ private:
         }
         mWriteState = kWriteStateNone;
         mReqOstream << mBlockChecksum << "\n";
+        mReqOstream.flush();
+        const char* const theBStartPtr = mMdStream.GetBufferedStart();
+        const char* const theBEndPtr   = mMdStream.GetBufferedEnd();
+        const int theStatus = mLogTransmitter.TransmitBlock(
+            inLogSeq,
+            theBStartPtr,
+            theBEndPtr - theBStartPtr,
+            mBlockChecksum,
+            theEndPtr - theStartPtr
+        );
+        if (0 != theStatus) {
+            KFS_LOG_STREAM_ERROR <<
+                "block transmit failure:"
+                " seq: "    << inLogSeq  <<
+                " status: " << theStatus <<
+            KFS_LOG_EOM;
+            mTransmitterUpFlag = false;
+        }
         mMdStream.SetSync(true);
         mReqOstream.flush();
         Sync();
@@ -674,9 +705,11 @@ private:
                 }
             }
             mWriteState = kWriteStateNone;
+            mMdStream.SetSync(false);
             mMdStream << "time/" << DisplayIsoDateTime() << "\n";
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << "\n";
+            mMdStream.SetSync(true);
             mMdStream.flush();
         } else {
             mLastLogSeq = mNextLogSeq;
@@ -705,6 +738,7 @@ private:
         mMdStream.clear();
         mReqOstream.Get().clear();
         mMdStream.setf(ostream::dec, ostream::basefield);
+        mMdStream.SetSync(false);
         mMdStream <<
             "version/" << int(LogWriter::VERSION) << "\n"
             "checksum/last-line\n"
@@ -781,6 +815,10 @@ private:
         const char* inBufPtr,
         size_t      inSize)
     {
+        if (! mMdStream.IsSync()) {
+            panic("invalid write invocation");
+            return false;
+        }
         if (kUpdateBlockChecksum == mWriteState) {
             mBlockChecksum = ComputeBlockChecksum(
                 mBlockChecksum, inBufPtr, inSize);

@@ -185,6 +185,8 @@ public:
         { return mBufferPtr; }
     const char* GetBufferedEnd() const
         { return mCurPtr; }
+    size_t GetBufferSize() const
+        { return (mEndPtr - mBufferPtr); }
 protected:
     bool EnsureCapacity(
         size_t inSize)

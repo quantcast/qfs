@@ -1172,6 +1172,8 @@ LogTransmitter::Impl::TransmitBlock(
     size_t      inChecksumStartPos)
 {
     if (List::IsEmpty(mTransmittersPtr)) {
+        mCommitted = inBlockSeq;
+        mCommitObserver.Notify(mCommitted);
         return 0;
     }
     if (! mUpFlag) {
