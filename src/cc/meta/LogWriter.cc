@@ -319,6 +319,7 @@ public:
     }
     void ChildAtFork()
     {
+        mNetManager.ChildAtFork();
         Close();
     }
     virtual void Notify(
