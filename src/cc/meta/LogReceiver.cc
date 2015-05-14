@@ -25,6 +25,7 @@
 //
 //----------------------------------------------------------------------------
 
+#include "LogReceiver.h"
 #include "AuthContext.h"
 #include "MetaRequest.h"
 #include "util.h"
@@ -58,26 +59,6 @@ using std::vector;
 using std::max;
 using std::hex;
 
-class LogReceiver
-{
-public:
-    LogReceiver();
-    ~LogReceiver();
-    void SetParameters(
-        const char*       inPrefixPtr,
-        const Properties& inParameters);
-    void SetNextLogSeq(
-        seq_t inSeq);
-    int Start(
-        NetManager& inNetManager,
-        QCMutex*    inMutexPtr);
-    void Shutdown();
-private:
-    class Impl;
-
-    Impl& mImpl;
-};
-
 class LogReceiver::Impl : public IAcceptorOwner
 {
 private:
@@ -109,7 +90,7 @@ public:
     }
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnectionPtr);
-    void SetParameters(
+    bool SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters)
     {
@@ -119,9 +100,11 @@ public:
         }
         const size_t thePrefixLen   = theParamName.GetSize();
         const bool   kHexFormatFlag = false;
-        mListenerAddress.FromString(inParameters.getValue(
+        const string theListenOn    = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
-            "listenOn"), mListenerAddress.ToString()), kHexFormatFlag);
+            "listenOn"), mListenerAddress.IsValid() ?
+                mListenerAddress.ToString() : string());
+        mListenerAddress.FromString(theListenOn, kHexFormatFlag);
         mReAuthTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "reAuthTimeout"), mReAuthTimeout);
@@ -143,6 +126,7 @@ public:
         mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
             inParameters);
+        return (! theListenOn.empty());
     }
     void SetNextLogSeq(
         seq_t inSeq)
@@ -1071,12 +1055,12 @@ LogReceiver::~LogReceiver()
     mImpl.Delete();
 }
 
-    void
+    bool
 LogReceiver::SetParameters(
     const char*       inPrefixPtr,
     const Properties& inParameters)
 {
-    mImpl.SetParameters(inPrefixPtr, inParameters);
+    return mImpl.SetParameters(inPrefixPtr, inParameters);
 }
 
     int

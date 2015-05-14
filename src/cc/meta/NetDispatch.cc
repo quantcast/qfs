@@ -32,6 +32,7 @@
 #include "LayoutManager.h"
 #include "ClientSM.h"
 #include "LogWriter.h"
+#include "LogReceiver.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -373,6 +374,116 @@ private:
         const MainThreadPrepareToFork& inPrepare);
     MainThreadPrepareToFork& operator=(
         const MainThreadPrepareToFork& inPrepare);
+};
+
+const char* const kLogReciverParamsPrefix = "metaServer.logReceiver.";
+
+class LogReceiverThread :
+    private QCRunnable,
+    private NetManager::Dispatcher
+{
+public:
+    LogReceiverThread()
+        : QCRunnable(),
+          NetManager::Dispatcher(),
+          mParameters(),
+          mNetManager(),
+          mLogReceiver(),
+          mThread(),
+          mParametersUpdatePendingFlag(false),
+          mPrepareToForkCnt(0)
+          {}
+    ~LogReceiverThread()
+        { LogReceiverThread::Shutdown(); }
+    void ChildAtFork()
+    {
+        mNetManager.ChildAtFork();
+    }
+    bool IsStarted() const
+        { return mThread.IsStarted(); }
+    int Start()
+    {
+        if (mThread.IsStarted()) {
+            return -EINVAL;
+        }
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        QCStMutexLocker lock(mutex);
+        SetParameters(mParameters);
+        mParametersUpdatePendingFlag = false;
+        if (! mLogReceiver.SetParameters(
+                kLogReciverParamsPrefix, mParameters)) {
+            return 0;
+        }
+        const int err = mLogReceiver.Start(
+            mutex ? mNetManager : globalNetManager(), mutex);
+        if (err || ! mutex) {
+            return err;
+        }
+        int kStackSize = 64 << 10;
+        mThread.Start(this, kStackSize, "LogReceiver");
+        return 0;
+    }
+    void SetParameters(
+        const Properties& inParameters)
+    {
+        assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
+        inParameters.copyWithPrefix(kLogReciverParamsPrefix, mParameters);
+        mParametersUpdatePendingFlag = true;
+    }
+    void Shutdown()
+    {
+        if (! mThread.IsStarted()) {
+            return;
+        }
+        mNetManager.Shutdown();
+        mThread.Join();
+    }
+    void PrepareToFork()
+    {
+        if (! mThread.IsStarted()) {
+            return;
+        }
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        if (! mutex) {
+            return;
+        }
+        assert(mutex->IsOwned());
+        SyncAddAndFetch(mPrepareToForkCnt, 1);
+        mNetManager.Wakeup();
+    }
+private:
+    Properties    mParameters;
+    NetManager    mNetManager;
+    LogReceiver   mLogReceiver;
+    QCThread      mThread;
+    volatile bool mParametersUpdatePendingFlag;
+    volatile int  mPrepareToForkCnt;
+
+    virtual void Run()
+    {
+        QCMutex* const kMutex                = 0;
+        const bool     kWakeupAndCleanupFlag = true;
+        mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
+    }
+    virtual void DispatchStart()
+    {
+        if (SyncAddAndFetch(mPrepareToForkCnt, 0) == 0 &&
+                ! mParametersUpdatePendingFlag) {
+            return;
+        }
+        QCStMutexLocker lock(gNetDispatch.GetMutex());
+        mPrepareToForkCnt = 0;
+        gNetDispatch.PrepareToFork();
+        if (! mParametersUpdatePendingFlag) {
+            return;
+        }
+        mParametersUpdatePendingFlag = false;
+        mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
+    }
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        {}
 };
 
 //
@@ -936,6 +1047,7 @@ public:
           mPrepareToForkDoneCond(),
           mForkDoneCond(),
           mForkDoneCount(0),
+          mLogReceiverThread(),
           mPrepareToForkFlag(false),
           mPrepareToForkCnt(0)
         {};
@@ -948,6 +1060,11 @@ public:
     QCMutex& GetMutex()
         { return mMutex; }
     void PrepareCurrentThreadToFork();
+    // The prepare thread count includes the "main" and log receiver threads.
+    inline int GetPrepareToForkCount() const
+    {
+        return (mClientThreadCount + (mLogReceiverThread.IsStarted() ? 1 : 0));
+    }
     inline void PrepareToFork()
     {
         QCMutex* const mutex = gNetDispatch.GetMutex();
@@ -956,8 +1073,7 @@ public:
         }
         assert(mutex->IsOwned());
         while (mPrepareToForkFlag) {
-            // The prepare thread count includes the "main" thread.
-            if (++mPrepareToForkCnt >= mClientThreadCount) {
+            if (GetPrepareToForkCount() <= ++mPrepareToForkCnt) {
                 mPrepareToForkDoneCond.Notify();
             }
             const uint64_t forkDoneCount = mForkDoneCount;
@@ -986,6 +1102,7 @@ public:
     {
         mMaxClientCount = min(mMaxClientSocketCount, params.getValue(
             "metaServer.maxClientCount", mMaxClientCount));
+        mLogReceiverThread.SetParameters(params);
     }
     void SetMaxClientSockets(int count)
         { mMaxClientSocketCount = count; }
@@ -1004,6 +1121,7 @@ private:
     QCCondVar                    mPrepareToForkDoneCond;
     QCCondVar                    mForkDoneCond;
     uint64_t                     mForkDoneCount;
+    LogReceiverThread            mLogReceiverThread;
     volatile bool                mPrepareToForkFlag;
     volatile int                 mPrepareToForkCnt;
 };
@@ -1354,6 +1472,9 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
     if (mClientThreadCount <= 0) {
         return true;
     }
+    if (mLogReceiverThread.Start() != 0) {
+        return false;
+    }
     int cpuIndex = startCpuAffinity;
     mClientThreads = new ClientManager::ClientThread[mClientThreadCount];
     for (int i = 0; i < mClientThreadCount; i++) {
@@ -1419,6 +1540,7 @@ ClientManager::Impl::ChildAtFork()
     for (int i = 0; i < mClientThreadCount; i++) {
         mClientThreads[i].ChildAtFork();
     }
+    mLogReceiverThread.ChildAtFork();
 }
 
 void
@@ -1430,7 +1552,7 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     }
     assert(mutex->IsOwned());
     if (mPrepareToForkFlag) {
-        assert(mPrepareToForkCnt == mClientThreadCount);
+        assert(GetPrepareToForkCount() == mPrepareToForkCnt);
         return;
     }
     mPrepareToForkFlag = true;
@@ -1439,6 +1561,7 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
         mClientThreads[i].Wakeup();
     }
     globalNetManager().Wakeup();
+    mLogReceiverThread.PrepareToFork();
     while (mPrepareToForkCnt < mClientThreadCount) {
         mPrepareToForkDoneCond.Wait(*mutex);
     }
