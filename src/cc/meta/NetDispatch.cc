@@ -1527,6 +1527,7 @@ ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr& conn)
 void
 ClientManager::Impl::Shutdown()
 {
+    mLogReceiverThread.Shutdown();
     delete mAcceptor;
     mAcceptor = 0;
     delete [] mClientThreads;
