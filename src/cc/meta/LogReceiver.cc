@@ -391,7 +391,7 @@ public:
                 }
                 Error("network error");
                 break;
-            case EVENT_TIMEOUT:
+            case EVENT_INACTIVITY_TIMEOUT:
                 Error("connection timed out");
                 break;
             default:

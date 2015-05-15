@@ -56,13 +56,15 @@ using std::ofstream;
 class LogWriter::Impl :
     private ITimeout,
     private QCRunnable,
-    private LogTransmitter::CommitObserver
+    private LogTransmitter::CommitObserver,
+    private NetManager::Dispatcher
 {
 public:
     Impl()
         : ITimeout(),
           QCRunnable(),
           LogTransmitter::CommitObserver(),
+          NetManager::Dispatcher(),
           mNetManagerPtr(0),
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
@@ -73,7 +75,6 @@ public:
           mCommitted(),
           mThread(),
           mMutex(),
-          mCond(),
           mStopFlag(false),
           mOmitDefaultsFlag(true),
           mMaxBlockSize(256),
@@ -300,7 +301,7 @@ public:
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
         mInQueue.PushBack(mPendingQueue);
-        mCond.Notify();
+        mNetManager.Wakeup();
     }
     void Shutdown()
     {
@@ -309,7 +310,7 @@ public:
         }
         QCStMutexLocker theLock(mMutex);
         mStopFlag = true;
-        mCond.Notify();
+        mNetManager.Wakeup();
         theLock.Unlock();
         mThread.Join();
         if (mNetManagerPtr) {
@@ -403,7 +404,6 @@ private:
     Committed      mCommitted;
     QCThread       mThread;
     QCMutex        mMutex;
-    QCCondVar      mCond;
     bool           mStopFlag;
     bool           mOmitDefaultsFlag;
     int            mMaxBlockSize;
@@ -462,25 +462,33 @@ private:
             submit_request(&theReq);
         }
     }
-    virtual void Run()
+    virtual void DispatchStart()
     {
         QCStMutexLocker theLock(mMutex);
-        while (! mStopFlag) {
-            while (! mStopFlag && mInQueue.IsEmpty()) {
-                mCond.Wait(mMutex);
-            }
-            if (mInQueue.IsEmpty()) {
-                continue;
-            }
-            Queue theWriteQueue = mInQueue;
-            mInQueue.Reset();
-            mInFlightCommitted = mPendingCommitted;
-            QCStMutexUnlocker theUnlocker(mMutex);
-            Write(*theWriteQueue.Front());
-            theUnlocker.Lock();
-            mOutQueue.PushBack(theWriteQueue);
-            mNetManagerPtr->Wakeup();
+        if (mStopFlag) {
+            mNetManager.Shutdown();
         }
+        if (mInQueue.IsEmpty()) {
+            return;
+        }
+        Queue theWriteQueue = mInQueue;
+        mInQueue.Reset();
+        mInFlightCommitted = mPendingCommitted;
+        QCStMutexUnlocker theUnlocker(mMutex);
+        Write(*theWriteQueue.Front());
+        theUnlocker.Lock();
+        mOutQueue.PushBack(theWriteQueue);
+        mNetManagerPtr->Wakeup();
+    }
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        {}
+    virtual void Run()
+    {
+        QCMutex* const kMutexPtr             = 0;
+        bool const     kWakeupAndCleanupFlag = true;
+        mNetManager.MainLoop(kMutexPtr, kWakeupAndCleanupFlag, this);
         Sync();
         Close();
     }

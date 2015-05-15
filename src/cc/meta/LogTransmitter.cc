@@ -258,6 +258,7 @@ public:
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
+        mImpl.Add(*this);
     }
     ~Transmitter()
     {
@@ -316,7 +317,7 @@ public:
                 }
                 Error("network error");
                 break;
-            case EVENT_TIMEOUT:
+            case EVENT_INACTIVITY_TIMEOUT:
                 if ( SendHeartbeat()) {
                     break;
                 }
@@ -329,7 +330,7 @@ public:
         mRecursionCount--;
         QCASSERT(0 <= mRecursionCount);
         if (mRecursionCount <= 0) {
-            if (mConnectionPtr->IsGood()) {
+            if (mConnectionPtr && mConnectionPtr->IsGood()) {
                 mConnectionPtr->StartFlush();
             } else if (mConnectionPtr) {
                 Error();
@@ -511,7 +512,9 @@ private:
         if (theErr != 0) {
             mConnectionPtr->SetDoingNonblockingConnect();
         }
-        Authenticate();
+        if (! Authenticate()) {
+            StartSend();
+        }
     }
     bool Authenticate()
     {
@@ -653,11 +656,26 @@ private:
             Error(theErrMsg.c_str());
             return;
         }
-        if (mConnectionPtr && ! mPendingSend.IsEmpty()) {
-            mConnectionPtr->GetOutBuffer().Move(&mPendingSend);
-            if (mRecursionCount <= 0) {
-                mConnectionPtr->StartFlush();
-            }
+        StartSend();
+    }
+    void StartSend()
+    {
+        if (! mConnectionPtr) {
+            return;
+        }
+        if (mAuthenticateOpPtr) {
+            panic("invalid start send invocation: "
+                "authentication is in progress");
+            return;
+        }
+        if (! mPendingSend.IsEmpty()) {
+            mConnectionPtr->GetOutBuffer().Copy(
+                &mPendingSend, mPendingSend.BytesConsumable());
+        } else {
+            SendHeartbeat();
+        }
+        if (mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
         }
     }
     bool HandleSslShutdown()
@@ -1004,8 +1022,8 @@ LogTransmitter::Impl::SetParameters(
         const char*       thePtr      = theServersPtr->GetPtr();
         const char* const theEndPtr   = thePtr + theServersPtr->GetSize();
         const bool        kHexFmtFlag = false;
-        while (thePtr < theEndPtr && theLocation.FromString(
-                thePtr, theEndPtr - theEndPtr, kHexFmtFlag)) {
+        while (thePtr < theEndPtr && theLocation.ParseString(
+                thePtr, theEndPtr - thePtr, kHexFmtFlag)) {
             theLocations.insert(theLocation);
         }
         List::Iterator theIt(mTransmittersPtr);
