@@ -376,116 +376,6 @@ private:
         const MainThreadPrepareToFork& inPrepare);
 };
 
-const char* const kLogReciverParamsPrefix = "metaServer.logReceiver.";
-
-class LogReceiverThread :
-    private QCRunnable,
-    private NetManager::Dispatcher
-{
-public:
-    LogReceiverThread()
-        : QCRunnable(),
-          NetManager::Dispatcher(),
-          mParameters(),
-          mNetManager(),
-          mLogReceiver(),
-          mThread(),
-          mParametersUpdatePendingFlag(false),
-          mPrepareToForkCnt(0)
-          {}
-    ~LogReceiverThread()
-        { LogReceiverThread::Shutdown(); }
-    void ChildAtFork()
-    {
-        mNetManager.ChildAtFork();
-    }
-    bool IsStarted() const
-        { return mThread.IsStarted(); }
-    int Start()
-    {
-        if (mThread.IsStarted()) {
-            return -EINVAL;
-        }
-        QCMutex* const mutex = gNetDispatch.GetMutex();
-        QCStMutexLocker lock(mutex);
-        SetParameters(mParameters);
-        mParametersUpdatePendingFlag = false;
-        if (! mLogReceiver.SetParameters(
-                kLogReciverParamsPrefix, mParameters)) {
-            return 0;
-        }
-        const int err = mLogReceiver.Start(
-            mutex ? mNetManager : globalNetManager(), mutex);
-        if (err || ! mutex) {
-            return err;
-        }
-        int kStackSize = 64 << 10;
-        mThread.Start(this, kStackSize, "LogReceiver");
-        return 0;
-    }
-    void SetParameters(
-        const Properties& inParameters)
-    {
-        assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
-        inParameters.copyWithPrefix(kLogReciverParamsPrefix, mParameters);
-        mParametersUpdatePendingFlag = true;
-    }
-    void Shutdown()
-    {
-        if (! mThread.IsStarted()) {
-            return;
-        }
-        mNetManager.Shutdown();
-        mThread.Join();
-    }
-    void PrepareToFork()
-    {
-        if (! mThread.IsStarted()) {
-            return;
-        }
-        QCMutex* const mutex = gNetDispatch.GetMutex();
-        if (! mutex) {
-            return;
-        }
-        assert(mutex->IsOwned());
-        SyncAddAndFetch(mPrepareToForkCnt, 1);
-        mNetManager.Wakeup();
-    }
-private:
-    Properties    mParameters;
-    NetManager    mNetManager;
-    LogReceiver   mLogReceiver;
-    QCThread      mThread;
-    volatile bool mParametersUpdatePendingFlag;
-    volatile int  mPrepareToForkCnt;
-
-    virtual void Run()
-    {
-        QCMutex* const kMutex                = 0;
-        const bool     kWakeupAndCleanupFlag = true;
-        mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
-    }
-    virtual void DispatchStart()
-    {
-        if (SyncAddAndFetch(mPrepareToForkCnt, 0) == 0 &&
-                ! mParametersUpdatePendingFlag) {
-            return;
-        }
-        QCStMutexLocker lock(gNetDispatch.GetMutex());
-        mPrepareToForkCnt = 0;
-        gNetDispatch.PrepareToFork();
-        if (! mParametersUpdatePendingFlag) {
-            return;
-        }
-        mParametersUpdatePendingFlag = false;
-        mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
-    }
-    virtual void DispatchEnd()
-        {}
-    virtual void DispatchExit()
-        {}
-};
-
 //
 // Open up the server for connections.
 //
@@ -1031,6 +921,131 @@ void NetDispatch::SetMaxClientSockets(int count)
 {
     mClientManager.SetMaxClientSockets(count);
 }
+
+const char* const kLogReciverParamsPrefix = "metaServer.logReceiver.";
+
+class LogReceiverThread :
+    private QCRunnable,
+    private NetManager::Dispatcher
+{
+public:
+    LogReceiverThread()
+        : QCRunnable(),
+          NetManager::Dispatcher(),
+          mParameters(),
+          mNetManager(),
+          mLogReceiver(),
+          mThread(),
+          mStartedFlag(false),
+          mParametersUpdatePendingFlag(false),
+          mSignalCnt(0)
+          {}
+    ~LogReceiverThread()
+        { LogReceiverThread::Shutdown(); }
+    void ChildAtFork()
+        { mNetManager.ChildAtFork(); }
+    bool IsStarted() const
+        { return mThread.IsStarted(); }
+    int Start()
+    {
+        if (mStartedFlag || mThread.IsStarted()) {
+            return -EINVAL;
+        }
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        QCStMutexLocker lock(mutex);
+        SetParameters(mParameters);
+        mParametersUpdatePendingFlag = false;
+        if (! mLogReceiver.SetParameters(
+                kLogReciverParamsPrefix, mParameters)) {
+            // No listener address, do not start receiver.
+            return 0;
+        }
+        const int err = mLogReceiver.Start(
+            mutex ? mNetManager : globalNetManager(), mutex);
+        if (err || ! mutex) {
+            return err;
+        }
+        mStartedFlag = true;
+        int kStackSize = 64 << 10;
+        mThread.Start(this, kStackSize, "LogReceiver");
+        return 0;
+    }
+    void SetParameters(
+        const Properties& inParameters)
+    {
+        assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
+        inParameters.copyWithPrefix(kLogReciverParamsPrefix, mParameters);
+        if (! mStartedFlag) {
+            return;
+        }
+        if (mThread.IsStarted()) {
+            mParametersUpdatePendingFlag = true;
+            SyncAddAndFetch(mSignalCnt, 1);
+            mNetManager.Wakeup();
+        } else {
+            mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
+        }
+    }
+    void Shutdown()
+    {
+        if (! mStartedFlag) {
+            return;
+        }
+        mStartedFlag = false;
+        if (mThread.IsStarted()) {
+            mNetManager.Shutdown();
+            mNetManager.Wakeup();
+            mThread.Join();
+        }
+        mLogReceiver.Shutdown();
+    }
+    void PrepareToFork()
+    {
+        if (! mThread.IsStarted()) {
+            return;
+        }
+        QCMutex* const mutex = gNetDispatch.GetMutex();
+        if (! mutex) {
+            return;
+        }
+        assert(mutex->IsOwned());
+        SyncAddAndFetch(mSignalCnt, 1);
+        mNetManager.Wakeup();
+    }
+private:
+    Properties    mParameters;
+    NetManager    mNetManager;
+    LogReceiver   mLogReceiver;
+    QCThread      mThread;
+    bool          mStartedFlag;
+    bool          mParametersUpdatePendingFlag;
+    volatile int  mSignalCnt;
+
+    virtual void Run()
+    {
+        QCMutex* const kMutex                = 0;
+        const bool     kWakeupAndCleanupFlag = true;
+        mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
+    }
+    virtual void DispatchStart()
+    {
+        if (SyncAddAndFetch(mSignalCnt, 0) == 0) {
+            return;
+        }
+        QCStMutexLocker lock(gNetDispatch.GetMutex());
+        mSignalCnt = 0;
+        gNetDispatch.PrepareToFork();
+        if (! mParametersUpdatePendingFlag) {
+            return;
+        }
+        mParametersUpdatePendingFlag = false;
+        mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
+    }
+    virtual void DispatchEnd()
+        {}
+    virtual void DispatchExit()
+        {}
+};
 
 class ClientManager::Impl : public IAcceptorOwner
 {
