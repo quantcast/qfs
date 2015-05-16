@@ -129,7 +129,7 @@ public:
         : mNetManagerEntry(),
           mListenOnly(listenOnly),
           mOwnsSocket(ownsSocket),
-          mTryWrite(false),
+          mTryWrite(! listenOnly),
           mAuthFailureFlag(false),
           mCallbackObj(c),
           mSock(sock),
