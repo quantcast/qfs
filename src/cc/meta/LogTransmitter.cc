@@ -45,6 +45,8 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
 
+#include <string.h>
+
 #include <limits>
 #include <string>
 #include <algorithm>
@@ -78,6 +80,11 @@ public:
           mMaxPending(4 << 20),
           mCompactionInterval(256),
           mCommitted(-1),
+          mAuthType(
+            kAuthenticationTypeKrb5 |
+            kAuthenticationTypeX509 |
+            kAuthenticationTypePSK),
+          mAuthTypeStr("Krb5 X509 PSK"),
           mServers(),
           mCommitObserver(inCommitObserver),
           mIdsCount(0),
@@ -168,8 +175,9 @@ public:
         const int         theBlockLen =
             (int)(theSeqEndPtr - theSeqPtr) + max(0, (int)inBlockLen);
         char* const theEndPtr = mTmpBuf + kTmpBufSize;
+        thePtr = theEndPtr;
         *--thePtr = ' ';
-        thePtr = IntToHexString(theBlockLen, theEndPtr);
+        thePtr = IntToHexString(theBlockLen, thePtr);
         *--thePtr = ':';
         *--thePtr = 'l';
         inBuffer.CopyIn(thePtr, (int)(theEndPtr - thePtr));
@@ -187,6 +195,8 @@ public:
         { return mUpFlag; }
     void Update(
         Transmitter& inTransmitter);
+    int GetAuthType() const
+        { return mAuthType; }
 private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
@@ -200,6 +210,8 @@ private:
     int             mMaxPending;
     int             mCompactionInterval;
     seq_t           mCommitted;
+    int             mAuthType;
+    string          mAuthTypeStr;
     String          mServers;
     CommitObserver& mCommitObserver;
     int             mIdsCount;
@@ -245,7 +257,6 @@ public:
           mRecursionCount(0),
           mCompactBlockCount(0),
           mAuthContext(),
-          mAuthType(0),
           mAuthRequestCtx(),
           mLastSentBlockSeq(-1),
           mAckBlockSeq(-1),
@@ -370,7 +381,7 @@ public:
         IOBuffer& inBuffer,
         int       inLen)
     {
-        if (inBlockSeq <= mAckBlockSeq) {
+        if (inBlockSeq <= mAckBlockSeq || inLen <= 0) {
             return true;
         }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
@@ -395,7 +406,7 @@ public:
         uint32_t    inChecksum,
         size_t      inChecksumStartPos)
     {
-        if (inBlockSeq <= mAckBlockSeq) {
+        if (inBlockSeq <= mAckBlockSeq && 0 < inBlockLen) {
             return true;
         }
         const int thePos = mPendingSend.BytesConsumable();
@@ -440,7 +451,6 @@ private:
     int                mRecursionCount;
     int                mCompactBlockCount;
     ClientAuthContext  mAuthContext;
-    int                mAuthType;
     RequestCtx         mAuthRequestCtx;
     seq_t              mLastSentBlockSeq;
     seq_t              mAckBlockSeq;
@@ -507,11 +517,11 @@ private:
             Error("failed to connect");
             return;
         }
-        mImpl.GetNetManager().AddConnection(mConnectionPtr);
-        mConnectionPtr->EnableReadIfOverloaded();
         if (theErr != 0) {
             mConnectionPtr->SetDoingNonblockingConnect();
         }
+        mConnectionPtr->EnableReadIfOverloaded();
+        mImpl.GetNetManager().AddConnection(mConnectionPtr);
         if (! Authenticate()) {
             StartSend();
         }
@@ -531,7 +541,7 @@ private:
         mAuthenticateOpPtr->shortRpcFormatFlag = true;
         string    theErrMsg;
         const int theErr = mAuthContext.Request(
-            mAuthType,
+            mImpl.GetAuthType(),
             mAuthenticateOpPtr->sendAuthType,
             mAuthenticateOpPtr->sendContentPtr,
             mAuthenticateOpPtr->sendContentLen,
@@ -697,7 +707,7 @@ private:
         }
         mHeartbeatInFlighSeq = min(seq_t(0), mLastSentBlockSeq);
         SendBlock(mHeartbeatInFlighSeq, "", 0,
-            0, kKfsNullChecksum);
+            kKfsNullChecksum, 0);
         return true;
     }
     int HandleMsg(
@@ -708,16 +718,32 @@ private:
             mImpl.GetParseBufferPtr(), inHeaderLen);
         if (2 <= inHeaderLen &&
                 (theHeaderPtr[0] & 0xFF) == 'A' &&
-                (theHeaderPtr[0] & 0xFF) <= ' ') {
+                (theHeaderPtr[1] & 0xFF) <= ' ') {
             return HandleAck(theHeaderPtr, inHeaderLen, inBuffer);
         }
         if (3 <= inHeaderLen &&
                 (theHeaderPtr[0] & 0xFF) == 'O' &&
-                (theHeaderPtr[0] & 0xFF) == 'K' &&
-                (theHeaderPtr[0] & 0xFF) <= ' ') {
+                (theHeaderPtr[1] & 0xFF) == 'K' &&
+                (theHeaderPtr[2] & 0xFF) <= ' ') {
             return HandleReply(theHeaderPtr, inHeaderLen, inBuffer);
         }
         return HanldeRequest(theHeaderPtr, inHeaderLen, inBuffer);
+    }
+    void AdvancePendingQueue()
+    {
+        while (! mBlocksQueue.empty()) {
+            const BlocksQueue::value_type& theFront = mBlocksQueue.front();
+            if (mAckBlockSeq < theFront.first) {
+                break;
+            }
+            if (mPendingSend.Consume(theFront.second) != theFront.second) {
+                panic("invalid pending send buffer or queue");
+            }
+            mBlocksQueue.pop_front();
+            if (0 < mCompactBlockCount) {
+                mCompactBlockCount--;
+            }
+        }
     }
     int HandleAck(
         const char* inHeaderPtr,
@@ -748,19 +774,7 @@ private:
             Error("invalid ack sequence");
             return -1;
         }
-        while (! mBlocksQueue.empty()) {
-            const BlocksQueue::value_type& theFront = mBlocksQueue.front();
-            if (mAckBlockSeq < theFront.first) {
-                break;
-            }
-            if (mPendingSend.Consume(theFront.second) != theFront.second) {
-                panic("invalid pending send buffer or queue");
-            }
-            mBlocksQueue.pop_front();
-            if (0 < mCompactBlockCount) {
-                mCompactBlockCount--;
-            }
-        }
+        AdvancePendingQueue();
         if (mAckBlockFlags &
                     (uint64_t(1) << kLogBlockAckHasServerIdBit)) {
             int64_t theId = -1;
@@ -835,6 +849,7 @@ private:
         IOBuffer&   inBuffer)
     {
         mReplyProps.clear();
+        mReplyProps.setIntBase(16);
         if (mReplyProps.loadProperties(
                 inHeaderPtr, inHeaderLen, (char)':') != 0) {
             MsgLogLines(MsgLogger::kLogLevelERROR,
@@ -843,7 +858,7 @@ private:
             return -1;
         }
         // For now only handle authentication response.
-        seq_t const theSeq = mReplyProps.getValue("c", -1);
+        seq_t const theSeq = mReplyProps.getValue("c", seq_t(-1));
         if (! mAuthenticateOpPtr || theSeq != mAuthenticateOpPtr->opSeqno) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
@@ -853,6 +868,7 @@ private:
             MsgLogLines(MsgLogger::kLogLevelERROR,
                 "unexpected reply: ", inBuffer, inHeaderLen);
             Error("unexpected reply");
+            return -1;
         }
         inBuffer.Consume(inHeaderLen);
         mAuthenticateOpPtr->contentLength         = mReplyProps.getValue("l", 0);
@@ -928,9 +944,12 @@ private:
         mConnectionPtr.reset();
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr   = 0;
-        mLastSentBlockSeq    = -1;
-        mHeartbeatInFlighSeq = -1;
-        mAckBlockSeq         = -1;
+        AdvancePendingQueue();
+        if (mBlocksQueue.empty()) {
+            mLastSentBlockSeq    = -1;
+            mHeartbeatInFlighSeq = -1;
+            mAckBlockSeq         = -1;
+        }
         mImpl.Update(*this);
         if (mSleepingFlag) {
             return;
@@ -1012,6 +1031,30 @@ LogTransmitter::Impl::SetParameters(
     mCompactionInterval = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "compactionInterval"), mCompactionInterval);
+    mAuthTypeStr = inParameters.getValue(
+        theParamName.Truncate(thePrefixLen).Append(
+        "authType"), mAuthTypeStr);
+    const char* thePtr = mAuthTypeStr.c_str();
+    mAuthType = 0;
+    while (*thePtr != 0) {
+        while (*thePtr != 0 && (*thePtr & 0xFF) <= ' ') {
+            thePtr++;
+        }
+        const char* theStartPtr = thePtr;
+        while (' ' < (*thePtr & 0xFF)) {
+            thePtr++;
+        }
+        const size_t theLen = thePtr - theStartPtr;
+        if (theLen == 3) {
+            if (memcmp("Krb5", theStartPtr, theLen) == 0) {
+                mAuthType |= kAuthenticationTypeKrb5;
+            } else if (memcmp("PSK", theStartPtr, theLen) == 0) {
+                mAuthType |= kAuthenticationTypeKrb5;
+            }
+        } else if (theLen == 4 && memcmp("X509", theStartPtr, theLen) == 0) {
+            mAuthType |= kAuthenticationTypeX509;
+        }
+    }
     const String* const theServersPtr = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "servers"));
@@ -1196,6 +1239,9 @@ LogTransmitter::Impl::TransmitBlock(
     }
     if (! mUpFlag) {
         return -EIO;
+    }
+    if (inBlockLen <= 0) {
+        return 0;
     }
     mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {

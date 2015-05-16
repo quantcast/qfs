@@ -922,7 +922,7 @@ void NetDispatch::SetMaxClientSockets(int count)
     mClientManager.SetMaxClientSockets(count);
 }
 
-const char* const kLogReciverParamsPrefix = "metaServer.logReceiver.";
+const char* const kLogReciverParamsPrefix = "metaServer.log.receiver.";
 
 class LogReceiverThread :
     private QCRunnable,

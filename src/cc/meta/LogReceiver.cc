@@ -294,6 +294,7 @@ public:
         }
         mSessionExpirationTime = TimeNow() - int64_t(60) * 60 * 24 * 365 * 10;
         mConnectionPtr->SetInactivityTimeout(mImpl.GetTimeout());
+        mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         mImpl.New(*this);
     }
     ~Connection()
@@ -684,9 +685,6 @@ private:
         const int kSeparatorLen = 4;
         const int kPrefixLen    = 2;
         if (kSeparatorLen + kPrefixLen < inMsgLen) {
-            if (IsAuthError()) {
-                return -1;
-            }
             int               theLen       = inMsgLen - kSeparatorLen;
             const char* const theHeaderPtr = inBuffer.CopyOutOrGetBufPtr(
                 mImpl.GetParseBufferPtr(), theLen);
@@ -698,6 +696,9 @@ private:
                         thePtr, theEndPtr - thePtr, mBlockLength) &&
                     HexIntParser::Parse(
                         thePtr, theEndPtr - thePtr, mBlockChecksum)) {
+                if (IsAuthError()) {
+                    return -1;
+                }
                 if (mBlockLength < 0) {
                     Error("invalid negative block lenght");
                     return -1;
@@ -767,17 +768,15 @@ private:
         int64_t     theBlockEndSeq  = -1;
         const char* thePtr          = theStartPtr;
         if (! HexIntParser::Parse(
-                thePtr, theEndPtr - thePtr, theBlockEndSeq) ||
-                theBlockEndSeq < 0 ||
-                (0 <= mBlockEndSeq && theBlockEndSeq < mBlockEndSeq)) {
+                thePtr, theEndPtr - thePtr, theBlockEndSeq)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " invalid block sequence: " << theBlockEndSeq <<
-                " last    : "               << mBlockEndSeq <<
-                " length: "                 << mBlockLength <<
+                " invalid block:"
+                " last: "     << mBlockEndSeq <<
+                " length: "   << mBlockLength <<
             KFS_LOG_EOM;
             MsgLogLines(MsgLogger::kLogLevelERROR,
-                "invalid block sequence: ", inBuffer, mBlockLength);
-            Error("invalid block sequence");
+                "invalid block: ", inBuffer, mBlockLength);
+            Error("invalid block");
             return -1;
         }
         while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
@@ -794,10 +793,27 @@ private:
             return -1;
         }
         mBlockLength -= inBuffer.Consume((int)(thePtr - theStartPtr));
-        mBlockEndSeq = theBlockEndSeq;
-        if (mDownFlag) {
+        if (mBlockLength <= 0) {
+            SendAck();
+            if (! mDownFlag) {
+                mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
+            }
+            return (mDownFlag ? -1 : 0);
+        }
+        if (theBlockEndSeq < 0  ||
+                    (0 <= mBlockEndSeq && theBlockEndSeq < mBlockEndSeq)) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " invalid block:"
+                " sequence: " << theBlockEndSeq <<
+                " last: "     << mBlockEndSeq <<
+                " length: "   << mBlockLength <<
+            KFS_LOG_EOM;
+            MsgLogLines(MsgLogger::kLogLevelERROR,
+                "invalid block sequence: ", inBuffer, mBlockLength);
+            Error("invalid block sequence");
             return -1;
         }
+        mBlockEndSeq = theBlockEndSeq;
         return ProcessBlock(inBuffer);
     }
     void Error(
@@ -807,7 +823,7 @@ private:
             return;
         }
         KFS_LOG_STREAM_ERROR << GetPeerName() <<
-            " error:" << (inMsgPtr ? inMsgPtr : "")  <<
+            " error: " << (inMsgPtr ? inMsgPtr : "")  <<
             " closing connection"
             " last block end: " << mBlockEndSeq <<
             " socket error: "   << mConnectionPtr->GetErrorMsg() <<
@@ -973,10 +989,7 @@ private:
     }
     bool IsAuthError()
     {
-        if (! GetAuthContext().IsAuthRequired()) {
-            return false;
-        }
-        if (mAuthName.empty()) {
+        if (mAuthName.empty() && GetAuthContext().IsAuthRequired()) {
             Error("autentication required");
             return true;
         }

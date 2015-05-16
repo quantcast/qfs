@@ -4874,6 +4874,7 @@ MetaAuthenticate::Request(ReqOstream& os) const
     }
     os <<
         "AUTHENTICATE\r\n" <<
+        (shortRpcFormatFlag ? "c:" : "Cseq: ")      << opSeqno      << "\r\n" <<
         (shortRpcFormatFlag ? "A:" : "Auth-type: ") << sendAuthType << "\r\n"
     ;
     if (0 < sendContentLen) {

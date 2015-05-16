@@ -301,6 +301,7 @@ public:
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
         mInQueue.PushBack(mPendingQueue);
+        theLock.Unlock();
         mNetManager.Wakeup();
     }
     void Shutdown()
@@ -803,7 +804,7 @@ private:
             mFailureSimulationInterval);
         mLastLogPath = mLogDir + "/" + mLastLogName;
         return mLogTransmitter.SetParameters(
-            theName.Truncate(thePrefixLen).Append("transmit.").c_str(),
+            theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
             inParameters
         );
     }
