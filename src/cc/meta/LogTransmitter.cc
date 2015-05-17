@@ -1323,7 +1323,7 @@ LogTransmitter::Impl::Update()
         const int64_t theId  = thePtr->GetId();
         const seq_t   theAck = thePtr->GetAck();
         if (0 <= theId && theId != thePrevAllId) {
-            mIdsCount++;
+            theIdCnt++;
             thePrevAllId = theId;
         }
         if (0 <= theAck) {
@@ -1363,8 +1363,8 @@ LogTransmitter::Impl::Update()
         " up: "          << theUpFlag <<
         " / "            << mUpFlag <<
     KFS_LOG_EOM;
-    theIdCnt = mIdsCount;
-    mUpFlag  = theUpFlag;
+    mIdsCount = theIdCnt;
+    mUpFlag   = theUpFlag;
     if (theNotifyFlag) {
         mCommitObserver.Notify(mCommitted);
     }

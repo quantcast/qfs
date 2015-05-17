@@ -568,7 +568,8 @@ private:
         mAuthenticateOpPtr  = 0;
         KFS_LOG_STREAM_INFO << GetPeerName() <<
             (0 < mAuthCount ? " re-" : " ") <<
-            "authentication complete:"
+            "authentication [" << mAuthCount << "]"
+            " complete:"
             " session expires in: " <<
                 (mSessionExpirationTime - TimeNow()) << " sec." <<
         KFS_LOG_EOM;
@@ -868,6 +869,7 @@ private:
                     " update count: " << theUpdateCount <<
                     " / "             << mAuthCtxUpdateCount <<
                     " expires in: "   << (mSessionExpirationTime - TimeNow()) <<
+                    " timeout: "      << mImpl.GetReAuthTimeout() <<
                 KFS_LOG_EOM;
             }
         } else {
