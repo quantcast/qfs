@@ -43,6 +43,7 @@
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
+#include "qcdio/qcstutils.h"
 
 #include <string>
 #include <algorithm>
@@ -78,11 +79,12 @@ public:
           mListenerAddress(),
           mAcceptorPtr(0),
           mAuthContext(),
-          mNextLogSeq(-1),
+          mCommittedLogSeq(-1),
           mDeleteFlag(false),
           mLines(),
           mParseBuffer(),
-          mId(-1)
+          mId(-1),
+          mReplayerPtr(0)
     {
         List::Init(mConnectionsHeadPtr);
         mLines.reserve(2 << 10);
@@ -128,13 +130,9 @@ public:
             inParameters);
         return (! theListenOn.empty());
     }
-    void SetNextLogSeq(
-        seq_t inSeq)
-    {
-        mNextLogSeq = inSeq;
-    }
     int Start(
         NetManager& inNetManager,
+        Replayer&   inReplayer,
         QCMutex*    inMutexPtr)
     {
         if (mDeleteFlag) {
@@ -176,6 +174,10 @@ public:
             KFS_LOG_EOM;
             return -ENOTCONN;
         }
+        mMutexPtr = inMutexPtr;
+        QCStMutexLocker lock(mMutexPtr);
+        mReplayerPtr = &inReplayer;
+        UpdateCommittedLogSeq();
         return 0;
     }
     void Shutdown();
@@ -191,8 +193,8 @@ public:
         Connection& inConnection);
     void Done(
         Connection& inConnection);
-    seq_t GetNextLogSeq() const
-        { return mNextLogSeq; }
+    seq_t GetCommittedLogSeq() const
+        { return mCommittedLogSeq; }
     void Delete()
     {
         Shutdown();
@@ -226,7 +228,17 @@ public:
         }
         return mParseBuffer.GetPtr();
     }
-
+    QCMutex* GetMutexPtr() const
+        { return mMutexPtr; }
+    seq_t UpdateCommittedLogSeq()
+    {
+        mCommittedLogSeq = mReplayerPtr->Apply("", 0);
+        return mCommittedLogSeq;
+    }
+    void Replay(
+        const char* inLinePtr,
+        int         inLen)
+        { mCommittedLogSeq = mReplayerPtr->Apply(inLinePtr, inLen); }
 private:
     typedef StBufferT<char, kMinParseBufferSize> ParseBuffer;
 
@@ -240,11 +252,12 @@ private:
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
     AuthContext    mAuthContext;
-    seq_t          mNextLogSeq;
+    seq_t          mCommittedLogSeq;
     bool           mDeleteFlag;
     Lines          mLines;
     ParseBuffer    mParseBuffer;
     int64_t        mId;
+    Replayer*      mReplayerPtr;
     Connection*    mConnectionsHeadPtr[1];
 
     ~Impl()
@@ -254,6 +267,11 @@ private:
         }
         delete mAcceptorPtr;
     }
+private:
+    Impl(
+        const Impl& inImpl);
+    Impl& operator=(
+        const Impl& inImpl);
 };
 
 class LogReceiver::Impl::Connection :
@@ -794,6 +812,9 @@ private:
         }
         mBlockLength -= inBuffer.Consume((int)(thePtr - theStartPtr));
         if (mBlockLength <= 0) {
+            QCStMutexLocker theLock(mImpl.GetMutexPtr());
+            mImpl.UpdateCommittedLogSeq();
+            theLock.Unlock();
             SendAck();
             if (! mDownFlag) {
                 mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
@@ -863,7 +884,7 @@ private:
         const int thePos = theBuf.BytesConsumable();
         ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
-            "A " << mBlockEndSeq << " " << theAckFlags;
+            "A " << mImpl.GetCommittedLogSeq() << " " << theAckFlags;
         if (! mIdSentFlag) {
             mIdSentFlag = true;
             theStream << " " << mImpl.GetId() << " ";
@@ -885,7 +906,7 @@ private:
             Error("invalid negative block length");
             return -1;
         }
-        if (0 < mBlockLength && mBlockEndSeq <= mImpl.GetNextLogSeq()) {
+        if (0 < mBlockLength && mImpl.GetCommittedLogSeq() <= mBlockEndSeq) {
             Lines& theLines = mImpl.GetTmpLines();
             theLines.clear();
             int  theRem        = mBlockLength;
@@ -940,22 +961,27 @@ private:
                 Error(theMsgPtr);
                 return -1;
             }
-            for (Lines::const_iterator theIt = theLines.begin();
-                    theIt != theLines.end();
-                    ++theIt) {
-                const int theLen = *theIt;
-                if (theLen <= 0) {
-                    panic("LogReceiver::Impl: invalid line length");
-                    continue;
+            QCStMutexLocker theLock(mImpl.GetMutexPtr());
+            const seq_t theCommittedLogSeq = mImpl.UpdateCommittedLogSeq();
+            if (theCommittedLogSeq < mBlockEndSeq) {
+                for (Lines::const_iterator theIt = theLines.begin();
+                        theIt != theLines.end();
+                        ++theIt) {
+                    const int theLen = *theIt;
+                    if (theLen <= 0) {
+                        panic("LogReceiver::Impl: invalid line length");
+                        continue;
+                    }
+                    int               theLLen = theLen;
+                    const char* const thePtr  = inBuffer.CopyOutOrGetBufPtr(
+                        mImpl.GetParseBufferPtr(theLen), theLLen);
+                    if (theLLen != theLen ||
+                            (thePtr[theLen - 1] & 0xFF) != '\n') {
+                        panic("LogReceiver::Impl: invalid copy length");
+                    }
+                    mImpl.Replay(thePtr, theLen);
+                    inBuffer.Consume(theLen);
                 }
-                int               theLLen = theLen;
-                const char* const thePtr  = inBuffer.CopyOutOrGetBufPtr(
-                    mImpl.GetParseBufferPtr(theLen), theLLen);
-                if (theLLen != theLen || (thePtr[theLen - 1] & 0xFF) != '\n') {
-                    panic("LogReceiver::Impl: invalid copy length");
-                }
-                // Replay log line here.
-                inBuffer.Consume(theLen);
             }
         } else {
             inBuffer.Consume(mBlockLength);
@@ -1078,10 +1104,11 @@ LogReceiver::SetParameters(
 
     int
 LogReceiver::Start(
-    NetManager& inNetManager,
-    QCMutex*    inMutexPtr)
+    NetManager&            inNetManager,
+    LogReceiver::Replayer& inReplayer,
+    QCMutex*               inMutexPtr)
 {
-    return mImpl.Start(inNetManager, inMutexPtr);
+    return mImpl.Start(inNetManager, inReplayer, inMutexPtr);
 }
 
     void

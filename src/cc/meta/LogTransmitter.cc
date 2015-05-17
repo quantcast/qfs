@@ -871,7 +871,8 @@ private:
             return -1;
         }
         inBuffer.Consume(inHeaderLen);
-        mAuthenticateOpPtr->contentLength         = mReplyProps.getValue("l", 0);
+        mAuthenticateOpPtr->contentLength         =
+            mReplyProps.getValue("l", 0);
         mAuthenticateOpPtr->authType              =
             mReplyProps.getValue("A", int(kAuthenticationTypeUndef));
         mAuthenticateOpPtr->useSslFlag            =

@@ -42,6 +42,13 @@ class NetManager;
 class LogReceiver
 {
 public:
+    class Replayer
+    {
+    public:
+        virtual seq_t Apply(
+            const char* inLinePtr,
+            int         inLen) = 0;
+    };
     LogReceiver();
     ~LogReceiver();
     bool SetParameters(
@@ -51,12 +58,18 @@ public:
         seq_t inSeq);
     int Start(
         NetManager& inNetManager,
+        Replayer&   inReplayer,
         QCMutex*    inMutexPtr);
     void Shutdown();
 private:
     class Impl;
 
     Impl& mImpl;
+private:
+    LogReceiver(
+        const LogReceiver& inReceiver);
+    LogReceiver& operator=(
+        const LogReceiver& inReceiver);
 };
 
 } // namespace KFS

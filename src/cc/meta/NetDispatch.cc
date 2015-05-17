@@ -926,12 +926,14 @@ const char* const kLogReciverParamsPrefix = "metaServer.log.receiver.";
 
 class LogReceiverThread :
     private QCRunnable,
-    private NetManager::Dispatcher
+    private NetManager::Dispatcher,
+    private LogReceiver::Replayer
 {
 public:
     LogReceiverThread()
         : QCRunnable(),
           NetManager::Dispatcher(),
+          LogReceiver::Replayer(),
           mParameters(),
           mNetManager(),
           mLogReceiver(),
@@ -961,7 +963,7 @@ public:
             return 0;
         }
         const int err = mLogReceiver.Start(
-            mutex ? mNetManager : globalNetManager(), mutex);
+            mutex ? mNetManager : globalNetManager(), *this, mutex);
         if (err || ! mutex) {
             return err;
         }
@@ -1011,6 +1013,13 @@ public:
         assert(mutex->IsOwned());
         SyncAddAndFetch(mSignalCnt, 1);
         mNetManager.Wakeup();
+    }
+    virtual seq_t Apply(
+        const char* inLinePtr,
+        int         inLen)
+    {
+        // FIXME.
+        return 0; //replayer.getCommitted();
     }
 private:
     Properties    mParameters;
