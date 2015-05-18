@@ -331,6 +331,7 @@ public:
         mTransmitterUpFlag = mLogTransmitter.IsUp();
     }
 private:
+    typedef uint32_t Checksum;
     class Committed
     {
     public:
@@ -418,8 +419,8 @@ private:
     seq_t          mNextLogSeq;
     seq_t          mNextBlockSeq;
     seq_t          mLastLogSeq;
-    uint32_t       mBlockChecksum;
-    uint32_t       mNextBlockChecksum;
+    Checksum       mBlockChecksum;
+    Checksum       mNextBlockChecksum;
     int            mLogFd;
     int            mError;
     MdStream       mMdStream;
@@ -596,7 +597,7 @@ private:
         inReq.statusMsg = "transaction log write error";
     }
     void StartBlock(
-        uint32_t inStartCheckSum)
+        Checksum inStartCheckSum)
     {
         mMdStream.SetSync(false);
         mWriteState    = kUpdateBlockChecksum;

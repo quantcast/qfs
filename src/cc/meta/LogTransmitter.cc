@@ -68,6 +68,7 @@ private:
     class Transmitter;
 public:
     typedef QCDLList<Transmitter> List;
+    typedef uint32_t              Checksum;
 
     Impl(
         NetManager&     inNetManager,
@@ -106,7 +107,7 @@ public:
         seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockLen,
-        uint32_t    inChecksum,
+        Checksum    inChecksum,
         size_t      inChecksumStartPos);
     static seq_t RandomSeq()
     {
@@ -149,10 +150,10 @@ public:
         seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockLen,
-        uint32_t    inChecksum,
+        Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
-        int32_t theChecksum = inChecksum;
+        Checksum theChecksum = inChecksum;
         if (inChecksumStartPos <= inBlockLen) {
             theChecksum = ComputeBlockChecksum(
                 theChecksum,
@@ -162,14 +163,18 @@ public:
         }
         // Block sequence is at the end of the header, and is part of the
         // checksum.
-        char* const    theSeqEndPtr = mSeqBuf + kTmpBufSize;
-        char* thePtr = theSeqEndPtr - 1;
-        *thePtr = '\n';
+        char* const theSeqEndPtr = mSeqBuf + kTmpBufSize;
+        char*       thePtr       = theSeqEndPtr;
+        *--thePtr = '\n';
         thePtr = IntToHexString(inBlockSeq, thePtr);
+        // Non empty block checksum includes leading '\n'
+        const int theChecksumFrontLen = 0 < inBlockLen ? 1 : 0;
         theChecksum = ChecksumBlocksCombine(
             ComputeBlockChecksum(
-                kKfsNullChecksum, thePtr, theSeqEndPtr - thePtr),
-            theChecksum, inBlockLen
+                thePtr, 
+                theSeqEndPtr - thePtr - theChecksumFrontLen),
+            theChecksum,
+            inBlockLen + theChecksumFrontLen
         );
         const char* const theSeqPtr   = thePtr;
         const int         theBlockLen =
@@ -403,7 +408,7 @@ public:
         seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockLen,
-        uint32_t    inChecksum,
+        Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
         if (inBlockSeq <= mAckBlockSeq && 0 < inBlockLen) {
@@ -489,7 +494,7 @@ private:
         seq_t       inBlockSeq,
         const char* inBlockPtr,
         size_t      inBlockLen,
-        uint32_t    inChecksum,
+        Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
         mImpl.WriteBlock(inBuffer, inBlockSeq,
@@ -792,7 +797,7 @@ private:
                 thePtr++;
             }
             const char* const theChksumEndPtr = thePtr;
-            uint32_t theChecksum = 0;
+            Checksum theChecksum = 0;
             if (! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, theChecksum)) {
                 KFS_LOG_STREAM_ERROR <<
@@ -803,7 +808,7 @@ private:
                 Error("missing or invalid server id");
                 return -1;
             }
-            const uint32_t theComputedChksum = ComputeBlockChecksum(
+            const Checksum theComputedChksum = ComputeBlockChecksum(
                 inHeaderPtr, theChksumEndPtr - inHeaderPtr);
             if (theComputedChksum != theChecksum) {
                 KFS_LOG_STREAM_ERROR <<
@@ -1227,11 +1232,11 @@ LogTransmitter::Impl::Acked(
 
     int
 LogTransmitter::Impl::TransmitBlock(
-    seq_t       inBlockSeq,
-    const char* inBlockPtr,
-    size_t      inBlockLen,
-    uint32_t    inChecksum,
-    size_t      inChecksumStartPos)
+    seq_t                          inBlockSeq,
+    const char*                    inBlockPtr,
+    size_t                         inBlockLen,
+    LogTransmitter::Impl::Checksum inChecksum,
+    size_t                         inChecksumStartPos)
 {
     if (List::IsEmpty(mTransmittersPtr)) {
         mCommitted = inBlockSeq;

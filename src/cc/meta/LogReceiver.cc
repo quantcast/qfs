@@ -433,6 +433,7 @@ public:
     }
 private:
     typedef Impl::Lines Lines;
+    typedef uint32_t    Checksum;
 
     Impl&                  mImpl;
     string                 mAuthName;
@@ -444,7 +445,7 @@ private:
     int                    mRecursionCount;
     int                    mBlockLength;
     int                    mPendingOpsCount;
-    int32_t                mBlockChecksum;
+    Checksum               mBlockChecksum;
     int64_t                mBlockEndSeq;
     bool                   mDownFlag;
     bool                   mIdSentFlag;
@@ -768,8 +769,7 @@ private:
                 max(theRem, mImpl.GetMaxReadAhead()));
             return theRem;
         }
-        const uint32_t theChecksum = ComputeBlockChecksum(
-            &inBuffer, mBlockLength, kKfsNullChecksum);
+        const Checksum theChecksum = ComputeBlockChecksum(&inBuffer, mBlockLength);
         if (theChecksum != mBlockChecksum) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " received block checksum: " << theChecksum <<
@@ -891,7 +891,7 @@ private:
             mIdSentFlag = true;
             theStream << " " << mImpl.GetId() << " ";
             theStream.flush();
-            const uint32_t theChecksum = ComputeBlockChecksumAt(
+            const Checksum theChecksum = ComputeBlockChecksumAt(
                 &theBuf, thePos, theBuf.BytesConsumable() - thePos);
             theStream << theChecksum;
         }
@@ -914,17 +914,17 @@ private:
             int  theRem        = mBlockLength;
             bool theAppendFlag = false;
             for (IOBuffer::iterator theIt = inBuffer.begin();
-                    theRem <= 0 && theIt != inBuffer.end();
+                    0 < theRem && theIt != inBuffer.end();
                     ++theIt) {
-                const char* const theStartPtr = theIt->Producer();
+                const char* const theStartPtr = theIt->Consumer();
                 const char* const theEndPtr   =
-                    min(theIt->Consumer(), theStartPtr + theRem);
+                    min(theIt->Producer(), theStartPtr + theRem);
                 if (theEndPtr <= theStartPtr) {
                     continue;
                 }
                 theRem -= theEndPtr - theStartPtr;
-                const char* thePtr = theEndPtr;
-                const char* theNPtr;
+                const char* thePtr  = theStartPtr;
+                const char* theNPtr = thePtr;
                 while (thePtr < theEndPtr &&
                         (theNPtr = reinterpret_cast<const char*>(
                             memchr(thePtr, '\n', theEndPtr - thePtr)))) {
