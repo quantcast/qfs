@@ -626,22 +626,25 @@ private:
         mWriteState = kWriteStateNone;
         mReqOstream << mBlockChecksum << "\n";
         mReqOstream.flush();
-        const char* const theBStartPtr = mMdStream.GetBufferedStart();
-        const char* const theBEndPtr   = mMdStream.GetBufferedEnd();
-        const int theStatus = mLogTransmitter.TransmitBlock(
-            inLogSeq,
-            theBStartPtr,
-            theBEndPtr - theBStartPtr,
-            mBlockChecksum,
-            theEndPtr - theStartPtr
-        );
-        if (0 != theStatus) {
-            KFS_LOG_STREAM_ERROR <<
-                "block transmit failure:"
-                " seq: "    << inLogSeq  <<
-                " status: " << theStatus <<
-            KFS_LOG_EOM;
-            mTransmitterUpFlag = false;
+        // Transmit all blocks, except first one, which has only block header.
+        if (0 < mNextBlockSeq) {
+            const char* const theBStartPtr = mMdStream.GetBufferedStart();
+            const char* const theBEndPtr   = mMdStream.GetBufferedEnd();
+            const int theStatus = mLogTransmitter.TransmitBlock(
+                inLogSeq,
+                theBStartPtr,
+                theBEndPtr - theBStartPtr,
+                mBlockChecksum,
+                theEndPtr - theStartPtr
+            );
+            if (0 != theStatus) {
+                KFS_LOG_STREAM_ERROR <<
+                    "block transmit failure:"
+                    " seq: "    << inLogSeq  <<
+                    " status: " << theStatus <<
+                KFS_LOG_EOM;
+                mTransmitterUpFlag = false;
+            }
         }
         mMdStream.SetSync(true);
         mReqOstream.flush();
