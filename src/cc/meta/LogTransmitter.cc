@@ -76,7 +76,7 @@ public:
         : mNetManager(inNetManager),
           mRetryInterval(2),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
-          mHeartbeatInterval(5),
+          mHeartbeatInterval(16),
           mMinAckToCommit(numeric_limits<int>::max()),
           mMaxPending(4 << 20),
           mCompactionInterval(256),
@@ -334,7 +334,7 @@ public:
                 Error("network error");
                 break;
             case EVENT_INACTIVITY_TIMEOUT:
-                if ( SendHeartbeat()) {
+                if (SendHeartbeat()) {
                     break;
                 }
                 Error("connection timed out");
@@ -361,7 +361,6 @@ public:
     }
     void Shutdown()
     {
-        mHeartbeatInFlighSeq = -1;
         if (mConnectionPtr) {
             mConnectionPtr->Close();
             mConnectionPtr.reset();
@@ -464,7 +463,6 @@ private:
     IOBuffer::IStream  mIstream;
     IOBuffer::WOStream mOstream;
     bool               mSleepingFlag;
-    seq_t              mHeartbeatInFlighSeq;
     int64_t            mId;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
@@ -706,12 +704,10 @@ private:
     }
     bool SendHeartbeat()
     {
-        if (mAckBlockSeq < mLastSentBlockSeq ||
-                0 <= mHeartbeatInFlighSeq) {
+        if (mAckBlockSeq < mLastSentBlockSeq || ! mBlocksQueue.empty()) {
             return false;
         }
-        mHeartbeatInFlighSeq = min(seq_t(0), mLastSentBlockSeq);
-        SendBlock(mHeartbeatInFlighSeq, "", 0,
+        SendBlock(min(seq_t(0), mLastSentBlockSeq), "", 0,
             kKfsNullChecksum, 0);
         return true;
     }
@@ -953,7 +949,6 @@ private:
         AdvancePendingQueue();
         if (mBlocksQueue.empty()) {
             mLastSentBlockSeq    = -1;
-            mHeartbeatInFlighSeq = -1;
             mAckBlockSeq         = -1;
         }
         mImpl.Update(*this);
