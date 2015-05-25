@@ -112,6 +112,8 @@ public:
         { return mLocation.port; }
     const ServerLocation& GetLocation() const
         { return mLocation; }
+    NetManager& GetNetManager()
+        { return mNetManager; }
 private:
     ///
     /// The encapsulated connection object that corresponds to the TCP
