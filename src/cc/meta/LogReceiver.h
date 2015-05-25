@@ -31,8 +31,6 @@
 
 #include "kfstypes.h"
 
-class QCMutex;
-
 namespace KFS
 {
 
@@ -48,9 +46,22 @@ public:
         virtual seq_t Apply(
             const char* inLinePtr,
             int         inLen) = 0;
+        virtual void Wakeup() = 0;
+    protected:
+        Replayer()
+            {}
+        virtual ~Replayer()
+            {}
+        Replayer(
+            const Replayer& /* inReplayer */)
+            {}
+        Replayer& operator=(
+            const Replayer& /* inReplayer */)
+            { return *this; }
     };
     LogReceiver();
     ~LogReceiver();
+    void Dispatch();
     bool SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
@@ -58,8 +69,7 @@ public:
         seq_t inSeq);
     int Start(
         NetManager& inNetManager,
-        Replayer&   inReplayer,
-        QCMutex*    inMutexPtr);
+        Replayer&   inReplayer);
     void Shutdown();
 private:
     class Impl;

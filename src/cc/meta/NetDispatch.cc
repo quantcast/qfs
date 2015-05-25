@@ -938,6 +938,7 @@ public:
           mNetManager(),
           mLogReceiver(),
           mThread(),
+          mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
           mSignalCnt(0)
@@ -963,7 +964,7 @@ public:
             return 0;
         }
         const int err = mLogReceiver.Start(
-            mutex ? mNetManager : globalNetManager(), *this, mutex);
+            mutex ? mNetManager : globalNetManager(), *this);
         if (err || ! mutex) {
             return err;
         }
@@ -1021,11 +1022,22 @@ public:
         // FIXME.
         return 0; //replayer.getCommitted();
     }
+    virtual void Wakeup()
+    {
+        SyncAddAndFetch(mSignalCnt, 1);
+        mWakeupFlag = true;
+        if (gNetDispatch.GetMutex()) {
+            mNetManager.Wakeup();
+        } else {
+            globalNetManager().Wakeup();
+        }
+    }
 private:
     Properties    mParameters;
     NetManager    mNetManager;
     LogReceiver   mLogReceiver;
     QCThread      mThread;
+    bool          mWakeupFlag;
     bool          mStartedFlag;
     bool          mParametersUpdatePendingFlag;
     volatile int  mSignalCnt;
@@ -1044,6 +1056,10 @@ private:
         QCStMutexLocker lock(gNetDispatch.GetMutex());
         mSignalCnt = 0;
         gNetDispatch.PrepareToFork();
+        if (mWakeupFlag) {
+            mWakeupFlag = false;
+            mLogReceiver.Dispatch();
+        }
         if (! mParametersUpdatePendingFlag) {
             return;
         }

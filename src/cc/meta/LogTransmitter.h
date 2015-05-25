@@ -59,6 +59,7 @@ public:
         const Properties& inParameters);
     int TransmitBlock(
         seq_t       inBlockSeq,
+        int         inBlockSeqLen,
         const char* inBlockPtr,
         size_t      inBlockLen,
         uint32_t    inChecksum,

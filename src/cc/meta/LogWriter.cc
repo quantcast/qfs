@@ -632,6 +632,7 @@ private:
             const char* const theBEndPtr   = mMdStream.GetBufferedEnd();
             const int theStatus = mLogTransmitter.TransmitBlock(
                 inLogSeq,
+                (int)(inLogSeq - mNextLogSeq),
                 theBStartPtr,
                 theBEndPtr - theBStartPtr,
                 mBlockChecksum,

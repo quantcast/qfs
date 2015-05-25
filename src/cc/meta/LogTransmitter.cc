@@ -96,7 +96,7 @@ public:
         List::Init(mTransmittersPtr);
         List::Init(mPendingIdChangePtr);
         mTmpBuf[kTmpBufSize] = 0;
-        mSeqBuf[kTmpBufSize] = 0;
+        mSeqBuf[kSeqBufSize] = 0;
     }
     ~Impl()
         { Impl::Shutdown(); }
@@ -105,6 +105,7 @@ public:
         const Properties& inParameters);
     int TransmitBlock(
         seq_t       inBlockSeq,
+        int         inBlockSeqLen,
         const char* inBlockPtr,
         size_t      inBlockLen,
         Checksum    inChecksum,
@@ -148,11 +149,16 @@ public:
     void WriteBlock(
         IOBuffer&   inBuffer,
         seq_t       inBlockSeq,
+        int         inBlockSeqLen,
         const char* inBlockPtr,
         size_t      inBlockLen,
         Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
+        if (inBlockSeqLen < 0) {
+            panic("invalid block sequence length");
+            return;
+        }
         Checksum theChecksum = inChecksum;
         if (inChecksumStartPos <= inBlockLen) {
             theChecksum = ComputeBlockChecksum(
@@ -163,9 +169,11 @@ public:
         }
         // Block sequence is at the end of the header, and is part of the
         // checksum.
-        char* const theSeqEndPtr = mSeqBuf + kTmpBufSize;
+        char* const theSeqEndPtr = mSeqBuf + kSeqBufSize;
         char*       thePtr       = theSeqEndPtr;
         *--thePtr = '\n';
+        thePtr = IntToHexString(inBlockSeqLen, thePtr);
+        *--thePtr = ' ';
         thePtr = IntToHexString(inBlockSeq, thePtr);
         // Non empty block checksum includes leading '\n'
         const int theChecksumFrontLen = 0 < inBlockLen ? 1 : 0;
@@ -206,6 +214,7 @@ private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
+    enum { kSeqBufSize = 2 * kTmpBufSize };
 
     NetManager&     mNetManager;
     int             mRetryInterval;
@@ -227,7 +236,7 @@ private:
     Transmitter*    mPendingIdChangePtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
-    char            mSeqBuf[kTmpBufSize + 1];
+    char            mSeqBuf[kSeqBufSize + 1];
 
     void Insert(
         Transmitter& inTransmitter);
@@ -405,11 +414,16 @@ public:
     }
     bool SendBlock(
         seq_t       inBlockSeq,
+        int         inBlockSeqLen,
         const char* inBlockPtr,
         size_t      inBlockLen,
         Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
+        if (inBlockSeqLen < 0) {
+            panic("invalid block sequence length");
+            return false;
+        }
         if (inBlockSeq <= mAckBlockSeq && 0 < inBlockLen) {
             return true;
         }
@@ -419,11 +433,11 @@ public:
             return false;
         }
         if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
-            WriteBlock(mPendingSend, inBlockSeq,
+            WriteBlock(mPendingSend, inBlockSeq, inBlockSeqLen,
                 inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
         } else {
             IOBuffer theBuffer;
-            WriteBlock(theBuffer, inBlockSeq,
+            WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
                 inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
@@ -490,12 +504,13 @@ private:
     void WriteBlock(
         IOBuffer&   inBuffer,
         seq_t       inBlockSeq,
+        int         inBlockSeqLen,
         const char* inBlockPtr,
         size_t      inBlockLen,
         Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
-        mImpl.WriteBlock(inBuffer, inBlockSeq,
+        mImpl.WriteBlock(inBuffer, inBlockSeq, inBlockSeqLen,
             inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
         if (! mConnectionPtr || mAuthenticateOpPtr) {
             return;
@@ -707,7 +722,7 @@ private:
         if (mAckBlockSeq < mLastSentBlockSeq || ! mBlocksQueue.empty()) {
             return false;
         }
-        SendBlock(min(seq_t(0), mLastSentBlockSeq), "", 0,
+        SendBlock(min(seq_t(0), mLastSentBlockSeq), 0, "", 0,
             kKfsNullChecksum, 0);
         return true;
     }
@@ -1228,11 +1243,15 @@ LogTransmitter::Impl::Acked(
     int
 LogTransmitter::Impl::TransmitBlock(
     seq_t                          inBlockSeq,
+    int                            inBlockSeqLen,
     const char*                    inBlockPtr,
     size_t                         inBlockLen,
     LogTransmitter::Impl::Checksum inChecksum,
     size_t                         inChecksumStartPos)
 {
+    if (inBlockSeqLen < 0) {
+        return -EINVAL;
+    }
     if (List::IsEmpty(mTransmittersPtr)) {
         mCommitted = inBlockSeq;
         mCommitObserver.Notify(mCommitted);
@@ -1247,14 +1266,15 @@ LogTransmitter::Impl::TransmitBlock(
     mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
         const int theRet = (List::Front(mTransmittersPtr)->SendBlock(
-            inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
+                inBlockSeq, inBlockSeqLen,
+                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
             ? 0 : -EIO);
         EndOfTransmit();
         return theRet;
     }
     IOBuffer theBuffer;
-    WriteBlock(theBuffer,
-        inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+    WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
+        inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     int            theCnt      = 0;
@@ -1392,13 +1412,14 @@ LogTransmitter::SetParameters(
     int
 LogTransmitter::TransmitBlock(
     seq_t       inBlockSeq,
+    int         inBlockSeqLen,
     const char* inBlockPtr,
     size_t      inBlockLen,
     uint32_t    inChecksum,
     size_t      inChecksumStartPos)
 {
-    return mImpl.TransmitBlock(
-        inBlockSeq, inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+    return mImpl.TransmitBlock(inBlockSeq, inBlockSeqLen,
+        inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
 
     bool

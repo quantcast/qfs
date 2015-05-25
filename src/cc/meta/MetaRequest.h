@@ -3678,8 +3678,11 @@ struct MetaLogWriterControl : public MetaRequest {
     {
         kNop,
         kNewLog,
-        kSetParameters
+        kSetParameters,
+        kWriteBlock
     };
+    typedef StBufferT<int, 64> Lines;
+
     Type               type;
     seq_t              committed;
     seq_t              lastLogSeq;
@@ -3687,6 +3690,10 @@ struct MetaLogWriterControl : public MetaRequest {
     string             paramsPrefix;
     string             logName;
     MetaRequest* const completion;
+    seq_t              blockStartSeq;
+    seq_t              blockEndSeq;
+    Lines              blockLines;
+    IOBuffer           blockData;
 
     MetaLogWriterControl(
         Type         t = kNop,
@@ -3698,7 +3705,11 @@ struct MetaLogWriterControl : public MetaRequest {
           params(),
           paramsPrefix(),
           logName(),
-          completion(c)
+          completion(c),
+          blockStartSeq(-1),
+          blockEndSeq(-1),
+          blockLines(),
+          blockData()
         {}
     virtual bool start()  { return true; }
     virtual void handle()

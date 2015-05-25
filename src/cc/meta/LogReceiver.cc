@@ -43,7 +43,6 @@
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
-#include "qcdio/qcstutils.h"
 
 #include <string>
 #include <algorithm>
@@ -60,7 +59,10 @@ using std::vector;
 using std::max;
 using std::hex;
 
-class LogReceiver::Impl : public IAcceptorOwner
+class LogReceiver::Impl :
+    public IAcceptorOwner,
+    public KfsCallbackObj,
+    public ITimeout
 {
 private:
     class Connection;
@@ -69,26 +71,33 @@ public:
 
     Impl()
         : IAcceptorOwner(),
+          KfsCallbackObj(),
+          ITimeout(),
           mReAuthTimeout(20),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mTimeout(60),
           mConnectionCount(0),
           mMaxConnectionCount(8 << 10),
-          mMutexPtr(0),
           mIpV6OnlyFlag(false),
           mListenerAddress(),
           mAcceptorPtr(0),
           mAuthContext(),
           mCommittedLogSeq(-1),
+          mLastWriteSeq(-1),
           mDeleteFlag(false),
-          mLines(),
+          mAckBroadcastFlag(false),
           mParseBuffer(),
           mId(-1),
-          mReplayerPtr(0)
+          mReplayerPtr(0),
+          mWriteOpFreeListPtr(0),
+          mCompletionQueueHeadPtr(0),
+          mCompletionQueueTailPtr(0),
+          mPendingSubmitHeadPtr(0),
+          mPendingSubmitTailPtr(0)
     {
         List::Init(mConnectionsHeadPtr);
-        mLines.reserve(2 << 10);
         mParseBuffer.Resize(mParseBuffer.Capacity());
+        SET_HANDLER(this, &Impl::HandleEvent);
     }
     virtual KfsCallbackObj* CreateKfsCallbackObj(
         NetConnectionPtr& inConnectionPtr);
@@ -132,8 +141,7 @@ public:
     }
     int Start(
         NetManager& inNetManager,
-        Replayer&   inReplayer,
-        QCMutex*    inMutexPtr)
+        Replayer&   inReplayer)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -174,10 +182,8 @@ public:
             KFS_LOG_EOM;
             return -ENOTCONN;
         }
-        mMutexPtr = inMutexPtr;
-        QCStMutexLocker lock(mMutexPtr);
         mReplayerPtr = &inReplayer;
-        UpdateCommittedLogSeq();
+        inNetManager.RegisterTimeoutHandler(this);
         return 0;
     }
     void Shutdown();
@@ -195,6 +201,8 @@ public:
         Connection& inConnection);
     seq_t GetCommittedLogSeq() const
         { return mCommittedLogSeq; }
+    seq_t GetLastWriteLogSeq() const
+        { return mLastWriteSeq; }
     void Delete()
     {
         Shutdown();
@@ -211,9 +219,6 @@ public:
     enum { kMinParseBufferSize = kMaxBlockHeaderLen <= MAX_RPC_HEADER_LEN ?
         MAX_RPC_HEADER_LEN : kMaxBlockHeaderLen };
 
-    typedef vector<int> Lines;
-    Lines& GetTmpLines()
-        { return mLines; }
     char* GetParseBufferPtr()
         { return mParseBuffer.GetPtr(); }
     char* GetParseBufferPtr(
@@ -228,17 +233,138 @@ public:
         }
         return mParseBuffer.GetPtr();
     }
-    QCMutex* GetMutexPtr() const
-        { return mMutexPtr; }
-    seq_t UpdateCommittedLogSeq()
-    {
-        mCommittedLogSeq = mReplayerPtr->Apply("", 0);
-        return mCommittedLogSeq;
-    }
     void Replay(
         const char* inLinePtr,
         int         inLen)
         { mCommittedLogSeq = mReplayerPtr->Apply(inLinePtr, inLen); }
+    MetaLogWriterControl* GetBlockWriteOp(
+        seq_t  inStartSeq,
+        seq_t& ioEndSeq)
+    {
+        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
+            ioEndSeq = mLastWriteSeq;
+            return 0;
+        }
+        MetaRequest* thePtr = mWriteOpFreeListPtr;
+        if (thePtr) {
+            mWriteOpFreeListPtr = thePtr->next;
+            thePtr->next = 0;
+        } else {
+            thePtr = new MetaLogWriterControl(
+                MetaLogWriterControl::kWriteBlock);
+        }
+        thePtr->clnt = this;
+        return static_cast<MetaLogWriterControl*>(thePtr);
+    }
+    void Dispatch()
+    {
+        MetaRequest* thePtr              = mCompletionQueueHeadPtr;
+        const bool   theAckBroadcastFlag = 0 != thePtr;
+        mCompletionQueueHeadPtr = 0;
+        mCompletionQueueTailPtr = 0;
+        seq_t theNextSeq = (thePtr && thePtr->status != 0) ?
+            static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
+            mCommittedLogSeq;
+        while (thePtr) {
+            MetaLogWriterControl& theCur =
+                *static_cast<MetaLogWriterControl*>(thePtr);
+            thePtr = thePtr->next;
+            theCur.next = 0;
+            if (theCur.blockStartSeq != (theCur.status == 0 ?
+                        mCommittedLogSeq : theNextSeq) ||
+                    mLastWriteSeq < theCur.blockEndSeq ||
+                    theCur.blockEndSeq < theCur.blockStartSeq) {
+                panic("log write completion: invalid block sequence");
+            }
+            theNextSeq = theCur.blockEndSeq;
+            if (theCur.status == 0) {
+                mCommittedLogSeq = theNextSeq;
+            }
+            Release(theCur);
+        }
+        if (mCommittedLogSeq < theNextSeq) {
+            // Log write failure, all subsequent write ops must fail too, as
+            // those won't be adjacent in log sequence space.
+            mLastWriteSeq = mCommittedLogSeq;
+        }
+        thePtr = mPendingSubmitHeadPtr;
+        mPendingSubmitHeadPtr = 0;
+        mPendingSubmitTailPtr = 0;
+        while (thePtr) {
+            MetaRequest& theCur = *thePtr;
+            thePtr = thePtr->next;
+            theCur.next = 0;
+            submit_request(&theCur);
+        }
+        if (theAckBroadcastFlag) {
+            mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
+        }
+    }
+    virtual void Timeout()
+    {
+    }
+    void Release(
+        MetaLogWriterControl& inOp)
+    {
+        inOp.next = mWriteOpFreeListPtr;
+        mWriteOpFreeListPtr = &inOp;
+        inOp.blockData.Clear();
+        inOp.blockLines.Clear();
+        inOp.blockStartSeq = -1;
+        inOp.blockEndSeq   = -1;
+    }
+    int HandleEvent(
+        int   inType,
+        void* inDataPtr)
+    {
+        if (inType != EVENT_CMD_DONE || ! inDataPtr) {
+            panic("LogReceiver::Impl: unexpected event");
+            return 0;
+        }
+        MetaLogWriterControl& theOp =
+            *reinterpret_cast<MetaLogWriterControl*>(inDataPtr);
+        const bool theWakeupFlag = ! IsAwake();
+        if (mCompletionQueueTailPtr) {
+            mCompletionQueueTailPtr->next = &theOp;
+        } else {
+            mCompletionQueueHeadPtr = &theOp;
+        }
+        mCompletionQueueTailPtr = &theOp;
+        theOp.next = 0;
+        if (theWakeupFlag) {
+            Wakeup();
+        }
+        return 0;
+    }
+    void SubmitLogWrite(
+        MetaLogWriterControl& inOp)
+    {
+        inOp.clnt = this;
+        Submit(inOp);
+    }
+    void Submit(
+        MetaRequest& inOp)
+    {
+        const bool theWakeupFlag = ! IsAwake();
+        if (mPendingSubmitTailPtr) {
+            mPendingSubmitTailPtr->next = &inOp;
+        } else {
+            mPendingSubmitHeadPtr = &inOp;
+        }
+        mPendingSubmitTailPtr = &inOp;
+        inOp.next = 0;
+        if (theWakeupFlag) {
+            Wakeup();
+        }
+    }
+    void Wakeup()
+    {
+        if (mReplayerPtr) {
+            mReplayerPtr->Wakeup();
+        } else {
+            Dispatch();
+        }
+    }
 private:
     typedef StBufferT<char, kMinParseBufferSize> ParseBuffer;
 
@@ -247,17 +373,22 @@ private:
     int            mTimeout;
     int            mConnectionCount;
     int            mMaxConnectionCount;
-    QCMutex*       mMutexPtr;
     bool           mIpV6OnlyFlag;
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
     AuthContext    mAuthContext;
     seq_t          mCommittedLogSeq;
+    seq_t          mLastWriteSeq;
     bool           mDeleteFlag;
-    Lines          mLines;
+    bool           mAckBroadcastFlag;
     ParseBuffer    mParseBuffer;
     int64_t        mId;
     Replayer*      mReplayerPtr;
+    MetaRequest*   mWriteOpFreeListPtr;
+    MetaRequest*   mCompletionQueueHeadPtr;
+    MetaRequest*   mCompletionQueueTailPtr;
+    MetaRequest*   mPendingSubmitHeadPtr;
+    MetaRequest*   mPendingSubmitTailPtr;
     Connection*    mConnectionsHeadPtr[1];
 
     ~Impl()
@@ -265,8 +396,35 @@ private:
         if (mConnectionCount != 0) {
             panic("LogReceiver::~Impl: invalid connection count");
         }
+        if (mAcceptorPtr) {
+            mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
+        }
         delete mAcceptorPtr;
+        ClearQueues();
     }
+    void ClearQueues()
+    {
+        ClearQueue(mCompletionQueueHeadPtr, mCompletionQueueTailPtr);
+        ClearQueue(mPendingSubmitHeadPtr,   mPendingSubmitTailPtr);
+        ClearQueue(mWriteOpFreeListPtr,     mWriteOpFreeListPtr);
+    }
+    static void ClearQueue(
+        MetaRequest*& ioHeadPtr,
+        MetaRequest*& ioTailPtr)
+    {
+        MetaRequest* thePtr = ioHeadPtr;
+        ioHeadPtr = 0;
+        ioTailPtr = 0;
+        while (thePtr) {
+            MetaRequest* const theCurPtr = thePtr;
+            thePtr = thePtr->next;
+            theCurPtr->next = 0;
+            MetaRequest::Release(theCurPtr);
+        }
+    }
+    bool IsAwake() const
+        { return (0 != mPendingSubmitTailPtr || 0 != mCompletionQueueTailPtr); }
+    void BroadcastAck();
 private:
     Impl(
         const Impl& inImpl);
@@ -297,6 +455,7 @@ public:
           mBlockLength(-1),
           mPendingOpsCount(0),
           mBlockChecksum(0),
+          mBlockStartSeq(-1),
           mBlockEndSeq(-1),
           mDownFlag(false),
           mIdSentFlag(false),
@@ -431,9 +590,17 @@ public:
         }
         return 0;
     }
+    void SendAck()
+    {
+        QCASSERT(0 == mRecursionCount);
+        if (! mConnectionPtr) {
+            return;
+        }
+        SendAck();
+    }
 private:
-    typedef Impl::Lines Lines;
-    typedef uint32_t    Checksum;
+    typedef MetaLogWriterControl::Lines Lines;
+    typedef uint32_t                    Checksum;
 
     Impl&                  mImpl;
     string                 mAuthName;
@@ -446,6 +613,7 @@ private:
     int                    mBlockLength;
     int                    mPendingOpsCount;
     Checksum               mBlockChecksum;
+    int64_t                mBlockStartSeq;
     int64_t                mBlockEndSeq;
     bool                   mDownFlag;
     bool                   mIdSentFlag;
@@ -754,7 +922,7 @@ private:
             return -1;
         }
         mPendingOpsCount++;
-        submit_request(theReqPtr);
+        mImpl.Submit(*theReqPtr);
         return 0;
     }
     int ReceiveBlock(
@@ -785,12 +953,20 @@ private:
                 mImpl.GetParseBufferPtr(), theMaxHdrLen);
         const char* const theEndPtr = theStartPtr + theMaxHdrLen;
         int64_t     theBlockEndSeq  = -1;
+        int         theBlockSeqLen  = -1;
         const char* thePtr          = theStartPtr;
         if (! HexIntParser::Parse(
-                thePtr, theEndPtr - thePtr, theBlockEndSeq)) {
+                thePtr, theEndPtr - thePtr, theBlockEndSeq) ||
+                ! HexIntParser::Parse(
+                    thePtr, theEndPtr - thePtr, theBlockSeqLen) ||
+                theBlockSeqLen < 0 ||
+                theBlockEndSeq < theBlockSeqLen) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " invalid block:"
-                " last: "     << mBlockEndSeq <<
+                " start: "    << mBlockStartSeq <<
+                " / "         << theBlockEndSeq <<
+                " end: "      << mBlockEndSeq <<
+                " / "         << theBlockSeqLen <<
                 " length: "   << mBlockLength <<
             KFS_LOG_EOM;
             MsgLogLines(MsgLogger::kLogLevelERROR,
@@ -813,10 +989,7 @@ private:
         }
         mBlockLength -= inBuffer.Consume((int)(thePtr - theStartPtr));
         if (mBlockLength <= 0) {
-            QCStMutexLocker theLock(mImpl.GetMutexPtr());
-            mImpl.UpdateCommittedLogSeq();
-            theLock.Unlock();
-            SendAck();
+            SendAckSelf();
             if (! mDownFlag) {
                 mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
             }
@@ -835,7 +1008,8 @@ private:
             Error("invalid block sequence");
             return -1;
         }
-        mBlockEndSeq = theBlockEndSeq;
+        mBlockEndSeq   = theBlockEndSeq;
+        mBlockStartSeq = theBlockEndSeq - theBlockSeqLen;
         return ProcessBlock(inBuffer);
     }
     void Error(
@@ -853,7 +1027,7 @@ private:
         mConnectionPtr->Close();
         mDownFlag = true;
     }
-    void SendAck()
+    void SendAckSelf()
     {
         if (mAuthenticateOpPtr) {
             return;
@@ -885,8 +1059,12 @@ private:
         IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
         const int thePos = theBuf.BytesConsumable();
         ReqOstream theStream(mOstream.Set(theBuf));
+        const seq_t theCommitted = mImpl.GetCommittedLogSeq();
+        const seq_t theLastWrite = mImpl.GetLastWriteLogSeq();
         theStream << hex <<
-            "A " << mImpl.GetCommittedLogSeq() << " " << theAckFlags;
+            "A " << theCommitted <<
+            " "  << max(seq_t(0), theLastWrite - theCommitted) <<
+            " "  << theAckFlags;
         if (! mIdSentFlag) {
             mIdSentFlag = true;
             theStream << " " << mImpl.GetId() << " ";
@@ -908,9 +1086,13 @@ private:
             Error("invalid negative block length");
             return -1;
         }
-        if (0 < mBlockLength && mImpl.GetCommittedLogSeq() <= mBlockEndSeq) {
-            Lines& theLines = mImpl.GetTmpLines();
-            theLines.clear();
+        MetaLogWriterControl* const theOpPtr =
+            0 < mBlockLength ? mImpl.GetBlockWriteOp(
+                mBlockStartSeq, mBlockEndSeq) : 0;
+        if (theOpPtr) {
+            MetaLogWriterControl& theOp = *theOpPtr;
+            Lines& theLines = theOp.blockLines;
+            theLines.Clear();
             int  theRem        = mBlockLength;
             bool theAppendFlag = false;
             for (IOBuffer::iterator theIt = inBuffer.begin();
@@ -932,18 +1114,18 @@ private:
                     const int theLen = (int)(theNPtr - thePtr);
                     if (theAppendFlag) {
                         theAppendFlag = false;
-                        theLines.back() += theLen;
+                        theLines.Back() += theLen;
                     } else {
-                        theLines.push_back(theLen);
+                        theLines.Append(theLen);
                     }
                     thePtr = theNPtr;
                 }
                 if (thePtr < theEndPtr) {
                     const int theLen = (int)(theNPtr - thePtr);
                     if (theAppendFlag) {
-                        theLines.back() += theLen;
+                        theLines.Back() += theLen;
                     } else {
-                        theLines.push_back(theLen);
+                        theLines.Append(theLen);
                     }
                     theAppendFlag = true;
                 }
@@ -951,6 +1133,7 @@ private:
             if (theRem != 0) {
                 panic("LogReceiver::Impl::Connection::ProcessBlock:"
                     " internal error");
+                mImpl.Release(theOp);
                 return -1;
             }
             if (theAppendFlag) {
@@ -958,38 +1141,21 @@ private:
                     "invalid log block format: no trailing new line";
                 KFS_LOG_STREAM_ERROR <<
                     theMsgPtr <<
-                    " lines: " << theLines.size() <<
+                    " lines: " << theLines.GetSize() <<
                 KFS_LOG_EOM;
+                mImpl.Release(theOp);
                 Error(theMsgPtr);
                 return -1;
             }
-            QCStMutexLocker theLock(mImpl.GetMutexPtr());
-            const seq_t theCommittedLogSeq = mImpl.UpdateCommittedLogSeq();
-            if (theCommittedLogSeq < mBlockEndSeq) {
-                for (Lines::const_iterator theIt = theLines.begin();
-                        theIt != theLines.end();
-                        ++theIt) {
-                    const int theLen = *theIt;
-                    if (theLen <= 0) {
-                        panic("LogReceiver::Impl: invalid line length");
-                        continue;
-                    }
-                    int               theLLen = theLen;
-                    const char* const thePtr  = inBuffer.CopyOutOrGetBufPtr(
-                        mImpl.GetParseBufferPtr(theLen), theLLen);
-                    if (theLLen != theLen ||
-                            (thePtr[theLen - 1] & 0xFF) != '\n') {
-                        panic("LogReceiver::Impl: invalid copy length");
-                    }
-                    mImpl.Replay(thePtr, theLen);
-                    inBuffer.Consume(theLen);
-                }
-            }
+            theOp.blockStartSeq = mBlockStartSeq;
+            theOp.blockEndSeq   = mBlockEndSeq;
+            theOp.blockData.Move(&inBuffer, mBlockLength);
+            mImpl.SubmitLogWrite(theOp);
         } else {
             inBuffer.Consume(mBlockLength);
         }
         mBlockLength = -1;
-        SendAck();
+        SendAckSelf();
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         return 0;
     }
@@ -1077,12 +1243,27 @@ LogReceiver::Impl::Done(
     void
 LogReceiver::Impl::Shutdown()
 {
+    if (mAcceptorPtr) {
+        mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
+    }
     delete mAcceptorPtr;
     mAcceptorPtr = 0;
     List::Iterator theIt(mConnectionsHeadPtr);
     Connection* thePtr;
     while (0 < mConnectionCount && (thePtr = theIt.Next())) {
         thePtr->HandleEvent(EVENT_NET_ERROR, 0);
+    }
+    mAckBroadcastFlag = false;
+    ClearQueues();
+}
+
+    void
+LogReceiver::Impl::BroadcastAck()
+{
+    List::Iterator theIt(mConnectionsHeadPtr);
+    Connection* thePtr;
+    while (0 < mConnectionCount && (thePtr = theIt.Next())) {
+        thePtr->SendAck();
     }
 }
 
@@ -1107,16 +1288,21 @@ LogReceiver::SetParameters(
     int
 LogReceiver::Start(
     NetManager&            inNetManager,
-    LogReceiver::Replayer& inReplayer,
-    QCMutex*               inMutexPtr)
+    LogReceiver::Replayer& inReplayer)
 {
-    return mImpl.Start(inNetManager, inReplayer, inMutexPtr);
+    return mImpl.Start(inNetManager, inReplayer);
 }
 
     void
 LogReceiver::Shutdown()
 {
     mImpl.Shutdown();
+}
+
+    void
+LogReceiver::Dispatch()
+{
+    mImpl.Dispatch();
 }
 
 } // namespace KFS
