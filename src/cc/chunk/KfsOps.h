@@ -485,6 +485,7 @@ struct AllocChunkOp : public KfsOp {
     int64_t               chunkServerAccessIssuedTime;
     int                   contentLength;
     int                   chunkAccessLength;
+    uint64_t              startGeneration;
     SyncReplicationAccess syncReplicationAccess;
     DiskIoPtr             diskIo;
 
@@ -506,6 +507,7 @@ struct AllocChunkOp : public KfsOp {
           chunkServerAccessIssuedTime(0),
           contentLength(0),
           chunkAccessLength(0),
+          startGeneration(0),
           syncReplicationAccess(),
           diskIo()
         {}
@@ -600,6 +602,7 @@ struct MakeChunkStableOp : public KfsOp {
     int64_t            chunkSize;     // input
     uint32_t           chunkChecksum; // input
     bool               hasChecksum;
+    uint64_t           startGeneration;
     MakeChunkStableOp* next;
 
     MakeChunkStableOp()
@@ -610,6 +613,7 @@ struct MakeChunkStableOp : public KfsOp {
           chunkSize(-1),
           chunkChecksum(0),
           hasChecksum(false),
+          startGeneration(0),
           next(0),
           checksumVal()
         {}
@@ -651,6 +655,7 @@ struct ChangeChunkVersOp : public KfsOp {
     int64_t      fromChunkVersion; // input
     bool         makeStableFlag;
     bool         verifyStableFlag;
+    uint64_t     startGeneration;
 
     ChangeChunkVersOp()
         : KfsOp(CMD_CHANGE_CHUNK_VERS),
@@ -659,7 +664,8 @@ struct ChangeChunkVersOp : public KfsOp {
           chunkVersion(-1),
           fromChunkVersion(-1),
           makeStableFlag(false),
-          verifyStableFlag(false)
+          verifyStableFlag(false),
+          startGeneration(0)
         {}
     void Execute();
     // handler for reading in the chunk meta-data

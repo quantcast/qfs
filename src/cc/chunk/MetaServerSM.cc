@@ -104,6 +104,7 @@ MetaServerSM::MetaServerSM()
       mTraceRequestResponseFlag(false),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
+      mGenerationCount(0),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -153,6 +154,7 @@ MetaServerSM::Shutdown()
     if (mNetConnection) {
         mNetConnection->Close();
     }
+    mGenerationCount++;
     mNetConnection.reset();
     globalNetManager().UnRegisterTimeoutHandler(this);
     CleanupOpInFlight();
@@ -280,6 +282,7 @@ MetaServerSM::Connect()
     DiscardPendingResponses();
     mContentLength = 0;
     mCounters.mConnectCount++;
+    mGenerationCount++;
     mRpcFormat            = kRpcFormatUndef;
     mSentHello            = false;
     mUpdateCurrentKeyFlag = false;
@@ -579,6 +582,7 @@ MetaServerSM::HandleRequest(int code, void* data)
         DetachAndDeleteOp(mAuthOp);
         DiscardPendingResponses();
         if (mNetConnection) {
+            mGenerationCount++;
             KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                     MsgLogger::kLogLevelERROR :
                     MsgLogger::kLogLevelDEBUG) <<

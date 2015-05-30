@@ -1242,12 +1242,13 @@ AllocChunkOp::Execute()
     const bool failIfExistsFlag = ! mustExistFlag;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
+    startGeneration = gMetaServerSM.GetGenerationCount();
     int res = gChunkManager.ReadChunkMetadata(chunkId, this);
     if (res == 0) {
         if (failIfExistsFlag) {
             die("chunk deletion failed");
         }
-        return; // The completion handler will be or already invoked.
+        return; // The completion handler will be or have already been invoked.
     }
     if (! mustExistFlag && res == -EBADF) {
         // Allocate new chunk.
@@ -1272,6 +1273,11 @@ AllocChunkOp::HandleChunkMetaReadDone(int code, void* data)
         return 0;
     } else if (data) {
         status = *reinterpret_cast<const int*>(data);
+    }
+    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+        status = -EAGAIN;
+        gLogger.Submit(this);
+        return 0;
     }
     SET_HANDLER(this, &AllocChunkOp::HandleChunkAllocDone);
     // When version change is done the chunk must exist.
@@ -1419,6 +1425,7 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
+    startGeneration = gMetaServerSM.GetGenerationCount();
     const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
     if (ret < 0) {
         status = ret;
@@ -1431,6 +1438,9 @@ MakeChunkStableOp::HandleChunkMetaReadDone(int code, void *data)
 {
     if (status >= 0 && data) {
         status = *reinterpret_cast<const int*>(data);
+    }
+    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+        status = -EAGAIN;
     }
     if (status < 0) {
         gLogger.Submit(this);
@@ -1486,6 +1496,7 @@ ChangeChunkVersOp::Execute()
         }
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
+    startGeneration = gMetaServerSM.GetGenerationCount();
     const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
     if (ret < 0) {
         status = -EINVAL;
@@ -1498,6 +1509,9 @@ ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void *data)
 {
     if (status >= 0 && data) {
         status = *(int *) data;
+    }
+    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+        status = -EAGAIN;
     }
     if (status < 0) {
         gLogger.Submit(this);

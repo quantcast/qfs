@@ -148,6 +148,10 @@ public:
     }
 
     void Shutdown();
+
+    uint64_t GetGenerationCount() const {
+        return mGenerationCount;
+    }
 private:
     typedef deque<KfsOp*> OpsQueue;
     typedef OpsQueue      PendingResponses;
@@ -229,6 +233,7 @@ private:
     bool                          mTraceRequestResponseFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
+    uint64_t                      mGenerationCount;
     PendingResponses              mPendingResponses;
     Counters                      mCounters;
     IOBuffer::IStream             mIStream;
