@@ -90,6 +90,7 @@ public:
         Replay& replay)
         : mCommitQueue(),
           mCheckpointCommitted(-1),
+          mCheckpointErrChksum(-1),
           mLastCommitted(-1),
           mLastBlockSeq(-1),
           mLastLogAheadSeq(0),
@@ -122,6 +123,7 @@ public:
 
     CommitQueue mCommitQueue;
     seq_t       mCheckpointCommitted;
+    seq_t       mCheckpointErrChksum;
     seq_t       mLastCommitted;
     int64_t     mLastBlockSeq;
     int64_t     mLastLogAheadSeq;
@@ -1011,7 +1013,7 @@ ReplayState::runCommitQueue(
 {
     if (logSeq <= mCheckpointCommitted) {
         if (logSeq == mCheckpointCommitted) {
-            return (errChecksum == mLogAheadErrChksum);
+            return (errChecksum == mCheckpointErrChksum);
         }
         return true;
     }
@@ -1395,6 +1397,7 @@ Replay::playLogs(bool includeLastLogFlag)
     ReplayState state(*this);
     state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
     state.mCheckpointCommitted = committed;
+    state.mCheckpointErrChksum = errChecksum;
     const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
     return (status == 0 ?
         playLogs(lastLogNum, includeLastLogFlag, state) : status);
