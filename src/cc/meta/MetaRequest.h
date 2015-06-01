@@ -3690,6 +3690,7 @@ struct MetaLogWriterControl : public MetaRequest {
     string             paramsPrefix;
     string             logName;
     MetaRequest* const completion;
+    uint32_t           blockChecksum;
     seq_t              blockStartSeq;
     seq_t              blockEndSeq;
     Lines              blockLines;
@@ -3706,6 +3707,7 @@ struct MetaLogWriterControl : public MetaRequest {
           paramsPrefix(),
           logName(),
           completion(c),
+          blockChecksum(0),
           blockStartSeq(-1),
           blockEndSeq(-1),
           blockLines(),

@@ -509,16 +509,19 @@ private:
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
-            MetaRequest* thePtr                 = theCurPtr;
-            seq_t        theEndBlockSeq         = mNextLogSeq + mMaxBlockSize;
-            const bool   theSimulateFailureFlag = IsSimulateFailure();
-            const bool   theTransmitterUpFlag   = mTransmitterUpFlag;
+            MetaRequest*          thePtr                 = theCurPtr;
+            seq_t                 theEndBlockSeq         =
+                mNextLogSeq + mMaxBlockSize;
+            const bool            theSimulateFailureFlag = IsSimulateFailure();
+            const bool            theTransmitterUpFlag   = mTransmitterUpFlag;
+            MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
-                    if (Control(
-                            *static_cast<MetaLogWriterControl*>(thePtr))) {
+                    theCtlPtr = static_cast<MetaLogWriterControl*>(thePtr);
+                    if (Control(*theCtlPtr)) {
                         break;
                     }
+                    theCtlPtr = 0;
                     theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
                     continue;
                 }
@@ -575,6 +578,10 @@ private:
                     }
                 }
             }
+            if (theCtlPtr &&
+                    MetaLogWriterControl::kWriteBlock == theCtlPtr->type) {
+                WriteBlock(*theCtlPtr);
+            }
             theCurPtr = theEndPtr;
         }
         if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
@@ -613,31 +620,43 @@ private:
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
             "/" << inLogSeq <<
-            "/" << mNextBlockSeq <<
             "/"
         ;
         mReqOstream.flush();
-        const char* const theStartPtr = mMdStream.GetBufferedStart();
-        const char* const theEndPtr   = mMdStream.GetBufferedEnd();
-        if (theStartPtr < theEndPtr) {
-            mBlockChecksum = ComputeBlockChecksum(
-                mBlockChecksum, theStartPtr, theEndPtr - theStartPtr);
-        }
+        const char*  theStartPtr = mMdStream.GetBufferedStart();
+        const size_t theTxLen    = mMdStream.GetBufferedEnd() - theStartPtr;
+        mBlockChecksum = ComputeBlockChecksum(
+            mBlockChecksum, theStartPtr, theTxLen);
+        Checksum const theTxChecksum = mBlockChecksum;
+        mReqOstream <<
+            mNextBlockSeq <<
+            "/";
+        mReqOstream.flush();
+        theStartPtr = mMdStream.GetBufferedStart() + theTxLen;
+        mBlockChecksum = ComputeBlockChecksum(
+            mBlockChecksum,
+            theStartPtr,
+            mMdStream.GetBufferedEnd() - theStartPtr);
         mWriteState = kWriteStateNone;
         mReqOstream << mBlockChecksum << "\n";
         mReqOstream.flush();
         // Transmit all blocks, except first one, which has only block header.
         if (0 < mNextBlockSeq) {
-            const char* const theBStartPtr = mMdStream.GetBufferedStart();
-            const char* const theBEndPtr   = mMdStream.GetBufferedEnd();
-            const int theStatus = mLogTransmitter.TransmitBlock(
-                inLogSeq,
-                (int)(inLogSeq - mNextLogSeq),
-                theBStartPtr,
-                theBEndPtr - theBStartPtr,
-                mBlockChecksum,
-                theEndPtr - theStartPtr
-            );
+            theStartPtr = mMdStream.GetBufferedStart();
+            int theStatus;
+            if (mMdStream.GetBufferedEnd() < theStartPtr + theTxLen) {
+                panic("invalid log write write buffer length");
+                theStatus = -EFAULT;
+            } else {
+                theStatus = mLogTransmitter.TransmitBlock(
+                    inLogSeq,
+                    (int)(inLogSeq - mNextLogSeq),
+                    theStartPtr,
+                    theTxLen,
+                    theTxChecksum,
+                    theTxLen
+                );
+            }
             if (0 != theStatus) {
                 KFS_LOG_STREAM_ERROR <<
                     "block transmit failure:"
@@ -698,7 +717,7 @@ private:
                 }
                 break;
             case MetaLogWriterControl::kWriteBlock:
-                return WriteBlock(inRequest);
+                return true;
             case MetaLogWriterControl::kSetParameters:
                 SetParameters(
                     inRequest.paramsPrefix.c_str(),
@@ -711,15 +730,78 @@ private:
         inRequest.logName    = mLogName;
         return (theRetFlag && IsLogStreamGood());
     }
-    bool WriteBlock(
+    void WriteBlock(
         MetaLogWriterControl& inRequest)
     {
-        if (inRequest.blockStartSeq != mLastLogSeq) {
+        if (inRequest.blockData.BytesConsumable() <= 0) {
+            panic("write block: invalid block length");
+            inRequest.status = -EFAULT;
+            return;
+        }
+        if (inRequest.blockLines.IsEmpty()) {
+            panic("write block: invalid invocation, no log lines");
+            inRequest.status = -EFAULT;
+            return;
+        }
+        if (mLastLogSeq != mNextLogSeq) {
+            panic("invalid write block invocation");
+            inRequest.status = -EFAULT;
+            return;
+        }
+        if (inRequest.blockStartSeq != mLastLogSeq + 1) {
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "invalid block start sequence";
-            return false;
+            return;
         }
-        return false;
+        if (! IsLogStreamGood()) {
+            inRequest.status    = -EIO;
+            inRequest.statusMsg = "log write error";
+            return;
+        }
+        ++mNextBlockSeq;
+        mWriteState = kWriteStateNone;
+        // To include leading \n, if any, "combine" block checksum.
+        mBlockChecksum = ChecksumBlocksCombine(
+            mBlockChecksum,
+            inRequest.blockChecksum,
+            inRequest.blockData.BytesConsumable()
+        );
+        mBlockChecksum = inRequest.blockChecksum;
+        for (IOBuffer::iterator theIt = inRequest.blockData.begin();
+                theIt != inRequest.blockData.end();
+                ++theIt) {
+            const char* const thePtr = theIt->Consumer();
+            mReqOstream.write(thePtr, theIt->Producer() - thePtr);
+        }
+        const size_t theLen = mMdStream.GetBufferedEnd() -
+            mMdStream.GetBufferedStart();
+        mReqOstream <<
+            mNextBlockSeq <<
+            "/";
+        mReqOstream.flush();
+        const char* thePtr        = mMdStream.GetBufferedStart() + theLen;
+        size_t      theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
+        mBlockChecksum = ComputeBlockChecksum(
+            mBlockChecksum, thePtr, theTrailerLen);
+        mReqOstream << mBlockChecksum << "\n";
+        mReqOstream.flush();
+        // Append trailer to make block replay work.
+        thePtr        = mMdStream.GetBufferedStart() + theLen;
+        theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
+        inRequest.blockData.CopyIn(thePtr, theTrailerLen);
+        inRequest.blockLines.Back() += theTrailerLen;
+        mMdStream.SetSync(true);
+        mReqOstream.flush();
+        Sync();
+        if (IsLogStreamGood()) {
+            mLastLogSeq      = inRequest.blockEndSeq;
+            mNextLogSeq      = mLastLogSeq;
+            inRequest.status = 0;
+            StartBlock(mNextBlockChecksum);
+        } else {
+            inRequest.status    = -EIO;
+            inRequest.statusMsg = "log write error";
+        }
     }
     void CloseLog()
     {

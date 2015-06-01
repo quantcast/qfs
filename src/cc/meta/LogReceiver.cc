@@ -455,6 +455,7 @@ public:
           mBlockLength(-1),
           mPendingOpsCount(0),
           mBlockChecksum(0),
+          mBodyChecksum(0),
           mBlockStartSeq(-1),
           mBlockEndSeq(-1),
           mDownFlag(false),
@@ -613,6 +614,7 @@ private:
     int                    mBlockLength;
     int                    mPendingOpsCount;
     Checksum               mBlockChecksum;
+    Checksum               mBodyChecksum;
     int64_t                mBlockStartSeq;
     int64_t                mBlockEndSeq;
     bool                   mDownFlag;
@@ -937,16 +939,6 @@ private:
                 max(theRem, mImpl.GetMaxReadAhead()));
             return theRem;
         }
-        const Checksum theChecksum = ComputeBlockChecksum(&inBuffer, mBlockLength);
-        if (theChecksum != mBlockChecksum) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " received block checksum: " << theChecksum <<
-                " expected: "                << mBlockChecksum <<
-                " length: "                  << mBlockLength <<
-            KFS_LOG_EOM;
-            Error("block checksum mimatch");
-            return -1;
-        }
         int         theMaxHdrLen    =
             min(mBlockLength, (int)kMaxBlockHeaderLen);
         const char* theStartPtr     = inBuffer.CopyOutOrGetBufPtr(
@@ -987,7 +979,22 @@ private:
             Error("invalid block header");
             return -1;
         }
-        mBlockLength -= inBuffer.Consume((int)(thePtr - theStartPtr));
+        const int      theHdrLen       = (int)(thePtr - theStartPtr);
+        const Checksum theHdrChecksum  =
+            ComputeBlockChecksum(&inBuffer, theHdrLen);
+        mBlockLength -= inBuffer.Consume(theHdrLen);
+        mBodyChecksum = ComputeBlockChecksum(&inBuffer, mBlockLength);
+        const Checksum theChecksum     = ChecksumBlocksCombine(
+            theHdrChecksum, mBodyChecksum, mBlockLength);
+        if (theChecksum != mBlockChecksum) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " received block checksum: " << theChecksum <<
+                " expected: "                << mBlockChecksum <<
+                " length: "                  << mBlockLength <<
+            KFS_LOG_EOM;
+            Error("block checksum mimatch");
+            return -1;
+        }
         if (mBlockLength <= 0) {
             SendAckSelf();
             if (! mDownFlag) {
@@ -1095,6 +1102,7 @@ private:
             theLines.Clear();
             int  theRem        = mBlockLength;
             bool theAppendFlag = false;
+            int  theLastSym    = 0;
             for (IOBuffer::iterator theIt = inBuffer.begin();
                     0 < theRem && theIt != inBuffer.end();
                     ++theIt) {
@@ -1128,6 +1136,7 @@ private:
                         theLines.Append(theLen);
                     }
                     theAppendFlag = true;
+                    theLastSym = theEndPtr[-1] & 0xFF;
                 }
             }
             if (theRem != 0) {
@@ -1136,9 +1145,9 @@ private:
                 mImpl.Release(theOp);
                 return -1;
             }
-            if (theAppendFlag) {
+            if (! theAppendFlag || theLastSym != '/') {
                 const char* theMsgPtr =
-                    "invalid log block format: no trailing new line";
+                    "invalid log block format: no trailing /";
                 KFS_LOG_STREAM_ERROR <<
                     theMsgPtr <<
                     " lines: " << theLines.GetSize() <<
@@ -1147,6 +1156,7 @@ private:
                 Error(theMsgPtr);
                 return -1;
             }
+            theOp.blockChecksum = mBodyChecksum;
             theOp.blockStartSeq = mBlockStartSeq;
             theOp.blockEndSeq   = mBlockEndSeq;
             theOp.blockData.Move(&inBuffer, mBlockLength);
