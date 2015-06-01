@@ -547,9 +547,9 @@ private:
                 if (theEndBlockSeq <= mLastLogSeq) {
                     break;
                 }
-                if (mMdStream.GetBufferSize() / 4 * 3 <
-                        (mMdStream.GetBufferedEnd() -
-                            mMdStream.GetBufferedStart())) {
+                if (mMdStream.GetBufferedStart() +
+                            mMdStream.GetBufferSize() / 4 * 3 <
+                        mMdStream.GetBufferedEnd()) {
                     break;
                 }
             }
@@ -697,6 +697,8 @@ private:
                     StartNextLog();
                 }
                 break;
+            case MetaLogWriterControl::kWriteBlock:
+                return WriteBlock(inRequest);
             case MetaLogWriterControl::kSetParameters:
                 SetParameters(
                     inRequest.paramsPrefix.c_str(),
@@ -708,6 +710,16 @@ private:
         inRequest.lastLogSeq = mLastLogSeq;
         inRequest.logName    = mLogName;
         return (theRetFlag && IsLogStreamGood());
+    }
+    bool WriteBlock(
+        MetaLogWriterControl& inRequest)
+    {
+        if (inRequest.blockStartSeq != mLastLogSeq) {
+            inRequest.status    = -EINVAL;
+            inRequest.statusMsg = "invalid block start sequence";
+            return false;
+        }
+        return false;
     }
     void CloseLog()
     {

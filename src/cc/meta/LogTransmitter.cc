@@ -40,7 +40,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/ClientAuthContext.h"
 #include "kfsio/event.h"
-#include "kfsio/Checksum.h"
+#include "kfsio/checksum.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
