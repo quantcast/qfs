@@ -83,6 +83,7 @@ public:
           mPendingQueue(),
           mInQueue(),
           mOutQueue(),
+          mPendingAckQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(-1),
@@ -108,6 +109,7 @@ public:
           mLogRotateInterval(600 * 1000 * 1000),
           mPanicOnIoErrorFlag(false),
           mSyncFlag(false),
+          mWokenFlag(false),
           mLastLogName("last"),
           mLastLogPath(mLogDir + "/" + mLastLogName),
           mFailureSimulationInterval(0),
@@ -310,6 +312,8 @@ public:
             return;
         }
         QCStMutexLocker theLock(mMutex);
+        // Mark everything committed to cleanup queues.
+        mTransmitCommitted = mNextLogSeq;
         mStopFlag = true;
         mNetManager.Wakeup();
         theLock.Unlock();
@@ -327,8 +331,14 @@ public:
     virtual void Notify(
         seq_t inSeq)
     {
+        const bool theWakeupFlag = mTransmitCommitted < inSeq &&
+            ! mWokenFlag;
         mTransmitCommitted = inSeq;
         mTransmitterUpFlag = mLogTransmitter.IsUp();
+        if (theWakeupFlag) {
+            mWokenFlag = true;
+            mNetManager.Wakeup();
+        }
     }
 private:
     typedef uint32_t Checksum;
@@ -352,6 +362,12 @@ private:
         Queue()
             : mHeadPtr(0),
               mTailPtr(0)
+            {}
+        Queue(
+            MetaRequest* inHeadPtr,
+            MetaRequest* inTailPtr)
+            : mHeadPtr(inHeadPtr),
+              mTailPtr(inTailPtr)
             {}
         void Reset()
         {
@@ -414,6 +430,7 @@ private:
     Queue          mPendingQueue;
     Queue          mInQueue;
     Queue          mOutQueue;
+    Queue          mPendingAckQueue;
     Committed      mPendingCommitted;
     Committed      mInFlightCommitted;
     seq_t          mNextLogSeq;
@@ -433,6 +450,7 @@ private:
     int64_t        mLogRotateInterval;
     bool           mPanicOnIoErrorFlag;
     bool           mSyncFlag;
+    bool           mWokenFlag;
     string         mLastLogName;
     string         mLastLogPath;
     int64_t        mFailureSimulationInterval;
@@ -477,7 +495,29 @@ private:
         mInQueue.Reset();
         mInFlightCommitted = mPendingCommitted;
         QCStMutexUnlocker theUnlocker(mMutex);
+        QCStValueChanger<bool> theChanger(mWokenFlag, true);
         Write(*theWriteQueue.Front());
+        mPendingAckQueue.PushBack(theWriteQueue);
+        if (mTransmitCommitted < mNextLogSeq) {
+            MetaRequest* thePtr     = mPendingAckQueue.Front();
+            MetaRequest* thePrevPtr = 0;
+            while (thePtr) {
+                if (mTransmitCommitted < thePtr->logseq) {
+                    if (thePrevPtr) {
+                        thePrevPtr->next = 0;
+                        theWriteQueue =
+                            Queue(mPendingAckQueue.Front(), thePrevPtr);
+                        mPendingAckQueue =
+                            Queue(thePtr, mPendingAckQueue.Back());
+                    }
+                    break;
+                }
+                thePrevPtr = thePtr;
+                thePtr     = thePtr->next;
+            }
+        } else {
+            theWriteQueue.PushBack(mPendingAckQueue);
+        }
         theUnlocker.Lock();
         mOutQueue.PushBack(theWriteQueue);
         mNetManagerPtr->Wakeup();
