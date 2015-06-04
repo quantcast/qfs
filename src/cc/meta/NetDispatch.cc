@@ -1018,6 +1018,7 @@ public:
     virtual void Apply(
         MetaLogWriterControl& op)
     {
+        MetaRequest::Release(&op);
         // FIXME.
         //replayer.getCommitted();
     }
