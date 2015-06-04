@@ -1018,6 +1018,8 @@ public:
     virtual void Apply(
         MetaLogWriterControl& op)
     {
+        if (op.blockCommitted) {
+        }
         MetaRequest::Release(&op);
         // FIXME.
         //replayer.getCommitted();
@@ -1033,14 +1035,15 @@ public:
         }
     }
 private:
-    Properties    mParameters;
-    NetManager    mNetManager;
-    LogReceiver   mLogReceiver;
-    QCThread      mThread;
-    bool          mWakeupFlag;
-    bool          mStartedFlag;
-    bool          mParametersUpdatePendingFlag;
-    volatile int  mSignalCnt;
+    Properties            mParameters;
+    NetManager            mNetManager;
+    LogReceiver           mLogReceiver;
+    QCThread              mThread;
+    MetaLogWriterControl* mPendingCommit;
+    bool                  mWakeupFlag;
+    bool                  mStartedFlag;
+    bool                  mParametersUpdatePendingFlag;
+    volatile int          mSignalCnt;
 
     virtual void Run()
     {

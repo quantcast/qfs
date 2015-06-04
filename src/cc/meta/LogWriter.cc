@@ -817,7 +817,8 @@ private:
             inRequest.statusMsg = "log write error";
             return;
         }
-        ++mNextBlockSeq;
+        // Copy block data, and write block sequence and updated checksum.
+        mMdStream.SetSync(false);
         mWriteState = kWriteStateNone;
         // To include leading \n, if any, "combine" block checksum.
         mBlockChecksum = ChecksumBlocksCombine(
@@ -834,6 +835,7 @@ private:
         }
         const size_t theLen = mMdStream.GetBufferedEnd() -
             mMdStream.GetBufferedStart();
+        ++mNextBlockSeq;
         mReqOstream <<
             mNextBlockSeq <<
             "/";
@@ -848,25 +850,33 @@ private:
         thePtr        = mMdStream.GetBufferedStart() + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         inRequest.blockData.CopyIn(thePtr, theTrailerLen);
-        const char* const theLineEndPtr = thePtr;
-        thePtr = theLineEndPtr - inRequest.blockLines.Back();
+        const char* const theEndPtr = thePtr;
+        thePtr = theEndPtr - inRequest.blockLines.Back();
+        inRequest.blockLines.Back() += theTrailerLen;
         inRequest.blockCommitted = -1;
-        if ((*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
+        if (thePtr + 2 < theEndPtr &&
+                (*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
             thePtr += 2;
             const char* theStartPtr = thePtr;
-            while (thePtr < theLineEndPtr && (*thePtr & 0xFF) != '/') {
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) != '/') {
                 ++thePtr;
             }
-            if ((*thePtr & 0xFF) == '/') {
-                if (! HexIntParser::Parse(
+            if (thePtr < theEndPtr &&
+                    (*thePtr & 0xFF) == '/' &&
+                    ! HexIntParser::Parse(
                         theStartPtr,
                         thePtr - theStartPtr,
                         inRequest.blockCommitted)) {
-                    inRequest.blockCommitted = -1;
-                }
+                inRequest.blockCommitted = -1;
             }
         }
-        inRequest.blockLines.Back() += theTrailerLen;
+        if (inRequest.blockCommitted < 0) {
+            mMdStream.ClearBuffer();
+            --mNextBlockSeq;
+            inRequest.status    = -EIO;
+            inRequest.statusMsg = "log write: invalid block format";
+            return;
+        }
         mMdStream.SetSync(true);
         mReqOstream.flush();
         Sync();

@@ -187,6 +187,8 @@ public:
         { return mCurPtr; }
     size_t GetBufferSize() const
         { return (mEndPtr - mBufferPtr); }
+    void ClearBuffer()
+        { mCurPtr = mBufferPtr; }
 protected:
     bool EnsureCapacity(
         size_t inSize)
