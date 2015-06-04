@@ -1411,19 +1411,28 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag, ReplayState& state)
     lastLineChecksumFlag       = false;
     lastLogIntBase             = -1;
     bool lastEntryChecksumFlag = false;
-    seq_t i;
-    for (i = number; ; i++) {
+    bool completeSegmentFlag   = true;
+    for (seq_t i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
             break;
         }
-        const string logfn = logfile(i);
-        if (last < i && ! file_exists(logfn)) {
+        if (last < i && ! completeSegmentFlag) {
             if (! appendToLastLogFlag && number < i) {
                 number = i;
             }
             break;
         }
+        // Check if the next log segment exists prior to loading current log
+        // segment in order to allow fsck to load all segments while meta server
+        // is running. The meta server might close the current segment, and
+        // create the new segment after reading / loading tail of the current
+        // segment, in which case the last read might not have the last checksum
+        // line.
+        if (last < i) {
+            completeSegmentFlag = file_exists(logfile(i + 1));
+        }
         sRestoreTimeCount = 0;
+        const string logfn = logfile(i);
         if ((status = openlog(logfn)) != 0 ||
                 (status = playlog(lastEntryChecksumFlag, state)) != 0) {
             break;
@@ -1440,8 +1449,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag, ReplayState& state)
             break;
         }
         if (lastLineChecksumFlag &&
-                (! lastEntryChecksumFlag && (i <= last ||
-                file_exists(logfile(i + 1))))) {
+                (! lastEntryChecksumFlag && completeSegmentFlag)) {
             KFS_LOG_STREAM_FATAL <<
                 logfn <<
                 ": missing last line checksum" <<
