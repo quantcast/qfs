@@ -844,22 +844,23 @@ private:
             mBlockChecksum, thePtr, theTrailerLen);
         mReqOstream << mBlockChecksum << "\n";
         mReqOstream.flush();
-        // Append trailer to make block replay work.
+        // Append trailer to make block replay work, and parse committed.
         thePtr        = mMdStream.GetBufferedStart() + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         inRequest.blockData.CopyIn(thePtr, theTrailerLen);
-        const char* const theLinePtr = thePtr - inRequest.blockLines.Back();
+        const char* const theLineEndPtr = thePtr;
+        thePtr = theLineEndPtr - inRequest.blockLines.Back();
         inRequest.blockCommitted = -1;
-        if ((*thePtr & 0xFF) == '/') {
-            const char* theEndPtr = thePtr--;
-            while (theLinePtr < thePtr && (*thePtr & 0xFF) != '/') {
-                --thePtr;
+        if ((*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
+            thePtr += 2;
+            const char* theStartPtr = thePtr;
+            while (thePtr < theLineEndPtr && (*thePtr & 0xFF) != '/') {
+                ++thePtr;
             }
             if ((*thePtr & 0xFF) == '/') {
-                ++thePtr;
                 if (! HexIntParser::Parse(
-                        thePtr,
-                        theEndPtr - thePtr,
+                        theStartPtr,
+                        thePtr - theStartPtr,
                         inRequest.blockCommitted)) {
                     inRequest.blockCommitted = -1;
                 }
