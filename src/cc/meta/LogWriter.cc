@@ -34,6 +34,7 @@
 #include "common/MdStream.h"
 #include "common/time.h"
 #include "common/kfserrno.h"
+#include "common/RequestParser.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -337,7 +338,7 @@ public:
         mTransmitterUpFlag = mLogTransmitter.IsUp();
         if (theWakeupFlag) {
             mWokenFlag = true;
-            mNetManager.Wakeup();
+            // mNetManager.Wakeup();
         }
     }
 private:
@@ -482,22 +483,11 @@ private:
             submit_request(&theReq);
         }
     }
-    virtual void DispatchStart()
+    void ProcessPendingAckQueue(
+        Queue& inDoneQueue)
     {
-        QCStMutexLocker theLock(mMutex);
-        if (mStopFlag) {
-            mNetManager.Shutdown();
-        }
-        if (mInQueue.IsEmpty()) {
-            return;
-        }
-        Queue theWriteQueue = mInQueue;
-        mInQueue.Reset();
-        mInFlightCommitted = mPendingCommitted;
-        QCStMutexUnlocker theUnlocker(mMutex);
-        QCStValueChanger<bool> theChanger(mWokenFlag, true);
-        Write(*theWriteQueue.Front());
-        mPendingAckQueue.PushBack(theWriteQueue);
+        mWokenFlag = false;
+        mPendingAckQueue.PushBack(inDoneQueue);
         if (mTransmitCommitted < mNextLogSeq) {
             MetaRequest* thePtr     = mPendingAckQueue.Front();
             MetaRequest* thePrevPtr = 0;
@@ -505,7 +495,7 @@ private:
                 if (mTransmitCommitted < thePtr->logseq) {
                     if (thePrevPtr) {
                         thePrevPtr->next = 0;
-                        theWriteQueue =
+                        inDoneQueue =
                             Queue(mPendingAckQueue.Front(), thePrevPtr);
                         mPendingAckQueue =
                             Queue(thePtr, mPendingAckQueue.Back());
@@ -516,14 +506,43 @@ private:
                 thePtr     = thePtr->next;
             }
         } else {
-            theWriteQueue.PushBack(mPendingAckQueue);
+            inDoneQueue.PushBack(mPendingAckQueue);
         }
-        theUnlocker.Lock();
-        mOutQueue.PushBack(theWriteQueue);
+        if (inDoneQueue.IsEmpty()) {
+            return;
+        }
+        QCStMutexLocker theLocker(mMutex);
+        mOutQueue.PushBack(inDoneQueue);
         mNetManagerPtr->Wakeup();
     }
+    virtual void DispatchStart()
+    {
+        QCStMutexLocker theLocker(mMutex);
+        if (mStopFlag) {
+            mNetManager.Shutdown();
+        }
+        if (mInQueue.IsEmpty()) {
+            if (mWokenFlag) {
+                Queue theTmp;
+                ProcessPendingAckQueue(theTmp);
+            }
+            return;
+        }
+        Queue theWriteQueue = mInQueue;
+        mInQueue.Reset();
+        mInFlightCommitted = mPendingCommitted;
+        theLocker.Unlock();
+        mWokenFlag = true;
+        Write(*theWriteQueue.Front());
+        ProcessPendingAckQueue(theWriteQueue);
+    }
     virtual void DispatchEnd()
-        {}
+    {
+        if (mWokenFlag) {
+            Queue theTmp;
+            ProcessPendingAckQueue(theTmp);
+        }
+    }
     virtual void DispatchExit()
         {}
     virtual void Run()
@@ -829,6 +848,23 @@ private:
         thePtr        = mMdStream.GetBufferedStart() + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         inRequest.blockData.CopyIn(thePtr, theTrailerLen);
+        const char* const theLinePtr = thePtr - inRequest.blockLines.Back();
+        inRequest.blockCommitted = -1;
+        if ((*thePtr & 0xFF) == '/') {
+            const char* theEndPtr = thePtr--;
+            while (theLinePtr < thePtr && (*thePtr & 0xFF) != '/') {
+                --thePtr;
+            }
+            if ((*thePtr & 0xFF) == '/') {
+                ++thePtr;
+                if (! HexIntParser::Parse(
+                        thePtr,
+                        theEndPtr - thePtr,
+                        inRequest.blockCommitted)) {
+                    inRequest.blockCommitted = -1;
+                }
+            }
+        }
         inRequest.blockLines.Back() += theTrailerLen;
         mMdStream.SetSync(true);
         mReqOstream.flush();

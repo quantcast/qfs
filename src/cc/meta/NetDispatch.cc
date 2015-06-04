@@ -1015,12 +1015,11 @@ public:
         SyncAddAndFetch(mSignalCnt, 1);
         mNetManager.Wakeup();
     }
-    virtual seq_t Apply(
-        const char* inLinePtr,
-        int         inLen)
+    virtual void Apply(
+        MetaLogWriterControl& op)
     {
         // FIXME.
-        return 0; //replayer.getCommitted();
+        //replayer.getCommitted();
     }
     virtual void Wakeup()
     {

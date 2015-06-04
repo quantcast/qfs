@@ -3693,6 +3693,7 @@ struct MetaLogWriterControl : public MetaRequest {
     uint32_t           blockChecksum;
     seq_t              blockStartSeq;
     seq_t              blockEndSeq;
+    seq_t              blockCommitted;
     Lines              blockLines;
     IOBuffer           blockData;
 
@@ -3710,6 +3711,7 @@ struct MetaLogWriterControl : public MetaRequest {
           blockChecksum(0),
           blockStartSeq(-1),
           blockEndSeq(-1),
+          blockCommitted(-1),
           blockLines(),
           blockData()
         {}

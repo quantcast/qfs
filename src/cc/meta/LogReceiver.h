@@ -36,6 +36,7 @@ namespace KFS
 
 class Properties;
 class NetManager;
+struct MetaLogWriterControl;
 
 class LogReceiver
 {
@@ -43,9 +44,8 @@ public:
     class Replayer
     {
     public:
-        virtual seq_t Apply(
-            const char* inLinePtr,
-            int         inLen) = 0;
+        virtual void Apply(
+            MetaLogWriterControl& inOp) = 0;
         virtual void Wakeup() = 0;
     protected:
         Replayer()

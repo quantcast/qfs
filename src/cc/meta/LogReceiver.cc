@@ -61,8 +61,7 @@ using std::hex;
 
 class LogReceiver::Impl :
     public IAcceptorOwner,
-    public KfsCallbackObj,
-    public ITimeout
+    public KfsCallbackObj
 {
 private:
     class Connection;
@@ -72,7 +71,6 @@ public:
     Impl()
         : IAcceptorOwner(),
           KfsCallbackObj(),
-          ITimeout(),
           mReAuthTimeout(20),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mTimeout(60),
@@ -183,7 +181,6 @@ public:
             return -ENOTCONN;
         }
         mReplayerPtr = &inReplayer;
-        inNetManager.RegisterTimeoutHandler(this);
         return 0;
     }
     void Shutdown();
@@ -233,10 +230,6 @@ public:
         }
         return mParseBuffer.GetPtr();
     }
-    void Replay(
-        const char* inLinePtr,
-        int         inLen)
-        { mCommittedLogSeq = mReplayerPtr->Apply(inLinePtr, inLen); }
     MetaLogWriterControl* GetBlockWriteOp(
         seq_t  inStartSeq,
         seq_t& ioEndSeq)
@@ -279,6 +272,10 @@ public:
             theNextSeq = theCur.blockEndSeq;
             if (theCur.status == 0) {
                 mCommittedLogSeq = theNextSeq;
+                if (mReplayerPtr) {
+                    mReplayerPtr->Apply(theCur);
+                    continue;
+                }
             }
             Release(theCur);
         }
@@ -299,9 +296,6 @@ public:
         if (theAckBroadcastFlag) {
             mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
         }
-    }
-    virtual void Timeout()
-    {
     }
     void Release(
         MetaLogWriterControl& inOp)
@@ -395,9 +389,6 @@ private:
     {
         if (mConnectionCount != 0) {
             panic("LogReceiver::~Impl: invalid connection count");
-        }
-        if (mAcceptorPtr) {
-            mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
         }
         delete mAcceptorPtr;
         ClearQueues();
@@ -1253,9 +1244,6 @@ LogReceiver::Impl::Done(
     void
 LogReceiver::Impl::Shutdown()
 {
-    if (mAcceptorPtr) {
-        mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
-    }
     delete mAcceptorPtr;
     mAcceptorPtr = 0;
     List::Iterator theIt(mConnectionsHeadPtr);
