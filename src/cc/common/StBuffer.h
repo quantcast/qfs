@@ -87,6 +87,12 @@ public:
         { return mCapacity; }
     size_t GetSize() const
         { return mSize; }
+    T* Reserve(
+        size_t inSize)
+    {
+        EnsureCapacity(inSize);
+        return mBufPtr;
+    }
     T* Resize(
         size_t inSize)
     {
