@@ -1290,17 +1290,91 @@ Replay::BlockChecksum::write(const char* buf, size_t len)
     return true;
 }
 
+const DETokenizer::Token kAheadLogEntry ("a", 1);
+const DETokenizer::Token kCommitLogEntry("c", 1);
+
+Replay::Replay()
+    : file(),
+      path(),
+      number(-1),
+      lastLogNum(-1),
+      lastLogIntBase(-1),
+      appendToLastLogFlag(false),
+      committed(0),
+      lastLogStart(0),
+      lastBlockSeq(-1),
+      errChecksum(0),
+      rollSeeds(0),
+      lastCommittedStatus(0),
+      tmplogprefixlen(0),
+      tmplogname(),
+      mds(),
+      state(*(new ReplayState(*this))),
+      tokenizer(*(new DETokenizer(file, &state))),
+      entrymap(get_entry_map()),
+      blockChecksum()
+    {}
+
+Replay::~Replay()
+{
+    delete &tokenizer;
+    delete &state;
+}
+
+int
+Replay::playLine(const char* line, int len, seq_t blockSeq)
+{
+    if (len <= 0) {
+        return 0;
+    }
+    if (0 <= blockSeq) {
+        state.mLastBlockSeq = blockSeq - 1;
+    }
+    int status = 0;
+    if (! tokenizer.next(line, len)) {
+        status = -EINVAL;
+    }
+    if (0 == status && ! tokenizer.empty()) {
+        if (! (kAheadLogEntry == tokenizer.front() ?
+                replay_log_ahead_entry(tokenizer) :
+                (kCommitLogEntry == tokenizer.front() ?
+                    replay_log_commit_entry(tokenizer, blockChecksum) :
+                    entrymap.parse(tokenizer)))) {
+            KFS_LOG_STREAM_ERROR <<
+                "error " << path <<
+                ":" << tokenizer.getEntryCount() <<
+                ":" << tokenizer.getEntry() <<
+            KFS_LOG_EOM;
+            status = -EINVAL;
+        }
+    }
+    if (0 <= blockSeq && state.mSubEntryCount != 0) {
+        if (0 == status) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid block commit:"
+                " sub entry count: " << state.mSubEntryCount <<
+            KFS_LOG_EOM;
+            state.mSubEntryCount = 0;
+            status = -EINVAL;
+            // Next block implicitly includes leading new line.
+            blockChecksum.blockEnd(0);
+            blockChecksum.write("\n", 1);
+        }
+    }
+    return status;
+}
+
 /*!
  * \brief replay contents of log file
  * \return  zero if replay successful, negative otherwise
  */
 int
-Replay::playlog(bool& lastEntryChecksumFlag, ReplayState& state)
+Replay::playlog(bool& lastEntryChecksumFlag)
 {
     restoreChecksum.clear();
     lastLineChecksumFlag = false;
     lastEntryChecksumFlag = false;
-    BlockChecksum blockChecksum;
+    blockChecksum.blockEnd(0);
     mds.Reset(&blockChecksum);
     mds.SetWriteTrough(true);
 
@@ -1316,10 +1390,6 @@ Replay::playlog(bool& lastEntryChecksumFlag, ReplayState& state)
     state.mLogAheadErrChksum = errChecksum;
     state.mSubEntryCount     = 0;
     int status = 0;
-    const DETokenizer::Token kAheadLogEntry ("a", 1);
-    const DETokenizer::Token kCommitLogEntry("c", 1);
-    const DiskEntry& entrymap = get_entry_map();
-    DETokenizer tokenizer(file, &state);
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;
@@ -1378,6 +1448,8 @@ Replay::playlog(bool& lastEntryChecksumFlag, ReplayState& state)
         mds.SetStream(0);
     }
     file.close();
+    blockChecksum.blockEnd(0);
+    blockChecksum.write("\n", 1);
     return status;
 }
 
@@ -1394,17 +1466,16 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
-    ReplayState state(*this);
     state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
     state.mCheckpointCommitted = committed;
     state.mCheckpointErrChksum = errChecksum;
     const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
     return (status == 0 ?
-        playLogs(lastLogNum, includeLastLogFlag, state) : status);
+        playLogs(lastLogNum, includeLastLogFlag) : status);
 }
 
 int
-Replay::playLogs(seq_t last, bool includeLastLogFlag, ReplayState& state)
+Replay::playLogs(seq_t last, bool includeLastLogFlag)
 {
     int status = 0;
     appendToLastLogFlag        = false;
@@ -1434,7 +1505,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag, ReplayState& state)
         sRestoreTimeCount = 0;
         const string logfn = logfile(i);
         if ((status = openlog(logfn)) != 0 ||
-                (status = playlog(lastEntryChecksumFlag, state)) != 0) {
+                (status = playlog(lastEntryChecksumFlag)) != 0) {
             break;
         }
         if (sRestoreTimeCount <= 0) {

@@ -44,6 +44,39 @@ DiskEntry::parse(DETokenizer& tokenizer) const
 }
 
 bool
+DETokenizer::next(const char* line, int len)
+{
+    Token* const tend = tokens + kMaxEntryTokens;
+    cur = tokens;
+    end = tokens;
+    if (len <= 0) {
+        return true;
+    }
+    if (line[len-1] != '\n') {
+        return false;
+    }
+    const char* s = line;
+    const char* p = s;
+    while (*p != '\n') {
+        if (*p == '/') {
+            end->ptr = s;
+            end->len = p - s;
+            s = ++p;
+            if (++end >= tend) {
+                end = tokens;
+                return false;
+            }
+        } else {
+            ++p;
+        }
+    }
+    if (p != line + len) {
+        return false;
+    }
+    return true;
+}
+
+bool
 DETokenizer::next(ostream* os)
 {
     Token* const tend = tokens + kMaxEntryTokens;

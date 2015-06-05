@@ -36,28 +36,15 @@ namespace KFS
 using std::string;
 using std::ifstream;
 
+class DETokenizer;
+class ReplayState;
+class DiskEntry;
+
 class Replay
 {
 public:
-    Replay()
-        : file(),
-          path(),
-          number(-1),
-          lastLogNum(-1),
-          lastLogIntBase(-1),
-          appendToLastLogFlag(false),
-          committed(0),
-          lastLogStart(0),
-          lastBlockSeq(-1),
-          errChecksum(0),
-          rollSeeds(0),
-          lastCommittedStatus(0),
-          tmplogprefixlen(0),
-          tmplogname(),
-          mds()
-        {}
-    ~Replay()
-        {}
+    Replay();
+    ~Replay();
     bool verifyLogSegmentsPresent()
     {
         lastLogNum = -1;
@@ -102,6 +89,7 @@ public:
         { return lastLogStart; }
     seq_t getLastBlockSeq() const
         { return lastBlockSeq; }
+    int playLine(const char* line, int len, seq_t blockSeq);
 
     class BlockChecksum
     {
@@ -117,26 +105,30 @@ public:
 private:
     typedef MdStreamT<BlockChecksum> MdStream;
 
-    ifstream file;   //!< the log file being replayed
-    string   path;   //!< path name for log file
-    seq_t    number; //!< sequence number for log file
-    seq_t    lastLogNum;
-    int      lastLogIntBase;
-    bool     appendToLastLogFlag;
-    seq_t    committed;
-    seq_t    lastLogStart;
-    seq_t    lastBlockSeq;
-    int64_t  errChecksum;
-    int64_t  rollSeeds;
-    int      lastCommittedStatus;
-    size_t   tmplogprefixlen;
-    string   tmplogname;
-    MdStream mds;
+    ifstream         file;   //!< the log file being replayed
+    string           path;   //!< path name for log file
+    seq_t            number; //!< sequence number for log file
+    seq_t            lastLogNum;
+    int              lastLogIntBase;
+    bool             appendToLastLogFlag;
+    seq_t            committed;
+    seq_t            lastLogStart;
+    seq_t            lastBlockSeq;
+    int64_t          errChecksum;
+    int64_t          rollSeeds;
+    int              lastCommittedStatus;
+    size_t           tmplogprefixlen;
+    string           tmplogname;
+    MdStream         mds;
+    ReplayState&     state;
+    DETokenizer&     tokenizer;
+    const DiskEntry& entrymap;
+    BlockChecksum    blockChecksum;
 
     class ReplayState;
 
-    int playLogs(seq_t lastlog, bool includeLastLogFlag, ReplayState& state);
-    int playlog(bool& lastEntryChecksumFlag, ReplayState& state);
+    int playLogs(seq_t lastlog, bool includeLastLogFlag);
+    int playlog(bool& lastEntryChecksumFlag);
     int getLastLog(seq_t& lastlog);
     const string& logfile(seq_t num);
     string getLastLog();

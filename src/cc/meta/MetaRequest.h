@@ -3691,6 +3691,7 @@ struct MetaLogWriterControl : public MetaRequest {
     string             logName;
     MetaRequest* const completion;
     uint32_t           blockChecksum;
+    seq_t              blockSeq;
     seq_t              blockStartSeq;
     seq_t              blockEndSeq;
     seq_t              blockCommitted;
@@ -3709,6 +3710,7 @@ struct MetaLogWriterControl : public MetaRequest {
           logName(),
           completion(c),
           blockChecksum(0),
+          blockSeq(-1),
           blockStartSeq(-1),
           blockEndSeq(-1),
           blockCommitted(-1),

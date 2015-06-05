@@ -881,6 +881,7 @@ private:
         mReqOstream.flush();
         Sync();
         if (IsLogStreamGood()) {
+            inRequest.blockSeq = mNextBlockSeq;
             mLastLogSeq      = inRequest.blockEndSeq;
             mNextLogSeq      = mLastLogSeq;
             inRequest.status = 0;

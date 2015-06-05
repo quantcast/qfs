@@ -33,6 +33,7 @@
 #include "ClientSM.h"
 #include "LogWriter.h"
 #include "LogReceiver.h"
+#include "Replay.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -938,6 +939,9 @@ public:
           mNetManager(),
           mLogReceiver(),
           mThread(),
+          mPendingCommitHead(0),
+          mPendingCommitTail(0),
+          mLastCommit(-1),
           mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
@@ -1018,11 +1022,62 @@ public:
     virtual void Apply(
         MetaLogWriterControl& op)
     {
-        if (op.blockCommitted) {
+        if (0 != op.status) {
+            MetaRequest::Release(&op);
+            return;
         }
-        MetaRequest::Release(&op);
-        // FIXME.
-        //replayer.getCommitted();
+        if (mPendingCommitTail) {
+            mPendingCommitTail->next = &op;
+        } else {
+            mPendingCommitHead = &op;
+        }
+        mPendingCommitTail = &op;
+        op.next = 0;
+        if (op.blockCommitted <= mLastCommit) {
+            return;
+        }
+        mLastCommit = op.blockCommitted;
+        MetaRequest* thePtr = mPendingCommitHead;
+        while (thePtr) {
+            MetaLogWriterControl& theCur =
+                *static_cast<MetaLogWriterControl*>(thePtr);
+            if (mLastCommit < theCur.blockEndSeq) {
+                break;
+            }
+            thePtr = theCur.next;
+            theCur.next = 0;
+            const int*       theLenPtr     = op.blockLines.GetPtr();
+            const int* const theLendEndPtr =
+                theLenPtr + op.blockLines.GetSize();
+            while (theLenPtr < theLendEndPtr) {
+                int theLen = *theLenPtr++;
+                if (theLen <= 0) {
+                    continue;
+                }
+                char* const       theBufPtr  = mBuffer.Reserve(theLen + 1);
+                const char* const theLinePtr =
+                    theCur.blockData.CopyOutOrGetBufPtr(theBufPtr, theLen);
+                const int theStatus = replayer.playLine(
+                    theLinePtr,
+                    theLen,
+                    theLenPtr + 1 < theLendEndPtr ? seq_t(-1) : theCur.blockSeq
+                );
+                if (theStatus != 0) {
+                    theCur.blockData.CopyOut(theBufPtr, theLen);
+                    theBufPtr[theLen] = 0;
+                    KFS_LOG_STREAM_FATAL <<
+                        "log block apply failure:"
+                        " seq: ["   << theCur.blockStartSeq << "]"
+                        " status: " << theStatus <<
+                        " "         << theBufPtr <<
+                    KFS_LOG_EOM;
+                    panic("log block apply failure");
+                }
+                theCur.blockData.Consume(theLen);
+            }
+            MetaRequest::Release(&theCur);
+        }
+        mPendingCommitHead = thePtr;
     }
     virtual void Wakeup()
     {
@@ -1035,15 +1090,18 @@ public:
         }
     }
 private:
-    Properties            mParameters;
-    NetManager            mNetManager;
-    LogReceiver           mLogReceiver;
-    QCThread              mThread;
-    MetaLogWriterControl* mPendingCommit;
-    bool                  mWakeupFlag;
-    bool                  mStartedFlag;
-    bool                  mParametersUpdatePendingFlag;
-    volatile int          mSignalCnt;
+    Properties                mParameters;
+    NetManager                mNetManager;
+    LogReceiver               mLogReceiver;
+    QCThread                  mThread;
+    MetaRequest*              mPendingCommitHead;
+    MetaRequest*              mPendingCommitTail;
+    seq_t                     mLastCommit;
+    bool                      mWakeupFlag;
+    bool                      mStartedFlag;
+    bool                      mParametersUpdatePendingFlag;
+    StBufferT<char, 10 << 10> mBuffer;
+    volatile int mSignalCnt;
 
     virtual void Run()
     {

@@ -90,7 +90,7 @@ public:
             return (len < other.len || (len == other.len &&
                 memcmp(ptr, other.ptr, len) < 0));
         }
-        operator string () const {
+        operator string() const {
             return string(ptr, len);
         }
         bool empty() const {
@@ -135,6 +135,7 @@ public:
     bool empty() const {
         return (cur >= end);
     }
+    bool next(const char* buf, int len);
     bool next(ostream* os = 0);
     size_t getEntryCount() const {
         return entryCount;
