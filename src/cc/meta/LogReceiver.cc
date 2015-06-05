@@ -198,8 +198,6 @@ public:
         Connection& inConnection);
     seq_t GetCommittedLogSeq() const
         { return mCommittedLogSeq; }
-    seq_t GetLastWriteLogSeq() const
-        { return mLastWriteSeq; }
     void Delete()
     {
         Shutdown();
@@ -333,6 +331,7 @@ public:
     void SubmitLogWrite(
         MetaLogWriterControl& inOp)
     {
+        mLastWriteSeq = inOp.blockEndSeq;
         inOp.clnt = this;
         Submit(inOp);
     }
@@ -943,7 +942,7 @@ private:
                 ! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, theBlockSeqLen) ||
                 theBlockSeqLen < 0 ||
-                theBlockEndSeq < theBlockSeqLen) {
+                (theBlockEndSeq < theBlockSeqLen && 0 < theBlockSeqLen)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " invalid block:"
                 " start: "    << mBlockStartSeq <<
@@ -1058,10 +1057,8 @@ private:
         const int thePos = theBuf.BytesConsumable();
         ReqOstream theStream(mOstream.Set(theBuf));
         const seq_t theCommitted = mImpl.GetCommittedLogSeq();
-        const seq_t theLastWrite = mImpl.GetLastWriteLogSeq();
         theStream << hex <<
             "A " << theCommitted <<
-            " "  << max(seq_t(0), theLastWrite - theCommitted) <<
             " "  << theAckFlags;
         if (! mIdSentFlag) {
             mIdSentFlag = true;
