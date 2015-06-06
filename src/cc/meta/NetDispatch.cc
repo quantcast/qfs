@@ -968,7 +968,8 @@ public:
             return 0;
         }
         const int err = mLogReceiver.Start(
-            mutex ? mNetManager : globalNetManager(), *this);
+            mutex ? mNetManager : globalNetManager(), *this,
+            MetaRequest::GetLogWriter().GetCommittedLogSeq());
         if (err || ! mutex) {
             return err;
         }

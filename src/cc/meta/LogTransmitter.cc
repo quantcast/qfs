@@ -287,6 +287,7 @@ public:
     }
     ~Transmitter()
     {
+        QCRTASSERT(mRecursionCount == 0);
         Transmitter::Shutdown();
         MetaRequest::Release(mAuthenticateOpPtr);
         if (mSleepingFlag) {
@@ -352,9 +353,7 @@ public:
                 panic("LogReceiver: unexpected event");
                 break;
         }
-        mRecursionCount--;
-        QCASSERT(0 <= mRecursionCount);
-        if (mRecursionCount <= 0) {
+        if (mRecursionCount <= 1) {
             if (mConnectionPtr && mConnectionPtr->IsGood()) {
                 mConnectionPtr->StartFlush();
             } else if (mConnectionPtr) {
@@ -366,6 +365,8 @@ public:
                     mImpl.GetHeartbeatInterval());
             }
         }
+        mRecursionCount--;
+        QCASSERT(0 <= mRecursionCount);
         return 0;
     }
     void Shutdown()
@@ -790,47 +791,48 @@ private:
             Error("invalid ack sequence");
             return -1;
         }
-        AdvancePendingQueue();
-        if (mAckBlockFlags &
-                    (uint64_t(1) << kLogBlockAckHasServerIdBit)) {
-            int64_t theId = -1;
-            if (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theId) ||
-                    theId < 0) {
-                KFS_LOG_STREAM_ERROR <<
-                    mServer << ": "
-                    "missing or invalid server id: " << theId <<
-                    " last sent: "                   << mLastSentBlockSeq <<
-                KFS_LOG_EOM;
-                Error("missing or invalid server id");
-                return -1;
-            }
-            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
-                thePtr++;
-            }
-            const char* const theChksumEndPtr = thePtr;
-            Checksum theChecksum = 0;
-            if (! HexIntParser::Parse(
-                    thePtr, theEndPtr - thePtr, theChecksum)) {
-                KFS_LOG_STREAM_ERROR <<
-                    mServer << ": "
-                    "invalid ack checksum: " << theChecksum <<
-                    " last sent: "           << mLastSentBlockSeq <<
-                KFS_LOG_EOM;
-                Error("missing or invalid server id");
-                return -1;
-            }
-            const Checksum theComputedChksum = ComputeBlockChecksum(
-                inHeaderPtr, theChksumEndPtr - inHeaderPtr);
-            if (theComputedChksum != theChecksum) {
-                KFS_LOG_STREAM_ERROR <<
-                    mServer << ": "
-                    "ack checksum mismatch:"
-                    " expected: " << theChecksum <<
-                    " computed: " << theComputedChksum <<
-                KFS_LOG_EOM;
-                Error("ack checksum mismatch");
-                return -1;
-            }
+        const bool theHasIdFlag = mAckBlockFlags &
+            (uint64_t(1) << kLogBlockAckHasServerIdBit);
+        int64_t    theId        = -1;
+        if (theHasIdFlag  &&
+                (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theId) ||
+                theId < 0)) {
+            KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
+                "missing or invalid server id: " << theId <<
+                " last sent: "                   << mLastSentBlockSeq <<
+            KFS_LOG_EOM;
+            Error("missing or invalid server id");
+            return -1;
+        }
+        while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+            thePtr++;
+        }
+        const char* const theChksumEndPtr = thePtr;
+        Checksum theChecksum = 0;
+        if (! HexIntParser::Parse(
+                thePtr, theEndPtr - thePtr, theChecksum)) {
+            KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
+                "invalid ack checksum: " << theChecksum <<
+                " last sent: "           << mLastSentBlockSeq <<
+            KFS_LOG_EOM;
+            Error("missing or invalid server id");
+            return -1;
+        }
+        const Checksum theComputedChksum = ComputeBlockChecksum(
+            inHeaderPtr, theChksumEndPtr - inHeaderPtr);
+        if (theComputedChksum != theChecksum) {
+            KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
+                "ack checksum mismatch:"
+                " expected: " << theChecksum <<
+                " computed: " << theComputedChksum <<
+            KFS_LOG_EOM;
+            Error("ack checksum mismatch");
+            return -1;
+        }
+        if (theHasIdFlag) {
             if (0 <= mId) {
                 KFS_LOG_STREAM_INFO <<
                     mServer << ": "
@@ -844,6 +846,7 @@ private:
                 mImpl.IdChanged(thePrevId, *this);
             }
         }
+        AdvancePendingQueue();
         if (thePrevAckSeq != mAckBlockSeq) {
             mImpl.Acked(thePrevAckSeq, *this);
         }
@@ -1375,7 +1378,7 @@ LogTransmitter::Impl::Update()
         "update:"
         " tranmitters: " << theTotalCnt <<
         " up: "          << theUpCnt <<
-        " idup: "        << theIdUpCnt <<
+        " id up: "       << theIdUpCnt <<
         " ack: ["        << theMinAck <<
         ","              << theMaxAck << "]"
         " ids: "         << theIdCnt <<

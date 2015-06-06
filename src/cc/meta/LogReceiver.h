@@ -65,11 +65,10 @@ public:
     bool SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
-    void SetNextLogSeq(
-        seq_t inSeq);
     int Start(
         NetManager& inNetManager,
-        Replayer&   inReplayer);
+        Replayer&   inReplayer,
+        seq_t       inCommittedLogSeq);
     void Shutdown();
 private:
     class Impl;

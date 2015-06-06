@@ -139,7 +139,8 @@ public:
     }
     int Start(
         NetManager& inNetManager,
-        Replayer&   inReplayer)
+        Replayer&   inReplayer,
+        seq_t       inCommittedLogSeq)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -180,7 +181,8 @@ public:
             KFS_LOG_EOM;
             return -ENOTCONN;
         }
-        mReplayerPtr = &inReplayer;
+        mReplayerPtr     = &inReplayer;
+        mCommittedLogSeq = inCommittedLogSeq;
         return 0;
     }
     void Shutdown();
@@ -567,18 +569,20 @@ public:
                 panic("LogReceiver: unexpected event");
                 break;
         }
-        mRecursionCount--;
-        QCASSERT(0 <= mRecursionCount);
-        if (mRecursionCount <= 0) {
+        if (mRecursionCount <= 1) {
             if (mConnectionPtr->IsGood()) {
                 mConnectionPtr->StartFlush();
             } else if (! mDownFlag) {
                 Error();
             }
             if (mDownFlag && mPendingOpsCount <= 0) {
+                mRecursionCount--;
                 delete this;
+                return 0;
             }
         }
+        mRecursionCount--;
+        QCASSERT(0 <= mRecursionCount);
         return 0;
     }
     void SendAck()
@@ -587,7 +591,7 @@ public:
         if (! mConnectionPtr) {
             return;
         }
-        SendAck();
+        SendAckSelf();
     }
 private:
     typedef MetaLogWriterControl::Lines Lines;
@@ -1053,21 +1057,22 @@ private:
         if (! mIdSentFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckHasServerIdBit;
         }
-        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
-        const int thePos = theBuf.BytesConsumable();
-        ReqOstream theStream(mOstream.Set(theBuf));
+        IOBuffer&   theBuf       = mConnectionPtr->GetOutBuffer();
+        const int   thePos       = theBuf.BytesConsumable();
         const seq_t theCommitted = mImpl.GetCommittedLogSeq();
+        ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
             "A " << theCommitted <<
-            " "  << theAckFlags;
+            " "  << theAckFlags <<
+            " ";
         if (! mIdSentFlag) {
             mIdSentFlag = true;
-            theStream << " " << mImpl.GetId() << " ";
-            theStream.flush();
-            const Checksum theChecksum = ComputeBlockChecksumAt(
-                &theBuf, thePos, theBuf.BytesConsumable() - thePos);
-            theStream << theChecksum;
+            theStream << mImpl.GetId() << " ";
         }
+        theStream.flush();
+        const Checksum theChecksum = ComputeBlockChecksumAt(
+            &theBuf, thePos, theBuf.BytesConsumable() - thePos);
+        theStream << theChecksum;
         theStream << "\r\n\r\n";
         theStream.flush();
         if (mRecursionCount <= 0) {
@@ -1283,9 +1288,10 @@ LogReceiver::SetParameters(
     int
 LogReceiver::Start(
     NetManager&            inNetManager,
-    LogReceiver::Replayer& inReplayer)
+    LogReceiver::Replayer& inReplayer,
+    seq_t                  inCommittedLogSeq)
 {
-    return mImpl.Start(inNetManager, inReplayer);
+    return mImpl.Start(inNetManager, inReplayer, inCommittedLogSeq);
 }
 
     void
