@@ -1327,6 +1327,7 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
     if (len <= 0) {
         return 0;
     }
+    tokenizer.setIntBase(16);
     if (0 <= blockSeq) {
         state.mLastBlockSeq = blockSeq - 1;
     }
@@ -1390,6 +1391,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     state.mLogAheadErrChksum = errChecksum;
     state.mSubEntryCount     = 0;
     int status = 0;
+    tokenizer.setIntBase(10);
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;

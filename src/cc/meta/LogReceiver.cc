@@ -183,6 +183,7 @@ public:
         }
         mReplayerPtr     = &inReplayer;
         mCommittedLogSeq = inCommittedLogSeq;
+        mLastWriteSeq    = mCommittedLogSeq;
         return 0;
     }
     void Shutdown();
@@ -200,6 +201,8 @@ public:
         Connection& inConnection);
     seq_t GetCommittedLogSeq() const
         { return mCommittedLogSeq; }
+    seq_t GetLastWriteLogSeq() const
+        { return mLastWriteSeq; }
     void Delete()
     {
         Shutdown();
@@ -231,11 +234,10 @@ public:
         return mParseBuffer.GetPtr();
     }
     MetaLogWriterControl* GetBlockWriteOp(
-        seq_t  inStartSeq,
-        seq_t& ioEndSeq)
+        seq_t inStartSeq,
+        seq_t ioEndSeq)
     {
-        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
-            ioEndSeq = mLastWriteSeq;
+        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq + 1) {
             return 0;
         }
         MetaRequest* thePtr = mWriteOpFreeListPtr;
@@ -1010,7 +1012,8 @@ private:
             return -1;
         }
         mBlockEndSeq   = theBlockEndSeq;
-        mBlockStartSeq = theBlockEndSeq - theBlockSeqLen;
+        mBlockStartSeq = theBlockEndSeq -
+            (0 < theBlockSeqLen ? theBlockSeqLen - 1 : 0);
         return ProcessBlock(inBuffer);
     }
     void Error(
@@ -1122,7 +1125,7 @@ private:
                     thePtr = theNPtr;
                 }
                 if (thePtr < theEndPtr) {
-                    const int theLen = (int)(theNPtr - thePtr);
+                    const int theLen = (int)(theEndPtr - thePtr);
                     if (theAppendFlag) {
                         theLines.Back() += theLen;
                     } else {
@@ -1155,6 +1158,15 @@ private:
             theOp.blockData.Move(&inBuffer, mBlockLength);
             mImpl.SubmitLogWrite(theOp);
         } else {
+            KFS_LOG_STREAM_DEBUG <<
+                "discarding block:"
+                " [" << mBlockStartSeq <<
+                ","  << mBlockEndSeq   <<
+                "]"
+                " length: "     << mBlockLength <<
+                " committed: "  << mImpl.GetCommittedLogSeq() <<
+                " last write: " << mImpl.GetLastWriteLogSeq() <<
+            KFS_LOG_EOM;
             inBuffer.Consume(mBlockLength);
         }
         mBlockLength = -1;
