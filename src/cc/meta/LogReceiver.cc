@@ -237,7 +237,7 @@ public:
         seq_t inStartSeq,
         seq_t ioEndSeq)
     {
-        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq + 1) {
+        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
             return 0;
         }
         MetaRequest* thePtr = mWriteOpFreeListPtr;
@@ -1012,8 +1012,7 @@ private:
             return -1;
         }
         mBlockEndSeq   = theBlockEndSeq;
-        mBlockStartSeq = theBlockEndSeq -
-            (0 < theBlockSeqLen ? theBlockSeqLen - 1 : 0);
+        mBlockStartSeq = theBlockEndSeq - theBlockSeqLen;
         return ProcessBlock(inBuffer);
     }
     void Error(

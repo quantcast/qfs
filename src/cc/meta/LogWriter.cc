@@ -807,7 +807,7 @@ private:
             inRequest.status = -EFAULT;
             return;
         }
-        if (inRequest.blockStartSeq != mLastLogSeq + 1) {
+        if (inRequest.blockStartSeq != mLastLogSeq) {
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "invalid block start sequence";
             return;
@@ -826,6 +826,8 @@ private:
             inRequest.blockChecksum,
             inRequest.blockData.BytesConsumable()
         );
+        const size_t thePos = mMdStream.GetBufferedEnd() -
+            mMdStream.GetBufferedStart();
         mBlockChecksum = inRequest.blockChecksum;
         for (IOBuffer::iterator theIt = inRequest.blockData.begin();
                 theIt != inRequest.blockData.end();
@@ -834,20 +836,21 @@ private:
             mReqOstream.write(thePtr, theIt->Producer() - thePtr);
         }
         const size_t theLen = mMdStream.GetBufferedEnd() -
-            mMdStream.GetBufferedStart();
+            (mMdStream.GetBufferedStart() + thePos);
         ++mNextBlockSeq;
         mReqOstream <<
             mNextBlockSeq <<
             "/";
         mReqOstream.flush();
-        const char* thePtr        = mMdStream.GetBufferedStart() + theLen;
+        const char* thePtr        = mMdStream.GetBufferedStart() +
+            thePos + theLen;
         size_t      theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         mBlockChecksum = ComputeBlockChecksum(
             mBlockChecksum, thePtr, theTrailerLen);
         mReqOstream << mBlockChecksum << "\n";
         mReqOstream.flush();
         // Append trailer to make block replay work, and parse committed.
-        thePtr        = mMdStream.GetBufferedStart() + theLen;
+        thePtr        = mMdStream.GetBufferedStart() + thePos + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         inRequest.blockData.CopyIn(thePtr, theTrailerLen);
         const char* const theEndPtr = thePtr;
@@ -876,6 +879,24 @@ private:
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write: invalid block format";
             return;
+        }
+        const int theStatus = mLogTransmitter.TransmitBlock(
+            inRequest.blockEndSeq,
+            (int)(inRequest.blockEndSeq - inRequest.blockStartSeq),
+            mMdStream.GetBufferedStart() + thePos,
+            theLen,
+            inRequest.blockChecksum,
+            theLen
+        );
+        if (0 != theStatus) {
+            KFS_LOG_STREAM_ERROR <<
+                "write block: block transmit failure:"
+                " ["    << inRequest.blockStartSeq  <<
+                ":"     << inRequest.blockEndSeq <<
+                "]"
+                " status: " << theStatus <<
+            KFS_LOG_EOM;
+            mTransmitterUpFlag = false;
         }
         mMdStream.SetSync(true);
         mReqOstream.flush();
