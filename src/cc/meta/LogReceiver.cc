@@ -36,6 +36,7 @@
 #include "common/StBuffer.h"
 
 #include "kfsio/NetManager.h"
+#include "kfsio/ITimeout.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/Acceptor.h"
@@ -61,7 +62,8 @@ using std::hex;
 
 class LogReceiver::Impl :
     public IAcceptorOwner,
-    public KfsCallbackObj
+    public KfsCallbackObj,
+    public ITimeout
 {
 private:
     class Connection;
@@ -71,6 +73,7 @@ public:
     Impl()
         : IAcceptorOwner(),
           KfsCallbackObj(),
+          ITimeout(),
           mReAuthTimeout(20),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mTimeout(60),
@@ -181,6 +184,7 @@ public:
             KFS_LOG_EOM;
             return -ENOTCONN;
         }
+        mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
         mReplayerPtr     = &inReplayer;
         mCommittedLogSeq = inCommittedLogSeq;
         mLastWriteSeq    = mCommittedLogSeq;
@@ -362,6 +366,14 @@ public:
             Dispatch();
         }
     }
+    virtual void Timeout()
+    {
+        if (! mAckBroadcastFlag) {
+            return;
+        }
+        mAckBroadcastFlag = false;
+        BroadcastAck();
+    }
 private:
     typedef StBufferT<char, kMinParseBufferSize> ParseBuffer;
 
@@ -392,6 +404,9 @@ private:
     {
         if (mConnectionCount != 0) {
             panic("LogReceiver::~Impl: invalid connection count");
+        }
+        if (mAcceptorPtr) {
+            mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
         }
         delete mAcceptorPtr;
         ClearQueues();
@@ -1257,6 +1272,9 @@ LogReceiver::Impl::Done(
     void
 LogReceiver::Impl::Shutdown()
 {
+    if (mAcceptorPtr) {
+        mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
+    }
     delete mAcceptorPtr;
     mAcceptorPtr = 0;
     List::Iterator theIt(mConnectionsHeadPtr);
