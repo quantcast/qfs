@@ -828,7 +828,6 @@ private:
         );
         const size_t thePos = mMdStream.GetBufferedEnd() -
             mMdStream.GetBufferedStart();
-        mBlockChecksum = inRequest.blockChecksum;
         for (IOBuffer::iterator theIt = inRequest.blockData.begin();
                 theIt != inRequest.blockData.end();
                 ++theIt) {

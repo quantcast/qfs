@@ -70,9 +70,15 @@ DETokenizer::next(const char* line, int len)
             ++p;
         }
     }
-    if (p != line + len) {
+    if (p != line + len - 1) {
         return false;
     }
+    if (s < p) {
+        end->ptr = s;
+        end->len = p - s;
+        ++end;
+    }
+    entryCount++;
     return true;
 }
 

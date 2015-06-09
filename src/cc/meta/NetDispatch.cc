@@ -1061,7 +1061,7 @@ public:
                 const int theStatus = replayer.playLine(
                     theLinePtr,
                     theLen,
-                    theLenPtr + 1 < theLendEndPtr ? seq_t(-1) : theCur.blockSeq
+                    theLenPtr < theLendEndPtr ? seq_t(-1) : theCur.blockSeq
                 );
                 if (theStatus != 0) {
                     theCur.blockData.CopyOut(theBufPtr, theLen);

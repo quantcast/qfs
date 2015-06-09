@@ -180,6 +180,9 @@ public:
     void* getUserData() const {
         return userdata;
     }
+    void resetEntryCount() {
+        entryCount = 0;
+    }
 private:
     enum { kMaxEntrySize   = 512 << 10 };
     enum { kMaxEntryTokens = 1   << 10 };

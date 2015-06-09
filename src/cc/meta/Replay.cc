@@ -1349,8 +1349,10 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
             status = -EINVAL;
         }
     }
-    if (0 <= blockSeq && state.mSubEntryCount != 0) {
-        if (0 == status) {
+    if (0 <= blockSeq || 0 != status) {
+        blockChecksum.blockEnd(0);
+        blockChecksum.write("\n", 1);
+        if (state.mSubEntryCount != 0 && 0 == status) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid block commit:"
                 " sub entry count: " << state.mSubEntryCount <<
@@ -1358,9 +1360,10 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
             state.mSubEntryCount = 0;
             status = -EINVAL;
             // Next block implicitly includes leading new line.
-            blockChecksum.blockEnd(0);
-            blockChecksum.write("\n", 1);
+            tokenizer.resetEntryCount();
         }
+    } else {
+        blockChecksum.write(line, len);
     }
     return status;
 }
@@ -1392,6 +1395,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     state.mSubEntryCount     = 0;
     int status = 0;
     tokenizer.setIntBase(10);
+    tokenizer.resetEntryCount();
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;
@@ -1452,6 +1456,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     file.close();
     blockChecksum.blockEnd(0);
     blockChecksum.write("\n", 1);
+    tokenizer.resetEntryCount();
     return status;
 }
 
