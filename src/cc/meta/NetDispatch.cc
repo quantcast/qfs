@@ -1023,6 +1023,7 @@ public:
     virtual void Apply(
         MetaLogWriterControl& op)
     {
+        assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
         if (0 != op.status) {
             MetaRequest::Release(&op);
             return;
@@ -1039,6 +1040,7 @@ public:
         }
         mLastCommit = op.blockCommitted;
         MetaRequest* thePtr = mPendingCommitHead;
+        bool         theUpdateCommittedFlag = false;
         while (thePtr) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
@@ -1075,10 +1077,22 @@ public:
                     panic("log block apply failure");
                 }
                 theCur.blockData.Consume(theLen);
+                theUpdateCommittedFlag = true;
             }
             MetaRequest::Release(&theCur);
         }
         mPendingCommitHead = thePtr;
+        if (! mPendingCommitHead) {
+            mPendingCommitTail = mPendingCommitHead;
+        }
+        if (theUpdateCommittedFlag) {
+            MetaRequest::GetLogWriter().SetCommitted(
+                replayer.getCommitted(),
+                fileID.getseed(),
+                replayer.getErrChksum(),
+                replayer.getLastCommittedStatus()
+            );
+        }
     }
     virtual void Wakeup()
     {

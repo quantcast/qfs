@@ -296,6 +296,17 @@ public:
         outFidSeed     = mCommitted.mFidSeed;
         outStatus      = mCommitted.mStatus;
     }
+    void SetCommitted(
+        seq_t   inLogSeq,
+        int64_t inErrChecksum,
+        fid_t   inFidSeed,
+        int     inStatus)
+    {
+        mCommitted.mSeq       = inLogSeq;
+        mCommitted.mErrChkSum = inErrChecksum;
+        mCommitted.mFidSeed   = inFidSeed;
+        mCommitted.mStatus    = inStatus;
+    }
     void ScheduleFlush()
     {
         if (mPendingQueue.IsEmpty()) {
@@ -1147,6 +1158,21 @@ LogWriter::GetCommitted(
         outErrChecksum,
         outFidSeed,
         outStatus
+    );
+}
+
+    void
+LogWriter::SetCommitted(
+    seq_t   inLogSeq,
+    int64_t inErrChecksum,
+    fid_t   inFidSeed,
+    int     inStatus)
+{
+    mImpl.SetCommitted(
+        inLogSeq,
+        inErrChecksum,
+        inFidSeed,
+        inStatus
     );
 }
 

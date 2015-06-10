@@ -846,6 +846,11 @@ private:
                 mImpl.IdChanged(thePrevId, *this);
             }
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "log recv id: " << mId <<
+            " ack: "        << thePrevAckSeq <<
+            " => "          << mAckBlockSeq <<
+        KFS_LOG_EOM;
         AdvancePendingQueue();
         if (thePrevAckSeq != mAckBlockSeq) {
             mImpl.Acked(thePrevAckSeq, *this);
