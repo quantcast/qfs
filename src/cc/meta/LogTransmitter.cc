@@ -179,7 +179,7 @@ public:
         const int theChecksumFrontLen = 0 < inBlockLen ? 1 : 0;
         theChecksum = ChecksumBlocksCombine(
             ComputeBlockChecksum(
-                thePtr, 
+                thePtr,
                 theSeqEndPtr - thePtr - theChecksumFrontLen),
             theChecksum,
             inBlockLen + theChecksumFrontLen
@@ -395,7 +395,8 @@ public:
         IOBuffer& inBuffer,
         int       inLen)
     {
-        if (inBlockSeq <= mAckBlockSeq || inLen <= 0) {
+        if (inBlockSeq <= mAckBlockSeq || inLen <= 0 ||
+                inBlockSeq <= mLastSentBlockSeq) {
             return true;
         }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
@@ -403,15 +404,11 @@ public:
             return false;
         }
         mPendingSend.Copy(&inBuffer, inLen);
-        if (! mAuthenticateOpPtr) {
+        if (mConnectionPtr && ! mAuthenticateOpPtr) {
             mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
         }
         CompactIfNeeded();
-        mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
-            mConnectionPtr->StartFlush();
-        }
-        return (!! mConnectionPtr);
+        return FlushBlock(inBlockSeq, inLen);
     }
     bool SendBlock(
         seq_t       inBlockSeq,
@@ -421,34 +418,18 @@ public:
         Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
-        if (inBlockSeqLen < 0) {
-            panic("invalid block sequence length");
-            return false;
-        }
-        if (inBlockSeq <= mAckBlockSeq && 0 < inBlockLen) {
+        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0 ||
+                inBlockSeq <= mLastSentBlockSeq) {
             return true;
         }
-        const int thePos = mPendingSend.BytesConsumable();
-        if (mImpl.GetMaxPending() < thePos) {
-            ExceededMaxPending();
-            return false;
-        }
-        if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
-            WriteBlock(mPendingSend, inBlockSeq, inBlockSeqLen,
-                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
-        } else {
-            IOBuffer theBuffer;
-            WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
-                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
-            mPendingSend.Move(&theBuffer);
-            CompactIfNeeded();
-        }
-        mBlocksQueue.push_back(make_pair(inBlockSeq,
-            mPendingSend.BytesConsumable() - thePos));
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
-            mConnectionPtr->StartFlush();
-        }
-        return (!! mConnectionPtr);
+        return SendBlockSelf(
+            inBlockSeq,
+            inBlockSeqLen,
+            inBlockPtr,
+            inBlockLen,
+            inChecksum,
+            inChecksumStartPos
+        );
     }
     ClientAuthContext& GetAuthCtx()
         { return mAuthContext; }
@@ -484,6 +465,50 @@ private:
 
     friend class QCDLListOp<Transmitter>;
 
+    bool SendBlockSelf(
+        seq_t       inBlockSeq,
+        int         inBlockSeqLen,
+        const char* inBlockPtr,
+        size_t      inBlockLen,
+        Checksum    inChecksum,
+        size_t      inChecksumStartPos)
+    {
+        if (inBlockSeqLen < 0) {
+            panic("invalid block sequence length");
+            return false;
+        }
+        const int thePos = mPendingSend.BytesConsumable();
+        if (mImpl.GetMaxPending() < thePos) {
+            ExceededMaxPending();
+            return false;
+        }
+        if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
+            WriteBlock(mPendingSend, inBlockSeq, inBlockSeqLen,
+                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        } else {
+            IOBuffer theBuffer;
+            WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
+                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+            mPendingSend.Move(&theBuffer);
+            CompactIfNeeded();
+        }
+        return FlushBlock(inBlockSeq, mPendingSend.BytesConsumable() - thePos);
+    }
+    bool FlushBlock(
+        seq_t inBlockSeq,
+        int   inLen)
+    {
+        if (inBlockSeq < mLastSentBlockSeq) {
+            panic("block sequence is invalid: less than last sent");
+            return false;
+        }
+        mLastSentBlockSeq = inBlockSeq;
+        mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
+            mConnectionPtr->StartFlush();
+        }
+        return (!! mConnectionPtr);
+    }
     void ExceededMaxPending()
     {
         mPendingSend.Clear();
@@ -723,7 +748,7 @@ private:
         if (mAckBlockSeq < mLastSentBlockSeq || ! mBlocksQueue.empty()) {
             return false;
         }
-        SendBlock(min(seq_t(0), mLastSentBlockSeq), 0, "", 0,
+        SendBlockSelf(max(seq_t(0), mLastSentBlockSeq), 0, "", 0,
             kKfsNullChecksum, 0);
         return true;
     }
@@ -850,6 +875,10 @@ private:
             "log recv id: " << mId <<
             " ack: "        << thePrevAckSeq <<
             " => "          << mAckBlockSeq <<
+            " sent: "       << mLastSentBlockSeq <<
+            " pending:"
+            " blocks: "     << mBlocksQueue.size() <<
+            " bytes: "      << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         AdvancePendingQueue();
         if (thePrevAckSeq != mAckBlockSeq) {
