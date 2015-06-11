@@ -1021,24 +1021,24 @@ public:
         mNetManager.Wakeup();
     }
     virtual void Apply(
-        MetaLogWriterControl& op)
+        MetaLogWriterControl& inOp)
     {
         assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
-        if (0 != op.status) {
-            MetaRequest::Release(&op);
+        if (0 != inOp.status) {
+            MetaRequest::Release(&inOp);
             return;
         }
         if (mPendingCommitTail) {
-            mPendingCommitTail->next = &op;
+            mPendingCommitTail->next = &inOp;
         } else {
-            mPendingCommitHead = &op;
+            mPendingCommitHead = &inOp;
         }
-        mPendingCommitTail = &op;
-        op.next = 0;
-        if (op.blockCommitted <= mLastCommit) {
+        mPendingCommitTail = &inOp;
+        inOp.next = 0;
+        if (inOp.blockCommitted <= mLastCommit) {
             return;
         }
-        mLastCommit = op.blockCommitted;
+        mLastCommit = inOp.blockCommitted;
         MetaRequest* thePtr = mPendingCommitHead;
         bool         theUpdateCommittedFlag = false;
         while (thePtr) {
@@ -1049,9 +1049,9 @@ public:
             }
             thePtr = theCur.next;
             theCur.next = 0;
-            const int*       theLenPtr     = op.blockLines.GetPtr();
+            const int*       theLenPtr     = theCur.blockLines.GetPtr();
             const int* const theLendEndPtr =
-                theLenPtr + op.blockLines.GetSize();
+                theLenPtr + inOp.blockLines.GetSize();
             while (theLenPtr < theLendEndPtr) {
                 int theLen = *theLenPtr++;
                 if (theLen <= 0) {
@@ -1132,15 +1132,20 @@ private:
         QCStMutexLocker lock(gNetDispatch.GetMutex());
         mSignalCnt = 0;
         gNetDispatch.PrepareToFork();
+        bool theFlushFlag;
         if (mWakeupFlag) {
             mWakeupFlag = false;
-            mLogReceiver.Dispatch();
+            theFlushFlag = mLogReceiver.Dispatch();
+        } else {
+            theFlushFlag = false;
         }
-        if (! mParametersUpdatePendingFlag) {
-            return;
+        if (mParametersUpdatePendingFlag) {
+            mParametersUpdatePendingFlag = false;
+            mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
         }
-        mParametersUpdatePendingFlag = false;
-        mLogReceiver.SetParameters(kLogReciverParamsPrefix, mParameters);
+        if (theFlushFlag) {
+            MetaRequest::GetLogWriter().ScheduleFlush();
+        }
     }
     virtual void DispatchEnd()
         {}

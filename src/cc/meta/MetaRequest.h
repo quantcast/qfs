@@ -3726,7 +3726,15 @@ struct MetaLogWriterControl : public MetaRequest {
     }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return (os << "log writer control:");
+        os << "log write";
+        if (0 <= blockStartSeq) {
+            os << " block: [" << blockStartSeq <<
+            ":" << blockEndSeq <<
+            "] lenght: " << blockData.BytesConsumable();
+        } else {
+            os << " control";
+        }
+        return os;
     }
 };
 

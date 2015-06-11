@@ -255,7 +255,7 @@ public:
         thePtr->clnt = this;
         return static_cast<MetaLogWriterControl*>(thePtr);
     }
-    void Dispatch()
+    bool Dispatch()
     {
         MetaRequest* thePtr              = mCompletionQueueHeadPtr;
         const bool   theAckBroadcastFlag = 0 != thePtr;
@@ -269,6 +269,12 @@ public:
                 *static_cast<MetaLogWriterControl*>(thePtr);
             thePtr = thePtr->next;
             theCur.next = 0;
+            KFS_LOG_STREAM_DEBUG <<
+                "log block write complete:"
+                " [" << theCur.blockStartSeq <<
+                ":"  << theCur.blockEndSeq <<
+                "] status: " << theCur.status <<
+            KFS_LOG_EOM;
             if (theCur.blockStartSeq != (theCur.status == 0 ?
                         mCommittedLogSeq : theNextSeq) ||
                     mLastWriteSeq < theCur.blockEndSeq ||
@@ -290,6 +296,7 @@ public:
             // those won't be adjacent in log sequence space.
             mLastWriteSeq = mCommittedLogSeq;
         }
+        const bool theRetFlag = 0 != mPendingSubmitHeadPtr;
         thePtr = mPendingSubmitHeadPtr;
         mPendingSubmitHeadPtr = 0;
         mPendingSubmitTailPtr = 0;
@@ -297,11 +304,15 @@ public:
             MetaRequest& theCur = *thePtr;
             thePtr = thePtr->next;
             theCur.next = 0;
+            KFS_LOG_STREAM_DEBUG <<
+                "log receiver submit: " << theCur.Show() <<
+            KFS_LOG_EOM;
             submit_request(&theCur);
         }
         if (theAckBroadcastFlag) {
             mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
         }
+        return theRetFlag;
     }
     void Release(
         MetaLogWriterControl& inOp)
@@ -1184,7 +1195,9 @@ private:
             inBuffer.Consume(mBlockLength);
         }
         mBlockLength = -1;
-        SendAckSelf();
+        if (! theOpPtr) {
+            SendAckSelf();
+        }
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
         return 0;
     }
@@ -1329,10 +1342,10 @@ LogReceiver::Shutdown()
     mImpl.Shutdown();
 }
 
-    void
+    bool
 LogReceiver::Dispatch()
 {
-    mImpl.Dispatch();
+    return mImpl.Dispatch();
 }
 
 } // namespace KFS

@@ -61,7 +61,7 @@ public:
     };
     LogReceiver();
     ~LogReceiver();
-    void Dispatch();
+    bool Dispatch();
     bool SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);

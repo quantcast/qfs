@@ -775,6 +775,9 @@ private:
     bool Control(
         MetaLogWriterControl& inRequest)
     {
+        KFS_LOG_STREAM_DEBUG <<
+            inRequest.Show() <<
+        KFS_LOG_EOM;
         bool theRetFlag = true;
         switch (inRequest.type) {
             default:
