@@ -480,6 +480,7 @@ public:
           mBlockEndSeq(-1),
           mDownFlag(false),
           mIdSentFlag(false),
+          mReAuthPendingFlag(false),
           mAuthPendingResponsesHeadPtr(0),
           mAuthPendingResponsesTailPtr(0),
           mIStream(),
@@ -641,6 +642,7 @@ private:
     int64_t                mBlockEndSeq;
     bool                   mDownFlag;
     bool                   mIdSentFlag;
+    bool                   mReAuthPendingFlag;
     MetaRequest*           mAuthPendingResponsesHeadPtr;
     MetaRequest*           mAuthPendingResponsesTailPtr;
     IOBuffer::IStream      mIStream;
@@ -939,6 +941,7 @@ private:
         inBuffer.Consume(inMsgLen);
         if (META_AUTHENTICATE == theReqPtr->op) {
             mAuthenticateOpPtr = static_cast<MetaAuthenticate*>(theReqPtr);
+            mReAuthPendingFlag = false;
             return Authenticate(inBuffer);
         }
         if (IsAuthError()) {
@@ -1058,15 +1061,14 @@ private:
     }
     void SendAckSelf()
     {
-        if (mAuthenticateOpPtr) {
+        if (mAuthenticateOpPtr || mReAuthPendingFlag) {
             return;
         }
-        bool theReAuthFlag;
         if (GetAuthContext().IsAuthRequired()) {
             uint64_t const theUpdateCount = GetAuthContext().GetUpdateCount();
-            theReAuthFlag = theUpdateCount != mAuthCtxUpdateCount ||
+            mReAuthPendingFlag = theUpdateCount != mAuthCtxUpdateCount ||
                 mSessionExpirationTime < TimeNow() + mImpl.GetReAuthTimeout();
-            if (theReAuthFlag) {
+            if (mReAuthPendingFlag) {
                 KFS_LOG_STREAM_INFO << GetPeerName() <<
                     " requesting re-authentication:"
                     " update count: " << theUpdateCount <<
@@ -1075,11 +1077,9 @@ private:
                     " timeout: "      << mImpl.GetReAuthTimeout() <<
                 KFS_LOG_EOM;
             }
-        } else {
-            theReAuthFlag = false;
         }
         uint64_t theAckFlags = 0;
-        if (theReAuthFlag) {
+        if (mReAuthPendingFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckReAuthFlagBit;
         }
         if (! mIdSentFlag) {
