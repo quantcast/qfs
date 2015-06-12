@@ -394,10 +394,32 @@ private:
         int64_t inNow)
     {
         int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
-        Entry* thePtr;
-        while (&mLru != (thePtr = &Lru::GetPrev(mLru)) &&
+        Entry*       thePtr     = &mLru;
+        MetaRequest* theHeadPtr = 0;
+        MetaRequest* theTailPtr = 0;
+        while (&mLru != (thePtr = &Lru::GetPrev(*thePtr)) &&
                 thePtr->mReqPtr->submitTime < theExpirationTime) {
-            mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
+            // mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
+            MetaAck& theAck = *(new MetaAck());
+            AppendHexIntToString(theAck.ack, thePtr->mReqPtr->ackId);
+            theAck.ack.append(" ", 1);
+            TokenValue theName = MetaRequest::GetName(thePtr->mReqPtr->op);
+            theAck.ack.append(theName.mPtr, theName.mLen);
+            theAck.euser   = thePtr->mReqPtr->euser;
+            theAck.authUid = thePtr->mReqPtr->authUid;
+            theAck.next    = 0;
+            if (theTailPtr) {
+                theTailPtr->next = &theAck;
+            } else {
+                theHeadPtr = &theAck;
+            }
+            theTailPtr = &theAck;
+        }
+        while (theHeadPtr) {
+            MetaRequest& theReq = *theHeadPtr;
+            theHeadPtr = theReq.next;
+            theReq.next = 0;
+            submit_request(&theReq);
         }
     }
 public:

@@ -5572,7 +5572,11 @@ MetaIdempotentRequest::IdempotentAck(ReqOstream& os)
 bool
 MetaAck::start()
 {
-    SetEUserAndEGroup(*this);
+    // Do not set user and group for the ACK generated internally by the
+    // idempotent tracker expiration logic.
+    if (fromClientSMFlag || fromChunkServerFlag) {
+        SetEUserAndEGroup(*this);
+    }
     return (0 == status);
 }
 
